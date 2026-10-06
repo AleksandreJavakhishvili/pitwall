@@ -224,8 +224,34 @@ index 3f1a2b9..8c7d0e4 100644
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
-function agent(p: Partial<AgentView> & Pick<AgentView, "id" | "name" | "status">): AgentView {
+/** What the backend would allow (pitwall-core `Agent::caps`), from the mock's fields. */
+const RESUMABLE = new Set(["claude", "codex", "gemini"]);
+const RULES = new Set(["claude", "codex", "gemini"]);
+function withCaps(a: Omit<AgentView, "caps"> & { caps?: AgentView["caps"] }): AgentView {
+  const running = a.running;
+  // Mock folders outside a repo: the home folder.
+  const diff = a.cwd !== "/Users/ako" && a.cwd !== "~";
+  const kind = a.terminal ? "shell" : a.kind;
   return {
+    ...a,
+    agentInTerminal: !!a.terminal && a.kind !== "shell",
+    caps: {
+      input: running,
+      restart: true,
+      resume: RESUMABLE.has(kind) && !!a.lastSent,
+      stop: running,
+      removeWorktree: a.worktree,
+      diff,
+      review: diff,
+      merge: diff && a.worktree && !!a.branch,
+      rules: RULES.has(kind),
+      hooks: kind === "claude" || kind === "codex",
+    },
+  };
+}
+
+function agent(p: Partial<AgentView> & Pick<AgentView, "id" | "name" | "status">): AgentView {
+  return withCaps({
     kind: "claude",
     kindName: "Claude Code",
     terminal: false,
@@ -251,7 +277,7 @@ function agent(p: Partial<AgentView> & Pick<AgentView, "id" | "name" | "status">
     cols: 100,
     rows: 30,
     ...p,
-  };
+  });
 }
 
 function totals(id: string) {
@@ -368,7 +394,7 @@ function find(id: string): AgentView {
   return a;
 }
 function update(id: string, patch: Partial<AgentView>): AgentView {
-  agents = agents.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  agents = agents.map((a) => (a.id === id ? withCaps({ ...a, ...patch }) : a));
   emitAgents();
   return find(id);
 }
@@ -526,12 +552,21 @@ const flicker: RunningElsewhere = {
 };
 
 // ── Api ────────────────────────────────────────────────────────────────────
+const kcaps = (c: Partial<KindView["caps"]> = {}): KindView["caps"] => ({
+  worktree: false,
+  resume: false,
+  rules: false,
+  hooks: false,
+  customCommand: false,
+  ...c,
+});
 const kinds: KindView[] = [
-  { id: "claude", name: "Claude Code", installed: true, path: "/opt/homebrew/bin/claude", worktree: true },
-  { id: "codex", name: "Codex", installed: true, path: "/opt/homebrew/bin/codex", worktree: true },
-  { id: "gemini", name: "Gemini CLI", installed: true, path: "/opt/homebrew/bin/gemini" },
-  { id: "aider", name: "Aider", installed: false },
-  { id: "shell", name: "Shell", installed: true, path: "/bin/zsh" },
+  { id: "claude", name: "Claude Code", installed: true, path: "/opt/homebrew/bin/claude", worktree: true, caps: kcaps({ worktree: true, resume: true, rules: true, hooks: true }) },
+  { id: "codex", name: "Codex", installed: true, path: "/opt/homebrew/bin/codex", worktree: true, caps: kcaps({ worktree: true, resume: true, rules: true, hooks: true }) },
+  { id: "gemini", name: "Gemini CLI", installed: true, path: "/opt/homebrew/bin/gemini", caps: kcaps({ resume: true, rules: true }) },
+  { id: "aider", name: "Aider", installed: false, caps: kcaps() },
+  { id: "shell", name: "Shell", installed: true, path: "/bin/zsh", caps: kcaps() },
+  { id: "custom", name: "Custom command", installed: true, caps: kcaps({ customCommand: true }) },
 ];
 const recents: RecentProject[] = [
   { path: "/Users/ako/code/orders-api", display: "~/code/orders-api", lastUsed: now - 10 * min },

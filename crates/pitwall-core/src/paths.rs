@@ -67,11 +67,26 @@ pub fn home() -> PathBuf {
 
 /// Show paths under the home directory as `~/...`.
 pub fn tildify(path: &str) -> String {
-    let home = home();
-    let home = home.to_string_lossy();
-    match path.strip_prefix(home.as_ref()) {
+    tildify_in(Some(&home().to_string_lossy()), path)
+}
+
+/// [`tildify`] for a machine whose home is `home` (`None`: unknown, shown as is).
+pub fn tildify_in(home: Option<&str>, path: &str) -> String {
+    let Some(home) = home.filter(|h| !h.is_empty()) else { return path.to_string() };
+    match path.strip_prefix(home) {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
         _ => path.to_string(),
+    }
+}
+
+/// [`expand_tilde`] for a machine whose home is `home` (target path syntax).
+pub fn expand_tilde_in(home: Option<&str>, p: &str) -> String {
+    match (p.strip_prefix('~'), home) {
+        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
+            let rest = rest.trim_start_matches('/');
+            if rest.is_empty() { home.to_string() } else { format!("{}/{rest}", home.trim_end_matches('/')) }
+        }
+        _ => p.to_string(),
     }
 }
 
@@ -103,5 +118,12 @@ mod tests {
         assert_eq!(expand_tilde("/a/~b"), PathBuf::from("/a/~b"));
         assert_eq!(tildify(&home().join("p").to_string_lossy()), "~/p");
         assert_eq!(tildify("/elsewhere"), "/elsewhere");
+        assert_eq!(tildify_in(Some("/home/u"), "/home/u/p"), "~/p");
+        assert_eq!(tildify_in(Some("/home/u"), "/home/user"), "/home/user");
+        assert_eq!(tildify_in(None, "/home/u/p"), "/home/u/p");
+        assert_eq!(expand_tilde_in(Some("/home/u/"), "~/x"), "/home/u/x");
+        assert_eq!(expand_tilde_in(Some("/home/u"), "~"), "/home/u");
+        assert_eq!(expand_tilde_in(None, "~/x"), "~/x");
+        assert_eq!(expand_tilde_in(Some("/h"), "/a/~b"), "/a/~b");
     }
 }

@@ -2,7 +2,7 @@
 //! files in ~/.pitwall/agents override or extend them without an app update.
 
 pub mod catalog;
-pub(crate) mod launch;
+pub mod launch;
 
 use std::path::Path;
 
@@ -86,10 +86,13 @@ pub fn load_kinds(user_dir: &Path) -> Vec<AgentKind> {
     kinds
 }
 
+/// The id of the "custom command" kind.
+pub const CUSTOM: &str = "custom";
+
 /// Kind used for "custom command" agents; the command comes from the user.
 pub fn custom_kind(command: &str) -> AgentKind {
     AgentKind {
-        id: "custom".into(),
+        id: CUSTOM.into(),
         name: "Custom".into(),
         command: command.into(),
         new_args: vec![],

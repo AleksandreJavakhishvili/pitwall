@@ -5,7 +5,9 @@
 //! - OS-specific code only in `src/platform/`;
 //! - processes are started only in `src/platform/` and by `LocalExec`
 //!   (`src/exec/local.rs`); everything else runs programs through an `Exec`
-//!   (§2.4), and git/Review/worktree code reaches files only through it.
+//!   (§2.4), and git/Review/worktree code reaches files only through it;
+//! - no terminal holders or places to run in core (those are providers), and
+//!   the engine never asks which provider an agent has (§3).
 
 use std::path::{Path, PathBuf};
 
@@ -48,6 +50,11 @@ fn no_tauri_in_core_or_its_path_dependencies() {
                     "{} depends on {package}: the core must stay free of Tauri",
                     dir.display()
                 );
+                assert!(
+                    !["pitwall-hold", "pitwall-providers", "portable-pty"].contains(&package),
+                    "{} depends on {package}: terminals and places to run belong to providers (architecture.md §1)",
+                    dir.display()
+                );
                 if let Some(path) = spec.get("path").and_then(|p| p.as_str()) {
                     todo.push(dir.join(path));
                 }
@@ -55,7 +62,7 @@ fn no_tauri_in_core_or_its_path_dependencies() {
         }
         seen.push(dir);
     }
-    assert!(seen.len() >= 3, "checked core, pitwall-detect and pitwall-hold");
+    assert!(seen.len() >= 2, "checked core and pitwall-detect");
 }
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -143,4 +150,15 @@ fn git_review_and_worktrees_reach_files_only_through_exec() {
     }
     let found = offenders(&files, &src, &["std::fs", "fs::", "File::", ".is_dir()", ".exists()", "canonicalize"]);
     assert!(found.is_empty(), "use the agent's Exec for these:\n{}", found.join("\n"));
+}
+
+/// The engine branches on capabilities, never on which provider or kind an
+/// agent has (architecture.md §3).
+#[test]
+fn the_engine_never_asks_which_provider() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&src.join("engine"), &mut files);
+    let found = offenders(&files, &src, &["ProviderId::LOCAL", "ProviderId::local", "\"local\"", "\"agw\"", "\"ssh", "THIS_MAC", "pitwall_hold"]);
+    assert!(found.is_empty(), "branch on ProviderCaps instead:\n{}", found.join("\n"));
 }

@@ -3,6 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::kind::{AgentKind, HookMode};
+use crate::provider::{HookTransport, Locator, ProviderCaps};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
@@ -38,8 +41,73 @@ pub struct KindView {
     pub installed: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// The agent can work in its own git worktree (`worktree_args`).
+    /// The agent can work in its own git worktree (= `caps.worktree`; kept
+    /// for older UIs).
     pub worktree: bool,
+    pub caps: KindCaps,
+}
+
+/// What a kind can do on a machine: its definition (architecture.md §2.6)
+/// combined with the provider's capabilities (§3). Never hard-coded per kind.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KindCaps {
+    /// Its own worktree flag, and the provider can find where it went.
+    pub worktree: bool,
+    /// Resume args, and the provider can resume.
+    pub resume: bool,
+    /// A rulesync target, and the provider can write rules where it works.
+    pub rules: bool,
+    /// Hooks, and the provider can deliver them.
+    pub hooks: bool,
+    /// Runs the command the user types (the "Custom command" kind).
+    pub custom_command: bool,
+}
+
+impl KindCaps {
+    pub fn of(kind: &AgentKind, p: &ProviderCaps) -> KindCaps {
+        KindCaps {
+            worktree: !kind.worktree_args.is_empty() && p.exec && p.process_cwd,
+            resume: !kind.resume_args.is_empty() && p.resume,
+            rules: kind.rulesync_target.is_some() && p.rules,
+            hooks: kind.hooks != HookMode::None && p.hooks != HookTransport::None,
+            custom_command: kind.id == crate::kind::CUSTOM && p.custom_command,
+        }
+    }
+}
+
+/// What the UI may offer for one agent right now (architecture.md §3). The
+/// UI reads only this; it never asks which provider or kind an agent has.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCaps {
+    /// Running and attached: keystrokes and prompts reach it.
+    pub input: bool,
+    /// Can be started again (provider can create or resume).
+    pub restart: bool,
+    /// A restart continues its conversation (provider and kind can resume,
+    /// and it has one).
+    pub resume: bool,
+    pub stop: bool,
+    /// Works in its own worktree, which can be removed with it.
+    pub remove_worktree: bool,
+    /// Its changes can be read: the provider runs commands there and it
+    /// works in a git repository (not known yet counts as yes).
+    pub diff: bool,
+    pub review: bool,
+    /// Commit & merge back: a worktree on a branch.
+    pub merge: bool,
+    pub rules: bool,
+    pub hooks: bool,
+}
+
+/// Where an agent runs, for display and grouping only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineView {
+    pub provider: String,
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -75,7 +143,7 @@ pub struct CreateAgentRequest {
 
 /// (cols, rows) when both are given.
 pub fn size_of(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
-    Some(crate::session::clamp_size(cols?, rows?))
+    Some(crate::term::clamp_size(cols?, rows?))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -96,6 +164,10 @@ pub struct WorktreeInfo {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRecord {
     pub id: String,
+    /// Where it lives (provider, machine, native handle). Missing in v1
+    /// state files: those agents are all `local:this-mac/<id>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<Locator>,
     pub name: String,
     pub kind: String,
     pub kind_name: String,
@@ -139,13 +211,18 @@ pub struct AgentRecord {
 }
 
 impl AgentRecord {
+    /// Where it lives (`local:this-mac/<id>` for records from before providers).
+    pub fn locator(&self) -> Locator {
+        self.locator.clone().unwrap_or_else(|| Locator::local(&self.id))
+    }
+
     pub fn term_size(&self) -> Option<(u16, u16)> {
         size_of(self.cols, self.rows)
     }
 
     /// Returns whether it changed.
     pub fn set_term_size(&mut self, (cols, rows): (u16, u16)) -> bool {
-        let (cols, rows) = crate::session::clamp_size(cols, rows);
+        let (cols, rows) = crate::term::clamp_size(cols, rows);
         let changed = self.term_size() != Some((cols, rows));
         self.cols = Some(cols);
         self.rows = Some(rows);
@@ -178,7 +255,11 @@ pub struct AgentView {
     pub worktree: bool,
     /// Asked for its own worktree; waiting to see where the agent made it.
     pub worktree_pending: bool,
-    pub location: &'static str,
+    /// The provider it runs on ("local"); display only.
+    pub location: String,
+    pub machine: MachineView,
+    /// A terminal running an agent the user started in it by hand.
+    pub agent_in_terminal: bool,
     pub status: Status,
     pub status_source: Source,
     pub status_detail: Option<String>,
@@ -195,6 +276,7 @@ pub struct AgentView {
     pub last_sent_at: Option<u64>,
     pub created_at: u64,
     pub current_task_id: Option<String>,
+    pub caps: AgentCaps,
 }
 
 #[derive(Debug, Clone, Serialize)]

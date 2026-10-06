@@ -5,15 +5,15 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::{Cmd, Exec, FileKind, Out, Stat};
+use super::{Cmd, Exec, FileKind, Out, PwError, Result, Stat};
 use crate::platform;
 
 /// This machine.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LocalExec;
 
-fn err(path: &str, e: std::io::Error) -> String {
-    format!("{path}: {e}")
+fn err(path: &str, e: std::io::Error) -> PwError {
+    PwError::from(e).context(path)
 }
 
 fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
@@ -27,7 +27,7 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Ve
 }
 
 impl Exec for LocalExec {
-    fn run(&self, cmd: &Cmd) -> Result<Out, String> {
+    fn run(&self, cmd: &Cmd) -> Result<Out> {
         let (program, args) = cmd.argv.split_first().ok_or("empty command")?;
         let mut c = Command::new(program);
         c.args(args)
@@ -40,7 +40,7 @@ impl Exec for LocalExec {
         for (k, v) in cmd.env {
             c.env(k, v);
         }
-        let mut child = c.spawn().map_err(|e| format!("{program}: {e}"))?;
+        let mut child = c.spawn().map_err(|e| PwError::from(e).context(program))?;
         let writer = cmd.stdin.zip(child.stdin.take()).map(|(bytes, mut pipe)| {
             let bytes = bytes.to_vec();
             std::thread::spawn(move || {
@@ -64,8 +64,8 @@ impl Exec for LocalExec {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(match res {
-                        Err(e) => format!("{program}: {e}"),
-                        _ => format!("{program}: timed out after {}s", cmd.timeout.as_secs_f32()),
+                        Err(e) => PwError::from(e).context(program),
+                        _ => PwError::other(format!("{program}: timed out after {}s", cmd.timeout.as_secs_f32())),
                     });
                 }
             }
@@ -80,7 +80,7 @@ impl Exec for LocalExec {
         })
     }
 
-    fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>, String> {
+    fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>> {
         let file = match std::fs::File::open(path) {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -91,26 +91,26 @@ impl Exec for LocalExec {
         Ok(Some(buf))
     }
 
-    fn write_file(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
+    fn write_file(&self, path: &str, bytes: &[u8]) -> Result<()> {
         if let Some(dir) = std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir).map_err(|e| err(&dir.to_string_lossy(), e))?;
         }
         std::fs::write(path, bytes).map_err(|e| err(path, e))
     }
 
-    fn remove_file(&self, path: &str) -> Result<(), String> {
+    fn remove_file(&self, path: &str) -> Result<()> {
         std::fs::remove_file(path).map_err(|e| err(path, e))
     }
 
-    fn remove_dir(&self, path: &str) -> Result<(), String> {
+    fn remove_dir(&self, path: &str) -> Result<()> {
         std::fs::remove_dir(path).map_err(|e| err(path, e))
     }
 
-    fn copy_file(&self, from: &str, to: &str) -> Result<(), String> {
+    fn copy_file(&self, from: &str, to: &str) -> Result<()> {
         std::fs::copy(from, to).map(|_| ()).map_err(|e| err(from, e))
     }
 
-    fn stat(&self, path: &str) -> Result<Option<Stat>, String> {
+    fn stat(&self, path: &str) -> Result<Option<Stat>> {
         match std::fs::symlink_metadata(path) {
             Ok(m) => {
                 let t = m.file_type();
@@ -130,17 +130,17 @@ impl Exec for LocalExec {
         }
     }
 
-    fn real_path(&self, path: &str) -> Result<String, String> {
+    fn real_path(&self, path: &str) -> Result<String> {
         std::fs::canonicalize(path)
             .map(|p| p.to_string_lossy().into_owned())
             .map_err(|e| err(path, e))
     }
 
-    fn temp_dir(&self) -> Result<String, String> {
+    fn temp_dir(&self) -> Result<String> {
         Ok(std::env::temp_dir().to_string_lossy().into_owned())
     }
 
-    fn home(&self) -> Result<String, String> {
+    fn home(&self) -> Result<String> {
         Ok(platform::home_dir().to_string_lossy().into_owned())
     }
 }

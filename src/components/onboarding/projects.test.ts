@@ -19,6 +19,7 @@ const scanned = (path: string, p: Partial<ScannedProject> = {}): ScannedProject 
   isGit: true,
   lastUsed: Date.now(),
   sources: ["claude"],
+  agentHistory: true,
   added: false,
   rules: { rulesync: false, claudeMd: false, agentsMd: false },
   ...p,
@@ -44,7 +45,8 @@ describe("defaultSelection", () => {
       [
         scanned("/a"),
         scanned("/old", { lastUsed: now - 90 * 24 * 3600_000 }),
-        scanned("/editor", { sources: ["vscode"], lastUsed: null }),
+        scanned("/editor", { sources: ["vscode"], agentHistory: false, lastUsed: null }),
+        scanned("/recent-editor", { sources: ["vscode"], agentHistory: false }),
         scanned("/added", { added: true }),
         scanned("/codex", { sources: ["codex", "folder"] }),
       ],

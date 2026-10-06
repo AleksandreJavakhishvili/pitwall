@@ -15,7 +15,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::project_list::{self, ProjectList};
-use crate::kind::KindCatalog;
+use crate::kind::{HookMode, KindCatalog};
+use crate::model::KindView;
 use crate::model::CodexHooksStatus;
 use crate::paths::{self, Paths};
 use crate::exec::local_stdout;
@@ -65,6 +66,9 @@ pub struct ScannedProject {
     pub last_used: Option<u64>,
     /// "claude" | "codex" | "vscode" | "cursor" | "folder"
     pub sources: Vec<&'static str>,
+    /// Agents have worked here: some source is an agent's conversations (not
+    /// an editor's recents or a plain folder).
+    pub agent_history: bool,
     /// Already in Pitwall's project list.
     pub added: bool,
     pub rules: RulesInfo,
@@ -179,7 +183,14 @@ pub struct ScanProgress {
 
 /// Run every step, reporting progress as it goes. `projects` is Pitwall's
 /// own list (marks what is already added, and remembered project choices).
-pub fn scan(paths: &Paths, kinds: &KindCatalog, projects: &ProjectList, progress: &dyn Fn(ScanProgress)) -> ScanResult {
+/// `views`: the kinds on this machine, installed resolved (`Engine::list_kinds`).
+pub fn scan(
+    paths: &Paths,
+    kinds: &KindCatalog,
+    views: &[KindView],
+    projects: &ProjectList,
+    progress: &dyn Fn(ScanProgress),
+) -> ScanResult {
     let mut result = ScanResult::default();
     let mut found = Found::default();
     let folders = Folders::new(paths);
@@ -198,7 +209,7 @@ pub fn scan(paths: &Paths, kinds: &KindCatalog, projects: &ProjectList, progress
     step("agents", &mut || {
         let (agents, agw) = std::thread::scope(|s| {
             let agw = s.spawn(agw);
-            (scan_agents(kinds), agw.join().ok().flatten())
+            (scan_agents(views), agw.join().ok().flatten())
         });
         result.agents = agents;
         result.agw = agw;
@@ -261,6 +272,11 @@ pub fn scan(paths: &Paths, kinds: &KindCatalog, projects: &ProjectList, progress
     });
 
     step("hooks", &mut || {
+        // Only when an installed agent takes its hooks from Codex's global file.
+        let installed = |id: &str| views.iter().any(|v| v.id == id && v.installed);
+        if !kinds.kinds().iter().any(|k| k.hooks == HookMode::CodexGlobal && installed(&k.id)) {
+            return StepOutcome::Done("No agent needs global hooks".into());
+        }
         let status = hooks::codex_status(paths);
         let summary = if status.installed { "Codex hooks installed" } else { "Codex hooks not installed" };
         result.codex_hooks = Some(status);
@@ -281,11 +297,11 @@ fn plural(n: usize, word: &str) -> String {
 
 // ------------------------------------------------------------------ 1. agents
 
-fn scan_agents(kinds: &KindCatalog) -> Vec<ScannedAgent> {
-    let views: Vec<_> = kinds
-        .list()
-        .into_iter()
-        .filter(|k| k.id != "custom" && k.id != "shell")
+fn scan_agents(views: &[KindView]) -> Vec<ScannedAgent> {
+    let views: Vec<_> = views
+        .iter()
+        .filter(|k| !k.caps.custom_command && k.id != crate::engine::terminals::TERMINAL_KIND)
+        .cloned()
         .collect();
     std::thread::scope(|s| {
         let handles: Vec<_> = views
@@ -336,6 +352,9 @@ fn login_shell_within(script: &str, timeout: Duration) -> Option<String> {
 
 // ------------------------------------------------------------------ 2. projects
 
+/// Project sources that are not agents' conversations.
+const EDITOR_SOURCES: [&str; 3] = ["vscode", "cursor", "folder"];
+
 #[derive(Default)]
 struct Candidate {
     last_used: Option<u64>,
@@ -379,6 +398,7 @@ impl Found {
                     is_git: Path::new(p).join(".git").exists(),
                     last_used: c.and_then(|c| c.last_used),
                     sources: c.map(|c| c.sources.clone()).unwrap_or_default(),
+                    agent_history: c.is_some_and(|c| c.sources.iter().any(|s| !EDITOR_SOURCES.contains(s))),
                     added: known.contains(p),
                     rules: RulesInfo::default(),
                     path: p.clone(),
@@ -1355,11 +1375,10 @@ mod tests {
     #[ignore]
     fn smoke_scan() {
         let pw = Paths::new(Paths::default_root());
-        let kinds = std::sync::Arc::new(KindCatalog::new(pw.user_agents_dir()));
-        kinds.warm_up();
+        let kinds = KindCatalog::new(pw.user_agents_dir());
         let projects = ProjectList::new(pw.projects_file());
         let t = Instant::now();
-        let r = scan(&pw, &kinds, &projects, &|p| eprintln!("{:>13} {:>8} {}", p.step, p.status, p.summary.unwrap_or_default()));
+        let r = scan(&pw, &kinds, &[], &projects, &|p| eprintln!("{:>13} {:>8} {}", p.step, p.status, p.summary.unwrap_or_default()));
         eprintln!("took {:?}", t.elapsed());
         for p in r.projects.iter().take(12) {
             eprintln!("  {} {:?} {:?}", p.display, p.sources, p.last_used);

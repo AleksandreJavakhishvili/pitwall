@@ -6,14 +6,17 @@ import { DiffStat } from "./DiffStat";
 import { FileIcon, FileStats } from "./FileIcon";
 import { fileStatus, splitPath } from "../lib/fileTree";
 
-/** Changed files for an agent; refetched when its totals move, and every 5s. */
+/** Changed files for an agent; refetched when its totals move, and every 5s.
+ * Nothing is fetched when its changes can't be read (`caps.diff`). */
 function useChanges(a: AgentView) {
+  const canDiff = a.caps.diff;
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const sig = `${a.id}:${a.added}:${a.removed}:${a.filesChanged}`;
 
   useEffect(() => setFiles(null), [a.id]);
   useEffect(() => {
+    if (!canDiff) return;
     let alive = true;
     const load = () =>
       api
@@ -30,7 +33,7 @@ function useChanges(a: AgentView) {
       alive = false;
       clearInterval(t);
     };
-  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sig, canDiff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { files, error };
 }
@@ -38,6 +41,16 @@ function useChanges(a: AgentView) {
 export function Changes({ agent: a }: { agent: AgentView }) {
   const { openDiff } = useActions();
   const { files, error } = useChanges(a);
+  if (!a.caps.diff) {
+    return (
+      <section className="panel-section panel-grow">
+        <div className="section-head">
+          <span className="label">Changes</span>
+        </div>
+        <p className="hint">Not a git repository — Pitwall can't track changes in this folder.</p>
+      </section>
+    );
+  }
   return (
     <section className="panel-section panel-grow">
       <div className="section-head">

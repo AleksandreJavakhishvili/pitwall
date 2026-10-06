@@ -26,8 +26,13 @@ struct StateFile {
     agents: Vec<AgentRecord>,
 }
 
+/// Current `state.json` format. v2 (architecture.md §5): records carry their
+/// `locator`; v1 records mean `local:this-mac/<id>` and load unchanged.
+pub const STATE_VERSION: u32 = 2;
+
 /// `state.json`, written atomically (temp file + rename). An unreadable file
-/// is kept aside as `state.json.corrupt` and treated as empty.
+/// is kept aside as `state.json.corrupt` and treated as empty. Loading a v1
+/// file keeps a one-time copy as `state.v1.json` before v2 is written.
 pub struct FileStore {
     path: PathBuf,
 }
@@ -43,7 +48,13 @@ impl Store for FileStore {
         let path = &self.path;
         let Ok(src) = std::fs::read_to_string(path) else { return Snapshot::default() };
         match serde_json::from_str::<StateFile>(&src) {
-            Ok(state) => Snapshot { agents: state.agents },
+            Ok(state) => {
+                let backup = path.with_file_name("state.v1.json");
+                if state.version < STATE_VERSION && !backup.exists() {
+                    let _ = std::fs::copy(path, &backup);
+                }
+                Snapshot { agents: state.agents }
+            }
             Err(err) => {
                 eprintln!("pitwall: ignoring unreadable {}: {err}", path.display());
                 let _ = std::fs::copy(path, path.with_extension("json.corrupt"));
@@ -57,7 +68,7 @@ impl Store for FileStore {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let file = StateFile { version: 1, agents: snapshot.agents.clone() };
+        let file = StateFile { version: STATE_VERSION, agents: snapshot.agents.clone() };
         let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
@@ -95,6 +106,26 @@ mod tests {
     }
 
     #[test]
+    fn v1_state_is_backed_up_once_and_means_local() {
+        let dir = crate::testing::TempDir::new("store-v1");
+        let path = dir.path().join("state.json");
+        let v1 = r#"{"version":1,"agents":[{"id":"a","name":"n","kind":"shell","kindName":"Shell","cwd":"/tmp","project":"/tmp","createdAt":1}]}"#;
+        std::fs::write(&path, v1).unwrap();
+        let store = FileStore::new(&path);
+        let snap = store.load();
+        assert_eq!(std::fs::read_to_string(dir.path().join("state.v1.json")).unwrap(), v1);
+        let loc = snap.agents[0].locator();
+        assert_eq!(snap.agents[0].locator, None);
+        assert_eq!(loc.to_string(), "local:this-mac/a");
+        let mut snap = snap;
+        snap.agents[0].locator = Some(loc);
+        store.save(&snap).unwrap();
+        let back = store.load();
+        assert_eq!(back.agents[0].locator.as_ref().map(|l| l.to_string()).as_deref(), Some("local:this-mac/a"));
+        assert_eq!(std::fs::read_to_string(dir.path().join("state.v1.json")).unwrap(), v1, "backup kept as it was");
+    }
+
+    #[test]
     fn file_store_round_trips_and_survives_garbage() {
         let dir = crate::testing::TempDir::new("store");
         let store = FileStore::new(dir.path().join("sub").join("state.json"));
@@ -104,6 +135,9 @@ mod tests {
         let back = store.load();
         assert_eq!(back.agents.len(), 1);
         assert_eq!(back.agents[0].id, "a1");
+
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("sub").join("state.json")).unwrap()).unwrap();
+        assert_eq!(saved["version"], 2);
 
         std::fs::write(dir.path().join("sub").join("state.json"), "{nope").unwrap();
         assert!(store.load().agents.is_empty());

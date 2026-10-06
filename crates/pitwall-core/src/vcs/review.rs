@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-use super::git::{FileChange, Git};
+use super::git::{FileChange, FileStatus, Git};
 use crate::engine::tasks::Task;
 use crate::exec::{self, Exec, FileKind};
 
@@ -105,12 +105,10 @@ fn base_rev(top: &Git, base: Option<&str>) -> String {
 /// Changes between two trees, NUL-separated so odd paths survive.
 pub fn tree_changes(top: &Git, from: &str, to: &str) -> Res<Vec<FileChange>> {
     let names = top.run(&["diff", "--name-status", "--no-renames", "-z", from, to])?;
-    let mut added = std::collections::HashSet::new();
+    let mut status = std::collections::HashMap::new();
     let mut it = names.split('\0');
     while let (Some(st), Some(path)) = (it.next(), it.next()) {
-        if st == "A" {
-            added.insert(path.to_string());
-        }
+        status.insert(path.to_string(), FileStatus::from_git(st));
     }
     let stat = top.run(&["diff", "--numstat", "--no-renames", "-z", from, to])?;
     let mut files = Vec::new();
@@ -121,8 +119,9 @@ pub fn tree_changes(top: &Git, from: &str, to: &str) -> Res<Vec<FileChange>> {
             path: path.to_string(),
             added: a.parse().unwrap_or(0),
             removed: r.parse().unwrap_or(0),
-            untracked: added.contains(path),
+            untracked: status.get(path) == Some(&FileStatus::A),
             binary: a == "-",
+            status: Some(status.get(path).copied().unwrap_or(FileStatus::M)),
         });
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -164,7 +163,7 @@ pub fn discard(top: &Git, base: Option<&str>, path: &str) -> Res<()> {
     let full = exec::join(top.dir(), path);
     match exec.stat(&full) {
         Ok(Some(st)) if st.kind == FileKind::Dir => Err("refusing to delete a directory".into()),
-        Ok(Some(_)) => exec.remove_file(&full),
+        Ok(Some(_)) => Ok(exec.remove_file(&full)?),
         _ => Ok(()),
     }
 }

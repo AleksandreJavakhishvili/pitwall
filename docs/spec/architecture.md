@@ -610,6 +610,51 @@ the UI build green.
   or if `vcs/`, Review, worktree, tasks, changes or ticker touch `std::fs`.
   Capabilities (`AgentCaps.diff = exec && git repo`, no git polling outside
   a repo) come with step 4's `AgentView.caps`.
+- Step 4 done: `pitwall_core::provider::{Provider, TermIo, ProviderCaps,
+  Locator, ProviderId, MachineId, LaunchSpec, CreateSpec, Started,
+  NativeState, Providers}` and `pitwall_core::error::{PwError, ErrorCode}`
+  (providers, terminals and `Exec` return it; host-facing services still
+  return the message `String`). Deviations from §2: `start(loc, &LaunchSpec)`
+  (a local start needs kind, cwd, intent, worktree name, hooks — agw ignores
+  them); `CreateSpec { machine, name, workspace, launch }`; `TermIo` methods
+  take `&self` (so `close` never blocks a resize) and add `take_history`
+  (output from before the connection: replayed, not counted as activity)
+  and `size`; `ProviderCaps.local_process` (the pid means something in this
+  Mac's process table: terminal agent recognition, worktree probes).
+  `core::term::TermHost` is the old `Session` minus the holder (ring, fan-out,
+  `Screen`, activity, paste, redraw nudge — written once). New crate
+  `pitwall-providers` (feature `local`): `LocalProvider` wraps the holder
+  client as `HoldTerm` (attach + STATUS marks where history ends; holder
+  protocol unchanged), `launch::plan` + login shell + `CLAUDE_CODE_*`
+  stripping, `LocalExec`, lsof `process_cwd`, `which`-resolved kinds. The
+  engine holds `Providers` (Deps.providers) and talks to agents only through
+  them: create/start/attach/stop/remove, `exec_for` = the agent's provider
+  exec, re-attach on open = `Provider::attach`, a dropped attachment
+  (`!eof_is_exit`) is re-attached while `state()` says Running. Records carry
+  `locator` (`state.json` v2; a v1 file is backed up once as `state.v1.json`
+  and its records mean `local:this-mac/<id>`). `AgentView` gains `caps`,
+  `machine`, `agentInTerminal` (`location` is the provider id); `KindView`
+  gains `caps`; `list_kinds` is `Engine::list_kinds` via `Provider::kinds`.
+  Git polling stops for an agent outside a repo (`caps.diff = false`).
+  `FileChange.status` (M/A/D/R/U) from one `git diff --raw --numstat -z -M`.
+  UI: every kind/provider check replaced by caps (NewAgentDialog,
+  RulesField, RemoveDialog, PaneHeader, StoppedOverlay, AgentRow, Changes,
+  Review, onboarding's Codex-hooks/default-selection checks);
+  `src/lib/noSpecialCases.test.ts` fails on kind-id/provider comparisons in
+  `src/` (mocks and tests exempt); `core/tests/boundaries.rs` fails if core
+  depends on `pitwall-hold`/providers or the engine names a provider.
+  `testing::{FakeProvider, FakeTerm}` (in-memory fake shells) and
+  `testing::contract::run` (create/echo/resize/replay/re-attach/exec/
+  process_cwd/capture/stop/exit code/resume/remove, `Unsupported` exactly
+  where caps are false) run against LocalProvider (real holder, temp dirs,
+  only `/bin/sh`) and FakeProvider (local-like and tmux-like) in
+  `crates/pitwall-providers/tests/contract.rs`.
+  Not done here (deferred): `StatusInputs` (status still `raw_state`);
+  `LocalProvider::discover` is empty (the onboarding scan and "Elsewhere"
+  still list other terminals; agw parsing stays in `scan.rs` until step 8a
+  moves it into `providers::agw::discover`); terminal agent recognition
+  still reads the local process table (gated on `caps.local_process`);
+  `shell` is public in core for the local provider until the scan moves.
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.

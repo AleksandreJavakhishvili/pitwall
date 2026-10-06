@@ -10,7 +10,7 @@
 //! when a terminal is quiet. The registry lock is never held during `ps`,
 //! `lsof` or transcript reads.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +20,8 @@ use crate::model::{Source, Status};
 use crate::onboarding::latest;
 use crate::platform;
 use crate::procs::{self, Matcher, Recognised};
-use crate::session::Session;
+use crate::provider::Locator;
+use crate::term::TermHost;
 
 /// The kind a plain terminal has (its record's kind never changes).
 pub const TERMINAL_KIND: &str = "shell";
@@ -36,7 +37,6 @@ const LOOKUP_EVERY_MS: u64 = 5_000;
 const LOOKUPS: u8 = 36;
 /// A transcript this much older than when the agent was noticed still counts.
 const LOOKUP_SLACK_MS: u64 = MAX_GAP_MS + 5_000;
-const LSOF_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The agent running in a terminal's foreground right now.
 #[derive(Debug, Clone, PartialEq)]
@@ -163,12 +163,13 @@ const MATCHER_TTL_MS: u64 = 30_000;
 
 struct Target {
     id: String,
-    session: Arc<Session>,
+    session: Arc<TermHost>,
     shell: u32,
 }
 
 struct Lookup {
     id: String,
+    loc: Locator,
     kind: String,
     pid: u32,
     cwd: String,
@@ -179,18 +180,20 @@ struct Lookup {
 /// of agents that don't have one yet.
 fn poll(core: &Shared, matcher: &mut Option<(u64, Matcher)>) {
     let now = core.now();
+    // Only terminals whose shell is a process on this Mac: the process table
+    // shows what runs in their foreground.
     let targets: Vec<Target> = core
         .agents()
         .iter_mut()
         .filter(|a| a.rec.kind == TERMINAL_KIND)
         .filter_map(|a| {
-            let session = a.session.clone()?;
-            let shell = session.pid?;
-            if session.exited.load(Ordering::Relaxed) {
+            let shell = a.local_pid()?;
+            let session = a.host.clone()?;
+            if session.ended() {
                 return None;
             }
             let seq = session.output_seq.load(Ordering::Relaxed);
-            a.term.due(seq, now).then(|| Target { id: a.rec.id.clone(), session, shell })
+            a.fg.due(seq, now).then(|| Target { id: a.rec.id.clone(), session, shell })
         })
         .collect();
     let mut changed = false;
@@ -204,7 +207,7 @@ fn poll(core: &Shared, matcher: &mut Option<(u64, Matcher)>) {
             let mut agents = core.agents();
             for (t, fg) in targets.iter().zip(seen) {
                 let Some(a) = agents.iter_mut().find(|a| a.rec.id == t.id) else { continue };
-                if !a.session.as_ref().is_some_and(|s| Arc::ptr_eq(s, &t.session)) {
+                if !a.host.as_ref().is_some_and(|s| Arc::ptr_eq(s, &t.session)) {
                     continue;
                 }
                 changed |= apply(a, fg, now, unix_now) != Transition::Same;
@@ -246,6 +249,7 @@ fn due_lookups(core: &Engine, now: u64) -> Vec<Lookup> {
             inner.lookup_at = now + LOOKUP_EVERY_MS;
             Some(Lookup {
                 id: a.rec.id.clone(),
+                loc: a.rec.locator(),
                 kind: inner.kind.clone(),
                 pid: inner.pid,
                 cwd,
@@ -256,17 +260,20 @@ fn due_lookups(core: &Engine, now: u64) -> Vec<Lookup> {
 }
 
 /// The newest conversation for each agent's folder (where the process really
-/// is: the user may have `cd`ed since the terminal opened). Unlocked I/O.
+/// is, as its provider sees it: the user may have `cd`ed since the terminal
+/// opened). Unlocked I/O.
 fn find_conversations(core: &Engine, lookups: Vec<Lookup>) -> bool {
-    let pids: Vec<u32> = lookups.iter().map(|l| l.pid).collect();
-    let cwds: HashMap<u32, String> = platform::process_cwds(&pids, LSOF_TIMEOUT)
-        .map(|v| v.into_iter().collect())
-        .unwrap_or_default();
     let home = crate::paths::home();
     let found: Vec<(Lookup, String)> = lookups
         .into_iter()
         .filter_map(|l| {
-            let cwd = cwds.get(&l.pid).cloned().unwrap_or_else(|| l.cwd.clone());
+            let now_in = core
+                .providers()
+                .for_locator(&l.loc)
+                .ok()
+                .filter(|p| p.caps().process_cwd)
+                .and_then(|p| p.process_cwd(&l.loc, Some(l.pid)).ok().flatten());
+            let cwd = now_in.unwrap_or_else(|| l.cwd.clone());
             let s = latest::newest(&home, &l.kind, &cwd, Some(l.since))?;
             Some((l, s.session_id))
         })
@@ -300,7 +307,7 @@ impl Engine {
         let mut pids: HashSet<u32> = self
             .agents()
             .iter()
-            .flat_map(|a| [a.session.as_ref().and_then(|s| s.pid), a.inner.as_ref().map(|i| i.pid)])
+            .flat_map(|a| [a.local_pid(), a.inner.as_ref().map(|i| i.pid)])
             .flatten()
             .collect();
         pids.insert(std::process::id());

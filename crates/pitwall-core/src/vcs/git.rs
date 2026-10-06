@@ -46,7 +46,7 @@ impl<'a> Git<'a> {
         if let Some(input) = stdin {
             cmd = cmd.stdin(input);
         }
-        self.exec.run(&cmd)
+        Ok(self.exec.run(&cmd)?)
     }
 
     /// stdout on success, else git's trimmed stderr.
@@ -99,26 +99,16 @@ impl<'a> Git<'a> {
     pub fn changes(&self, base: Option<&str>) -> Result<Vec<FileChange>, String> {
         let base = base.unwrap_or("HEAD");
         let mut files = Vec::new();
-        let numstat = self.run(&["diff", "--numstat", base]).map_err(|e| {
+        // One call: status letters (`--raw`) and line counts (`--numstat`),
+        // NUL-separated so odd paths survive; renames detected (`-M`).
+        let out = self.run(&["diff", "--raw", "--numstat", "-z", "-M", base]).map_err(|e| {
             if e.contains("Not a git repository") || e.contains("not a git repository") {
                 NOT_A_REPO.to_string()
             } else {
                 e
             }
         })?;
-        for line in numstat.lines() {
-            let mut parts = line.splitn(3, '\t');
-            let (Some(a), Some(r), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
-                continue;
-            };
-            files.push(FileChange {
-                path: path.to_string(),
-                added: a.parse().unwrap_or(0),
-                removed: r.parse().unwrap_or(0),
-                untracked: false,
-                binary: a == "-",
-            });
-        }
+        files.extend(parse_raw_numstat(&out));
         let untracked = self.run(&["ls-files", "--others", "--exclude-standard"])?;
         for path in untracked.lines().filter(|l| !l.is_empty()) {
             let full = exec::join(&self.dir, path);
@@ -130,7 +120,7 @@ impl<'a> Git<'a> {
                 }
                 _ => (0, true),
             };
-            files.push(FileChange { path: path.to_string(), added, removed: 0, untracked: true, binary });
+            files.push(FileChange { path: path.to_string(), added, removed: 0, untracked: true, binary, status: Some(FileStatus::U) });
         }
         files.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(files)
@@ -167,11 +157,78 @@ pub fn parse_worktree_list(out: &str) -> Vec<WorktreeEntry> {
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct FileChange {
+    /// For a rename: the new path.
     pub path: String,
     pub added: u32,
     pub removed: u32,
     pub untracked: bool,
     pub binary: bool,
+    /// Git's letter for it, as VS Code's SCM view shows it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<FileStatus>,
+}
+
+/// Modified, Added, Deleted, Renamed, Untracked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum FileStatus {
+    M,
+    A,
+    D,
+    R,
+    U,
+}
+
+impl FileStatus {
+    /// From a `git diff --raw` / `--name-status` letter (copies count as
+    /// added, type changes and unmerged paths as modified).
+    pub fn from_git(letter: &str) -> FileStatus {
+        match letter.chars().next() {
+            Some('A') | Some('C') => FileStatus::A,
+            Some('D') => FileStatus::D,
+            Some('R') => FileStatus::R,
+            _ => FileStatus::M,
+        }
+    }
+}
+
+/// Output of `git diff --raw --numstat -z -M`: raw records (`:<modes> <shas>
+/// <letter>`, then one path, two for renames/copies), then numstat records
+/// (`<added>\t<removed>\t<path>`, or an empty path followed by old and new
+/// for renames). Joined by (new) path.
+pub fn parse_raw_numstat(out: &str) -> Vec<FileChange> {
+    let mut status: std::collections::HashMap<String, FileStatus> = Default::default();
+    let mut files = Vec::new();
+    let mut it = out.split('\0').filter(|t| !t.is_empty()).peekable();
+    while let Some(tok) = it.next() {
+        if let Some(meta) = tok.strip_prefix(':') {
+            let letter = meta.rsplit(' ').next().unwrap_or("M");
+            let st = FileStatus::from_git(letter);
+            let mut path = it.next().unwrap_or_default();
+            if matches!(letter.chars().next(), Some('R') | Some('C')) {
+                path = it.next().unwrap_or(path);
+            }
+            status.insert(path.to_string(), st);
+            continue;
+        }
+        let mut parts = tok.splitn(3, '\t');
+        let (Some(a), Some(r), Some(path)) = (parts.next(), parts.next(), parts.next()) else { continue };
+        let path = if path.is_empty() {
+            // Rename: old path, then new path.
+            let _old = it.next();
+            it.next().unwrap_or_default()
+        } else {
+            path
+        };
+        files.push(FileChange {
+            path: path.to_string(),
+            added: a.parse().unwrap_or(0),
+            removed: r.parse().unwrap_or(0),
+            untracked: false,
+            binary: a == "-",
+            status: Some(status.get(path).copied().unwrap_or(FileStatus::M)),
+        });
+    }
+    files
 }
 
 /// Error returned by [`Git::changes`] when the agent works outside a git
@@ -200,7 +257,11 @@ mod tests {
     #[test]
     fn changes_count_tracked_and_untracked_files() {
         let x = FakeExec::new();
-        x.on(&["git", "-C", "/r", "diff", "--numstat", "abc"], "3\t1\tsrc/a.rs\n-\t-\timg.png\n");
+        x.on(
+            &["git", "-C", "/r", "diff", "--raw", "--numstat", "-z", "-M", "abc"],
+            ":100644 100644 aa bb M\0src/a.rs\0:100644 100644 cc dd M\0img.png\0\
+             3\t1\tsrc/a.rs\0-\t-\timg.png\0",
+        );
         x.on(
             &["git", "-C", "/r", "ls-files", "--others", "--exclude-standard"],
             "new.txt\nno-newline.txt\nbin.dat\nbig.log\nvanished\n",
@@ -224,10 +285,45 @@ mod tests {
     #[test]
     fn outside_a_repo_changes_say_so() {
         let x = FakeExec::new();
-        x.on_exit(&["git", "-C", "/tmp", "diff", "--numstat", "HEAD"], 128, "", "fatal: not a git repository (or any parent)");
+        x.on_exit(&["git", "-C", "/tmp", "diff", ".."], 128, "", "fatal: not a git repository (or any parent)");
         assert_eq!(Git::new(&*x, "/tmp").changes(None).unwrap_err(), NOT_A_REPO);
-        x.on_exit(&["git", "-C", "/tmp", "diff", "--numstat", "HEAD"], 128, "", "fatal: bad revision");
+        x.on_exit(&["git", "-C", "/tmp", "diff", ".."], 128, "", "fatal: bad revision");
         assert_eq!(Git::new(&*x, "/tmp").changes(None).unwrap_err(), "fatal: bad revision");
+    }
+
+    #[test]
+    fn status_letters_include_deletes_and_renames() {
+        let out = ":100644 000000 aa 00 D\0gone.txt\0\
+                   :100644 100644 bb bb R087\0old name.rs\0new name.rs\0\
+                   :000000 100644 00 cc A\0added.md\0\
+                   :100644 100644 dd ee M\0m.rs\0\
+                   0\t3\tgone.txt\0\
+                   1\t1\t\0old name.rs\0new name.rs\0\
+                   2\t0\tadded.md\0\
+                   1\t1\tm.rs\0";
+        let files = parse_raw_numstat(out);
+        let st: Vec<_> = files.iter().map(|f| (f.path.as_str(), f.status.unwrap(), f.added, f.removed)).collect();
+        assert_eq!(st, [
+            ("gone.txt", FileStatus::D, 0, 3),
+            ("new name.rs", FileStatus::R, 1, 1),
+            ("added.md", FileStatus::A, 2, 0),
+            ("m.rs", FileStatus::M, 1, 1),
+        ]);
+        assert_eq!(serde_json::to_value(FileStatus::R).unwrap(), "R");
+    }
+
+    #[test]
+    fn real_git_reports_deletes_renames_and_untracked() {
+        let r = crate::vcs::snapshot::TempRepo::new();
+        r.write("a.txt", "one\ntwo\nthree\nfour\n");
+        r.write("b.txt", "b\n");
+        r.commit_all("init");
+        r.git(&["mv", "a.txt", "moved.txt"]);
+        std::fs::remove_file(r.0.join("b.txt")).unwrap();
+        r.write("new.txt", "n\n");
+        let files = Git::new(&crate::exec::LocalExec, r.path()).changes(None).unwrap();
+        let st: Vec<_> = files.iter().map(|f| (f.path.as_str(), f.status.unwrap())).collect();
+        assert_eq!(st, [("b.txt", FileStatus::D), ("moved.txt", FileStatus::R), ("new.txt", FileStatus::U)]);
     }
 
     #[test]

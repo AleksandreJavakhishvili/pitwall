@@ -22,7 +22,8 @@ fn projects_changed(engine: &Engine) -> Vec<Project> {
 
 /// Run the read-only scan, reporting each step as an event. Blocking.
 pub fn scan_environment(engine: &Engine) -> ScanResult {
-    let mut result = scan::scan(engine.paths(), engine.kinds(), engine.projects(), &|p| {
+    let views = engine.list_kinds().unwrap_or_default();
+    let mut result = scan::scan(engine.paths(), engine.kinds(), &views, engine.projects(), &|p| {
         engine.emit(Event::ScanProgress(p));
     });
     // "Scan again" must not offer sessions Pitwall agents already run,

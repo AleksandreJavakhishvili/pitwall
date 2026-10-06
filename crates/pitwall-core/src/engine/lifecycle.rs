@@ -1,26 +1,30 @@
-//! Creating, starting, stopping and removing agents. These do blocking work
-//! (git, process spawn/teardown); call them off the main thread.
+//! Creating, starting, stopping and removing agents, through their
+//! provider. These do blocking work (git, starting and ending sessions);
+//! call them off the main thread.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::{tasks, worktree, Agent, Engine, Shared};
-use crate::clock::{unix_ms, Clock};
-use crate::kind::{self, launch, AgentKind};
-use crate::model::{size_of, AgentRecord, AgentView, CreateAgentRequest};
-use crate::onboarding::project_list;
-use crate::paths::{expand_tilde, Paths};
-use crate::rules;
-use crate::session::{Session, Spawn};
-use crate::slug::slug;
-use crate::vcs::git::Git;
+use crate::clock::unix_ms;
+use crate::exec::{self, Exec};
 use crate::hooks;
+use crate::kind::{self, AgentKind};
+use crate::model::{size_of, AgentRecord, AgentView, CreateAgentRequest, KindCaps};
+use crate::onboarding::project_list;
+use crate::paths::expand_tilde_in;
+use crate::provider::{
+    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Provider, Started, TermSize, WorkspaceSel,
+};
+use crate::rules;
+use crate::slug::slug;
+use crate::term::TermHost;
+use crate::vcs::git::Git;
 
-const STOP_GRACE: Duration = Duration::from_millis(1500);
+pub(crate) const STOP_GRACE: Duration = Duration::from_millis(1500);
 
 fn kind_for(engine: &Engine, rec_kind: &str, custom: Option<&str>) -> Result<AgentKind, String> {
-    if rec_kind == "custom" {
+    if rec_kind == kind::CUSTOM {
         let cmd = custom.map(str::trim).filter(|c| !c.is_empty()).ok_or("custom command is empty")?;
         return Ok(kind::custom_kind(cmd));
     }
@@ -29,65 +33,72 @@ fn kind_for(engine: &Engine, rec_kind: &str, custom: Option<&str>) -> Result<Age
 
 /// Before a launch with the kind's worktree flag: the name to pass, and what
 /// to compare against to spot the worktree the agent makes.
-fn watch_for(core: &Engine, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
-    let exec = core.exec_for(&rec.id);
+fn watch_for(exec: &dyn Exec, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
     let named = kind.worktree_args.iter().any(|a| a.contains("{name}"));
     let base = slug(&rec.name);
-    let name = if named { worktree::pick_name(&*exec, &rec.project, &base) } else { base };
-    let watch = worktree::Watch::new(worktree::roots(&*exec, &rec.project), named.then(|| name.clone()), now);
+    let name = if named { worktree::pick_name(exec, &rec.project, &base) } else { base };
+    let watch = worktree::Watch::new(worktree::roots(exec, &rec.project), named.then(|| name.clone()), now);
     (name, watch)
 }
 
-/// Start `command_line` for agent `id` in a new terminal holder.
-fn spawn(engine: &Engine, id: &str, cwd: &str, command_line: String, size: Option<(u16, u16)>) -> Result<Arc<Session>, String> {
-    let paths = engine.paths();
-    Session::spawn(Spawn {
-        agent_id: id,
-        cwd,
-        command_line,
-        size,
-        hold_dir: &paths.hold_dir(),
-        holder: engine.holder_bin()?,
-        hook_socket: &paths.hook_socket(),
-        clock: engine.clock().clone(),
-    })
+/// How hooks reach Pitwall from an agent of `p`, if they can.
+fn hook_wiring(engine: &Engine, p: &dyn Provider) -> Option<HookWiring> {
+    (p.caps().hooks != HookTransport::None).then(|| HookWiring { command: hooks::hook_command(engine.paths()) })
+}
+
+/// The terminal of a session `p` just started (its own, or by attaching).
+fn host_of(engine: &Engine, p: &dyn Provider, started: &mut Started, size: TermSize) -> Result<Arc<TermHost>, String> {
+    let io = match started.term.take() {
+        Some(io) => io,
+        None => p.attach(&started.locator, size)?,
+    };
+    Ok(engine.host_for(io, size))
 }
 
 /// The project an agent is shown under when it differs from where it runs.
-fn display_project(core: &Engine, p: Option<&str>) -> Result<Option<String>, String> {
+fn display_project(exec: &dyn Exec, p: Option<&str>) -> Result<Option<String>, String> {
     let Some(p) = p.map(str::trim).filter(|p| !p.is_empty()) else { return Ok(None) };
-    let path = expand_tilde(p);
-    if !path.is_dir() {
-        return Err(format!("{} is not a folder", path.display()));
+    let path = expand_tilde_in(exec.home().ok().as_deref(), p);
+    if !exec::is_dir(exec, &path) {
+        return Err(format!("{path} is not a folder"));
     }
-    let path = project_list::normalize(&path.to_string_lossy());
-    Ok(Some(Git::new(core.exec(), &path).repo_root().unwrap_or(path)))
+    let path = project_list::normalize(&path);
+    Ok(Some(Git::new(exec, &path).repo_root().unwrap_or(path)))
 }
 
 pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, String> {
-    let project_path = expand_tilde(req.project_path.trim());
-    if !project_path.is_dir() {
-        return Err(format!("{} is not a folder", project_path.display()));
+    let (provider, machine) = core.providers().default_target()?;
+    // Without commands on that machine there is nothing to check here: the
+    // provider's own create reports a bad folder.
+    let exec: Option<Arc<dyn Exec>> = if provider.caps().exec { Some(provider.exec(&machine.id)?) } else { None };
+    let exec = exec.as_deref();
+    let home = exec.and_then(|x| x.home().ok());
+    let project_path = expand_tilde_in(home.as_deref(), req.project_path.trim());
+    if exec.is_some_and(|x| !exec::is_dir(x, &project_path)) {
+        return Err(format!("{project_path} is not a folder"));
     }
-    let project_path = project_path.to_string_lossy().into_owned();
     let kind = kind_for(core, &req.kind, req.custom_command.as_deref())?;
     let name = match req.name.trim() {
         "" => kind.name.clone(),
         n => n.to_string(),
     };
-    let repo = Git::new(core.exec(), &project_path).repo_root();
+    let repo = exec.and_then(|x| Git::new(x, &project_path).repo_root());
 
     let resume = req.resume_session_id.as_deref().filter(|s| !s.is_empty());
     // A separate worktree is the agent's own feature: Pitwall only passes its
     // flag and finds out afterwards where it works (worktree.rs).
     let wants_worktree = req.worktree && resume.is_none();
     let project = if wants_worktree {
-        if kind.worktree_args.is_empty() {
+        if !KindCaps::of(&kind, &provider.caps()).worktree {
             return Err(format!("{} can't make its own worktree.", kind.name));
         }
         repo.ok_or("A separate worktree needs a git repository.")?
     } else {
-        match display_project(core, req.display_project.as_deref())? {
+        let shown = match exec {
+            Some(x) => display_project(x, req.display_project.as_deref())?,
+            None => None,
+        };
+        match shown {
             Some(p) => p,
             None => repo.unwrap_or_else(|| project_path.clone()),
         }
@@ -96,11 +107,12 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
 
     let mut rec = AgentRecord {
         id: uuid::Uuid::new_v4().to_string(),
+        locator: None,
         name,
         kind: kind.id.clone(),
         kind_name: kind.name.clone(),
-        custom_command: (kind.id == "custom").then(|| kind.command.clone()),
-        base_commit: Git::new(core.exec(), &cwd).head(),
+        custom_command: (kind.id == kind::CUSTOM).then(|| kind.command.clone()),
+        base_commit: exec.and_then(|x| Git::new(x, &cwd).head()),
         cwd,
         project,
         worktree: None,
@@ -122,15 +134,45 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     }
     // Rules go in before the first launch (never fails creation; see rules).
     let dirs = rules::Dirs::of(core.paths());
-    let exec = core.exec_for(&rec.id);
-    rules::on_create(&dirs, core.kinds(), &*exec, &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
-    let wt = rec.worktree_pending.then(|| watch_for(core, &kind, &rec, core.now()));
-    let hook_command = hooks::hook_command(core.paths());
-    let plan = launch::plan(&kind, resume, resume.is_some(), &hook_command, wt.as_ref().map(|(n, _)| n.as_str()));
-    rec.session_id = plan.session_id;
-    rec.has_conversation = plan.resumed;
-    let session = spawn(core, &rec.id, &rec.cwd, plan.command_line, size)?;
-    let mut agent = Agent::new(rec, Some(session), core.now());
+    if let Some(x) = exec {
+        rules::on_create(&dirs, core.kinds(), x, &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
+    }
+    let wt = match exec {
+        Some(x) if rec.worktree_pending => Some(watch_for(x, &kind, &rec, core.now())),
+        _ => None,
+    };
+    let size = TermSize::from_pair(size);
+    let intent = match resume {
+        Some(id) if provider.caps().resume => LaunchIntent::Resume(id.to_string()),
+        _ => LaunchIntent::Fresh,
+    };
+    let mut started = provider.create(&CreateSpec {
+        machine: &machine.id,
+        name: &rec.name,
+        workspace: WorkspaceSel::Folder,
+        launch: LaunchSpec {
+            agent: &rec.id,
+            kind: &kind,
+            cwd: &rec.cwd,
+            intent,
+            worktree: wt.as_ref().map(|(n, _)| n.as_str()),
+            size,
+            hooks: hook_wiring(core, &*provider),
+        },
+    })?;
+    rec.locator = Some(started.locator.clone());
+    rec.session_id = started.conversation_id.clone();
+    rec.has_conversation = started.resumed;
+    let host = match host_of(core, &*provider, &mut started, size) {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = provider.stop(&started.locator);
+            return Err(e);
+        }
+    };
+    let loc = started.locator.clone();
+    let mut agent = Agent::new(rec, Some(host), core.now());
+    agent.facts = core.facts(&loc, &agent.rec);
     agent.watch = wt.map(|(_, w)| w);
     let view = agent.view();
     core.agents().push(agent);
@@ -138,62 +180,101 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     Ok(view)
 }
 
-pub fn stop(core: &Shared, id: &str) -> Result<(), String> {
-    if let Some(session) = core.with(id, |a| a.session.clone())? {
-        std::thread::spawn(move || session.terminate(STOP_GRACE));
+/// End agent `loc`: closing its terminal ends a local agent; a remote one
+/// is stopped through its provider and only the attachment closed.
+fn end(p: Option<&Arc<dyn Provider>>, loc: &Locator, host: Option<&Arc<TermHost>>) {
+    match host {
+        Some(h) if h.eof_is_exit() => h.close(STOP_GRACE),
+        _ => {
+            if let Some(p) = p {
+                if let Err(e) = p.stop(loc) {
+                    eprintln!("pitwall: could not stop {loc}: {e}");
+                }
+            }
+            if let Some(h) = host {
+                h.close(STOP_GRACE);
+            }
+        }
     }
+}
+
+pub fn stop(core: &Shared, id: &str) -> Result<(), String> {
+    let (loc, host) = core.with(id, |a| (a.rec.locator(), a.host.clone()))?;
+    let p = core.providers().for_locator(&loc).ok();
+    std::thread::spawn(move || end(p.as_ref(), &loc, host.as_ref()));
     Ok(())
 }
 
 /// Stop (if running) and start again, resuming the session when possible.
 /// `size` (cols, rows) is what the UI will show; else the last known size.
 pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<AgentView, String> {
-    let old = core.with(id, |a| {
+    let (loc, old) = core.with(id, |a| {
         if let Some(size) = size {
             a.rec.set_term_size(size);
         }
-        a.session.clone()
+        (a.rec.locator(), a.host.clone())
     })?;
-    if let Some(old) = old {
-        old.terminate(STOP_GRACE);
+    let provider = core.providers().for_locator(&loc)?;
+    if old.as_ref().is_some_and(|h| !h.ended()) {
+        end(Some(&provider), &loc, old.as_ref());
     }
     // Read after the stop: resizes that arrived meanwhile are in the record.
     let rec = core.with(id, |a| a.rec.clone())?;
-    let size = rec.term_size();
+    let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
-    if !Path::new(&rec.cwd).is_dir() {
+    let caps = provider.caps();
+    let exec = if caps.exec { Some(provider.exec(&loc.machine)?) } else { None };
+    if exec.as_deref().is_some_and(|x| !exec::is_dir(x, &rec.cwd)) {
         return Err(format!("{} no longer exists", rec.cwd));
     }
-    let resume = rec.has_conversation;
+    let intent = match &rec.session_id {
+        Some(id) if rec.has_conversation && caps.resume => LaunchIntent::Resume(id.clone()),
+        _ => LaunchIntent::Fresh,
+    };
     // Still waiting for its own worktree: ask for it again on a fresh start.
-    let wt = rec.worktree_pending.then(|| watch_for(core, &kind, &rec, core.now()));
-    let hook_command = hooks::hook_command(core.paths());
-    let plan = launch::plan(&kind, rec.session_id.as_deref(), resume, &hook_command, wt.as_ref().map(|(n, _)| n.as_str()));
-    let session = spawn(core, &rec.id, &rec.cwd, plan.command_line, size)?;
+    let wt = match exec.as_deref() {
+        Some(x) if rec.worktree_pending => Some(watch_for(x, &kind, &rec, core.now())),
+        _ => None,
+    };
+    let launch = LaunchSpec {
+        agent: &rec.id,
+        kind: &kind,
+        cwd: &rec.cwd,
+        intent,
+        worktree: wt.as_ref().map(|(n, _)| n.as_str()),
+        size,
+        hooks: hook_wiring(core, &*provider),
+    };
+    let mut started = provider.start(&loc, &launch)?;
+    let host = host_of(core, &*provider, &mut started, size)?;
     let now = core.now();
+    let facts = core.facts(&started.locator, &rec);
     let attached = core.with(id, |a| {
-        if !plan.resumed {
+        if !started.resumed {
             a.rec.has_conversation = false;
-            a.rec.session_id = plan.session_id.clone();
+            a.rec.session_id = started.conversation_id.clone();
         }
-        a.attach_session(session.clone(), now);
+        a.rec.locator = Some(started.locator.clone());
+        a.attach_host(host.clone(), now);
+        a.facts = facts;
         a.watch = wt.map(|(_, w)| w);
         a.rec.term_size()
     });
-    // A resize that landed between spawning and attaching went to the record only.
+    // A resize that landed between starting and attaching went to the record only.
     if let Ok(Some((cols, rows))) = attached {
-        session.resize(cols, rows);
+        host.resize(cols, rows);
     }
     let view = core.with(id, |a| a.view());
     if view.is_err() {
         // Removed while we were starting it.
-        session.terminate(STOP_GRACE);
+        end(Some(&provider), &started.locator, Some(&host));
     }
     core.changed(true);
     view
 }
 
 pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), String> {
+    let exec = core.exec_for(id);
     let agent = {
         let mut agents = core.agents();
         let pos = agents
@@ -203,10 +284,14 @@ pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), Stri
         agents.remove(pos)
     };
     core.changed(true);
-    if let Some(session) = &agent.session {
-        session.terminate(STOP_GRACE);
+    let loc = agent.rec.locator();
+    let provider = core.providers().for_locator(&loc).ok();
+    end(provider.as_ref(), &loc, agent.host.as_ref());
+    if let Some(p) = &provider {
+        if let Err(e) = p.remove(&loc) {
+            eprintln!("pitwall: could not remove {loc}: {e}");
+        }
     }
-    let exec = core.exec_for(id);
     tasks::forget(&*exec, &agent.rec);
     // Only when asked (the UI confirms first); never `--force`, never the branch.
     let res = match (&agent.rec.worktree, delete_worktree) {
@@ -220,49 +305,71 @@ pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), Stri
 }
 
 /// "Quit and Stop Agents": the user explicitly ends every agent. A plain
-/// quit never does this; agents keep running in their holders and the next
-/// start re-attaches to them (architecture.md §9, decision 1).
+/// quit never does this; agents keep running (local: in their holders) and
+/// the next start re-attaches to them (architecture.md §9, decision 1).
 pub fn stop_all(core: &Shared) {
-    let sessions: Vec<_> = core.agents().iter().filter_map(|a| a.session.clone()).collect();
+    let running: Vec<_> = core
+        .agents()
+        .iter()
+        .filter_map(|a| {
+            let h = a.host.clone()?;
+            let loc = a.rec.locator();
+            Some((core.providers().for_locator(&loc).ok(), loc, h))
+        })
+        .collect();
     std::thread::scope(|scope| {
-        for s in &sessions {
-            scope.spawn(move || s.terminate(STOP_GRACE));
+        for (p, loc, h) in &running {
+            scope.spawn(move || end(p.as_ref(), loc, Some(h)));
         }
     });
 }
 
-/// Engine start: the terminal of an agent whose holder outlived the last run.
-pub(crate) fn reattach(paths: &Paths, clock: &Arc<dyn Clock>, rec: &AgentRecord) -> Option<Arc<Session>> {
-    let session = Session::reattach(&paths.hold_dir(), &rec.id, clock.clone())?;
+/// Engine start: the terminal of an agent whose session outlived the last
+/// run of Pitwall (local: its holder), at its last known size.
+pub(crate) fn reattach(core: &Engine, loc: &Locator, rec: &AgentRecord) -> Option<Arc<TermHost>> {
+    let p = core.providers().for_locator(loc).ok()?;
+    let size = TermSize::from_pair(rec.term_size());
+    let io = p.attach(loc, size).ok()?;
+    let host = core.host_for(io, size);
     if let Some((cols, rows)) = rec.term_size() {
-        session.resize(cols, rows);
+        host.resize(cols, rows);
     }
-    Some(session)
+    Some(host)
+}
+
+/// A dropped attachment (`eof_is_exit` false): attach again while the
+/// provider says the session runs; else the agent has ended. Blocking.
+pub(crate) fn relink(core: &Shared, id: &str) {
+    let Ok((loc, p)) = core.provider_of(id) else { return };
+    let size = core.with(id, |a| TermSize::from_pair(a.rec.term_size())).unwrap_or(TermSize::DEFAULT);
+    let running = matches!(p.state(&loc), Ok(crate::provider::NativeState::Running));
+    let host = if running { p.attach(&loc, size).ok().map(|io| core.host_for(io, size)) } else { None };
+    let _ = core.with(id, |a| {
+        a.relinking = false;
+        match host {
+            Some(h) => a.host = Some(h),
+            None => {
+                a.status = crate::model::Status::Exited;
+                a.detail = None;
+                a.host = None;
+            }
+        }
+    });
+    core.changed(false);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::PwError;
+    use crate::exec::LocalExec;
+    use crate::model::Status;
+    use crate::provider::{NativeState, ProviderCaps};
+    use crate::testing::{Harness, TempDir};
+    use std::time::Instant;
 
-    #[test]
-    fn display_project_override() {
-        let h = crate::testing::Harness::new(vec![]);
-        let display_project = |p| display_project(&h.engine, p);
-        assert_eq!(display_project(None).unwrap(), None);
-        assert_eq!(display_project(Some("  ")).unwrap(), None);
-        assert!(display_project(Some("/definitely/not/here")).is_err());
-        let dir = std::env::temp_dir().join(format!("pitwall-display-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let got = display_project(Some(&format!("{}/", dir.display()))).unwrap().unwrap();
-        assert!(!got.ends_with('/'));
-        assert!(Path::new(&got).is_dir());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn create_checks_its_input_before_starting_anything() {
-        let h = crate::testing::Harness::new(vec![]);
-        let req = |kind: &str, path: &str, worktree: bool| CreateAgentRequest {
+    fn req(kind: &str, path: &str, worktree: bool) -> CreateAgentRequest {
+        CreateAgentRequest {
             name: String::new(),
             kind: kind.into(),
             project_path: path.into(),
@@ -274,17 +381,166 @@ mod tests {
             display_project: None,
             cols: None,
             rows: None,
-        };
+        }
+    }
+
+    fn wait_until(f: impl Fn() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !f() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        f()
+    }
+
+    #[test]
+    fn display_project_override() {
+        let display_project = |p| display_project(&LocalExec, p);
+        assert_eq!(display_project(None).unwrap(), None);
+        assert_eq!(display_project(Some("  ")).unwrap(), None);
+        assert!(display_project(Some("/definitely/not/here")).is_err());
+        let dir = TempDir::new("display");
+        let got = display_project(Some(&format!("{}/", dir.path().display()))).unwrap().unwrap();
+        assert!(!got.ends_with('/'));
+        assert!(std::path::Path::new(&got).is_dir());
+    }
+
+    #[test]
+    fn create_checks_its_input_before_starting_anything() {
+        let h = Harness::new(vec![]);
         let dir = h.dir.path().to_string_lossy().into_owned();
         assert!(create(&h.engine, req("shell", "/definitely/not/here", false)).unwrap_err().contains("is not a folder"));
         assert!(create(&h.engine, req("nope", &dir, false)).unwrap_err().contains("unknown agent kind"));
         assert_eq!(create(&h.engine, req("custom", &dir, false)).unwrap_err(), "custom command is empty");
         assert!(create(&h.engine, req("shell", &dir, true)).unwrap_err().contains("can't make its own worktree"));
         assert!(create(&h.engine, req("claude", &dir, true)).unwrap_err().contains("needs a git repository"));
-        // Valid request, but the host gave no terminal holder: reported, nothing added.
-        assert_eq!(create(&h.engine, req("shell", &dir, false)).unwrap_err(), "no terminal holder in tests");
+        // The provider refuses: reported, nothing added.
+        h.provider.fail_next(PwError::unreachable("machine is asleep"));
+        assert_eq!(create(&h.engine, req("shell", &dir, false)).unwrap_err(), "machine is asleep");
         assert!(h.engine.views().is_empty());
+        assert!(h.provider.launched().is_empty());
         assert!(stop(&h.engine, "ghost").is_err());
         assert!(remove(&h.engine, "ghost", false).is_err());
+    }
+
+    #[test]
+    fn agents_are_started_stopped_and_resumed_through_their_provider() {
+        let h = Harness::new(vec![]);
+        let dir = h.dir.path().to_string_lossy().into_owned();
+        let mut r = req("claude", &dir, false);
+        r.cols = Some(90);
+        r.rows = Some(30);
+        let v = create(&h.engine, r).unwrap();
+        let rec = h.engine.records().remove(0);
+        let loc = rec.locator.clone().expect("locator stored");
+        assert_eq!((loc.provider.as_str(), loc.machine.as_str(), loc.native.as_str()), ("local", "this-mac", v.id.as_str()));
+        assert_eq!((v.location.as_str(), v.machine.label.as_str()), ("local", "Fake this-mac"));
+        let l = h.provider.launched().remove(0);
+        assert_eq!((l.cwd.as_str(), l.size, l.resumed), (dir.as_str(), TermSize::new(90, 30), false));
+        let sid = rec.session_id.clone().expect("claude gets its session id up front");
+        assert!(l.command_line.starts_with(&format!("claude --session-id {sid} --settings ")), "hooks wired: {}", l.command_line);
+        assert!(v.running && v.caps.input && v.caps.stop && v.caps.restart);
+        assert!(!v.caps.resume, "nothing to resume before a prompt");
+
+        // Input reaches the agent's terminal.
+        crate::engine::input::write_input(&h.engine, &v.id, "echo hi\r").unwrap();
+        let ctl = h.provider.ctl(&v.id).unwrap();
+        assert_eq!(ctl.input(), b"echo hi\r");
+        assert!(h.engine.views()[0].caps.resume, "after a prompt it can resume");
+
+        stop(&h.engine, &v.id).unwrap();
+        assert!(wait_until(|| !ctl.running()));
+        assert!(wait_until(|| !h.engine.views()[0].running));
+        assert_eq!(h.provider.state(&loc).unwrap(), NativeState::Stopped);
+
+        let v2 = restart(&h.engine, &v.id, Some((100, 40))).unwrap();
+        let l = h.provider.launched().pop().unwrap();
+        assert!(l.resumed && l.command_line.starts_with(&format!("claude --resume {sid}")));
+        assert_eq!(l.size, TermSize::new(100, 40));
+        assert!(v2.running);
+        assert_eq!(h.engine.records()[0].session_id.as_deref(), Some(sid.as_str()));
+
+        remove(&h.engine, &v.id, false).unwrap();
+        assert_eq!(h.provider.state(&loc).unwrap(), NativeState::Gone);
+        assert!(h.engine.views().is_empty());
+    }
+
+    #[test]
+    fn caps_follow_the_provider_and_the_workspace() {
+        let h = Harness::new(vec![]);
+        let dir = h.dir.path().to_string_lossy().into_owned();
+        let v = create(&h.engine, req("claude", &dir, false)).unwrap();
+        assert!(v.caps.diff && v.caps.review, "not known yet: offered");
+        // Not a git repository: no diffs, and no more git polling.
+        assert!(crate::engine::changes::changes(&h.engine, &v.id).is_err());
+        let v = &h.engine.views()[0];
+        assert!(!v.caps.diff && !v.caps.review && !v.caps.merge);
+        assert!(v.caps.rules && v.caps.hooks);
+
+        // A provider without resume/rules/hooks/exec.
+        h.provider.set_caps(ProviderCaps { create: true, survives_detach: true, ..Default::default() });
+        let kinds = h.engine.list_kinds().unwrap();
+        let claude = kinds.iter().find(|k| k.id == "claude").unwrap();
+        assert!(!claude.caps.worktree && !claude.caps.resume && !claude.caps.rules && !claude.caps.hooks);
+        assert!(!kinds.iter().any(|k| k.caps.custom_command), "no custom commands on this provider");
+        let v = create(&h.engine, req("claude", &dir, false)).unwrap();
+        assert!(!v.caps.diff && !v.caps.rules && !v.caps.hooks && !v.caps.remove_worktree);
+        assert!(!h.provider.launched().pop().unwrap().command_line.contains("--settings"), "no hooks to wire");
+    }
+
+    #[test]
+    fn kinds_carry_their_caps() {
+        let h = Harness::new(vec![]);
+        let kinds = h.engine.list_kinds().unwrap();
+        let by = |id: &str| kinds.iter().find(|k| k.id == id).unwrap().clone();
+        let (claude, shell, custom) = (by("claude"), by("shell"), by("custom"));
+        assert!(claude.caps.worktree && claude.worktree && claude.caps.resume && claude.caps.rules && claude.caps.hooks);
+        assert!(!shell.caps.worktree && !shell.caps.resume && !shell.caps.rules && !shell.caps.hooks);
+        assert!(custom.caps.custom_command && !claude.caps.custom_command);
+    }
+
+    #[test]
+    fn saved_agents_reattach_when_their_session_survived() {
+        let h = Harness::new(vec![]);
+        let dir = h.dir.path().to_string_lossy().into_owned();
+        let v = create(&h.engine, req("shell", &dir, false)).unwrap();
+        let w = create(&h.engine, req("shell", &dir, false)).unwrap();
+        h.provider.ctl(&w.id).unwrap().exit(0);
+        h.engine.save().unwrap();
+        // Pitwall restarts: the same provider still has the sessions.
+        let again = crate::engine::Engine::open(crate::engine::Deps {
+            paths: crate::paths::Paths::new(h.dir.path().join("pitwall")),
+            events: h.events.clone(),
+            clock: h.clock.clone(),
+            store: h.store.clone(),
+            providers: vec![h.provider.clone()],
+        });
+        let views = again.views();
+        let find = |id: &str| views.iter().find(|x| x.id == id).unwrap();
+        assert!(find(&v.id).running, "re-attached, no restart");
+        assert_eq!(find(&w.id).status, Status::Stopped);
+        assert_eq!(h.provider.launched().len(), 2, "nothing was started again");
+    }
+
+    #[test]
+    fn a_dropped_attachment_is_relinked_while_the_session_runs() {
+        let h = Harness::new(vec![]);
+        h.provider.set_remote(true);
+        let dir = h.dir.path().to_string_lossy().into_owned();
+        let v = create(&h.engine, req("shell", &dir, false)).unwrap();
+        let ctl = h.provider.ctl(&v.id).unwrap();
+        let first = h.engine.host(&v.id).unwrap();
+        assert!(!first.eof_is_exit());
+        ctl.drop_links();
+        assert!(wait_until(|| first.ended()));
+        relink(&h.engine, &v.id);
+        let second = h.engine.host(&v.id).unwrap();
+        assert!(!Arc::ptr_eq(&first, &second) && !second.ended());
+        assert!(h.engine.views()[0].running);
+        // The session itself ended: the agent has exited.
+        ctl.exit(0);
+        assert!(wait_until(|| second.ended()));
+        relink(&h.engine, &v.id);
+        let v = &h.engine.views()[0];
+        assert_eq!((v.status, v.running), (Status::Exited, false));
     }
 }

@@ -25,12 +25,14 @@ struct Ctx {
 }
 
 fn ctx(engine: &Engine, agent_id: &str, task_id: Option<&str>) -> Res<Ctx> {
+    // Looked up before taking the registry lock (it takes it too).
+    let exec = engine.exec_for(agent_id);
     engine.with(agent_id, |a| {
         let task = match task_id {
             Some(id) => Some(a.rec.tasks.iter().find(|t| t.id == id).cloned().ok_or("task not found")?),
             None => None,
         };
-        Ok(Ctx { exec: engine.exec_for(agent_id), cwd: a.rec.cwd.clone(), base: a.rec.base_commit.clone(), task, worktree: a.rec.worktree.clone() })
+        Ok(Ctx { exec, cwd: a.rec.cwd.clone(), base: a.rec.base_commit.clone(), task, worktree: a.rec.worktree.clone() })
     })?
 }
 

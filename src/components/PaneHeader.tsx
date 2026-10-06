@@ -51,7 +51,7 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
       <span className="spacer" />
       <RulesStaleButton agentId={a.id} />
       <span className="pane-actions">
-        {a.running && (
+        {a.caps.stop && (
           <button className="icon-btn icon-btn-sm" onClick={() => run(api.stopAgent(a.id), "stop agent")} title="Stop process">
             <Icon name="stop" size={13} />
           </button>

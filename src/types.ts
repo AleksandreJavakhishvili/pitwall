@@ -9,13 +9,56 @@ export type Status =
   | "exited"
   | "stopped";
 
+/** What a kind can do on the machine new agents go to (architecture.md §3). */
+export interface KindCaps {
+  /** Its own worktree flag, and the provider can find where it went. */
+  worktree: boolean;
+  resume: boolean;
+  /** Rule files can be generated for it. */
+  rules: boolean;
+  hooks: boolean;
+  /** Runs the command the user types ("Custom command"). */
+  customCommand: boolean;
+}
+
 export interface KindView {
   id: string;
   name: string;
   installed: boolean;
   path?: string;
-  /** The agent can work in its own git worktree (its native flag). May be missing on older backends. */
+  /** Same as `caps.worktree` (kept for older UIs). */
   worktree?: boolean;
+  caps: KindCaps;
+}
+
+/**
+ * What the UI may offer for one agent right now (architecture.md §3). The UI
+ * decides with these only — never by kind or provider (src/lib/noSpecialCases.test.ts).
+ */
+export interface AgentCaps {
+  /** Running and attached: keystrokes and prompts reach it. */
+  input: boolean;
+  /** Can be started again. */
+  restart: boolean;
+  /** A restart continues its conversation. */
+  resume: boolean;
+  stop: boolean;
+  /** Works in its own worktree, which can be removed with it. */
+  removeWorktree: boolean;
+  /** Its changes can be read (false outside a git repository). */
+  diff: boolean;
+  review: boolean;
+  /** Commit & merge back (a worktree on a branch). */
+  merge: boolean;
+  rules: boolean;
+  hooks: boolean;
+}
+
+/** Where an agent runs; display and grouping only. */
+export interface MachineView {
+  provider: string;
+  id: string;
+  label: string;
 }
 
 export interface RecentProject {
@@ -48,7 +91,12 @@ export interface AgentView {
   worktree: boolean;
   /** Asked for its own worktree; Pitwall hasn't seen where the agent made it yet. May be missing on older backends. */
   worktreePending?: boolean;
-  location: "local";
+  /** The provider it runs on ("local"); display only. */
+  location: string;
+  machine?: MachineView;
+  /** A terminal running an agent the user started in it by hand. */
+  agentInTerminal?: boolean;
+  caps: AgentCaps;
   status: Status;
   statusSource: "hooks" | "screen" | "activity";
   statusDetail: string | null;
@@ -97,11 +145,8 @@ export interface FileChange {
   removed: number;
   untracked: boolean;
   binary: boolean;
-  /**
-   * Optional: not reported by the backend yet (TODO(diff-ui): emit it from
-   * pitwall-core's vcs once the Exec migration lands). The UI degrades to U/M
-   * via `fileStatus()` in lib/fileTree.ts.
-   */
+  /** From git (`--raw` / `--name-status`); older backends omit it and the UI
+   * falls back to U/M via `fileStatus()` in lib/fileTree.ts. */
   status?: FileStatus;
 }
 
@@ -158,6 +203,8 @@ export interface ScannedProject {
   /** Unix ms; null when the source has no timestamp (editor recents). */
   lastUsed: number | null;
   sources: ProjectSource[];
+  /** Agents have worked here (some source is an agent's conversations). */
+  agentHistory: boolean;
   /** Already in Pitwall's project list. */
   added: boolean;
   rules: { rulesync: boolean; claudeMd: boolean; agentsMd: boolean };
@@ -238,6 +285,7 @@ export interface ScanResult {
   conversations: ScannedConversation[];
   running: RunningElsewhere[];
   agw: AgwInfo | null;
+  /** Only when an installed agent takes its hooks from Codex's global file. */
   codexHooks: HooksStatus | null;
 }
 

@@ -3,13 +3,33 @@
 use std::sync::Arc;
 
 use crate::hooks::{HookEffect, HookState};
-use crate::model::{AgentRecord, AgentView, Source, Status};
+use crate::model::{AgentCaps, AgentRecord, AgentView, KindCaps, MachineView, Source, Status};
 use crate::paths;
-use crate::session::{Session, DEFAULT_COLS, DEFAULT_ROWS};
+use crate::provider::ProviderCaps;
+use crate::term::{TermHost, DEFAULT_COLS, DEFAULT_ROWS};
+
+/// What the engine knows about where an agent runs and what its kind can do
+/// (looked up when it is loaded or started; feeds [`AgentCaps`]).
+#[derive(Debug, Clone, Default)]
+pub struct Facts {
+    pub provider: ProviderCaps,
+    /// The record's kind on its provider.
+    pub kind: KindCaps,
+    pub machine_label: String,
+    /// The user's home on the agent's machine ("~/…" display).
+    pub home: Option<String>,
+}
 
 pub struct Agent {
     pub rec: AgentRecord,
-    pub session: Option<Arc<Session>>,
+    /// Its terminal while attached (from its provider).
+    pub host: Option<Arc<TermHost>>,
+    pub facts: Facts,
+    /// `cwd` is (`Some(true)`) or isn't (`Some(false)`) in a git repository;
+    /// `None` until git was asked. Not a repo: no diffs, no git polling.
+    pub git_repo: Option<bool>,
+    /// A dropped attachment (`!eof_is_exit`) is being re-attached.
+    pub relinking: bool,
     pub status: Status,
     pub source: Source,
     pub detail: Option<String>,
@@ -35,7 +55,7 @@ pub struct Agent {
     /// Terminals: the agent the user started in it, while it runs (terminals.rs).
     pub inner: Option<super::terminals::Inner>,
     /// Terminals: when to look at the foreground process next.
-    pub term: super::terminals::Watch,
+    pub fg: super::terminals::Watch,
     /// Terminals: a conversation id a hook reported (possibly before the
     /// poller noticed the agent).
     pub hook_session: Option<String>,
@@ -43,11 +63,14 @@ pub struct Agent {
 
 impl Agent {
     /// `now`: the engine clock's mono ms.
-    pub fn new(rec: AgentRecord, session: Option<Arc<Session>>, now: u64) -> Self {
-        let status = if session.is_some() { Status::Unknown } else { Status::Stopped };
+    pub fn new(rec: AgentRecord, host: Option<Arc<TermHost>>, now: u64) -> Self {
+        let status = if host.is_some() { Status::Unknown } else { Status::Stopped };
         Agent {
             rec,
-            session,
+            host,
+            facts: Facts::default(),
+            git_repo: None,
+            relinking: false,
             status,
             source: Source::Activity,
             detail: None,
@@ -68,15 +91,18 @@ impl Agent {
             last_auto_send: 0,
             watch: None,
             inner: None,
-            term: Default::default(),
+            fg: Default::default(),
             hook_session: None,
         }
     }
 
-    /// Swap in a freshly spawned process and reset per-run state.
-    pub fn attach_session(&mut self, session: Arc<Session>, now: u64) {
-        if let Some(old) = self.session.replace(session) {
-            old.hangup();
+    /// Swap in a freshly started agent's terminal and reset per-run state.
+    /// An old terminal still open is closed (in the background).
+    pub fn attach_host(&mut self, host: Arc<TermHost>, now: u64) {
+        if let Some(old) = self.host.replace(host) {
+            if !old.ended() {
+                std::thread::spawn(move || old.close(super::lifecycle::STOP_GRACE));
+            }
         }
         self.status = Status::Unknown;
         self.source = Source::Activity;
@@ -88,8 +114,10 @@ impl Agent {
         self.screen_detail = None;
         self.detect_seq = u64::MAX;
         self.git_wanted = true;
+        self.git_repo = None;
+        self.relinking = false;
         self.inner = None;
-        self.term = Default::default();
+        self.fg = Default::default();
         self.hook_session = None;
     }
 
@@ -104,15 +132,39 @@ impl Agent {
     }
 
     pub fn running(&self) -> bool {
-        self.session
-            .as_ref()
-            .is_some_and(|s| !s.exited.load(std::sync::atomic::Ordering::Relaxed))
+        self.host.as_ref().is_some_and(|h| !h.ended())
+    }
+
+    /// The agent's local process, when its provider runs agents on this Mac.
+    pub fn local_pid(&self) -> Option<u32> {
+        self.host.as_ref().filter(|_| self.facts.provider.local_process).and_then(|h| h.pid())
+    }
+
+    /// What the UI may offer for it now (architecture.md §3).
+    pub fn caps(&self) -> AgentCaps {
+        let (p, k, r) = (&self.facts.provider, &self.facts.kind, &self.rec);
+        let running = self.running();
+        let diff = p.exec && self.git_repo != Some(false);
+        AgentCaps {
+            input: running,
+            restart: p.create || p.resume,
+            resume: k.resume && r.has_conversation && r.session_id.is_some(),
+            stop: running,
+            remove_worktree: p.exec && r.worktree.is_some(),
+            diff,
+            review: diff,
+            merge: diff && r.worktree.is_some() && self.branch.is_some(),
+            rules: k.rules,
+            hooks: k.hooks,
+        }
     }
 
     pub fn view(&self) -> AgentView {
         let r = &self.rec;
+        let loc = r.locator();
+        let home = self.facts.home.as_deref();
         let (cols, rows) = self
-            .session
+            .host
             .as_ref()
             .map(|s| s.size())
             .or_else(|| r.term_size())
@@ -129,13 +181,19 @@ impl Agent {
                 None => r.session_id.clone(),
             },
             cwd: r.cwd.clone(),
-            cwd_display: paths::tildify(&r.cwd),
+            cwd_display: paths::tildify_in(home, &r.cwd),
             project: r.project.clone(),
-            project_display: paths::tildify(&r.project),
+            project_display: paths::tildify_in(home, &r.project),
             branch: self.branch.clone(),
             worktree: r.worktree.is_some(),
             worktree_pending: r.worktree_pending,
-            location: "local",
+            location: loc.provider.to_string(),
+            machine: MachineView {
+                provider: loc.provider.to_string(),
+                id: loc.machine.to_string(),
+                label: if self.facts.machine_label.is_empty() { loc.machine.to_string() } else { self.facts.machine_label.clone() },
+            },
+            agent_in_terminal: self.is_terminal() && self.inner.is_some(),
             status: self.status,
             status_source: self.source,
             status_detail: self.detail.clone(),
@@ -151,6 +209,7 @@ impl Agent {
             last_sent_at: r.last_sent_at,
             created_at: r.created_at,
             current_task_id: super::tasks::current_task_id(r),
+            caps: self.caps(),
         }
     }
 

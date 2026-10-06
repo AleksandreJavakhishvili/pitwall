@@ -2555,6 +2555,7 @@ name = "pitwall"
 version = "0.1.0"
 dependencies = [
  "pitwall-core",
+ "pitwall-providers",
  "serde",
  "serde_json",
  "tauri",
@@ -2569,7 +2570,6 @@ name = "pitwall-core"
 version = "0.1.0"
 dependencies = [
  "pitwall-detect",
- "pitwall-hold",
  "serde",
  "serde_json",
  "toml 1.1.6+spec-1.1.0",
@@ -2592,6 +2592,14 @@ version = "0.1.0"
 dependencies = [
  "interprocess",
  "libc",
+]
+
+[[package]]
+name = "pitwall-providers"
+version = "0.1.0"
+dependencies = [
+ "pitwall-core",
+ "pitwall-hold",
 ]
 
 [[package]]

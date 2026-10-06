@@ -14,7 +14,7 @@ use super::{blocking, Res};
 #[tauri::command]
 pub async fn list_kinds(core: State<'_, Shared>) -> Res<Vec<KindView>> {
     let core = core.inner().clone();
-    blocking(move || Ok(core.kinds().list())).await
+    blocking(move || core.list_kinds()).await
 }
 
 #[tauri::command]

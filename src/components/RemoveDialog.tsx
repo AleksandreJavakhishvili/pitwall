@@ -24,7 +24,7 @@ export function RemoveDialog({ agent: a, onClose }: { agent: AgentView | null; o
           {a.running ? "The agent process will be stopped and " : "The agent "}
           will be removed from Pitwall. Its terminal history goes with it.
         </p>
-        {a.worktree ? (
+        {a.caps.removeWorktree ? (
           <label className="check">
             <input type="checkbox" checked={deleteWorktree} onChange={(e) => setDeleteWorktree(e.target.checked)} />
             <span>
@@ -39,7 +39,7 @@ export function RemoveDialog({ agent: a, onClose }: { agent: AgentView | null; o
         ) : (
           a.worktreePending && <p className="hint">Its worktree (if the agent made one) is left as it is.</p>
         )}
-        {deleteWorktree && a.worktree && (
+        {deleteWorktree && a.caps.removeWorktree && (
           <p className="form-error">The worktree folder will be deleted from disk.</p>
         )}
       </div>
@@ -48,7 +48,7 @@ export function RemoveDialog({ agent: a, onClose }: { agent: AgentView | null; o
           Cancel
         </button>
         <button className="danger-btn" onClick={remove} disabled={busy} data-autofocus>
-          {busy ? "Removing…" : deleteWorktree && a.worktree ? "Remove agent & worktree" : "Remove"}
+          {busy ? "Removing…" : deleteWorktree && a.caps.removeWorktree ? "Remove agent & worktree" : "Remove"}
         </button>
       </footer>
     </Modal>

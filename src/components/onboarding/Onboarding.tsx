@@ -142,7 +142,8 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
   const scanning = !result && !scanError;
 
   const installed = useMemo(() => new Set(result?.agents.filter((a) => a.installed).map((a) => a.kind) ?? []), [result]);
-  const codexInstalled = installed.has("codex");
+  // The backend reports Codex hooks only when an installed agent uses them.
+  const codexInstalled = !!result?.codexHooks;
   const hooksInstalled = result?.codexHooks?.installed ?? false;
 
   const projects = result?.projects ?? [];
@@ -157,7 +158,8 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
   const agwMachines = result?.agw?.machines ?? [];
   const newCount = [...selected].filter((p) => !projects.find((x) => x.path === p)?.added).length;
   const kindChoices = result?.agents.filter((a) => a.installed) ?? [];
-  const defaultKind = (kindChoices.find((k) => k.kind === "claude") ?? kindChoices[0])?.kind;
+  // The backend lists kinds in its preferred order.
+  const defaultKind = kindChoices[0]?.kind;
 
   const plan: PlannedAgent[] = useMemo(
     () =>
@@ -273,6 +275,7 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
           isGit: added.isGit,
           lastUsed: null,
           sources: [],
+          agentHistory: false,
           added: true,
           rules: { rulesync: false, claudeMd: false, agentsMd: false },
         };

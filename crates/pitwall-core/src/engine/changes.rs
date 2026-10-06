@@ -1,7 +1,7 @@
 //! An agent's uncommitted work as the sidebar shows it.
 
 use super::Engine;
-use crate::vcs::git::{FileChange, Git};
+use crate::vcs::git::{FileChange, Git, NOT_A_REPO};
 
 type Res<T> = Result<T, String>;
 
@@ -9,15 +9,25 @@ type Res<T> = Result<T, String>;
 /// agent's +/- counts. Blocking (git).
 pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
     let (cwd, base) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.rec.base_commit.clone()))?;
-    let files = Git::new(&*engine.exec_for(agent_id), &cwd).changes(base.as_deref())?;
+    let files = match Git::new(&*engine.exec_for(agent_id), &cwd).changes(base.as_deref()) {
+        Ok(files) => files,
+        Err(e) => {
+            // Outside a repository: no diffs for it (caps.diff) and no polling.
+            if e == NOT_A_REPO && engine.with(agent_id, |a| a.git_repo.replace(false) != Some(false))? {
+                engine.changed(false);
+            }
+            return Err(e);
+        }
+    };
     let counts = (
         files.iter().map(|f| f.added).sum(),
         files.iter().map(|f| f.removed).sum(),
         files.len() as u32,
     );
     let differs = engine.with(agent_id, |a| {
-        let d = (a.added, a.removed, a.files_changed) != counts;
+        let d = (a.added, a.removed, a.files_changed) != counts || a.git_repo != Some(true);
         (a.added, a.removed, a.files_changed) = counts;
+        a.git_repo = Some(true);
         d
     })?;
     if differs {
@@ -60,7 +70,7 @@ mod tests {
     #[test]
     fn git_runs_on_the_agents_machine() {
         let x = crate::testing::FakeExec::new();
-        x.on(&["git", "-C", "/remote/w", "diff", "--numstat", "b0"], "4\t2\tsrc/a.rs\n")
+        x.on(&["git", "-C", "/remote/w", "diff", "--raw", "--numstat", "-z", "-M", "b0"], "4\t2\tsrc/a.rs\0")
             .on(&["git", "-C", "/remote/w", "ls-files", "--others", "--exclude-standard"], "");
         let mut rec = record("a", "/remote/w");
         rec.base_commit = Some("b0".into());

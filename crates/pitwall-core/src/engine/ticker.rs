@@ -12,8 +12,8 @@ use super::tasks::{self, Job};
 use super::{worktree, Agent, Engine, Shared};
 use crate::events::Event;
 use crate::model::{Attention, Source, Status};
-use crate::session::Session;
-use crate::vcs::git::Git;
+use crate::term::TermHost;
+use crate::vcs::git::{Git, NOT_A_REPO};
 
 const TICK: Duration = Duration::from_millis(400);
 const EMIT_GAP: Duration = Duration::from_millis(250);
@@ -69,18 +69,15 @@ struct Observation {
 
 struct Probe {
     id: String,
-    session: Arc<Session>,
+    session: Arc<TermHost>,
     obs: Observation,
 }
 
-fn probe(id: String, session: Arc<Session>, kind: &str, detect_seq: u64, now: u64) -> Probe {
-    let exited = session.poll_exit();
+fn probe(id: String, session: Arc<TermHost>, kind: &str, detect_seq: u64, now: u64) -> Probe {
+    let exited = session.ended();
     let seq = session.output_seq.load(Ordering::Relaxed);
     let detection = (!exited && seq != detect_seq).then(|| {
-        let (text, title) = {
-            let screen = session.screen.lock().unwrap_or_else(|e| e.into_inner());
-            (screen.text(), screen.title())
-        };
+        let (text, title) = session.screen_text();
         (detect::detect(kind, &text, title.as_deref()), seq)
     });
     let last = session.last_activity.load(Ordering::Relaxed);
@@ -175,14 +172,27 @@ struct GitJob {
 fn tick(core: &Shared, badge: &mut usize) {
     let now = core.now();
     // 1. Snapshot what to look at, then do the slow parts unlocked.
+    // A dropped attachment (remote) isn't an exit: attach again first.
+    let mut relinks = Vec::new();
     let targets: Vec<_> = core
         .agents()
-        .iter()
+        .iter_mut()
         .filter_map(|a| {
-            let s = a.session.clone()?;
+            let s = a.host.clone()?;
+            if s.ended() && !s.eof_is_exit() {
+                if !a.relinking {
+                    a.relinking = true;
+                    relinks.push(a.rec.id.clone());
+                }
+                return None;
+            }
             Some((a.rec.id.clone(), s, a.kind().to_string(), a.detect_seq))
         })
         .collect();
+    for id in relinks {
+        let core = core.clone();
+        std::thread::spawn(move || super::lifecycle::relink(&core, &id));
+    }
     let probes: Vec<Probe> = targets
         .into_iter()
         .map(|(id, s, kind, seq)| probe(id, s, &kind, seq, now))
@@ -201,7 +211,7 @@ fn tick(core: &Shared, badge: &mut usize) {
         let mut agents = core.agents();
         for p in probes {
             let Some(a) = agents.iter_mut().find(|a| a.rec.id == p.id) else { continue };
-            if !a.session.as_ref().is_some_and(|s| Arc::ptr_eq(s, &p.session)) {
+            if !a.host.as_ref().is_some_and(|s| Arc::ptr_eq(s, &p.session)) {
                 continue;
             }
             let f = fold(a, p.obs, now);
@@ -233,7 +243,8 @@ fn tick(core: &Shared, badge: &mut usize) {
     for probe in wt_probes {
         let core = core.clone();
         std::thread::spawn(move || {
-            let found = worktree::discover(&*core.exec_for(&probe.id), &probe);
+            let cwd = worktree::process_cwd(&core, &probe);
+            let found = worktree::discover(&*core.exec_for(&probe.id), &probe, cwd);
             worktree::apply(&core, &probe.id, found);
         });
     }
@@ -249,15 +260,16 @@ fn tick(core: &Shared, badge: &mut usize) {
     }
 }
 
-/// Git refresh: wanted, or every 3s while active / after new output.
+/// Git refresh: wanted, or every 3s while active / after new output. Never
+/// for an agent outside a git repository, or whose machine can't run git.
 fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
     let mut jobs = Vec::new();
     for a in agents.iter_mut() {
-        if a.git_inflight {
+        if a.git_inflight || a.git_repo == Some(false) || !a.facts.provider.exec {
             continue;
         }
         let seq = a
-            .session
+            .host
             .as_ref()
             .map(|s| s.output_seq.load(Ordering::Relaxed))
             .unwrap_or(a.git_seq);
@@ -287,14 +299,19 @@ fn refresh_git(core: &Shared, job: GitJob) {
             a.git_inflight = false;
             a.git_at = now;
             a.git_seq = job.seq;
-            let before = (a.branch.clone(), a.added, a.removed, a.files_changed);
+            let before = (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo);
             a.branch = branch;
-            if let Ok(files) = changes {
-                a.added = files.iter().map(|f| f.added).sum();
-                a.removed = files.iter().map(|f| f.removed).sum();
-                a.files_changed = files.len() as u32;
+            match changes {
+                Ok(files) => {
+                    a.git_repo = Some(true);
+                    a.added = files.iter().map(|f| f.added).sum();
+                    a.removed = files.iter().map(|f| f.removed).sum();
+                    a.files_changed = files.len() as u32;
+                }
+                Err(e) if e == NOT_A_REPO => a.git_repo = Some(false),
+                Err(_) => {}
             }
-            before != (a.branch.clone(), a.added, a.removed, a.files_changed)
+            before != (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo)
         })
         .unwrap_or(false);
     if differs {
@@ -312,6 +329,7 @@ mod tests {
     fn agent() -> Agent {
         let mut a = Agent::new(record("a", "/tmp"), None, 1);
         a.status = Status::Unknown;
+        a.facts.provider.exec = true;
         a
     }
 
@@ -410,5 +428,29 @@ mod tests {
         assert!(git_due(&mut agents, 200 + GIT_EVERY_MS).is_empty(), "idle and no new output");
         agents[0].status = Status::Working;
         assert_eq!(git_due(&mut agents, 200 + GIT_EVERY_MS).len(), 1);
+        agents[0].git_inflight = false;
+        agents[0].git_repo = Some(false);
+        agents[0].git_wanted = true;
+        assert!(git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(), "outside a repo: never");
+        agents[0].git_repo = None;
+        agents[0].facts.provider.exec = false;
+        assert!(git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(), "no commands on that machine: never");
+    }
+
+    #[test]
+    fn git_polling_stops_outside_a_repository() {
+        let x = crate::testing::FakeExec::new();
+        x.on_exit(&["git", "-C", "/tmp/w", "diff", ".."], 128, "", "fatal: not a git repository (or any parent)")
+            .on_exit(&["git", "-C", "/tmp/w", "symbolic-ref", ".."], 128, "", "fatal: not a git repository");
+        let h = Harness::with_exec(vec![record("a", "/tmp/w")], x.clone());
+        let jobs = git_due(&mut h.engine.agents(), 10_000);
+        assert_eq!(jobs.len(), 1, "wanted once at start");
+        for job in jobs {
+            refresh_git(&h.engine, job);
+        }
+        let v = &h.engine.views()[0];
+        assert!(!v.caps.diff && !v.caps.review);
+        h.engine.with("a", |a| a.git_wanted = true).unwrap();
+        assert!(git_due(&mut h.engine.agents(), 99_000).is_empty());
     }
 }

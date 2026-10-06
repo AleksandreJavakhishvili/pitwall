@@ -1,23 +1,14 @@
-//! Agent kinds for the UI, with "is it installed" resolved once in the
-//! background (each lookup spawns a login shell, which is slow).
+//! The agent kinds: built-ins plus the user's files, read fresh each time
+//! (user files may change). Whether a kind is installed depends on the
+//! machine, so providers answer that (`Provider::kinds`).
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Condvar, Mutex};
 
 use super::{custom_kind, load_kinds, AgentKind};
-use crate::model::KindView;
 use crate::shell;
 
-type Resolved = HashMap<String, Option<String>>;
-
-/// The agent kinds (built-ins + the user's files) and where each kind's
-/// program is installed. Owned by the engine; resolving programs is slow, so
-/// [`warm_up`](Self::warm_up) does it once in the background.
 pub struct KindCatalog {
     user_dir: PathBuf,
-    resolved: Mutex<Option<Resolved>>,
-    ready: Condvar,
 }
 
 /// The program a kind's command runs (first word; `$VAR` expanded).
@@ -31,20 +22,10 @@ pub fn program(command: &str) -> String {
     }
 }
 
-fn resolve(program: &str) -> Option<String> {
-    if program.is_empty() {
-        return None;
-    }
-    if program.starts_with('/') {
-        return std::path::Path::new(program).exists().then(|| program.to_string());
-    }
-    shell::which(program)
-}
-
 impl KindCatalog {
     /// Kinds from the built-ins plus `*.toml` files in `user_dir`.
     pub fn new(user_dir: PathBuf) -> KindCatalog {
-        KindCatalog { user_dir, resolved: Mutex::new(None), ready: Condvar::new() }
+        KindCatalog { user_dir }
     }
 
     /// Every kind definition, read fresh (user files may change any time).
@@ -58,59 +39,11 @@ impl KindCatalog {
 
     /// A stored agent's kind: its custom command, or the definition by id.
     pub fn for_record(&self, kind: &str, custom_command: Option<&str>) -> Option<AgentKind> {
-        if kind == "custom" {
+        if kind == super::CUSTOM {
             Some(custom_kind(custom_command.unwrap_or("")))
         } else {
             self.find(kind)
         }
-    }
-
-    /// Start resolving every kind's program in the background.
-    pub fn warm_up(self: &Arc<Self>) {
-        let this = self.clone();
-        std::thread::spawn(move || {
-            let mut resolved = Resolved::new();
-            for kind in this.kinds() {
-                let p = program(&kind.command);
-                resolved.entry(p.clone()).or_insert_with(|| resolve(&p));
-            }
-            *this.resolved.lock().unwrap_or_else(|e| e.into_inner()) = Some(resolved);
-            this.ready.notify_all();
-        });
-    }
-
-    /// Kinds for the New-agent dialog. Blocks until warm-up finished (call
-    /// off the main thread).
-    pub fn list(&self) -> Vec<KindView> {
-        let mut guard = self.resolved.lock().unwrap_or_else(|e| e.into_inner());
-        while guard.is_none() {
-            guard = self.ready.wait(guard).unwrap_or_else(|e| e.into_inner());
-        }
-        let resolved = guard.as_mut().expect("checked above");
-        let mut views: Vec<KindView> = self
-            .kinds()
-            .into_iter()
-            .map(|kind| {
-                let p = program(&kind.command);
-                // Kinds added since startup get resolved now (rare).
-                let path = resolved.entry(p.clone()).or_insert_with(|| resolve(&p)).clone();
-                KindView {
-                    id: kind.id,
-                    name: kind.name,
-                    installed: path.is_some(),
-                    path,
-                    worktree: !kind.worktree_args.is_empty(),
-                }
-            })
-            .collect();
-        views.push(KindView {
-            id: "custom".into(),
-            name: "Custom command".into(),
-            installed: true,
-            path: None,
-            worktree: false,
-        });
-        views
     }
 }
 

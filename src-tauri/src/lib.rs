@@ -14,20 +14,24 @@ use std::sync::Arc;
 use tauri::{Manager, RunEvent, WindowEvent};
 
 use pitwall_core::clock::SystemClock;
-use pitwall_core::exec::LocalExec;
 use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
+use pitwall_providers::local::{LocalConfig, LocalProvider};
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let paths = Paths::new(Paths::default_root());
+    let local = LocalProvider::new(LocalConfig {
+        hold_dir: paths.hold_dir(),
+        holder_bin: holder::holder_bin(),
+        hook_socket: paths.hook_socket(),
+    });
     let engine = Engine::open(Deps {
         store: Arc::new(FileStore::new(paths.state_file())),
         paths,
         events: Arc::new(events::AppEvents::new(app.handle().clone())),
         clock: Arc::new(SystemClock::new()),
-        holder_bin: holder::holder_bin(),
-        exec: Arc::new(LocalExec),
+        providers: vec![Arc::new(local)],
     });
     app.manage(engine.clone());
     app.manage(Arc::new(pitwall_core::onboarding::elsewhere::Elsewhere::new()));

@@ -25,7 +25,7 @@ export function defaultSelection(projects: ScannedProject[], now = Date.now()): 
     projects
       .filter((p) => !p.added)
       .filter((p) => p.lastUsed !== null && now - p.lastUsed < month)
-      .filter((p) => p.sources.includes("claude") || p.sources.includes("codex"))
+      .filter((p) => p.agentHistory)
       .slice(0, 12)
       .map((p) => p.path),
   );

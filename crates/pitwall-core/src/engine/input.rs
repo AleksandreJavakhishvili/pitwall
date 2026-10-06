@@ -2,28 +2,28 @@
 
 use super::{tasks, Engine, Shared};
 use crate::model::AgentView;
-use crate::session::OutputSink;
+use crate::term::OutputSink;
 
 type Res<T> = Result<T, String>;
 
 /// Replay the agent's buffered output to `sink`, then stream live output.
 /// Returns the subscription id for [`detach_output`].
 pub fn attach_output(engine: &Engine, agent_id: &str, sink: OutputSink) -> Res<u64> {
-    Ok(engine.session(agent_id)?.attach(sink))
+    Ok(engine.host(agent_id)?.attach(sink))
 }
 
 pub fn detach_output(engine: &Engine, agent_id: &str, subscription_id: u64) {
     // Detaching from an agent that is gone or restarted is not an error.
-    if let Ok(Some(session)) = engine.with(agent_id, |a| a.session.clone()) {
-        session.detach(subscription_id);
+    if let Ok(Some(host)) = engine.with(agent_id, |a| a.host.clone()) {
+        host.detach(subscription_id);
     }
 }
 
 /// Keystrokes typed in the agent's terminal.
 pub fn write_input(engine: &Shared, agent_id: &str, data: &str) -> Res<()> {
-    let session = engine.session(agent_id)?;
-    session.touch_input();
-    session.write(data.as_bytes())?;
+    let host = engine.host(agent_id)?;
+    host.touch_input();
+    host.write(data.as_bytes())?;
     if data.contains('\r') {
         // Enter in the terminal: there's probably a conversation to resume now.
         let changed = engine.with(agent_id, |a| !std::mem::replace(&mut a.rec.has_conversation, true))?;
@@ -38,8 +38,8 @@ pub fn write_input(engine: &Shared, agent_id: &str, data: &str) -> Res<()> {
 /// The size the UI shows the agent at. Recorded even with no process
 /// (stopped, or mid-restart) so the next start uses it.
 pub fn resize(engine: &Engine, agent_id: &str, cols: u16, rows: u16) -> Res<()> {
-    let (session, recorded) = engine.with(agent_id, |a| (a.session.clone(), a.rec.set_term_size((cols, rows))))?;
-    let resized = session.is_some_and(|s| s.resize(cols, rows));
+    let (host, recorded) = engine.with(agent_id, |a| (a.host.clone(), a.rec.set_term_size((cols, rows))))?;
+    let resized = host.is_some_and(|h| h.resize(cols, rows));
     if recorded || resized {
         engine.changed(recorded);
     }
@@ -50,7 +50,7 @@ pub fn resize(engine: &Engine, agent_id: &str, cols: u16, rows: u16) -> Res<()> 
 pub fn send_prompt(engine: &Shared, agent_id: &str, text: String) -> Res<()> {
     let now = engine.now();
     let session = engine.with(agent_id, |a| {
-        let s = a.session.clone().filter(|_| a.running());
+        let s = a.host.clone().filter(|_| a.running());
         if s.is_some() {
             a.note_sent(&text, now);
         }
@@ -69,7 +69,7 @@ pub fn queue_send_now(engine: &Shared, agent_id: &str, item_id: &str) -> Res<Age
     let now = engine.now();
     let (session, text, view) = engine
         .with(agent_id, |a| {
-            let session = a.session.clone().filter(|_| a.running()).ok_or("agent is not running")?;
+            let session = a.host.clone().filter(|_| a.running()).ok_or("agent is not running")?;
             let pos = a.rec.queue.iter().position(|q| q.id == item_id).ok_or("queue item not found")?;
             let item = a.rec.queue.remove(pos);
             a.note_sent(&item.text, now);

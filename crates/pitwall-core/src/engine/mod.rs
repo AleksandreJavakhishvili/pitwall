@@ -16,22 +16,23 @@ pub mod terminals;
 mod ticker;
 pub(crate) mod worktree;
 
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use serde_json::Value;
 
 use crate::clock::Clock;
+use crate::error::{PwError, Result as PwResult};
 use crate::events::{Event, EventSink};
-use crate::exec::Exec;
+use crate::exec::{Cmd, Exec, Out, Stat};
 use crate::hooks::{self, HookEffect};
-use crate::kind::KindCatalog;
-use crate::model::{AgentRecord, AgentView, QueueItem};
+use crate::kind::{self, KindCatalog};
+use crate::model::{AgentRecord, AgentView, KindCaps, KindView, QueueItem};
 use crate::onboarding::project_list::ProjectList;
 use crate::paths::Paths;
-use crate::session::Session;
+use crate::provider::{Locator, Provider, Providers, TermSize};
 use crate::store::{Snapshot, Store};
-pub(crate) use agent::Agent;
+use crate::term::TermHost;
+pub(crate) use agent::{Agent, Facts};
 pub use tasks::Task;
 
 /// What the host provides.
@@ -40,12 +41,9 @@ pub struct Deps {
     pub events: Arc<dyn EventSink>,
     pub clock: Arc<dyn Clock>,
     pub store: Arc<dyn Store>,
-    /// The `pitwall-hold` executable, or why there is none (reported when an
-    /// agent is started).
-    pub holder_bin: Result<PathBuf, String>,
-    /// Runs git and reads files where agents work (`LocalExec` for this
-    /// machine). One machine today; providers bring their own (step 4).
-    pub exec: Arc<dyn Exec>,
+    /// Where agents run (architecture.md §2.2). The first one that can create
+    /// agents gets new ones; stored agents find theirs by locator.
+    pub providers: Vec<Arc<dyn Provider>>,
 }
 
 #[derive(Default)]
@@ -62,8 +60,7 @@ pub struct Engine {
     events: Arc<dyn EventSink>,
     clock: Arc<dyn Clock>,
     store: Arc<dyn Store>,
-    holder_bin: Result<PathBuf, String>,
-    exec: Arc<dyn Exec>,
+    providers: Providers,
     kinds: Arc<KindCatalog>,
     projects: ProjectList,
     snapshots: tasks::Worker,
@@ -76,41 +73,52 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Engine {
-    /// Load the saved agents. Agents whose terminal holder survived the last
-    /// run are running again, without a restart; the rest are stopped.
-    /// Starts no background work (see [`start`](Self::start)).
+    /// Load the saved agents. Agents whose session survived the last run
+    /// (their provider can attach to it) are running again, without a
+    /// restart; the rest are stopped. Starts no background work (see
+    /// [`start`](Self::start)).
     pub fn open(deps: Deps) -> Shared {
-        let Deps { paths, events, clock, store, holder_bin, exec } = deps;
-        let agents = store
-            .load()
-            .agents
-            .into_iter()
-            .map(|rec| {
-                let session = lifecycle::reattach(&paths, &clock, &rec);
-                Agent::new(rec, session, clock.mono_ms())
-            })
-            .collect();
-        Arc::new(Engine {
-            agents: Mutex::new(agents),
+        let Deps { paths, events, clock, store, providers } = deps;
+        let engine = Arc::new(Engine {
+            agents: Mutex::new(Vec::new()),
             dirty: Mutex::new(Dirty::default()),
             wake: Condvar::new(),
             kinds: Arc::new(KindCatalog::new(paths.user_agents_dir())),
             projects: ProjectList::new(paths.projects_file()),
             snapshots: tasks::Worker::default(),
+            providers: Providers::new(providers),
             paths,
             events,
             clock,
             store,
-            holder_bin,
-            exec,
-        })
+        });
+        let agents = engine
+            .store
+            .load()
+            .agents
+            .into_iter()
+            .map(|mut rec| {
+                // v1 records: every agent ran on this Mac.
+                let loc = rec.locator.get_or_insert_with(|| Locator::local(&rec.id)).clone();
+                let host = lifecycle::reattach(&engine, &loc, &rec);
+                let mut agent = Agent::new(rec, host, engine.now());
+                agent.facts = engine.facts(&loc, &agent.rec);
+                agent
+            })
+            .collect();
+        *engine.agents() = agents;
+        engine
     }
 
     /// Background work: resolve installed kinds, install the hook relay and
     /// listen for hooks, the snapshot worker, the status ticker and the
     /// throttled change emitter / state saver.
     pub fn start(self: &Shared) {
-        self.kinds.warm_up();
+        // Resolving which kinds are installed is slow (login shells): start now.
+        let engine = self.clone();
+        std::thread::spawn(move || {
+            let _ = engine.list_kinds();
+        });
         if let Err(e) = hooks::install_script(&self.paths) {
             eprintln!("pitwall: could not install hook script: {e}");
         }
@@ -152,23 +160,59 @@ impl Engine {
         self.clock.mono_ms()
     }
 
-    pub(crate) fn clock(&self) -> &Arc<dyn Clock> {
-        &self.clock
+    pub fn providers(&self) -> &Providers {
+        &self.providers
     }
 
-    pub(crate) fn holder_bin(&self) -> Result<&Path, String> {
-        self.holder_bin.as_deref().map_err(Clone::clone)
+    /// Agent `id`'s locator and provider.
+    pub(crate) fn provider_of(&self, id: &str) -> PwResult<(Locator, Arc<dyn Provider>)> {
+        let loc = self.with(id, |a| a.rec.locator()).map_err(PwError::not_found)?;
+        let p = self.providers.for_locator(&loc)?;
+        Ok((loc, p))
     }
 
     /// The machine where agent `id` works: git, snapshots, Review, worktree
-    /// discovery and rules reach its files through this.
-    pub(crate) fn exec_for(&self, _id: &str) -> Arc<dyn Exec> {
-        self.exec.clone()
+    /// discovery and rules reach its files through this. A machine that
+    /// can't be reached answers every call with that error. Takes the
+    /// registry lock: never call it from inside [`with`](Self::with).
+    pub(crate) fn exec_for(&self, id: &str) -> Arc<dyn Exec> {
+        let loc = self.with(id, |a| a.rec.locator()).unwrap_or_else(|_| Locator::local(id));
+        self.providers.exec(&loc).unwrap_or_else(|e| Arc::new(NoExec(e)))
     }
 
-    /// The machine new agents are created on.
-    pub(crate) fn exec(&self) -> &dyn Exec {
-        &*self.exec
+    /// What the engine needs to know about `loc`'s provider and `rec`'s kind
+    /// there (capabilities, machine label, home folder).
+    pub(crate) fn facts(&self, loc: &Locator, rec: &AgentRecord) -> Facts {
+        let Ok(p) = self.providers.for_locator(loc) else { return Facts::default() };
+        let caps = p.caps();
+        let kind = self.kinds.for_record(&rec.kind, rec.custom_command.as_deref());
+        Facts {
+            provider: caps,
+            kind: kind.map(|k| KindCaps::of(&k, &caps)).unwrap_or_default(),
+            machine_label: self.providers.machine_label(loc),
+            home: p.exec(&loc.machine).and_then(|x| x.home()).ok(),
+        }
+    }
+
+    /// Kinds for the New-agent dialog, on the machine new agents go to, with
+    /// what each can do there. Blocking (the provider may resolve programs).
+    pub fn list_kinds(&self) -> Result<Vec<KindView>, String> {
+        let (p, m) = self.providers.default_target()?;
+        let caps = p.caps();
+        let mut views: Vec<KindView> = p
+            .kinds(&m.id, &self.kinds)?
+            .into_iter()
+            .map(|k| {
+                let kc = KindCaps::of(&k.kind, &caps);
+                KindView { id: k.kind.id, name: k.kind.name, installed: k.installed, path: k.path, worktree: kc.worktree, caps: kc }
+            })
+            .collect();
+        if caps.custom_command {
+            let custom = kind::custom_kind("");
+            let kc = KindCaps::of(&custom, &caps);
+            views.push(KindView { id: custom.id, name: "Custom command".into(), installed: true, path: None, worktree: kc.worktree, caps: kc });
+        }
+        Ok(views)
     }
 
     pub(crate) fn submit(&self, jobs: Vec<tasks::Job>) {
@@ -191,9 +235,15 @@ impl Engine {
         Ok(f(agent))
     }
 
-    pub(crate) fn session(&self, id: &str) -> Result<Arc<Session>, String> {
-        self.with(id, |a| a.session.clone())?
+    /// Agent `id`'s terminal, while attached.
+    pub(crate) fn host(&self, id: &str) -> Result<Arc<TermHost>, String> {
+        self.with(id, |a| a.host.clone())?
             .ok_or_else(|| "agent is not running".to_string())
+    }
+
+    /// Start using `io` as agent `id`'s terminal at `size`.
+    pub(crate) fn host_for(&self, io: Box<dyn crate::provider::TermIo>, size: TermSize) -> Arc<TermHost> {
+        TermHost::new(io, size, self.clock.clone())
     }
 
     pub fn views(&self) -> Vec<AgentView> {
@@ -274,6 +324,42 @@ impl Engine {
     }
 }
 
+/// The `Exec` of a machine that can't be reached: every call fails with why.
+struct NoExec(PwError);
+
+impl Exec for NoExec {
+    fn run(&self, _cmd: &Cmd) -> PwResult<Out> {
+        Err(self.0.clone())
+    }
+    fn read_file(&self, _path: &str, _max: u64) -> PwResult<Option<Vec<u8>>> {
+        Err(self.0.clone())
+    }
+    fn write_file(&self, _path: &str, _bytes: &[u8]) -> PwResult<()> {
+        Err(self.0.clone())
+    }
+    fn remove_file(&self, _path: &str) -> PwResult<()> {
+        Err(self.0.clone())
+    }
+    fn remove_dir(&self, _path: &str) -> PwResult<()> {
+        Err(self.0.clone())
+    }
+    fn copy_file(&self, _from: &str, _to: &str) -> PwResult<()> {
+        Err(self.0.clone())
+    }
+    fn stat(&self, _path: &str) -> PwResult<Option<Stat>> {
+        Err(self.0.clone())
+    }
+    fn real_path(&self, _path: &str) -> PwResult<String> {
+        Err(self.0.clone())
+    }
+    fn temp_dir(&self) -> PwResult<String> {
+        Err(self.0.clone())
+    }
+    fn home(&self) -> PwResult<String> {
+        Err(self.0.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,7 +372,7 @@ mod tests {
         let views = h.engine.views();
         assert_eq!(views.len(), 2);
         assert!(views.iter().all(|v| v.status == Status::Stopped && !v.running));
-        assert!(h.engine.session("a").is_err());
+        assert!(h.engine.host("a").is_err());
     }
 
     #[test]

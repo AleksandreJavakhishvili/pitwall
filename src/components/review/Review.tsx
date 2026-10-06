@@ -79,7 +79,10 @@ function useAgentFiles(agents: AgentView[], scope: Record<string, string | null>
 }
 
 export default function Review({ agents, onExit }: { agents: AgentView[]; onExit(): void }) {
-  const ordered = useMemo(() => groupByProject(agents).flatMap((g) => g.agents), [agents]);
+  // Only agents whose changes can be read (not outside a git repository).
+  const reviewable = useMemo(() => agents.filter((a) => a.caps.review), [agents]);
+  const hidden = agents.length - reviewable.length;
+  const ordered = useMemo(() => groupByProject(reviewable).flatMap((g) => g.agents), [reviewable]);
   const [scope, setScope] = useState<Record<string, string | null>>({});
   const [nonce, setNonce] = useState(0);
   const { files, errors } = useAgentFiles(ordered, scope, nonce);
@@ -209,7 +212,7 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
 
       <div className="review-body">
         <aside className="rv-list" aria-label="Changes by agent" ref={listRef}>
-          {ordered.length === 0 && <p className="hint pad">No agents yet.</p>}
+          {ordered.length === 0 && <p className="hint pad">{hidden ? "No agents with changes to review." : "No agents yet."}</p>}
           {ordered.map((a) => {
             const list = files[a.id];
             const err = errors[a.id];
@@ -292,6 +295,11 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
               </section>
             );
           })}
+          {hidden > 0 && ordered.length > 0 && (
+            <p className="hint pad">
+              {hidden === 1 ? "1 agent works" : `${hidden} agents work`} outside a git repository — no changes to review.
+            </p>
+          )}
         </aside>
 
         <section className="rv-main">

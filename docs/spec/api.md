@@ -41,7 +41,7 @@ Onboarding and project list ([onboarding.md](onboarding.md)):
 
 | Command | Args | Returns |
 |---|---|---|
-| `scan_environment` | – | `ScanResult` (read-only; emits `scan-progress`) |
+| `scan_environment` | – | `ScanResult` (read-only; emits `scan-progress`). `projects[].agentHistory`: some source is an agent's conversations; `codexHooks` is set only when an installed agent takes its hooks from Codex's global file |
 | `get_onboarded` | – | `boolean` |
 | `list_projects` | – | `Project[]` |
 | `add_project` | `path` | `Project[]` (→ `projects-changed`) |
@@ -103,18 +103,42 @@ Events (Tauri `listen`):
 ```ts
 type Status = "working"|"blocked"|"idle"|"done"|"unknown"|"exited"|"stopped";
 interface KindView { id: string; name: string; installed: boolean; path?: string;
-  worktree: boolean } // the kind's CLI has its own worktree flag (`worktree_args`)
+  worktree: boolean; // = caps.worktree (kept for older UIs)
+  caps: KindCaps }
+// What a kind can do on the machine new agents go to: its definition combined
+// with the provider's capabilities (architecture.md §3). "Custom command" is
+// listed only when the provider runs typed commands (caps.customCommand).
+interface KindCaps { worktree: boolean; resume: boolean; rules: boolean; hooks: boolean; customCommand: boolean }
 interface RecentProject { path: string; display: string; lastUsed: number }
 interface QueueItem { id: string; text: string }
 interface AgentView {
   id: string; name: string; kind: string; kindName: string;
   cwd: string; cwdDisplay: string; project: string; projectDisplay: string;
-  branch: string | null; worktree: boolean; location: "local";
+  branch: string | null; worktree: boolean;
+  location: string; // provider id ("local"); display only
+  machine: { provider: string; id: string; label: string }; // display and grouping only
+  terminal: boolean; agentInTerminal: boolean; // a terminal, running an agent started by hand
+  caps: AgentCaps; // the only thing the UI decides features by (below)
   worktreePending: boolean; // asked for its own worktree, not found yet (worktrees.md)
   status: Status; statusSource: "hooks"|"screen"|"activity"; statusDetail: string | null;
   running: boolean; added: number; removed: number; filesChanged: number;
   queue: QueueItem[]; autoSend: boolean; lastSent: string | null; lastSentAt: number | null;
   createdAt: number;
+}
+// architecture.md §3. The UI never asks which kind or provider an agent has
+// (src/lib/noSpecialCases.test.ts enforces it).
+interface AgentCaps {
+  input: boolean;          // running and attached
+  restart: boolean;        // provider can create or resume
+  resume: boolean;         // a restart continues its conversation (provider + kind can, and it has one)
+  stop: boolean;           // running
+  removeWorktree: boolean; // provider runs commands there && it has a worktree
+  diff: boolean;           // provider runs commands there && cwd is a git repo (unknown counts as yes);
+                           // false also stops git polling for the agent
+  review: boolean;         // = diff
+  merge: boolean;          // diff && worktree && on a branch
+  rules: boolean;          // provider.rules && kind has a rulesync target
+  hooks: boolean;          // provider delivers hooks && kind has hooks
 }
 interface CreateAgentRequest {
   name: string; kind: string; projectPath: string;
@@ -123,7 +147,8 @@ interface CreateAgentRequest {
   resumeSessionId?: string; ruleSetId?: string; applyToMainCheckout?: boolean; displayProject?: string;
   cols?: number; rows?: number; // size it will be shown at
 }
-interface FileChange { path: string; added: number; removed: number; untracked: boolean; binary: boolean }
+interface FileChange { path: string; added: number; removed: number; untracked: boolean; binary: boolean;
+  status?: "M"|"A"|"D"|"R"|"U" } // git's letter (`diff --raw -M` / `--name-status`); renames carry the new path
 ```
 All Rust structs crossing the boundary use `#[serde(rename_all = "camelCase")]`.
 

@@ -11,6 +11,7 @@ mod local;
 use std::time::Duration;
 
 pub use local::LocalExec;
+pub use crate::error::{PwError, Result};
 
 /// Generous bound for commands that had none before (git, rulesync, login
 /// shells): only a hung program ever hits it.
@@ -85,30 +86,30 @@ pub struct Stat {
     pub len: u64,
 }
 
-/// Run programs and read/write files on one machine. Errors are
-/// human-readable. Blocking, like everything in the core.
+/// Run programs and read/write files on one machine. Errors carry a code
+/// and a human-readable message. Blocking, like everything in the core.
 pub trait Exec: Send + Sync {
     /// Run to completion. `Err` only when it couldn't run or timed out; a
     /// non-zero exit is an `Ok` with that `status`.
-    fn run(&self, cmd: &Cmd) -> Result<Out, String>;
+    fn run(&self, cmd: &Cmd) -> Result<Out>;
     /// At most `max` bytes of the file (a longer one comes back cut at
     /// `max`; ask for one byte more than you accept to spot that). `None`
     /// when it doesn't exist.
-    fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>, String>;
+    fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>>;
     /// Create or replace a file, creating missing parent folders.
-    fn write_file(&self, path: &str, bytes: &[u8]) -> Result<(), String>;
-    fn remove_file(&self, path: &str) -> Result<(), String>;
+    fn write_file(&self, path: &str, bytes: &[u8]) -> Result<()>;
+    fn remove_file(&self, path: &str) -> Result<()>;
     /// Remove an empty folder (fails when it isn't empty).
-    fn remove_dir(&self, path: &str) -> Result<(), String>;
-    fn copy_file(&self, from: &str, to: &str) -> Result<(), String>;
+    fn remove_dir(&self, path: &str) -> Result<()>;
+    fn copy_file(&self, from: &str, to: &str) -> Result<()>;
     /// `None` when nothing is at `path`.
-    fn stat(&self, path: &str) -> Result<Option<Stat>, String>;
+    fn stat(&self, path: &str) -> Result<Option<Stat>>;
     /// Absolute path with every symlink resolved; fails when it doesn't exist.
-    fn real_path(&self, path: &str) -> Result<String, String>;
+    fn real_path(&self, path: &str) -> Result<String>;
     /// A scratch folder on the machine (temp index files for task snapshots).
-    fn temp_dir(&self) -> Result<String, String>;
+    fn temp_dir(&self) -> Result<String>;
     /// The user's home folder there (for "~/…" display).
-    fn home(&self) -> Result<String, String>;
+    fn home(&self) -> Result<String>;
 }
 
 /// `rel` inside `dir` (target-machine path syntax).

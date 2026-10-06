@@ -1,6 +1,5 @@
 import type { MouseEvent } from "react";
 import type { AgentView } from "../types";
-import { SHELL_KIND } from "../lib/terminals";
 import { STATUS_WORD } from "../lib/status";
 import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
@@ -40,7 +39,7 @@ export function AgentRow({ agent: a, index, selected, where, onSelect, onContext
             <span className="chip">{a.location}</span>
             <span className="agent-kind">
               {a.kindName}
-              {a.terminal && a.kind !== SHELL_KIND && <span className="in-terminal"> · in terminal</span>}
+              {a.agentInTerminal && <span className="in-terminal"> · in terminal</span>}
             </span>
             <DiffStat added={a.added} removed={a.removed} />
           </span>

@@ -10,7 +10,6 @@ import { canPickFolder, pickFolder } from "../lib/pickFolder";
 import { NO_RULES, RulesField, reportRulesAfterCreate, rulesRequest, type RulesChoice } from "./rules/RulesField";
 
 const OTHER = "__other__";
-const CUSTOM = "custom";
 
 function slug(s: string): string {
   const base = s
@@ -68,8 +67,8 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
       ];
       setKinds(k);
       setRecents(r);
-      const firstInstalled = k.find((x) => x.installed && x.id !== CUSTOM);
-      setKind(firstInstalled?.id ?? CUSTOM);
+      const firstInstalled = k.find((x) => x.installed && !x.caps?.customCommand) ?? k.find((x) => x.installed);
+      setKind(firstInstalled?.id ?? "");
       if (initialProject && r.some((x) => x.path === initialProject)) setProjectChoice(initialProject);
       else if (initialProject) setOtherPath(initialProject);
       else if (r.length) setProjectChoice(r[0].path);
@@ -77,19 +76,18 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
   }, [initialProject]);
 
   const projectPath = projectChoice === OTHER ? otherPath.trim() : projectChoice;
-  // Only kinds whose CLI has its own worktree flag (docs/spec/worktrees.md).
-  const worktreeSupported = !!kinds?.find((k) => k.id === kind)?.worktree;
+  const selected = kinds?.find((k) => k.id === kind);
+  // Only kinds whose CLI has its own worktree flag, where the provider can
+  // find it (docs/spec/worktrees.md).
+  const worktreeSupported = !!selected?.caps?.worktree;
+  const customCommandKind = !!selected?.caps?.customCommand;
   const worktree = worktreeSupported && worktreeChecked;
 
   useEffect(() => {
     if (!nameTouched && projectPath) setName(suggestName(projectPath, taken));
   }, [projectPath, nameTouched, taken]);
 
-  // "Custom command" is always offered, whether or not list_kinds includes it.
-  const kindOptions: KindView[] = useMemo(() => {
-    const list = (kinds ?? []).filter((k) => k.id !== CUSTOM);
-    return [...list, { id: CUSTOM, name: "Custom command", installed: true }];
-  }, [kinds]);
+  const kindOptions: KindView[] = kinds ?? [];
 
   const nameError = !name
     ? "Name required"
@@ -99,7 +97,7 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
         ? "Another agent already has this name"
         : null;
   const projectError = !projectPath ? "Pick a project folder" : !projectPath.startsWith("/") && !projectPath.startsWith("~") ? "Use an absolute path" : null;
-  const commandError = kind === CUSTOM && !customCommand.trim() ? "Enter a command" : null;
+  const commandError = customCommandKind && !customCommand.trim() ? "Enter a command" : null;
   const valid = !nameError && !projectError && !commandError && !!kind;
 
   const submit = async () => {
@@ -113,7 +111,7 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
         projectPath,
         worktree,
         ...(await newAgentSize()),
-        ...(kind === CUSTOM ? { customCommand } : {}),
+        ...(customCommandKind ? { customCommand } : {}),
         ...rulesRequest(rules, worktree),
       });
       onCreated(a);
@@ -156,12 +154,12 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
                       onChange={() => setKind(k.id)}
                     />
                     <span className="kind-name">{k.name}</span>
-                    <span className="kind-sub">{k.id === CUSTOM ? "any CLI" : k.installed ? "installed" : "not installed"}</span>
+                    <span className="kind-sub">{k.caps?.customCommand ? "any CLI" : k.installed ? "installed" : "not installed"}</span>
                   </label>
                 ))}
               </div>
             )}
-            {kind === CUSTOM && (
+            {customCommandKind && (
               <input
                 className="input mono"
                 placeholder="e.g. aider --model sonnet"
@@ -251,7 +249,7 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
             </label>
           )}
 
-          <RulesField kind={kind} projectPath={projectPath} worktree={worktree} value={rules} onChange={setRules} />
+          <RulesField canRules={!!selected?.caps?.rules} projectPath={projectPath} worktree={worktree} value={rules} onChange={setRules} />
 
           {submitError && <p className="form-error">{submitError}</p>}
         </div>

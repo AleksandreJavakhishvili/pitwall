@@ -31,18 +31,16 @@ export async function reportRulesAfterCreate(agentId: string, run: <T>(p: Promis
   }
 }
 
-/** Agents without a rulesync target can't take rules. */
-const NO_TARGET = new Set(["custom", "shell"]);
-
 interface Props {
-  kind: string;
+  /** The chosen kind can take rules here (`KindView.caps.rules`). */
+  canRules: boolean;
   projectPath: string;
   worktree: boolean;
   value: RulesChoice;
   onChange(v: RulesChoice): void;
 }
 
-export function RulesField({ kind, projectPath, worktree, value, onChange }: Props) {
+export function RulesField({ canRules, projectPath, worktree, value, onChange }: Props) {
   const [sets, setSets] = useState<RuleSet[] | null>(null);
   const [status, setStatus] = useState<RulesStatus | null>(null);
   const [projectSet, setProjectSet] = useState<string | null>(null);
@@ -68,7 +66,7 @@ export function RulesField({ kind, projectPath, worktree, value, onChange }: Pro
   }, [projectPath]);
 
   // Nothing to offer until there are rule sets.
-  if (!sets || sets.length === 0 || NO_TARGET.has(kind)) return null;
+  if (!sets || sets.length === 0 || !canRules) return null;
 
   const projectSetName = sets.find((s) => s.id === projectSet)?.name;
   const anyRules = !!value.ruleSetId || !!projectSet;

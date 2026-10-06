@@ -2,18 +2,18 @@
 //! Pitwall never creates worktrees: it passes the agent's own flag
 //! (`claude --worktree <name>`, `codex --worktree`) and then finds out where
 //! the agent actually works, from (in order) the hook payload's `cwd`, the
-//! process's cwd (`lsof`), or a worktree that appeared after the launch.
-//! Git and folder checks go through the agent's machine [`Exec`].
+//! process's cwd (its provider's `process_cwd`), or a worktree that appeared
+//! after the launch. Git and folder checks go through the agent's machine
+//! [`Exec`].
 
 use std::path::Path;
-use std::time::Duration;
 
 use serde_json::Value;
 
 use super::{Agent, Shared};
 use crate::exec::{self, Exec};
 use crate::model::WorktreeInfo;
-use crate::platform;
+use crate::provider::Locator;
 use crate::rules;
 use crate::vcs::git::{self, Git};
 
@@ -21,7 +21,6 @@ use crate::vcs::git::{self, Git};
 pub const WATCH_MS: u64 = 120_000;
 /// Gap between two looks.
 pub const POLL_MS: u64 = 1_500;
-const LSOF_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// In-memory: an agent launched with its worktree flag that we're watching.
 #[derive(Debug, Clone)]
@@ -105,15 +104,20 @@ fn found(exec: &dyn Exec, repo: &str, top: &str, cwd: &str) -> Found {
     Found { path: top.to_string(), cwd: cwd.to_string(), branch, base }
 }
 
-/// The current folder of process `pid`.
-pub fn process_cwd(pid: u32) -> Option<String> {
-    platform::process_cwds(&[pid], LSOF_TIMEOUT)?.into_iter().find(|(p, _)| *p == pid).map(|(_, cwd)| cwd)
+/// Where the probed agent's process is now, if its provider can tell.
+pub fn process_cwd(core: &Shared, p: &Probe) -> Option<String> {
+    let provider = core.providers().for_locator(&p.loc).ok()?;
+    if !provider.caps().process_cwd {
+        return None;
+    }
+    provider.process_cwd(&p.loc, p.pid).ok().flatten()
 }
 
 /// Everything the ticker's look needs (gathered under the lock).
 #[derive(Debug, Clone)]
 pub struct Probe {
     pub id: String,
+    pub loc: Locator,
     pub repo: String,
     pub pid: Option<u32>,
     pub before: Vec<String>,
@@ -121,9 +125,10 @@ pub struct Probe {
     pub claimed: Vec<String>,
 }
 
-/// Process cwd first, else a worktree that appeared since the launch.
-pub fn discover(exec: &dyn Exec, p: &Probe) -> Option<Found> {
-    if let Some(f) = p.pid.and_then(process_cwd).and_then(|cwd| check(exec, &p.repo, &cwd, &p.claimed)) {
+/// The process's folder (`cwd`, from [`process_cwd`]) first, else a
+/// worktree that appeared since the launch.
+pub fn discover(exec: &dyn Exec, p: &Probe, cwd: Option<String>) -> Option<Found> {
+    if let Some(f) = cwd.and_then(|cwd| check(exec, &p.repo, &cwd, &p.claimed)) {
         return Some(f);
     }
     discover_new(exec, p)
@@ -176,6 +181,7 @@ pub fn adopt(a: &mut Agent, f: Found) -> bool {
     a.rec.worktree_pending = false;
     a.watch = None;
     a.git_wanted = true;
+    a.git_repo = None;
     true
 }
 
@@ -219,8 +225,9 @@ pub fn due(agents: &mut [Agent], now: u64) -> Vec<Probe> {
         }
         let probe = Probe {
             id: a.rec.id.clone(),
+            loc: a.rec.locator(),
             repo: a.rec.project.clone(),
-            pid: a.session.as_ref().and_then(|s| s.pid),
+            pid: a.local_pid(),
             before: w.before.clone(),
             hint: w.hint.clone(),
             claimed: claimed(agents, &a.rec.id),
@@ -319,6 +326,7 @@ mod tests {
         let pid = child.id();
         let probe = Probe {
             id: "a".into(),
+            loc: Locator::local("a"),
             repo: repo.clone(),
             pid: Some(pid),
             before: before.clone(),
@@ -327,11 +335,12 @@ mod tests {
         };
         let mut got = None;
         for _ in 0..100 {
-            got = discover(&LocalExec, &probe);
+            let cwd = crate::host::process_cwd(pid, std::time::Duration::from_secs(3));
+            got = discover(&LocalExec, &probe, cwd);
             if got.is_some() {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
         let _ = child.kill();
         let _ = child.wait();
@@ -339,11 +348,11 @@ mod tests {
         assert_eq!(f.path, canon(&LocalExec, wt.to_str().unwrap()));
         assert_eq!(f.branch, "fake/job");
 
-        // Without a pid (or lsof): the newly listed worktree is found too.
-        let f2 = discover(&LocalExec, &Probe { pid: None, ..probe.clone() }).unwrap();
+        // Without the process's folder: the newly listed worktree is found too.
+        let f2 = discover(&LocalExec, &Probe { pid: None, ..probe.clone() }, None).unwrap();
         assert_eq!(f2.path, f.path);
         // ...but not when it existed before the launch.
-        assert_eq!(discover(&LocalExec, &Probe { pid: None, before: roots(&LocalExec, &repo), ..probe }), None);
+        assert_eq!(discover(&LocalExec, &Probe { pid: None, before: roots(&LocalExec, &repo), ..probe }, None), None);
     }
 
     const LIST: [&str; 6] = ["git", "-C", "/r", "worktree", "list", "--porcelain"];
@@ -377,24 +386,25 @@ mod tests {
         let x = fake_repo(&[("/r/.wt/old", "old"), ("/r/.wt/zzz", "zzz"), ("/r/.wt/job", "worktree-job")]);
         let probe = Probe {
             id: "a".into(),
+            loc: Locator::local("a"),
             repo: "/r".into(),
             pid: None,
             before: vec!["/r".into(), "/r/.wt/old".into()],
             hint: Some("job".into()),
             claimed: vec![],
         };
-        let f = discover(&*x, &probe).unwrap();
+        let f = discover(&*x, &probe, None).unwrap();
         assert_eq!(
             f,
             Found { path: "/r/.wt/job".into(), cwd: "/r/.wt/job".into(), branch: "worktree-job".into(), base: Some("aaa".into()) }
         );
         // Claimed by another agent: the next new one.
-        let f = discover(&*x, &Probe { claimed: vec!["/r/.wt/job".into()], ..probe.clone() }).unwrap();
+        let f = discover(&*x, &Probe { claimed: vec!["/r/.wt/job".into()], ..probe.clone() }, None).unwrap();
         assert_eq!(f.path, "/r/.wt/zzz");
         // A listed worktree whose folder is gone is skipped.
         let x = fake_repo(&[]);
         x.on(&LIST, "worktree /r\nbranch refs/heads/main\n\nworktree /gone\nbranch refs/heads/g\n\n");
-        assert_eq!(discover(&*x, &probe), None);
+        assert_eq!(discover(&*x, &probe, None), None);
         assert!(x.calls().iter().all(|c| c.env_has("GIT_OPTIONAL_LOCKS", "0")));
     }
 }

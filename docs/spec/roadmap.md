@@ -30,9 +30,24 @@ agents plug in without touching the rest. Design first, user reviews, then build
 5. Race Engineer preset (optional assistant) → [engineer.md](engineer.md)
 
 ## Wave 3
+- macOS permissions for other users: welcome-screen step explaining Full Disk
+  Access with an "Open Settings" button and a granted/not-granted check;
+  Info.plist usage strings (NSDesktopFolderUsageDescription,
+  NSDocumentsFolderUsageDescription, NSDownloadsFolderUsageDescription) so
+  the prompt says why; only poll git for visible or recently active agents.
+- Release hygiene: stable install location (/Applications) + Developer ID code
+  signing + notarization, so macOS privacy grants (Desktop/Documents access)
+  persist across builds instead of re-prompting for every new unsigned copy.
 - Windows port (ConPTY via portable-pty, named pipes, pitwall-hook binary,
   PowerShell launch, tray + taskbar badge); test in a Parallels Windows VM and a
   CI windows build. Linux comes nearly free with the same work.
 - Performance pass with hard budgets → [perf.md](perf.md) (after the
   restructure, so we optimise the final shape).
 - Plain SSH machines provider; drag a space tab out to create a window.
+
+## Parked
+- Website (`website/`, uncommitted): landing with looping demo video + tabs,
+  docs pages, CRITIQUE.md. To resume: build the live demo (`cd website &&
+  pnpm demo`, needs the user to run it), make video text larger than ~9 px,
+  stop auto-play from resetting the tab highlight, relabel the Terminals tab
+  (shows ⌘Q; ⌘T opens a terminal), set a waitlist email and repo link.

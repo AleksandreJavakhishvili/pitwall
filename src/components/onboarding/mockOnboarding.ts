@@ -83,6 +83,7 @@ function fakeScan(known: Set<string>): ScanResult {
     isGit,
     lastUsed,
     sources,
+    agentHistory: sources.some((s) => s !== "vscode" && s !== "cursor" && s !== "folder"),
     added: known.has(path),
     rules: { rulesync: false, claudeMd: false, agentsMd: false, ...rules },
   });

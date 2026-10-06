@@ -10,7 +10,8 @@ pub struct Plan {
     pub resumed: bool,
 }
 
-/// `resume`: try to continue `session_id`; falls back to a fresh start when
+/// The command line for a launch, for providers that launch a command
+/// themselves (local, ssh). `resume`: try to continue `session_id`; falls back to a fresh start when
 /// the kind can't resume or there is nothing to resume. `worktree`: on a fresh
 /// start, add the kind's own worktree flag (`{name}` = this name).
 pub fn plan(
@@ -48,7 +49,8 @@ pub fn plan(
             line.push_str(&shell::quote(&arg.replace("{name}", name)));
         }
     }
-    if kind.hooks == HookMode::ClaudeSettings {
+    // No hook command: the provider can't deliver hooks (caps.hooks = None).
+    if kind.hooks == HookMode::ClaudeSettings && !hook_command.is_empty() {
         line.push_str(" --settings ");
         line.push_str(&shell::quote(&hooks::claude_settings_json(hook_command)));
     }
@@ -82,6 +84,12 @@ mod tests {
         assert!(!p.resumed);
         assert!(p.command_line.starts_with(&format!("claude --session-id {id} --settings '")));
         assert!(p.command_line.contains(r#""command":"sh '\''/h'\''""#));
+    }
+
+    #[test]
+    fn no_hook_command_means_no_settings() {
+        let p = plan(&claude(), None, false, "", None);
+        assert!(!p.command_line.contains("--settings"));
     }
 
     #[test]
