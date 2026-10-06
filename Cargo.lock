@@ -2554,8 +2554,7 @@ dependencies = [
 name = "pitwall"
 version = "0.1.0"
 dependencies = [
- "pitwall-detect",
- "pitwall-hold",
+ "pitwall-core",
  "serde",
  "serde_json",
  "tauri",
@@ -2563,6 +2562,16 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
+]
+
+[[package]]
+name = "pitwall-core"
+version = "0.1.0"
+dependencies = [
+ "pitwall-detect",
+ "pitwall-hold",
+ "serde",
+ "serde_json",
  "toml 1.1.6+spec-1.1.0",
  "uuid",
 ]

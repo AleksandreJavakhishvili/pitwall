@@ -22,10 +22,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "1.27.0", features = ["v4"] }
 tauri-plugin-notification = "2.5.1"
-toml = "1.1.6"
 tauri-plugin-dialog = "2"
-pitwall-detect = { path = "../crates/pitwall-detect" }
-pitwall-hold = { path = "../crates/pitwall-hold" }
+pitwall-core = { path = "../crates/pitwall-core" }
 

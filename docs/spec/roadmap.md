@@ -13,6 +13,10 @@
 - In progress: denser tiles (density setting, per-tile font, more presets) → layout.md revision.
 - Perf note kept for wave 3: WebKit content process ~585 MB after opening Review.
 
+## Queued UI
+- Terminals anywhere (⌘T, "Open terminal here") + agents started by hand are recognised (inside Pitwall terminals and "Elsewhere") → [terminals.md](terminals.md)
+- Better git diff UI: VS Code-style file icons, status letters, folder tree → [diff-ui.md](diff-ui.md)
+
 ## Wave 2 — Architecture: providers + daemon (in design)
 Goal: clean, low-coupling core so new places-to-run (agw, SSH, cloud) and new
 agents plug in without touching the rest. Design first, user reviews, then build.

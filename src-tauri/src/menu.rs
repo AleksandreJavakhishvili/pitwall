@@ -8,8 +8,10 @@
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::registry::Shared;
-use crate::{lifecycle, windows};
+use pitwall_core::engine::lifecycle;
+use pitwall_core::Shared;
+
+use crate::windows;
 
 const SETTINGS_ID: &str = "pitwall-settings";
 const QUIT_STOP_ID: &str = "pitwall-quit-stop";

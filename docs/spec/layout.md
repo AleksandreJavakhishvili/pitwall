@@ -72,3 +72,24 @@ User: "currently I see only two rows — we need the ability to put small ones."
   possible, then chips).
 - **Free splitting**: any number of rows/columns, limited only by density.
 - Breakpoint table's "max panes per row" becomes a default for Auto grid, not a cap.
+
+## Revision: drag & drop must rearrange properly (user feedback)
+
+User: "when dragging the agent it should re-arrange and be properly added."
+Expected behaviour (VS Code editor-group feel), with a clear drop preview:
+- Drag an agent (sidebar row, pane header, Wall tile, chip in the overflow
+  strip) over a pane → highlight zones: left/right/top/bottom half = split
+  that side and insert; centre = swap the two agents (or replace if the source
+  isn't shown anywhere).
+- Drop on empty space area / an empty pane → add there.
+- Drop on a space tab → move the agent into that space (auto-placed), keep the
+  current space's layout tidy (closing the gap, no empty holes).
+- An agent is shown in at most one pane: dragging one that is visible
+  elsewhere MOVES it (source pane closes and the tree collapses), never
+  duplicates; dropping on itself is a no-op.
+- Respect density limits: if the target would get too small, place it as a
+  chip in the overflow strip instead and say so in a toast.
+- Escape cancels a drag. Works across windows via "Move to window…" menu
+  (cross-window native drag is out of scope).
+- Never restart or resize-thrash a process: moving only re-parents the xterm
+  and sends one final resize.

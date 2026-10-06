@@ -1,64 +1,34 @@
-mod agents;
+//! The Pitwall app: windows, the webview bridge, notifications, the Dock
+//! badge and the menu. All logic lives in `pitwall_core`; this crate only
+//! hosts the engine and adapts it to Tauri (architecture.md §1).
+
 mod attention;
 mod commands;
-mod git;
-mod hooks;
-mod kinds;
-mod launch;
-mod lifecycle;
+mod events;
+mod holder;
 mod menu;
-mod model;
-mod onboarding;
-mod paths;
-mod persist;
-mod project_list;
-mod projects;
-mod registry;
-mod review;
-mod rules;
-mod scan;
-mod session;
-mod shell;
-mod status;
-mod tasks;
-mod ticker;
 mod windows;
-mod worktree;
+
+use std::sync::Arc;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
-use registry::{Agent, Core, Shared};
+use pitwall_core::clock::SystemClock;
+use pitwall_core::paths::Paths;
+use pitwall_core::store::FileStore;
+use pitwall_core::{Deps, Engine, Shared};
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    kinds::warm_up();
-    if let Err(e) = hooks::install_script() {
-        eprintln!("pitwall: could not install hook script: {e}");
-    }
-
-    // Agents whose terminal holder survived the last run are running again,
-    // without a restart; the rest are stopped.
-    let agents = persist::load()
-        .into_iter()
-        .map(|rec| {
-            let session = lifecycle::reattach(&rec);
-            Agent::new(rec, session)
-        })
-        .collect();
-    let core = Core::new(app.handle().clone(), agents);
-    app.manage(core.clone());
-
-    let hook_core = core.clone();
-    if let Err(e) = hooks::serve(move |id, payload| {
-        // First: an agent that made its own worktree reports where it works.
-        worktree::on_hook(&hook_core, id, &payload);
-        hook_core.apply_hook(id, hooks::map_hook(&payload));
-        tasks::on_hook(&hook_core, id, &payload);
-    }) {
-        // Hooks are optional: screen/activity detection still works.
-        eprintln!("pitwall: hooks disabled: {e}");
-    }
-    tasks::start_worker(core.clone());
-    ticker::start(core);
+    let paths = Paths::new(Paths::default_root());
+    let engine = Engine::open(Deps {
+        store: Arc::new(FileStore::new(paths.state_file())),
+        paths,
+        events: Arc::new(events::AppEvents::new(app.handle().clone())),
+        clock: Arc::new(SystemClock::new()),
+        holder_bin: holder::holder_bin(),
+    });
+    app.manage(engine.clone());
+    engine.start();
     windows::restore(app.handle());
     Ok(())
 }
@@ -96,63 +66,63 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
-            commands::list_kinds,
-            commands::recent_projects,
-            commands::list_agents,
-            commands::create_agent,
-            commands::attach_output,
-            commands::detach_output,
-            commands::write_input,
-            commands::resize,
-            commands::send_prompt,
-            commands::queue_add,
-            commands::queue_remove,
-            commands::queue_send_now,
-            commands::set_auto_send,
-            commands::mark_seen,
-            commands::get_changes,
-            commands::get_file_diff,
-            commands::stop_agent,
-            commands::restart_agent,
-            commands::remove_agent,
-            commands::codex_hooks_status,
-            commands::install_codex_hooks,
-            commands::get_ui_state,
-            commands::set_ui_state,
-            commands::open_window,
-            commands::focus_window,
-            commands::list_windows,
-            rules::rules_status,
-            rules::set_rules_npx,
-            rules::list_rule_library,
-            rules::reveal_rule_library,
-            rules::list_rule_sets,
-            rules::save_rule_set,
-            rules::delete_rule_set,
-            rules::import_rules,
-            rules::list_rule_sources,
-            rules::pull_rule_source,
-            rules::remove_rule_source,
-            rules::set_project_rules,
-            rules::list_project_rules,
-            rules::get_project_rules,
-            rules::apply_rules,
-            rules::set_agent_rules,
-            rules::agent_rules,
-            review::list_tasks,
-            review::get_task_changes,
-            review::get_file_versions,
-            review::discard_file,
-            review::commit_agent,
-            review::merge_agent,
-            review::get_merge_status,
-            onboarding::scan_environment,
-            onboarding::get_onboarded,
-            onboarding::list_projects,
-            onboarding::add_project,
-            onboarding::remove_project,
-            onboarding::complete_onboarding,
-            onboarding::continue_conversation,
+            commands::agents::list_kinds,
+            commands::agents::recent_projects,
+            commands::agents::list_agents,
+            commands::agents::create_agent,
+            commands::agents::attach_output,
+            commands::agents::detach_output,
+            commands::agents::write_input,
+            commands::agents::resize,
+            commands::agents::send_prompt,
+            commands::agents::queue_add,
+            commands::agents::queue_remove,
+            commands::agents::queue_send_now,
+            commands::agents::set_auto_send,
+            commands::agents::mark_seen,
+            commands::agents::get_changes,
+            commands::agents::get_file_diff,
+            commands::agents::stop_agent,
+            commands::agents::restart_agent,
+            commands::agents::remove_agent,
+            commands::agents::codex_hooks_status,
+            commands::agents::install_codex_hooks,
+            commands::windows::get_ui_state,
+            commands::windows::set_ui_state,
+            commands::windows::open_window,
+            commands::windows::focus_window,
+            commands::windows::list_windows,
+            commands::rules::rules_status,
+            commands::rules::set_rules_npx,
+            commands::rules::list_rule_library,
+            commands::rules::reveal_rule_library,
+            commands::rules::list_rule_sets,
+            commands::rules::save_rule_set,
+            commands::rules::delete_rule_set,
+            commands::rules::import_rules,
+            commands::rules::list_rule_sources,
+            commands::rules::pull_rule_source,
+            commands::rules::remove_rule_source,
+            commands::rules::set_project_rules,
+            commands::rules::list_project_rules,
+            commands::rules::get_project_rules,
+            commands::rules::apply_rules,
+            commands::rules::set_agent_rules,
+            commands::rules::agent_rules,
+            commands::review::list_tasks,
+            commands::review::get_task_changes,
+            commands::review::get_file_versions,
+            commands::review::discard_file,
+            commands::review::commit_agent,
+            commands::review::merge_agent,
+            commands::review::get_merge_status,
+            commands::onboarding::scan_environment,
+            commands::onboarding::get_onboarded,
+            commands::onboarding::list_projects,
+            commands::onboarding::add_project,
+            commands::onboarding::remove_project,
+            commands::onboarding::complete_onboarding,
+            commands::onboarding::continue_conversation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -166,7 +136,7 @@ pub fn run() {
             // Agents keep running in their holders; only "Quit and Stop
             // Agents" (menu.rs) ends them.
             if let Some(core) = app.try_state::<Shared>() {
-                let _ = persist::save(core.records());
+                let _ = core.save();
             }
         }
         _ => {}

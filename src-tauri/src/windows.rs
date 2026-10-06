@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
-use crate::paths;
+use pitwall_core::paths::Paths;
 
 pub const MAIN: &str = "main";
 const PREFIX: &str = "pitwall-";
@@ -65,11 +65,11 @@ fn tracker() -> &'static Mutex<Tracker> {
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
 fn windows_file() -> std::path::PathBuf {
-    paths::pitwall_dir().join("windows.json")
+    Paths::default_root().join("windows.json")
 }
 
 fn ui_file() -> std::path::PathBuf {
-    paths::pitwall_dir().join("ui.json")
+    Paths::default_root().join("ui.json")
 }
 
 fn write_atomic(path: &std::path::Path, contents: &str) -> Result<(), String> {
@@ -159,6 +159,9 @@ fn build(app: &AppHandle, label: &str, space_id: &str, bounds: Option<Bounds>) -
         .title("Pitwall")
         .inner_size(1400.0, 900.0)
         .min_inner_size(640.0, 480.0)
+        // In-webview HTML5 drag & drop (agents between tiles) needs Tauri's
+        // native file-drop handler off, as for `main` in tauri.conf.json.
+        .disable_drag_drop_handler()
         .build()
         .map_err(|e| format!("could not open window: {e}"))?;
     apply_bounds(app, &window, bounds);

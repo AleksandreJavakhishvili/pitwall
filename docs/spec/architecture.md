@@ -573,6 +573,19 @@ the UI build green.
   ("Quit and Stop Agents" in the app menu does). The holder binary is built
   by `src-tauri/build.rs` and shipped as a Tauri `externalBin` (backend.md).
   In step 4 the Local provider's `TermIo` wraps this client unchanged.
+- Step 2 done: `crates/pitwall-core` holds all logic (`engine::{lifecycle,
+  input, changes, ticker, status, tasks, worktree}`, `kind`, `session`,
+  `vcs::{git, review, snapshot}`, `review`, `rules`, `onboarding`, `hooks`) with
+  no Tauri. The host plugs in through `Deps { paths: Paths, events: Arc<dyn
+  EventSink>, clock: Arc<dyn Clock>, store: Arc<dyn Store>, holder_bin }`;
+  terminal output goes to `OutputSink` closures. Kinds cache, project-list
+  lock and the snapshot worker are engine-owned. OS code sits in
+  `core/src/platform/` (decision 7). `src-tauri` is `commands/*` adapters,
+  `events.rs` (the `EventSink`: webview events, notifications, badge),
+  `holder.rs`, windows and menu. `core/tests/boundaries.rs` fails the build
+  if Tauri or `std::os`/`cfg(target_os)` appear in core outside `platform/`.
+  Not done here: the `pitwall-detect` rule cache is still a global (it belongs
+  to that crate); rules' store lock is still a process-wide static.
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.
@@ -797,3 +810,6 @@ Where today's modules end up:
    platform data-dir helper (`~/.pitwall` / `%APPDATA%\Pitwall`); shell launch
    behind a `LoginShell` abstraction (zsh/bash login on Unix, PowerShell/cmd on
    Windows); tray/badge behind the app's platform layer.
+8. **Migration order (user choice, option A):** Step 2 → 3 → 4 → **8 (agw
+   provider)** → 5 (protocol + CLI) → 6 (daemon) → 7 (approvals). agw moves
+   ahead of the CLI/daemon because it only depends on Steps 2–4.
