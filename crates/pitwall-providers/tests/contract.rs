@@ -90,6 +90,7 @@ impl Local {
             hold_dir: run.join("hold"),
             holder_bin: Ok(holder()),
             hook_socket: run.join("hook.sock"),
+            cli_socket: run.join("cli.sock"),
         }));
         Local { provider, workspace: repo(&ws), run, _dir: dir }
     }
@@ -116,6 +117,40 @@ impl ContractHarness for Local {
 #[test]
 fn local_provider_passes_the_contract() {
     contract::run(&Local::new());
+}
+
+/// An agent started on this Mac can find Pitwall: its id, the hook socket
+/// and the CLI's socket are in its environment (the `pitwall` CLI run
+/// inside it connects there).
+#[test]
+fn local_agents_know_how_to_reach_pitwall() {
+    use pitwall_core::clock::SystemClock;
+    use pitwall_core::provider::{CreateSpec, LaunchIntent, LaunchSpec, TermSize, WorkspaceSel};
+    use pitwall_core::term::TermHost;
+    let l = Local::new();
+    let kind = contract::shell_kind();
+    let size = TermSize::new(100, 30);
+    let started = l
+        .provider
+        .create(&CreateSpec {
+            machine: &MachineId::new(MachineId::THIS_MAC),
+            name: "env",
+            workspace: WorkspaceSel::Folder,
+            launch: LaunchSpec { agent: "env-agent", kind: &kind, cwd: &l.workspace, intent: LaunchIntent::Fresh, worktree: None, size, hooks: None },
+        })
+        .unwrap();
+    let loc = started.locator.clone();
+    let host = TermHost::new(started.term.expect("a local terminal"), size, Arc::new(SystemClock::new()));
+    host.write(b"echo \"pw[$PITWALL_ENV|$PITWALL_AGENT_ID|$PITWALL_CLI_SOCKET]\"\r").unwrap();
+    let want = format!("pw[1|env-agent|{}]", l.run.join("cli.sock").display());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !String::from_utf8_lossy(&host.history()).contains(&want) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let out = String::from_utf8_lossy(&host.history()).into_owned();
+    host.close(std::time::Duration::from_millis(500));
+    let _ = l.provider.remove(&loc);
+    assert!(out.contains(&want), "no {want:?} in:\n{out}");
 }
 
 struct Fake {

@@ -36,6 +36,9 @@ pub struct LocalConfig {
     pub holder_bin: std::result::Result<PathBuf, String>,
     /// `PITWALL_SOCKET` for agents: where their hooks post (`Paths::hook_socket`).
     pub hook_socket: PathBuf,
+    /// `PITWALL_CLI_SOCKET` for agents: where the `pitwall` CLI connects
+    /// (`Paths::cli_socket`).
+    pub cli_socket: PathBuf,
 }
 
 pub struct LocalProvider {
@@ -97,6 +100,7 @@ impl LocalProvider {
             socket: &socket,
             holder,
             hook_socket: &self.cfg.hook_socket,
+            cli_socket: &self.cfg.cli_socket,
         })?;
         Ok(Started {
             locator: loc,
@@ -136,6 +140,7 @@ impl Provider for LocalProvider {
             rules: true,
             custom_command: true,
             local_process: true,
+            git_poll_ms: 0,
         }
     }
 
@@ -244,7 +249,7 @@ mod tests {
 
     fn provider(holder: std::result::Result<PathBuf, String>) -> LocalProvider {
         let dir = std::env::temp_dir().join(format!("pw-local-{}", std::process::id()));
-        LocalProvider::new(LocalConfig { hold_dir: dir.join("hold"), holder_bin: holder, hook_socket: dir.join("hook.sock") })
+        LocalProvider::new(LocalConfig { hold_dir: dir.join("hold"), holder_bin: holder, hook_socket: dir.join("hook.sock"), cli_socket: dir.join("cli.sock") })
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! the UI contract; the logic lives in `pitwall_core`.
 
 pub mod agents;
+pub mod cli;
 pub mod onboarding;
 pub mod review;
 pub mod rules;

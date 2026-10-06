@@ -5,7 +5,9 @@ import { createOnboardingMock } from "./components/onboarding/mockOnboarding";
 import { createReviewMock } from "./mockReview";
 import type {
   AgentView,
+  ApprovalView,
   AttentionEvent,
+  CliStatus,
   FileChange,
   HooksStatus,
   KindView,
@@ -580,6 +582,34 @@ const recents: RecentProject[] = [
 ];
 let hooks: HooksStatus = { installed: false, path: "~/.codex/hooks.json" };
 let seq = 0;
+let cli: CliStatus = {
+  bin: "/Applications/Pitwall.app/Contents/MacOS/pitwall-cli",
+  installed: null,
+  dirs: [
+    { path: "/Users/ako/.local/bin", onPath: true, exists: true },
+    { path: "/usr/local/bin", onPath: true, exists: true },
+  ],
+};
+let approvals: ApprovalView[] =
+  typeof location !== "undefined" && new URLSearchParams(location.search).has("approval")
+    ? [
+        {
+          id: "mock-approval",
+          action: "session.add",
+          summary: 'start the session "work" on vm-1 (agw)',
+          details: [
+            "It is stopped there. Starting it runs it on that machine, where it keeps running after Pitwall quits.",
+            "It has already been added to Pitwall (that needs no approval).",
+          ],
+          requester: { kind: "agent", agentId: "a1", name: "Race Engineer", pid: 4242, process: "pitwall" },
+          risk: "low",
+          rememberable: true,
+          createdAt: now,
+          expiresAt: now + 120_000,
+        },
+      ]
+    : [];
+const approvalSubs = new Set<(list: ApprovalView[]) => void>();
 
 export function createMockApi(): Api {
   const mock: Api = {
@@ -724,6 +754,22 @@ export function createMockApi(): Api {
       return delay(rows.filter((r) => !r.sessionId || !owned.has(r.sessionId)), 80);
     },
     codexHooksStatus: () => delay(hooks),
+    // `?approval` in the URL shows a sample approval (to preview the dialog).
+    listApprovals: () => delay(approvals),
+    async answerApproval(id) {
+      approvals = approvals.filter((a) => a.id !== id);
+      approvalSubs.forEach((cb) => cb(approvals));
+    },
+    async onApprovalsChanged(cb): Promise<Unlisten> {
+      approvalSubs.add(cb);
+      return () => approvalSubs.delete(cb);
+    },
+    cliStatus: () => delay(cli),
+    async installCli(dir) {
+      await delay(null, 300);
+      cli = { ...cli, installed: `${dir}/pitwall` };
+      return cli;
+    },
     async installCodexHooks() {
       await delay(null, 400);
       hooks = { ...hooks, installed: true };

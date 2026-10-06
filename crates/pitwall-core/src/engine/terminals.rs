@@ -403,6 +403,16 @@ impl Engine {
         pids.insert(std::process::id());
         pids
     }
+
+    /// Agents whose process runs on this Mac: (agent id, name, pid of the
+    /// process its holder runs). A process descending from one of these
+    /// runs inside that agent (how the CLI server tells who is calling).
+    pub fn agent_pids(&self) -> Vec<(String, String, u32)> {
+        self.agents()
+            .iter()
+            .filter_map(|a| Some((a.rec.id.clone(), a.rec.name.clone(), a.local_pid()?)))
+            .collect()
+    }
 }
 
 #[cfg(test)]

@@ -97,11 +97,41 @@ impl<'a> Git<'a> {
     /// Everything that differs from `base` in the working tree, including
     /// commits the agent made and files it created but never added.
     pub fn changes(&self, base: Option<&str>) -> Result<Vec<FileChange>, String> {
+        self.changes_with(base, false).0
+    }
+
+    /// [`changes`](Self::changes) and [`current_branch`](Self::current_branch)
+    /// at once (the poller's refresh): the git commands go in one round trip
+    /// ([`Exec::run_all`]), the untracked files' contents in one more, only
+    /// when there are any.
+    pub fn changes_and_branch(&self, base: Option<&str>) -> (Result<Vec<FileChange>, String>, Option<String>) {
+        self.changes_with(base, true)
+    }
+
+    fn changes_with(&self, base: Option<&str>, branch: bool) -> (Result<Vec<FileChange>, String>, Option<String>) {
         let base = base.unwrap_or("HEAD");
+        // Status letters (`--raw`) and line counts (`--numstat`) in one
+        // diff, NUL-separated so odd paths survive; renames detected (`-M`).
+        let diff = git_argv(&self.dir, &["diff", "--raw", "--numstat", "-z", "-M", base]);
+        let others = git_argv(&self.dir, &["ls-files", "--others", "--exclude-standard"]);
+        let head = git_argv(&self.dir, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
+        let mut cmds = vec![Cmd::new(&diff).env(&GIT_ENV), Cmd::new(&others).env(&GIT_ENV)];
+        if branch {
+            cmds.push(Cmd::new(&head).env(&GIT_ENV));
+        }
+        let mut outs = self.exec.run_all(&cmds).into_iter().map(|r| match r {
+            Ok(o) if o.ok() => Ok(o.stdout_text()),
+            Ok(o) => Err(o.stderr_text()),
+            Err(e) => Err(String::from(e)),
+        });
+        let (diff, others) = (outs.next().unwrap_or(Err(String::new())), outs.next().unwrap_or(Err(String::new())));
+        let branch = outs.next().and_then(|r| r.ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        (self.collect_changes(diff, others), branch)
+    }
+
+    fn collect_changes(&self, diff: Result<String, String>, others: Result<String, String>) -> Result<Vec<FileChange>, String> {
         let mut files = Vec::new();
-        // One call: status letters (`--raw`) and line counts (`--numstat`),
-        // NUL-separated so odd paths survive; renames detected (`-M`).
-        let out = self.run(&["diff", "--raw", "--numstat", "-z", "-M", base]).map_err(|e| {
+        let out = diff.map_err(|e| {
             if e.contains("Not a git repository") || e.contains("not a git repository") {
                 NOT_A_REPO.to_string()
             } else {
@@ -109,10 +139,13 @@ impl<'a> Git<'a> {
             }
         })?;
         files.extend(parse_raw_numstat(&out));
-        let untracked = self.run(&["ls-files", "--others", "--exclude-standard"])?;
-        for path in untracked.lines().filter(|l| !l.is_empty()) {
-            let full = exec::join(&self.dir, path);
-            let (added, binary) = match self.exec.read_file(&full, MAX_COUNTED_BYTES + 1) {
+        let untracked = others?;
+        let paths: Vec<&str> = untracked.lines().filter(|l| !l.is_empty()).collect();
+        let full: Vec<String> = paths.iter().map(|p| exec::join(&self.dir, p)).collect();
+        let full: Vec<&str> = full.iter().map(String::as_str).collect();
+        let contents = if full.is_empty() { Vec::new() } else { self.exec.read_files(&full, MAX_COUNTED_BYTES + 1) };
+        for (path, read) in paths.into_iter().zip(contents) {
+            let (added, binary) = match read {
                 Ok(Some(bytes)) if bytes.len() as u64 <= MAX_COUNTED_BYTES && !bytes.contains(&0) => {
                     let lines = bytes.iter().filter(|&&b| b == b'\n').count();
                     let trailing = usize::from(!bytes.is_empty() && !bytes.ends_with(b"\n"));
@@ -134,6 +167,10 @@ impl<'a> Git<'a> {
         }
         self.run(&["diff", base.unwrap_or("HEAD"), "--", path])
     }
+}
+
+fn git_argv<'s>(dir: &'s str, args: &[&'s str]) -> Vec<&'s str> {
+    [&["git", "-C", dir][..], args].concat()
 }
 
 #[derive(Debug, Clone, PartialEq)]

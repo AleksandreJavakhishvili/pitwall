@@ -345,7 +345,7 @@ their Tailscale IP.
 | `attach` | `agw session attach <name>` (a tmux client) in a `pitwall-hold` holder, so the attachment survives Pitwall restarts; input (typing, Next up) goes through this stream. Its EOF means the attachment dropped, not that the agent exited |
 | `stop` / `remove` | `agw session stop <name>` / adopted sessions: close the attachment only (`session delete` only for sessions Pitwall creates, slice c, behind approval) |
 | `state` | `agw session list --vm <vm> --status --output json` → that session's `status` (missing → `Gone`) |
-| `exec(vm)` | `SshExec` to `tailscale_host` (see open question 3); workspace path from `agw workspace describe <ws> --output json` → `path` |
+| `exec(vm)` / `exec_at(session)` | `AgwExec` (step 8b): agw's own `agw vm exec [--workspace <ws>] <vm> -- sh -c <script>` (admin) or `agw agent exec [--workspace <ws>] <agent> -- …` (the session's agent user, per `agw session describe`), never raw ssh; one framed script per call, independent commands batched; workspace path from `agw workspace describe <ws> --output json` → `path` |
 | `capture` | `ssh awvm--<vm>` (agw's own ssh alias, admin user): `tmux -S <session socket> capture-pane -p -t '=<name>:'` — sockets per agw's layout (`/run/agentworks/admin-tmux-sockets/<admin>/` or `agent-tmux-sockets/agt-<agent>/`). Not `agw session logs`: in 0.19 its `-t =name` pane target matches nothing and it prints an empty screen |
 | `process_cwd` | `SshExec`: `tmux display -p -t <s> '#{pane_current_path}'` |
 | hooks | none at first (`caps.hooks = None`): status comes from screen detection on the attached stream. Later, a hook bundle delivered through agw artifacts that relays over a forwarded socket |
@@ -688,6 +688,57 @@ the UI build green.
   user-approved: on the `work` session only — start, attach, screen status
   Idle, type without Enter and clear, restart, detach + remove leave it
   running, stop).
+
+- Step 5 done, narrowed by the user to "adding things to Pitwall", with the
+  approval part of step 7 for it: `crates/pitwall-proto` (framing, versioned
+  handshake, request/response/event, method names, `AgentView` & co. and
+  `Scanned*` moved here from core and re-exported; TS generated with ts-rs
+  into `src/gen/` by `cargo test -p pitwall-proto`; `types.ts` re-exports
+  `Status`, `AgentCaps`, `QueueItem`, `ApprovalView` from it),
+  `crates/pitwall-daemon` (lib for now: `server::serve` on
+  `run/pitwalld.sock`, dir 0700/socket 0600, a thread per connection;
+  `methods::METHODS` is the one access/risk table; `approvals::Approvals`
+  waits for the UI's answer with a timeout = denial, "remember" per caller
+  for low risk; `identity`: peer pid via `LOCAL_PEERPID`/`SO_PEERCRED` →
+  `ps` parent chain → the engine's `agent_pids()` (the process each holder
+  runs) → the calling agent; in-process the UI is only this very pid),
+  `crates/pitwall-client`, `crates/pitwall-cli` (bin `pitwall-cli`, linked
+  as `pitwall`; clap; JSON by default, `--human`; exit 3 on deny). Methods:
+  `agent.list`, `agent.create`, `machine.list`, `session.list`,
+  `session.add` (`start` asks), `approval.list|answer` (UI only). The app
+  runs the server (`src-tauri/src/server.rs`), shows the amber approval
+  dialog in every window (`approvals-changed`, `answer_approval`), ships
+  the CLI as a second `externalBin` and links it from Settings
+  (`cli_install.rs`). Agents get `PITWALL_CLI_SOCKET`. Skill:
+  `skills/pitwall/SKILL.md`. Not done: events over the socket, terminal
+  streams, the single-instance lock, cancelling an approval when its client
+  disconnects, and every other CLI command (stop/remove/prompt/queue/space/…;
+  the table and client are ready for them).
+
+- Step 8b done (agw diffs and Review): `providers::agw::AgwExec` implements
+  `Exec` through agw's own `vm exec` / `agent exec` (options before the
+  name, `--` before the command), as the session's user (`agent_name` →
+  `agent exec`, else the admin) from its workspace (`agw session describe`,
+  cached per session, refreshed on start/attach). agw passes exit codes,
+  stderr, stdin and binary output through but reports its own failures the
+  same way (exit 1, `Error: …`), so each call runs one `sh -c` script that
+  prints a start marker and length-framed results (`X` couldn't start →
+  `Err`, `T` VM-side `timeout`, `N` no such file). Core: `Exec::{run_all,
+  read_files}` (defaults run one by one; agw batches them into one call),
+  `Git::changes_and_branch` (the poller's refresh: one call, +1 when there
+  are untracked files to count), `Provider::exec_at(loc)` (default:
+  `exec(machine)`), `ProviderCaps.git_poll_ms` (agw 15 s: polled only while
+  working, plus right after a task ends — any provider), `vcs::snapshot`
+  public. Caps: `exec` → diff/review; merge stays off (no `process_cwd`, so
+  no worktree). Tests: unit tests on argv/framing/quoting; `tests/agw_exec.rs`
+  runs LocalExec's checks, changes and snapshots against the fake agw (same
+  results as on this Mac, call counts asserted); the contract also checks
+  `exec_at`; `tests/live_agw_exec.rs` (`#[ignore]`, user-approved, read-only
+  on `work`): changes, one file read, a temp-index snapshot with objects in a
+  throwaway `GIT_OBJECT_DIRECTORY` under the VM's temp dir and no ref, then
+  `git status`/index/HEAD/refs compared. Not done: knowing whether an agent
+  is visible (polling is by activity), fewer calls for snapshots (~7) and
+  editor reads (2–3).
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.

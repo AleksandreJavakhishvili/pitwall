@@ -128,7 +128,11 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
         out.changed = true;
     }
     if a.status != prev.0 {
-        out.task_jobs.extend(tasks::on_status(a, prev.0, a.status));
+        let ended = tasks::on_status(a, prev.0, a.status);
+        // What the task changed shows up right away, even where git is
+        // polled rarely (`ProviderCaps::git_poll_ms`).
+        a.git_wanted |= ended.iter().any(|j| matches!(j, Job::End { .. }));
+        out.task_jobs.extend(ended);
         a.status_since = now;
         let reason = match a.status {
             Status::Blocked => Some("blocked"),
@@ -260,8 +264,10 @@ fn tick(core: &Shared, badge: &mut usize) {
     }
 }
 
-/// Git refresh: wanted, or every 3s while active / after new output. Never
-/// for an agent outside a git repository, or whose machine can't run git.
+/// Git refresh: wanted, or every 3s while active / after new output. Where
+/// the provider asks for slower polling (`ProviderCaps::git_poll_ms`), only
+/// while the agent works, at most that often. Never for an agent outside a
+/// git repository, or whose machine can't run git.
 fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
     let mut jobs = Vec::new();
     for a in agents.iter_mut() {
@@ -273,7 +279,10 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
             .as_ref()
             .map(|s| s.output_seq.load(Ordering::Relaxed))
             .unwrap_or(a.git_seq);
-        let due = now.saturating_sub(a.git_at) >= GIT_EVERY_MS && (a.status == Status::Working || seq != a.git_seq);
+        let slow = a.facts.provider.git_poll_ms > 0;
+        let every = if slow { u64::from(a.facts.provider.git_poll_ms) } else { GIT_EVERY_MS };
+        let active = a.status == Status::Working || (!slow && seq != a.git_seq);
+        let due = now.saturating_sub(a.git_at) >= every && active;
         if a.git_wanted || due {
             a.git_wanted = false;
             a.git_inflight = true;
@@ -291,8 +300,7 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
 fn refresh_git(core: &Shared, job: GitJob) {
     let exec = core.exec_for(&job.id);
     let git = Git::new(&*exec, &job.cwd);
-    let changes = git.changes(job.base.as_deref());
-    let branch = git.current_branch();
+    let (changes, branch) = git.changes_and_branch(job.base.as_deref());
     let now = core.now();
     let differs = core
         .with(&job.id, |a| {
@@ -435,6 +443,40 @@ mod tests {
         agents[0].git_repo = None;
         agents[0].facts.provider.exec = false;
         assert!(git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(), "no commands on that machine: never");
+    }
+
+    #[test]
+    fn slow_providers_are_polled_less_and_only_while_working() {
+        let mut agents = vec![agent()];
+        agents[0].facts.provider.git_poll_ms = 15_000;
+        assert_eq!(git_due(&mut agents, 100).len(), 1, "wanted at start");
+        agents[0].git_inflight = false;
+        agents[0].git_at = 100;
+        agents[0].git_seq = 0;
+        agents[0].host = None;
+        agents[0].status = Status::Working;
+        assert!(git_due(&mut agents, 100 + GIT_EVERY_MS).is_empty(), "not after the default interval");
+        assert_eq!(git_due(&mut agents, 100 + 15_000).len(), 1);
+        agents[0].git_inflight = false;
+        agents[0].git_at = 20_000;
+        agents[0].status = Status::Idle;
+        agents[0].git_seq = 7; // new output alone doesn't count for a slow provider
+        assert!(git_due(&mut agents, 20_000 + 60_000).is_empty(), "idle: never on its own");
+        // A turn that ends asks for one refresh.
+        agents[0].rec.tasks.push(super::tasks::Task {
+            id: "t".into(),
+            prompt: String::new(),
+            started_at: 0,
+            ended_at: None,
+            start_tree: None,
+            end_tree: None,
+        });
+        agents[0].status = Status::Working;
+        agents[0].turn_active = true;
+        agents[0].hook = Some((HookState::Done, None));
+        let f = fold(&mut agents[0], live(0), 90_000);
+        assert!(!f.task_jobs.is_empty() && agents[0].git_wanted);
+        assert_eq!(git_due(&mut agents, 90_001).len(), 1);
     }
 
     #[test]

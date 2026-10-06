@@ -4,4 +4,4 @@
 
 pub mod git;
 pub(crate) mod review;
-pub(crate) mod snapshot;
+pub mod snapshot;

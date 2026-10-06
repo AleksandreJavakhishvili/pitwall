@@ -36,7 +36,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/pitwall-hold"
+      "binaries/pitwall-hold",
+      "binaries/pitwall-cli"
     ]
   }
 }

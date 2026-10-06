@@ -36,6 +36,7 @@ import { DiffView } from "./components/DiffView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { ApprovalDialog } from "./components/ApprovalDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { TerminalDialog } from "./components/TerminalDialog";
 import { BringInDialog } from "./components/BringInDialog";
@@ -583,6 +584,8 @@ export default function App() {
       </div>
 
       <Toasts toasts={toasts} onDismiss={dismiss} onJump={showAgent} />
+      {/* Requests from the `pitwall` CLI that need the user's OK (any window can answer). */}
+      <ApprovalDialog />
 
       {modal?.type === "new" && (
         <NewAgentDialog

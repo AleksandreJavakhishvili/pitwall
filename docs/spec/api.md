@@ -27,6 +27,15 @@
 | `codex_hooks_status` | – | `{ installed: boolean, path: string }` |
 | `install_codex_hooks` | – | `{ installed: boolean, path: string }` (only called after explicit user approval in UI) |
 
+Command-line tool and approvals (architecture.md §4; the `pitwall` CLI talks to the app's socket `~/.pitwall/run/pitwalld.sock`, see `crates/pitwall-proto`):
+
+| Command | Args | Returns |
+|---|---|---|
+| `list_approvals` | – | `ApprovalView[]` (requests from the CLI waiting for the user; `src/gen/ApprovalView.ts`) |
+| `answer_approval` | `id, allow, remember` | `void` (only Pitwall's own window answers; `remember` only counts when `rememberable`) |
+| `cli_status` | – | `CliStatus` (`bin`, `installed` link, candidate `dirs`) |
+| `install_cli` | `dir` | `CliStatus` (links `<dir>/pitwall` → the shipped `pitwall-cli`; only after the user agreed in Settings; never replaces a `pitwall` that isn't Pitwall's) |
+
 Windows and shared UI state ([layout.md](layout.md)):
 
 | Command | Args | Returns |
@@ -107,6 +116,7 @@ Events (Tauri `listen`):
 | `window-closed` | `{ label }` | a secondary window closed |
 | `scan-progress` | `ScanProgress` | each step of `scan_environment` |
 | `projects-changed` | `Project[]` | project list changed |
+| `approvals-changed` | `ApprovalView[]` | a CLI request started or stopped waiting for the user |
 | `open-settings` | – | native menu "Pitwall → Settings… ⌘," (sent only to the focused window, else main) |
 
 ## TypeScript shapes

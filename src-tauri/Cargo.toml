@@ -26,4 +26,6 @@ tauri-plugin-notification = "2.5.1"
 tauri-plugin-dialog = "2"
 pitwall-core = { path = "../crates/pitwall-core" }
 pitwall-providers = { path = "../crates/pitwall-providers" }
+pitwall-daemon = { path = "../crates/pitwall-daemon" }
+pitwall-proto = { path = "../crates/pitwall-proto" }
 

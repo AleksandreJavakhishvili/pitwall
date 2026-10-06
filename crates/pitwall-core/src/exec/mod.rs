@@ -1,7 +1,9 @@
 //! Running programs and touching files on the machine where an agent works
 //! (architecture.md §2.4). Git, task snapshots, Review, worktree discovery and
 //! rules all go through an [`Exec`] instead of `std::process` / `std::fs`, so
-//! a remote implementation (ssh, for agw) drops in without touching them.
+//! a remote implementation (agw's `vm exec`) drops in without touching them.
+//! Independent commands and file reads go through [`Exec::run_all`] /
+//! [`Exec::read_files`] so a remote exec can answer them in one round trip.
 //!
 //! [`LocalExec`] is this machine. Paths are strings on the target machine:
 //! join them with [`join`], never with `std::path` on the host.
@@ -110,6 +112,19 @@ pub trait Exec: Send + Sync {
     fn temp_dir(&self) -> Result<String>;
     /// The user's home folder there (for "~/…" display).
     fn home(&self) -> Result<String>;
+
+    /// Several commands that don't depend on each other, each answered like
+    /// [`run`](Self::run), in order. A remote exec runs them in one round
+    /// trip; here they simply run one after another.
+    fn run_all(&self, cmds: &[Cmd]) -> Vec<Result<Out>> {
+        cmds.iter().map(|c| self.run(c)).collect()
+    }
+
+    /// [`read_file`](Self::read_file) for several files (one round trip
+    /// for a remote exec).
+    fn read_files(&self, paths: &[&str], max: u64) -> Vec<Result<Option<Vec<u8>>>> {
+        paths.iter().map(|p| self.read_file(p, max)).collect()
+    }
 }
 
 /// `rel` inside `dir` (target-machine path syntax).

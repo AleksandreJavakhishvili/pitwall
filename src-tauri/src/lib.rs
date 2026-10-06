@@ -3,10 +3,12 @@
 //! hosts the engine and adapts it to Tauri (architecture.md §1).
 
 mod attention;
+mod cli_install;
 mod commands;
 mod events;
 mod holder;
 mod menu;
+mod server;
 mod windows;
 
 use std::sync::Arc;
@@ -26,13 +28,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         hold_dir: paths.hold_dir(),
         holder_bin: holder::holder_bin(),
         hook_socket: paths.hook_socket(),
+        cli_socket: paths.cli_socket(),
     });
     // agw sessions (adopted, architecture.md §2.7); agw is looked up on
     // first use, and without it the provider offers nothing.
     let agw = AgwProvider::new(AgwConfig::new(paths.hold_dir(), holder::holder_bin()));
     let engine = Engine::open(Deps {
         store: Arc::new(FileStore::new(paths.state_file())),
-        paths,
+        paths: paths.clone(),
         events: Arc::new(events::AppEvents::new(app.handle().clone())),
         clock: Arc::new(SystemClock::new()),
         providers: vec![Arc::new(local), Arc::new(agw)],
@@ -40,6 +43,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(engine.clone());
     app.manage(Arc::new(pitwall_core::onboarding::elsewhere::Elsewhere::new()));
     engine.start();
+    // The `pitwall` CLI's socket (architecture.md §4).
+    server::start(app.handle(), engine.clone(), &paths);
     windows::restore(app.handle());
     Ok(())
 }
@@ -98,6 +103,10 @@ pub fn run() {
             commands::agents::remove_agent,
             commands::agents::codex_hooks_status,
             commands::agents::install_codex_hooks,
+            commands::cli::list_approvals,
+            commands::cli::answer_approval,
+            commands::cli::cli_status,
+            commands::cli::install_cli,
             commands::windows::get_ui_state,
             commands::windows::set_ui_state,
             commands::windows::open_window,
@@ -150,6 +159,9 @@ pub fn run() {
             // Agents" (menu.rs) ends them.
             if let Some(core) = app.try_state::<Shared>() {
                 let _ = core.save();
+            }
+            if let Some(server) = app.try_state::<server::Running>() {
+                server.stop();
             }
         }
         _ => {}

@@ -7,7 +7,8 @@
 //!   `LocalExec`.
 //! - `agw` — sessions on agw VMs (§2.7), adopted rather than created (step
 //!   8a): the terminal is `agw session attach` running in a holder, status
-//!   comes from the screen, stop/start are agw's own commands.
+//!   comes from the screen, stop/start are agw's own commands; diffs and
+//!   Review run through agw's `vm exec` / `agent exec` (`agw::AgwExec`).
 //!
 //! Every provider passes `pitwall_core::testing::contract` (see `tests/`).
 

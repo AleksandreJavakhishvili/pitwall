@@ -7,59 +7,11 @@
 
 use std::collections::HashSet;
 
-use serde::Serialize;
-
 use crate::error::ErrorCode;
 use crate::kind::KindCatalog;
 use crate::provider::{Discovered, Locator, NativeState, Provider, Providers};
 
-/// One provider's machines and sessions.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ScannedPlace {
-    pub provider: String,
-    /// How it is shown ("agw").
-    pub label: String,
-    pub version: Option<String>,
-    /// `None` when its machines or sessions couldn't be listed.
-    pub machines: Option<Vec<ScannedMachine>>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ScannedMachine {
-    pub id: String,
-    pub label: String,
-    /// Where it lives (an agw vm-site), if the provider says.
-    pub detail: Option<String>,
-    /// Running sessions first, then by name.
-    pub sessions: Vec<ScannedSession>,
-}
-
-/// A session found on a machine; `provider` + `machine` + `native` is what
-/// "Add to Pitwall" (`adopt_session`) takes.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ScannedSession {
-    pub provider: String,
-    pub machine: String,
-    /// The provider's own handle (an agw session name).
-    pub native: String,
-    pub name: String,
-    /// Pitwall kind id it was matched to (id or alias), else the platform's name.
-    pub kind: String,
-    pub kind_name: String,
-    /// The platform's own name for what runs there ("claude-code").
-    pub program: String,
-    pub workspace: Option<String>,
-    /// The user it runs as when that isn't the machine's main user.
-    pub user: Option<String>,
-    pub cwd: Option<String>,
-    /// "running" | "stopped" | "unknown"
-    pub status: &'static str,
-    /// A Pitwall agent already tracks this session.
-    pub in_pitwall: bool,
-}
+pub use pitwall_proto::{ScannedMachine, ScannedPlace, ScannedSession};
 
 /// Every adopting provider's machines and sessions. `owned`: the locators
 /// of Pitwall's agents. Providers and machines are asked in parallel.
@@ -122,7 +74,8 @@ fn session(p: &dyn Provider, d: Discovered, catalog: &KindCatalog, owned: &HashS
             Some(NativeState::Running) => "running",
             Some(_) => "stopped",
             None => "unknown",
-        },
+        }
+        .into(),
         in_pitwall: owned.contains(&d.locator),
     }
 }
@@ -151,7 +104,7 @@ mod tests {
         assert_eq!(got.len(), 1);
         let m = &got[0].machines.as_ref().unwrap()[0];
         assert_eq!((got[0].label.as_str(), m.id.as_str()), ("vmhost", "box"));
-        let names: Vec<_> = m.sessions.iter().map(|s| (s.native.as_str(), s.kind.as_str(), s.status, s.in_pitwall)).collect();
+        let names: Vec<_> = m.sessions.iter().map(|s| (s.native.as_str(), s.kind.as_str(), s.status.as_str(), s.in_pitwall)).collect();
         assert_eq!(names, [("work", "claude", "running", true), ("zed", "grok", "stopped", false)]);
         assert_eq!(m.sessions[0].kind_name, "Claude Code");
         assert_eq!(m.sessions[0].program, "claude-code");

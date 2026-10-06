@@ -307,7 +307,7 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
     let caps = provider.caps();
-    let exec = if caps.exec { Some(provider.exec(&loc.machine)?) } else { None };
+    let exec = if caps.exec { Some(provider.exec_at(&loc)?) } else { None };
     if exec.as_deref().is_some_and(|x| !exec::is_dir(x, &rec.cwd)) {
         return Err(format!("{} no longer exists", rec.cwd));
     }

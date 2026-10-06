@@ -8,7 +8,9 @@ import type {
   ScanProgress,
   ScanResult,
   AgentView,
+  ApprovalView,
   AttentionEvent,
+  CliStatus,
   CreateAgentRequest,
   FileChange,
   HooksStatus,
@@ -45,6 +47,15 @@ export interface Api extends ReviewApi {
   removeAgent(agentId: string, deleteWorktree: boolean): Promise<void>;
   codexHooksStatus(): Promise<HooksStatus>;
   installCodexHooks(): Promise<HooksStatus>;
+  /** Requests from the `pitwall` CLI waiting for the user (Pitwall's approval dialog). */
+  listApprovals(): Promise<ApprovalView[]>;
+  /** The user's answer; only Pitwall's own window can give it. */
+  answerApproval(id: string, allow: boolean, remember: boolean): Promise<void>;
+  onApprovalsChanged(cb: (list: ApprovalView[]) => void): Promise<Unlisten>;
+  /** The `pitwall` command-line tool: shipped binary and where it is linked. */
+  cliStatus(): Promise<CliStatus>;
+  /** Link `pitwall` into `dir` (one of `cliStatus().dirs`), after the user agreed. */
+  installCli(dir: string): Promise<CliStatus>;
   getUiState(): Promise<unknown>;
   setUiState(state: unknown): Promise<void>;
   /** Opens a new OS window showing `spaceId`; returns its label. */
@@ -149,6 +160,11 @@ async function createTauriApi(): Promise<Api> {
       invoke("remove_agent", { agentId, deleteWorktree }),
     codexHooksStatus: () => invoke("codex_hooks_status"),
     installCodexHooks: () => invoke("install_codex_hooks"),
+    listApprovals: () => invoke("list_approvals"),
+    answerApproval: (id, allow, remember) => invoke("answer_approval", { id, allow, remember }),
+    onApprovalsChanged: (cb) => listen<ApprovalView[]>("approvals-changed", (e) => cb(e.payload)),
+    cliStatus: () => invoke("cli_status"),
+    installCli: (dir) => invoke("install_cli", { dir }),
     getUiState: () => invoke("get_ui_state"),
     setUiState: (state) => invoke("set_ui_state", { state }),
     openWindow: (spaceId) => invoke("open_window", { spaceId }),

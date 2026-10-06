@@ -6,6 +6,7 @@ import { Modal } from "./Modal";
 import { RulesSettings } from "./rules/RulesSettings";
 import { LayoutSettings } from "./LayoutSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
+import { CliSettings } from "./CliSettings";
 
 export function SettingsDialog({ onClose, onScanAgain }: { onClose(): void; onScanAgain?(): void }) {
   const { run, hideElsewhere, setHideElsewhere } = useActions();
@@ -108,6 +109,7 @@ export function SettingsDialog({ onClose, onScanAgain }: { onClose(): void; onSc
             </span>
           </label>
         </div>
+        <CliSettings />
         <AppearanceSettings />
         <LayoutSettings />
         <RulesSettings />

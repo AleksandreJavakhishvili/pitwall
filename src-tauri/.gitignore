@@ -6,5 +6,5 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 
-# Built by build.rs (pitwall-hold sidecar)
+# Built by build.rs (pitwall-hold, pitwall-cli sidecars)
 /binaries/

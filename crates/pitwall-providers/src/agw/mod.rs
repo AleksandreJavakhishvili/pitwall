@@ -24,15 +24,24 @@
 //!   `/run/agentworks/agent-tmux-sockets/agt-<agent>/`, reachable by the
 //!   admin through agw's group), else the default server.
 //!
-//! Not here yet: diffs/Review (`exec`, slice b), create (c), rules and hooks
-//! (d). Locator: `agw:<vm>/<session name>` (agw session names are unique).
+//! - exec (slice b, diffs and Review): [`AgwExec`], agw's own `vm exec` /
+//!   `agent exec` (never ssh), as the user the session runs as — its agent's
+//!   user when it has one, else the admin — from the session's workspace
+//!   (`agw session describe`, asked once per session and again after a
+//!   start or a new attachment). Each call is a round trip of about a
+//!   second, so git is polled rarely (`git_poll_ms`).
+//!
+//! Not here yet: create (c), rules and hooks (d), `process_cwd` (so no
+//! worktree discovery, hence no merge). Locator: `agw:<vm>/<session name>`
+//! (agw session names are unique).
 
+mod exec;
 mod parse;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use pitwall_core::exec::{Cmd, Exec, LocalExec, Out};
@@ -44,11 +53,15 @@ use pitwall_core::provider::{
 use pitwall_hold::client;
 
 use crate::hold::{self, HoldTerm, Program};
+pub use exec::{AgwExec, User, QUICK as EXEC_QUICK};
 pub use parse::{Session, Status, Vm};
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 const LIFECYCLE_TIMEOUT: Duration = Duration::from_secs(180);
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(20);
+/// How often an agw agent's changes may be refreshed while it works: every
+/// refresh is an agw round trip to the VM.
+pub const GIT_POLL_MS: u32 = 15_000;
 /// How long a closing attachment gets before its holder kills it.
 const DETACH_GRACE: Duration = Duration::from_millis(1500);
 
@@ -88,6 +101,8 @@ pub struct AgwProvider {
     id: ProviderId,
     cfg: AgwConfig,
     agw: OnceLock<Option<String>>,
+    /// Execs by VM (`m:<vm>`, the admin) and by session (`s:<locator>`).
+    execs: Mutex<HashMap<String, Arc<AgwExec>>>,
 }
 
 /// Single-quoted for a POSIX shell, always (tmux's `=name` must never be
@@ -118,7 +133,7 @@ impl AgwProvider {
     pub const ID: &'static str = "agw";
 
     pub fn new(cfg: AgwConfig) -> AgwProvider {
-        AgwProvider { id: ProviderId::new(Self::ID), cfg, agw: OnceLock::new() }
+        AgwProvider { id: ProviderId::new(Self::ID), cfg, agw: OnceLock::new(), execs: Mutex::default() }
     }
 
     fn agw(&self) -> Result<String> {
@@ -186,6 +201,38 @@ impl AgwProvider {
         client::socket_path(&self.cfg.hold_dir, &format!("agw-{:016x}", hash(&loc.to_string())))
     }
 
+    fn cached_exec(&self, key: &str, make: impl FnOnce() -> Result<AgwExec>) -> Result<Arc<AgwExec>> {
+        if let Some(x) = self.execs.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
+            return Ok(x.clone());
+        }
+        let x = Arc::new(make()?);
+        self.execs.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), x.clone());
+        Ok(x)
+    }
+
+    /// Ask agw again who `loc` runs as and where (after a start or a new
+    /// attachment: the session may have been recreated meanwhile).
+    fn forget_exec(&self, loc: &Locator) {
+        self.execs.lock().unwrap_or_else(|e| e.into_inner()).remove(&format!("s:{loc}"));
+    }
+
+    /// The exec for session `loc`: as its agent's user (or the admin) in its
+    /// workspace, per `agw session describe`.
+    pub fn session_exec(&self, loc: &Locator) -> Result<Arc<AgwExec>> {
+        self.mine(loc)?;
+        let agw = self.agw()?;
+        self.cached_exec(&format!("s:{loc}"), || {
+            let s = parse::described(&self.json(&["session", "describe", &loc.native])?)
+                .ok_or_else(|| PwError::other(format!("agw described no session {}", loc.native)))?;
+            let user = match s.agent {
+                Some(agent) => User::Agent { agent },
+                None if s.vm.is_empty() => User::Admin { vm: loc.machine.to_string() },
+                None => User::Admin { vm: s.vm },
+            };
+            Ok(AgwExec::new(&agw, self.cfg.exec.clone(), user, s.workspace.as_deref()))
+        })
+    }
+
     /// Workspace → its folder on the VM (asked in parallel; failures skipped).
     fn workspace_paths(&self, names: BTreeSet<String>) -> BTreeMap<String, String> {
         std::thread::scope(|s| {
@@ -215,13 +262,14 @@ impl Provider for AgwProvider {
             start: true,
             attach_existing: true,
             survives_detach: true,
-            exec: false,
+            exec: true,
             process_cwd: false,
             capture: true,
             hooks: HookTransport::None,
             rules: false,
             custom_command: false,
             local_process: false,
+            git_poll_ms: GIT_POLL_MS,
         }
     }
 
@@ -274,6 +322,7 @@ impl Provider for AgwProvider {
             return Err(PwError::unsupported("agw continues conversations itself: start the session instead"));
         }
         self.checked(&["session", "start", &loc.native], LIFECYCLE_TIMEOUT)?;
+        self.forget_exec(loc);
         Ok(Started { locator: loc.clone(), conversation_id: None, resumed: false, cwd: launch.cwd.to_string(), term: None })
     }
 
@@ -290,6 +339,7 @@ impl Provider for AgwProvider {
         if self.state(loc)? != NativeState::Running {
             return Err(PwError::not_running());
         }
+        self.forget_exec(loc);
         let holder = self.cfg.holder_bin.as_deref().map_err(|e| PwError::unsupported(e.clone()))?;
         let agw = self.agw()?;
         let args = ["session".to_string(), "attach".to_string(), loc.native.clone()];
@@ -324,8 +374,19 @@ impl Provider for AgwProvider {
         }
     }
 
-    fn exec(&self, _m: &MachineId) -> Result<Arc<dyn Exec>> {
-        Err(PwError::unsupported("diffs and Review on agw VMs come later"))
+    /// The VM as its admin user (agw's `vm exec`).
+    fn exec(&self, m: &MachineId) -> Result<Arc<dyn Exec>> {
+        let agw = self.agw()?;
+        let x = self.cached_exec(&format!("m:{m}"), || {
+            Ok(AgwExec::new(&agw, self.cfg.exec.clone(), User::Admin { vm: m.to_string() }, None))
+        })?;
+        Ok(x)
+    }
+
+    /// As the user the session runs as, in its workspace.
+    fn exec_at(&self, loc: &Locator) -> Result<Arc<dyn Exec>> {
+        let x = self.session_exec(loc)?;
+        Ok(x)
     }
 
     fn process_cwd(&self, _loc: &Locator, _pid: Option<u32>) -> Result<Option<String>> {
@@ -488,17 +549,47 @@ mod tests {
     }
 
     #[test]
-    fn what_slice_a_does_not_do_is_unsupported() {
+    fn what_is_not_here_yet_is_unsupported() {
         let x = FakeExec::new();
         let p = provider(&x);
-        let m = MachineId::new("shakedown");
-        assert!(p.exec(&m).is_err_and(|e| e.is(ErrorCode::Unsupported)));
         assert!(p.process_cwd(&loc("shakedown", "gwlive"), None).unwrap_err().is(ErrorCode::Unsupported));
         let caps = p.caps();
-        assert!(!caps.create && !caps.resume && !caps.exec && !caps.rules && caps.hooks == HookTransport::None);
+        assert!(!caps.create && !caps.resume && !caps.rules && !caps.process_cwd && caps.hooks == HookTransport::None);
+        assert!(caps.exec && caps.git_poll_ms >= 10_000, "diffs and Review, polled rarely");
         assert!(caps.attach_existing && caps.start && caps.capture && !caps.local_process);
         assert!(p.remove(&loc("shakedown", "gwlive")).is_ok(), "nothing attached: nothing to do");
         assert!(x.calls().is_empty(), "remove never asks agw to delete anything");
+    }
+
+    #[test]
+    fn exec_runs_as_the_sessions_user_in_its_workspace() {
+        let x = FakeExec::new();
+        let describe = include_str!("fixtures/session_describe.json");
+        x.on(&["/opt/agw", "--non-interactive", "session", "describe", "work", "--output", "json"], describe);
+        let as_agent = describe.replace("\"name\":\"work\"", "\"name\":\"bot-s\"").replace("\"mode\":\"admin\",\"agent_name\":null", "\"mode\":\"agent\",\"agent_name\":\"bot\"");
+        x.on(&["/opt/agw", "--non-interactive", "session", "describe", "bot-s", "--output", "json"], &as_agent);
+        x.on(&["/opt/agw", "--non-interactive", "session", "start", "work"], "");
+        let p = provider(&x);
+        let admin = p.session_exec(&loc("shakedown", "work")).unwrap();
+        assert_eq!((admin.user(), admin.workspace()), (&User::Admin { vm: "shakedown".into() }, Some("work")));
+        assert_eq!(admin.argv("s")[2..8], ["vm", "exec", "--workspace", "work", "shakedown", "--"]);
+        let agent = p.session_exec(&loc("shakedown", "bot-s")).unwrap();
+        assert_eq!(agent.user(), &User::Agent { agent: "bot".into() });
+        assert_eq!(agent.argv("s")[2..8], ["agent", "exec", "--workspace", "work", "bot", "--"]);
+        // Asked once per session; again after a start.
+        p.session_exec(&loc("shakedown", "work")).unwrap();
+        let described = || x.ran(&["/opt/agw", "--non-interactive", "session", "describe", "work", ".."]);
+        assert_eq!(described(), 1);
+        let kind = pitwall_core::kind::custom_kind("x");
+        let spec = LaunchSpec { agent: "a", kind: &kind, cwd: "/w", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None };
+        p.start(&loc("shakedown", "work"), &spec).unwrap();
+        p.exec_at(&loc("shakedown", "work")).unwrap();
+        assert_eq!(described(), 2);
+        // The machine's exec is the admin's, with no workspace.
+        assert!(p.exec(&MachineId::new("shakedown")).is_ok());
+        assert!(p.exec_at(&Locator::local("a")).is_err_and(|e| e.is(ErrorCode::NotFound)));
+        // Nothing but describe/start reached agw: no command ran on the VM.
+        assert!(x.calls().iter().all(|c| c.argv[2] == "session"));
     }
 
     #[test]

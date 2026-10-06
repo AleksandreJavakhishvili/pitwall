@@ -40,6 +40,12 @@ impl Paths {
         self.root.join("run").join("pitwall.sock")
     }
 
+    /// The `pitwall` CLI (and later the app) talks to Pitwall here
+    /// (`PITWALL_CLI_SOCKET` in agents' environment; architecture.md §4).
+    pub fn cli_socket(&self) -> PathBuf {
+        self.root.join("run").join(pitwall_proto::SOCKET_NAME)
+    }
+
     /// Agents' terminal holders: `<agentId>.sock` each (pitwall-hold).
     pub fn hold_dir(&self) -> PathBuf {
         self.root.join("run").join("hold")
@@ -105,7 +111,7 @@ mod tests {
     #[test]
     fn everything_lives_under_the_root() {
         let p = Paths::new("/tmp/pw-root");
-        for f in [p.state_file(), p.projects_file(), p.hook_socket(), p.hold_dir(), p.hook_script(), p.user_agents_dir()] {
+        for f in [p.state_file(), p.projects_file(), p.hook_socket(), p.cli_socket(), p.hold_dir(), p.hook_script(), p.user_agents_dir()] {
             assert!(f.starts_with("/tmp/pw-root"), "{}", f.display());
         }
         assert_eq!(p.root(), Path::new("/tmp/pw-root"));

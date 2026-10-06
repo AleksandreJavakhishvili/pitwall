@@ -1,13 +1,15 @@
 // Shapes from docs/CONTRACT.md. Keep in sync with the backend.
 
-export type Status =
-  | "working"
-  | "blocked"
-  | "idle"
-  | "done"
-  | "unknown"
-  | "exited"
-  | "stopped";
+// Generated from pitwall-proto (ts-rs, `cargo test -p pitwall-proto`):
+// these replace the hand-written copies, step by step (architecture.md §6 step 5).
+export type { Status } from "./gen/Status";
+export type { AgentCaps } from "./gen/AgentCaps";
+export type { QueueItem } from "./gen/QueueItem";
+export type { ApprovalView } from "./gen/ApprovalView";
+export type { Requester } from "./gen/Requester";
+import type { Status } from "./gen/Status";
+import type { AgentCaps } from "./gen/AgentCaps";
+import type { QueueItem } from "./gen/QueueItem";
 
 /** What a kind can do on the machine new agents go to (architecture.md §3). */
 export interface KindCaps {
@@ -31,31 +33,6 @@ export interface KindView {
   caps: KindCaps;
 }
 
-/**
- * What the UI may offer for one agent right now (architecture.md §3). The UI
- * decides with these only — never by kind or provider (src/lib/noSpecialCases.test.ts).
- */
-export interface AgentCaps {
-  /** Running and attached: keystrokes and prompts reach it. */
-  input: boolean;
-  /** Can be started again. */
-  restart: boolean;
-  /** A restart continues its conversation. */
-  resume: boolean;
-  stop: boolean;
-  /** Works in its own worktree, which can be removed with it. */
-  removeWorktree: boolean;
-  /** Its changes can be read (false outside a git repository). */
-  diff: boolean;
-  review: boolean;
-  /** Commit & merge back (a worktree on a branch). */
-  merge: boolean;
-  rules: boolean;
-  hooks: boolean;
-  /** Adopted from another machine: removing it from Pitwall leaves the session running. */
-  removeKeepsSession: boolean;
-}
-
 /** Where an agent runs; display and grouping. */
 export interface MachineView {
   provider: string;
@@ -69,11 +46,6 @@ export interface RecentProject {
   path: string;
   display: string;
   lastUsed: number;
-}
-
-export interface QueueItem {
-  id: string;
-  text: string;
 }
 
 export interface AgentView {
@@ -323,4 +295,14 @@ export interface ContinueConversationRequest {
   /** Terminal size it will be shown at; the process starts at it. */
   cols?: number;
   rows?: number;
+}
+
+/** The `pitwall` command-line tool (Settings → Install command-line tool). */
+export interface CliStatus {
+  /** The tool shipped with the app; null when this build lacks it. */
+  bin: string | null;
+  /** An existing `pitwall` link to it. */
+  installed: string | null;
+  /** Where it can be linked, best first. */
+  dirs: { path: string; onPath: boolean; exists: boolean }[];
 }

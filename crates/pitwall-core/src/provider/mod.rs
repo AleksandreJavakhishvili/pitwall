@@ -156,6 +156,12 @@ pub struct ProviderCaps {
     /// to the local process table (terminals: recognising agents started by
     /// hand; worktree discovery by process cwd).
     pub local_process: bool,
+    /// How often the engine may refresh an agent's git changes, in ms; 0 =
+    /// the engine's default (every few seconds while the agent works or
+    /// prints). A provider whose `exec` is slow (one remote round trip per
+    /// call) sets it: its agents are then refreshed only while working, at
+    /// most this often, plus once when a task ends and whenever asked.
+    pub git_poll_ms: u32,
 }
 
 // ------------------------------------------------------------------ terminals
@@ -372,6 +378,12 @@ pub trait Provider: Send + Sync {
 
     /// Run commands and read files where the agent works (§2.4).
     fn exec(&self, m: &MachineId) -> Result<Arc<dyn Exec>>;
+    /// Commands and files where the agent at `loc` works, as the user it runs
+    /// as there (git, snapshots, Review). Default: [`exec`](Self::exec) on
+    /// its machine.
+    fn exec_at(&self, loc: &Locator) -> Result<Arc<dyn Exec>> {
+        self.exec(&loc.machine)
+    }
     /// The folder a running agent is in (worktree discovery).
     fn process_cwd(&self, loc: &Locator, pid: Option<u32>) -> Result<Option<String>>;
     /// Plain-text screen without attaching.

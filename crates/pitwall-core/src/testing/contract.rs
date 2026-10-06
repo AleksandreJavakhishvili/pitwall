@@ -7,8 +7,8 @@
 //! provider that adopts sessions instead, attach to the harness's existing
 //! session, which `discover` lists) → output arrives, input echoes, resize reaches the process (`stty size`); a second
 //! subscriber gets the replay; a client re-attach (Pitwall restarting) finds
-//! the same process with its history and input still working; `exec` runs
-//! git in the workspace, files round-trip, `temp_dir` is writable;
+//! the same process with its history and input still working; `exec` (and
+//! `exec_at` the agent) runs git in the workspace, files round-trip, `temp_dir` is writable;
 //! `process_cwd`, `capture`, `attach` and `start(Resume)` answer
 //! `Unsupported` exactly when their capability is false; stop → `Stopped`
 //! (or `Gone`) with EOF as `eof_is_exit` declares; start again (`caps.start`)
@@ -228,6 +228,10 @@ pub fn run(h: &dyn ContractHarness) {
         let x = p.exec(&m).expect("contract: exec");
         let out = x.run(&Cmd::new(&["git", "status", "--porcelain"]).cwd(&ws)).expect("contract: git status runs");
         assert!(out.ok(), "contract: git status in the workspace: {}", out.stderr_text());
+        // Where this agent works, as the user it runs as.
+        let at = p.exec_at(&loc).expect("contract: exec_at");
+        let out = at.run(&Cmd::new(&["git", "status", "--porcelain"]).cwd(&ws)).expect("contract: git status runs as the agent");
+        assert!(out.ok(), "contract: git status as the agent: {}", out.stderr_text());
         let tmp = x.temp_dir().expect("contract: temp_dir");
         let f = exec::join(&tmp, &format!("pitwall-contract-{tag}.txt"));
         x.write_file(&f, b"round trip").expect("contract: temp_dir is writable");

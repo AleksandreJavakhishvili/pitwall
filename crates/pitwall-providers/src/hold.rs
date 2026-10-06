@@ -44,6 +44,9 @@ pub struct Spawn<'a> {
     pub holder: &'a Path,
     /// Passed to the agent as `PITWALL_SOCKET` (where its hooks post).
     pub hook_socket: &'a Path,
+    /// Passed to the agent as `PITWALL_CLI_SOCKET` (where the `pitwall`
+    /// CLI run inside it connects).
+    pub cli_socket: &'a Path,
 }
 
 /// Start the agent in a new holder (through the user's login shell) and
@@ -54,6 +57,7 @@ pub fn spawn(spec: Spawn) -> Result<HoldTerm> {
         ("PITWALL_ENV", OsStr::new("1")),
         ("PITWALL_AGENT_ID", OsStr::new(spec.agent_id)),
         ("PITWALL_SOCKET", spec.hook_socket.as_os_str()),
+        ("PITWALL_CLI_SOCKET", spec.cli_socket.as_os_str()),
     ];
     let program = Program { program: &program, args: &args, cwd: Some(Path::new(spec.cwd)), env: &env };
     run(spec.holder, spec.socket, spec.size, program).map_err(|e| PwError::other(format!("could not start agent: {e}")))?;

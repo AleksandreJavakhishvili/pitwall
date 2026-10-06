@@ -75,6 +75,12 @@ fn session(r: &Value) -> Option<Session> {
     })
 }
 
+/// `agw session describe <name> --output json` → `data.session`.
+pub fn described(v: &Value) -> Option<Session> {
+    let s = v.get("data").and_then(|d| d.get("session")).or_else(|| v.get("session")).unwrap_or(v);
+    session(s)
+}
+
 pub fn sessions(v: &Value) -> Option<Vec<Session>> {
     Some(rows(v, "sessions")?.iter().filter_map(session).collect())
 }

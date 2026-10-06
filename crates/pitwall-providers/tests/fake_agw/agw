@@ -33,6 +33,36 @@ case "$1 $2" in
     done
     [ "$vm" = fakevm ] || { echo "Error: unknown VM '$vm'" >&2; exit 1; }
     sessions "$status" ;;
+"vm exec"|"agent exec")
+    # Like agw: options before the name, `--` before the remote command,
+    # which runs from the workspace's folder (else the user's home) with its
+    # output, errors and exit status passed through. One VM, one user here.
+    what=$1
+    shift 2
+    ws=
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --workspace) ws=$2; shift 2 ;;
+        -*) echo "Error: no such option: $1" >&2; exit 2 ;;
+        *) break ;;
+        esac
+    done
+    name=$1
+    shift
+    [ "$1" = "--" ] || { echo "Error: expected -- before the remote command, got '$1'" >&2; exit 2; }
+    shift
+    [ "$what" = vm ] && [ "$name" != fakevm ] && { echo "Error: VM '$name' not found" >&2; exit 1; }
+    echo "$what $name ${ws:--} $*" >> "$D/exec.log"
+    if [ -n "$ws" ]; then
+        [ -f "$D/$ws.ws" ] || { echo "Error: workspace '$ws' not found" >&2; exit 1; }
+        cd "$(cat "$D/$ws.ws")" || exit 1
+    fi
+    exec "$@" ;;
+"session describe")
+    [ -f "$D/$3.state" ] || { echo "Error: session '$3' not found" >&2; exit 1; }
+    agent=null mode=admin
+    [ -f "$D/$3.agent" ] && agent="\"$(cat "$D/$3.agent")\"" mode=agent
+    printf '{"schema_version":1,"command":"session.describe","data":{"session":{"name":"%s","workspace_name":"%s","vm_name":"fakevm","harness_integration":"contract-sh","mode":"%s","agent_name":%s,"status":"%s"}}}\n' "$3" "$3" "$mode" "$agent" "$(cat "$D/$3.state")" ;;
 "workspace describe") printf '{"data":{"workspace":{"name":"%s","path":"%s"}}}\n' "$3" "$(cat "$D/$3.ws")" ;;
 "session start") echo running > "$D/$3.state" ;;
 "session stop")

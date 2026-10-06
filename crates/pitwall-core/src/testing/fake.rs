@@ -376,6 +376,7 @@ impl FakeProvider {
             rules: true,
             custom_command: true,
             local_process: false,
+            git_poll_ms: 0,
         }
     }
 

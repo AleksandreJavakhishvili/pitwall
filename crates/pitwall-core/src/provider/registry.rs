@@ -66,9 +66,9 @@ impl Providers {
             .map_or_else(|| loc.machine.to_string(), |m| m.label)
     }
 
-    /// Commands and files on the machine of `loc`.
+    /// Commands and files where the agent at `loc` works.
     pub fn exec(&self, loc: &Locator) -> Result<Arc<dyn Exec>> {
-        self.for_locator(loc)?.exec(&loc.machine)
+        self.for_locator(loc)?.exec_at(loc)
     }
 
     pub fn exec_on(&self, provider: &ProviderId, machine: &MachineId) -> Result<Arc<dyn Exec>> {

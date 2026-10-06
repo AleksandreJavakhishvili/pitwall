@@ -1,37 +1,13 @@
 //! Shapes that cross the host boundary or go to disk. See docs/CONTRACT.md.
-//! (Step 5 moves the wire shapes into pitwall-proto.)
+//! The ones clients read (AgentView, …) are pitwall-proto's, re-exported here.
 
 use serde::{Deserialize, Serialize};
 
 use crate::kind::{AgentKind, HookMode};
 use crate::provider::{HookTransport, Locator, ProviderCaps};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Status {
-    Working,
-    Blocked,
-    Idle,
-    Done,
-    Unknown,
-    Exited,
-    Stopped,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Source {
-    Hooks,
-    Screen,
-    Activity,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueItem {
-    pub id: String,
-    pub text: String,
-}
+// The wire shapes live in pitwall-proto (architecture.md §1).
+pub use pitwall_proto::{AgentCaps, AgentView, MachineView, QueueItem, Source, Status};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,45 +50,6 @@ impl KindCaps {
             custom_command: kind.id == crate::kind::CUSTOM && p.custom_command,
         }
     }
-}
-
-/// What the UI may offer for one agent right now (architecture.md §3). The
-/// UI reads only this; it never asks which provider or kind an agent has.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentCaps {
-    /// Running and attached: keystrokes and prompts reach it.
-    pub input: bool,
-    /// Can be started again (its provider's `start`).
-    pub restart: bool,
-    /// A restart continues its conversation (provider and kind can resume,
-    /// and it has one).
-    pub resume: bool,
-    pub stop: bool,
-    /// Works in its own worktree, which can be removed with it.
-    pub remove_worktree: bool,
-    /// Its changes can be read: the provider runs commands there and it
-    /// works in a git repository (not known yet counts as yes).
-    pub diff: bool,
-    pub review: bool,
-    /// Commit & merge back: a worktree on a branch.
-    pub merge: bool,
-    pub rules: bool,
-    pub hooks: bool,
-    /// Pitwall adopted a session that was already there: removing it from
-    /// Pitwall only stops tracking it, the session keeps running.
-    pub remove_keeps_session: bool,
-}
-
-/// Where an agent runs, for display and grouping.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MachineView {
-    pub provider: String,
-    pub id: String,
-    pub label: String,
-    /// New agents and terminals can be started there ("New agent here").
-    pub can_create: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -264,54 +201,6 @@ impl AgentRecord {
 
 fn yes() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentView {
-    pub id: String,
-    pub name: String,
-    /// What it is now: for a terminal running an agent the user started in
-    /// it, that agent's kind (docs/spec/terminals.md).
-    pub kind: String,
-    pub kind_name: String,
-    /// A plain terminal (kind `shell` when nothing else runs in it).
-    pub terminal: bool,
-    /// The conversation it is in, when known (a terminal: its agent's).
-    pub session_id: Option<String>,
-    pub cwd: String,
-    pub cwd_display: String,
-    pub project: String,
-    pub project_display: String,
-    pub branch: Option<String>,
-    pub worktree: bool,
-    /// Asked for its own worktree; waiting to see where the agent made it.
-    pub worktree_pending: bool,
-    /// The provider it runs on ("local"); display only.
-    pub location: String,
-    pub machine: MachineView,
-    /// A terminal running an agent the user started in it by hand.
-    pub agent_in_terminal: bool,
-    /// A terminal that restarts as the agent last started in it (its kind
-    /// name): the shell starts and continues that agent inside it.
-    pub restart_as: Option<String>,
-    pub status: Status,
-    pub status_source: Source,
-    pub status_detail: Option<String>,
-    pub running: bool,
-    /// Current PTY size.
-    pub cols: u16,
-    pub rows: u16,
-    pub added: u32,
-    pub removed: u32,
-    pub files_changed: u32,
-    pub queue: Vec<QueueItem>,
-    pub auto_send: bool,
-    pub last_sent: Option<String>,
-    pub last_sent_at: Option<u64>,
-    pub created_at: u64,
-    pub current_task_id: Option<String>,
-    pub caps: AgentCaps,
 }
 
 /// "Add to Pitwall" on a session found on another machine (`discover`).
