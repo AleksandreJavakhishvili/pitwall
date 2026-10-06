@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { AgentView, FileChange } from "../types";
+import type { AgentView, FileChange, RunningElsewhere } from "../types";
 import type { Preset } from "../layout/tree";
 import type { AgentDropTarget } from "./dnd";
 import type { Density } from "../layout/density";
@@ -18,6 +18,17 @@ export interface Actions {
   /** `projectPath` preselects the project (non-string args, e.g. click events, are ignored). */
   openNewAgent(projectPath?: unknown): void;
   restart(agentId: string): void;
+
+  // terminals (docs/spec/terminals.md)
+  /** A shell terminal in `path`; without one: the focused agent's folder, else the selected project, else ~. */
+  openTerminal(path?: string): void;
+  /** ⌘⇧T: choose the folder first. */
+  openTerminalAt(): void;
+  /** "Bring into Pitwall" for an agent running in another terminal app (asks first). */
+  openBringIn(row: RunningElsewhere): void;
+  /** Settings: the sidebar's "Elsewhere" group is hidden. */
+  hideElsewhere: boolean;
+  setHideElsewhere(hide: boolean): void;
 
   // spaces & panes (active space of this window unless given)
   /** Drop (or pick) an agent onto a pane zone or a space — same rules as drag & drop. */

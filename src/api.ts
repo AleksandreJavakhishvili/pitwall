@@ -13,6 +13,7 @@ import type {
   HooksStatus,
   KindView,
   RecentProject,
+  RunningElsewhere,
 } from "./types";
 
 import { tauriReviewApi, type ReviewApi } from "./reviewTypes";
@@ -68,6 +69,8 @@ export interface Api extends ReviewApi {
   removeProject(path: string): Promise<Project[]>;
   completeOnboarding(projects: string[], installCodexHooks: boolean): Promise<Project[]>;
   continueConversation(req: ContinueConversationRequest): Promise<AgentView>;
+  /** Agents running in other terminal apps (read-only), minus conversations Pitwall already has. */
+  listElsewhere(): Promise<RunningElsewhere[]>;
   onScanProgress(cb: (e: ScanProgress) => void): Promise<Unlisten>;
   onProjectsChanged(cb: (projects: Project[]) => void): Promise<Unlisten>;
 }
@@ -162,6 +165,7 @@ async function createTauriApi(): Promise<Api> {
     completeOnboarding: (projects, installCodexHooks) =>
       invoke("complete_onboarding", { projects, installCodexHooks }),
     continueConversation: (req) => invoke("continue_conversation", { ...req }),
+    listElsewhere: () => invoke("list_elsewhere"),
     onScanProgress: (cb) => listen<ScanProgress>("scan-progress", (e) => cb(e.payload)),
     onProjectsChanged: (cb) => listen<Project[]>("projects-changed", (e) => cb(e.payload)),
   };

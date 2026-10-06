@@ -13,6 +13,7 @@ import "./styles/panel.css";
 import "./styles/overlays.css";
 import "./styles/space.css";
 import "./styles/wall.css";
+import "./styles/terminals.css";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 

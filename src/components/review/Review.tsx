@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, FileChange } from "../../types";
 import type { MergeResult, Task } from "../../reviewTypes";
 import { api, errorText } from "../../api";
@@ -8,6 +8,9 @@ import { StatusGlyph } from "../StatusGlyph";
 import { DiffStat } from "../DiffStat";
 import { Icon } from "../Icon";
 import { Kbd } from "../Kbd";
+import { FileIcon, StatusLetter } from "../FileIcon";
+import { FileTree } from "./FileTree";
+import { splitPath, treeOrder } from "../../lib/fileTree";
 import { commentStore, composePrompt, sortComments, useComments } from "./comments";
 import { CommitMergeDialog, ConflictDialog, DiscardDialog, PromptDialog } from "./ReviewDialogs";
 import "./review.css";
@@ -25,11 +28,6 @@ type Dialog =
 interface Sel {
   agentId: string;
   path: string;
-}
-
-function splitPath(p: string) {
-  const i = p.lastIndexOf("/");
-  return i < 0 ? { dir: "", base: p } : { dir: p.slice(0, i + 1), base: p.slice(i + 1) };
 }
 
 function clock(ms: number) {
@@ -88,6 +86,8 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
   const [sel, setSel] = useState<Sel | null>(null);
   const [selAgentId, setSelAgentId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [closedDirs, setClosedDirs] = useState<Record<string, boolean>>({});
+  const listRef = useRef<HTMLElement>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sideBySide, setSideBySide] = usePersistentFlag("pitwall.review.sideBySide", true);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -105,13 +105,14 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
   useEffect(() => {
     if (sel || selAgentId) return;
     const first = ordered.find((a) => (files[a.id]?.length ?? 0) > 0);
-    if (first) setSel({ agentId: first.id, path: files[first.id][0].path });
+    if (first) setSel({ agentId: first.id, path: treeOrder(files[first.id])[0].path });
   }, [files, ordered, sel, selAgentId]);
 
   // The selected file went away (discarded, merged, scope changed): pick a neighbour.
   useEffect(() => {
     if (!sel || !agentFiles || file) return;
-    setSel(agentFiles[0] ? { agentId: sel.agentId, path: agentFiles[0].path } : null);
+    const next = treeOrder(agentFiles)[0];
+    setSel(next ? { agentId: sel.agentId, path: next.path } : null);
     setSelAgentId(sel.agentId);
   }, [sel, agentFiles, file]);
 
@@ -149,6 +150,32 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
     return () => window.removeEventListener("keydown", onKey);
   }, [onExit]);
 
+  // ↑/↓ move through the visible file rows (focus follows), Enter opens the focused one.
+  const moveFocus = (delta: number) => {
+    const rows = [...(listRef.current?.querySelectorAll<HTMLButtonElement>("[data-file-row]") ?? [])];
+    if (!rows.length) return;
+    const active = document.activeElement?.closest?.("[data-file-row]");
+    let i = rows.findIndex((r) => r === active);
+    if (i < 0) i = rows.findIndex((r) => r.getAttribute("aria-current") === "true");
+    const next = rows[i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, i + delta))];
+    next.focus();
+    next.scrollIntoView({ block: "nearest" });
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "ArrowDown" && e.key !== "ArrowUp") || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector(".backdrop")) return;
+      const t = e.target as HTMLElement | null;
+      const inList = !!t?.closest?.(".rv-list");
+      // Elsewhere (editor, fields, other buttons) arrows keep their own meaning.
+      if (!inList && t && t !== document.body) return;
+      e.preventDefault();
+      moveFocus(e.key === "ArrowDown" ? 1 : -1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const select = (agentId: string, path: string) => {
     setSel({ agentId, path });
     setSelAgentId(agentId);
@@ -181,7 +208,7 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
       </div>
 
       <div className="review-body">
-        <aside className="rv-list" aria-label="Changes by agent">
+        <aside className="rv-list" aria-label="Changes by agent" ref={listRef}>
           {ordered.length === 0 && <p className="hint pad">No agents yet.</p>}
           {ordered.map((a) => {
             const list = files[a.id];
@@ -208,7 +235,8 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
                     className="rv-agent-name"
                     onClick={() => {
                       setSelAgentId(a.id);
-                      if (list?.[0]) select(a.id, list[0].path);
+                      const first = list && treeOrder(list)[0];
+                      if (first) select(a.id, first.path);
                       else setSel(null);
                     }}
                     title={`${a.name} · ${a.cwdDisplay}`}
@@ -226,30 +254,14 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
                     {!err && !list && <p className="hint rv-pad">Reading git…</p>}
                     {!err && list?.length === 0 && <p className="hint rv-pad">{scoped ? "No changes in this task." : "No changes."}</p>}
                     {list && list.length > 0 && (
-                      <ul className="file-list">
-                        {list.map((f) => {
-                          const { dir, base } = splitPath(f.path);
-                          const n = cs.filter((c) => c.path === f.path).length;
-                          return (
-                            <li key={f.path}>
-                              <button
-                                className="file-row"
-                                aria-current={sel?.agentId === a.id && sel.path === f.path}
-                                onClick={() => select(a.id, f.path)}
-                                title={f.path}
-                              >
-                                <span className="file-path">
-                                  <span className="file-dir">{dir}</span>
-                                  <span className="file-base">{base}</span>
-                                </span>
-                                {n > 0 && <span className="rv-ccount">{n}</span>}
-                                {f.untracked && <span className="chip chip-new">new</span>}
-                                {f.binary ? <span className="chip chip-subtle">bin</span> : <DiffStat added={f.added} removed={f.removed} />}
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                      <FileTree
+                        files={list}
+                        selected={sel?.agentId === a.id ? sel.path : null}
+                        commentCounts={cs.reduce<Record<string, number>>((m, c) => ((m[c.path] = (m[c.path] ?? 0) + 1), m), {})}
+                        isClosed={(dir) => !!closedDirs[`${a.id}\0${dir}`]}
+                        onToggle={(dir) => setClosedDirs((m) => ({ ...m, [`${a.id}\0${dir}`]: !m[`${a.id}\0${dir}`] }))}
+                        onSelect={(path) => select(a.id, path)}
+                      />
                     )}
                     {cs.length > 0 && (
                       <ul className="rv-comments" aria-label={`Comments for ${a.name}`}>
@@ -309,12 +321,13 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
                 </select>
                 {file && (
                   <>
+                    <FileIcon path={file.path} />
                     <span className="rv-path mono" title={file.path}>
-                      <span className="file-dir">{splitPath(file.path).dir}</span>
                       <span className="file-base">{splitPath(file.path).base}</span>
+                      <span className="file-dir"> {splitPath(file.path).dir.replace(/\/$/, "")}</span>
                     </span>
-                    {file.untracked && <span className="chip chip-new">new</span>}
-                    {!file.binary && <DiffStat added={file.added} removed={file.removed} />}
+                    <StatusLetter file={file} />
+                    {file.binary ? <span className="chip chip-subtle">bin</span> : <DiffStat added={file.added} removed={file.removed} />}
                   </>
                 )}
               </div>

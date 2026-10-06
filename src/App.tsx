@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText, getApi } from "./api";
-import type { AgentView, FileChange } from "./types";
+import type { AgentView, FileChange, RunningElsewhere } from "./types";
 import { groupByProject } from "./lib/groups";
 import { useAgents } from "./lib/useAgents";
 import { useToasts } from "./lib/useToasts";
@@ -36,6 +36,11 @@ import { NewAgentDialog } from "./components/NewAgentDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
+import { TerminalDialog } from "./components/TerminalDialog";
+import { BringInDialog } from "./components/BringInDialog";
+import { terminalFolder, terminalRequest, visibleElsewhere } from "./lib/terminals";
+import { useElsewhere } from "./lib/useElsewhere";
+import { newAgentSize } from "./terminal/registry";
 import { EmptyState } from "./components/EmptyState";
 import { Wall } from "./components/Wall";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -51,6 +56,8 @@ type ModalState =
   | { type: "palette" }
   | { type: "settings" }
   | { type: "remove"; agentId: string }
+  | { type: "terminal"; path?: string }
+  | { type: "bring"; row: RunningElsewhere }
   | { type: "diff"; agentId: string; file: FileChange };
 
 // Review screen (Monaco) loads on first use.
@@ -309,11 +316,30 @@ export default function App() {
   dropRef.current = dropAgentOn;
   useEffect(() => setAgentDropHandler((agentId, t) => dropRef.current(agentId, t)), []);
 
+  // Terminals (docs/spec/terminals.md): a shell pane like any agent, named after its folder.
+  const here = () => {
+    const sp = activeRef.current ? W.getSpace(current.current, activeRef.current) : undefined;
+    const focused = agentsRef.current.find((a) => a.id === focusedRef.current) ?? null;
+    return terminalFolder(focused, sp?.kind === "project" ? (sp.project ?? null) : null);
+  };
+  const openTerminal = async (path?: string) => {
+    const req = { ...terminalRequest(path ?? here(), agentsRef.current), ...(await newAgentSize()) };
+    const a = await run(api.createAgent(req), "open a terminal");
+    if (!a) return;
+    patch(a);
+    setTimeout(() => showAgent(a.id), 0);
+  };
+
   const actions: Actions = {
     showAgent,
     run,
     patch,
     restart,
+    openTerminal: (path) => void openTerminal(typeof path === "string" ? path : undefined),
+    openTerminalAt: () => setModal({ type: "terminal", path: here() }),
+    openBringIn: (row) => setModal({ type: "bring", row }),
+    hideElsewhere: ui.hideElsewhere,
+    setHideElsewhere: (hide) => update((s) => W.setHideElsewhere(s, hide)),
     openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
     openNewAgent: (p) => setModal({ type: "new", projectPath: typeof p === "string" ? p : undefined }),
@@ -368,6 +394,8 @@ export default function App() {
   useShortcuts({
     palette: () => setModal((m) => (m?.type === "palette" ? null : { type: "palette" })),
     newAgent: () => setModal({ type: "new" }),
+    newTerminal: () => actions.openTerminal(),
+    newTerminalAt: () => actions.openTerminalAt(),
     nextBlocked,
     toggleSidebar,
     toggleRight,
@@ -442,7 +470,9 @@ export default function App() {
     !selected || wallOn || reviewOn ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
 
   const sidebarGroups = useMemo(() => withProjects(groups, projects), [groups, projects]);
-  const sidebarProps = { groups: sidebarGroups, ui, me, focusedAgentId };
+  const elsewhereRows = useElsewhere(ready && !ui.hideElsewhere);
+  const elsewhere = useMemo(() => visibleElsewhere(elsewhereRows, agents), [elsewhereRows, agents]);
+  const sidebarProps = { groups: sidebarGroups, ui, me, focusedAgentId, elsewhere };
 
   return (
     <ActionsContext.Provider value={actions}>
@@ -561,9 +591,12 @@ export default function App() {
         <CommandPalette
           agents={ordered}
           selectedId={focusedAgentId}
+          projects={sidebarGroups.map((g) => ({ path: g.project, display: g.display }))}
           onClose={closeModal}
           commands={{
             newAgent: () => setModal({ type: "new" }),
+            newTerminal: (path) => actions.openTerminal(path),
+            newTerminalAt: () => actions.openTerminalAt(),
             nextBlocked,
             toggleSidebar,
             toggleRight,
@@ -583,6 +616,28 @@ export default function App() {
         <ErrorBoundary where="Settings" variant="modal" onClose={closeModal}>
           <SettingsDialog onClose={closeModal} onScanAgain={() => setModal({ type: "scan" })} />
         </ErrorBoundary>
+      )}
+      {modal?.type === "terminal" && (
+        <TerminalDialog
+          initial={modal.path}
+          onClose={closeModal}
+          onOpen={(path) => {
+            closeModal();
+            void openTerminal(path);
+          }}
+        />
+      )}
+      {modal?.type === "bring" && (
+        <BringInDialog
+          row={modal.row}
+          agents={agents}
+          onClose={closeModal}
+          onCreated={(a) => {
+            patch(a);
+            closeModal();
+            setTimeout(() => showAgent(a.id), 0);
+          }}
+        />
       )}
       {modal?.type === "remove" && (
         <RemoveDialog agent={agents.find((a) => a.id === modal.agentId) ?? null} onClose={closeModal} />

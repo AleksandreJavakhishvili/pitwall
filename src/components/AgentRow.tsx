@@ -1,4 +1,6 @@
+import type { MouseEvent } from "react";
 import type { AgentView } from "../types";
+import { SHELL_KIND } from "../lib/terminals";
 import { STATUS_WORD } from "../lib/status";
 import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
@@ -11,9 +13,10 @@ interface Props {
   /** Space name where it's shown, if anywhere. */
   where: string | null;
   onSelect(): void;
+  onContextMenu?(e: MouseEvent): void;
 }
 
-export function AgentRow({ agent: a, index, selected, where, onSelect }: Props) {
+export function AgentRow({ agent: a, index, selected, where, onSelect, onContextMenu }: Props) {
   return (
     <li>
       <button
@@ -21,6 +24,7 @@ export function AgentRow({ agent: a, index, selected, where, onSelect }: Props) 
         data-status={a.status}
         aria-current={selected ? "true" : undefined}
         onClick={onSelect}
+        onContextMenu={onContextMenu}
         {...agentDragSource(a.id, a.name)}
         title={`${a.name}${where ? ` — in ${where}` : ""}${a.statusDetail ? `\n${a.statusDetail}` : ""}`}
       >
@@ -34,7 +38,10 @@ export function AgentRow({ agent: a, index, selected, where, onSelect }: Props) 
           </span>
           <span className="agent-row-sub">
             <span className="chip">{a.location}</span>
-            <span className="agent-kind">{a.kindName}</span>
+            <span className="agent-kind">
+              {a.kindName}
+              {a.terminal && a.kind !== SHELL_KIND && <span className="in-terminal"> · in terminal</span>}
+            </span>
             <DiffStat added={a.added} removed={a.removed} />
           </span>
           {a.status === "blocked" && a.statusDetail && <span className="agent-row-detail">{a.statusDetail}</span>}

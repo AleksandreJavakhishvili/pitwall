@@ -1,4 +1,6 @@
+import { useState, type MouseEvent } from "react";
 import type { ProjectGroup } from "../lib/groups";
+import type { RunningElsewhere } from "../types";
 import { summarize } from "../lib/groups";
 import type { UiState } from "../state/workspace";
 import { locate } from "../state/workspace";
@@ -8,6 +10,11 @@ import { RailItem } from "./RailItem";
 import { Icon } from "./Icon";
 import { Kbd } from "./Kbd";
 import { api } from "../api";
+import { Menu, type MenuItem } from "./Menu";
+import { ElsewhereGroup } from "./ElsewhereGroup";
+
+/** Collapse key of the "Elsewhere" group (shares `ui.collapsed` with projects). */
+const ELSEWHERE = "\u0000elsewhere";
 
 interface Props {
   mode: "full" | "rail" | "overlay";
@@ -15,11 +22,34 @@ interface Props {
   ui: UiState;
   me: string;
   focusedAgentId: string | null;
+  /** Agents running in other terminal apps (already filtered). */
+  elsewhere?: RunningElsewhere[];
 }
 
-export function Sidebar({ mode, groups, ui, me, focusedAgentId }: Props) {
-  const { showAgent, openNewAgent, openProjectSpace, toggleCollapsed, run } = useActions();
+export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }: Props) {
+  const { showAgent, openNewAgent, openProjectSpace, toggleCollapsed, run, openTerminal } = useActions();
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; label: string; items: MenuItem[] } | null>(null);
   let index = 0;
+
+  const terminalItem = (path: string): MenuItem => ({
+    id: "terminal",
+    icon: <Icon name="terminal" size={14} />,
+    label: "New terminal here",
+    run: () => openTerminal(path),
+  });
+  const projectMenu = (project: string, at: { x: number; y: number }) =>
+    setMenu({
+      at,
+      label: "Project",
+      items: [
+        terminalItem(project),
+        { id: "agent", icon: <Icon name="plus" size={14} />, label: "New agent…", run: () => openNewAgent(project) },
+      ],
+    });
+  const below = (e: MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return { x: r.left, y: r.bottom + 4 };
+  };
 
   if (mode === "rail") {
     return (
@@ -47,7 +77,13 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId }: Props) {
           index += g.agents.length;
           return (
             <section key={g.project} className="project-group" data-blocked={g.blocked > 0}>
-              <header className="project-head">
+              <header
+                className="project-head"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  projectMenu(g.project, { x: e.clientX, y: e.clientY });
+                }}
+              >
                 <button
                   className="project-toggle"
                   onClick={() => toggleCollapsed(g.project, "sidebar")}
@@ -60,6 +96,14 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId }: Props) {
                   <span className="project-name">{g.display}</span>
                   {g.blocked > 0 && <span className="project-blocked">▲ {g.blocked}</span>}
                   <span className="label-count">{g.agents.length}</span>
+                </button>
+                <button
+                  className="icon-btn icon-btn-sm project-add-btn"
+                  onClick={(e) => projectMenu(g.project, below(e))}
+                  title="New terminal or agent here"
+                  aria-haspopup="menu"
+                >
+                  <Icon name="plus" size={14} />
                 </button>
                 {g.agents.length > 0 ? (
                   <button
@@ -103,6 +147,14 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId }: Props) {
                         selected={a.id === focusedAgentId}
                         where={where}
                         onSelect={() => showAgent(a.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setMenu({
+                            at: { x: e.clientX, y: e.clientY },
+                            label: a.name,
+                            items: [{ ...terminalItem(a.cwd), label: "Open terminal here" }],
+                          });
+                        }}
                       />
                     );
                   })}
@@ -111,12 +163,21 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId }: Props) {
             </section>
           );
         })}
+        {!ui.hideElsewhere && (
+          <ElsewhereGroup rows={elsewhere} collapsed={ui.collapsed.includes(ELSEWHERE)} onToggle={() => toggleCollapsed(ELSEWHERE, "sidebar")} />
+        )}
       </div>
-      <button className="new-agent-btn" onClick={openNewAgent}>
-        <Icon name="plus" />
-        <span>New agent</span>
-        <Kbd>⌘N</Kbd>
-      </button>
+      <div className="sidebar-foot">
+        <button className="new-agent-btn" onClick={openNewAgent}>
+          <Icon name="plus" />
+          <span>New agent</span>
+          <Kbd>⌘N</Kbd>
+        </button>
+        <button className="icon-btn new-terminal-btn" onClick={() => openTerminal()} title="New terminal here (⌘T) · ⌘⇧T to choose a folder">
+          <Icon name="terminal" />
+        </button>
+      </div>
+      {menu && <Menu at={menu.at} label={menu.label} items={menu.items} onClose={() => setMenu(null)} />}
     </nav>
   );
 }

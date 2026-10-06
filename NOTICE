@@ -30,6 +30,13 @@ Adapted material:
     the region helpers such as the prompt box and the Codex prompt marker)
     follows the design of Herdr's src/detect/manifest.rs.
 
+This product includes file and folder icons from Material Icon Theme
+(https://github.com/material-extensions/vscode-material-icon-theme, npm
+package `material-icon-theme`), Copyright (c) 2025 Material Extensions,
+licensed under the MIT License. A subset of the SVGs is bundled unmodified in
+src/assets/file-icons/ (selected by scripts/gen-file-icons.mjs); the full
+licence text is in src/assets/file-icons/LICENSE.
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
 WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.

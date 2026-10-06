@@ -149,6 +149,7 @@
 }
 .file-base {
   color: var(--text);
+  font-weight: 600;
 }
 
 /* last sent */
@@ -163,4 +164,42 @@
   word-break: break-word;
   max-height: 180px;
   overflow-y: auto;
+}
+
+/* file icons + status letters (docs/spec/diff-ui.md) */
+.file-icon {
+  flex: none;
+  display: block;
+  user-select: none;
+}
+.file-row .file-icon {
+  margin-right: -2px;
+}
+.file-stats {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.status-letter {
+  display: inline-block;
+  width: 10px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-2);
+}
+.status-letter[data-status="A"],
+.status-letter[data-status="U"] {
+  color: var(--green);
+}
+.status-letter[data-status="D"] {
+  color: var(--red);
+}
+.file-row[data-status="D"] .file-base {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
 }

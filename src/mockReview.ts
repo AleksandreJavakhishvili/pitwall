@@ -101,6 +101,7 @@ function versionsFor(f: FileChange | undefined, path: string): FileVersions {
   if (!f) return { original: null, modified: null, binary: false };
   if (f.binary) return { original: null, modified: null, binary: true };
   const md = path.endsWith(".md");
+  if (f.status === "D") return { original: md ? MD_ORIGINAL : ORIGINAL, modified: null, binary: false };
   if (f.untracked) return { original: null, modified: md ? MD_MODIFIED.replace("# Onboarding", "# Checklist") : NEW_FILE, binary: false };
   return md ? { original: MD_ORIGINAL, modified: MD_MODIFIED, binary: false } : { original: ORIGINAL, modified: MODIFIED, binary: false };
 }

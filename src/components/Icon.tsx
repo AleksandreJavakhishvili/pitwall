@@ -20,6 +20,7 @@ const PATHS: Record<string, string> = {
   window: "M3 5h11v10H3zM6 5V3h11v10h-3",
   more: "M5 10h.01M10 10h.01M15 10h.01",
   review: "M4 3.5h8l4 4v9H4zM12 3.5v4h4M7 11h6M7 14h4",
+  terminal: "M3 4.5h14v11H3zM6 8l2.5 2L6 12M10.5 12.5H14",
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }) {

@@ -7,7 +7,7 @@ import { RulesSettings } from "./rules/RulesSettings";
 import { LayoutSettings } from "./LayoutSettings";
 
 export function SettingsDialog({ onClose, onScanAgain }: { onClose(): void; onScanAgain?(): void }) {
-  const { run } = useActions();
+  const { run, hideElsewhere, setHideElsewhere } = useActions();
   const [status, setStatus] = useState<HooksStatus | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -94,6 +94,18 @@ export function SettingsDialog({ onClose, onScanAgain }: { onClose(): void; onSc
             <span className="chip chip-ok">automatic</span>
           </div>
           <p className="muted">Hooks are passed per launch. Your ~/.claude settings are never edited.</p>
+        </div>
+        <div className="setting">
+          <label className="check">
+            <input type="checkbox" checked={!hideElsewhere} onChange={(e) => setHideElsewhere(!e.target.checked)} />
+            <span>
+              Show agents running elsewhere
+              <span className="hint block">
+                A sidebar group with Claude Code, Codex and other agents running in other terminal apps (checked every
+                ~10 s, read-only), each with “Bring in”.
+              </span>
+            </span>
+          </label>
         </div>
         <LayoutSettings />
         <RulesSettings />

@@ -32,8 +32,13 @@ export interface QueueItem {
 export interface AgentView {
   id: string;
   name: string;
+  /** What it is now; for a terminal running an agent the user started in it, that agent's kind. */
   kind: string;
   kindName: string;
+  /** A plain terminal (kind "shell" when nothing else runs in it; docs/spec/terminals.md). May be missing on older backends. */
+  terminal?: boolean;
+  /** The conversation it is in, when known (a terminal: its agent's). May be missing on older backends. */
+  sessionId?: string | null;
   cwd: string;
   cwdDisplay: string;
   project: string;
@@ -83,12 +88,21 @@ export interface CreateAgentRequest {
   rows?: number;
 }
 
+/** Git status letter as in VS Code's SCM view (from `git diff --name-status`). */
+export type FileStatus = "M" | "A" | "D" | "R" | "U";
+
 export interface FileChange {
   path: string;
   added: number;
   removed: number;
   untracked: boolean;
   binary: boolean;
+  /**
+   * Optional: not reported by the backend yet (TODO(diff-ui): emit it from
+   * pitwall-core's vcs once the Exec migration lands). The UI degrades to U/M
+   * via `fileStatus()` in lib/fileTree.ts.
+   */
+  status?: FileStatus;
 }
 
 export interface HooksStatus {

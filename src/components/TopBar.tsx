@@ -48,7 +48,10 @@ export function TopBar(p: Props) {
           <span className="wordmark-mark" aria-hidden />
           {!p.compact && "PITWALL"}
         </span>
-        {p.isMock && <span className="chip chip-mock" title="Not running inside Tauri: showing mock data">MOCK</span>}
+        {/* `?shots=1` hides the chip for marketing screenshots (website/public/shots). */}
+        {p.isMock && new URLSearchParams(location.search).get("shots") !== "1" && (
+          <span className="chip chip-mock" title="Not running inside Tauri: showing mock data">MOCK</span>
+        )}
       </div>
 
       <SpaceTabs

@@ -16,6 +16,7 @@ import {
   pruneAgents,
   sanitize,
   setDensity,
+  setHideElsewhere,
   spaceMembers,
   tileAgents,
 } from "./workspace";
@@ -270,5 +271,17 @@ describe("drag & drop", () => {
     const { state, spaceId } = createCustomSpace(s, "main", "a");
     expect(shown(state, spaceId)).toEqual(["a"]);
     expect(shown(state, ALL_SPACE)).toEqual(["b"]);
+  });
+});
+
+describe("hideElsewhere", () => {
+  it("defaults to shown, survives sanitize, and toggles without churn", () => {
+    const d = defaultUiState();
+    expect(d.hideElsewhere).toBe(false);
+    const hidden = setHideElsewhere(d, true);
+    expect(hidden.hideElsewhere).toBe(true);
+    expect(setHideElsewhere(hidden, true)).toBe(hidden);
+    expect(sanitize(JSON.parse(JSON.stringify(hidden))).hideElsewhere).toBe(true);
+    expect(sanitize({ ...hidden, hideElsewhere: "yes" }).hideElsewhere).toBe(false);
   });
 });

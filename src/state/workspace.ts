@@ -61,6 +61,8 @@ export interface UiState {
   wallCollapsed: string[];
   /** Ask the window holding `agentId` to focus it (cross-window jumps). */
   focusRequest: { agentId: string; window: string; nonce: number } | null;
+  /** Settings: hide the sidebar's "Elsewhere" group (agents in other terminal apps). */
+  hideElsewhere: boolean;
 }
 
 const emptyPane = (): LayoutNode => ({ type: "pane", id: defaultIdGen("pane"), agentId: null });
@@ -80,6 +82,7 @@ export function defaultUiState(): UiState {
     collapsed: [],
     wallCollapsed: [],
     focusRequest: null,
+    hideElsewhere: false,
   };
 }
 
@@ -110,6 +113,7 @@ export function sanitize(raw: unknown): UiState {
     collapsed: Array.isArray(r.collapsed) ? r.collapsed : [],
     wallCollapsed: Array.isArray(r.wallCollapsed) ? r.wallCollapsed : [],
     focusRequest: r.focusRequest ?? null,
+    hideElsewhere: r.hideElsewhere === true,
   };
 }
 
@@ -549,6 +553,11 @@ export function setWall(s: UiState, label: string, on: boolean): UiState {
   const has = s.wall.includes(label);
   if (has === on) return s;
   return { ...s, wall: on ? [...s.wall, label] : s.wall.filter((w) => w !== label) };
+}
+
+/** Settings: show or hide the sidebar's "Elsewhere" group. */
+export function setHideElsewhere(s: UiState, hide: boolean): UiState {
+  return s.hideElsewhere === hide ? s : { ...s, hideElsewhere: hide };
 }
 
 export function toggleIn(list: string[], v: string): string[] {

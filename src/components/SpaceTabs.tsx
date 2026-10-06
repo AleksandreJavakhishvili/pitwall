@@ -26,6 +26,8 @@ export function SpaceTabs(p: Props) {
         const shown = new Set(agentsIn(s.layout));
         const members = s.kind === "all" ? p.agents.filter((a) => shown.has(a.id)) : spaceMembers(s, p.agents);
         const blocked = members.some((a) => a.status === "blocked");
+        // …and ⚑ when one finished and hasn't been looked at yet (blocked wins).
+        const done = !blocked && members.some((a) => a.status === "done");
         const active = s.id === p.activeSpaceId;
         return (
           <div
@@ -41,6 +43,11 @@ export function SpaceTabs(p: Props) {
           >
             <DropHint spaceId={s.id} />
             {blocked && <span className="tab-blocked">▲</span>}
+            {done && (
+              <span className="tab-done" title="An agent here finished">
+                ⚑
+              </span>
+            )}
             {editing === s.id ? (
               <input
                 className="tab-input"

@@ -4,6 +4,10 @@ import { OWNED_SHORTCUT } from "./shortcuts";
 export interface ShortcutHandlers {
   palette(): void;
   newAgent(): void;
+  /** ⌘T: a terminal where you are. */
+  newTerminal?(): void;
+  /** ⌘⇧T: a terminal in a folder you choose. */
+  newTerminalAt?(): void;
   nextBlocked(): void;
   toggleSidebar(): void;
   toggleRight(): void;
@@ -30,6 +34,8 @@ export function useShortcuts(h: ShortcutHandlers) {
       ev.preventDefault();
       ev.stopPropagation();
       if (ev.shiftKey && k === "n") x.moveSpaceToWindow();
+      else if (ev.shiftKey && k === "t") x.newTerminalAt?.();
+      else if (k === "t") x.newTerminal?.();
       else if (k === "k") x.palette();
       else if (k === "n") x.newAgent();
       else if (k === "j") x.nextBlocked();

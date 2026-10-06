@@ -1,0 +1,276 @@
+{
+  "source": "material-icon-theme@5.39.0 (MIT)",
+  "file": "file",
+  "folder": [
+    "folder",
+    "folder-open"
+  ],
+  "fileNames": {
+    "package.json": "nodejs",
+    "package-lock.json": "nodejs",
+    "pnpm-lock.yaml": "pnpm",
+    "pnpm-workspace.yaml": "pnpm",
+    "yarn.lock": "yarn",
+    ".npmrc": "npm",
+    ".nvmrc": "nodejs",
+    "tsconfig.json": "tsconfig",
+    "tsconfig.node.json": "tsconfig",
+    "jsconfig.json": "jsconfig",
+    "vite.config.ts": "vite",
+    "vite.config.js": "vite",
+    "vitest.config.ts": "vitest",
+    "eslint.config.js": "eslint",
+    "eslint.config.mjs": "eslint",
+    ".eslintrc": "eslint",
+    ".eslintrc.json": "eslint",
+    ".prettierrc": "prettier",
+    ".prettierrc.json": "prettier",
+    "dockerfile": "docker",
+    "docker-compose.yml": "docker",
+    "docker-compose.yaml": "docker",
+    ".gitignore": "git",
+    ".gitattributes": "git",
+    ".gitmodules": "git",
+    "readme.md": "readme",
+    "license": "license",
+    "license.md": "license",
+    "changelog.md": "changelog",
+    "contributing.md": "contributing",
+    "makefile": "makefile",
+    ".env.local": "tune",
+    ".env.example": "tune",
+    "tailwind.config.js": "tailwindcss",
+    "tailwind.config.ts": "tailwindcss",
+    "favicon.ico": "favicon",
+    "go.mod": "go-mod",
+    "go.sum": "go-mod",
+    "requirements.txt": "python-misc",
+    "pyproject.toml": "python-misc",
+    "gemfile": "gemfile",
+    "agents.md": "agent",
+    "cargo.toml": "rust",
+    "cargo.lock": "lock",
+    "rust-toolchain.toml": "rust",
+    "notice": "license",
+    "tauri.conf.json": "tauri",
+    ".env": "tune"
+  },
+  "extensions": {
+    "ts": "typescript",
+    "tsx": "react_ts",
+    "mts": "typescript",
+    "cts": "typescript",
+    "d.ts": "typescript-def",
+    "js": "javascript",
+    "jsx": "react",
+    "mjs": "javascript",
+    "cjs": "javascript",
+    "json": "json",
+    "jsonc": "json",
+    "json5": "json",
+    "spec.ts": "test-ts",
+    "test.ts": "test-ts",
+    "spec.tsx": "test-jsx",
+    "test.tsx": "test-jsx",
+    "spec.js": "test-js",
+    "test.js": "test-js",
+    "spec.jsx": "test-jsx",
+    "test.jsx": "test-jsx",
+    "md": "markdown",
+    "mdx": "mdx",
+    "rst": "markdown",
+    "txt": "document",
+    "rs": "rust",
+    "toml": "toml",
+    "yaml": "yaml",
+    "yml": "yaml",
+    "lock": "lock",
+    "ini": "settings",
+    "cfg": "settings",
+    "conf": "settings",
+    "env": "tune",
+    "html": "html",
+    "htm": "html",
+    "css": "css",
+    "scss": "sass",
+    "sass": "sass",
+    "less": "less",
+    "svg": "svg",
+    "png": "image",
+    "jpg": "image",
+    "jpeg": "image",
+    "gif": "image",
+    "webp": "image",
+    "ico": "image",
+    "icns": "image",
+    "woff": "font",
+    "woff2": "font",
+    "ttf": "font",
+    "otf": "font",
+    "pdf": "pdf",
+    "zip": "zip",
+    "gz": "zip",
+    "tgz": "zip",
+    "tar": "zip",
+    "py": "python",
+    "go": "go",
+    "java": "java",
+    "kt": "kotlin",
+    "kts": "kotlin",
+    "swift": "swift",
+    "c": "c",
+    "h": "h",
+    "cc": "cpp",
+    "cpp": "cpp",
+    "hpp": "hpp",
+    "m": "objective-c",
+    "mm": "objective-cpp",
+    "cs": "csharp",
+    "rb": "ruby",
+    "php": "php",
+    "lua": "lua",
+    "sh": "console",
+    "bash": "console",
+    "zsh": "console",
+    "fish": "console",
+    "ps1": "powershell",
+    "sql": "database",
+    "db": "database",
+    "sqlite": "database",
+    "xml": "xml",
+    "plist": "xml",
+    "vue": "vue",
+    "svelte": "svelte",
+    "astro": "astro",
+    "graphql": "graphql",
+    "gql": "graphql",
+    "proto": "proto",
+    "diff": "diff",
+    "patch": "git",
+    "log": "log",
+    "csv": "table",
+    "tsv": "table",
+    "wasm": "webassembly",
+    "dart": "dart",
+    "ex": "elixir",
+    "exs": "elixir",
+    "zig": "zig",
+    "nix": "nix",
+    "hcl": "hcl",
+    "tf": "terraform",
+    "http": "http",
+    "tex": "tex",
+    "ipynb": "jupyter",
+    "r": "r"
+  },
+  "folders": {
+    "src": [
+      "folder-src",
+      "folder-src-open"
+    ],
+    "lib": [
+      "folder-lib",
+      "folder-lib-open"
+    ],
+    "components": [
+      "folder-components",
+      "folder-components-open"
+    ],
+    "docs": [
+      "folder-docs",
+      "folder-docs-open"
+    ],
+    "spec": [
+      "folder-test",
+      "folder-test-open"
+    ],
+    "test": [
+      "folder-test",
+      "folder-test-open"
+    ],
+    "tests": [
+      "folder-test",
+      "folder-test-open"
+    ],
+    "__tests__": [
+      "folder-test",
+      "folder-test-open"
+    ],
+    "scripts": [
+      "folder-scripts",
+      "folder-scripts-open"
+    ],
+    "assets": [
+      "folder-resource",
+      "folder-resource-open"
+    ],
+    "public": [
+      "folder-public",
+      "folder-public-open"
+    ],
+    "styles": [
+      "folder-css",
+      "folder-css-open"
+    ],
+    "src-tauri": [
+      "folder-src-tauri",
+      "folder-src-tauri-open"
+    ],
+    "config": [
+      "folder-config",
+      "folder-config-open"
+    ],
+    "types": [
+      "folder-typescript",
+      "folder-typescript-open"
+    ],
+    "utils": [
+      "folder-utils",
+      "folder-utils-open"
+    ],
+    "hooks": [
+      "folder-hook",
+      "folder-hook-open"
+    ],
+    "api": [
+      "folder-api",
+      "folder-api-open"
+    ],
+    "dist": [
+      "folder-dist",
+      "folder-dist-open"
+    ],
+    ".github": [
+      "folder-github",
+      "folder-github-open"
+    ],
+    ".vscode": [
+      "folder-vscode",
+      "folder-vscode-open"
+    ],
+    "images": [
+      "folder-images",
+      "folder-images-open"
+    ],
+    "icons": [
+      "folder-images",
+      "folder-images-open"
+    ],
+    "website": [
+      "folder-public",
+      "folder-public-open"
+    ],
+    "server": [
+      "folder-server",
+      "folder-server-open"
+    ],
+    "app": [
+      "folder-app",
+      "folder-app-open"
+    ],
+    "store": [
+      "folder-store",
+      "folder-store-open"
+    ]
+  }
+}

@@ -10,6 +10,7 @@ import type {
   HooksStatus,
   KindView,
   RecentProject,
+  RunningElsewhere,
   Status,
 } from "./types";
 
@@ -114,6 +115,9 @@ const screens: Record<string, string> = {
     claudeBanner("~/code/orders-api") +
     `${grey("─".repeat(60))}${NL}${grey(">")} ${NL}${grey("─".repeat(60))}${NL}` +
     `  ${grey("? for shortcuts")}${NL}`,
+  "orders-api":
+    `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ ${grey("# try typing: claude  (then /exit)")}${NL}` +
+    `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ `,
   scratch:
     `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ git log --oneline -3${NL}` +
     `${yellow("a41c9e2")} orders: reject empty carts${NL}` +
@@ -138,6 +142,7 @@ const changes: Record<string, FileChange[]> = {
   tests: [
     { path: "src/cart/cart.spec.ts", added: 9, removed: 2, untracked: false, binary: false },
     { path: "src/cart/useCart.ts", added: 3, removed: 1, untracked: false, binary: false },
+    { path: "package.json", added: 1, removed: 1, untracked: false, binary: false, status: "M" },
   ],
   "api-fix": [
     { path: "src/orders/handler.ts", added: 18, removed: 6, untracked: false, binary: false },
@@ -145,6 +150,8 @@ const changes: Record<string, FileChange[]> = {
     { path: "src/orders/errors.ts", added: 22, removed: 0, untracked: false, binary: false },
     { path: "test/orders/empty-cart.test.ts", added: 41, removed: 0, untracked: true, binary: false },
     { path: "src/orders/schema.ts", added: 63, removed: 29, untracked: false, binary: false },
+    { path: "src/orders/legacy-handler.ts", added: 0, removed: 37, untracked: false, binary: false, status: "D" },
+    { path: "src/orders/validation/cart.ts", added: 26, removed: 0, untracked: false, binary: false, status: "A" },
   ],
   docs: [
     { path: "docs/onboarding.md", added: 30, removed: 8, untracked: false, binary: false },
@@ -221,6 +228,8 @@ function agent(p: Partial<AgentView> & Pick<AgentView, "id" | "name" | "status">
   return {
     kind: "claude",
     kindName: "Claude Code",
+    terminal: false,
+    sessionId: null,
     cwd: "/Users/ako/code/orders-api",
     cwdDisplay: "~/code/orders-api",
     project: "/Users/ako/code/orders-api",
@@ -316,10 +325,21 @@ let agents: AgentView[] = [
     createdAt: now - 20 * min,
   }),
   agent({
+    id: "a-term",
+    name: "orders-api",
+    kind: "shell",
+    kindName: "Shell",
+    terminal: true,
+    status: "idle",
+    statusSource: "activity",
+    createdAt: now - 5 * min,
+  }),
+  agent({
     id: "a-scratch",
     name: "scratch",
     kind: "shell",
     kindName: "Shell",
+    terminal: true,
     status: "stopped",
     statusSource: "activity",
     running: false,
@@ -400,10 +420,116 @@ setInterval(() => {
   }
 }, 2200);
 
+// ── Terminals (docs/spec/terminals.md) ─────────────────────────────────────
+// Typing an agent's command in a terminal turns the pane into that agent;
+// /exit (or ⌃C / ⌃D) turns it back into a shell. Same agent id and tile.
+const lines = new Map<string, string>();
+const prompt = (a: AgentView) => `${green("ako@mbp")} ${blue(a.cwdDisplay)} $ `;
+const AGENT_PROGRAMS: Record<string, string> = { claude: "claude", codex: "codex", gemini: "gemini", aider: "aider" };
+
+function typeInTerminal(a: AgentView, data: string) {
+  const inner = a.kind !== "shell";
+  if (inner && /[\x03\x04]/.test(data)) return leaveTerminalAgent(a);
+  let line = lines.get(a.id) ?? "";
+  for (const ch of data) {
+    if (ch === "\r") {
+      out(a.id, NL);
+      const cmd = line.trim();
+      line = "";
+      if (inner) {
+        if (/^\/?(exit|quit)$/.test(cmd)) {
+          lines.set(a.id, "");
+          return leaveTerminalAgent(a);
+        }
+        if (cmd) deliver(a.id, cmd);
+        continue;
+      }
+      const prog = cmd.split(/\s+/)[0];
+      const kind = Object.keys(AGENT_PROGRAMS).find((k) => AGENT_PROGRAMS[k] === prog);
+      if (kind) {
+        lines.set(a.id, "");
+        return enterTerminalAgent(a, kind, /--resume\s+(\S+)/.exec(cmd)?.[1]);
+      }
+      if (cmd) out(a.id, `${grey(`zsh: ${prog}: pretend it ran`)}${NL}`);
+      out(a.id, prompt(a));
+    } else if (ch === "\x7f") {
+      if (line) {
+        line = line.slice(0, -1);
+        out(a.id, "\b \b");
+      }
+    } else {
+      line += ch;
+      out(a.id, ch);
+    }
+  }
+  lines.set(a.id, line);
+}
+
+function enterTerminalAgent(a: AgentView, kind: string, sessionId?: string) {
+  const k = kinds.find((x) => x.id === kind);
+  out(a.id, kind === "claude" ? claudeBanner(a.cwdDisplay) : `${bold(`>_ ${kind}`)} ${grey("· " + a.cwdDisplay)}${NL}${NL}`);
+  out(a.id, `${grey("─".repeat(60))}${NL}${grey(">")} `);
+  update(a.id, { kind, kindName: k?.name ?? kind, sessionId: null, status: "unknown", statusSource: "activity" });
+  // Like the backend: the conversation id shows up once its transcript does.
+  setTimeout(() => {
+    const cur = agents.find((x) => x.id === a.id);
+    if (cur?.kind === kind) update(a.id, { sessionId: sessionId ?? `mock-${kind}-${++seq}` });
+  }, 1500);
+  setTimeout(() => {
+    if (agents.find((x) => x.id === a.id)?.kind === kind) setStatus(a.id, "idle");
+  }, 900);
+}
+
+function leaveTerminalAgent(a: AgentView) {
+  out(a.id, `${NL}${prompt(a)}`);
+  update(a.id, { kind: "shell", kindName: "Shell", sessionId: null, status: "idle", statusSource: "activity", statusDetail: null });
+}
+
+// Agents in other terminal apps: one comes and goes so the group visibly updates.
+const elsewhere: RunningElsewhere[] = [
+  {
+    pid: 29306,
+    kind: "claude",
+    kindName: "Claude Code",
+    cwd: "/Users/ako/code/infra",
+    cwdDisplay: "~/code/infra",
+    sessionId: "5c0ffee0-2b1e-4c55-9d1a-0d5f3e7a9b21",
+    title: "Bump the Terraform AWS provider and fix the plan diff",
+    inPitwall: false,
+    outsideProject: false,
+    displayProject: null,
+  },
+  {
+    pid: 31479,
+    kind: "codex",
+    kindName: "Codex",
+    cwd: "/Users/ako/code/checkout-web",
+    cwdDisplay: "~/code/checkout-web",
+    sessionId: null,
+    title: null,
+    inPitwall: false,
+    outsideProject: false,
+    displayProject: null,
+  },
+];
+const flicker: RunningElsewhere = {
+  pid: 52210,
+  kind: "gemini",
+  kindName: "Gemini CLI",
+  cwd: "/Users/ako/code/handbook",
+  cwdDisplay: "~/code/handbook",
+  sessionId: "gem-7781",
+  title: "Proofread the release notes",
+  inPitwall: false,
+  outsideProject: false,
+  displayProject: null,
+};
+
 // ── Api ────────────────────────────────────────────────────────────────────
 const kinds: KindView[] = [
   { id: "claude", name: "Claude Code", installed: true, path: "/opt/homebrew/bin/claude", worktree: true },
   { id: "codex", name: "Codex", installed: true, path: "/opt/homebrew/bin/codex", worktree: true },
+  { id: "gemini", name: "Gemini CLI", installed: true, path: "/opt/homebrew/bin/gemini" },
   { id: "aider", name: "Aider", installed: false },
   { id: "shell", name: "Shell", installed: true, path: "/bin/zsh" },
 ];
@@ -445,6 +571,8 @@ export function createMockApi(): Api {
         branch: "main",
         worktree: false,
         worktreePending: req.worktree,
+        terminal: req.kind === "shell",
+        sessionId: req.resumeSessionId ?? null,
         createdAt: Date.now(),
         ...(req.cols && req.rows ? { cols: req.cols, rows: req.rows } : {}),
       });
@@ -454,6 +582,7 @@ export function createMockApi(): Api {
       if (!proj) recents.unshift({ path: req.projectPath, display: req.projectPath, lastUsed: Date.now() });
       emitAgents();
       setTimeout(() => {
+        if (a.terminal) return out(a.id, prompt(a));
         out(a.id, req.kind === "claude" ? claudeBanner(a.cwdDisplay) : `${bold(req.customCommand ?? a.kindName)} ${grey("· " + a.cwdDisplay)}${NL}${NL}`);
         out(a.id, `${grey("─".repeat(60))}${NL}${grey(">")} `);
       }, 400);
@@ -486,6 +615,7 @@ export function createMockApi(): Api {
     async writeInput(agentId, data) {
       const a = find(agentId);
       if (!a.running) return;
+      if (a.terminal) return typeInTerminal(a, data);
       // Local echo stands in for the PTY.
       const echo = data.replace(/\r/g, NL).replace(/\x7f/g, "\b \b");
       out(agentId, echo);
@@ -537,8 +667,9 @@ export function createMockApi(): Api {
       const a = find(agentId);
       outBuf.set(agentId, "");
       setTimeout(() => {
-        out(agentId, a.kind === "shell" ? `${green("ako@mbp")} ${blue(a.cwdDisplay)} $ ` : claudeBanner(a.cwdDisplay) + grey("Resumed session.") + NL);
+        out(agentId, a.terminal || a.kind === "shell" ? `${green("ako@mbp")} ${blue(a.cwdDisplay)} $ ` : claudeBanner(a.cwdDisplay) + grey("Resumed session.") + NL);
       }, 300);
+      if (a.terminal) update(agentId, { kind: "shell", kindName: "Shell", sessionId: null });
       return update(agentId, { running: true, status: "idle", statusSource: "screen" });
     },
     async removeAgent(agentId) {
@@ -546,6 +677,11 @@ export function createMockApi(): Api {
       outBuf.delete(agentId);
       outSubs.delete(agentId);
       emitAgents();
+    },
+    async listElsewhere() {
+      const rows = Math.floor(Date.now() / 30_000) % 2 === 0 ? [...elsewhere, flicker] : elsewhere;
+      const owned = new Set(agents.map((a) => a.sessionId).filter(Boolean));
+      return delay(rows.filter((r) => !r.sessionId || !owned.has(r.sessionId)), 80);
     },
     codexHooksStatus: () => delay(hooks),
     async installCodexHooks() {

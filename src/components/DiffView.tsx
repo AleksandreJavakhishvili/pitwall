@@ -4,6 +4,8 @@ import { api, errorText } from "../api";
 import { parseUnifiedDiff } from "../lib/diff";
 import { Modal } from "./Modal";
 import { DiffStat } from "./DiffStat";
+import { FileIcon, StatusLetter } from "./FileIcon";
+import { splitPath } from "../lib/fileTree";
 
 interface Props {
   agent: AgentView | null;
@@ -33,11 +35,15 @@ export function DiffView({ agent, file, onClose }: Props) {
   return (
     <Modal onClose={onClose} variant="sheet" width={1080} className="diff-modal">
       <header className="diff-head">
-        <span className="label">{agent.name}</span>
-        <span className="diff-path mono">{file.path}</span>
-        {file.untracked && <span className="chip chip-new">new</span>}
-        <DiffStat added={file.added} removed={file.removed} />
+        <FileIcon path={file.path} />
+        <span className="diff-path mono" title={file.path}>
+          <span className="file-base">{splitPath(file.path).base}</span>
+          <span className="file-dir"> {splitPath(file.path).dir.replace(/\/$/, "")}</span>
+        </span>
+        <StatusLetter file={file} />
+        {file.binary ? <span className="chip chip-subtle">bin</span> : <DiffStat added={file.added} removed={file.removed} />}
         <span className="spacer" />
+        <span className="label">{agent.name}</span>
         <span className="hint">esc to close</span>
         <button className="icon-btn" onClick={onClose} aria-label="Close" data-autofocus>
           ✕

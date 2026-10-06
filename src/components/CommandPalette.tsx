@@ -8,9 +8,15 @@ import { StatusGlyph } from "./StatusGlyph";
 import { Kbd } from "./Kbd";
 import { PRESET_LABEL, PRESETS, type Preset } from "../layout/tree";
 import { DENSITIES, DENSITY_CELLS, DENSITY_LABEL, type Density } from "../layout/density";
+import { looksLikePath } from "../lib/terminals";
+import { Icon } from "./Icon";
 
 interface Commands {
   newAgent(): void;
+  /** A terminal in `path` (default: where you are, like ⌘T). */
+  newTerminal?(path?: string): void;
+  /** ⌘⇧T: choose a folder. */
+  newTerminalAt?(): void;
   nextBlocked(): void;
   toggleSidebar(): void;
   toggleRight(): void;
@@ -38,6 +44,8 @@ interface Item {
 interface Props {
   agents: AgentView[];
   selectedId: string | null;
+  /** Projects for "Terminal in <project>". */
+  projects?: { path: string; display: string }[];
   commands: Commands;
   onClose(): void;
 }
@@ -60,7 +68,7 @@ function matches(search: string, q: string): boolean {
     .every((w) => s.includes(w));
 }
 
-export function CommandPalette({ agents, selectedId, commands, onClose }: Props) {
+export function CommandPalette({ agents, selectedId, projects = [], commands, onClose }: Props) {
   const { showAgent, run, patch } = useActions();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
@@ -89,6 +97,30 @@ export function CommandPalette({ agents, selectedId, commands, onClose }: Props)
     }
 
     const blocked = agents.filter((a) => a.status === "blocked");
+    const term = <span className="pal-icon"><Icon name="terminal" size={14} /></span>;
+    const { newTerminal, newTerminalAt } = commands;
+    const terminals: Item[] = newTerminal
+      ? [
+          ...(looksLikePath(q)
+            ? [{ id: "term-at", icon: term, label: <>Terminal at <span className="mono">{q.trim()}</span></>, search: "", run: () => newTerminal(q.trim()) }]
+            : []),
+          { id: "term-here", icon: term, label: "New terminal here", search: "new terminal shell here open", hint: <Kbd>⌘T</Kbd>, run: () => newTerminal() },
+          ...(newTerminalAt
+            ? [{ id: "term-choose", icon: term, label: "New terminal in folder…", search: "new terminal shell folder path choose at", hint: <Kbd>⌘⇧T</Kbd>, run: newTerminalAt }]
+            : []),
+          ...projects.map<Item>((p) => ({
+            id: `term-in-${p.path}`,
+            icon: term,
+            label: (
+              <>
+                Terminal in {p.display} <span className="pal-sub">{p.path}</span>
+              </>
+            ),
+            search: `terminal shell in ${p.display} ${p.path}`,
+            run: () => newTerminal(p.path),
+          })),
+        ]
+      : [];
     const base: Item[] = [
       ...agents.map<Item>((a) => ({
         id: `go-${a.id}`,
@@ -115,6 +147,7 @@ export function CommandPalette({ agents, selectedId, commands, onClose }: Props)
           ]
         : []),
       { id: "new", icon: <span className="pal-icon">+</span>, label: "New agent", search: "new agent create start", hint: <Kbd>⌘N</Kbd>, run: commands.newAgent },
+      ...terminals,
       ...agents.map<Item>((a) => ({
         id: `q-${a.id}`,
         icon: <span className="pal-icon">↳</span>,
@@ -172,9 +205,10 @@ export function CommandPalette({ agents, selectedId, commands, onClose }: Props)
       { id: "right", icon: <span className="pal-icon">⇥</span>, label: "Toggle details panel", search: "toggle right panel details queue changes hide show", hint: <Kbd>⌘.</Kbd>, run: commands.toggleRight },
       { id: "settings", icon: <span className="pal-icon">⚙</span>, label: "Settings", search: "settings codex hooks preferences", run: commands.settings },
     ];
-    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !i.id.startsWith("preset-") && !i.id.startsWith("density-"));
-    return base.filter((i) => matches(i.search, q));
-  }, [q, agents, selectedId, commands, showAgent, run, patch]);
+    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-"));
+    // A typed path: "Terminal at <path>" first.
+    return base.filter((i) => i.id === "term-at" || matches(i.search, q)).sort((a, b) => Number(b.id === "term-at") - Number(a.id === "term-at"));
+  }, [q, agents, selectedId, projects, commands, showAgent, run, patch]);
 
   const activeIdx = Math.min(active, Math.max(0, items.length - 1));
 

@@ -3,6 +3,8 @@ import type { AgentView, FileChange } from "../types";
 import { api, errorText } from "../api";
 import { useActions } from "../lib/actions";
 import { DiffStat } from "./DiffStat";
+import { FileIcon, FileStats } from "./FileIcon";
+import { fileStatus, splitPath } from "../lib/fileTree";
 
 /** Changed files for an agent; refetched when its totals move, and every 5s. */
 function useChanges(a: AgentView) {
@@ -33,11 +35,6 @@ function useChanges(a: AgentView) {
   return { files, error };
 }
 
-function splitPath(p: string) {
-  const i = p.lastIndexOf("/");
-  return i < 0 ? { dir: "", base: p } : { dir: p.slice(0, i + 1), base: p.slice(i + 1) };
-}
-
 export function Changes({ agent: a }: { agent: AgentView }) {
   const { openDiff } = useActions();
   const { files, error } = useChanges(a);
@@ -65,13 +62,13 @@ export function Changes({ agent: a }: { agent: AgentView }) {
             const { dir, base } = splitPath(f.path);
             return (
               <li key={f.path}>
-                <button className="file-row" onClick={() => openDiff(a.id, f)} title={f.path}>
+                <button className="file-row" data-status={fileStatus(f)} onClick={() => openDiff(a.id, f)} title={f.path}>
+                  <FileIcon path={f.path} />
                   <span className="file-path">
                     <span className="file-dir">{dir}</span>
                     <span className="file-base">{base}</span>
                   </span>
-                  {f.untracked && <span className="chip chip-new">new</span>}
-                  {f.binary ? <span className="chip chip-subtle">bin</span> : <DiffStat added={f.added} removed={f.removed} />}
+                  <FileStats file={f} />
                 </button>
               </li>
             );
