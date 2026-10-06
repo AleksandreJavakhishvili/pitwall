@@ -45,6 +45,9 @@ name there) — take them from `session list`, not from memory.
 pitwall session add agw <vm> <session>            # track an existing session
 pitwall session add agw <vm> <session> --start    # …and start it if it's stopped
 pitwall agent new --kind claude --project ~/code/api [--name api] [--resume <session-id>]
+pitwall machine form <vm>                         # what a new session there can be (read-only)
+pitwall agent new --machine <vm> --name <session> --workspace <ws> [--template <t>] [--as admin|agent:<name>|new-agent[:<name>]]
+pitwall agent new --machine <vm> --name <session> --new-workspace [<name>] [--workspace-template <t>] …
 ```
 
 - `session add` only starts tracking: nothing changes on the VM, no approval.
@@ -59,6 +62,14 @@ pitwall agent new --kind claude --project ~/code/api [--name api] [--resume <ses
 - `agent new` starts a new agent or terminal on this Mac (kind ids:
   `claude`, `codex`, `shell`, … — see Pitwall's New-agent list). `--project`
   defaults to the current folder. `--resume` continues a conversation.
+- `agent new --machine <vm>` creates and starts a session on an agw VM
+  (`agw session create`), then attaches it in Pitwall. Look at `machine form
+  <vm>` first for its workspaces, agent users and templates (`--option
+  FIELD=VALUE` sets any field). Names: lowercase letters, digits, `-`, `_`,
+  no `--`, max 34. It changes the VM, so it **waits for the user's approval**
+  (asked every time when it also makes a new workspace or agent user); denied
+  → exit 3, nothing created. Removing it from Pitwall later leaves the session
+  on the VM (deleting it there is not offered).
 
 ## Approvals
 

@@ -31,10 +31,20 @@
 //!   start or a new attachment). Each call is a round trip of about a
 //!   second, so git is polled rarely (`git_poll_ms`).
 //!
-//! Not here yet: create (c), rules and hooks (d), `process_cwd` (so no
-//! worktree discovery, hence no merge). Locator: `agw:<vm>/<session name>`
-//! (agw session names are unique).
+//! - create (slice c, [`create`]): the New-agent form for a VM lists its
+//!   workspaces, agent users and templates (`agw workspace list`, `agw
+//!   agent list`, `agw resource list`, read-only, cached briefly); creating
+//!   runs `agw session create … --vm <vm>` (which also starts it), then
+//!   Pitwall attaches exactly as to an added session. A created session
+//!   belongs to agw like an added one: removing it from Pitwall only closes
+//!   the attachment. Deleting it on agw (`agw session delete <name> --yes`)
+//!   is not offered yet.
+//!
+//! Not here yet: rules and hooks (d), `process_cwd` (so no worktree
+//! discovery, hence no merge). Locator: `agw:<vm>/<session name>` (agw
+//! session names are unique).
 
+pub mod create;
 mod exec;
 mod parse;
 
@@ -42,13 +52,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pitwall_core::exec::{Cmd, Exec, LocalExec, Out};
 use pitwall_core::kind::KindCatalog;
 use pitwall_core::provider::{
-    CreateSpec, Discovered, ErrorCode, ExitInfo, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec, Locator, Machine,
-    MachineId, NativeState, Provider, ProviderCaps, ProviderId, PwError, Result, Started, TermIo, TermSize,
+    CreateForm, CreateSpec, Discovered, ErrorCode, ExitInfo, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec, Locator,
+    Machine, MachineId, NativeState, Provider, ProviderCaps, ProviderId, PwError, Result, Started, TermIo, TermSize,
 };
 use pitwall_hold::client;
 
@@ -103,6 +113,8 @@ pub struct AgwProvider {
     agw: OnceLock<Option<String>>,
     /// Execs by VM (`m:<vm>`, the admin) and by session (`s:<locator>`).
     execs: Mutex<HashMap<String, Arc<AgwExec>>>,
+    /// New-agent forms by VM, with when they were listed.
+    forms: Mutex<HashMap<String, (Instant, CreateForm)>>,
 }
 
 /// Single-quoted for a POSIX shell, always (tmux's `=name` must never be
@@ -133,7 +145,7 @@ impl AgwProvider {
     pub const ID: &'static str = "agw";
 
     pub fn new(cfg: AgwConfig) -> AgwProvider {
-        AgwProvider { id: ProviderId::new(Self::ID), cfg, agw: OnceLock::new(), execs: Mutex::default() }
+        AgwProvider { id: ProviderId::new(Self::ID), cfg, agw: OnceLock::new(), execs: Mutex::default(), forms: Mutex::default() }
     }
 
     fn agw(&self) -> Result<String> {
@@ -166,10 +178,31 @@ impl AgwProvider {
     }
 
     fn json(&self, args: &[&str]) -> Result<serde_json::Value> {
+        self.json_within(args, LIST_TIMEOUT)
+    }
+
+    fn json_within(&self, args: &[&str], timeout: Duration) -> Result<serde_json::Value> {
         let mut args = args.to_vec();
         args.extend(["--output", "json"]);
-        let out = self.checked(&args, LIST_TIMEOUT)?;
+        let out = self.checked(&args, timeout)?;
         parse::json(&out.stdout_text()).ok_or_else(|| PwError::other("agw printed no JSON"))
+    }
+
+    /// What `vm` has to create sessions with: its workspaces and agent
+    /// users, and agw's templates (read-only, asked in parallel).
+    fn listings(&self, vm: &str) -> create::Listings {
+        let t = create::OPTIONS_TIMEOUT;
+        let msg = |e: PwError| e.message.strip_prefix("agw: ").map(String::from).unwrap_or(e.message);
+        std::thread::scope(|s| {
+            let ws = s.spawn(|| self.json_within(&["workspace", "list", "--vm", vm], t).and_then(|v| parse::workspaces(&v).ok_or_else(|| PwError::other("no workspaces in agw's answer"))));
+            let agents = s.spawn(|| self.json_within(&["agent", "list", "--vm", vm], t).and_then(|v| parse::agents(&v).ok_or_else(|| PwError::other("no agents in agw's answer"))));
+            let kinds = "session-template,workspace-template,agent-template";
+            let templates = self
+                .json_within(&["resource", "list", "--kind", kinds], t)
+                .and_then(|v| parse::resources(&v).ok_or_else(|| PwError::other("no templates in agw's answer")));
+            let join = |h: std::thread::ScopedJoinHandle<'_, Result<Vec<parse::Named>>>| h.join().unwrap_or_else(|_| Err(PwError::other("listing failed")));
+            create::Listings { workspaces: join(ws).map_err(msg), agents: join(agents).map_err(msg), templates: templates.map_err(msg) }
+        })
     }
 
     /// Sessions on `vm` (`status`: ask agw for their live state).
@@ -257,7 +290,8 @@ impl Provider for AgwProvider {
 
     fn caps(&self) -> ProviderCaps {
         ProviderCaps {
-            create: false,
+            create: true,
+            platform_create: true,
             resume: false,
             start: true,
             attach_existing: true,
@@ -310,8 +344,45 @@ impl Provider for AgwProvider {
             .collect())
     }
 
-    fn create(&self, _spec: &CreateSpec) -> Result<Started> {
-        Err(PwError::unsupported("Pitwall adds existing agw sessions; creating them comes later"))
+    /// The VM's workspaces, agent users and templates as choices (cached
+    /// for [`create::FORM_TTL`]). Fails only when agw itself is missing.
+    fn create_form(&self, m: &MachineId) -> Result<CreateForm> {
+        self.agw()?;
+        let vm = m.to_string();
+        if let Some((at, f)) = self.forms.lock().unwrap_or_else(|e| e.into_inner()).get(&vm) {
+            if at.elapsed() < create::FORM_TTL {
+                return Ok(f.clone());
+            }
+        }
+        let mut f = create::form(&vm, &self.listings(&vm));
+        f.provider = self.id.to_string();
+        self.forms.lock().unwrap_or_else(|e| e.into_inner()).insert(vm, (Instant::now(), f.clone()));
+        Ok(f)
+    }
+
+    /// `agw session create` (which also starts it), then what agw says runs
+    /// there and where. The terminal comes from `attach`.
+    fn create(&self, spec: &CreateSpec) -> Result<Started> {
+        let vm = spec.machine.as_str();
+        let args = create::args(spec.name, vm, spec.options)?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = self.run(&args, create::CREATE_TIMEOUT).map_err(|e| {
+            PwError::new(e.code, format!("agw session create {} on {vm} didn't finish: {} (see `agw session list --vm {vm}`)", spec.name, e.message))
+        })?;
+        // Whatever happened, the VM's workspaces and agents may have changed.
+        self.forms.lock().unwrap_or_else(|e| e.into_inner()).remove(vm);
+        if !out.ok() {
+            let stderr = out.stderr_text();
+            let msg = parse::error_line(&stderr);
+            let code = if msg.contains("already exists") { ErrorCode::Conflict } else { ErrorCode::Other };
+            let hint = parse::hint_line(&stderr).map(|h| format!(" ({h})")).unwrap_or_default();
+            return Err(PwError::new(code, format!("agw couldn't create \"{}\" on {vm}: {msg}{hint}", spec.name)));
+        }
+        let loc = Locator::new(&self.id, spec.machine, spec.name);
+        let described = self.json(&["session", "describe", spec.name]).ok().and_then(|v| parse::described(&v));
+        let workspace = described.as_ref().and_then(|s| s.workspace.clone());
+        let cwd = workspace.and_then(|w| self.workspace_paths(BTreeSet::from([w.clone()])).remove(&w)).unwrap_or_default();
+        Ok(Started { locator: loc, conversation_id: None, resumed: false, cwd, term: None, kind: described.and_then(|s| s.harness) })
     }
 
     /// `agw session start`: its harness integration continues the
@@ -323,7 +394,7 @@ impl Provider for AgwProvider {
         }
         self.checked(&["session", "start", &loc.native], LIFECYCLE_TIMEOUT)?;
         self.forget_exec(loc);
-        Ok(Started { locator: loc.clone(), conversation_id: None, resumed: false, cwd: launch.cwd.to_string(), term: None })
+        Ok(Started { locator: loc.clone(), conversation_id: None, resumed: false, cwd: launch.cwd.to_string(), term: None, kind: None })
     }
 
     /// Pitwall's attachment from before (its holder outlives Pitwall), else
@@ -448,6 +519,7 @@ impl TermIo for AgwTerm {
 mod tests {
     use super::*;
     use pitwall_core::testing::FakeExec;
+    use std::collections::BTreeMap;
 
     const LIST: &str = include_str!("fixtures/session_list.json");
 
@@ -554,7 +626,7 @@ mod tests {
         let p = provider(&x);
         assert!(p.process_cwd(&loc("shakedown", "gwlive"), None).unwrap_err().is(ErrorCode::Unsupported));
         let caps = p.caps();
-        assert!(!caps.create && !caps.resume && !caps.rules && !caps.process_cwd && caps.hooks == HookTransport::None);
+        assert!(caps.create && caps.platform_create && !caps.resume && !caps.rules && !caps.process_cwd && caps.hooks == HookTransport::None);
         assert!(caps.exec && caps.git_poll_ms >= 10_000, "diffs and Review, polled rarely");
         assert!(caps.attach_existing && caps.start && caps.capture && !caps.local_process);
         assert!(p.remove(&loc("shakedown", "gwlive")).is_ok(), "nothing attached: nothing to do");
@@ -592,6 +664,98 @@ mod tests {
         assert!(x.calls().iter().all(|c| c.argv[2] == "session"));
     }
 
+    const AGW: &str = "/opt/agw";
+
+    fn listings_on(x: &FakeExec) {
+        x.on(&[AGW, "--non-interactive", "workspace", "list", "--vm", "shakedown", "--output", "json"], include_str!("fixtures/workspace_list.json"));
+        x.on(&[AGW, "--non-interactive", "agent", "list", "--vm", "shakedown", "--output", "json"], include_str!("fixtures/agent_list_empty.json"));
+        x.on(
+            &[AGW, "--non-interactive", "resource", "list", "--kind", "session-template,workspace-template,agent-template", "--output", "json"],
+            include_str!("fixtures/resource_list.json"),
+        );
+    }
+
+    #[test]
+    fn the_create_form_comes_from_read_only_listings_and_is_cached() {
+        let x = FakeExec::new();
+        listings_on(&x);
+        let p = provider(&x);
+        let f = p.create_form(&MachineId::new("shakedown")).unwrap();
+        assert_eq!((f.provider.as_str(), f.machine.as_str(), f.folder, f.error.as_deref()), ("agw", "shakedown", false, None));
+        let ws: Vec<_> = f.field("workspace").unwrap().choices.iter().map(|c| c.value.as_str()).collect();
+        assert_eq!(ws, ["gwlive", "work", "+new"]);
+        let run_as: Vec<_> = f.field("runAs").unwrap().choices.iter().map(|c| c.value.as_str()).collect();
+        assert_eq!(run_as, ["admin", "+new"], "no agent users on this VM yet");
+        assert_eq!(x.calls().len(), 3);
+        p.create_form(&MachineId::new("shakedown")).unwrap();
+        assert_eq!(x.calls().len(), 3, "asked again within a few seconds: cached");
+        // Only read-only listings ran, each time-boxed.
+        assert!(x.calls().iter().all(|c| c.argv.contains(&"list".to_string()) && c.timeout <= create::OPTIONS_TIMEOUT));
+    }
+
+    #[test]
+    fn a_vm_that_cant_be_listed_still_gets_a_form() {
+        let x = FakeExec::new();
+        x.on_exit(&[AGW, "--non-interactive", "workspace", "list", ".."], 1, "", "Error: VM 'shakedown' is stopped\n  Hint: agw vm start shakedown");
+        x.on_exit(&[AGW, "--non-interactive", "agent", "list", ".."], 1, "", "Error: VM 'shakedown' is stopped");
+        x.on(&[AGW, "--non-interactive", "resource", "list", ".."], include_str!("fixtures/resource_list.json"));
+        let f = provider(&x).create_form(&MachineId::new("shakedown")).unwrap();
+        assert_eq!(
+            f.error.as_deref(),
+            Some("couldn't list workspaces: VM 'shakedown' is stopped; couldn't list agents: VM 'shakedown' is stopped")
+        );
+        assert_eq!(f.field("workspace").unwrap().default.as_deref(), Some("+new"));
+    }
+
+    #[test]
+    fn create_runs_agws_create_then_reads_what_runs_there() {
+        let x = FakeExec::new();
+        listings_on(&x);
+        let created = [AGW, "--non-interactive", "session", "create", "--vm", "shakedown", "--workspace", "work", "--template", "claude", "--admin", "api-fix"];
+        x.on(&created, "Created session 'api-fix'\n");
+        let describe = include_str!("fixtures/session_describe.json").replace("\"name\":\"work\"", "\"name\":\"api-fix\"");
+        x.on(&[AGW, "--non-interactive", "session", "describe", "api-fix", "--output", "json"], &describe);
+        x.on(&[AGW, "--non-interactive", "workspace", "describe", "work", "--output", "json"], include_str!("fixtures/workspace_describe.json"));
+        let p = provider(&x);
+        p.create_form(&MachineId::new("shakedown")).unwrap();
+        let kind = pitwall_core::kind::custom_kind("x");
+        let options: BTreeMap<String, String> =
+            [("workspace", "work"), ("runAs", "admin"), ("template", "claude")].into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+        let spec = CreateSpec {
+            machine: &MachineId::new("shakedown"),
+            name: "api-fix",
+            options: &options,
+            launch: LaunchSpec { agent: "a", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None },
+        };
+        let s = p.create(&spec).unwrap();
+        assert_eq!(s.locator.to_string(), "agw:shakedown/api-fix");
+        assert_eq!((s.kind.as_deref(), s.cwd.as_str()), (Some("claude-code"), "/opt/agentworks/workspaces/gwlive"));
+        assert!(s.term.is_none(), "the terminal comes from attach");
+        let call = x.calls().into_iter().find(|c| c.argv.contains(&"create".to_string())).unwrap();
+        assert_eq!(call.argv, created);
+        assert_eq!(call.timeout, create::CREATE_TIMEOUT);
+        // The VM changed: its form is listed again next time.
+        let before = x.ran(&[AGW, "--non-interactive", "workspace", "list", ".."]);
+        p.create_form(&MachineId::new("shakedown")).unwrap();
+        assert_eq!(x.ran(&[AGW, "--non-interactive", "workspace", "list", ".."]), before + 1);
+
+        // agw's refusal, in its own words (notices before it are skipped).
+        x.on_exit(
+            &created,
+            1,
+            "Checking session-template/claude...\n",
+            "Notice: x\nError: session 'api-fix' already exists\n  Hint: Delete it first: agw session delete api-fix\n",
+        );
+        let e = p.create(&spec).err().unwrap();
+        assert!(e.is(ErrorCode::Conflict));
+        assert_eq!(e.message, "agw couldn't create \"api-fix\" on shakedown: session 'api-fix' already exists (Delete it first: agw session delete api-fix)");
+        // A bad name never reaches agw.
+        let n = x.calls().len();
+        assert!(p.create(&CreateSpec { name: "Bad Name", ..spec.clone() }).is_err());
+        assert_eq!(x.calls().len(), n);
+        assert!(!x.calls().iter().any(|c| c.argv.iter().any(|a| a == "delete" || a == "--yes")), "nothing is ever deleted");
+    }
+
     #[test]
     fn without_agw_nothing_is_offered() {
         let x = FakeExec::new();
@@ -601,6 +765,7 @@ mod tests {
         // Pretend the PATH lookup already found nothing.
         let _ = p.agw.set(None);
         assert!(p.machines().unwrap_err().is(ErrorCode::Unsupported));
+        assert!(p.create_form(&MachineId::new("vm")).unwrap_err().is(ErrorCode::Unsupported));
         assert_eq!(p.version(), None);
     }
 }

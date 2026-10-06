@@ -167,6 +167,7 @@ pub struct Call {
     pub cwd: Option<String>,
     pub env: Vec<(String, String)>,
     pub stdin: Option<Vec<u8>>,
+    pub timeout: std::time::Duration,
 }
 
 impl Call {
@@ -293,6 +294,7 @@ impl Exec for FakeExec {
             cwd: cmd.cwd.map(String::from),
             env: cmd.env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             stdin: cmd.stdin.map(<[u8]>::to_vec),
+            timeout: cmd.timeout,
         });
         let scripts = guard(&self.scripts);
         let hit = scripts.iter().rev().find(|(p, _)| matches(&p.iter().map(String::as_str).collect::<Vec<_>>(), &argv));

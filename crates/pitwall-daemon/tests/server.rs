@@ -16,7 +16,7 @@ use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink, 
 use pitwall_core::{Deps, Engine, Shared};
 use pitwall_daemon::{serve, Approvals, Caller, Config, Handle, Identify, ProcessIdentity};
 use pitwall_proto::frame::{self, Frame};
-use pitwall_proto::{code, AgentCreate, ApprovalAnswer, RequesterKind, Role, SessionAdd, SessionFilter};
+use pitwall_proto::{code, AgentCreate, ApprovalAnswer, FormRequest, RequesterKind, Risk, Role, SessionAdd, SessionFilter};
 use serde_json::{json, Value};
 
 /// Callers in the order connections arrive (then: outside Pitwall).
@@ -300,6 +300,90 @@ fn only_the_ui_answers_approvals() {
     std::thread::sleep(Duration::from_millis(50));
     let again = w.client_as(agent_caller("a1", "api")).add_session(&start_idle()).unwrap();
     assert!(again.already && again.started);
+}
+
+fn vm_form() -> pitwall_proto::CreateForm {
+    use pitwall_proto::{CreateChoice, CreateField, CreateForm, CREATE_NEW};
+    let pick = |v: &str, phrase: &str, creates: Option<&str>| CreateChoice {
+        value: v.into(),
+        label: v.into(),
+        detail: None,
+        phrase: Some(phrase.into()),
+        creates: creates.map(Into::into),
+    };
+    CreateForm {
+        folder: false,
+        fields: vec![CreateField::select(
+            "workspace",
+            "Workspace",
+            vec![pick("work", "in workspace work", None), pick(CREATE_NEW, "in a new workspace {name}", Some("workspace {name}"))],
+            Some("work".into()),
+        )],
+        summary: Some("Creates session {name} on box {workspace}.".into()),
+        submit: "Create".into(),
+        ..CreateForm::folder("", "", "")
+    }
+}
+
+fn create_on_vm(workspace: &str) -> AgentCreate {
+    AgentCreate {
+        machine: Some("box".into()),
+        name: Some("api-fix".into()),
+        options: [("workspace".to_string(), workspace.to_string())].into(),
+        cols: Some(90),
+        rows: Some(30),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn creating_on_a_platform_machine_waits_for_the_users_approval() {
+    let w = world(Duration::from_secs(10));
+    w.vm.set_caps(ProviderCaps { create: true, start: true, attach_existing: true, survives_detach: true, ..Default::default() });
+    w.vm.set_form(vm_form());
+    let mut c = w.client_as(agent_caller("a1", "api"));
+    // The form is read-only: no approval.
+    let form = c.create_form(&FormRequest { provider: "vmhost".into(), machine: "box".into() }).unwrap();
+    assert_eq!((form.folder, form.machine_label.as_str(), form.submit.as_str()), (false, "Fake box", "Create"));
+    assert!(w.approvals.pending().is_empty());
+    // Bad input is refused before anyone is asked.
+    let e = server_error(c.create_agent(&AgentCreate { name: None, ..create_on_vm("work") }).unwrap_err());
+    assert_eq!(e.code, code::BAD_PARAMS);
+    let e = server_error(c.create_agent(&create_on_vm("nope")).unwrap_err());
+    assert!(e.code == code::BAD_PARAMS && e.message.contains("isn't a choice"), "{e}");
+    assert!(w.approvals.pending().is_empty() && w.vm.created().is_empty());
+
+    // Denied: nothing is created.
+    let asked = w.answer_when_asked(false);
+    let e = server_error(c.create_agent(&create_on_vm("work")).unwrap_err());
+    let view = asked.join().unwrap();
+    assert_eq!(e.code, code::DENIED);
+    assert!(e.message.contains("Nothing was created"), "{e}");
+    assert!(w.vm.created().is_empty() && c.agents().unwrap().is_empty());
+    assert_eq!(view.action, "agent.create");
+    assert_eq!(view.summary, "create the session \"api-fix\" on Fake box (vmhost)");
+    assert_eq!(view.details[0], "Creates session api-fix on box in workspace work.");
+    assert_eq!((view.risk, view.requester.name.as_str()), (Risk::Low, "api"));
+
+    // Allowed: made there, then attached and in Pitwall.
+    let asked = w.answer_when_asked(true);
+    let made = c.create_agent(&create_on_vm("work")).unwrap();
+    asked.join().unwrap();
+    assert_eq!((made.name.as_str(), made.cwd.as_str(), made.running), ("api-fix", "/srv/work", true));
+    assert!(made.caps.remove_keeps_session);
+    assert_eq!(w.vm.created().len(), 1);
+
+    // Also making a workspace there: asked every time (high risk).
+    let asked = w.answer_when_asked(false);
+    let _ = c.create_agent(&AgentCreate { name: Some("scratch".into()), ..create_on_vm(pitwall_proto::CREATE_NEW) });
+    let view = asked.join().unwrap();
+    assert_eq!((view.risk, view.rememberable), (Risk::High, false));
+    assert!(view.details.iter().any(|d| d == "Also creates workspace scratch on Fake box."), "{:?}", view.details);
+    // On this Mac nothing is asked.
+    let project = TempDir::new("proj");
+    let local = AgentCreate { kind: "shell".into(), project: project.path().to_string_lossy().into(), ..Default::default() };
+    assert!(c.create_agent(&local).is_ok());
+    assert!(w.approvals.pending().is_empty());
 }
 
 /// The real identity: a client in this very process is Pitwall itself (the

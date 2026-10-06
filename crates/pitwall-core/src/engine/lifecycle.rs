@@ -2,6 +2,7 @@
 //! provider. These do blocking work (git, starting and ending sessions);
 //! call them off the main thread.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,8 +15,8 @@ use crate::model::{size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateA
 use crate::onboarding::project_list;
 use crate::paths::expand_tilde_in;
 use crate::provider::{
-    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, MachineId, NativeState, Provider, ProviderId,
-    Started, TermSize, WorkspaceSel,
+    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Machine, MachineId, NativeState, Provider,
+    ProviderId, Started, TermSize,
 };
 use crate::rules;
 use crate::slug::slug;
@@ -67,8 +68,19 @@ fn display_project(exec: &dyn Exec, p: Option<&str>) -> Result<Option<String>, S
     Ok(Some(Git::new(exec, &path).repo_root().unwrap_or(path)))
 }
 
+/// Start a new agent where `req` says (default: where new agents go). A
+/// machine whose form has no folder (a platform such as agw) makes it its
+/// own way: [`create_on_platform`]. Blocking.
 pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, String> {
-    let (provider, machine) = core.providers().default_target()?;
+    let (provider, machine) = core.providers().target(req.provider.as_deref(), req.machine.as_deref())?;
+    if !provider.caps().create {
+        return Err(format!("new agents can't be started on {}", machine.label));
+    }
+    let form = provider.create_form(&machine.id)?;
+    let options = form.values(&req.options)?;
+    if !form.folder {
+        return create_on_platform(core, provider, &machine, &req, &options);
+    }
     // Without commands on that machine there is nothing to check here: the
     // provider's own create reports a bad folder.
     let exec: Option<Arc<dyn Exec>> = if provider.caps().exec { Some(provider.exec(&machine.id)?) } else { None };
@@ -152,7 +164,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     let mut started = provider.create(&CreateSpec {
         machine: &machine.id,
         name: &rec.name,
-        workspace: WorkspaceSel::Folder,
+        options: &options,
         launch: LaunchSpec {
             agent: &rec.id,
             kind: &kind,
@@ -183,37 +195,83 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     Ok(view)
 }
 
-/// "Add to Pitwall": track a session that already exists on another machine
-/// (one its provider's `discover` lists). Nothing changes there: Pitwall
-/// attaches to it if it runs, and otherwise shows it stopped. Adopting the
-/// same session again returns the agent Pitwall already has (§2.1: the
-/// locator is unique). Blocking.
-pub fn adopt(core: &Shared, req: AdoptSessionRequest) -> Result<AgentView, String> {
-    let provider = core.providers().get(&ProviderId::new(&req.provider))?;
-    let loc = Locator::new(provider.id(), &MachineId::new(&req.machine), &req.native);
-    if let Some(v) = core.agents().iter().find(|a| a.rec.locator() == loc).map(Agent::view) {
-        return Ok(v);
+/// A new session on a platform that decides what runs and where (a form
+/// without a folder, e.g. agw): the provider makes it from the form's
+/// values, then Pitwall attaches to it as it does to an added session. Like
+/// an added session it belongs to the platform: removing it from Pitwall,
+/// or "Quit and Stop Agents", only ends the attachment (deleting it there is
+/// not offered yet). The caller has checked `options` against the form.
+fn create_on_platform(
+    core: &Shared,
+    provider: Arc<dyn Provider>,
+    machine: &Machine,
+    req: &CreateAgentRequest,
+    options: &BTreeMap<String, String>,
+) -> Result<AgentView, String> {
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err("a name is required".into());
     }
-    if !provider.caps().attach_existing {
-        return Err(format!("sessions on {} can't be added to Pitwall", provider.label()));
+    let taken = core.agents().iter().any(|a| {
+        let l = a.rec.locator();
+        l.provider == *provider.id() && l.machine == machine.id && l.native == name
+    });
+    if taken {
+        return Err(format!("Pitwall already has a session \"{name}\" on {}", machine.label));
     }
-    let found = provider
-        .discover(&loc.machine)?
-        .into_iter()
-        .find(|d| d.locator == loc)
-        .ok_or_else(|| format!("{} has no session \"{}\"", core.providers().machine_label(&loc), loc.native))?;
-    // The platform's name for what runs there, as one of Pitwall's kinds; a
-    // program Pitwall doesn't know is shown as a terminal (screen and
-    // activity status still work).
-    let (kind, kind_name) = match core.kinds().resolve(&found.kind) {
+    let id = uuid::Uuid::new_v4().to_string();
+    // The platform picks the program; the kind only matters to providers
+    // that launch one themselves.
+    let kind = core.kinds().find(&req.kind).or_else(|| core.kinds().find(super::terminals::TERMINAL_KIND)).unwrap_or_else(|| kind::custom_kind(""));
+    let size = size_of(req.cols, req.rows);
+    let term_size = TermSize::from_pair(size);
+    let mut started = provider.create(&CreateSpec {
+        machine: &machine.id,
+        name,
+        options,
+        launch: LaunchSpec {
+            agent: &id,
+            kind: &kind,
+            cwd: "",
+            intent: LaunchIntent::Fresh,
+            worktree: None,
+            size: term_size,
+            hooks: hook_wiring(core, &*provider),
+        },
+    })?;
+    let program = started.kind.clone().unwrap_or_else(|| kind.id.clone());
+    let mut rec = session_record(core, id, started.locator.clone(), &program, started.cwd.clone(), name.to_string());
+    if let Some(size) = size {
+        rec.set_term_size(size);
+    }
+    let loc = started.locator.clone();
+    let attached = host_of(core, &*provider, &mut started, term_size);
+    let mut agent = Agent::new(rec, attached.as_ref().ok().cloned(), core.now());
+    agent.facts = core.facts(&loc, &agent.rec);
+    let view = agent.view();
+    core.agents().push(agent);
+    core.changed(true);
+    match attached {
+        Ok(_) => Ok(view),
+        Err(e) => Err(format!(
+            "\"{name}\" was created on {} and added to Pitwall, but Pitwall couldn't attach to it: {e}",
+            machine.label
+        )),
+    }
+}
+
+/// The record of a platform's session Pitwall tracks without owning it
+/// (`adopted`): what runs there (`program`, the platform's word) as one of
+/// Pitwall's kinds, else a terminal — screen and activity status still work.
+fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: String, name: String) -> AgentRecord {
+    let (kind, kind_name) = match core.kinds().resolve(program) {
         Some(k) => (k.id, k.name),
-        None => (super::terminals::TERMINAL_KIND.to_string(), if found.kind.is_empty() { "Shell".into() } else { found.kind.clone() }),
+        None => (super::terminals::TERMINAL_KIND.to_string(), if program.is_empty() { "Shell".into() } else { program.to_string() }),
     };
-    let cwd = found.cwd.clone().unwrap_or_default();
-    let mut rec = AgentRecord {
-        id: uuid::Uuid::new_v4().to_string(),
-        locator: Some(loc.clone()),
-        name: found.title.clone().unwrap_or_else(|| loc.native.clone()),
+    AgentRecord {
+        id,
+        locator: Some(loc),
+        name,
         kind,
         kind_name,
         custom_command: None,
@@ -234,7 +292,30 @@ pub fn adopt(core: &Shared, req: AdoptSessionRequest) -> Result<AgentView, Strin
         rows: None,
         adopted: true,
         inner_agent: None,
-    };
+    }
+}
+
+/// "Add to Pitwall": track a session that already exists on another machine
+/// (one its provider's `discover` lists). Nothing changes there: Pitwall
+/// attaches to it if it runs, and otherwise shows it stopped. Adopting the
+/// same session again returns the agent Pitwall already has (§2.1: the
+/// locator is unique). Blocking.
+pub fn adopt(core: &Shared, req: AdoptSessionRequest) -> Result<AgentView, String> {
+    let provider = core.providers().get(&ProviderId::new(&req.provider))?;
+    let loc = Locator::new(provider.id(), &MachineId::new(&req.machine), &req.native);
+    if let Some(v) = core.agents().iter().find(|a| a.rec.locator() == loc).map(Agent::view) {
+        return Ok(v);
+    }
+    if !provider.caps().attach_existing {
+        return Err(format!("sessions on {} can't be added to Pitwall", provider.label()));
+    }
+    let found = provider
+        .discover(&loc.machine)?
+        .into_iter()
+        .find(|d| d.locator == loc)
+        .ok_or_else(|| format!("{} has no session \"{}\"", core.providers().machine_label(&loc), loc.native))?;
+    let name = found.title.clone().unwrap_or_else(|| loc.native.clone());
+    let mut rec = session_record(core, uuid::Uuid::new_v4().to_string(), loc.clone(), &found.kind, found.cwd.clone().unwrap_or_default(), name);
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
         rec.set_term_size(size);
@@ -496,7 +577,7 @@ mod tests {
             apply_to_main_checkout: false,
             display_project: None,
             cols: None,
-            rows: None,
+            ..Default::default()
         }
     }
 
@@ -635,6 +716,93 @@ mod tests {
         assert!(find(&v.id).running, "re-attached, no restart");
         assert_eq!(find(&w.id).status, Status::Stopped);
         assert_eq!(h.provider.launched().len(), 2, "nothing was started again");
+    }
+
+    /// A platform's machine (agw-like): its form decides the options, the
+    /// provider makes the session by name, Pitwall attaches; it belongs to
+    /// the platform, so removing it only detaches.
+    #[test]
+    fn a_platform_session_is_created_from_its_form_then_attached() {
+        use crate::engine::{Deps, Engine};
+        use crate::provider::{CreateChoice, CreateField, CreateForm};
+        use crate::testing::{FakeProvider, ManualClock, MemStore, RecordingSink};
+        let dir = TempDir::new("platform");
+        let local = FakeProvider::named("local", "this-mac", Arc::new(LocalExec));
+        let vm = FakeProvider::named("vmhost", "box", Arc::new(LocalExec));
+        vm.set_caps(ProviderCaps { create: true, start: true, attach_existing: true, survives_detach: true, ..Default::default() });
+        vm.set_remote(true);
+        let pick = |v: &str| CreateChoice { value: v.into(), label: v.into(), detail: None, phrase: Some(format!("in {v}")), creates: None };
+        vm.set_form(CreateForm {
+            folder: false,
+            fields: vec![
+                CreateField::select("workspace", "Workspace", vec![pick("work"), pick("gwlive")], Some("work".into())),
+                CreateField::select("template", "Template", vec![pick("claude-code"), pick("login-shell")], Some("login-shell".into())),
+            ],
+            submit: "Create".into(),
+            ..CreateForm::folder("", "", "")
+        });
+        let engine = Engine::open(Deps {
+            paths: crate::paths::Paths::new(dir.path().join("pitwall")),
+            events: RecordingSink::new(),
+            clock: ManualClock::new(1),
+            store: MemStore::with(vec![]),
+            providers: vec![local.clone(), vm.clone()],
+        });
+        let form = engine.create_form(None, Some("box")).unwrap();
+        assert_eq!((form.provider.as_str(), form.machine.as_str(), form.machine_label.as_str(), form.folder), ("vmhost", "box", "Fake box", false));
+        assert!(engine.create_form(Some("local"), None).unwrap().folder, "this Mac: Pitwall's own form");
+        assert!(engine.create_form(None, Some("nowhere")).unwrap_err().contains("no machine \"nowhere\""));
+
+        let req = |name: &str, opts: &[(&str, &str)]| CreateAgentRequest {
+            name: name.into(),
+            machine: Some("box".into()),
+            options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            cols: Some(90),
+            rows: Some(30),
+            ..Default::default()
+        };
+        // Options are checked against the form before anything is made.
+        assert!(create(&engine, req("x", &[("workspace", "nope")])).unwrap_err().contains("isn't a choice for Workspace"));
+        assert!(create(&engine, req("x", &[("color", "red")])).unwrap_err().contains("unknown option"));
+        assert!(create(&engine, req(" ", &[])).unwrap_err().contains("name is required"));
+        assert!(vm.created().is_empty());
+
+        let v = create(&engine, req("api-fix", &[("template", "claude-code")])).unwrap();
+        let (name, opts) = vm.created().remove(0);
+        assert_eq!(name, "api-fix");
+        assert_eq!(opts.into_iter().collect::<Vec<_>>(), [("template".into(), "claude-code".into()), ("workspace".into(), "work".into())], "defaults filled in");
+        assert_eq!((v.name.as_str(), v.kind.as_str(), v.cwd.as_str()), ("api-fix", "claude", "/srv/work"), "kind from what the platform runs");
+        assert_eq!((v.machine.provider.as_str(), v.machine.id.as_str()), ("vmhost", "box"));
+        assert!(v.running && v.caps.input && v.caps.remove_keeps_session);
+        assert!(!v.machine.can_create, "no \"new agent in this folder\" on a platform's machine");
+        let rec = engine.records().into_iter().find(|r| r.id == v.id).unwrap();
+        assert_eq!(rec.locator.as_ref().unwrap().to_string(), "vmhost:box/api-fix");
+        assert_eq!(rec.term_size(), Some((90, 30)));
+        let ctl = vm.ctl("api-fix").unwrap();
+        crate::engine::input::write_input(&engine, &v.id, "hi\r").unwrap();
+        assert_eq!(ctl.input(), b"hi\r", "attached: input reaches the session");
+
+        // The same name again: Pitwall already has it.
+        assert!(create(&engine, req("api-fix", &[])).unwrap_err().contains("already has a session \"api-fix\""));
+        // The platform refuses: its message, nothing added.
+        let other = create(&engine, req("other", &[]));
+        assert!(other.is_ok());
+        vm.fail_next(PwError::other("agw couldn't create \"third\": VM is stopped"));
+        assert_eq!(create(&engine, req("third", &[])).unwrap_err(), "agw couldn't create \"third\": VM is stopped");
+        assert_eq!(engine.views().len(), 2);
+
+        // Quitting with "stop agents" or removing it leaves it running there.
+        stop_all(&engine);
+        assert!(ctl.running(), "Quit and Stop Agents only detaches");
+        remove(&engine, &v.id, false).unwrap();
+        assert!(ctl.running(), "removing it from Pitwall only detaches");
+        assert_eq!(vm.state(&Locator::new(&ProviderId::new("vmhost"), &MachineId::new("box"), "api-fix")).unwrap(), NativeState::Running);
+        // This Mac's form takes no platform options.
+        let mut mac = req("m", &[("workspace", "work")]);
+        mac.machine = Some("this-mac".into());
+        mac.kind = "shell".into();
+        mac.project_path = dir.path().to_string_lossy().into_owned();
+        assert!(create(&engine, mac).unwrap_err().contains("takes no options"));
     }
 
     #[test]

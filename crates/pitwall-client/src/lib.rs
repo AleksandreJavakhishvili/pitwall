@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use pitwall_proto::frame::{self, Frame};
 use pitwall_proto::{
-    method, AgentCreate, AgentView, ApprovalAnswer, ApprovalView, ClientHello, ErrorBody, Event, Hello, ProviderMachines, Range,
+    method, AgentCreate, AgentView, ApprovalAnswer, ApprovalView, ClientHello, CreateForm, ErrorBody, Event, FormRequest, Hello, ProviderMachines, Range,
     Reject, Request, Role, ScannedPlace, ServerHello, ServerMsg, SessionAdd, SessionAdded, SessionFilter, Welcome,
 };
 
@@ -142,6 +142,11 @@ impl Client {
 
     pub fn machines(&mut self) -> Result<Vec<ProviderMachines>> {
         self.call_as(method::MACHINE_LIST, Value::Null)
+    }
+
+    /// How new agents are made on one machine (its form and choices).
+    pub fn create_form(&mut self, req: &FormRequest) -> Result<CreateForm> {
+        self.call_as(method::MACHINE_FORM, req)
     }
 
     pub fn sessions(&mut self, filter: &SessionFilter) -> Result<Vec<ScannedPlace>> {

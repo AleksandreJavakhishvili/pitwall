@@ -125,7 +125,7 @@ fn local_provider_passes_the_contract() {
 #[test]
 fn local_agents_know_how_to_reach_pitwall() {
     use pitwall_core::clock::SystemClock;
-    use pitwall_core::provider::{CreateSpec, LaunchIntent, LaunchSpec, TermSize, WorkspaceSel};
+    use pitwall_core::provider::{CreateSpec, LaunchIntent, LaunchSpec, TermSize};
     use pitwall_core::term::TermHost;
     let l = Local::new();
     let kind = contract::shell_kind();
@@ -135,7 +135,7 @@ fn local_agents_know_how_to_reach_pitwall() {
         .create(&CreateSpec {
             machine: &MachineId::new(MachineId::THIS_MAC),
             name: "env",
-            workspace: WorkspaceSel::Folder,
+            options: &Default::default(),
             launch: LaunchSpec { agent: "env-agent", kind: &kind, cwd: &l.workspace, intent: LaunchIntent::Fresh, worktree: None, size, hooks: None },
         })
         .unwrap();
@@ -197,8 +197,9 @@ fn a_remote_like_provider_with_fewer_caps_passes_too() {
 
 // ------------------------------------------------------------------ agw
 
-/// The agw provider against the fake agw in `tests/fake_agw/`, with one
-/// running session ("adopt-me") to adopt.
+/// The agw provider against the fake agw in `tests/fake_agw/`: the contract
+/// creates its session in workspace "work" (`agw session create`); one
+/// running session ("adopt-me") is there to adopt.
 struct Agw {
     provider: Arc<AgwProvider>,
     workspace: String,
@@ -232,6 +233,7 @@ impl Agw {
         install_fake("tmux", &state.join("bin/tmux"), &state);
         std::fs::write(state.join("adopt-me.state"), "running\n").unwrap();
         std::fs::write(state.join("adopt-me.ws"), &workspace).unwrap();
+        std::fs::write(state.join("work.ws"), &workspace).unwrap();
         let run = std::env::temp_dir().join(format!("pwa-{}", uuid_ish()));
         std::fs::create_dir_all(&run).unwrap();
         let mut cfg = AgwConfig::new(run.join("hold"), Ok(holder()));
@@ -253,6 +255,9 @@ impl ContractHarness for Agw {
     }
     fn existing(&self) -> Option<Locator> {
         Some(Locator::new(self.provider.id(), &self.machine(), "adopt-me"))
+    }
+    fn create_options(&self) -> std::collections::BTreeMap<String, String> {
+        [("workspace", "work"), ("runAs", "admin"), ("template", "contract")].into_iter().map(|(k, v)| (k.into(), v.into())).collect()
     }
 }
 

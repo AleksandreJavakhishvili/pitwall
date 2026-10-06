@@ -16,7 +16,6 @@ use pitwall_core::kind::{launch, KindCatalog};
 use pitwall_core::provider::{
     CreateSpec, Discovered, ErrorCode, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec, Locator, Machine,
     MachineId, NativeState, Provider, ProviderCaps, ProviderId, PwError, Result, Started, TermIo, TermSize,
-    WorkspaceSel,
 };
 use crate::hold;
 pub use crate::hold::HoldTerm;
@@ -108,6 +107,7 @@ impl LocalProvider {
             resumed: plan.resumed,
             cwd: spec.cwd.to_string(),
             term: Some(Box::new(term)),
+            kind: None,
         })
     }
 
@@ -126,6 +126,7 @@ impl Provider for LocalProvider {
     fn caps(&self) -> ProviderCaps {
         ProviderCaps {
             create: true,
+            platform_create: false,
             resume: true,
             start: true,
             // Agents started elsewhere on this Mac are listed by the onboarding
@@ -174,7 +175,7 @@ impl Provider for LocalProvider {
         if *spec.machine != self.machine.id {
             return Err(PwError::not_found(format!("no machine {} here", spec.machine)));
         }
-        if spec.workspace != WorkspaceSel::Folder {
+        if !spec.options.is_empty() {
             return Err(PwError::unsupported("agents on this Mac work in a folder"));
         }
         let loc = Locator::new(&self.id, &self.machine.id, spec.launch.agent);
@@ -260,7 +261,7 @@ mod tests {
         let spec = CreateSpec {
             machine: &m,
             name: "x",
-            workspace: WorkspaceSel::Folder,
+            options: &Default::default(),
             launch: LaunchSpec {
                 agent: "a1",
                 kind: &kind,
@@ -273,7 +274,8 @@ mod tests {
         };
         let e = p.create(&spec).err().unwrap();
         assert_eq!((e.code, e.message.as_str()), (ErrorCode::Unsupported, "the terminal holder (pitwall-hold) is missing"));
-        let other = CreateSpec { workspace: WorkspaceSel::Existing("w".into()), ..spec.clone() };
+        let options = std::collections::BTreeMap::from([("workspace".to_string(), "w".to_string())]);
+        let other = CreateSpec { options: &options, ..spec.clone() };
         assert!(p.create(&other).err().unwrap().is(ErrorCode::Unsupported));
     }
 

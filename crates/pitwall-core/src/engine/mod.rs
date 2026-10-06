@@ -29,7 +29,8 @@ use crate::kind::{self, KindCatalog};
 use crate::model::{AgentRecord, AgentView, KindCaps, KindView, QueueItem};
 use crate::onboarding::project_list::ProjectList;
 use crate::paths::Paths;
-use crate::provider::{Locator, Provider, Providers, TermSize};
+use crate::provider::{CreateForm, Locator, Provider, Providers, TermSize};
+use pitwall_proto::{MachineEntry, ProviderMachines};
 use crate::store::{Snapshot, Store};
 use crate::term::TermHost;
 pub(crate) use agent::{Agent, Facts};
@@ -214,6 +215,49 @@ impl Engine {
             views.push(KindView { id: custom.id, name: "Custom command".into(), installed: true, path: None, worktree: kc.worktree, caps: kc });
         }
         Ok(views)
+    }
+
+    /// How new agents are made on `machine` of `provider` (default: where
+    /// new agents go): the New-agent dialog's fields and `machine.form`.
+    /// Blocking (a platform lists its choices; cached briefly there).
+    pub fn create_form(&self, provider: Option<&str>, machine: Option<&str>) -> Result<CreateForm, String> {
+        let (p, m) = self.providers.target(provider, machine)?;
+        if !p.caps().create {
+            return Err(format!("new agents can't be started on {}", m.label));
+        }
+        let mut form = p.create_form(&m.id)?;
+        form.provider = p.id().to_string();
+        form.machine = m.id.to_string();
+        form.machine_label = m.label;
+        Ok(form)
+    }
+
+    /// Every provider with its machines and what can be done there
+    /// (`machine.list`, the New-agent dialog's "Runs on"). Blocking.
+    pub fn machine_list(&self) -> Vec<ProviderMachines> {
+        self.providers
+            .all()
+            .iter()
+            .map(|p| {
+                let caps = p.caps();
+                let (machines, error) = match self.providers.machines(p) {
+                    Ok(ms) => (
+                        ms.into_iter().map(|m| MachineEntry { id: m.id.to_string(), label: m.label, detail: m.detail }).collect(),
+                        None,
+                    ),
+                    Err(e) => (vec![], Some(e.to_string())),
+                };
+                ProviderMachines {
+                    provider: p.id().to_string(),
+                    label: p.label(),
+                    version: p.version(),
+                    can_create: caps.create,
+                    can_add_sessions: caps.attach_existing,
+                    machines,
+                    error,
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn submit(&self, jobs: Vec<tasks::Job>) {

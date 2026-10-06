@@ -5,16 +5,19 @@
 //! - [`frame`]: length-prefixed frames, JSON or terminal bytes.
 //! - [`msg`]: the versioned handshake, requests, responses, events.
 //! - [`api`]: method names, their parameters and results, approvals.
+//! - [`create`]: the form a provider describes for new agents on a machine.
 //! - [`views`]: what clients are shown (`AgentView`, sessions, …).
 //!
 //! Serde only: no sockets, no engine.
 
 pub mod api;
+pub mod create;
 pub mod frame;
 pub mod msg;
 pub mod views;
 
 pub use api::*;
+pub use create::*;
 pub use msg::*;
 pub use views::*;
 
@@ -51,6 +54,8 @@ mod ts_export {
         SessionAdd::export_all(&cfg).unwrap();
         ProviderMachines::export_all(&cfg).unwrap();
         AgentCreate::export_all(&cfg).unwrap();
+        CreateForm::export_all(&cfg).unwrap();
+        FormRequest::export_all(&cfg).unwrap();
         assert!(dir.join("AgentView.ts").is_file());
     }
 }

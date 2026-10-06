@@ -7,6 +7,11 @@ export type { AgentCaps } from "./gen/AgentCaps";
 export type { QueueItem } from "./gen/QueueItem";
 export type { ApprovalView } from "./gen/ApprovalView";
 export type { Requester } from "./gen/Requester";
+export type { CreateForm } from "./gen/CreateForm";
+export type { CreateField } from "./gen/CreateField";
+export type { CreateChoice } from "./gen/CreateChoice";
+export type { NameRule } from "./gen/NameRule";
+export type { ProviderMachines } from "./gen/ProviderMachines";
 import type { Status } from "./gen/Status";
 import type { AgentCaps } from "./gen/AgentCaps";
 import type { QueueItem } from "./gen/QueueItem";
@@ -99,8 +104,14 @@ export interface AgentView {
 
 export interface CreateAgentRequest {
   name: string;
+  /** Not needed on a machine whose form has no folder (the platform decides what runs). */
   kind: string;
   projectPath: string;
+  /** Where to make it (`listMachines`); omitted → this Mac. */
+  provider?: string;
+  machine?: string;
+  /** That machine's form values (`CreateForm.fields`: id → value). */
+  options?: Record<string, string>;
   customCommand?: string;
   /** Launch with the agent's own worktree flag (kinds with `worktree: true` only). */
   worktree: boolean;

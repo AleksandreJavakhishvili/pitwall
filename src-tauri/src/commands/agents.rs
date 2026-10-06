@@ -9,6 +9,8 @@ use pitwall_core::onboarding::{self, recent::RecentProject};
 use pitwall_core::vcs::git::FileChange;
 use pitwall_core::{hooks, Shared};
 
+use pitwall_proto::{CreateForm, ProviderMachines};
+
 use super::{blocking, Res};
 
 #[tauri::command]
@@ -35,6 +37,20 @@ pub async fn create_agent(core: State<'_, Shared>, req: CreateAgentRequest) -> R
     let view = blocking(move || lifecycle::create(&c, req)).await?;
     onboarding::add_agent_project(&core, &view);
     Ok(view)
+}
+
+/// Providers and their machines: the New-agent dialog's "Runs on".
+#[tauri::command]
+pub async fn list_machines(core: State<'_, Shared>) -> Res<Vec<ProviderMachines>> {
+    let core = core.inner().clone();
+    blocking(move || Ok(core.machine_list())).await
+}
+
+/// How new agents are made on one machine (its fields and choices).
+#[tauri::command]
+pub async fn create_form(core: State<'_, Shared>, provider: String, machine: String) -> Res<CreateForm> {
+    let core = core.inner().clone();
+    blocking(move || core.create_form(Some(&provider), Some(&machine))).await
 }
 
 #[tauri::command]

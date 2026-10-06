@@ -18,6 +18,7 @@
 //! Only harmless commands run (an interactive POSIX shell), in the
 //! harness's scratch workspace.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -26,7 +27,7 @@ use crate::error::ErrorCode;
 use crate::exec::{self, Cmd};
 use crate::kind::{AgentKind, KindCatalog};
 use crate::provider::{
-    CreateSpec, LaunchIntent, LaunchSpec, Locator, MachineId, NativeState, Provider, Started, TermSize, WorkspaceSel,
+    CreateSpec, LaunchIntent, LaunchSpec, Locator, MachineId, NativeState, Provider, Started, TermSize,
 };
 use crate::term::TermHost;
 
@@ -46,6 +47,12 @@ pub trait ContractHarness {
     /// suite types into it, stops, starts and removes it.
     fn existing(&self) -> Option<Locator> {
         None
+    }
+    /// For a provider whose machines have their own create form (a
+    /// platform, `caps.create`): the options that make a session running the
+    /// contract's shell in `workspace()`. Empty for Pitwall's folder form.
+    fn create_options(&self) -> BTreeMap<String, String> {
+        BTreeMap::new()
     }
 }
 
@@ -139,10 +146,20 @@ pub fn run(h: &dyn ContractHarness) {
 
     // Create, or adopt the harness's session.
     let size = TermSize::new(100, 30);
+    let options = h.create_options();
+    let form = p.create_form(&m).expect("contract: create_form");
+    if caps.create {
+        assert_eq!(form.folder, !caps.platform_create, "contract: caps.platform_create says whether the form has a folder");
+    }
+    if form.folder {
+        assert!(options.is_empty(), "contract: a folder form takes no options");
+    } else {
+        form.values(&options).expect("contract: the harness's options fit the provider's form");
+    }
     let spec = CreateSpec {
         machine: &m,
         name: &agent,
-        workspace: WorkspaceSel::Folder,
+        options: &options,
         launch: launch(&agent, &kind, &ws, LaunchIntent::Fresh, size),
     };
     let (loc, host) = if caps.create {

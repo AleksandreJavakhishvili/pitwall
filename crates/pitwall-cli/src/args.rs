@@ -37,30 +37,73 @@ pub enum Command {
 pub enum AgentCmd {
     /// List Pitwall's agents.
     List,
-    /// Start a new agent (or terminal) on this Mac and add it to Pitwall.
-    New(AgentNew),
+    /// Start a new agent (or terminal) on this Mac, or create a session on
+    /// another machine (--machine, an agw VM), and add it to Pitwall.
+    New(Box<AgentNew>),
 }
 
-#[derive(Debug, Args, PartialEq)]
+#[derive(Debug, Args, PartialEq, Default)]
 pub struct AgentNew {
-    /// Agent kind: claude, codex, shell, … (Pitwall's New-agent list).
-    #[arg(long)]
-    pub kind: String,
-    /// Folder it works in (default: the current folder).
-    #[arg(long, value_name = "PATH")]
+    /// Agent kind: claude, codex, shell, … (Pitwall's New-agent list). Not
+    /// used with --machine: the session template decides what runs there.
+    #[arg(long, required_unless_present = "machine")]
+    pub kind: Option<String>,
+    /// Folder it works in (default: the current folder). This Mac only.
+    #[arg(long, value_name = "PATH", conflicts_with = "machine")]
     pub project: Option<String>,
-    /// Name shown in Pitwall (default: the kind's name).
+    /// Name shown in Pitwall (default: the kind's name). With --machine:
+    /// the session's name there (required).
     #[arg(long)]
     pub name: Option<String>,
     /// Continue this conversation (session id) instead of starting fresh.
-    #[arg(long, value_name = "SESSION_ID")]
+    #[arg(long, value_name = "SESSION_ID", conflicts_with = "machine")]
     pub resume: Option<String>,
+    /// Create it on this machine (an agw VM; see `machine list` and
+    /// `machine form <machine>`). It changes that machine, so it waits for
+    /// your approval in Pitwall.
+    #[arg(long, value_name = "MACHINE", requires = "name")]
+    pub machine: Option<String>,
+    /// The provider of --machine, when two have a machine by that name.
+    #[arg(long, requires = "machine")]
+    pub provider: Option<String>,
+    /// --machine: an existing workspace there.
+    #[arg(long, value_name = "NAME", requires = "machine", conflicts_with = "new_workspace")]
+    pub workspace: Option<String>,
+    /// --machine: a new workspace (named NAME; default: the session's name).
+    #[arg(long, value_name = "NAME", requires = "machine", num_args = 0..=1, default_missing_value = "")]
+    pub new_workspace: Option<String>,
+    /// --machine: the new workspace's template.
+    #[arg(long, value_name = "TEMPLATE", requires = "new_workspace")]
+    pub workspace_template: Option<String>,
+    /// --machine: who it runs as: `admin`, `agent:<name>` (an existing agent
+    /// user) or `new-agent[:<name>]` (a new one).
+    #[arg(long = "as", value_name = "WHO", requires = "machine")]
+    pub run_as: Option<String>,
+    /// --machine with `--as new-agent`: the new agent user's template.
+    #[arg(long, value_name = "TEMPLATE", requires = "run_as")]
+    pub agent_template: Option<String>,
+    /// --machine: the session template (what runs in it).
+    #[arg(long, value_name = "TEMPLATE", requires = "machine")]
+    pub template: Option<String>,
+    /// --machine: any field of the machine's form, as FIELD=VALUE
+    /// (`machine form <machine>` lists them). Repeatable.
+    #[arg(long = "option", value_name = "FIELD=VALUE", requires = "machine")]
+    pub options: Vec<String>,
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
 pub enum MachineCmd {
     /// List providers and their machines.
     List,
+    /// What `agent new --machine` takes there: the machine's form, with the
+    /// choices it has now (read-only).
+    Form {
+        /// The machine (e.g. an agw VM name).
+        machine: String,
+        /// Its provider, when two have a machine by that name.
+        #[arg(long)]
+        provider: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -104,12 +147,33 @@ mod tests {
         let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(
             c.command,
-            Command::Agent(AgentCmd::New(AgentNew {
-                kind: "claude".into(),
+            Command::Agent(AgentCmd::New(Box::new(AgentNew {
+                kind: Some("claude".into()),
                 project: Some("~/p".into()),
                 name: Some("api".into()),
-                resume: Some("s-1".into())
-            }))
+                resume: Some("s-1".into()),
+                ..Default::default()
+            })))
+        );
+        let c = parse(&["agent", "new", "--machine", "shakedown", "--name", "api-fix", "--workspace", "work", "--as", "admin", "--template", "claude"]).unwrap();
+        assert_eq!(
+            c.command,
+            Command::Agent(AgentCmd::New(Box::new(AgentNew {
+                machine: Some("shakedown".into()),
+                name: Some("api-fix".into()),
+                workspace: Some("work".into()),
+                run_as: Some("admin".into()),
+                template: Some("claude".into()),
+                ..Default::default()
+            })))
+        );
+        let Command::Agent(AgentCmd::New(n)) = parse(&["agent", "new", "--machine", "vm", "--name", "s", "--new-workspace", "--as", "new-agent:bot"]).unwrap().command else {
+            panic!()
+        };
+        assert_eq!((n.new_workspace.as_deref(), n.run_as.as_deref()), (Some(""), Some("new-agent:bot")));
+        assert_eq!(
+            parse(&["machine", "form", "shakedown"]).unwrap().command,
+            Command::Machine(MachineCmd::Form { machine: "shakedown".into(), provider: None })
         );
         assert_eq!(parse(&["machine", "list"]).unwrap().command, Command::Machine(MachineCmd::List));
         assert_eq!(
@@ -128,7 +192,19 @@ mod tests {
 
     #[test]
     fn rejects_what_isnt_a_command() {
-        for bad in [&["agent"][..], &["agent", "new"], &["session", "add", "agw", "vm"], &["agent", "remove", "x"], &["nope"]] {
+        for bad in [
+            &["agent"][..],
+            &["agent", "new"],
+            &["session", "add", "agw", "vm"],
+            &["agent", "remove", "x"],
+            &["nope"],
+            // Platform options need a machine; a session there needs a name; no folder there.
+            &["agent", "new", "--kind", "shell", "--workspace", "w"],
+            &["agent", "new", "--machine", "vm"],
+            &["agent", "new", "--machine", "vm", "--name", "s", "--project", "/p"],
+            &["agent", "new", "--machine", "vm", "--name", "s", "--workspace", "w", "--new-workspace"],
+            &["agent", "new", "--machine", "vm", "--name", "s", "--workspace-template", "t"],
+        ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
         assert_eq!(parse(&["agent", "new"]).unwrap_err().exit_code(), 2);

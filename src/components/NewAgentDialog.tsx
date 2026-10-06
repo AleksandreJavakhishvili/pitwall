@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgentView, KindView, RecentProject } from "../types";
-import { api } from "../api";
+import type { AgentView, CreateForm, KindView, NameRule, RecentProject } from "../types";
+import { api, errorText } from "../api";
 import { NAME_RE } from "../lib/status";
+import { formValues, nameProblem, shown, summarize, type Values } from "../lib/createForm";
+import { createTargets, FormField, type Target } from "./CreateFormFields";
 import { newAgentSize } from "../terminal/registry";
 import { Modal } from "./Modal";
 import { Kbd } from "./Kbd";
@@ -27,6 +29,13 @@ function suggestName(projectPath: string, taken: Set<string>): string {
   for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;
 }
 
+/** Pitwall's own name rule, until the machine's form says otherwise. */
+const PITWALL_NAME: NameRule = {
+  pattern: NAME_RE.source,
+  maxLen: 32,
+  hint: "Lowercase letters, digits, - or _; starts with a letter; max 32",
+};
+
 interface Props {
   existing: AgentView[];
   /** Preselect this project folder. */
@@ -51,6 +60,50 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const taken = useMemo(() => new Set(existing.map((a) => a.name)), [existing]);
+  const [targets, setTargets] = useState<Target[]>([]);
+  const [targetKey, setTargetKey] = useState("");
+  const [form, setForm] = useState<CreateForm | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Values>({});
+
+  useEffect(() => {
+    api
+      .listMachines()
+      .then((list) => {
+        const t = createTargets(list);
+        setTargets(t);
+        setTargetKey((k) => k || t[0]?.key || "");
+      })
+      .catch(() => setTargets([]));
+  }, []);
+
+  const target = targets.find((t) => t.key === targetKey);
+  useEffect(() => {
+    if (!target) return;
+    let live = true;
+    setFormLoading(true);
+    setFormError(null);
+    setChosen({});
+    api
+      .createForm(target.provider, target.machine)
+      .then((f) => live && setForm(f))
+      .catch((e) => {
+        if (!live) return;
+        setForm(null);
+        setFormError(errorText(e));
+      })
+      .finally(() => live && setFormLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [target]);
+
+  // This Mac's form until the chosen machine's arrives: a kind and a folder.
+  const folder = form?.folder ?? true;
+  const nameRule = form?.name ?? PITWALL_NAME;
+  const values = useMemo(() => (form && !folder ? formValues(form, chosen) : {}), [form, folder, chosen]);
+  const summary = form && !folder ? summarize(form, name, values) : null;
 
   useEffect(() => {
     Promise.all([
@@ -84,32 +137,55 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
   const worktree = worktreeSupported && worktreeChecked;
 
   useEffect(() => {
-    if (!nameTouched && projectPath) setName(suggestName(projectPath, taken));
-  }, [projectPath, nameTouched, taken]);
+    if (!nameTouched && folder && projectPath) setName(suggestName(projectPath, taken));
+  }, [projectPath, nameTouched, taken, folder]);
 
   const kindOptions: KindView[] = kinds ?? [];
 
   const nameError = !name
     ? "Name required"
-    : !NAME_RE.test(name)
-      ? "Lowercase letters, digits, - or _; starts with a letter; max 32"
+    : nameProblem(nameRule, name)
+      ? nameProblem(nameRule, name)
       : taken.has(name)
         ? "Another agent already has this name"
         : null;
-  const projectError = !projectPath ? "Pick a project folder" : !projectPath.startsWith("/") && !projectPath.startsWith("~") ? "Use an absolute path" : null;
-  const commandError = customCommandKind && !customCommand.trim() ? "Enter a command" : null;
-  const valid = !nameError && !projectError && !commandError && !!kind;
+  const projectError = !folder
+    ? null
+    : !projectPath
+      ? "Pick a project folder"
+      : !projectPath.startsWith("/") && !projectPath.startsWith("~")
+        ? "Use an absolute path"
+        : null;
+  const commandError = folder && customCommandKind && !customCommand.trim() ? "Enter a command" : null;
+  const fieldsError =
+    form && !folder
+      ? form.fields
+          .filter((f) => shown(f, values))
+          .map((f) =>
+            f.input === "select" ? (values[f.id] ? null : `Choose ${f.label}`) : values[f.id] && f.rule ? nameProblem(f.rule, values[f.id]) : null,
+          )
+          .find((e) => !!e) ?? null
+      : null;
+  const valid = !nameError && !projectError && !commandError && !fieldsError && !formLoading && !formError && (!folder || !!kind);
 
   const submit = async () => {
     if (!valid || busy) return;
     setBusy(true);
     setSubmitError(null);
+    const where = target ? { provider: target.provider, machine: target.machine } : {};
     try {
+      if (!folder) {
+        // The platform decides what runs and where (the form's fields); the button is the user's go-ahead.
+        const a = await api.createAgent({ name, kind: "", projectPath: "", worktree: false, ...where, options: values, ...(await newAgentSize()) });
+        onCreated(a);
+        return;
+      }
       const a = await api.createAgent({
         name,
         kind,
         projectPath,
         worktree,
+        ...where,
         ...(await newAgentSize()),
         ...(customCommandKind ? { customCommand } : {}),
         ...rulesRequest(rules, worktree),
@@ -117,7 +193,7 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
       onCreated(a);
       void reportRulesAfterCreate(a.id, run);
     } catch (e) {
-      setSubmitError(typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
+      setSubmitError(errorText(e));
       setBusy(false);
     }
   };
@@ -131,6 +207,25 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
         }}
       >
         <div className="modal-body form">
+          {targets.length > 1 && (
+            <div className="field">
+              <label className="field-label" htmlFor="na-target">
+                Runs on
+              </label>
+              <select id="na-target" className="input" value={targetKey} onChange={(e) => setTargetKey(e.target.value)} disabled={busy}>
+                {targets.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              {formLoading && <span className="hint">Reading what {target?.label ?? "it"} has…</span>}
+              {formError && <span className="field-error">{formError}</span>}
+              {form?.error && <span className="hint">Some choices couldn't be listed: {form.error}</span>}
+            </div>
+          )}
+
+          {folder && (
           <div className="field">
             <span className="field-label">Agent</span>
             {kinds === null ? (
@@ -170,7 +265,9 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
               />
             )}
           </div>
+          )}
 
+          {folder && (
           <div className="field">
             <label className="field-label" htmlFor="na-project">
               Project
@@ -216,6 +313,7 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
             )}
             {projectChoice === OTHER && otherPath && projectError && <span className="field-error">{projectError}</span>}
           </div>
+          )}
 
           <div className="field">
             <label className="field-label" htmlFor="na-name">
@@ -231,13 +329,45 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
               }}
               spellCheck={false}
               autoComplete="off"
-              maxLength={32}
+              maxLength={nameRule.maxLen}
               data-autofocus
             />
-            {name && nameError && <span className="field-error">{nameError}</span>}
+            {name && nameError ? (
+              <span className="field-error">{nameError}</span>
+            ) : (
+              !folder && form && <span className="hint">Also its name on {form.machineLabel}. {nameRule.hint}</span>
+            )}
           </div>
 
-          {worktreeSupported && (
+          {form &&
+            !folder &&
+            form.fields
+              .filter((f) => shown(f, values))
+              .map((f) => (
+                <FormField
+                  key={f.id}
+                  field={f}
+                  value={chosen[f.id] ?? (f.input === "select" ? (values[f.id] ?? "") : "")}
+                  onChange={(v) => setChosen((c) => ({ ...c, [f.id]: v }))}
+                />
+              ))}
+
+          {summary && name && !nameError && (
+            <div className="create-summary" role="status">
+              <p>{summary.text}</p>
+              {summary.creates.length > 0 && (
+                <ul className="create-extras">
+                  {summary.creates.map((c) => (
+                    <li key={c}>
+                      Also creates {c}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {folder && worktreeSupported && (
             <label className="check">
               <input type="checkbox" checked={worktreeChecked} onChange={(e) => setWorktree(e.target.checked)} />
               <span>
@@ -249,8 +379,15 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
             </label>
           )}
 
-          <RulesField canRules={!!selected?.caps?.rules} projectPath={projectPath} worktree={worktree} value={rules} onChange={setRules} />
+          {folder && (
+            <RulesField canRules={!!selected?.caps?.rules} projectPath={projectPath} worktree={worktree} value={rules} onChange={setRules} />
+          )}
 
+          {busy && !folder && form && (
+            <p className="hint" role="status">
+              Creating on {form.machineLabel}… a new workspace or agent user can take a few minutes.
+            </p>
+          )}
           {submitError && <p className="form-error">{submitError}</p>}
         </div>
         <footer className="modal-foot">
@@ -258,7 +395,7 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
             Cancel
           </button>
           <button type="submit" className="primary-btn" disabled={!valid || busy}>
-            {busy ? "Starting…" : "Start"} <Kbd>↵</Kbd>
+            {busy ? (folder ? "Starting…" : "Creating…") : (form?.submit ?? "Start")} <Kbd>↵</Kbd>
           </button>
         </footer>
       </form>

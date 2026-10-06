@@ -6,6 +6,8 @@
 //! added the same way: a name here, a params/result shape, a row in the
 //! server's method table (with its risk).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -18,6 +20,10 @@ pub mod method {
     pub const AGENT_CREATE: &str = "agent.create";
     /// → [`ProviderMachines`](super::ProviderMachines)`[]`
     pub const MACHINE_LIST: &str = "machine.list";
+    /// [`FormRequest`](super::FormRequest) → [`CreateForm`](super::CreateForm):
+    /// how new agents are made on one machine (read-only; the provider
+    /// lists its choices there).
+    pub const MACHINE_FORM: &str = "machine.form";
     /// [`SessionFilter`](super::SessionFilter) → `ScannedPlace[]`
     pub const SESSION_LIST: &str = "session.list";
     /// [`SessionAdd`](super::SessionAdd) → [`SessionAdded`](super::SessionAdded)
@@ -42,15 +48,29 @@ pub mod event {
     pub const APPROVALS_CHANGED: &str = "approvals.changed";
 }
 
-/// Start a new agent (or terminal) in Pitwall, on the machine new agents go
-/// to (this Mac).
+/// Start a new agent (or terminal) in Pitwall: on this Mac by default, or
+/// on another machine (`machine`, e.g. an agw VM), where it is made with
+/// that machine's form (`machine.form`) and the user approves it first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentCreate {
-    /// A kind id (`claude`, `codex`, `shell`, …).
+    /// A kind id (`claude`, `codex`, `shell`, …); on a machine whose
+    /// platform decides what runs (a form without `folder`), ignored.
+    #[serde(default)]
     pub kind: String,
-    /// The folder it works in (absolute; `~` is expanded).
+    /// The folder it works in (absolute; `~` is expanded); only for a form
+    /// with `folder`.
+    #[serde(default)]
     pub project: String,
+    /// The provider of `machine`; found from `machine` when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Where to make it (default: this Mac).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    /// The machine's form fields (field id → value).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub options: BTreeMap<String, String>,
     /// Shown name; defaults to the kind's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

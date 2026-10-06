@@ -86,6 +86,8 @@ pub fn run() {
             commands::agents::recent_projects,
             commands::agents::list_agents,
             commands::agents::create_agent,
+            commands::agents::list_machines,
+            commands::agents::create_form,
             commands::agents::attach_output,
             commands::agents::detach_output,
             commands::agents::write_input,

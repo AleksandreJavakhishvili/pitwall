@@ -67,7 +67,9 @@ pub struct MachineView {
     pub provider: String,
     pub id: String,
     pub label: String,
-    /// New agents and terminals can be started there ("New agent here").
+    /// New agents and terminals can be started in its folders ("New agent
+    /// here", "Open terminal here"). False on a platform's machine (agw),
+    /// where new sessions come from its own form (New agent → Runs on).
     pub can_create: bool,
 }
 

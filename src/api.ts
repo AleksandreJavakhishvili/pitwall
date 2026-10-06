@@ -12,9 +12,11 @@ import type {
   AttentionEvent,
   CliStatus,
   CreateAgentRequest,
+  CreateForm,
   FileChange,
   HooksStatus,
   KindView,
+  ProviderMachines,
   RecentProject,
   RunningElsewhere,
 } from "./types";
@@ -29,6 +31,10 @@ export interface Api extends ReviewApi {
   recentProjects(): Promise<RecentProject[]>;
   listAgents(): Promise<AgentView[]>;
   createAgent(req: CreateAgentRequest): Promise<AgentView>;
+  /** Providers and their machines (New agent → "Runs on": those with `canCreate`). */
+  listMachines(): Promise<ProviderMachines[]>;
+  /** How new agents are made on one machine: Pitwall's folder form, or a platform's own fields and choices. */
+  createForm(provider: string, machine: string): Promise<CreateForm>;
   /** Replays buffered output, then streams raw PTY bytes. Returns a detach fn (local only). */
   attachOutput(agentId: string, onData: (bytes: Uint8Array) => void): Promise<Unlisten>;
   writeInput(agentId: string, data: string): Promise<void>;
@@ -130,6 +136,8 @@ async function createTauriApi(): Promise<Api> {
     recentProjects: () => invoke("recent_projects"),
     listAgents: () => invoke("list_agents"),
     createAgent: (req) => invoke("create_agent", { req }),
+    listMachines: () => invoke("list_machines"),
+    createForm: (provider, machine) => invoke("create_form", { provider, machine }),
     async attachOutput(agentId, onData) {
       let live = true;
       const channel = new Channel<unknown>((msg) => {

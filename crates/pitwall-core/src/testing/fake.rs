@@ -13,9 +13,10 @@ use std::time::Duration;
 use crate::error::{ErrorCode, PwError, Result};
 use crate::exec::Exec;
 use crate::kind::{launch, KindCatalog};
+use pitwall_proto::CreateForm;
 use crate::provider::{
     CreateSpec, Discovered, ExitInfo, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec, Locator, Machine,
-    MachineId, NativeState, Provider, ProviderCaps, ProviderId, Started, TermIo, TermSize, WorkspaceSel,
+    MachineId, NativeState, Provider, ProviderCaps, ProviderId, Started, TermIo, TermSize,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -341,6 +342,10 @@ pub struct FakeProvider {
     sessions: Mutex<BTreeMap<String, Session>>,
     launched: Mutex<Vec<Launched>>,
     fail_next: Mutex<Option<PwError>>,
+    /// A platform-like form (`set_form`): sessions are made by name with
+    /// its options.
+    form: Mutex<Option<CreateForm>>,
+    created: Mutex<Vec<(String, BTreeMap<String, String>)>>,
 }
 
 impl FakeProvider {
@@ -358,6 +363,8 @@ impl FakeProvider {
             sessions: Mutex::default(),
             launched: Mutex::default(),
             fail_next: Mutex::default(),
+            form: Mutex::default(),
+            created: Mutex::default(),
         })
     }
 
@@ -365,6 +372,7 @@ impl FakeProvider {
     pub fn local_like() -> ProviderCaps {
         ProviderCaps {
             create: true,
+            platform_create: false,
             resume: true,
             start: true,
             attach_existing: false,
@@ -392,6 +400,21 @@ impl FakeProvider {
     /// The next create/start fails with `e`.
     pub fn fail_next(&self, e: PwError) {
         *lock(&self.fail_next) = Some(e);
+    }
+
+    /// Make agents the way a platform does (agw): `form` describes the
+    /// choices; `create` names the session after the agent, works in
+    /// `/srv/<options.workspace or name>` and runs `options.template` (the
+    /// platform's word for the program). Its fields aren't checked here: the
+    /// engine does that against the form.
+    pub fn set_form(&self, form: CreateForm) {
+        lock(&self.caps).platform_create = !form.folder;
+        *lock(&self.form) = Some(form);
+    }
+
+    /// Sessions made through a form: (name, options).
+    pub fn created(&self) -> Vec<(String, BTreeMap<String, String>)> {
+        lock(&self.created).clone()
     }
 
     pub fn machine_id(&self) -> &MachineId {
@@ -465,6 +488,7 @@ impl FakeProvider {
             cwd: spec.cwd.into(),
             // Local-like: the session is the process; tmux-like: attach to it.
             term: eof_is_exit.then(|| Box::new(FakeTerm::open(&proc, true, true)) as Box<dyn TermIo>),
+            kind: None,
         })
     }
 
@@ -512,16 +536,34 @@ impl Provider for FakeProvider {
             .collect())
     }
 
+    fn create_form(&self, m: &MachineId) -> Result<CreateForm> {
+        Ok(lock(&self.form).clone().unwrap_or_else(|| CreateForm::folder(self.id.as_str(), m.as_str(), &self.machine.label)))
+    }
+
     fn create(&self, spec: &CreateSpec) -> Result<Started> {
         self.check(self.caps().create, "start agents")?;
         if *spec.machine != self.machine.id {
             return Err(PwError::not_found(format!("no machine {}", spec.machine)));
         }
-        if spec.workspace != WorkspaceSel::Folder {
-            return Err(PwError::unsupported("only folders"));
+        if lock(&self.form).is_none() {
+            if !spec.options.is_empty() {
+                return Err(PwError::unsupported("only folders"));
+            }
+            let loc = Locator::new(&self.id, &self.machine.id, spec.launch.agent);
+            return self.launch(loc, &spec.launch);
         }
-        let loc = Locator::new(&self.id, &self.machine.id, spec.launch.agent);
-        self.launch(loc, &spec.launch)
+        if lock(&self.sessions).contains_key(spec.name) {
+            return Err(PwError::new(ErrorCode::Conflict, format!("session '{}' already exists", spec.name)));
+        }
+        let cwd = format!("/srv/{}", spec.options.get("workspace").map_or(spec.name, String::as_str));
+        let launch = LaunchSpec { cwd: &cwd, ..spec.launch.clone() };
+        let mut started = self.launch(Locator::new(&self.id, &self.machine.id, spec.name), &launch)?;
+        started.kind = spec.options.get("template").cloned();
+        if let (Some(s), Some(k)) = (lock(&self.sessions).get_mut(spec.name), &started.kind) {
+            s.kind = k.clone();
+        }
+        lock(&self.created).push((spec.name.to_string(), spec.options.clone()));
+        Ok(started)
     }
 
     fn start(&self, loc: &Locator, launch: &LaunchSpec) -> Result<Started> {
@@ -550,10 +592,12 @@ impl Provider for FakeProvider {
     }
 
     /// Deletes sessions it started; one it only had (`add_session`, an
-    /// adopted session) is left as it is.
+    /// adopted session) or made through its form (a platform's, like agw)
+    /// is left as it is.
     fn remove(&self, loc: &Locator) -> Result<()> {
         self.mine(loc)?;
-        if !lock(&self.launched).iter().any(|l| l.locator == *loc) {
+        let platform = lock(&self.created).iter().any(|(name, _)| *name == loc.native);
+        if platform || !lock(&self.launched).iter().any(|l| l.locator == *loc) {
             return Ok(());
         }
         if let Some(s) = lock(&self.sessions).remove(&loc.native) {

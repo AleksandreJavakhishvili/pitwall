@@ -10,6 +10,7 @@
 
 mod registry;
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +20,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::error::{ErrorCode, PwError, Result};
 use crate::exec::Exec;
 use crate::kind::{AgentKind, KindCatalog};
+pub use pitwall_proto::{CreateChoice, CreateField, CreateForm, FieldInput, NameRule, CREATE_NEW};
 pub use registry::Providers;
 
 // ------------------------------------------------------------------ identity
@@ -132,6 +134,11 @@ pub enum HookTransport {
 pub struct ProviderCaps {
     /// Can start new agents.
     pub create: bool,
+    /// New agents are made by the platform from its own form (agw:
+    /// workspace, user, session template — `create_form` has no folder),
+    /// not as a kind in a folder Pitwall picks. Its machines then have no
+    /// "new agent or terminal in this folder" (`MachineView.can_create`).
+    pub platform_create: bool,
     /// Can continue a conversation on restart.
     pub resume: bool,
     /// `start` works: a stopped agent can be started again (fresh, or
@@ -304,23 +311,15 @@ pub struct LaunchSpec<'a> {
     pub hooks: Option<HookWiring>,
 }
 
-/// Which workspace a new agent works in.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceSel {
-    /// The folder in `LaunchSpec::cwd`.
-    Folder,
-    /// A workspace the platform already has (agw).
-    Existing(String),
-    /// A new platform workspace (agw `--new-workspace`).
-    New { name: String, template: Option<String> },
-}
-
 #[derive(Debug, Clone)]
 pub struct CreateSpec<'a> {
     pub machine: &'a MachineId,
-    /// The agent's name (agw session names come from it).
+    /// The agent's name; a platform that names its sessions (agw) uses it
+    /// as the session name.
     pub name: &'a str,
-    pub workspace: WorkspaceSel,
+    /// The machine's form values ([`Provider::create_form`], checked and
+    /// defaulted by the engine); empty for Pitwall's own folder form.
+    pub options: &'a BTreeMap<String, String>,
     pub launch: LaunchSpec<'a>,
 }
 
@@ -334,6 +333,10 @@ pub struct Started {
     /// The live terminal when the provider's session *is* the process
     /// (local); `None` ⇒ the engine calls `attach`.
     pub term: Option<Box<dyn TermIo>>,
+    /// What runs, in the platform's words ("claude-code"), when the
+    /// platform chose it (agw session templates); matched against kind ids
+    /// and aliases like a discovered session's. `None`: the requested kind.
+    pub kind: Option<String>,
 }
 
 /// A place agents run (§2.2). Blocking, like the rest of the core; the
@@ -358,6 +361,12 @@ pub trait Provider: Send + Sync {
     /// Read-only.
     fn discover(&self, m: &MachineId) -> Result<Vec<Discovered>>;
 
+    /// How new agents are made on `m`: Pitwall's own folder form by
+    /// default; a platform lists its own choices (agw: workspace, user,
+    /// session template). Blocking; may be cached briefly.
+    fn create_form(&self, m: &MachineId) -> Result<CreateForm> {
+        Ok(CreateForm::folder(self.id().as_str(), m.as_str(), m.as_str()))
+    }
     /// Start a new agent.
     fn create(&self, spec: &CreateSpec) -> Result<Started>;
     /// Start an existing agent again (`launch.intent`: fresh or resume).
@@ -370,9 +379,9 @@ pub trait Provider: Send + Sync {
     /// End the agent (the engine closes its terminal first when closing
     /// the terminal is what ends it).
     fn stop(&self, loc: &Locator) -> Result<()>;
-    /// Pitwall forgets the agent: drop what the provider keeps for it. Only
-    /// a session Pitwall created is deleted on the platform's side (agw
-    /// `session delete`, later); an adopted one is left as it is.
+    /// Pitwall forgets the agent: drop what the provider keeps for it. A
+    /// platform's session (agw) is never deleted here — adopted or created
+    /// through Pitwall, it stays; only Pitwall's attachment ends.
     fn remove(&self, loc: &Locator) -> Result<()>;
     fn state(&self, loc: &Locator) -> Result<NativeState>;
 

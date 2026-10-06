@@ -8,9 +8,12 @@ import type {
   ApprovalView,
   AttentionEvent,
   CliStatus,
+  CreateField,
+  CreateForm,
   FileChange,
   HooksStatus,
   KindView,
+  ProviderMachines,
   RecentProject,
   RunningElsewhere,
   Status,
@@ -611,14 +614,119 @@ let approvals: ApprovalView[] =
     : [];
 const approvalSubs = new Set<(list: ApprovalView[]) => void>();
 
+// New agent → Runs on: this Mac, and an agw VM whose form lists its workspaces etc.
+const machines: ProviderMachines[] = [
+  { provider: "local", label: "This Mac", version: null, canCreate: true, canAddSessions: false, machines: [{ id: "this-mac", label: "This Mac", detail: null }], error: null },
+  { provider: "agw", label: "agw", version: "0.19.0", canCreate: true, canAddSessions: true, machines: [{ id: "shakedown", label: "shakedown", detail: "lima-local" }], error: null },
+];
+const mockChoice = (value: string, label: string, detail: string | null, phrase: string, creates: string | null = null) => ({ value, label, detail, phrase, creates });
+const agwName = (maxLen: number) => ({
+  pattern: "^(?!.*--)[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+  maxLen,
+  hint: `Lowercase letters, digits, - or _; starts and ends with a letter or digit; no --; max ${maxLen}`,
+});
+const field = (p: Partial<CreateField> & Pick<CreateField, "id" | "label">): CreateField => ({
+  input: "select",
+  choices: [],
+  default: null,
+  placeholder: null,
+  hint: null,
+  when: null,
+  defaultsToName: false,
+  rule: null,
+  ...p,
+});
+function mockForm(provider: string, machine: string): CreateForm {
+  if (provider !== "agw")
+    return { provider, machine, machineLabel: "This Mac", folder: true, name: { pattern: "^[a-z][a-z0-9_-]{0,31}$", maxLen: 32, hint: "Lowercase letters, digits, - or _; starts with a letter; max 32" }, fields: [], summary: null, submit: "Start", error: null };
+  const isNew = { field: "workspace", value: "+new" };
+  const newAgent = { field: "runAs", value: "+new" };
+  return {
+    provider,
+    machine,
+    machineLabel: machine,
+    folder: false,
+    name: agwName(34),
+    fields: [
+      field({
+        id: "workspace",
+        label: "Workspace",
+        default: "gwlive",
+        hint: "Where it works on the VM: its repositories and environment",
+        choices: [
+          mockChoice("gwlive", "gwlive", "template gwlive", "in workspace gwlive"),
+          mockChoice("work", "work", "template agentworks", "in workspace work"),
+          mockChoice("+new", "New workspace…", null, "in a new workspace {workspaceName}", "workspace {workspaceName} (template {workspaceTemplate})"),
+        ],
+      }),
+      field({ id: "workspaceName", label: "Workspace name", input: "text", when: isNew, defaultsToName: true, placeholder: "same as the session", rule: agwName(29) }),
+      field({ id: "workspaceTemplate", label: "Workspace template", when: isNew, default: "default", choices: ["default", "agentworks", "gwlive"].map((t) => mockChoice(t, t, null, t)) }),
+      field({
+        id: "runAs",
+        label: "Runs as",
+        default: "admin",
+        hint: "The Linux user on the VM it runs as (agw's admin or agent users)",
+        choices: [
+          mockChoice("admin", "Admin user", "the VM's own user", "as the admin user"),
+          mockChoice("+new", "New agent user…", "its own Linux user, isolated from the admin", "as a new agent {agentName}", "agent user agt-{agentName} (template {agentTemplate})"),
+        ],
+      }),
+      field({ id: "agentName", label: "Agent name", input: "text", when: newAgent, defaultsToName: true, placeholder: "same as the session", rule: agwName(28) }),
+      field({ id: "agentTemplate", label: "Agent template", when: newAgent, default: "default", choices: ["default", "claude", "claude_light"].map((t) => mockChoice(t, t, null, t)) }),
+      field({
+        id: "template",
+        label: "Session template",
+        default: "claude",
+        hint: "What runs in the session (Claude Code, Codex, a shell, …)",
+        choices: [
+          mockChoice("claude", "claude", "Claude Code interactive session", "with session template claude"),
+          mockChoice("copilot-cli", "copilot-cli", "Copilot-CLI interactive session", "with session template copilot-cli"),
+          mockChoice("default", "default", "(auto) auto-declared default session-template", "with session template default"),
+        ],
+      }),
+    ],
+    summary: `Creates and starts session {name} on ${machine} {workspace} {runAs}, {template}.`,
+    submit: "Create",
+    error: null,
+  };
+}
+
 export function createMockApi(): Api {
   const mock: Api = {
     isMock: true,
     ...createReviewMock({ find, update, changes: (id) => (changes[find(id).name] ??= []) }),
     listKinds: () => delay(kinds),
+    listMachines: () => delay(machines),
+    createForm: (provider, machine) => delay(mockForm(provider, machine), 400),
     recentProjects: () => delay(recents),
     listAgents: () => delay(agents),
     async createAgent(req) {
+      if (req.machine && req.machine !== "this-mac") {
+        // agw: created and started on the VM, then attached (a session Pitwall doesn't own).
+        await delay(null, 1500);
+        if (agents.some((a) => a.name === req.name)) throw `agw couldn't create "${req.name}" on ${req.machine}: session '${req.name}' already exists`;
+        const ws = req.options?.workspace === "+new" ? req.options?.workspaceName || req.name : (req.options?.workspace ?? "work");
+        const cwd = `/opt/agentworks/workspaces/${ws}`;
+        const a = agent({
+          id: `a-new-${++seq}`,
+          name: req.name,
+          status: "idle",
+          cwd,
+          cwdDisplay: cwd,
+          project: cwd,
+          projectDisplay: ws,
+          branch: null,
+          location: "agw",
+          machine: { provider: "agw", id: req.machine, label: req.machine, canCreate: false },
+          createdAt: Date.now(),
+        });
+        agents = [...agents, a];
+        outBuf.set(a.id, "");
+        changes[a.name] = [];
+        emitAgents();
+        setTimeout(() => out(a.id, claudeBanner(a.cwdDisplay)), 300);
+        return a;
+      }
       await delay(null, 300);
       if (agents.some((a) => a.name === req.name)) throw `an agent named "${req.name}" already exists`;
       const kind = kinds.find((k) => k.id === req.kind);

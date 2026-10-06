@@ -107,6 +107,9 @@ pub fn continue_conversation(engine: &Shared, req: ContinueRequest) -> Result<Ag
             display_project,
             cols: req.cols,
             rows: req.rows,
+            provider: None,
+            machine: None,
+            options: Default::default(),
         },
     )?;
     // "Scan again" keeps the user's choice of project for this conversation.
@@ -122,6 +125,11 @@ pub fn continue_conversation(engine: &Shared, req: ContinueRequest) -> Result<Ag
 /// The agent's project joins the project list if it wasn't there yet (not
 /// `~` etc.), so it shows in the sidebar even after its agents are removed.
 pub fn add_agent_project(engine: &Engine, view: &AgentView) {
+    // A platform's session (added or created there) works in the
+    // platform's folder, not one of this Mac's projects.
+    if view.caps.remove_keeps_session {
+        return;
+    }
     if !scan::is_project_folder(engine.paths(), &view.project) {
         return;
     }

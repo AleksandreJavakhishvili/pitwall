@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"workspace.list","data":{"workspaces":[{"name":"gwlive","vm_name":"shakedown","template":"gwlive","created_at":"2026-08-20T14:07:00Z"},{"name":"work","vm_name":"shakedown","template":"agentworks","created_at":"2026-08-20T13:34:21Z"}]}}

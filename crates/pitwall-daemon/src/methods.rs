@@ -9,9 +9,7 @@ use pitwall_core::engine::lifecycle;
 use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
 use pitwall_core::onboarding::{self, places};
 use pitwall_core::provider::{Locator, MachineId, ProviderId};
-use pitwall_proto::{
-    code, method, AgentCreate, ApprovalAnswer, ErrorBody, MachineEntry, ProviderMachines, Risk, SessionAdd, SessionAdded, SessionFilter,
-};
+use pitwall_proto::{code, method, AgentCreate, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
@@ -32,8 +30,14 @@ pub enum Access {
 
 pub const METHODS: &[(&str, Access)] = &[
     (method::AGENT_LIST, Access::Open),
-    (method::AGENT_CREATE, Access::Open),
+    (
+        method::AGENT_CREATE,
+        // Low; High (asked every time) when it also makes a workspace or an
+        // agent user there.
+        Access::AskWhen("`machine` is a platform's (agw): creates and starts a session on that machine", Risk::Low),
+    ),
     (method::MACHINE_LIST, Access::Open),
+    (method::MACHINE_FORM, Access::Open),
     (method::SESSION_LIST, Access::Open),
     (method::SESSION_ADD, Access::AskWhen("`start`: starts a stopped session on its machine", Risk::Low)),
     (method::APPROVAL_LIST, Access::Ui),
@@ -75,8 +79,12 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     }
     match name {
         method::AGENT_LIST => ok(s.engine.views()),
-        method::AGENT_CREATE => agent_create(s, required(p)?),
-        method::MACHINE_LIST => ok(machines(s)),
+        method::AGENT_CREATE => agent_create(s, caller, required(p)?),
+        method::MACHINE_LIST => ok(s.engine.machine_list()),
+        method::MACHINE_FORM => {
+            let r: FormRequest = required(p)?;
+            ok(s.engine.create_form(Some(&r.provider), Some(&r.machine)).map_err(other)?)
+        }
         method::SESSION_LIST => {
             let filter: SessionFilter = params(p)?;
             let owned = s.engine.records().iter().map(|r| r.locator()).collect();
@@ -93,7 +101,13 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     }
 }
 
-fn agent_create(s: &Server, req: AgentCreate) -> Res {
+fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
+    if req.provider.is_some() || req.machine.is_some() {
+        let form = s.engine.create_form(req.provider.as_deref(), req.machine.as_deref()).map_err(other)?;
+        if !form.folder {
+            return create_on_platform(s, caller, req, form);
+        }
+    }
     if req.kind.trim().is_empty() || req.project.trim().is_empty() {
         return Err(ErrorBody::new(code::BAD_PARAMS, "kind and project are required"));
     }
@@ -103,14 +117,12 @@ fn agent_create(s: &Server, req: AgentCreate) -> Res {
             name: req.name.unwrap_or_default(),
             kind: req.kind,
             project_path: req.project,
-            custom_command: None,
-            worktree: false,
-            resume_session_id: req.resume,
-            rule_set_id: None,
-            apply_to_main_checkout: false,
-            display_project: None,
+            provider: req.provider,
+            machine: req.machine,
             cols: req.cols,
             rows: req.rows,
+            resume_session_id: req.resume,
+            ..Default::default()
         },
     )
     .map_err(other)?;
@@ -118,31 +130,54 @@ fn agent_create(s: &Server, req: AgentCreate) -> Res {
     ok(view)
 }
 
-fn machines(s: &Server) -> Vec<ProviderMachines> {
-    let providers = s.engine.providers();
-    providers
-        .all()
-        .iter()
-        .map(|p| {
-            let caps = p.caps();
-            let (machines, error) = match providers.machines(p) {
-                Ok(ms) => (
-                    ms.into_iter().map(|m| MachineEntry { id: m.id.to_string(), label: m.label, detail: m.detail }).collect(),
-                    None,
-                ),
-                Err(e) => (vec![], Some(e.to_string())),
-            };
-            ProviderMachines {
-                provider: p.id().to_string(),
-                label: p.label(),
-                version: p.version(),
-                can_create: caps.create,
-                can_add_sessions: caps.attach_existing,
-                machines,
-                error,
-            }
-        })
-        .collect()
+/// A new session on a platform's machine (agw): it changes that machine,
+/// so the user approves what the form's summary says first — every time
+/// when it also makes a workspace or an agent user there.
+fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: CreateForm) -> Res {
+    let name = req.name.as_deref().map(str::trim).unwrap_or_default().to_string();
+    if name.is_empty() {
+        return Err(ErrorBody::new(code::BAD_PARAMS, format!("a name is required: the session's name on {}", form.machine_label)));
+    }
+    let values = form.values(&req.options).map_err(|e| ErrorBody::new(code::BAD_PARAMS, e))?;
+    let summary = form.summarize(&name, &values);
+    let place = format!("{} ({})", form.machine_label, form.provider);
+    let mut details = vec![summary.text.clone()];
+    details.extend(summary.creates.iter().map(|c| format!("Also creates {c} on {}.", form.machine_label)));
+    details.push("It keeps running there after Pitwall quits; removing it from Pitwall leaves it there.".into());
+    let risk = if summary.creates.is_empty() { Risk::Low } else { Risk::High };
+    let decision = s.approvals.ask(Ask {
+        action: method::AGENT_CREATE.into(),
+        summary: format!("create the session \"{name}\" on {place}"),
+        details,
+        requester: caller.requester(),
+        caller_key: caller.key(),
+        risk,
+    });
+    match decision {
+        Decision::Allowed | Decision::Remembered => {}
+        Decision::Denied => return Err(ErrorBody::new(code::DENIED, format!("The user didn't allow creating \"{name}\" on {place}. Nothing was created."))),
+        Decision::TimedOut => {
+            return Err(ErrorBody::new(
+                code::APPROVAL_TIMEOUT,
+                format!("Nobody answered the approval to create \"{name}\" on {place} in time. Nothing was created."),
+            ))
+        }
+    }
+    let view = lifecycle::create(
+        &s.engine,
+        CreateAgentRequest {
+            name,
+            kind: req.kind,
+            provider: Some(form.provider),
+            machine: Some(form.machine),
+            options: req.options,
+            cols: req.cols,
+            rows: req.rows,
+            ..Default::default()
+        },
+    )
+    .map_err(other)?;
+    ok(view)
 }
 
 /// Adopt a session (only tracks it: nothing changes there), then — when
@@ -207,6 +242,8 @@ mod tests {
             assert!(METHODS[i + 1..].iter().all(|(n, _)| n != m), "{m} twice");
         }
         assert_eq!(access(method::AGENT_LIST), Some(Access::Open));
+        assert_eq!(access(method::MACHINE_FORM), Some(Access::Open));
+        assert!(matches!(access(method::AGENT_CREATE), Some(Access::AskWhen(_, Risk::Low))));
         assert!(matches!(access(method::SESSION_ADD), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::APPROVAL_ANSWER), Some(Access::Ui));
         assert_eq!(access("agent.remove"), None);

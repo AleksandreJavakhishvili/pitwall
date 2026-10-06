@@ -35,7 +35,13 @@ fi
 
 rm -rf "$DEST"
 ditto "$SRC" "$DEST"
-codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app.hold "$DEST/Contents/MacOS/pitwall-hold"
+# Sign every bundled helper (pitwall-hold, pitwall-cli, …) before the app itself,
+# each with a stable identifier derived from its file name.
+for bin in "$DEST"/Contents/MacOS/*; do
+  name=$(basename "$bin")
+  [ "$name" = pitwall ] && continue
+  codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier "dev.pitwall.app.${name#pitwall-}" "$bin"
+done
 codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app "$DEST"
 codesign --verify --deep --strict "$DEST"
 echo "installed and signed: $DEST"

@@ -52,12 +52,25 @@ impl KindCaps {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateAgentRequest {
     pub name: String,
+    /// Not needed where the platform decides what runs (a form without
+    /// `folder`).
+    #[serde(default)]
     pub kind: String,
+    #[serde(default)]
     pub project_path: String,
+    /// Where to make it: a provider and one of its machines (default: where
+    /// new agents go, this Mac).
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub machine: Option<String>,
+    /// That machine's form values (field id → value; `CreateForm`).
+    #[serde(default)]
+    pub options: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub custom_command: Option<String>,
     /// Ask the agent to work in its own worktree (its native flag).

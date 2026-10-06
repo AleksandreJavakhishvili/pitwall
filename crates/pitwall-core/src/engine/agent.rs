@@ -213,7 +213,7 @@ impl Agent {
                 provider: loc.provider.to_string(),
                 id: loc.machine.to_string(),
                 label: if self.facts.machine_label.is_empty() { loc.machine.to_string() } else { self.facts.machine_label.clone() },
-                can_create: self.facts.provider.create,
+                can_create: self.facts.provider.create && !self.facts.provider.platform_create,
             },
             agent_in_terminal: self.is_terminal() && self.inner.is_some(),
             restart_as: self.restart_inner().map(|(i, _)| i.kind_name.clone()),

@@ -9,6 +9,7 @@
 mod args;
 mod render;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -17,7 +18,7 @@ use serde_json::{json, Value};
 
 use args::{AgentCmd, Cli, Command, MachineCmd, SessionCmd};
 use pitwall_client::{Client, Error};
-use pitwall_proto::{code, AgentCreate, ErrorBody, SessionAdd, SessionFilter};
+use pitwall_proto::{code, AgentCreate, ErrorBody, FormRequest, ProviderMachines, SessionAdd, SessionFilter, CREATE_NEW};
 
 /// What a command produced: its JSON result and the same as text.
 pub struct Output {
@@ -42,6 +43,60 @@ pub fn absolute(project: Option<&str>, cwd: &Path) -> String {
     }
 }
 
+/// `agent new --machine`'s flags as the machine's form fields. The flags
+/// are shorthands for the usual field ids (`machine form` lists a
+/// machine's own); `--option FIELD=VALUE` sets any field.
+pub fn machine_options(a: &args::AgentNew) -> Result<BTreeMap<String, String>, String> {
+    let mut o = BTreeMap::new();
+    let mut set = |k: &str, v: &str| {
+        o.insert(k.to_string(), v.to_string());
+    };
+    if let Some(w) = &a.workspace {
+        set("workspace", w);
+    }
+    if let Some(n) = &a.new_workspace {
+        set("workspace", CREATE_NEW);
+        if !n.is_empty() {
+            set("workspaceName", n);
+        }
+    }
+    if let Some(t) = &a.workspace_template {
+        set("workspaceTemplate", t);
+    }
+    match a.run_as.as_deref() {
+        None => {}
+        Some(w) if w == "new-agent" || w.starts_with("new-agent:") => {
+            set("runAs", CREATE_NEW);
+            if let Some(n) = w.strip_prefix("new-agent:").filter(|n| !n.is_empty()) {
+                set("agentName", n);
+            }
+        }
+        Some(w) if w == "admin" || w.starts_with("agent:") => set("runAs", w),
+        Some(w) => return Err(format!("--as {w}: expected admin, agent:<name> or new-agent[:<name>]")),
+    }
+    if let Some(t) = &a.agent_template {
+        set("agentTemplate", t);
+    }
+    if let Some(t) = &a.template {
+        set("template", t);
+    }
+    for kv in &a.options {
+        let (k, v) = kv.split_once('=').ok_or_else(|| format!("--option {kv}: expected FIELD=VALUE"))?;
+        set(k.trim(), v.trim());
+    }
+    Ok(o)
+}
+
+/// The provider that has `machine`.
+fn provider_of(list: &[ProviderMachines], machine: &str) -> Result<String, String> {
+    let found: Vec<_> = list.iter().filter(|p| p.machines.iter().any(|m| m.id == machine)).map(|p| p.provider.clone()).collect();
+    match found.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(format!("no machine \"{machine}\" (see `pitwall machine list`)")),
+        _ => Err(format!("\"{machine}\" is a machine of {}: pass --provider", found.join(" and "))),
+    }
+}
+
 /// Run `cmd` against the Pitwall listening at `socket`.
 pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
     let mut c = Client::connect_as(socket, &format!("pitwall-cli/{}", env!("CARGO_PKG_VERSION")), pitwall_proto::Role::Cli)?;
@@ -52,11 +107,15 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         }
         Command::Agent(AgentCmd::New(a)) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+            let options = machine_options(a).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
             let view = c.create_agent(&AgentCreate {
-                kind: a.kind.clone(),
-                project: absolute(a.project.as_deref(), &cwd),
+                kind: a.kind.clone().unwrap_or_default(),
+                project: if a.machine.is_some() { String::new() } else { absolute(a.project.as_deref(), &cwd) },
                 name: a.name.clone(),
                 resume: a.resume.clone(),
+                provider: a.provider.clone(),
+                machine: a.machine.clone(),
+                options,
                 cols: None,
                 rows: None,
             })?;
@@ -65,6 +124,14 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Machine(MachineCmd::List) => {
             let list = c.machines()?;
             out(&list, render::machines(&list))
+        }
+        Command::Machine(MachineCmd::Form { machine, provider }) => {
+            let provider = match provider {
+                Some(p) => p.clone(),
+                None => provider_of(&c.machines()?, machine).map_err(|e| Error::Server(ErrorBody::new(code::NOT_FOUND, e)))?,
+            };
+            let form = c.create_form(&FormRequest { provider, machine: machine.clone() })?;
+            out(&form, render::form(&form))
         }
         Command::Session(SessionCmd::List { provider, machine }) => {
             let list = c.sessions(&SessionFilter { provider: provider.clone(), machine: machine.clone() })?;

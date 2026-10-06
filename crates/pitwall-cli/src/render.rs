@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use pitwall_proto::{AgentView, ProviderMachines, ScannedPlace, SessionAdded};
+use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines, ScannedPlace, SessionAdded};
 
 /// Columns padded to their widest cell (the last one isn't padded).
 fn table(rows: &[Vec<String>]) -> String {
@@ -107,4 +107,37 @@ pub fn session_added(r: &SessionAdded) -> String {
     };
     let state = if a.running { "running" } else { "stopped" };
     format!("{what} {} on {} ({state}) — id {}\n", a.name, a.machine.label, a.id)
+}
+
+/// A machine's form: each field with its choices (`agent new --machine`).
+pub fn form(f: &CreateForm) -> String {
+    let mut out = String::new();
+    if f.folder {
+        let _ = writeln!(out, "{} ({}): new agents work in a folder here: agent new --kind <kind> --project <path>", f.machine_label, f.provider);
+        return out;
+    }
+    let _ = writeln!(out, "{} ({}): agent new --machine {} --name <name> ({})", f.machine_label, f.provider, f.machine, f.name.hint);
+    if let Some(e) = &f.error {
+        let _ = writeln!(out, "  (some choices couldn't be listed: {e})");
+    }
+    for field in &f.fields {
+        let when = field.when.as_ref().map(|w| format!(" (when {}={})", w.field, w.value)).unwrap_or_default();
+        let default = field.default.as_ref().map(|d| format!(", default {d}")).unwrap_or_default();
+        let _ = writeln!(out, "{} — {}{when}{default}", field.id, field.label);
+        match field.input {
+            FieldInput::Text => {
+                let note = if field.defaults_to_name { "text; empty = the session's name" } else { "text" };
+                let _ = writeln!(out, "  {note}");
+            }
+            FieldInput::Select => {
+                let rows: Vec<Vec<String>> = field
+                    .choices
+                    .iter()
+                    .map(|c| vec![format!("  {}", c.value), c.label.clone(), c.detail.clone().unwrap_or_default()])
+                    .collect();
+                out.push_str(&table(&rows));
+            }
+        }
+    }
+    out
 }

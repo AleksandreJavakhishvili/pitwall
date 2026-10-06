@@ -666,3 +666,28 @@
 .approval-allow:hover:not(:disabled) {
   background: color-mix(in srgb, var(--amber) 85%, #fff);
 }
+
+/* New agent on a platform's machine: what Create will make there */
+.create-summary {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  font-size: 12.5px;
+}
+.create-summary p {
+  margin: 0;
+}
+.create-extras {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.create-extras li {
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  background: var(--amber-soft);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--amber);
+}

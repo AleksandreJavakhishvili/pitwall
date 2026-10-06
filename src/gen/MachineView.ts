@@ -5,6 +5,8 @@
  */
 export type MachineView = { provider: string, id: string, label: string, 
 /**
- * New agents and terminals can be started there ("New agent here").
+ * New agents and terminals can be started in its folders ("New agent
+ * here", "Open terminal here"). False on a platform's machine (agw),
+ * where new sessions come from its own form (New agent → Runs on).
  */
 canCreate: boolean, };

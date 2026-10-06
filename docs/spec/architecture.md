@@ -340,7 +340,7 @@ their Tailscale IP.
 | `discover(vm)` | `agw session list --vm <vm> --status --output json` → `data.sessions[].{name, workspace_name, harness_integration, mode, agent_name, status}` |
 | `Locator` | `agw:<vm>/<session name>` (agw names are unique) |
 | kind | `harness_integration` matched against kind `id`/`aliases` (`claude-code` → `claude`); no match → a view-only "shell-like" kind with screen/activity status |
-| `create` | `agw session create <name> --vm <vm> --workspace <ws> --template <t>` (or `--new-workspace …`); risky, so it needs an approval |
+| `create` | step 8c: `create_form(vm)` lists the choices from `agw workspace list --vm <vm>`, `agw agent list --vm <vm>`, `agw resource list --kind session-template,workspace-template,agent-template` (`--output json`, 15 s each, cached 30 s); `create` runs `agw --non-interactive session create --vm <vm> [--workspace <ws> \| --new-workspace [--workspace-name] [--workspace-template]] [--template <t>] [--admin \| --agent <a> \| --new-agent [--agent-name] [--agent-template]] <name>` (creates and starts), then attaches like an adopted session. From the CLI it needs the user's approval |
 | `start` | `agw session start <name>` (step 8a: agw's harness integration continues the conversation when it can, so `caps.resume` is false and `start(Resume)` is `Unsupported`; `--resume-only` / `--force-new` are not offered yet) |
 | `attach` | `agw session attach <name>` (a tmux client) in a `pitwall-hold` holder, so the attachment survives Pitwall restarts; input (typing, Next up) goes through this stream. Its EOF means the attachment dropped, not that the agent exited |
 | `stop` / `remove` | `agw session stop <name>` / adopted sessions: close the attachment only (`session delete` only for sessions Pitwall creates, slice c, behind approval) |
@@ -739,6 +739,44 @@ the UI build green.
   `git status`/index/HEAD/refs compared. Not done: knowing whether an agent
   is visible (polling is by activity), fewer calls for snapshots (~7) and
   editor reads (2–3).
+
+- Step 8c done (agw: create on a VM): a provider describes how new agents
+  are made on a machine as data — `Provider::create_form(m) → CreateForm`
+  (pitwall-proto `create.rs`: `folder` = Pitwall's own kind + folder form,
+  else `fields` (select/text, `when` another field has a value, choices
+  with a summary `phrase` and `creates` for extra things made), `name`
+  rule, `summary`, `submit`); `CreateForm::{values, summarize}` check and
+  default the options and build the summary (mirrored in
+  `src/lib/createForm.ts`). `CreateSpec.options` (field id → value)
+  replaces `WorkspaceSel`; `Started.kind` (what the platform runs);
+  `ProviderCaps.platform_create` (`MachineView.can_create` = create &&
+  !platform_create: no "new agent in this folder" on a VM). Engine:
+  `Engine::{create_form, machine_list}`, `Providers::target(provider,
+  machine)`, `lifecycle::create` routes a form without folder to
+  `create_on_platform` (provider create → attach → record `adopted`, so
+  removing it / Quit and Stop Agents only detaches; a failed attach keeps
+  the record and says so). agw (`providers::agw::create`): form from the
+  read-only listings (defaults: first workspace, admin, the session
+  template in use most), `args()` → exact argv, names checked by agw's rule
+  (agentworks `naming.validate_name`: `[a-z0-9]([a-z0-9_-]*[a-z0-9])?`, no
+  `--`; session ≤ 34, workspace ≤ 29, agent ≤ 28), errors are agw's
+  `Error:` line + `Hint:`; `CREATE_TIMEOUT` 15 min. Protocol:
+  `machine.form` (open), `AgentCreate.{provider, machine, options}`;
+  `agent.create` on a platform machine asks the user (Low; High when it
+  also makes a workspace or agent user). CLI: `agent new --machine <vm>
+  --name … --workspace … | --new-workspace [n] --as admin|agent:<n>|
+  new-agent[:<n>] --template … --option k=v`, `machine form <vm>`. UI: New
+  agent → "Runs on" (machines with `canCreate` from `list_machines`), the
+  machine's fields from `create_form`, a summary line with extra resources
+  highlighted; Create is the confirmation. Tests: argv for each field
+  combination, form parsing from captured fixtures, create → attach on
+  FakeProvider (platform form) and in the contract against the fake agw
+  (`session create`), CLI/daemon approval (deny = nothing created), UI
+  form logic and field rendering. `tests/live_agw_create.rs` (`#[ignore]`,
+  `PITWALL_AGW_LIVE_CREATE=1`, not run yet): creates `pitwall-test` in
+  `work` on `shakedown` as admin, attaches, detaches, then `agw
+  --non-interactive session delete pitwall-test --yes`. Deferred: an
+  explicit "Delete session on agw…" action (removing only detaches).
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.

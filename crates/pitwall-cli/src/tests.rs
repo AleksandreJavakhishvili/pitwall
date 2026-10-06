@@ -15,7 +15,7 @@ use pitwall_core::provider::ProviderCaps;
 use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink, TempDir};
 use pitwall_core::{Deps, Engine};
 use pitwall_daemon::{serve, Approvals, Caller, Identify};
-use pitwall_proto::{AgentView, ApprovalAnswer, ProviderMachines, ScannedPlace, SessionAdded};
+use pitwall_proto::{AgentView, ApprovalAnswer, CreateForm, ProviderMachines, ScannedPlace, SessionAdded};
 
 fn agent(id: &str, name: &str, running: bool) -> AgentView {
     serde_json::from_value(json!({
@@ -102,6 +102,40 @@ fn project_folders_are_made_absolute() {
     assert_eq!(absolute(Some("/abs/missing"), &real), "/abs/missing");
 }
 
+fn vm_form() -> CreateForm {
+    use pitwall_proto::{CreateChoice, CreateField};
+    let pick = |v: &str| CreateChoice { value: v.into(), label: v.into(), detail: None, phrase: Some(format!("in {v}")), creates: None };
+    CreateForm {
+        folder: false,
+        fields: vec![
+            CreateField::select("workspace", "Workspace", vec![pick("work")], Some("work".into())),
+            CreateField::select("runAs", "Runs as", vec![pick("admin"), pick("agent:bot")], Some("admin".into())),
+        ],
+        summary: Some("Creates {name} {workspace}".into()),
+        submit: "Create".into(),
+        ..CreateForm::folder("", "", "")
+    }
+}
+
+#[test]
+fn machine_flags_become_form_options() {
+    let new = |args: &[&str]| match Cli::try_parse_from(["pitwall", "agent", "new", "--machine", "vm", "--name", "s"].iter().chain(args)).unwrap().command {
+        Command::Agent(AgentCmd::New(n)) => machine_options(&n),
+        _ => unreachable!(),
+    };
+    let map = |kv: &[(&str, &str)]| kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<BTreeMap<_, _>>();
+    assert_eq!(new(&["--workspace", "work", "--as", "admin", "--template", "claude"]).unwrap(), map(&[("workspace", "work"), ("runAs", "admin"), ("template", "claude")]));
+    assert_eq!(new(&["--workspace", "work", "--as", "agent:bot"]).unwrap(), map(&[("workspace", "work"), ("runAs", "agent:bot")]));
+    assert_eq!(
+        new(&["--new-workspace", "--workspace-template", "gwlive", "--as", "new-agent:helper", "--agent-template", "claude"]).unwrap(),
+        map(&[("workspace", "+new"), ("workspaceTemplate", "gwlive"), ("runAs", "+new"), ("agentName", "helper"), ("agentTemplate", "claude")])
+    );
+    assert_eq!(new(&["--new-workspace", "scratch", "--as", "new-agent"]).unwrap(), map(&[("workspace", "+new"), ("workspaceName", "scratch"), ("runAs", "+new")]));
+    assert_eq!(new(&["--option", "color=red"]).unwrap(), map(&[("color", "red")]));
+    assert!(new(&["--as", "root"]).unwrap_err().contains("expected admin"));
+    assert!(new(&["--option", "oops"]).unwrap_err().contains("FIELD=VALUE"));
+}
+
 struct Outside;
 impl Identify for Outside {
     fn identify(&self, _pid: Option<u32>) -> Caller {
@@ -162,6 +196,26 @@ fn commands_end_to_end() {
     assert_eq!(o.json["agent"]["running"], true);
     assert_eq!(vm.launched().len(), 1);
 
+    // A session on the VM: the user approves it in Pitwall first.
+    vm.set_caps(ProviderCaps { create: true, start: true, attach_existing: true, survives_detach: true, ..Default::default() });
+    vm.set_form(vm_form());
+    let o = run(&parse(&["machine", "form", "vm-1"]), &socket).unwrap();
+    assert_eq!((o.json["provider"].as_str(), o.json["folder"].as_bool()), (Some("agw"), Some(false)));
+    assert!(o.human.contains("runAs — Runs as, default admin"), "{}", o.human);
+    let new_on_vm = ["agent", "new", "--machine", "vm-1", "--name", "api-fix", "--workspace", "work", "--as", "admin"];
+    let t = answer(false);
+    let e = run(&parse(&new_on_vm), &socket).err().unwrap();
+    t.join().unwrap();
+    assert_eq!(failure(&e).1, 3, "denied: exit 3");
+    assert!(vm.created().is_empty(), "nothing was created");
+    let t = answer(true);
+    let o = run(&parse(&new_on_vm), &socket).unwrap();
+    t.join().unwrap();
+    assert_eq!((o.json["name"].as_str(), o.json["running"].as_bool()), (Some("api-fix"), Some(true)));
+    assert_eq!(vm.created()[0].1.get("runAs").map(String::as_str), Some("admin"));
+    let e = run(&parse(&["agent", "new", "--machine", "vm-1", "--name", "x", "--as", "root"]), &socket).err().unwrap();
+    assert!(failure(&e).0["error"]["message"].as_str().unwrap().contains("expected admin"));
+
     let project = TempDir::new("cli-proj");
     let p = project.path().to_string_lossy().into_owned();
     let o = run(&parse(&["agent", "new", "--kind", "shell", "--project", &p, "--name", "scratch"]), &socket).unwrap();
@@ -169,7 +223,7 @@ fn commands_end_to_end() {
     let e = run(&parse(&["agent", "new", "--kind", "nope", "--project", &p]), &socket).err().unwrap();
     assert_eq!(failure(&e).1, 1);
     let o = run(&parse(&["agent", "list"]), &socket).unwrap();
-    assert_eq!(o.json.as_array().unwrap().len(), 2);
+    assert_eq!(o.json.as_array().unwrap().len(), 3);
 
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);

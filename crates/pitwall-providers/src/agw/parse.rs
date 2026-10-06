@@ -91,10 +91,71 @@ pub fn workspace_path(v: &Value) -> Option<String> {
     text(w, "path")
 }
 
-/// The first line of agw's error output, without its "Error: " prefix.
+/// agw's error message, without its "Error: " prefix: the `Error:` line
+/// (agw prints notices and warnings before it), else the first line.
 pub fn error_line(stderr: &str) -> String {
-    let line = stderr.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("agw failed");
+    let mut lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
+    let line = stderr.lines().map(str::trim).find(|l| l.starts_with("Error:")).or_else(|| lines.next()).unwrap_or("agw failed");
     line.strip_prefix("Error:").map(str::trim).unwrap_or(line).to_string()
+}
+
+/// The `Hint:` agw prints after an error, if any.
+pub fn hint_line(stderr: &str) -> Option<String> {
+    let after = stderr.lines().map(str::trim).skip_while(|l| !l.starts_with("Error:"));
+    after.filter_map(|l| l.strip_prefix("Hint:")).map(|h| h.trim().to_string()).find(|h| !h.is_empty())
+}
+
+/// One workspace of `agw workspace list` (or an agent of `agw agent list`):
+/// its name and the template it was made from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Named {
+    pub name: String,
+    pub template: Option<String>,
+}
+
+fn named(v: &Value, key: &str) -> Option<Vec<Named>> {
+    Some(rows(v, key)?.iter().filter_map(|r| Some(Named { name: text(r, "name")?, template: text(r, "template") })).collect())
+}
+
+/// `agw workspace list --vm <vm> --output json` → `data.workspaces`.
+pub fn workspaces(v: &Value) -> Option<Vec<Named>> {
+    named(v, "workspaces")
+}
+
+/// `agw agent list --vm <vm> --output json` → `data.agents`.
+pub fn agents(v: &Value) -> Option<Vec<Named>> {
+    named(v, "agents")
+}
+
+/// One entry of agw's resource registry (`agw resource list`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resource {
+    /// "session-template", "workspace-template", "agent-template", …
+    pub kind: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// How many live things use it now.
+    pub used_by: u64,
+}
+
+/// `agw resource list --kind … --output json` → `data.resources`, without
+/// the disabled ones and those agw says aren't ready.
+pub fn resources(v: &Value) -> Option<Vec<Resource>> {
+    Some(
+        rows(v, "resources")?
+            .iter()
+            .filter(|r| r.get("disabled").and_then(Value::as_bool) != Some(true))
+            .filter(|r| r.get("not_ready_reason").is_none_or(Value::is_null))
+            .filter_map(|r| {
+                Some(Resource {
+                    kind: text(r, "kind")?,
+                    name: text(r, "name")?,
+                    description: text(r, "description"),
+                    used_by: r.get("used_by_count").and_then(Value::as_u64).unwrap_or(0),
+                })
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -142,6 +203,33 @@ mod tests {
     #[test]
     fn errors_read_like_agw() {
         assert_eq!(error_line("Error: unknown VM 'nope'\n  Hint: Run 'agw vm list'"), "unknown VM 'nope'");
+        assert_eq!(hint_line("Error: unknown VM 'nope'\n  Hint: Run 'agw vm list'").as_deref(), Some("Run 'agw vm list'"));
         assert_eq!(error_line("\n"), "agw failed");
+        assert_eq!(hint_line("Error: x"), None);
+        // Notices and warnings come first; the error is what counts.
+        let err = "Notice: refreshing the VM\nWarning: slow\nError: session 'api' already exists\n";
+        assert_eq!(error_line(err), "session 'api' already exists");
+        assert_eq!(error_line("plain failure\nmore"), "plain failure");
+    }
+
+    #[test]
+    fn workspaces_agents_and_templates() {
+        let ws = workspaces(&fixture(include_str!("fixtures/workspace_list.json"))).unwrap();
+        assert_eq!(ws, [Named { name: "gwlive".into(), template: Some("gwlive".into()) }, Named { name: "work".into(), template: Some("agentworks".into()) }]);
+        assert!(agents(&fixture(include_str!("fixtures/agent_list_empty.json"))).unwrap().is_empty());
+        let a = agents(&fixture(include_str!("fixtures/agent_list.json"))).unwrap();
+        assert_eq!(a[0], Named { name: "bot".into(), template: Some("claude".into()) });
+        let r = resources(&fixture(include_str!("fixtures/resource_list.json"))).unwrap();
+        let of = |k: &str| r.iter().filter(|x| x.kind == k).map(|x| x.name.as_str()).collect::<Vec<_>>();
+        assert!(of("session-template").contains(&"claude") && of("session-template").contains(&"default"));
+        assert!(of("workspace-template").contains(&"agentworks"));
+        assert!(of("agent-template").contains(&"default"));
+        let filtered = resources(&fixture(
+            r#"{"data":{"resources":[{"kind":"session-template","name":"ok","not_ready_reason":null},{"kind":"session-template","name":"off","disabled":true},{"kind":"session-template","name":"broken","not_ready_reason":"missing secret"}]}}"#,
+        ))
+        .unwrap();
+        assert_eq!(filtered.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["ok"], "disabled and not-ready ones are left out");
+        let claude = r.iter().find(|x| x.kind == "session-template" && x.name == "claude").unwrap();
+        assert_eq!((claude.description.as_deref(), claude.used_by), (Some("Claude Code interactive session"), 2));
     }
 }
