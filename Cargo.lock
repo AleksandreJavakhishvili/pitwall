@@ -2599,6 +2599,7 @@ name = "pitwall-providers"
 version = "0.1.0"
 dependencies = [
  "pitwall-core",
+ "pitwall-detect",
  "pitwall-hold",
  "serde_json",
 ]

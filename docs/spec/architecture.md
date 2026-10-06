@@ -684,7 +684,10 @@ the UI build green.
   agw (`tests/fake_agw/`: sh scripts, one VM, a line shell as harness, a
   fake ssh/tmux for capture) and an adopting `FakeProvider`; two `#[ignore]`d
   read-only checks against the real agw (listing + capture; attach at the
-  session's current size without typing).
+  session's current size without typing); `tests/live_agw.rs`, `#[ignore]`d,
+  user-approved: on the `work` session only — start, attach, screen status
+  Idle, type without Enter and clear, restart, detach + remove leave it
+  running, stop).
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.
