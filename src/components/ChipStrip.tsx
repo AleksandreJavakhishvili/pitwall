@@ -1,7 +1,7 @@
 import type { AgentView } from "../types";
 import { locate, type UiState } from "../state/workspace";
 import { useActions } from "../lib/actions";
-import { endAgentDrag, startAgentDrag } from "../lib/dnd";
+import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
 
 /** Agents of this space that aren't in a visible pane. Click to swap in. */
@@ -18,9 +18,7 @@ export function ChipStrip({ agents, ui, me, spaceId }: { agents: AgentView[]; ui
             className="agent-chip"
             data-status={a.status}
             onClick={() => showAgent(a.id)}
-            draggable
-            onDragStart={(e) => startAgentDrag(e, a.id)}
-            onDragEnd={endAgentDrag}
+            {...agentDragSource(a.id, a.name)}
             title={elsewhere ? `${a.name} is shown in ${elsewhere}` : `Show ${a.name}`}
           >
             <StatusGlyph status={a.status} size="sm" />

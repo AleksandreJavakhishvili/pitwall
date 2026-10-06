@@ -5,6 +5,7 @@ import { summarize } from "../lib/groups";
 import type { UiState } from "../state/workspace";
 import { useActions } from "../lib/actions";
 import { STATUS_WORD } from "../lib/status";
+import { agentDragSource } from "../lib/dnd";
 import { disposeWallViewers, mountWallView } from "../terminal/registry";
 import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
@@ -120,13 +121,14 @@ function WallTile({ agent: a, fontSize }: { agent: AgentView; fontSize: number }
       tabIndex={0}
       data-status={a.status}
       onClick={() => showAgent(a.id)}
+      {...agentDragSource(a.id, a.name)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           showAgent(a.id);
         }
       }}
-      title={`Go to ${a.name}`}
+      title={`Go to ${a.name} · drag onto a space tab to move it there`}
     >
       <div className="wall-tile-head">
         <StatusGlyph status={a.status} />

@@ -112,7 +112,7 @@ export function SpaceView({ space, agents, ui, me, maxPerRow, fontSize, onMoveTo
           </button>
         )}
       </div>
-      <div className="space-area" ref={areaRef}>
+      <div className="space-area" ref={areaRef} data-drop="space" data-space-id={space.id}>
         {tree && (
           <LayoutView
             node={tree}

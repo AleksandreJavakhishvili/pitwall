@@ -1,8 +1,8 @@
-import { useState, type DragEvent } from "react";
+import { useState } from "react";
 import type { AgentView } from "../types";
 import { spaceMembers, type Space } from "../state/workspace";
 import { agentsIn } from "../layout/tree";
-import { draggedAgent, endAgentDrag } from "../lib/dnd";
+import { useSpaceDropOver } from "../lib/dnd";
 import { Icon } from "./Icon";
 
 interface Props {
@@ -10,8 +10,7 @@ interface Props {
   activeSpaceId: string | null;
   agents: AgentView[];
   onSelect(id: string): void;
-  onNew(agentId?: string): void;
-  onDrop(spaceId: string, agentId: string): void;
+  onNew(): void;
   onClose(id: string): void;
   onRename(id: string, name: string): void;
   onMove(id: string): void;
@@ -19,26 +18,6 @@ interface Props {
 
 export function SpaceTabs(p: Props) {
   const [editing, setEditing] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
-
-  const dropProps = (id: string, onDrop: (agentId: string) => void) => ({
-    onDragOver: (e: DragEvent) => {
-      if (!draggedAgent(e)) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      setOver(id);
-    },
-    onDragLeave: () => setOver((o) => (o === id ? null : o)),
-    onDrop: (e: DragEvent) => {
-      const a = draggedAgent(e);
-      setOver(null);
-      endAgentDrag();
-      if (a) {
-        e.preventDefault();
-        onDrop(a);
-      }
-    },
-  });
 
   return (
     <div className="tabs" role="tablist" aria-label="Spaces">
@@ -54,12 +33,13 @@ export function SpaceTabs(p: Props) {
             className="tab"
             role="tab"
             aria-selected={active}
-            data-over={over === s.id}
+            data-drop="space"
+            data-space-id={s.id}
             onClick={() => p.onSelect(s.id)}
             onDoubleClick={() => s.kind !== "all" && setEditing(s.id)}
             title={s.kind === "project" ? s.project : s.kind === "all" ? "Every agent" : "Custom space — drag agents here"}
-            {...dropProps(s.id, (a) => p.onDrop(s.id, a))}
           >
+            <DropHint spaceId={s.id} />
             {blocked && <span className="tab-blocked">▲</span>}
             {editing === s.id ? (
               <input
@@ -106,15 +86,15 @@ export function SpaceTabs(p: Props) {
           </div>
         );
       })}
-      <button
-        className="tab tab-new"
-        data-over={over === "__new"}
-        onClick={() => p.onNew()}
-        title="New space (or drop an agent here)"
-        {...dropProps("__new", (a) => p.onNew(a))}
-      >
+      <button className="tab tab-new" data-drop="new-space" onClick={() => p.onNew()} title="New space (or drop an agent here)">
+        <DropHint spaceId="new-space" />
         <Icon name="plus" size={14} />
       </button>
     </div>
   );
+}
+
+/** Highlights its tab while an agent is dragged over it (a CSS :has() hook on the tab). */
+function DropHint({ spaceId }: { spaceId: string }) {
+  return useSpaceDropOver(spaceId) ? <span className="tab-drop-hint" aria-hidden /> : null;
 }

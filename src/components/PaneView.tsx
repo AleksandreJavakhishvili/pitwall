@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { AgentView } from "../types";
-import { dropZone, type PaneNode, type Side } from "../layout/tree";
+import type { PaneNode } from "../layout/tree";
 import { useActions } from "../lib/actions";
-import { draggedAgent, endAgentDrag } from "../lib/dnd";
+import { usePaneDropZone } from "../lib/dnd";
 import { cellPerPx, mountTerminal, setTileFont, unmountTerminal } from "../terminal/registry";
-import { tileFont } from "../layout/density";
+import { foldMin, tileFont } from "../layout/density";
 import type { TileFonts } from "./LayoutView";
 import { PaneHeader } from "./PaneHeader";
 import { StoppedOverlay } from "./StoppedOverlay";
@@ -18,43 +18,33 @@ interface Props {
   canClose: boolean;
   members: AgentView[];
   fonts: TileFonts;
+  spaceId: string;
 }
 
-export function PaneView({ pane, agent, focused, maximized, canClose, members, fonts }: Props) {
+export function PaneView({ pane, agent, focused, maximized, canClose, members, fonts, spaceId }: Props) {
   const { focusPane, dropAgent } = useActions();
-  const [zone, setZone] = useState<Side | "center" | null>(null);
-
-  const onDragOver = (e: DragEvent) => {
-    const id = draggedAgent(e);
-    if (!id) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const r = e.currentTarget.getBoundingClientRect();
-    const z = agent ? dropZone((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height) : "center";
-    setZone((prev) => (prev === z ? prev : z));
-  };
-  const onDrop = (e: DragEvent) => {
-    const id = draggedAgent(e);
-    const z = zone;
-    setZone(null);
-    endAgentDrag();
-    if (!id || !z) return;
-    e.preventDefault();
-    if (id === agent?.id) return;
-    dropAgent(id, z === "center" ? { paneId: pane.id } : { paneId: pane.id, side: z });
-  };
+  // Live drop preview (lib/dnd hit-tests the data-drop attributes below).
+  const zone = usePaneDropZone(pane.id);
+  const ref = useRef<HTMLElement>(null);
+  // A split that would leave a half below the density minimum lands as a chip instead (workspace dropOnPane).
+  const noRoom = (() => {
+    if (!zone || zone === "center" || !agent || !ref.current) return false;
+    const r = ref.current.getBoundingClientRect();
+    const min = foldMin(fonts.density, fonts.base);
+    return zone === "left" || zone === "right" ? r.width / 2 < min.minW : r.height / 2 < min.minH;
+  })();
 
   return (
     <section
+      ref={ref}
       className="pane"
       data-focused={focused}
       data-status={agent?.status ?? "empty"}
       onMouseDownCapture={() => !focused && focusPane(pane.id)}
-      onDragOver={onDragOver}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) setZone(null);
-      }}
-      onDrop={onDrop}
+      data-drop="pane"
+      data-space-id={spaceId}
+      data-pane-id={pane.id}
+      data-agent-id={agent?.id}
     >
       {agent ? (
         <>
@@ -77,7 +67,7 @@ export function PaneView({ pane, agent, focused, maximized, canClose, members, f
           {members.length > 0 && (
             <div className="pane-pick">
               {members.slice(0, 8).map((m) => (
-                <button key={m.id} className="chip-btn" onClick={() => dropAgent(m.id, { paneId: pane.id })}>
+                <button key={m.id} className="chip-btn" onClick={() => dropAgent(m.id, { kind: "pane", spaceId, paneId: pane.id, zone: "center" })}>
                   <StatusGlyph status={m.status} size="sm" /> {m.name}
                 </button>
               ))}
@@ -85,7 +75,13 @@ export function PaneView({ pane, agent, focused, maximized, canClose, members, f
           )}
         </div>
       )}
-      {zone && <div className="drop-indicator" data-zone={zone} />}
+      {zone && (
+        <div className="drop-indicator" data-zone={zone} data-empty={!agent} data-full={noRoom}>
+          <span className="drop-label">
+            {zone === "center" ? (agent ? "Swap" : "Show here") : noRoom ? "No room · adds as a chip" : `Split ${zone}`}
+          </span>
+        </div>
+      )}
     </section>
   );
 }

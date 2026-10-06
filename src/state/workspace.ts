@@ -10,13 +10,16 @@ import {
   dropAgent,
   findPane,
   findPaneByAgent,
+  fitLayout,
   leaves,
+  paneRects,
   presetFor,
   removePane,
   setPaneAgent,
   splitPane,
   PRESET_COUNT,
   type LayoutNode,
+  type MinSize,
   type Preset,
   type Side,
 } from "../layout/tree";
@@ -143,7 +146,7 @@ export function spaceMembers(space: Space, agents: AgentView[]): AgentView[] {
     case "all":
       return agents;
     case "project":
-      return agents.filter((a) => a.project === space.project || inPanes.has(a.id));
+      return agents.filter((a) => a.project === space.project || space.members.includes(a.id) || inPanes.has(a.id));
     case "custom":
       return agents.filter((a) => space.members.includes(a.id) || inPanes.has(a.id));
   }
@@ -203,6 +206,186 @@ export function placeAgent(
     return { ...sp, members, layout, focusedPaneId: paneId };
   });
   return next;
+}
+
+// ── drag & drop (docs/spec/layout.md "Revision: drag & drop must rearrange properly") ──
+
+/** Where a drop lands inside a pane: a side splits it, the centre swaps/replaces. */
+export type DropZone = Side | "center";
+/** The space area and the tile minimum, to keep a drop within the density limits. */
+export interface DropFit {
+  area: { w: number; h: number };
+  min: MinSize;
+}
+/**
+ * noop: nothing changed (dropped on itself / already there) · placed: shown in
+ * a new or empty pane · swapped: traded places with the target's agent ·
+ * replaced: took the target pane (its agent stays a chip) · chip: no room at
+ * this density, so it joined the overflow strip instead.
+ */
+export type DropOutcome = "noop" | "placed" | "swapped" | "replaced" | "chip";
+export interface DropResult {
+  state: UiState;
+  outcome: DropOutcome;
+  /** The pane now showing the agent (null for a chip). */
+  paneId: string | null;
+}
+
+/** Keep focus / maximise pointing at panes that still exist. */
+function tidy(sp: Space): Space {
+  const ls = leaves(sp.layout);
+  const focusedPaneId = findPane(sp.layout, sp.focusedPaneId ?? "") ? sp.focusedPaneId : ls[0].id;
+  const maximizedPaneId = sp.maximizedPaneId && findPane(sp.layout, sp.maximizedPaneId) && ls.length > 1 ? sp.maximizedPaneId : null;
+  return focusedPaneId === sp.focusedPaneId && maximizedPaneId === sp.maximizedPaneId ? sp : { ...sp, focusedPaneId, maximizedPaneId };
+}
+
+const withMember = (sp: Space, agentId: string): Space =>
+  sp.kind === "all" || sp.members.includes(agentId) ? sp : { ...sp, members: [...sp.members, agentId] };
+const withoutMember = (sp: Space, agentId: string): Space =>
+  sp.members.includes(agentId) ? { ...sp, members: sp.members.filter((m) => m !== agentId) } : sp;
+
+/**
+ * Move semantics: take the agent out of every other space — its pane closes
+ * (the tree collapses, no holes) and it stops being a member there.
+ */
+function detach(s: UiState, agentId: string, exceptSpace: string): UiState {
+  const next = unplace(s, agentId, exceptSpace);
+  return { ...next, spaces: next.spaces.map((sp) => (sp.id === exceptSpace ? sp : withoutMember(sp, agentId))) };
+}
+
+/** Panes folded away at `fit` (none without a fit). */
+const foldedPanes = (layout: LayoutNode, fit: DropFit | undefined, keep?: string) =>
+  fit ? fitLayout(layout, fit.area, { ...fit.min, keep }).hidden : [];
+
+/** Would `after` (with new pane `fresh`) still show `fresh` without folding more panes than `before`? */
+function roomFor(before: LayoutNode, after: LayoutNode, fresh: string, fit: DropFit | undefined): boolean {
+  if (!fit) return true;
+  const hidden = foldedPanes(after, fit, fresh);
+  return !hidden.some((p) => p.id === fresh) && hidden.length <= foldedPanes(before, fit).length;
+}
+
+/** Same-space layout without the agent's own pane, if it has one. */
+function withoutAgent(layout: LayoutNode, agentId: string): LayoutNode {
+  const holder = findPaneByAgent(layout, agentId);
+  if (!holder) return layout;
+  return removePane(layout, holder.id) ?? emptyPane();
+}
+
+/** No room: the agent becomes a chip of the space (not shown in any pane). */
+function asChip(s: UiState, spaceId: string, agentId: string): DropResult {
+  let next = detach(s, agentId, spaceId);
+  next = mapSpace(next, spaceId, (sp) => {
+    const holder = findPaneByAgent(sp.layout, agentId);
+    const layout = holder ? (leaves(sp.layout).length > 1 ? removePane(sp.layout, holder.id)! : setPaneAgent(sp.layout, holder.id, null)) : sp.layout;
+    return tidy(withMember({ ...sp, layout }, agentId));
+  });
+  return { state: next, outcome: "chip", paneId: null };
+}
+
+/**
+ * Drop `agentId` on pane `paneId` of `spaceId`. A side zone splits that pane
+ * (the agent's old pane anywhere closes first); the centre swaps with the
+ * pane's agent — the displaced one takes the dragged agent's old pane — or,
+ * when the dragged agent isn't shown anywhere, replaces it (it stays a chip).
+ * Dropping an agent on its own pane does nothing. With `fit`, a split that
+ * would leave a tile below the density minimum becomes a chip instead.
+ */
+export function dropOnPane(
+  s: UiState,
+  spaceId: string,
+  agentId: string,
+  paneId: string,
+  zone: DropZone,
+  fit?: DropFit,
+): DropResult {
+  const sp = getSpace(s, spaceId);
+  const target = sp && findPane(sp.layout, paneId);
+  if (!sp || !target) return dropOnSpace(s, spaceId, agentId, fit);
+  if (target.agentId === agentId) return { state: s, outcome: "noop", paneId };
+
+  if (zone === "center" || !target.agentId) {
+    const from = locate(s, agentId);
+    const displaced = target.agentId;
+    let next = s;
+    let outcome: DropOutcome = displaced ? "replaced" : "placed";
+    if (from && displaced) {
+      // Swap: the displaced agent takes the dragged agent's old pane (in whichever space).
+      outcome = "swapped";
+      next = mapSpace(next, from.space.id, (x) => withMember({ ...x, layout: setPaneAgent(x.layout, from.paneId, displaced) }, displaced));
+      next = detach(next, agentId, spaceId);
+      next = mapSpace(next, spaceId, (x) => {
+        const layout = setPaneAgent(x.layout, paneId, agentId);
+        return from.space.id === spaceId ? { ...x, layout } : withoutMember({ ...x, layout }, displaced);
+      });
+    } else {
+      // Into an empty pane (the old one closes) or replacing the target's agent.
+      next = detach(next, agentId, spaceId);
+      next = mapSpace(next, spaceId, (x) => {
+        let layout = x.layout;
+        const holder = findPaneByAgent(layout, agentId);
+        if (holder) layout = removePane(layout, holder.id) ?? layout;
+        layout = setPaneAgent(layout, paneId, agentId);
+        return displaced ? withMember({ ...x, layout }, displaced) : { ...x, layout };
+      });
+    }
+    next = mapSpace(next, spaceId, (x) => tidy({ ...withMember(x, agentId), focusedPaneId: paneId }));
+    return { state: next, outcome, paneId };
+  }
+
+  // Split a side: close the agent's old pane first so it moves, never duplicates.
+  const next = detach(s, agentId, spaceId);
+  const here = getSpace(next, spaceId)!;
+  const before = withoutAgent(here.layout, agentId);
+  if (!findPane(before, paneId)) return dropOnSpace(s, spaceId, agentId, fit);
+  const { tree, paneId: fresh } = splitPane(before, paneId, zone, agentId);
+  if (!roomFor(before, tree, fresh, fit)) return asChip(s, spaceId, agentId);
+  const state = mapSpace(next, spaceId, (x) =>
+    tidy({ ...withMember(x, agentId), layout: tree, focusedPaneId: fresh, maximizedPaneId: null }),
+  );
+  return { state, outcome: "placed", paneId: fresh };
+}
+
+/**
+ * Drop `agentId` on a space (its tab, or the space area): auto-place it in an
+ * empty pane, else by splitting the pane with the most room, else as a chip.
+ * It leaves wherever it was shown; if it's already shown here, just focus it.
+ */
+export function dropOnSpace(s: UiState, spaceId: string, agentId: string, fit?: DropFit): DropResult {
+  const sp = getSpace(s, spaceId);
+  if (!sp) return { state: s, outcome: "noop", paneId: null };
+  const here = findPaneByAgent(sp.layout, agentId);
+  if (here) return { state: focusPane(s, spaceId, here.id), outcome: "noop", paneId: here.id };
+
+  const next = detach(s, agentId, spaceId);
+  const layout = getSpace(next, spaceId)!.layout;
+  const empty = leaves(layout).find((p) => !p.agentId);
+  if (empty) {
+    const state = mapSpace(next, spaceId, (x) =>
+      tidy({ ...withMember(x, agentId), layout: setPaneAgent(x.layout, empty.id, agentId), focusedPaneId: empty.id }),
+    );
+    return { state, outcome: "placed", paneId: empty.id };
+  }
+  const spot = autoSpot(layout, fit);
+  const { tree, paneId: fresh } = splitPane(layout, spot.paneId, spot.side, agentId);
+  if (!roomFor(layout, tree, fresh, fit)) return asChip(s, spaceId, agentId);
+  const state = mapSpace(next, spaceId, (x) =>
+    tidy({ ...withMember(x, agentId), layout: tree, focusedPaneId: fresh, maximizedPaneId: null }),
+  );
+  return { state, outcome: "placed", paneId: fresh };
+}
+
+/** The pane (and side) whose split leaves the roomiest new tile, relative to the minimum. */
+export function autoSpot(layout: LayoutNode, fit?: DropFit): { paneId: string; side: "right" | "bottom" } {
+  const area = fit?.area ?? { w: 1600, h: 900 };
+  const min = fit?.min ?? { minW: 1, minH: 1 };
+  let best = { paneId: leaves(layout)[0].id, side: "right" as "right" | "bottom", score: -1 };
+  for (const [id, r] of paneRects(layout, { x: 0, y: 0, ...area })) {
+    const right = Math.min(r.w / 2 / min.minW, r.h / min.minH);
+    const bottom = Math.min(r.w / min.minW, r.h / 2 / min.minH);
+    const [side, score] = right >= bottom ? (["right", right] as const) : (["bottom", bottom] as const);
+    if (score > best.score + 1e-9) best = { paneId: id, side, score };
+  }
+  return best;
 }
 
 export function focusPane(s: UiState, spaceId: string, paneId: string): UiState {
@@ -307,7 +490,7 @@ export function createCustomSpace(s: UiState, label: string, agentId?: string): 
   const id = defaultIdGen("space");
   const space: Space = { id, name: `Space ${n}`, kind: "custom", members: [], layout, focusedPaneId: layout.id, maximizedPaneId: null };
   let state: UiState = { ...s, spaces: [...s.spaces, space], windowOf: { ...s.windowOf, [id]: label } };
-  if (agentId) state = placeAgent(state, id, agentId);
+  if (agentId) state = dropOnSpace(state, id, agentId).state;
   return { state, spaceId: id };
 }
 

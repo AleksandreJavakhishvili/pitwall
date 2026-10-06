@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { AgentView, FileChange } from "../types";
-import type { Preset, Side } from "../layout/tree";
+import type { Preset } from "../layout/tree";
+import type { AgentDropTarget } from "./dnd";
 import type { Density } from "../layout/density";
 import type { TilingContext } from "./tiling";
 
@@ -19,7 +20,8 @@ export interface Actions {
   restart(agentId: string): void;
 
   // spaces & panes (active space of this window unless given)
-  dropAgent(agentId: string, target: { spaceId?: string; paneId?: string; side?: Side }): void;
+  /** Drop (or pick) an agent onto a pane zone or a space — same rules as drag & drop. */
+  dropAgent(agentId: string, target: AgentDropTarget): void;
   focusPane(paneId: string): void;
   closePane(paneId: string): void;
   toggleMaximize(paneId?: string): void;

@@ -40,6 +40,7 @@ export function LayoutView(props: Props) {
           canClose={props.paneCount > 1 || !!node.agentId}
           members={props.members}
           fonts={props.fonts}
+          spaceId={props.spaceId}
         />
       </ErrorBoundary>
     );

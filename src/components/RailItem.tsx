@@ -1,6 +1,6 @@
 import type { AgentView } from "../types";
 import { STATUS_WORD } from "../lib/status";
-import { endAgentDrag, startAgentDrag } from "../lib/dnd";
+import { agentDragSource } from "../lib/dnd";
 
 function initials(name: string): string {
   const parts = name.split(/[-_]/).filter(Boolean);
@@ -15,9 +15,7 @@ export function RailItem({ agent: a, focused, onClick }: { agent: AgentView; foc
       data-status={a.status}
       aria-current={focused ? "true" : undefined}
       onClick={onClick}
-      draggable
-      onDragStart={(e) => startAgentDrag(e, a.id)}
-      onDragEnd={endAgentDrag}
+      {...agentDragSource(a.id, a.name)}
       title={`${a.name} · ${STATUS_WORD[a.status]}${a.statusDetail ? `: ${a.statusDetail}` : ""}`}
     >
       <span className="rail-initials">{initials(a.name)}</span>

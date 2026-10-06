@@ -2,7 +2,7 @@ import type { AgentView } from "../types";
 import { api } from "../api";
 import { useActions } from "../lib/actions";
 import { STATUS_WORD } from "../lib/status";
-import { endAgentDrag, startAgentDrag } from "../lib/dnd";
+import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
@@ -25,9 +25,7 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
         if ((e.target as HTMLElement).closest("button")) return;
         toggleMaximize(paneId);
       }}
-      draggable
-      onDragStart={(e) => startAgentDrag(e, a.id)}
-      onDragEnd={endAgentDrag}
+      {...agentDragSource(a.id, a.name)}
       title="Double-click to maximise · drag to move"
     >
       <StatusGlyph status={a.status} />

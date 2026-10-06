@@ -1,6 +1,6 @@
 import type { AgentView } from "../types";
 import { STATUS_WORD } from "../lib/status";
-import { endAgentDrag, startAgentDrag } from "../lib/dnd";
+import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
 
@@ -21,9 +21,7 @@ export function AgentRow({ agent: a, index, selected, where, onSelect }: Props) 
         data-status={a.status}
         aria-current={selected ? "true" : undefined}
         onClick={onSelect}
-        draggable
-        onDragStart={(e) => startAgentDrag(e, a.id)}
-        onDragEnd={endAgentDrag}
+        {...agentDragSource(a.id, a.name)}
         title={`${a.name}${where ? ` — in ${where}` : ""}${a.statusDetail ? `\n${a.statusDetail}` : ""}`}
       >
         <StatusGlyph status={a.status} />

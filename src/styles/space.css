@@ -41,7 +41,7 @@
   background: var(--bg);
   border-color: var(--line);
 }
-.tab[data-over="true"] {
+.tab:has(.tab-drop-hint) {
   background: var(--surface-3);
   color: var(--text);
   box-shadow: inset 0 -2px 0 var(--text-2);
@@ -191,8 +191,40 @@ body.resizing {
   cursor: grabbing;
 }
 body.resizing .term-slot,
-body.dragging-agent .term-slot {
+/* While an agent is dragged (lib/dnd, pointer-driven): terminals don't eat the
+   pointer, nothing gets text-selected, and the ghost follows the cursor. */
+body.dragging-agent,
+body.dragging-agent * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.dragging-agent .term-slot,
+body.dragging-agent .wall-scale {
   pointer-events: none;
+}
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.35), inset 0 0 0 1px color-mix(in srgb, var(--text) 25%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+.tab-drop-hint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent);
 }
 
 /* ── pane ────────────────────────────────────────────── */
@@ -346,8 +378,30 @@ body.dragging-agent .term-slot {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent);
   transition: all 0.08s ease-out;
 }
+.drop-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.drop-label {
+  padding: 3px 9px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .drop-indicator[data-zone="center"] {
   inset: 38px 6px 6px;
+}
+.drop-indicator[data-empty="true"] {
+  inset: 6px;
+}
+.drop-indicator[data-full="true"] {
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--amber) 55%, transparent);
 }
 .drop-indicator[data-zone="left"] {
   inset: 38px 50% 6px 6px;

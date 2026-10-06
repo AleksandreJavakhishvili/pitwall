@@ -13,6 +13,7 @@ import { isPaneHidden } from "./state/hidden";
 import * as W from "./state/workspace";
 import { clampFont, stepTileFont } from "./layout/density";
 import { autoRows, measureTiling, presetsFor } from "./lib/tiling";
+import { setAgentDropHandler, type AgentDropTarget } from "./lib/dnd";
 import { findPane, setSplitSizes } from "./layout/tree";
 import {
   disposeTerminal,
@@ -274,6 +275,40 @@ export default function App() {
     if (isMock) push({ tone: "info", title: `Moved to window ${newLabel}`, detail: "The browser mock can't open real windows." });
   };
 
+  // Drag & drop (lib/dnd): one rule set for every source and target (workspace dropOnPane / dropOnSpace).
+  const dropAgentOn = (agentId: string, t: AgentDropTarget) => {
+    const s = current.current;
+    let spaceId: string;
+    let r: W.DropResult;
+    if (t.kind === "new-space") {
+      const created = W.createCustomSpace(s, me);
+      spaceId = created.spaceId;
+      r = W.dropOnSpace(created.state, spaceId, agentId);
+    } else {
+      spaceId = t.spaceId;
+      const fit = measureTiling(s, spaceId, resp.maxPerRow) ?? undefined;
+      r =
+        t.kind === "pane"
+          ? W.dropOnPane(s, spaceId, agentId, t.paneId, t.zone, fit)
+          : W.dropOnSpace(s, spaceId, agentId, fit);
+    }
+    if (r.state !== s) update(() => (t.kind === "pane" ? r.state : W.setWall(r.state, me, false)));
+    if (t.kind !== "pane" && W.windowOfSpace(r.state, spaceId) === me) setActiveSpaceId(spaceId);
+    if (r.outcome === "chip") {
+      const name = agentsRef.current.find((a) => a.id === agentId)?.name ?? "Agent";
+      push({
+        tone: "info",
+        title: `${name} added to the chip strip`,
+        detail: "No room for another tile at this density. Click the chip to swap it in, or pick a denser layout.",
+      });
+    } else if (r.paneId && r.outcome !== "noop") {
+      nextFrame(() => focusTerminal(agentId));
+    }
+  };
+  const dropRef = useRef(dropAgentOn);
+  dropRef.current = dropAgentOn;
+  useEffect(() => setAgentDropHandler((agentId, t) => dropRef.current(agentId, t)), []);
+
   const actions: Actions = {
     showAgent,
     run,
@@ -282,12 +317,7 @@ export default function App() {
     openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
     openNewAgent: (p) => setModal({ type: "new", projectPath: typeof p === "string" ? p : undefined }),
-    dropAgent: (agentId, t) => {
-      const spaceId = t.spaceId ?? activeRef.current;
-      if (!spaceId) return;
-      update((s) => W.placeAgent(s, spaceId, agentId, { paneId: t.paneId, side: t.side }));
-      nextFrame(() => focusTerminal(agentId));
-    },
+    dropAgent: (agentId, t) => dropAgentOn(agentId, t),
     focusPane: (paneId) => withActive((s, id) => W.focusPane(s, id, paneId)),
     closePane: (paneId) => withActive((s, id) => W.closePane(s, id, paneId)),
     toggleMaximize: (paneId) => withActive((s, id) => W.toggleMaximize(s, id, paneId)),
@@ -436,13 +466,9 @@ export default function App() {
             setActiveSpaceId(id);
             if (wallOn) setWall(false);
           }}
-          onNewSpace={(agentId) => {
-            const { state, spaceId } = W.createCustomSpace(current.current, me, agentId);
+          onNewSpace={() => {
+            const { state, spaceId } = W.createCustomSpace(current.current, me);
             update(() => W.setWall(state, me, false));
-            setActiveSpaceId(spaceId);
-          }}
-          onDropOnSpace={(spaceId, agentId) => {
-            update((s) => W.placeAgent(s, spaceId, agentId));
             setActiveSpaceId(spaceId);
           }}
           onCloseSpace={(id) => update((s) => W.closeSpace(s, id))}

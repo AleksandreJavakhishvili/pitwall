@@ -14,8 +14,7 @@ interface Props {
   rightOpen: boolean;
   compact: boolean;
   onSelectSpace(id: string): void;
-  onNewSpace(agentId?: string): void;
-  onDropOnSpace(spaceId: string, agentId: string): void;
+  onNewSpace(): void;
   onCloseSpace(id: string): void;
   onRenameSpace(id: string, name: string): void;
   onMoveSpace(id: string): void;
@@ -58,7 +57,6 @@ export function TopBar(p: Props) {
         agents={p.agents}
         onSelect={p.onSelectSpace}
         onNew={p.onNewSpace}
-        onDrop={p.onDropOnSpace}
         onClose={p.onCloseSpace}
         onRename={p.onRenameSpace}
         onMove={p.onMoveSpace}
