@@ -1,0 +1,12 @@
+# Aider. A line-based REPL with no hooks and no session ids (chat history
+# is per directory), so there is nothing to resume by id.
+#
+# Not installed on the machine this was written on: fields come from Aider's
+# public docs, not from `aider --help`. Aider isn't a rulesync target.
+id = "aider"
+name = "Aider"
+command = "aider"
+new_args = []
+resume_args = []
+assign_session_id = false
+hooks = "none"

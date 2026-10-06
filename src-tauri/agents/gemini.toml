@@ -1,0 +1,16 @@
+# Gemini CLI. No per-launch hook mechanism, so status comes from the screen
+# rules in detect/gemini.toml (falling back to output activity).
+#
+# Not installed on the machine this was written on: fields come from Herdr's
+# integration and Gemini CLI's public docs, not from `gemini --help`.
+id = "gemini"
+name = "Gemini CLI"
+command = "gemini"
+new_args = []
+# Unverified: recent Gemini CLI versions accept a session id (as well as
+# "latest" or an index) for `--resume`. Ids are created by Gemini.
+resume_args = ["--resume", "{session_id}"]
+assign_session_id = false
+hooks = "none"
+# No rulesync target for Gemini CLI in rulesync 27 (Gemini reads GEMINI.md;
+# rulesync only covers the Antigravity products), so none is set.

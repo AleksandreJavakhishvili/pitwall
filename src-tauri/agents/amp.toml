@@ -1,0 +1,14 @@
+# Amp (Sourcegraph). Status comes from screen rules (detect/amp.toml).
+#
+# Not installed on the machine this was written on: fields come from Amp's
+# public docs, not from `amp --help`.
+id = "amp"
+name = "Amp"
+command = "amp"
+new_args = []
+# Unverified: Amp resumes a thread with `amp threads continue <thread-id>`.
+# Thread ids are created by Amp, so Pitwall can't assign one up front.
+resume_args = ["threads", "continue", "{session_id}"]
+assign_session_id = false
+hooks = "none"
+rulesync_target = "amp"

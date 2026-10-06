@@ -1,0 +1,35 @@
+# Pitwall v0.1 — build contract (index)
+
+Pitwall is a macOS desktop app (Tauri 2 + React/TS) that hosts terminal coding
+agents (Claude Code, Codex, any CLI) and shows who needs you, a per-agent
+"Next up" queue, and git diffs. **It is a tool, not an agent**: it never
+rewrites prompts, never decides what agents do, and delivers user text verbatim.
+
+Three workstreams build against this file. Change it only via the coordinator.
+
+| Workstream | Owns |
+|---|---|
+| Backend | `src-tauri/`, `crates/pitwall-hold/` (terminal holder) |
+| Detection | `crates/pitwall-detect/` (`src/screen.rs`, `src/detect.rs`, `detect/*.toml`, fixtures), `NOTICE` |
+| UI | `src/`, `index.html`, `public/`, frontend deps in `package.json` |
+
+
+The spec is split into small files under `docs/spec/`:
+
+| File | Contents | Main readers |
+|---|---|---|
+| [spec/status.md](spec/status.md) | Status values and sources (hooks > screen > activity) | all |
+| [spec/api.md](spec/api.md) | Tauri commands, events, TS/Rust shapes | Backend, UI |
+| [spec/backend.md](spec/backend.md) | Backend behaviour decisions | Backend |
+| [spec/detection-interface.md](spec/detection-interface.md) | `Screen` + `detect()` Rust interface | Backend, Detection |
+| [spec/layout.md](spec/layout.md) | Projects, spaces, tiling, windows, breakpoints (+ backend additions) | UI, Backend |
+| [spec/wall.md](spec/wall.md) | Wall overview mode | UI, Backend |
+| [spec/onboarding.md](spec/onboarding.md) | First-launch auto-detect | Backend, UI |
+| [spec/review.md](spec/review.md) | Review screen, per-task diffs, merge | Backend, UI |
+| [spec/rules.md](spec/rules.md) | Rules via rulesync | Backend, UI |
+| [spec/agents-more.md](spec/agents-more.md) | More agent definitions | Backend, Detection |
+| [spec/perf.md](spec/perf.md) | Performance pass and budgets | Backend, UI |
+| [spec/engineer.md](spec/engineer.md) | Pitwall CLI, approvals, Race Engineer | Backend, UI |
+| [spec/worktrees.md](spec/worktrees.md) | Worktrees via the agent's own flag | Backend, UI |
+| [spec/architecture.md](spec/architecture.md) | Wave 2 design: crates, Provider/TermIo/Exec traits, capabilities, daemon protocol, migration steps | all |
+| [spec/roadmap.md](spec/roadmap.md) | Waves and what comes later | – |

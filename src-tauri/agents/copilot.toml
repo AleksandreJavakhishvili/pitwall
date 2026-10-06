@@ -1,0 +1,14 @@
+# GitHub Copilot CLI. Status comes from screen rules (detect/copilot.toml).
+#
+# Not installed on the machine this was written on: fields come from Herdr's
+# integration (it resumes with `copilot --resume=<id>`) and GitHub's public
+# docs, not from `copilot --help`.
+id = "copilot"
+name = "GitHub Copilot CLI"
+command = "copilot"
+new_args = []
+# Unverified flag; session ids are created by Copilot.
+resume_args = ["--resume={session_id}"]
+assign_session_id = false
+hooks = "none"
+rulesync_target = "copilotcli"

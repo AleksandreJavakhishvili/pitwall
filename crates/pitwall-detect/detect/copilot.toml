@@ -1,0 +1,72 @@
+# Pitwall screen-detection rules for the GitHub Copilot CLI.
+#
+# Adapted from Herdr's github-copilot manifest
+# (src/detect/manifests/github-copilot.toml, version 2026.08.29.1),
+# https://github.com/herdrdev/herdr
+# Copyright the Herdr authors (herdrdev). Licensed under the Apache
+# License, Version 2.0. Modified for Pitwall: rule engine schema simplified,
+# whole-screen regions narrowed to the bottom of the screen, detail hint and
+# an explicit idle fallback (Herdr's engine default) added. See NOTICE.
+#
+# Not validated against captured screens yet (Copilot CLI was not installed
+# when this was written); tests use screens built from Herdr's rule strings.
+# Rules are evaluated by descending priority; the first match wins.
+# A user file at ~/.pitwall/detect/copilot.toml replaces this file.
+
+id = "copilot"
+version = "2026.10.06"
+
+detail_line = [
+  '^[\s│]*([^\s│❯›>\d][^│\n]*\?)[\s│]*$',
+]
+
+# --- Selection / approval dialogs ------------------------------------------
+
+[[rules]]
+id = "selection_blocker"
+state = "blocked"
+priority = 300
+region = "bottom_non_empty_lines(20)"
+all = [
+  { any = [
+    { contains = ["esc to cancel"] },
+    { contains = ["esc cancel"] },
+  ] },
+  { any = [
+    { contains = ["enter to select"] },
+    { contains = ["enter to confirm"] },
+    { contains = ["enter to submit"] },
+    { contains = ["enter accept"] },
+  ] },
+]
+
+# --- Working ---------------------------------------------------------------
+
+[[rules]]
+id = "background_agents_working"
+state = "working"
+priority = 110
+region = "bottom_non_empty_lines(6)"
+line_regex = ['^\s*◎\s+Waiting for background agents(?:\s|·|$)']
+
+[[rules]]
+id = "working_cancel_hint"
+state = "working"
+priority = 100
+region = "bottom_non_empty_lines(10)"
+any = [
+  { contains = ["esc to cancel"] },
+  { contains = ["esc cancel"] },
+  { contains = ["esc again to cancel"] },
+  { contains = ["esc interrupt"] },
+]
+
+# --- Idle ------------------------------------------------------------------
+
+[[rules]]
+id = "known_agent_idle_fallback"
+state = "idle"
+priority = 0
+# Herdr treats a recognised agent with no working/blocked evidence as idle.
+region = "bottom_non_empty_lines(1)"
+regex = ['\S']

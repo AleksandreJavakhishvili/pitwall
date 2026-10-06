@@ -1,0 +1,3 @@
+{"id":"5973b6c0-94b8-487b-a530-2aeb6098ae0e","timestamp":"2025-04-01T10:00:00.000Z","instructions":null}
+{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/Users/dev/code/legacy</cwd>\n</environment_context>"}]}
+{"type":"message","role":"user","content":[{"type":"input_text","text":"rename the config loader"}]}

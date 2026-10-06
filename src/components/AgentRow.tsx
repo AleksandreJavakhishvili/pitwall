@@ -1,0 +1,48 @@
+import type { AgentView } from "../types";
+import { STATUS_WORD } from "../lib/status";
+import { endAgentDrag, startAgentDrag } from "../lib/dnd";
+import { StatusGlyph } from "./StatusGlyph";
+import { DiffStat } from "./DiffStat";
+
+interface Props {
+  agent: AgentView;
+  index: number;
+  selected: boolean;
+  /** Space name where it's shown, if anywhere. */
+  where: string | null;
+  onSelect(): void;
+}
+
+export function AgentRow({ agent: a, index, selected, where, onSelect }: Props) {
+  return (
+    <li>
+      <button
+        className="agent-row"
+        data-status={a.status}
+        aria-current={selected ? "true" : undefined}
+        onClick={onSelect}
+        draggable
+        onDragStart={(e) => startAgentDrag(e, a.id)}
+        onDragEnd={endAgentDrag}
+        title={`${a.name}${where ? ` — in ${where}` : ""}${a.statusDetail ? `\n${a.statusDetail}` : ""}`}
+      >
+        <StatusGlyph status={a.status} />
+        <span className="agent-row-main">
+          <span className="agent-row-top">
+            <span className="agent-name">{a.name}</span>
+            <span className="status-word" data-status={a.status}>
+              {STATUS_WORD[a.status]}
+            </span>
+          </span>
+          <span className="agent-row-sub">
+            <span className="chip">{a.location}</span>
+            <span className="agent-kind">{a.kindName}</span>
+            <DiffStat added={a.added} removed={a.removed} />
+          </span>
+          {a.status === "blocked" && a.statusDetail && <span className="agent-row-detail">{a.statusDetail}</span>}
+        </span>
+        {index < 9 && <span className="row-index">⌘{index + 1}</span>}
+      </button>
+    </li>
+  );
+}

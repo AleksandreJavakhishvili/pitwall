@@ -1,0 +1,109 @@
+//! Agent definitions: one small TOML file per agent. Built-ins are embedded;
+//! files in ~/.pitwall/agents override or extend them without an app update.
+
+use serde::{Deserialize, Serialize};
+
+use crate::paths;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HookMode {
+    /// Hooks passed per launch via `claude --settings <json>`.
+    ClaudeSettings,
+    /// Hooks merged into ~/.codex/hooks.json (only with the user's approval).
+    CodexGlobal,
+    /// No hooks: status falls back to output activity.
+    None,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentKind {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub new_args: Vec<String>,
+    #[serde(default)]
+    pub resume_args: Vec<String>,
+    #[serde(default)]
+    pub assign_session_id: bool,
+    pub hooks: HookMode,
+    /// rulesync `--targets` id used when applying rules (e.g. "claudecode").
+    #[serde(default)]
+    pub rulesync_target: Option<String>,
+    /// The agent's own "work in a new git worktree" flag (docs/spec/worktrees.md).
+    /// `{name}` is replaced with a name Pitwall picks; empty = not supported.
+    #[serde(default)]
+    pub worktree_args: Vec<String>,
+}
+
+const BUILTIN: &[&str] = &[
+    include_str!("../agents/claude.toml"),
+    include_str!("../agents/codex.toml"),
+    include_str!("../agents/gemini.toml"),
+    include_str!("../agents/opencode.toml"),
+    include_str!("../agents/cursor.toml"),
+    include_str!("../agents/copilot.toml"),
+    include_str!("../agents/qwen.toml"),
+    include_str!("../agents/amp.toml"),
+    include_str!("../agents/aider.toml"),
+    include_str!("../agents/shell.toml"),
+];
+
+pub fn load_kinds() -> Vec<AgentKind> {
+    let mut kinds: Vec<AgentKind> = BUILTIN
+        .iter()
+        .map(|src| toml::from_str(src).expect("built-in agent definition is valid"))
+        .collect();
+
+    if let Ok(entries) = std::fs::read_dir(paths::user_agents_dir()) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+            let Ok(src) = std::fs::read_to_string(&path) else { continue };
+            match toml::from_str::<AgentKind>(&src) {
+                Ok(kind) => match kinds.iter_mut().find(|k| k.id == kind.id) {
+                    Some(existing) => *existing = kind,
+                    None => kinds.push(kind),
+                },
+                Err(err) => eprintln!("pitwall: skipping {}: {err}", path.display()),
+            }
+        }
+    }
+    kinds
+}
+
+/// Kind used for "custom command" agents; the command comes from the user.
+pub fn custom_kind(command: &str) -> AgentKind {
+    AgentKind {
+        id: "custom".into(),
+        name: "Custom".into(),
+        command: command.into(),
+        new_args: vec![],
+        resume_args: vec![],
+        assign_session_id: false,
+        hooks: HookMode::None,
+        rulesync_target: None,
+        worktree_args: vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every built-in agent definition with screen rules has a matching rule
+    /// file, and every rule file belongs to a built-in agent.
+    #[test]
+    fn new_agent_kinds_have_rules() {
+        let kinds = super::load_kinds();
+        let rules: Vec<&str> = pitwall_detect::builtin_rule_kinds().collect();
+        for id in ["gemini", "opencode", "cursor", "copilot", "qwen", "amp", "aider"] {
+            assert!(kinds.iter().any(|k| k.id == id), "agent kind {id} missing");
+            assert!(rules.contains(&id), "rules for {id} missing");
+        }
+        for kind in rules {
+            assert!(kinds.iter().any(|k| k.id == kind), "rules for unknown kind {kind}");
+        }
+    }
+}

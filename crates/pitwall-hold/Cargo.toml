@@ -1,0 +1,20 @@
+[package]
+name = "pitwall-hold"
+version = "0.1.0"
+edition = "2021"
+description = "Per-agent terminal holder: owns one PTY + child process and serves it on a Unix socket, so terminals outlive the Pitwall app (architecture.md §9, decision 1)."
+
+[lib]
+name = "pitwall_hold"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pitwall-hold"
+path = "src/main.rs"
+
+[dependencies]
+interprocess = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
