@@ -28,6 +28,9 @@
 
   --green: #3fd07f;
   --green-soft: rgba(63, 208, 127, 0.13);
+  /* Finished-but-unseen: a steady mint, distinct from the pulsing working green. */
+  --finish: #4fe3b8;
+  --finish-soft: rgba(79, 227, 184, 0.12);
   --amber: #ffb224;
   --amber-soft: rgba(255, 178, 36, 0.12);
   --amber-glow: rgba(255, 178, 36, 0.38);
@@ -65,6 +68,8 @@
 
     --green: #14a052;
     --green-soft: rgba(20, 160, 82, 0.11);
+    --finish: #0e9f7e;
+    --finish-soft: rgba(14, 159, 126, 0.1);
     --amber: #d98600;
     --amber-soft: rgba(237, 150, 0, 0.13);
     --amber-glow: rgba(237, 150, 0, 0.35);

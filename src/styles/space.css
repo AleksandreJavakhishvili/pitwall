@@ -52,7 +52,7 @@
   text-shadow: 0 0 8px var(--amber-glow);
 }
 .tab-done {
-  color: var(--flag);
+  color: var(--finish);
   font-size: 10px;
 }
 .tab-actions {
@@ -265,26 +265,24 @@ body.dragging-agent .wall-scale {
   background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface);
   border-bottom-color: color-mix(in srgb, var(--amber) 35%, transparent);
 }
-/* Finished while you weren't looking: a steady (not pulsing) flag-coloured
- * frame plus a chequered top edge, until the tile is clicked (mark_seen). */
+/* Finished while you weren't looking: a steady mint band across the top, a
+ * mint frame and a tinted header (working is only the pulsing dot), until the
+ * tile is clicked (mark_seen). */
 .pane[data-status="done"] {
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--flag) 70%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--finish) 65%, transparent);
 }
 .pane[data-status="done"]::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 3px;
+  height: 4px;
   z-index: 2;
   pointer-events: none;
-  background: repeating-conic-gradient(var(--flag) 0 25%, transparent 0 50%) 0 0 / 6px 6px;
+  background: var(--finish);
 }
 .pane[data-status="done"] .pane-head {
-  background:
-    repeating-conic-gradient(color-mix(in srgb, var(--flag) 18%, transparent) 0 25%, transparent 0 50%) right 0 top 0 / 8px
-      8px repeat-y,
-    var(--surface);
-  background-size: 8px 8px, auto;
+  background: linear-gradient(var(--finish-soft), var(--finish-soft)), var(--surface);
+  border-bottom-color: color-mix(in srgb, var(--finish) 35%, transparent);
 }
 .pane-name {
   font-weight: 650;

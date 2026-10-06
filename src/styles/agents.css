@@ -88,7 +88,17 @@
   color: var(--amber);
 }
 .status-word[data-status="done"] {
-  color: var(--flag);
+  color: var(--finish);
+}
+/* In a tile header "done" reads as a small mint DONE label. */
+.pane-head .status-word[data-status="done"] {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--finish-soft);
+  font-family: var(--font-label);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 .status-word[data-status="exited"],
 .status-word[data-status="stopped"],
