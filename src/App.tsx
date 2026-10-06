@@ -100,6 +100,10 @@ export default function App() {
   activeRef.current = activeSpace?.id ?? null;
   const focusedRef = useRef(focusedAgentId);
   focusedRef.current = focusedAgentId;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const wallOnRef = useRef(wallOn);
+  wallOnRef.current = wallOn;
 
   // ── window bootstrapping ────────────────────────────────────────────────
   // A window opened with ?space=<id> claims that space.
@@ -434,13 +438,33 @@ export default function App() {
     };
   }, []);
 
-  // If the agent you're looking at finishes while the window has focus, you've seen it.
+  // Done means "finished and not looked at yet":
+  // - selecting a done agent (tile click, ⌘1–9, sidebar, strip…) is looking at it → seen now;
+  // - an agent finishing while you're already on it is seen after a short glance.
+  const lastSelected = useRef<string | null>(null);
   useEffect(() => {
-    if (selected?.status !== "done" || !document.hasFocus() || wallOn) return;
-    const id = selected.id;
+    const id = selected?.id ?? null;
+    const justSelected = id !== lastSelected.current;
+    lastSelected.current = id;
+    if (!id || selected?.status !== "done" || wallOn) return;
+    if (justSelected) {
+      api.markSeen(id).catch(() => {});
+      return;
+    }
+    if (!document.hasFocus()) return;
     const t = setTimeout(() => document.hasFocus() && api.markSeen(id).catch(() => {}), 1500);
     return () => clearTimeout(t);
   }, [selected?.id, selected?.status, wallOn]);
+
+  // Coming back to the window counts as looking at the agent you left selected.
+  useEffect(() => {
+    const onFocus = () => {
+      const s = selectedRef.current;
+      if (s?.status === "done" && !wallOnRef.current) api.markSeen(s.id).catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   // Attention events → in-app toasts.
   useEffect(() => {
