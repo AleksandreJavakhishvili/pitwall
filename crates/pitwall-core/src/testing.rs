@@ -1,7 +1,8 @@
 //! Test doubles for the host-facing traits, so engine behaviour can be tested
-//! without a UI, real time or `~/.pitwall`. Built for this crate's tests and,
-//! with the `testing` feature, for hosts' tests.
+//! without a UI, real time, real processes or `~/.pitwall`. Built for this
+//! crate's tests and, with the `testing` feature, for hosts' tests.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -9,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use crate::clock::Clock;
 use crate::engine::{Deps, Engine, Shared};
 use crate::events::{Event, EventSink};
+use crate::exec::{Cmd, Exec, FileKind, LocalExec, Out, Stat};
 use crate::model::AgentRecord;
 use crate::paths::Paths;
 use crate::store::{Snapshot, Store};
@@ -125,7 +127,13 @@ pub struct Harness {
 }
 
 impl Harness {
+    /// Git and files on this machine (tests use temp repos).
     pub fn new(agents: Vec<AgentRecord>) -> Harness {
+        Harness::with_exec(agents, Arc::new(LocalExec))
+    }
+
+    /// Agents' machine is `exec` (e.g. a [`FakeExec`]).
+    pub fn with_exec(agents: Vec<AgentRecord>, exec: Arc<dyn Exec>) -> Harness {
         let dir = TempDir::new("engine");
         let (events, clock, store) = (RecordingSink::new(), ManualClock::new(1_000), MemStore::with(agents));
         let engine = Engine::open(Deps {
@@ -134,7 +142,216 @@ impl Harness {
             clock: clock.clone(),
             store: store.clone(),
             holder_bin: Err("no terminal holder in tests".into()),
+            exec,
         });
         Harness { engine, events, clock, store, dir }
+    }
+}
+
+// ---------------------------------------------------------------- FakeExec
+
+/// One command a [`FakeExec`] was asked to run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Call {
+    pub argv: Vec<String>,
+    pub cwd: Option<String>,
+    pub env: Vec<(String, String)>,
+    pub stdin: Option<Vec<u8>>,
+}
+
+impl Call {
+    pub fn env_has(&self, key: &str, value: &str) -> bool {
+        self.env.iter().any(|(k, v)| k == key && v == value)
+    }
+
+    pub fn env_get(&self, key: &str) -> Option<&str> {
+        self.env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    }
+
+    pub fn matches(&self, pattern: &[&str]) -> bool {
+        matches(pattern, &self.argv)
+    }
+}
+
+/// `*` matches any one argument; a trailing `..` matches whatever follows.
+fn matches(pattern: &[&str], argv: &[String]) -> bool {
+    if let Some((&"..", head)) = pattern.split_last() {
+        return argv.len() >= head.len() && matches(head, &argv[..head.len()]);
+    }
+    pattern.len() == argv.len() && pattern.iter().zip(argv).all(|(p, a)| *p == "*" || p == a)
+}
+
+enum Entry {
+    File(Vec<u8>),
+    Dir,
+}
+
+/// An argv pattern and what running a matching command returns.
+type Script = (Vec<String>, Result<Out, String>);
+
+/// A scripted machine: commands answer with canned output (the newest
+/// matching script wins; an unscripted command fails to run), files live in
+/// memory, and every call is recorded.
+pub struct FakeExec {
+    scripts: Mutex<Vec<Script>>,
+    calls: Mutex<Vec<Call>>,
+    files: Mutex<BTreeMap<String, Entry>>,
+}
+
+fn guard<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub const FAKE_TEMP: &str = "/fake/tmp";
+pub const FAKE_HOME: &str = "/fake/home";
+
+impl FakeExec {
+    pub fn new() -> Arc<FakeExec> {
+        let x = FakeExec { scripts: Mutex::default(), calls: Mutex::default(), files: Mutex::default() };
+        x.dir(FAKE_TEMP).dir(FAKE_HOME);
+        Arc::new(x)
+    }
+
+    /// `pattern` exits 0 printing `stdout`.
+    pub fn on(&self, pattern: &[&str], stdout: &str) -> &Self {
+        self.on_exit(pattern, 0, stdout, "")
+    }
+
+    pub fn on_exit(&self, pattern: &[&str], status: i32, stdout: &str, stderr: &str) -> &Self {
+        let out = Out { status, stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() };
+        self.script(pattern, Ok(out))
+    }
+
+    /// `pattern` can't be run (missing program, timeout).
+    pub fn on_error(&self, pattern: &[&str], error: &str) -> &Self {
+        self.script(pattern, Err(error.to_string()))
+    }
+
+    fn script(&self, pattern: &[&str], reply: Result<Out, String>) -> &Self {
+        guard(&self.scripts).push((pattern.iter().map(|s| s.to_string()).collect(), reply));
+        self
+    }
+
+    pub fn file(&self, path: &str, bytes: &[u8]) -> &Self {
+        guard(&self.files).insert(path.to_string(), Entry::File(bytes.to_vec()));
+        self
+    }
+
+    pub fn dir(&self, path: &str) -> &Self {
+        guard(&self.files).insert(path.trim_end_matches('/').to_string(), Entry::Dir);
+        self
+    }
+
+    /// A file's contents, if it exists.
+    pub fn contents(&self, path: &str) -> Option<Vec<u8>> {
+        match guard(&self.files).get(path) {
+            Some(Entry::File(b)) => Some(b.clone()),
+            _ => None,
+        }
+    }
+
+    /// Every path that exists (files and folders).
+    pub fn paths(&self) -> Vec<String> {
+        guard(&self.files).keys().cloned().collect()
+    }
+
+    pub fn calls(&self) -> Vec<Call> {
+        guard(&self.calls).clone()
+    }
+
+    /// How many calls matched `pattern`.
+    pub fn ran(&self, pattern: &[&str]) -> usize {
+        guard(&self.calls).iter().filter(|c| c.matches(pattern)).count()
+    }
+
+    fn kind(&self, path: &str) -> Option<FileKind> {
+        let files = guard(&self.files);
+        match files.get(path) {
+            Some(Entry::File(_)) => Some(FileKind::File),
+            Some(Entry::Dir) => Some(FileKind::Dir),
+            // A folder that holds something exists implicitly.
+            None => files.keys().any(|k| k.starts_with(&format!("{path}/"))).then_some(FileKind::Dir),
+        }
+    }
+}
+
+impl Exec for FakeExec {
+    fn run(&self, cmd: &Cmd) -> Result<Out, String> {
+        let argv: Vec<String> = cmd.argv.iter().map(|s| s.to_string()).collect();
+        guard(&self.calls).push(Call {
+            argv: argv.clone(),
+            cwd: cmd.cwd.map(String::from),
+            env: cmd.env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            stdin: cmd.stdin.map(<[u8]>::to_vec),
+        });
+        let scripts = guard(&self.scripts);
+        let hit = scripts.iter().rev().find(|(p, _)| matches(&p.iter().map(String::as_str).collect::<Vec<_>>(), &argv));
+        match hit {
+            Some((_, reply)) => reply.clone(),
+            None => Err(format!("FakeExec: no script for {argv:?}")),
+        }
+    }
+
+    fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>, String> {
+        match guard(&self.files).get(path) {
+            Some(Entry::File(b)) => Ok(Some(b[..b.len().min(max as usize)].to_vec())),
+            Some(Entry::Dir) => Err(format!("{path}: is a directory")),
+            None => Ok(None),
+        }
+    }
+
+    fn write_file(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if self.kind(path) == Some(FileKind::Dir) {
+            return Err(format!("{path}: is a directory"));
+        }
+        self.file(path, bytes);
+        Ok(())
+    }
+
+    fn remove_file(&self, path: &str) -> Result<(), String> {
+        let mut files = guard(&self.files);
+        match files.get(path) {
+            Some(Entry::File(_)) => {
+                files.remove(path);
+                Ok(())
+            }
+            Some(Entry::Dir) => Err(format!("{path}: is a directory")),
+            None => Err(format!("{path}: not found")),
+        }
+    }
+
+    fn remove_dir(&self, path: &str) -> Result<(), String> {
+        if self.kind(path) != Some(FileKind::Dir) {
+            return Err(format!("{path}: not a directory"));
+        }
+        let mut files = guard(&self.files);
+        if files.keys().any(|k| k.starts_with(&format!("{path}/"))) {
+            return Err(format!("{path}: directory not empty"));
+        }
+        files.remove(path);
+        Ok(())
+    }
+
+    fn copy_file(&self, from: &str, to: &str) -> Result<(), String> {
+        let bytes = self.contents(from).ok_or_else(|| format!("{from}: not found"))?;
+        self.write_file(to, &bytes)
+    }
+
+    fn stat(&self, path: &str) -> Result<Option<Stat>, String> {
+        let len = self.contents(path).map_or(0, |b| b.len() as u64);
+        Ok(self.kind(path).map(|kind| Stat { kind, len }))
+    }
+
+    fn real_path(&self, path: &str) -> Result<String, String> {
+        let p = path.trim_end_matches('/');
+        self.kind(p).map(|_| p.to_string()).ok_or_else(|| format!("{path}: not found"))
+    }
+
+    fn temp_dir(&self) -> Result<String, String> {
+        Ok(FAKE_TEMP.into())
+    }
+
+    fn home(&self) -> Result<String, String> {
+        Ok(FAKE_HOME.into())
     }
 }

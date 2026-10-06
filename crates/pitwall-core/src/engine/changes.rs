@@ -1,7 +1,7 @@
 //! An agent's uncommitted work as the sidebar shows it.
 
 use super::Engine;
-use crate::vcs::git::{self, FileChange};
+use crate::vcs::git::{FileChange, Git};
 
 type Res<T> = Result<T, String>;
 
@@ -9,7 +9,7 @@ type Res<T> = Result<T, String>;
 /// agent's +/- counts. Blocking (git).
 pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
     let (cwd, base) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.rec.base_commit.clone()))?;
-    let files = git::changes(&cwd, base.as_deref())?;
+    let files = Git::new(&*engine.exec_for(agent_id), &cwd).changes(base.as_deref())?;
     let counts = (
         files.iter().map(|f| f.added).sum(),
         files.iter().map(|f| f.removed).sum(),
@@ -32,7 +32,7 @@ pub fn file_diff(engine: &Engine, agent_id: &str, path: &str, untracked: bool) -
     if path.is_empty() || path.starts_with('/') || path.split('/').any(|p| p == "..") {
         return Err("invalid path".into());
     }
-    git::file_diff(&cwd, base.as_deref(), path, untracked)
+    Git::new(&*engine.exec_for(agent_id), &cwd).file_diff(base.as_deref(), path, untracked)
 }
 
 #[cfg(test)]
@@ -55,5 +55,19 @@ mod tests {
         assert_eq!((v.added, v.removed, v.files_changed), (2, 0, 2));
         assert!(file_diff(&h.engine, "a", "a.txt", false).unwrap().contains("+2"));
         assert_eq!(file_diff(&h.engine, "a", "../x", false).unwrap_err(), "invalid path");
+    }
+
+    #[test]
+    fn git_runs_on_the_agents_machine() {
+        let x = crate::testing::FakeExec::new();
+        x.on(&["git", "-C", "/remote/w", "diff", "--numstat", "b0"], "4\t2\tsrc/a.rs\n")
+            .on(&["git", "-C", "/remote/w", "ls-files", "--others", "--exclude-standard"], "");
+        let mut rec = record("a", "/remote/w");
+        rec.base_commit = Some("b0".into());
+        let h = Harness::with_exec(vec![rec], x.clone());
+        assert_eq!(changes(&h.engine, "a").unwrap().len(), 1);
+        let v = &h.engine.views()[0];
+        assert_eq!((v.added, v.removed, v.files_changed), (4, 2, 1));
+        assert_eq!(x.ran(&["git", "-C", "/remote/w", ".."]), 2);
     }
 }

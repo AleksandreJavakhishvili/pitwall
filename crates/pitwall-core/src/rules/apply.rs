@@ -7,10 +7,16 @@
 //! clash. Pitwall then copies the generated files into the working directory,
 //! never over a git-tracked file or a file it didn't write, and lists every
 //! copied path in the repo's `.git/info/exclude`.
+//!
+//! rulesync and its staging folder are on this Mac; everything in the agent's
+//! working directory (git, reading, writing and removing files, the exclude
+//! file) goes through the agent's machine [`Exec`].
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use crate::exec::{self, Exec, FileKind};
+use crate::vcs::git::Git;
 
 use super::library::{self, front_block};
 use super::runner::{self, Runner};
@@ -140,38 +146,38 @@ pub fn content_hash(bytes: &[u8]) -> String {
     format!("{h:016x}")
 }
 
-fn git(cwd: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(args)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+fn git(exec: &dyn Exec, cwd: &str, args: &[&str]) -> Option<String> {
+    Git::new(exec, cwd).run(args).ok()
 }
 
 /// Which of `paths` (relative to `cwd`) git tracks.
-fn tracked(cwd: &Path, paths: &[String]) -> BTreeSet<String> {
+fn tracked(exec: &dyn Exec, cwd: &str, paths: &[String]) -> BTreeSet<String> {
     if paths.is_empty() {
         return BTreeSet::new();
     }
     let mut args = vec!["ls-files", "-z", "--"];
     args.extend(paths.iter().map(String::as_str));
-    git(cwd, &args)
+    git(exec, cwd, &args)
         .map(|s| s.split('\0').filter(|p| !p.is_empty()).map(String::from).collect())
         .unwrap_or_default()
 }
 
 /// Location of the info/exclude file and the path prefix of `cwd` inside the
 /// repo, or `None` outside git.
-pub fn exclude_target(cwd: &Path) -> Option<(PathBuf, String)> {
-    let file = git(cwd, &["rev-parse", "--git-path", "info/exclude"])?;
-    let file = PathBuf::from(file.trim());
-    let file = if file.is_absolute() { file } else { cwd.join(file) };
-    let prefix = git(cwd, &["rev-parse", "--show-prefix"])?.trim().to_string();
+pub fn exclude_target(exec: &dyn Exec, cwd: &str) -> Option<(String, String)> {
+    let file = git(exec, cwd, &["rev-parse", "--git-path", "info/exclude"])?.trim().to_string();
+    let file = if Path::new(&file).is_absolute() { file } else { exec::join(cwd, &file) };
+    let prefix = git(exec, cwd, &["rev-parse", "--show-prefix"])?.trim().to_string();
     Some((file, prefix))
+}
+
+/// The whole file as text (empty when missing or unreadable).
+fn read_text(exec: &dyn Exec, path: &str) -> String {
+    exec.read_file(path, u64::MAX)
+        .ok()
+        .flatten()
+        .and_then(|b| String::from_utf8(b).ok())
+        .unwrap_or_default()
 }
 
 fn begin(agent_id: &str) -> String {
@@ -194,8 +200,8 @@ fn exclude_pattern(path: &str) -> String {
 }
 
 /// Replace this agent's block in an exclude file (removed when `paths` is empty).
-pub fn write_exclude(file: &Path, agent_id: &str, paths: &[String]) -> Result<(), String> {
-    let old = std::fs::read_to_string(file).unwrap_or_default();
+pub fn write_exclude(exec: &dyn Exec, file: &str, agent_id: &str, paths: &[String]) -> Result<(), String> {
+    let old = read_text(exec, file);
     let (b, e) = (begin(agent_id), end(agent_id));
     let mut out = String::new();
     let mut skipping = false;
@@ -225,10 +231,7 @@ pub fn write_exclude(file: &Path, agent_id: &str, paths: &[String]) -> Result<()
     if out == old {
         return Ok(());
     }
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(file, out).map_err(|e| format!("could not update {}: {e}", file.display()))
+    exec.write_file(file, out.as_bytes()).map_err(|e| format!("could not update {file}: {e}"))
 }
 
 fn safe_rel(p: &str) -> bool {
@@ -237,28 +240,28 @@ fn safe_rel(p: &str) -> bool {
 
 /// Delete files Pitwall generated earlier, unless the user changed them or
 /// git tracks them now.
-pub fn remove_generated(cwd: &Path, files: &[GenFile], log: &mut Vec<String>) {
+pub fn remove_generated(exec: &dyn Exec, cwd: &str, files: &[GenFile], log: &mut Vec<String>) {
     let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-    let tracked = tracked(cwd, &paths);
+    let tracked = tracked(exec, cwd, &paths);
     for f in files {
-        let full = cwd.join(&f.path);
         if !safe_rel(&f.path) || tracked.contains(&f.path) {
             continue;
         }
-        match std::fs::read(&full) {
-            Ok(bytes) if content_hash(&bytes) == f.hash => {
-                let _ = std::fs::remove_file(&full);
+        let full = exec::join(cwd, &f.path);
+        match exec.read_file(&full, u64::MAX) {
+            Ok(Some(bytes)) if content_hash(&bytes) == f.hash => {
+                let _ = exec.remove_file(&full);
                 // Tidy directories this left empty (e.g. .claude/rules).
-                let mut dir = full.parent();
-                while let Some(d) = dir {
-                    if d == cwd || std::fs::remove_dir(d).is_err() {
+                let mut rel = Path::new(&f.path).parent();
+                while let Some(d) = rel.filter(|d| !d.as_os_str().is_empty()) {
+                    if exec.remove_dir(&exec::join(cwd, &d.to_string_lossy())).is_err() {
                         break;
                     }
-                    dir = d.parent();
+                    rel = d.parent();
                 }
             }
-            Ok(_) => log.push(format!("kept {} (edited since Pitwall wrote it)", f.path)),
-            Err(_) => {}
+            Ok(Some(_)) => log.push(format!("kept {} (edited since Pitwall wrote it)", f.path)),
+            _ => {}
         }
     }
 }
@@ -269,12 +272,15 @@ pub struct Outcome {
     pub exclude_file: Option<String>,
 }
 
-/// Run rulesync and place its output in `cwd`.
+/// Run rulesync (here, in `stage`) and place its output in `cwd` on the
+/// agent's machine.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     runner: &Runner,
     stage: &Path,
+    exec: &dyn Exec,
     agent_id: &str,
-    cwd: &Path,
+    cwd: &str,
     target: &str,
     inputs: &Inputs,
     previous: &[GenFile],
@@ -330,7 +336,7 @@ pub fn run(
         .filter_map(|o| o["path"].as_str().map(String::from))
         .collect();
 
-    let tracked = tracked(cwd, &written);
+    let tracked = tracked(exec, cwd, &written);
     let mut files = Vec::new();
     for rel in &written {
         if !safe_rel(rel) {
@@ -338,24 +344,23 @@ pub fn run(
             continue;
         }
         let Ok(bytes) = std::fs::read(out.join(rel)) else { continue };
-        let dest = cwd.join(rel);
+        let dest = exec::join(cwd, rel);
         if tracked.contains(rel) {
             log.push(format!("kept the project's {rel} (tracked by git; Pitwall never changes tracked files)"));
             continue;
         }
-        if let Ok(meta) = std::fs::symlink_metadata(&dest) {
+        if let Ok(Some(st)) = exec.stat(&dest) {
             let ours = previous.iter().find(|g| &g.path == rel);
-            let unchanged = meta.is_file()
-                && ours.is_some_and(|g| std::fs::read(&dest).map(|b| content_hash(&b) == g.hash).unwrap_or(false));
+            let unchanged = st.kind == FileKind::File
+                && ours.is_some_and(|g| {
+                    exec.read_file(&dest, u64::MAX).ok().flatten().is_some_and(|b| content_hash(&b) == g.hash)
+                });
             if !unchanged {
                 log.push(format!("kept the existing {rel} (not written by Pitwall)"));
                 continue;
             }
         }
-        if let Some(dir) = dest.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&dest, &bytes).map_err(|e| format!("could not write {rel}: {e}"))?;
+        exec.write_file(&dest, &bytes).map_err(|e| format!("could not write {rel}: {e}"))?;
         files.push(GenFile { path: rel.clone(), hash: content_hash(&bytes) });
     }
 
@@ -365,20 +370,20 @@ pub fn run(
         .filter(|g| !files.iter().any(|f| f.path == g.path))
         .cloned()
         .collect();
-    remove_generated(cwd, &stale, &mut log);
+    remove_generated(exec, cwd, &stale, &mut log);
 
     if files.iter().any(|f| f.path == "CLAUDE.md" || f.path == "CLAUDE.local.md")
-        && cwd.join("AGENTS.md").exists()
+        && exec::exists(exec, &exec::join(cwd, "AGENTS.md"))
         && !tracked.contains("CLAUDE.md")
     {
         log.push("note: with a CLAUDE.md / CLAUDE.local.md present, Claude Code no longer falls back to AGENTS.md".into());
     }
 
-    let exclude_file = match exclude_target(cwd) {
+    let exclude_file = match exclude_target(exec, cwd) {
         Some((file, prefix)) => {
             let rel: Vec<String> = files.iter().map(|f| format!("{prefix}{}", f.path)).collect();
-            write_exclude(&file, agent_id, &rel)?;
-            Some(file.to_string_lossy().into_owned())
+            write_exclude(exec, &file, agent_id, &rel)?;
+            Some(file)
         }
         None => {
             if !files.is_empty() {
@@ -394,6 +399,7 @@ pub fn run(
 mod tests {
     use super::super::library::parse_front;
     use super::*;
+    use crate::exec::LocalExec;
 
     #[test]
     fn local_root_is_injected() {
@@ -416,18 +422,19 @@ mod tests {
     #[test]
     fn exclude_blocks_are_replaced_and_removed() {
         let dir = std::env::temp_dir().join(format!("pw-excl-{}", uuid::Uuid::new_v4()));
-        let file = dir.join("info").join("exclude");
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, "# user\n*.log\n").unwrap();
-        write_exclude(&file, "a1", &["CLAUDE.local.md".into()]).unwrap();
-        write_exclude(&file, "b2", &["AGENTS.md".into()]).unwrap();
-        write_exclude(&file, "a1", &[".claude/rules/x.md".into()]).unwrap();
-        let s = std::fs::read_to_string(&file).unwrap();
+        let path = dir.join("info").join("exclude");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "# user\n*.log\n").unwrap();
+        let (x, file) = (&LocalExec, path.to_str().unwrap());
+        write_exclude(x, file, "a1", &["CLAUDE.local.md".into()]).unwrap();
+        write_exclude(x, file, "b2", &["AGENTS.md".into()]).unwrap();
+        write_exclude(x, file, "a1", &[".claude/rules/x.md".into()]).unwrap();
+        let s = std::fs::read_to_string(&path).unwrap();
         assert!(s.starts_with("# user\n*.log\n"));
         assert!(s.contains("/.claude/rules/x.md") && s.contains("/AGENTS.md") && !s.contains("CLAUDE.local"));
-        write_exclude(&file, "a1", &[]).unwrap();
-        write_exclude(&file, "b2", &[]).unwrap();
-        assert_eq!(std::fs::read_to_string(&file).unwrap().trim_end(), "# user\n*.log");
+        write_exclude(x, file, "a1", &[]).unwrap();
+        write_exclude(x, file, "b2", &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap().trim_end(), "# user\n*.log");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -3,9 +3,9 @@
 //! the user turned that on in Settings.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
+use crate::exec::{self, Cmd, Exec, LocalExec};
 use crate::shell;
 
 #[derive(Debug, Clone)]
@@ -25,13 +25,8 @@ const MARK: &str = "__PITWALL_PATH__";
 pub fn login_path() -> Option<String> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| {
-        let out = Command::new(shell::user_shell())
-            .args(["-l", "-i", "-c", &format!("printf '\\n{MARK}%s\\n' \"$PATH\"")])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        let text = String::from_utf8_lossy(&out.stdout);
+        let (shell, script) = (shell::user_shell(), format!("printf '\\n{MARK}%s\\n' \"$PATH\""));
+        let text = exec::local_stdout(&[&shell, "-l", "-i", "-c", &script], exec::LONG)?;
         text.lines()
             .rev()
             .find_map(|l| l.strip_prefix(MARK))
@@ -95,21 +90,20 @@ pub struct Output {
 }
 
 impl Runner {
+    /// rulesync runs on this Mac (its staging folder and library are here).
     pub fn run(&self, cwd: &Path, args: &[String]) -> Result<Output, String> {
-        let mut cmd = Command::new(&self.argv[0]);
-        cmd.args(&self.argv[1..])
-            .args(args)
-            .current_dir(cwd)
-            .stdin(Stdio::null())
-            .env("NO_COLOR", "1")
-            .env("CI", "1");
+        let argv: Vec<&str> = self.argv.iter().chain(args).map(String::as_str).collect();
+        let cwd = cwd.to_string_lossy();
+        let mut env = vec![("NO_COLOR", "1"), ("CI", "1")];
         if let Some(p) = &self.path_env {
-            cmd.env("PATH", p);
+            env.push(("PATH", p));
         }
-        let out = cmd.output().map_err(|e| format!("could not run rulesync: {e}"))?;
+        let out = LocalExec
+            .run(&Cmd::new(&argv).cwd(&cwd).env(&env))
+            .map_err(|e| format!("could not run rulesync: {e}"))?;
         Ok(Output {
-            ok: out.status.success(),
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            ok: out.ok(),
+            stdout: out.stdout_text(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         })
     }

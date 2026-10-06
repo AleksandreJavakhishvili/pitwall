@@ -2,10 +2,14 @@
 //! terminal's PATH, so agents are launched through the user's login +
 //! interactive shell. (A `LoginShell` abstraction replaces the Unix
 //! specifics here for the Windows port, architecture.md §9 decision 7.)
+//! Programs run through [`LocalExec`]: this is about this machine.
 
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::exec::{Cmd, Exec, LocalExec};
+
+/// A login shell that hangs (waiting on something in the user's rc files).
+const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub fn user_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into())
@@ -29,43 +33,16 @@ pub fn quote(arg: &str) -> String {
 
 /// Whether `program` resolves in the user's login shell.
 pub fn which(program: &str) -> Option<String> {
-    let out = Command::new(user_shell())
-        .args(["-l", "-i", "-c", &format!("command -v {}", quote(program))])
-        .stdin(Stdio::null())
-        .output()
+    let (shell, script) = (user_shell(), format!("command -v {}", quote(program)));
+    let out = LocalExec
+        .run(&Cmd::new(&[&shell, "-l", "-i", "-c", &script]).timeout(LOGIN_SHELL_TIMEOUT))
         .ok()?;
-    if !out.status.success() {
+    if !out.ok() {
         return None;
     }
-    String::from_utf8_lossy(&out.stdout)
+    out.stdout_text()
         .lines()
         .map(str::trim)
         .rfind(|l| l.starts_with('/'))
         .map(String::from)
-}
-
-/// stdout of `cmd` if it finishes within `timeout` (killed otherwise).
-pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> Option<String> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-    let mut child = cmd.spawn().ok()?;
-    let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).into_owned()
-    });
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(30)),
-            _ => {
-                // Only ever the child we spawned ourselves.
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
-    reader.join().ok()
 }

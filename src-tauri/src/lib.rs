@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tauri::{Manager, RunEvent, WindowEvent};
 
 use pitwall_core::clock::SystemClock;
+use pitwall_core::exec::LocalExec;
 use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
@@ -26,8 +27,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         events: Arc::new(events::AppEvents::new(app.handle().clone())),
         clock: Arc::new(SystemClock::new()),
         holder_bin: holder::holder_bin(),
+        exec: Arc::new(LocalExec),
     });
     app.manage(engine.clone());
+    app.manage(Arc::new(pitwall_core::onboarding::elsewhere::Elsewhere::new()));
     engine.start();
     windows::restore(app.handle());
     Ok(())
@@ -123,6 +126,7 @@ pub fn run() {
             commands::onboarding::remove_project,
             commands::onboarding::complete_onboarding,
             commands::onboarding::continue_conversation,
+            commands::terminals::list_elsewhere,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

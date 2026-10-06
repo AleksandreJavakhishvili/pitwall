@@ -32,6 +32,13 @@ pub struct Agent {
     pub last_auto_send: u64,
     /// Looking for the worktree the agent makes itself (worktree.rs).
     pub watch: Option<super::worktree::Watch>,
+    /// Terminals: the agent the user started in it, while it runs (terminals.rs).
+    pub inner: Option<super::terminals::Inner>,
+    /// Terminals: when to look at the foreground process next.
+    pub term: super::terminals::Watch,
+    /// Terminals: a conversation id a hook reported (possibly before the
+    /// poller noticed the agent).
+    pub hook_session: Option<String>,
 }
 
 impl Agent {
@@ -60,6 +67,9 @@ impl Agent {
             git_wanted: true,
             last_auto_send: 0,
             watch: None,
+            inner: None,
+            term: Default::default(),
+            hook_session: None,
         }
     }
 
@@ -78,6 +88,19 @@ impl Agent {
         self.screen_detail = None;
         self.detect_seq = u64::MAX;
         self.git_wanted = true;
+        self.inner = None;
+        self.term = Default::default();
+        self.hook_session = None;
+    }
+
+    /// A plain terminal (it may be running an agent the user started in it).
+    pub fn is_terminal(&self) -> bool {
+        self.rec.kind == super::terminals::TERMINAL_KIND
+    }
+
+    /// The kind it is now: the agent running in a terminal, else its own.
+    pub fn kind(&self) -> &str {
+        self.inner.as_ref().map_or(&self.rec.kind, |i| &i.kind)
     }
 
     pub fn running(&self) -> bool {
@@ -97,8 +120,14 @@ impl Agent {
         AgentView {
             id: r.id.clone(),
             name: r.name.clone(),
-            kind: r.kind.clone(),
-            kind_name: r.kind_name.clone(),
+            kind: self.kind().to_string(),
+            kind_name: self.inner.as_ref().map_or(&r.kind_name, |i| &i.kind_name).clone(),
+            terminal: self.is_terminal(),
+            session_id: match &self.inner {
+                Some(i) => i.session_id.clone(),
+                None if self.is_terminal() => None,
+                None => r.session_id.clone(),
+            },
             cwd: r.cwd.clone(),
             cwd_display: paths::tildify(&r.cwd),
             project: r.project.clone(),
@@ -127,7 +156,13 @@ impl Agent {
 
     pub fn apply_hook(&mut self, effect: HookEffect) -> bool {
         let mut persist = false;
-        if let Some(id) = effect.session_id {
+        if let (Some(id), true) = (&effect.session_id, self.is_terminal()) {
+            // A terminal has no conversation of its own; the agent in it does.
+            self.hook_session = Some(id.clone());
+            if let Some(inner) = &mut self.inner {
+                inner.session_id = Some(id.clone());
+            }
+        } else if let Some(id) = effect.session_id {
             if self.rec.session_id.as_deref() != Some(id.as_str()) {
                 self.rec.session_id = Some(id);
                 persist = true;
@@ -172,7 +207,9 @@ mod tests {
 
     #[test]
     fn hooks_set_session_and_conversation() {
-        let mut a = Agent::new(record("a", "/tmp"), None, 5);
+        let mut rec = record("a", "/tmp");
+        rec.kind = "claude".into();
+        let mut a = Agent::new(rec, None, 5);
         assert_eq!((a.status, a.status_since), (Status::Stopped, 5));
         let persist = a.apply_hook(HookEffect {
             session_id: Some("s1".into()),

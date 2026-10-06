@@ -2,7 +2,10 @@
 //! (architecture.md §1 and §9 decision 7):
 //! - no UI framework: neither this crate nor its path dependencies depend on
 //!   Tauri;
-//! - OS-specific code only in `src/platform/`.
+//! - OS-specific code only in `src/platform/`;
+//! - processes are started only in `src/platform/` and by `LocalExec`
+//!   (`src/exec/local.rs`); everything else runs programs through an `Exec`
+//!   (§2.4), and git/Review/worktree code reaches files only through it.
 
 use std::path::{Path, PathBuf};
 
@@ -84,4 +87,60 @@ fn os_specific_code_stays_in_platform() {
         }
     }
     assert!(offenders.is_empty(), "move these behind src/platform/:\n{}", offenders.join("\n"));
+}
+
+/// Production code of a source file: test modules (`#[cfg(test)] mod …` to
+/// the end, by this crate's convention) and comments removed.
+fn production_lines(text: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut lines = text.lines().enumerate().peekable();
+    while let Some((n, line)) = lines.next() {
+        if line.trim() == "#[cfg(test)]" && lines.peek().is_some_and(|(_, next)| {
+                next.trim_start().trim_start_matches("pub(crate) ").trim_start_matches("pub ").starts_with("mod ")
+            }) {
+            break;
+        }
+        out.push((n, line.split("//").next().unwrap_or("")));
+    }
+    out
+}
+
+fn offenders(files: &[PathBuf], src: &Path, banned: &[&str]) -> Vec<String> {
+    let mut found = Vec::new();
+    for file in files {
+        if file.file_name().is_some_and(|n| n == "tests.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(file).expect("read source");
+        for (n, code) in production_lines(&text) {
+            if let Some(word) = banned.iter().find(|w| code.contains(*w)) {
+                found.push(format!("{}:{}: {word}", file.strip_prefix(src).unwrap().display(), n + 1));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn processes_start_only_in_platform_and_local_exec() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let allowed = [src.join("platform"), src.join("exec").join("local.rs")];
+    let mut files = Vec::new();
+    rust_files(&src, &mut files);
+    files.retain(|f| !allowed.iter().any(|a| f.starts_with(a)));
+    let banned = ["Command::new", "process::Command", "process::{", "Stdio", "process::Child"];
+    let found = offenders(&files, &src, &banned);
+    assert!(found.is_empty(), "run these through an Exec (LocalExec for this machine):\n{}", found.join("\n"));
+}
+
+#[test]
+fn git_review_and_worktrees_reach_files_only_through_exec() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&src.join("vcs"), &mut files);
+    for f in ["review.rs", "engine/worktree.rs", "engine/tasks.rs", "engine/changes.rs", "engine/ticker.rs"] {
+        files.push(src.join(f));
+    }
+    let found = offenders(&files, &src, &["std::fs", "fs::", "File::", ".is_dir()", ".exists()", "canonicalize"]);
+    assert!(found.is_empty(), "use the agent's Exec for these:\n{}", found.join("\n"));
 }

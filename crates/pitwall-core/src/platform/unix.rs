@@ -3,10 +3,9 @@
 use std::io::{self, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
-use crate::shell::run_with_timeout;
+use crate::exec::local_stdout;
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -89,19 +88,16 @@ impl Write for LocalStream {
 
 // ---------------------------------------------------------------- processes
 
-/// `ps -axww -o pid=,ppid=,args=` output (parsed by `scan::parse_ps`).
+/// `ps -axww -o pid=,ppid=,args=` output (parsed by `procs::parse_table`).
 pub fn process_table() -> Option<String> {
-    let mut ps = Command::new("/bin/ps");
-    ps.args(["-axww", "-o", "pid=,ppid=,args="]);
-    run_with_timeout(ps, PROCESS_TIMEOUT)
+    local_stdout(&["/bin/ps", "-axww", "-o", "pid=,ppid=,args="], PROCESS_TIMEOUT)
 }
 
 /// `(pid, cwd)` of each process in `pids` that lsof could see.
 pub fn process_cwds(pids: &[u32], timeout: Duration) -> Option<Vec<(u32, String)>> {
     let pids: Vec<String> = pids.iter().map(u32::to_string).collect();
-    let mut lsof = Command::new("/usr/sbin/lsof");
-    lsof.args(["-a", "-d", "cwd", "-p", &pids.join(","), "-Fn"]);
-    run_with_timeout(lsof, timeout).map(|out| parse_lsof_cwd(&out))
+    let pids = pids.join(",");
+    local_stdout(&["/usr/sbin/lsof", "-a", "-d", "cwd", "-p", &pids, "-Fn"], timeout).map(|out| parse_lsof_cwd(&out))
 }
 
 /// `(pid, cwd)` pairs from `lsof -a -d cwd -p <pids> -Fn`.

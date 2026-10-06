@@ -162,8 +162,14 @@ fn yes() -> bool {
 pub struct AgentView {
     pub id: String,
     pub name: String,
+    /// What it is now: for a terminal running an agent the user started in
+    /// it, that agent's kind (docs/spec/terminals.md).
     pub kind: String,
     pub kind_name: String,
+    /// A plain terminal (kind `shell` when nothing else runs in it).
+    pub terminal: bool,
+    /// The conversation it is in, when known (a terminal: its agent's).
+    pub session_id: Option<String>,
     pub cwd: String,
     pub cwd_display: String,
     pub project: String,

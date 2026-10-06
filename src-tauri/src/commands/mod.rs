@@ -7,6 +7,7 @@ pub mod agents;
 pub mod onboarding;
 pub mod review;
 pub mod rules;
+pub mod terminals;
 pub mod windows;
 
 pub type Res<T> = Result<T, String>;

@@ -12,6 +12,7 @@ pub mod input;
 pub mod lifecycle;
 mod status;
 pub(crate) mod tasks;
+pub mod terminals;
 mod ticker;
 pub(crate) mod worktree;
 
@@ -22,6 +23,7 @@ use serde_json::Value;
 
 use crate::clock::Clock;
 use crate::events::{Event, EventSink};
+use crate::exec::Exec;
 use crate::hooks::{self, HookEffect};
 use crate::kind::KindCatalog;
 use crate::model::{AgentRecord, AgentView, QueueItem};
@@ -41,6 +43,9 @@ pub struct Deps {
     /// The `pitwall-hold` executable, or why there is none (reported when an
     /// agent is started).
     pub holder_bin: Result<PathBuf, String>,
+    /// Runs git and reads files where agents work (`LocalExec` for this
+    /// machine). One machine today; providers bring their own (step 4).
+    pub exec: Arc<dyn Exec>,
 }
 
 #[derive(Default)]
@@ -58,6 +63,7 @@ pub struct Engine {
     clock: Arc<dyn Clock>,
     store: Arc<dyn Store>,
     holder_bin: Result<PathBuf, String>,
+    exec: Arc<dyn Exec>,
     kinds: Arc<KindCatalog>,
     projects: ProjectList,
     snapshots: tasks::Worker,
@@ -74,7 +80,7 @@ impl Engine {
     /// run are running again, without a restart; the rest are stopped.
     /// Starts no background work (see [`start`](Self::start)).
     pub fn open(deps: Deps) -> Shared {
-        let Deps { paths, events, clock, store, holder_bin } = deps;
+        let Deps { paths, events, clock, store, holder_bin, exec } = deps;
         let agents = store
             .load()
             .agents
@@ -96,6 +102,7 @@ impl Engine {
             clock,
             store,
             holder_bin,
+            exec,
         })
     }
 
@@ -114,6 +121,7 @@ impl Engine {
         }
         self.snapshots.start(self.clone());
         ticker::start(self.clone());
+        terminals::start(self.clone());
     }
 
     /// One hook payload from agent `id`.
@@ -150,6 +158,17 @@ impl Engine {
 
     pub(crate) fn holder_bin(&self) -> Result<&Path, String> {
         self.holder_bin.as_deref().map_err(Clone::clone)
+    }
+
+    /// The machine where agent `id` works: git, snapshots, Review, worktree
+    /// discovery and rules reach its files through this.
+    pub(crate) fn exec_for(&self, _id: &str) -> Arc<dyn Exec> {
+        self.exec.clone()
+    }
+
+    /// The machine new agents are created on.
+    pub(crate) fn exec(&self) -> &dyn Exec {
+        &*self.exec
     }
 
     pub(crate) fn submit(&self, jobs: Vec<tasks::Job>) {
@@ -287,7 +306,9 @@ mod tests {
 
     #[test]
     fn hooks_update_the_agent() {
-        let h = Harness::new(vec![record("a", "/tmp")]);
+        let mut rec = record("a", "/tmp");
+        rec.kind = "claude".into(); // a terminal's hooks name the agent inside it (terminals.rs)
+        let h = Harness::new(vec![rec]);
         h.engine.ingest_hook("a", &serde_json::json!({"hook_event_name": "UserPromptSubmit", "session_id": "s-9", "prompt": "hi"}));
         let rec = h.engine.records().remove(0);
         assert_eq!(rec.session_id.as_deref(), Some("s-9"));

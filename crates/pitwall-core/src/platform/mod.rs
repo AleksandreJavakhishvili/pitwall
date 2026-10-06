@@ -7,3 +7,7 @@
 mod unix;
 #[cfg(unix)]
 pub(crate) use unix::*;
+#[cfg(unix)]
+mod unix_procs;
+#[cfg(unix)]
+pub(crate) use unix_procs::*;

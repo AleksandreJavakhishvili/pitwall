@@ -7,7 +7,6 @@
 //! runs on one background worker, in order, so a task's start snapshot is always
 //! taken before its end snapshot.
 
-use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
 
@@ -15,7 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{Agent, Shared};
 use crate::clock::unix_ms;
+use crate::exec::{self, Exec};
 use crate::model::{AgentRecord, Status};
+use crate::vcs::git::Git;
 use crate::vcs::snapshot::{drop_refs, keep, snapshot};
 
 /// A hook arriving this soon after a task started belongs to that same prompt.
@@ -177,15 +178,17 @@ impl Worker {
 }
 
 fn process(core: &Shared, job: Job) {
+    let (Job::Start { agent, .. } | Job::End { agent, .. } | Job::Drop { agent, .. }) = &job;
+    let exec = core.exec_for(agent);
     match job {
-        Job::Start { agent, task, cwd } => match snapshot(&cwd) {
+        Job::Start { agent, task, cwd } => match snapshot(&Git::new(&*exec, &cwd)) {
             Ok(tree) => {
                 let _ = core.with(&agent, |a| {
                     if let Some(t) = a.rec.tasks.iter_mut().find(|t| t.id == task) {
                         t.start_tree = Some(tree.clone());
                     }
                 });
-                let _ = keep(&cwd, &agent, &task, Some(&tree), None);
+                let _ = keep(&Git::new(&*exec, &cwd), &agent, &task, Some(&tree), None);
                 core.changed(true);
             }
             Err(_) => {
@@ -195,7 +198,8 @@ fn process(core: &Shared, job: Job) {
             }
         },
         Job::End { agent, task, cwd } => {
-            let Ok(tree) = snapshot(&cwd) else { return };
+            let git = Git::new(&*exec, &cwd);
+            let Ok(tree) = snapshot(&git) else { return };
             let start = core
                 .with(&agent, |a| {
                     let t = a.rec.tasks.iter_mut().find(|t| t.id == task)?;
@@ -205,22 +209,22 @@ fn process(core: &Shared, job: Job) {
                 .ok()
                 .flatten();
             if start.is_some() {
-                let _ = keep(&cwd, &agent, &task, start.as_deref(), Some(&tree));
+                let _ = keep(&git, &agent, &task, start.as_deref(), Some(&tree));
             }
             core.changed(true);
         }
         Job::Drop { agent, task, cwd } => {
-            let _ = drop_refs(&cwd, &agent, Some(&task));
+            let _ = drop_refs(&Git::new(&*exec, &cwd), &agent, Some(&task));
         }
     }
 }
 
 /// Agent removed: delete all its snapshot refs (best effort; call before its
-/// worktree goes away).
-pub fn forget(rec: &AgentRecord) {
+/// worktree goes away). `exec`: the agent's machine.
+pub fn forget(exec: &dyn Exec, rec: &AgentRecord) {
     let dirs = [Some(rec.cwd.as_str()), rec.worktree.as_ref().map(|w| w.repo.as_str()), Some(rec.project.as_str())];
     for dir in dirs.into_iter().flatten() {
-        if Path::new(dir).is_dir() && drop_refs(dir, &rec.id, None).is_ok() {
+        if exec::is_dir(exec, dir) && drop_refs(&Git::new(exec, dir), &rec.id, None).is_ok() {
             return;
         }
     }

@@ -1,5 +1,6 @@
-//! Git, run as a subprocess in the agent's folder (step 3 routes these
-//! through an `Exec`, so they also work where the agent runs remotely).
+//! Git in the agent's folder, run through the [`Exec`](crate::exec::Exec) of
+//! the machine where the agent works (architecture.md §2.4), so it works the
+//! same wherever that is.
 
 pub mod git;
 pub(crate) mod review;

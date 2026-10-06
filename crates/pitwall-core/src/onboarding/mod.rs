@@ -1,6 +1,8 @@
 //! First-launch auto-detect and the project list (docs/spec/onboarding.md).
 //! Events: `ScanProgress`, `ProjectsChanged`.
 
+pub mod elsewhere;
+pub mod latest;
 pub mod project_list;
 pub mod recent;
 pub mod scan;
@@ -23,9 +25,13 @@ pub fn scan_environment(engine: &Engine) -> ScanResult {
     let mut result = scan::scan(engine.paths(), engine.kinds(), engine.projects(), &|p| {
         engine.emit(Event::ScanProgress(p));
     });
-    // "Scan again" must not offer sessions Pitwall agents already run.
-    let sessions = engine.records().into_iter().filter_map(|r| r.session_id).collect();
-    scan::mark_in_pitwall(&mut result, &sessions);
+    // "Scan again" must not offer sessions Pitwall agents already run,
+    // including agents started by hand in Pitwall terminals.
+    scan::mark_in_pitwall(&mut result, &engine.owned_sessions());
+    let pids = engine.owned_pids();
+    for r in result.running.iter_mut().filter(|r| pids.contains(&r.pid)) {
+        r.in_pitwall = true;
+    }
     result
 }
 

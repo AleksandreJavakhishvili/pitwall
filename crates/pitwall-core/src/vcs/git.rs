@@ -1,49 +1,149 @@
-//! Git plumbing. Read-only operations run with GIT_OPTIONAL_LOCKS=0 so polling
-//! never fights with the agents for the index lock.
-
-use std::path::Path;
-use std::process::Command;
+//! Git plumbing, run through an [`Exec`] on the machine where the agent works.
+//! Every command runs with GIT_OPTIONAL_LOCKS=0, so polling never fights with
+//! the agents for the index lock, and never prompts or opens an editor.
 
 use serde::Serialize;
 
-fn git(cwd: &str) -> Command {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(cwd).env("GIT_OPTIONAL_LOCKS", "0");
-    cmd
+use crate::exec::{self, Cmd, Exec, Out};
+
+const GIT_ENV: [(&str, &str); 3] = [("GIT_OPTIONAL_LOCKS", "0"), ("GIT_TERMINAL_PROMPT", "0"), ("GIT_EDITOR", "true")];
+
+/// Untracked files larger than this count as binary in [`Git::changes`].
+const MAX_COUNTED_BYTES: u64 = 1_000_000;
+
+/// Git in one folder (`git -C <dir>`) of the machine `exec` reaches.
+#[derive(Clone)]
+pub struct Git<'a> {
+    exec: &'a dyn Exec,
+    dir: String,
 }
 
-fn run(cmd: &mut Command) -> Result<String, String> {
-    let out = cmd.output().map_err(|e| format!("git: {e}"))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+impl<'a> Git<'a> {
+    pub fn new(exec: &'a dyn Exec, dir: &str) -> Git<'a> {
+        Git { exec, dir: dir.to_string() }
     }
-}
 
-pub fn repo_root(path: &str) -> Option<String> {
-    run(git(path).args(["rev-parse", "--show-toplevel"]))
-        .ok()
-        .map(|s| s.trim().to_string())
-}
+    /// The same machine, another folder.
+    pub fn at(&self, dir: &str) -> Git<'a> {
+        Git::new(self.exec, dir)
+    }
 
-pub fn head(path: &str) -> Option<String> {
-    run(git(path).args(["rev-parse", "HEAD"]))
-        .ok()
-        .map(|s| s.trim().to_string())
-}
+    pub fn exec(&self) -> &'a dyn Exec {
+        self.exec
+    }
 
-/// Current branch name, or `None` when detached or not a repo.
-pub fn current_branch(path: &str) -> Option<String> {
-    run(git(path).args(["symbolic-ref", "--quiet", "--short", "HEAD"]))
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+    pub fn dir(&self) -> &str {
+        &self.dir
+    }
 
-/// `git worktree remove` (never `--force`: refuses on uncommitted changes).
-pub fn worktree_remove(repo: &str, path: &str) -> Result<(), String> {
-    run(git(repo).args(["worktree", "remove", path])).map(|_| ())
+    /// `git -C <dir> <args>` with `env` on top of the defaults; any exit status.
+    pub(crate) fn output(&self, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>) -> Result<Out, String> {
+        let mut argv = vec!["git", "-C", &self.dir];
+        argv.extend_from_slice(args);
+        let mut all_env = GIT_ENV.to_vec();
+        all_env.extend_from_slice(env);
+        let mut cmd = Cmd::new(&argv).env(&all_env);
+        if let Some(input) = stdin {
+            cmd = cmd.stdin(input);
+        }
+        self.exec.run(&cmd)
+    }
+
+    /// stdout on success, else git's trimmed stderr.
+    pub(crate) fn run_with(&self, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>) -> Result<String, String> {
+        let out = self.output(args, env, stdin)?;
+        if out.ok() {
+            Ok(out.stdout_text())
+        } else {
+            Err(out.stderr_text())
+        }
+    }
+
+    pub(crate) fn run(&self, args: &[&str]) -> Result<String, String> {
+        self.run_with(args, &[], None)
+    }
+
+    fn line(&self, args: &[&str]) -> Option<String> {
+        self.run(args).ok().map(|s| s.trim().to_string())
+    }
+
+    pub fn repo_root(&self) -> Option<String> {
+        self.line(&["rev-parse", "--show-toplevel"])
+    }
+
+    pub fn head(&self) -> Option<String> {
+        self.line(&["rev-parse", "HEAD"])
+    }
+
+    /// Current branch name, or `None` when detached or not a repo.
+    pub fn current_branch(&self) -> Option<String> {
+        self.line(&["symbolic-ref", "--quiet", "--short", "HEAD"]).filter(|s| !s.is_empty())
+    }
+
+    /// `git worktree remove` (never `--force`: refuses on uncommitted changes).
+    pub fn worktree_remove(&self, path: &str) -> Result<(), String> {
+        self.run(&["worktree", "remove", path]).map(|_| ())
+    }
+
+    /// Every worktree of the repo (the main checkout first).
+    pub fn worktree_list(&self) -> Result<Vec<WorktreeEntry>, String> {
+        Ok(parse_worktree_list(&self.run(&["worktree", "list", "--porcelain"])?))
+    }
+
+    pub fn merge_base(&self, a: &str, b: &str) -> Option<String> {
+        self.line(&["merge-base", a, b]).filter(|s| !s.is_empty())
+    }
+
+    /// Everything that differs from `base` in the working tree, including
+    /// commits the agent made and files it created but never added.
+    pub fn changes(&self, base: Option<&str>) -> Result<Vec<FileChange>, String> {
+        let base = base.unwrap_or("HEAD");
+        let mut files = Vec::new();
+        let numstat = self.run(&["diff", "--numstat", base]).map_err(|e| {
+            if e.contains("Not a git repository") || e.contains("not a git repository") {
+                NOT_A_REPO.to_string()
+            } else {
+                e
+            }
+        })?;
+        for line in numstat.lines() {
+            let mut parts = line.splitn(3, '\t');
+            let (Some(a), Some(r), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
+                continue;
+            };
+            files.push(FileChange {
+                path: path.to_string(),
+                added: a.parse().unwrap_or(0),
+                removed: r.parse().unwrap_or(0),
+                untracked: false,
+                binary: a == "-",
+            });
+        }
+        let untracked = self.run(&["ls-files", "--others", "--exclude-standard"])?;
+        for path in untracked.lines().filter(|l| !l.is_empty()) {
+            let full = exec::join(&self.dir, path);
+            let (added, binary) = match self.exec.read_file(&full, MAX_COUNTED_BYTES + 1) {
+                Ok(Some(bytes)) if bytes.len() as u64 <= MAX_COUNTED_BYTES && !bytes.contains(&0) => {
+                    let lines = bytes.iter().filter(|&&b| b == b'\n').count();
+                    let trailing = usize::from(!bytes.is_empty() && !bytes.ends_with(b"\n"));
+                    ((lines + trailing) as u32, false)
+                }
+                _ => (0, true),
+            };
+            files.push(FileChange { path: path.to_string(), added, removed: 0, untracked: true, binary });
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(files)
+    }
+
+    pub fn file_diff(&self, base: Option<&str>, path: &str, untracked: bool) -> Result<String, String> {
+        if untracked {
+            // `--no-index` exits 1 when files differ, which is the expected case.
+            let out = self.output(&["diff", "--no-index", "--", "/dev/null", path], &[], None)?;
+            return Ok(out.stdout_text());
+        }
+        self.run(&["diff", base.unwrap_or("HEAD"), "--", path])
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,11 +151,6 @@ pub struct WorktreeEntry {
     pub path: String,
     /// Short branch name; `None` when detached.
     pub branch: Option<String>,
-}
-
-/// Every worktree of the repo at `repo` (the main checkout first).
-pub fn worktree_list(repo: &str) -> Result<Vec<WorktreeEntry>, String> {
-    Ok(parse_worktree_list(&run(git(repo).args(["worktree", "list", "--porcelain"]))?))
 }
 
 pub fn parse_worktree_list(out: &str) -> Vec<WorktreeEntry> {
@@ -70,10 +165,6 @@ pub fn parse_worktree_list(out: &str) -> Vec<WorktreeEntry> {
     res
 }
 
-pub fn merge_base(cwd: &str, a: &str, b: &str) -> Option<String> {
-    run(git(cwd).args(["merge-base", a, b])).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
-}
-
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct FileChange {
     pub path: String,
@@ -83,69 +174,68 @@ pub struct FileChange {
     pub binary: bool,
 }
 
-/// Everything that differs from `base` in the working tree, including commits
-/// the agent made and files it created but never added.
-/// Error returned by [`changes`] when the agent works outside a git repository;
-/// the UI shows a calm note instead of git's usage text.
+/// Error returned by [`Git::changes`] when the agent works outside a git
+/// repository; the UI shows a calm note instead of git's usage text.
 pub const NOT_A_REPO: &str = "not-a-git-repo";
 
-pub fn changes(cwd: &str, base: Option<&str>) -> Result<Vec<FileChange>, String> {
-    let base = base.unwrap_or("HEAD");
-    let mut files = Vec::new();
-    let numstat = run(git(cwd).args(["diff", "--numstat", base])).map_err(|e| {
-        if e.contains("Not a git repository") || e.contains("not a git repository") {
-            NOT_A_REPO.to_string()
-        } else {
-            e
-        }
-    })?;
-    for line in numstat.lines() {
-        let mut parts = line.splitn(3, '\t');
-        let (Some(a), Some(r), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
-            continue;
-        };
-        files.push(FileChange {
-            path: path.to_string(),
-            added: a.parse().unwrap_or(0),
-            removed: r.parse().unwrap_or(0),
-            untracked: false,
-            binary: a == "-",
-        });
-    }
-    let untracked = run(git(cwd).args(["ls-files", "--others", "--exclude-standard"]))?;
-    for path in untracked.lines().filter(|l| !l.is_empty()) {
-        let full = Path::new(cwd).join(path);
-        let (added, binary) = match std::fs::metadata(&full) {
-            Ok(meta) if meta.len() <= 1_000_000 => match std::fs::read(&full) {
-                Ok(bytes) if !bytes.contains(&0) => {
-                    let lines = bytes.iter().filter(|&&b| b == b'\n').count();
-                    let trailing = usize::from(!bytes.is_empty() && !bytes.ends_with(b"\n"));
-                    ((lines + trailing) as u32, false)
-                }
-                _ => (0, true),
-            },
-            _ => (0, true),
-        };
-        files.push(FileChange {
-            path: path.to_string(),
-            added,
-            removed: 0,
-            untracked: true,
-            binary,
-        });
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(files)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::FakeExec;
 
-pub fn file_diff(cwd: &str, base: Option<&str>, path: &str, untracked: bool) -> Result<String, String> {
-    if untracked {
-        // `--no-index` exits 1 when files differ, which is the expected case.
-        let out = git(cwd)
-            .args(["diff", "--no-index", "--", "/dev/null", path])
-            .output()
-            .map_err(|e| format!("git: {e}"))?;
-        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+    #[test]
+    fn every_call_is_lock_free_and_targets_the_folder() {
+        let x = FakeExec::new();
+        x.on(&["git", "-C", "/r", "rev-parse", "--show-toplevel"], "/r\n");
+        x.on(&["git", "-C", "/r", "symbolic-ref", "--quiet", "--short", "HEAD"], "\n");
+        let g = Git::new(&*x, "/r");
+        assert_eq!(g.repo_root().as_deref(), Some("/r"));
+        assert_eq!(g.current_branch(), None, "empty output = detached");
+        assert_eq!(g.head(), None, "unscripted command fails");
+        let calls = x.calls();
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|c| c.env_has("GIT_OPTIONAL_LOCKS", "0") && c.env_has("GIT_TERMINAL_PROMPT", "0")));
     }
-    run(git(cwd).args(["diff", base.unwrap_or("HEAD"), "--", path]))
+
+    #[test]
+    fn changes_count_tracked_and_untracked_files() {
+        let x = FakeExec::new();
+        x.on(&["git", "-C", "/r", "diff", "--numstat", "abc"], "3\t1\tsrc/a.rs\n-\t-\timg.png\n");
+        x.on(
+            &["git", "-C", "/r", "ls-files", "--others", "--exclude-standard"],
+            "new.txt\nno-newline.txt\nbin.dat\nbig.log\nvanished\n",
+        );
+        x.file("/r/new.txt", b"a\nb\n")
+            .file("/r/no-newline.txt", b"a\nb")
+            .file("/r/bin.dat", b"a\0b")
+            .file("/r/big.log", &vec![b'x'; MAX_COUNTED_BYTES as usize + 1]);
+        let files = Git::new(&*x, "/r").changes(Some("abc")).unwrap();
+        let by = |p: &str| files.iter().find(|f| f.path == p).cloned().unwrap();
+        assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), [
+            "big.log", "bin.dat", "img.png", "new.txt", "no-newline.txt", "src/a.rs", "vanished"
+        ]);
+        assert_eq!((by("src/a.rs").added, by("src/a.rs").removed, by("src/a.rs").untracked), (3, 1, false));
+        assert!(by("img.png").binary);
+        assert_eq!((by("new.txt").added, by("new.txt").untracked, by("new.txt").binary), (2, true, false));
+        assert_eq!(by("no-newline.txt").added, 2);
+        assert!(by("bin.dat").binary && by("big.log").binary && by("vanished").binary);
+    }
+
+    #[test]
+    fn outside_a_repo_changes_say_so() {
+        let x = FakeExec::new();
+        x.on_exit(&["git", "-C", "/tmp", "diff", "--numstat", "HEAD"], 128, "", "fatal: not a git repository (or any parent)");
+        assert_eq!(Git::new(&*x, "/tmp").changes(None).unwrap_err(), NOT_A_REPO);
+        x.on_exit(&["git", "-C", "/tmp", "diff", "--numstat", "HEAD"], 128, "", "fatal: bad revision");
+        assert_eq!(Git::new(&*x, "/tmp").changes(None).unwrap_err(), "fatal: bad revision");
+    }
+
+    #[test]
+    fn untracked_diff_accepts_exit_one() {
+        let x = FakeExec::new();
+        x.on_exit(&["git", "-C", "/r", "diff", "--no-index", "--", "/dev/null", "n.txt"], 1, "+hi\n", "");
+        assert_eq!(Git::new(&*x, "/r").file_diff(None, "n.txt", true).unwrap(), "+hi\n");
+        x.on(&["git", "-C", "/r", "diff", "HEAD", "--", "a.txt"], "-a\n+b\n");
+        assert_eq!(Git::new(&*x, "/r").file_diff(None, "a.txt", false).unwrap(), "-a\n+b\n");
+    }
 }

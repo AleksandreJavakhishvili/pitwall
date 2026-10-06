@@ -18,9 +18,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::clock::unix_ms;
 use crate::engine::Engine;
+use crate::exec::{self, Exec, LocalExec};
 use crate::kind::{AgentKind, KindCatalog};
 use crate::model::AgentRecord;
 use crate::paths::{expand_tilde, Paths};
+use crate::vcs::git::Git;
 
 // ------------------------------------------------------------------ shapes
 
@@ -231,7 +233,8 @@ fn update<T>(dirs: &Dirs, f: impl FnOnce(&mut Store) -> Result<T, String>) -> Re
 /// Projects are keyed by repo root when inside git.
 fn project_key(path: &str) -> String {
     let p = path.trim().trim_end_matches('/');
-    crate::vcs::git::repo_root(p).unwrap_or_else(|| p.to_string())
+    // Projects are folders on this Mac.
+    Git::new(&LocalExec, p).repo_root().unwrap_or_else(|| p.to_string())
 }
 
 // ------------------------------------------------------------------ core logic
@@ -291,9 +294,11 @@ fn inputs_for(dirs: &Dirs, store: &Store, ctx: &AgentCtx, target: &str) -> apply
 }
 
 /// Generate this agent's rule files now. Takes effect on the next session.
+/// `exec`: the machine where the agent works.
 pub fn apply_with(
     dirs: &Dirs,
     runner: Option<&runner::Runner>,
+    exec: &dyn Exec,
     ctx: &AgentCtx,
     confirm_main_checkout: bool,
 ) -> Result<ApplyResult, String> {
@@ -302,17 +307,17 @@ pub fn apply_with(
     if !(ctx.worktree || confirm_main_checkout || state.main_checkout_confirmed) {
         return Err("This agent works in your main checkout. Confirm before Pitwall writes rule files there.".into());
     }
-    let cwd = Path::new(&ctx.cwd);
-    if !cwd.is_dir() {
+    let cwd = ctx.cwd.as_str();
+    if !exec::is_dir(exec, cwd) {
         return Err(format!("{} no longer exists", ctx.cwd));
     }
     let any_set = project_set(&store, ctx).is_some() || state.rule_set_id.is_some();
     let mut log = Vec::new();
     let (files, exclude_file, fingerprint) = if !any_set {
         // Nothing assigned: just clean up what an earlier apply wrote.
-        apply::remove_generated(cwd, &state.files, &mut log);
+        apply::remove_generated(exec, cwd, &state.files, &mut log);
         if let Some(f) = &state.exclude_file {
-            apply::write_exclude(Path::new(f), &ctx.id, &[])?;
+            apply::write_exclude(exec, f, &ctx.id, &[])?;
         }
         log.push("No rule set assigned to this agent or its project.".into());
         (vec![], None, None)
@@ -324,7 +329,7 @@ pub fn apply_with(
         let runner = runner.ok_or("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.")?;
         let inputs = inputs_for(dirs, &store, ctx, &target);
         let stage = dirs.run().join(&ctx.id);
-        let out = apply::run(runner, &stage, &ctx.id, cwd, &target, &inputs, &state.files)?;
+        let out = apply::run(runner, &stage, exec, &ctx.id, cwd, &target, &inputs, &state.files)?;
         let _ = std::fs::remove_dir_all(&stage);
         log.extend(out.log);
         (out.files, out.exclude_file, Some(apply::fingerprint(&inputs, &target)))
@@ -369,6 +374,7 @@ fn stale(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> bool {
 pub fn on_create(
     dirs: &Dirs,
     kinds: &KindCatalog,
+    exec: &dyn Exec,
     rec: &AgentRecord,
     kind: &AgentKind,
     rule_set_id: Option<String>,
@@ -393,7 +399,7 @@ pub fn on_create(
     }
     let allow = read(dirs).allow_npx;
     let r = runner::runner(allow);
-    if let Err(err) = apply_with(dirs, r.as_ref(), &ctx, apply_to_main_checkout) {
+    if let Err(err) = apply_with(dirs, r.as_ref(), exec, &ctx, apply_to_main_checkout) {
         let _ = update(dirs, |s| {
             s.agents.entry(rec.id.clone()).or_default().error = Some(err.clone());
             Ok(())
@@ -403,7 +409,7 @@ pub fn on_create(
 
 /// The agent made its own worktree (worktree.rs) and now works there: write
 /// its rules into it. They take effect on its next session.
-pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, rec: &AgentRecord) {
+pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, exec: &dyn Exec, rec: &AgentRecord) {
     let ctx = AgentCtx::from_record(rec, kinds);
     let wants = {
         let store = read(dirs);
@@ -418,7 +424,7 @@ pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, rec: &AgentRecord) {
         return;
     }
     let r = runner::runner(read(dirs).allow_npx);
-    let res = apply_with(dirs, r.as_ref(), &ctx, false);
+    let res = apply_with(dirs, r.as_ref(), exec, &ctx, false);
     let _ = update(dirs, |s| {
         s.agents.entry(rec.id.clone()).or_default().error = res.err();
         Ok(())
@@ -427,16 +433,15 @@ pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, rec: &AgentRecord) {
 
 /// Called when an agent is removed: delete the files Pitwall generated for it
 /// (unless edited) and drop its block from info/exclude.
-pub fn forget_agent(dirs: &Dirs, agent_id: &str) {
+pub fn forget_agent(dirs: &Dirs, exec: &dyn Exec, agent_id: &str) {
     let _ = update(dirs, |s| {
         if let Some(st) = s.agents.remove(agent_id) {
-            let cwd = Path::new(&st.cwd);
-            if cwd.is_dir() {
+            if exec::is_dir(exec, &st.cwd) {
                 let mut log = vec![];
-                apply::remove_generated(cwd, &st.files, &mut log);
+                apply::remove_generated(exec, &st.cwd, &st.files, &mut log);
             }
             if let Some(f) = &st.exclude_file {
-                let _ = apply::write_exclude(Path::new(f), agent_id, &[]);
+                let _ = apply::write_exclude(exec, f, agent_id, &[]);
             }
         }
         Ok(())
@@ -617,7 +622,7 @@ pub fn apply_to_agent(engine: &Engine, agent_id: &str, confirm_main_checkout: bo
     let dirs = Dirs::of(engine.paths());
     let ctx = AgentCtx::from_record(&rec, engine.kinds());
     let r = runner::runner(read(&dirs).allow_npx);
-    let res = apply_with(&dirs, r.as_ref(), &ctx, confirm_main_checkout);
+    let res = apply_with(&dirs, r.as_ref(), &*engine.exec_for(agent_id), &ctx, confirm_main_checkout);
     if let Err(e) = &res {
         let _ = update(&dirs, |s| {
             s.agents.entry(ctx.id.clone()).or_default().error = Some(e.clone());

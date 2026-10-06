@@ -3,6 +3,7 @@
 //! (`claude --worktree <name>`, `codex --worktree`) and then finds out where
 //! the agent actually works, from (in order) the hook payload's `cwd`, the
 //! process's cwd (`lsof`), or a worktree that appeared after the launch.
+//! Git and folder checks go through the agent's machine [`Exec`].
 
 use std::path::Path;
 use std::time::Duration;
@@ -10,10 +11,11 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::{Agent, Shared};
+use crate::exec::{self, Exec};
 use crate::model::WorktreeInfo;
 use crate::platform;
 use crate::rules;
-use crate::vcs::git;
+use crate::vcs::git::{self, Git};
 
 /// How long after a launch the ticker keeps looking (hooks can still find it later).
 pub const WATCH_MS: u64 = 120_000;
@@ -52,21 +54,20 @@ pub struct Found {
     pub base: Option<String>,
 }
 
-fn canon(p: &str) -> String {
-    std::fs::canonicalize(p)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| p.trim_end_matches('/').to_string())
+fn canon(exec: &dyn Exec, p: &str) -> String {
+    exec.real_path(p).unwrap_or_else(|_| p.trim_end_matches('/').to_string())
 }
 
 /// Roots of every worktree of `repo` (canonical paths).
-pub fn roots(repo: &str) -> Vec<String> {
-    git::worktree_list(repo).unwrap_or_default().iter().map(|e| canon(&e.path)).collect()
+pub fn roots(exec: &dyn Exec, repo: &str) -> Vec<String> {
+    Git::new(exec, repo).worktree_list().unwrap_or_default().iter().map(|e| canon(exec, &e.path)).collect()
 }
 
 /// A name for the agent's flag that no existing worktree of `repo` uses yet
 /// (by folder name or branch), so two agents never land in the same one.
-pub fn pick_name(repo: &str, base: &str) -> String {
-    let taken: Vec<String> = git::worktree_list(repo)
+pub fn pick_name(exec: &dyn Exec, repo: &str, base: &str) -> String {
+    let taken: Vec<String> = Git::new(exec, repo)
+        .worktree_list()
         .unwrap_or_default()
         .into_iter()
         .flat_map(|e| {
@@ -84,23 +85,23 @@ pub fn pick_name(repo: &str, base: &str) -> String {
 
 /// `dir` is (inside) a linked worktree of `repo` — not the main checkout and
 /// not one another agent already has.
-pub fn check(repo: &str, dir: &str, claimed: &[String]) -> Option<Found> {
-    if !Path::new(dir).is_dir() {
+pub fn check(exec: &dyn Exec, repo: &str, dir: &str, claimed: &[String]) -> Option<Found> {
+    if !exec::is_dir(exec, dir) {
         return None;
     }
-    let top = canon(&git::repo_root(dir)?);
-    let roots = roots(repo);
-    if roots.first() == Some(&top) || !roots.contains(&top) || claimed.iter().any(|c| canon(c) == top) {
+    let top = canon(exec, &Git::new(exec, dir).repo_root()?);
+    let roots = roots(exec, repo);
+    if roots.first() == Some(&top) || !roots.contains(&top) || claimed.iter().any(|c| canon(exec, c) == top) {
         return None;
     }
-    Some(found(repo, &top, &canon(dir)))
+    Some(found(exec, repo, &top, &canon(exec, dir)))
 }
 
-fn found(repo: &str, top: &str, cwd: &str) -> Found {
-    let branch = git::current_branch(top).unwrap_or_default();
-    let target = git::current_branch(repo).unwrap_or_else(|| "HEAD".into());
-    let base = git::merge_base(repo, &target, &git::head(top).unwrap_or_else(|| "HEAD".into()))
-        .or_else(|| git::head(top));
+fn found(exec: &dyn Exec, repo: &str, top: &str, cwd: &str) -> Found {
+    let (wt, main) = (Git::new(exec, top), Git::new(exec, repo));
+    let branch = wt.current_branch().unwrap_or_default();
+    let target = main.current_branch().unwrap_or_else(|| "HEAD".into());
+    let base = main.merge_base(&target, &wt.head().unwrap_or_else(|| "HEAD".into())).or_else(|| wt.head());
     Found { path: top.to_string(), cwd: cwd.to_string(), branch, base }
 }
 
@@ -121,21 +122,21 @@ pub struct Probe {
 }
 
 /// Process cwd first, else a worktree that appeared since the launch.
-pub fn discover(p: &Probe) -> Option<Found> {
-    if let Some(f) = p.pid.and_then(process_cwd).and_then(|cwd| check(&p.repo, &cwd, &p.claimed)) {
+pub fn discover(exec: &dyn Exec, p: &Probe) -> Option<Found> {
+    if let Some(f) = p.pid.and_then(process_cwd).and_then(|cwd| check(exec, &p.repo, &cwd, &p.claimed)) {
         return Some(f);
     }
-    discover_new(p)
+    discover_new(exec, p)
 }
 
-fn discover_new(p: &Probe) -> Option<Found> {
-    let entries = git::worktree_list(&p.repo).ok()?;
+fn discover_new(exec: &dyn Exec, p: &Probe) -> Option<Found> {
+    let entries = Git::new(exec, &p.repo).worktree_list().ok()?;
     let mut fresh: Vec<_> = entries
         .into_iter()
         .skip(1)
         .filter(|e| {
-            let c = canon(&e.path);
-            !p.before.contains(&c) && !p.claimed.iter().any(|x| canon(x) == c) && Path::new(&c).is_dir()
+            let c = canon(exec, &e.path);
+            !p.before.contains(&c) && !p.claimed.iter().any(|x| canon(exec, x) == c) && exec::is_dir(exec, &c)
         })
         .collect();
     // The one named after what we passed, if the agent's flag took a name.
@@ -149,8 +150,8 @@ fn discover_new(p: &Probe) -> Option<Found> {
         }
     }
     let e = fresh.into_iter().next()?;
-    let top = canon(&e.path);
-    Some(found(&p.repo, &top, &top))
+    let top = canon(exec, &e.path);
+    Some(found(exec, &p.repo, &top, &top))
 }
 
 /// Paths other agents already work in.
@@ -196,7 +197,10 @@ pub fn apply(core: &Shared, id: &str, found: Option<Found>) {
     if let Some(rec) = adopted {
         core.changed(true);
         let core = core.clone();
-        std::thread::spawn(move || rules::on_worktree_found(&rules::Dirs::of(core.paths()), core.kinds(), &rec));
+        std::thread::spawn(move || {
+            let exec = core.exec_for(&rec.id);
+            rules::on_worktree_found(&rules::Dirs::of(core.paths()), core.kinds(), &*exec, &rec)
+        });
     }
 }
 
@@ -240,7 +244,7 @@ pub fn on_hook(core: &Shared, id: &str, payload: &Value) {
             .map(|a| (a.rec.project.clone(), claimed(&agents, id)))
     };
     let Some((repo, claimed)) = pending else { return };
-    if let Some(f) = check(&repo, cwd, &claimed) {
+    if let Some(f) = check(&*core.exec_for(id), &repo, cwd, &claimed) {
         apply(core, id, Some(f));
     }
 }
@@ -248,6 +252,8 @@ pub fn on_hook(core: &Shared, id: &str, payload: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::LocalExec;
+    use crate::testing::FakeExec;
     use crate::vcs::snapshot::TempRepo;
     use std::process::Command;
 
@@ -255,7 +261,7 @@ mod tests {
         let r = TempRepo::new();
         r.write("a.txt", "1\n");
         r.commit_all("init");
-        let repo = canon(r.path());
+        let repo = canon(&LocalExec, r.path());
         (r, repo)
     }
 
@@ -272,29 +278,29 @@ mod tests {
     #[test]
     fn check_accepts_only_linked_worktrees() {
         let (r, repo) = setup();
-        assert_eq!(check(&repo, &repo, &[]), None, "main checkout is not a worktree");
+        assert_eq!(check(&LocalExec, &repo, &repo, &[]), None, "main checkout is not a worktree");
         std::fs::create_dir_all(r.0.join("sub")).unwrap();
-        assert_eq!(check(&repo, &format!("{repo}/sub"), &[]), None);
+        assert_eq!(check(&LocalExec, &repo, &format!("{repo}/sub"), &[]), None);
         let wt = r.0.join(".agent/worktrees/fix");
         r.git(&["worktree", "add", "-q", "-b", "worktree-fix", wt.to_str().unwrap(), "HEAD"]);
         std::fs::create_dir_all(wt.join("deep")).unwrap();
-        let f = check(&repo, wt.join("deep").to_str().unwrap(), &[]).unwrap();
-        assert_eq!(f.path, canon(wt.to_str().unwrap()));
+        let f = check(&LocalExec, &repo, wt.join("deep").to_str().unwrap(), &[]).unwrap();
+        assert_eq!(f.path, canon(&LocalExec, wt.to_str().unwrap()));
         assert!(f.cwd.ends_with("/deep"));
         assert_eq!(f.branch, "worktree-fix");
         assert_eq!(f.base.as_deref(), Some(r.git(&["rev-parse", "HEAD"]).trim()));
-        assert_eq!(check(&repo, wt.to_str().unwrap(), std::slice::from_ref(&f.path)), None, "claimed by another agent");
+        assert_eq!(check(&LocalExec, &repo, wt.to_str().unwrap(), std::slice::from_ref(&f.path)), None, "claimed by another agent");
         let other = TempRepo::new();
-        assert_eq!(check(&repo, other.path(), &[]), None, "a different repo");
+        assert_eq!(check(&LocalExec, &repo, other.path(), &[]), None, "a different repo");
     }
 
     #[test]
     fn names_avoid_existing_worktrees() {
         let (r, repo) = setup();
-        assert_eq!(pick_name(&repo, "fix"), "fix");
+        assert_eq!(pick_name(&LocalExec, &repo, "fix"), "fix");
         let wt = r.0.join("wts/fix");
         r.git(&["worktree", "add", "-q", "-b", "worktree-fix", wt.to_str().unwrap(), "HEAD"]);
-        assert_eq!(pick_name(&repo, "fix"), "fix-2");
+        assert_eq!(pick_name(&LocalExec, &repo, "fix"), "fix-2");
     }
 
     /// A harmless stand-in for an agent: makes its own worktree in a temp repo
@@ -302,7 +308,7 @@ mod tests {
     #[test]
     fn finds_worktree_a_fake_agent_made() {
         let (r, repo) = setup();
-        let before = roots(&repo);
+        let before = roots(&LocalExec, &repo);
         let wt = r.0.join(".fake/worktrees/job");
         let script = format!(
             "git worktree add -q -b fake/job '{}' HEAD && cd '{}' && exec sleep 30",
@@ -321,7 +327,7 @@ mod tests {
         };
         let mut got = None;
         for _ in 0..100 {
-            got = discover(&probe);
+            got = discover(&LocalExec, &probe);
             if got.is_some() {
                 break;
             }
@@ -330,13 +336,65 @@ mod tests {
         let _ = child.kill();
         let _ = child.wait();
         let f = got.expect("found the worktree");
-        assert_eq!(f.path, canon(wt.to_str().unwrap()));
+        assert_eq!(f.path, canon(&LocalExec, wt.to_str().unwrap()));
         assert_eq!(f.branch, "fake/job");
 
         // Without a pid (or lsof): the newly listed worktree is found too.
-        let f2 = discover(&Probe { pid: None, ..probe.clone() }).unwrap();
+        let f2 = discover(&LocalExec, &Probe { pid: None, ..probe.clone() }).unwrap();
         assert_eq!(f2.path, f.path);
         // ...but not when it existed before the launch.
-        assert_eq!(discover(&Probe { pid: None, before: roots(&repo), ..probe }), None);
+        assert_eq!(discover(&LocalExec, &Probe { pid: None, before: roots(&LocalExec, &repo), ..probe }), None);
+    }
+
+    const LIST: [&str; 6] = ["git", "-C", "/r", "worktree", "list", "--porcelain"];
+
+    /// A repo on a scripted machine: main checkout `/r` on `main`, plus `wts`.
+    fn fake_repo(wts: &[(&str, &str)]) -> std::sync::Arc<FakeExec> {
+        let x = FakeExec::new();
+        let mut list = "worktree /r\nHEAD aaa\nbranch refs/heads/main\n\n".to_string();
+        x.dir("/r");
+        for (path, branch) in wts {
+            list.push_str(&format!("worktree {path}\nHEAD bbb\nbranch refs/heads/{branch}\n\n"));
+            x.dir(path);
+            x.on(&["git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"], &format!("{branch}\n"))
+                .on(&["git", "-C", path, "rev-parse", "HEAD"], "bbb\n");
+        }
+        x.on(&LIST, &list)
+            .on(&["git", "-C", "/r", "symbolic-ref", "--quiet", "--short", "HEAD"], "main\n")
+            .on(&["git", "-C", "/r", "merge-base", "main", "bbb"], "aaa\n");
+        x
+    }
+
+    #[test]
+    fn names_avoid_worktrees_on_the_agents_machine() {
+        let x = fake_repo(&[("/r/.wt/fix", "worktree-fix"), ("/r/.wt/other", "feature/fix-2")]);
+        assert_eq!(pick_name(&*x, "/r", "fix"), "fix-3");
+        assert_eq!(pick_name(&*x, "/r", "new"), "new");
+    }
+
+    #[test]
+    fn discovery_prefers_the_named_new_worktree() {
+        let x = fake_repo(&[("/r/.wt/old", "old"), ("/r/.wt/zzz", "zzz"), ("/r/.wt/job", "worktree-job")]);
+        let probe = Probe {
+            id: "a".into(),
+            repo: "/r".into(),
+            pid: None,
+            before: vec!["/r".into(), "/r/.wt/old".into()],
+            hint: Some("job".into()),
+            claimed: vec![],
+        };
+        let f = discover(&*x, &probe).unwrap();
+        assert_eq!(
+            f,
+            Found { path: "/r/.wt/job".into(), cwd: "/r/.wt/job".into(), branch: "worktree-job".into(), base: Some("aaa".into()) }
+        );
+        // Claimed by another agent: the next new one.
+        let f = discover(&*x, &Probe { claimed: vec!["/r/.wt/job".into()], ..probe.clone() }).unwrap();
+        assert_eq!(f.path, "/r/.wt/zzz");
+        // A listed worktree whose folder is gone is skipped.
+        let x = fake_repo(&[]);
+        x.on(&LIST, "worktree /r\nbranch refs/heads/main\n\nworktree /gone\nbranch refs/heads/g\n\n");
+        assert_eq!(discover(&*x, &probe), None);
+        assert!(x.calls().iter().all(|c| c.env_has("GIT_OPTIONAL_LOCKS", "0")));
     }
 }

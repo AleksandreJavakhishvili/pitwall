@@ -13,7 +13,7 @@ use super::{worktree, Agent, Engine, Shared};
 use crate::events::Event;
 use crate::model::{Attention, Source, Status};
 use crate::session::Session;
-use crate::vcs::git;
+use crate::vcs::git::Git;
 
 const TICK: Duration = Duration::from_millis(400);
 const EMIT_GAP: Duration = Duration::from_millis(250);
@@ -180,7 +180,7 @@ fn tick(core: &Shared, badge: &mut usize) {
         .iter()
         .filter_map(|a| {
             let s = a.session.clone()?;
-            Some((a.rec.id.clone(), s, a.rec.kind.clone(), a.detect_seq))
+            Some((a.rec.id.clone(), s, a.kind().to_string(), a.detect_seq))
         })
         .collect();
     let probes: Vec<Probe> = targets
@@ -233,7 +233,7 @@ fn tick(core: &Shared, badge: &mut usize) {
     for probe in wt_probes {
         let core = core.clone();
         std::thread::spawn(move || {
-            let found = worktree::discover(&probe);
+            let found = worktree::discover(&*core.exec_for(&probe.id), &probe);
             worktree::apply(&core, &probe.id, found);
         });
     }
@@ -277,8 +277,10 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
 }
 
 fn refresh_git(core: &Shared, job: GitJob) {
-    let changes = git::changes(&job.cwd, job.base.as_deref());
-    let branch = git::current_branch(&job.cwd);
+    let exec = core.exec_for(&job.id);
+    let git = Git::new(&*exec, &job.cwd);
+    let changes = git.changes(job.base.as_deref());
+    let branch = git.current_branch();
     let now = core.now();
     let differs = core
         .with(&job.id, |a| {

@@ -4,10 +4,10 @@
 //! They only ever touch fresh temp directories.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::runner::Runner;
 use super::*;
+use crate::testing::FakeExec;
 
 struct Tmp(PathBuf);
 impl Tmp {
@@ -25,15 +25,9 @@ impl Drop for Tmp {
 }
 
 fn sh(cwd: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(["-c", "user.email=t@t", "-c", "user.name=t"])
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    let mut all = vec!["-c", "user.email=t@t", "-c", "user.name=t"];
+    all.extend_from_slice(args);
+    Git::new(&LocalExec, &cwd.to_string_lossy()).run(&all).unwrap_or_else(|e| panic!("git {args:?}: {e}"))
 }
 
 fn real_runner() -> Option<Runner> {
@@ -71,10 +65,10 @@ fn main_checkout_needs_confirmation() {
         kind_name: "Claude Code".into(),
         target: Some("claudecode".into()),
     };
-    let err = apply_with(&dirs, None, &ctx, false).unwrap_err();
+    let err = apply_with(&dirs, None, &LocalExec, &ctx, false).unwrap_err();
     assert!(err.contains("main checkout"), "{err}");
     // Confirmed but nothing assigned: succeeds without running rulesync.
-    let ok = apply_with(&dirs, None, &ctx, true).unwrap();
+    let ok = apply_with(&dirs, None, &LocalExec, &ctx, true).unwrap();
     assert!(ok.generated.is_empty());
     assert!(read(&dirs).agents["a"].main_checkout_confirmed);
 }
@@ -139,7 +133,7 @@ fn e2e_claude_worktree() {
     let f = fixture();
     assign(&f, &["style.md", "base.md"], &["mine.md"]);
     let c = ctx(&f, "claudecode");
-    let res = apply_with(&f.dirs, Some(&r), &c, false).unwrap();
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     eprintln!("{res:?}");
     // CLAUDE.md is tracked: never touched. Shared rule → .claude/rules, own rule → CLAUDE.local.md.
     assert_eq!(std::fs::read_to_string(f.wt.join("CLAUDE.md")).unwrap(), "# project claude\n");
@@ -156,7 +150,7 @@ fn e2e_claude_worktree() {
     // Editing a library rule marks the agent stale; re-apply updates in place.
     write(&f.dirs.library_rules().join("style.md"), "---\nroot: false\n---\nUse spaces.\n");
     assert!(stale(&f.dirs, &read(&f.dirs), &c));
-    let res = apply_with(&f.dirs, Some(&r), &c, false).unwrap();
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert!(std::fs::read_to_string(f.wt.join(".claude/rules/style.md")).unwrap().contains("Use spaces."));
     assert_eq!(res.generated.len(), 2);
     assert!(!stale(&f.dirs, &read(&f.dirs), &c));
@@ -172,7 +166,7 @@ fn e2e_codex_and_cleanup() {
     // Codex folds everything into AGENTS.md, which the project tracks.
     assign(&f, &["style.md"], &[]);
     let c = ctx(&f, "codexcli");
-    let res = apply_with(&f.dirs, Some(&r), &c, false).unwrap();
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert!(res.generated.is_empty(), "{res:?}");
     assert!(res.log.contains("kept the project's AGENTS.md"));
     assert_eq!(std::fs::read_to_string(f.wt.join("AGENTS.md")).unwrap(), "# project agents\n");
@@ -180,7 +174,7 @@ fn e2e_codex_and_cleanup() {
     // Without the tracked AGENTS.md, Pitwall writes and excludes it.
     sh(&f.wt, &["rm", "-q", "AGENTS.md"]);
     sh(&f.wt, &["commit", "-qm", "drop agents"]);
-    let res = apply_with(&f.dirs, Some(&r), &c, false).unwrap();
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert_eq!(res.generated, vec!["AGENTS.md"]);
     assert_eq!(sh(&f.wt, &["status", "--porcelain"]), "");
     let exclude = PathBuf::from(read(&f.dirs).agents["agent-1"].exclude_file.clone().unwrap());
@@ -193,7 +187,7 @@ fn e2e_codex_and_cleanup() {
     })
     .unwrap();
     assert!(stale(&f.dirs, &read(&f.dirs), &c));
-    let res = apply_with(&f.dirs, Some(&r), &c, false).unwrap();
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert!(res.generated.is_empty());
     assert!(!f.wt.join("AGENTS.md").exists());
     assert!(!std::fs::read_to_string(&exclude).unwrap().contains("pitwall rules agent-1"));
@@ -206,7 +200,7 @@ fn e2e_project_rulesync_is_an_input_root() {
     // The project uses rulesync itself (generated files untracked).
     write(&f.wt.join(".rulesync/rules/project.md"), "---\nroot: false\ntargets: [\"*\"]\n---\nProject rule.\n");
     assign(&f, &["style.md"], &[]);
-    let res = apply_with(&f.dirs, Some(&r), &ctx(&f, "claudecode"), false).unwrap();
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &ctx(&f, "claudecode"), false).unwrap();
     assert!(res.generated.contains(&".claude/rules/project.md".to_string()), "{res:?}");
     assert!(res.generated.contains(&".claude/rules/style.md".to_string()));
 }
@@ -226,4 +220,46 @@ fn e2e_import_file() {
     // The source project is untouched (no .rulesync created there).
     assert!(!proj.join(".rulesync").exists());
     assert!(!dirs.run().read_dir().map(|mut d| d.next().is_some()).unwrap_or(false));
+}
+
+/// Unassigning cleans up in the agent's folder through its machine's exec:
+/// only files Pitwall wrote and nobody edited, plus its exclude block.
+#[test]
+fn cleanup_goes_through_the_agents_machine() {
+    let t = Tmp::new("fake-cleanup");
+    let dirs = Dirs { base: t.0.join("pw") };
+    let x = FakeExec::new();
+    let exclude = "/w/.git/info/exclude";
+    x.dir("/w")
+        .file("/w/.claude/rules/x.md", b"gen")
+        .file("/w/edited.md", b"changed by the user")
+        .file(exclude, b"*.log\n# >>> pitwall rules a (generated, do not edit)\n/x.md\n# <<< pitwall rules a\n")
+        .on(&["git", "-C", "/w", "ls-files", "-z", "--", ".."], "");
+    update(&dirs, |s| {
+        let st = s.agents.entry("a".into()).or_default();
+        st.files = vec![
+            GenFile { path: ".claude/rules/x.md".into(), hash: apply::content_hash(b"gen") },
+            GenFile { path: "edited.md".into(), hash: apply::content_hash(b"original") },
+        ];
+        st.exclude_file = Some(exclude.into());
+        Ok(())
+    })
+    .unwrap();
+    let ctx = AgentCtx {
+        id: "a".into(),
+        cwd: "/w".into(),
+        project: "/w".into(),
+        worktree: true,
+        kind_name: "Claude Code".into(),
+        target: Some("claudecode".into()),
+    };
+    let res = apply_with(&dirs, None, &*x, &ctx, false).unwrap();
+    assert!(res.generated.is_empty());
+    assert!(res.log.contains("kept edited.md"), "{}", res.log);
+    assert_eq!(x.contents("/w/.claude/rules/x.md"), None);
+    assert!(x.contents("/w/edited.md").is_some());
+    assert_eq!(x.contents(exclude).as_deref(), Some(&b"*.log\n"[..]));
+    // Gone folders are reported, not created.
+    let gone = AgentCtx { cwd: "/nowhere".into(), ..ctx };
+    assert!(apply_with(&dirs, None, &*x, &gone, false).unwrap_err().contains("no longer exists"));
 }

@@ -586,6 +586,30 @@ the UI build green.
   if Tauri or `std::os`/`cfg(target_os)` appear in core outside `platform/`.
   Not done here: the `pitwall-detect` rule cache is still a global (it belongs
   to that crate); rules' store lock is still a process-wide static.
+- Step 3 done: `pitwall_core::exec::{Exec, Cmd, Out, Stat, LocalExec}`. The
+  trait is §2.4's plus what the callers needed: `remove_dir`, `copy_file`
+  (the temp-index seed), `stat` (lstat) and `real_path`; `Cmd.cwd` is
+  optional (git uses `-C`); errors are `String` until `PwError` (step 4).
+  `LocalExec` kills its own child on `timeout` (previously unbounded calls
+  get `exec::LONG`, 10 min). `vcs::git::Git { exec, dir }` carries every git
+  call (always `GIT_OPTIONAL_LOCKS=0`); snapshots put their temp index in
+  `Exec::temp_dir()` and seed it with `copy_file`. Review (incl. working-tree
+  reads, discard, commit, merge), task snapshots/refs, worktree discovery
+  (`roots`, `pick_name`, `check`, `discover`), the ticker's git refresh,
+  `get_changes`/`get_file_diff` and rules' agent-folder side (git, tracked,
+  exclude file, writing/removing generated files) use the agent's
+  `Engine::exec_for(id)` (one `Deps.exec` today; per provider in step 4).
+  Local-only on purpose, through `LocalExec`: the rule library's git, the
+  rulesync runner and its staging folder, the project-key lookup, `which`,
+  the onboarding scan, `ps`/`lsof`. Still direct, for step 4: lifecycle's
+  `is_dir` checks and `expand_tilde`, `process_cwd` (lsof), `tildify` in the
+  merge message. `testing::FakeExec` scripts commands (argv patterns with `*`
+  and trailing `..`), keeps files in memory and records calls;
+  `Harness::with_exec` uses it. `core/tests/boundaries.rs` fails the build if
+  production code outside `platform/` and `exec/local.rs` starts processes,
+  or if `vcs/`, Review, worktree, tasks, changes or ticker touch `std::fs`.
+  Capabilities (`AgentCaps.diff = exec && git repo`, no git polling outside
+  a repo) come with step 4's `AgentView.caps`.
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.

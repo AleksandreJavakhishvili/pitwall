@@ -3,13 +3,11 @@
 //! discard / commit / merge. Read-only git runs with GIT_OPTIONAL_LOCKS=0.
 //! Paths are relative to the repository root of the agent's checkout.
 
-use std::path::{Path, PathBuf};
-
 use serde::Serialize;
 
-use super::git::{self, FileChange};
-use super::snapshot::{git as g, run};
+use super::git::{FileChange, Git};
 use crate::engine::tasks::Task;
+use crate::exec::{self, Exec, FileKind};
 
 type Res<T> = Result<T, String>;
 
@@ -60,22 +58,26 @@ fn valid_path(path: &str) -> Res<()> {
     Ok(())
 }
 
-pub fn toplevel(cwd: &str) -> Res<String> {
-    git::repo_root(cwd).ok_or_else(|| "not a git repository".to_string())
+/// The repository root of the agent's checkout, as a [`Git`] there.
+pub fn toplevel<'a>(git: &Git<'a>) -> Res<Git<'a>> {
+    git.repo_root().map(|top| git.at(&top)).ok_or_else(|| "not a git repository".to_string())
 }
 
 /// Raw bytes of `<rev>:<path>`, or `None` if it doesn't exist there.
-fn blob(top: &str, rev: &str, path: &str) -> Option<Vec<u8>> {
-    let out = g(top).args(["cat-file", "blob", &format!("{rev}:{path}")]).output().ok()?;
-    out.status.success().then_some(out.stdout)
+fn blob(top: &Git, rev: &str, path: &str) -> Option<Vec<u8>> {
+    let out = top.output(&["cat-file", "blob", &format!("{rev}:{path}")], &[], None).ok()?;
+    out.ok().then_some(out.stdout)
 }
 
-fn disk(top: &str, path: &str) -> Option<Vec<u8>> {
-    let p = Path::new(top).join(path);
-    if std::fs::symlink_metadata(&p).ok()?.is_dir() {
+/// The file in the working tree (cut just past the editor's limit, which
+/// still reads as too large).
+fn disk(top: &Git, path: &str) -> Option<Vec<u8>> {
+    let exec = top.exec();
+    let p = exec::join(top.dir(), path);
+    if exec.stat(&p).ok()??.kind == FileKind::Dir {
         return None;
     }
-    std::fs::read(p).ok()
+    exec.read_file(&p, MAX_EDITOR_BYTES as u64 + 1).ok()?
 }
 
 fn is_binary(bytes: &[u8]) -> bool {
@@ -91,9 +93,9 @@ fn versions(original: Option<Vec<u8>>, modified: Option<Vec<u8>>) -> FileVersion
     FileVersions { original: original.and_then(text), modified: modified.and_then(text), binary }
 }
 
-fn base_rev(top: &str, base: Option<&str>) -> String {
+fn base_rev(top: &Git, base: Option<&str>) -> String {
     match base {
-        Some(b) if run(g(top).args(["cat-file", "-e", &format!("{b}^{{commit}}")])).is_ok() => b.to_string(),
+        Some(b) if top.run(&["cat-file", "-e", &format!("{b}^{{commit}}")]).is_ok() => b.to_string(),
         _ => "HEAD".into(),
     }
 }
@@ -101,8 +103,8 @@ fn base_rev(top: &str, base: Option<&str>) -> String {
 // ------------------------------------------------------------------ pure git ops (tested)
 
 /// Changes between two trees, NUL-separated so odd paths survive.
-pub fn tree_changes(top: &str, from: &str, to: &str) -> Res<Vec<FileChange>> {
-    let names = run(g(top).args(["diff", "--name-status", "--no-renames", "-z", from, to]))?;
+pub fn tree_changes(top: &Git, from: &str, to: &str) -> Res<Vec<FileChange>> {
+    let names = top.run(&["diff", "--name-status", "--no-renames", "-z", from, to])?;
     let mut added = std::collections::HashSet::new();
     let mut it = names.split('\0');
     while let (Some(st), Some(path)) = (it.next(), it.next()) {
@@ -110,7 +112,7 @@ pub fn tree_changes(top: &str, from: &str, to: &str) -> Res<Vec<FileChange>> {
             added.insert(path.to_string());
         }
     }
-    let stat = run(g(top).args(["diff", "--numstat", "--no-renames", "-z", from, to]))?;
+    let stat = top.run(&["diff", "--numstat", "--no-renames", "-z", from, to])?;
     let mut files = Vec::new();
     for rec in stat.split('\0').filter(|r| !r.is_empty()) {
         let mut parts = rec.splitn(3, '\t');
@@ -129,7 +131,7 @@ pub fn tree_changes(top: &str, from: &str, to: &str) -> Res<Vec<FileChange>> {
 
 /// Original/modified text of `path`. With a task: start tree vs end tree (or
 /// the working tree while it's running). Without: `base` vs the working tree.
-pub fn file_versions(top: &str, path: &str, base: Option<&str>, task: Option<&Task>) -> Res<FileVersions> {
+pub fn file_versions(top: &Git, path: &str, base: Option<&str>, task: Option<&Task>) -> Res<FileVersions> {
     valid_path(path)?;
     match task {
         Some(t) => {
@@ -149,89 +151,78 @@ pub fn file_versions(top: &str, path: &str, base: Option<&str>, task: Option<&Ta
 
 /// Undo an agent's change to one file: restore it from `base` (index and
 /// working tree), or delete it if it didn't exist there.
-pub fn discard(top: &str, base: Option<&str>, path: &str) -> Res<()> {
+pub fn discard(top: &Git, base: Option<&str>, path: &str) -> Res<()> {
     valid_path(path)?;
     let base = base_rev(top, base);
-    let lit = |cmd: &mut std::process::Command| {
-        cmd.arg("--literal-pathspecs");
-    };
-    let mut probe = g(top);
-    lit(&mut probe);
-    if run(probe.args(["cat-file", "-e", &format!("{base}:{path}")])).is_ok() {
-        let mut cmd = g(top);
-        lit(&mut cmd);
-        run(cmd.args(["restore", &format!("--source={base}"), "--staged", "--worktree", "--", path]))?;
+    let lit = "--literal-pathspecs";
+    if top.run(&[lit, "cat-file", "-e", &format!("{base}:{path}")]).is_ok() {
+        top.run(&[lit, "restore", &format!("--source={base}"), "--staged", "--worktree", "--", path])?;
         return Ok(());
     }
-    let mut cmd = g(top);
-    lit(&mut cmd);
-    run(cmd.args(["rm", "--cached", "--ignore-unmatch", "-q", "--", path]))?;
-    let full: PathBuf = Path::new(top).join(path);
-    match std::fs::symlink_metadata(&full) {
-        Ok(m) if m.is_dir() => Err("refusing to delete a directory".into()),
-        Ok(_) => std::fs::remove_file(&full).map_err(|e| e.to_string()),
-        Err(_) => Ok(()),
+    top.run(&[lit, "rm", "--cached", "--ignore-unmatch", "-q", "--", path])?;
+    let exec = top.exec();
+    let full = exec::join(top.dir(), path);
+    match exec.stat(&full) {
+        Ok(Some(st)) if st.kind == FileKind::Dir => Err("refusing to delete a directory".into()),
+        Ok(Some(_)) => exec.remove_file(&full),
+        _ => Ok(()),
     }
 }
 
-fn porcelain(cwd: &str, tracked_only: bool) -> Res<Vec<String>> {
-    let mut cmd = g(cwd);
-    cmd.args(["status", "--porcelain"]);
+fn porcelain(git: &Git, tracked_only: bool) -> Res<Vec<String>> {
+    let mut args = vec!["status", "--porcelain"];
     if tracked_only {
-        cmd.arg("--untracked-files=no");
+        args.push("--untracked-files=no");
     }
-    Ok(run(&mut cmd)?.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    Ok(git.run(&args)?.lines().filter(|l| !l.is_empty()).map(String::from).collect())
 }
 
 /// `git add -A && git commit -m <message>`; returns the short commit id.
-pub fn commit(cwd: &str, message: &str) -> Res<String> {
+pub fn commit(git: &Git, message: &str) -> Res<String> {
     if message.trim().is_empty() {
         return Err("commit message is empty".into());
     }
-    if porcelain(cwd, false)?.is_empty() {
+    if porcelain(git, false)?.is_empty() {
         return Err("nothing to commit".into());
     }
-    run(g(cwd).args(["add", "-A"]))?;
-    run(g(cwd).args(["commit", "-q", "-m", message]))?;
-    Ok(run(g(cwd).args(["rev-parse", "--short", "HEAD"]))?.trim().to_string())
+    git.run(&["add", "-A"])?;
+    git.run(&["commit", "-q", "-m", message])?;
+    Ok(git.run(&["rev-parse", "--short", "HEAD"])?.trim().to_string())
 }
 
-fn merging(repo: &str) -> bool {
-    run(g(repo).args(["rev-parse", "-q", "--verify", "MERGE_HEAD"])).is_ok()
+fn merging(repo: &Git) -> bool {
+    repo.run(&["rev-parse", "-q", "--verify", "MERGE_HEAD"]).is_ok()
 }
 
 /// `git merge --no-ff <branch>` into the main checkout's current branch.
 /// Refuses on a dirty checkout; aborts on conflicts.
-pub fn merge(repo: &str, branch: &str) -> Res<MergeResult> {
-    let target = git::current_branch(repo);
+pub fn merge(repo_git: &Git, branch: &str) -> Res<MergeResult> {
+    let repo = repo_git.dir();
+    let target = repo_git.current_branch();
     let refuse = |message: String| MergeResult { merged: false, conflict: false, message, branch: target.clone() };
     let Some(tb) = target.clone() else {
         return Ok(refuse(format!("{repo} is on a detached HEAD; check out a branch first.")));
     };
-    if merging(repo) {
+    if merging(repo_git) {
         return Ok(refuse(format!("{repo} already has a merge in progress.")));
     }
-    if !porcelain(repo, true)?.is_empty() {
+    if !porcelain(repo_git, true)?.is_empty() {
         return Ok(refuse(format!(
             "{} has uncommitted changes on {tb}. Commit or stash them, then merge again.",
             crate::paths::tildify(repo)
         )));
     }
-    if run(g(repo).args(["merge-base", "--is-ancestor", branch, "HEAD"])).is_ok() {
+    if repo_git.run(&["merge-base", "--is-ancestor", branch, "HEAD"]).is_ok() {
         return Ok(refuse(format!("Nothing to merge: {branch} is already in {tb}.")));
     }
-    let out = g(repo)
-        .env("GIT_MERGE_AUTOEDIT", "no")
-        .args(["merge", "--no-ff", "--no-edit", branch])
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    if out.status.success() {
+    let out = repo_git.output(&["merge", "--no-ff", "--no-edit", branch], &[("GIT_MERGE_AUTOEDIT", "no")], None)?;
+    if out.ok() {
         return Ok(MergeResult { merged: true, conflict: false, message: format!("Merged {branch} into {tb}."), branch: target });
     }
-    if merging(repo) {
-        let files = run(g(repo).args(["diff", "--name-only", "--diff-filter=U"])).unwrap_or_default();
+    if merging(repo_git) {
+        let files = repo_git.run(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
         let files: Vec<&str> = files.lines().filter(|l| !l.is_empty()).collect();
-        run(g(repo).args(["merge", "--abort"]))?;
+        repo_git.run(&["merge", "--abort"])?;
         let list = if files.is_empty() { String::new() } else { format!(" in {}", files.join(", ")) };
         return Ok(MergeResult {
             merged: false,
@@ -247,35 +238,37 @@ pub fn merge(repo: &str, branch: &str) -> Res<MergeResult> {
 
 /// The branch a worktree is on now (`git branch --show-current`), else the
 /// one it was on when found. Never assumed from the agent's name.
-pub fn worktree_branch(wt: &crate::model::WorktreeInfo) -> Option<String> {
-    git::current_branch(&wt.path).or_else(|| Some(wt.branch.clone()).filter(|b| !b.is_empty()))
+pub fn worktree_branch(exec: &dyn Exec, wt: &crate::model::WorktreeInfo) -> Option<String> {
+    Git::new(exec, &wt.path).current_branch().or_else(|| Some(wt.branch.clone()).filter(|b| !b.is_empty()))
 }
 
-/// `wt`: (main repo, the worktree's branch; `None` = detached).
-pub fn merge_status(cwd: &str, wt: Option<(&str, Option<&str>)>) -> Res<MergeStatus> {
+/// `cwd`: the agent's checkout. `wt`: (main repo, the worktree's branch;
+/// `None` = detached).
+pub fn merge_status(cwd: &Git, wt: Option<(&str, Option<&str>)>) -> Res<MergeStatus> {
     let uncommitted = porcelain(cwd, false)?.len() as u32;
     let Some((repo, branch)) = wt else {
         return Ok(MergeStatus {
             worktree: false,
-            branch: git::current_branch(cwd),
+            branch: cwd.current_branch(),
             target: None,
             target_dirty: false,
             uncommitted,
             ahead: 0,
         });
     };
-    let target = git::current_branch(repo);
+    let repo = cwd.at(repo);
+    let target = repo.current_branch();
     let ahead = target
         .as_ref()
         .zip(branch)
-        .and_then(|(t, b)| run(g(repo).args(["rev-list", "--count", &format!("{t}..{b}")])).ok())
+        .and_then(|(t, b)| repo.run(&["rev-list", "--count", &format!("{t}..{b}")]).ok())
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0);
     Ok(MergeStatus {
         worktree: true,
         branch: branch.map(String::from),
         target,
-        target_dirty: !porcelain(repo, true)?.is_empty(),
+        target_dirty: !porcelain(&repo, true)?.is_empty(),
         uncommitted,
         ahead,
     })
@@ -284,6 +277,8 @@ pub fn merge_status(cwd: &str, wt: Option<(&str, Option<&str>)>) -> Res<MergeSta
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::LocalExec;
+    use crate::testing::FakeExec;
     use crate::vcs::snapshot::{snapshot, TempRepo};
 
     #[test]
@@ -292,12 +287,12 @@ mod tests {
         r.write("keep.txt", "a\nb\n");
         r.write("gone.txt", "x\n");
         r.commit_all("init");
-        let start = snapshot(r.path()).unwrap();
+        let start = snapshot(&r.g()).unwrap();
         r.write("keep.txt", "a\nB\nc\n");
         std::fs::remove_file(r.0.join("gone.txt")).unwrap();
         r.write("dir/new file.txt", "hi\n");
-        let end = snapshot(r.path()).unwrap();
-        let files = tree_changes(r.path(), &start, &end).unwrap();
+        let end = snapshot(&r.g()).unwrap();
+        let files = tree_changes(&r.g(), &start, &end).unwrap();
         let by = |p: &str| files.iter().find(|f| f.path == p).cloned().unwrap();
         assert_eq!(files.len(), 3);
         assert_eq!((by("keep.txt").added, by("keep.txt").removed), (2, 1));
@@ -315,17 +310,17 @@ mod tests {
         let base = r.git(&["rev-parse", "HEAD"]).trim().to_string();
         r.write("a.txt", "new\n");
         r.write("n.txt", "fresh\n");
-        let v = file_versions(r.path(), "a.txt", Some(&base), None).unwrap();
+        let v = file_versions(&r.g(), "a.txt", Some(&base), None).unwrap();
         assert_eq!(v, FileVersions { original: Some("old\n".into()), modified: Some("new\n".into()), binary: false });
-        let v = file_versions(r.path(), "n.txt", Some(&base), None).unwrap();
+        let v = file_versions(&r.g(), "n.txt", Some(&base), None).unwrap();
         assert_eq!((v.original, v.modified.as_deref()), (None, Some("fresh\n")));
-        assert!(file_versions(r.path(), "bin.dat", Some(&base), None).unwrap().binary);
-        assert!(file_versions(r.path(), "../etc/passwd", None, None).is_err());
+        assert!(file_versions(&r.g(), "bin.dat", Some(&base), None).unwrap().binary);
+        assert!(file_versions(&r.g(), "../etc/passwd", None, None).is_err());
 
         // Task mode: start vs end tree, independent of later edits.
-        let start = snapshot(r.path()).unwrap();
+        let start = snapshot(&r.g()).unwrap();
         r.write("a.txt", "newer\n");
-        let end = snapshot(r.path()).unwrap();
+        let end = snapshot(&r.g()).unwrap();
         r.write("a.txt", "even later\n");
         let t = Task {
             id: "t".into(),
@@ -335,7 +330,7 @@ mod tests {
             start_tree: Some(start),
             end_tree: Some(end),
         };
-        let v = file_versions(r.path(), "a.txt", None, Some(&t)).unwrap();
+        let v = file_versions(&r.g(), "a.txt", None, Some(&t)).unwrap();
         assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("new\n"), Some("newer\n")));
     }
 
@@ -352,14 +347,14 @@ mod tests {
         r.git(&["add", "staged-new.txt"]);
         r.write("other.txt", "untouched\n");
 
-        discard(r.path(), Some(&base), "a.txt").unwrap();
+        discard(&r.g(), Some(&base), "a.txt").unwrap();
         assert_eq!(std::fs::read_to_string(r.0.join("a.txt")).unwrap(), "orig\n");
-        discard(r.path(), Some(&base), "new.txt").unwrap();
+        discard(&r.g(), Some(&base), "new.txt").unwrap();
         assert!(!r.0.join("new.txt").exists());
-        discard(r.path(), Some(&base), "staged-new.txt").unwrap();
+        discard(&r.g(), Some(&base), "staged-new.txt").unwrap();
         assert!(!r.0.join("staged-new.txt").exists());
         assert_eq!(r.git(&["status", "--porcelain"]).trim(), "?? other.txt");
-        assert!(discard(r.path(), Some(&base), "../x").is_err());
+        assert!(discard(&r.g(), Some(&base), "../x").is_err());
     }
 
     #[test]
@@ -374,27 +369,27 @@ mod tests {
 
         // Snapshots inside a linked worktree use (a copy of) its own index.
         let before = r.git(&["-C", wt, "status", "--porcelain"]);
-        let tree = snapshot(wt).unwrap();
+        let tree = snapshot(&Git::new(&LocalExec, wt)).unwrap();
         assert!(r.git(&["ls-tree", "--name-only", &tree]).contains("b.txt"));
         assert_eq!(r.git(&["-C", wt, "status", "--porcelain"]), before);
 
-        assert!(commit(wt, "  ").is_err());
-        let st = merge_status(wt, Some((r.path(), Some("worktree-agent")))).unwrap();
+        assert!(commit(&Git::new(&LocalExec, wt), "  ").is_err());
+        let st = merge_status(&Git::new(&LocalExec, wt), Some((r.path(), Some("worktree-agent")))).unwrap();
         assert_eq!((st.uncommitted, st.ahead, st.target.as_deref()), (1, 0, Some("main")));
-        commit(wt, "agent work").unwrap();
-        assert!(commit(wt, "again").is_err()); // nothing to commit
+        commit(&Git::new(&LocalExec, wt), "agent work").unwrap();
+        assert!(commit(&Git::new(&LocalExec, wt), "again").is_err()); // nothing to commit
 
         // Dirty main checkout: refused, nothing merged.
         std::fs::write(r.0.join("a.txt"), "local edit\n").unwrap();
-        let res = merge(r.path(), "worktree-agent").unwrap();
+        let res = merge(&r.g(), "worktree-agent").unwrap();
         assert!(!res.merged && !res.conflict && res.message.contains("uncommitted"));
         r.git(&["checkout", "--", "a.txt"]);
 
-        let res = merge(r.path(), "worktree-agent").unwrap();
+        let res = merge(&r.g(), "worktree-agent").unwrap();
         assert!(res.merged, "{res:?}");
         assert!(r.0.join("b.txt").exists());
         assert_eq!(r.git(&["rev-list", "--count", "--merges", "HEAD"]).trim(), "1");
-        let res = merge(r.path(), "worktree-agent").unwrap();
+        let res = merge(&r.g(), "worktree-agent").unwrap();
         assert!(!res.merged && res.message.contains("Nothing to merge"));
     }
 
@@ -411,12 +406,12 @@ mod tests {
             branch: "first".into(),
         };
         r.git(&["-C", &info.path, "checkout", "-q", "-b", "renamed"]);
-        assert_eq!(worktree_branch(&info).as_deref(), Some("renamed"));
+        assert_eq!(worktree_branch(&LocalExec, &info).as_deref(), Some("renamed"));
         r.git(&["-C", &info.path, "checkout", "-q", "--detach"]);
-        assert_eq!(worktree_branch(&info).as_deref(), Some("first"));
+        assert_eq!(worktree_branch(&LocalExec, &info).as_deref(), Some("first"));
         info.branch.clear();
-        assert_eq!(worktree_branch(&info), None);
-        let st = merge_status(&info.path, Some((r.path(), None))).unwrap();
+        assert_eq!(worktree_branch(&LocalExec, &info), None);
+        let st = merge_status(&Git::new(&LocalExec, &info.path), Some((r.path(), None))).unwrap();
         assert!(st.worktree && st.branch.is_none() && st.ahead == 0);
     }
 
@@ -428,17 +423,59 @@ mod tests {
         let wt_path = r.0.join("wt");
         r.git(&["worktree", "add", "-q", "-b", "worktree-c", wt_path.to_str().unwrap(), "HEAD"]);
         std::fs::write(wt_path.join("a.txt"), "agent\n").unwrap();
-        commit(wt_path.to_str().unwrap(), "agent").unwrap();
+        commit(&Git::new(&LocalExec, wt_path.to_str().unwrap()), "agent").unwrap();
         r.write("a.txt", "main\n");
         r.commit_all("main change");
         let head = r.git(&["rev-parse", "HEAD"]);
 
-        let res = merge(r.path(), "worktree-c").unwrap();
+        let res = merge(&r.g(), "worktree-c").unwrap();
         assert!(res.conflict && !res.merged, "{res:?}");
         assert!(res.message.contains("a.txt"));
         assert_eq!(res.branch.as_deref(), Some("main"));
-        assert!(!merging(r.path()));
+        assert!(!merging(&r.g()));
         assert_eq!(r.git(&["rev-parse", "HEAD"]), head);
         assert!(r.git(&["status", "--porcelain", "--untracked-files=no"]).trim().is_empty());
+    }
+
+    #[test]
+    fn editor_reads_go_through_the_agents_machine() {
+        let x = FakeExec::new();
+        x.on(&["git", "-C", "/r", "cat-file", "-e", "b0^{commit}"], "")
+            .on_exit(&["git", "-C", "/r", "cat-file", "blob", "*"], 128, "", "missing")
+            .on(&["git", "-C", "/r", "cat-file", "blob", "b0:a.txt"], "old\n")
+            .file("/r/a.txt", b"new\n")
+            .file("/r/huge.txt", &vec![b'x'; MAX_EDITOR_BYTES + 10])
+            .dir("/r/folder");
+        let top = Git::new(&*x, "/r");
+        let v = file_versions(&top, "a.txt", Some("b0"), None).unwrap();
+        assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("old\n"), Some("new\n")));
+        assert!(file_versions(&top, "huge.txt", Some("b0"), None).unwrap().binary, "too large for the editor");
+        let v = file_versions(&top, "folder", Some("b0"), None).unwrap();
+        assert_eq!((v.original, v.modified, v.binary), (None, None, false));
+    }
+
+    #[test]
+    fn discard_never_deletes_a_folder() {
+        let x = FakeExec::new();
+        x.on(&["git", "-C", "/r", "cat-file", "-e", "HEAD^{commit}"], "")
+            .on_exit(&["git", "-C", "/r", "--literal-pathspecs", "cat-file", "-e", "*"], 128, "", "")
+            .on(&["git", "-C", "/r", "--literal-pathspecs", "rm", ".."], "")
+            .dir("/r/d")
+            .file("/r/d/x", b"x")
+            .file("/r/new.txt", b"x");
+        let top = Git::new(&*x, "/r");
+        assert_eq!(discard(&top, Some("HEAD"), "d").unwrap_err(), "refusing to delete a directory");
+        discard(&top, Some("HEAD"), "new.txt").unwrap();
+        assert_eq!(x.contents("/r/new.txt"), None);
+        discard(&top, Some("HEAD"), "never-existed").unwrap();
+    }
+
+    #[test]
+    fn merge_refuses_a_detached_target_without_touching_it() {
+        let x = FakeExec::new();
+        x.on_exit(&["git", "-C", "/r", "symbolic-ref", ".."], 1, "", "");
+        let res = merge(&Git::new(&*x, "/r"), "feature").unwrap();
+        assert!(!res.merged && !res.conflict && res.message.contains("detached HEAD"));
+        assert_eq!(x.ran(&["git", "-C", "/r", "merge", ".."]), 0);
     }
 }

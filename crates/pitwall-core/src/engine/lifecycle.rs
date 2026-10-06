@@ -14,7 +14,7 @@ use crate::paths::{expand_tilde, Paths};
 use crate::rules;
 use crate::session::{Session, Spawn};
 use crate::slug::slug;
-use crate::vcs::git;
+use crate::vcs::git::Git;
 use crate::hooks;
 
 const STOP_GRACE: Duration = Duration::from_millis(1500);
@@ -29,11 +29,12 @@ fn kind_for(engine: &Engine, rec_kind: &str, custom: Option<&str>) -> Result<Age
 
 /// Before a launch with the kind's worktree flag: the name to pass, and what
 /// to compare against to spot the worktree the agent makes.
-fn watch_for(kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
+fn watch_for(core: &Engine, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
+    let exec = core.exec_for(&rec.id);
     let named = kind.worktree_args.iter().any(|a| a.contains("{name}"));
     let base = slug(&rec.name);
-    let name = if named { worktree::pick_name(&rec.project, &base) } else { base };
-    let watch = worktree::Watch::new(worktree::roots(&rec.project), named.then(|| name.clone()), now);
+    let name = if named { worktree::pick_name(&*exec, &rec.project, &base) } else { base };
+    let watch = worktree::Watch::new(worktree::roots(&*exec, &rec.project), named.then(|| name.clone()), now);
     (name, watch)
 }
 
@@ -53,14 +54,14 @@ fn spawn(engine: &Engine, id: &str, cwd: &str, command_line: String, size: Optio
 }
 
 /// The project an agent is shown under when it differs from where it runs.
-fn display_project(p: Option<&str>) -> Result<Option<String>, String> {
+fn display_project(core: &Engine, p: Option<&str>) -> Result<Option<String>, String> {
     let Some(p) = p.map(str::trim).filter(|p| !p.is_empty()) else { return Ok(None) };
     let path = expand_tilde(p);
     if !path.is_dir() {
         return Err(format!("{} is not a folder", path.display()));
     }
     let path = project_list::normalize(&path.to_string_lossy());
-    Ok(Some(git::repo_root(&path).unwrap_or(path)))
+    Ok(Some(Git::new(core.exec(), &path).repo_root().unwrap_or(path)))
 }
 
 pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, String> {
@@ -74,7 +75,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         "" => kind.name.clone(),
         n => n.to_string(),
     };
-    let repo = git::repo_root(&project_path);
+    let repo = Git::new(core.exec(), &project_path).repo_root();
 
     let resume = req.resume_session_id.as_deref().filter(|s| !s.is_empty());
     // A separate worktree is the agent's own feature: Pitwall only passes its
@@ -86,7 +87,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         }
         repo.ok_or("A separate worktree needs a git repository.")?
     } else {
-        match display_project(req.display_project.as_deref())? {
+        match display_project(core, req.display_project.as_deref())? {
             Some(p) => p,
             None => repo.unwrap_or_else(|| project_path.clone()),
         }
@@ -99,7 +100,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         kind: kind.id.clone(),
         kind_name: kind.name.clone(),
         custom_command: (kind.id == "custom").then(|| kind.command.clone()),
-        base_commit: git::head(&cwd),
+        base_commit: Git::new(core.exec(), &cwd).head(),
         cwd,
         project,
         worktree: None,
@@ -121,8 +122,9 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     }
     // Rules go in before the first launch (never fails creation; see rules).
     let dirs = rules::Dirs::of(core.paths());
-    rules::on_create(&dirs, core.kinds(), &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
-    let wt = rec.worktree_pending.then(|| watch_for(&kind, &rec, core.now()));
+    let exec = core.exec_for(&rec.id);
+    rules::on_create(&dirs, core.kinds(), &*exec, &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
+    let wt = rec.worktree_pending.then(|| watch_for(core, &kind, &rec, core.now()));
     let hook_command = hooks::hook_command(core.paths());
     let plan = launch::plan(&kind, resume, resume.is_some(), &hook_command, wt.as_ref().map(|(n, _)| n.as_str()));
     rec.session_id = plan.session_id;
@@ -164,7 +166,7 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     }
     let resume = rec.has_conversation;
     // Still waiting for its own worktree: ask for it again on a fresh start.
-    let wt = rec.worktree_pending.then(|| watch_for(&kind, &rec, core.now()));
+    let wt = rec.worktree_pending.then(|| watch_for(core, &kind, &rec, core.now()));
     let hook_command = hooks::hook_command(core.paths());
     let plan = launch::plan(&kind, rec.session_id.as_deref(), resume, &hook_command, wt.as_ref().map(|(n, _)| n.as_str()));
     let session = spawn(core, &rec.id, &rec.cwd, plan.command_line, size)?;
@@ -204,15 +206,16 @@ pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), Stri
     if let Some(session) = &agent.session {
         session.terminate(STOP_GRACE);
     }
-    tasks::forget(&agent.rec);
+    let exec = core.exec_for(id);
+    tasks::forget(&*exec, &agent.rec);
     // Only when asked (the UI confirms first); never `--force`, never the branch.
     let res = match (&agent.rec.worktree, delete_worktree) {
-        (Some(wt), true) => git::worktree_remove(&wt.repo, &wt.path)
+        (Some(wt), true) => Git::new(&*exec, &wt.repo).worktree_remove(&wt.path)
             .map_err(|e| format!("Agent removed, but its worktree was kept: {e}")),
         _ => Ok(()),
     };
     // After the worktree is gone: drop generated rule files + exclude entries.
-    rules::forget_agent(&rules::Dirs::of(core.paths()), &agent.rec.id);
+    rules::forget_agent(&rules::Dirs::of(core.paths()), &*exec, &agent.rec.id);
     res
 }
 
@@ -243,6 +246,8 @@ mod tests {
 
     #[test]
     fn display_project_override() {
+        let h = crate::testing::Harness::new(vec![]);
+        let display_project = |p| display_project(&h.engine, p);
         assert_eq!(display_project(None).unwrap(), None);
         assert_eq!(display_project(Some("  ")).unwrap(), None);
         assert!(display_project(Some("/definitely/not/here")).is_err());

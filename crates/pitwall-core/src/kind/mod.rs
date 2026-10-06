@@ -40,6 +40,11 @@ pub struct AgentKind {
     /// `{name}` is replaced with a name Pitwall picks; empty = not supported.
     #[serde(default)]
     pub worktree_args: Vec<String>,
+    /// Program names this agent shows up as in the process table (e.g. when
+    /// the user starts it by hand in a terminal, docs/spec/terminals.md).
+    /// Empty = the program of `command`.
+    #[serde(default)]
+    pub process_names: Vec<String>,
 }
 
 const BUILTIN: &[&str] = &[
@@ -93,6 +98,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         hooks: HookMode::None,
         rulesync_target: None,
         worktree_args: vec![],
+        process_names: vec![],
     }
 }
 

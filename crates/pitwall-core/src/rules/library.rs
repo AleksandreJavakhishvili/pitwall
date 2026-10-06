@@ -3,10 +3,10 @@
 //! for display only; rulesync does the real parsing when generating.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::runner::{self, Runner};
 use super::{Dirs, RuleFile, RuleSource};
+use crate::exec::{Cmd, Exec, LocalExec};
 
 pub const LIBRARY: &str = "library";
 
@@ -164,21 +164,19 @@ pub fn add_project(project: &str, sources: &[RuleSource]) -> Result<RuleSource, 
     })
 }
 
+/// Git for the library's own clones: always this Mac, where the library is.
 fn git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
-    let mut cmd = Command::new("git");
-    if let Some(c) = cwd {
-        cmd.arg("-C").arg(c);
+    let dir = cwd.map(|c| c.to_string_lossy().into_owned());
+    let mut argv = vec!["git"];
+    if let Some(d) = &dir {
+        argv.extend(["-C", d.as_str()]);
     }
-    let out = cmd
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| format!("git: {e}"))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    argv.extend_from_slice(args);
+    let out = LocalExec.run(&Cmd::new(&argv).env(&[("GIT_TERMINAL_PROMPT", "0")]))?;
+    if out.ok() {
+        Ok(out.stdout_text())
     } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        Err(out.stderr_text())
     }
 }
 

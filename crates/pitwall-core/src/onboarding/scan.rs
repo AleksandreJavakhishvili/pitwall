@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -19,8 +18,9 @@ use super::project_list::{self, ProjectList};
 use crate::kind::KindCatalog;
 use crate::model::CodexHooksStatus;
 use crate::paths::{self, Paths};
-use crate::shell::{self, run_with_timeout};
-use crate::{hooks, platform};
+use crate::exec::local_stdout;
+use crate::shell;
+use crate::{hooks, platform, procs};
 
 /// Lines read from a transcript before giving up on finding what we need.
 const MAX_LINES: usize = 400;
@@ -235,7 +235,7 @@ pub fn scan(paths: &Paths, kinds: &KindCatalog, projects: &ProjectList, progress
             .and_then(|a| a.machines.as_ref())
             .map_or(0, |m| m.iter().map(|m| m.sessions.len()).sum());
         let on_agw = (agw_sessions > 0).then(|| format!("{} on agw", plural(agw_sessions, "session")));
-        match running_elsewhere(&folders) {
+        match running_elsewhere(&folders, kinds) {
             Some(list) => {
                 result.running = list;
                 let here = (!result.running.is_empty()).then(|| format!("{} on this Mac", result.running.len()));
@@ -331,9 +331,7 @@ fn login_shell(script: &str) -> Option<String> {
 }
 
 fn login_shell_within(script: &str, timeout: Duration) -> Option<String> {
-    let mut cmd = Command::new(shell::user_shell());
-    cmd.args(["-l", "-i", "-c", script]);
-    run_with_timeout(cmd, timeout)
+    local_stdout(&[&shell::user_shell(), "-l", "-i", "-c", script], timeout)
 }
 
 // ------------------------------------------------------------------ 2. projects
@@ -540,12 +538,12 @@ fn editor_recents(app: &str) -> Vec<String> {
     if db.is_file() {
         // Read-only + immutable: never takes a lock or writes a journal.
         let uri = format!("file:{}?mode=ro&immutable=1", percent_encode_path(&db.to_string_lossy()));
-        let mut cmd = Command::new("/usr/bin/sqlite3");
-        cmd.args([
+        let argv = [
+            "/usr/bin/sqlite3",
             uri.as_str(),
             "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
-        ]);
-        if let Some(json) = run_with_timeout(cmd, COMMAND_TIMEOUT) {
+        ];
+        if let Some(json) = local_stdout(&argv, COMMAND_TIMEOUT) {
             out.extend(parse_vscode_recents(&json));
         }
     }
@@ -857,81 +855,6 @@ pub fn apply_project_choices(result: &mut ScanResult, choices: &std::collections
 
 // ------------------------------------------------------------------ 4. running elsewhere
 
-/// `claude` / `codex` processes from `ps -axww -o pid=,ppid=,args=` that are
-/// not descendants of `self_pid` (Pitwall's own agents). Background servers
-/// (`codex app-server`, `mcp-server`) are skipped. Returns `(pid, kind,
-/// session id from the args)`.
-pub fn parse_ps(out: &str, self_pid: u32) -> Vec<(u32, &'static str, Option<String>)> {
-    let rows: Vec<(u32, u32, &str)> = out
-        .lines()
-        .filter_map(|l| {
-            let mut it = l.split_whitespace();
-            let pid = it.next()?.parse().ok()?;
-            let ppid = it.next()?.parse().ok()?;
-            let rest = l.trim_start();
-            let rest = rest[rest.find(char::is_whitespace)?..].trim_start();
-            let args = rest[rest.find(char::is_whitespace)?..].trim_start();
-            Some((pid, ppid, args))
-        })
-        .collect();
-    let parent: HashMap<u32, u32> = rows.iter().map(|(p, pp, _)| (*p, *pp)).collect();
-    let ours = |mut pid: u32| {
-        for _ in 0..64 {
-            if pid == self_pid {
-                return true;
-            }
-            match parent.get(&pid) {
-                Some(&pp) if pp != pid && pp != 0 => pid = pp,
-                _ => return false,
-            }
-        }
-        false
-    };
-    let base = |s: &str| s.rsplit('/').next().unwrap_or(s).to_string();
-    rows.iter()
-        .filter_map(|(pid, _, args)| {
-            let mut words = args.split_whitespace();
-            let mut prog = base(words.next()?);
-            if matches!(prog.as_str(), "node" | "bun" | "deno") {
-                prog = base(words.next().unwrap_or(""));
-            }
-            let rest: Vec<&str> = words.collect();
-            let kind = match prog.as_str() {
-                "claude" => "claude",
-                "codex" => "codex",
-                _ => return None,
-            };
-            if args.contains("app-server") || args.contains("mcp-server") || ours(*pid) {
-                return None;
-            }
-            Some((*pid, kind, session_from_args(kind, &rest)))
-        })
-        .collect()
-}
-
-/// The session a `claude` / `codex` command line resumes or uses.
-pub fn session_from_args(kind: &str, args: &[&str]) -> Option<String> {
-    let id = |s: &str| (!s.is_empty() && !s.starts_with('-')).then(|| s.to_string());
-    match kind {
-        "claude" => args.iter().enumerate().find_map(|(i, a)| {
-            for flag in ["--resume", "--session-id"] {
-                if let Some(v) = a.strip_prefix(flag).and_then(|r| r.strip_prefix('=')) {
-                    return id(v);
-                }
-            }
-            if matches!(*a, "--resume" | "-r" | "--session-id") {
-                return args.get(i + 1).and_then(|v| id(v));
-            }
-            None
-        }),
-        "codex" => {
-            let i = args.iter().position(|a| *a == "resume")?;
-            args.get(i + 1).and_then(|v| id(v))
-        }
-        _ => None,
-    }
-}
-
 /// Session id (if the args didn't name one) and title from the newest
 /// conversation of the same kind in the same folder.
 fn fill_running_sessions(running: &mut [RunningAgent], conversations: &[Conversation]) {
@@ -960,29 +883,31 @@ pub fn mark_in_pitwall(result: &mut ScanResult, sessions: &std::collections::Has
     }
 }
 
-fn running_elsewhere(folders: &Folders) -> Option<Vec<RunningAgent>> {
+fn running_elsewhere(folders: &Folders, kinds: &KindCatalog) -> Option<Vec<RunningAgent>> {
     let out = platform::process_table()?;
-    let procs = parse_ps(&out, std::process::id());
-    let cwds: HashMap<u32, String> = if procs.is_empty() {
+    let matcher = procs::Matcher::new(&kinds.kinds());
+    let roots = std::collections::HashSet::from([std::process::id()]);
+    let found = procs::agents_outside(&procs::parse_table(&out), &roots, &matcher);
+    let cwds: HashMap<u32, String> = if found.is_empty() {
         HashMap::new()
     } else {
-        let pids: Vec<u32> = procs.iter().map(|(p, _, _)| *p).collect();
+        let pids: Vec<u32> = found.iter().map(|p| p.pid).collect();
         platform::process_cwds(&pids, COMMAND_TIMEOUT)
             .map(|cwds| cwds.into_iter().collect())
             .unwrap_or_default()
     };
     Some(
-        procs
+        found
             .into_iter()
-            .map(|(pid, kind, session_id)| {
+            .map(|procs::Found { pid, kind, kind_name, session_id }| {
                 let cwd = cwds.get(&pid).cloned();
                 let outside_project = cwd
                     .as_deref()
                     .is_some_and(|c| !folders.usable(&project_list::normalize(c)));
                 RunningAgent {
                     pid,
-                    kind: kind.into(),
-                    kind_name: if kind == "claude" { "Claude Code" } else { "Codex" }.into(),
+                    kind,
+                    kind_name,
                     cwd_display: cwd.as_deref().map(paths::tildify),
                     cwd,
                     session_id,
@@ -1207,33 +1132,6 @@ mod tests {
         assert_eq!(got, vec!["/Users/dev/old/three", "/Users/dev/old/one", "/Users/dev/old/two"]);
         assert!(parse_vscode_recents("").is_empty());
         assert!(parse_vscode_recents("{\"theme\":1}").is_empty());
-    }
-
-    #[test]
-    fn ps_output_skips_own_children_and_servers() {
-        let got = parse_ps(include_str!("scan_fixtures/ps.txt"), 500);
-        assert_eq!(
-            got,
-            vec![
-                (29306, "claude", None),
-                (83806, "claude", Some("abc".into())),
-                (31479, "codex", Some("019e".into()))
-            ]
-        );
-        // Not running under Pitwall: its child agent counts too.
-        assert!(parse_ps(include_str!("scan_fixtures/ps.txt"), 4242).contains(&(502, "claude", Some("x".into()))));
-    }
-
-    #[test]
-    fn session_ids_from_args() {
-        assert_eq!(session_from_args("claude", &["--resume", "s1"]).as_deref(), Some("s1"));
-        assert_eq!(session_from_args("claude", &["-r", "s2", "--verbose"]).as_deref(), Some("s2"));
-        assert_eq!(session_from_args("claude", &["--session-id=s3"]).as_deref(), Some("s3"));
-        assert_eq!(session_from_args("claude", &["--resume"]), None);
-        assert_eq!(session_from_args("claude", &["--continue"]), None);
-        assert_eq!(session_from_args("codex", &["resume", "019e"]).as_deref(), Some("019e"));
-        assert_eq!(session_from_args("codex", &["resume", "--last"]), None);
-        assert_eq!(session_from_args("codex", &[]), None);
     }
 
     fn conv(kind: &str, id: &str, cwd: &str, t: u64) -> Conversation {
