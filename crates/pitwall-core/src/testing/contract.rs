@@ -3,15 +3,17 @@
 //! [`ContractHarness`] and call [`run`]. Terminals are exercised through the
 //! core's [`TermHost`], exactly as the engine uses them.
 //!
-//! Checked: machines and kinds; `discover` is read-only; create → output
-//! arrives, input echoes, resize reaches the process (`stty size`); a second
+//! Checked: machines and kinds; `discover` is read-only; create (or, for a
+//! provider that adopts sessions instead, attach to the harness's existing
+//! session, which `discover` lists) → output arrives, input echoes, resize reaches the process (`stty size`); a second
 //! subscriber gets the replay; a client re-attach (Pitwall restarting) finds
 //! the same process with its history and input still working; `exec` runs
 //! git in the workspace, files round-trip, `temp_dir` is writable;
 //! `process_cwd`, `capture`, `attach` and `start(Resume)` answer
 //! `Unsupported` exactly when their capability is false; stop → `Stopped`
-//! (or `Gone`) with EOF as `eof_is_exit` declares; an agent that exits by
-//! itself reports its exit code; resume continues the conversation; remove.
+//! (or `Gone`) with EOF as `eof_is_exit` declares; start again (`caps.start`)
+//! and an agent that exits by itself reports its exit code; resume continues
+//! the conversation; remove.
 //!
 //! Only harmless commands run (an interactive POSIX shell), in the
 //! harness's scratch workspace.
@@ -38,6 +40,13 @@ pub trait ContractHarness {
     fn patience(&self) -> Duration {
         Duration::from_secs(20)
     }
+    /// For a provider that adopts sessions instead of creating them
+    /// (`caps.create` false, `caps.attach_existing`): a running session on
+    /// `machine()` that runs [`shell_kind`]'s shell in `workspace()`. The
+    /// suite types into it, stops, starts and removes it.
+    fn existing(&self) -> Option<Locator> {
+        None
+    }
 }
 
 /// A kind that runs an interactive POSIX shell; resuming prints
@@ -54,6 +63,7 @@ pub fn shell_kind() -> AgentKind {
         rulesync_target: None,
         worktree_args: vec![],
         process_names: vec![],
+        aliases: vec![],
     }
 }
 
@@ -127,7 +137,7 @@ pub fn run(h: &dyn ContractHarness) {
     let before = p.discover(&m).expect("contract: discover");
     assert_eq!(before, p.discover(&m).expect("contract: discover again"), "contract: discover is read-only");
 
-    // Create.
+    // Create, or adopt the harness's session.
     let size = TermSize::new(100, 30);
     let spec = CreateSpec {
         machine: &m,
@@ -135,16 +145,23 @@ pub fn run(h: &dyn ContractHarness) {
         workspace: WorkspaceSel::Folder,
         launch: launch(&agent, &kind, &ws, LaunchIntent::Fresh, size),
     };
-    if !caps.create {
+    let (loc, host) = if caps.create {
+        let started = p.create(&spec).expect("contract: create");
+        let loc: Locator = started.locator.clone();
+        assert!(!started.resumed, "contract: a fresh start is not a resume");
+        (loc, host_of(p, started, size))
+    } else {
         unsupported(p.create(&spec), "create");
-        return;
-    }
-    let started = p.create(&spec).expect("contract: create");
-    let loc: Locator = started.locator.clone();
+        if !caps.attach_existing {
+            return;
+        }
+        let loc = h.existing().expect("contract: a provider that adopts sessions needs ContractHarness::existing");
+        let listed = before.iter().find(|d| d.locator == loc).expect("contract: discover lists the existing session");
+        assert_eq!(listed.state, Some(NativeState::Running), "contract: discover says it runs");
+        (loc.clone(), TermHost::new(p.attach(&loc, size).expect("contract: attach to an existing session"), size, clock()))
+    };
     assert_eq!(loc.provider, *p.id(), "contract: the locator names its provider");
     assert_eq!(loc.machine, m, "contract: the locator names its machine");
-    assert!(!started.resumed, "contract: a fresh start is not a resume");
-    let host = host_of(p, started, size);
     assert_eq!(p.state(&loc).expect("contract: state"), NativeState::Running, "contract: created → Running");
 
     // Input echoes; output arrives.
@@ -235,17 +252,22 @@ pub fn run(h: &dyn ContractHarness) {
     assert!(after_stop.is_err(), "contract: nothing to attach to after stop");
 
     // Started again, it exits by itself with its code.
-    let restarted = p.start(&loc, &launch(&agent, &kind, &ws, LaunchIntent::Fresh, size)).expect("contract: start");
-    assert_eq!(restarted.locator, loc, "contract: start keeps the locator");
-    let host = host_of(p, restarted, size);
-    host.write(format!("echo up-{tag}\r").as_bytes()).expect("contract: write");
-    wait_for(&host, &format!("\nup-{tag}"), patience, "restarted agent echoes");
-    host.write(b"exit 3\r").expect("contract: write");
-    wait_until(patience, "an exiting agent ends its terminal", || host.ended());
-    if host.eof_is_exit() {
-        wait_until(patience, "exit code 3 is reported", || host.exit().and_then(|e| e.code) == Some(3));
+    let fresh = launch(&agent, &kind, &ws, LaunchIntent::Fresh, size);
+    if caps.start {
+        let restarted = p.start(&loc, &fresh).expect("contract: start");
+        assert_eq!(restarted.locator, loc, "contract: start keeps the locator");
+        let host = host_of(p, restarted, size);
+        host.write(format!("echo up-{tag}\r").as_bytes()).expect("contract: write");
+        wait_for(&host, &format!("\nup-{tag}"), patience, "restarted agent echoes");
+        host.write(b"exit 3\r").expect("contract: write");
+        wait_until(patience, "an exiting agent ends its terminal", || host.ended());
+        if host.eof_is_exit() {
+            wait_until(patience, "exit code 3 is reported", || host.exit().and_then(|e| e.code) == Some(3));
+        }
+        wait_until(patience, "an exited agent is not Running", || p.state(&loc).map(|s| s != NativeState::Running).unwrap_or(false));
+    } else {
+        unsupported(p.start(&loc, &fresh).map(|_| ()), "start");
     }
-    wait_until(patience, "an exited agent is not Running", || p.state(&loc).map(|s| s != NativeState::Running).unwrap_or(false));
 
     // Resume continues the conversation, exactly when the provider can.
     let resume = launch(&agent, &kind, &ws, LaunchIntent::Resume(format!("conv-{tag}")), size);

@@ -15,6 +15,7 @@ import "monaco-editor/features/readOnlyMessage/register";
 import "monaco-editor/basic-languages/monaco.contribution";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import { loader } from "@monaco-editor/react";
+import { currentScheme } from "../../lib/theme";
 
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
@@ -26,7 +27,7 @@ const css = (name: string, fallback: string) =>
 
 /** Editor colours from the Pitwall tokens; colour stays quiet except for +/−. */
 export function defineThemes() {
-  const dark = !window.matchMedia("(prefers-color-scheme: light)").matches;
+  const dark = currentScheme() === "dark";
   const bg = css("--term-bg", dark ? "#0d0f12" : "#fbfbfc");
   const line = css("--line", dark ? "#1e2227" : "#dfe2e6");
   const text = css("--text", dark ? "#e6e8eb" : "#15181c");

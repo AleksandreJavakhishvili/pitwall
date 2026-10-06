@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { RunningElsewhere } from "../types";
+import type { AgentView, RunningElsewhere } from "../types";
 import {
   bringInRequest,
   canBringIn,
   looksLikePath,
+  restartAction,
   terminalFolder,
   terminalName,
   terminalRequest,
@@ -79,5 +80,17 @@ describe("terminal shortcuts", () => {
     expect(OWNED_SHORTCUT(key("t"))).toBe(true);
     expect(OWNED_SHORTCUT(key("T", true))).toBe(true);
     expect(OWNED_SHORTCUT(key("y", true))).toBe(false);
+  });
+
+  it("labels Restart/Resume from caps, naming the agent a terminal restarts as", () => {
+    const caps = (resume: boolean) => ({ caps: { resume } as AgentView["caps"] });
+    expect(restartAction({ ...caps(false) })).toEqual({ label: "Restart", busy: "Restarting…", note: "" });
+    expect(restartAction({ ...caps(true), restartAs: null }).label).toBe("Resume");
+    expect(restartAction({ ...caps(true) }).note).toContain("previous session");
+    const t = restartAction({ ...caps(true), restartAs: "Claude Code" });
+    expect([t.label, t.busy]).toEqual(["Resume Claude Code", "Resuming…"]);
+    expect(t.note).toContain("Starts the shell and picks up Claude Code's previous session");
+    const fresh = restartAction({ ...caps(false), restartAs: "Codex" });
+    expect([fresh.label, fresh.note]).toEqual(["Restart Codex", " Starts the shell and Codex in it."]);
   });
 });

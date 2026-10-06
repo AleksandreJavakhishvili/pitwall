@@ -1,0 +1,59 @@
+#!/bin/sh
+# A fake `agw` for the agw provider's contract test: one VM ("fakevm"),
+# sessions as files in __DIR__ (<name>.state running|stopped, <name>.ws its
+# folder, <name>.pid the attached "harness", <name>.log its output). A
+# session's harness is a tiny line-by-line shell that runs while attached.
+# Never touches anything outside __DIR__.
+D='__DIR__'
+[ "$1" = "--non-interactive" ] && shift
+
+sessions() {
+    printf '{"schema_version":1,"command":"session.list","data":{"sessions":['
+    sep=
+    for f in "$D"/*.state; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .state)
+        st=unavailable
+        [ -n "$1" ] && st=$(cat "$f")
+        printf '%s{"name":"%s","workspace_name":"%s","vm_name":"fakevm","harness_integration":"contract-sh","mode":"admin","agent_name":null,"status":"%s"}' "$sep" "$n" "$n" "$st"
+        sep=,
+    done
+    printf ']}}\n'
+}
+
+case "$1 $2" in
+"--version ") echo "agw 0.19.0-fake" ;;
+"vm list") printf '{"schema_version":1,"command":"vm.list","data":{"vms":[{"name":"fakevm","site":"test-site"}]}}\n' ;;
+"session list")
+    shift 2
+    vm= status=
+    while [ $# -gt 0 ]; do
+        case $1 in --vm) vm=$2; shift ;; --status) status=1 ;; esac
+        shift
+    done
+    [ "$vm" = fakevm ] || { echo "Error: unknown VM '$vm'" >&2; exit 1; }
+    sessions "$status" ;;
+"workspace describe") printf '{"data":{"workspace":{"name":"%s","path":"%s"}}}\n' "$3" "$(cat "$D/$3.ws")" ;;
+"session start") echo running > "$D/$3.state" ;;
+"session stop")
+    [ -f "$D/$3.pid" ] && kill -HUP "$(cat "$D/$3.pid")" 2>/dev/null
+    rm -f "$D/$3.pid"
+    echo stopped > "$D/$3.state" ;;
+"session attach")
+    n=$3
+    [ "$(cat "$D/$n.state" 2>/dev/null)" = running ] || { echo "Error: session '$n' is not running" >&2; exit 1; }
+    echo $$ > "$D/$n.pid"
+    cd "$(cat "$D/$n.ws")" || exit 1
+    printf '$ '
+    while IFS= read -r line; do
+        case $line in
+        exit*) echo stopped > "$D/$n.state"; exit ${line#exit} ;;
+        esac
+        # Output starts on a line of its own (the prompt may land after the echo).
+        printf '\n'
+        eval "$line" 2>&1 | tee -a "$D/$n.log"
+        printf '$ '
+    done
+    echo stopped > "$D/$n.state" ;;
+*) echo "Error: the fake agw can't $*" >&2; exit 2 ;;
+esac

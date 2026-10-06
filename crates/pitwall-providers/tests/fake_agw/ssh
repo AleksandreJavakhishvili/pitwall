@@ -1,0 +1,5 @@
+#!/bin/sh
+# A fake ssh: runs the remote script (the last argument) here, with the fake
+# tmux first on PATH.
+for a; do last=$a; done
+PATH='__DIR__/bin':$PATH exec /bin/sh -c "$last"

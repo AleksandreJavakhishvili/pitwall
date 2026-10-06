@@ -1,7 +1,7 @@
 // Browser-mock side of the first-launch scan: staggered scan-progress events,
 // a persisted (localStorage) project list and the onboarded flag.
 import type { Api, Unlisten } from "../../api";
-import type { AgentView, AgwSession, CreateAgentRequest, Project, ScanProgress, ScanResult } from "../../types";
+import type { AgentView, CreateAgentRequest, Project, ScanProgress, ScanResult, ScannedSession } from "../../types";
 
 type OnboardingApi = Pick<
   Api,
@@ -12,6 +12,7 @@ type OnboardingApi = Pick<
   | "removeProject"
   | "completeOnboarding"
   | "continueConversation"
+  | "adoptSession"
   | "onScanProgress"
   | "onProjectsChanged"
 >;
@@ -62,11 +63,24 @@ function agwSession(
   name: string,
   kind: "claude" | "codex" | "shell",
   workspace: string,
-  agent: string | null,
-  status: AgwSession["status"],
-): AgwSession {
-  const [harness, kindName] = AGW_KINDS[kind];
-  return { machine, name, kind, kindName, harness, workspace, agent, status };
+  user: string | null,
+  status: ScannedSession["status"],
+): ScannedSession {
+  const [program, kindName] = AGW_KINDS[kind];
+  return {
+    provider: "agw",
+    machine,
+    native: name,
+    name,
+    kind,
+    kindName,
+    program,
+    workspace,
+    user,
+    cwd: `/opt/agentworks/workspaces/${workspace}`,
+    status,
+    inPitwall: false,
+  };
 }
 
 function fakeScan(known: Set<string>): ScanResult {
@@ -208,39 +222,49 @@ function fakeScan(known: Set<string>): ScanResult {
         displayProject: null,
       },
     ],
-    agw: {
-      path: `${HOME}/.local/bin/agw`,
-      version: "0.19.0",
-      machines: [
-        {
-          id: "shakedown",
-          site: "lima-local",
-          status: "running",
-          sessions: [
-            agwSession("shakedown", "gwlive", "claude", "gwlive", null, "running"),
-            agwSession("shakedown", "orders-fix", "codex", "orders-api", "codex-bot", "running"),
-            agwSession("shakedown", "work", "claude", "work", null, "stopped"),
-          ],
-        },
-        {
-          id: "gpu-box",
-          site: "aws-us-east",
-          status: "stopped",
-          sessions: [agwSession("gpu-box", "train-eval", "shell", "ml-evals", "evals", "stopped")],
-        },
-      ],
-    },
+    places: [
+      {
+        provider: "agw",
+        label: "agw",
+        version: "0.19.0",
+        machines: [
+          {
+            id: "shakedown",
+            label: "shakedown",
+            detail: "lima-local",
+            sessions: [
+              agwSession("shakedown", "gwlive", "claude", "gwlive", null, "running"),
+              agwSession("shakedown", "orders-fix", "codex", "orders-api", "codex-bot", "running"),
+              agwSession("shakedown", "work", "claude", "work", null, "stopped"),
+            ],
+          },
+          {
+            id: "gpu-box",
+            label: "gpu-box",
+            detail: "aws-us-east",
+            sessions: [agwSession("gpu-box", "train-eval", "shell", "ml-evals", "evals", "stopped")],
+          },
+        ],
+      },
+    ],
     codexHooks: { installed: false, path: "~/.codex/hooks.json" },
   };
 }
 
-/** `create` is the mock's own createAgent (continuing = creating, in the mock). */
-export function createOnboardingMock(create: (req: CreateAgentRequest) => Promise<AgentView>): OnboardingApi {
+/** `create` is the mock's own createAgent (continuing = creating, in the mock);
+ * `update` patches a mock agent (adopted sessions get their machine). */
+export function createOnboardingMock(
+  create: (req: CreateAgentRequest) => Promise<AgentView>,
+  update: (id: string, patch: Partial<AgentView>) => AgentView,
+): OnboardingApi {
   const progressSubs = new Set<(e: ScanProgress) => void>();
   const projectSubs = new Set<(p: Project[]) => void>();
   let state = load();
   /** Sessions the mock's agents resumed (so "Scan again" skips them). */
   const continued = new Set<string>();
+  /** Adopted sessions (provider:machine/native) → agent. */
+  const adopted = new Map<string, AgentView>();
+  const locKey = (s: { provider: string; machine: string; native: string }) => `${s.provider}:${s.machine}/${s.native}`;
 
   const sorted = () => [...state.projects].sort((a, b) => a.display.localeCompare(b.display));
   const commit = () => {
@@ -270,13 +294,15 @@ export function createOnboardingMock(create: (req: CreateAgentRequest) => Promis
         inPitwall: continued.has(c.sessionId),
         displayProject: c.outsideProject ? (chosen[c.sessionId] ?? null) : null,
       }));
+      for (const place of result.places)
+        for (const m of place.machines ?? []) m.sessions = m.sessions.map((x) => ({ ...x, inPitwall: adopted.has(locKey(x)) }));
       result.running = result.running.map((r) => ({
         ...r,
         inPitwall: !!r.sessionId && continued.has(r.sessionId),
         displayProject: r.outsideProject && r.sessionId ? (chosen[r.sessionId] ?? null) : null,
       }));
       const steps: [ScanProgress["step"], ScanProgress["status"], string, number][] = [
-        ["agents", "done", "Claude Code 2.1.280 · Codex 0.160.1 · agw 0.19.0 (2 VMs)", 900],
+        ["agents", "done", "Claude Code 2.1.280 · Codex 0.160.1 · agw 0.19.0 (2 machines)", 900],
         ["projects", "done", `${result.projects.length} projects`, 900],
         ["conversations", "done", `${result.conversations.length} you can continue`, 600],
         ["running", "done", `${result.running.length} on this Mac · 4 sessions on agw`, 500],
@@ -324,6 +350,27 @@ export function createOnboardingMock(create: (req: CreateAgentRequest) => Promis
       } else if (req.projectPath !== HOME) add(req.projectPath);
       commit();
       return a;
+    },
+    async adoptSession(req) {
+      const key = locKey(req);
+      const had = adopted.get(key);
+      if (had) return had;
+      const s = fakeScan(new Set())
+        .places.flatMap((p) => p.machines ?? [])
+        .flatMap((m) => m.sessions)
+        .find((x) => locKey(x) === key);
+      if (!s) throw `${req.machine} has no session "${req.native}"`;
+      const a = await create({ name: s.name, kind: s.kind, projectPath: s.cwd ?? "/", worktree: false, cols: req.cols, rows: req.rows });
+      const v = update(a.id, {
+        machine: { provider: s.provider, id: s.machine, label: s.machine, canCreate: false },
+        location: s.provider,
+        cwdDisplay: s.cwd ?? "",
+        projectDisplay: s.workspace ?? s.name,
+        branch: null,
+        ...(s.status === "running" ? {} : { running: false, status: "stopped" as const }),
+      });
+      adopted.set(key, v);
+      return v;
     },
     async onScanProgress(cb): Promise<Unlisten> {
       progressSubs.add(cb);

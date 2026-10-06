@@ -35,7 +35,9 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
       </span>
       {a.status === "blocked" && a.statusDetail && <span className="pane-detail">{a.statusDetail}</span>}
       <span className="pane-meta">
-        <span className="chip">{a.location}</span>
+        <span className="chip" title={a.machine ? `${a.machine.label} (${a.machine.provider})` : a.location}>
+          {a.machine?.label ?? a.location}
+        </span>
         <span className="meta-item" title={a.cwd}>
           {a.projectDisplay}
         </span>

@@ -5,6 +5,7 @@ import { useActions } from "../lib/actions";
 import { Modal } from "./Modal";
 import { RulesSettings } from "./rules/RulesSettings";
 import { LayoutSettings } from "./LayoutSettings";
+import { AppearanceSettings } from "./AppearanceSettings";
 
 export function SettingsDialog({ onClose, onScanAgain }: { onClose(): void; onScanAgain?(): void }) {
   const { run, hideElsewhere, setHideElsewhere } = useActions();
@@ -107,6 +108,7 @@ export function SettingsDialog({ onClose, onScanAgain }: { onClose(): void; onSc
             </span>
           </label>
         </div>
+        <AppearanceSettings />
         <LayoutSettings />
         <RulesSettings />
       </div>

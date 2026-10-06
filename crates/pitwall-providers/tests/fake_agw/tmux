@@ -1,0 +1,9 @@
+#!/bin/sh
+# A fake tmux: `capture-pane -t =<name>:` prints that fake session's output.
+while [ $# -gt 0 ]; do
+    case $1 in -t) t=$2; shift ;; esac
+    shift
+done
+n=${t#=}
+n=${n%:}
+cat '__DIR__'/"$n.log"

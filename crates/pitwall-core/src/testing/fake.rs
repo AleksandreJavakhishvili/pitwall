@@ -351,7 +351,7 @@ impl FakeProvider {
     pub fn named(id: &str, machine: &str, exec: Arc<dyn Exec>) -> Arc<FakeProvider> {
         Arc::new(FakeProvider {
             id: ProviderId::new(id),
-            machine: Machine { id: MachineId::new(machine), label: format!("Fake {machine}") },
+            machine: Machine { id: MachineId::new(machine), label: format!("Fake {machine}"), detail: None },
             caps: Mutex::new(FakeProvider::local_like()),
             exec,
             eof_is_exit: Mutex::new(true),
@@ -366,6 +366,7 @@ impl FakeProvider {
         ProviderCaps {
             create: true,
             resume: true,
+            start: true,
             attach_existing: false,
             survives_detach: true,
             exec: true,
@@ -501,9 +502,11 @@ impl Provider for FakeProvider {
             .map(|(native, s)| Discovered {
                 locator: Locator::new(&self.id, &self.machine.id, native),
                 kind: s.kind.clone(),
-                running: s.proc.running(),
+                state: Some(if s.proc.running() { NativeState::Running } else { NativeState::Stopped }),
                 cwd: Some(s.cwd.clone()),
                 title: None,
+                workspace: None,
+                user: None,
             })
             .collect())
     }
@@ -522,7 +525,7 @@ impl Provider for FakeProvider {
 
     fn start(&self, loc: &Locator, launch: &LaunchSpec) -> Result<Started> {
         self.mine(loc)?;
-        self.check(self.caps().create || self.caps().resume, "start agents")?;
+        self.check(self.caps().start, "start agents again")?;
         self.launch(loc.clone(), launch)
     }
 
@@ -545,8 +548,13 @@ impl Provider for FakeProvider {
         Ok(())
     }
 
+    /// Deletes sessions it started; one it only had (`add_session`, an
+    /// adopted session) is left as it is.
     fn remove(&self, loc: &Locator) -> Result<()> {
         self.mine(loc)?;
+        if !lock(&self.launched).iter().any(|l| l.locator == *loc) {
+            return Ok(());
+        }
         if let Some(s) = lock(&self.sessions).remove(&loc.native) {
             s.proc.exit(129);
         }

@@ -37,6 +37,11 @@ impl KindCatalog {
         self.kinds().into_iter().find(|k| k.id == id)
     }
 
+    /// The kind a platform means by `name` (id or alias, ignoring case).
+    pub fn resolve(&self, name: &str) -> Option<AgentKind> {
+        self.kinds().into_iter().find(|k| k.answers_to(name))
+    }
+
     /// A stored agent's kind: its custom command, or the definition by id.
     pub fn for_record(&self, kind: &str, custom_command: Option<&str>) -> Option<AgentKind> {
         if kind == super::CUSTOM {

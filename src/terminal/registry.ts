@@ -8,6 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { api, errorText } from "../api";
 import { OWNED_SHORTCUT } from "../lib/shortcuts";
 import { compute as responsive } from "../lib/useBreakpoint";
+import { currentScheme, onSchemeChange } from "../lib/theme";
 import { fitCells, tileBox, type Box, type TermSize } from "./spawnSize";
 
 export type { TermSize } from "./spawnSize";
@@ -62,8 +63,7 @@ const LIGHT: ITheme = {
   brightWhite: "#ffffff",
 };
 
-const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
-const currentTheme = () => (darkQuery.matches ? DARK : LIGHT);
+const currentTheme = () => (currentScheme() === "dark" ? DARK : LIGHT);
 
 interface Entry {
   term: Terminal;
@@ -95,7 +95,8 @@ const fontsReady: Promise<unknown> = document.fonts
     ]).catch(() => undefined)
   : Promise.resolve();
 
-darkQuery.addEventListener("change", () => {
+// Settings → Appearance (or macOS, on System): restyle every live terminal, Wall viewers included.
+onSchemeChange(() => {
   for (const e of [...entries.values(), ...viewers.values()]) e.term.options.theme = currentTheme();
 });
 

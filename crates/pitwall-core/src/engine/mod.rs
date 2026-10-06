@@ -191,6 +191,7 @@ impl Engine {
             kind: kind.map(|k| KindCaps::of(&k, &caps)).unwrap_or_default(),
             machine_label: self.providers.machine_label(loc),
             home: p.exec(&loc.machine).and_then(|x| x.home()).ok(),
+            inner: rec.inner_agent.as_ref().and_then(|i| self.kinds.find(&i.kind)).map(|k| KindCaps::of(&k, &caps)),
         }
     }
 

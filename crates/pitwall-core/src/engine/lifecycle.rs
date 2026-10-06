@@ -10,11 +10,12 @@ use crate::clock::unix_ms;
 use crate::exec::{self, Exec};
 use crate::hooks;
 use crate::kind::{self, AgentKind};
-use crate::model::{size_of, AgentRecord, AgentView, CreateAgentRequest, KindCaps};
+use crate::model::{size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateAgentRequest, KindCaps};
 use crate::onboarding::project_list;
 use crate::paths::expand_tilde_in;
 use crate::provider::{
-    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Provider, Started, TermSize, WorkspaceSel,
+    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, MachineId, NativeState, Provider, ProviderId,
+    Started, TermSize, WorkspaceSel,
 };
 use crate::rules;
 use crate::slug::slug;
@@ -127,6 +128,8 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         tasks: vec![],
         cols: None,
         rows: None,
+        adopted: false,
+        inner_agent: None,
     };
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
@@ -176,6 +179,87 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     agent.watch = wt.map(|(_, w)| w);
     let view = agent.view();
     core.agents().push(agent);
+    core.changed(true);
+    Ok(view)
+}
+
+/// "Add to Pitwall": track a session that already exists on another machine
+/// (one its provider's `discover` lists). Nothing changes there: Pitwall
+/// attaches to it if it runs, and otherwise shows it stopped. Adopting the
+/// same session again returns the agent Pitwall already has (§2.1: the
+/// locator is unique). Blocking.
+pub fn adopt(core: &Shared, req: AdoptSessionRequest) -> Result<AgentView, String> {
+    let provider = core.providers().get(&ProviderId::new(&req.provider))?;
+    let loc = Locator::new(provider.id(), &MachineId::new(&req.machine), &req.native);
+    if let Some(v) = core.agents().iter().find(|a| a.rec.locator() == loc).map(Agent::view) {
+        return Ok(v);
+    }
+    if !provider.caps().attach_existing {
+        return Err(format!("sessions on {} can't be added to Pitwall", provider.label()));
+    }
+    let found = provider
+        .discover(&loc.machine)?
+        .into_iter()
+        .find(|d| d.locator == loc)
+        .ok_or_else(|| format!("{} has no session \"{}\"", core.providers().machine_label(&loc), loc.native))?;
+    // The platform's name for what runs there, as one of Pitwall's kinds; a
+    // program Pitwall doesn't know is shown as a terminal (screen and
+    // activity status still work).
+    let (kind, kind_name) = match core.kinds().resolve(&found.kind) {
+        Some(k) => (k.id, k.name),
+        None => (super::terminals::TERMINAL_KIND.to_string(), if found.kind.is_empty() { "Shell".into() } else { found.kind.clone() }),
+    };
+    let cwd = found.cwd.clone().unwrap_or_default();
+    let mut rec = AgentRecord {
+        id: uuid::Uuid::new_v4().to_string(),
+        locator: Some(loc.clone()),
+        name: found.title.clone().unwrap_or_else(|| loc.native.clone()),
+        kind,
+        kind_name,
+        custom_command: None,
+        project: cwd.clone(),
+        cwd,
+        worktree: None,
+        worktree_pending: false,
+        base_commit: None,
+        session_id: None,
+        has_conversation: false,
+        queue: vec![],
+        auto_send: true,
+        last_sent: None,
+        last_sent_at: None,
+        created_at: unix_ms(),
+        tasks: vec![],
+        cols: None,
+        rows: None,
+        adopted: true,
+        inner_agent: None,
+    };
+    let size = size_of(req.cols, req.rows);
+    if let Some(size) = size {
+        rec.set_term_size(size);
+    }
+    let size = TermSize::from_pair(size);
+    let host = match found.state {
+        Some(NativeState::Running) => Some(core.host_for(provider.attach(&loc, size)?, size)),
+        _ => None,
+    };
+    let mut agent = Agent::new(rec, host, core.now());
+    agent.facts = core.facts(&loc, &agent.rec);
+    let view = {
+        let mut agents = core.agents();
+        // Adopted meanwhile (two clicks): keep the first, drop this attachment.
+        if let Some(v) = agents.iter().find(|a| a.rec.locator() == loc).map(Agent::view) {
+            drop(agents);
+            if let Some(h) = agent.host {
+                h.close(STOP_GRACE);
+            }
+            return Ok(v);
+        }
+        let view = agent.view();
+        agents.push(agent);
+        view
+    };
     core.changed(true);
     Ok(view)
 }
@@ -231,6 +315,20 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         Some(id) if rec.has_conversation && caps.resume => LaunchIntent::Resume(id.clone()),
         _ => LaunchIntent::Fresh,
     };
+    let hooks = hook_wiring(core, &*provider);
+    // A terminal that last ran an agent the user started in it: the shell
+    // starts and continues that agent inside it (docs/spec/terminals.md §3).
+    let inner = match &rec.inner_agent {
+        Some(m) if caps.custom_command && rec.kind == super::terminals::TERMINAL_KIND => core.kinds().find(&m.kind).map(|agent| {
+            let hook = hooks.as_ref().map_or("", |h| h.command.as_str());
+            kind::launch::then_shell(&kind, &agent, m.session_id.as_deref(), caps.resume, hook)
+        }),
+        _ => None,
+    };
+    let (kind, inner_plan) = match inner {
+        Some((k, p)) => (k, Some(p)),
+        None => (kind, None),
+    };
     // Still waiting for its own worktree: ask for it again on a fresh start.
     let wt = match exec.as_deref() {
         Some(x) if rec.worktree_pending => Some(watch_for(x, &kind, &rec, core.now())),
@@ -240,10 +338,10 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         agent: &rec.id,
         kind: &kind,
         cwd: &rec.cwd,
-        intent,
+        intent: if inner_plan.is_some() { LaunchIntent::Fresh } else { intent },
         worktree: wt.as_ref().map(|(n, _)| n.as_str()),
         size,
-        hooks: hook_wiring(core, &*provider),
+        hooks,
     };
     let mut started = provider.start(&loc, &launch)?;
     let host = host_of(core, &*provider, &mut started, size)?;
@@ -255,6 +353,12 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
             a.rec.session_id = started.conversation_id.clone();
         }
         a.rec.locator = Some(started.locator.clone());
+        if let (Some(p), Some(m)) = (&inner_plan, &mut a.rec.inner_agent) {
+            // Running again (the poller notices its new process).
+            m.session_id = p.session_id.clone().or(m.session_id.take());
+            m.pid = None;
+            m.left_at = None;
+        }
         a.attach_host(host.clone(), now);
         a.facts = facts;
         a.watch = wt.map(|(_, w)| w);
@@ -286,7 +390,12 @@ pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), Stri
     core.changed(true);
     let loc = agent.rec.locator();
     let provider = core.providers().for_locator(&loc).ok();
-    end(provider.as_ref(), &loc, agent.host.as_ref());
+    match (&agent.host, agent.rec.adopted) {
+        // Pitwall only stops tracking an adopted session: it keeps running.
+        (Some(h), true) if !h.eof_is_exit() => h.close(STOP_GRACE),
+        (_, true) => {}
+        _ => end(provider.as_ref(), &loc, agent.host.as_ref()),
+    }
     if let Some(p) = &provider {
         if let Err(e) = p.remove(&loc) {
             eprintln!("pitwall: could not remove {loc}: {e}");
@@ -304,9 +413,11 @@ pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), Stri
     res
 }
 
-/// "Quit and Stop Agents": the user explicitly ends every agent. A plain
-/// quit never does this; agents keep running (local: in their holders) and
-/// the next start re-attaches to them (architecture.md §9, decision 1).
+/// "Quit and Stop Agents": the user explicitly ends every agent Pitwall
+/// started. A plain quit never does this; agents keep running (local: in
+/// their holders) and the next start re-attaches to them (architecture.md
+/// §9, decision 1). Adopted sessions were there before Pitwall: only their
+/// attachment is closed.
 pub fn stop_all(core: &Shared) {
     let running: Vec<_> = core
         .agents()
@@ -314,12 +425,17 @@ pub fn stop_all(core: &Shared) {
         .filter_map(|a| {
             let h = a.host.clone()?;
             let loc = a.rec.locator();
-            Some((core.providers().for_locator(&loc).ok(), loc, h))
+            let p = if a.rec.adopted { None } else { core.providers().for_locator(&loc).ok() };
+            Some((p, loc, h))
         })
         .collect();
     std::thread::scope(|scope| {
         for (p, loc, h) in &running {
-            scope.spawn(move || end(p.as_ref(), loc, Some(h)));
+            scope.spawn(move || match p {
+                Some(p) => end(Some(p), loc, Some(h)),
+                None if !h.eof_is_exit() => h.close(STOP_GRACE),
+                None => {}
+            });
         }
     });
 }

@@ -41,13 +41,24 @@ Onboarding and project list ([onboarding.md](onboarding.md)):
 
 | Command | Args | Returns |
 |---|---|---|
-| `scan_environment` | – | `ScanResult` (read-only; emits `scan-progress`). `projects[].agentHistory`: some source is an agent's conversations; `codexHooks` is set only when an installed agent takes its hooks from Codex's global file |
+| `scan_environment` | – | `ScanResult` (read-only; emits `scan-progress`). `projects[].agentHistory`: some source is an agent's conversations; `codexHooks` is set only when an installed agent takes its hooks from Codex's global file; `places`: other places agents run (agw), from each adopting provider's `discover` (below) |
 | `get_onboarded` | – | `boolean` |
 | `list_projects` | – | `Project[]` |
 | `add_project` | `path` | `Project[]` (→ `projects-changed`) |
 | `remove_project` | `path` | `Project[]` (drops it from the list, never deletes files) |
 | `complete_onboarding` | `projects: string[], installCodexHooks` | `Project[]` |
 | `continue_conversation` | `kind, sessionId, projectPath, name, displayProject?, cols?, rows?` | `AgentView` (resumes that session; adds its project like `create_agent`) |
+| `adopt_session` | `req: { provider, machine, native, cols?, rows? }` (a `ScannedSession`'s ids) | `AgentView`. "Add to Pitwall": tracks an existing session (agw) — attaches if it runs, else shows it stopped. Nothing changes on that machine. Idempotent: the same session again returns the same agent. Error if the provider can't adopt or the session is gone |
+
+```ts
+interface ScannedPlace { provider: string; label: string; version: string | null;
+  machines: ScannedMachine[] | null } // null: couldn't be listed
+interface ScannedMachine { id: string; label: string; detail: string | null; sessions: ScannedSession[] }
+interface ScannedSession { provider: string; machine: string; native: string; // what adopt_session takes
+  name: string; kind: string; kindName: string; // matched Pitwall kind (id or alias), else the platform's name
+  program: string; workspace: string | null; user: string | null; cwd: string | null;
+  status: "running"|"stopped"|"unknown"; inPitwall: boolean }
+```
 
 Review ([review.md](review.md)):
 
@@ -116,8 +127,10 @@ interface AgentView {
   cwd: string; cwdDisplay: string; project: string; projectDisplay: string;
   branch: string | null; worktree: boolean;
   location: string; // provider id ("local"); display only
-  machine: { provider: string; id: string; label: string }; // display and grouping only
+  machine: { provider: string; id: string; label: string; canCreate: boolean }; // display and grouping;
+                           // canCreate: "New agent/terminal here" is offered for its projects
   terminal: boolean; agentInTerminal: boolean; // a terminal, running an agent started by hand
+  restartAs: string | null; // a terminal that restarts as the agent last started in it (its name; terminals.md §3)
   caps: AgentCaps; // the only thing the UI decides features by (below)
   worktreePending: boolean; // asked for its own worktree, not found yet (worktrees.md)
   status: Status; statusSource: "hooks"|"screen"|"activity"; statusDetail: string | null;
@@ -129,7 +142,7 @@ interface AgentView {
 // (src/lib/noSpecialCases.test.ts enforces it).
 interface AgentCaps {
   input: boolean;          // running and attached
-  restart: boolean;        // provider can create or resume
+  restart: boolean;        // provider can start it again (caps.start; agw: `agw session start`)
   resume: boolean;         // a restart continues its conversation (provider + kind can, and it has one)
   stop: boolean;           // running
   removeWorktree: boolean; // provider runs commands there && it has a worktree
@@ -139,6 +152,7 @@ interface AgentCaps {
   merge: boolean;          // diff && worktree && on a branch
   rules: boolean;          // provider.rules && kind has a rulesync target
   hooks: boolean;          // provider delivers hooks && kind has hooks
+  removeKeepsSession: boolean; // adopted (agw): remove only stops tracking, the session keeps running
 }
 interface CreateAgentRequest {
   name: string; kind: string; projectPath: string;

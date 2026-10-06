@@ -1,15 +1,123 @@
-/* ── attention bar ───────────────────────────────────── */
-.attention-bar {
+/* ── status strip ("needs you") ─────────────────────────
+ * Always there, always --statusbar-h tall: only its look changes, so it never
+ * resizes the terminals above it (no PTY resize churn). */
+.status-strip {
   grid-area: attn;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 38px;
-  padding: 0 8px 0 14px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 22%, var(--surface)), var(--amber-soft) 60%), var(--surface);
-  border-top: 1px solid color-mix(in srgb, var(--amber) 50%, transparent);
+  gap: 8px;
+  height: var(--statusbar-h);
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 4px 0 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 12px;
+  transition:
+    background-color 0.16s ease-out,
+    border-color 0.16s ease-out,
+    color 0.16s ease-out;
+}
+.status-strip[data-tone="blocked"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 20%, var(--surface)), var(--amber-soft) 60%), var(--surface);
+  border-top-color: color-mix(in srgb, var(--amber) 50%, transparent);
   color: var(--text);
-  animation: rise 0.18s ease-out;
+}
+.status-strip[data-tone="done"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--finish) 14%, var(--surface)), var(--finish-soft) 60%), var(--surface);
+  border-top-color: color-mix(in srgb, var(--finish) 40%, transparent);
+  color: var(--text);
+}
+.strip-glyph {
+  flex: none;
+  width: 12px;
+  text-align: center;
+}
+.status-strip[data-tone="blocked"] .strip-glyph {
+  color: var(--amber);
+  text-shadow: 0 0 10px var(--amber-glow);
+}
+.status-strip[data-tone="done"] .strip-glyph {
+  color: var(--finish);
+}
+.strip-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.strip-lead {
+  font-family: var(--font-label);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 13px;
+}
+.strip-detail {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.strip-more,
+.strip-quiet,
+.strip-hint {
+  color: var(--text-3);
+}
+.strip-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.strip-keys {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 8px;
+  color: var(--text-4);
+  font-size: 11.5px;
+}
+.strip-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(var(--statusbar-h) - 8px);
+  padding: 0 5px 0 9px;
+  border-radius: var(--radius-sm);
+  font-weight: 650;
+  font-size: 12px;
+}
+.status-strip[data-tone="blocked"] .strip-btn {
+  background: var(--amber);
+  color: #1a1204;
+}
+.status-strip[data-tone="blocked"] .strip-btn .kbd {
+  background: transparent;
+  border-color: rgba(26, 18, 4, 0.3);
+  color: rgba(26, 18, 4, 0.7);
+}
+.status-strip[data-tone="done"] .strip-btn {
+  padding: 0 9px;
+  color: var(--finish);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--finish) 45%, transparent);
+}
+.strip-btn:hover {
+  filter: brightness(1.06);
+}
+.strip-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+/* Narrow windows: the essentials only (the height stays the same). */
+.app[data-bp="xs"] .strip-hint,
+.app[data-bp="xs"] .strip-keys,
+.app[data-bp="xs"] .strip-quiet,
+.app[data-bp="sm"] .strip-keys {
+  display: none;
 }
 @keyframes rise {
   from {
@@ -17,59 +125,21 @@
     opacity: 0;
   }
 }
-.attention-glyph {
-  color: var(--amber);
-  text-shadow: 0 0 10px var(--amber-glow);
-}
-.attention-text {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.attention-text strong {
-  font-family: var(--font-label);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 14px;
-}
-.attention-detail {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-2);
-}
-.attention-more {
-  color: var(--text-3);
-  font-size: 12px;
-}
-.attention-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 26px;
-  padding: 0 6px 0 11px;
-  border-radius: var(--radius);
-  background: var(--amber);
-  color: #1a1204;
-  font-weight: 650;
-  font-size: 12.5px;
-}
-.attention-jump .kbd {
-  background: transparent;
-  border-color: rgba(26, 18, 4, 0.3);
-  color: rgba(26, 18, 4, 0.7);
-}
-.attention-jump:hover {
-  filter: brightness(1.06);
+@media (prefers-reduced-motion: reduce) {
+  .status-strip {
+    transition: none;
+  }
+  .toast {
+    animation: none;
+  }
 }
 
 /* ── toasts ──────────────────────────────────────────── */
+/* Toasts float over the layout (above the status strip); they never take space. */
 .toasts {
   position: fixed;
   right: 14px;
-  bottom: 52px;
+  bottom: calc(var(--statusbar-h) + 12px);
   display: flex;
   flex-direction: column;
   gap: 8px;

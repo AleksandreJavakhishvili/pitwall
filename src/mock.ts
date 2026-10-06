@@ -229,23 +229,28 @@ const RESUMABLE = new Set(["claude", "codex", "gemini"]);
 const RULES = new Set(["claude", "codex", "gemini"]);
 function withCaps(a: Omit<AgentView, "caps"> & { caps?: AgentView["caps"] }): AgentView {
   const running = a.running;
+  // Agents adopted from another machine (an agw VM): no diffs, rules or hooks yet.
+  const adopted = a.machine ? !a.machine.canCreate : false;
   // Mock folders outside a repo: the home folder.
-  const diff = a.cwd !== "/Users/ako" && a.cwd !== "~";
+  const diff = !adopted && a.cwd !== "/Users/ako" && a.cwd !== "~";
   const kind = a.terminal ? "shell" : a.kind;
   return {
     ...a,
     agentInTerminal: !!a.terminal && a.kind !== "shell",
+    // A terminal restarts as the agent last started in it.
+    restartAs: a.restartAs ?? (a.terminal && a.kind !== "shell" ? a.kindName : null),
     caps: {
       input: running,
       restart: true,
-      resume: RESUMABLE.has(kind) && !!a.lastSent,
+      resume: a.terminal ? RESUMABLE.has(a.kind) && !!a.sessionId : RESUMABLE.has(kind) && !!a.lastSent,
       stop: running,
       removeWorktree: a.worktree,
       diff,
       review: diff,
       merge: diff && a.worktree && !!a.branch,
-      rules: RULES.has(kind),
-      hooks: kind === "claude" || kind === "codex",
+      rules: !adopted && RULES.has(kind),
+      hooks: !adopted && (kind === "claude" || kind === "codex"),
+      removeKeepsSession: adopted,
     },
   };
 }
@@ -704,7 +709,7 @@ export function createMockApi(): Api {
       setTimeout(() => {
         out(agentId, a.terminal || a.kind === "shell" ? `${green("ako@mbp")} ${blue(a.cwdDisplay)} $ ` : claudeBanner(a.cwdDisplay) + grey("Resumed session.") + NL);
       }, 300);
-      if (a.terminal) update(agentId, { kind: "shell", kindName: "Shell", sessionId: null });
+      if (a.terminal && !a.restartAs) update(agentId, { kind: "shell", kindName: "Shell", sessionId: null });
       return update(agentId, { running: true, status: "idle", statusSource: "screen" });
     },
     async removeAgent(agentId) {
@@ -766,7 +771,7 @@ export function createMockApi(): Api {
       attnSubs.add(cb);
       return () => attnSubs.delete(cb);
     },
-    ...createOnboardingMock((req) => mock.createAgent(req)),
+    ...createOnboardingMock((req) => mock.createAgent(req), update),
   };
   return mock;
 }

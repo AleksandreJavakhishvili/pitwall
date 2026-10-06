@@ -18,6 +18,10 @@ pub struct Facts {
     pub machine_label: String,
     /// The user's home on the agent's machine ("~/…" display).
     pub home: Option<String>,
+    /// Terminals: what the agent remembered on the record
+    /// (`AgentRecord::inner_agent`) can do on this provider; `None` when
+    /// there is none or its kind is unknown.
+    pub inner: Option<KindCaps>,
 }
 
 pub struct Agent {
@@ -59,6 +63,9 @@ pub struct Agent {
     /// Terminals: a conversation id a hook reported (possibly before the
     /// poller noticed the agent).
     pub hook_session: Option<String>,
+    /// Terminals: Enter was pressed in the shell after the remembered agent
+    /// exited (the user went on using the shell; terminals.rs `FORGET_AFTER_MS`).
+    pub shell_used: bool,
 }
 
 impl Agent {
@@ -93,6 +100,7 @@ impl Agent {
             inner: None,
             fg: Default::default(),
             hook_session: None,
+            shell_used: false,
         }
     }
 
@@ -119,6 +127,7 @@ impl Agent {
         self.inner = None;
         self.fg = Default::default();
         self.hook_session = None;
+        self.shell_used = false;
     }
 
     /// A plain terminal (it may be running an agent the user started in it).
@@ -129,6 +138,14 @@ impl Agent {
     /// The kind it is now: the agent running in a terminal, else its own.
     pub fn kind(&self) -> &str {
         self.inner.as_ref().map_or(&self.rec.kind, |i| &i.kind)
+    }
+
+    /// Terminals: the agent a restart continues inside the shell (the one
+    /// last started in it), when its provider runs command lines and its
+    /// kind is known there.
+    pub fn restart_inner(&self) -> Option<(&crate::model::InnerAgent, KindCaps)> {
+        let caps = self.facts.inner.filter(|_| self.is_terminal() && self.facts.provider.custom_command)?;
+        Some((self.rec.inner_agent.as_ref()?, caps))
     }
 
     pub fn running(&self) -> bool {
@@ -147,8 +164,11 @@ impl Agent {
         let diff = p.exec && self.git_repo != Some(false);
         AgentCaps {
             input: running,
-            restart: p.create || p.resume,
-            resume: k.resume && r.has_conversation && r.session_id.is_some(),
+            restart: p.start,
+            resume: match self.restart_inner() {
+                Some((inner, caps)) => caps.resume && inner.session_id.is_some(),
+                None => k.resume && r.has_conversation && r.session_id.is_some(),
+            },
             stop: running,
             remove_worktree: p.exec && r.worktree.is_some(),
             diff,
@@ -156,6 +176,7 @@ impl Agent {
             merge: diff && r.worktree.is_some() && self.branch.is_some(),
             rules: k.rules,
             hooks: k.hooks,
+            remove_keeps_session: r.adopted,
         }
     }
 
@@ -192,8 +213,10 @@ impl Agent {
                 provider: loc.provider.to_string(),
                 id: loc.machine.to_string(),
                 label: if self.facts.machine_label.is_empty() { loc.machine.to_string() } else { self.facts.machine_label.clone() },
+                can_create: self.facts.provider.create,
             },
             agent_in_terminal: self.is_terminal() && self.inner.is_some(),
+            restart_as: self.restart_inner().map(|(i, _)| i.kind_name.clone()),
             status: self.status,
             status_source: self.source,
             status_detail: self.detail.clone(),
@@ -220,6 +243,7 @@ impl Agent {
             self.hook_session = Some(id.clone());
             if let Some(inner) = &mut self.inner {
                 inner.session_id = Some(id.clone());
+                persist |= super::terminals::remember_session(&mut self.rec, inner.pid, id);
             }
         } else if let Some(id) = effect.session_id {
             if self.rec.session_id.as_deref() != Some(id.as_str()) {

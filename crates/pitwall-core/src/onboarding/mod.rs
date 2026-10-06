@@ -3,6 +3,7 @@
 
 pub mod elsewhere;
 pub mod latest;
+pub mod places;
 pub mod project_list;
 pub mod recent;
 pub mod scan;
@@ -10,7 +11,7 @@ pub mod scan;
 use crate::engine::{lifecycle, Engine, Shared};
 use crate::events::Event;
 use crate::hooks;
-use crate::model::{AgentView, CreateAgentRequest};
+use crate::model::{AdoptSessionRequest, AgentView, CreateAgentRequest};
 use project_list::Project;
 use scan::ScanResult;
 
@@ -23,7 +24,9 @@ fn projects_changed(engine: &Engine) -> Vec<Project> {
 /// Run the read-only scan, reporting each step as an event. Blocking.
 pub fn scan_environment(engine: &Engine) -> ScanResult {
     let views = engine.list_kinds().unwrap_or_default();
-    let mut result = scan::scan(engine.paths(), engine.kinds(), &views, engine.projects(), &|p| {
+    let owned = engine.records().iter().map(|r| r.locator()).collect();
+    let places = || places::places(engine.providers(), engine.kinds(), &owned);
+    let mut result = scan::scan(engine.paths(), engine.kinds(), &views, engine.projects(), &places, &|p| {
         engine.emit(Event::ScanProgress(p));
     });
     // "Scan again" must not offer sessions Pitwall agents already run,
@@ -64,6 +67,12 @@ pub fn complete(engine: &Engine, projects: &[String], install_codex_hooks: bool)
             .map_err(|e| format!("Projects were saved, but Codex hooks could not be installed: {e}"))?;
     }
     Ok(list)
+}
+
+/// "Add to Pitwall" on a session the scan found on another machine
+/// (`ScanResult.places`). Nothing changes on that machine. Blocking.
+pub fn adopt_session(engine: &Shared, req: AdoptSessionRequest) -> Result<AgentView, String> {
+    lifecycle::adopt(engine, req)
 }
 
 /// "Continue" on a conversation found by the scan.

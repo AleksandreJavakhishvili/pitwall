@@ -52,13 +52,17 @@ export interface AgentCaps {
   merge: boolean;
   rules: boolean;
   hooks: boolean;
+  /** Adopted from another machine: removing it from Pitwall leaves the session running. */
+  removeKeepsSession: boolean;
 }
 
-/** Where an agent runs; display and grouping only. */
+/** Where an agent runs; display and grouping. */
 export interface MachineView {
   provider: string;
   id: string;
   label: string;
+  /** New agents and terminals can be started there. */
+  canCreate: boolean;
 }
 
 export interface RecentProject {
@@ -96,6 +100,11 @@ export interface AgentView {
   machine?: MachineView;
   /** A terminal running an agent the user started in it by hand. */
   agentInTerminal?: boolean;
+  /**
+   * A terminal that restarts as the agent last started in it (that agent's
+   * name): the shell starts and continues it inside. May be missing on older backends.
+   */
+  restartAs?: string | null;
   caps: AgentCaps;
   status: Status;
   statusSource: "hooks" | "screen" | "activity";
@@ -176,7 +185,7 @@ export interface Project {
   addedAt: number;
 }
 
-/** agw is reported inside "agents" (and its sessions inside "running"). */
+/** Other places (agw) are reported inside "agents" (and their sessions inside "running"). */
 export type ScanStep = "agents" | "projects" | "conversations" | "running" | "rules" | "hooks";
 export type ScanStepStatus = "running" | "done" | "skipped" | "error";
 
@@ -243,40 +252,53 @@ export interface RunningElsewhere {
   displayProject: string | null;
 }
 
-/** One `agw session list` row. Info only until the agw provider (wave 2),
- * which attaches by `machine` + `name`. */
-export interface AgwSession {
-  /** VM name (`AgwMachine.id`). */
+/** A session found on another machine (an agw VM, …) that can be added to
+ * Pitwall: `provider` + `machine` + `native` is what `adoptSession` takes. */
+export interface ScannedSession {
+  provider: string;
   machine: string;
-  /** Session name, unique across agw. */
+  /** The provider's own handle (an agw session name). */
+  native: string;
   name: string;
-  /** Pitwall kind id: "claude" | "codex" | "shell", else the harness id. */
+  /** Pitwall kind it was matched to, else the platform's name. */
   kind: string;
   kindName: string;
-  /** agw harness integration ("claude-code", …). */
-  harness: string | null;
+  /** The platform's name for what runs there ("claude-code"). */
+  program: string;
   workspace: string | null;
-  /** Agent (Linux user) it runs as; null = the VM's admin user. */
-  agent: string | null;
+  /** The user it runs as when that isn't the machine's main user. */
+  user: string | null;
+  cwd: string | null;
   status: "running" | "stopped" | "unknown";
+  /** A Pitwall agent already tracks it. */
+  inPitwall: boolean;
 }
 
-/** An agw VM and its sessions. */
-export interface AgwMachine {
-  /** VM name: the id agw commands take (`--vm <id>`). */
+export interface ScannedMachine {
   id: string;
-  /** vm-site ("lima-local", …). */
-  site: string | null;
-  /** Live VM state (e.g. "running"); null when unknown. */
-  status: string | null;
-  sessions: AgwSession[];
+  label: string;
+  /** Where it lives (an agw vm-site), if known. */
+  detail: string | null;
+  sessions: ScannedSession[];
 }
 
-export interface AgwInfo {
-  path: string;
+/** Another place agents run (one provider) and its machines. */
+export interface ScannedPlace {
+  provider: string;
+  label: string;
   version: string | null;
-  /** null when agw couldn't list its VMs/sessions. */
-  machines: AgwMachine[] | null;
+  /** null when its machines couldn't be listed. */
+  machines: ScannedMachine[] | null;
+}
+
+/** "Add to Pitwall" on a `ScannedSession`. */
+export interface AdoptSessionRequest {
+  provider: string;
+  machine: string;
+  native: string;
+  /** Terminal size it will be shown at. */
+  cols?: number;
+  rows?: number;
 }
 
 export interface ScanResult {
@@ -284,7 +306,8 @@ export interface ScanResult {
   projects: ScannedProject[];
   conversations: ScannedConversation[];
   running: RunningElsewhere[];
-  agw: AgwInfo | null;
+  /** Other places agents run (agw VMs, …) with sessions that can be added. */
+  places: ScannedPlace[];
   /** Only when an installed agent takes its hooks from Codex's global file. */
   codexHooks: HooksStatus | null;
 }

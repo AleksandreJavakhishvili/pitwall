@@ -45,6 +45,19 @@ pub struct AgentKind {
     /// Empty = the program of `command`.
     #[serde(default)]
     pub process_names: Vec<String>,
+    /// Names other platforms use for this agent (agw harness integrations,
+    /// e.g. "claude-code"); matched like `id` when adopting their sessions.
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+impl AgentKind {
+    /// This kind is what a platform calls `name` (its id or an alias,
+    /// ignoring case).
+    pub fn answers_to(&self, name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty() && (self.id.eq_ignore_ascii_case(name) || self.aliases.iter().any(|a| a.eq_ignore_ascii_case(name)))
+    }
 }
 
 const BUILTIN: &[&str] = &[
@@ -102,6 +115,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         rulesync_target: None,
         worktree_args: vec![],
         process_names: vec![],
+        aliases: vec![],
     }
 }
 
@@ -135,5 +149,17 @@ mod tests {
         for kind in rules {
             assert!(kinds.iter().any(|k| k.id == kind), "rules for unknown kind {kind}");
         }
+    }
+
+    #[test]
+    fn kinds_answer_to_their_aliases() {
+        let kinds = super::load_kinds(std::path::Path::new("/nonexistent/pitwall-agents"));
+        let named = |n: &str| kinds.iter().find(|k| k.answers_to(n)).map(|k| k.id.as_str());
+        assert_eq!(named("claude-code"), Some("claude"));
+        assert_eq!(named("Claude"), Some("claude"));
+        assert_eq!(named("codex"), Some("codex"));
+        assert_eq!(named("shell"), Some("shell"));
+        assert_eq!(named("grok"), None);
+        assert_eq!(named(""), None);
     }
 }

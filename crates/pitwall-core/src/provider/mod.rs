@@ -5,8 +5,8 @@
 //! (ring, replay, fan-out, `Screen`, activity, paste) is written once, in
 //! [`TermHost`](crate::term::TermHost).
 //!
-//! Providers live in `pitwall-providers` (local today, agw next); the engine
-//! branches on [`ProviderCaps`], never on a [`ProviderId`].
+//! Providers live in `pitwall-providers` (local, agw); the engine branches on
+//! [`ProviderCaps`], never on a [`ProviderId`].
 
 mod registry;
 
@@ -106,6 +106,8 @@ pub struct Machine {
     pub id: MachineId,
     /// Shown to people ("This Mac", a VM name).
     pub label: String,
+    /// A short note shown next to the label (where a VM lives), if any.
+    pub detail: Option<String>,
 }
 
 // ------------------------------------------------------------------ capabilities
@@ -132,7 +134,10 @@ pub struct ProviderCaps {
     pub create: bool,
     /// Can continue a conversation on restart.
     pub resume: bool,
-    /// Can adopt sessions found by `discover()`.
+    /// `start` works: a stopped agent can be started again (fresh, or
+    /// however its platform continues it).
+    pub start: bool,
+    /// Can adopt sessions found by `discover()`: `attach` connects to them.
     pub attach_existing: bool,
     /// The session outlives its attachment: `attach` reconnects to it.
     pub survives_detach: bool,
@@ -235,11 +240,19 @@ pub struct KindOnMachine {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Discovered {
     pub locator: Locator,
-    /// Pitwall kind id (matched by id or alias), else the platform's name.
+    /// What runs in it, in the platform's words ("claude-code", "shell");
+    /// matched against kind ids and aliases by the engine.
     pub kind: String,
-    pub running: bool,
+    /// Running, stopped, or `None` when the platform couldn't tell.
+    pub state: Option<NativeState>,
+    /// Where it works, on its machine.
     pub cwd: Option<String>,
     pub title: Option<String>,
+    /// The platform's workspace it belongs to, if it has such a thing.
+    pub workspace: Option<String>,
+    /// The user it runs as when that isn't the machine's main user (an agw
+    /// agent user).
+    pub user: Option<String>,
 }
 
 /// The provider's own idea of a session.
@@ -322,6 +335,14 @@ pub struct Started {
 pub trait Provider: Send + Sync {
     fn id(&self) -> &ProviderId;
     fn caps(&self) -> ProviderCaps;
+    /// How it is shown to people ("agw"); the id by default.
+    fn label(&self) -> String {
+        self.id().to_string()
+    }
+    /// The platform's version, when there is a platform tool to ask. Blocking.
+    fn version(&self) -> Option<String> {
+        None
+    }
 
     /// Machines this provider can run on (local: exactly one).
     fn machines(&self) -> Result<Vec<Machine>>;
@@ -334,6 +355,7 @@ pub trait Provider: Send + Sync {
     /// Start a new agent.
     fn create(&self, spec: &CreateSpec) -> Result<Started>;
     /// Start an existing agent again (`launch.intent`: fresh or resume).
+    /// `Unsupported` unless `caps.start` (and `caps.resume` for a resume).
     fn start(&self, loc: &Locator, launch: &LaunchSpec) -> Result<Started>;
     /// Connect to a session that is already running: after Pitwall itself
     /// restarted (local: the agent's holder), or a dropped attachment.
@@ -342,7 +364,9 @@ pub trait Provider: Send + Sync {
     /// End the agent (the engine closes its terminal first when closing
     /// the terminal is what ends it).
     fn stop(&self, loc: &Locator) -> Result<()>;
-    /// Forget the session on the provider's side (agw `session delete`).
+    /// Pitwall forgets the agent: drop what the provider keeps for it. Only
+    /// a session Pitwall created is deleted on the platform's side (agw
+    /// `session delete`, later); an adopted one is left as it is.
     fn remove(&self, loc: &Locator) -> Result<()>;
     fn state(&self, loc: &Locator) -> Result<NativeState>;
 

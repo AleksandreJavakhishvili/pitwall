@@ -20,10 +20,17 @@ export function RemoveDialog({ agent: a, onClose }: { agent: AgentView | null; o
   return (
     <Modal title={`Remove ${a.name}`} onClose={onClose} width={440}>
       <div className="modal-body">
-        <p>
-          {a.running ? "The agent process will be stopped and " : "The agent "}
-          will be removed from Pitwall. Its terminal history goes with it.
-        </p>
+        {a.caps.removeKeepsSession ? (
+          <p>
+            Pitwall stops tracking {a.name}. Its session on {a.machine?.label ?? "its machine"} is left as it is
+            {a.running ? " and keeps running" : ""}; you can add it again from Settings → Scan again.
+          </p>
+        ) : (
+          <p>
+            {a.running ? "The agent process will be stopped and " : "The agent "}
+            will be removed from Pitwall. Its terminal history goes with it.
+          </p>
+        )}
         {a.caps.removeWorktree ? (
           <label className="check">
             <input type="checkbox" checked={deleteWorktree} onChange={(e) => setDeleteWorktree(e.target.checked)} />

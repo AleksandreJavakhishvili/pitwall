@@ -4,6 +4,7 @@ import type { Preset } from "../layout/tree";
 import type { AgentDropTarget } from "./dnd";
 import type { Density } from "../layout/density";
 import type { TilingContext } from "./tiling";
+import type { ThemePref } from "./theme";
 
 /** App-level actions shared with nested components. */
 export interface Actions {
@@ -29,6 +30,9 @@ export interface Actions {
   /** Settings: the sidebar's "Elsewhere" group is hidden. */
   hideElsewhere: boolean;
   setHideElsewhere(hide: boolean): void;
+  /** Settings → Appearance (shared by all windows). */
+  theme: ThemePref;
+  setTheme(theme: ThemePref): void;
 
   // spaces & panes (active space of this window unless given)
   /** Drop (or pick) an agent onto a pane zone or a space — same rules as drag & drop. */

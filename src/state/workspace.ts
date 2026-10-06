@@ -2,6 +2,7 @@
 // Persisted by the backend via get_ui_state / set_ui_state; every window shares it.
 import type { AgentView } from "../types";
 import { DEFAULT_DENSITY, DEFAULT_FONT, isDensity, type Density } from "../layout/density";
+import { isThemePref, type ThemePref } from "../lib/theme";
 import {
   agentsIn,
   buildGrid,
@@ -63,6 +64,8 @@ export interface UiState {
   focusRequest: { agentId: string; window: string; nonce: number } | null;
   /** Settings: hide the sidebar's "Elsewhere" group (agents in other terminal apps). */
   hideElsewhere: boolean;
+  /** Settings → Appearance: System (follow macOS), Dark or Light. */
+  theme: ThemePref;
 }
 
 const emptyPane = (): LayoutNode => ({ type: "pane", id: defaultIdGen("pane"), agentId: null });
@@ -83,6 +86,7 @@ export function defaultUiState(): UiState {
     wallCollapsed: [],
     focusRequest: null,
     hideElsewhere: false,
+    theme: "system",
   };
 }
 
@@ -114,6 +118,7 @@ export function sanitize(raw: unknown): UiState {
     wallCollapsed: Array.isArray(r.wallCollapsed) ? r.wallCollapsed : [],
     focusRequest: r.focusRequest ?? null,
     hideElsewhere: r.hideElsewhere === true,
+    theme: isThemePref(r.theme) ? r.theme : "system",
   };
 }
 
@@ -558,6 +563,11 @@ export function setWall(s: UiState, label: string, on: boolean): UiState {
 /** Settings: show or hide the sidebar's "Elsewhere" group. */
 export function setHideElsewhere(s: UiState, hide: boolean): UiState {
   return s.hideElsewhere === hide ? s : { ...s, hideElsewhere: hide };
+}
+
+/** Settings → Appearance. */
+export function setTheme(s: UiState, theme: ThemePref): UiState {
+  return s.theme === theme ? s : { ...s, theme };
 }
 
 export function toggleIn(list: string[], v: string): string[] {

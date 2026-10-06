@@ -83,7 +83,7 @@ impl KindCaps {
 pub struct AgentCaps {
     /// Running and attached: keystrokes and prompts reach it.
     pub input: bool,
-    /// Can be started again (provider can create or resume).
+    /// Can be started again (its provider's `start`).
     pub restart: bool,
     /// A restart continues its conversation (provider and kind can resume,
     /// and it has one).
@@ -99,15 +99,20 @@ pub struct AgentCaps {
     pub merge: bool,
     pub rules: bool,
     pub hooks: bool,
+    /// Pitwall adopted a session that was already there: removing it from
+    /// Pitwall only stops tracking it, the session keeps running.
+    pub remove_keeps_session: bool,
 }
 
-/// Where an agent runs, for display and grouping only.
+/// Where an agent runs, for display and grouping.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MachineView {
     pub provider: String,
     pub id: String,
     pub label: String,
+    /// New agents and terminals can be started there ("New agent here").
+    pub can_create: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,6 +213,33 @@ pub struct AgentRecord {
     pub cols: Option<u16>,
     #[serde(default)]
     pub rows: Option<u16>,
+    /// The session existed before Pitwall knew it (adopted from its
+    /// provider's `discover`): Pitwall never deletes it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub adopted: bool,
+    /// Terminals: the agent the user last started by hand in it, kept after
+    /// it exits so a restart continues it inside the shell
+    /// (docs/spec/terminals.md §3). Missing in older state files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_agent: Option<InnerAgent>,
+}
+
+/// An agent started by hand in a terminal, as remembered on its record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InnerAgent {
+    pub kind: String,
+    pub kind_name: String,
+    /// Its conversation, once known (hooks, arguments or newest transcript).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Its process while it runs (after Pitwall restarts, the same process
+    /// keeps its conversation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// Unix ms when it exited; `None` while it runs (or is being restarted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_at: Option<u64>,
 }
 
 impl AgentRecord {
@@ -260,6 +292,9 @@ pub struct AgentView {
     pub machine: MachineView,
     /// A terminal running an agent the user started in it by hand.
     pub agent_in_terminal: bool,
+    /// A terminal that restarts as the agent last started in it (its kind
+    /// name): the shell starts and continues that agent inside it.
+    pub restart_as: Option<String>,
     pub status: Status,
     pub status_source: Source,
     pub status_detail: Option<String>,
@@ -277,6 +312,21 @@ pub struct AgentView {
     pub created_at: u64,
     pub current_task_id: Option<String>,
     pub caps: AgentCaps,
+}
+
+/// "Add to Pitwall" on a session found on another machine (`discover`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdoptSessionRequest {
+    pub provider: String,
+    pub machine: String,
+    /// The provider's own handle (an agw session name).
+    pub native: String,
+    /// Terminal size the UI will show it at.
+    #[serde(default)]
+    pub cols: Option<u16>,
+    #[serde(default)]
+    pub rows: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -315,5 +365,29 @@ mod tests {
         assert!(rec.set_term_size((0, 9999)));
         assert_eq!(rec.term_size(), Some((2, 1000)));
         assert_eq!(size_of(Some(80), None), None);
+    }
+
+    #[test]
+    fn the_remembered_agent_of_a_terminal_is_optional_on_disk() {
+        let old = serde_json::json!({
+            "id": "t", "name": "t", "kind": "shell", "kindName": "Shell",
+            "cwd": "/", "project": "/", "createdAt": 1
+        });
+        let mut rec: AgentRecord = serde_json::from_value(old).unwrap();
+        assert_eq!(rec.inner_agent, None, "older state files have none");
+        assert!(serde_json::to_value(&rec).unwrap().get("innerAgent").is_none(), "not written when absent");
+        rec.inner_agent = Some(InnerAgent {
+            kind: "claude".into(),
+            kind_name: "Claude Code".into(),
+            session_id: Some("s1".into()),
+            pid: None,
+            left_at: Some(5),
+        });
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(v["innerAgent"], serde_json::json!({ "kind": "claude", "kindName": "Claude Code", "sessionId": "s1", "leftAt": 5 }));
+        let back: AgentRecord = serde_json::from_value(v).unwrap();
+        assert_eq!(back.inner_agent, rec.inner_agent);
+        let bare: InnerAgent = serde_json::from_value(serde_json::json!({ "kind": "codex", "kindName": "Codex" })).unwrap();
+        assert_eq!((bare.session_id, bare.pid, bare.left_at), (None, None, None));
     }
 }

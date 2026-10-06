@@ -27,6 +27,22 @@ export function terminalRequest(path: string, agents: Pick<AgentView, "name">[])
   };
 }
 
+/** The Restart/Resume button of a stopped agent, from its caps (and, for a terminal, the agent it restarts as). */
+export function restartAction(a: Pick<AgentView, "caps" | "restartAs">): { label: string; busy: string; note: string } {
+  const resume = a.caps.resume;
+  const verb = resume ? "Resume" : "Restart";
+  const as = a.restartAs ?? null;
+  const busy = `${resume ? "Resuming" : "Restarting"}…`;
+  if (as) {
+    return {
+      label: `${verb} ${as}`,
+      busy,
+      note: resume ? ` Starts the shell and picks up ${as}'s previous session in it.` : ` Starts the shell and ${as} in it.`,
+    };
+  }
+  return { label: verb, busy, note: resume ? " Resume picks up the previous session." : "" };
+}
+
 /** ⌘K: a typed path ("/…" or "~/…") offers "Terminal at <path>". */
 export function looksLikePath(q: string): boolean {
   const t = q.trim();

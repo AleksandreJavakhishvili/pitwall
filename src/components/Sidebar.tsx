@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from "react";
 import type { ProjectGroup } from "../lib/groups";
 import type { RunningElsewhere } from "../types";
-import { summarize } from "../lib/groups";
+import { machineHeading, summarize } from "../lib/groups";
 import type { UiState } from "../state/workspace";
 import { locate } from "../state/workspace";
 import { useActions } from "../lib/actions";
@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }: Props) {
-  const { showAgent, openNewAgent, openProjectSpace, toggleCollapsed, run, openTerminal } = useActions();
+  const { showAgent, openNewAgent, openProjectSpace, toggleCollapsed, run, openTerminal, openRemove } = useActions();
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; label: string; items: MenuItem[] } | null>(null);
   let index = 0;
 
@@ -55,7 +55,7 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
     return (
       <nav className="sidebar sidebar-rail" aria-label="Agents">
         {groups.map((g) => (
-          <div key={g.project} className="rail-group" title={g.display}>
+          <div key={g.key} className="rail-group" title={g.machine && !g.canCreate ? `${g.display} · ${g.machine.label}` : g.display}>
             {g.agents.map((a) => (
               <RailItem key={a.id} agent={a} focused={a.id === focusedAgentId} onClick={() => showAgent(a.id)} />
             ))}
@@ -71,24 +71,26 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
   return (
     <nav className={`sidebar ${mode === "overlay" ? "sidebar-overlay" : ""}`} aria-label="Agents">
       <div className="sidebar-scroll">
-        {groups.map((g) => {
-          const collapsed = ui.collapsed.includes(g.project);
+        {groups.map((g, gi) => {
+          const collapsed = ui.collapsed.includes(g.key);
           const start = index;
           index += g.agents.length;
+          const heading = machineHeading(groups, gi);
           return (
-            <section key={g.project} className="project-group" data-blocked={g.blocked > 0}>
+            <section key={g.key} className="project-group" data-blocked={g.blocked > 0}>
+              {heading && <div className="machine-head">{heading}</div>}
               <header
                 className="project-head"
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  projectMenu(g.project, { x: e.clientX, y: e.clientY });
+                  if (g.canCreate) projectMenu(g.project, { x: e.clientX, y: e.clientY });
                 }}
               >
                 <button
                   className="project-toggle"
-                  onClick={() => toggleCollapsed(g.project, "sidebar")}
+                  onClick={() => toggleCollapsed(g.key, "sidebar")}
                   aria-expanded={!collapsed}
-                  title={g.project}
+                  title={g.machine && !g.canCreate ? `${g.project} on ${g.machine.label}` : g.project}
                 >
                   <span className="chev" data-open={!collapsed}>
                     <Icon name="chevron" size={12} />
@@ -97,14 +99,16 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
                   {g.blocked > 0 && <span className="project-blocked">▲ {g.blocked}</span>}
                   <span className="label-count">{g.agents.length}</span>
                 </button>
-                <button
-                  className="icon-btn icon-btn-sm project-add-btn"
-                  onClick={(e) => projectMenu(g.project, below(e))}
-                  title="New terminal or agent here"
-                  aria-haspopup="menu"
-                >
-                  <Icon name="plus" size={14} />
-                </button>
+                {g.canCreate && (
+                  <button
+                    className="icon-btn icon-btn-sm project-add-btn"
+                    onClick={(e) => projectMenu(g.project, below(e))}
+                    title="New terminal or agent here"
+                    aria-haspopup="menu"
+                  >
+                    <Icon name="plus" size={14} />
+                  </button>
+                )}
                 {g.agents.length > 0 ? (
                   <button
                     className="icon-btn icon-btn-sm project-space-btn"
@@ -152,7 +156,13 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
                           setMenu({
                             at: { x: e.clientX, y: e.clientY },
                             label: a.name,
-                            items: [{ ...terminalItem(a.cwd), label: "Open terminal here" }],
+                            items: [
+                              // A terminal only where Pitwall can start one (not on read-only machines).
+                              ...(g.canCreate ? [{ ...terminalItem(a.cwd), label: "Open terminal here" }] : []),
+                              // Same confirm dialog as the tile's trash button (worktree choice included;
+                              // for remote agents it only detaches Pitwall).
+                              { id: "remove", icon: <Icon name="trash" size={14} />, label: "Remove agent…", run: () => openRemove(a.id) },
+                            ],
                           });
                         }}
                       />

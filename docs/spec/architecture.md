@@ -341,12 +341,12 @@ their Tailscale IP.
 | `Locator` | `agw:<vm>/<session name>` (agw names are unique) |
 | kind | `harness_integration` matched against kind `id`/`aliases` (`claude-code` → `claude`); no match → a view-only "shell-like" kind with screen/activity status |
 | `create` | `agw session create <name> --vm <vm> --workspace <ws> --template <t>` (or `--new-workspace …`); risky, so it needs an approval |
-| `start(Resume)` / `start(Fresh)` | `agw session start <name> --resume-only` / `--force-new` (agw's harness integration owns the resume logic, so Pitwall's `resume_args` are not used) |
-| `attach` | a local PTY running `agw session attach <name>` (a tmux client). Its EOF means the attachment dropped, not that the agent exited |
-| `stop` / `remove` | `agw session stop <name>` / `agw session delete <name> --yes` (behind approval) |
-| `state` | `agw session describe <name> --output json` → `status` |
+| `start` | `agw session start <name>` (step 8a: agw's harness integration continues the conversation when it can, so `caps.resume` is false and `start(Resume)` is `Unsupported`; `--resume-only` / `--force-new` are not offered yet) |
+| `attach` | `agw session attach <name>` (a tmux client) in a `pitwall-hold` holder, so the attachment survives Pitwall restarts; input (typing, Next up) goes through this stream. Its EOF means the attachment dropped, not that the agent exited |
+| `stop` / `remove` | `agw session stop <name>` / adopted sessions: close the attachment only (`session delete` only for sessions Pitwall creates, slice c, behind approval) |
+| `state` | `agw session list --vm <vm> --status --output json` → that session's `status` (missing → `Gone`) |
 | `exec(vm)` | `SshExec` to `tailscale_host` (see open question 3); workspace path from `agw workspace describe <ws> --output json` → `path` |
-| `capture` | `SshExec`: `tmux capture-pane -p -t <session>` |
+| `capture` | `ssh awvm--<vm>` (agw's own ssh alias, admin user): `tmux -S <session socket> capture-pane -p -t '=<name>:'` — sockets per agw's layout (`/run/agentworks/admin-tmux-sockets/<admin>/` or `agent-tmux-sockets/agt-<agent>/`). Not `agw session logs`: in 0.19 its `-t =name` pane target matches nothing and it prints an empty screen |
 | `process_cwd` | `SshExec`: `tmux display -p -t <s> '#{pane_current_path}'` |
 | hooks | none at first (`caps.hooks = None`): status comes from screen detection on the attached stream. Later, a hook bundle delivered through agw artifacts that relays over a forwarded socket |
 | rules | later, through agw artifact bundles (`caps.rules = false` until then) |
@@ -375,6 +375,7 @@ lsof.
 pub struct ProviderCaps {
     pub create: bool,          // can start new agents
     pub resume: bool,          // can continue a conversation on restart
+    pub start: bool,           // can start a stopped agent again (8a)
     pub attach_existing: bool, // can adopt sessions found by discover()
     pub survives_detach: bool, // the session outlives the attachment (tmux)
     pub exec: bool,            // can run commands where the agent works (diffs, Review)
@@ -393,7 +394,7 @@ The Engine computes an **effective per-agent set** and sends it to clients in
 #[serde(rename_all = "camelCase")]
 pub struct AgentCaps {
     pub input: bool,        // running and attached
-    pub restart: bool,      // provider.create || provider.resume
+    pub restart: bool,      // provider.start
     pub resume: bool,       // provider.resume && kind.resume && has conversation
     pub stop: bool,
     pub remove_worktree: bool, // exec && record.worktree.is_some()
@@ -651,10 +652,39 @@ the UI build green.
   `crates/pitwall-providers/tests/contract.rs`.
   Not done here (deferred): `StatusInputs` (status still `raw_state`);
   `LocalProvider::discover` is empty (the onboarding scan and "Elsewhere"
-  still list other terminals; agw parsing stays in `scan.rs` until step 8a
-  moves it into `providers::agw::discover`); terminal agent recognition
+  still list other terminals; agw parsing moved to `providers::agw` in 8a); terminal agent recognition
   still reads the local process table (gated on `caps.local_process`);
   `shell` is public in core for the local provider until the scan moves.
+
+- Step 8a done (agw, adopt and attach): `pitwall-providers::agw::AgwProvider`
+  (feature `agw`, on by default; registered in the app after local). Caps:
+  `attach_existing`, `start`, `survives_detach`, `capture`; no create,
+  resume, exec (diffs/Review), process_cwd, rules or hooks yet. Mapping in
+  §2.7: machines/sessions/state from agw's `--output json` listings
+  (`--non-interactive`), workspace folder from `workspace describe`; the
+  terminal is `agw session attach` in a holder (agw applies its own
+  admin/agent-user rules and VM gate, decision 4), input goes through that
+  stream, status is screen detection (decision 5); stop/start are `agw
+  session stop|start`; capture is tmux over agw's ssh alias (decision 3).
+  Locator `agw:<vm>/<session>`. Core: `ProviderCaps.start` (`AgentCaps.restart`
+  = it), `Provider::{label, version}`, `Machine.detail`, `Discovered.{state,
+  workspace, user}`; kind `aliases` (`claude` answers to `claude-code`,
+  `KindCatalog::resolve`; unknown programs adopt as a terminal);
+  `AgentRecord.adopted` → `AgentCaps.removeKeepsSession`: removing or "Quit
+  and Stop Agents" only closes an adopted session's attachment, never stops
+  or deletes it; `MachineView.canCreate`. `lifecycle::adopt` (idempotent by
+  locator) + `adopt_session` command; `onboarding::places` replaces the agw
+  code in `scan.rs` (`ScanResult.places`, provider-neutral; the agw JSON
+  parsing moved to `providers::agw::parse` with its fixtures). UI: sidebar
+  and Wall group by machine + project with a machine heading when agents
+  run on more than one machine (no create menu on machines that can't);
+  onboarding rows are "Add to Pitwall"; Remove/Stopped copy from caps.
+  Tests: unit tests on a scripted `FakeExec` agw; the provider contract
+  gained an adopt path (`ContractHarness::existing`) and runs against a fake
+  agw (`tests/fake_agw/`: sh scripts, one VM, a line shell as harness, a
+  fake ssh/tmux for capture) and an adopting `FakeProvider`; two `#[ignore]`d
+  read-only checks against the real agw (listing + capture; attach at the
+  session's current size without typing).
 
 **Step 0 — Workspace skeleton.**
 - Add a root `Cargo.toml` workspace and make `src-tauri` a member.

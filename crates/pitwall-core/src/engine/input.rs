@@ -26,7 +26,14 @@ pub fn write_input(engine: &Shared, agent_id: &str, data: &str) -> Res<()> {
     host.write(data.as_bytes())?;
     if data.contains('\r') {
         // Enter in the terminal: there's probably a conversation to resume now.
-        let changed = engine.with(agent_id, |a| !std::mem::replace(&mut a.rec.has_conversation, true))?;
+        let changed = engine.with(agent_id, |a| {
+            // A terminal's shell in use after the agent last started in it
+            // exited (terminals.rs: when it is forgotten).
+            if a.is_terminal() && a.inner.is_none() && a.rec.inner_agent.as_ref().is_some_and(|m| m.left_at.is_some()) {
+                a.shell_used = true;
+            }
+            !std::mem::replace(&mut a.rec.has_conversation, true)
+        })?;
         if changed {
             engine.changed(true);
         }

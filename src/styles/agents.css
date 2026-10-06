@@ -147,6 +147,18 @@
 .project-group + .project-group {
   margin-top: 4px;
 }
+/* A machine's name above its first project, when agents run on several. */
+.machine-head {
+  padding: 10px 14px 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.wall-section .machine-head {
+  padding: 6px 2px 4px;
+}
 .project-head {
   display: flex;
   align-items: center;

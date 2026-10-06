@@ -17,6 +17,7 @@ import {
   sanitize,
   setDensity,
   setHideElsewhere,
+  setTheme,
   spaceMembers,
   tileAgents,
 } from "./workspace";
@@ -283,5 +284,19 @@ describe("hideElsewhere", () => {
     expect(setHideElsewhere(hidden, true)).toBe(hidden);
     expect(sanitize(JSON.parse(JSON.stringify(hidden))).hideElsewhere).toBe(true);
     expect(sanitize({ ...hidden, hideElsewhere: "yes" }).hideElsewhere).toBe(false);
+  });
+});
+
+describe("theme", () => {
+  it("defaults to System, survives sanitize, rejects junk, and sets without churn", () => {
+    const d = defaultUiState();
+    expect(d.theme).toBe("system");
+    const light = setTheme(d, "light");
+    expect(light.theme).toBe("light");
+    expect(setTheme(light, "light")).toBe(light);
+    expect(sanitize(JSON.parse(JSON.stringify(light))).theme).toBe("light");
+    expect(sanitize({ ...light, theme: "solarized" }).theme).toBe("system");
+    const { theme: _, ...old } = light;
+    expect(sanitize(old).theme).toBe("system");
   });
 });

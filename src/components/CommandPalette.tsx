@@ -10,6 +10,7 @@ import { PRESET_LABEL, PRESETS, type Preset } from "../layout/tree";
 import { DENSITIES, DENSITY_CELLS, DENSITY_LABEL, type Density } from "../layout/density";
 import { looksLikePath } from "../lib/terminals";
 import { Icon } from "./Icon";
+import { THEME_LABEL, THEME_PREFS, type ThemePref } from "../lib/theme";
 
 interface Commands {
   newAgent(): void;
@@ -29,6 +30,8 @@ interface Commands {
   /** Set the global density, or the current space's (`null` = follow global). */
   density(d: Density | null, scope: "global" | "space"): void;
   settings(): void;
+  /** Settings → Appearance. */
+  theme?(t: ThemePref): void;
 }
 
 interface Item {
@@ -69,7 +72,7 @@ function matches(search: string, q: string): boolean {
 }
 
 export function CommandPalette({ agents, selectedId, projects = [], commands, onClose }: Props) {
-  const { showAgent, run, patch } = useActions();
+  const { showAgent, run, patch, openRemove } = useActions();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -133,6 +136,17 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
         search: `go jump ${a.name} ${a.status} ${a.projectDisplay}`,
         hint: a.id === selectedId ? <span className="pal-sub">current</span> : undefined,
         run: () => showAgent(a.id),
+      })),
+      ...agents.map<Item>((a) => ({
+        id: `remove-${a.id}`,
+        icon: <span className="pal-icon">✕</span>,
+        label: (
+          <>
+            Remove {a.name}… <span className="pal-sub">{a.projectDisplay}</span>
+          </>
+        ),
+        search: `remove delete close agent ${a.name} ${a.projectDisplay}`,
+        run: () => openRemove(a.id),
       })),
       ...(blocked.length
         ? [
@@ -204,8 +218,17 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
       { id: "sidebar", icon: <span className="pal-icon">⇤</span>, label: "Toggle agents sidebar", search: "toggle sidebar agents panel hide show", hint: <Kbd>⌘B</Kbd>, run: commands.toggleSidebar },
       { id: "right", icon: <span className="pal-icon">⇥</span>, label: "Toggle details panel", search: "toggle right panel details queue changes hide show", hint: <Kbd>⌘.</Kbd>, run: commands.toggleRight },
       { id: "settings", icon: <span className="pal-icon">⚙</span>, label: "Settings", search: "settings codex hooks preferences", run: commands.settings },
+      ...(commands.theme
+        ? THEME_PREFS.map<Item>((t) => ({
+            id: `theme-${t}`,
+            icon: <span className="pal-icon">◐</span>,
+            label: `Theme: ${THEME_LABEL[t]}`,
+            search: `theme appearance ${t} ${t === "system" ? "auto os macos follow" : `${t} mode`} color scheme`,
+            run: () => commands.theme?.(t),
+          }))
+        : []),
     ];
-    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-"));
+    if (!q.trim()) return base.filter((i) => !i.id.startsWith("q-") && !i.id.startsWith("preset-") && !i.id.startsWith("density-") && !i.id.startsWith("term-in-") && !i.id.startsWith("theme-"));
     // A typed path: "Terminal at <path>" first.
     return base.filter((i) => i.id === "term-at" || matches(i.search, q)).sort((a, b) => Number(b.id === "term-at") - Number(a.id === "term-at"));
   }, [q, agents, selectedId, projects, commands, showAgent, run, patch]);

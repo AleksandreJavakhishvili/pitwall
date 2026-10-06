@@ -11,7 +11,15 @@ import {
   withProjects,
 } from "./projects";
 
-const group = (project: string, display: string): ProjectGroup => ({ project, display, agents: [], blocked: 0 });
+const group = (project: string, display: string): ProjectGroup => ({
+  key: project,
+  project,
+  display,
+  machine: null,
+  canCreate: true,
+  agents: [],
+  blocked: 0,
+});
 const project = (path: string, display: string): Project => ({ path, display, isGit: true, addedAt: 1 });
 const scanned = (path: string, p: Partial<ScannedProject> = {}): ScannedProject => ({
   path,

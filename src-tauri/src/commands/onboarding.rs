@@ -3,7 +3,7 @@
 
 use tauri::State;
 
-use pitwall_core::model::AgentView;
+use pitwall_core::model::{AdoptSessionRequest, AgentView};
 use pitwall_core::onboarding::project_list::Project;
 use pitwall_core::onboarding::scan::ScanResult;
 use pitwall_core::onboarding::{self, ContinueRequest};
@@ -59,4 +59,12 @@ pub async fn continue_conversation(
     let core = core.inner().clone();
     let req = ContinueRequest { kind, session_id, project_path, name, display_project, cols, rows };
     blocking(move || onboarding::continue_conversation(&core, req)).await
+}
+
+/// "Add to Pitwall" on a session the scan found on another machine (agw).
+/// Nothing changes there; a running session is attached.
+#[tauri::command]
+pub async fn adopt_session(core: State<'_, Shared>, req: AdoptSessionRequest) -> Res<AgentView> {
+    let core = core.inner().clone();
+    blocking(move || onboarding::adopt_session(&core, req)).await
 }

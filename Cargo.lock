@@ -2600,6 +2600,7 @@ version = "0.1.0"
 dependencies = [
  "pitwall-core",
  "pitwall-hold",
+ "serde_json",
 ]
 
 [[package]]

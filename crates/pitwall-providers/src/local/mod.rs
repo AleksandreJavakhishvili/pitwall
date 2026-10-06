@@ -5,8 +5,6 @@
 //! agents outlive Pitwall and `attach` finds them again after a restart
 //! (§9 decision 1). `exec` is `LocalExec`; `process_cwd` uses lsof.
 
-mod hold;
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -20,7 +18,8 @@ use pitwall_core::provider::{
     MachineId, NativeState, Provider, ProviderCaps, ProviderId, PwError, Result, Started, TermIo, TermSize,
     WorkspaceSel,
 };
-pub use hold::HoldTerm;
+use crate::hold;
+pub use crate::hold::HoldTerm;
 use pitwall_hold::client;
 
 /// How long `stop` gives an agent after the hang-up before it is killed.
@@ -63,7 +62,7 @@ impl LocalProvider {
     pub fn new(cfg: LocalConfig) -> LocalProvider {
         LocalProvider {
             id: ProviderId::local(),
-            machine: Machine { id: MachineId::new(MachineId::THIS_MAC), label: "This Mac".into() },
+            machine: Machine { id: MachineId::new(MachineId::THIS_MAC), label: "This Mac".into(), detail: None },
             cfg,
             exec: Arc::new(LocalExec),
             resolved: Mutex::default(),
@@ -124,6 +123,7 @@ impl Provider for LocalProvider {
         ProviderCaps {
             create: true,
             resume: true,
+            start: true,
             // Agents started elsewhere on this Mac are listed by the onboarding
             // scan, not adopted (their terminal belongs to another app).
             attach_existing: false,

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentView } from "../types";
 import type { ProjectGroup } from "../lib/groups";
-import { summarize } from "../lib/groups";
+import { machineHeading, summarize } from "../lib/groups";
 import type { UiState } from "../state/workspace";
 import { useActions } from "../lib/actions";
 import { STATUS_WORD } from "../lib/status";
@@ -47,11 +47,13 @@ export function Wall({ groups, ui, onExit }: { groups: ProjectGroup[]; ui: UiSta
         </button>
       </div>
       <div className="wall-scroll">
-        {groups.map((g) => {
-          const collapsed = ui.wallCollapsed.includes(g.project);
+        {groups.map((g, gi) => {
+          const collapsed = ui.wallCollapsed.includes(g.key);
+          const heading = machineHeading(groups, gi);
           return (
-            <section key={g.project} className="wall-section" data-blocked={g.blocked > 0}>
-              <button className="wall-section-head" onClick={() => toggleCollapsed(g.project, "wall")} aria-expanded={!collapsed}>
+            <section key={g.key} className="wall-section" data-blocked={g.blocked > 0}>
+              {heading && <div className="machine-head">{heading}</div>}
+              <button className="wall-section-head" onClick={() => toggleCollapsed(g.key, "wall")} aria-expanded={!collapsed}>
                 <span className="chev" data-open={!collapsed}>
                   <Icon name="chevron" size={12} />
                 </span>

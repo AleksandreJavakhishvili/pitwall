@@ -17,6 +17,7 @@ use pitwall_core::clock::SystemClock;
 use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
+use pitwall_providers::agw::{AgwConfig, AgwProvider};
 use pitwall_providers::local::{LocalConfig, LocalProvider};
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -26,12 +27,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         holder_bin: holder::holder_bin(),
         hook_socket: paths.hook_socket(),
     });
+    // agw sessions (adopted, architecture.md §2.7); agw is looked up on
+    // first use, and without it the provider offers nothing.
+    let agw = AgwProvider::new(AgwConfig::new(paths.hold_dir(), holder::holder_bin()));
     let engine = Engine::open(Deps {
         store: Arc::new(FileStore::new(paths.state_file())),
         paths,
         events: Arc::new(events::AppEvents::new(app.handle().clone())),
         clock: Arc::new(SystemClock::new()),
-        providers: vec![Arc::new(local)],
+        providers: vec![Arc::new(local), Arc::new(agw)],
     });
     app.manage(engine.clone());
     app.manage(Arc::new(pitwall_core::onboarding::elsewhere::Elsewhere::new()));
@@ -130,6 +134,7 @@ pub fn run() {
             commands::onboarding::remove_project,
             commands::onboarding::complete_onboarding,
             commands::onboarding::continue_conversation,
+            commands::onboarding::adopt_session,
             commands::terminals::list_elsewhere,
         ])
         .build(tauri::generate_context!())

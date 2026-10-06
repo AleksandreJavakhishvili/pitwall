@@ -33,6 +33,29 @@ start an agent manually it should also appear."
   to hide the group.
 - Never kill or adopt someone else's process; outside agents stay read-only.
 
+## 3. Restart a terminal as the agent that ran in it (user feedback)
+User: "when I started from a shell and the agent became claude, on restart it
+should be claude."
+- While an agent runs in a terminal, the terminal's record remembers it
+  (`AgentRecord.innerAgent = { kind, kindName, sessionId?, pid?, leftAt? }`,
+  optional in state.json v2): kind and conversation id as detected above
+  (hook, args, newest transcript). It is kept when the agent exits.
+- Restart/Resume of such a terminal launches the login shell, runs the
+  agent's resume command in it (`claude --resume <id>`, hooks wired; a fresh
+  start when no conversation is known), then the terminal's own shell
+  (`…; exec $SHELL`): the conversation continues, and exiting the agent leaves
+  the user at the shell as before. Only on providers that run command lines
+  (`caps.customCommand`); the record's kind stays `shell`.
+- `AgentView.restartAs` names that agent ("Resume Claude Code");
+  `caps.resume` is true when its kind can resume there and its conversation
+  is known.
+- **When it is forgotten:** when another agent is started in the terminal
+  (replaced right away), or once the user has gone on using the shell
+  without it: Enter pressed in the shell after the agent exited **and** 3
+  minutes passed since it exited, while the terminal runs. Exiting the agent
+  and leaving the pane at the prompt, the shell exiting, or Pitwall
+  restarting keeps it.
+
 ## Order
 Backend parts land on top of migration Step 2 (core crate), UI after the
 drag & drop fix lands.

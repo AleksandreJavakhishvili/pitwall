@@ -1,9 +1,9 @@
 //! First-launch auto-detect (docs/spec/onboarding.md). Strictly read-only:
 //! it looks at agent transcripts, editor "recently opened" lists, a few
 //! well-known code folders and the process table. The only programs it runs
-//! are `<agent> --version`, `agw --version`, `agw session list`, `agw vm list`, `ps`,
-//! `lsof` and `sqlite3` (read-only, immutable). Every step is independent and
-//! a failing step never aborts the scan.
+//! are `<agent> --version`, `ps`, `lsof` and `sqlite3` (read-only,
+//! immutable), plus each provider's read-only `discover` (agw: its listings).
+//! Every step is independent and a failing step never aborts the scan.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -14,6 +14,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::Value;
 
+use super::places::ScannedPlace;
 use super::project_list::{self, ProjectList};
 use crate::kind::{HookMode, KindCatalog};
 use crate::model::KindView;
@@ -116,49 +117,6 @@ pub struct RunningAgent {
     pub display_project: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgwInfo {
-    pub path: String,
-    pub version: Option<String>,
-    /// One per agw VM with its sessions; `None` when agw couldn't list them.
-    pub machines: Option<Vec<AgwMachine>>,
-}
-
-/// An agw VM ("machine" in Pitwall terms) and the sessions on it.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AgwMachine {
-    /// VM name: the id agw commands take (`--vm <id>`).
-    pub id: String,
-    /// vm-site it lives at ("lima-local", …).
-    pub site: Option<String>,
-    /// Live VM state (`observed_status`, e.g. "running"); `None` when unknown.
-    pub status: Option<String>,
-    pub sessions: Vec<AgwSession>,
-}
-
-/// One `agw session list` row. Info only for now; the agw provider (wave 2)
-/// attaches by `machine` + `name`.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AgwSession {
-    /// VM name (`AgwMachine::id`).
-    pub machine: String,
-    /// Session name, unique across agw.
-    pub name: String,
-    /// Pitwall kind id: "claude" | "codex" | "shell", else the harness id.
-    pub kind: String,
-    pub kind_name: String,
-    /// agw harness integration ("claude-code", …).
-    pub harness: Option<String>,
-    pub workspace: Option<String>,
-    /// Agent (Linux user) it runs as; `None` = the VM's admin user.
-    pub agent: Option<String>,
-    /// "running" | "stopped" | "unknown"
-    pub status: String,
-}
-
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
@@ -166,7 +124,9 @@ pub struct ScanResult {
     pub projects: Vec<ScannedProject>,
     pub conversations: Vec<Conversation>,
     pub running: Vec<RunningAgent>,
-    pub agw: Option<AgwInfo>,
+    /// Other places agents run (agw VMs, …) and the sessions there that
+    /// can be added to Pitwall, from each provider's `discover`.
+    pub places: Vec<ScannedPlace>,
     pub codex_hooks: Option<CodexHooksStatus>,
 }
 
@@ -184,11 +144,14 @@ pub struct ScanProgress {
 /// Run every step, reporting progress as it goes. `projects` is Pitwall's
 /// own list (marks what is already added, and remembered project choices).
 /// `views`: the kinds on this machine, installed resolved (`Engine::list_kinds`).
+/// `places`: the other places agents run, with their sessions (read-only
+/// `discover` of each provider, see [`super::places`]).
 pub fn scan(
     paths: &Paths,
     kinds: &KindCatalog,
     views: &[KindView],
     projects: &ProjectList,
+    places: &(dyn Fn() -> Vec<ScannedPlace> + Sync),
     progress: &dyn Fn(ScanProgress),
 ) -> ScanResult {
     let mut result = ScanResult::default();
@@ -205,14 +168,14 @@ pub fn scan(
         progress(ScanProgress { step: name, status, summary: Some(summary) });
     };
 
-    // agw is where agents run, so it is part of this step (not a separate one).
+    // Other places agents run (agw, …) are part of this step, not separate ones.
     step("agents", &mut || {
-        let (agents, agw) = std::thread::scope(|s| {
-            let agw = s.spawn(agw);
-            (scan_agents(views), agw.join().ok().flatten())
+        let (agents, places) = std::thread::scope(|s| {
+            let places = s.spawn(places);
+            (scan_agents(views), places.join().unwrap_or_default())
         });
         result.agents = agents;
-        result.agw = agw;
+        result.places = places;
         let mut found: Vec<String> = result
             .agents
             .iter()
@@ -222,9 +185,7 @@ pub fn scan(
                 None => a.name.clone(),
             })
             .collect();
-        if let Some(info) = &result.agw {
-            found.push(agw_summary(info));
-        }
+        found.extend(result.places.iter().map(place_summary));
         StepOutcome::Done(if found.is_empty() { "none found".into() } else { found.join(" · ") })
     });
 
@@ -240,23 +201,24 @@ pub fn scan(
     });
 
     step("running", &mut || {
-        let agw_sessions: usize = result
-            .agw
-            .as_ref()
-            .and_then(|a| a.machines.as_ref())
-            .map_or(0, |m| m.iter().map(|m| m.sessions.len()).sum());
-        let on_agw = (agw_sessions > 0).then(|| format!("{} on agw", plural(agw_sessions, "session")));
+        let elsewhere: Vec<String> = result
+            .places
+            .iter()
+            .filter_map(|p| {
+                let n: usize = p.machines.as_ref()?.iter().map(|m| m.sessions.len()).sum();
+                (n > 0).then(|| format!("{} on {}", plural(n, "session"), p.label))
+            })
+            .collect();
         match running_elsewhere(&folders, kinds) {
             Some(list) => {
                 result.running = list;
                 let here = (!result.running.is_empty()).then(|| format!("{} on this Mac", result.running.len()));
-                let parts: Vec<String> = here.into_iter().chain(on_agw).collect();
+                let parts: Vec<String> = here.into_iter().chain(elsewhere).collect();
                 StepOutcome::Done(if parts.is_empty() { "none".into() } else { parts.join(" · ") })
             }
-            None => StepOutcome::Error(match on_agw {
-                Some(a) => format!("could not read the process list · {a}"),
-                None => "could not read the process list".into(),
-            }),
+            None => StepOutcome::Error(
+                std::iter::once("could not read the process list".to_string()).chain(elsewhere).collect::<Vec<_>>().join(" · "),
+            ),
         }
     });
     fill_running_sessions(&mut result.running, &result.conversations);
@@ -293,6 +255,18 @@ enum StepOutcome {
 
 fn plural(n: usize, word: &str) -> String {
     format!("{n} {word}{}", if n == 1 { "" } else { "s" })
+}
+
+/// "agw 0.19.0 (2 machines)" for the Agents step.
+fn place_summary(p: &ScannedPlace) -> String {
+    let mut s = match &p.version {
+        Some(v) => format!("{} {v}", p.label),
+        None => p.label.clone(),
+    };
+    if let Some(m) = &p.machines {
+        s.push_str(&format!(" ({})", plural(m.len(), "machine")));
+    }
+    s
 }
 
 // ------------------------------------------------------------------ 1. agents
@@ -941,46 +915,7 @@ fn running_elsewhere(folders: &Folders, kinds: &KindCatalog) -> Option<Vec<Runni
     )
 }
 
-// ------------------------------------------------------------------ 5. agw
-
-/// agw on PATH → version + VMs with their sessions. Read-only listings only
-/// (`--status` asks agw for live state; if that is slow or fails, the plain
-/// listing from agw's own config is used). Time-boxed to ~5s overall.
-fn agw() -> Option<AgwInfo> {
-    let path = shell::which("agw")?;
-    let q = shell::quote(&path);
-    let list = |what: &str| {
-        login_shell_within(&format!("exec {q} {what} list --status --output json"), AGW_STATUS_TIMEOUT)
-            .and_then(|o| json_payload(&o))
-            .or_else(|| {
-                login_shell_within(&format!("exec {q} {what} list --output json"), AGW_PLAIN_TIMEOUT)
-                    .and_then(|o| json_payload(&o))
-            })
-    };
-    let (version, sessions, vms) = std::thread::scope(|s| {
-        let v = s.spawn(|| login_shell(&format!("exec {q} --version")).and_then(|o| version_line(&o)));
-        let sessions = s.spawn(|| list("session"));
-        let vms = s.spawn(|| list("vm"));
-        (v.join().ok().flatten(), sessions.join().ok().flatten(), vms.join().ok().flatten())
-    });
-    let machines = agw_machines(vms.as_ref().and_then(parse_agw_vms), sessions.as_ref().and_then(parse_agw_sessions));
-    Some(AgwInfo { path, version, machines })
-}
-
-const AGW_STATUS_TIMEOUT: Duration = Duration::from_secs(4);
-const AGW_PLAIN_TIMEOUT: Duration = Duration::from_millis(2500);
-
-/// "agw 0.19.0 (2 VMs)" for the Agents step.
-fn agw_summary(info: &AgwInfo) -> String {
-    let mut s = match &info.version {
-        Some(v) => format!("agw {v}"),
-        None => "agw".into(),
-    };
-    if let Some(m) = &info.machines {
-        s.push_str(&format!(" ({})", plural(m.len(), "VM")));
-    }
-    s
-}
+// ------------------------------------------------------------------ helpers
 
 /// The JSON document in a command's output (a login shell may print noise first).
 pub fn json_payload(out: &str) -> Option<Value> {
@@ -988,97 +923,6 @@ pub fn json_payload(out: &str) -> Option<Value> {
     serde_json::from_str(out[start..].trim()).ok()
 }
 
-/// `key` array of an agw `--output json` envelope (`{"data": {key: […]}}`),
-/// also accepting a bare array or a top-level `key`.
-fn agw_rows<'a>(v: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
-    v.as_array()
-        .or_else(|| v.get(key).and_then(Value::as_array))
-        .or_else(|| v.get("data").and_then(|d| d.get(key)).and_then(Value::as_array))
-}
-
-fn str_field(row: &Value, key: &str) -> Option<String> {
-    row.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(String::from)
-}
-
-/// Pitwall kind (id, name) for an agw harness integration / template.
-fn agw_kind(harness: Option<&str>) -> (String, String) {
-    let h = harness.unwrap_or("").to_ascii_lowercase();
-    let (id, name) = if h.contains("claude") {
-        ("claude", "Claude Code")
-    } else if h.contains("codex") {
-        ("codex", "Codex")
-    } else if h.is_empty() || h.contains("shell") {
-        ("shell", "Shell")
-    } else {
-        return (h.clone(), harness.unwrap_or_default().to_string());
-    };
-    (id.into(), name.into())
-}
-
-/// Rows of `agw session list --output json` (schema_version 1).
-pub fn parse_agw_sessions(v: &Value) -> Option<Vec<AgwSession>> {
-    let rows = agw_rows(v, "sessions")?;
-    Some(
-        rows.iter()
-            .filter_map(|r| {
-                let name = str_field(r, "name")?;
-                let harness = str_field(r, "harness_integration");
-                let (kind, kind_name) = agw_kind(harness.as_deref().or(str_field(r, "template").as_deref()));
-                let status = match str_field(r, "status").map(|s| s.to_ascii_lowercase()).as_deref() {
-                    Some("running") => "running",
-                    Some("stopped") => "stopped",
-                    _ => "unknown",
-                };
-                Some(AgwSession {
-                    machine: str_field(r, "vm_name").unwrap_or_default(),
-                    name,
-                    kind,
-                    kind_name,
-                    harness,
-                    workspace: str_field(r, "workspace_name"),
-                    agent: str_field(r, "agent_name"),
-                    status: status.into(),
-                })
-            })
-            .collect(),
-    )
-}
-
-/// Rows of `agw vm list --output json` (schema_version 1), without sessions.
-pub fn parse_agw_vms(v: &Value) -> Option<Vec<AgwMachine>> {
-    let rows = agw_rows(v, "vms")?;
-    Some(
-        rows.iter()
-            .filter_map(|r| {
-                Some(AgwMachine {
-                    id: str_field(r, "name")?,
-                    site: str_field(r, "site"),
-                    status: str_field(r, "observed_status"),
-                    sessions: Vec::new(),
-                })
-            })
-            .collect(),
-    )
-}
-
-/// Group sessions under their VM: every listed VM (even without sessions),
-/// plus any VM only named by a session. Running sessions first, then by name.
-pub fn agw_machines(vms: Option<Vec<AgwMachine>>, sessions: Option<Vec<AgwSession>>) -> Option<Vec<AgwMachine>> {
-    if vms.is_none() && sessions.is_none() {
-        return None;
-    }
-    let mut machines = vms.unwrap_or_default();
-    for s in sessions.unwrap_or_default() {
-        match machines.iter_mut().find(|m| m.id == s.machine) {
-            Some(m) => m.sessions.push(s),
-            None => machines.push(AgwMachine { id: s.machine.clone(), site: None, status: None, sessions: vec![s] }),
-        }
-    }
-    for m in &mut machines {
-        m.sessions.sort_by(|a, b| (a.status != "running", &a.name).cmp(&(b.status != "running", &b.name)));
-    }
-    Some(machines)
-}
 
 // ------------------------------------------------------------------ 6. rules
 
@@ -1282,62 +1126,22 @@ mod tests {
         assert_eq!(version_line("no digits 42"), None);
     }
 
-    fn agw_fixture(src: &str) -> Value {
-        json_payload(src).expect("fixture is JSON")
-    }
-
     #[test]
-    fn agw_session_list_json() {
-        let got = parse_agw_sessions(&agw_fixture(include_str!("scan_fixtures/agw_session_list.json"))).unwrap();
-        assert_eq!(got.len(), 2);
-        let s = &got[0];
-        assert_eq!((s.machine.as_str(), s.name.as_str()), ("shakedown", "gwlive"));
-        assert_eq!((s.kind.as_str(), s.kind_name.as_str()), ("claude", "Claude Code"));
-        assert_eq!(s.harness.as_deref(), Some("claude-code"));
-        assert_eq!(s.workspace.as_deref(), Some("gwlive"));
-        assert_eq!(s.agent, None);
-        assert_eq!(s.status, "running");
-        assert_eq!(got[1].status, "stopped");
-        // Without `--status` agw reports "unavailable".
-        let plain = parse_agw_sessions(&agw_fixture(include_str!("scan_fixtures/agw_session_list_nostatus.json"))).unwrap();
-        assert!(plain.iter().all(|s| s.status == "unknown"));
-        // Login-shell noise before the JSON, other harnesses, agent mode.
-        let v = agw_fixture(
-            "Last login: Mon\n{\"data\":{\"sessions\":[{\"name\":\"x\",\"vm_name\":\"dev\",\"harness_integration\":\"codex\",\"mode\":\"agent\",\"agent_name\":\"bot\",\"status\":\"running\"},{\"name\":\"y\",\"vm_name\":\"dev\",\"harness_integration\":\"login-shell\"},{\"name\":\"z\",\"harness_integration\":\"opencode\"},{\"vm_name\":\"nameless\"}]}}",
-        );
-        let got = parse_agw_sessions(&v).unwrap();
-        assert_eq!(got.len(), 3);
-        assert_eq!((got[0].kind.as_str(), got[0].agent.as_deref()), ("codex", Some("bot")));
-        assert_eq!((got[1].kind.as_str(), got[1].status.as_str()), ("shell", "unknown"));
-        assert_eq!((got[2].kind.as_str(), got[2].kind_name.as_str()), ("opencode", "opencode"));
+    fn json_after_noise() {
+        assert_eq!(json_payload("Last login: Mon\n{\"a\":1}"), Some(serde_json::json!({"a": 1})));
         assert!(json_payload("oops").is_none());
-        assert!(parse_agw_sessions(&agw_fixture("{\"data\":{}}")).is_none());
     }
 
     #[test]
-    fn agw_vm_list_json_and_grouping() {
-        let vms = parse_agw_vms(&agw_fixture(include_str!("scan_fixtures/agw_vm_list.json"))).unwrap();
-        assert_eq!(vms.len(), 1);
-        assert_eq!(vms[0].id, "shakedown");
-        assert_eq!(vms[0].site.as_deref(), Some("lima-local"));
-        assert_eq!(vms[0].status.as_deref(), Some("running"));
-        let mut sessions = parse_agw_sessions(&agw_fixture(include_str!("scan_fixtures/agw_session_list.json"))).unwrap();
-        // A stopped session sorts after running ones; a VM missing from `vm list` still gets a group.
-        sessions.reverse();
-        let mut orphan = sessions[0].clone();
-        orphan.machine = "gpu-box".into();
-        orphan.name = "train".into();
-        sessions.push(orphan);
-        let m = agw_machines(Some(vms.clone()), Some(sessions)).unwrap();
-        assert_eq!(m.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["shakedown", "gpu-box"]);
-        assert_eq!(m[0].sessions.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["gwlive", "work"]);
-        assert_eq!(m[1].site, None);
-        // Either listing alone is enough; neither → unknown.
-        assert_eq!(agw_machines(Some(vms), None).unwrap()[0].sessions.len(), 0);
-        assert_eq!(agw_machines(None, None), None);
-        let info = AgwInfo { path: "agw".into(), version: Some("0.19.0".into()), machines: Some(m) };
-        assert_eq!(agw_summary(&info), "agw 0.19.0 (2 VMs)");
-        assert_eq!(agw_summary(&AgwInfo { machines: None, ..info }), "agw 0.19.0");
+    fn places_are_summarised() {
+        let p = ScannedPlace {
+            provider: "agw".into(),
+            label: "agw".into(),
+            version: Some("0.19.0".into()),
+            machines: Some(vec![]),
+        };
+        assert_eq!(place_summary(&p), "agw 0.19.0 (0 machines)");
+        assert_eq!(place_summary(&ScannedPlace { machines: None, version: None, ..p }), "agw");
     }
 
     #[test]
@@ -1361,15 +1165,6 @@ mod tests {
         assert_eq!(f.order, vec!["/a"]);
     }
 
-    /// Read-only agw listing on this machine: `cargo test smoke_agw -- --ignored --nocapture`.
-    #[test]
-    #[ignore]
-    fn smoke_agw() {
-        let t = Instant::now();
-        let info = agw();
-        eprintln!("took {:?}\n{info:#?}", t.elapsed());
-    }
-
     /// Read-only scan of this machine: `cargo test smoke_scan -- --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -1378,7 +1173,7 @@ mod tests {
         let kinds = KindCatalog::new(pw.user_agents_dir());
         let projects = ProjectList::new(pw.projects_file());
         let t = Instant::now();
-        let r = scan(&pw, &kinds, &[], &projects, &|p| eprintln!("{:>13} {:>8} {}", p.step, p.status, p.summary.unwrap_or_default()));
+        let r = scan(&pw, &kinds, &[], &projects, &Vec::new, &|p| eprintln!("{:>13} {:>8} {}", p.step, p.status, p.summary.unwrap_or_default()));
         eprintln!("took {:?}", t.elapsed());
         for p in r.projects.iter().take(12) {
             eprintln!("  {} {:?} {:?}", p.display, p.sources, p.last_used);
@@ -1389,7 +1184,6 @@ mod tests {
         for a in &r.running {
             eprintln!("  pid {} {} {:?}", a.pid, a.kind, a.cwd_display);
         }
-        eprintln!("  agw {:?}", r.agw);
     }
 
     #[test]

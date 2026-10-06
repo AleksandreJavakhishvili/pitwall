@@ -7,6 +7,7 @@ import type { FileChange } from "../../types";
 import type { ReviewComment } from "./comments";
 import { defineThemes, languageFor, monaco } from "./monaco";
 import { Kbd } from "../Kbd";
+import { onSchemeChange } from "../../lib/theme";
 
 interface Props {
   agentId: string;
@@ -30,14 +31,12 @@ const GUTTER = new Set<number>([
 function useTheme(): string {
   const [theme, setTheme] = useState(defineThemes);
   useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
-    const on = () => {
+    // Settings → Appearance, or macOS while on System. Redefine from the (now switched) CSS tokens.
+    return onSchemeChange(() => {
       const t = defineThemes();
       monaco.editor.setTheme(t);
       setTheme(t);
-    };
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
+    });
   }, []);
   return theme;
 }

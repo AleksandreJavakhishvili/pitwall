@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText, getApi } from "../../api";
 import type {
   AgentView,
-  AgwMachine,
-  AgwSession,
   RunningElsewhere,
+  ScannedMachine,
+  ScannedSession,
   ScanProgress,
   ScanResult,
   ScanStep,
@@ -24,6 +24,7 @@ import {
   defaultSelection,
   planAgents,
   rememberedShowUnder,
+  sessionKey,
   startAll,
   type PlannedAgent,
 } from "./projects";
@@ -78,6 +79,8 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
   const [convSel, setConvSel] = useState<Set<string>>(new Set());
   const [runSel, setRunSel] = useState<Set<number>>(new Set());
   const [fresh, setFresh] = useState<Record<string, string>>({});
+  // Sessions on other machines (agw) to add to Pitwall, by `sessionKey`.
+  const [adoptSel, setAdoptSel] = useState<Set<string>>(new Set());
   // "Show under project…" for conversations started outside a project (convKey → project path).
   const [showUnder, setShowUnder] = useState<Record<string, string>>({});
   /** Row whose picker asked for "Add folder…" (the form opens under it). */
@@ -155,7 +158,10 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
     ? projectConvs
     : projectConvs.filter((c, i) => i < FIRST_CONVERSATIONS || convSel.has(convKey(c)));
   const running = result?.running ?? [];
-  const agwMachines = result?.agw?.machines ?? [];
+  const places = result?.places ?? [];
+  const placeMachines = places.flatMap((p) => (p.machines ?? []).map((m) => ({ place: p, machine: m })));
+  const adoptable = placeMachines.flatMap(({ machine }) => machine.sessions).filter((x) => !x.inPitwall);
+  const adopts = adoptable.filter((x) => adoptSel.has(sessionKey(x)));
   const newCount = [...selected].filter((p) => !projects.find((x) => x.path === p)?.added).length;
   const kindChoices = result?.agents.filter((a) => a.installed) ?? [];
   // The backend lists kinds in its preferred order.
@@ -174,6 +180,13 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
       }),
     [conversations, convSel, running, runSel, fresh, agents, showUnder],
   );
+  const startCount = plan.length + adopts.length;
+  const toggleAdopt = (x: ScannedSession) =>
+    setAdoptSel((sel) => {
+      const next = new Set(sel);
+      if (!next.delete(sessionKey(x))) next.add(sessionKey(x));
+      return next;
+    });
   /** Projects that already get an agent from a ticked conversation / running session. */
   const covered = useMemo(() => new Set(plan.filter((p) => p.sessionId).map((p) => p.displayProject ?? p.projectPath)), [plan]);
 
@@ -295,7 +308,7 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
 
   const startOne = async (p: PlannedAgent) => {
     // Start at the tile size it gets on hand-over, so its first frames fit.
-    const size = await handOverSize(plan.indexOf(p), plan.length, agents.length);
+    const size = await handOverSize(plan.indexOf(p), startCount, agents.length);
     return p.sessionId
       ? api.continueConversation({
           kind: p.kind,
@@ -447,11 +460,24 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
       await run(Promise.reject(msg), "install Codex hooks");
     }
     // One by one; a failure is a toast and the rest still start.
+    const total = todo.length + adopts.length;
     const created = await startAll(todo, startOne, {
-      onProgress: (done, total) => setProgress({ done, total }),
+      onProgress: (done) => setProgress({ done, total }),
       onError: (p, e) => void run(Promise.reject(e), `start ${p.name}`),
     });
-    onFinished(created);
+    // Sessions on other machines: tracked and attached, nothing changes there.
+    const added = await startAll(
+      adopts,
+      async (x) => {
+        const size = await handOverSize(todo.length + adopts.indexOf(x), total, agents.length);
+        return api.adoptSession({ provider: x.provider, machine: x.machine, native: x.native, ...size });
+      },
+      {
+        onProgress: (done) => setProgress({ done: todo.length + done, total }),
+        onError: (x, e) => void run(Promise.reject(e), `add ${x.name}`),
+      },
+    );
+    onFinished([...created, ...added]);
   };
 
   const skip = async () => {
@@ -662,11 +688,11 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
                   </div>
                 )}
 
-                {(running.length > 0 || result.agw) && (
+                {(running.length > 0 || places.length > 0) && (
                   <div className="onb-section">
                     <div className="onb-section-head">
                       <h2 className="label">Running now</h2>
-                      <span className="label-count">{running.length + agwMachines.reduce((n, m) => n + m.sessions.length, 0)}</span>
+                      <span className="label-count">{running.length + placeMachines.reduce((n, { machine }) => n + machine.sessions.length, 0)}</span>
                     </div>
                     {running.length > 0 && (
                       <>
@@ -708,17 +734,28 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
                         </ul>
                       </>
                     )}
-                    {agwMachines.map((m) => (
-                      <AgwGroup key={m.id} machine={m} />
+                    {placeMachines.map(({ place, machine }) => (
+                      <MachineGroup
+                        key={`${place.provider}:${machine.id}`}
+                        place={place.label}
+                        machine={machine}
+                        selected={adoptSel}
+                        onToggle={toggleAdopt}
+                      />
                     ))}
-                    {result.agw && result.agw.machines === null && (
+                    {places
+                      .filter((p) => p.machines === null)
+                      .map((p) => (
+                        <p key={p.provider} className="hint">
+                          {[p.label, p.version].filter(Boolean).join(" ")} is installed, but its machines and sessions couldn't
+                          be listed.
+                        </p>
+                      ))}
+                    {adoptable.length > 0 && (
                       <p className="hint">
-                        {["agw", result.agw.version].filter(Boolean).join(" ")} is installed, but its VMs and sessions
-                        couldn't be listed.
+                        Adding a session only starts tracking it: Pitwall attaches to its terminal and reads its status from the
+                        screen. Nothing changes on the machine.
                       </p>
-                    )}
-                    {agwMachines.length > 0 && (
-                      <p className="hint">agw sessions are shown for reference — starting them from Pitwall comes with agw support.</p>
                     )}
                   </div>
                 )}
@@ -776,7 +813,7 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
               Starting {plural(progress.total, "agent")}… {progress.done + 1}/{progress.total}
             </span>
           )}
-          {!finishError && !finishing && result && plan.length === 0 && (
+          {!finishError && !finishing && result && startCount === 0 && (
             <span className="muted-sm">No agents will start — tick a conversation or “Start a new agent”.</span>
           )}
           <span className="spacer" />
@@ -789,10 +826,10 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
                 ? "Starting…"
                 : "Saving…"
               : mode === "welcome"
-                ? plan.length > 0
-                  ? `Start Pitwall · ${plural(plan.length, "agent")} →`
+                ? startCount > 0
+                  ? `Start Pitwall · ${plural(startCount, "agent")} →`
                   : "Start Pitwall →"
-                : [newCount > 0 && `Add ${plural(newCount, "project")}`, plan.length > 0 && `start ${plural(plan.length, "agent")}`]
+                : [newCount > 0 && `Add ${plural(newCount, "project")}`, startCount > 0 && `start ${plural(startCount, "agent")}`]
                     .filter(Boolean)
                     .join(" · ")
                     .replace(/^s/, "S") || "Done"}
@@ -803,34 +840,51 @@ export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
   );
 }
 
-const AGW_STATUS: Record<AgwSession["status"], string> = { running: "running", stopped: "stopped", unknown: "status unknown" };
+const SESSION_STATUS: Record<ScannedSession["status"], string> = { running: "running", stopped: "stopped", unknown: "status unknown" };
 
-/** One agw VM and its sessions: shown, not tickable yet (agw provider is wave 2). */
-function AgwGroup({ machine: m }: { machine: AgwMachine }) {
+/** One machine of another place (an agw VM) and its sessions, each with "Add to Pitwall". */
+function MachineGroup({
+  place,
+  machine: m,
+  selected,
+  onToggle,
+}: {
+  place: string;
+  machine: ScannedMachine;
+  selected: Set<string>;
+  onToggle(x: ScannedSession): void;
+}) {
   return (
     <>
       <div className="onb-machine">
-        <span className="onb-machine-name mono">{m.id}</span>
-        <span className="muted-sm">{["agw VM", m.site, m.status].filter(Boolean).join(" · ")}</span>
+        <span className="onb-machine-name mono">{m.label}</span>
+        <span className="muted-sm">{[place, m.detail].filter(Boolean).join(" · ")}</span>
       </div>
       <ul className="onb-list">
         {m.sessions.length === 0 && <li className="onb-row muted-sm">No sessions</li>}
-        {m.sessions.map((s) => (
-          <li key={s.name}>
-            <label className="onb-row onb-pick" data-disabled="true" title="Available with agw support">
-              <input type="checkbox" checked={false} disabled readOnly />
-              <span className="chip chip-subtle onb-kind">{s.kindName}</span>
-              <span className="onb-row-main">
-                <span className="mono onb-conv-title">{s.name}</span>
-                <span className="muted-sm onb-conv-where">
-                  {[s.workspace && `workspace ${s.workspace}`, s.agent ? `agent ${s.agent}` : "admin"].filter(Boolean).join(" · ")}
+        {m.sessions.map((x) => {
+          const checked = !x.inPitwall && selected.has(sessionKey(x));
+          return (
+            <li key={x.native}>
+              <label className="onb-row onb-pick" data-checked={checked} data-disabled={x.inPitwall}>
+                <input type="checkbox" checked={checked} disabled={x.inPitwall} onChange={() => onToggle(x)} />
+                <span className="chip chip-subtle onb-kind">{x.kindName}</span>
+                <span className="onb-row-main">
+                  <span className="mono onb-conv-title">{x.name}</span>
+                  <span className="muted-sm onb-conv-where">
+                    {[x.workspace && `workspace ${x.workspace}`, x.user ? `as ${x.user}` : null].filter(Boolean).join(" · ")}
+                  </span>
                 </span>
-              </span>
-              <span className={`chip ${s.status === "running" ? "chip-ok" : "chip-subtle"}`}>{AGW_STATUS[s.status]}</span>
-              <span className="muted-sm onb-when">available with agw support</span>
-            </label>
-          </li>
-        ))}
+                <span className={`chip ${x.status === "running" ? "chip-ok" : "chip-subtle"}`}>{SESSION_STATUS[x.status]}</span>
+                {x.inPitwall ? (
+                  <span className="chip chip-ok">in Pitwall</span>
+                ) : (
+                  <span className="muted-sm onb-when">Add to Pitwall</span>
+                )}
+              </label>
+            </li>
+          );
+        })}
       </ul>
     </>
   );

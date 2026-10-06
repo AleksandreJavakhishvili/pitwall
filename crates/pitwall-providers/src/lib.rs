@@ -5,8 +5,16 @@
 //! - `local` — this Mac. Each agent runs in its own `pitwall-hold` terminal
 //!   holder (§9 decision 1), so it outlives Pitwall; commands run through
 //!   `LocalExec`.
+//! - `agw` — sessions on agw VMs (§2.7), adopted rather than created (step
+//!   8a): the terminal is `agw session attach` running in a holder, status
+//!   comes from the screen, stop/start are agw's own commands.
 //!
 //! Every provider passes `pitwall_core::testing::contract` (see `tests/`).
 
+#[cfg(any(feature = "local", feature = "agw"))]
+pub mod hold;
+
+#[cfg(feature = "agw")]
+pub mod agw;
 #[cfg(feature = "local")]
 pub mod local;

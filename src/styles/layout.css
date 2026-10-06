@@ -1,7 +1,13 @@
+/* The status strip's fixed height: a row that never grows or collapses
+ * (toasts, outside .app, sit above it). */
+:root {
+  --statusbar-h: 28px;
+}
+
 .app {
   height: 100vh;
   display: grid;
-  grid-template-rows: var(--topbar-h) minmax(0, 1fr) auto;
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--statusbar-h);
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "top top top"

@@ -1,7 +1,7 @@
 // Projects as a first-class list: helpers shared by the sidebar and the
 // welcome screen. Pure functions (unit-tested).
 import type { AgentView, Project, RunningElsewhere, ScannedConversation, ScannedProject } from "../../types";
-import type { ProjectGroup } from "../../lib/groups";
+import { sortGroups, type ProjectGroup } from "../../lib/groups";
 import { NAME_RE } from "../../lib/status";
 
 /**
@@ -10,12 +10,12 @@ import { NAME_RE } from "../../lib/status";
  * agent's `project` (repo root). Order stays alphabetical by display.
  */
 export function withProjects(groups: ProjectGroup[], projects: Project[]): ProjectGroup[] {
-  const have = new Set(groups.map((g) => g.project));
+  const have = new Set(groups.filter((g) => g.canCreate).map((g) => g.project));
   const empty: ProjectGroup[] = projects
     .filter((p) => !have.has(p.path))
-    .map((p) => ({ project: p.path, display: p.display, agents: [], blocked: 0 }));
+    .map((p) => ({ key: p.path, project: p.path, display: p.display, machine: null, canCreate: true, agents: [], blocked: 0 }));
   if (!empty.length) return groups;
-  return [...groups, ...empty].sort((a, b) => a.display.localeCompare(b.display));
+  return sortGroups([...groups, ...empty]);
 }
 
 /** Default selection on the welcome screen: recent agent projects (≤ 30 days), max 12. */
@@ -154,13 +154,13 @@ export function planAgents(input: {
 }
 
 /**
- * Start planned agents one by one. A failure is reported (`onError`) and the
- * rest still start. Returns the agents that started, in plan order.
+ * Start planned agents (or add sessions) one by one. A failure is reported
+ * (`onError`) and the rest still start. Returns what started, in plan order.
  */
-export async function startAll<T>(
-  plan: PlannedAgent[],
-  start: (p: PlannedAgent) => Promise<T>,
-  hooks: { onProgress?(done: number, total: number): void; onError?(p: PlannedAgent, e: unknown): void } = {},
+export async function startAll<P, T>(
+  plan: P[],
+  start: (p: P) => Promise<T>,
+  hooks: { onProgress?(done: number, total: number): void; onError?(p: P, e: unknown): void } = {},
 ): Promise<T[]> {
   const out: T[] = [];
   for (let i = 0; i < plan.length; i++) {
@@ -173,3 +173,6 @@ export async function startAll<T>(
   }
   return out;
 }
+
+/** Identity of a session found on another machine (what "Add to Pitwall" takes). */
+export const sessionKey = (s: { provider: string; machine: string; native: string }) => `${s.provider}:${s.machine}/${s.native}`;

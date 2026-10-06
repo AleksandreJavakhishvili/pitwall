@@ -13,7 +13,7 @@ stays intuitive. Concepts, in the order a user meets them:
    custom spaces mixing agents from 2–3 projects (drag agents in from the sidebar).
 3. **Windows**: any space can be moved to its own OS window ("Move to new
    window", ⌘⇧N, or drag a tab out) — for a second monitor. Every window has the
-   same sidebar, its own tabs, and the global "needs you" bar.
+   same sidebar, its own tabs, and the global "needs you" strip.
 
 Rules that keep it simple:
 - **An agent is shown in at most one pane at a time.** Clicking an agent that is
@@ -93,3 +93,18 @@ Expected behaviour (VS Code editor-group feel), with a clear drop preview:
   (cross-window native drag is out of scope).
 - Never restart or resize-thrash a process: moving only re-parents the xterm
   and sends one final resize.
+
+## Revision: the "needs you" strip never changes the layout (user feedback)
+
+User: "this yellow stuff shouldn't change the layout, it should be visible at
+the bottom."
+- The bottom of every window is a **permanent status strip** of fixed height
+  (`--statusbar-h`, 28px; a fixed grid row). Only its look changes, never its
+  size, so terminals are never resized by it (no PTY resize churn or TUI redraws):
+  - calm (neutral): "◐ 3 working · Nothing needs you" and a ⌘K hint;
+  - amber: "▲ NAME needs you: detail · +N more" and **Jump ⌘J**;
+  - mint: "⚑ NAME finished · +N more" and **Show**, when only finished agents wait.
+- Narrow windows (sm/xs) drop hints, never the height. Both themes use the
+  status tokens; colour changes fade (none with reduced motion).
+- Other transient UI never takes layout space either: toasts float above the
+  strip (`position: fixed`), stopped/drop overlays sit on top of their pane.

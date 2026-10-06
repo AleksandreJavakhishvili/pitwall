@@ -9,6 +9,7 @@ import { useShortcuts } from "./lib/useShortcuts";
 import { useBreakpoint } from "./lib/useBreakpoint";
 import { usePersistentFlag } from "./lib/usePersistentFlag";
 import { useUiState } from "./state/useUiState";
+import { applyTheme } from "./lib/theme";
 import { isPaneHidden } from "./state/hidden";
 import * as W from "./state/workspace";
 import { clampFont, stepTileFont } from "./layout/density";
@@ -29,7 +30,7 @@ import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { SpaceView } from "./components/SpaceView";
 import { RightPanel } from "./components/RightPanel";
-import { AttentionBar } from "./components/AttentionBar";
+import { StatusStrip } from "./components/StatusStrip";
 import { Toasts } from "./components/Toasts";
 import { DiffView } from "./components/DiffView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
@@ -158,6 +159,11 @@ export default function App() {
 
   // Terminal font size is global.
   useEffect(() => setTerminalFontSize(ui.fontSize), [ui.fontSize]);
+
+  // Appearance is global too. Until the blob loads, index.html's pre-paint mirror rules.
+  useEffect(() => {
+    if (ready) applyTheme(ui.theme);
+  }, [ready, ui.theme]);
 
   // Terminals: drop instances of removed agents or agents now shown in another window;
   // re-attach after a restart (not running → running).
@@ -340,6 +346,8 @@ export default function App() {
     openBringIn: (row) => setModal({ type: "bring", row }),
     hideElsewhere: ui.hideElsewhere,
     setHideElsewhere: (hide) => update((s) => W.setHideElsewhere(s, hide)),
+    theme: ui.theme,
+    setTheme: (theme) => update((s) => W.setTheme(s, theme)),
     openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
     openNewAgent: (p) => setModal({ type: "new", projectPath: typeof p === "string" ? p : undefined }),
@@ -570,7 +578,8 @@ export default function App() {
           </>
         )}
 
-        {blocked.length > 0 && <AttentionBar blocked={blocked} onJump={nextBlocked} />}
+        {/* Always rendered at a fixed height: what needs you never resizes the terminals. */}
+        <StatusStrip agents={ordered} onJump={nextBlocked} onShow={showAgent} />
       </div>
 
       <Toasts toasts={toasts} onDismiss={dismiss} onJump={showAgent} />
@@ -609,6 +618,7 @@ export default function App() {
             presets: activeRef.current ? presetsFor(measureTiling(ui, activeRef.current, resp.maxPerRow)) : undefined,
             density: (d, scope) => actions.setDensity(d, scope === "space" ? (activeRef.current ?? undefined) : undefined),
             settings: () => setModal({ type: "settings" }),
+            theme: actions.setTheme,
           }}
         />
       )}

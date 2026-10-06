@@ -1,7 +1,8 @@
-//! The local provider's terminal: a connection to the agent's `pitwall-hold`
-//! holder, as a raw byte pipe ([`TermIo`]). The holder owns the PTY and the
-//! process, so closing this connection never ends the agent — only an
-//! explicit [`close`](TermIo::close) (hang-up, then kill) does.
+//! A terminal in a `pitwall-hold` holder, as a raw byte pipe ([`TermIo`]).
+//! The holder owns the PTY and the process, so closing this connection
+//! never ends the process — only an explicit [`close`](TermIo::close)
+//! (hang-up, then kill) does. The local provider runs agents in holders;
+//! the agw provider runs its attachments (`agw session attach`) in them.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
@@ -49,20 +50,43 @@ pub struct Spawn<'a> {
 /// connect to it.
 pub fn spawn(spec: Spawn) -> Result<HoldTerm> {
     let (program, args) = pitwall_core::shell::login_invocation(&launch_script(spec.command_line));
-    let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+    let env = [
+        ("PITWALL_ENV", OsStr::new("1")),
+        ("PITWALL_AGENT_ID", OsStr::new(spec.agent_id)),
+        ("PITWALL_SOCKET", spec.hook_socket.as_os_str()),
+    ];
+    let program = Program { program: &program, args: &args, cwd: Some(Path::new(spec.cwd)), env: &env };
+    run(spec.holder, spec.socket, spec.size, program).map_err(|e| PwError::other(format!("could not start agent: {e}")))?;
+    // Even if it already exited: its output and exit still come through.
+    HoldTerm::connect(spec.socket, true).map_err(|e| PwError::other(format!("could not connect to the agent's terminal: {e}")))
+}
+
+/// A program to run in a holder, as it is (no shell around it).
+pub struct Program<'a> {
+    pub program: &'a str,
+    pub args: &'a [String],
+    pub cwd: Option<&'a Path>,
+    /// Added to the environment (which is Pitwall's own, minus a parent
+    /// Claude Code session's variables, with a 256-colour `TERM`).
+    pub env: &'a [(&'a str, &'a OsStr)],
+}
+
+/// Start `p` in a new holder listening on `socket`.
+pub fn run(holder: &Path, socket: &Path, size: TermSize, p: Program) -> io::Result<()> {
+    let args: Vec<OsString> = p.args.iter().map(OsString::from).collect();
     let mut cmd = client::command(
-        spec.holder,
+        holder,
         &Launch {
-            socket: spec.socket,
-            cols: spec.size.cols,
-            rows: spec.size.rows,
-            cwd: Some(Path::new(spec.cwd)),
+            socket,
+            cols: size.cols,
+            rows: size.rows,
+            cwd: p.cwd,
             grace: None,
-            program: OsStr::new(&program),
+            program: OsStr::new(p.program),
             args: &args,
         },
     );
-    // The holder passes its environment to the agent unchanged.
+    // The holder passes its environment to the process unchanged.
     for (key, _) in std::env::vars_os() {
         if key.to_str().is_some_and(is_claude_session_var) {
             cmd.env_remove(key);
@@ -70,12 +94,10 @@ pub fn spawn(spec: Spawn) -> Result<HoldTerm> {
     }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("PITWALL_ENV", "1");
-    cmd.env("PITWALL_AGENT_ID", spec.agent_id);
-    cmd.env("PITWALL_SOCKET", spec.hook_socket);
-    client::launch(&mut cmd).map_err(|e| PwError::other(format!("could not start agent: {e}")))?;
-    // Even if it already exited: its output and exit still come through.
-    HoldTerm::connect(spec.socket, true).map_err(|e| PwError::other(format!("could not connect to the agent's terminal: {e}")))
+    for (k, v) in p.env {
+        cmd.env(k, v);
+    }
+    client::launch(&mut cmd).map(|_| ())
 }
 
 /// Exit status and "the connection ended", shared with the reader.

@@ -50,8 +50,53 @@
   color-scheme: dark;
 }
 
+/*
+ * Light tokens. Appearance (Settings → Appearance, src/lib/theme.ts) sets
+ * <html data-theme="dark|light">, or no attribute for System. Light applies when
+ * forced, or on System when macOS is light. CSS can't OR an attribute selector
+ * with a media query, so the block appears twice: KEEP BOTH COPIES IDENTICAL
+ * (src/lib/theme.test.ts fails the build if they drift).
+ */
+:root[data-theme="light"] {
+  --bg: #eef0f2;
+  --surface: #f7f8f9;
+  --surface-2: #eef0f2;
+  --surface-3: #e4e7ea;
+  --raised: #ffffff;
+  --term-bg: #fbfbfc;
+  --line: #dfe2e6;
+  --line-strong: #cdd1d6;
+  --text: #15181c;
+  --text-2: #4f5661;
+  --text-3: #7d848e;
+  --text-4: #a9aeb5;
+  --focus: rgba(21, 24, 28, 0.4);
+
+  --green: #14a052;
+  --green-soft: rgba(20, 160, 82, 0.11);
+  --finish: #0e9f7e;
+  --finish-soft: rgba(14, 159, 126, 0.1);
+  --amber: #d98600;
+  --amber-soft: rgba(237, 150, 0, 0.13);
+  --amber-glow: rgba(237, 150, 0, 0.35);
+  --red: #d63a3a;
+  --red-soft: rgba(214, 58, 58, 0.1);
+  --flag: #15181c;
+  --flag-dark: #d4d8dd;
+
+  --diff-add-bg: rgba(20, 160, 82, 0.09);
+  --diff-add-ln: rgba(20, 160, 82, 0.15);
+  --diff-del-bg: rgba(214, 58, 58, 0.08);
+  --diff-del-ln: rgba(214, 58, 58, 0.14);
+
+  --shadow: 0 18px 50px rgba(20, 25, 35, 0.18), 0 0 0 1px var(--line-strong);
+  --backdrop: rgba(30, 34, 40, 0.28);
+
+  color-scheme: light;
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #eef0f2;
     --surface: #f7f8f9;
     --surface-2: #eef0f2;

@@ -12,3 +12,5 @@ hooks = "claude-settings"
 rulesync_target = "claudecode"
 # `claude --worktree [name]` (-w): Claude creates and enters its own worktree.
 worktree_args = ["--worktree", "{name}"]
+# What other platforms call it (agw's harness integration), for adopting their sessions.
+aliases = ["claude-code"]

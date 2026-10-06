@@ -100,3 +100,14 @@ agw is where agents run, and agw sessions ARE agents (Claude/Codex/shell on a VM
 - agw rows are shown but not tickable yet: "available with agw support"
   (wave 2 provider). Keep the data shape ready for that (machine id, session
   name, kind) so the provider can reuse it.
+
+## Revision: agw sessions can be added (Wave 2 step 8a)
+
+The agw rows are tickable now: **"Add to Pitwall"** (default off) adopts the
+session — Pitwall starts tracking it, attaches to its terminal when it runs
+(`agw session attach`), and reads its status from the screen. Nothing changes
+on agw. The scan no longer calls agw itself: `ScanResult.places` lists every
+provider that can adopt sessions (`caps.attachExisting`), with its machines
+and `discover`ed sessions (`inPitwall` by locator), and "Start Pitwall" calls
+`adopt_session` for each ticked one after the planned agents. The Agents step
+summary reads `agw 0.19.0 (1 machine)`; "Running now" `… · 2 sessions on agw`.

@@ -61,6 +61,37 @@ pub fn plan(
     }
 }
 
+/// A terminal that continues the agent last started in it by hand
+/// (docs/spec/terminals.md §3): its login shell runs the agent (resuming
+/// `session_id` when `resume` and the kind can) and then, once the agent
+/// exits, the terminal's own shell, so the pane is a shell again as before.
+/// Returns the kind to launch (a plain command line, the shell's id and
+/// name) and the agent's own plan (its conversation id).
+pub fn then_shell(
+    shell: &AgentKind,
+    agent: &AgentKind,
+    session_id: Option<&str>,
+    resume: bool,
+    hook_command: &str,
+) -> (AgentKind, Plan) {
+    let inner = plan(agent, session_id, resume, hook_command, None);
+    let after = plan(shell, None, false, "", None);
+    let kind = AgentKind {
+        id: shell.id.clone(),
+        name: shell.name.clone(),
+        command: format!("{}; exec {}", inner.command_line, after.command_line),
+        new_args: vec![],
+        resume_args: vec![],
+        assign_session_id: false,
+        hooks: HookMode::None,
+        rulesync_target: None,
+        worktree_args: vec![],
+        process_names: vec![],
+        aliases: vec![],
+    };
+    (kind, inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +148,25 @@ mod tests {
         assert!(!p.command_line.contains("--worktree"));
         assert_eq!(plan(&codex(), None, false, "x", Some("n")).command_line, "codex --worktree");
         assert_eq!(plan(&codex(), Some("s"), true, "x", Some("n")).command_line, "codex resume s");
+    }
+
+    #[test]
+    fn a_terminal_continues_its_agent_then_is_a_shell() {
+        let shell = kind(include_str!("../../agents/shell.toml"));
+        let (k, p) = then_shell(&shell, &claude(), Some("abc"), true, "x");
+        assert!(p.resumed && p.session_id.as_deref() == Some("abc"));
+        assert_eq!((k.id.as_str(), k.hooks), ("shell", HookMode::None));
+        let line = plan(&k, None, false, "x", None).command_line;
+        assert!(line.starts_with("claude --resume abc --settings '"), "{line}");
+        assert!(line.ends_with("; exec $SHELL"), "{line}");
+        // Nothing to resume (or not allowed): the agent starts fresh, with
+        // the id it is given up front.
+        let (k, p) = then_shell(&shell, &claude(), Some("abc"), false, "");
+        let id = p.session_id.clone().unwrap();
+        assert!(!p.resumed && id != "abc");
+        assert_eq!(k.command, format!("claude --session-id {id}; exec $SHELL"));
+        let (k, p) = then_shell(&shell, &codex(), None, true, "x");
+        assert_eq!((k.command.as_str(), p.session_id), ("codex; exec $SHELL", None));
     }
 
     #[test]
