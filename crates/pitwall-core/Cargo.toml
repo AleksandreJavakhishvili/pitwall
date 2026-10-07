@@ -1,0 +1,19 @@
+[package]
+name = "pitwall-core"
+version = "0.1.0"
+edition = "2021"
+description = "Pitwall's logic: the Engine (agents, status, queue, tasks), kinds and launch planning, git/review, rules, onboarding. No UI framework: the host plugs in through narrow traits (EventSink, Clock, Store). architecture.md §1."
+
+[features]
+# Test doubles (`testing::{RecordingSink, ManualClock, MemStore, FakeExec,
+# FakeProvider}`) and the provider contract suite (`testing::contract`) for
+# hosts' and providers' tests.
+testing = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1.27.0", features = ["v4"] }
+toml = "1.1.6"
+pitwall-detect = { path = "../pitwall-detect" }
+pitwall-proto = { path = "../pitwall-proto" }

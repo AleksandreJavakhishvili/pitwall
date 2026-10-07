@@ -1,0 +1,16 @@
+# opencode (sst/opencode). Its plugin hooks need global config edits, so
+# Pitwall uses screen rules (detect/opencode.toml) instead.
+#
+# Not installed on the machine this was written on: fields come from Herdr's
+# integration (it resumes with `opencode --session <id>`) and opencode's
+# public docs, not from `opencode --help`.
+id = "opencode"
+name = "opencode"
+command = "opencode"
+new_args = []
+# Unverified flag. opencode generates its own ids ("ses_..."), so Pitwall
+# can't assign one; without hooks this only applies to ids set by hand.
+resume_args = ["--session", "{session_id}"]
+assign_session_id = false
+hooks = "none"
+rulesync_target = "opencode"

@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"agent.list","data":{"agents":[{"name":"bot","vm_name":"my-vm","template":"claude","grant_all":false,"grants":[{"workspace_name":"work","grant_type":"explicit"}]}]}}

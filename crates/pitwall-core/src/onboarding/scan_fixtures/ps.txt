@@ -1,0 +1,11 @@
+    1     0 /sbin/launchd
+  500     1 /Applications/Pitwall.app/Contents/MacOS/pitwall
+  501   500 /bin/zsh -l -i -c claude --session-id x
+  502   501 claude --session-id x
+41207   700 claude
+  700     1 -zsh
+52318   701 node /usr/local/bin/claude --resume abc
+18422     1 /Users/dev/.codex/packages/app-server-daemon/bin/codex app-server --listen
+36504   700 /opt/homebrew/bin/codex resume 019e
+36505 36504 /opt/homebrew/bin/codex-helper
+40000   700 claude-trace foo

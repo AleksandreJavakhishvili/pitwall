@@ -1,0 +1,168 @@
+# Pitwall screen-detection rules for the Codex CLI.
+#
+# Adapted from Herdr's codex manifest (src/detect/manifests/codex.toml,
+# version 2026.10.01.1), https://github.com/herdrdev/herdr
+# Copyright the Herdr authors (herdrdev). Licensed under the Apache
+# License, Version 2.0. Modified for Pitwall: rule engine schema simplified,
+# hooks-review / new update-screen / composer-idle rules and detail hints
+# added. See NOTICE.
+#
+# Validated against codex-cli 0.159.2 / 0.160.1 screens captured in a PTY.
+# Rules are evaluated by descending priority; the first match wins.
+# A user file at ~/.pitwall/detect/codex.toml replaces this file.
+#
+# Codex layout: history blocks start with "•" (or ■ ✗ ✓), the composer /
+# selection cursor is a line starting with "›". The "current" prompt marker
+# is the last "›" line with no history block below it.
+
+id = "codex"
+version = "2026.10.06"
+
+detail_line = [
+  '(?i)^\s*(would you like to [^\n]*\?)\s*$',
+  '(?i)^\s*(allow command\?)\s*$',
+  '(?i)^\s*(do you want to [^\n]*\?)\s*$',
+  '^\s*([^\s›•\d$][^\n]*\?)\s*$',
+]
+
+# --- Title (set by Codex itself) -------------------------------------------
+
+[[rules]]
+id = "osc_title_blocked"
+state = "blocked"
+priority = 1100
+region = "title"
+contains = ["Action Required"]
+
+[[rules]]
+id = "osc_title_working"
+state = "working"
+priority = 1050
+region = "title"
+regex = ['(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)']
+
+# --- Overlays that say nothing about the agent's state ---------------------
+
+[[rules]]
+id = "transcript_viewer"
+state = "unknown"
+priority = 1000
+region = "after_last_prompt_marker"
+contains = ["↑/↓ to scroll", "pgup/pgdn to", "home/end to jump", "q to quit"]
+any = [
+  { contains = ["esc to edit prev"] },
+  { contains = ["esc/← to edit prev"] },
+]
+
+# --- Startup dialogs -------------------------------------------------------
+
+[[rules]]
+id = "trust_directory"
+state = "blocked"
+priority = 950
+region = "top_non_empty_lines(20)"
+detail = "Trust this folder?"
+all = [
+  { any = [
+    { regex = ['\A> You are in [^\r\n]+(?:\r?\n|$)'] },
+    { contains = ["Folder access"] },
+  ] },
+  { any = [
+    { regex = ['(?s)Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?'] },
+    { all = [
+      { contains = ["Trust this folder?", "Codex can read, edit, and run files here"] },
+      { any = [
+        { contains = ["Trust and continue"] },
+        { contains = ["enter continue"] },
+      ] },
+    ] },
+  ] },
+]
+
+[[rules]]
+id = "hooks_review"
+state = "blocked"
+priority = 950
+region = "bottom_non_empty_lines(12)"
+detail = "Hooks need review"
+contains = ["hooks need review", "enter confirm", "esc skip"]
+
+[[rules]]
+id = "startup_update"
+state = "blocked"
+priority = 950
+region = "bottom_non_empty_lines(20)"
+detail = "Codex update available"
+any = [
+  # <= 0.159
+  { contains = ["Update available!", "Update now"], regex = ['Skip\s+until\s+next\s+version', 'Press enter to continue\s*\z'] },
+  # 0.160+
+  { contains = ["update available", "update now", "skip until next version"], line_regex = ['(?i)^\s*enter continue · esc skip\s*$'] },
+]
+
+# --- Live approval / question prompts --------------------------------------
+
+[[rules]]
+id = "live_strong_blocker"
+state = "blocked"
+priority = 900
+region = "after_last_prompt_marker"
+any = [
+  { contains = ["press enter to confirm or esc to cancel"] },
+  { contains = ["enter to submit answer"] },
+  { contains = ["enter to submit all"] },
+  { contains = ["allow command?"] },
+  { contains = ["All Results", "Filesystem Only", "Plugins"] },
+]
+
+[[rules]]
+id = "weak_blocker"
+state = "blocked"
+priority = 600
+region = "whole_recent_without_current_prompt_marker"
+# Sparkles can replace the space after ›. A later response marker makes that prompt stale.
+not = [{ regex = ['(?m)^›[⠁⠂⠄⠈⠐⠠⡀⢀][^\n]*(?:\n(?:[^•■✗✓\n][^\n]*)?)*\z'] }]
+any = [
+  { contains = ["[y/n]"] },
+  { contains = ["yes (y)"] },
+  { contains = ["do you want to"], any = [{ contains = ["yes"] }, { contains = ["❯"] }] },
+  { contains = ["would you like to"], any = [{ contains = ["yes"] }, { contains = ["❯"] }] },
+]
+
+# --- Working ---------------------------------------------------------------
+
+[[rules]]
+id = "screen_working_fallback"
+state = "working"
+priority = 500
+region = "before_current_prompt_marker"
+# The live status line, e.g. "• Working (5s • esc to interrupt)", with only
+# queued-input lines allowed between it and the composer. Requires the live
+# timer suffix with no later response block.
+any = [{ contains = [" to interrupt)"] }, { contains = ["s)"] }]
+regex = ['(?m)^(?:[•◦][ \t]+)?[^\s›•◦■✗✓─][^\r\n]* \((?:[0-9]+[hm] )*[0-9]+s(?: • [^\r\n]+? to interrupt)?\)(?: · [^\r\n]*)?(?:\r?\n(?:[^•◦›■✗✓─\r\n][^\r\n]*|•[ \t]+(?:Queued\s+follow-up\s+inputs|Messages\s+to\s+be\s+submitted\s+after\s+next\s+tool\s+call(?:\s+\(press\s+[^\r\n]+?\s+to\s+interrupt\s+and\s+send\s+immediately\))?|Messages\s+to\s+be\s+submitted\s+at\s+end\s+of\s+turn)|›[⠁⠂⠄⠈⠐⠠⡀⢀][^\r\n]*)?)*\s*\z']
+# A failed reconnect keeps its final elapsed timer but is no longer working.
+not = [{ line_regex = ['^(?:[•◦][ \t]+)?Reconnect failed — check the endpoint, then relaunch \([0-9hms ]+\)$'] }]
+
+# --- Idle ------------------------------------------------------------------
+
+[[rules]]
+id = "osc_title_idle"
+state = "idle"
+priority = 100
+region = "title"
+regex = ['\S']
+not = [
+  { regex = ['(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)'] },
+  { contains = ["Action Required"] },
+]
+
+[[rules]]
+id = "composer_idle"
+state = "idle"
+priority = 90
+# No title yet: the composer is the current prompt and no rule above saw a
+# live turn or dialog. Selection lists ("› 1. ...") are not the composer.
+region = "current_prompt_line"
+line_regex = ['^›']
+not = [{ line_regex = ['^›\s*\d+\.'] }]

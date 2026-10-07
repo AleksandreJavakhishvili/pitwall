@@ -1,0 +1,142 @@
+#!/bin/sh
+# A fake `agw` for the agw provider's contract test: one VM ("fakevm"),
+# sessions as files in __DIR__ (<name>.state running|stopped, <name>.wsname
+# its workspace when that isn't <name>, <name>.pid the attached "harness",
+# <name>.log its output), workspaces as <ws>.ws (their folder). A session's
+# harness is a tiny line-by-line shell that runs while attached.
+# `session create` takes agw's flags (`--vm` required here) and logs its
+# arguments to create.log. Never touches anything outside __DIR__.
+D='__DIR__'
+[ "$1" = "--non-interactive" ] && shift
+
+# The workspace session $1 works in.
+wsname() {
+    if [ -f "$D/$1.wsname" ]; then cat "$D/$1.wsname"; else echo "$1"; fi
+}
+
+sessions() {
+    printf '{"schema_version":1,"command":"session.list","data":{"sessions":['
+    sep=
+    for f in "$D"/*.state; do
+        [ -e "$f" ] || continue
+        n=$(basename "$f" .state)
+        st=unavailable
+        [ -n "$1" ] && st=$(cat "$f")
+        printf '%s{"name":"%s","workspace_name":"%s","vm_name":"fakevm","harness_integration":"contract-sh","mode":"admin","agent_name":null,"status":"%s"}' "$sep" "$n" "$(wsname "$n")" "$st"
+        sep=,
+    done
+    printf ']}}\n'
+}
+
+case "$1 $2" in
+"--version ") echo "agw 0.19.0-fake" ;;
+"vm list") printf '{"schema_version":1,"command":"vm.list","data":{"vms":[{"name":"fakevm","site":"test-site"}]}}\n' ;;
+"session list")
+    shift 2
+    vm= status=
+    while [ $# -gt 0 ]; do
+        case $1 in --vm) vm=$2; shift ;; --status) status=1 ;; esac
+        shift
+    done
+    [ "$vm" = fakevm ] || { echo "Error: unknown VM '$vm'" >&2; exit 1; }
+    sessions "$status" ;;
+"vm exec"|"agent exec")
+    # Like agw: options before the name, `--` before the remote command,
+    # which runs from the workspace's folder (else the user's home) with its
+    # output, errors and exit status passed through. One VM, one user here.
+    what=$1
+    shift 2
+    ws=
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --workspace) ws=$2; shift 2 ;;
+        -*) echo "Error: no such option: $1" >&2; exit 2 ;;
+        *) break ;;
+        esac
+    done
+    name=$1
+    shift
+    [ "$1" = "--" ] || { echo "Error: expected -- before the remote command, got '$1'" >&2; exit 2; }
+    shift
+    [ "$what" = vm ] && [ "$name" != fakevm ] && { echo "Error: VM '$name' not found" >&2; exit 1; }
+    echo "$what $name ${ws:--} $*" >> "$D/exec.log"
+    if [ -n "$ws" ]; then
+        [ -f "$D/$ws.ws" ] || { echo "Error: workspace '$ws' not found" >&2; exit 1; }
+        cd "$(cat "$D/$ws.ws")" || exit 1
+    fi
+    exec "$@" ;;
+"session describe")
+    [ -f "$D/$3.state" ] || { echo "Error: session '$3' not found" >&2; exit 1; }
+    agent=null mode=admin
+    [ -f "$D/$3.agent" ] && agent="\"$(cat "$D/$3.agent")\"" mode=agent
+    printf '{"schema_version":1,"command":"session.describe","data":{"session":{"name":"%s","workspace_name":"%s","vm_name":"fakevm","harness_integration":"contract-sh","mode":"%s","agent_name":%s,"status":"%s"}}}\n' "$3" "$(wsname "$3")" "$mode" "$agent" "$(cat "$D/$3.state")" ;;
+"workspace list")
+    printf '{"schema_version":1,"command":"workspace.list","data":{"workspaces":['
+    sep=
+    for f in "$D"/*.ws; do
+        [ -e "$f" ] || continue
+        printf '%s{"name":"%s","vm_name":"fakevm","template":"default"}' "$sep" "$(basename "$f" .ws)"
+        sep=,
+    done
+    printf ']}}\n' ;;
+"agent list") printf '{"schema_version":1,"command":"agent.list","data":{"agents":[]}}\n' ;;
+"resource list")
+    printf '{"schema_version":1,"command":"resource.list","data":{"resources":['
+    printf '{"kind":"session-template","name":"default","used_by_count":0,"description":"(auto)","not_ready_reason":null,"disabled":false},'
+    printf '{"kind":"session-template","name":"contract","used_by_count":1,"description":"the contract shell","not_ready_reason":null,"disabled":false},'
+    printf '{"kind":"workspace-template","name":"default","used_by_count":0,"not_ready_reason":null,"disabled":false},'
+    printf '{"kind":"agent-template","name":"default","used_by_count":0,"not_ready_reason":null,"disabled":false}]}}\n' ;;
+"session create")
+    shift 2
+    echo "$*" >> "$D/create.log"
+    vm= ws= new_ws= ws_name= name= mode=
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --vm) vm=$2; shift ;;
+        --workspace) ws=$2; shift ;;
+        --new-workspace) new_ws=1 ;;
+        --workspace-name) ws_name=$2; shift ;;
+        --template|--workspace-template|--agent-template|--agent-name) shift ;;
+        --admin|--new-agent) mode=$1 ;;
+        --agent) mode=$2; shift ;;
+        -*) echo "Error: no such option: $1" >&2; exit 2 ;;
+        *) name=$1 ;;
+        esac
+        shift
+    done
+    [ "$vm" = fakevm ] || { echo "Error: VM '$vm' not found" >&2; exit 1; }
+    [ -n "$mode" ] || { echo "Error: specify --agent, --new-agent, or --admin" >&2; exit 1; }
+    [ -e "$D/$name.state" ] && { echo "Notice: checking"; echo "Error: session '$name' already exists" >&2; echo "  Hint: pick another name" >&2; exit 1; }
+    if [ -n "$new_ws" ]; then
+        ws=${ws_name:-$name}
+        [ -e "$D/$ws.ws" ] && { echo "Error: workspace '$ws' already exists" >&2; exit 1; }
+        mkdir -p "$D/workspaces/$ws" && echo "$D/workspaces/$ws" > "$D/$ws.ws"
+    fi
+    [ -f "$D/$ws.ws" ] || { echo "Error: workspace '$ws' not found" >&2; exit 1; }
+    echo "$ws" > "$D/$name.wsname"
+    echo running > "$D/$name.state"
+    echo "Created session '$name'" ;;
+"workspace describe") printf '{"data":{"workspace":{"name":"%s","path":"%s"}}}\n' "$3" "$(cat "$D/$3.ws")" ;;
+"session start") echo running > "$D/$3.state" ;;
+"session stop")
+    [ -f "$D/$3.pid" ] && kill -HUP "$(cat "$D/$3.pid")" 2>/dev/null
+    rm -f "$D/$3.pid"
+    echo stopped > "$D/$3.state" ;;
+"session attach")
+    n=$3
+    [ "$(cat "$D/$n.state" 2>/dev/null)" = running ] || { echo "Error: session '$n' is not running" >&2; exit 1; }
+    echo $$ > "$D/$n.pid"
+    cd "$(cat "$D/$(wsname "$n").ws")" || exit 1
+    printf '$ '
+    while IFS= read -r line; do
+        case $line in
+        exit*) echo stopped > "$D/$n.state"; exit ${line#exit} ;;
+        esac
+        # Output starts on a line of its own (the prompt may land after the echo).
+        printf '\n'
+        eval "$line" 2>&1 | tee -a "$D/$n.log"
+        printf '$ '
+    done
+    echo stopped > "$D/$n.state" ;;
+*) echo "Error: the fake agw can't $*" >&2; exit 2 ;;
+esac

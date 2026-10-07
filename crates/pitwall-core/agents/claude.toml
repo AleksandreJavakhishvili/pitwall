@@ -1,0 +1,16 @@
+# Claude Code. Status comes from hooks passed per launch with --settings,
+# so the user's ~/.claude/settings.json is never modified.
+id = "claude"
+name = "Claude Code"
+command = "claude"
+# {session_id} is a UUID Pitwall picks up front, so resume works without a hook.
+new_args = ["--session-id", "{session_id}"]
+resume_args = ["--resume", "{session_id}"]
+assign_session_id = true
+hooks = "claude-settings"
+# rulesync target used when applying rules (docs/spec/rules.md).
+rulesync_target = "claudecode"
+# `claude --worktree [name]` (-w): Claude creates and enters its own worktree.
+worktree_args = ["--worktree", "{name}"]
+# What other platforms call it (agw's harness integration), for adopting their sessions.
+aliases = ["claude-code"]

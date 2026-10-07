@@ -1,0 +1,83 @@
+# Pitwall website
+
+Static marketing site for Pitwall: a one-screen landing page built around a demo,
+`/docs/how-it-works/`, `/docs/quick-start/`, `/changelog/` and a 404.
+
+Plain HTML pages and one CSS file, bundled by Vite. No framework, no analytics, no
+external CDNs. Fonts (Inter, JetBrains Mono, Barlow Condensed) are self-hosted
+from `@fontsource` packages.
+
+## Run
+
+```sh
+cd website
+pnpm install --ignore-workspace
+pnpm dev                       # http://localhost:4321 (pages only; no live demo in dev)
+pnpm build                     # live demo + pages → website/dist, served from /
+pnpm build --base /pitwall/    # same, for a sub-path (GitHub Pages project site)
+pnpm build --skip-demo         # pages only
+pnpm preview                   # serve dist locally
+```
+
+`pnpm build` runs `scripts/build.mjs`: first `scripts/build-demo.mjs` builds the app's
+browser mock (repo root, needs `pnpm install` there) into `public/demo/` with the base
+`<base>demo/`, then `vite build` builds the pages with the same base. Pages are written
+with root-absolute links (`/docs/…`, `/video/…`); the `pitwall-site-links` plugin in
+`vite.config.js` prefixes the base on the ones Vite doesn't handle itself (anchors,
+`data-*`), so the same source works at `/` and under `/<repo>/`. In JS, use
+`import.meta.env.BASE_URL`.
+
+The GitHub owner and repository name live only in `site.config.js`; pages use
+`%REPO_URL%`, `%RELEASES_URL%` and `%PAGES_URL%`. Deployment is
+`.github/workflows/pages.yml` (base from the repository name).
+
+## Layout
+
+```
+index.html                    landing: hero, demo with tabs, agents, download / GitHub
+docs/how-it-works/index.html  flags, Wall, Next up, Review, terminals, agents, rules, agw, CLI, roadmap
+docs/quick-start/index.html   install, build from source, first steps
+changelog/index.html
+404.html
+site.config.js                OWNER / REPO and the URLs derived from them
+src/site.css                  all styles; tokens mirror the app's src/styles/tokens.css
+src/main.js                   theme toggle, demo tabs, live demo (no network calls)
+scripts/build.mjs             full build (demo + pages)
+scripts/build-demo.mjs        builds the app's browser mock into public/demo/ (or serves it)
+public/video/                 demo recording, dark + light, with poster frames
+public/favicon.svg            copy of docs/brand/pitwall-mark.svg
+```
+
+## Demo
+
+The landing page shows a ~31-second looping recording of the real app in its browser
+mock mode (`public/video/demo-{dark,light}.mp4`, 1680×1050, ~1.4 MB each, H.264,
+muted). It was recorded at a 1120×700 window so UI text is close to its real size in
+the 1100 px frame. The tabs seek to chapters in it (`data-t` on each tab in
+`index.html`); the chapters are in tab order. Until a visitor picks a tab the whole
+tour plays and the tabs follow it; after that, the video loops the picked chapter.
+With `prefers-reduced-motion` the video doesn't autoplay; a Play button is shown.
+
+On wide screens a **Try it live** button swaps the video for the app itself in an
+iframe (`<base>demo/?onboarded&shots=1&demo=1`), rendered at 1120×700 and scaled to
+the frame (below 1100 px the app collapses its sidebar). The tabs then drive it via
+`postMessage`, handled by `src/lib/demoBridge.ts` in the app, which is inert outside
+the browser mock and without `?demo=1`. Each start clears the mock's `pitwall.*`
+localStorage keys. The mock data only uses
+placeholder paths and names (`/Users/dev`, `dev@mac`).
+
+**Re-recording the video:** `pnpm demo:serve` (the mock on port 5199), open `?onboarded&shots=1`
+(`shots=1` hides the MOCK chip) in headless Chrome at 1120×700, device scale 1.5, and script it over CDP: 2×2, tests focused → Jump →
+type `1` → Wall → api-fix, queue a prompt in Next up → Review → ⌘T terminal, type
+`claude` → Settings/Rules. Record with `Page.startScreencast`, then encode with ffmpeg:
+30 fps, 1680×1050, a 0.8 s crossfade from the end into the start for a seamless loop,
+`-crf 27 -preset veryslow -tune animation -movflags +faststart`. Posters are a frame
+at 1.5 s (`cwebp -q 78`). If the chapter times change, update `data-t` on the tabs.
+The README's animated `docs/media/demo.webp` comes from the dark video (10 fps,
+1120 px wide, `img2webp -lossy -q 55`).
+
+## TODO
+
+- Changelog has a single unreleased 0.1.0 entry; add dated entries per release.
+- Re-record the demo video when the UI changes (see Demo).
+- No Open Graph image or social card yet.

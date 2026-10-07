@@ -1,0 +1,11 @@
+[package]
+name = "pitwall-detect"
+version = "0.1.0"
+edition = "2021"
+description = "Headless terminal screen + data-driven (TOML) screen status rules. Pure: no IO besides reading rule overrides."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "1.1.6"
+vt100 = "0.16"
+regex = "1"

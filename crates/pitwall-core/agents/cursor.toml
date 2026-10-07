@@ -1,0 +1,13 @@
+# Cursor Agent CLI. Status comes from screen rules (detect/cursor.toml).
+#
+# Verified with `cursor-agent --help` (2025.09.18-7ae6800): the command and
+# `--resume [chatId]`. There is no flag to choose a chat id up front
+# (`create-chat` makes one in a separate run), so none is assigned.
+id = "cursor"
+name = "Cursor Agent"
+command = "cursor-agent"
+new_args = []
+resume_args = ["--resume", "{session_id}"]
+assign_session_id = false
+hooks = "none"
+rulesync_target = "cursor"

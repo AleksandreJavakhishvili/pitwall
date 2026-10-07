@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quick start — Pitwall</title>
+  <meta name="description" content="Install or build Pitwall, run the first-launch scan, start agents, and learn the status flags and shortcuts." />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>
+    try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Pitwall home">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>PITWALL</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="hide-sm" href="/docs/how-it-works/">How it works</a>
+        <a href="/docs/quick-start/" aria-current="page">Docs</a>
+        <a class="hide-sm" href="/changelog/">Changelog</a>
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <div class="wrap">
+      <article class="prose">
+        <p class="label">Docs · v0.1</p>
+        <h1>Quick start</h1>
+        <p>Pitwall is a macOS app that hosts terminal coding agents and shows which one needs you. It is not an agent itself: it never rewrites prompts or decides what agents do. Download a build from GitHub Releases, or build it from source.</p>
+
+        <ul class="toc" aria-label="On this page">
+          <li><a href="#install">Install</a></li>
+          <li><a href="#build-from-source">Build from source</a></li>
+          <li><a href="#first-launch">First launch</a></li>
+          <li><a href="#agents">Start an agent</a></li>
+          <li><a href="#status">Read the flags</a></li>
+          <li><a href="#next-up">Next up</a></li>
+          <li><a href="#review">Review</a></li>
+          <li><a href="#quitting">Quitting</a></li>
+          <li><a href="#shortcuts">Shortcuts</a></li>
+          <li><a href="#files">Files</a></li>
+        </ul>
+
+        <h2 id="install">Install</h2>
+        <p>macOS on Apple silicon or Intel (one universal build). Windows and Linux are planned, not built.</p>
+        <ol>
+          <li>Download the <code>.dmg</code> from the <a href="%RELEASES_URL%">latest release</a> and drag Pitwall to Applications.</li>
+          <li>Open it once with right-click → <strong>Open</strong>, then <strong>Open</strong> again in the dialog.</li>
+        </ol>
+        <p>Why the extra step: releases aren't signed with an Apple Developer ID or notarized yet, so Gatekeeper blocks a double-click on the first launch. If macOS says the app is damaged, clear the quarantine flag instead:</p>
+        <pre><code>xattr -dr com.apple.quarantine /Applications/Pitwall.app</code></pre>
+        <p>Until builds are Developer-ID signed, macOS may ask again for folder access (Desktop, Documents) after you install a new version, because it sees each build as a different app.</p>
+        <p>A Homebrew cask is coming; it isn't published yet.</p>
+
+        <h2 id="build-from-source">Build from source</h2>
+        <p>You need macOS with the Xcode Command Line Tools, a Rust toolchain (<code>rustup</code>), Node.js and <code>pnpm</code>: the usual <a href="https://tauri.app/start/prerequisites/">Tauri 2 prerequisites</a>. Plus at least one agent CLI you're already logged in to.</p>
+        <pre><code>git clone %REPO_URL%.git
+cd pitwall
+pnpm install
+pnpm tauri dev                      <span class="c"># run the app with hot reload</span>
+pnpm tauri build --bundles app      <span class="c"># → target/release/bundle/macos/Pitwall.app</span></code></pre>
+        <p>The build also compiles <code>pitwall-hold</code> (the per-agent terminal holder) and the <code>pitwall</code> CLI, and ships both inside the app bundle. To install the build into <code>/Applications</code>, see the <a href="%REPO_URL%#build-from-source">README</a>.</p>
+        <div class="callout">Running only <code>pnpm dev</code> opens the UI in a browser with mock agents and a simulated scan, which is handy for UI work. The demo on the home page is that mode.</div>
+
+        <h2 id="first-launch">First launch</h2>
+        <p>Pitwall opens with a read-only scan. Nothing on your Mac changes unless you tick a box.</p>
+        <ul>
+          <li><strong>Agents</strong> on your login-shell PATH, each checked with <code>--version</code> only.</li>
+          <li><strong>Projects</strong> from Claude transcripts, Codex sessions, VS Code / Cursor recent folders, and one level deep in <code>~/projects ~/code ~/Developer ~/src ~/dev ~/work</code>. Desktop, Documents and Downloads aren't enumerated; use "Add folder…".</li>
+          <li><strong>Conversations you can continue.</strong> The latest one per ticked project from the last 3 days is pre-ticked.</li>
+          <li><strong>Running elsewhere</strong> — agents in other terminals. "Bring into Pitwall" is off by default; close the old terminal first so two copies don't run.</li>
+          <li><strong>Rule files</strong> and <strong>Codex hooks</strong> status. Installing Codex hooks is a checkbox, and <code>~/.codex/hooks.json</code> is backed up first.</li>
+        </ul>
+        <p><strong>Start Pitwall</strong> creates an agent per ticked conversation, resumed in its own folder, and tiles them in the All space. Settings → Scan again runs the same flow later and skips conversations that already have an agent.</p>
+
+        <h2 id="agents">Start an agent</h2>
+        <p><kbd>⌘N</kbd> opens New agent: pick a project, a kind (Claude Code, Codex, Gemini CLI, opencode, Cursor Agent, GitHub Copilot CLI, Qwen Code, Amp, Aider or Shell) and a name.</p>
+        <ul>
+          <li><strong>Separate worktree</strong> (off by default; Claude Code and Codex only) passes the agent's own flag — <code>claude --worktree &lt;name&gt;</code> or <code>codex --worktree</code>. Pitwall finds where the agent ends up working and uses that folder for status, diffs and Review. It creates no branches or folders of its own.</li>
+          <li><strong>Rules</strong> picks a rule set to write through <code>rulesync</code> before launch. For agents in your main checkout this needs an explicit tick.</li>
+          <li>Agents launch through <code>$SHELL -l -i -c</code>, so they see the same PATH and config as your terminal.</li>
+        </ul>
+
+        <h2 id="status">Read the flags</h2>
+        <ul>
+          <li><span class="g g-blocked" aria-hidden="true">▲</span> <strong>needs you</strong> — a permission prompt or question. Amber, sorted first, counted on the Dock badge. <kbd>⌘J</kbd> jumps to it.</li>
+          <li><span class="g g-done" aria-hidden="true">⚑</span> <strong>done</strong> — finished a turn you haven't looked at yet.</li>
+          <li><span class="g g-working" aria-hidden="true">◐</span> <strong>working</strong> — busy.</li>
+          <li><span class="g g-idle" aria-hidden="true">●</span> <strong>idle</strong> — waiting for a prompt.</li>
+          <li><span class="g g-stopped" aria-hidden="true">■</span> <strong>exited / stopped</strong> — the process ended, or it was loaded after a restart and isn't running.</li>
+        </ul>
+        <p>Sources, in priority order: hooks (when the agent has sent one this run), then the terminal screen matched against per-agent rules, then output activity. When the window isn't focused, a blocked or done agent posts a native notification.</p>
+
+        <h2 id="next-up">Next up</h2>
+        <p>Type a follow-up in the right panel and press <kbd>⌘↵</kbd>. With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text is pasted exactly as written, then Enter.</p>
+
+        <h2 id="review">Review</h2>
+        <p><kbd>⌘R</kbd> opens every agent's changes. Choose All changes or a single task, click a line number to comment, then <strong>Send comments</strong> to deliver one editable prompt. <strong>Commit &amp; merge</strong> commits in the agent's worktree and merges its branch with <code>--no-ff</code>; it refuses if your main checkout is dirty and aborts cleanly on conflicts.</p>
+
+        <h2 id="quitting">Quitting</h2>
+        <p>Closing the window hides it; the Dock icon brings it back. <kbd>⌘Q</kbd> quits the UI only — every agent keeps running in its <code>pitwall-hold</code> process and is re-attached next launch. To end everything, use the app menu's <strong>Quit and Stop Agents</strong>.</p>
+
+        <h2 id="shortcuts">Shortcuts</h2>
+        <dl class="keys" style="margin-top:16px">
+          <div><dt><kbd>⌘K</kbd></dt><dd>Command palette</dd></div>
+          <div><dt><kbd>⌘N</kbd></dt><dd>New agent</dd></div>
+          <div><dt><kbd>⌘J</kbd></dt><dd>Next agent that needs you</dd></div>
+          <div><dt><kbd>⌘E</kbd></dt><dd>Wall</dd></div>
+          <div><dt><kbd>⌘R</kbd></dt><dd>Review</dd></div>
+          <div><dt><kbd>⌘1</kbd>–<kbd>⌘9</kbd></dt><dd>Focus agent</dd></div>
+          <div><dt><kbd>⌘⏎</kbd></dt><dd>Maximise pane</dd></div>
+          <div><dt><kbd>⌘⇧N</kbd></dt><dd>Space to new window</dd></div>
+          <div><dt><kbd>⌘B</kbd></dt><dd>Sidebar</dd></div>
+          <div><dt><kbd>⌘.</kbd></dt><dd>Details panel</dd></div>
+          <div><dt><kbd>⌘+</kbd> <kbd>⌘−</kbd> <kbd>⌘0</kbd></dt><dd>Tile font size</dd></div>
+          <div><dt><kbd>⌘,</kbd></dt><dd>Settings</dd></div>
+        </dl>
+
+        <h2 id="files">Files</h2>
+        <p>Everything lives in <code>~/.pitwall/</code>:</p>
+        <pre><code>state.json          <span class="c">agents, queues, session ids</span>
+ui.json             <span class="c">spaces, layouts, windows</span>
+agents/*.toml       <span class="c">your own agent kinds</span>
+detect/*.toml       <span class="c">status rule overrides</span>
+rules/              <span class="c">rule library (rulesync format)</span>
+run/hold/*.sock     <span class="c">one socket per terminal holder</span></code></pre>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <nav aria-label="Footer">
+          <a href="/">Home</a>
+          <a href="/changelog/">Changelog</a>
+          <a href="%REPO_URL%">GitHub</a>
+        </nav>
+      </div>
+      <p>Pitwall is licensed under the <a href="%REPO_URL%/blob/main/LICENSE">Apache License 2.0</a>. Agent detection rules are adapted from <a href="https://github.com/herdrdev/herdr">Herdr</a> under the Apache License 2.0. Pitwall is not affiliated with Formula&nbsp;1 or with any agent vendor named here.</p>
+    </div>
+  </footer>
+</body>
+</html>

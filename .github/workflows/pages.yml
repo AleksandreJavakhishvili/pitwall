@@ -1,0 +1,76 @@
+# Builds website/ (with the live app demo) and publishes it to GitHub Pages.
+# One-time setup: Settings → Pages → Build and deployment → Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push supersedes a queued one, but a running
+# deployment is allowed to finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            website/pnpm-lock.yaml
+
+      - name: Install app dependencies (the demo is the app's mock build)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install website dependencies
+        working-directory: website
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      # Project pages live under /<repository name>/; a user or org site
+      # (<owner>.github.io) is served from the root.
+      - name: Build the site (demo + pages)
+        working-directory: website
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if [ "$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')" = "$(echo "$OWNER" | tr '[:upper:]' '[:lower:]').github.io" ]; then
+            base=/
+          else
+            base="/$REPO_NAME/"
+          fi
+          pnpm build --base "$base"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

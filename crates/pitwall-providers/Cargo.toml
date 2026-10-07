@@ -1,0 +1,23 @@
+[package]
+name = "pitwall-providers"
+version = "0.1.0"
+edition = "2021"
+description = "Places agents run, as pitwall-core Providers (architecture.md §1, §2.7): `local` (this Mac, terminals in pitwall-hold holders) and `agw` (adopted agw sessions); ssh next. The only crate that knows about specific places to run; each provider is a cargo feature and passes pitwall-core's provider contract suite."
+
+[features]
+default = ["local", "agw"]
+# This Mac: agents in `pitwall-hold` terminal holders, LocalExec, lsof.
+local = ["dep:pitwall-hold"]
+# agw VMs: adopt existing sessions (`agw session attach` in a holder,
+# screen status, agw stop/start, screen capture over agw's ssh alias).
+agw = ["dep:pitwall-hold", "dep:serde_json"]
+
+[dependencies]
+pitwall-core = { path = "../pitwall-core" }
+pitwall-hold = { path = "../pitwall-hold", optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+pitwall-core = { path = "../pitwall-core", features = ["testing"] }
+pitwall-detect = { path = "../pitwall-detect" }
+serde_json = "1"

@@ -1,0 +1,136 @@
+# Pitwall screen-detection rules for Qwen Code.
+#
+# Adapted from Herdr's qwen manifest (src/detect/manifests/qwen.toml,
+# version 2026.08.14.1), https://github.com/herdrdev/herdr
+# Copyright the Herdr authors (herdrdev). Licensed under the Apache
+# License, Version 2.0. Modified for Pitwall: rule engine schema simplified,
+# OSC 9;4 progress rule dropped (Pitwall's screen has no progress region),
+# detail hints and an explicit idle fallback (Herdr's engine default) added.
+# See NOTICE.
+#
+# Qwen Code keeps its composer visible while responding, so the prompt box is
+# not idle evidence by itself. Its status-prefixed terminal titles (when
+# ui.showStatusInTitle is enabled) are the primary locale-independent
+# signals; exact screen fallbacks cover built-in locales and narrow
+# terminals.
+#
+# Not validated against captured screens yet (Qwen Code was not installed
+# when this was written); tests use screens built from Herdr's rule strings.
+# Rules are evaluated by descending priority; the first match wins.
+# A user file at ~/.pitwall/detect/qwen.toml replaces this file.
+
+id = "qwen"
+version = "2026.10.06"
+
+detail_line = [
+  '(?i)^[\s│]*((?:apply this change|allow execution of[^│\n]*|do you want to proceed)\??)[\s│]*$',
+  '(?i)^[\s│]*(do you trust this folder\?)',
+  '^[\s│]*([^\s│❯›>⠏\d][^│\n]*\?)[\s│]*$',
+]
+
+# --- Title (set by Qwen Code itself) ---------------------------------------
+
+[[rules]]
+id = "osc_title_blocked"
+state = "blocked"
+priority = 1200
+region = "title"
+regex = ['^\x{2733}\x{FE0E}? ']
+
+[[rules]]
+id = "osc_title_working"
+state = "working"
+priority = 1100
+region = "title"
+regex = ['^\x{25D0}\x{FE0E}? ']
+
+# --- Confirmation dialogs --------------------------------------------------
+
+[[rules]]
+id = "waiting_for_confirmation"
+state = "blocked"
+priority = 1000
+region = "bottom_non_empty_lines(20)"
+line_regex = ['^\s*⠏\s+.*\.\.\.\s*$']
+any = [
+  { contains = ["Waiting for user confirmation..."] },
+  { contains = ["等待用户确认..."] },
+  { contains = ["等待用戶確認..."] },
+  { contains = ["Warten auf Benutzerbestätigung..."] },
+  { contains = ["En attente de la confirmation de l'utilisateur..."] },
+  { contains = ["ユーザーの確認を待っています..."] },
+  { contains = ["Aguardando confirmação do usuário..."] },
+  { contains = ["Ожидание подтверждения от пользователя..."] },
+  { contains = ["Esperant la confirmació de l'usuari..."] },
+]
+
+[[rules]]
+id = "tool_confirmation"
+state = "blocked"
+priority = 990
+region = "bottom_non_empty_lines(20)"
+contains = ["yes, allow once"]
+any = [
+  { contains = ["apply this change?"] },
+  { contains = ["allow execution of:"] },
+  { contains = ["allow execution of mcp tool"] },
+  { contains = ["do you want to proceed?"] },
+  { contains = ["shell command execution"] },
+]
+
+[[rules]]
+id = "question_dialog"
+state = "blocked"
+priority = 980
+region = "bottom_non_empty_lines(20)"
+line_regex = [
+  '^\s*[❯›]\s*(?:\[(?: |✓)\]\s*)?\d+\.\s+',
+  '^\s*↑/↓\s*:.*(?:Enter|Return)\s*:',
+]
+
+[[rules]]
+id = "folder_trust_dialog"
+state = "blocked"
+priority = 970
+region = "bottom_non_empty_lines(20)"
+detail = "Trust this folder?"
+contains = ["do you trust this folder?", "trust folder (", "don't trust (esc)"]
+
+# --- Working ---------------------------------------------------------------
+
+[[rules]]
+id = "cancel_hint_working"
+state = "working"
+priority = 900
+region = "bottom_non_empty_lines(8)"
+line_regex = ['^\s*(?:[⠁-⣿]|\.{1,2})\s+.*\(\d+(?:m(?:\s+\d+s)?|s).*\s·\sesc to cancel\)\s*$']
+
+[[rules]]
+id = "narrow_cancel_hint_working"
+state = "working"
+priority = 890
+region = "bottom_non_empty_lines(8)"
+line_regex = ['^\s*\(\d+(?:m(?:\s+\d+s)?|s)\s·\sesc to cancel\)\s*$']
+
+# --- Idle ------------------------------------------------------------------
+
+[[rules]]
+id = "composer_idle"
+state = "idle"
+priority = 100
+region = "bottom_non_empty_lines(30)"
+line_regex = ['^\s*>\s*(?:type\s*)?.*$']
+any = [
+  { contains = ["type your message"] },
+  { contains = ["your message or @path/to/file"] },
+  { contains = ["@path/to/file"] },
+  { contains = ["type", "mes", "sage", "@pat", "h/to", "/fil"] },
+]
+
+[[rules]]
+id = "known_agent_idle_fallback"
+state = "idle"
+priority = 0
+# Herdr treats a recognised agent with no working/blocked evidence as idle.
+region = "bottom_non_empty_lines(1)"
+regex = ['\S']

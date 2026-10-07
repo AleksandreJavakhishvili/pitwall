@@ -1,0 +1,13 @@
+# Codex CLI. Hooks live in ~/.codex/hooks.json, which Pitwall only edits
+# after the user approves it. The hook is a no-op outside Pitwall.
+id = "codex"
+name = "Codex"
+command = "codex"
+new_args = []
+resume_args = ["resume", "{session_id}"]
+assign_session_id = false
+hooks = "codex-global"
+# rulesync target used when applying rules (docs/spec/rules.md).
+rulesync_target = "codexcli"
+# `codex --worktree`: a new Codex-managed worktree (the flag takes no name).
+worktree_args = ["--worktree"]

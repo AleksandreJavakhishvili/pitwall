@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>How it works — Pitwall</title>
+  <meta name="description" content="Status flags and how Pitwall detects them, the Wall, Next up, Review, terminals that survive quitting, supported agents, rules and the roadmap." />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>
+    try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Pitwall home">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>PITWALL</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="hide-sm" href="/docs/how-it-works/" aria-current="page">How it works</a>
+        <a href="/docs/quick-start/">Docs</a>
+        <a class="hide-sm" href="/changelog/">Changelog</a>
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <div class="wrap">
+      <article class="prose">
+        <p class="label">Docs</p>
+        <h1>How it works</h1>
+        <p>Pitwall hosts terminal coding agents. It isn't an agent itself: it never rewrites prompts or decides what an agent does. This page covers the parts the home page only names.</p>
+
+        <ul class="toc" aria-label="On this page">
+          <li><a href="#flags">Flags</a></li>
+          <li><a href="#wall">Wall</a></li>
+          <li><a href="#next-up">Next up</a></li>
+          <li><a href="#review">Review</a></li>
+          <li><a href="#terminals">Terminals</a></li>
+          <li><a href="#spaces">Spaces</a></li>
+          <li><a href="#agents">Agents</a></li>
+          <li><a href="#rules">Rules</a></li>
+          <li><a href="#agw">agw machines</a></li>
+          <li><a href="#cli">CLI and approvals</a></li>
+          <li><a href="#first-launch">First launch</a></li>
+          <li><a href="#roadmap">Roadmap</a></li>
+        </ul>
+
+        <h2 id="flags">Flags</h2>
+        <p>Each agent has one flag, shown in the sidebar, its pane header and its Wall tile. Within a project, agents sort needs you → done → working → idle, then the rest.</p>
+        <div class="board-wrap">
+          <table class="board">
+            <caption class="sr-only">Example agents and their flags</caption>
+            <thead><tr><th scope="col">Pos</th><th scope="col">Agent</th><th scope="col">Flag</th><th scope="col" class="h-detail">Detail</th></tr></thead>
+            <tbody>
+              <tr data-status="blocked"><td class="pos">1</td><td class="agent">tests</td><td><span class="state w-blocked"><span class="g" aria-hidden="true">▲</span>Needs you</span></td><td class="detail">Bash: pnpm test --run src/cart</td></tr>
+              <tr><td class="pos">2</td><td class="agent">docs</td><td><span class="state w-done"><span class="g" aria-hidden="true">⚑</span>Done <span class="chequer" aria-hidden="true"></span></span></td><td class="detail">finished a turn you haven't looked at</td></tr>
+              <tr><td class="pos">3</td><td class="agent">api-fix</td><td><span class="state w-working"><span class="g" aria-hidden="true">◐</span>Working</span></td><td class="detail">2 prompts in Next up</td></tr>
+              <tr><td class="pos">4</td><td class="agent">refactor</td><td><span class="state w-idle"><span class="g" aria-hidden="true">●</span>Idle</span></td><td class="detail">waiting for a prompt</td></tr>
+              <tr data-status="stopped"><td class="pos">5</td><td class="agent">scratch</td><td><span class="state w-idle"><span class="g" aria-hidden="true">■</span>Stopped</span></td><td class="detail">not running; Restart resumes it</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li><strong>Needs you</strong>: a permission prompt or a question. Amber row, a bar along the bottom of the window, counted on the Dock badge. <kbd>⌘J</kbd> jumps to the next one.</li>
+          <li><strong>Done</strong>: finished a turn you haven't looked at. Looking turns it idle.</li>
+          <li><strong>Working</strong>: output is flowing, or the agent's hook says it's busy.</li>
+          <li><strong>Idle</strong>: waiting for a prompt. <strong>Unknown</strong> (?) means there's no signal yet.</li>
+          <li><strong>Exited / stopped</strong>: the process ended, or it was loaded after a restart and isn't running.</li>
+        </ul>
+        <p>When the window isn't focused, needs you and done also post a native notification.</p>
+        <h3>How it knows</h3>
+        <ol>
+          <li><strong>Hooks</strong>, when the agent has sent one this run. Claude Code gets its hooks per launch through <code>--settings</code>; <code>~/.claude/settings.json</code> is never edited. Codex hooks are opt-in, and <code>~/.codex/hooks.json</code> is backed up first.</li>
+          <li><strong>The screen.</strong> A headless copy of each terminal is matched against per-agent TOML rules, adapted from Herdr's detection manifests (Apache-2.0). Always on.</li>
+          <li><strong>Activity.</strong> For any other CLI: output in the last ~1.2 s means working, otherwise unknown.</li>
+        </ol>
+        <p>Hooks are never required.</p>
+
+        <h2 id="wall">Wall</h2>
+        <p><kbd>⌘E</kbd> shows every agent's terminal, grouped by project, blocked first. Tiles show the bottom rows of each terminal, where prompts wait. The Wall is view-only: it never resizes a terminal and never types. Click a tile to take over that agent; <kbd>Esc</kbd> comes back. A window left in Wall mode stays that way across restarts.</p>
+
+        <h2 id="next-up">Next up</h2>
+        <p>Each agent has its own queue in the right panel (<kbd>⌘.</kbd>). With Auto-send on, the first item goes once the agent has been done or idle for 0.8 s and you haven't typed in its terminal for 2.5 s. Text goes in as a bracketed paste, then Enter, exactly as written. Last sent stays under the queue.</p>
+
+        <h2 id="review">Review</h2>
+        <p><kbd>⌘R</kbd> lists changes by agent, then file, in a side-by-side or inline diff. Pick All changes or one task: a single prompt, from send until the agent is done.</p>
+        <ul>
+          <li>Per-task snapshots are written through a temporary index (<code>GIT_INDEX_FILE</code>), so your real index and working tree are never touched. Untracked files are included.</li>
+          <li>Click a line to comment. Send comments shows the composed prompt for editing first, or queues it if the agent is busy.</li>
+          <li>Commit &amp; merge runs <code>git merge --no-ff</code> of the worktree's branch, only when you click. It refuses if your main checkout is dirty; on a conflict it runs <code>git merge --abort</code> and offers the agent an editable "rebase and resolve" prompt.</li>
+          <li>The diff editor is bundled, so Review works offline.</li>
+        </ul>
+
+        <h2 id="terminals">Terminals that outlive the app</h2>
+        <p>Each agent's terminal belongs to its own <code>pitwall-hold</code> process, not to the app. <kbd>⌘Q</kbd> closes the UI; dev servers and half-finished turns carry on, and the next launch re-attaches with the scrollback replayed. Only Stop, Restart, Remove or <strong>Quit and Stop Agents</strong> end a terminal. After a reboot, agents come back stopped, and Restart resumes the conversation for CLIs that support it.</p>
+        <pre><code><strong>Pitwall.app</strong>   UI, quit any time
+   │ attach · write · resize · replay
+   │ ~/.pitwall/run/hold/&lt;agent&gt;.sock
+   ▼
+<strong>pitwall-hold</strong>  one per agent, setsid, owns the PTY
+   ▼
+<strong>claude --session-id 7f3c…</strong>   still running
+
+Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
+
+        <h2 id="spaces">Spaces and windows</h2>
+        <p>Spaces are tabs of tiled terminals. Presets: 1, 2, 1 big + 2, 2×2 and 3×2, plus 3×3, 4×3 and 4×4 when the window can fit them, and Auto grid. Drag an agent onto a pane edge to split, onto the centre to swap. An agent sits in at most one pane; extras fold into a chip strip. <kbd>⌘⇧N</kbd> moves a space into its own window, and layouts, windows and bounds come back on launch. Moving a terminal never restarts it.</p>
+
+        <h2 id="agents">Agents</h2>
+        <p>Pitwall launches the real CLI through <code>$SHELL -l -i -c</code>, so it sees your PATH, logins and config.</p>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Supported agents (scrolls horizontally)">
+          <table class="agents">
+            <thead><tr><th scope="col">Agent</th><th scope="col">Command</th><th scope="col">Resume</th><th scope="col">Status from</th></tr></thead>
+            <tbody>
+              <tr><td>Claude Code</td><td class="m">claude</td><td class="m">--resume {id}</td><td>hooks + screen</td></tr>
+              <tr><td>Codex</td><td class="m">codex</td><td class="m">resume {id}</td><td>hooks (opt-in) + screen</td></tr>
+              <tr><td>Gemini CLI</td><td class="m">gemini</td><td class="m">--resume {id}</td><td>screen</td></tr>
+              <tr><td>opencode</td><td class="m">opencode</td><td class="m">--session {id}</td><td>screen</td></tr>
+              <tr><td>Cursor Agent</td><td class="m">cursor-agent</td><td class="m">--resume {id}</td><td>screen</td></tr>
+              <tr><td>GitHub Copilot CLI</td><td class="m">copilot</td><td class="m">--resume={id}</td><td>screen</td></tr>
+              <tr><td>Qwen Code</td><td class="m">qwen</td><td class="m">--resume {id}</td><td>screen</td></tr>
+              <tr><td>Amp</td><td class="m">amp</td><td class="m">threads continue {id}</td><td>screen</td></tr>
+              <tr><td>Aider</td><td class="m">aider</td><td class="no">—</td><td>screen</td></tr>
+              <tr><td>Shell / any CLI</td><td class="m">$SHELL</td><td class="no">—</td><td>activity</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Claude Code and Codex can start in their own worktree through the CLI's own flag (<code>claude --worktree &lt;name&gt;</code>, <code>codex --worktree</code>); Pitwall creates no branches or folders. Add your own kind with a TOML file in <code>~/.pitwall/agents/</code>; override detection rules in <code>~/.pitwall/detect/</code>.</p>
+
+        <h2 id="rules">Rules</h2>
+        <p>Keep rules in <code>~/.pitwall/rules/</code>, group them into named sets, and assign a set per project with optional extras per agent. Pitwall calls the <code>rulesync</code> CLI to write CLAUDE.md, AGENTS.md and the rest; it doesn't reimplement it.</p>
+        <ul>
+          <li>Import from a project's <code>.rulesync/</code>, an existing CLAUDE.md or AGENTS.md, or a git repo.</li>
+          <li>Generated paths go into the worktree's <code>.git/info/exclude</code>, so they never show up in Review or a commit.</li>
+          <li>Agents in your main checkout only get rules when you tick the box.</li>
+          <li>Uses <code>rulesync</code> on PATH, or <code>npx -y rulesync</code> only if you enable it in Settings.</li>
+        </ul>
+
+        <h2 id="agw">agw machines</h2>
+        <p>If you use <code>agw</code> to run agents on VMs, its sessions show up in Pitwall next to your local agents, grouped by machine.</p>
+        <ul>
+          <li><strong>Works today:</strong> add an existing session and get its live terminal, its flag (from screen detection), Next up, stop and start. Diffs and Review run git on the VM through agw. New agent → <em>Runs on</em> creates a session on a VM with agw's own workspaces, users and templates.</li>
+          <li><strong>Not yet:</strong> hooks and rules on VMs (status comes from the screen only), merging from Review, and deleting a session on the VM. Removing an agw agent from Pitwall only detaches it; the session keeps running there.</li>
+        </ul>
+
+        <h2 id="cli">CLI and approvals</h2>
+        <p>Settings → <em>Install command-line tool</em> links <code>pitwall</code> into <code>~/.local/bin</code> or <code>/usr/local/bin</code>. It talks to the running app over a local socket and prints JSON (<code>--human</code> for text).</p>
+        <pre><code>pitwall agent list
+pitwall agent new --kind claude --project ~/code/api --name api
+pitwall session list --provider agw
+pitwall session add agw &lt;vm&gt; &lt;session&gt; --start</code></pre>
+        <p>Today it lists and adds; it can't stop, remove or prompt agents. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request.</p>
+
+        <h2 id="first-launch">First launch</h2>
+        <p>A read-only scan: agent CLIs on your PATH, recent projects from Claude and Codex transcripts, VS Code and Cursor history and one level deep in <code>~/projects ~/code ~/Developer ~/src ~/dev ~/work</code>, and conversations you can continue. Desktop, Documents and Downloads aren't enumerated; use Add folder…. Nothing changes until you tick a box. Details are in the <a href="/docs/quick-start/#first-launch">quick start</a>.</p>
+
+        <h2 id="roadmap">Roadmap</h2>
+        <p>Designed, not in a build yet. No dates.</p>
+        <ul>
+          <li><strong>Next</strong>: a background daemon (<code>pitwalld</code>) with a menu-bar item and Start at login; the rest of the CLI (stop, remove, prompt, queue, spaces) with the same approvals; rules and hooks for agw sessions; an optional "Race Engineer" agent that drives Pitwall through the CLI.</li>
+          <li><strong>Later</strong>: Windows (ConPTY, named pipes, PowerShell, taskbar badge), with Linux from the same work; plain SSH machines; Developer ID signing and notarization.</li>
+        </ul>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <nav aria-label="Footer">
+          <a href="/">Home</a>
+          <a href="/docs/quick-start/">Quick start</a>
+          <a href="/changelog/">Changelog</a>
+          <a href="%REPO_URL%">GitHub</a>
+        </nav>
+      </div>
+      <p>Pitwall is licensed under the <a href="%REPO_URL%/blob/main/LICENSE">Apache License 2.0</a>. Agent detection rules are adapted from <a href="https://github.com/herdrdev/herdr">Herdr</a> under the Apache License 2.0. Pitwall is not affiliated with Formula&nbsp;1 or with any agent vendor named here.</p>
+    </div>
+  </footer>
+</body>
+</html>

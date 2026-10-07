@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"workspace.list","data":{"workspaces":[{"name":"api-session","vm_name":"my-vm","template":"api-session","created_at":"2026-08-20T14:07:00Z"},{"name":"work","vm_name":"my-vm","template":"agentworks","created_at":"2026-08-20T13:34:21Z"}]}}

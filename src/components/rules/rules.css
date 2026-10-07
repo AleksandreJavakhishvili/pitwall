@@ -1,0 +1,151 @@
+/* Rules (rulesync): Settings → Rules, New agent "Rules" field, pane button. */
+
+.rules-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 4px;
+}
+.rules-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rules-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rules-mini {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.rules-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.rules-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.rules-list li:last-child {
+  border-bottom: 0;
+}
+.rules-name {
+  flex: none;
+  color: var(--text);
+  font-size: 12px;
+}
+.rules-project {
+  font-family: var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.rules-desc {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rules-import {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rules-import .row {
+  align-items: center;
+}
+.rules-import .input.mono {
+  flex: 1;
+  min-width: 0;
+}
+.rules-kind {
+  width: auto;
+  flex: none;
+  height: 28px;
+  font-size: 12.5px;
+}
+.rules-log {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.rules-log-error {
+  color: var(--red);
+  background: var(--red-soft);
+}
+.rules-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rules-pick {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+.rules-main-check {
+  margin-top: 4px;
+}
+
+/* pane header: rules changed since this session started */
+.rules-stale-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--amber-glow);
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rules-stale-btn[data-error="true"] {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+.rules-stale-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.rules-stale-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

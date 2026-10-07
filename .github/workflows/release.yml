@@ -1,0 +1,179 @@
+# Builds Pitwall.app as a universal macOS binary (Apple silicon + Intel), packs a
+# .dmg and an .app.tar.gz, and publishes them with SHA-256 checksums.
+#
+#   git tag v0.1.0 && git push origin v0.1.0     → GitHub Release with generated notes
+#   Actions → Release → Run workflow              → build only (artifacts on the run),
+#                                                   or a release if you give a tag
+#
+# Signing: without secrets the app is ad-hoc signed (users open it with
+# right-click → Open the first time; see README "Install"). Add these repository
+# secrets to switch to Developer ID signing + notarization + stapling:
+#   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD  password of that .p12
+#   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID   for notarization
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0). Empty = build only, no release."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: universal-apple-darwin
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    env:
+      # Secrets can't be tested in `if:` directly; empty when not configured. They
+      # get their real names (which Tauri reads) only in "Signing mode", and only
+      # when set, so an empty APPLE_CERTIFICATE never reaches the bundler.
+      SECRET_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      SECRET_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      SECRET_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+      SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-universal
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="${INPUT_TAG}"; fi
+          if [ -n "$tag" ] && [ "${tag#v}" != "$app_version" ]; then
+            echo "::warning::tag $tag doesn't match tauri.conf.json version $app_version"
+          fi
+          echo "app=$app_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Tauri bundles each externalBin as binaries/<name>-<target triple>. For a
+      # universal build that's <name>-universal-apple-darwin, which src-tauri/build.rs
+      # doesn't make (it builds per architecture). Build both architectures into the
+      # same target dir build.rs uses (so it finds them up to date) and lipo them.
+      - name: Universal sidecars (pitwall-hold, pitwall-cli)
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --target "$t" --target-dir target/hold \
+              -p pitwall-hold --bin pitwall-hold -p pitwall-cli --bin pitwall-cli
+          done
+          for b in pitwall-hold pitwall-cli; do
+            lipo -create -output "src-tauri/binaries/$b-universal-apple-darwin" \
+              "target/hold/aarch64-apple-darwin/release/$b" "target/hold/x86_64-apple-darwin/release/$b"
+            lipo -info "src-tauri/binaries/$b-universal-apple-darwin"
+          done
+
+      # Ad-hoc ("-") unless a Developer ID certificate is configured. Tauri reads
+      # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD (imports them into a temporary
+      # keychain), APPLE_SIGNING_IDENTITY, and notarizes + staples the app when
+      # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID are set.
+      - name: Signing mode
+        id: signing
+        run: |
+          if [ -n "$SECRET_CERTIFICATE" ] && [ -n "$SECRET_SIGNING_IDENTITY" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$SECRET_CERTIFICATE"
+              echo "APPLE_CERTIFICATE_PASSWORD=$SECRET_CERTIFICATE_PASSWORD"
+              echo "APPLE_SIGNING_IDENTITY=$SECRET_SIGNING_IDENTITY"
+            } >> "$GITHUB_ENV"
+            echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+            if [ -n "$SECRET_APPLE_ID" ] && [ -n "$SECRET_APPLE_PASSWORD" ] && [ -n "$SECRET_APPLE_TEAM_ID" ]; then
+              {
+                echo "APPLE_ID=$SECRET_APPLE_ID"
+                echo "APPLE_PASSWORD=$SECRET_APPLE_PASSWORD"
+                echo "APPLE_TEAM_ID=$SECRET_APPLE_TEAM_ID"
+              } >> "$GITHUB_ENV"
+              echo "notarize=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "notarize=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "mode=ad-hoc" >> "$GITHUB_OUTPUT"
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+          fi
+          grep '^mode=\|^notarize=' "$GITHUB_OUTPUT"
+
+      - name: Build Pitwall.app and .dmg
+        run: pnpm tauri build --target "$TARGET" --bundles app,dmg
+
+      # Tauri notarizes the .app; the .dmg around it is notarized and stapled here.
+      - name: Notarize and staple the .dmg (only with Apple secrets)
+        if: steps.signing.outputs.notarize == 'true'
+        run: |
+          dmg=$(find "target/$TARGET/release/bundle/dmg" -name "*.dmg" | head -1)
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg"
+
+      - name: Package and checksum
+        id: pkg
+        env:
+          VERSION: ${{ steps.version.outputs.app }}
+        run: |
+          bundle="target/$TARGET/release/bundle"
+          out=release-assets
+          mkdir -p "$out"
+          codesign --verify --deep --strict --verbose=2 "$bundle/macos/Pitwall.app"
+          cp "$(find "$bundle/dmg" -name "*.dmg" | head -1)" "$out/Pitwall_${VERSION}_universal.dmg"
+          tar -C "$bundle/macos" -czf "$out/Pitwall_${VERSION}_universal.app.tar.gz" Pitwall.app
+          (cd "$out" && shasum -a 256 -- *.dmg *.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "dir=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pitwall-macos-universal
+          path: ${{ steps.pkg.outputs.dir }}/*
+          if-no-files-found: error
+
+      - name: GitHub Release
+        if: steps.version.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          MODE: ${{ steps.signing.outputs.mode }}
+          ASSETS: ${{ steps.pkg.outputs.dir }}
+        run: |
+          note="macOS, Apple silicon and Intel (universal)."
+          if [ "$MODE" = ad-hoc ]; then
+            note="$note This build isn't notarized: open it the first time with right-click → Open, or run \`xattr -dr com.apple.quarantine /Applications/Pitwall.app\`."
+          fi
+          flags=(--verify-tag --generate-notes --notes "$note")
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" "${flags[@]}" "$ASSETS"/*

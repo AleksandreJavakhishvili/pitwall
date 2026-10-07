@@ -1,0 +1,44 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust (workspace target dir)
+/target
+
+# Website: built by website/scripts/build-demo.mjs
+/website/public/demo/
+
+# Build output (also covered by the patterns above; listed for clarity)
+/dist/
+/website/dist/
+target/
+
+# Scratch artefacts
+scratch/
+.scratch/
+*.tmp
+*.orig
+*.bak
+.env
+.env.*

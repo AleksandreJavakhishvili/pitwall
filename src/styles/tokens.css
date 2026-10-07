@@ -1,0 +1,136 @@
+:root {
+  --font-ui: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-label: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  --topbar-h: 44px;
+  --sidebar-w: 268px;
+  --right-w: 320px;
+
+  /* dark (default) */
+  --bg: #0a0b0d;
+  --surface: #0f1114;
+  --surface-2: #15181c;
+  --surface-3: #1b1f24;
+  --raised: #171a1f;
+  --term-bg: #0d0f12;
+  --line: #1e2227;
+  --line-strong: #2a2f36;
+  --text: #e6e8eb;
+  --text-2: #a2a8b1;
+  --text-3: #6c737d;
+  --text-4: #474d55;
+  --focus: rgba(230, 232, 235, 0.45);
+
+  --green: #3fd07f;
+  --green-soft: rgba(63, 208, 127, 0.13);
+  /* Finished-but-unseen: a steady mint, distinct from the pulsing working green. */
+  --finish: #4fe3b8;
+  --finish-soft: rgba(79, 227, 184, 0.12);
+  --amber: #ffb224;
+  --amber-soft: rgba(255, 178, 36, 0.12);
+  --amber-glow: rgba(255, 178, 36, 0.38);
+  --red: #ff5f5f;
+  --red-soft: rgba(255, 95, 95, 0.13);
+  --flag: #f4f5f7;
+  --flag-dark: #2a2e35;
+
+  --diff-add-bg: rgba(63, 208, 127, 0.1);
+  --diff-add-ln: rgba(63, 208, 127, 0.16);
+  --diff-del-bg: rgba(255, 95, 95, 0.1);
+  --diff-del-ln: rgba(255, 95, 95, 0.16);
+
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line-strong);
+  --backdrop: rgba(4, 5, 6, 0.62);
+
+  color-scheme: dark;
+}
+
+/*
+ * Light tokens. Appearance (Settings → Appearance, src/lib/theme.ts) sets
+ * <html data-theme="dark|light">, or no attribute for System. Light applies when
+ * forced, or on System when macOS is light. CSS can't OR an attribute selector
+ * with a media query, so the block appears twice: KEEP BOTH COPIES IDENTICAL
+ * (src/lib/theme.test.ts fails the build if they drift).
+ */
+:root[data-theme="light"] {
+  --bg: #eef0f2;
+  --surface: #f7f8f9;
+  --surface-2: #eef0f2;
+  --surface-3: #e4e7ea;
+  --raised: #ffffff;
+  --term-bg: #fbfbfc;
+  --line: #dfe2e6;
+  --line-strong: #cdd1d6;
+  --text: #15181c;
+  --text-2: #4f5661;
+  --text-3: #7d848e;
+  --text-4: #a9aeb5;
+  --focus: rgba(21, 24, 28, 0.4);
+
+  --green: #14a052;
+  --green-soft: rgba(20, 160, 82, 0.11);
+  --finish: #0e9f7e;
+  --finish-soft: rgba(14, 159, 126, 0.1);
+  --amber: #d98600;
+  --amber-soft: rgba(237, 150, 0, 0.13);
+  --amber-glow: rgba(237, 150, 0, 0.35);
+  --red: #d63a3a;
+  --red-soft: rgba(214, 58, 58, 0.1);
+  --flag: #15181c;
+  --flag-dark: #d4d8dd;
+
+  --diff-add-bg: rgba(20, 160, 82, 0.09);
+  --diff-add-ln: rgba(20, 160, 82, 0.15);
+  --diff-del-bg: rgba(214, 58, 58, 0.08);
+  --diff-del-ln: rgba(214, 58, 58, 0.14);
+
+  --shadow: 0 18px 50px rgba(20, 25, 35, 0.18), 0 0 0 1px var(--line-strong);
+  --backdrop: rgba(30, 34, 40, 0.28);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #eef0f2;
+    --surface: #f7f8f9;
+    --surface-2: #eef0f2;
+    --surface-3: #e4e7ea;
+    --raised: #ffffff;
+    --term-bg: #fbfbfc;
+    --line: #dfe2e6;
+    --line-strong: #cdd1d6;
+    --text: #15181c;
+    --text-2: #4f5661;
+    --text-3: #7d848e;
+    --text-4: #a9aeb5;
+    --focus: rgba(21, 24, 28, 0.4);
+
+    --green: #14a052;
+    --green-soft: rgba(20, 160, 82, 0.11);
+    --finish: #0e9f7e;
+    --finish-soft: rgba(14, 159, 126, 0.1);
+    --amber: #d98600;
+    --amber-soft: rgba(237, 150, 0, 0.13);
+    --amber-glow: rgba(237, 150, 0, 0.35);
+    --red: #d63a3a;
+    --red-soft: rgba(214, 58, 58, 0.1);
+    --flag: #15181c;
+    --flag-dark: #d4d8dd;
+
+    --diff-add-bg: rgba(20, 160, 82, 0.09);
+    --diff-add-ln: rgba(20, 160, 82, 0.15);
+    --diff-del-bg: rgba(214, 58, 58, 0.08);
+    --diff-del-ln: rgba(214, 58, 58, 0.14);
+
+    --shadow: 0 18px 50px rgba(20, 25, 35, 0.18), 0 0 0 1px var(--line-strong);
+    --backdrop: rgba(30, 34, 40, 0.28);
+
+    color-scheme: light;
+  }
+}

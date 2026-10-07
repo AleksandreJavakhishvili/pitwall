@@ -1,0 +1,519 @@
+/* ── space tabs ──────────────────────────────────────── */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  height: 100%;
+  padding-top: 7px;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 7px 7px 0 0;
+  color: var(--text-3);
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  font-family: var(--font-label);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12.5px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  margin-bottom: -1px;
+}
+.tab:hover {
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+.tab[aria-selected="true"] {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--line);
+}
+.tab:has(.tab-drop-hint) {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--text-2);
+}
+.tab-blocked {
+  color: var(--amber);
+  font-size: 10px;
+  text-shadow: 0 0 8px var(--amber-glow);
+}
+.tab-done {
+  color: var(--finish);
+  font-size: 10px;
+}
+.tab-actions {
+  display: inline-flex;
+  gap: 1px;
+  margin-right: -4px;
+  opacity: 0;
+}
+.tab:hover .tab-actions,
+.tab[aria-selected="true"] .tab-actions {
+  opacity: 1;
+}
+.tab-btn {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--text-4);
+}
+.tab-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.tab-input {
+  width: 110px;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 1px 4px;
+  outline: none;
+}
+.tab-new {
+  padding: 0 8px;
+}
+
+/* ── space ───────────────────────────────────────────── */
+.space {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.space-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  flex: none;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.presets {
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.preset-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--text-4);
+}
+.preset-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.space-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 6px;
+}
+.space-area > .pane,
+.space-area > .split {
+  flex: 1;
+}
+
+.split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.split[data-dir="col"] {
+  flex-direction: column;
+}
+.split-cell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.split-cell > * {
+  flex: 1;
+}
+.divider {
+  flex: none;
+  position: relative;
+  z-index: 2;
+}
+.divider[data-dir="row"] {
+  width: 6px;
+  cursor: col-resize;
+}
+.divider[data-dir="col"] {
+  height: 6px;
+  cursor: row-resize;
+}
+.divider::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.divider[data-dir="row"]::after {
+  left: 2px;
+  width: 2px;
+  top: 30%;
+  bottom: 30%;
+}
+.divider[data-dir="col"]::after {
+  top: 2px;
+  height: 2px;
+  left: 30%;
+  right: 30%;
+}
+.divider:hover::after,
+body.resizing .divider::after {
+  background: var(--text-4);
+}
+body.resizing {
+  cursor: grabbing;
+}
+body.resizing .term-slot,
+/* While an agent is dragged (lib/dnd, pointer-driven): terminals don't eat the
+   pointer, nothing gets text-selected, and the ghost follows the cursor. */
+body.dragging-agent,
+body.dragging-agent * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.dragging-agent .term-slot,
+body.dragging-agent .wall-scale {
+  pointer-events: none;
+}
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.35), inset 0 0 0 1px color-mix(in srgb, var(--text) 25%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+.tab-drop-hint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+/* ── pane ────────────────────────────────────────────── */
+.pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 8px;
+  background: var(--term-bg);
+  box-shadow: 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+.pane[data-focused="true"] {
+  box-shadow: 0 0 0 1px var(--line-strong), 0 0 0 1px var(--text-4) inset;
+}
+.pane[data-status="blocked"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 55%, transparent), 0 0 22px -6px var(--amber-glow);
+}
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  flex: none;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+  cursor: default;
+}
+.pane[data-status="blocked"] .pane-head {
+  background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface);
+  border-bottom-color: color-mix(in srgb, var(--amber) 35%, transparent);
+}
+/* Finished while you weren't looking: a steady mint band across the top, a
+ * mint frame and a tinted header (working is only the pulsing dot), until the
+ * tile is clicked (mark_seen). */
+.pane[data-status="done"] {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--finish) 65%, transparent);
+}
+.pane[data-status="done"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--finish);
+}
+.pane[data-status="done"] .pane-head {
+  background: linear-gradient(var(--finish-soft), var(--finish-soft)), var(--surface);
+  border-bottom-color: color-mix(in srgb, var(--finish) 35%, transparent);
+}
+.pane-name {
+  font-weight: 650;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pane-detail {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--amber);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.pane-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 0 1000 auto;
+}
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.meta-item + .meta-item::before {
+  content: "·";
+  color: var(--text-4);
+  margin-right: 4px;
+}
+.pane-actions {
+  display: inline-flex;
+  gap: 1px;
+  flex: none;
+  opacity: 0.5;
+}
+.pane:hover .pane-actions,
+.pane[data-focused="true"] .pane-actions {
+  opacity: 1;
+}
+.pane-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 6px 4px 4px 10px;
+}
+.term-slot {
+  position: absolute;
+  inset: 6px 4px 4px 10px;
+}
+.xterm-host {
+  width: 100%;
+  height: 100%;
+}
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  border-width: 3px;
+}
+
+.pane-empty {
+  margin: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.pane-pick {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: 420px;
+  margin-top: 4px;
+}
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.chip-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+/* drop zones */
+.drop-indicator {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text) 45%, transparent);
+  transition: all 0.08s ease-out;
+}
+.drop-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.drop-label {
+  padding: 3px 9px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.drop-indicator[data-zone="center"] {
+  inset: 38px 6px 6px;
+}
+.drop-indicator[data-empty="true"] {
+  inset: 6px;
+}
+.drop-indicator[data-full="true"] {
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--amber) 55%, transparent);
+}
+.drop-indicator[data-zone="left"] {
+  inset: 38px 50% 6px 6px;
+}
+.drop-indicator[data-zone="right"] {
+  inset: 38px 6px 6px 50%;
+}
+.drop-indicator[data-zone="top"] {
+  inset: 38px 6px 50% 6px;
+}
+.drop-indicator[data-zone="bottom"] {
+  inset: 50% 6px 6px 6px;
+}
+
+/* stopped / exited */
+.stopped-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 20px;
+  background: linear-gradient(to bottom, transparent 20%, color-mix(in srgb, var(--term-bg) 92%, transparent) 70%);
+  z-index: 3;
+}
+.stopped-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 18px 22px;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  max-width: 420px;
+}
+
+/* ── chip strip (agents that didn't get a pane) ──────── */
+.chip-strip {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px 8px;
+  overflow-x: auto;
+  flex: none;
+  scrollbar-width: thin;
+}
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px 0 9px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.agent-chip:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+.agent-chip[data-status="blocked"] {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+  box-shadow: 0 0 12px -3px var(--amber-glow);
+}
+.agent-chip[data-status="exited"],
+.agent-chip[data-status="stopped"] {
+  opacity: 0.6;
+}
+.chip-where {
+  font-size: 10.5px;
+  color: var(--text-4);
+  font-weight: 400;
+}
+
+/* per-space density */
+.density-select {
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 11.5px;
+  max-width: 170px;
+}
+.density-select:hover,
+.density-select:focus {
+  color: var(--text);
+  border-color: var(--line-strong);
+  outline: none;
+}

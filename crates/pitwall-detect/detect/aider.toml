@@ -1,0 +1,41 @@
+# Pitwall screen-detection rules for Aider.
+#
+# Written for Pitwall (Herdr has no Aider manifest). Aider is a line-based
+# REPL, so everything is read from the last non-empty line:
+#   - confirmations end in "(Y)es/(N)o... [Yes]:" and wait for an answer;
+#   - the input prompt is "> ", or "<edit format>> " / "... multi> ";
+#   - while waiting for the model a spinner line says "Waiting for <model>".
+# While a response streams, the last line is response text and no rule
+# matches, so status falls back to output activity.
+#
+# Unverified: written from Aider's public docs/source knowledge, not from
+# captured screens (Aider was not installed when this was written).
+# A user file at ~/.pitwall/detect/aider.toml replaces this file.
+
+id = "aider"
+version = "2026.10.06"
+
+detail_line = [
+  '^\s*(.*?\?)\s*\(Y\)es/',
+]
+
+[[rules]]
+id = "confirm_prompt"
+state = "blocked"
+priority = 300
+region = "bottom_non_empty_lines(1)"
+line_regex = ['\(Y\)es/\(N\)o.*\[(?:Yes|No)\]:']
+
+[[rules]]
+id = "waiting_spinner"
+state = "working"
+priority = 200
+region = "bottom_non_empty_lines(1)"
+line_regex = ['^[\s░█▁▂▃▄▅▆▇⠁-⣿|/\\-]*\s*Waiting for\b']
+
+[[rules]]
+id = "input_prompt_idle"
+state = "idle"
+priority = 100
+region = "bottom_non_empty_lines(1)"
+line_regex = ['^(?:[a-z][\w-]*(?: multi)?|multi)?>(?: |$)']

@@ -1,0 +1,114 @@
+.wall {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wall-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  flex: none;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.wall-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 12px 16px;
+}
+.wall-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 2px 8px;
+  width: 100%;
+  text-align: left;
+}
+.wall-project {
+  font-family: var(--font-label);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.wall-section[data-blocked="true"] .wall-project {
+  color: var(--text);
+}
+.wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: 10px;
+}
+.wall-tile {
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  background: var(--term-bg);
+  box-shadow: 0 0 0 1px var(--line);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition: box-shadow 0.12s, transform 0.12s;
+}
+.wall-tile:hover {
+  box-shadow: 0 0 0 1px var(--text-4);
+}
+.wall-tile[data-status="blocked"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 60%, transparent), 0 0 26px -6px var(--amber-glow);
+}
+.wall-tile[data-status="exited"],
+.wall-tile[data-status="stopped"] {
+  opacity: 0.6;
+}
+.wall-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
+}
+.wall-tile[data-status="blocked"] .wall-tile-head {
+  background: linear-gradient(var(--amber-soft), var(--amber-soft)), var(--surface);
+}
+.wall-tile-body {
+  position: relative;
+  height: var(--wall-tile-h, 250px);
+  overflow: hidden;
+}
+/* Terminal at its real PTY size, scaled down and anchored to the bottom rows. */
+.wall-scale {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  transform-origin: bottom left;
+  pointer-events: none;
+}
+.wall-scale .xterm-host {
+  width: max-content;
+  height: max-content;
+}
+.wall-scale .xterm .xterm-viewport {
+  overflow: hidden !important;
+}
+.wall-scale .xterm-helper-textarea {
+  display: none;
+}
+.wall-off {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-4);
+}
+.app[data-bp="xl"] .wall-tile-body {
+  --wall-tile-h: 300px;
+}

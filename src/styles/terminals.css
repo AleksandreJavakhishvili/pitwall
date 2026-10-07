@@ -1,0 +1,145 @@
+/* Plain terminals + agents started by hand (docs/spec/terminals.md). */
+
+/* ── popup menu (project "+", right-click) ───────────── */
+.menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 190px;
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--text);
+  font-size: 13px;
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--surface-3);
+  outline: none;
+}
+.menu-icon {
+  display: inline-grid;
+  width: 16px;
+  color: var(--text-3);
+}
+.menu-label {
+  flex: 1;
+}
+.menu-hint {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+/* ── sidebar ──────────────────────────────────────────── */
+.project-add-btn {
+  opacity: 0;
+}
+.project-head:hover .project-add-btn,
+.project-add-btn:focus-visible,
+.project-add-btn[aria-expanded="true"] {
+  opacity: 1;
+}
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.sidebar-foot .new-agent-btn {
+  flex: 1;
+  margin-right: 4px;
+}
+.new-terminal-btn {
+  margin-right: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+  color: var(--text-2);
+}
+.new-terminal-btn:hover {
+  color: var(--text);
+  border-color: var(--text-4);
+  background: var(--surface-2);
+}
+.in-terminal {
+  color: var(--text-4);
+}
+
+.elsewhere-group .project-name {
+  color: var(--text-4);
+}
+.elsewhere-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px 6px 9px;
+  border-radius: var(--radius);
+  color: var(--text-2);
+}
+.elsewhere-row:hover {
+  background: var(--surface-2);
+}
+.elsewhere-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--text-3);
+}
+.elsewhere-row .agent-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.elsewhere-row .agent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.elsewhere-cwd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.elsewhere-bring {
+  flex: none;
+  opacity: 0.75;
+}
+.elsewhere-row:hover .elsewhere-bring {
+  opacity: 1;
+}
+
+/* ── New terminal dialog (⌘⇧T) ────────────────────────── */
+.term-folders {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.term-folder {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.term-folder:hover,
+.term-folder:focus-visible {
+  background: var(--surface-2);
+  color: var(--text);
+}

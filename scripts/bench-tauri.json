@@ -1,0 +1,17 @@
+{
+  "identifier": "dev.pitwall.bench",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pitwall bench",
+        "width": 1400,
+        "height": 900,
+        "x": -20000,
+        "y": 0,
+        "focus": false,
+        "dragDropEnabled": false
+      }
+    ]
+  }
+}

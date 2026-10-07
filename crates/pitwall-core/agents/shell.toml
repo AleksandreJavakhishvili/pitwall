@@ -1,0 +1,8 @@
+# Plain login shell. Status falls back to output activity.
+id = "shell"
+name = "Shell"
+command = "$SHELL"
+new_args = []
+resume_args = []
+assign_session_id = false
+hooks = "none"
