@@ -239,6 +239,15 @@ impl Provider for LocalProvider {
         Ok(pitwall_core::host::process_cwd(pid, LSOF_TIMEOUT))
     }
 
+    fn process_cwds(&self, asks: &[(Locator, Option<u32>)]) -> Vec<Option<String>> {
+        let pids: Vec<Option<u32>> =
+            asks.iter().map(|(loc, pid)| self.mine(loc).ok().and_then(|_| pid.or_else(|| self.child_pid(loc)))).collect();
+        let known: Vec<u32> = pids.iter().flatten().copied().collect();
+        let found = if known.is_empty() { None } else { pitwall_core::host::process_cwds(&known, LSOF_TIMEOUT) };
+        let found = found.unwrap_or_default();
+        pids.iter().map(|p| p.and_then(|p| found.iter().find(|(q, _)| *q == p).map(|(_, cwd)| cwd.clone()))).collect()
+    }
+
     fn capture(&self, _loc: &Locator) -> Result<String> {
         Err(PwError::unsupported("this Mac's terminals are read through their holder, not captured"))
     }
@@ -291,5 +300,18 @@ mod tests {
         assert!(p.stop(&here).is_ok());
         assert!(p.capture(&here).unwrap_err().is(ErrorCode::Unsupported));
         assert_eq!(p.process_cwd(&here, None).unwrap(), None);
+    }
+
+    #[test]
+    fn process_folders_are_asked_in_one_go() {
+        let p = provider(Err("none".into()));
+        let here = Locator::local("never-started");
+        let elsewhere = Locator::new(&ProviderId::new("agw"), &MachineId::new("vm"), "s");
+        let me = std::process::id();
+        let got = p.process_cwds(&[(here.clone(), Some(me)), (here, None), (elsewhere, Some(me))]);
+        let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].as_deref().map(std::path::Path::new), Some(cwd.as_path()));
+        assert_eq!((got[1].as_deref(), got[2].as_deref()), (None, None), "no process; not this Mac");
     }
 }

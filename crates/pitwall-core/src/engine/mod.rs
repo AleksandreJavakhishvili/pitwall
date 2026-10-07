@@ -65,6 +65,8 @@ pub struct Engine {
     kinds: Arc<KindCatalog>,
     projects: ProjectList,
     snapshots: tasks::Worker,
+    /// Worktree listings per project (crate::worktrees).
+    pub(crate) worktrees: crate::worktrees::Cache,
 }
 
 pub type Shared = Arc<Engine>;
@@ -87,6 +89,7 @@ impl Engine {
             kinds: Arc::new(KindCatalog::new(paths.user_agents_dir())),
             projects: ProjectList::new(paths.projects_file()),
             snapshots: tasks::Worker::default(),
+            worktrees: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,

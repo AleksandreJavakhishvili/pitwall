@@ -154,14 +154,39 @@ export function DiscardDialog({
   );
 }
 
-/** Commit (and for worktree agents, merge) — each step spelled out and confirmed. */
+/** What is committed and merged: an agent's folder, or one worktree. */
+export interface CommitTarget {
+  /** Shown in the title ("api-fix", "worktree agent-a1f3"). */
+  name: string;
+  /** Where the commit runs. */
+  where: string;
+  /** The main checkout merges go into. */
+  projectDisplay: string;
+  status(): Promise<MergeStatus>;
+  commit(message: string): Promise<string>;
+  merge(): Promise<MergeResult>;
+}
+
+/** An agent's folder as a commit target. */
+export function agentTarget(a: AgentView): CommitTarget {
+  return {
+    name: a.name,
+    where: a.cwdDisplay,
+    projectDisplay: a.projectDisplay,
+    status: () => api.getMergeStatus(a.id),
+    commit: (m) => api.commitAgent(a.id, m),
+    merge: () => api.mergeAgent(a.id),
+  };
+}
+
+/** Commit (and for worktrees, merge) — each step spelled out and confirmed. */
 export function CommitMergeDialog({
-  agent: a,
+  target: t,
   onClose,
   onDone,
   onConflict,
 }: {
-  agent: AgentView;
+  target: CommitTarget;
   onClose(): void;
   onDone(msg: string): void;
   onConflict(r: MergeResult): void;
@@ -174,11 +199,10 @@ export function CommitMergeDialog({
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .getMergeStatus(a.id)
+    t.status()
       .then(setSt)
       .catch((e) => setLoadErr(errorText(e)));
-  }, [a.id]);
+  }, [t.name, t.where]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const needCommit = !!st && st.uncommitted > 0;
   const canMerge = !!st && st.worktree && !!st.target && !!st.branch;
@@ -192,18 +216,18 @@ export function CommitMergeDialog({
     try {
       let done = "";
       if (needCommit) {
-        const id = await api.commitAgent(a.id, message);
+        const id = await t.commit(message);
         done = `Committed ${id} on ${st.branch ?? "the current branch"}.`;
       }
       if (willMerge) {
-        const r = await api.mergeAgent(a.id);
+        const r = await t.merge();
         if (r.conflict) {
           onConflict(r);
           return;
         }
         if (!r.merged) {
           setErr((done ? done + " " : "") + r.message);
-          setSt(await api.getMergeStatus(a.id).catch(() => st));
+          setSt(await t.status().catch(() => st));
           return;
         }
         done = (done ? done + " " : "") + r.message;
@@ -221,7 +245,7 @@ export function CommitMergeDialog({
   const primary = !st ? "…" : needCommit ? (willMerge ? "Commit & merge" : "Commit") : "Merge";
 
   return (
-    <Modal title={`${title} · ${a.name}`} onClose={onClose} width={540}>
+    <Modal title={`${title} · ${t.name}`} onClose={onClose} width={540}>
       <div className="modal-body">
         {loadErr && <p className="form-error">Couldn't read git status: {loadErr}</p>}
         {!st && !loadErr && <p className="hint">Reading git…</p>}
@@ -242,7 +266,7 @@ export function CommitMergeDialog({
                 />
                 <span className="hint">
                   Runs <span className="mono">git add -A && git commit</span> in{" "}
-                  <span className="mono">{a.cwdDisplay}</span>
+                  <span className="mono">{t.where}</span>
                   {st.branch && (
                     <>
                       {" "}
@@ -254,7 +278,7 @@ export function CommitMergeDialog({
                 </span>
               </div>
             ) : (
-              <p className="muted">Nothing uncommitted in {a.cwdDisplay}.</p>
+              <p className="muted">Nothing uncommitted in {t.where}.</p>
             )}
 
             {st.worktree && (
@@ -280,7 +304,7 @@ export function CommitMergeDialog({
                 )}
                 <span className="hint">
                   <span className="mono">git merge --no-ff</span> in the main checkout{" "}
-                  <span className="mono">{a.projectDisplay}</span>. On conflicts the merge is aborted and nothing changes.
+                  <span className="mono">{t.projectDisplay}</span>. On conflicts the merge is aborted and nothing changes.
                 </span>
                 {st.targetDirty && (
                   <span className="hint hint-error">
@@ -290,7 +314,7 @@ export function CommitMergeDialog({
                 {!st.target && <span className="hint hint-error">The main checkout is on a detached HEAD.</span>}
                 {!st.branch && (
                   <span className="hint hint-error">
-                    The agent's worktree isn't on a branch (detached HEAD). Create a branch there to merge it.
+                    The worktree isn't on a branch (detached HEAD). Create a branch there to merge it.
                   </span>
                 )}
               </div>

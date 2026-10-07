@@ -97,7 +97,7 @@ See [the checklist](dev-env/checklist.md) for details.
 Ask in #dev-help.
 `;
 
-function versionsFor(f: FileChange | undefined, path: string): FileVersions {
+export function versionsFor(f: FileChange | undefined, path: string): FileVersions {
   if (!f) return { original: null, modified: null, binary: false };
   if (f.binary) return { original: null, modified: null, binary: true };
   const md = path.endsWith(".md");

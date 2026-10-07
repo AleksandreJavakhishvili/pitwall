@@ -438,6 +438,13 @@ impl FakeProvider {
         FakeTermCtl(proc)
     }
 
+    /// The session `native`'s process moved to `cwd` (what `process_cwd` reports).
+    pub fn set_cwd(&self, native: &str, cwd: &str) {
+        if let Some(s) = lock(&self.sessions).get_mut(native) {
+            s.cwd = cwd.into();
+        }
+    }
+
     fn check(&self, ok: bool, what: &str) -> Result<()> {
         if ok {
             Ok(())

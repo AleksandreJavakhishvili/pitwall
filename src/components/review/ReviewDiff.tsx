@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor/editor/editor.api";
-import { api, errorText } from "../../api";
+import { errorText } from "../../api";
 import type { FileVersions } from "../../reviewTypes";
 import type { FileChange } from "../../types";
 import type { ReviewComment } from "./comments";
@@ -10,14 +10,19 @@ import { Kbd } from "../Kbd";
 import { onSchemeChange } from "../../lib/theme";
 
 interface Props {
-  agentId: string;
+  /** What the file belongs to (an agent, or a worktree): a new one starts fresh. */
+  sourceKey: string;
+  /** Before/after text of `path` for this source and scope. */
+  load(path: string): Promise<FileVersions>;
   file: FileChange;
+  /** Part of what is shown (per-task scope); a change reloads. */
   taskId: string | null;
   sideBySide: boolean;
   /** Bumped to refetch (e.g. after the agent's totals moved). */
   version: string;
   comments: ReviewComment[];
-  onAddComment(line: number, text: string): void;
+  /** Absent: no comments here (worktrees without the agent's own folder). */
+  onAddComment?(line: number, text: string): void;
   /** Scroll to this line once content is there. */
   reveal: { line: number; nonce: number } | null;
 }
@@ -41,7 +46,7 @@ function useTheme(): string {
   return theme;
 }
 
-export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comments, onAddComment, reveal }: Props) {
+export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version, comments, onAddComment, reveal }: Props) {
   const [v, setV] = useState<FileVersions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ line: number } | null>(null);
@@ -52,16 +57,21 @@ export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comment
   const hoverDeco = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
   const pendingReveal = useRef<number | null>(null);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const commentRef = useRef(onAddComment);
+  commentRef.current = onAddComment;
+
   useEffect(() => {
     setV(null);
     setError(null);
     setComposer(null);
-  }, [agentId, file.path, taskId]);
+  }, [sourceKey, file.path, taskId]);
 
   useEffect(() => {
     let alive = true;
-    api
-      .getFileVersions(agentId, file.path, taskId)
+    loadRef
+      .current(file.path)
       .then((x) => {
         if (!alive) return;
         setV(x);
@@ -71,7 +81,7 @@ export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comment
     return () => {
       alive = false;
     };
-  }, [agentId, file.path, taskId, version]);
+  }, [sourceKey, file.path, taskId, version]);
 
   const language = useMemo(() => languageFor(file.path), [file.path]);
 
@@ -119,13 +129,13 @@ export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comment
     commentDeco.current = mod.createDecorationsCollection();
     hoverDeco.current = mod.createDecorationsCollection();
     mod.onMouseDown((e) => {
-      if (GUTTER.has(e.target.type) && e.target.position) {
+      if (commentRef.current && GUTTER.has(e.target.type) && e.target.position) {
         setComposer({ line: e.target.position.lineNumber });
         setDraft("");
       }
     });
     mod.onMouseMove((e) => {
-      const line = e.target.position?.lineNumber;
+      const line = commentRef.current ? e.target.position?.lineNumber : undefined;
       hoverDeco.current?.set(
         line ? [{ range: new monaco.Range(line, 1, line, 1), options: { glyphMarginClassName: "rv-glyph-add" } }] : [],
       );
@@ -138,7 +148,7 @@ export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comment
       contextMenuOrder: 0,
       run: (ed) => {
         const p = ed.getPosition();
-        if (p) {
+        if (p && commentRef.current) {
           setComposer({ line: p.lineNumber });
           setDraft("");
         }
@@ -152,7 +162,7 @@ export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comment
   };
 
   const add = () => {
-    if (!composer || !draft.trim()) return;
+    if (!composer || !draft.trim() || !onAddComment) return;
     onAddComment(composer.line, draft);
     setComposer(null);
     setDraft("");
@@ -195,7 +205,7 @@ export function ReviewDiff({ agentId, file, taskId, sideBySide, version, comment
             fixedOverflowWidgets: true,
             automaticLayout: true,
             contextmenu: true,
-            readOnlyMessage: { value: "Read-only: click a line number to comment" },
+            readOnlyMessage: { value: onAddComment ? "Read-only: click a line number to comment" : "Read-only" },
           }}
         />
       )}

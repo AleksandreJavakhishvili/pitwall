@@ -361,3 +361,37 @@
 .app[data-bp="sm"] .review-body {
   grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
 }
+
+/* worktrees (docs/spec/worktrees-view.md) */
+.rv-wts {
+  margin-left: 18px;
+  border-left: 1px solid var(--line);
+}
+.rv-wts .rv-agent + .rv-agent,
+.rv-others .rv-agent + .rv-agent {
+  border-top: none;
+}
+.rv-project + .rv-project {
+  border-top: 1px solid var(--line-strong);
+}
+.rv-others {
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.rv-others-head {
+  padding: 6px 10px 2px 12px;
+  color: var(--text-3);
+}
+.rv-wt .rv-agent-name .chip {
+  margin-left: 4px;
+}
+.rv-scope-static {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(60%, 560px);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-2);
+}

@@ -173,20 +173,66 @@ fn git_argv<'s>(dir: &'s str, args: &[&'s str]) -> Vec<&'s str> {
     [&["git", "-C", dir][..], args].concat()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// One record of `git worktree list --porcelain`.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct WorktreeEntry {
     pub path: String,
-    /// Short branch name; `None` when detached.
+    /// Commit checked out (absent for a bare repository).
+    pub head: Option<String>,
+    /// Short branch name; `None` when detached (or bare).
     pub branch: Option<String>,
+    /// The repository itself, without a working tree.
+    pub bare: bool,
+    pub detached: bool,
+    /// `git worktree lock`ed: git refuses to remove or prune it.
+    pub locked: bool,
+    pub lock_reason: Option<String>,
+    /// Its folder is gone; `git worktree prune` would drop it.
+    pub prunable: bool,
 }
 
+/// Lock and prune reasons may be C-quoted when they contain odd characters.
+fn unquote(s: &str) -> String {
+    let Some(inner) = s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) else { return s.to_string() };
+    let mut out = String::new();
+    let mut it = inner.chars();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some(o) => out.push(o),
+            None => break,
+        }
+    }
+    out
+}
+
+/// Records of `git worktree list --porcelain` (main worktree first): one
+/// attribute per line, a blank line between records.
 pub fn parse_worktree_list(out: &str) -> Vec<WorktreeEntry> {
     let mut res: Vec<WorktreeEntry> = Vec::new();
     for line in out.lines() {
         if let Some(p) = line.strip_prefix("worktree ") {
-            res.push(WorktreeEntry { path: p.to_string(), branch: None });
-        } else if let (Some(b), Some(last)) = (line.strip_prefix("branch "), res.last_mut()) {
-            last.branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
+            res.push(WorktreeEntry { path: p.to_string(), ..Default::default() });
+            continue;
+        }
+        let Some(last) = res.last_mut() else { continue };
+        let (key, value) = line.split_once(' ').map_or((line, None), |(k, v)| (k, Some(v)));
+        match key {
+            "HEAD" => last.head = value.map(String::from),
+            "branch" => last.branch = value.map(|b| b.strip_prefix("refs/heads/").unwrap_or(b).to_string()),
+            "bare" => last.bare = true,
+            "detached" => last.detached = true,
+            "locked" => {
+                last.locked = true;
+                last.lock_reason = value.map(unquote).filter(|r| !r.is_empty());
+            }
+            "prunable" => last.prunable = true,
+            _ => {}
         }
     }
     res

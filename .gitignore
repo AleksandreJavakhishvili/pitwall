@@ -42,3 +42,6 @@ scratch/
 *.bak
 .env
 .env.*
+
+# Agent tool worktrees (e.g. Claude Code sub-agents)
+/.claude/worktrees/

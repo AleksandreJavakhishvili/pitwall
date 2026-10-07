@@ -56,6 +56,7 @@ mod ts_export {
         AgentCreate::export_all(&cfg).unwrap();
         CreateForm::export_all(&cfg).unwrap();
         FormRequest::export_all(&cfg).unwrap();
+        ProjectWorktrees::export_all(&cfg).unwrap();
         assert!(dir.join("AgentView.ts").is_file());
     }
 }
