@@ -2,11 +2,20 @@
 # Commits (see CONTRIBUTING.md "Commit messages").
 #
 #   npx git-cliff --unreleased                 # what the next release contains
-#   npx git-cliff -o CHANGELOG.md              # regenerate the whole changelog
+#   scripts/release.sh 0.1.0                   # cut a release (see below)
 #
-# The release workflow renders the notes for one tag with this file and uses
-# them as the GitHub Release body. Commits that don't follow the convention
-# (the history before it existed) are left out.
+# CHANGELOG.md is only ever prepended to (`--prepend`), never regenerated with
+# `-o`: it also holds hand-written text git-cliff can't produce (the Highlights
+# under "## Unreleased", moved into the version's section at release time).
+# scripts/release.sh runs
+#
+#   git-cliff --tag v<version> --unreleased --prepend CHANGELOG.md
+#
+# and commits the result before the tag is pushed. The website renders
+# CHANGELOG.md into /changelog/ (website/scripts/pages.mjs). The release
+# workflow uses the tag's section of CHANGELOG.md as the GitHub Release body,
+# or renders the notes for the tag with this file when there's none. Commits
+# that don't follow the convention (the history before it existed) are left out.
 
 [changelog]
 header = """
