@@ -61,11 +61,30 @@ pub fn default_login_shell() -> String {
 /// `program` on PATH, for a login shell that isn't POSIX (`$PITWALL_SHELL`
 /// set to pwsh); POSIX shells resolve with `command -v` (`shell::which`).
 pub fn which(program: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
+    let path = crate::shell::spawn_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH"))?;
     std::env::split_paths(&path)
         .map(|d| d.join(program))
         .find(|p| is_executable(p))
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// PATH without asking a shell: none on Unix (the login shell is asked,
+/// `shell::login_env_path`).
+pub fn system_path() -> Option<String> {
+    None
+}
+
+/// Where package managers put programs (Homebrew on Apple silicon, Homebrew
+/// on Intel and other `/usr/local` installs, pipx/uv, cargo): added to PATH
+/// when the login shell can't be asked.
+pub fn common_bin_dirs(home: &Path) -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/opt/homebrew/sbin"),
+        PathBuf::from("/usr/local/bin"),
+        home.join(".local/bin"),
+        home.join(".cargo/bin"),
+    ]
 }
 
 // ---------------------------------------------------------------- hook relay

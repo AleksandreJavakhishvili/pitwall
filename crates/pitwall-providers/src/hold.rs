@@ -93,6 +93,9 @@ pub fn run(holder: &Path, socket: &Path, size: TermSize, p: Program) -> io::Resu
             cmd.env_remove(key);
         }
     }
+    if let Some(path) = pitwall_core::shell::spawn_path() {
+        cmd.env("PATH", path);
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     for (k, v) in p.env {

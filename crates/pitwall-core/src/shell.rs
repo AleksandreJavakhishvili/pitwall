@@ -9,6 +9,8 @@
 //! (`$SHELL`, else zsh on macOS and bash on Linux; `pwsh` if installed, else Windows PowerShell). The
 //! command-line syntax follows the shell's [`Flavor`].
 
+use std::path::{Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
 use crate::exec::{Cmd, Exec, LocalExec};
@@ -16,6 +18,13 @@ use crate::platform;
 
 /// A login shell that hangs (waiting on something in the user's rc files).
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Asking the login shell for its PATH (in the background in the app): an rc
+/// file that hangs leaves the fallback PATH in place.
+pub const PATH_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Marks the PATH line in a login shell's output (rc files may print too).
+const PATH_MARK: &str = "__PITWALL_PATH__";
 
 /// Overrides the login shell (a program path or name; its syntax is taken
 /// from its file name: `pwsh`/`powershell`, `cmd`, else POSIX sh).
@@ -208,6 +217,131 @@ pub fn launch_invocation(command_line: &str) -> (String, Vec<String>) {
     LoginShell::current().launch(command_line)
 }
 
+/// The PATH for everything Pitwall starts, once the app set one
+/// ([`adopt_login_path`]); `None`: this process's own (the CLI and the
+/// daemon, which have a terminal's PATH).
+static SPAWN_PATH: RwLock<Option<String>> = RwLock::new(None);
+
+/// The PATH to give programs Pitwall starts ([`LocalExec`], holders), when
+/// it differs from this process's own.
+pub fn spawn_path() -> Option<String> {
+    SPAWN_PATH.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Set the PATH for programs Pitwall starts from now on. The process
+/// environment itself is never changed: other threads may be reading it.
+pub fn set_spawn_path(path: String) {
+    *SPAWN_PATH.write().unwrap_or_else(|e| e.into_inner()) = Some(path);
+}
+
+/// PATH as the user's terminal has it, resolved once: the registry's on
+/// Windows (system + user, what PowerShell's login PATH is too); elsewhere
+/// the login shell's (see [`resolve_path`]). Blocks while the shell starts;
+/// the app asks it in the background ([`adopt_login_path`]).
+pub fn login_env_path() -> String {
+    probed_login_path().unwrap_or_else(|| {
+        let current = std::env::var("PATH").ok();
+        fallback_path(None, current.as_deref(), &platform::home_dir())
+    })
+}
+
+/// [`login_env_path`] as the shell answered it; `None` when it couldn't.
+fn probed_login_path() -> Option<String> {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        platform::system_path().or_else(|| {
+            let current = std::env::var("PATH").ok();
+            let login = probe_path(&LoginShell::current(), PATH_PROBE_TIMEOUT)?;
+            Some(merge_paths(vec![split(&login), current.as_deref().map(split).unwrap_or_default()]))
+        })
+    })
+    .clone()
+}
+
+/// Give everything the desktop app starts (git, agw and what agw starts,
+/// rulesync, holders, …) the PATH the user's terminal has: apps opened from
+/// the Dock, Finder or a desktop launcher get a minimal one
+/// (`/usr/bin:/bin:/usr/sbin:/sbin` on macOS).
+///
+/// Never blocks start-up: the spawn PATH is at once the last login PATH
+/// (`cache`, a file in Pitwall's data folder) or, the first time, this
+/// process's PATH plus the common program dirs that exist (Homebrew,
+/// `~/.local/bin`, `~/.cargo/bin`). The login shell is then asked on a
+/// thread of its own; its answer replaces the spawn PATH and the cache. On
+/// Windows the registry's PATH is read at once, with no shell.
+///
+/// The returned thread is the background probe (tests wait for it).
+pub fn adopt_login_path(cache: Option<PathBuf>) -> Option<std::thread::JoinHandle<()>> {
+    if let Some(path) = platform::system_path() {
+        set_spawn_path(path);
+        return None;
+    }
+    let current = std::env::var("PATH").ok();
+    let cached = cache.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).filter(|p| !p.trim().is_empty());
+    set_spawn_path(fallback_path(cached.as_deref().map(str::trim), current.as_deref(), &platform::home_dir()));
+    std::thread::Builder::new()
+        .name("login-path".into())
+        .spawn(move || {
+            let Some(path) = probed_login_path() else { return };
+            set_spawn_path(path.clone());
+            if let Some(file) = cache.filter(|_| cached.as_deref().map(str::trim) != Some(path.as_str())) {
+                if let Some(dir) = file.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(file, &path);
+            }
+        })
+        .ok()
+}
+
+/// PATH without asking the shell: `cached` (the last login PATH), then
+/// `current`, then those of [`platform::common_bin_dirs`] that exist.
+pub fn fallback_path(cached: Option<&str>, current: Option<&str>, home: &Path) -> String {
+    let common: Vec<PathBuf> = platform::common_bin_dirs(home).into_iter().filter(|d| d.is_dir()).collect();
+    merge_paths(vec![cached.map(split).unwrap_or_default(), current.map(split).unwrap_or_default(), common])
+}
+
+/// The login shell's PATH (`shell` asked to print it, within `timeout`), with
+/// the dirs of `current` it lacks after it; [`fallback_path`] when the shell
+/// can't be asked (missing, failing, hanging, printing nothing).
+pub fn resolve_path(shell: &LoginShell, current: Option<&str>, home: &Path, timeout: Duration) -> String {
+    match probe_path(shell, timeout) {
+        Some(login) => merge_paths(vec![split(&login), current.map(split).unwrap_or_default()]),
+        None => fallback_path(None, current, home),
+    }
+}
+
+/// What `shell` (login + interactive) says PATH is, started with this
+/// process's own PATH (not a spawn PATH it would only add to).
+pub fn probe_path(shell: &LoginShell, timeout: Duration) -> Option<String> {
+    let (program, args) = shell.run(&shell.print_path(PATH_MARK));
+    let mut argv = vec![program.as_str()];
+    argv.extend(args.iter().map(String::as_str));
+    let own = std::env::var("PATH").unwrap_or_default();
+    let out = LocalExec.run(&Cmd::new(&argv).env(&[("PATH", &own)]).timeout(timeout)).ok()?;
+    out.stdout_text()
+        .lines()
+        .rev()
+        .find_map(|l| l.trim_end_matches('\r').strip_prefix(PATH_MARK))
+        .map(str::to_string)
+        .filter(|p| !p.trim().is_empty())
+}
+
+fn split(path: &str) -> Vec<PathBuf> {
+    std::env::split_paths(path).collect()
+}
+
+/// The dirs in order, empty ones and repeats left out, joined as PATH.
+fn merge_paths(parts: Vec<Vec<PathBuf>>) -> String {
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for dir in parts.into_iter().flatten() {
+        if !dir.as_os_str().is_empty() && !seen.contains(&dir) {
+            seen.push(dir);
+        }
+    }
+    std::env::join_paths(seen).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
 fn posix_quote(arg: &str) -> String {
     if !arg.is_empty()
         && arg
@@ -294,6 +428,30 @@ mod tests {
         assert!(args[2].ends_with("; claude --resume abc; & 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' -NoLogo"), "{}", args[2]);
         assert!(!ps.passes_json());
         assert!(ps.print_path("MARK").contains("'MARK' + $env:Path"));
+    }
+
+    #[test]
+    fn paths_merge_in_order_without_repeats_or_empties() {
+        let p = |s: &str| PathBuf::from(s);
+        let merged = merge_paths(vec![vec![p("/a"), p(""), p("/b")], vec![p("/b"), p("/c"), p("/a")]]);
+        assert_eq!(split(&merged), vec![p("/a"), p("/b"), p("/c")]);
+    }
+
+    #[test]
+    fn a_shell_that_cannot_run_falls_back_to_current_and_existing_common_dirs() {
+        let home = crate::testing::TempDir::new("login-path-home");
+        let common = platform::common_bin_dirs(home.path());
+        let mine: Vec<&PathBuf> = common.iter().filter(|d| d.starts_with(home.path())).collect();
+        std::fs::create_dir_all(mine[0]).unwrap();
+        let sh = LoginShell::new("/no/such/shell-for-pitwall");
+        let path = resolve_path(&sh, Some("/usr/bin"), home.path(), Duration::from_secs(5));
+        let dirs = split(&path);
+        assert_eq!(dirs[0], PathBuf::from("/usr/bin"), "{path}");
+        assert!(dirs.contains(mine[0]), "{path}");
+        assert!(mine[1..].iter().all(|d| !dirs.contains(d)), "missing dirs are left out: {path}");
+        // The last login PATH first, when there is one.
+        let quick = split(&fallback_path(Some("/cached/bin"), Some("/usr/bin"), home.path()));
+        assert_eq!(&quick[..2], [PathBuf::from("/cached/bin"), PathBuf::from("/usr/bin")]);
     }
 
     #[test]

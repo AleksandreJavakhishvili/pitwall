@@ -3,9 +3,8 @@
 //! the user turned that on in Settings.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
-use crate::exec::{self, Cmd, Exec, LocalExec};
+use crate::exec::{Cmd, Exec, LocalExec};
 use crate::shell;
 
 #[derive(Debug, Clone)]
@@ -18,22 +17,10 @@ pub struct Runner {
     pub via: &'static str,
 }
 
-const MARK: &str = "__PITWALL_PATH__";
-
 /// PATH as the user's login + interactive shell sees it (Dock apps get a
-/// minimal PATH). Resolved once.
+/// minimal PATH): [`shell::login_env_path`], resolved once.
 pub fn login_path() -> Option<String> {
-    static PATH: OnceLock<Option<String>> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let shell = shell::LoginShell::current();
-        let text = shell.output(&shell.print_path(MARK), exec::LONG)?;
-        text.lines()
-            .rev()
-            .find_map(|l| l.strip_prefix(MARK))
-            .map(str::to_string)
-            .filter(|p| !p.is_empty())
-    })
-    .clone()
+    Some(shell::login_env_path()).filter(|p| !p.is_empty())
 }
 
 fn find_in(path_env: &str, program: &str) -> Option<PathBuf> {

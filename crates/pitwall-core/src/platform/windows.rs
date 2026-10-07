@@ -166,6 +166,17 @@ pub fn fresh_path() -> String {
     seen.join(";")
 }
 
+/// PATH without asking a shell: the registry's ([`fresh_path`]), which is
+/// what PowerShell's login PATH is too (no slow PowerShell start needed).
+pub fn system_path() -> Option<String> {
+    Some(fresh_path())
+}
+
+/// Where package managers put programs outside the registry's PATH.
+pub fn common_bin_dirs(home: &Path) -> Vec<PathBuf> {
+    vec![home.join(".cargo").join("bin")]
+}
+
 /// PowerShell 7 (`pwsh.exe`) when installed, else Windows PowerShell.
 pub fn default_login_shell() -> String {
     static SHELL: OnceLock<String> = OnceLock::new();

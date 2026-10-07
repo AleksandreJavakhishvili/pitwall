@@ -27,6 +27,14 @@ use std::path::{Path, PathBuf};
 
 /// Before Tauri starts (no threads yet).
 pub fn prepare_env() {
+    // PATH as the user's terminal has it, for everything Pitwall starts. An
+    // app opened from the Dock, Finder or a desktop launcher gets a minimal
+    // PATH, so a program found through the login shell (agw) would run
+    // without Homebrew's dirs and fail to find its own tools (limactl).
+    // Never blocks: last run's login PATH (or common dirs) at once, the login
+    // shell asked in the background (Windows: the registry's PATH).
+    let paths = pitwall_core::paths::Paths::new(pitwall_core::paths::Paths::default_root());
+    let _probe = pitwall_core::shell::adopt_login_path(Some(paths.login_path_file()));
     // WebKitGTK's DMA-BUF renderer leaves the window blank on some GPU
     // drivers (NVIDIA, some Wayland compositors); the fallback renders
     // everywhere. Set the variable to 0 to opt back in.
