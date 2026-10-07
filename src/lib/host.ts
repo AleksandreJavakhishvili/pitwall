@@ -1,11 +1,21 @@
 // What this desktop offers (`host_info`, pitwall_core::host::HostInfo): the
-// shortcut modifier, how this machine is named, Pitwall's data folder. The UI
+// shortcut modifier, how this machine is named, Pitwall's data folder, Dock /
+// tray, menu bar, badge and local sockets. The UI
 // decides by these capabilities, never by which OS it runs on. Loaded once
 // before the first render (main.tsx); until then, and when the backend is too
 // old to say, the macOS values apply.
 import type { HostInfo, ShortcutModifier } from "../types";
 
-export const DEFAULT_HOST: HostInfo = { machineLabel: "This Mac", shortcuts: "meta", dataDir: "~/.pitwall", dock: true };
+export const DEFAULT_HOST: HostInfo = {
+  machineLabel: "This Mac",
+  shortcuts: "meta",
+  dataDir: "~/.pitwall",
+  dock: true,
+  tray: false,
+  menu: "app",
+  badge: "dock",
+  localSockets: "unix",
+};
 
 let current: HostInfo = DEFAULT_HOST;
 

@@ -15,6 +15,9 @@
 //! `PITWALL_AGW_LIVE_EXEC=<session> cargo test -p pitwall-providers --test
 //! live_agw_exec -- --ignored --nocapture` (read-only commands only).
 
+// The fake agw (and agw itself) are shell scripts / Unix tools.
+#![cfg(unix)]
+
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};

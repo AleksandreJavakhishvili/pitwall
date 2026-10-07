@@ -15,7 +15,8 @@
 //! pitwall-hold --version
 //! ```
 //!
-//! The process you start detaches a holder (Unix: fork + `setsid()`, so it
+//! The process you start detaches a holder (Unix: fork + `setsid()`;
+//! Windows: it re-spawns itself detached, in its own process group, so it
 //! survives its parent and gets none of its terminal signals). The holder
 //! binds the socket (refusing if a live holder with a running child already
 //! answers there) and starts the child; the launcher then prints
@@ -47,9 +48,9 @@
 //! | 0x01 | HELLO    | version:u16be           | must be first; answered by WELCOME |
 //! | 0x02 | ATTACH   | replay:u8               | stream output to this connection: REPLAY frames with the ring (≤ 1 MiB) if `replay` = 1, then OUTPUT; EXIT if the child is gone |
 //! | 0x03 | INPUT    | bytes                   | written to the PTY verbatim |
-//! | 0x04 | RESIZE   | cols:u16be rows:u16be   | `TIOCSWINSZ` (the child gets SIGWINCH) |
+//! | 0x04 | RESIZE   | cols:u16be rows:u16be   | `TIOCSWINSZ` (the child gets SIGWINCH); Windows: resizes the ConPTY |
 //! | 0x05 | STATUS   | —                       | answered by INFO |
-//! | 0x06 | SHUTDOWN | grace_ms:u32be          | hang up on the child (SIGHUP), kill it after `grace_ms`; the holder exits after it |
+//! | 0x06 | SHUTDOWN | grace_ms:u32be          | hang up on the child (SIGHUP; Windows: close its console), kill it after `grace_ms`; the holder exits after it |
 //!
 //! Holder → client:
 //!

@@ -136,8 +136,7 @@ fn handshake_versions_and_unknown_methods() {
     assert_eq!(server_error(c.call("agent.create", json!({"kind": 3})).unwrap_err()).code, code::BAD_PARAMS);
 
     // A client that only speaks a future version is rejected, not served.
-    use std::os::unix::net::UnixStream;
-    let mut raw = UnixStream::connect(&w.socket).unwrap();
+    let mut raw = pitwall_client::connect_raw(&w.socket).unwrap();
     frame::write_json(&mut raw, &json!({"hello": {"protocol": {"min": 2, "max": 2}, "client": "future", "role": "cli"}})).unwrap();
     let Some(Frame::Json(body)) = frame::read(&mut raw).unwrap() else { panic!("an answer") };
     let v: Value = serde_json::from_slice(&body).unwrap();
@@ -145,7 +144,7 @@ fn handshake_versions_and_unknown_methods() {
     assert_eq!(v["reject"]["protocol"], json!({"min": 1, "max": 1}));
     assert_eq!(frame::read(&mut raw).unwrap(), None, "then the server hangs up");
     // Garbage instead of a hello.
-    let mut raw = UnixStream::connect(&w.socket).unwrap();
+    let mut raw = pitwall_client::connect_raw(&w.socket).unwrap();
     raw.write_all(&frame::json(&json!({"hi": 1}))).unwrap();
     let Some(Frame::Json(body)) = frame::read(&mut raw).unwrap() else { panic!("an answer") };
     assert_eq!(serde_json::from_slice::<Value>(&body).unwrap()["reject"]["code"], "bad_hello");
@@ -153,10 +152,14 @@ fn handshake_versions_and_unknown_methods() {
 
 #[test]
 fn the_socket_is_private_and_removed_on_stop() {
-    use std::os::unix::fs::PermissionsExt;
     let mut w = world(Duration::from_secs(5));
-    let mode = std::fs::metadata(&w.socket).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode, 0o600);
+    // Windows: a named pipe whose security descriptor admits only this user.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&w.socket).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
     // A second server on the same socket refuses to start.
     let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into() });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
@@ -394,7 +397,10 @@ fn process_identity_of_a_local_peer() {
     let caller = ProcessIdentity::new(w.engine.clone()).identify(Some(std::process::id()));
     assert!(caller.ui && caller.agent.is_none());
     assert!(caller.process.is_some());
-    let parent = ProcessIdentity::new(w.engine.clone()).identify(Some(std::os::unix::process::parent_id()));
-    assert!(!parent.ui, "another process is not the UI");
+    #[cfg(unix)]
+    {
+        let parent = ProcessIdentity::new(w.engine.clone()).identify(Some(std::os::unix::process::parent_id()));
+        assert!(!parent.ui, "another process is not the UI");
+    }
     assert_eq!(ProcessIdentity::new(w.engine.clone()).identify(None), Caller::outside());
 }

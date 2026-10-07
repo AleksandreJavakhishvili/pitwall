@@ -7,6 +7,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Socket files (`host::HostInfo`).
+pub const LOCAL_SOCKETS: crate::host::LocalSockets = crate::host::LocalSockets::Unix;
+
 pub fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -33,6 +36,51 @@ pub fn is_executable(path: &Path) -> bool {
 pub fn make_executable(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+/// Files `path` may name as a program (Unix: exactly that one).
+pub fn executable_candidates(path: &Path) -> Vec<PathBuf> {
+    vec![path.to_path_buf()]
+}
+
+/// `std::fs::canonicalize`.
+pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
+    std::fs::canonicalize(path)
+}
+
+/// Nothing to hide: Unix programs get no window of their own.
+pub fn hide_console(_cmd: &mut std::process::Command) {}
+
+// ---------------------------------------------------------------- login shell
+
+/// `$SHELL`, else the OS's default shell (`macos.rs` / `linux.rs`).
+pub fn default_login_shell() -> String {
+    std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(super::default_shell)
+}
+
+/// `program` on PATH, for a login shell that isn't POSIX (`$PITWALL_SHELL`
+/// set to pwsh); POSIX shells resolve with `command -v` (`shell::which`).
+pub fn which(program: &str) -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join(program))
+        .find(|p| is_executable(p))
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+// ---------------------------------------------------------------- hook relay
+
+/// Write the relay script (`script`) at `dest`, executable.
+pub fn install_hook_relay(dest: &Path, script: &str) -> Result<(), String> {
+    if std::fs::read_to_string(dest).ok().as_deref() != Some(script) {
+        std::fs::write(dest, script).map_err(|e| e.to_string())?;
+    }
+    make_executable(dest).map_err(|e| e.to_string())
+}
+
+/// `sh '<dest>'`.
+pub fn hook_relay_command(dest: &Path) -> String {
+    format!("sh {}", crate::shell::quote(&dest.to_string_lossy()))
 }
 
 // ---------------------------------------------------------------- local sockets

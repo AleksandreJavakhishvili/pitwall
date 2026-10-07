@@ -21,8 +21,14 @@ use super::xdg;
 pub const MACHINE_LABEL: &str = "This computer";
 /// Ctrl+Shift shortcuts: Ctrl alone belongs to the terminal.
 pub const SHORTCUTS: crate::host::Shortcuts = crate::host::Shortcuts::CtrlShift;
-/// No Dock to bring a hidden window back: closing the main window quits.
+/// No Dock (or tray) to bring a hidden window back: closing the main window
+/// quits.
 pub const HAS_DOCK: bool = false;
+pub const HAS_TRAY: bool = false;
+/// No native menu: GTK menu bars take F10 and Ctrl accelerators.
+pub const MENU_BAR: crate::host::MenuBar = crate::host::MenuBar::None;
+/// The launcher's count where the desktop supports one (Unity API).
+pub const BADGE: crate::host::Badge = crate::host::Badge::Dock;
 
 fn proc() -> ProcFs {
     ProcFs::new("/proc")

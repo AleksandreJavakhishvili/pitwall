@@ -1,6 +1,7 @@
-//! The Pitwall app: windows, the webview bridge, notifications, the Dock
-//! badge and the menu. All logic lives in `pitwall_core`; this crate only
-//! hosts the engine and adapts it to Tauri (architecture.md §1).
+//! The Pitwall app: windows, the webview bridge, notifications, the badge
+//! (Dock, or taskbar overlay + tray), the tray and the menu, each chosen by
+//! `HostInfo` capabilities. All logic lives in `pitwall_core`; this crate
+//! only hosts the engine and adapts it to Tauri (architecture.md §1).
 
 mod attention;
 mod bench;
@@ -49,13 +50,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The `pitwall` CLI's socket (architecture.md §4).
     server::start(app.handle(), engine.clone(), &paths);
     windows::restore(app.handle());
+    if pitwall_core::host::HostInfo::current(&paths).tray {
+        platform::setup_tray(app.handle())?;
+    }
     bench::start(app.handle(), started());
     Ok(())
 }
 
-/// The Dock's "reopen" (macOS only).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn show_main(app: &tauri::AppHandle) {
+/// The Dock's "reopen" (macOS) and the tray icon's click (Windows).
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+pub(crate) fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -74,23 +78,25 @@ pub fn run() {
     started();
     platform::prepare_env();
     let host = pitwall_core::host::HostInfo::current(&Paths::new(Paths::default_root()));
-    let has_dock = host.dock;
+    let hides_on_close = host.hides_on_close();
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_dialog::init());
-    if menu::wanted(&host) {
-        builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+        .plugin(tauri_plugin_dialog::init())
+        // Native menu items and the tray's menu.
+        .on_menu_event(menu::on_event);
+    if let Some(build) = menu::for_host(&host) {
+        builder = builder.menu(build);
     }
     let app = builder
         .setup(setup)
         .on_window_event(move |window, event| match event {
-            // Closing main hides it (agents keep running; the Dock brings it
-            // back); ⌘Q quits. Without a Dock nothing could bring it back,
-            // so closing main quits — agents still keep running in their
-            // holders. Secondary windows close for real.
+            // Closing main hides it (agents keep running; the Dock or the
+            // tray brings it back); Quit quits. Without either nothing could
+            // bring it back, so closing main quits — agents still keep
+            // running in their holders. Secondary windows close for real.
             WindowEvent::CloseRequested { api, .. } => {
-                if window.label() == windows::MAIN && has_dock {
+                if window.label() == windows::MAIN && hides_on_close {
                     api.prevent_close();
                     let _ = window.hide();
                 } else if window.label() == windows::MAIN {

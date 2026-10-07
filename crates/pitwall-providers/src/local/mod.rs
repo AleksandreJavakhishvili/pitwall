@@ -54,7 +54,7 @@ fn resolve(program: &str) -> Option<String> {
     if program.is_empty() {
         return None;
     }
-    if program.starts_with('/') {
+    if Path::new(program).is_absolute() {
         return Path::new(program).exists().then(|| program.to_string());
     }
     pitwall_core::shell::which(program)

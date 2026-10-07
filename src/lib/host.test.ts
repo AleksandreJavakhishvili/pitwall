@@ -57,9 +57,12 @@ describe("shortcut labels", () => {
 
 describe("loading what the desktop offers", () => {
   it("uses the backend's answer", async () => {
-    await loadHost(async () => ({ machineLabel: "This computer", shortcuts: "ctrlShift", dataDir: "~/.local/share/pitwall", dock: false }));
+    await loadHost(async () => ({ machineLabel: "This computer", shortcuts: "ctrlShift", dataDir: "~/.local/share/pitwall", dock: false, tray: false, menu: "none", badge: "dock", localSockets: "unix" }));
     expect(host().shortcuts).toBe("ctrlShift");
     expect(host().machineLabel).toBe("This computer");
+    await loadHost(async () => ({ machineLabel: "This PC", shortcuts: "ctrlShift", dataDir: "~/AppData/Roaming/Pitwall", dock: false, tray: true, menu: "file", badge: "taskbar", localSockets: "namedPipe" }));
+    expect(host().tray).toBe(true);
+    expect(host().menu).toBe("file");
   });
 
   it("falls back to the defaults when the backend fails or is slow", async () => {

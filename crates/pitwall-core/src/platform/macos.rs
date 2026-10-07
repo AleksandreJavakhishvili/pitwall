@@ -17,6 +17,9 @@ pub const MACHINE_LABEL: &str = "This Mac";
 pub const SHORTCUTS: crate::host::Shortcuts = crate::host::Shortcuts::Meta;
 /// The Dock brings hidden windows back and shows a badge.
 pub const HAS_DOCK: bool = true;
+pub const HAS_TRAY: bool = false;
+pub const MENU_BAR: crate::host::MenuBar = crate::host::MenuBar::App;
+pub const BADGE: crate::host::Badge = crate::host::Badge::Dock;
 
 /// Everything Pitwall owns lives under ~/.pitwall, or under `$PITWALL_HOME`
 /// when set.

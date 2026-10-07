@@ -5,16 +5,14 @@
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use interprocess::local_socket::{prelude::*, Listener, ListenerOptions, Stream};
-
-use crate::platform::{self, PtyControl, PtySpec, Role};
+use crate::platform::{self, Conn as _, Listener, PtyControl, PtySpec, Role, Stream};
 use crate::proto::{self, Info};
 
 /// Output kept for clients that attach later (same size as the app's ring).
@@ -79,9 +77,10 @@ pub fn run(cfg: Config) -> i32 {
             eprintln!("pitwall-hold: could not detach: {e}");
             1
         }
-        Ok(Role::Launcher(mut report)) => {
+        Ok(Role::Launcher(report)) => {
+            // One line: the holder may keep its end open after reporting.
             let mut text = String::new();
-            let _ = report.read_to_string(&mut text);
+            let _ = BufReader::new(report).read_line(&mut text);
             match text.strip_prefix("ready ") {
                 Some(rest) => {
                     print!("ready {rest}");
@@ -104,6 +103,7 @@ pub fn run(cfg: Config) -> i32 {
                 }
             };
             let _ = writeln!(ready, "ready {} {}", hub.holder_pid, hub.child_pid);
+            let _ = ready.flush();
             drop(ready);
             hub.serve();
             std::process::exit(0);
@@ -122,8 +122,12 @@ pub fn bind(path: &Path) -> io::Result<(Listener, Option<u64>)> {
                 format!("a holder with a running process already uses {}", path.display()),
             ))
         }
-        // Its child is gone; the old holder is only lingering.
-        Ok(_) => platform::remove_stale_endpoint(path),
+        // Its child is gone; the old holder is only lingering. Ask it to go
+        // now (a named pipe can't be taken over while it still listens).
+        Ok(mut c) => {
+            let _ = c.send(&proto::shutdown(0));
+            platform::remove_stale_endpoint(path);
+        }
         Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => platform::remove_stale_endpoint(path),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => {
@@ -133,10 +137,7 @@ pub fn bind(path: &Path) -> io::Result<(Listener, Option<u64>)> {
             ))
         }
     }
-    let listener = ListenerOptions::new()
-        .name(platform::endpoint_name(path)?)
-        .reclaim_name(false)
-        .create_sync()?;
+    let listener = platform::listen(path)?;
     platform::secure_endpoint(path)?;
     Ok((listener, platform::endpoint_token(path)))
 }
@@ -187,7 +188,7 @@ struct Hub {
     socket: PathBuf,
     token: Option<u64>,
     // Taken by `serve`.
-    pending: Mutex<Option<(Listener, Box<dyn Read + Send>)>>,
+    pending: Mutex<Option<(Listener, Box<dyn io::Read + Send>)>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -266,7 +267,7 @@ impl Hub {
         platform::remove_endpoint(&self.socket, self.token);
     }
 
-    fn pump_output(&self, mut reader: Box<dyn Read + Send>) {
+    fn pump_output(&self, mut reader: Box<dyn io::Read + Send>) {
         let mut buf = vec![0u8; 64 * 1024];
         loop {
             match reader.read(&mut buf) {
@@ -304,7 +305,7 @@ impl Hub {
     fn accept(self: Arc<Self>, listener: Listener) {
         let mut next_id = 0u64;
         loop {
-            match listener.accept() {
+            match platform::accept(&listener) {
                 Ok(stream) => {
                     next_id += 1;
                     let (h, id) = (self.clone(), next_id);

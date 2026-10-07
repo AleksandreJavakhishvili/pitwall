@@ -1,8 +1,26 @@
-//! OS glue for the app shell (architecture.md §9 decision 7). Behaviour the
-//! UI also sees is decided by `pitwall_core::host::HostInfo` capabilities
-//! (shortcut modifier, Dock); this module only holds what has no capability
-//! of its own: the process environment and where shipped helper binaries
-//! run from.
+//! OS glue for the app shell (architecture.md §9 decision 7). What the UI
+//! also sees — shortcut modifier, Dock or tray, menu bar, badge — is decided
+//! by `pitwall_core::host::HostInfo` capabilities (`lib.rs`, `menu.rs`); this
+//! module holds the OS calls behind them and what has no capability of its
+//! own: the process environment and where shipped helper binaries run from.
+//!
+//! - `unix.rs` (macOS, Linux): the Dock / launcher badge; no tray.
+//! - `windows.rs`: the tray icon (the way back to a hidden window; there is
+//!   no Dock) and the blocked count as a taskbar overlay icon (`badge.rs`)
+//!   and in the tray tooltip.
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub mod badge;
+
+#[cfg(not(windows))]
+mod unix;
+#[cfg(not(windows))]
+pub use unix::*;
+
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::*;
 
 use std::io;
 use std::path::{Path, PathBuf};

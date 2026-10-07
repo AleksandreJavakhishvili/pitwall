@@ -94,8 +94,13 @@ pub fn cmdline_args(raw: &[u8], comm: &str) -> String {
     args.join(" ").replace(['\n', '\r'], " ")
 }
 
+/// A program's name: its last path component, without Windows' `.exe`.
 fn base(s: &str) -> &str {
-    s.rsplit('/').next().unwrap_or(s)
+    let b = s.rsplit(['/', '\\']).next().unwrap_or(s);
+    match b.len().checked_sub(4).filter(|&i| b.is_char_boundary(i)) {
+        Some(i) if b[i..].eq_ignore_ascii_case(".exe") => &b[..i],
+        _ => b,
+    }
 }
 
 /// An agent kind as the process table shows it.
@@ -366,6 +371,9 @@ mod tests {
         let m = matcher();
         let kind = |line: &str| m.recognise(line).map(|r| r.kind);
         assert_eq!(kind("/opt/homebrew/bin/claude").as_deref(), Some("claude"));
+        // Windows process rows (windows_procs.rs): the executable's name.
+        assert_eq!(kind("claude.exe --resume s1").as_deref(), Some("claude"));
+        assert_eq!(kind("node.exe C:\\Users\\d\\AppData\\Roaming\\npm\\codex.js").as_deref(), None);
         assert_eq!(kind("node --no-warnings /usr/local/bin/gemini -m pro").as_deref(), Some("gemini"));
         assert_eq!(kind("cursor-agent").as_deref(), Some("cursor"));
         assert_eq!(kind("aider --model sonnet").as_deref(), Some("aider"));

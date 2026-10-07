@@ -7,6 +7,7 @@
 //! - [`api`]: method names, their parameters and results, approvals.
 //! - [`create`]: the form a provider describes for new agents on a machine.
 //! - [`views`]: what clients are shown (`AgentView`, sessions, …).
+//! - [`pipe`]: the Windows named pipe for a socket path.
 //!
 //! Serde only: no sockets, no engine.
 
@@ -14,6 +15,7 @@ pub mod api;
 pub mod create;
 pub mod frame;
 pub mod msg;
+pub mod pipe;
 pub mod views;
 
 pub use api::*;

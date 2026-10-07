@@ -336,11 +336,19 @@ export type PrivacyPane = "fullDiskAccess" | "filesAndFolders";
 export type ShortcutModifier = "meta" | "ctrlShift";
 /** What this desktop offers (`host_info`); the UI decides by these, never by OS. */
 export interface HostInfo {
-  /** How the UI names this machine ("This Mac", "This computer"). */
+  /** How the UI names this machine ("This Mac", "This computer", "This PC"). */
   machineLabel: string;
   shortcuts: ShortcutModifier;
   /** Pitwall's data folder as shown to the user ("~/.pitwall"). */
   dataDir: string;
-  /** A Dock brings hidden windows back; without one, closing the main window quits. */
+  /** A Dock brings hidden windows back. */
   dock: boolean;
+  /** A tray icon brings hidden windows back. Without a Dock or a tray, closing the main window quits. */
+  tray: boolean;
+  /** The native menu: the macOS app menu, a File menu (no Edit accelerators), or none (Settings and Quit in the palette). */
+  menu: "app" | "file" | "none";
+  /** Where the "agents need you" count shows: Dock badge, or taskbar overlay + tray tooltip. */
+  badge: "dock" | "taskbar";
+  /** Local sockets: Unix socket files, or per-user named pipes. */
+  localSockets: "unix" | "namedPipe";
 }

@@ -72,6 +72,14 @@ pub fn socket_path() -> PathBuf {
     }
 }
 
+/// A connection to Pitwall's socket without the handshake (tests,
+/// diagnostics): a Unix socket, or a named pipe on Windows.
+pub type RawConn = platform::Conn;
+
+pub fn connect_raw(path: &Path) -> std::io::Result<RawConn> {
+    platform::connect(path)
+}
+
 pub struct Client {
     conn: platform::Conn,
     next_id: u64,

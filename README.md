@@ -20,9 +20,9 @@ https://github.com/user-attachments/assets/65903f5d-1b2c-41a0-ab35-a2451a26d7c0
 
 **You call the strategy. Agents drive.**
 
-Pitwall is a desktop app for macOS and Linux for running terminal coding agents (Claude Code, Codex, Gemini CLI and the rest) side by side, and seeing at a glance which one is waiting for you. It is a tool, not an agent: it never rewrites your prompts or decides what an agent does. Text you send goes in exactly as written.
+Pitwall is a desktop app for macOS, Linux and Windows for running terminal coding agents (Claude Code, Codex, Gemini CLI and the rest) side by side, and seeing at a glance which one is waiting for you. It is a tool, not an agent: it never rewrites your prompts or decides what an agent does. Text you send goes in exactly as written.
 
-- **The one that needs you turns amber.** A permission prompt or a question flags the agent, sorts it to the top, lights a bar along the bottom of the window and counts it on the Dock badge. `⌘J` jumps there. Done agents get a flag of their own until you look.
+- **The one that needs you turns amber.** A permission prompt or a question flags the agent, sorts it to the top, lights a bar along the bottom of the window and counts it on the Dock badge (taskbar button on Windows). `⌘J` jumps there. Done agents get a flag of their own until you look.
 - **Status without wrapping the agent.** Hooks when the agent offers them (Claude Code per launch, Codex opt-in), otherwise its terminal screen matched against per-agent rules, otherwise output activity. Hooks are never required.
 - **Wall** (`⌘E`): every live terminal at once, grouped by project, the ones that need you first. View-only; click a tile to take over.
 - **Next up** (`⌘.`): queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it.
@@ -48,11 +48,11 @@ Pitwall is a desktop app for macOS and Linux for running terminal coding agents 
 | Aider | `aider` | screen | no |
 | any other CLI / shell | `$SHELL` | output activity | no |
 
-Agents launch through your login shell (`$SHELL -l -i -c`), so they see the same PATH, logins and config as in your terminal. A new agent is one TOML file: definitions live in [`crates/pitwall-core/agents/`](crates/pitwall-core/agents/) and detection rules in [`crates/pitwall-detect/detect/`](crates/pitwall-detect/detect/); put your own in `~/.pitwall/agents/` and `~/.pitwall/detect/` (Linux: `~/.local/share/pitwall/…`).
+Agents launch through your login shell (`$SHELL -l -i -c`; PowerShell on Windows), so they see the same PATH, logins and config as in your terminal. A new agent is one TOML file: definitions live in [`crates/pitwall-core/agents/`](crates/pitwall-core/agents/) and detection rules in [`crates/pitwall-detect/detect/`](crates/pitwall-detect/detect/); put your own in `~/.pitwall/agents/` and `~/.pitwall/detect/` (Linux: `~/.local/share/pitwall/…`; Windows: `%APPDATA%\Pitwall\…`).
 
 ## Terminals that survive restarts
 
-Each agent's terminal is owned by its own small `pitwall-hold` process, not by the app. `⌘Q` closes the UI only: dev servers and half-finished turns keep running, and the next launch re-attaches with the scrollback replayed. Only Stop, Restart, Remove or **Quit and Stop Agents** (app menu; command palette on Linux) end a terminal. After a reboot, agents come back stopped and Restart resumes the conversation for CLIs that support it.
+Each agent's terminal is owned by its own small `pitwall-hold` process, not by the app. `⌘Q` closes the UI only: dev servers and half-finished turns keep running, and the next launch re-attaches with the scrollback replayed. Only Stop, Restart, Remove or **Quit and Stop Agents** (app menu on macOS, File menu or tray on Windows, command palette everywhere) end a terminal. After a reboot, agents come back stopped and Restart resumes the conversation for CLIs that support it.
 
 ```
 Pitwall.app      UI, quit any time
@@ -90,9 +90,9 @@ Today the CLI lists and adds; it can't stop, remove or prompt agents. Anything t
 |---|---|---|
 | macOS (Apple silicon, Intel) | `.dmg`, `.app.tar.gz` (universal) | Shortcuts use ⌘. Dock badge, Full Disk Access check. |
 | Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04, Debian 12, Fedora 36) | `.AppImage`, `.deb` | Shortcuts use Ctrl+Shift (Ctrl stays with the terminal). No native menu: Settings is Ctrl+Shift+, and Quit is in the command palette. |
-| Windows | – | Planned. |
+| Windows 10 1809+ / 11, x64 | `-setup.exe` (per user), `.msi` | Shortcuts use Ctrl+Shift. File menu (no Edit accelerators); closing the window keeps Pitwall in the tray; taskbar badge. Not code-signed yet (SmartScreen). |
 
-Shortcuts in this README are written for macOS; on Linux read ⌘ as Ctrl+Shift and ⌘⇧ as Ctrl+Shift+Alt. Terminals copy and paste with Ctrl+Shift+C / Ctrl+Shift+V there.
+Every release has one `SHA256SUMS.txt` covering all downloads. Shortcuts in this README are written for macOS; on Linux and Windows read ⌘ as Ctrl+Shift and ⌘⇧ as Ctrl+Shift+Alt. Terminals copy and paste with Ctrl+Shift+C / Ctrl+Shift+V there.
 
 ### Download (macOS)
 
@@ -133,6 +133,20 @@ Where things live on Linux:
 
 Settings → **Install command-line tool** links `pitwall` into `~/.local/bin`. On a `.deb` install `/usr/bin/pitwall` is the app itself, so keep `~/.local/bin` before `/usr/bin` on your PATH (the default on most distributions) for `pitwall` to be the CLI.
 
+### Windows
+
+Get the installer (`Pitwall_<version>_x64-setup.exe`, per user, no admin rights) or the `.msi` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest). Windows 10 1809 or newer (Pitwall's terminals use ConPTY); the installer fetches the WebView2 runtime if it's missing.
+
+The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
+
+Where things live and how it differs from macOS:
+
+- Agents start through PowerShell (`pwsh` if installed, else Windows PowerShell), with PATH as a new terminal would have it, so CLIs installed after Pitwall started are found. Set `PITWALL_SHELL` to use another shell.
+- Pitwall's data lives in `%APPDATA%\Pitwall` (`PITWALL_HOME` still overrides it); terminals, hooks and the CLI talk over named pipes only your account can open.
+- Closing the window keeps Pitwall in the tray (click it to come back); the number of agents that need you shows on the taskbar button.
+- App shortcuts are **Ctrl+Shift**+key (plain Ctrl keys go to the terminal): Ctrl+Shift+K for the command palette, Ctrl+Shift+T for a terminal, and so on.
+- "Install command-line tool" puts `pitwall.exe` in `%LOCALAPPDATA%\Pitwall\bin`; add that folder to your PATH.
+
 ### Homebrew
 
 Coming. A cask is ready in [`packaging/homebrew/pitwall.rb`](packaging/homebrew/pitwall.rb) and will be published as `brew install --cask aleksandrejavakhishvili/tap/pitwall` once the tap exists.
@@ -158,7 +172,9 @@ sudo apt install build-essential curl wget file pkg-config patchelf libfuse2 \
 pnpm tauri build --bundles appimage,deb   # → target/release/bundle/{appimage,deb}/
 ```
 
-Then either run it in place (`open target/release/bundle/macos/Pitwall.app`) or copy it to `/Applications`. A build you made yourself isn't quarantined, so it opens without the right-click step, but macOS will re-ask for folder access after every rebuild because each build has a different signature.
+On Windows: the Tauri prerequisites (MSVC build tools, WebView2), Rust, Node.js and pnpm, then `pnpm install` and `pnpm tauri build --bundles nsis` (→ `target/release/bundle/nsis/`). The build adds the `pitwall-hook` relay to the helpers.
+
+On macOS, then either run it in place (`open target/release/bundle/macos/Pitwall.app`) or copy it to `/Applications`. A build you made yourself isn't quarantined, so it opens without the right-click step, but macOS will re-ask for folder access after every rebuild because each build has a different signature.
 
 To avoid that, sign your builds with a local certificate: `scripts/install-local.sh` quits Pitwall (agents keep running), copies the build to `/Applications`, signs it and its helpers with an identity called **Pitwall Local Signing**, and reopens it. Privacy grants then survive rebuilds. Create the identity once:
 
@@ -192,12 +208,12 @@ It deploys to GitHub Pages from `.github/workflows/pages.yml` on every push to `
 
 ### CI and releases
 
-- `.github/workflows/ci.yml`: `cargo test` and `cargo clippy` on macOS and on Linux (Ubuntu 22.04, with the WebKitGTK libraries), UI build + tests and the website build.
-- `.github/workflows/release.yml`: push a tag like `v0.1.0` to build a universal `.dmg` and `.app.tar.gz` and a Linux x86_64 `.AppImage` and `.deb`, with one `SHA256SUMS.txt`, and publish a GitHub Release. Builds are ad-hoc signed unless the Apple signing secrets listed at the top of the workflow are set, in which case they're Developer ID signed and notarized.
+- `.github/workflows/ci.yml`: `cargo test` and `cargo clippy` on macOS, on Linux (Ubuntu 22.04, with the WebKitGTK libraries) and on Windows (build + clippy for the whole workspace; the suites not yet ported off POSIX-shell fixtures are listed in the workflow and run informationally), UI build + tests and the website build.
+- `.github/workflows/release.yml`: push a tag like `v0.1.0` to build a universal `.dmg` and `.app.tar.gz`, a Linux x86_64 `.AppImage` and `.deb`, and the Windows x64 installers (NSIS `-setup.exe`, `.msi`); one publish job verifies each build's checksums and publishes a GitHub Release with all of them and one `SHA256SUMS.txt`. macOS builds are ad-hoc signed unless the Apple signing secrets listed at the top of the workflow are set, in which case they're Developer ID signed and notarized; Windows builds are unsigned unless `WINDOWS_CERTIFICATE` / `WINDOWS_CERTIFICATE_PASSWORD` are set (Authenticode).
 
 ## Credits
 
-- Agent detection rules and parts of the rule model are adapted from [Herdr](https://github.com/herdrdev/herdr) (Apache-2.0). Details in [NOTICE](NOTICE).
+- Agent detection rules, parts of the rule model and approaches in the Windows platform layer are adapted from [Herdr](https://github.com/herdrdev/herdr) (Apache-2.0). Details in [NOTICE](NOTICE).
 - File and folder icons from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT).
 - Fonts: Inter, JetBrains Mono and Barlow Condensed (SIL Open Font License 1.1), bundled through `@fontsource`. Licence texts are in [LICENSES/](LICENSES).
 
