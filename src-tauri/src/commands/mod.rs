@@ -5,6 +5,7 @@
 
 pub mod agents;
 pub mod cli;
+pub mod host;
 pub mod onboarding;
 pub mod permissions;
 pub mod review;

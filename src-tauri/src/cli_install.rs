@@ -26,7 +26,7 @@ pub fn cli_bin() -> Result<PathBuf, String> {
     if let Some(built) = option_env!("PITWALL_CLI_BUILT") {
         candidates.push(PathBuf::from(built));
     }
-    candidates.into_iter().find(|p| p.is_file()).ok_or_else(|| "the command-line tool (pitwall-cli) is missing next to the app".into())
+    candidates.into_iter().find(|p| p.is_file()).map(crate::platform::stable_sidecar).ok_or_else(|| "the command-line tool (pitwall-cli) is missing next to the app".into())
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

@@ -11,6 +11,13 @@ use crate::exec::local_stdout;
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How the UI names this machine (`host::HostInfo`).
+pub const MACHINE_LABEL: &str = "This Mac";
+/// ⌘ shortcuts: terminals never see ⌘.
+pub const SHORTCUTS: crate::host::Shortcuts = crate::host::Shortcuts::Meta;
+/// The Dock brings hidden windows back and shows a badge.
+pub const HAS_DOCK: bool = true;
+
 /// Everything Pitwall owns lives under ~/.pitwall, or under `$PITWALL_HOME`
 /// when set.
 pub fn data_dir() -> PathBuf {

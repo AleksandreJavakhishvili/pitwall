@@ -17,6 +17,13 @@ use super::procfs::ProcFs;
 use super::unix::{data_dir_or, home_dir};
 use super::xdg;
 
+/// How the UI names this machine (`host::HostInfo`).
+pub const MACHINE_LABEL: &str = "This computer";
+/// Ctrl+Shift shortcuts: Ctrl alone belongs to the terminal.
+pub const SHORTCUTS: crate::host::Shortcuts = crate::host::Shortcuts::CtrlShift;
+/// No Dock to bring a hidden window back: closing the main window quits.
+pub const HAS_DOCK: bool = false;
+
 fn proc() -> ProcFs {
     ProcFs::new("/proc")
 }
