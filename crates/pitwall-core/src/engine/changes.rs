@@ -36,6 +36,16 @@ pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
     Ok(files)
 }
 
+/// Read agent `id`'s changes and branch now, bypassing the ticker's polling
+/// pace (back-off, slow providers, idle agents): the user asked (opened the
+/// Changes panel or Review, pressed refresh). A refresh already running for
+/// the agent is awaited rather than repeated. Updates the agent's numbers
+/// (`AgentsChanged` when they moved) and returns the changes. Blocking (git,
+/// through the agent's machine).
+pub fn refresh(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
+    super::ticker::refresh_git_now(engine, agent_id)
+}
+
 /// One file's diff against where the agent started. Blocking (git).
 pub fn file_diff(engine: &Engine, agent_id: &str, path: &str, untracked: bool) -> Res<String> {
     let (cwd, base) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.rec.base_commit.clone()))?;
@@ -65,6 +75,138 @@ mod tests {
         assert_eq!((v.added, v.removed, v.files_changed), (2, 0, 2));
         assert!(file_diff(&h.engine, "a", "a.txt", false).unwrap().contains("+2"));
         assert_eq!(file_diff(&h.engine, "a", "../x", false).unwrap_err(), "invalid path");
+    }
+
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crate::error::Result as PwResult;
+    use crate::exec::{Cmd, Exec, Out, Stat};
+    use crate::testing::FakeExec;
+
+    const DIFF: &[&str] = &["git", "-C", "/w", "diff", ".."];
+
+    fn scripted(numstat: &str) -> Arc<FakeExec> {
+        let x = FakeExec::new();
+        x.on(&["git", "-C", "/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"], numstat)
+            .on(&["git", "-C", "/w", "ls-files", "--others", "--exclude-standard"], "")
+            .on(&["git", "-C", "/w", "symbolic-ref", "--quiet", "--short", "HEAD"], "main\n");
+        x
+    }
+
+    #[test]
+    fn refresh_bypasses_the_polling_backoff() {
+        let x = scripted("3\t1\tsrc/a.rs\0");
+        let h = Harness::with_exec(vec![record("a", "/w")], x.clone());
+        // A slow provider, idle and fully backed off: the ticker wouldn't look.
+        h.engine
+            .with("a", |a| {
+                a.facts.provider.git_poll_ms = 15_000;
+                a.git_wanted = false;
+                a.git_every = 30_000;
+                a.git_at = h.engine.now();
+                a.status = crate::model::Status::Idle;
+            })
+            .unwrap();
+        h.clock.advance(1_000);
+        assert!(super::super::ticker::git_due_for_test(&h.engine).is_empty(), "not due");
+
+        let files = refresh(&h.engine, "a").unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(x.ran(DIFF), 1);
+        let v = &h.engine.views()[0];
+        assert_eq!((v.added, v.removed, v.files_changed, v.branch.as_deref()), (3, 1, 1, Some("main")));
+        assert_eq!(h.engine.wait_dirty(), (true, false), "agents-changed goes out");
+        h.engine
+            .with("a", |a| {
+                assert_eq!(a.git_at, h.engine.now(), "counts as the latest look");
+                assert_eq!(a.git_every, 15_000, "a change resets the back-off to the provider's pace");
+                assert!(!a.git_inflight);
+            })
+            .unwrap();
+
+        // Asked again right away: git runs again (no back-off for the user).
+        refresh(&h.engine, "a").unwrap();
+        assert_eq!(x.ran(DIFF), 2);
+        assert!(refresh(&h.engine, "ghost").is_err());
+    }
+
+    #[test]
+    fn refresh_refuses_where_git_cant_run() {
+        let h = Harness::with_exec(vec![record("a", "/w")], scripted(""));
+        h.engine.with("a", |a| a.facts.provider.exec = false).unwrap();
+        assert!(refresh(&h.engine, "a").unwrap_err().contains("can't run git"));
+    }
+
+    /// A machine whose `git diff` waits until the test lets it go.
+    struct Gated {
+        inner: Arc<FakeExec>,
+        entered: Mutex<Sender<()>>,
+        release: Mutex<Receiver<()>>,
+    }
+
+    impl Exec for Gated {
+        fn run(&self, cmd: &Cmd) -> PwResult<Out> {
+            if cmd.argv.get(3) == Some(&"diff") {
+                let _ = self.entered.lock().unwrap().send(());
+                let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(10));
+            }
+            self.inner.run(cmd)
+        }
+        fn read_file(&self, path: &str, max: u64) -> PwResult<Option<Vec<u8>>> {
+            self.inner.read_file(path, max)
+        }
+        fn write_file(&self, path: &str, bytes: &[u8]) -> PwResult<()> {
+            self.inner.write_file(path, bytes)
+        }
+        fn remove_file(&self, path: &str) -> PwResult<()> {
+            self.inner.remove_file(path)
+        }
+        fn remove_dir(&self, path: &str) -> PwResult<()> {
+            self.inner.remove_dir(path)
+        }
+        fn copy_file(&self, from: &str, to: &str) -> PwResult<()> {
+            self.inner.copy_file(from, to)
+        }
+        fn stat(&self, path: &str) -> PwResult<Option<Stat>> {
+            self.inner.stat(path)
+        }
+        fn real_path(&self, path: &str) -> PwResult<String> {
+            self.inner.real_path(path)
+        }
+        fn temp_dir(&self) -> PwResult<String> {
+            self.inner.temp_dir()
+        }
+        fn home(&self) -> PwResult<String> {
+            self.inner.home()
+        }
+    }
+
+    #[test]
+    fn concurrent_refreshes_share_one_git_run() {
+        let x = scripted("2\t0\tb.txt\0");
+        let (entered_tx, entered) = channel();
+        let (release, release_rx) = channel();
+        let gated = Arc::new(Gated { inner: x.clone(), entered: Mutex::new(entered_tx), release: Mutex::new(release_rx) });
+        let h = Harness::with_exec(vec![record("a", "/w")], gated);
+        let first = {
+            let e = h.engine.clone();
+            std::thread::spawn(move || refresh(&e, "a"))
+        };
+        entered.recv_timeout(Duration::from_secs(10)).expect("git started");
+        let second = {
+            let e = h.engine.clone();
+            std::thread::spawn(move || refresh(&e, "a"))
+        };
+        while h.engine.git_flights.waiters("a") == 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        release.send(()).unwrap();
+        let (a, b) = (first.join().unwrap().unwrap(), second.join().unwrap().unwrap());
+        assert_eq!(a, b, "the second caller gets the first one's result");
+        assert_eq!(x.ran(DIFF), 1, "git ran once");
+        assert!(!h.engine.with("a", |a| a.git_inflight).unwrap());
     }
 
     #[test]

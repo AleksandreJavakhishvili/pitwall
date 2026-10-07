@@ -14,6 +14,11 @@
   padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--line);
 }
+.review-fresh-error {
+  flex: none;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+}
 .review-body {
   flex: 1;
   min-height: 0;

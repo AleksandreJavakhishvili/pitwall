@@ -283,3 +283,58 @@ fn a_failed_list_keeps_the_last_one_and_says_why() {
     assert_eq!(p.worktrees.len(), 1);
     assert!(p.error.as_deref().unwrap().contains("went away"));
 }
+
+#[test]
+fn a_forced_refresh_lists_again_whatever_the_pace() {
+    let x = fake();
+    let h = Harness::with_exec(vec![claude_at("a", "/r")], x.clone());
+    let mut caps = crate::testing::FakeProvider::local_like();
+    caps.git_poll_ms = 15_000;
+    h.provider.set_caps(caps);
+    h.engine.with("a", |a| a.facts.provider = caps).unwrap();
+    let id = list(&h.engine)[0].id.clone();
+    list(&h.engine);
+    assert_eq!(x.ran(&LIST), 1, "not due yet");
+    // The user asks: listed now, even on a slow machine just listed.
+    let p = refresh_now(&h.engine, Some(&id));
+    assert_eq!((p.len(), x.ran(&LIST)), (1, 2));
+    refresh_now(&h.engine, None);
+    assert_eq!(x.ran(&LIST), 3, "every project");
+    // Another project's id forces nothing here.
+    refresh_now(&h.engine, Some("local:this-mac:/elsewhere"));
+    assert_eq!(x.ran(&LIST), 3);
+    // A plain list afterwards is still paced.
+    list(&h.engine);
+    assert_eq!(x.ran(&LIST), 3);
+}
+
+#[test]
+fn a_forced_refresh_asked_twice_lists_once() {
+    let x = fake();
+    let h = Harness::with_exec(vec![claude_at("a", "/r")], x.clone());
+    list(&h.engine);
+    // Another forced refresh of every project is running: the caller waits for it.
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let leader = {
+        let e = h.engine.clone();
+        std::thread::spawn(move || {
+            e.worktrees.forced.run("*", || {
+                wait.recv().unwrap();
+                refresh(&e, Force::All)
+            })
+        })
+    };
+    while !h.engine.worktrees.forced.running("*") {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let follower = {
+        let e = h.engine.clone();
+        std::thread::spawn(move || refresh_now(&e, None))
+    };
+    while h.engine.worktrees.forced.waiters("*") == 0 {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    go.send(()).unwrap();
+    assert_eq!(leader.join().unwrap(), follower.join().unwrap());
+    assert_eq!(x.ran(&LIST), 2, "one forced list for both");
+}

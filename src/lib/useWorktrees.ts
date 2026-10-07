@@ -18,6 +18,27 @@ let users = 0;
 let timer: ReturnType<typeof setInterval> | null = null;
 const listeners = new Set<() => void>();
 
+/** How fresh the list is: a forced refresh running, when it was last read, the last forced refresh's error. */
+export interface WorktreeStatus {
+  refreshing: boolean;
+  updatedAt: number | null;
+  error: string | null;
+}
+let status: WorktreeStatus = { refreshing: false, updatedAt: null, error: null };
+const statusListeners = new Set<() => void>();
+function setStatus(p: Partial<WorktreeStatus>) {
+  status = { ...status, ...p };
+  statusListeners.forEach((l) => l());
+}
+
+function take(list: ProjectWorktrees[]) {
+  setStatus({ updatedAt: Date.now() });
+  if (JSON.stringify(list) !== JSON.stringify(current)) {
+    current = list;
+    listeners.forEach((l) => l());
+  }
+}
+
 function refresh() {
   if (inflight) {
     again = true;
@@ -26,12 +47,7 @@ function refresh() {
   inflight = true;
   api
     .listWorktrees()
-    .then((list) => {
-      if (JSON.stringify(list) !== JSON.stringify(current)) {
-        current = list;
-        listeners.forEach((l) => l());
-      }
-    })
+    .then(take)
     .catch(() => {})
     .finally(() => {
       inflight = false;
@@ -44,6 +60,51 @@ function refresh() {
 
 /** Ask again now (after commit, merge or remove). */
 export const refreshWorktrees = refresh;
+
+const forcing = new Map<string, Promise<ProjectWorktrees[]>>();
+
+/**
+ * List `projectId` (every project, when omitted) again now, bypassing the
+ * backend's pace: a worktree list was expanded, or the user pressed ↻ / ⌘⇧R.
+ * Asked again while one runs, the same one is awaited. Rejects with the error
+ * (also kept in `useWorktreeStatus().error`).
+ */
+export function forceRefreshWorktrees(projectId?: string): Promise<ProjectWorktrees[]> {
+  const key = projectId ?? "*";
+  const running = forcing.get(key);
+  if (running) return running;
+  setStatus({ refreshing: true });
+  const p = api
+    .refreshWorktrees(projectId)
+    .then((list) => {
+      take(list);
+      setStatus({ error: null });
+      return list;
+    })
+    .catch((e) => {
+      setStatus({ error: errorText(e) });
+      throw e;
+    })
+    .finally(() => {
+      forcing.delete(key);
+      setStatus({ refreshing: forcing.size > 0 });
+    });
+  forcing.set(key, p);
+  return p;
+}
+
+const subscribeStatus = (l: () => void) => {
+  statusListeners.add(l);
+  return () => {
+    statusListeners.delete(l);
+  };
+};
+const statusSnapshot = () => status;
+
+/** The worktree list's freshness (for "refreshing…" / "updated 12 s ago" and errors). */
+export function useWorktreeStatus(): WorktreeStatus {
+  return useSyncExternalStore(subscribeStatus, statusSnapshot, statusSnapshot);
+}
 
 const onVisible = () => {
   if (!document.hidden) refresh();
@@ -111,11 +172,13 @@ export function useWorktrees(agents: AgentView[]): ProjectWorktrees[] {
 
 /**
  * One worktree's changes, read only while it is shown (`enabled`): on show,
- * when its HEAD moves or `nonce` changes, and every `everyMs` after that.
+ * when its HEAD moves or `nonce` changes, and every `everyMs` after that while
+ * the window is visible. `refresh` reads again now (Retry).
  */
 export function useWorktreeFiles(projectId: string, path: string, head: string | null, enabled: boolean, nonce = 0, everyMs = 15_000) {
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [again, setAgain] = useState(0);
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
@@ -134,6 +197,6 @@ export function useWorktreeFiles(projectId: string, path: string, head: string |
       alive = false;
       clearInterval(t);
     };
-  }, [projectId, path, head, enabled, nonce, everyMs]);
-  return { files, error };
+  }, [projectId, path, head, enabled, nonce, everyMs, again]);
+  return { files, error, refresh: () => setAgain((n) => n + 1) };
 }

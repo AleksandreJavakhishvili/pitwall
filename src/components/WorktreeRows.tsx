@@ -28,11 +28,11 @@ export function useWorktreeMenu() {
   return { open, node };
 }
 
-function WorktreeRow({ r, onMenu }: { r: WorktreeRef; onMenu(e: MouseEvent, r: WorktreeRef): void }) {
+function WorktreeRow({ r, nonce, onMenu }: { r: WorktreeRef; nonce: number; onMenu(e: MouseEvent, r: WorktreeRef): void }) {
   const { openReview } = useActions();
   const { wt } = r;
   // Read only while shown (the list is expanded).
-  const { files, error } = useWorktreeFiles(r.projectId, wt.path, wt.head, wt.caps.diff);
+  const { files, error } = useWorktreeFiles(r.projectId, wt.path, wt.head, wt.caps.diff, nonce);
   const added = files?.reduce((s, f) => s + f.added, 0) ?? 0;
   const removed = files?.reduce((s, f) => s + f.removed, 0) ?? 0;
   return (
@@ -57,14 +57,15 @@ function WorktreeRow({ r, onMenu }: { r: WorktreeRef; onMenu(e: MouseEvent, r: W
   );
 }
 
-/** Worktrees as compact rows (branch, +/−, locked); their changes are read only while shown. */
-export function WorktreeRows({ refs, label }: { refs: WorktreeRef[]; label: string }) {
+/** Worktrees as compact rows (branch, +/−, locked); their changes are read only while shown
+ * (and again when `nonce` changes: a refresh). */
+export function WorktreeRows({ refs, label, nonce = 0 }: { refs: WorktreeRef[]; label: string; nonce?: number }) {
   const menu = useWorktreeMenu();
   return (
     <>
       <ul className="wt-list" aria-label={label}>
         {refs.map((r) => (
-          <WorktreeRow key={r.wt.path} r={r} onMenu={menu.open} />
+          <WorktreeRow key={r.wt.path} r={r} nonce={nonce} onMenu={menu.open} />
         ))}
       </ul>
       {menu.node}

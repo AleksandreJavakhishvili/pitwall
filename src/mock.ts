@@ -839,6 +839,7 @@ export function createMockApi(): Api {
       if (a.status === "done") update(agentId, { status: "idle", statusDetail: null });
     },
     getChanges: (agentId) => delay(changes[find(agentId).name] ?? [], 120),
+    refreshChanges: (agentId) => delay(changes[find(agentId).name] ?? [], 400),
     getFileDiff: (_agentId, path, untracked) => delay(fakeDiff(path, untracked), 120),
     async stopAgent(agentId) {
       out(agentId, `${NL}${grey("[process exited with code 0]")}${NL}`);

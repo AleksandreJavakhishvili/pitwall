@@ -19,6 +19,14 @@ pub async fn list_worktrees(core: State<'_, Shared>) -> Res<Vec<ProjectWorktrees
     blocking(move || Ok(worktrees::list(&core))).await
 }
 
+/// Every project's worktrees, with `project_id` (all, when omitted) listed
+/// again now whatever its age; one already running is awaited.
+#[tauri::command]
+pub async fn refresh_worktrees(core: State<'_, Shared>, project_id: Option<String>) -> Res<Vec<ProjectWorktrees>> {
+    let core = core.inner().clone();
+    blocking(move || Ok(worktrees::refresh_now(&core, project_id.as_deref()))).await
+}
+
 #[tauri::command]
 pub async fn get_worktree_changes(core: State<'_, Shared>, project_id: String, path: String) -> Res<Vec<FileChange>> {
     let core = core.inner().clone();

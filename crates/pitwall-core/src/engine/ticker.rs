@@ -13,7 +13,7 @@ use super::{worktree, Agent, Engine, Shared};
 use crate::events::Event;
 use crate::model::{Attention, Source, Status};
 use crate::term::TermHost;
-use crate::vcs::git::{Git, NOT_A_REPO};
+use crate::vcs::git::{FileChange, Git, NOT_A_REPO};
 
 const TICK: Duration = Duration::from_millis(400);
 const EMIT_GAP: Duration = Duration::from_millis(250);
@@ -172,7 +172,7 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
     out
 }
 
-struct GitJob {
+pub(super) struct GitJob {
     id: String,
     cwd: String,
     base: Option<String>,
@@ -248,7 +248,9 @@ fn tick(core: &Shared, badge: &mut usize) {
     }
     for job in jobs {
         let core = core.clone();
-        std::thread::spawn(move || refresh_git(&core, job));
+        std::thread::spawn(move || {
+            let _ = refresh_git(&core, job);
+        });
     }
     for probe in wt_probes {
         let core = core.clone();
@@ -306,6 +308,13 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
     jobs
 }
 
+/// Which agents the ticker would refresh now (tests elsewhere in the engine).
+#[cfg(test)]
+pub(super) fn git_due_for_test(core: &Engine) -> Vec<String> {
+    let now = core.now();
+    git_due(&mut core.agents(), now).into_iter().map(|j| j.id).collect()
+}
+
 /// The provider's git interval, or the default.
 fn git_base_ms(a: &Agent) -> u64 {
     match a.facts.provider.git_poll_ms {
@@ -324,7 +333,19 @@ fn next_git_every(prev: u64, base: u64, differs: bool) -> u64 {
     }
 }
 
-fn refresh_git(core: &Shared, job: GitJob) {
+/// One git refresh for an agent: its changes and branch, folded into its
+/// numbers and polling pace. A refresh already running for the agent (the
+/// ticker's or a forced one) is awaited instead of run again. Blocking.
+pub(super) fn refresh_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
+    let id = job.id.clone();
+    let out = core.git_flights.run(&id, || run_git(core, job));
+    // Also when this call only waited for another one: whoever asked marked
+    // the agent in flight, and must never leave it so.
+    let _ = core.with(&id, |a| a.git_inflight = false);
+    out
+}
+
+fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
     let exec = core.exec_for(&job.id);
     let git = Git::new(&*exec, &job.cwd);
     let (changes, branch) = git.changes_and_branch(job.base.as_deref());
@@ -336,7 +357,7 @@ fn refresh_git(core: &Shared, job: GitJob) {
             a.git_seq = job.seq;
             let before = (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo);
             a.branch = branch;
-            match changes {
+            match &changes {
                 Ok(files) => {
                     a.git_repo = Some(true);
                     a.added = files.iter().map(|f| f.added).sum();
@@ -354,6 +375,23 @@ fn refresh_git(core: &Shared, job: GitJob) {
     if differs {
         core.changed(false);
     }
+    changes
+}
+
+/// Refresh agent `id`'s git numbers now, whatever the polling pace (back-off,
+/// a slow provider's interval, idle, outside a repository last time). One
+/// already running is awaited. Emits `AgentsChanged` (throttled) when the
+/// numbers moved; returns the changes. Blocking.
+pub(super) fn refresh_git_now(core: &Engine, id: &str) -> Result<Vec<FileChange>, String> {
+    let job = core.with(id, |a| {
+        if !a.facts.provider.exec {
+            return Err("Pitwall can't run git on this agent's machine.".to_string());
+        }
+        a.git_inflight = true;
+        let seq = a.host.as_ref().map(|s| s.output_seq.load(Ordering::Relaxed)).unwrap_or(a.git_seq);
+        Ok(GitJob { id: a.rec.id.clone(), cwd: a.rec.cwd.clone(), base: a.rec.base_commit.clone(), seq })
+    })??;
+    refresh_git(core, job)
 }
 
 #[cfg(test)]
@@ -538,7 +576,7 @@ mod tests {
         let jobs = git_due(&mut h.engine.agents(), 10_000);
         assert_eq!(jobs.len(), 1, "wanted once at start");
         for job in jobs {
-            refresh_git(&h.engine, job);
+            let _ = refresh_git(&h.engine, job);
         }
         let v = &h.engine.views()[0];
         assert!(!v.caps.diff && !v.caps.review);

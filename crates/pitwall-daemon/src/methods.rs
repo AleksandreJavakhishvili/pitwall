@@ -5,11 +5,11 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
-use pitwall_core::engine::lifecycle;
+use pitwall_core::engine::{changes, lifecycle};
 use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
 use pitwall_core::onboarding::{self, places};
 use pitwall_core::provider::{Locator, MachineId, ProviderId};
-use pitwall_proto::{code, method, AgentCreate, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
+use pitwall_proto::{code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
@@ -30,6 +30,8 @@ pub enum Access {
 
 pub const METHODS: &[(&str, Access)] = &[
     (method::AGENT_LIST, Access::Open),
+    // Read-only: git reads on the agent's machine.
+    (method::AGENT_REFRESH, Access::Open),
     (
         method::AGENT_CREATE,
         // Low; High (asked every time) when it also makes a workspace or an
@@ -79,6 +81,12 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     }
     match name {
         method::AGENT_LIST => ok(s.engine.views()),
+        method::AGENT_REFRESH => {
+            let r: AgentRef = required(p)?;
+            changes::refresh(&s.engine, &r.agent_id).map_err(other)?;
+            let view = s.engine.views().into_iter().find(|v| v.id == r.agent_id);
+            ok(view.ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("no agent {}", r.agent_id)))?)
+        }
         method::AGENT_CREATE => agent_create(s, caller, required(p)?),
         method::MACHINE_LIST => ok(s.engine.machine_list()),
         method::MACHINE_FORM => {
@@ -243,6 +251,7 @@ mod tests {
         }
         assert_eq!(access(method::AGENT_LIST), Some(Access::Open));
         assert_eq!(access(method::MACHINE_FORM), Some(Access::Open));
+        assert_eq!(access(method::AGENT_REFRESH), Some(Access::Open));
         assert!(matches!(access(method::AGENT_CREATE), Some(Access::AskWhen(_, Risk::Low))));
         assert!(matches!(access(method::SESSION_ADD), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::APPROVAL_ANSWER), Some(Access::Ui));

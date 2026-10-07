@@ -15,6 +15,7 @@ pub mod engine;
 pub mod error;
 pub mod events;
 pub mod exec;
+mod flight;
 pub mod hooks;
 pub mod host;
 pub mod kind;

@@ -1,75 +1,94 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, FileChange } from "../types";
-import { api, errorText } from "../api";
+import { api } from "../api";
 import { useActions } from "../lib/actions";
 import { DiffStat } from "./DiffStat";
 import { FileIcon, FileStats } from "./FileIcon";
 import { fileStatus, splitPath } from "../lib/fileTree";
 import { noteAccessError } from "../lib/permissions";
-import { useWorktreeList } from "../lib/useWorktrees";
+import { forceRefreshWorktrees, useWorktreeList, useWorktreeStatus } from "../lib/useWorktrees";
+import { useFresh, useRefreshRequest } from "../lib/freshness";
+import { FreshError, RefreshControl } from "./Freshness";
 import { countLabel, worktreesByAgent } from "../lib/worktrees";
 import { WorktreeRows } from "./WorktreeRows";
 import { Icon } from "./Icon";
 
-/** Changed files for an agent; refetched when its totals move, and every 5s.
- * Nothing is fetched when its changes can't be read (`caps.diff`). */
+/** Changes are polled this often while the panel is shown and the window visible. */
+export const CHANGES_POLL_MS = 5_000;
+
+/** Changed files for an agent: a forced refresh when the panel opens for it (the backend's
+ * polling pace is bypassed, so totals and branch are current too), then read when its totals
+ * move and every 5 s while the window is visible; ↻ / ⌘⇧R force again. Nothing is fetched
+ * when its changes can't be read (`caps.diff`). */
 function useChanges(a: AgentView) {
-  const canDiff = a.caps.diff;
-  const [files, setFiles] = useState<FileChange[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const sig = `${a.id}:${a.added}:${a.removed}:${a.filesChanged}`;
-
-  useEffect(() => setFiles(null), [a.id]);
+  const fresh = useFresh<FileChange[]>(a.caps.diff ? a.id : null, () => ({
+    load: () => api.getChanges(a.id),
+    force: () => api.refreshChanges(a.id),
+    everyMs: CHANGES_POLL_MS,
+  }));
+  const sig = `${a.added}:${a.removed}:${a.filesChanged}`;
+  const first = useRef(true);
   useEffect(() => {
-    if (!canDiff) return;
-    let alive = true;
-    const load = () =>
-      api
-        .getChanges(a.id)
-        .then((f) => {
-          if (!alive) return;
-          setFiles(f);
-          setError(null);
-        })
-        .catch((e) => {
-          if (!alive) return;
-          setError(errorText(e));
-          noteAccessError(errorText(e));
-        });
-    load();
-    const t = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [sig, canDiff]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return { files, error };
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    void fresh.poll();
+  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (fresh.error) noteAccessError(fresh.error);
+  }, [fresh.error]);
+  return fresh;
 }
 
-/** The agent's other worktrees (docs/spec/worktrees-view.md), collapsed until asked for. */
+/** The agent's other worktrees (docs/spec/worktrees-view.md), collapsed until asked for;
+ * expanding lists them again now. */
 function AgentWorktrees({ agent: a }: { agent: AgentView }) {
   const projects = useWorktreeList();
   const refs = useMemo(() => worktreesByAgent(projects).get(a.id) ?? [], [projects, a.id]);
   const [open, setOpen] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const st = useWorktreeStatus();
+  const projectIds = useMemo(() => [...new Set(refs.map((r) => r.projectId))], [refs]);
+  const refresh = () => {
+    setNonce((n) => n + 1);
+    return Promise.all(projectIds.map((id) => forceRefreshWorktrees(id))).catch(() => {});
+  };
+  useRefreshRequest(() => open && void refresh());
   if (!refs.length) return null;
   return (
     <div className="panel-wts">
-      <button className="wt-chip" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span className="chev" data-open={open}>
-          <Icon name="chevron" size={10} />
-        </span>
-        <Icon name="branch" size={11} />
-        {countLabel(refs.length)}
-      </button>
-      {open && <WorktreeRows refs={refs} label={`Worktrees of ${a.name}`} />}
+      <div className="panel-wts-head">
+        <button
+          className="wt-chip"
+          aria-expanded={open}
+          onClick={() => {
+            if (!open) void refresh();
+            setOpen(!open);
+          }}
+        >
+          <span className="chev" data-open={open}>
+            <Icon name="chevron" size={10} />
+          </span>
+          <Icon name="branch" size={11} />
+          {countLabel(refs.length)}
+        </button>
+        {open && (
+          <>
+            <span className="spacer" />
+            <RefreshControl refreshing={st.refreshing} updatedAt={st.updatedAt} onRefresh={() => void refresh()} label="Refresh worktrees" />
+          </>
+        )}
+      </div>
+      {open && st.error && <FreshError error={st.error} prefix="Couldn't list worktrees: " onRetry={() => void refresh()} />}
+      {open && <WorktreeRows refs={refs} label={`Worktrees of ${a.name}`} nonce={nonce} />}
     </div>
   );
 }
 
 export function Changes({ agent: a }: { agent: AgentView }) {
   const { openDiff } = useActions();
-  const { files, error } = useChanges(a);
+  const { data: files, error, refreshing, updatedAt, refresh } = useChanges(a);
   if (!a.caps.diff) {
     return (
       <section className="panel-section panel-grow">
@@ -86,16 +105,13 @@ export function Changes({ agent: a }: { agent: AgentView }) {
         <span className="label">Changes</span>
         {files && files.length > 0 && <span className="label-count">{files.length}</span>}
         <span className="spacer" />
+        <RefreshControl refreshing={refreshing} updatedAt={updatedAt} onRefresh={() => void refresh()} label="Refresh changes" />
         <DiffStat added={a.added} removed={a.removed} />
       </div>
       {error === "not-a-git-repo" && (
         <p className="hint">Not a git repository — Pitwall can't track changes in this folder.</p>
       )}
-      {error && error !== "not-a-git-repo" && (
-        <p className="hint hint-error" title={error}>
-          Couldn't read changes: {error.split("\n")[0].slice(0, 160)}
-        </p>
-      )}
+      {error && error !== "not-a-git-repo" && <FreshError error={error} prefix="Couldn't read changes: " onRetry={() => void refresh()} />}
       {!error && files === null && <p className="hint">Reading git…</p>}
       {!error && files?.length === 0 && <p className="hint">No changes since the agent started.</p>}
       {files && files.length > 0 && (

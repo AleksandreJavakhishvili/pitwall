@@ -14,7 +14,9 @@ import { splitPath, treeOrder } from "../../lib/fileTree";
 import { commentStore, composePrompt, sortComments, useComments } from "./comments";
 import { agentTarget, CommitMergeDialog, ConflictDialog, DiscardDialog, PromptDialog, type CommitTarget } from "./ReviewDialogs";
 import { WorktreeSection } from "./WorktreeSection";
-import { refreshWorktrees, useWorktreeList } from "../../lib/useWorktrees";
+import { forceRefreshWorktrees, refreshWorktrees, useWorktreeList } from "../../lib/useWorktrees";
+import { useFresh } from "../../lib/freshness";
+import { FreshError, RefreshControl } from "../Freshness";
 import { otherWorktrees, refKey, worktreesByAgent, type WorktreeRef } from "../../lib/worktrees";
 import { useActions } from "../../lib/actions";
 import { releaseMonaco } from "./monacoLifecycle";
@@ -46,7 +48,8 @@ function taskLabel(t: Task, n: number) {
   return `Task ${n} · ${clock(t.startedAt)}${t.endedAt ? "" : " · running"} · ${short}`;
 }
 
-/** Files per agent for its current scope; refetched when totals move and every 5s. */
+/** Files per agent for its current scope; refetched when totals move, when `nonce` changes,
+ * and every 5 s while the window is visible. */
 function useAgentFiles(agents: AgentView[], scope: Record<string, string | null>, nonce: number) {
   const [files, setFiles] = useState<Record<string, FileChange[]>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -74,10 +77,13 @@ function useAgentFiles(agents: AgentView[], scope: Record<string, string | null>
           .catch((e) => alive && setErrors((m) => ({ ...m, [a.id]: errorText(e) })));
       });
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(() => document.visibilityState !== "hidden" && load(), 5000);
+    const onVisible = () => document.visibilityState !== "hidden" && load();
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [sig, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -130,6 +136,32 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
   const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null);
   const comments = useComments();
 
+  // Freshness: opening Review reads every agent's changes now (bypassing the backend's
+  // polling pace) and lists worktrees again; so do ↻ and ⌘⇧R. Picking an agent or a
+  // worktree refreshes just that one. Each ends by reading the lists again (`nonce`).
+  const latest = useRef(reviewable);
+  latest.current = reviewable;
+  const refreshAll = async (): Promise<number> => {
+    const list = latest.current;
+    const results = await Promise.allSettled([forceRefreshWorktrees(), ...list.map((a) => api.refreshChanges(a.id))]);
+    setNonce((n) => n + 1);
+    const failed = results
+      .map((r, i) => (r.status === "rejected" ? `${i === 0 ? "worktrees" : list[i - 1].name}: ${errorText(r.reason)}` : null))
+      .filter((x): x is string => x !== null);
+    if (failed.length) throw new Error(failed.length > 1 ? `${failed[0]} (and ${failed.length - 1} more)` : failed[0]);
+    return Date.now();
+  };
+  const fresh = useFresh<number>("review", () => ({ load: async () => Date.now(), force: refreshAll }));
+  const refreshOne = (run: () => Promise<unknown>) =>
+    void fresh.refresh(async () => {
+      try {
+        await run();
+      } finally {
+        setNonce((n) => n + 1);
+      }
+      return Date.now();
+    });
+
   const agent = wtSel ? null : (ordered.find((a) => a.id === (sel?.agentId ?? selAgentId)) ?? null);
   const agentFiles = agent ? files[agent.id] : undefined;
   const file = sel && agentFiles ? (agentFiles.find((f) => f.path === sel.path) ?? null) : null;
@@ -181,6 +213,20 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
 
   // Tasks of the selected agent (for the scope picker).
   const agentId = agent?.id ?? null;
+
+  // Picking an agent or a worktree: that one, now (joins a refresh already running).
+  const wtProject = wt?.projectId ?? null;
+  const picked = useRef<string | null>(null);
+  useEffect(() => {
+    const key = agentId ? `a:${agentId}` : wtSel && wtProject ? `w:${wtSel.key}` : null;
+    if (key === picked.current) return;
+    const first = picked.current === null;
+    picked.current = key;
+    // The first pick comes with opening Review, which already refreshes everything.
+    if (!key || first) return;
+    if (agentId) refreshOne(() => api.refreshChanges(agentId));
+    else if (wtProject) refreshOne(() => forceRefreshWorktrees(wtProject));
+  }, [agentId, wtSel?.key, wtProject]); // eslint-disable-line react-hooks/exhaustive-deps
   const currentTask = agent?.currentTaskId ?? null;
   useEffect(() => {
     if (!agentId) return setTasks([]);
@@ -262,7 +308,11 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
         current={wtSel?.key === key}
         selected={wtSel?.key === key ? wtSel.path : null}
         nonce={nonce}
-        onToggle={() => setWtOpen((o) => ({ ...o, [key]: !o[key] }))}
+        onToggle={() => {
+          // Expanding lists its project's worktrees again now.
+          if (!wtOpen[key]) void forceRefreshWorktrees(r.projectId).catch(() => {});
+          setWtOpen((o) => ({ ...o, [key]: !o[key] }));
+        }}
         onShow={(first) => {
           showWorktree(key, first);
           setWtOpen((o) => ({ ...o, [key]: true }));
@@ -297,6 +347,7 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
         <span className="label">Review</span>
         <span className="muted-sm">what your agents changed · click a line number to comment</span>
         <span className="spacer" />
+        <RefreshControl refreshing={fresh.refreshing} updatedAt={fresh.updatedAt} onRefresh={() => void fresh.refresh()} label="Refresh changes" />
         <div className="rv-seg" role="group" aria-label="Diff layout">
           <button aria-pressed={sideBySide} onClick={() => setSideBySide(true)}>
             Side by side
@@ -310,6 +361,11 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
         </button>
       </div>
 
+      {fresh.error && (
+        <div className="review-fresh-error">
+          <FreshError error={fresh.error} prefix="Couldn't refresh: " onRetry={() => void fresh.refresh()} />
+        </div>
+      )}
       <div className="review-body">
         <aside className="rv-list" aria-label="Changes by agent" ref={listRef}>
           {ordered.length === 0 && <p className="hint pad">{hidden ? "No agents with changes to review." : "No agents yet."}</p>}
@@ -355,7 +411,11 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
                     {isOpen && (
                       <>
                         {scoped && <div className="rv-scope-note">this task only</div>}
-                        {err && <p className="hint hint-error rv-pad">{err}</p>}
+                        {err && (
+                          <div className="rv-pad">
+                            <FreshError error={err} onRetry={() => refreshOne(() => api.refreshChanges(a.id))} />
+                          </div>
+                        )}
                         {!err && !list && <p className="hint rv-pad">Reading git…</p>}
                         {!err && list?.length === 0 && <p className="hint rv-pad">{scoped ? "No changes in this task." : "No changes."}</p>}
                         {list && list.length > 0 && (
