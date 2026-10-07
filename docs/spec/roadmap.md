@@ -40,7 +40,10 @@ agents plug in without touching the rest. Design first, review, then build.
   persist across builds instead of re-prompting for every new unsigned copy.
 - Windows port (ConPTY via portable-pty, named pipes, pitwall-hook binary,
   PowerShell launch, tray + taskbar badge); test in a Parallels Windows VM and a
-  CI windows build. Linux comes nearly free with the same work.
+  CI windows build.
+- Linux port — DONE: `/proc` process facts, XDG folders, Ctrl+Shift shortcuts,
+  no native menu, AppImage + .deb releases, CI on Ubuntu (see
+  architecture.md §9 decision 7 and api.md `host_info`).
 - Performance pass with hard budgets → [perf.md](perf.md) (after the
   restructure, so we optimise the final shape).
 - Plain SSH machines provider; drag a space tab out to create a window.

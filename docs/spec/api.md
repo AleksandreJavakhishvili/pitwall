@@ -52,6 +52,8 @@ macOS privacy (onboarding.md "Folder access"; core `permissions.rs`, probe in `p
 |---|---|---|
 | `permissions_status` | – | `PermissionsStatus { applies, fullDiskAccess, desktop, documents, downloads }`, each `"granted"\|"denied"\|"unknown"`. Read-only and never makes macOS ask: it opens items only Full Disk Access unlocks (`~/Library/Application Support/com.apple.TCC/TCC.db`, `~/Library/Safari`), which have no consent prompt. Desktop/Documents/Downloads are never probed (that would prompt): `granted` with Full Disk Access, else `unknown` |
 | `open_privacy_settings` | `kind: "fullDiskAccess"\|"filesAndFolders"` | `void` (shows that System Settings pane; changes nothing) |
+| `host_info` | – | `HostInfo { machineLabel, shortcuts: "meta"\|"ctrlShift", dataDir, dock }`: what this desktop offers. The UI decides by these, never by OS: app shortcuts are ⌘ or Ctrl+Shift (⌘⇧ → Ctrl+Shift+Alt; terminals copy/paste with Ctrl+Shift+C/V there), labels follow; the native menu exists only with ⌘ shortcuts; closing main hides it only with a Dock (else quits). Loaded once before the first render; macOS values if it fails |
+| `quit_app` | `stopAgents: bool` | `void` — quits (command palette); agents keep running in their holders unless `stopAgents` |
 
 Onboarding and project list ([onboarding.md](onboarding.md)):
 
