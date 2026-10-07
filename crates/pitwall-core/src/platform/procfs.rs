@@ -26,8 +26,13 @@ impl ProcFs {
 
     /// Every numeric entry of the root, ascending.
     pub fn pids(&self) -> Vec<u32> {
-        let Ok(entries) = std::fs::read_dir(&self.root) else { return Vec::new() };
-        let mut pids: Vec<u32> = entries.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect();
+        let Ok(entries) = std::fs::read_dir(&self.root) else {
+            return Vec::new();
+        };
+        let mut pids: Vec<u32> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str()?.parse().ok())
+            .collect();
         pids.sort_unstable();
         pids
     }
@@ -38,7 +43,10 @@ impl ProcFs {
 
     /// The command line as `ps -o args=` shows it.
     pub fn args(&self, pid: u32, comm: &str) -> Option<String> {
-        Some(cmdline_args(&std::fs::read(self.dir(pid).join("cmdline")).ok()?, comm))
+        Some(cmdline_args(
+            &std::fs::read(self.dir(pid).join("cmdline")).ok()?,
+            comm,
+        ))
     }
 
     /// The process's current folder; `None` when unreadable (another
@@ -57,7 +65,9 @@ impl ProcFs {
         let mut out = String::new();
         for pid in self.pids() {
             let Some(st) = self.stat(pid) else { continue };
-            let Some(args) = self.args(pid, &st.comm) else { continue };
+            let Some(args) = self.args(pid, &st.comm) else {
+                continue;
+            };
             let _ = writeln!(out, "{pid} {} {args}", st.ppid);
         }
         Some(out)
@@ -88,7 +98,9 @@ impl ProcFs {
 
     /// `(pid, cwd)` of each of `pids` whose folder could be read.
     pub fn cwds(&self, pids: &[u32]) -> Vec<(u32, String)> {
-        pids.iter().filter_map(|&pid| Some((pid, self.cwd(pid)?))).collect()
+        pids.iter()
+            .filter_map(|&pid| Some((pid, self.cwd(pid)?)))
+            .collect()
     }
 }
 
@@ -110,7 +122,11 @@ mod tests {
         let fs = fixture();
         assert_eq!(fs.pids(), [1, 2, 3900, 4100, 4242, 4300, 5000]);
         let rows = parse_table(&fs.table().unwrap());
-        let row = |pid: u32, ppid: u32, args: &str| ProcRow { pid, ppid, args: args.into() };
+        let row = |pid: u32, ppid: u32, args: &str| ProcRow {
+            pid,
+            ppid,
+            args: args.into(),
+        };
         assert_eq!(
             rows,
             vec![
@@ -143,7 +159,10 @@ mod tests {
         let fs = fixture();
         assert_eq!(
             fs.cwds(&[4100, 4242, 4300, 2, 9999]),
-            vec![(4100, "/home/dev/code/orders-api".to_string()), (4242, "/home/dev/My Projects/web app".to_string())],
+            vec![
+                (4100, "/home/dev/code/orders-api".to_string()),
+                (4242, "/home/dev/My Projects/web app".to_string())
+            ],
             "deleted, unreadable and missing folders are left out"
         );
     }

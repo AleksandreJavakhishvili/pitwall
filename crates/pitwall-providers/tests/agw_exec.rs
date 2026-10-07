@@ -36,7 +36,11 @@ fn git_in(dir: &Path, args: &[&str]) -> String {
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("git");
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
@@ -49,16 +53,30 @@ impl Fake {
         let ws = dir.path().join("ws");
         std::fs::create_dir_all(&ws).unwrap();
         let ws = LocalExec.real_path(&ws.to_string_lossy()).unwrap();
-        let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw/agw")).unwrap();
+        let body = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw/agw"),
+        )
+        .unwrap();
         let agw = state.join("agw");
         std::fs::write(&agw, body.replace("__DIR__", &state.to_string_lossy())).unwrap();
         std::fs::set_permissions(&agw, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::write(state.join("ws.ws"), &ws).unwrap();
-        Fake { agw: agw.to_string_lossy().into_owned(), ws, dir }
+        Fake {
+            agw: agw.to_string_lossy().into_owned(),
+            ws,
+            dir,
+        }
     }
 
     fn exec(&self, workspace: Option<&str>) -> AgwExec {
-        AgwExec::new(&self.agw, Arc::new(LocalExec), User::Admin { vm: "fakevm".into() }, workspace)
+        AgwExec::new(
+            &self.agw,
+            Arc::new(LocalExec),
+            User::Admin {
+                vm: "fakevm".into(),
+            },
+            workspace,
+        )
     }
 
     /// The agw exec calls so far: `<vm|agent> <name> <workspace|-> <command…>`.
@@ -80,7 +98,19 @@ impl Fake {
         std::fs::write(p.join("gone.txt"), "x\n").unwrap();
         std::fs::write(p.join(".gitignore"), "ignored.log\n").unwrap();
         git_in(p, &["add", "."]);
-        git_in(p, &["-c", "user.name=pw", "-c", "user.email=pw@example.invalid", "commit", "-q", "-m", "init"]);
+        git_in(
+            p,
+            &[
+                "-c",
+                "user.name=pw",
+                "-c",
+                "user.email=pw@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "init",
+            ],
+        );
         std::fs::write(p.join("a.txt"), "one\n2\nthree\n").unwrap();
         std::fs::remove_file(p.join("gone.txt")).unwrap();
         std::fs::write(p.join("new file's.txt"), "a\nb\nc").unwrap();
@@ -94,30 +124,66 @@ fn runs_with_args_cwd_env_and_stdin_like_local_exec() {
     let f = Fake::new();
     let x = f.exec(None);
     let out = x
-        .run(&Cmd::new(&["sh", "-c", "pwd; printf %s \"$PW_X\"; cat; echo oops >&2; exit 3"])
+        .run(
+            &Cmd::new(&[
+                "sh",
+                "-c",
+                "pwd; printf %s \"$PW_X\"; cat; echo oops >&2; exit 3",
+            ])
             .cwd(&f.ws)
             .env(&[("PW_X", "x=1 'q' $HOME")])
-            .stdin(b"in\n"))
+            .stdin(b"in\n"),
+        )
         .unwrap();
     assert_eq!(out.status, 3);
     assert_eq!(out.stdout_text(), format!("{}\nx=1 'q' $HOMEin\n", f.ws));
-    assert_eq!(out.stderr_text(), "oops", "the command's own stderr, nothing of agw's");
+    assert_eq!(
+        out.stderr_text(),
+        "oops",
+        "the command's own stderr, nothing of agw's"
+    );
     // Arguments arrive exactly, whatever is in them.
-    let odd = ["a b", "it's", "$HOME", "", "*", "x;y", "-n", "\"q\"", "tab\there", "nl\nx"];
+    let odd = [
+        "a b",
+        "it's",
+        "$HOME",
+        "",
+        "*",
+        "x;y",
+        "-n",
+        "\"q\"",
+        "tab\there",
+        "nl\nx",
+    ];
     let mut argv = vec!["printf", "[%s]"];
     argv.extend(odd);
     let out = x.run(&Cmd::new(&argv)).unwrap();
-    assert_eq!(out.stdout_text(), odd.iter().map(|a| format!("[{a}]")).collect::<String>());
+    assert_eq!(
+        out.stdout_text(),
+        odd.iter().map(|a| format!("[{a}]")).collect::<String>()
+    );
     // Couldn't run: an error, like LocalExec's.
     assert!(x.run(&Cmd::new(&[])).is_err());
     let e = x.run(&Cmd::new(&["/no/such/program"])).unwrap_err();
     assert!(e.message.starts_with("/no/such/program: "), "{e:?}");
-    assert!(x.run(&Cmd::new(&["true"]).cwd("/no/such/dir")).unwrap_err().message.starts_with("/no/such/dir: "));
+    assert!(x
+        .run(&Cmd::new(&["true"]).cwd("/no/such/dir"))
+        .unwrap_err()
+        .message
+        .starts_with("/no/such/dir: "));
     // A signal: no exit code of its own (LocalExec: -1; through agw's ssh: 255 or 128+n).
-    assert_ne!(x.run(&Cmd::new(&["sh", "-c", "kill -9 $$"])).unwrap().status, 0);
+    assert_ne!(
+        x.run(&Cmd::new(&["sh", "-c", "kill -9 $$"]))
+            .unwrap()
+            .status,
+        0
+    );
     // Options before the VM name, `--` before the command, one call each.
     let calls = f.calls();
-    assert!(calls.iter().all(|c| c.starts_with("vm fakevm - sh -c ")), "{calls:#?}");
+    assert!(
+        calls.iter().all(|c| c.starts_with("vm fakevm - sh -c ")),
+        "{calls:#?}"
+    );
 }
 
 #[test]
@@ -127,9 +193,23 @@ fn the_workspace_is_where_commands_start() {
     assert_eq!(out.stdout_text().trim(), f.ws);
     assert!(f.calls()[0].starts_with("vm fakevm ws sh -c "));
     let e = f.exec(Some("nope")).run(&Cmd::new(&["pwd"])).unwrap_err();
-    assert_eq!(e.message, "agw exec on fakevm: workspace 'nope' not found", "agw's own error, not the command's");
-    let e = AgwExec::new(&f.agw, Arc::new(LocalExec), User::Admin { vm: "other".into() }, None).home().unwrap_err();
-    assert!(e.is(pitwall_core::provider::ErrorCode::Unreachable) && e.message.contains("VM 'other' not found"), "{e:?}");
+    assert_eq!(
+        e.message, "agw exec on fakevm: workspace 'nope' not found",
+        "agw's own error, not the command's"
+    );
+    let e = AgwExec::new(
+        &f.agw,
+        Arc::new(LocalExec),
+        User::Admin { vm: "other".into() },
+        None,
+    )
+    .home()
+    .unwrap_err();
+    assert!(
+        e.is(pitwall_core::provider::ErrorCode::Unreachable)
+            && e.message.contains("VM 'other' not found"),
+        "{e:?}"
+    );
 }
 
 #[test]
@@ -137,7 +217,9 @@ fn a_command_that_hangs_times_out() {
     let f = Fake::new();
     let x = f.exec(None).with_slack(Duration::ZERO);
     let started = Instant::now();
-    let e = x.run(&Cmd::new(&["sleep", "5"]).timeout(Duration::from_millis(300))).unwrap_err();
+    let e = x
+        .run(&Cmd::new(&["sleep", "5"]).timeout(Duration::from_millis(300)))
+        .unwrap_err();
     assert!(e.message.contains("timed out"), "{e:?}");
     assert!(started.elapsed() < Duration::from_secs(4));
 }
@@ -151,15 +233,34 @@ fn files_round_trip_like_local_exec() {
     assert_eq!(x.read_file(&p, 10).unwrap(), None);
     assert_eq!(x.stat(&p).unwrap(), None);
     x.write_file(&p, b"hello world").unwrap();
-    assert_eq!(x.read_file(&p, 100).unwrap().as_deref(), Some(&b"hello world"[..]));
-    assert_eq!(x.read_file(&p, 5).unwrap().as_deref(), Some(&b"hello"[..]), "cut at max");
-    assert_eq!(x.stat(&p).unwrap(), Some(Stat { kind: FileKind::File, len: 11 }));
+    assert_eq!(
+        x.read_file(&p, 100).unwrap().as_deref(),
+        Some(&b"hello world"[..])
+    );
+    assert_eq!(
+        x.read_file(&p, 5).unwrap().as_deref(),
+        Some(&b"hello"[..]),
+        "cut at max"
+    );
+    assert_eq!(
+        x.stat(&p).unwrap(),
+        Some(Stat {
+            kind: FileKind::File,
+            len: 11
+        })
+    );
     assert!(exec::is_dir(&x, &exec::join(&root, "a/b")) && !exec::is_dir(&x, &p));
     let g = exec::join(&root, "copy it's.txt");
     x.copy_file(&p, &g).unwrap();
     assert!(exec::exists(&x, &g));
-    assert!(x.remove_dir(&exec::join(&root, "a/b")).is_err(), "not empty");
-    assert!(x.remove_file(&exec::join(&root, "a")).is_err(), "a folder is not a file");
+    assert!(
+        x.remove_dir(&exec::join(&root, "a/b")).is_err(),
+        "not empty"
+    );
+    assert!(
+        x.remove_file(&exec::join(&root, "a")).is_err(),
+        "a folder is not a file"
+    );
     x.remove_file(&p).unwrap();
     assert!(x.remove_file(&p).is_err(), "already gone");
     x.remove_dir(&exec::join(&root, "a/b")).unwrap();
@@ -167,7 +268,10 @@ fn files_round_trip_like_local_exec() {
     assert!(x.real_path(&exec::join(&root, "gone")).is_err());
     assert_eq!(x.real_path(&format!("{root}/./a/..")).unwrap(), root);
     std::os::unix::fs::symlink(&g, Path::new(&root).join("link")).unwrap();
-    assert_eq!(x.stat(&exec::join(&root, "link")).unwrap().map(|s| s.kind), Some(FileKind::Symlink));
+    assert_eq!(
+        x.stat(&exec::join(&root, "link")).unwrap().map(|s| s.kind),
+        Some(FileKind::Symlink)
+    );
     assert_eq!(x.real_path(&exec::join(&root, "link")).unwrap(), g);
     assert!(x.read_file(&root, 10).is_err(), "a folder can't be read");
     // Home and temp are asked once.
@@ -186,7 +290,11 @@ fn binary_files_and_batches_survive_byte_for_byte() {
     let p = exec::join(&f.ws, "bin.dat");
     x.write_file(&p, &bin).unwrap();
     assert_eq!(std::fs::read(&p).unwrap(), bin, "written exactly");
-    assert_eq!(x.read_file(&p, 1_000_000).unwrap().unwrap(), bin, "read back exactly");
+    assert_eq!(
+        x.read_file(&p, 1_000_000).unwrap().unwrap(),
+        bin,
+        "read back exactly"
+    );
     let before = f.calls().len();
     let missing = exec::join(&f.ws, "missing");
     let got = x.read_files(&[&p, &missing, &p], 3);
@@ -219,11 +327,18 @@ fn changes_and_snapshots_match_this_mac_in_two_calls() {
     let local = Git::new(&LocalExec, &f.ws);
     let before = f.calls().len();
     let (changes, branch) = remote.changes_and_branch(None);
-    assert_eq!(f.calls().len() - before, 2, "git commands in one call, the untracked files in one more");
+    assert_eq!(
+        f.calls().len() - before,
+        2,
+        "git commands in one call, the untracked files in one more"
+    );
     let changes = changes.unwrap();
     assert_eq!(changes, local.changes(None).unwrap());
     assert_eq!(branch.as_deref(), Some("main"));
-    let names: Vec<_> = changes.iter().map(|c| (c.path.as_str(), c.added, c.removed, c.untracked, c.binary)).collect();
+    let names: Vec<_> = changes
+        .iter()
+        .map(|c| (c.path.as_str(), c.added, c.removed, c.untracked, c.binary))
+        .collect();
     assert_eq!(
         names,
         [
@@ -235,7 +350,10 @@ fn changes_and_snapshots_match_this_mac_in_two_calls() {
     );
     // Not a repository: the same calm answer.
     let outside = Git::new(&x, "/");
-    assert_eq!(outside.changes(None).unwrap_err(), pitwall_core::vcs::git::NOT_A_REPO);
+    assert_eq!(
+        outside.changes(None).unwrap_err(),
+        pitwall_core::vcs::git::NOT_A_REPO
+    );
 
     // A task snapshot through agw: the same tree as here, the real index
     // and the working tree untouched.
@@ -247,7 +365,8 @@ fn changes_and_snapshots_match_this_mac_in_two_calls() {
     assert_eq!((status(), index()), (s0, i0), "nothing touched");
     // Kept alive by a ref, and dropped again.
     snapshot::keep(&remote, "agent", "task", Some(&tree), None).unwrap();
-    assert!(git_in(Path::new(&f.ws), &["for-each-ref", "refs/pitwall/"]).contains("refs/pitwall/agent/task"));
+    assert!(git_in(Path::new(&f.ws), &["for-each-ref", "refs/pitwall/"])
+        .contains("refs/pitwall/agent/task"));
     snapshot::drop_refs(&remote, "agent", None).unwrap();
     assert!(git_in(Path::new(&f.ws), &["for-each-ref", "refs/pitwall/"]).is_empty());
 }

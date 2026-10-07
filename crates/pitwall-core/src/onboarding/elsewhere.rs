@@ -49,7 +49,8 @@ impl Elsewhere {
     pub fn list(&self, engine: &Engine) -> Result<Vec<RunningAgent>, String> {
         let table = platform::process_table().ok_or("could not read the process list")?;
         let matcher = Matcher::new(&engine.kinds().kinds());
-        let found = procs::agents_outside(&procs::parse_table(&table), &engine.owned_pids(), &matcher);
+        let found =
+            procs::agents_outside(&procs::parse_table(&table), &engine.owned_pids(), &matcher);
         let now = crate::clock::unix_ms();
 
         // Which processes need lsof / transcript reads (no lock held for those).
@@ -60,26 +61,41 @@ impl Elsewhere {
             found
                 .iter()
                 .filter_map(|f| match known.get(&f.pid) {
-                    Some(k) if k.kind == f.kind && (k.session_id.is_some() || now < k.looked_at + RELOOK_MS) => None,
+                    Some(k)
+                        if k.kind == f.kind
+                            && (k.session_id.is_some() || now < k.looked_at + RELOOK_MS) =>
+                    {
+                        None
+                    }
                     Some(k) if k.kind == f.kind => Some((f.clone(), Some(k.clone()))),
                     _ => Some((f.clone(), None)),
                 })
                 .collect()
         };
         if !todo.is_empty() {
-            let need_cwd: Vec<u32> = todo.iter().filter(|(_, k)| k.as_ref().is_none_or(|k| k.cwd.is_none())).map(|(f, _)| f.pid).collect();
+            let need_cwd: Vec<u32> = todo
+                .iter()
+                .filter(|(_, k)| k.as_ref().is_none_or(|k| k.cwd.is_none()))
+                .map(|(f, _)| f.pid)
+                .collect();
             let cwds: HashMap<u32, String> = if need_cwd.is_empty() {
                 HashMap::new()
             } else {
-                platform::process_cwds(&need_cwd, LSOF_TIMEOUT).map(|v| v.into_iter().collect()).unwrap_or_default()
+                platform::process_cwds(&need_cwd, LSOF_TIMEOUT)
+                    .map(|v| v.into_iter().collect())
+                    .unwrap_or_default()
             };
             let home = paths::home();
             let learned: Vec<(u32, Known)> = todo
                 .into_iter()
                 .map(|(f, prev)| {
-                    let cwd = prev.and_then(|k| k.cwd).or_else(|| cwds.get(&f.pid).cloned());
+                    let cwd = prev
+                        .and_then(|k| k.cwd)
+                        .or_else(|| cwds.get(&f.pid).cloned());
                     let (session_id, title) = match (&f.session_id, &cwd) {
-                        (Some(id), Some(c)) => (Some(id.clone()), latest::title(&home, &f.kind, c, id)),
+                        (Some(id), Some(c)) => {
+                            (Some(id.clone()), latest::title(&home, &f.kind, c, id))
+                        }
                         (Some(id), None) => (Some(id.clone()), None),
                         (None, Some(c)) => match latest::newest(&home, &f.kind, c, None) {
                             Some(l) => (Some(l.session_id), l.title),
@@ -87,7 +103,16 @@ impl Elsewhere {
                         },
                         (None, None) => (None, None),
                     };
-                    (f.pid, Known { kind: f.kind, cwd, session_id, title, looked_at: now })
+                    (
+                        f.pid,
+                        Known {
+                            kind: f.kind,
+                            cwd,
+                            session_id,
+                            title,
+                            looked_at: now,
+                        },
+                    )
                 })
                 .collect();
             let mut known = self.known.lock().unwrap_or_else(|e| e.into_inner());
@@ -96,9 +121,14 @@ impl Elsewhere {
 
         let known = self.known.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let paths = engine.paths();
-        let mut rows = assemble(found, &known, &engine.owned_sessions(), |cwd| scan::is_project_folder(paths, cwd));
+        let mut rows = assemble(found, &known, &engine.owned_sessions(), |cwd| {
+            scan::is_project_folder(paths, cwd)
+        });
         // The project the user chose for that conversation last time.
-        let mut shown = ScanResult { running: std::mem::take(&mut rows), ..Default::default() };
+        let mut shown = ScanResult {
+            running: std::mem::take(&mut rows),
+            ..Default::default()
+        };
         scan::apply_project_choices(&mut shown, &engine.projects().conversation_projects());
         Ok(shown.running)
     }
@@ -116,7 +146,10 @@ fn assemble(
         .into_iter()
         .filter_map(|f| {
             let k = known.get(&f.pid).filter(|k| k.kind == f.kind);
-            let session_id = f.session_id.clone().or_else(|| k.and_then(|k| k.session_id.clone()));
+            let session_id = f
+                .session_id
+                .clone()
+                .or_else(|| k.and_then(|k| k.session_id.clone()));
             if session_id.as_ref().is_some_and(|s| owned.contains(s)) {
                 return None;
             }
@@ -144,12 +177,20 @@ mod tests {
 
     fn found() -> Vec<Found> {
         let rows = procs::parse_table(include_str!("scan_fixtures/ps.txt"));
-        let m = Matcher::new(&load_kinds(std::path::Path::new("/nonexistent/pitwall-agents")));
+        let m = Matcher::new(&load_kinds(std::path::Path::new(
+            "/nonexistent/pitwall-agents",
+        )));
         procs::agents_outside(&rows, &HashSet::from([500]), &m)
     }
 
     fn known(kind: &str, cwd: &str, session: Option<&str>) -> Known {
-        Known { kind: kind.into(), cwd: Some(cwd.into()), session_id: session.map(String::from), title: Some("t".into()), looked_at: 1 }
+        Known {
+            kind: kind.into(),
+            cwd: Some(cwd.into()),
+            session_id: session.map(String::from),
+            title: Some("t".into()),
+            looked_at: 1,
+        }
     }
 
     #[test]
@@ -165,12 +206,18 @@ mod tests {
         assert_eq!(ids(&all), vec![41207, 52318, 36504]);
         assert_eq!(all[0].session_id.as_deref(), Some("from-transcript"));
         assert_eq!(all[1].session_id.as_deref(), Some("abc"), "the args win");
-        assert_eq!((all[0].cwd.as_deref(), all[0].title.as_deref()), (Some("/w/shop"), Some("t")));
+        assert_eq!(
+            (all[0].cwd.as_deref(), all[0].title.as_deref()),
+            (Some("/w/shop"), Some("t"))
+        );
         assert!(all[2].outside_project && !all[0].outside_project);
 
         // A Pitwall agent (or a Pitwall terminal) has `abc` and `019e`.
         let owned = HashSet::from(["abc".to_string(), "019e".to_string()]);
-        assert_eq!(ids(&assemble(found(), &known, &owned, |_| true)), vec![41207]);
+        assert_eq!(
+            ids(&assemble(found(), &known, &owned, |_| true)),
+            vec![41207]
+        );
     }
 
     #[test]
@@ -178,6 +225,9 @@ mod tests {
         // The pid now runs another kind: what was learned about it no longer applies.
         let known = HashMap::from([(41207, known("codex", "/w/x", Some("old")))]);
         let rows = assemble(found(), &known, &HashSet::new(), |_| true);
-        assert_eq!((rows[0].session_id.as_deref(), rows[0].cwd.as_deref()), (None, None));
+        assert_eq!(
+            (rows[0].session_id.as_deref(), rows[0].cwd.as_deref()),
+            (None, None)
+        );
     }
 }

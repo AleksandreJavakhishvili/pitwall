@@ -29,10 +29,23 @@ fn ctx(engine: &Engine, agent_id: &str, task_id: Option<&str>) -> Res<Ctx> {
     let exec = engine.exec_for(agent_id);
     engine.with(agent_id, |a| {
         let task = match task_id {
-            Some(id) => Some(a.rec.tasks.iter().find(|t| t.id == id).cloned().ok_or("task not found")?),
+            Some(id) => Some(
+                a.rec
+                    .tasks
+                    .iter()
+                    .find(|t| t.id == id)
+                    .cloned()
+                    .ok_or("task not found")?,
+            ),
             None => None,
         };
-        Ok(Ctx { exec, cwd: a.rec.cwd.clone(), base: a.rec.base_commit.clone(), task, worktree: a.rec.worktree.clone() })
+        Ok(Ctx {
+            exec,
+            cwd: a.rec.cwd.clone(),
+            base: a.rec.base_commit.clone(),
+            task,
+            worktree: a.rec.worktree.clone(),
+        })
     })?
 }
 
@@ -54,7 +67,11 @@ pub fn list_tasks(engine: &Engine, agent_id: &str) -> Res<Vec<Task>> {
 }
 
 /// `task_id` `None` = all changes since the agent started (repo-root paths).
-pub fn task_changes(engine: &Engine, agent_id: &str, task_id: Option<&str>) -> Res<Vec<FileChange>> {
+pub fn task_changes(
+    engine: &Engine,
+    agent_id: &str,
+    task_id: Option<&str>,
+) -> Res<Vec<FileChange>> {
     let c = ctx(engine, agent_id, task_id)?;
     let top = toplevel(&c.git())?;
     match c.task.clone() {
@@ -70,9 +87,19 @@ pub fn task_changes(engine: &Engine, agent_id: &str, task_id: Option<&str>) -> R
     }
 }
 
-pub fn file_versions(engine: &Engine, agent_id: &str, path: &str, task_id: Option<&str>) -> Res<FileVersions> {
+pub fn file_versions(
+    engine: &Engine,
+    agent_id: &str,
+    path: &str,
+    task_id: Option<&str>,
+) -> Res<FileVersions> {
     let c = ctx(engine, agent_id, task_id)?;
-    ops::file_versions(&toplevel(&c.git())?, path, c.base.as_deref(), c.task.as_ref())
+    ops::file_versions(
+        &toplevel(&c.git())?,
+        path,
+        c.base.as_deref(),
+        c.task.as_ref(),
+    )
 }
 
 pub fn discard_file(engine: &Engine, agent_id: &str, path: &str) -> Res<()> {
@@ -91,7 +118,9 @@ pub fn commit(engine: &Engine, agent_id: &str, message: &str) -> Res<String> {
 
 pub fn merge(engine: &Engine, agent_id: &str) -> Res<MergeResult> {
     let c = ctx(engine, agent_id, None)?;
-    let wt = c.worktree.clone().ok_or("This agent works in the main checkout: there is no branch to merge. Commit instead.")?;
+    let wt = c.worktree.clone().ok_or(
+        "This agent works in the main checkout: there is no branch to merge. Commit instead.",
+    )?;
     let branch =
         worktree_branch(&*c.exec, &wt).ok_or("The agent's worktree isn't on a branch (detached HEAD). Create a branch there, then merge.")?;
     let result = ops::merge(&c.git().at(&wt.repo), &branch)?;
@@ -106,8 +135,14 @@ pub fn merge(engine: &Engine, agent_id: &str) -> Res<MergeResult> {
 
 pub fn merge_status(engine: &Engine, agent_id: &str) -> Res<MergeStatus> {
     let c = ctx(engine, agent_id, None)?;
-    let branch = c.worktree.as_ref().and_then(|w| worktree_branch(&*c.exec, w));
-    let wt = c.worktree.as_ref().map(|w| (w.repo.as_str(), branch.as_deref()));
+    let branch = c
+        .worktree
+        .as_ref()
+        .and_then(|w| worktree_branch(&*c.exec, w));
+    let wt = c
+        .worktree
+        .as_ref()
+        .map(|w| (w.repo.as_str(), branch.as_deref()));
     ops::merge_status(&c.git(), wt)
 }
 
@@ -135,7 +170,10 @@ mod tests {
         assert_eq!(v.modified.as_deref(), Some("2\n"));
 
         commit(&h.engine, "a", "agent work").unwrap();
-        assert!(task_changes(&h.engine, "a", None).unwrap().len() == 1, "base stays where the agent started");
+        assert!(
+            task_changes(&h.engine, "a", None).unwrap().len() == 1,
+            "base stays where the agent started"
+        );
         assert!(merge(&h.engine, "a").unwrap_err().contains("main checkout"));
         let st = merge_status(&h.engine, "a").unwrap();
         assert!(!st.worktree && st.uncommitted == 0);

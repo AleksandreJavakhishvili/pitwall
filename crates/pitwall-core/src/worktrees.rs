@@ -54,7 +54,10 @@ pub struct Spot {
 /// `path` is `root` or inside it.
 fn inside(path: &str, root: &str) -> bool {
     let root = root.trim_end_matches('/');
-    path == root || path.strip_prefix(root).is_some_and(|rest| rest.starts_with('/'))
+    path == root
+        || path
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// The index of the deepest entry containing `path`.
@@ -73,9 +76,16 @@ fn deepest(entries: &[WorktreeEntry], path: &str) -> Option<usize> {
 /// the agent with a process there, then the deepest checkout, then the
 /// oldest agent. One answer per entry (the main checkout and a bare
 /// repository included; callers skip them).
-pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String, String)]) -> Vec<(Option<String>, WorktreeVia)> {
+pub fn attribute(
+    entries: &[WorktreeEntry],
+    spots: &[Spot],
+    proc_cwds: &[(String, String)],
+) -> Vec<(Option<String>, WorktreeVia)> {
     let own: Vec<Option<usize>> = spots.iter().map(|s| deepest(entries, &s.folder)).collect();
-    let procs: Vec<(&str, usize)> = proc_cwds.iter().filter_map(|(id, cwd)| Some((id.as_str(), deepest(entries, cwd)?))).collect();
+    let procs: Vec<(&str, usize)> = proc_cwds
+        .iter()
+        .filter_map(|(id, cwd)| Some((id.as_str(), deepest(entries, cwd)?)))
+        .collect();
     let has_proc = |id: &str, i: usize| procs.iter().any(|(p, e)| *p == id && *e == i);
     let order = |a: &&Spot, b: &&Spot| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id));
 
@@ -84,7 +94,13 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
         .enumerate()
         .map(|(i, e)| {
             // 1. Its own working folder.
-            if let Some(s) = spots.iter().zip(&own).filter(|(_, o)| **o == Some(i)).map(|(s, _)| s).min_by(order) {
+            if let Some(s) = spots
+                .iter()
+                .zip(&own)
+                .filter(|(_, o)| **o == Some(i))
+                .map(|(s, _)| s)
+                .min_by(order)
+            {
                 return (Some(s.id.clone()), WorktreeVia::Own);
             }
             // 2. Under the agent's checkout, where its tool keeps worktrees.
@@ -95,13 +111,18 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
                     let root = o.map_or(s.folder.as_str(), |o| entries[o].path.as_str());
                     let hit = s.tool_dirs.iter().any(|d| {
                         let d = d.trim_matches('/');
-                        !d.is_empty() && !d.split('/').any(|p| p == "..") && inside(&e.path, &format!("{}/{d}", root.trim_end_matches('/')))
+                        !d.is_empty()
+                            && !d.split('/').any(|p| p == "..")
+                            && inside(&e.path, &format!("{}/{d}", root.trim_end_matches('/')))
                     });
                     hit.then_some((s, root.len()))
                 })
                 .collect();
             tool.sort_by(|(a, ra), (b, rb)| {
-                has_proc(&b.id, i).cmp(&has_proc(&a.id, i)).then(rb.cmp(ra)).then(order(a, b))
+                has_proc(&b.id, i)
+                    .cmp(&has_proc(&a.id, i))
+                    .then(rb.cmp(ra))
+                    .then(order(a, b))
             });
             if let Some((s, _)) = tool.first() {
                 return (Some(s.id.clone()), WorktreeVia::ToolDir);
@@ -190,21 +211,43 @@ fn members(engine: &Engine) -> Vec<Member> {
             let loc = r.locator();
             let p = &a.facts.provider;
             let mut h = DefaultHasher::new();
-            (&r.cwd, a.added, a.removed, a.files_changed, &a.branch, a.status as u8).hash(&mut h);
+            (
+                &r.cwd,
+                a.added,
+                a.removed,
+                a.files_changed,
+                &a.branch,
+                a.status as u8,
+            )
+                .hash(&mut h);
             Member {
                 id: r.id.clone(),
                 project: r.project.clone(),
                 cwd: r.cwd.clone(),
-                real: a.real_cwd.as_ref().filter(|(from, _)| *from == r.cwd).map(|(_, real)| real.clone()),
+                real: a
+                    .real_cwd
+                    .as_ref()
+                    .filter(|(from, _)| *from == r.cwd)
+                    .map(|(_, real)| real.clone()),
                 kind: a.kind().to_string(),
                 created_at: r.created_at,
-                pids: [a.local_pid(), a.inner.as_ref().map(|i| i.pid).filter(|_| p.local_process)].into_iter().flatten().collect(),
+                pids: [
+                    a.local_pid(),
+                    a.inner.as_ref().map(|i| i.pid).filter(|_| p.local_process),
+                ]
+                .into_iter()
+                .flatten()
+                .collect(),
                 running: a.running(),
                 process_cwd: p.process_cwd,
                 machine: MachineView {
                     provider: loc.provider.to_string(),
                     id: loc.machine.to_string(),
-                    label: if a.facts.machine_label.is_empty() { loc.machine.to_string() } else { a.facts.machine_label.clone() },
+                    label: if a.facts.machine_label.is_empty() {
+                        loc.machine.to_string()
+                    } else {
+                        a.facts.machine_label.clone()
+                    },
                     can_create: p.create && !p.platform_create,
                 },
                 home: a.facts.home.clone(),
@@ -219,8 +262,12 @@ fn members(engine: &Engine) -> Vec<Member> {
 /// Resolve members' folders on their machines (once per folder; kept on the agent).
 fn resolve(engine: &Engine, members: &mut [Member], execs: &HashMap<String, Arc<dyn Exec>>) {
     for m in members.iter_mut().filter(|m| m.real.is_none()) {
-        let Some(exec) = execs.get(&m.id) else { continue };
-        let real = exec.real_path(&m.cwd).unwrap_or_else(|_| m.cwd.trim_end_matches('/').to_string());
+        let Some(exec) = execs.get(&m.id) else {
+            continue;
+        };
+        let real = exec
+            .real_path(&m.cwd)
+            .unwrap_or_else(|_| m.cwd.trim_end_matches('/').to_string());
         let _ = engine.with(&m.id, |a| a.real_cwd = Some((m.cwd.clone(), real.clone())));
         m.real = Some(real);
     }
@@ -253,7 +300,11 @@ fn spots(engine: &Engine, ms: &[&Member]) -> Vec<Spot> {
         .map(|m| Spot {
             id: m.id.clone(),
             folder: m.real.clone().unwrap_or_else(|| m.cwd.clone()),
-            tool_dirs: kinds.iter().find(|k| k.id == m.kind).map(|k| k.worktree_dirs.clone()).unwrap_or_default(),
+            tool_dirs: kinds
+                .iter()
+                .find(|k| k.id == m.kind)
+                .map(|k| k.worktree_dirs.clone())
+                .unwrap_or_default(),
             created_at: m.created_at,
         })
         .collect()
@@ -261,7 +312,11 @@ fn spots(engine: &Engine, ms: &[&Member]) -> Vec<Spot> {
 
 /// Linked worktrees nobody claimed by folder: worth asking processes (rule 3).
 fn unclaimed(entries: &[WorktreeEntry], spots: &[Spot]) -> bool {
-    attribute(entries, spots, &[]).iter().zip(entries).skip(1).any(|((_, via), e)| *via == WorktreeVia::Other && !e.bare && !e.prunable)
+    attribute(entries, spots, &[])
+        .iter()
+        .zip(entries)
+        .skip(1)
+        .any(|((_, via), e)| *via == WorktreeVia::Other && !e.bare && !e.prunable)
 }
 
 /// Folders processes of these agents work in, where their provider can
@@ -275,7 +330,10 @@ fn process_cwds(engine: &Engine, ms: &[&Member]) -> Vec<(String, String)> {
         let asks: Vec<_> = if m.pids.is_empty() {
             vec![(m.id.as_str(), (m.loc.clone(), None))]
         } else {
-            m.pids.iter().map(|p| (m.id.as_str(), (m.loc.clone(), Some(*p)))).collect()
+            m.pids
+                .iter()
+                .map(|p| (m.id.as_str(), (m.loc.clone(), Some(*p))))
+                .collect()
         };
         let provider = m.loc.provider.as_str();
         match by_provider.iter_mut().find(|(p, _)| *p == provider) {
@@ -284,7 +342,9 @@ fn process_cwds(engine: &Engine, ms: &[&Member]) -> Vec<(String, String)> {
         }
     }
     for (_, asks) in by_provider {
-        let Ok(p) = engine.providers().for_locator(&asks[0].1 .0) else { continue };
+        let Ok(p) = engine.providers().for_locator(&asks[0].1 .0) else {
+            continue;
+        };
         let locs: Vec<(Locator, Option<u32>)> = asks.iter().map(|(_, a)| a.clone()).collect();
         for ((id, _), cwd) in asks.iter().zip(p.process_cwds(&locs)) {
             if let Some(cwd) = cwd {
@@ -300,7 +360,10 @@ fn process_cwds(engine: &Engine, ms: &[&Member]) -> Vec<(String, String)> {
 fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
     let _one = lock(&engine.worktrees.refresh);
     let mut ms = members(engine);
-    let execs: HashMap<String, Arc<dyn Exec>> = ms.iter().map(|m| (m.id.clone(), engine.exec_for(&m.id))).collect();
+    let execs: HashMap<String, Arc<dyn Exec>> = ms
+        .iter()
+        .map(|m| (m.id.clone(), engine.exec_for(&m.id)))
+        .collect();
     resolve(engine, &mut ms, &execs);
 
     let groups = grouped(&ms);
@@ -315,9 +378,15 @@ fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
                     Force::None => false,
                     Force::All => true,
                     // The project's id names its main checkout (`build`).
-                    Force::Project(id) => l.entries.first().is_none_or(|main| project_id(list[0], &main.path) == id),
+                    Force::Project(id) => l
+                        .entries
+                        .first()
+                        .is_none_or(|main| project_id(list[0], &main.path) == id),
                 };
-                forced || l.at == 0 || age + PERIOD_SLACK_MS >= PERIOD_MS || (l.sig != sig && age >= list[0].min_gap)
+                forced
+                    || l.at == 0
+                    || age + PERIOD_SLACK_MS >= PERIOD_MS
+                    || (l.sig != sig && age >= list[0].min_gap)
             }
         };
         if !due {
@@ -327,13 +396,30 @@ fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
         let listed = match Git::new(&**exec, &list[0].cwd).worktree_list() {
             Ok(entries) => {
                 let sp = spots(engine, list);
-                let proc_cwds = if unclaimed(&entries, &sp) { process_cwds(engine, list) } else { vec![] };
-                Listed { at: now, sig, entries, proc_cwds, error: None }
+                let proc_cwds = if unclaimed(&entries, &sp) {
+                    process_cwds(engine, list)
+                } else {
+                    vec![]
+                };
+                Listed {
+                    at: now,
+                    sig,
+                    entries,
+                    proc_cwds,
+                    error: None,
+                }
             }
             Err(e) => {
                 let old = lock(&engine.worktrees.listed).get(key).cloned();
-                let (entries, proc_cwds) = old.map(|o| (o.entries, o.proc_cwds)).unwrap_or_default();
-                Listed { at: now, sig, entries, proc_cwds, error: Some(e) }
+                let (entries, proc_cwds) =
+                    old.map(|o| (o.entries, o.proc_cwds)).unwrap_or_default();
+                Listed {
+                    at: now,
+                    sig,
+                    entries,
+                    proc_cwds,
+                    error: Some(e),
+                }
             }
         };
         lock(&engine.worktrees.listed).insert(key.clone(), listed);
@@ -354,7 +440,11 @@ fn project_id(m: &Member, main: &str) -> String {
 
 /// Views from the listings: groups that turned out to be the same repository
 /// (same machine and main checkout) become one project.
-fn build(engine: &Engine, groups: &[(String, Vec<&Member>)], listed: &HashMap<String, Listed>) -> Vec<ProjectWorktrees> {
+fn build(
+    engine: &Engine,
+    groups: &[(String, Vec<&Member>)],
+    listed: &HashMap<String, Listed>,
+) -> Vec<ProjectWorktrees> {
     let mut out: Vec<(ProjectWorktrees, Vec<&Member>, Listed)> = Vec::new();
     for (key, list) in groups {
         let Some(l) = listed.get(key) else { continue };
@@ -396,20 +486,35 @@ fn build(engine: &Engine, groups: &[(String, Vec<&Member>)], listed: &HashMap<St
                 .zip(who)
                 .skip(1)
                 .filter(|(e, _)| !e.bare)
-                .map(|(e, (agent_id, via))| worktree_view(e, main, agent_id, via, &view, ms[0].home.as_deref()))
+                .map(|(e, (agent_id, via))| {
+                    worktree_view(e, main, agent_id, via, &view, ms[0].home.as_deref())
+                })
                 .collect();
             view
         })
         .collect()
 }
 
-fn worktree_view(e: &WorktreeEntry, main: &WorktreeEntry, agent_id: Option<String>, via: WorktreeVia, p: &ProjectWorktrees, home: Option<&str>) -> WorktreeView {
+fn worktree_view(
+    e: &WorktreeEntry,
+    main: &WorktreeEntry,
+    agent_id: Option<String>,
+    via: WorktreeVia,
+    p: &ProjectWorktrees,
+    home: Option<&str>,
+) -> WorktreeView {
     let diff = !e.prunable;
     let target = p.branch.as_deref().filter(|_| !main.bare);
     WorktreeView {
         path: e.path.clone(),
         path_display: paths::tildify_in(home, &e.path),
-        name: e.path.trim_end_matches('/').rsplit('/').next().unwrap_or(&e.path).to_string(),
+        name: e
+            .path
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or(&e.path)
+            .to_string(),
         branch: e.branch.clone(),
         head: e.head.clone(),
         locked: e.locked,
@@ -440,7 +545,10 @@ pub fn list(engine: &Engine) -> Vec<ProjectWorktrees> {
 /// of listing again. Blocking.
 pub fn refresh_now(engine: &Engine, project: Option<&str>) -> Vec<ProjectWorktrees> {
     let force = project.map_or(Force::All, Force::Project);
-    engine.worktrees.forced.run(project.unwrap_or("*"), || refresh(engine, force))
+    engine
+        .worktrees
+        .forced
+        .run(project.unwrap_or("*"), || refresh(engine, force))
 }
 
 /// One worktree, as the UI was last shown it (never a path it wasn't).
@@ -461,11 +569,35 @@ fn target(engine: &Engine, project: &str, path: &str) -> Res<Target> {
         .into_iter()
         .find(|v| v.id == project)
         .ok_or("That project's worktrees aren't listed any more.")?;
-    let wt = p.worktrees.iter().find(|w| w.path == path).cloned().ok_or("That worktree isn't listed any more.")?;
-    let owner = p.agent_ids.first().cloned().ok_or("No agent works in that project any more.")?;
-    let main_head = listed.values().find_map(|l| l.entries.first().filter(|m| m.path == p.repo).and_then(|m| m.head.clone()));
-    let target = p.branch.clone().map(|b| format!("refs/heads/{b}")).or(main_head);
-    Ok(Target { exec: engine.exec_for(&owner), agents: p.agent_ids, repo: p.repo, wt, target })
+    let wt = p
+        .worktrees
+        .iter()
+        .find(|w| w.path == path)
+        .cloned()
+        .ok_or("That worktree isn't listed any more.")?;
+    let owner = p
+        .agent_ids
+        .first()
+        .cloned()
+        .ok_or("No agent works in that project any more.")?;
+    let main_head = listed.values().find_map(|l| {
+        l.entries
+            .first()
+            .filter(|m| m.path == p.repo)
+            .and_then(|m| m.head.clone())
+    });
+    let target = p
+        .branch
+        .clone()
+        .map(|b| format!("refs/heads/{b}"))
+        .or(main_head);
+    Ok(Target {
+        exec: engine.exec_for(&owner),
+        agents: p.agent_ids,
+        repo: p.repo,
+        wt,
+        target,
+    })
 }
 
 impl Target {
@@ -534,7 +666,9 @@ pub fn commit(engine: &Engine, project: &str, path: &str, message: &str) -> Res<
 pub fn merge(engine: &Engine, project: &str, path: &str) -> Res<MergeResult> {
     let t = target(engine, project, path)?;
     t.need(t.wt.caps.diff, "its folder is gone")?;
-    let branch = t.git().current_branch().ok_or("This worktree isn't on a branch (detached HEAD). Create a branch there, then merge.")?;
+    let branch = t.git().current_branch().ok_or(
+        "This worktree isn't on a branch (detached HEAD). Create a branch there, then merge.",
+    )?;
     let result = ops::merge(&t.git().at(&t.repo), &branch)?;
     t.touched(engine);
     Ok(result)
@@ -546,15 +680,29 @@ pub fn merge(engine: &Engine, project: &str, path: &str) -> Res<MergeResult> {
 pub fn remove(engine: &Engine, project: &str, path: &str) -> Res<()> {
     let t = target(engine, project, path)?;
     if t.wt.via == WorktreeVia::Own {
-        return Err(format!("{} is where an agent works: remove the agent (with its worktree) instead.", t.wt.path_display));
+        return Err(format!(
+            "{} is where an agent works: remove the agent (with its worktree) instead.",
+            t.wt.path_display
+        ));
     }
     // Locked now? (The list the UI saw may be older.)
     let main = Git::new(&*t.exec, &t.repo);
     let now = main.worktree_list()?;
-    let e = now.iter().skip(1).find(|e| e.path == t.wt.path).ok_or("That worktree isn't listed any more.")?;
+    let e = now
+        .iter()
+        .skip(1)
+        .find(|e| e.path == t.wt.path)
+        .ok_or("That worktree isn't listed any more.")?;
     if e.locked {
-        let why = e.lock_reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default();
-        return Err(format!("{} is locked{why}. Pitwall doesn't remove locked worktrees.", t.wt.path_display));
+        let why = e
+            .lock_reason
+            .as_deref()
+            .map(|r| format!(" ({r})"))
+            .unwrap_or_default();
+        return Err(format!(
+            "{} is locked{why}. Pitwall doesn't remove locked worktrees.",
+            t.wt.path_display
+        ));
     }
     main.worktree_remove(&t.wt.path)?;
     t.touched(engine);

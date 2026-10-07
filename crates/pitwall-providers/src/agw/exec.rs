@@ -112,7 +112,11 @@ printf '\036PW1\n'
 /// `$d/n`. `timed`: exit 124 from the VM's `timeout` means it timed out.
 fn step(body: &str, stdin: bool, timed: bool) -> String {
     let input = if stdin { "" } else { " </dev/null" };
-    let timeout = if timed { r#" elif [ -n "$to" ] && [ "$s" = 124 ]; then s=T;"# } else { "" };
+    let timeout = if timed {
+        r#" elif [ -n "$to" ] && [ "$s" = 124 ]; then s=T;"#
+    } else {
+        ""
+    };
     format!(
         "rm -f \"$d/x\" \"$d/n\"; ( {body}\n){input} >\"$d/o\" 2>\"$d/e\"; s=$?\n\
          if [ -e \"$d/x\" ]; then mv -f \"$d/x\" \"$d/e\"; : >\"$d/o\"; s=X; elif [ -e \"$d/n\" ]; then s=N;{timeout} fi\n\
@@ -125,14 +129,23 @@ fn run_body(cmd: &Cmd) -> String {
     let mut b = String::new();
     if let Some(cwd) = cmd.cwd {
         let msg = sq(&format!("{cwd}: No such file or directory"));
-        b.push_str(&format!("cd {} 2>/dev/null || {{ printf '%s\\n' {msg} >\"$d/x\"; exit 1; }}; ", sq(cwd)));
+        b.push_str(&format!(
+            "cd {} 2>/dev/null || {{ printf '%s\\n' {msg} >\"$d/x\"; exit 1; }}; ",
+            sq(cwd)
+        ));
     }
     let program = cmd.argv.first().copied().unwrap_or_default();
     let msg = sq(&format!("{program}: No such file or directory"));
-    b.push_str(&format!("command -v {} >/dev/null 2>&1 || {{ printf '%s\\n' {msg} >\"$d/x\"; exit 1; }}; ", sq(program)));
+    b.push_str(&format!(
+        "command -v {} >/dev/null 2>&1 || {{ printf '%s\\n' {msg} >\"$d/x\"; exit 1; }}; ",
+        sq(program)
+    ));
     b.push_str("exec ");
     if cmd.timeout < NO_TIMEOUT {
-        b.push_str(&format!("${{to:+$to -k 5 {:.3}}} ", cmd.timeout.as_secs_f64()));
+        b.push_str(&format!(
+            "${{to:+$to -k 5 {:.3}}} ",
+            cmd.timeout.as_secs_f64()
+        ));
     }
     b.push_str("env");
     for (k, v) in cmd.env {
@@ -172,7 +185,11 @@ fn frames(stdout: &[u8]) -> Option<Vec<Frame>> {
         if body.len() < olen + elen {
             return None;
         }
-        res.push(Frame { ended, out: body[..olen].to_vec(), err: body[olen..olen + elen].to_vec() });
+        res.push(Frame {
+            ended,
+            out: body[..olen].to_vec(),
+            err: body[olen..olen + elen].to_vec(),
+        });
         rest = &body[olen + elen..];
     }
     Some(res)
@@ -181,7 +198,14 @@ fn frames(stdout: &[u8]) -> Option<Vec<Frame>> {
 impl AgwExec {
     /// `agw`: the agw program; `runner` runs it (this Mac).
     pub fn new(agw: &str, runner: Arc<dyn Exec>, user: User, workspace: Option<&str>) -> AgwExec {
-        AgwExec { agw: agw.to_string(), runner, user, workspace: workspace.map(String::from), dirs: OnceLock::new(), slack: SLACK }
+        AgwExec {
+            agw: agw.to_string(),
+            runner,
+            user,
+            workspace: workspace.map(String::from),
+            dirs: OnceLock::new(),
+            slack: SLACK,
+        }
     }
 
     /// Give agw `slack` on top of each call's timeout (default a minute).
@@ -209,13 +233,24 @@ impl AgwExec {
         if let Some(ws) = &self.workspace {
             v.extend(["--workspace".into(), ws.clone()]);
         }
-        v.extend([name.clone(), "--".into(), "sh".into(), "-c".into(), script.to_string()]);
+        v.extend([
+            name.clone(),
+            "--".into(),
+            "sh".into(),
+            "-c".into(),
+            script.to_string(),
+        ]);
         v
     }
 
     /// Run `steps` in one agw call; exactly one frame per step, or the error
     /// agw (or the link) failed with.
-    fn call(&self, steps: &[String], stdin: Option<&[u8]>, timeout: Duration) -> Result<Vec<Frame>> {
+    fn call(
+        &self,
+        steps: &[String],
+        stdin: Option<&[u8]>,
+        timeout: Duration,
+    ) -> Result<Vec<Frame>> {
         let script = format!("{PRELUDE}{}", steps.concat());
         let argv = self.argv(&script);
         let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -257,9 +292,15 @@ impl AgwExec {
         if let Some(d) = self.dirs.get() {
             return Ok(d);
         }
-        let out = self.file_op("home", r#"printf '%s\n%s' "$HOME" "${TMPDIR:-/tmp}""#.into(), None)?;
+        let out = self.file_op(
+            "home",
+            r#"printf '%s\n%s' "$HOME" "${TMPDIR:-/tmp}""#.into(),
+            None,
+        )?;
         let text = String::from_utf8_lossy(&out).into_owned();
-        let (home, tmp) = text.split_once('\n').ok_or_else(|| PwError::other("agw exec: no home folder"))?;
+        let (home, tmp) = text
+            .split_once('\n')
+            .ok_or_else(|| PwError::other("agw exec: no home folder"))?;
         let tmp = match tmp.trim_end_matches('/') {
             "" => "/".to_string(),
             t => t.to_string(),
@@ -271,9 +312,16 @@ impl AgwExec {
 fn to_out(f: Frame, cmd: &Cmd) -> Result<Out> {
     let program = cmd.argv.first().copied().unwrap_or_default();
     match f.ended {
-        Ended::Code(status) => Ok(Out { status, stdout: f.out, stderr: f.err }),
+        Ended::Code(status) => Ok(Out {
+            status,
+            stdout: f.out,
+            stderr: f.err,
+        }),
         Ended::CantStart | Ended::Missing => Err(PwError::other(f.err_text())),
-        Ended::TimedOut => Err(PwError::other(format!("{program}: timed out after {}s", cmd.timeout.as_secs_f32()))),
+        Ended::TimedOut => Err(PwError::other(format!(
+            "{program}: timed out after {}s",
+            cmd.timeout.as_secs_f32()
+        ))),
     }
 }
 
@@ -282,7 +330,11 @@ impl Exec for AgwExec {
         if cmd.argv.is_empty() {
             return Err(PwError::other("empty command"));
         }
-        let f = self.call(&[step(&run_body(cmd), cmd.stdin.is_some(), true)], cmd.stdin, cmd.timeout)?;
+        let f = self.call(
+            &[step(&run_body(cmd), cmd.stdin.is_some(), true)],
+            cmd.stdin,
+            cmd.timeout,
+        )?;
         to_out(f.into_iter().next().expect("one frame"), cmd)
     }
 
@@ -295,24 +347,39 @@ impl Exec for AgwExec {
             return cmds.iter().map(|c| self.run(c)).collect();
         }
         let stdin = cmds.iter().find_map(|c| c.stdin);
-        let steps: Vec<String> = cmds.iter().map(|c| step(&run_body(c), c.stdin.is_some(), true)).collect();
-        let timeout = cmds.iter().fold(Duration::ZERO, |t, c| t.saturating_add(c.timeout));
+        let steps: Vec<String> = cmds
+            .iter()
+            .map(|c| step(&run_body(c), c.stdin.is_some(), true))
+            .collect();
+        let timeout = cmds
+            .iter()
+            .fold(Duration::ZERO, |t, c| t.saturating_add(c.timeout));
         match self.call(&steps, stdin, timeout) {
-            Ok(frames) => frames.into_iter().zip(cmds).map(|(f, c)| to_out(f, c)).collect(),
+            Ok(frames) => frames
+                .into_iter()
+                .zip(cmds)
+                .map(|(f, c)| to_out(f, c))
+                .collect(),
             Err(e) => cmds.iter().map(|_| Err(e.clone())).collect(),
         }
     }
 
     fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>> {
-        self.read_files(&[path], max).pop().unwrap_or_else(|| Err(PwError::other("agw exec: no answer")))
+        self.read_files(&[path], max)
+            .pop()
+            .unwrap_or_else(|| Err(PwError::other("agw exec: no answer")))
     }
 
     fn read_files(&self, paths: &[&str], max: u64) -> Vec<Result<Option<Vec<u8>>>> {
         if paths.is_empty() {
             return Vec::new();
         }
-        let steps: Vec<String> = paths.iter().map(|p| step(&read_body(p, max), false, false)).collect();
-        let timeout = QUICK.saturating_add(Duration::from_millis(100).saturating_mul(paths.len() as u32));
+        let steps: Vec<String> = paths
+            .iter()
+            .map(|p| step(&read_body(p, max), false, false))
+            .collect();
+        let timeout =
+            QUICK.saturating_add(Duration::from_millis(100).saturating_mul(paths.len() as u32));
         match self.call(&steps, None, timeout) {
             Ok(frames) => frames
                 .into_iter()
@@ -328,20 +395,25 @@ impl Exec for AgwExec {
 
     fn write_file(&self, path: &str, bytes: &[u8]) -> Result<()> {
         let p = sq(path);
-        let body = format!("case {p} in */*) mkdir -p -- \"$(dirname -- {p})\" || exit 1;; esac; cat >{p}");
+        let body = format!(
+            "case {p} in */*) mkdir -p -- \"$(dirname -- {p})\" || exit 1;; esac; cat >{p}"
+        );
         self.file_op(path, body, Some(bytes)).map(|_| ())
     }
 
     fn remove_file(&self, path: &str) -> Result<()> {
-        self.file_op(path, format!("rm -- {}", sq(path)), None).map(|_| ())
+        self.file_op(path, format!("rm -- {}", sq(path)), None)
+            .map(|_| ())
     }
 
     fn remove_dir(&self, path: &str) -> Result<()> {
-        self.file_op(path, format!("rmdir -- {}", sq(path)), None).map(|_| ())
+        self.file_op(path, format!("rmdir -- {}", sq(path)), None)
+            .map(|_| ())
     }
 
     fn copy_file(&self, from: &str, to: &str) -> Result<()> {
-        self.file_op(from, format!("cp -- {} {}", sq(from), sq(to)), None).map(|_| ())
+        self.file_op(from, format!("cp -- {} {}", sq(from), sq(to)), None)
+            .map(|_| ())
     }
 
     fn stat(&self, path: &str) -> Result<Option<Stat>> {
@@ -356,14 +428,20 @@ impl Exec for AgwExec {
             return Ok(None);
         }
         let out = String::from_utf8_lossy(&f.done(path)?).into_owned();
-        let (k, n) = out.trim().split_once(' ').ok_or_else(|| PwError::other(format!("{path}: unexpected stat output")))?;
+        let (k, n) = out
+            .trim()
+            .split_once(' ')
+            .ok_or_else(|| PwError::other(format!("{path}: unexpected stat output")))?;
         let kind = match k {
             "L" => FileKind::Symlink,
             "D" => FileKind::Dir,
             "F" => FileKind::File,
             _ => FileKind::Other,
         };
-        Ok(Some(Stat { kind, len: n.trim().parse().unwrap_or(0) }))
+        Ok(Some(Stat {
+            kind,
+            len: n.trim().parse().unwrap_or(0),
+        }))
     }
 
     fn real_path(&self, path: &str) -> Result<String> {
@@ -405,25 +483,80 @@ mod tests {
     #[test]
     fn argv_puts_options_before_the_name_and_the_command_after_dashes() {
         let x = FakeExec::new();
-        let vm = AgwExec::new("/opt/agw", x.clone(), User::Admin { vm: "my-vm".into() }, Some("work"));
+        let vm = AgwExec::new(
+            "/opt/agw",
+            x.clone(),
+            User::Admin { vm: "my-vm".into() },
+            Some("work"),
+        );
         let a = vm.argv("echo hi");
-        assert_eq!(a, ["/opt/agw", "--non-interactive", "vm", "exec", "--workspace", "work", "my-vm", "--", "sh", "-c", "echo hi"]);
-        let agent = AgwExec::new("agw", x, User::Agent { agent: "bot".into() }, None);
-        assert_eq!(agent.argv("s"), ["agw", "--non-interactive", "agent", "exec", "bot", "--", "sh", "-c", "s"]);
+        assert_eq!(
+            a,
+            [
+                "/opt/agw",
+                "--non-interactive",
+                "vm",
+                "exec",
+                "--workspace",
+                "work",
+                "my-vm",
+                "--",
+                "sh",
+                "-c",
+                "echo hi"
+            ]
+        );
+        let agent = AgwExec::new(
+            "agw",
+            x,
+            User::Agent {
+                agent: "bot".into(),
+            },
+            None,
+        );
+        assert_eq!(
+            agent.argv("s"),
+            [
+                "agw",
+                "--non-interactive",
+                "agent",
+                "exec",
+                "bot",
+                "--",
+                "sh",
+                "-c",
+                "s"
+            ]
+        );
     }
 
     #[test]
     fn frames_parse_binary_output_and_every_ending() {
         let bin: Vec<u8> = (0..=255u8).collect();
-        let raw = framed(&[("0", &bin, b""), ("3", b"out", b"err\n"), ("X", b"", b"git: not found"), ("T", b"", b""), ("N", b"", b"")]);
+        let raw = framed(&[
+            ("0", &bin, b""),
+            ("3", b"out", b"err\n"),
+            ("X", b"", b"git: not found"),
+            ("T", b"", b""),
+            ("N", b"", b""),
+        ]);
         let f = frames(&raw).unwrap();
         assert_eq!(f.len(), 5);
-        assert_eq!((f[0].ended.clone(), f[0].out.clone()), (Ended::Code(0), bin));
-        assert_eq!((f[1].ended.clone(), &f[1].out[..], &f[1].err[..]), (Ended::Code(3), &b"out"[..], &b"err\n"[..]));
+        assert_eq!(
+            (f[0].ended.clone(), f[0].out.clone()),
+            (Ended::Code(0), bin)
+        );
+        assert_eq!(
+            (f[1].ended.clone(), &f[1].out[..], &f[1].err[..]),
+            (Ended::Code(3), &b"out"[..], &b"err\n"[..])
+        );
         assert_eq!(f[2].ended, Ended::CantStart);
         assert_eq!(f[3].ended, Ended::TimedOut);
         assert_eq!(f[4].ended, Ended::Missing);
-        assert!(frames(b"Error: VM 'x' not found\n").is_none(), "no marker: agw failed");
+        assert!(
+            frames(b"Error: VM 'x' not found\n").is_none(),
+            "no marker: agw failed"
+        );
         let mut cut = framed(&[("0", b"abcdef", b"")]);
         cut.truncate(cut.len() - 2);
         assert!(frames(&cut).is_none(), "cut off mid-frame");
@@ -432,28 +565,51 @@ mod tests {
     #[test]
     fn agws_own_errors_are_errors_not_command_output() {
         let x = FakeExec::new();
-        x.on_exit(&["/opt/agw", "--non-interactive", "vm", "exec", ".."], 1, "", "Error: VM 'gone' not found\n  Hint: agw vm list\n");
-        let e = AgwExec::new("/opt/agw", x.clone(), User::Admin { vm: "gone".into() }, None);
+        x.on_exit(
+            &["/opt/agw", "--non-interactive", "vm", "exec", ".."],
+            1,
+            "",
+            "Error: VM 'gone' not found\n  Hint: agw vm list\n",
+        );
+        let e = AgwExec::new(
+            "/opt/agw",
+            x.clone(),
+            User::Admin { vm: "gone".into() },
+            None,
+        );
         let err = e.run(&Cmd::new(&["git", "status"])).unwrap_err();
-        assert!(err.is(pitwall_core::provider::ErrorCode::Unreachable), "{err:?}");
+        assert!(
+            err.is(pitwall_core::provider::ErrorCode::Unreachable),
+            "{err:?}"
+        );
         assert_eq!(err.message, "agw exec on gone: VM 'gone' not found");
         // Batches fail as a whole, with the same error for each command.
         let all = e.run_all(&[Cmd::new(&["a"]), Cmd::new(&["b"])]);
         assert_eq!(all.len(), 2);
-        assert!(all.iter().all(|r| r.as_ref().unwrap_err().message == err.message));
+        assert!(all
+            .iter()
+            .all(|r| r.as_ref().unwrap_err().message == err.message));
         assert_eq!(x.calls().len(), 2, "one agw call per batch");
     }
 
     #[test]
     fn scripts_quote_every_argument_and_frame_each_command() {
-        let cmd = Cmd::new(&["git", "-C", "/w s", "log", "--format=%H it's"]).cwd("/w s").env(&[("GIT_INDEX_FILE", "/tmp/i x")]);
+        let cmd = Cmd::new(&["git", "-C", "/w s", "log", "--format=%H it's"])
+            .cwd("/w s")
+            .env(&[("GIT_INDEX_FILE", "/tmp/i x")]);
         let b = run_body(&cmd);
         assert!(b.starts_with("cd '/w s' 2>/dev/null || "), "{b}");
         assert!(b.contains("command -v 'git' >/dev/null"), "{b}");
         assert!(b.contains("exec ${to:+$to -k 5 600.000} env 'GIT_INDEX_FILE=/tmp/i x' 'git' '-C' '/w s' 'log' '--format=%H it'\\''s'"), "{b}");
         let s = step(&b, false, true);
         assert!(s.contains("</dev/null") && s.contains("s=T") && s.ends_with("emit \"$s\"\n"));
-        assert!(!step("x", true, false).contains("</dev/null") && !step("x", true, false).contains("s=T"));
-        assert!(!run_body(&Cmd::new(&["true"]).timeout(Duration::MAX)).contains("$to"), "no timeout asked: none on the VM");
+        assert!(
+            !step("x", true, false).contains("</dev/null")
+                && !step("x", true, false).contains("s=T")
+        );
+        assert!(
+            !run_body(&Cmd::new(&["true"]).timeout(Duration::MAX)).contains("$to"),
+            "no timeout asked: none on the VM"
+        );
     }
 }

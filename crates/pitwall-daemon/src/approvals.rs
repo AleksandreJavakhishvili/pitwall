@@ -65,13 +65,20 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn unix_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 impl Approvals {
     /// Unanswered requests are denied after `timeout`.
     pub fn new(timeout: Duration) -> Arc<Approvals> {
-        Arc::new(Approvals { state: Mutex::default(), answered: Condvar::new(), listeners: Mutex::default(), timeout })
+        Arc::new(Approvals {
+            state: Mutex::default(),
+            answered: Condvar::new(),
+            listeners: Mutex::default(),
+            timeout,
+        })
     }
 
     /// Called with the pending list whenever it changes (the app shows the
@@ -81,7 +88,11 @@ impl Approvals {
     }
 
     pub fn pending(&self) -> Vec<ApprovalView> {
-        lock(&self.state).pending.iter().map(|p| p.view.clone()).collect()
+        lock(&self.state)
+            .pending
+            .iter()
+            .map(|p| p.view.clone())
+            .collect()
     }
 
     fn changed(&self) {
@@ -123,20 +134,32 @@ impl Approvals {
         let decision = {
             let mut st = lock(&self.state);
             loop {
-                let i = st.pending.iter().position(|p| p.view.id == id).expect("only ask() removes it");
+                let i = st
+                    .pending
+                    .iter()
+                    .position(|p| p.view.id == id)
+                    .expect("only ask() removes it");
                 if let Some((allow, remember)) = st.pending[i].answer {
                     let p = st.pending.remove(i);
                     if allow && remember && rememberable {
                         st.remembered.insert((p.caller_key, p.view.action));
                     }
-                    break if allow { Decision::Allowed } else { Decision::Denied };
+                    break if allow {
+                        Decision::Allowed
+                    } else {
+                        Decision::Denied
+                    };
                 }
                 let left = deadline.saturating_duration_since(Instant::now());
                 if left.is_zero() {
                     st.pending.remove(i);
                     break Decision::TimedOut;
                 }
-                st = self.answered.wait_timeout(st, left).unwrap_or_else(|e| e.into_inner()).0;
+                st = self
+                    .answered
+                    .wait_timeout(st, left)
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
             }
         };
         self.changed();
@@ -173,18 +196,33 @@ mod tests {
             action: "session.add".into(),
             summary: "start".into(),
             details: vec![],
-            requester: Requester { kind: RequesterKind::Outside, agent_id: None, name: "x".into(), pid: None, process: None },
+            requester: Requester {
+                kind: RequesterKind::Outside,
+                agent_id: None,
+                name: "x".into(),
+                pid: None,
+                process: None,
+            },
             caller_key: caller.into(),
             risk,
         }
     }
 
     /// Answer the first approval that shows up.
-    fn answer_when_asked(a: &Arc<Approvals>, allow: bool, remember: bool) -> std::thread::JoinHandle<()> {
+    fn answer_when_asked(
+        a: &Arc<Approvals>,
+        allow: bool,
+        remember: bool,
+    ) -> std::thread::JoinHandle<()> {
         let a = a.clone();
         std::thread::spawn(move || loop {
             if let Some(p) = a.pending().first() {
-                a.answer(&ApprovalAnswer { id: p.id.clone(), allow, remember }).unwrap();
+                a.answer(&ApprovalAnswer {
+                    id: p.id.clone(),
+                    allow,
+                    remember,
+                })
+                .unwrap();
                 return;
             }
             std::thread::sleep(Duration::from_millis(5));
@@ -207,8 +245,17 @@ mod tests {
         assert!(a.pending().is_empty());
         let quick = Approvals::new(Duration::from_millis(50));
         assert_eq!(quick.ask(ask(Risk::High, "outside")), Decision::TimedOut);
-        assert!(quick.pending().is_empty(), "a timed-out request is withdrawn");
-        assert!(quick.answer(&ApprovalAnswer { id: "nope".into(), allow: true, remember: false }).is_err());
+        assert!(
+            quick.pending().is_empty(),
+            "a timed-out request is withdrawn"
+        );
+        assert!(quick
+            .answer(&ApprovalAnswer {
+                id: "nope".into(),
+                allow: true,
+                remember: false
+            })
+            .is_err());
     }
 
     #[test]
@@ -218,11 +265,19 @@ mod tests {
         assert_eq!(a.ask(ask(Risk::Low, "agent:1")), Decision::Allowed);
         t.join().unwrap();
         assert_eq!(a.ask(ask(Risk::Low, "agent:1")), Decision::Remembered);
-        assert_eq!(a.ask(ask(Risk::Low, "agent:2")), Decision::TimedOut, "another caller is asked");
+        assert_eq!(
+            a.ask(ask(Risk::Low, "agent:2")),
+            Decision::TimedOut,
+            "another caller is asked"
+        );
         let t = answer_when_asked(&a, true, true);
         assert_eq!(a.ask(ask(Risk::High, "agent:3")), Decision::Allowed);
         t.join().unwrap();
-        assert_eq!(a.ask(ask(Risk::High, "agent:3")), Decision::TimedOut, "high risk is asked every time");
+        assert_eq!(
+            a.ask(ask(Risk::High, "agent:3")),
+            Decision::TimedOut,
+            "high risk is asked every time"
+        );
         a.forget_remembered();
         assert_eq!(a.ask(ask(Risk::Low, "agent:1")), Decision::TimedOut);
     }

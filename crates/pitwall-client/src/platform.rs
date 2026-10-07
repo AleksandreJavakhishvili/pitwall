@@ -14,12 +14,17 @@ pub fn connect(path: &Path) -> io::Result<Conn> {
 }
 
 #[cfg(windows)]
-pub type Conn = interprocess::os::windows::named_pipe::DuplexPipeStream<interprocess::os::windows::named_pipe::pipe_mode::Bytes>;
+pub type Conn = interprocess::os::windows::named_pipe::DuplexPipeStream<
+    interprocess::os::windows::named_pipe::pipe_mode::Bytes,
+>;
 
 #[cfg(windows)]
 pub fn connect(path: &Path) -> io::Result<Conn> {
     let name = pitwall_proto::pipe::pipe_name(&path.to_string_lossy());
-    Conn::connect_by_path_with_wait_mode(name.as_str(), interprocess::ConnectWaitMode::Timeout(std::time::Duration::from_secs(3)))
+    Conn::connect_by_path_with_wait_mode(
+        name.as_str(),
+        interprocess::ConnectWaitMode::Timeout(std::time::Duration::from_secs(3)),
+    )
 }
 
 /// `$PITWALL_HOME`, else the platform default — the same folder as
@@ -35,7 +40,9 @@ pub fn data_dir() -> PathBuf {
 
 #[cfg(unix)]
 fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -55,6 +62,11 @@ fn default_data_dir() -> PathBuf {
 fn default_data_dir() -> PathBuf {
     match std::env::var_os("APPDATA").filter(|a| !a.is_empty()) {
         Some(a) => PathBuf::from(a).join("Pitwall"),
-        None => std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_default().join("AppData").join("Roaming").join("Pitwall"),
+        None => std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join("AppData")
+            .join("Roaming")
+            .join("Pitwall"),
     }
 }

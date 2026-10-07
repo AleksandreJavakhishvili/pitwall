@@ -42,7 +42,10 @@ impl Recorder {
 
 impl Exec for Recorder {
     fn run(&self, cmd: &Cmd) -> Result<Out> {
-        self.0.lock().unwrap().push(cmd.argv.iter().map(|s| s.to_string()).collect());
+        self.0
+            .lock()
+            .unwrap()
+            .push(cmd.argv.iter().map(|s| s.to_string()).collect());
         LocalExec.run(cmd)
     }
     fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>> {
@@ -85,12 +88,25 @@ struct ReadOnly<'a> {
     objects: Option<(String, String)>,
 }
 
-const READS: &[&str] = &["rev-parse", "status", "diff", "ls-files", "symbolic-ref", "cat-file", "for-each-ref", "ls-tree"];
+const READS: &[&str] = &[
+    "rev-parse",
+    "status",
+    "diff",
+    "ls-files",
+    "symbolic-ref",
+    "cat-file",
+    "for-each-ref",
+    "ls-tree",
+];
 const TEMP_INDEX: &[&str] = &["add", "write-tree", "read-tree"];
 
 impl ReadOnly<'_> {
     fn mine(&self, path: &str) {
-        assert!(path.starts_with(&format!("{}/", self.scratch)) || path.starts_with(&exec::join(&self.temp(), "pitwall-index-")), "refused: write to {path}");
+        assert!(
+            path.starts_with(&format!("{}/", self.scratch))
+                || path.starts_with(&exec::join(&self.temp(), "pitwall-index-")),
+            "refused: write to {path}"
+        );
     }
     fn temp(&self) -> String {
         self.inner.temp_dir().unwrap()
@@ -105,7 +121,11 @@ impl<'a> ReadOnly<'a> {
         if argv.first() == Some(&"git") {
             assert_eq!(argv.get(1), Some(&"-C"), "git always runs with -C");
             let sub = argv.get(3).copied().unwrap_or_default();
-            let index = cmd.env.iter().find(|(k, _)| *k == "GIT_INDEX_FILE").map(|(_, v)| *v);
+            let index = cmd
+                .env
+                .iter()
+                .find(|(k, _)| *k == "GIT_INDEX_FILE")
+                .map(|(_, v)| *v);
             let allowed = READS.contains(&sub)
                 || (TEMP_INDEX.contains(&sub)
                     && index.is_some_and(|i| {
@@ -118,7 +138,11 @@ impl<'a> ReadOnly<'a> {
                 env.push(("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternates));
             }
         } else {
-            assert!(argv == ["mkdir", "-p", exec::join(&self.scratch, "objects").as_str()] || argv == ["rm", "-rf", self.scratch.as_str()], "refused: {argv:?}");
+            assert!(
+                argv == ["mkdir", "-p", exec::join(&self.scratch, "objects").as_str()]
+                    || argv == ["rm", "-rf", self.scratch.as_str()],
+                "refused: {argv:?}"
+            );
         }
         env
     }
@@ -131,7 +155,11 @@ impl Exec for ReadOnly<'_> {
     }
     fn run_all(&self, cmds: &[Cmd]) -> Vec<Result<Out>> {
         let envs: Vec<_> = cmds.iter().map(|c| self.checked(c)).collect();
-        let cmds: Vec<Cmd> = cmds.iter().zip(&envs).map(|(c, env)| Cmd { env, ..*c }).collect();
+        let cmds: Vec<Cmd> = cmds
+            .iter()
+            .zip(&envs)
+            .map(|(c, env)| Cmd { env, ..*c })
+            .collect();
         self.inner.run_all(&cmds)
     }
     fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>> {
@@ -178,13 +206,34 @@ fn fingerprint(git: &Git, index: &str) -> Vec<String> {
     let argvs = [
         vec!["git", "-C", dir, "status", "--porcelain=v1", "-uall", "-z"],
         vec!["git", "-C", dir, "rev-parse", "HEAD"],
-        vec!["git", "-C", dir, "for-each-ref", "--format=%(refname) %(objectname)"],
+        vec![
+            "git",
+            "-C",
+            dir,
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+        ],
     ];
     let cmds: Vec<Cmd> = argvs.iter().map(|a| Cmd::new(a).env(&env)).collect();
-    let mut res: Vec<String> = x.run_all(&cmds).into_iter().map(|r| r.map(|o| o.stdout_text()).unwrap_or_else(|e| format!("error: {e}"))).collect();
+    let mut res: Vec<String> = x
+        .run_all(&cmds)
+        .into_iter()
+        .map(|r| {
+            r.map(|o| o.stdout_text())
+                .unwrap_or_else(|e| format!("error: {e}"))
+        })
+        .collect();
     // The real index, byte for byte (its length and an FNV hash).
     let index = x.read_file(index, 64 << 20).ok().flatten();
-    res.push(format!("{:?}", index.map(|b| (b.len(), b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &c| (h ^ c as u64).wrapping_mul(0x100_0000_01b3))))));
+    res.push(format!(
+        "{:?}",
+        index.map(|b| (
+            b.len(),
+            b.iter()
+                .fold(0xcbf2_9ce4_8422_2325u64, |h, &c| (h ^ c as u64)
+                    .wrapping_mul(0x100_0000_01b3))
+        ))
+    ));
     res
 }
 
@@ -197,21 +246,44 @@ fn walk(p: &AgwProvider, rec: &Recorder, name: &str) -> String {
         .machines()
         .expect("agw vm list")
         .into_iter()
-        .find(|m| p.sessions(m.id.as_str(), false).is_ok_and(|s| s.iter().any(|s| s.name == name)))
+        .find(|m| {
+            p.sessions(m.id.as_str(), false)
+                .is_ok_and(|s| s.iter().any(|s| s.name == name))
+        })
         .unwrap_or_else(|| panic!("no agw session {name}"));
     let loc = Locator::new(p.id(), &vm.id, name);
     let x = p.session_exec(&loc).expect("session exec");
     log += &format!("{loc}: {:?} in workspace {:?}\n", x.user(), x.workspace());
 
     // The workspace's repository.
-    let top = x.run(&Cmd::new(&["git", "rev-parse", "--show-toplevel"])).expect("rev-parse");
+    let top = x
+        .run(&Cmd::new(&["git", "rev-parse", "--show-toplevel"]))
+        .expect("rev-parse");
     assert!(top.ok(), "not a git repo: {}", top.stderr_text());
     let top = top.stdout_text().trim().to_string();
-    let scratch = exec::join(&x.temp_dir().unwrap(), &format!("pitwall-live-{}", std::process::id()));
-    let guard = ReadOnly { inner: &*x, scratch: scratch.clone(), objects: None };
+    let scratch = exec::join(
+        &x.temp_dir().unwrap(),
+        &format!("pitwall-live-{}", std::process::id()),
+    );
+    let guard = ReadOnly {
+        inner: &*x,
+        scratch: scratch.clone(),
+        objects: None,
+    };
     let git = Git::new(&guard, &top);
-    let index = git_line(&git, &["rev-parse", "--path-format=absolute", "--git-path", "index"]);
-    let objects = git_line(&git, &["rev-parse", "--path-format=absolute", "--git-path", "objects"]);
+    let index = git_line(
+        &git,
+        &["rev-parse", "--path-format=absolute", "--git-path", "index"],
+    );
+    let objects = git_line(
+        &git,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "objects",
+        ],
+    );
     let before = fingerprint(&git, &index);
     log += &format!("repo {top}, branch {:?}\n", git.current_branch());
 
@@ -222,7 +294,11 @@ fn walk(p: &AgwProvider, rec: &Recorder, name: &str) -> String {
     let changes = changes.expect("changes");
     let calls = rec.calls().len() - n;
     let untracked = changes.iter().filter(|c| c.untracked).count();
-    assert_eq!(calls, 1 + usize::from(untracked > 0), "refresh = one agw call (+1 for untracked files)");
+    assert_eq!(
+        calls,
+        1 + usize::from(untracked > 0),
+        "refresh = one agw call (+1 for untracked files)"
+    );
     log += &format!(
         "changes: {} files (+{} -{}), {untracked} untracked, branch {branch:?}: {calls} agw call(s) in {:.1}s\n",
         changes.len(),
@@ -236,41 +312,85 @@ fn walk(p: &AgwProvider, rec: &Recorder, name: &str) -> String {
     let first = files.lines().next().expect("a tracked file");
     let path = exec::join(&top, first);
     let t = Instant::now();
-    let bytes = x.read_file(&path, 1_000_001).expect("read").expect("exists");
+    let bytes = x
+        .read_file(&path, 1_000_001)
+        .expect("read")
+        .expect("exists");
     let stat = x.stat(&path).unwrap().expect("stat");
-    assert!(bytes.len() as u64 == stat.len.min(1_000_001) || stat.kind == pitwall_core::exec::FileKind::Symlink);
-    log += &format!("read {first}: {} bytes in {:.1}s\n", bytes.len(), t.elapsed().as_secs_f32());
+    assert!(
+        bytes.len() as u64 == stat.len.min(1_000_001)
+            || stat.kind == pitwall_core::exec::FileKind::Symlink
+    );
+    log += &format!(
+        "read {first}: {} bytes in {:.1}s\n",
+        bytes.len(),
+        t.elapsed().as_secs_f32()
+    );
 
     // A task snapshot: temp index, objects into scratch, no ref.
     // GIT_OBJECT_DIRECTORY must exist for git to accept the repository.
-    x.run(&Cmd::new(&["mkdir", "-p", &exec::join(&scratch, "objects")])).unwrap();
-    let snap = ReadOnly { inner: &*x, scratch: scratch.clone(), objects: Some((exec::join(&scratch, "objects"), objects)) };
+    x.run(&Cmd::new(&[
+        "mkdir",
+        "-p",
+        &exec::join(&scratch, "objects"),
+    ]))
+    .unwrap();
+    let snap = ReadOnly {
+        inner: &*x,
+        scratch: scratch.clone(),
+        objects: Some((exec::join(&scratch, "objects"), objects)),
+    };
     let t = Instant::now();
     let tree = snapshot::snapshot(&Git::new(&snap, &top));
-    let kind = tree.as_ref().ok().map(|t| git_line(&Git::new(&snap, &top), &["cat-file", "-t", t]));
+    let kind = tree
+        .as_ref()
+        .ok()
+        .map(|t| git_line(&Git::new(&snap, &top), &["cat-file", "-t", t]));
     let cleaned = x.run(&Cmd::new(&["rm", "-rf", &scratch]));
     let tree = tree.expect("snapshot");
     assert_eq!(kind.as_deref(), Some("tree"));
     assert!(cleaned.is_ok_and(|o| o.ok()), "scratch removed");
-    log += &format!("snapshot tree {tree} in {:.1}s (no ref created)\n", t.elapsed().as_secs_f32());
+    log += &format!(
+        "snapshot tree {tree} in {:.1}s (no ref created)\n",
+        t.elapsed().as_secs_f32()
+    );
 
     let after = fingerprint(&git, &index);
     assert_eq!(before, after, "git status, index, HEAD and refs unchanged");
-    log += &format!("unchanged: status, index, HEAD, refs; total {:.1}s\n", started.elapsed().as_secs_f32());
+    log += &format!(
+        "unchanged: status, index, HEAD, refs; total {:.1}s\n",
+        started.elapsed().as_secs_f32()
+    );
 
     // Only agw's read-only listings and exec ever ran.
     for c in rec.calls() {
         let what = c.get(2..4).map(|w| w.join(" ")).unwrap_or_default();
-        assert!(["vm list", "session list", "session describe", "vm exec", "agent exec"].contains(&what.as_str()), "refused agw call: {c:?}");
+        assert!(
+            [
+                "vm list",
+                "session list",
+                "session describe",
+                "vm exec",
+                "agent exec"
+            ]
+            .contains(&what.as_str()),
+            "refused agw call: {c:?}"
+        );
     }
-    log += &format!("{} agw calls, all read-only listings or exec\n", rec.calls().len());
+    log += &format!(
+        "{} agw calls, all read-only listings or exec\n",
+        rec.calls().len()
+    );
     log
 }
 
 fn git_line(git: &Git, args: &[&str]) -> String {
     let mut argv = vec!["git", "-C", git.dir()];
     argv.extend_from_slice(args);
-    let out = git.exec().run(&Cmd::new(&argv).env(&[("GIT_OPTIONAL_LOCKS", "0")])).expect("git");
+    let out = git
+        .exec()
+        .run(&Cmd::new(&argv).env(&[("GIT_OPTIONAL_LOCKS", "0")]))
+        .expect("git");
     assert!(out.ok(), "git {args:?}: {}", out.stderr_text());
     out.stdout_text().trim().to_string()
 }
@@ -297,10 +417,21 @@ fn read_only_walk_against_the_fake_agw() {
     git(&["init", "-q"]);
     std::fs::write(ws.join("README"), "hi\n").unwrap();
     git(&["add", "."]);
-    git(&["-c", "user.name=pw", "-c", "user.email=pw@example.invalid", "commit", "-q", "-m", "init"]);
+    git(&[
+        "-c",
+        "user.name=pw",
+        "-c",
+        "user.email=pw@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+    ]);
     std::fs::write(ws.join("README"), "hi\nthere\n").unwrap();
     std::fs::write(ws.join("new.txt"), "new\n").unwrap();
-    let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw/agw")).unwrap();
+    let body =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw/agw"))
+            .unwrap();
     let agw = state.join("agw");
     std::fs::write(&agw, body.replace("__DIR__", &state.to_string_lossy())).unwrap();
     std::fs::set_permissions(&agw, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -315,22 +446,40 @@ fn read_only_walk_against_the_fake_agw() {
     let before = objects();
     let log = walk(&p, &rec, "s");
     eprintln!("{log}");
-    assert!(log.contains("Admin { vm: \"fakevm\" } in workspace Some(\"s\")") && log.contains("2 files"), "{log}");
+    assert!(
+        log.contains("Admin { vm: \"fakevm\" } in workspace Some(\"s\")")
+            && log.contains("2 files"),
+        "{log}"
+    );
     assert_eq!(objects(), before, "nothing written into the repository");
-    assert!(Command::new("git").args(["for-each-ref", "refs/pitwall/"]).current_dir(&ws).output().unwrap().stdout.is_empty());
+    assert!(Command::new("git")
+        .args(["for-each-ref", "refs/pitwall/"])
+        .current_dir(&ws)
+        .output()
+        .unwrap()
+        .stdout
+        .is_empty());
 }
 
 #[test]
 #[ignore = "live: read-only commands in the real agw session named by PITWALL_AGW_LIVE_EXEC (read-only)"]
 fn live_agw_exec_read_only() {
-    let Ok(name) = std::env::var("PITWALL_AGW_LIVE_EXEC") else { return };
+    let Ok(name) = std::env::var("PITWALL_AGW_LIVE_EXEC") else {
+        return;
+    };
     let rec = Arc::new(Recorder::default());
-    let mut cfg = AgwConfig::new(std::env::temp_dir().join("pw-agw-live-exec-unused"), Err("no attach here".into()));
+    let mut cfg = AgwConfig::new(
+        std::env::temp_dir().join("pw-agw-live-exec-unused"),
+        Err("no attach here".into()),
+    );
     cfg.exec = rec.clone();
     let p = AgwProvider::new(cfg);
     let log = walk(&p, &rec, &name);
     eprintln!("{log}");
-    assert!(log.contains(&format!("/{name}: ")) && log.contains(" in workspace "), "{log}");
+    assert!(
+        log.contains(&format!("/{name}: ")) && log.contains(" in workspace "),
+        "{log}"
+    );
 }
 
 /// Files under `dir` (recursively), with their sizes.
@@ -341,7 +490,10 @@ fn count_files(dir: &Path) -> Vec<(String, u64)> {
         if p.is_dir() {
             v.extend(count_files(&p));
         } else {
-            v.push((p.to_string_lossy().into_owned(), e.metadata().unwrap().len()));
+            v.push((
+                p.to_string_lossy().into_owned(),
+                e.metadata().unwrap().len(),
+            ));
         }
     }
     v.sort();

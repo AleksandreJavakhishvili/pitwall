@@ -57,22 +57,38 @@ fn applies_to(targets: &[String], target: &str) -> bool {
 
 /// Collect the rule files for an agent: `shared` ids (project default set)
 /// and `extra` ids (the agent's own set, written to local-only files).
-pub fn collect(library: &[RuleFile], shared: &[String], extra: &[String], target: &str, cwd: &Path) -> Inputs {
+pub fn collect(
+    library: &[RuleFile],
+    shared: &[String],
+    extra: &[String],
+    target: &str,
+    cwd: &Path,
+) -> Inputs {
     let mut staged: Vec<Staged> = Vec::new();
     let mut missing = Vec::new();
     let mut notes = Vec::new();
     let project_root = Some(cwd.join(".rulesync")).filter(|r| r.join("rules").is_dir());
 
     let project_has_root = project_root.as_ref().is_some_and(|r| {
-        library::rules_in("project", r).iter().any(|f| f.root && applies_to(&f.targets, target))
+        library::rules_in("project", r)
+            .iter()
+            .any(|f| f.root && applies_to(&f.targets, target))
     });
     let lookup = |id: &String| library.iter().find(|f| &f.id == id);
     let has_root = project_has_root
-        || shared.iter().chain(extra).filter_map(lookup).any(|f| f.root && applies_to(&f.targets, target));
+        || shared
+            .iter()
+            .chain(extra)
+            .filter_map(lookup)
+            .any(|f| f.root && applies_to(&f.targets, target));
 
     let mut seen = BTreeSet::new();
     let mut taken = BTreeSet::new();
-    for (id, local) in shared.iter().map(|i| (i, false)).chain(extra.iter().map(|i| (i, true))) {
+    for (id, local) in shared
+        .iter()
+        .map(|i| (i, false))
+        .chain(extra.iter().map(|i| (i, true)))
+    {
         if !seen.insert(id.clone()) {
             continue;
         }
@@ -109,9 +125,17 @@ pub fn collect(library: &[RuleFile], shared: &[String], extra: &[String], target
             n += 1;
         }
         taken.insert(name.to_lowercase());
-        staged.push(Staged { name, content: src.into_bytes() });
+        staged.push(Staged {
+            name,
+            content: src.into_bytes(),
+        });
     }
-    Inputs { staged, missing, notes, project_root }
+    Inputs {
+        staged,
+        missing,
+        notes,
+        project_root,
+    }
 }
 
 /// Stable FNV-1a over everything that decides the generated output.
@@ -158,16 +182,29 @@ fn tracked(exec: &dyn Exec, cwd: &str, paths: &[String]) -> BTreeSet<String> {
     let mut args = vec!["ls-files", "-z", "--"];
     args.extend(paths.iter().map(String::as_str));
     git(exec, cwd, &args)
-        .map(|s| s.split('\0').filter(|p| !p.is_empty()).map(String::from).collect())
+        .map(|s| {
+            s.split('\0')
+                .filter(|p| !p.is_empty())
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// Location of the info/exclude file and the path prefix of `cwd` inside the
 /// repo, or `None` outside git.
 pub fn exclude_target(exec: &dyn Exec, cwd: &str) -> Option<(String, String)> {
-    let file = git(exec, cwd, &["rev-parse", "--git-path", "info/exclude"])?.trim().to_string();
-    let file = if Path::new(&file).is_absolute() { file } else { exec::join(cwd, &file) };
-    let prefix = git(exec, cwd, &["rev-parse", "--show-prefix"])?.trim().to_string();
+    let file = git(exec, cwd, &["rev-parse", "--git-path", "info/exclude"])?
+        .trim()
+        .to_string();
+    let file = if Path::new(&file).is_absolute() {
+        file
+    } else {
+        exec::join(cwd, &file)
+    };
+    let prefix = git(exec, cwd, &["rev-parse", "--show-prefix"])?
+        .trim()
+        .to_string();
     Some((file, prefix))
 }
 
@@ -200,7 +237,12 @@ fn exclude_pattern(path: &str) -> String {
 }
 
 /// Replace this agent's block in an exclude file (removed when `paths` is empty).
-pub fn write_exclude(exec: &dyn Exec, file: &str, agent_id: &str, paths: &[String]) -> Result<(), String> {
+pub fn write_exclude(
+    exec: &dyn Exec,
+    file: &str,
+    agent_id: &str,
+    paths: &[String],
+) -> Result<(), String> {
     let old = read_text(exec, file);
     let (b, e) = (begin(agent_id), end(agent_id));
     let mut out = String::new();
@@ -231,11 +273,16 @@ pub fn write_exclude(exec: &dyn Exec, file: &str, agent_id: &str, paths: &[Strin
     if out == old {
         return Ok(());
     }
-    exec.write_file(file, out.as_bytes()).map_err(|e| format!("could not update {file}: {e}"))
+    exec.write_file(file, out.as_bytes())
+        .map_err(|e| format!("could not update {file}: {e}"))
 }
 
 fn safe_rel(p: &str) -> bool {
-    !p.is_empty() && !p.starts_with('/') && !p.split('/').any(|c| c == ".." || c.is_empty() || c == ".git")
+    !p.is_empty()
+        && !p.starts_with('/')
+        && !p
+            .split('/')
+            .any(|c| c == ".." || c.is_empty() || c == ".git")
 }
 
 /// Delete files Pitwall generated earlier, unless the user changed them or
@@ -254,7 +301,10 @@ pub fn remove_generated(exec: &dyn Exec, cwd: &str, files: &[GenFile], log: &mut
                 // Tidy directories this left empty (e.g. .claude/rules).
                 let mut rel = Path::new(&f.path).parent();
                 while let Some(d) = rel.filter(|d| !d.as_os_str().is_empty()) {
-                    if exec.remove_dir(&exec::join(cwd, &d.to_string_lossy())).is_err() {
+                    if exec
+                        .remove_dir(&exec::join(cwd, &d.to_string_lossy()))
+                        .is_err()
+                    {
                         break;
                     }
                     rel = d.parent();
@@ -299,12 +349,16 @@ pub fn run(
     let out = stage.join("out");
     std::fs::create_dir_all(input.join("rules")).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    std::fs::write(stage.join("rulesync.jsonc"), "{ \"delete\": false }\n").map_err(|e| e.to_string())?;
+    std::fs::write(stage.join("rulesync.jsonc"), "{ \"delete\": false }\n")
+        .map_err(|e| e.to_string())?;
     for s in &inputs.staged {
         std::fs::write(input.join("rules").join(&s.name), &s.content).map_err(|e| e.to_string())?;
     }
     if out.to_string_lossy().contains(',') {
-        return Err("Pitwall's folder path contains a comma, which rulesync can't take as an output root".into());
+        return Err(
+            "Pitwall's folder path contains a comma, which rulesync can't take as an output root"
+                .into(),
+        );
     }
 
     let mut args: Vec<String> = vec![
@@ -323,7 +377,11 @@ pub fn run(
         log.push(format!("also using the project's own {}", root.display()));
     }
     let doc = runner.run_json(stage, &args)?;
-    log.extend(runner::warnings(&doc).into_iter().map(|w| format!("rulesync: {w}")));
+    log.extend(
+        runner::warnings(&doc)
+            .into_iter()
+            .map(|w| format!("rulesync: {w}")),
+    );
 
     let ops = doc
         .pointer("/data/plan/operations")
@@ -343,25 +401,36 @@ pub fn run(
             log.push(format!("skipped unexpected path {rel}"));
             continue;
         }
-        let Ok(bytes) = std::fs::read(out.join(rel)) else { continue };
+        let Ok(bytes) = std::fs::read(out.join(rel)) else {
+            continue;
+        };
         let dest = exec::join(cwd, rel);
         if tracked.contains(rel) {
-            log.push(format!("kept the project's {rel} (tracked by git; Pitwall never changes tracked files)"));
+            log.push(format!(
+                "kept the project's {rel} (tracked by git; Pitwall never changes tracked files)"
+            ));
             continue;
         }
         if let Ok(Some(st)) = exec.stat(&dest) {
             let ours = previous.iter().find(|g| &g.path == rel);
             let unchanged = st.kind == FileKind::File
                 && ours.is_some_and(|g| {
-                    exec.read_file(&dest, u64::MAX).ok().flatten().is_some_and(|b| content_hash(&b) == g.hash)
+                    exec.read_file(&dest, u64::MAX)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|b| content_hash(&b) == g.hash)
                 });
             if !unchanged {
                 log.push(format!("kept the existing {rel} (not written by Pitwall)"));
                 continue;
             }
         }
-        exec.write_file(&dest, &bytes).map_err(|e| format!("could not write {rel}: {e}"))?;
-        files.push(GenFile { path: rel.clone(), hash: content_hash(&bytes) });
+        exec.write_file(&dest, &bytes)
+            .map_err(|e| format!("could not write {rel}: {e}"))?;
+        files.push(GenFile {
+            path: rel.clone(),
+            hash: content_hash(&bytes),
+        });
     }
 
     // Files from an earlier apply that rulesync no longer produces.
@@ -372,7 +441,9 @@ pub fn run(
         .collect();
     remove_generated(exec, cwd, &stale, &mut log);
 
-    if files.iter().any(|f| f.path == "CLAUDE.md" || f.path == "CLAUDE.local.md")
+    if files
+        .iter()
+        .any(|f| f.path == "CLAUDE.md" || f.path == "CLAUDE.local.md")
         && exec::exists(exec, &exec::join(cwd, "AGENTS.md"))
         && !tracked.contains("CLAUDE.md")
     {
@@ -381,18 +452,27 @@ pub fn run(
 
     let exclude_file = match exclude_target(exec, cwd) {
         Some((file, prefix)) => {
-            let rel: Vec<String> = files.iter().map(|f| format!("{prefix}{}", f.path)).collect();
+            let rel: Vec<String> = files
+                .iter()
+                .map(|f| format!("{prefix}{}", f.path))
+                .collect();
             write_exclude(exec, &file, agent_id, &rel)?;
             Some(file)
         }
         None => {
             if !files.is_empty() {
-                log.push("not a git repository: generated files are not excluded from anything".into());
+                log.push(
+                    "not a git repository: generated files are not excluded from anything".into(),
+                );
             }
             None
         }
     };
-    Ok(Outcome { files, log, exclude_file })
+    Ok(Outcome {
+        files,
+        log,
+        exclude_file,
+    })
 }
 
 #[cfg(test)]
@@ -416,7 +496,9 @@ mod tests {
         assert_eq!(exclude_pattern(".claude/rules/a.md"), "/.claude/rules/a.md");
         assert_eq!(exclude_pattern("x [1]*.md"), "/x\\ \\[1\\]\\*.md");
         assert!(safe_rel(".claude/rules/a.md"));
-        assert!(!safe_rel("../x") && !safe_rel("/x") && !safe_rel(".git/config") && !safe_rel("a//b"));
+        assert!(
+            !safe_rel("../x") && !safe_rel("/x") && !safe_rel(".git/config") && !safe_rel("a//b")
+        );
     }
 
     #[test]
@@ -431,10 +513,17 @@ mod tests {
         write_exclude(x, file, "a1", &[".claude/rules/x.md".into()]).unwrap();
         let s = std::fs::read_to_string(&path).unwrap();
         assert!(s.starts_with("# user\n*.log\n"));
-        assert!(s.contains("/.claude/rules/x.md") && s.contains("/AGENTS.md") && !s.contains("CLAUDE.local"));
+        assert!(
+            s.contains("/.claude/rules/x.md")
+                && s.contains("/AGENTS.md")
+                && !s.contains("CLAUDE.local")
+        );
         write_exclude(x, file, "a1", &[]).unwrap();
         write_exclude(x, file, "b2", &[]).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap().trim_end(), "# user\n*.log");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap().trim_end(),
+            "# user\n*.log"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -460,7 +549,13 @@ mod tests {
             mk("mine.md", "---\nroot: false\n---\nmine", false),
         ];
         let ids = |v: &[&str]| v.iter().map(|s| format!("library:{s}")).collect::<Vec<_>>();
-        let i = collect(&lib, &ids(&["base.md"]), &ids(&["mine.md", "gone.md"]), "claudecode", &dir);
+        let i = collect(
+            &lib,
+            &ids(&["base.md"]),
+            &ids(&["mine.md", "gone.md"]),
+            "claudecode",
+            &dir,
+        );
         assert_eq!(i.staged.len(), 2);
         assert!(parse_front(std::str::from_utf8(&i.staged[1].content).unwrap()).local_root);
         assert_eq!(i.missing, vec!["library:gone.md"]);

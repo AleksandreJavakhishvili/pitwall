@@ -22,7 +22,10 @@ pub fn bind(path: &Path) -> io::Result<Listener> {
     }
     if path.exists() {
         if UnixStream::connect(path).is_ok() {
-            return Err(io::Error::new(io::ErrorKind::AddrInUse, format!("another Pitwall is listening at {}", path.display())));
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!("another Pitwall is listening at {}", path.display()),
+            ));
         }
         std::fs::remove_file(path)?;
     }
@@ -43,23 +46,44 @@ pub fn peer_pid(s: &Stream) -> Option<u32> {
     let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
     // SAFETY: a valid socket fd and an out-parameter of the size we pass.
     let rc = unsafe {
-        libc::getsockopt(s.as_raw_fd(), libc::SOL_LOCAL, libc::LOCAL_PEERPID, (&mut pid as *mut libc::pid_t).cast(), &mut len)
+        libc::getsockopt(
+            s.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&mut pid as *mut libc::pid_t).cast(),
+            &mut len,
+        )
     };
     (rc == 0 && pid > 0).then_some(pid as u32)
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn peer_pid(s: &Stream) -> Option<u32> {
-    let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+    let mut cred = libc::ucred {
+        pid: 0,
+        uid: 0,
+        gid: 0,
+    };
     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
     // SAFETY: a valid socket fd and an out-parameter of the size we pass.
     let rc = unsafe {
-        libc::getsockopt(s.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len)
+        libc::getsockopt(
+            s.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
     };
     (rc == 0 && cred.pid > 0).then_some(cred.pid as u32)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "android")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "android"
+)))]
 pub fn peer_pid(_s: &Stream) -> Option<u32> {
     None
 }
@@ -67,7 +91,10 @@ pub fn peer_pid(_s: &Stream) -> Option<u32> {
 /// Every process's parent and program name (`ps`), or `None` if `ps` failed.
 #[cfg(not(target_os = "linux"))]
 pub fn process_table() -> Option<HashMap<u32, Proc>> {
-    let out = std::process::Command::new("ps").args(["-axo", "pid=,ppid=,comm="]).output().ok()?;
+    let out = std::process::Command::new("ps")
+        .args(["-axo", "pid=,ppid=,comm="])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -77,7 +104,9 @@ pub fn process_table() -> Option<HashMap<u32, Proc>> {
 /// Every process's parent and program name, from `/proc` (Linux).
 #[cfg(target_os = "linux")]
 pub fn process_table() -> Option<HashMap<u32, Proc>> {
-    Path::new("/proc").is_dir().then(|| proc_table(Path::new("/proc")))
+    Path::new("/proc")
+        .is_dir()
+        .then(|| proc_table(Path::new("/proc")))
 }
 
 /// [`process_table`] over a `/proc`-shaped tree (tests read a fixture): the
@@ -85,21 +114,35 @@ pub fn process_table() -> Option<HashMap<u32, Proc>> {
 /// else `comm`.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn proc_table(root: &Path) -> HashMap<u32, Proc> {
-    let Ok(entries) = std::fs::read_dir(root) else { return HashMap::new() };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return HashMap::new();
+    };
     entries
         .flatten()
         .filter_map(|e| {
             let pid: u32 = e.file_name().to_str()?.parse().ok()?;
-            let stat = pitwall_core::procs::parse_proc_stat(&std::fs::read_to_string(e.path().join("stat")).ok()?)?;
-            let argv0 = std::fs::read(e.path().join("cmdline")).ok().and_then(|raw| {
-                let first = raw.split(|b| *b == 0).next()?;
-                (!first.is_empty()).then(|| String::from_utf8_lossy(first).into_owned())
-            });
+            let stat = pitwall_core::procs::parse_proc_stat(
+                &std::fs::read_to_string(e.path().join("stat")).ok()?,
+            )?;
+            let argv0 = std::fs::read(e.path().join("cmdline"))
+                .ok()
+                .and_then(|raw| {
+                    let first = raw.split(|b| *b == 0).next()?;
+                    (!first.is_empty()).then(|| String::from_utf8_lossy(first).into_owned())
+                });
             let name = match argv0 {
-                Some(a) => Path::new(&a).file_name().map_or(a.clone(), |n| n.to_string_lossy().into_owned()),
+                Some(a) => Path::new(&a)
+                    .file_name()
+                    .map_or(a.clone(), |n| n.to_string_lossy().into_owned()),
                 None => stat.comm,
             };
-            Some((pid, Proc { ppid: stat.ppid, name }))
+            Some((
+                pid,
+                Proc {
+                    ppid: stat.ppid,
+                    name,
+                },
+            ))
         })
         .collect()
 }
@@ -112,7 +155,9 @@ pub fn parse_ps(text: &str) -> HashMap<u32, Proc> {
             let pid = it.next()?.parse().ok()?;
             let ppid = it.next()?.parse().ok()?;
             let comm = it.collect::<Vec<_>>().join(" ");
-            let name = Path::new(&comm).file_name().map_or(comm.clone(), |n| n.to_string_lossy().into_owned());
+            let name = Path::new(&comm)
+                .file_name()
+                .map_or(comm.clone(), |n| n.to_string_lossy().into_owned());
             Some((pid, Proc { ppid, name }))
         })
         .collect()
@@ -125,17 +170,36 @@ mod tests {
     #[test]
     fn parses_ps() {
         let t = parse_ps("    1     0 /sbin/launchd\n  412     1 /Applications/Pitwall.app/Contents/MacOS/pitwall-hold\nbad line\n 413 412 -zsh\n");
-        assert_eq!(t[&412], Proc { ppid: 1, name: "pitwall-hold".into() });
+        assert_eq!(
+            t[&412],
+            Proc {
+                ppid: 1,
+                name: "pitwall-hold".into()
+            }
+        );
         assert_eq!(t[&413].name, "-zsh");
         assert_eq!(t.len(), 3);
     }
 
     #[test]
     fn reads_a_proc_tree() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../pitwall-core/src/platform/fixtures/proc");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../pitwall-core/src/platform/fixtures/proc");
         let t = proc_table(&root);
-        assert_eq!(t[&3900], Proc { ppid: 1, name: "pitwall-hold".into() });
-        assert_eq!(t[&4100], Proc { ppid: 3900, name: "-bash".into() });
+        assert_eq!(
+            t[&3900],
+            Proc {
+                ppid: 1,
+                name: "pitwall-hold".into()
+            }
+        );
+        assert_eq!(
+            t[&4100],
+            Proc {
+                ppid: 3900,
+                name: "-bash".into()
+            }
+        );
         // No command line (kernel thread): the kernel's name.
         assert_eq!(t[&2].name, "kthreadd");
         assert_eq!(t[&4300].name, "node");

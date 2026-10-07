@@ -14,8 +14,9 @@ use serde_json::Value;
 
 use pitwall_proto::frame::{self, Frame};
 use pitwall_proto::{
-    method, AgentCreate, AgentView, ApprovalAnswer, ApprovalView, ClientHello, CreateForm, ErrorBody, Event, FormRequest, Hello, ProviderMachines, Range,
-    Reject, Request, Role, ScannedPlace, ServerHello, ServerMsg, SessionAdd, SessionAdded, SessionFilter, Welcome,
+    method, AgentCreate, AgentView, ApprovalAnswer, ApprovalView, ClientHello, CreateForm,
+    ErrorBody, Event, FormRequest, Hello, ProviderMachines, Range, Reject, Request, Role,
+    ScannedPlace, ServerHello, ServerMsg, SessionAdd, SessionAdded, SessionFilter, Welcome,
 };
 
 pub use pitwall_proto as proto;
@@ -23,7 +24,10 @@ pub use pitwall_proto as proto;
 #[derive(Debug)]
 pub enum Error {
     /// Nothing listens there (Pitwall isn't running), or it can't be reached.
-    Connect { path: PathBuf, source: std::io::Error },
+    Connect {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     /// The server speaks no protocol version this client does.
     Rejected(Reject),
     Io(std::io::Error),
@@ -36,7 +40,11 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Connect { path, source } => write!(f, "can't reach Pitwall at {} ({source}). Is Pitwall running?", path.display()),
+            Error::Connect { path, source } => write!(
+                f,
+                "can't reach Pitwall at {} ({source}). Is Pitwall running?",
+                path.display()
+            ),
             Error::Rejected(r) => write!(
                 f,
                 "Pitwall {} speaks protocol {}–{}, this client {}–{}",
@@ -68,7 +76,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub fn socket_path() -> PathBuf {
     match std::env::var_os(pitwall_proto::SOCKET_ENV) {
         Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => platform::data_dir().join("run").join(pitwall_proto::SOCKET_NAME),
+        _ => platform::data_dir()
+            .join("run")
+            .join(pitwall_proto::SOCKET_NAME),
     }
 }
 
@@ -90,18 +100,34 @@ pub struct Client {
 impl Client {
     /// Connect as a CLI client.
     pub fn connect(path: &Path) -> Result<Client> {
-        Client::connect_as(path, &format!("pitwall-client/{}", env!("CARGO_PKG_VERSION")), Role::Cli)
+        Client::connect_as(
+            path,
+            &format!("pitwall-client/{}", env!("CARGO_PKG_VERSION")),
+            Role::Cli,
+        )
     }
 
     pub fn connect_as(path: &Path, client: &str, role: Role) -> Result<Client> {
-        let mut conn = platform::connect(path).map_err(|source| Error::Connect { path: path.to_path_buf(), source })?;
-        let hello = ClientHello::Hello(Hello { protocol: Range::ours(), client: client.into(), role });
+        let mut conn = platform::connect(path).map_err(|source| Error::Connect {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let hello = ClientHello::Hello(Hello {
+            protocol: Range::ours(),
+            client: client.into(),
+            role,
+        });
         frame::write_json(&mut conn, &hello)?;
         let welcome = match read_json::<ServerHello>(&mut conn)? {
             ServerHello::Welcome(w) => w,
             ServerHello::Reject(r) => return Err(Error::Rejected(r)),
         };
-        Ok(Client { conn, next_id: 1, welcome, events: Vec::new() })
+        Ok(Client {
+            conn,
+            next_id: 1,
+            welcome,
+            events: Vec::new(),
+        })
     }
 
     pub fn welcome(&self) -> &Welcome {
@@ -124,18 +150,36 @@ impl Client {
         let id = self.next_id;
         self.next_id += 1;
         let params = serde_json::to_value(params).map_err(|e| Error::Protocol(e.to_string()))?;
-        frame::write_json(&mut self.conn, &Request { id, method: method.into(), params })?;
+        frame::write_json(
+            &mut self.conn,
+            &Request {
+                id,
+                method: method.into(),
+                params,
+            },
+        )?;
         loop {
             match read_json::<ServerMsg>(&mut self.conn)? {
-                ServerMsg::Response(r) if r.id == id => return r.into_result().map_err(Error::Server),
-                ServerMsg::Response(r) => return Err(Error::Protocol(format!("answer to request {} while waiting for {id}", r.id))),
+                ServerMsg::Response(r) if r.id == id => {
+                    return r.into_result().map_err(Error::Server)
+                }
+                ServerMsg::Response(r) => {
+                    return Err(Error::Protocol(format!(
+                        "answer to request {} while waiting for {id}",
+                        r.id
+                    )))
+                }
                 ServerMsg::Event(e) => self.events.push(e),
             }
         }
     }
 
     /// [`call`](Self::call) with a typed result.
-    pub fn call_as<R: DeserializeOwned>(&mut self, method: &str, params: impl Serialize) -> Result<R> {
+    pub fn call_as<R: DeserializeOwned>(
+        &mut self,
+        method: &str,
+        params: impl Serialize,
+    ) -> Result<R> {
         let v = self.call(method, params)?;
         serde_json::from_value(v).map_err(|e| Error::Protocol(format!("{method}: {e}")))
     }
@@ -180,7 +224,9 @@ impl Client {
 fn read_json<T: DeserializeOwned>(r: &mut impl std::io::Read) -> Result<T> {
     loop {
         match frame::read(r)? {
-            Some(Frame::Json(body)) => return serde_json::from_slice(&body).map_err(|e| Error::Protocol(e.to_string())),
+            Some(Frame::Json(body)) => {
+                return serde_json::from_slice(&body).map_err(|e| Error::Protocol(e.to_string()))
+            }
             Some(_) => continue,
             None => return Err(Error::Protocol("Pitwall closed the connection".into())),
         }

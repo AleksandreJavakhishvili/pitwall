@@ -17,12 +17,15 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use interprocess::os::windows::named_pipe::{
-    pipe_mode, DuplexPipeStream, PipeListener, PipeListenerOptions, PipeMode, RecvPipeStream, SendPipeStream,
+    pipe_mode, DuplexPipeStream, PipeListener, PipeListenerOptions, PipeMode, RecvPipeStream,
+    SendPipeStream,
 };
 use interprocess::os::windows::security_descriptor::SecurityDescriptor;
 use interprocess::ConnectWaitMode;
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, SlavePty};
-use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, LocalFree, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE,
+};
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
 use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_OUTPUT_HANDLE};
@@ -31,8 +34,9 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows_sys::Win32::System::Pipes::PeekNamedPipe;
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetExitCodeProcess, OpenProcess, OpenProcessToken, TerminateProcess, CREATE_BREAKAWAY_FROM_JOB,
-    CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    GetCurrentProcess, GetExitCodeProcess, OpenProcess, OpenProcessToken, TerminateProcess,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 
 use super::pipe_name::pipe_name;
@@ -76,7 +80,16 @@ fn current_user_sid() -> io::Result<String> {
     }
     // usize storage keeps TOKEN_USER aligned and its trailing SID alive.
     let mut buf = vec![0usize; (needed as usize).div_ceil(std::mem::size_of::<usize>())];
-    if unsafe { GetTokenInformation(token.0, TokenUser, buf.as_mut_ptr().cast(), needed, &mut needed) } == 0 {
+    if unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            buf.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        )
+    } == 0
+    {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: GetTokenInformation filled an aligned TOKEN_USER.
@@ -97,7 +110,8 @@ fn current_user_sid() -> io::Result<String> {
 /// Full access for this user and SYSTEM, nobody else (no inherited ACEs).
 fn current_user_only() -> io::Result<SecurityDescriptor> {
     let sddl = format!("D:P(A;;GA;;;SY)(A;;GA;;;{})", current_user_sid()?);
-    let wide = widestring::U16CString::from_str(sddl).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    let wide = widestring::U16CString::from_str(sddl)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     SecurityDescriptor::deserialize(&wide)
 }
 
@@ -131,8 +145,11 @@ pub fn accept(listener: &Listener) -> io::Result<Stream> {
 
 pub fn connect(path: &Path) -> io::Result<Stream> {
     let name = pipe_name(&path.to_string_lossy());
-    DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path_with_wait_mode(name.as_str(), ConnectWaitMode::Timeout(CONNECT_WAIT))
-        .map(Stream::new)
+    DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path_with_wait_mode(
+        name.as_str(),
+        ConnectWaitMode::Timeout(CONNECT_WAIT),
+    )
+    .map(Stream::new)
 }
 
 /// A pipe connection with receive timeouts (named pipes have none of their
@@ -146,7 +163,10 @@ pub struct Stream {
 
 impl Stream {
     fn new(pipe: DuplexPipeStream<pipe_mode::Bytes>) -> Stream {
-        Stream { pipe, recv_timeout: AtomicU64::new(0) }
+        Stream {
+            pipe,
+            recv_timeout: AtomicU64::new(0),
+        }
     }
 
     fn raw(&self) -> RawHandle {
@@ -162,7 +182,14 @@ impl Stream {
         loop {
             let mut avail = 0u32;
             let ok = unsafe {
-                PeekNamedPipe(self.raw() as HANDLE, std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut avail, std::ptr::null_mut())
+                PeekNamedPipe(
+                    self.raw() as HANDLE,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    &mut avail,
+                    std::ptr::null_mut(),
+                )
             };
             // Closed or broken: let the read report it (EOF).
             if ok == 0 || avail > 0 {
@@ -252,7 +279,9 @@ pub fn remove_endpoint(_path: &Path, _token: Option<u64>) {}
 /// A folder the holder can sit in without keeping anything of the user's busy
 /// (a process's current folder can't be deleted on Windows).
 fn neutral_dir() -> PathBuf {
-    std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\"))
+    std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\"))
 }
 
 /// No fork on Windows: the launcher starts this same program again, detached
@@ -328,7 +357,12 @@ struct Control {
 impl PtyControl {
     pub fn resize(&self, cols: u16, rows: u16) {
         if let Some((master, _)) = lock(&self.inner.console).as_ref() {
-            let _ = master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+            let _ = master.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
         }
     }
 
@@ -372,7 +406,12 @@ fn other(e: impl std::fmt::Display) -> io::Error {
 /// Start the program in a new ConPTY.
 pub fn spawn_pty(spec: &PtySpec) -> io::Result<Pty> {
     let pair = portable_pty::native_pty_system()
-        .openpty(PtySize { rows: spec.rows, cols: spec.cols, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: spec.rows,
+            cols: spec.cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(other)?;
     let mut cmd = CommandBuilder::new(&spec.program);
     cmd.args(&spec.args);
@@ -409,7 +448,10 @@ fn process_parents() -> Vec<(u32, u32)> {
         return Vec::new();
     }
     let snap = Handle(snap);
-    let mut entry = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
     let mut out = Vec::new();
     let mut ok = unsafe { Process32FirstW(snap.0, &mut entry) } != 0;
     while ok {

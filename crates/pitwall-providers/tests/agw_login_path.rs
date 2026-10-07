@@ -31,26 +31,50 @@ fn agw_and_its_commands_get_the_login_path() {
     let ws = dir.path().join("ws");
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::write(state.join("ws.ws"), ws.to_string_lossy().as_bytes()).unwrap();
-    let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw/agw")).unwrap();
+    let body =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw/agw"))
+            .unwrap();
     let real = state.join("agw-real");
     script(&real, &body.replace("__DIR__", &state.to_string_lossy()));
     // agw itself: records the PATH it was started with.
     let agw = state.join("agw");
     let seen = state.join("agw-path");
-    script(&agw, &format!("#!/bin/sh\nprintf %s \"$PATH\" > '{}'\nexec '{}' \"$@\"\n", seen.display(), real.display()));
+    script(
+        &agw,
+        &format!(
+            "#!/bin/sh\nprintf %s \"$PATH\" > '{}'\nexec '{}' \"$@\"\n",
+            seen.display(),
+            real.display()
+        ),
+    );
 
     // The app at start-up: a minimal PATH, then the login shell's.
     let login = "/fake/login/bin:/opt/homebrew/bin:/usr/bin:/bin";
     let sh = dir.path().join("login-sh");
-    script(&sh, &format!("#!/bin/sh\nPATH='{login}'; export PATH\nshift 3\nexec /bin/sh -c \"$1\"\n"));
+    script(
+        &sh,
+        &format!("#!/bin/sh\nPATH='{login}'; export PATH\nshift 3\nexec /bin/sh -c \"$1\"\n"),
+    );
     std::env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
     std::env::set_var(shell::SHELL_ENV, &sh);
     let want = format!("{login}:/usr/sbin:/sbin");
-    shell::adopt_login_path(None).expect("a probe thread").join().unwrap();
+    shell::adopt_login_path(None)
+        .expect("a probe thread")
+        .join()
+        .unwrap();
     assert_eq!(shell::spawn_path().as_deref(), Some(want.as_str()));
 
-    let exec = AgwExec::new(&agw.to_string_lossy(), Arc::new(LocalExec), User::Admin { vm: "fakevm".into() }, Some("ws"));
-    let out = exec.run(&Cmd::new(&["sh", "-c", "printf %s \"$PATH\""])).unwrap();
+    let exec = AgwExec::new(
+        &agw.to_string_lossy(),
+        Arc::new(LocalExec),
+        User::Admin {
+            vm: "fakevm".into(),
+        },
+        Some("ws"),
+    );
+    let out = exec
+        .run(&Cmd::new(&["sh", "-c", "printf %s \"$PATH\""]))
+        .unwrap();
     assert_eq!(std::fs::read_to_string(&seen).unwrap(), want, "agw's PATH");
     // The fake runs commands on this machine, so they inherit it too.
     assert_eq!(out.stdout_text(), want);

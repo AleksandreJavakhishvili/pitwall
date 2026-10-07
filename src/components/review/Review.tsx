@@ -551,9 +551,9 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
                     setSelAgentId(agent.id);
                   }}
                   aria-label="Which changes"
-                  title="All changes since the agent started, or one task (prompt)"
+                  title="Everything since the agent started (committed or not), or one task (prompt). The Changes panel shows only uncommitted work, like git status."
                 >
-                  <option value="">All changes · {agent.name}</option>
+                  <option value="">Since the agent started · {agent.name}</option>
                   {[...tasks]
                     .map((t, i) => ({ t, n: i + 1 }))
                     .reverse()

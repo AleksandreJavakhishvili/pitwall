@@ -9,7 +9,10 @@ use pitwall_core::engine::{changes, lifecycle};
 use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
 use pitwall_core::onboarding::{self, places};
 use pitwall_core::provider::{Locator, MachineId, ProviderId};
-use pitwall_proto::{code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk, SessionAdd, SessionAdded, SessionFilter};
+use pitwall_proto::{
+    code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateForm, ErrorBody, FormRequest, Risk,
+    SessionAdd, SessionAdded, SessionFilter,
+};
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
@@ -36,12 +39,21 @@ pub const METHODS: &[(&str, Access)] = &[
         method::AGENT_CREATE,
         // Low; High (asked every time) when it also makes a workspace or an
         // agent user there.
-        Access::AskWhen("`machine` is a platform's (agw): creates and starts a session on that machine", Risk::Low),
+        Access::AskWhen(
+            "`machine` is a platform's (agw): creates and starts a session on that machine",
+            Risk::Low,
+        ),
     ),
     (method::MACHINE_LIST, Access::Open),
     (method::MACHINE_FORM, Access::Open),
     (method::SESSION_LIST, Access::Open),
-    (method::SESSION_ADD, Access::AskWhen("`start`: starts a stopped session on its machine", Risk::Low)),
+    (
+        method::SESSION_ADD,
+        Access::AskWhen(
+            "`start`: starts a stopped session on its machine",
+            Risk::Low,
+        ),
+    ),
     (method::APPROVAL_LIST, Access::Ui),
     (method::APPROVAL_ANSWER, Access::Ui),
 ];
@@ -73,9 +85,17 @@ fn other(e: impl Into<String>) -> ErrorBody {
 
 pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
     match access(name) {
-        None => return Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
+        None => {
+            return Err(ErrorBody::new(
+                code::UNKNOWN_METHOD,
+                format!("unknown method \"{name}\""),
+            ))
+        }
         Some(Access::Ui) if !caller.ui => {
-            return Err(ErrorBody::new(code::DENIED, "only Pitwall's own window can do this"));
+            return Err(ErrorBody::new(
+                code::DENIED,
+                "only Pitwall's own window can do this",
+            ));
         }
         _ => {}
     }
@@ -85,39 +105,58 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
             let r: AgentRef = required(p)?;
             changes::refresh(&s.engine, &r.agent_id).map_err(other)?;
             let view = s.engine.views().into_iter().find(|v| v.id == r.agent_id);
-            ok(view.ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("no agent {}", r.agent_id)))?)
+            ok(view.ok_or_else(|| {
+                ErrorBody::new(code::NOT_FOUND, format!("no agent {}", r.agent_id))
+            })?)
         }
         method::AGENT_CREATE => agent_create(s, caller, required(p)?),
         method::MACHINE_LIST => ok(s.engine.machine_list()),
         method::MACHINE_FORM => {
             let r: FormRequest = required(p)?;
-            ok(s.engine.create_form(Some(&r.provider), Some(&r.machine)).map_err(other)?)
+            ok(s.engine
+                .create_form(Some(&r.provider), Some(&r.machine))
+                .map_err(other)?)
         }
         method::SESSION_LIST => {
             let filter: SessionFilter = params(p)?;
             let owned = s.engine.records().iter().map(|r| r.locator()).collect();
-            ok(filter.apply(places::places(s.engine.providers(), s.engine.kinds(), &owned)))
+            ok(filter.apply(places::places(
+                s.engine.providers(),
+                s.engine.kinds(),
+                &owned,
+            )))
         }
         method::SESSION_ADD => session_add(s, caller, required(p)?),
         method::APPROVAL_LIST => ok(s.approvals.pending()),
         method::APPROVAL_ANSWER => {
             let a: ApprovalAnswer = required(p)?;
-            s.approvals.answer(&a).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
+            s.approvals
+                .answer(&a)
+                .map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
             Ok(Value::Null)
         }
-        _ => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
+        _ => Err(ErrorBody::new(
+            code::UNKNOWN_METHOD,
+            format!("unknown method \"{name}\""),
+        )),
     }
 }
 
 fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
     if req.provider.is_some() || req.machine.is_some() {
-        let form = s.engine.create_form(req.provider.as_deref(), req.machine.as_deref()).map_err(other)?;
+        let form = s
+            .engine
+            .create_form(req.provider.as_deref(), req.machine.as_deref())
+            .map_err(other)?;
         if !form.folder {
             return create_on_platform(s, caller, req, form);
         }
     }
     if req.kind.trim().is_empty() || req.project.trim().is_empty() {
-        return Err(ErrorBody::new(code::BAD_PARAMS, "kind and project are required"));
+        return Err(ErrorBody::new(
+            code::BAD_PARAMS,
+            "kind and project are required",
+        ));
     }
     let view = lifecycle::create(
         &s.engine,
@@ -142,17 +181,42 @@ fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
 /// so the user approves what the form's summary says first — every time
 /// when it also makes a workspace or an agent user there.
 fn create_on_platform(s: &Server, caller: &Caller, req: AgentCreate, form: CreateForm) -> Res {
-    let name = req.name.as_deref().map(str::trim).unwrap_or_default().to_string();
+    let name = req
+        .name
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
     if name.is_empty() {
-        return Err(ErrorBody::new(code::BAD_PARAMS, format!("a name is required: the session's name on {}", form.machine_label)));
+        return Err(ErrorBody::new(
+            code::BAD_PARAMS,
+            format!(
+                "a name is required: the session's name on {}",
+                form.machine_label
+            ),
+        ));
     }
-    let values = form.values(&req.options).map_err(|e| ErrorBody::new(code::BAD_PARAMS, e))?;
+    let values = form
+        .values(&req.options)
+        .map_err(|e| ErrorBody::new(code::BAD_PARAMS, e))?;
     let summary = form.summarize(&name, &values);
     let place = format!("{} ({})", form.machine_label, form.provider);
     let mut details = vec![summary.text.clone()];
-    details.extend(summary.creates.iter().map(|c| format!("Also creates {c} on {}.", form.machine_label)));
-    details.push("It keeps running there after Pitwall quits; removing it from Pitwall leaves it there.".into());
-    let risk = if summary.creates.is_empty() { Risk::Low } else { Risk::High };
+    details.extend(
+        summary
+            .creates
+            .iter()
+            .map(|c| format!("Also creates {c} on {}.", form.machine_label)),
+    );
+    details.push(
+        "It keeps running there after Pitwall quits; removing it from Pitwall leaves it there."
+            .into(),
+    );
+    let risk = if summary.creates.is_empty() {
+        Risk::Low
+    } else {
+        Risk::High
+    };
     let decision = s.approvals.ask(Ask {
         action: method::AGENT_CREATE.into(),
         summary: format!("create the session \"{name}\" on {place}"),
@@ -205,13 +269,28 @@ fn session_add(s: &Server, caller: &Caller, req: SessionAdd) -> Res {
     .map_err(other)?;
     let already = known.contains(&view.id);
     if !req.start || view.running {
-        return ok(SessionAdded { agent: view, already, started: false });
+        return ok(SessionAdded {
+            agent: view,
+            already,
+            started: false,
+        });
     }
     if !view.caps.restart {
-        return Err(ErrorBody::new(code::UNSUPPORTED, format!("\"{}\" was added, but Pitwall can't start it", req.native)));
+        return Err(ErrorBody::new(
+            code::UNSUPPORTED,
+            format!("\"{}\" was added, but Pitwall can't start it", req.native),
+        ));
     }
-    let loc = Locator::new(&ProviderId::new(&req.provider), &MachineId::new(&req.machine), &req.native);
-    let place = format!("{} ({})", s.engine.providers().machine_label(&loc), view.machine.provider);
+    let loc = Locator::new(
+        &ProviderId::new(&req.provider),
+        &MachineId::new(&req.machine),
+        &req.native,
+    );
+    let place = format!(
+        "{} ({})",
+        s.engine.providers().machine_label(&loc),
+        view.machine.provider
+    );
     let decision = s.approvals.ask(Ask {
         action: method::SESSION_ADD.into(),
         summary: format!("start the session \"{}\" on {place}", req.native),
@@ -252,8 +331,14 @@ mod tests {
         assert_eq!(access(method::AGENT_LIST), Some(Access::Open));
         assert_eq!(access(method::MACHINE_FORM), Some(Access::Open));
         assert_eq!(access(method::AGENT_REFRESH), Some(Access::Open));
-        assert!(matches!(access(method::AGENT_CREATE), Some(Access::AskWhen(_, Risk::Low))));
-        assert!(matches!(access(method::SESSION_ADD), Some(Access::AskWhen(_, Risk::Low))));
+        assert!(matches!(
+            access(method::AGENT_CREATE),
+            Some(Access::AskWhen(_, Risk::Low))
+        ));
+        assert!(matches!(
+            access(method::SESSION_ADD),
+            Some(Access::AskWhen(_, Risk::Low))
+        ));
         assert_eq!(access(method::APPROVAL_ANSWER), Some(Access::Ui));
         assert_eq!(access("agent.remove"), None);
     }

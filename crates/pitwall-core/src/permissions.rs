@@ -59,23 +59,44 @@ pub fn classify(probes: impl IntoIterator<Item = Probe>) -> Access {
 
 /// The status for a Full Disk Access answer (folders follow from it).
 pub fn status_from(applies: bool, fda: Access) -> PermissionsStatus {
-    let folders = if fda == Access::Granted { Access::Granted } else { Access::Unknown };
-    PermissionsStatus { applies, full_disk_access: fda, desktop: folders, documents: folders, downloads: folders }
+    let folders = if fda == Access::Granted {
+        Access::Granted
+    } else {
+        Access::Unknown
+    };
+    PermissionsStatus {
+        applies,
+        full_disk_access: fda,
+        desktop: folders,
+        documents: folders,
+        downloads: folders,
+    }
 }
 
 /// Read-only and prompt-free (module docs). Blocking but fast (a few opens).
 pub fn status() -> PermissionsStatus {
     let probes = platform::full_disk_access_probes();
     let applies = !probes.is_empty();
-    status_from(applies, if applies { classify(probes) } else { Access::Unknown })
+    status_from(
+        applies,
+        if applies {
+            classify(probes)
+        } else {
+            Access::Unknown
+        },
+    )
 }
 
 /// The System Settings pane for a permission: `fullDiskAccess` or
 /// `filesAndFolders`. Anything else is refused (no arbitrary URLs).
 pub fn settings_url(kind: &str) -> Result<&'static str, String> {
     match kind {
-        "fullDiskAccess" => Ok("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"),
-        "filesAndFolders" => Ok("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"),
+        "fullDiskAccess" => {
+            Ok("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        }
+        "filesAndFolders" => {
+            Ok("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")
+        }
         _ => Err(format!("unknown privacy setting: {kind}")),
     }
 }
@@ -96,28 +117,49 @@ mod tests {
     #[test]
     fn first_opened_probe_means_granted() {
         assert_eq!(classify([Ok(())]), Access::Granted);
-        assert_eq!(classify([err(io::ErrorKind::NotFound), Ok(())]), Access::Granted);
+        assert_eq!(
+            classify([err(io::ErrorKind::NotFound), Ok(())]),
+            Access::Granted
+        );
     }
 
     #[test]
     fn refused_probe_means_denied() {
         // EPERM (TCC) and EACCES both map to PermissionDenied.
-        assert_eq!(classify([Err(io::Error::from_raw_os_error(1))]), Access::Denied);
-        assert_eq!(classify([err(io::ErrorKind::NotFound), err(io::ErrorKind::PermissionDenied)]), Access::Denied);
+        assert_eq!(
+            classify([Err(io::Error::from_raw_os_error(1))]),
+            Access::Denied
+        );
+        assert_eq!(
+            classify([
+                err(io::ErrorKind::NotFound),
+                err(io::ErrorKind::PermissionDenied)
+            ]),
+            Access::Denied
+        );
     }
 
     #[test]
     fn nothing_conclusive_is_unknown() {
         assert_eq!(classify(Vec::<Probe>::new()), Access::Unknown);
-        assert_eq!(classify([err(io::ErrorKind::NotFound), err(io::ErrorKind::Other)]), Access::Unknown);
+        assert_eq!(
+            classify([err(io::ErrorKind::NotFound), err(io::ErrorKind::Other)]),
+            Access::Unknown
+        );
     }
 
     #[test]
     fn folders_are_only_known_with_full_disk_access() {
         let s = status_from(true, Access::Granted);
-        assert_eq!((s.desktop, s.documents, s.downloads), (Access::Granted, Access::Granted, Access::Granted));
+        assert_eq!(
+            (s.desktop, s.documents, s.downloads),
+            (Access::Granted, Access::Granted, Access::Granted)
+        );
         let s = status_from(true, Access::Denied);
-        assert_eq!((s.desktop, s.documents, s.downloads), (Access::Unknown, Access::Unknown, Access::Unknown));
+        assert_eq!(
+            (s.desktop, s.documents, s.downloads),
+            (Access::Unknown, Access::Unknown, Access::Unknown)
+        );
     }
 
     #[test]
@@ -130,8 +172,12 @@ mod tests {
 
     #[test]
     fn only_known_panes_open() {
-        assert!(settings_url("fullDiskAccess").unwrap().ends_with("Privacy_AllFiles"));
-        assert!(settings_url("filesAndFolders").unwrap().ends_with("Privacy_FilesAndFolders"));
+        assert!(settings_url("fullDiskAccess")
+            .unwrap()
+            .ends_with("Privacy_AllFiles"));
+        assert!(settings_url("filesAndFolders")
+            .unwrap()
+            .ends_with("Privacy_FilesAndFolders"));
         assert!(settings_url("https://example.com").is_err());
     }
 

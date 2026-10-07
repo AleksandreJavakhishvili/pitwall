@@ -26,9 +26,16 @@ pub fn scan_environment(engine: &Engine) -> ScanResult {
     let views = engine.list_kinds().unwrap_or_default();
     let owned = engine.records().iter().map(|r| r.locator()).collect();
     let places = || places::places(engine.providers(), engine.kinds(), &owned);
-    let mut result = scan::scan(engine.paths(), engine.kinds(), &views, engine.projects(), &places, &|p| {
-        engine.emit(Event::ScanProgress(p));
-    });
+    let mut result = scan::scan(
+        engine.paths(),
+        engine.kinds(),
+        &views,
+        engine.projects(),
+        &places,
+        &|p| {
+            engine.emit(Event::ScanProgress(p));
+        },
+    );
     // "Scan again" must not offer sessions Pitwall agents already run,
     // including agents started by hand in Pitwall terminals.
     scan::mark_in_pitwall(&mut result, &engine.owned_sessions());
@@ -51,7 +58,11 @@ pub fn remove_project(engine: &Engine, path: &str) -> Result<Vec<Project>, Strin
 }
 
 /// Save the chosen projects and finish onboarding. Blocking.
-pub fn complete(engine: &Engine, projects: &[String], install_codex_hooks: bool) -> Result<Vec<Project>, String> {
+pub fn complete(
+    engine: &Engine,
+    projects: &[String],
+    install_codex_hooks: bool,
+) -> Result<Vec<Project>, String> {
     // Folders that vanished since the scan are skipped, not fatal.
     for p in projects {
         if let Err(e) = engine.projects().add(std::slice::from_ref(p)) {
@@ -63,8 +74,15 @@ pub fn complete(engine: &Engine, projects: &[String], install_codex_hooks: bool)
     if install_codex_hooks {
         let paths = engine.paths();
         hooks::install_script(paths)
-            .and_then(|_| hooks::install_codex_hooks_at(&hooks::codex_hooks_path(), &hooks::hook_command(paths)))
-            .map_err(|e| format!("Projects were saved, but Codex hooks could not be installed: {e}"))?;
+            .and_then(|_| {
+                hooks::install_codex_hooks_at(
+                    &hooks::codex_hooks_path(),
+                    &hooks::hook_command(paths),
+                )
+            })
+            .map_err(|e| {
+                format!("Projects were saved, but Codex hooks could not be installed: {e}")
+            })?;
     }
     Ok(list)
 }
@@ -170,11 +188,17 @@ mod tests {
         assert_eq!(project_events(&h), vec![list]);
 
         assert!(add_project(&h.engine, "/definitely/not/here".into()).is_err());
-        assert!(project_events(&h).is_empty(), "nothing changed, nothing sent");
+        assert!(
+            project_events(&h).is_empty(),
+            "nothing changed, nothing sent"
+        );
 
         assert!(remove_project(&h.engine, &folder).unwrap().is_empty());
         assert_eq!(project_events(&h), vec![vec![]]);
-        assert!(std::path::Path::new(&folder).is_dir(), "files are never touched");
+        assert!(
+            std::path::Path::new(&folder).is_dir(),
+            "files are never touched"
+        );
     }
 
     #[test]
@@ -182,7 +206,12 @@ mod tests {
         let h = Harness::new(vec![]);
         let folder = h.dir.path().join("kept");
         std::fs::create_dir_all(&folder).unwrap();
-        let list = complete(&h.engine, &[folder.to_string_lossy().into_owned(), "/gone/away".into()], false).unwrap();
+        let list = complete(
+            &h.engine,
+            &[folder.to_string_lossy().into_owned(), "/gone/away".into()],
+            false,
+        )
+        .unwrap();
         assert_eq!(list.len(), 1);
         assert!(h.engine.projects().onboarded());
         assert_eq!(project_events(&h).len(), 1);
@@ -200,6 +229,9 @@ mod tests {
             cols: None,
             rows: None,
         };
-        assert_eq!(continue_conversation(&h.engine, req).unwrap_err(), "no session to continue");
+        assert_eq!(
+            continue_conversation(&h.engine, req).unwrap_err(),
+            "no session to continue"
+        );
     }
 }

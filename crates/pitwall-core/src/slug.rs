@@ -12,7 +12,11 @@ pub fn slug(name: &str) -> String {
     }
     let out: String = out.trim_end_matches('-').chars().take(40).collect();
     let out = out.trim_end_matches('-').to_string();
-    if out.is_empty() { "agent".into() } else { out }
+    if out.is_empty() {
+        "agent".into()
+    } else {
+        out
+    }
 }
 
 #[cfg(test)]

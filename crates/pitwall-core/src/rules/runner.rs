@@ -62,7 +62,11 @@ pub fn runner(allow_npx: bool) -> Option<Runner> {
     }
     match (allow_npx, found.npx) {
         (true, Some(npx)) => Some(Runner {
-            argv: vec![npx.to_string_lossy().into_owned(), "-y".into(), "rulesync".into()],
+            argv: vec![
+                npx.to_string_lossy().into_owned(),
+                "-y".into(),
+                "rulesync".into(),
+            ],
             path_env,
             via: "npx",
         }),
@@ -112,7 +116,11 @@ impl Runner {
                 Err(format!("rulesync: {msg}"))
             }
             None => {
-                let detail = if out.stderr.trim().is_empty() { out.stdout } else { out.stderr };
+                let detail = if out.stderr.trim().is_empty() {
+                    out.stdout
+                } else {
+                    out.stderr
+                };
                 let detail: String = detail.trim().chars().take(600).collect();
                 Err(if out.ok {
                     format!("rulesync printed no JSON result: {detail}")
@@ -126,7 +134,13 @@ impl Runner {
     pub fn version(&self) -> Option<String> {
         let out = self.run(Path::new("/"), &["--version".into()]).ok()?;
         out.ok
-            .then(|| out.stdout.lines().map(str::trim).rfind(|l| !l.is_empty()).map(String::from))
+            .then(|| {
+                out.stdout
+                    .lines()
+                    .map(str::trim)
+                    .rfind(|l| !l.is_empty())
+                    .map(String::from)
+            })
             .flatten()
     }
 }
@@ -145,7 +159,11 @@ fn parse_json_doc(stdout: &str) -> Option<serde_json::Value> {
 pub fn warnings(doc: &serde_json::Value) -> Vec<String> {
     doc.get("warnings")
         .and_then(|w| w.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -159,9 +177,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let bin = dir.join("rulesync");
         std::fs::write(&bin, "#!/bin/sh\n").unwrap();
-        assert_eq!(find_in(&dir.to_string_lossy(), "rulesync"), None, "not executable yet");
+        assert_eq!(
+            find_in(&dir.to_string_lossy(), "rulesync"),
+            None,
+            "not executable yet"
+        );
         crate::platform::make_executable(&bin).unwrap();
-        assert_eq!(find_in(&format!("/nonexistent:{}", dir.display()), "rulesync"), Some(bin));
+        assert_eq!(
+            find_in(&format!("/nonexistent:{}", dir.display()), "rulesync"),
+            Some(bin)
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

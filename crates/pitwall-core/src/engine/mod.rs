@@ -30,10 +30,10 @@ use crate::model::{AgentRecord, AgentView, KindCaps, KindView, QueueItem};
 use crate::onboarding::project_list::ProjectList;
 use crate::paths::Paths;
 use crate::provider::{CreateForm, Locator, Provider, Providers, TermSize};
-use pitwall_proto::{MachineEntry, ProviderMachines};
 use crate::store::{Snapshot, Store};
 use crate::term::TermHost;
 pub(crate) use agent::{Agent, Facts};
+use pitwall_proto::{MachineEntry, ProviderMachines};
 pub use tasks::Task;
 
 /// What the host provides.
@@ -68,7 +68,8 @@ pub struct Engine {
     /// Worktree listings per project (crate::worktrees).
     pub(crate) worktrees: crate::worktrees::Cache,
     /// Git refreshes running, by agent id (ticker and forced ones share them).
-    pub(crate) git_flights: crate::flight::Flights<Result<Vec<crate::vcs::git::FileChange>, String>>,
+    pub(crate) git_flights:
+        crate::flight::Flights<Result<Vec<crate::vcs::git::FileChange>, String>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -83,7 +84,13 @@ impl Engine {
     /// restart; the rest are stopped. Starts no background work (see
     /// [`start`](Self::start)).
     pub fn open(deps: Deps) -> Shared {
-        let Deps { paths, events, clock, store, providers } = deps;
+        let Deps {
+            paths,
+            events,
+            clock,
+            store,
+            providers,
+        } = deps;
         let engine = Arc::new(Engine {
             agents: Mutex::new(Vec::new()),
             dirty: Mutex::new(Dirty::default()),
@@ -106,7 +113,10 @@ impl Engine {
             .into_iter()
             .map(|mut rec| {
                 // v1 records: every agent ran on this Mac.
-                let loc = rec.locator.get_or_insert_with(|| Locator::local(&rec.id)).clone();
+                let loc = rec
+                    .locator
+                    .get_or_insert_with(|| Locator::local(&rec.id))
+                    .clone();
                 let host = lifecycle::reattach(&engine, &loc, &rec);
                 let mut agent = Agent::new(rec, host, engine.now());
                 agent.facts = engine.facts(&loc, &agent.rec);
@@ -130,7 +140,9 @@ impl Engine {
             eprintln!("pitwall: could not install hook script: {e}");
         }
         let engine = self.clone();
-        if let Err(e) = hooks::serve(&self.paths.hook_socket(), move |id, payload| engine.ingest_hook(id, &payload)) {
+        if let Err(e) = hooks::serve(&self.paths.hook_socket(), move |id, payload| {
+            engine.ingest_hook(id, &payload)
+        }) {
             // Hooks are optional: screen/activity detection still works.
             eprintln!("pitwall: hooks disabled: {e}");
         }
@@ -173,7 +185,9 @@ impl Engine {
 
     /// Agent `id`'s locator and provider.
     pub(crate) fn provider_of(&self, id: &str) -> PwResult<(Locator, Arc<dyn Provider>)> {
-        let loc = self.with(id, |a| a.rec.locator()).map_err(PwError::not_found)?;
+        let loc = self
+            .with(id, |a| a.rec.locator())
+            .map_err(PwError::not_found)?;
         let p = self.providers.for_locator(&loc)?;
         Ok((loc, p))
     }
@@ -183,22 +197,34 @@ impl Engine {
     /// can't be reached answers every call with that error. Takes the
     /// registry lock: never call it from inside [`with`](Self::with).
     pub(crate) fn exec_for(&self, id: &str) -> Arc<dyn Exec> {
-        let loc = self.with(id, |a| a.rec.locator()).unwrap_or_else(|_| Locator::local(id));
-        self.providers.exec(&loc).unwrap_or_else(|e| Arc::new(NoExec(e)))
+        let loc = self
+            .with(id, |a| a.rec.locator())
+            .unwrap_or_else(|_| Locator::local(id));
+        self.providers
+            .exec(&loc)
+            .unwrap_or_else(|e| Arc::new(NoExec(e)))
     }
 
     /// What the engine needs to know about `loc`'s provider and `rec`'s kind
     /// there (capabilities, machine label, home folder).
     pub(crate) fn facts(&self, loc: &Locator, rec: &AgentRecord) -> Facts {
-        let Ok(p) = self.providers.for_locator(loc) else { return Facts::default() };
+        let Ok(p) = self.providers.for_locator(loc) else {
+            return Facts::default();
+        };
         let caps = p.caps();
-        let kind = self.kinds.for_record(&rec.kind, rec.custom_command.as_deref());
+        let kind = self
+            .kinds
+            .for_record(&rec.kind, rec.custom_command.as_deref());
         Facts {
             provider: caps,
             kind: kind.map(|k| KindCaps::of(&k, &caps)).unwrap_or_default(),
             machine_label: self.providers.machine_label(loc),
             home: p.exec(&loc.machine).and_then(|x| x.home()).ok(),
-            inner: rec.inner_agent.as_ref().and_then(|i| self.kinds.find(&i.kind)).map(|k| KindCaps::of(&k, &caps)),
+            inner: rec
+                .inner_agent
+                .as_ref()
+                .and_then(|i| self.kinds.find(&i.kind))
+                .map(|k| KindCaps::of(&k, &caps)),
         }
     }
 
@@ -212,13 +238,27 @@ impl Engine {
             .into_iter()
             .map(|k| {
                 let kc = KindCaps::of(&k.kind, &caps);
-                KindView { id: k.kind.id, name: k.kind.name, installed: k.installed, path: k.path, worktree: kc.worktree, caps: kc }
+                KindView {
+                    id: k.kind.id,
+                    name: k.kind.name,
+                    installed: k.installed,
+                    path: k.path,
+                    worktree: kc.worktree,
+                    caps: kc,
+                }
             })
             .collect();
         if caps.custom_command {
             let custom = kind::custom_kind("");
             let kc = KindCaps::of(&custom, &caps);
-            views.push(KindView { id: custom.id, name: "Custom command".into(), installed: true, path: None, worktree: kc.worktree, caps: kc });
+            views.push(KindView {
+                id: custom.id,
+                name: "Custom command".into(),
+                installed: true,
+                path: None,
+                worktree: kc.worktree,
+                caps: kc,
+            });
         }
         Ok(views)
     }
@@ -226,7 +266,11 @@ impl Engine {
     /// How new agents are made on `machine` of `provider` (default: where
     /// new agents go): the New-agent dialog's fields and `machine.form`.
     /// Blocking (a platform lists its choices; cached briefly there).
-    pub fn create_form(&self, provider: Option<&str>, machine: Option<&str>) -> Result<CreateForm, String> {
+    pub fn create_form(
+        &self,
+        provider: Option<&str>,
+        machine: Option<&str>,
+    ) -> Result<CreateForm, String> {
         let (p, m) = self.providers.target(provider, machine)?;
         if !p.caps().create {
             return Err(format!("new agents can't be started on {}", m.label));
@@ -248,7 +292,13 @@ impl Engine {
                 let caps = p.caps();
                 let (machines, error) = match self.providers.machines(p) {
                     Ok(ms) => (
-                        ms.into_iter().map(|m| MachineEntry { id: m.id.to_string(), label: m.label, detail: m.detail }).collect(),
+                        ms.into_iter()
+                            .map(|m| MachineEntry {
+                                id: m.id.to_string(),
+                                label: m.label,
+                                detail: m.detail,
+                            })
+                            .collect(),
                         None,
                     ),
                     Err(e) => (vec![], Some(e.to_string())),
@@ -293,7 +343,11 @@ impl Engine {
     }
 
     /// Start using `io` as agent `id`'s terminal at `size`.
-    pub(crate) fn host_for(&self, io: Box<dyn crate::provider::TermIo>, size: TermSize) -> Arc<TermHost> {
+    pub(crate) fn host_for(
+        &self,
+        io: Box<dyn crate::provider::TermIo>,
+        size: TermSize,
+    ) -> Arc<TermHost> {
         TermHost::new(io, size, self.clock.clone())
     }
 
@@ -326,7 +380,9 @@ impl Engine {
 
     /// Write the agents' records to the store now.
     pub fn save(&self) -> Result<(), String> {
-        self.store.save(&Snapshot { agents: self.records() })
+        self.store.save(&Snapshot {
+            agents: self.records(),
+        })
     }
 
     // ------------------------------------------------------------ queue & seen
@@ -422,7 +478,9 @@ mod tests {
         let h = Harness::new(vec![record("a", "/tmp"), record("b", "/tmp")]);
         let views = h.engine.views();
         assert_eq!(views.len(), 2);
-        assert!(views.iter().all(|v| v.status == Status::Stopped && !v.running));
+        assert!(views
+            .iter()
+            .all(|v| v.status == Status::Stopped && !v.running));
         assert!(h.engine.host("a").is_err());
     }
 
@@ -436,7 +494,11 @@ mod tests {
         assert!(h.engine.views()[0].queue.is_empty());
         assert!(h.engine.queue_add("nope", "x".into()).is_err());
         h.engine.mark_seen("a").unwrap();
-        assert_eq!(h.engine.wait_dirty(), (true, true), "flags accumulate until taken");
+        assert_eq!(
+            h.engine.wait_dirty(),
+            (true, true),
+            "flags accumulate until taken"
+        );
         h.engine.mark_seen("a").unwrap();
         assert_eq!(h.engine.wait_dirty(), (true, false), "seen is view-only");
     }
@@ -453,7 +515,8 @@ mod tests {
         assert_eq!(rec.tasks.len(), 1, "a prompt starts a task");
         assert_eq!(rec.tasks[0].prompt, "hi");
         // Unknown agents are ignored.
-        h.engine.ingest_hook("ghost", &serde_json::json!({"hook_event_name": "Stop"}));
+        h.engine
+            .ingest_hook("ghost", &serde_json::json!({"hook_event_name": "Stop"}));
     }
 
     #[test]

@@ -19,7 +19,10 @@ pub fn process_cwds(pids: &[u32], timeout: Duration) -> Option<Vec<(u32, String)
 
 /// The current folder of process `pid`.
 pub fn process_cwd(pid: u32, timeout: Duration) -> Option<String> {
-    process_cwds(&[pid], timeout)?.into_iter().find(|(p, _)| *p == pid).map(|(_, cwd)| cwd)
+    process_cwds(&[pid], timeout)?
+        .into_iter()
+        .find(|(p, _)| *p == pid)
+        .map(|(_, cwd)| cwd)
 }
 
 /// How the UI names this machine ("This Mac").
@@ -146,9 +149,17 @@ mod tests {
         assert_eq!(v["badge"], "taskbar");
         assert_eq!(v["localSockets"], "namedPipe");
         assert!(info.hides_on_close());
-        assert!(!HostInfo { dock: false, ..info }.hides_on_close());
+        assert!(!HostInfo {
+            dock: false,
+            ..info
+        }
+        .hides_on_close());
         let here = HostInfo::current(&Paths::new(crate::paths::home().join("pw")));
-        assert!(here.data_dir.starts_with('~') && here.data_dir.ends_with("pw"), "{}", here.data_dir);
+        assert!(
+            here.data_dir.starts_with('~') && here.data_dir.ends_with("pw"),
+            "{}",
+            here.data_dir
+        );
         assert!(!here.machine_label.is_empty());
     }
 }

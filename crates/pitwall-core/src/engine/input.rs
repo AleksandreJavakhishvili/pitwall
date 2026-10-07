@@ -29,7 +29,13 @@ pub fn write_input(engine: &Shared, agent_id: &str, data: &str) -> Res<()> {
         let changed = engine.with(agent_id, |a| {
             // A terminal's shell in use after the agent last started in it
             // exited (terminals.rs: when it is forgotten).
-            if a.is_terminal() && a.inner.is_none() && a.rec.inner_agent.as_ref().is_some_and(|m| m.left_at.is_some()) {
+            if a.is_terminal()
+                && a.inner.is_none()
+                && a.rec
+                    .inner_agent
+                    .as_ref()
+                    .is_some_and(|m| m.left_at.is_some())
+            {
                 a.shell_used = true;
             }
             !std::mem::replace(&mut a.rec.has_conversation, true)
@@ -45,7 +51,9 @@ pub fn write_input(engine: &Shared, agent_id: &str, data: &str) -> Res<()> {
 /// The size the UI shows the agent at. Recorded even with no process
 /// (stopped, or mid-restart) so the next start uses it.
 pub fn resize(engine: &Engine, agent_id: &str, cols: u16, rows: u16) -> Res<()> {
-    let (host, recorded) = engine.with(agent_id, |a| (a.host.clone(), a.rec.set_term_size((cols, rows))))?;
+    let (host, recorded) = engine.with(agent_id, |a| {
+        (a.host.clone(), a.rec.set_term_size((cols, rows)))
+    })?;
     let resized = host.is_some_and(|h| h.resize(cols, rows));
     if recorded || resized {
         engine.changed(recorded);
@@ -76,8 +84,17 @@ pub fn queue_send_now(engine: &Shared, agent_id: &str, item_id: &str) -> Res<Age
     let now = engine.now();
     let (session, text, view) = engine
         .with(agent_id, |a| {
-            let session = a.host.clone().filter(|_| a.running()).ok_or("agent is not running")?;
-            let pos = a.rec.queue.iter().position(|q| q.id == item_id).ok_or("queue item not found")?;
+            let session = a
+                .host
+                .clone()
+                .filter(|_| a.running())
+                .ok_or("agent is not running")?;
+            let pos = a
+                .rec
+                .queue
+                .iter()
+                .position(|q| q.id == item_id)
+                .ok_or("queue item not found")?;
             let item = a.rec.queue.remove(pos);
             a.note_sent(&item.text, now);
             Ok::<_, &str>((session, item.text, a.view()))
@@ -98,13 +115,24 @@ mod tests {
     fn stopped_agents_refuse_io_but_remember_their_size() {
         let h = Harness::new(vec![record("a", "/tmp")]);
         let e = &h.engine;
-        assert_eq!(write_input(e, "a", "x").unwrap_err(), "agent is not running");
-        assert_eq!(send_prompt(e, "a", "hi".into()).unwrap_err(), "agent is not running");
+        assert_eq!(
+            write_input(e, "a", "x").unwrap_err(),
+            "agent is not running"
+        );
+        assert_eq!(
+            send_prompt(e, "a", "hi".into()).unwrap_err(),
+            "agent is not running"
+        );
         assert!(attach_output(e, "a", Box::new(|_: &[u8]| true)).is_err());
         detach_output(e, "a", 7);
         detach_output(e, "ghost", 7);
-        let item = e.queue_add("a", "later".into()).unwrap().queue[0].id.clone();
-        assert_eq!(queue_send_now(e, "a", &item).unwrap_err(), "agent is not running");
+        let item = e.queue_add("a", "later".into()).unwrap().queue[0]
+            .id
+            .clone();
+        assert_eq!(
+            queue_send_now(e, "a", &item).unwrap_err(),
+            "agent is not running"
+        );
         assert_eq!(e.views()[0].queue.len(), 1, "a refused send keeps the item");
 
         resize(e, "a", 90, 30).unwrap();

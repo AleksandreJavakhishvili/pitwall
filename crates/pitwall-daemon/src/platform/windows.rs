@@ -50,13 +50,26 @@ pub fn process_table() -> Option<HashMap<u32, Proc>> {
     if snap == INVALID_HANDLE_VALUE {
         return None;
     }
-    let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+    let mut e = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
     let mut out = HashMap::new();
     let mut ok = unsafe { Process32FirstW(snap, &mut e) } != 0;
     while ok {
-        let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+        let len = e
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(e.szExeFile.len());
         let name = String::from_utf16_lossy(&e.szExeFile[..len]);
-        out.insert(e.th32ProcessID, Proc { ppid: e.th32ParentProcessID, name });
+        out.insert(
+            e.th32ProcessID,
+            Proc {
+                ppid: e.th32ParentProcessID,
+                name,
+            },
+        );
         ok = unsafe { Process32NextW(snap, &mut e) } != 0;
     }
     unsafe { CloseHandle(snap) };

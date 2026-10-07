@@ -35,13 +35,31 @@ fn holder() -> PathBuf {
         let target = root.join("target").join("hold-tests");
         let mut cmd = Command::new(env!("CARGO"));
         cmd.current_dir(&root)
-            .args(["build", "-q", "-p", "pitwall-hold", "--bin", "pitwall-hold", "--target-dir"])
+            .args([
+                "build",
+                "-q",
+                "-p",
+                "pitwall-hold",
+                "--bin",
+                "pitwall-hold",
+                "--target-dir",
+            ])
             .arg(&target);
-        for key in ["RUSTC_WORKSPACE_WRAPPER", "RUSTC_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_TARGET"] {
+        for key in [
+            "RUSTC_WORKSPACE_WRAPPER",
+            "RUSTC_WRAPPER",
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET",
+        ] {
             cmd.env_remove(key);
         }
-        assert!(cmd.status().expect("run cargo").success(), "building pitwall-hold failed");
-        target.join("debug").join(format!("pitwall-hold{}", std::env::consts::EXE_SUFFIX))
+        assert!(
+            cmd.status().expect("run cargo").success(),
+            "building pitwall-hold failed"
+        );
+        target
+            .join("debug")
+            .join(format!("pitwall-hold{}", std::env::consts::EXE_SUFFIX))
     })
     .clone()
 }
@@ -62,7 +80,16 @@ fn repo(dir: &Path) -> String {
     git(&["init", "-q"]);
     std::fs::write(dir.join("README"), "contract\n").unwrap();
     git(&["add", "."]);
-    git(&["-c", "user.name=pw", "-c", "user.email=pw@example.invalid", "commit", "-q", "-m", "init"]);
+    git(&[
+        "-c",
+        "user.name=pw",
+        "-c",
+        "user.email=pw@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "init",
+    ]);
     dir.to_string_lossy().into_owned()
 }
 
@@ -99,13 +126,21 @@ impl Local {
             hook_socket: run.join("hook.sock"),
             cli_socket: run.join("cli.sock"),
         }));
-        Local { provider, workspace: repo(&ws), run, _dir: dir }
+        Local {
+            provider,
+            workspace: repo(&ws),
+            run,
+            _dir: dir,
+        }
     }
 }
 
 fn uuid_ish() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos();
     format!("{}-{n:x}", std::process::id())
 }
 
@@ -146,15 +181,30 @@ fn local_agents_know_how_to_reach_pitwall() {
             machine: &MachineId::new(MachineId::THIS_MAC),
             name: "env",
             options: &Default::default(),
-            launch: LaunchSpec { agent: "env-agent", kind: &kind, cwd: &l.workspace, intent: LaunchIntent::Fresh, worktree: None, size, hooks: None },
+            launch: LaunchSpec {
+                agent: "env-agent",
+                kind: &kind,
+                cwd: &l.workspace,
+                intent: LaunchIntent::Fresh,
+                worktree: None,
+                size,
+                hooks: None,
+            },
         })
         .unwrap();
     let loc = started.locator.clone();
-    let host = TermHost::new(started.term.expect("a local terminal"), size, Arc::new(SystemClock::new()));
-    host.write(b"echo \"pw[$PITWALL_ENV|$PITWALL_AGENT_ID|$PITWALL_CLI_SOCKET]\"\r").unwrap();
+    let host = TermHost::new(
+        started.term.expect("a local terminal"),
+        size,
+        Arc::new(SystemClock::new()),
+    );
+    host.write(b"echo \"pw[$PITWALL_ENV|$PITWALL_AGENT_ID|$PITWALL_CLI_SOCKET]\"\r")
+        .unwrap();
     let want = format!("pw[1|env-agent|{}]", l.run.join("cli.sock").display());
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while !String::from_utf8_lossy(&host.history()).contains(&want) && std::time::Instant::now() < deadline {
+    while !String::from_utf8_lossy(&host.history()).contains(&want)
+        && std::time::Instant::now() < deadline
+    {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     let out = String::from_utf8_lossy(&host.history()).into_owned();
@@ -189,7 +239,11 @@ fn fake(caps: Option<ProviderCaps>, remote: bool) -> Fake {
         provider.set_caps(c);
     }
     provider.set_remote(remote);
-    Fake { provider, workspace, _dir: dir }
+    Fake {
+        provider,
+        workspace,
+        _dir: dir,
+    }
 }
 
 #[test]
@@ -201,7 +255,13 @@ fn fake_provider_passes_the_contract() {
 /// and fewer capabilities (each must answer `Unsupported`).
 #[test]
 fn a_remote_like_provider_with_fewer_caps_passes_too() {
-    let caps = ProviderCaps { create: true, start: true, survives_detach: true, capture: true, ..Default::default() };
+    let caps = ProviderCaps {
+        create: true,
+        start: true,
+        survives_detach: true,
+        capture: true,
+        ..Default::default()
+    };
     contract::run(&fake(Some(caps), true));
 }
 
@@ -228,7 +288,12 @@ impl Drop for Agw {
 #[cfg(unix)]
 fn install_fake(src: &str, to: &Path, dir: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw").join(src)).unwrap();
+    let body = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fake_agw")
+            .join(src),
+    )
+    .unwrap();
     std::fs::write(to, body.replace("__DIR__", &dir.to_string_lossy())).unwrap();
     std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -253,7 +318,12 @@ impl Agw {
         let mut cfg = AgwConfig::new(run.join("hold"), Ok(holder()));
         cfg.agw = Some(state.join("bin/agw"));
         cfg.ssh = state.join("bin/ssh");
-        Agw { provider: Arc::new(AgwProvider::new(cfg)), workspace, run, _dir: dir }
+        Agw {
+            provider: Arc::new(AgwProvider::new(cfg)),
+            workspace,
+            run,
+            _dir: dir,
+        }
     }
 }
 
@@ -269,10 +339,21 @@ impl ContractHarness for Agw {
         self.workspace.clone()
     }
     fn existing(&self) -> Option<Locator> {
-        Some(Locator::new(self.provider.id(), &self.machine(), "adopt-me"))
+        Some(Locator::new(
+            self.provider.id(),
+            &self.machine(),
+            "adopt-me",
+        ))
     }
     fn create_options(&self) -> std::collections::BTreeMap<String, String> {
-        [("workspace", "work"), ("runAs", "admin"), ("template", "contract")].into_iter().map(|(k, v)| (k.into(), v.into())).collect()
+        [
+            ("workspace", "work"),
+            ("runAs", "admin"),
+            ("template", "contract"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect()
     }
 }
 
@@ -286,8 +367,18 @@ fn agw_provider_passes_the_contract_against_a_fake_agw() {
 /// processes: the suite's adopt path itself.
 #[test]
 fn an_adopting_fake_provider_passes_too() {
-    let f = fake(Some(ProviderCaps { start: true, attach_existing: true, survives_detach: true, capture: true, ..Default::default() }), true);
-    f.provider.add_session("adopt-me", "contract-sh", &f.workspace);
+    let f = fake(
+        Some(ProviderCaps {
+            start: true,
+            attach_existing: true,
+            survives_detach: true,
+            capture: true,
+            ..Default::default()
+        }),
+        true,
+    );
+    f.provider
+        .add_session("adopt-me", "contract-sh", &f.workspace);
     struct Adopting(Fake);
     impl ContractHarness for Adopting {
         fn provider(&self) -> Arc<dyn Provider> {
@@ -300,7 +391,11 @@ fn an_adopting_fake_provider_passes_too() {
             self.0.workspace()
         }
         fn existing(&self) -> Option<Locator> {
-            Some(Locator::new(self.0.provider.id(), self.0.provider.machine_id(), "adopt-me"))
+            Some(Locator::new(
+                self.0.provider.id(),
+                self.0.provider.machine_id(),
+                "adopt-me",
+            ))
         }
     }
     contract::run(&Adopting(f));
@@ -313,18 +408,34 @@ fn an_adopting_fake_provider_passes_too() {
 #[test]
 #[ignore = "needs the real agw and its VMs (read-only)"]
 fn real_agw_read_only_listing_and_capture() {
-    let p = AgwProvider::new(AgwConfig::new(std::env::temp_dir().join("pw-agw-real-unused"), Err("no attach here".into())));
+    let p = AgwProvider::new(AgwConfig::new(
+        std::env::temp_dir().join("pw-agw-real-unused"),
+        Err("no attach here".into()),
+    ));
     eprintln!("agw {:?}", p.version());
     for m in p.machines().expect("agw vm list") {
         eprintln!("machine {} ({:?})", m.id, m.detail);
         for d in p.discover(&m.id).expect("agw session list") {
-            eprintln!("  {} kind={} state={:?} cwd={:?} user={:?}", d.locator, d.kind, d.state, d.cwd, d.user);
+            eprintln!(
+                "  {} kind={} state={:?} cwd={:?} user={:?}",
+                d.locator, d.kind, d.state, d.cwd, d.user
+            );
             if d.state == Some(pitwall_core::provider::NativeState::Running) {
-                assert_eq!(p.state(&d.locator).unwrap(), pitwall_core::provider::NativeState::Running);
+                assert_eq!(
+                    p.state(&d.locator).unwrap(),
+                    pitwall_core::provider::NativeState::Running
+                );
                 let screen = p.capture(&d.locator).expect("capture over ssh");
                 let lines: Vec<_> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
-                eprintln!("    screen: {} non-empty lines, last: {:?}", lines.len(), lines.last());
-                assert!(!lines.is_empty(), "a running session has something on screen");
+                eprintln!(
+                    "    screen: {} non-empty lines, last: {:?}",
+                    lines.len(),
+                    lines.last()
+                );
+                assert!(
+                    !lines.is_empty(),
+                    "a running session has something on screen"
+                );
             }
         }
     }
@@ -340,17 +451,26 @@ fn real_agw_read_only_listing_and_capture() {
 #[ignore = "attaches to a real agw session (read-only; needs PITWALL_AGW_ATTACH)"]
 fn real_agw_attach_receives_output_without_typing() {
     use pitwall_core::provider::TermSize;
-    let Some(target) = std::env::var("PITWALL_AGW_ATTACH").ok() else { return };
+    let Some(target) = std::env::var("PITWALL_AGW_ATTACH").ok() else {
+        return;
+    };
     let (vm, name) = target.split_once('/').expect("<vm>/<session>");
-    let (c, r) = std::env::var("PITWALL_AGW_SIZE").ok().and_then(|s| {
-        let (c, r) = s.split_once('x')?;
-        Some((c.parse().ok()?, r.parse().ok()?))
-    }).unwrap_or((120, 40));
+    let (c, r) = std::env::var("PITWALL_AGW_SIZE")
+        .ok()
+        .and_then(|s| {
+            let (c, r) = s.split_once('x')?;
+            Some((c.parse().ok()?, r.parse().ok()?))
+        })
+        .unwrap_or((120, 40));
     let run = std::env::temp_dir().join(format!("pwr-{}", uuid_ish()));
     let p = AgwProvider::new(AgwConfig::new(run.join("hold"), Ok(holder())));
     let loc = Locator::new(p.id(), &MachineId::new(vm), name);
     let size = TermSize::new(c, r);
-    let host = pitwall_core::term::TermHost::new(p.attach(&loc, size).expect("attach"), size, Arc::new(pitwall_core::clock::SystemClock::new()));
+    let host = pitwall_core::term::TermHost::new(
+        p.attach(&loc, size).expect("attach"),
+        size,
+        Arc::new(pitwall_core::clock::SystemClock::new()),
+    );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     while host.history().len() < 200 && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -360,7 +480,12 @@ fn real_agw_attach_receives_output_without_typing() {
     host.close(std::time::Duration::from_millis(1500));
     let _ = std::fs::remove_dir_all(&run);
     eprintln!("received {got} bytes; title {title:?}; screen tail:");
-    for l in screen.lines().filter(|l| !l.trim().is_empty()).rev().take(4) {
+    for l in screen
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .rev()
+        .take(4)
+    {
         eprintln!("  {l}");
     }
     assert!(got >= 200, "tmux redraws the screen on attach");

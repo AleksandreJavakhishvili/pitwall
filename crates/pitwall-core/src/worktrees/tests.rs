@@ -7,11 +7,21 @@ use crate::vcs::git::parse_worktree_list;
 use crate::vcs::snapshot::TempRepo;
 
 fn entry(path: &str) -> WorktreeEntry {
-    WorktreeEntry { path: path.into(), head: Some("h".into()), branch: Some("b".into()), ..Default::default() }
+    WorktreeEntry {
+        path: path.into(),
+        head: Some("h".into()),
+        branch: Some("b".into()),
+        ..Default::default()
+    }
 }
 
 fn spot(id: &str, folder: &str, dirs: &[&str], created_at: u64) -> Spot {
-    Spot { id: id.into(), folder: folder.into(), tool_dirs: dirs.iter().map(|d| d.to_string()).collect(), created_at }
+    Spot {
+        id: id.into(),
+        folder: folder.into(),
+        tool_dirs: dirs.iter().map(|d| d.to_string()).collect(),
+        created_at,
+    }
 }
 
 #[test]
@@ -23,17 +33,36 @@ fn porcelain_records_with_every_flag() {
                worktree /gone\nHEAD eee\nbranch refs/heads/g\nprunable gitdir file points to non-existent location\n\n";
     let got = parse_worktree_list(out);
     assert_eq!(got.len(), 5);
-    assert_eq!((got[0].branch.as_deref(), got[0].head.as_deref(), got[0].detached), (Some("main"), Some("aaa"), false));
+    assert_eq!(
+        (
+            got[0].branch.as_deref(),
+            got[0].head.as_deref(),
+            got[0].detached
+        ),
+        (Some("main"), Some("aaa"), false)
+    );
     assert_eq!((got[1].branch.as_deref(), got[1].detached), (None, true));
-    assert_eq!((got[2].branch.as_deref(), got[2].locked, got[2].lock_reason.as_deref()), (Some("feature/a"), true, None));
+    assert_eq!(
+        (
+            got[2].branch.as_deref(),
+            got[2].locked,
+            got[2].lock_reason.as_deref()
+        ),
+        (Some("feature/a"), true, None)
+    );
     assert_eq!(got[3].lock_reason.as_deref(), Some("on a\ndisk"));
     assert!(got[4].prunable && !got[4].locked);
 
-    let bare = parse_worktree_list("worktree /srv/r.git\nbare\n\nworktree /srv/w\nHEAD f\nbranch refs/heads/w\n");
+    let bare = parse_worktree_list(
+        "worktree /srv/r.git\nbare\n\nworktree /srv/w\nHEAD f\nbranch refs/heads/w\n",
+    );
     assert!(bare[0].bare && bare[0].head.is_none() && bare[0].branch.is_none());
     assert_eq!(bare[1].branch.as_deref(), Some("w"));
     assert!(parse_worktree_list("").is_empty());
-    assert!(parse_worktree_list("HEAD orphan\n").is_empty(), "attributes before a record are ignored");
+    assert!(
+        parse_worktree_list("HEAD orphan\n").is_empty(),
+        "attributes before a record are ignored"
+    );
 }
 
 #[test]
@@ -48,31 +77,70 @@ fn attribution_follows_the_rules_in_order() {
     ];
     let spots = vec![
         spot("main", "/r/src", &[".claude/worktrees"], 1),
-        spot("own", "/r/.claude/worktrees/own/deep", &[".claude/worktrees"], 2),
+        spot(
+            "own",
+            "/r/.claude/worktrees/own/deep",
+            &[".claude/worktrees"],
+            2,
+        ),
         spot("shell", "/r", &[], 3),
     ];
     let procs = vec![("shell".to_string(), "/r-proc/pkg".to_string())];
     let got = attribute(&entries, &spots, &procs);
     let who = |i: usize| (got[i].0.as_deref(), got[i].1);
-    assert_eq!(who(0), (Some("main"), WorktreeVia::Own), "main checkout: the oldest agent in it");
-    assert_eq!(who(1), (Some("main"), WorktreeVia::ToolDir), "under the main agent's .claude/worktrees");
-    assert_eq!(who(2), (Some("own"), WorktreeVia::Own), "an agent's own folder wins over a tool dir");
+    assert_eq!(
+        who(0),
+        (Some("main"), WorktreeVia::Own),
+        "main checkout: the oldest agent in it"
+    );
+    assert_eq!(
+        who(1),
+        (Some("main"), WorktreeVia::ToolDir),
+        "under the main agent's .claude/worktrees"
+    );
+    assert_eq!(
+        who(2),
+        (Some("own"), WorktreeVia::Own),
+        "an agent's own folder wins over a tool dir"
+    );
     assert_eq!(who(3), (Some("shell"), WorktreeVia::Process));
     assert_eq!(who(4), (None, WorktreeVia::Other));
-    assert_eq!(who(5), (None, WorktreeVia::Other), "a lookalike folder is not the tool dir");
+    assert_eq!(
+        who(5),
+        (None, WorktreeVia::Other),
+        "a lookalike folder is not the tool dir"
+    );
 
     // Without the process: nobody's.
-    assert_eq!(attribute(&entries, &spots, &[])[3], (None, WorktreeVia::Other));
+    assert_eq!(
+        attribute(&entries, &spots, &[])[3],
+        (None, WorktreeVia::Other)
+    );
 }
 
 #[test]
 fn ties_in_a_tool_dir_go_to_the_agent_working_there() {
-    let entries = vec![entry("/r"), entry("/r/.claude/worktrees/a"), entry("/r/.claude/worktrees/b")];
-    let spots = vec![spot("old", "/r", &[".claude/worktrees"], 1), spot("new", "/r", &[".claude/worktrees"], 2)];
+    let entries = vec![
+        entry("/r"),
+        entry("/r/.claude/worktrees/a"),
+        entry("/r/.claude/worktrees/b"),
+    ];
+    let spots = vec![
+        spot("old", "/r", &[".claude/worktrees"], 1),
+        spot("new", "/r", &[".claude/worktrees"], 2),
+    ];
     let procs = vec![("new".to_string(), "/r/.claude/worktrees/b/x".to_string())];
     let got = attribute(&entries, &spots, &procs);
-    assert_eq!(got[1], (Some("old".into()), WorktreeVia::ToolDir), "no process there: the oldest agent");
-    assert_eq!(got[2], (Some("new".into()), WorktreeVia::ToolDir), "its process works there");
+    assert_eq!(
+        got[1],
+        (Some("old".into()), WorktreeVia::ToolDir),
+        "no process there: the oldest agent"
+    );
+    assert_eq!(
+        got[2],
+        (Some("new".into()), WorktreeVia::ToolDir),
+        "its process works there"
+    );
     // Tool dirs never escape the checkout.
     let sneaky = vec![spot("s", "/r", &["../elsewhere", "/"], 1)];
     let got = attribute(&[entry("/r"), entry("/elsewhere/w")], &sneaky, &[]);
@@ -85,48 +153,108 @@ fn repo() -> TempRepo {
     let r = TempRepo::new();
     r.write("a.txt", "1\n");
     r.commit_all("init");
-    for (dir, branch) in [(".claude/worktrees/sub", "worktree-sub"), ("wt/proc", "proc"), ("wt/locked", "locked")] {
-        r.git(&["worktree", "add", "-q", "-b", branch, r.0.join(dir).to_str().unwrap(), "HEAD"]);
+    for (dir, branch) in [
+        (".claude/worktrees/sub", "worktree-sub"),
+        ("wt/proc", "proc"),
+        ("wt/locked", "locked"),
+    ] {
+        r.git(&[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            branch,
+            r.0.join(dir).to_str().unwrap(),
+            "HEAD",
+        ]);
     }
-    r.git(&["worktree", "add", "-q", "--detach", r.0.join("wt/detached").to_str().unwrap(), "HEAD"]);
-    r.git(&["worktree", "lock", "--reason", "on a stick", r.0.join("wt/locked").to_str().unwrap()]);
+    r.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "--detach",
+        r.0.join("wt/detached").to_str().unwrap(),
+        "HEAD",
+    ]);
+    r.git(&[
+        "worktree",
+        "lock",
+        "--reason",
+        "on a stick",
+        r.0.join("wt/locked").to_str().unwrap(),
+    ]);
     r.write(".gitignore", ".claude/\nwt/\n");
     r.commit_all("ignore worktrees");
     r
 }
 
 fn req(kind: &str, path: &str) -> CreateAgentRequest {
-    CreateAgentRequest { name: kind.into(), kind: kind.into(), project_path: path.into(), ..Default::default() }
+    CreateAgentRequest {
+        name: kind.into(),
+        kind: kind.into(),
+        project_path: path.into(),
+        ..Default::default()
+    }
 }
 
 fn by_name<'a>(p: &'a ProjectWorktrees, name: &str) -> &'a WorktreeView {
-    p.worktrees.iter().find(|w| w.name == name).unwrap_or_else(|| panic!("no worktree {name}: {:?}", p.worktrees))
+    p.worktrees
+        .iter()
+        .find(|w| w.name == name)
+        .unwrap_or_else(|| panic!("no worktree {name}: {:?}", p.worktrees))
 }
 
 #[test]
 fn a_real_repo_is_listed_attributed_diffed_merged_and_cleaned_up() {
     let r = repo();
-    let real = |rel: &str| LocalExec.real_path(r.0.join(rel).to_str().unwrap()).unwrap();
+    let real = |rel: &str| {
+        LocalExec
+            .real_path(r.0.join(rel).to_str().unwrap())
+            .unwrap()
+    };
     let h = Harness::new(vec![]);
     let claude = lifecycle::create(&h.engine, req("claude", r.path())).unwrap();
     let shell = lifecycle::create(&h.engine, req("shell", r.path())).unwrap();
     // The shell's process went into a worktree (what `process_cwd` sees).
-    h.provider.set_cwd(&shell.id, &format!("{}/sub", real("wt/proc")));
+    h.provider
+        .set_cwd(&shell.id, &format!("{}/sub", real("wt/proc")));
     std::fs::create_dir_all(r.0.join("wt/proc/sub")).unwrap();
 
     let projects = list(&h.engine);
     assert_eq!(projects.len(), 1, "{projects:?}");
     let p = &projects[0];
-    assert_eq!((p.repo.as_str(), p.branch.as_deref()), (real("").trim_end_matches('/'), Some("main")));
+    assert_eq!(
+        (p.repo.as_str(), p.branch.as_deref()),
+        (real("").trim_end_matches('/'), Some("main"))
+    );
     assert_eq!(p.agent_ids.len(), 2);
-    assert_eq!(p.worktrees.len(), 4, "the main checkout is the project itself");
+    assert_eq!(
+        p.worktrees.len(),
+        4,
+        "the main checkout is the project itself"
+    );
     let sub = by_name(p, "sub");
-    assert_eq!((sub.agent_id.as_deref(), sub.via, sub.branch.as_deref()), (Some(claude.id.as_str()), WorktreeVia::ToolDir, Some("worktree-sub")));
-    assert!(sub.caps.diff && sub.caps.commit && sub.caps.merge && sub.caps.remove && sub.caps.terminal);
+    assert_eq!(
+        (sub.agent_id.as_deref(), sub.via, sub.branch.as_deref()),
+        (
+            Some(claude.id.as_str()),
+            WorktreeVia::ToolDir,
+            Some("worktree-sub")
+        )
+    );
+    assert!(
+        sub.caps.diff && sub.caps.commit && sub.caps.merge && sub.caps.remove && sub.caps.terminal
+    );
     let pr = by_name(p, "proc");
-    assert_eq!((pr.agent_id.as_deref(), pr.via), (Some(shell.id.as_str()), WorktreeVia::Process));
+    assert_eq!(
+        (pr.agent_id.as_deref(), pr.via),
+        (Some(shell.id.as_str()), WorktreeVia::Process)
+    );
     let locked = by_name(p, "locked");
-    assert_eq!((locked.via, locked.locked, locked.lock_reason.as_deref()), (WorktreeVia::Other, true, Some("on a stick")));
+    assert_eq!(
+        (locked.via, locked.locked, locked.lock_reason.as_deref()),
+        (WorktreeVia::Other, true, Some("on a stick"))
+    );
     assert!(!locked.caps.remove && locked.caps.merge);
     let det = by_name(p, "detached");
     assert!(det.branch.is_none() && !det.caps.merge && det.caps.remove);
@@ -142,39 +270,70 @@ fn a_real_repo_is_listed_attributed_diffed_merged_and_cleaned_up() {
     r.write("main-only.txt", "main\n");
     r.commit_all("main moves on");
     let index = r.0.join(".git/worktrees/sub/index");
-    let before = (std::fs::read(&index).unwrap(), std::fs::metadata(&index).unwrap().modified().unwrap());
+    let before = (
+        std::fs::read(&index).unwrap(),
+        std::fs::metadata(&index).unwrap().modified().unwrap(),
+    );
     let files = changes(&h.engine, &p.id, &sub_path).unwrap();
     let names: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(names, ["a.txt", "b.txt", "new.txt"]);
     assert!(files[2].untracked);
-    assert_eq!((std::fs::read(&index).unwrap(), std::fs::metadata(&index).unwrap().modified().unwrap()), before);
+    assert_eq!(
+        (
+            std::fs::read(&index).unwrap(),
+            std::fs::metadata(&index).unwrap().modified().unwrap()
+        ),
+        before
+    );
     let v = file_versions(&h.engine, &p.id, &sub_path, "a.txt").unwrap();
-    assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n"), Some("1\n2\n")));
-    assert!(changes(&h.engine, &p.id, "/not/listed").unwrap_err().contains("isn't listed"));
+    assert_eq!(
+        (v.original.as_deref(), v.modified.as_deref()),
+        (Some("1\n"), Some("1\n2\n"))
+    );
+    assert!(changes(&h.engine, &p.id, "/not/listed")
+        .unwrap_err()
+        .contains("isn't listed"));
     assert!(changes(&h.engine, "nope", &sub_path).is_err());
 
     // Commit, then merge (refused while the main checkout is dirty).
     let st = merge_status(&h.engine, &p.id, &sub_path).unwrap();
-    assert_eq!((st.worktree, st.uncommitted, st.ahead, st.target.as_deref()), (true, 2, 1, Some("main")));
+    assert_eq!(
+        (st.worktree, st.uncommitted, st.ahead, st.target.as_deref()),
+        (true, 2, 1, Some("main"))
+    );
     commit(&h.engine, &p.id, &sub_path, "more agent work").unwrap();
     r.write("a.txt", "dirty\n");
     let res = merge(&h.engine, &p.id, &sub_path).unwrap();
-    assert!(!res.merged && res.message.contains("uncommitted"), "{res:?}");
+    assert!(
+        !res.merged && res.message.contains("uncommitted"),
+        "{res:?}"
+    );
     r.git(&["checkout", "--", "a.txt"]);
     let res = merge(&h.engine, &p.id, &sub_path).unwrap();
     assert!(res.merged, "{res:?}");
     assert!(r.0.join("new.txt").exists());
-    assert!(merge(&h.engine, &p.id, &by_name(p, "detached").path).unwrap_err().contains("detached"));
+    assert!(merge(&h.engine, &p.id, &by_name(p, "detached").path)
+        .unwrap_err()
+        .contains("detached"));
 
     // Remove: never a locked one, never with uncommitted changes (no --force).
-    assert!(remove(&h.engine, &p.id, &locked.path).unwrap_err().contains("locked"));
+    assert!(remove(&h.engine, &p.id, &locked.path)
+        .unwrap_err()
+        .contains("locked"));
     assert!(r.0.join("wt/locked").exists());
     std::fs::write(r.0.join("wt/proc/dirty.txt"), "x\n").unwrap();
-    assert!(remove(&h.engine, &p.id, &pr.path).is_err(), "git refuses without --force");
+    assert!(
+        remove(&h.engine, &p.id, &pr.path).is_err(),
+        "git refuses without --force"
+    );
     assert!(r.0.join("wt/proc/dirty.txt").exists());
     remove(&h.engine, &p.id, &sub_path).unwrap();
     assert!(!r.0.join(".claude/worktrees/sub").exists());
-    assert!(r.git(&["branch", "--list", "worktree-sub"]).contains("worktree-sub"), "the branch is kept");
+    assert!(
+        r.git(&["branch", "--list", "worktree-sub"])
+            .contains("worktree-sub"),
+        "the branch is kept"
+    );
 
     // It leaves the list.
     let p = list(&h.engine).remove(0);
@@ -185,18 +344,29 @@ fn a_real_repo_is_listed_attributed_diffed_merged_and_cleaned_up() {
 #[test]
 fn an_agents_own_worktree_is_its_folder_and_not_removed_here() {
     let r = repo();
-    let wt = LocalExec.real_path(r.0.join("wt/proc").to_str().unwrap()).unwrap();
+    let wt = LocalExec
+        .real_path(r.0.join("wt/proc").to_str().unwrap())
+        .unwrap();
     let mut rec = record("a", &wt);
     rec.project = r.path().into();
     let h = Harness::new(vec![rec]);
     let p = list(&h.engine).remove(0);
     let own = by_name(&p, "proc");
-    assert_eq!((own.agent_id.as_deref(), own.via), (Some("a"), WorktreeVia::Own));
+    assert_eq!(
+        (own.agent_id.as_deref(), own.via),
+        (Some("a"), WorktreeVia::Own)
+    );
     assert!(!own.caps.remove && own.caps.commit);
-    assert!(remove(&h.engine, &p.id, &own.path).unwrap_err().contains("remove the agent"));
+    assert!(remove(&h.engine, &p.id, &own.path)
+        .unwrap_err()
+        .contains("remove the agent"));
     assert!(r.0.join("wt/proc").exists());
     // A stopped shell has no process to ask: the rest are other worktrees.
-    assert!(p.worktrees.iter().filter(|w| w.name != "proc").all(|w| w.via == WorktreeVia::Other));
+    assert!(p
+        .worktrees
+        .iter()
+        .filter(|w| w.name != "proc")
+        .all(|w| w.via == WorktreeVia::Other));
 }
 
 const LIST: [&str; 6] = ["git", "-C", "/r", "worktree", "list", "--porcelain"];
@@ -219,9 +389,17 @@ fn one_list_per_project_per_refresh_then_only_when_due() {
     let h = Harness::with_exec(vec![claude_at("a", "/r"), claude_at("b", "/r")], x.clone());
     let lists = || x.ran(&LIST);
     let p = list(&h.engine);
-    assert_eq!((p.len(), lists()), (1, 1), "two agents, one project, one list");
+    assert_eq!(
+        (p.len(), lists()),
+        (1, 1),
+        "two agents, one project, one list"
+    );
     assert_eq!(p[0].worktrees[0].via, WorktreeVia::ToolDir);
-    assert_eq!(p[0].worktrees[0].agent_id.as_deref(), Some("a"), "the older agent");
+    assert_eq!(
+        p[0].worktrees[0].agent_id.as_deref(),
+        Some("a"),
+        "the older agent"
+    );
     list(&h.engine);
     assert_eq!(lists(), 1, "nothing changed");
     // Something changed in the project: listed again, but not more than every MIN_GAP_MS.
@@ -235,7 +413,10 @@ fn one_list_per_project_per_refresh_then_only_when_due() {
     h.clock.advance(PERIOD_MS - PERIOD_SLACK_MS);
     list(&h.engine);
     assert_eq!(lists(), 3);
-    assert!(x.calls().iter().all(|c| c.env_has("GIT_OPTIONAL_LOCKS", "0")));
+    assert!(x
+        .calls()
+        .iter()
+        .all(|c| c.env_has("GIT_OPTIONAL_LOCKS", "0")));
     // Nothing else was run: no diffs until a worktree is shown.
     assert_eq!(x.ran(&["git", ".."]), 3);
 }
@@ -261,7 +442,10 @@ fn slow_machines_are_listed_at_their_pace() {
 #[test]
 fn no_listing_without_exec_or_outside_a_repo() {
     let x = fake();
-    let h = Harness::with_exec(vec![claude_at("a", "/r"), claude_at("b", "/elsewhere")], x.clone());
+    let h = Harness::with_exec(
+        vec![claude_at("a", "/r"), claude_at("b", "/elsewhere")],
+        x.clone(),
+    );
     h.engine.with("b", |a| a.git_repo = Some(false)).unwrap();
     let mut caps = crate::testing::FakeProvider::local_like();
     caps.exec = false;

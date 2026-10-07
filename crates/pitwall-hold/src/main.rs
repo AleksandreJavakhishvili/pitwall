@@ -3,7 +3,11 @@
 fn main() {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     if args.first().and_then(|a| a.to_str()) == Some("--version") {
-        println!("pitwall-hold {} protocol {}", env!("CARGO_PKG_VERSION"), pitwall_hold::PROTOCOL_VERSION);
+        println!(
+            "pitwall-hold {} protocol {}",
+            env!("CARGO_PKG_VERSION"),
+            pitwall_hold::PROTOCOL_VERSION
+        );
         return;
     }
     let code = match pitwall_hold::server::parse_args(args) {

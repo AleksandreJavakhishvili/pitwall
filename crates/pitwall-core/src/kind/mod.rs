@@ -62,7 +62,9 @@ impl AgentKind {
     /// ignoring case).
     pub fn answers_to(&self, name: &str) -> bool {
         let name = name.trim();
-        !name.is_empty() && (self.id.eq_ignore_ascii_case(name) || self.aliases.iter().any(|a| a.eq_ignore_ascii_case(name)))
+        !name.is_empty()
+            && (self.id.eq_ignore_ascii_case(name)
+                || self.aliases.iter().any(|a| a.eq_ignore_ascii_case(name)))
     }
 }
 
@@ -92,7 +94,9 @@ pub fn load_kinds(user_dir: &Path) -> Vec<AgentKind> {
             if path.extension().and_then(|e| e.to_str()) != Some("toml") {
                 continue;
             }
-            let Ok(src) = std::fs::read_to_string(&path) else { continue };
+            let Ok(src) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             match toml::from_str::<AgentKind>(&src) {
                 Ok(kind) => match kinds.iter_mut().find(|k| k.id == kind.id) {
                     Some(existing) => *existing = kind,
@@ -133,12 +137,23 @@ mod tests {
     #[test]
     fn user_files_override_and_extend_builtins() {
         let dir = crate::testing::TempDir::new("kinds");
-        std::fs::write(dir.path().join("shell.toml"), "id = \"shell\"\nname = \"My shell\"\ncommand = \"/bin/sh\"\nhooks = \"none\"\n").unwrap();
-        std::fs::write(dir.path().join("mine.toml"), "id = \"mine\"\nname = \"Mine\"\ncommand = \"mine\"\nhooks = \"none\"\n").unwrap();
+        std::fs::write(
+            dir.path().join("shell.toml"),
+            "id = \"shell\"\nname = \"My shell\"\ncommand = \"/bin/sh\"\nhooks = \"none\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("mine.toml"),
+            "id = \"mine\"\nname = \"Mine\"\ncommand = \"mine\"\nhooks = \"none\"\n",
+        )
+        .unwrap();
         std::fs::write(dir.path().join("broken.toml"), "id = ").unwrap();
         std::fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
         let kinds = load_kinds(dir.path());
-        assert_eq!(kinds.iter().find(|k| k.id == "shell").unwrap().name, "My shell");
+        assert_eq!(
+            kinds.iter().find(|k| k.id == "shell").unwrap().name,
+            "My shell"
+        );
         assert!(kinds.iter().any(|k| k.id == "mine"));
         assert!(kinds.iter().any(|k| k.id == "claude"));
     }
@@ -149,19 +164,29 @@ mod tests {
     fn new_agent_kinds_have_rules() {
         let kinds = super::load_kinds(std::path::Path::new("/nonexistent/pitwall-agents"));
         let rules: Vec<&str> = pitwall_detect::builtin_rule_kinds().collect();
-        for id in ["gemini", "opencode", "cursor", "copilot", "qwen", "amp", "aider"] {
+        for id in [
+            "gemini", "opencode", "cursor", "copilot", "qwen", "amp", "aider",
+        ] {
             assert!(kinds.iter().any(|k| k.id == id), "agent kind {id} missing");
             assert!(rules.contains(&id), "rules for {id} missing");
         }
         for kind in rules {
-            assert!(kinds.iter().any(|k| k.id == kind), "rules for unknown kind {kind}");
+            assert!(
+                kinds.iter().any(|k| k.id == kind),
+                "rules for unknown kind {kind}"
+            );
         }
     }
 
     #[test]
     fn kinds_answer_to_their_aliases() {
         let kinds = super::load_kinds(std::path::Path::new("/nonexistent/pitwall-agents"));
-        let named = |n: &str| kinds.iter().find(|k| k.answers_to(n)).map(|k| k.id.as_str());
+        let named = |n: &str| {
+            kinds
+                .iter()
+                .find(|k| k.answers_to(n))
+                .map(|k| k.id.as_str())
+        };
         assert_eq!(named("claude-code"), Some("claude"));
         assert_eq!(named("Claude"), Some("claude"));
         assert_eq!(named("codex"), Some("codex"));

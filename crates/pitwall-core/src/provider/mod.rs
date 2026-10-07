@@ -88,12 +88,20 @@ pub struct Locator {
 
 impl Locator {
     pub fn new(provider: &ProviderId, machine: &MachineId, native: &str) -> Locator {
-        Locator { provider: provider.clone(), machine: machine.clone(), native: native.to_string() }
+        Locator {
+            provider: provider.clone(),
+            machine: machine.clone(),
+            native: native.to_string(),
+        }
     }
 
     /// What every agent from a v1 state file is: `local:this-mac/<id>`.
     pub fn local(agent_id: &str) -> Locator {
-        Locator::new(&ProviderId::local(), &MachineId::new(MachineId::THIS_MAC), agent_id)
+        Locator::new(
+            &ProviderId::local(),
+            &MachineId::new(MachineId::THIS_MAC),
+            agent_id,
+        )
     }
 }
 
@@ -181,11 +189,17 @@ pub struct TermSize {
 }
 
 impl TermSize {
-    pub const DEFAULT: TermSize = TermSize { cols: 120, rows: 40 };
+    pub const DEFAULT: TermSize = TermSize {
+        cols: 120,
+        rows: 40,
+    };
 
     /// Within the sizes Pitwall accepts (2…1000 each way).
     pub fn new(cols: u16, rows: u16) -> TermSize {
-        TermSize { cols: cols.clamp(2, 1000), rows: rows.clamp(2, 1000) }
+        TermSize {
+            cols: cols.clamp(2, 1000),
+            rows: rows.clamp(2, 1000),
+        }
     }
 
     pub fn from_pair(size: Option<(u16, u16)>) -> TermSize {
@@ -365,7 +379,11 @@ pub trait Provider: Send + Sync {
     /// default; a platform lists its own choices (agw: workspace, user,
     /// session template). Blocking; may be cached briefly.
     fn create_form(&self, m: &MachineId) -> Result<CreateForm> {
-        Ok(CreateForm::folder(self.id().as_str(), m.as_str(), m.as_str()))
+        Ok(CreateForm::folder(
+            self.id().as_str(),
+            m.as_str(),
+            m.as_str(),
+        ))
     }
     /// Start a new agent.
     fn create(&self, spec: &CreateSpec) -> Result<Started>;
@@ -398,7 +416,9 @@ pub trait Provider: Send + Sync {
     /// [`process_cwd`](Self::process_cwd) for several processes at once (the
     /// local provider asks `lsof` once). One answer per ask, in order.
     fn process_cwds(&self, asks: &[(Locator, Option<u32>)]) -> Vec<Option<String>> {
-        asks.iter().map(|(loc, pid)| self.process_cwd(loc, *pid).ok().flatten()).collect()
+        asks.iter()
+            .map(|(loc, pid)| self.process_cwd(loc, *pid).ok().flatten())
+            .collect()
     }
     /// Plain-text screen without attaching.
     fn capture(&self, loc: &Locator) -> Result<String>;

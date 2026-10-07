@@ -12,8 +12,8 @@ mod local;
 
 use std::time::Duration;
 
-pub use local::LocalExec;
 pub use crate::error::{PwError, Result};
+pub use local::LocalExec;
 
 /// Generous bound for commands that had none before (git, rulesync, login
 /// shells): only a hung program ever hits it.
@@ -36,16 +36,28 @@ pub struct Cmd<'a> {
 
 impl<'a> Cmd<'a> {
     pub fn new(argv: &'a [&'a str]) -> Cmd<'a> {
-        Cmd { argv, cwd: None, env: &[], stdin: None, timeout: LONG }
+        Cmd {
+            argv,
+            cwd: None,
+            env: &[],
+            stdin: None,
+            timeout: LONG,
+        }
     }
     pub fn cwd(self, cwd: &'a str) -> Cmd<'a> {
-        Cmd { cwd: Some(cwd), ..self }
+        Cmd {
+            cwd: Some(cwd),
+            ..self
+        }
     }
     pub fn env(self, env: &'a [(&'a str, &'a str)]) -> Cmd<'a> {
         Cmd { env, ..self }
     }
     pub fn stdin(self, stdin: &'a [u8]) -> Cmd<'a> {
-        Cmd { stdin: Some(stdin), ..self }
+        Cmd {
+            stdin: Some(stdin),
+            ..self
+        }
     }
     pub fn timeout(self, timeout: Duration) -> Cmd<'a> {
         Cmd { timeout, ..self }
@@ -132,7 +144,11 @@ pub fn join(dir: &str, rel: &str) -> String {
     if dir.is_empty() {
         return rel.to_string();
     }
-    format!("{}/{}", dir.trim_end_matches('/'), rel.trim_start_matches('/'))
+    format!(
+        "{}/{}",
+        dir.trim_end_matches('/'),
+        rel.trim_start_matches('/')
+    )
 }
 
 /// `path` is a folder (following symlinks).
@@ -151,7 +167,10 @@ pub fn exists(exec: &dyn Exec, path: &str) -> bool {
 /// stdout of a program on this machine if it finishes within `timeout`,
 /// whatever its exit status (the onboarding scan and process listings).
 pub(crate) fn local_stdout(argv: &[&str], timeout: Duration) -> Option<String> {
-    LocalExec.run(&Cmd::new(argv).timeout(timeout)).ok().map(|o| o.stdout_text())
+    LocalExec
+        .run(&Cmd::new(argv).timeout(timeout))
+        .ok()
+        .map(|o| o.stdout_text())
 }
 
 #[cfg(test)]

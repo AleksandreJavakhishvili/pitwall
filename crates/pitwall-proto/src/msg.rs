@@ -31,7 +31,10 @@ pub struct Range {
 impl Range {
     /// What this build speaks.
     pub const fn ours() -> Range {
-        Range { min: PROTOCOL, max: PROTOCOL }
+        Range {
+            min: PROTOCOL,
+            max: PROTOCOL,
+        }
     }
 
     /// The highest version both sides speak.
@@ -91,7 +94,13 @@ pub enum ServerHello {
 }
 
 /// Answer a client's hello: welcome when a version is shared.
-pub fn answer_hello(hello: &Hello, server: Range, daemon: &str, caps: &[&str], instance: &str) -> ServerHello {
+pub fn answer_hello(
+    hello: &Hello,
+    server: Range,
+    daemon: &str,
+    caps: &[&str],
+    instance: &str,
+) -> ServerHello {
     match server.negotiate(hello.protocol) {
         Some(protocol) => ServerHello::Welcome(Welcome {
             protocol,
@@ -99,7 +108,11 @@ pub fn answer_hello(hello: &Hello, server: Range, daemon: &str, caps: &[&str], i
             caps: caps.iter().map(|c| c.to_string()).collect(),
             instance: instance.into(),
         }),
-        None => ServerHello::Reject(Reject { code: code::INCOMPATIBLE.into(), daemon: daemon.into(), protocol: server }),
+        None => ServerHello::Reject(Reject {
+            code: code::INCOMPATIBLE.into(),
+            daemon: daemon.into(),
+            protocol: server,
+        }),
     }
 }
 
@@ -120,7 +133,10 @@ pub struct ErrorBody {
 
 impl ErrorBody {
     pub fn new(code: &str, message: impl Into<String>) -> ErrorBody {
-        ErrorBody { code: code.into(), message: message.into() }
+        ErrorBody {
+            code: code.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -160,11 +176,19 @@ pub struct Response {
 
 impl Response {
     pub fn ok(id: u64, result: Value) -> Response {
-        Response { id, result: Some(result), error: None }
+        Response {
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn err(id: u64, error: ErrorBody) -> Response {
-        Response { id, result: None, error: Some(error) }
+        Response {
+            id,
+            result: None,
+            error: Some(error),
+        }
     }
 
     /// The result, or the error (a response with neither is `null`).
@@ -196,17 +220,31 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::Debug>(v: &T, wire: Value) {
+    fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::Debug>(
+        v: &T,
+        wire: Value,
+    ) {
         assert_eq!(serde_json::to_value(v).unwrap(), wire);
         assert_eq!(&serde_json::from_value::<T>(wire).unwrap(), v);
     }
 
     #[test]
     fn handshake_golden_json() {
-        let hello = ClientHello::Hello(Hello { protocol: Range { min: 1, max: 1 }, client: "pitwall-cli/0.1.0".into(), role: Role::Cli });
-        round_trip(&hello, json!({"hello":{"protocol":{"min":1,"max":1},"client":"pitwall-cli/0.1.0","role":"cli"}}));
+        let hello = ClientHello::Hello(Hello {
+            protocol: Range { min: 1, max: 1 },
+            client: "pitwall-cli/0.1.0".into(),
+            role: Role::Cli,
+        });
+        round_trip(
+            &hello,
+            json!({"hello":{"protocol":{"min":1,"max":1},"client":"pitwall-cli/0.1.0","role":"cli"}}),
+        );
         let ServerHello::Welcome(w) = answer_hello(
-            &Hello { protocol: Range { min: 1, max: 3 }, client: "x".into(), role: Role::Ui },
+            &Hello {
+                protocol: Range { min: 1, max: 3 },
+                client: "x".into(),
+                role: Role::Ui,
+            },
             Range { min: 1, max: 1 },
             "0.1.0",
             &["agents"],
@@ -219,13 +257,20 @@ mod tests {
             json!({"welcome":{"protocol":1,"daemon":"0.1.0","caps":["agents"],"instance":"i-1"}}),
         );
         let reject = answer_hello(
-            &Hello { protocol: Range { min: 2, max: 2 }, client: "x".into(), role: Role::Cli },
+            &Hello {
+                protocol: Range { min: 2, max: 2 },
+                client: "x".into(),
+                role: Role::Cli,
+            },
             Range { min: 1, max: 1 },
             "0.1.0",
             &[],
             "i",
         );
-        round_trip(&reject, json!({"reject":{"code":"incompatible","daemon":"0.1.0","protocol":{"min":1,"max":1}}}));
+        round_trip(
+            &reject,
+            json!({"reject":{"code":"incompatible","daemon":"0.1.0","protocol":{"min":1,"max":1}}}),
+        );
     }
 
     #[test]
@@ -239,21 +284,45 @@ mod tests {
 
     #[test]
     fn requests_responses_and_events_golden_json() {
-        round_trip(&Request { id: 7, method: "agent.list".into(), params: Value::Null }, json!({"id":7,"method":"agent.list"}));
         round_trip(
-            &Request { id: 8, method: "session.add".into(), params: json!({"provider":"agw"}) },
+            &Request {
+                id: 7,
+                method: "agent.list".into(),
+                params: Value::Null,
+            },
+            json!({"id":7,"method":"agent.list"}),
+        );
+        round_trip(
+            &Request {
+                id: 8,
+                method: "session.add".into(),
+                params: json!({"provider":"agw"}),
+            },
             json!({"id":8,"method":"session.add","params":{"provider":"agw"}}),
         );
         let ok = ServerMsg::Response(Response::ok(7, json!([])));
         round_trip(&ok, json!({"id":7,"result":[]}));
         let err = ServerMsg::Response(Response::err(8, ErrorBody::new(code::DENIED, "no")));
-        round_trip(&err, json!({"id":8,"error":{"code":"denied","message":"no"}}));
-        let ev = ServerMsg::Event(Event { event: "approvals.changed".into(), data: json!([]) });
+        round_trip(
+            &err,
+            json!({"id":8,"error":{"code":"denied","message":"no"}}),
+        );
+        let ev = ServerMsg::Event(Event {
+            event: "approvals.changed".into(),
+            data: json!([]),
+        });
         round_trip(&ev, json!({"event":"approvals.changed","data":[]}));
         // Unknown fields are ignored (additive changes).
-        let later: ServerMsg = serde_json::from_value(json!({"id":1,"result":2,"trace":"x"})).unwrap();
+        let later: ServerMsg =
+            serde_json::from_value(json!({"id":1,"result":2,"trace":"x"})).unwrap();
         assert_eq!(later, ServerMsg::Response(Response::ok(1, json!(2))));
         assert_eq!(Response::ok(1, json!(2)).into_result(), Ok(json!(2)));
-        assert_eq!(Response::err(1, ErrorBody::new("x", "y")).into_result().unwrap_err().code, "x");
+        assert_eq!(
+            Response::err(1, ErrorBody::new("x", "y"))
+                .into_result()
+                .unwrap_err()
+                .code,
+            "x"
+        );
     }
 }

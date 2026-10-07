@@ -11,12 +11,14 @@ use crate::clock::unix_ms;
 use crate::exec::{self, Exec};
 use crate::hooks;
 use crate::kind::{self, AgentKind};
-use crate::model::{size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateAgentRequest, KindCaps};
+use crate::model::{
+    size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateAgentRequest, KindCaps,
+};
 use crate::onboarding::project_list;
 use crate::paths::expand_tilde_in;
 use crate::provider::{
-    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Machine, MachineId, NativeState, Provider,
-    ProviderId, Started, TermSize,
+    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Machine, MachineId,
+    NativeState, Provider, ProviderId, Started, TermSize,
 };
 use crate::rules;
 use crate::slug::slug;
@@ -27,29 +29,55 @@ pub(crate) const STOP_GRACE: Duration = Duration::from_millis(1500);
 
 fn kind_for(engine: &Engine, rec_kind: &str, custom: Option<&str>) -> Result<AgentKind, String> {
     if rec_kind == kind::CUSTOM {
-        let cmd = custom.map(str::trim).filter(|c| !c.is_empty()).ok_or("custom command is empty")?;
+        let cmd = custom
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .ok_or("custom command is empty")?;
         return Ok(kind::custom_kind(cmd));
     }
-    engine.kinds().find(rec_kind).ok_or_else(|| format!("unknown agent kind \"{rec_kind}\""))
+    engine
+        .kinds()
+        .find(rec_kind)
+        .ok_or_else(|| format!("unknown agent kind \"{rec_kind}\""))
 }
 
 /// Before a launch with the kind's worktree flag: the name to pass, and what
 /// to compare against to spot the worktree the agent makes.
-fn watch_for(exec: &dyn Exec, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
+fn watch_for(
+    exec: &dyn Exec,
+    kind: &AgentKind,
+    rec: &AgentRecord,
+    now: u64,
+) -> (String, worktree::Watch) {
     let named = kind.worktree_args.iter().any(|a| a.contains("{name}"));
     let base = slug(&rec.name);
-    let name = if named { worktree::pick_name(exec, &rec.project, &base) } else { base };
-    let watch = worktree::Watch::new(worktree::roots(exec, &rec.project), named.then(|| name.clone()), now);
+    let name = if named {
+        worktree::pick_name(exec, &rec.project, &base)
+    } else {
+        base
+    };
+    let watch = worktree::Watch::new(
+        worktree::roots(exec, &rec.project),
+        named.then(|| name.clone()),
+        now,
+    );
     (name, watch)
 }
 
 /// How hooks reach Pitwall from an agent of `p`, if they can.
 fn hook_wiring(engine: &Engine, p: &dyn Provider) -> Option<HookWiring> {
-    (p.caps().hooks != HookTransport::None).then(|| HookWiring { command: hooks::hook_command(engine.paths()) })
+    (p.caps().hooks != HookTransport::None).then(|| HookWiring {
+        command: hooks::hook_command(engine.paths()),
+    })
 }
 
 /// The terminal of a session `p` just started (its own, or by attaching).
-fn host_of(engine: &Engine, p: &dyn Provider, started: &mut Started, size: TermSize) -> Result<Arc<TermHost>, String> {
+fn host_of(
+    engine: &Engine,
+    p: &dyn Provider,
+    started: &mut Started,
+    size: TermSize,
+) -> Result<Arc<TermHost>, String> {
     let io = match started.term.take() {
         Some(io) => io,
         None => p.attach(&started.locator, size)?,
@@ -59,7 +87,9 @@ fn host_of(engine: &Engine, p: &dyn Provider, started: &mut Started, size: TermS
 
 /// The project an agent is shown under when it differs from where it runs.
 fn display_project(exec: &dyn Exec, p: Option<&str>) -> Result<Option<String>, String> {
-    let Some(p) = p.map(str::trim).filter(|p| !p.is_empty()) else { return Ok(None) };
+    let Some(p) = p.map(str::trim).filter(|p| !p.is_empty()) else {
+        return Ok(None);
+    };
     let path = expand_tilde_in(exec.home().ok().as_deref(), p);
     if !exec::is_dir(exec, &path) {
         return Err(format!("{path} is not a folder"));
@@ -72,7 +102,9 @@ fn display_project(exec: &dyn Exec, p: Option<&str>) -> Result<Option<String>, S
 /// machine whose form has no folder (a platform such as agw) makes it its
 /// own way: [`create_on_platform`]. Blocking.
 pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, String> {
-    let (provider, machine) = core.providers().target(req.provider.as_deref(), req.machine.as_deref())?;
+    let (provider, machine) = core
+        .providers()
+        .target(req.provider.as_deref(), req.machine.as_deref())?;
     if !provider.caps().create {
         return Err(format!("new agents can't be started on {}", machine.label));
     }
@@ -83,7 +115,11 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     }
     // Without commands on that machine there is nothing to check here: the
     // provider's own create reports a bad folder.
-    let exec: Option<Arc<dyn Exec>> = if provider.caps().exec { Some(provider.exec(&machine.id)?) } else { None };
+    let exec: Option<Arc<dyn Exec>> = if provider.caps().exec {
+        Some(provider.exec(&machine.id)?)
+    } else {
+        None
+    };
     let exec = exec.as_deref();
     let home = exec.and_then(|x| x.home().ok());
     let project_path = expand_tilde_in(home.as_deref(), req.project_path.trim());
@@ -150,7 +186,15 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     // Rules go in before the first launch (never fails creation; see rules).
     let dirs = rules::Dirs::of(core.paths());
     if let Some(x) = exec {
-        rules::on_create(&dirs, core.kinds(), x, &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
+        rules::on_create(
+            &dirs,
+            core.kinds(),
+            x,
+            &rec,
+            &kind,
+            req.rule_set_id.clone(),
+            req.apply_to_main_checkout,
+        );
     }
     let wt = match exec {
         Some(x) if rec.worktree_pending => Some(watch_for(x, &kind, &rec, core.now())),
@@ -217,12 +261,19 @@ fn create_on_platform(
         l.provider == *provider.id() && l.machine == machine.id && l.native == name
     });
     if taken {
-        return Err(format!("Pitwall already has a session \"{name}\" on {}", machine.label));
+        return Err(format!(
+            "Pitwall already has a session \"{name}\" on {}",
+            machine.label
+        ));
     }
     let id = uuid::Uuid::new_v4().to_string();
     // The platform picks the program; the kind only matters to providers
     // that launch one themselves.
-    let kind = core.kinds().find(&req.kind).or_else(|| core.kinds().find(super::terminals::TERMINAL_KIND)).unwrap_or_else(|| kind::custom_kind(""));
+    let kind = core
+        .kinds()
+        .find(&req.kind)
+        .or_else(|| core.kinds().find(super::terminals::TERMINAL_KIND))
+        .unwrap_or_else(|| kind::custom_kind(""));
     let size = size_of(req.cols, req.rows);
     let term_size = TermSize::from_pair(size);
     let mut started = provider.create(&CreateSpec {
@@ -240,7 +291,14 @@ fn create_on_platform(
         },
     })?;
     let program = started.kind.clone().unwrap_or_else(|| kind.id.clone());
-    let mut rec = session_record(core, id, started.locator.clone(), &program, started.cwd.clone(), name.to_string());
+    let mut rec = session_record(
+        core,
+        id,
+        started.locator.clone(),
+        &program,
+        started.cwd.clone(),
+        name.to_string(),
+    );
     if let Some(size) = size {
         rec.set_term_size(size);
     }
@@ -263,10 +321,24 @@ fn create_on_platform(
 /// The record of a platform's session Pitwall tracks without owning it
 /// (`adopted`): what runs there (`program`, the platform's word) as one of
 /// Pitwall's kinds, else a terminal — screen and activity status still work.
-fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: String, name: String) -> AgentRecord {
+fn session_record(
+    core: &Shared,
+    id: String,
+    loc: Locator,
+    program: &str,
+    cwd: String,
+    name: String,
+) -> AgentRecord {
     let (kind, kind_name) = match core.kinds().resolve(program) {
         Some(k) => (k.id, k.name),
-        None => (super::terminals::TERMINAL_KIND.to_string(), if program.is_empty() { "Shell".into() } else { program.to_string() }),
+        None => (
+            super::terminals::TERMINAL_KIND.to_string(),
+            if program.is_empty() {
+                "Shell".into()
+            } else {
+                program.to_string()
+            },
+        ),
     };
     AgentRecord {
         id,
@@ -303,19 +375,40 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
 pub fn adopt(core: &Shared, req: AdoptSessionRequest) -> Result<AgentView, String> {
     let provider = core.providers().get(&ProviderId::new(&req.provider))?;
     let loc = Locator::new(provider.id(), &MachineId::new(&req.machine), &req.native);
-    if let Some(v) = core.agents().iter().find(|a| a.rec.locator() == loc).map(Agent::view) {
+    if let Some(v) = core
+        .agents()
+        .iter()
+        .find(|a| a.rec.locator() == loc)
+        .map(Agent::view)
+    {
         return Ok(v);
     }
     if !provider.caps().attach_existing {
-        return Err(format!("sessions on {} can't be added to Pitwall", provider.label()));
+        return Err(format!(
+            "sessions on {} can't be added to Pitwall",
+            provider.label()
+        ));
     }
     let found = provider
         .discover(&loc.machine)?
         .into_iter()
         .find(|d| d.locator == loc)
-        .ok_or_else(|| format!("{} has no session \"{}\"", core.providers().machine_label(&loc), loc.native))?;
+        .ok_or_else(|| {
+            format!(
+                "{} has no session \"{}\"",
+                core.providers().machine_label(&loc),
+                loc.native
+            )
+        })?;
     let name = found.title.clone().unwrap_or_else(|| loc.native.clone());
-    let mut rec = session_record(core, uuid::Uuid::new_v4().to_string(), loc.clone(), &found.kind, found.cwd.clone().unwrap_or_default(), name);
+    let mut rec = session_record(
+        core,
+        uuid::Uuid::new_v4().to_string(),
+        loc.clone(),
+        &found.kind,
+        found.cwd.clone().unwrap_or_default(),
+        name,
+    );
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
         rec.set_term_size(size);
@@ -330,7 +423,11 @@ pub fn adopt(core: &Shared, req: AdoptSessionRequest) -> Result<AgentView, Strin
     let view = {
         let mut agents = core.agents();
         // Adopted meanwhile (two clicks): keep the first, drop this attachment.
-        if let Some(v) = agents.iter().find(|a| a.rec.locator() == loc).map(Agent::view) {
+        if let Some(v) = agents
+            .iter()
+            .find(|a| a.rec.locator() == loc)
+            .map(Agent::view)
+        {
             drop(agents);
             if let Some(h) = agent.host {
                 h.close(STOP_GRACE);
@@ -388,7 +485,11 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
     let caps = provider.caps();
-    let exec = if caps.exec { Some(provider.exec_at(&loc)?) } else { None };
+    let exec = if caps.exec {
+        Some(provider.exec_at(&loc)?)
+    } else {
+        None
+    };
     if exec.as_deref().is_some_and(|x| !exec::is_dir(x, &rec.cwd)) {
         return Err(format!("{} no longer exists", rec.cwd));
     }
@@ -400,10 +501,12 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     // A terminal that last ran an agent the user started in it: the shell
     // starts and continues that agent inside it (docs/spec/terminals.md §3).
     let inner = match &rec.inner_agent {
-        Some(m) if caps.custom_command && rec.kind == super::terminals::TERMINAL_KIND => core.kinds().find(&m.kind).map(|agent| {
-            let hook = hooks.as_ref().map_or("", |h| h.command.as_str());
-            kind::launch::then_shell(&kind, &agent, m.session_id.as_deref(), caps.resume, hook)
-        }),
+        Some(m) if caps.custom_command && rec.kind == super::terminals::TERMINAL_KIND => {
+            core.kinds().find(&m.kind).map(|agent| {
+                let hook = hooks.as_ref().map_or("", |h| h.command.as_str());
+                kind::launch::then_shell(&kind, &agent, m.session_id.as_deref(), caps.resume, hook)
+            })
+        }
         _ => None,
     };
     let (kind, inner_plan) = match inner {
@@ -419,7 +522,11 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         agent: &rec.id,
         kind: &kind,
         cwd: &rec.cwd,
-        intent: if inner_plan.is_some() { LaunchIntent::Fresh } else { intent },
+        intent: if inner_plan.is_some() {
+            LaunchIntent::Fresh
+        } else {
+            intent
+        },
         worktree: wt.as_ref().map(|(n, _)| n.as_str()),
         size,
         hooks,
@@ -485,7 +592,8 @@ pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), Stri
     tasks::forget(&*exec, &agent.rec);
     // Only when asked (the UI confirms first); never `--force`, never the branch.
     let res = match (&agent.rec.worktree, delete_worktree) {
-        (Some(wt), true) => Git::new(&*exec, &wt.repo).worktree_remove(&wt.path)
+        (Some(wt), true) => Git::new(&*exec, &wt.repo)
+            .worktree_remove(&wt.path)
             .map_err(|e| format!("Agent removed, but its worktree was kept: {e}")),
         _ => Ok(()),
     };
@@ -506,7 +614,11 @@ pub fn stop_all(core: &Shared) {
         .filter_map(|a| {
             let h = a.host.clone()?;
             let loc = a.rec.locator();
-            let p = if a.rec.adopted { None } else { core.providers().for_locator(&loc).ok() };
+            let p = if a.rec.adopted {
+                None
+            } else {
+                core.providers().for_locator(&loc).ok()
+            };
             Some((p, loc, h))
         })
         .collect();
@@ -537,10 +649,18 @@ pub(crate) fn reattach(core: &Engine, loc: &Locator, rec: &AgentRecord) -> Optio
 /// A dropped attachment (`eof_is_exit` false): attach again while the
 /// provider says the session runs; else the agent has ended. Blocking.
 pub(crate) fn relink(core: &Shared, id: &str) {
-    let Ok((loc, p)) = core.provider_of(id) else { return };
-    let size = core.with(id, |a| TermSize::from_pair(a.rec.term_size())).unwrap_or(TermSize::DEFAULT);
+    let Ok((loc, p)) = core.provider_of(id) else {
+        return;
+    };
+    let size = core
+        .with(id, |a| TermSize::from_pair(a.rec.term_size()))
+        .unwrap_or(TermSize::DEFAULT);
     let running = matches!(p.state(&loc), Ok(crate::provider::NativeState::Running));
-    let host = if running { p.attach(&loc, size).ok().map(|io| core.host_for(io, size)) } else { None };
+    let host = if running {
+        p.attach(&loc, size).ok().map(|io| core.host_for(io, size))
+    } else {
+        None
+    };
     let _ = core.with(id, |a| {
         a.relinking = false;
         match host {
@@ -596,7 +716,9 @@ mod tests {
         assert_eq!(display_project(Some("  ")).unwrap(), None);
         assert!(display_project(Some("/definitely/not/here")).is_err());
         let dir = TempDir::new("display");
-        let got = display_project(Some(&format!("{}/", dir.path().display()))).unwrap().unwrap();
+        let got = display_project(Some(&format!("{}/", dir.path().display())))
+            .unwrap()
+            .unwrap();
         assert!(!got.ends_with('/'));
         assert!(std::path::Path::new(&got).is_dir());
     }
@@ -605,14 +727,31 @@ mod tests {
     fn create_checks_its_input_before_starting_anything() {
         let h = Harness::new(vec![]);
         let dir = h.dir.path().to_string_lossy().into_owned();
-        assert!(create(&h.engine, req("shell", "/definitely/not/here", false)).unwrap_err().contains("is not a folder"));
-        assert!(create(&h.engine, req("nope", &dir, false)).unwrap_err().contains("unknown agent kind"));
-        assert_eq!(create(&h.engine, req("custom", &dir, false)).unwrap_err(), "custom command is empty");
-        assert!(create(&h.engine, req("shell", &dir, true)).unwrap_err().contains("can't make its own worktree"));
-        assert!(create(&h.engine, req("claude", &dir, true)).unwrap_err().contains("needs a git repository"));
+        assert!(
+            create(&h.engine, req("shell", "/definitely/not/here", false))
+                .unwrap_err()
+                .contains("is not a folder")
+        );
+        assert!(create(&h.engine, req("nope", &dir, false))
+            .unwrap_err()
+            .contains("unknown agent kind"));
+        assert_eq!(
+            create(&h.engine, req("custom", &dir, false)).unwrap_err(),
+            "custom command is empty"
+        );
+        assert!(create(&h.engine, req("shell", &dir, true))
+            .unwrap_err()
+            .contains("can't make its own worktree"));
+        assert!(create(&h.engine, req("claude", &dir, true))
+            .unwrap_err()
+            .contains("needs a git repository"));
         // The provider refuses: reported, nothing added.
-        h.provider.fail_next(PwError::unreachable("machine is asleep"));
-        assert_eq!(create(&h.engine, req("shell", &dir, false)).unwrap_err(), "machine is asleep");
+        h.provider
+            .fail_next(PwError::unreachable("machine is asleep"));
+        assert_eq!(
+            create(&h.engine, req("shell", &dir, false)).unwrap_err(),
+            "machine is asleep"
+        );
         assert!(h.engine.views().is_empty());
         assert!(h.provider.launched().is_empty());
         assert!(stop(&h.engine, "ghost").is_err());
@@ -629,12 +768,33 @@ mod tests {
         let v = create(&h.engine, r).unwrap();
         let rec = h.engine.records().remove(0);
         let loc = rec.locator.clone().expect("locator stored");
-        assert_eq!((loc.provider.as_str(), loc.machine.as_str(), loc.native.as_str()), ("local", "this-mac", v.id.as_str()));
-        assert_eq!((v.location.as_str(), v.machine.label.as_str()), ("local", "Fake this-mac"));
+        assert_eq!(
+            (
+                loc.provider.as_str(),
+                loc.machine.as_str(),
+                loc.native.as_str()
+            ),
+            ("local", "this-mac", v.id.as_str())
+        );
+        assert_eq!(
+            (v.location.as_str(), v.machine.label.as_str()),
+            ("local", "Fake this-mac")
+        );
         let l = h.provider.launched().remove(0);
-        assert_eq!((l.cwd.as_str(), l.size, l.resumed), (dir.as_str(), TermSize::new(90, 30), false));
-        let sid = rec.session_id.clone().expect("claude gets its session id up front");
-        assert!(l.command_line.starts_with(&format!("claude --session-id {sid} --settings ")), "hooks wired: {}", l.command_line);
+        assert_eq!(
+            (l.cwd.as_str(), l.size, l.resumed),
+            (dir.as_str(), TermSize::new(90, 30), false)
+        );
+        let sid = rec
+            .session_id
+            .clone()
+            .expect("claude gets its session id up front");
+        assert!(
+            l.command_line
+                .starts_with(&format!("claude --session-id {sid} --settings ")),
+            "hooks wired: {}",
+            l.command_line
+        );
         assert!(v.running && v.caps.input && v.caps.stop && v.caps.restart);
         assert!(!v.caps.resume, "nothing to resume before a prompt");
 
@@ -642,7 +802,10 @@ mod tests {
         crate::engine::input::write_input(&h.engine, &v.id, "echo hi\r").unwrap();
         let ctl = h.provider.ctl(&v.id).unwrap();
         assert_eq!(ctl.input(), b"echo hi\r");
-        assert!(h.engine.views()[0].caps.resume, "after a prompt it can resume");
+        assert!(
+            h.engine.views()[0].caps.resume,
+            "after a prompt it can resume"
+        );
 
         stop(&h.engine, &v.id).unwrap();
         assert!(wait_until(|| !ctl.running()));
@@ -651,10 +814,17 @@ mod tests {
 
         let v2 = restart(&h.engine, &v.id, Some((100, 40))).unwrap();
         let l = h.provider.launched().pop().unwrap();
-        assert!(l.resumed && l.command_line.starts_with(&format!("claude --resume {sid}")));
+        assert!(
+            l.resumed
+                && l.command_line
+                    .starts_with(&format!("claude --resume {sid}"))
+        );
         assert_eq!(l.size, TermSize::new(100, 40));
         assert!(v2.running);
-        assert_eq!(h.engine.records()[0].session_id.as_deref(), Some(sid.as_str()));
+        assert_eq!(
+            h.engine.records()[0].session_id.as_deref(),
+            Some(sid.as_str())
+        );
 
         remove(&h.engine, &v.id, false).unwrap();
         assert_eq!(h.provider.state(&loc).unwrap(), NativeState::Gone);
@@ -674,14 +844,34 @@ mod tests {
         assert!(v.caps.rules && v.caps.hooks);
 
         // A provider without resume/rules/hooks/exec.
-        h.provider.set_caps(ProviderCaps { create: true, survives_detach: true, ..Default::default() });
+        h.provider.set_caps(ProviderCaps {
+            create: true,
+            survives_detach: true,
+            ..Default::default()
+        });
         let kinds = h.engine.list_kinds().unwrap();
         let claude = kinds.iter().find(|k| k.id == "claude").unwrap();
-        assert!(!claude.caps.worktree && !claude.caps.resume && !claude.caps.rules && !claude.caps.hooks);
-        assert!(!kinds.iter().any(|k| k.caps.custom_command), "no custom commands on this provider");
+        assert!(
+            !claude.caps.worktree
+                && !claude.caps.resume
+                && !claude.caps.rules
+                && !claude.caps.hooks
+        );
+        assert!(
+            !kinds.iter().any(|k| k.caps.custom_command),
+            "no custom commands on this provider"
+        );
         let v = create(&h.engine, req("claude", &dir, false)).unwrap();
         assert!(!v.caps.diff && !v.caps.rules && !v.caps.hooks && !v.caps.remove_worktree);
-        assert!(!h.provider.launched().pop().unwrap().command_line.contains("--settings"), "no hooks to wire");
+        assert!(
+            !h.provider
+                .launched()
+                .pop()
+                .unwrap()
+                .command_line
+                .contains("--settings"),
+            "no hooks to wire"
+        );
     }
 
     #[test]
@@ -690,8 +880,16 @@ mod tests {
         let kinds = h.engine.list_kinds().unwrap();
         let by = |id: &str| kinds.iter().find(|k| k.id == id).unwrap().clone();
         let (claude, shell, custom) = (by("claude"), by("shell"), by("custom"));
-        assert!(claude.caps.worktree && claude.worktree && claude.caps.resume && claude.caps.rules && claude.caps.hooks);
-        assert!(!shell.caps.worktree && !shell.caps.resume && !shell.caps.rules && !shell.caps.hooks);
+        assert!(
+            claude.caps.worktree
+                && claude.worktree
+                && claude.caps.resume
+                && claude.caps.rules
+                && claude.caps.hooks
+        );
+        assert!(
+            !shell.caps.worktree && !shell.caps.resume && !shell.caps.rules && !shell.caps.hooks
+        );
         assert!(custom.caps.custom_command && !claude.caps.custom_command);
     }
 
@@ -729,14 +927,36 @@ mod tests {
         let dir = TempDir::new("platform");
         let local = FakeProvider::named("local", "this-mac", Arc::new(LocalExec));
         let vm = FakeProvider::named("vmhost", "box", Arc::new(LocalExec));
-        vm.set_caps(ProviderCaps { create: true, start: true, attach_existing: true, survives_detach: true, ..Default::default() });
+        vm.set_caps(ProviderCaps {
+            create: true,
+            start: true,
+            attach_existing: true,
+            survives_detach: true,
+            ..Default::default()
+        });
         vm.set_remote(true);
-        let pick = |v: &str| CreateChoice { value: v.into(), label: v.into(), detail: None, phrase: Some(format!("in {v}")), creates: None };
+        let pick = |v: &str| CreateChoice {
+            value: v.into(),
+            label: v.into(),
+            detail: None,
+            phrase: Some(format!("in {v}")),
+            creates: None,
+        };
         vm.set_form(CreateForm {
             folder: false,
             fields: vec![
-                CreateField::select("workspace", "Workspace", vec![pick("work"), pick("api-session")], Some("work".into())),
-                CreateField::select("template", "Template", vec![pick("claude-code"), pick("login-shell")], Some("login-shell".into())),
+                CreateField::select(
+                    "workspace",
+                    "Workspace",
+                    vec![pick("work"), pick("api-session")],
+                    Some("work".into()),
+                ),
+                CreateField::select(
+                    "template",
+                    "Template",
+                    vec![pick("claude-code"), pick("login-shell")],
+                    Some("login-shell".into()),
+                ),
             ],
             submit: "Create".into(),
             ..CreateForm::folder("", "", "")
@@ -749,46 +969,96 @@ mod tests {
             providers: vec![local.clone(), vm.clone()],
         });
         let form = engine.create_form(None, Some("box")).unwrap();
-        assert_eq!((form.provider.as_str(), form.machine.as_str(), form.machine_label.as_str(), form.folder), ("vmhost", "box", "Fake box", false));
-        assert!(engine.create_form(Some("local"), None).unwrap().folder, "this Mac: Pitwall's own form");
-        assert!(engine.create_form(None, Some("nowhere")).unwrap_err().contains("no machine \"nowhere\""));
+        assert_eq!(
+            (
+                form.provider.as_str(),
+                form.machine.as_str(),
+                form.machine_label.as_str(),
+                form.folder
+            ),
+            ("vmhost", "box", "Fake box", false)
+        );
+        assert!(
+            engine.create_form(Some("local"), None).unwrap().folder,
+            "this Mac: Pitwall's own form"
+        );
+        assert!(engine
+            .create_form(None, Some("nowhere"))
+            .unwrap_err()
+            .contains("no machine \"nowhere\""));
 
         let req = |name: &str, opts: &[(&str, &str)]| CreateAgentRequest {
             name: name.into(),
             machine: Some("box".into()),
-            options: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            options: opts
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             cols: Some(90),
             rows: Some(30),
             ..Default::default()
         };
         // Options are checked against the form before anything is made.
-        assert!(create(&engine, req("x", &[("workspace", "nope")])).unwrap_err().contains("isn't a choice for Workspace"));
-        assert!(create(&engine, req("x", &[("color", "red")])).unwrap_err().contains("unknown option"));
-        assert!(create(&engine, req(" ", &[])).unwrap_err().contains("name is required"));
+        assert!(create(&engine, req("x", &[("workspace", "nope")]))
+            .unwrap_err()
+            .contains("isn't a choice for Workspace"));
+        assert!(create(&engine, req("x", &[("color", "red")]))
+            .unwrap_err()
+            .contains("unknown option"));
+        assert!(create(&engine, req(" ", &[]))
+            .unwrap_err()
+            .contains("name is required"));
         assert!(vm.created().is_empty());
 
         let v = create(&engine, req("api-fix", &[("template", "claude-code")])).unwrap();
         let (name, opts) = vm.created().remove(0);
         assert_eq!(name, "api-fix");
-        assert_eq!(opts.into_iter().collect::<Vec<_>>(), [("template".into(), "claude-code".into()), ("workspace".into(), "work".into())], "defaults filled in");
-        assert_eq!((v.name.as_str(), v.kind.as_str(), v.cwd.as_str()), ("api-fix", "claude", "/srv/work"), "kind from what the platform runs");
-        assert_eq!((v.machine.provider.as_str(), v.machine.id.as_str()), ("vmhost", "box"));
+        assert_eq!(
+            opts.into_iter().collect::<Vec<_>>(),
+            [
+                ("template".into(), "claude-code".into()),
+                ("workspace".into(), "work".into())
+            ],
+            "defaults filled in"
+        );
+        assert_eq!(
+            (v.name.as_str(), v.kind.as_str(), v.cwd.as_str()),
+            ("api-fix", "claude", "/srv/work"),
+            "kind from what the platform runs"
+        );
+        assert_eq!(
+            (v.machine.provider.as_str(), v.machine.id.as_str()),
+            ("vmhost", "box")
+        );
         assert!(v.running && v.caps.input && v.caps.remove_keeps_session);
-        assert!(!v.machine.can_create, "no \"new agent in this folder\" on a platform's machine");
+        assert!(
+            !v.machine.can_create,
+            "no \"new agent in this folder\" on a platform's machine"
+        );
         let rec = engine.records().into_iter().find(|r| r.id == v.id).unwrap();
-        assert_eq!(rec.locator.as_ref().unwrap().to_string(), "vmhost:box/api-fix");
+        assert_eq!(
+            rec.locator.as_ref().unwrap().to_string(),
+            "vmhost:box/api-fix"
+        );
         assert_eq!(rec.term_size(), Some((90, 30)));
         let ctl = vm.ctl("api-fix").unwrap();
         crate::engine::input::write_input(&engine, &v.id, "hi\r").unwrap();
         assert_eq!(ctl.input(), b"hi\r", "attached: input reaches the session");
 
         // The same name again: Pitwall already has it.
-        assert!(create(&engine, req("api-fix", &[])).unwrap_err().contains("already has a session \"api-fix\""));
+        assert!(create(&engine, req("api-fix", &[]))
+            .unwrap_err()
+            .contains("already has a session \"api-fix\""));
         // The platform refuses: its message, nothing added.
         let other = create(&engine, req("other", &[]));
         assert!(other.is_ok());
-        vm.fail_next(PwError::other("agw couldn't create \"third\": VM is stopped"));
-        assert_eq!(create(&engine, req("third", &[])).unwrap_err(), "agw couldn't create \"third\": VM is stopped");
+        vm.fail_next(PwError::other(
+            "agw couldn't create \"third\": VM is stopped",
+        ));
+        assert_eq!(
+            create(&engine, req("third", &[])).unwrap_err(),
+            "agw couldn't create \"third\": VM is stopped"
+        );
         assert_eq!(engine.views().len(), 2);
 
         // Quitting with "stop agents" or removing it leaves it running there.
@@ -796,13 +1066,23 @@ mod tests {
         assert!(ctl.running(), "Quit and Stop Agents only detaches");
         remove(&engine, &v.id, false).unwrap();
         assert!(ctl.running(), "removing it from Pitwall only detaches");
-        assert_eq!(vm.state(&Locator::new(&ProviderId::new("vmhost"), &MachineId::new("box"), "api-fix")).unwrap(), NativeState::Running);
+        assert_eq!(
+            vm.state(&Locator::new(
+                &ProviderId::new("vmhost"),
+                &MachineId::new("box"),
+                "api-fix"
+            ))
+            .unwrap(),
+            NativeState::Running
+        );
         // This Mac's form takes no platform options.
         let mut mac = req("m", &[("workspace", "work")]);
         mac.machine = Some("this-mac".into());
         mac.kind = "shell".into();
         mac.project_path = dir.path().to_string_lossy().into_owned();
-        assert!(create(&engine, mac).unwrap_err().contains("takes no options"));
+        assert!(create(&engine, mac)
+            .unwrap_err()
+            .contains("takes no options"));
     }
 
     #[test]

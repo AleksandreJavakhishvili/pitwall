@@ -41,19 +41,24 @@ pub const USAGE: &str = "usage: pitwall-hold --socket <path> [--cols N] [--rows 
 /// Parse the arguments after argv[0].
 pub fn parse_args(args: Vec<OsString>) -> Result<Config, String> {
     let mut it = args.into_iter();
-    let (mut socket, mut cwd, mut cols, mut rows, mut grace) = (None, None, 120u16, 40u16, DEFAULT_GRACE);
+    let (mut socket, mut cwd, mut cols, mut rows, mut grace) =
+        (None, None, 120u16, 40u16, DEFAULT_GRACE);
     let mut command = Vec::new();
     while let Some(a) = it.next() {
         let mut value = |name: &str| it.next().ok_or_else(|| format!("{name} needs a value"));
         let num = |v: OsString, name: &str| -> Result<u64, String> {
-            v.to_str().and_then(|s| s.parse().ok()).ok_or_else(|| format!("{name}: not a number"))
+            v.to_str()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| format!("{name}: not a number"))
         };
         match a.to_str() {
             Some("--socket") => socket = Some(PathBuf::from(value("--socket")?)),
             Some("--cwd") => cwd = Some(PathBuf::from(value("--cwd")?)),
             Some("--cols") => cols = num(value("--cols")?, "--cols")?.clamp(1, 1000) as u16,
             Some("--rows") => rows = num(value("--rows")?, "--rows")?.clamp(1, 1000) as u16,
-            Some("--grace-ms") => grace = Duration::from_millis(num(value("--grace-ms")?, "--grace-ms")?),
+            Some("--grace-ms") => {
+                grace = Duration::from_millis(num(value("--grace-ms")?, "--grace-ms")?)
+            }
             Some("--") => {
                 command.extend(it.by_ref());
                 break;
@@ -66,7 +71,15 @@ pub fn parse_args(args: Vec<OsString>) -> Result<Config, String> {
         return Err(format!("no program given\n{USAGE}"));
     }
     let program = command.remove(0);
-    Ok(Config { socket, cols, rows, cwd, grace, program, args: command })
+    Ok(Config {
+        socket,
+        cols,
+        rows,
+        cwd,
+        grace,
+        program,
+        args: command,
+    })
 }
 
 /// Launcher entry point: detach a holder, wait for its report, return the
@@ -89,7 +102,14 @@ pub fn run(cfg: Config) -> i32 {
                 }
                 None => {
                     let msg = text.trim();
-                    eprintln!("pitwall-hold: {}", if msg.is_empty() { "the holder failed to start" } else { msg });
+                    eprintln!(
+                        "pitwall-hold: {}",
+                        if msg.is_empty() {
+                            "the holder failed to start"
+                        } else {
+                            msg
+                        }
+                    );
                     1
                 }
             }
@@ -119,7 +139,10 @@ pub fn bind(path: &Path) -> io::Result<(Listener, Option<u64>)> {
         Ok(c) if c.info.exit.is_none() => {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
-                format!("a holder with a running process already uses {}", path.display()),
+                format!(
+                    "a holder with a running process already uses {}",
+                    path.display()
+                ),
             ))
         }
         // Its child is gone; the old holder is only lingering. Ask it to go
@@ -128,12 +151,17 @@ pub fn bind(path: &Path) -> io::Result<(Listener, Option<u64>)> {
             let _ = c.send(&proto::shutdown(0));
             platform::remove_stale_endpoint(path);
         }
-        Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => platform::remove_stale_endpoint(path),
+        Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => {
+            platform::remove_stale_endpoint(path)
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => {
             return Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
-                format!("{} is in use by something that isn't a compatible holder: {e}", path.display()),
+                format!(
+                    "{} is in use by something that isn't a compatible holder: {e}",
+                    path.display()
+                ),
             ))
         }
     }
@@ -208,7 +236,10 @@ impl Hub {
             Ok(p) => p,
             Err(e) => {
                 platform::remove_endpoint(&cfg.socket, token);
-                return Err(io::Error::new(e.kind(), format!("could not start the terminal: {e}")));
+                return Err(io::Error::new(
+                    e.kind(),
+                    format!("could not start the terminal: {e}"),
+                ));
             }
         };
         Ok(Arc::new(Hub {
@@ -235,12 +266,19 @@ impl Hub {
     }
 
     fn info(&self, st: &State) -> Info {
-        Info { holder_pid: self.holder_pid, child_pid: self.child_pid, cols: st.cols, rows: st.rows, exit: st.exit }
+        Info {
+            holder_pid: self.holder_pid,
+            child_pid: self.child_pid,
+            cols: st.cols,
+            rows: st.rows,
+            exit: st.exit,
+        }
     }
 
     /// Send to every attached client, dropping the ones that can't keep up.
     fn broadcast(st: &mut State, frame: &[u8]) {
-        st.clients.retain(|c| !c.attached || c.out.push(frame.to_vec()));
+        st.clients
+            .retain(|c| !c.attached || c.out.push(frame.to_vec()));
     }
 
     fn serve(self: &Arc<Self>) {
@@ -256,12 +294,21 @@ impl Hub {
         loop {
             if let Some(until) = st.linger_until {
                 let now = Instant::now();
-                let flushed = st.clients.iter().all(|c| c.out.queued.load(Ordering::SeqCst) == 0);
-                if (flushed && (st.shutdown || now >= until)) || now >= until + Duration::from_secs(1) {
+                let flushed = st
+                    .clients
+                    .iter()
+                    .all(|c| c.out.queued.load(Ordering::SeqCst) == 0);
+                if (flushed && (st.shutdown || now >= until))
+                    || now >= until + Duration::from_secs(1)
+                {
                     break;
                 }
             }
-            st = self.cv.wait_timeout(st, Duration::from_millis(50)).unwrap_or_else(|e| e.into_inner()).0;
+            st = self
+                .cv
+                .wait_timeout(st, Duration::from_millis(50))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
         drop(st);
         platform::remove_endpoint(&self.socket, self.token);
@@ -293,7 +340,11 @@ impl Hub {
         let deadline = Instant::now() + DRAIN;
         let mut st = lock(&self.st);
         while !st.output_done && Instant::now() < deadline {
-            st = self.cv.wait_timeout(st, Duration::from_millis(20)).unwrap_or_else(|e| e.into_inner()).0;
+            st = self
+                .cv
+                .wait_timeout(st, Duration::from_millis(20))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
         st.exit = Some(code);
         st.linger_until = Some(Instant::now() + self.grace);
@@ -320,7 +371,10 @@ impl Hub {
     fn client(&self, id: u64, stream: Stream) {
         let (mut recv, mut send) = stream.split();
         let (tx, rx) = mpsc::channel::<Vec<u8>>();
-        let out = Out { tx, queued: Arc::new(AtomicUsize::new(0)) };
+        let out = Out {
+            tx,
+            queued: Arc::new(AtomicUsize::new(0)),
+        };
         let queued = out.queued.clone();
         std::thread::spawn(move || {
             for frame in rx {
@@ -375,7 +429,11 @@ impl Hub {
                 if let Some(code) = st.exit {
                     out.push(proto::encode(proto::EXIT, &code.to_be_bytes()));
                 }
-                st.clients.push(Client { id, out: out.clone(), attached: true });
+                st.clients.push(Client {
+                    id,
+                    out: out.clone(),
+                    attached: true,
+                });
             }
             proto::INPUT => {
                 if lock(&self.st).exit.is_none() {
@@ -401,7 +459,9 @@ impl Hub {
                 return out.push(proto::encode(proto::INFO, &b));
             }
             proto::SHUTDOWN => {
-                let grace = body.get(0..4).map_or(0, |g| u32::from_be_bytes([g[0], g[1], g[2], g[3]]));
+                let grace = body
+                    .get(0..4)
+                    .map_or(0, |g| u32::from_be_bytes([g[0], g[1], g[2], g[3]]));
                 let mut st = lock(&self.st);
                 st.shutdown = true;
                 if st.exit.is_none() {
@@ -446,7 +506,23 @@ mod tests {
 
     #[test]
     fn parses_arguments() {
-        let c = parse_args(args(&["--socket", "/t/a.sock", "--cols", "77", "--rows", "0", "--cwd", "/w", "--grace-ms", "50", "--", "sh", "-c", "echo hi"])).unwrap();
+        let c = parse_args(args(&[
+            "--socket",
+            "/t/a.sock",
+            "--cols",
+            "77",
+            "--rows",
+            "0",
+            "--cwd",
+            "/w",
+            "--grace-ms",
+            "50",
+            "--",
+            "sh",
+            "-c",
+            "echo hi",
+        ]))
+        .unwrap();
         assert_eq!(c.socket, PathBuf::from("/t/a.sock"));
         assert_eq!((c.cols, c.rows), (77, 1));
         assert_eq!(c.cwd, Some(PathBuf::from("/w")));
@@ -459,7 +535,10 @@ mod tests {
         assert_eq!(d.args, args(&["--cols"]), "args after -- are the program's");
 
         assert!(parse_args(args(&["--", "sh"])).is_err(), "socket required");
-        assert!(parse_args(args(&["--socket", "s"])).is_err(), "program required");
+        assert!(
+            parse_args(args(&["--socket", "s"])).is_err(),
+            "program required"
+        );
         assert!(parse_args(args(&["--socket", "s", "--cols", "x", "--", "sh"])).is_err());
         assert!(parse_args(args(&["--bogus"])).is_err());
     }

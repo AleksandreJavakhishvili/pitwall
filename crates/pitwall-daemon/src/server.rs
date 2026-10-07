@@ -11,7 +11,9 @@ use std::time::Duration;
 
 use pitwall_core::Shared;
 use pitwall_proto::frame::{self, Frame};
-use pitwall_proto::{answer_hello, caps, code, ClientHello, ErrorBody, Range, Request, Response, ServerHello};
+use pitwall_proto::{
+    answer_hello, caps, code, ClientHello, ErrorBody, Range, Request, Response, ServerHello,
+};
 
 use crate::approvals::Approvals;
 use crate::identity::{Caller, Identify};
@@ -76,28 +78,52 @@ impl Drop for Handle {
 
 /// Start listening. Requests go to `engine`; risky ones wait in `approvals`;
 /// `identify` says who each connection is.
-pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identify>, cfg: Config) -> io::Result<Handle> {
+pub fn serve(
+    engine: Shared,
+    approvals: Arc<Approvals>,
+    identify: Arc<dyn Identify>,
+    cfg: Config,
+) -> io::Result<Handle> {
     let listener = platform::bind(&cfg.socket)?;
-    let server = Arc::new(Server { engine, approvals, identify, instance: uuid::Uuid::new_v4().to_string(), version: cfg.version });
+    let server = Arc::new(Server {
+        engine,
+        approvals,
+        identify,
+        instance: uuid::Uuid::new_v4().to_string(),
+        version: cfg.version,
+    });
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
-    let thread = std::thread::Builder::new().name("pitwall-server".into()).spawn(move || {
-        for conn in listener.incoming() {
-            if flag.load(Ordering::SeqCst) {
-                break;
-            }
-            let Ok(conn) = conn else { continue };
-            let server = server.clone();
-            let _ = std::thread::Builder::new().name("pitwall-conn".into()).spawn(move || {
-                if let Err(e) = handle(&server, conn) {
-                    if !matches!(e.kind(), io::ErrorKind::UnexpectedEof | io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset) {
-                        eprintln!("pitwall: socket client: {e}");
-                    }
+    let thread = std::thread::Builder::new()
+        .name("pitwall-server".into())
+        .spawn(move || {
+            for conn in listener.incoming() {
+                if flag.load(Ordering::SeqCst) {
+                    break;
                 }
-            });
-        }
-    })?;
-    Ok(Handle { path: cfg.socket, stop, thread: Some(thread) })
+                let Ok(conn) = conn else { continue };
+                let server = server.clone();
+                let _ = std::thread::Builder::new()
+                    .name("pitwall-conn".into())
+                    .spawn(move || {
+                        if let Err(e) = handle(&server, conn) {
+                            if !matches!(
+                                e.kind(),
+                                io::ErrorKind::UnexpectedEof
+                                    | io::ErrorKind::BrokenPipe
+                                    | io::ErrorKind::ConnectionReset
+                            ) {
+                                eprintln!("pitwall: socket client: {e}");
+                            }
+                        }
+                    });
+            }
+        })?;
+    Ok(Handle {
+        path: cfg.socket,
+        stop,
+        thread: Some(thread),
+    })
 }
 
 fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
@@ -105,7 +131,9 @@ fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
     conn.set_read_timeout(Some(HELLO_TIMEOUT))?;
     let mut reader = BufReader::new(conn.try_clone()?);
     let mut writer = BufWriter::new(conn.try_clone()?);
-    let Some(Frame::Json(body)) = frame::read(&mut reader)? else { return Ok(()) };
+    let Some(Frame::Json(body)) = frame::read(&mut reader)? else {
+        return Ok(());
+    };
     let hello = match serde_json::from_slice::<ClientHello>(&body) {
         Ok(ClientHello::Hello(h)) => h,
         Err(_) => {
@@ -117,7 +145,13 @@ fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
             return frame::write_json(&mut writer, &reject);
         }
     };
-    let answer = answer_hello(&hello, Range::ours(), &server.version, CAPS, &server.instance);
+    let answer = answer_hello(
+        &hello,
+        Range::ours(),
+        &server.version,
+        CAPS,
+        &server.instance,
+    );
     let welcomed = matches!(answer, ServerHello::Welcome(_));
     frame::write_json(&mut writer, &answer)?;
     if !welcomed {
@@ -133,7 +167,10 @@ fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
         };
         let resp = match serde_json::from_slice::<Request>(&body) {
             Ok(req) => respond(server, &caller, req),
-            Err(e) => Response::err(0, ErrorBody::new(code::BAD_PARAMS, format!("not a request: {e}"))),
+            Err(e) => Response::err(
+                0,
+                ErrorBody::new(code::BAD_PARAMS, format!("not a request: {e}")),
+            ),
         };
         frame::write_json(&mut writer, &resp)?;
     }

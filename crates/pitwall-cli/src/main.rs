@@ -18,7 +18,10 @@ use serde_json::{json, Value};
 
 use args::{AgentCmd, Cli, Command, MachineCmd, SessionCmd};
 use pitwall_client::{Client, Error};
-use pitwall_proto::{code, AgentCreate, ErrorBody, FormRequest, ProviderMachines, SessionAdd, SessionFilter, CREATE_NEW};
+use pitwall_proto::{
+    code, AgentCreate, ErrorBody, FormRequest, ProviderMachines, SessionAdd, SessionFilter,
+    CREATE_NEW,
+};
 
 /// What a command produced: its JSON result and the same as text.
 pub struct Output {
@@ -27,7 +30,10 @@ pub struct Output {
 }
 
 fn out<T: serde::Serialize>(v: &T, human: String) -> Output {
-    Output { json: serde_json::to_value(v).unwrap_or(Value::Null), human }
+    Output {
+        json: serde_json::to_value(v).unwrap_or(Value::Null),
+        human,
+    }
 }
 
 /// A folder as the server needs it: absolute (`~` is left for the server,
@@ -38,7 +44,10 @@ pub fn absolute(project: Option<&str>, cwd: &Path) -> String {
         Some(p) if p == "~" || p.starts_with("~/") => p.to_string(),
         Some(p) => {
             let path = cwd.join(p);
-            std::fs::canonicalize(&path).unwrap_or(path).to_string_lossy().into_owned()
+            std::fs::canonicalize(&path)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned()
         }
     }
 }
@@ -72,7 +81,11 @@ pub fn machine_options(a: &args::AgentNew) -> Result<BTreeMap<String, String>, S
             }
         }
         Some(w) if w == "admin" || w.starts_with("agent:") => set("runAs", w),
-        Some(w) => return Err(format!("--as {w}: expected admin, agent:<name> or new-agent[:<name>]")),
+        Some(w) => {
+            return Err(format!(
+                "--as {w}: expected admin, agent:<name> or new-agent[:<name>]"
+            ))
+        }
     }
     if let Some(t) = &a.agent_template {
         set("agentTemplate", t);
@@ -81,7 +94,9 @@ pub fn machine_options(a: &args::AgentNew) -> Result<BTreeMap<String, String>, S
         set("template", t);
     }
     for kv in &a.options {
-        let (k, v) = kv.split_once('=').ok_or_else(|| format!("--option {kv}: expected FIELD=VALUE"))?;
+        let (k, v) = kv
+            .split_once('=')
+            .ok_or_else(|| format!("--option {kv}: expected FIELD=VALUE"))?;
         set(k.trim(), v.trim());
     }
     Ok(o)
@@ -89,17 +104,30 @@ pub fn machine_options(a: &args::AgentNew) -> Result<BTreeMap<String, String>, S
 
 /// The provider that has `machine`.
 fn provider_of(list: &[ProviderMachines], machine: &str) -> Result<String, String> {
-    let found: Vec<_> = list.iter().filter(|p| p.machines.iter().any(|m| m.id == machine)).map(|p| p.provider.clone()).collect();
+    let found: Vec<_> = list
+        .iter()
+        .filter(|p| p.machines.iter().any(|m| m.id == machine))
+        .map(|p| p.provider.clone())
+        .collect();
     match found.as_slice() {
         [one] => Ok(one.clone()),
-        [] => Err(format!("no machine \"{machine}\" (see `pitwall machine list`)")),
-        _ => Err(format!("\"{machine}\" is a machine of {}: pass --provider", found.join(" and "))),
+        [] => Err(format!(
+            "no machine \"{machine}\" (see `pitwall machine list`)"
+        )),
+        _ => Err(format!(
+            "\"{machine}\" is a machine of {}: pass --provider",
+            found.join(" and ")
+        )),
     }
 }
 
 /// Run `cmd` against the Pitwall listening at `socket`.
 pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
-    let mut c = Client::connect_as(socket, &format!("pitwall-cli/{}", env!("CARGO_PKG_VERSION")), pitwall_proto::Role::Cli)?;
+    let mut c = Client::connect_as(
+        socket,
+        &format!("pitwall-cli/{}", env!("CARGO_PKG_VERSION")),
+        pitwall_proto::Role::Cli,
+    )?;
     Ok(match cmd {
         Command::Agent(AgentCmd::List) => {
             let list = c.agents()?;
@@ -107,10 +135,15 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         }
         Command::Agent(AgentCmd::New(a)) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-            let options = machine_options(a).map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
+            let options = machine_options(a)
+                .map_err(|e| Error::Server(ErrorBody::new(code::BAD_PARAMS, e)))?;
             let view = c.create_agent(&AgentCreate {
                 kind: a.kind.clone().unwrap_or_default(),
-                project: if a.machine.is_some() { String::new() } else { absolute(a.project.as_deref(), &cwd) },
+                project: if a.machine.is_some() {
+                    String::new()
+                } else {
+                    absolute(a.project.as_deref(), &cwd)
+                },
                 name: a.name.clone(),
                 resume: a.resume.clone(),
                 provider: a.provider.clone(),
@@ -128,16 +161,28 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Machine(MachineCmd::Form { machine, provider }) => {
             let provider = match provider {
                 Some(p) => p.clone(),
-                None => provider_of(&c.machines()?, machine).map_err(|e| Error::Server(ErrorBody::new(code::NOT_FOUND, e)))?,
+                None => provider_of(&c.machines()?, machine)
+                    .map_err(|e| Error::Server(ErrorBody::new(code::NOT_FOUND, e)))?,
             };
-            let form = c.create_form(&FormRequest { provider, machine: machine.clone() })?;
+            let form = c.create_form(&FormRequest {
+                provider,
+                machine: machine.clone(),
+            })?;
             out(&form, render::form(&form))
         }
         Command::Session(SessionCmd::List { provider, machine }) => {
-            let list = c.sessions(&SessionFilter { provider: provider.clone(), machine: machine.clone() })?;
+            let list = c.sessions(&SessionFilter {
+                provider: provider.clone(),
+                machine: machine.clone(),
+            })?;
             out(&list, render::sessions(&list))
         }
-        Command::Session(SessionCmd::Add { provider, machine, name, start }) => {
+        Command::Session(SessionCmd::Add {
+            provider,
+            machine,
+            name,
+            start,
+        }) => {
             let added = c.add_session(&SessionAdd {
                 provider: provider.clone(),
                 machine: machine.clone(),
@@ -159,20 +204,30 @@ pub fn failure(e: &Error) -> (Value, u8) {
         Error::Rejected(_) => ErrorBody::new(code::INCOMPATIBLE, e.to_string()),
         Error::Io(_) | Error::Protocol(_) => ErrorBody::new("connection", e.to_string()),
     };
-    let status = if body.code == code::DENIED || body.code == code::APPROVAL_TIMEOUT { 3 } else { 1 };
+    let status = if body.code == code::DENIED || body.code == code::APPROVAL_TIMEOUT {
+        3
+    } else {
+        1
+    };
     (json!({ "error": body }), status)
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let socket = cli.socket.clone().unwrap_or_else(pitwall_client::socket_path);
+    let socket = cli
+        .socket
+        .clone()
+        .unwrap_or_else(pitwall_client::socket_path);
     match run(&cli.command, &socket) {
         Ok(o) if cli.human => {
             print!("{}", o.human);
             ExitCode::SUCCESS
         }
         Ok(o) => {
-            println!("{}", serde_json::to_string_pretty(&o.json).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&o.json).unwrap_or_default()
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {

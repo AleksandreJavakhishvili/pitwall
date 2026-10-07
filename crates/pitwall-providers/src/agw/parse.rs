@@ -46,15 +46,33 @@ pub fn json(out: &str) -> Option<Value> {
 fn rows<'a>(v: &'a Value, key: &str) -> Option<&'a Vec<Value>> {
     v.as_array()
         .or_else(|| v.get(key).and_then(Value::as_array))
-        .or_else(|| v.get("data").and_then(|d| d.get(key)).and_then(Value::as_array))
+        .or_else(|| {
+            v.get("data")
+                .and_then(|d| d.get(key))
+                .and_then(Value::as_array)
+        })
 }
 
 fn text(row: &Value, key: &str) -> Option<String> {
-    row.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(String::from)
+    row.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 pub fn vms(v: &Value) -> Option<Vec<Vm>> {
-    Some(rows(v, "vms")?.iter().filter_map(|r| Some(Vm { name: text(r, "name")?, site: text(r, "site") })).collect())
+    Some(
+        rows(v, "vms")?
+            .iter()
+            .filter_map(|r| {
+                Some(Vm {
+                    name: text(r, "name")?,
+                    site: text(r, "site"),
+                })
+            })
+            .collect(),
+    )
 }
 
 fn session(r: &Value) -> Option<Session> {
@@ -77,7 +95,11 @@ fn session(r: &Value) -> Option<Session> {
 
 /// `agw session describe <name> --output json` → `data.session`.
 pub fn described(v: &Value) -> Option<Session> {
-    let s = v.get("data").and_then(|d| d.get("session")).or_else(|| v.get("session")).unwrap_or(v);
+    let s = v
+        .get("data")
+        .and_then(|d| d.get("session"))
+        .or_else(|| v.get("session"))
+        .unwrap_or(v);
     session(s)
 }
 
@@ -87,7 +109,11 @@ pub fn sessions(v: &Value) -> Option<Vec<Session>> {
 
 /// `agw workspace describe --output json` → the workspace's folder on its VM.
 pub fn workspace_path(v: &Value) -> Option<String> {
-    let w = v.get("data").and_then(|d| d.get("workspace")).or_else(|| v.get("workspace")).unwrap_or(v);
+    let w = v
+        .get("data")
+        .and_then(|d| d.get("workspace"))
+        .or_else(|| v.get("workspace"))
+        .unwrap_or(v);
     text(w, "path")
 }
 
@@ -95,14 +121,28 @@ pub fn workspace_path(v: &Value) -> Option<String> {
 /// (agw prints notices and warnings before it), else the first line.
 pub fn error_line(stderr: &str) -> String {
     let mut lines = stderr.lines().map(str::trim).filter(|l| !l.is_empty());
-    let line = stderr.lines().map(str::trim).find(|l| l.starts_with("Error:")).or_else(|| lines.next()).unwrap_or("agw failed");
-    line.strip_prefix("Error:").map(str::trim).unwrap_or(line).to_string()
+    let line = stderr
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("Error:"))
+        .or_else(|| lines.next())
+        .unwrap_or("agw failed");
+    line.strip_prefix("Error:")
+        .map(str::trim)
+        .unwrap_or(line)
+        .to_string()
 }
 
 /// The `Hint:` agw prints after an error, if any.
 pub fn hint_line(stderr: &str) -> Option<String> {
-    let after = stderr.lines().map(str::trim).skip_while(|l| !l.starts_with("Error:"));
-    after.filter_map(|l| l.strip_prefix("Hint:")).map(|h| h.trim().to_string()).find(|h| !h.is_empty())
+    let after = stderr
+        .lines()
+        .map(str::trim)
+        .skip_while(|l| !l.starts_with("Error:"));
+    after
+        .filter_map(|l| l.strip_prefix("Hint:"))
+        .map(|h| h.trim().to_string())
+        .find(|h| !h.is_empty())
 }
 
 /// One workspace of `agw workspace list` (or an agent of `agw agent list`):
@@ -114,7 +154,17 @@ pub struct Named {
 }
 
 fn named(v: &Value, key: &str) -> Option<Vec<Named>> {
-    Some(rows(v, key)?.iter().filter_map(|r| Some(Named { name: text(r, "name")?, template: text(r, "template") })).collect())
+    Some(
+        rows(v, key)?
+            .iter()
+            .filter_map(|r| {
+                Some(Named {
+                    name: text(r, "name")?,
+                    template: text(r, "template"),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// `agw workspace list --vm <vm> --output json` → `data.workspaces`.
@@ -177,7 +227,10 @@ mod tests {
         assert_eq!((s.agent.as_deref(), s.status), (None, Status::Running));
         assert_eq!(got[1].status, Status::Stopped);
         // Without `--status` agw reports "unavailable".
-        let plain = sessions(&fixture(include_str!("fixtures/session_list_nostatus.json"))).unwrap();
+        let plain = sessions(&fixture(include_str!(
+            "fixtures/session_list_nostatus.json"
+        )))
+        .unwrap();
         assert!(plain.iter().all(|s| s.status == Status::Unknown));
         // A banner before the JSON, other harnesses, agent mode, a template only.
         let v = fixture(
@@ -185,8 +238,14 @@ mod tests {
         );
         let got = sessions(&v).unwrap();
         assert_eq!(got.len(), 2);
-        assert_eq!((got[0].harness.as_deref(), got[0].agent.as_deref()), (Some("codex"), Some("bot")));
-        assert_eq!((got[1].harness.as_deref(), got[1].status), (Some("login-shell"), Status::Unknown));
+        assert_eq!(
+            (got[0].harness.as_deref(), got[0].agent.as_deref()),
+            (Some("codex"), Some("bot"))
+        );
+        assert_eq!(
+            (got[1].harness.as_deref(), got[1].status),
+            (Some("login-shell"), Status::Unknown)
+        );
         assert!(json("oops").is_none());
         assert!(sessions(&fixture("{\"data\":{}}")).is_none());
     }
@@ -194,16 +253,31 @@ mod tests {
     #[test]
     fn vm_list_and_workspaces() {
         let got = vms(&fixture(include_str!("fixtures/vm_list.json"))).unwrap();
-        assert_eq!(got, [Vm { name: "my-vm".into(), site: Some("local-site".into()) }]);
+        assert_eq!(
+            got,
+            [Vm {
+                name: "my-vm".into(),
+                site: Some("local-site".into())
+            }]
+        );
         let ws = fixture(include_str!("fixtures/workspace_describe.json"));
-        assert_eq!(workspace_path(&ws).as_deref(), Some("/opt/agentworks/workspaces/api-session"));
+        assert_eq!(
+            workspace_path(&ws).as_deref(),
+            Some("/opt/agentworks/workspaces/api-session")
+        );
         assert_eq!(workspace_path(&fixture("{}")), None);
     }
 
     #[test]
     fn errors_read_like_agw() {
-        assert_eq!(error_line("Error: unknown VM 'nope'\n  Hint: Run 'agw vm list'"), "unknown VM 'nope'");
-        assert_eq!(hint_line("Error: unknown VM 'nope'\n  Hint: Run 'agw vm list'").as_deref(), Some("Run 'agw vm list'"));
+        assert_eq!(
+            error_line("Error: unknown VM 'nope'\n  Hint: Run 'agw vm list'"),
+            "unknown VM 'nope'"
+        );
+        assert_eq!(
+            hint_line("Error: unknown VM 'nope'\n  Hint: Run 'agw vm list'").as_deref(),
+            Some("Run 'agw vm list'")
+        );
         assert_eq!(error_line("\n"), "agw failed");
         assert_eq!(hint_line("Error: x"), None);
         // Notices and warnings come first; the error is what counts.
@@ -215,21 +289,61 @@ mod tests {
     #[test]
     fn workspaces_agents_and_templates() {
         let ws = workspaces(&fixture(include_str!("fixtures/workspace_list.json"))).unwrap();
-        assert_eq!(ws, [Named { name: "api-session".into(), template: Some("api-session".into()) }, Named { name: "work".into(), template: Some("agentworks".into()) }]);
-        assert!(agents(&fixture(include_str!("fixtures/agent_list_empty.json"))).unwrap().is_empty());
+        assert_eq!(
+            ws,
+            [
+                Named {
+                    name: "api-session".into(),
+                    template: Some("api-session".into())
+                },
+                Named {
+                    name: "work".into(),
+                    template: Some("agentworks".into())
+                }
+            ]
+        );
+        assert!(
+            agents(&fixture(include_str!("fixtures/agent_list_empty.json")))
+                .unwrap()
+                .is_empty()
+        );
         let a = agents(&fixture(include_str!("fixtures/agent_list.json"))).unwrap();
-        assert_eq!(a[0], Named { name: "bot".into(), template: Some("claude".into()) });
+        assert_eq!(
+            a[0],
+            Named {
+                name: "bot".into(),
+                template: Some("claude".into())
+            }
+        );
         let r = resources(&fixture(include_str!("fixtures/resource_list.json"))).unwrap();
-        let of = |k: &str| r.iter().filter(|x| x.kind == k).map(|x| x.name.as_str()).collect::<Vec<_>>();
-        assert!(of("session-template").contains(&"claude") && of("session-template").contains(&"default"));
+        let of = |k: &str| {
+            r.iter()
+                .filter(|x| x.kind == k)
+                .map(|x| x.name.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            of("session-template").contains(&"claude")
+                && of("session-template").contains(&"default")
+        );
         assert!(of("workspace-template").contains(&"agentworks"));
         assert!(of("agent-template").contains(&"default"));
         let filtered = resources(&fixture(
             r#"{"data":{"resources":[{"kind":"session-template","name":"ok","not_ready_reason":null},{"kind":"session-template","name":"off","disabled":true},{"kind":"session-template","name":"broken","not_ready_reason":"missing secret"}]}}"#,
         ))
         .unwrap();
-        assert_eq!(filtered.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["ok"], "disabled and not-ready ones are left out");
-        let claude = r.iter().find(|x| x.kind == "session-template" && x.name == "claude").unwrap();
-        assert_eq!((claude.description.as_deref(), claude.used_by), (Some("Claude Code interactive session"), 2));
+        assert_eq!(
+            filtered.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(),
+            ["ok"],
+            "disabled and not-ready ones are left out"
+        );
+        let claude = r
+            .iter()
+            .find(|x| x.kind == "session-template" && x.name == "claude")
+            .unwrap();
+        assert_eq!(
+            (claude.description.as_deref(), claude.used_by),
+            (Some("Claude Code interactive session"), 2)
+        );
     }
 }

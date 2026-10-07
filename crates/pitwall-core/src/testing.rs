@@ -14,8 +14,8 @@ pub use fake::{FakeProvider, FakeTerm, FakeTermCtl, Launched};
 
 use crate::clock::Clock;
 use crate::engine::{Deps, Engine, Shared};
-use crate::events::{Event, EventSink};
 use crate::error::{PwError, Result};
+use crate::events::{Event, EventSink};
 use crate::exec::{Cmd, Exec, FileKind, LocalExec, Out, Stat};
 use crate::model::AgentRecord;
 use crate::paths::Paths;
@@ -41,7 +41,10 @@ impl RecordingSink {
 
 impl EventSink for RecordingSink {
     fn emit(&self, event: Event) {
-        self.events.lock().unwrap_or_else(|e| e.into_inner()).push(event);
+        self.events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(event);
     }
 }
 
@@ -73,7 +76,10 @@ pub struct MemStore {
 
 impl MemStore {
     pub fn with(agents: Vec<AgentRecord>) -> Arc<MemStore> {
-        Arc::new(MemStore { snapshot: Mutex::new(Snapshot { agents }), saves: AtomicU64::new(0) })
+        Arc::new(MemStore {
+            snapshot: Mutex::new(Snapshot { agents }),
+            saves: AtomicU64::new(0),
+        })
     }
 
     pub fn saves(&self) -> u64 {
@@ -83,7 +89,10 @@ impl MemStore {
 
 impl Store for MemStore {
     fn load(&self) -> Snapshot {
-        self.snapshot.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn save(&self, snapshot: &Snapshot) -> std::result::Result<(), String> {
@@ -145,7 +154,11 @@ impl Harness {
     /// Agents' machine is `exec` (e.g. a [`FakeExec`]).
     pub fn with_exec(agents: Vec<AgentRecord>, exec: Arc<dyn Exec>) -> Harness {
         let dir = TempDir::new("engine");
-        let (events, clock, store) = (RecordingSink::new(), ManualClock::new(1_000), MemStore::with(agents));
+        let (events, clock, store) = (
+            RecordingSink::new(),
+            ManualClock::new(1_000),
+            MemStore::with(agents),
+        );
         let provider = FakeProvider::named(ProviderId::LOCAL, MachineId::THIS_MAC, exec);
         let engine = Engine::open(Deps {
             paths: Paths::new(dir.path().join("pitwall")),
@@ -154,7 +167,14 @@ impl Harness {
             store: store.clone(),
             providers: vec![provider.clone()],
         });
-        Harness { engine, provider, events, clock, store, dir }
+        Harness {
+            engine,
+            provider,
+            events,
+            clock,
+            store,
+            dir,
+        }
     }
 }
 
@@ -176,7 +196,11 @@ impl Call {
     }
 
     pub fn env_get(&self, key: &str) -> Option<&str> {
-        self.env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.env
+            .iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn matches(&self, pattern: &[&str]) -> bool {
@@ -218,7 +242,11 @@ pub const FAKE_HOME: &str = "/fake/home";
 
 impl FakeExec {
     pub fn new() -> Arc<FakeExec> {
-        let x = FakeExec { scripts: Mutex::default(), calls: Mutex::default(), files: Mutex::default() };
+        let x = FakeExec {
+            scripts: Mutex::default(),
+            calls: Mutex::default(),
+            files: Mutex::default(),
+        };
         x.dir(FAKE_TEMP).dir(FAKE_HOME);
         Arc::new(x)
     }
@@ -229,7 +257,11 @@ impl FakeExec {
     }
 
     pub fn on_exit(&self, pattern: &[&str], status: i32, stdout: &str, stderr: &str) -> &Self {
-        let out = Out { status, stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() };
+        let out = Out {
+            status,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        };
         self.script(pattern, Ok(out))
     }
 
@@ -272,7 +304,10 @@ impl FakeExec {
 
     /// How many calls matched `pattern`.
     pub fn ran(&self, pattern: &[&str]) -> usize {
-        guard(&self.calls).iter().filter(|c| c.matches(pattern)).count()
+        guard(&self.calls)
+            .iter()
+            .filter(|c| c.matches(pattern))
+            .count()
     }
 
     fn kind(&self, path: &str) -> Option<FileKind> {
@@ -281,7 +316,10 @@ impl FakeExec {
             Some(Entry::File(_)) => Some(FileKind::File),
             Some(Entry::Dir) => Some(FileKind::Dir),
             // A folder that holds something exists implicitly.
-            None => files.keys().any(|k| k.starts_with(&format!("{path}/"))).then_some(FileKind::Dir),
+            None => files
+                .keys()
+                .any(|k| k.starts_with(&format!("{path}/")))
+                .then_some(FileKind::Dir),
         }
     }
 }
@@ -292,12 +330,19 @@ impl Exec for FakeExec {
         guard(&self.calls).push(Call {
             argv: argv.clone(),
             cwd: cmd.cwd.map(String::from),
-            env: cmd.env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            env: cmd
+                .env
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             stdin: cmd.stdin.map(<[u8]>::to_vec),
             timeout: cmd.timeout,
         });
         let scripts = guard(&self.scripts);
-        let hit = scripts.iter().rev().find(|(p, _)| matches(&p.iter().map(String::as_str).collect::<Vec<_>>(), &argv));
+        let hit = scripts
+            .iter()
+            .rev()
+            .find(|(p, _)| matches(&p.iter().map(String::as_str).collect::<Vec<_>>(), &argv));
         match hit {
             Some((_, reply)) => reply.clone(),
             None => Err(PwError::other(format!("FakeExec: no script for {argv:?}"))),
@@ -345,7 +390,9 @@ impl Exec for FakeExec {
     }
 
     fn copy_file(&self, from: &str, to: &str) -> Result<()> {
-        let bytes = self.contents(from).ok_or_else(|| format!("{from}: not found"))?;
+        let bytes = self
+            .contents(from)
+            .ok_or_else(|| format!("{from}: not found"))?;
         self.write_file(to, &bytes)
     }
 
@@ -356,7 +403,9 @@ impl Exec for FakeExec {
 
     fn real_path(&self, path: &str) -> Result<String> {
         let p = path.trim_end_matches('/');
-        self.kind(p).map(|_| p.to_string()).ok_or_else(|| PwError::not_found(format!("{path}: not found")))
+        self.kind(p)
+            .map(|_| p.to_string())
+            .ok_or_else(|| PwError::not_found(format!("{path}: not found")))
     }
 
     fn temp_dir(&self) -> Result<String> {

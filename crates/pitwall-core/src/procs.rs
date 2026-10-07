@@ -32,7 +32,11 @@ pub fn parse_table(out: &str) -> Vec<ProcRow> {
             let rest = l.trim_start();
             let rest = rest[rest.find(char::is_whitespace)?..].trim_start();
             let args = rest[rest.find(char::is_whitespace)?..].trim_start();
-            Some(ProcRow { pid, ppid, args: args.to_string() })
+            Some(ProcRow {
+                pid,
+                ppid,
+                args: args.to_string(),
+            })
         })
         .collect()
 }
@@ -78,8 +82,15 @@ pub fn parse_proc_stat(text: &str) -> Option<ProcStat> {
     let comm = text.get(open + 1..close)?.to_string();
     // state ppid pgrp session tty_nr tpgid …
     let rest: Vec<&str> = text[close + 1..].split_whitespace().take(6).collect();
-    let [_state, ppid, _pgrp, _session, _tty, tpgid] = rest[..] else { return None };
-    Some(ProcStat { pid, comm, ppid: ppid.parse().ok()?, tpgid: tpgid.parse().ok()? })
+    let [_state, ppid, _pgrp, _session, _tty, tpgid] = rest[..] else {
+        return None;
+    };
+    Some(ProcStat {
+        pid,
+        comm,
+        ppid: ppid.parse().ok()?,
+        tpgid: tpgid.parse().ok()?,
+    })
 }
 
 /// A Linux `/proc/<pid>/cmdline` as `ps -o args=` shows it: the
@@ -140,7 +151,10 @@ impl Matcher {
                     k.process_names.clone()
                 };
                 let names: Vec<String> = names.into_iter().filter(|n| !n.is_empty()).collect();
-                (!names.is_empty()).then(|| Entry { names, kind: k.clone() })
+                (!names.is_empty()).then(|| Entry {
+                    names,
+                    kind: k.clone(),
+                })
             })
             .collect();
         Matcher { entries }
@@ -157,11 +171,15 @@ impl Matcher {
         if rest.iter().any(|w| SERVERS.contains(w)) {
             return None;
         }
-        let e = self.entries.iter().find(|e| e.names.iter().any(|n| n == prog))?;
+        let e = self
+            .entries
+            .iter()
+            .find(|e| e.names.iter().any(|n| n == prog))?;
         Some(Recognised {
             kind: e.kind.id.clone(),
             kind_name: e.kind.name.clone(),
-            session_id: session_from_templates(&e.kind, &rest).or_else(|| session_from_args(&e.kind.id, &rest)),
+            session_id: session_from_templates(&e.kind, &rest)
+                .or_else(|| session_from_args(&e.kind.id, &rest)),
         })
     }
 }
@@ -172,7 +190,9 @@ impl Matcher {
 pub fn session_from_templates(kind: &AgentKind, args: &[&str]) -> Option<String> {
     let id = |s: &str| (!s.is_empty() && !s.starts_with('-')).then(|| s.to_string());
     for tpl in [&kind.new_args, &kind.resume_args] {
-        let Some(at) = tpl.iter().position(|a| a.contains("{session_id}")) else { continue };
+        let Some(at) = tpl.iter().position(|a| a.contains("{session_id}")) else {
+            continue;
+        };
         let slot = &tpl[at];
         if slot != "{session_id}" {
             // "--resume={session_id}": a prefix glued to the id.
@@ -182,8 +202,13 @@ pub fn session_from_templates(kind: &AgentKind, args: &[&str]) -> Option<String>
             }
             continue;
         }
-        let Some(flag) = at.checked_sub(1).map(|i| tpl[i].as_str()) else { continue };
-        if let Some(v) = args.iter().find_map(|a| a.strip_prefix(flag).and_then(|r| r.strip_prefix('='))) {
+        let Some(flag) = at.checked_sub(1).map(|i| tpl[i].as_str()) else {
+            continue;
+        };
+        if let Some(v) = args
+            .iter()
+            .find_map(|a| a.strip_prefix(flag).and_then(|r| r.strip_prefix('=')))
+        {
             return id(v);
         }
         if let Some(i) = args.iter().position(|a| *a == flag) {
@@ -256,9 +281,15 @@ pub fn agents_outside(rows: &[ProcRow], roots: &HashSet<u32>, matcher: &Matcher)
         .into_iter()
         .filter(|(pid, _)| {
             let up = ancestors(*pid);
-            !up.iter().any(|a| roots.contains(a) || agent_pids.contains(a))
+            !up.iter()
+                .any(|a| roots.contains(a) || agent_pids.contains(a))
         })
-        .map(|(pid, r)| Found { pid, kind: r.kind, kind_name: r.kind_name, session_id: r.session_id })
+        .map(|(pid, r)| Found {
+            pid,
+            kind: r.kind,
+            kind_name: r.kind_name,
+            session_id: r.session_id,
+        })
         .collect()
 }
 
@@ -286,7 +317,9 @@ mod tests {
     use crate::kind::load_kinds;
 
     fn matcher() -> Matcher {
-        Matcher::new(&load_kinds(std::path::Path::new("/nonexistent/pitwall-agents")))
+        Matcher::new(&load_kinds(std::path::Path::new(
+            "/nonexistent/pitwall-agents",
+        )))
     }
 
     fn roots(pids: &[u32]) -> HashSet<u32> {
@@ -294,26 +327,46 @@ mod tests {
     }
 
     fn short(found: Vec<Found>) -> Vec<(u32, String, Option<String>)> {
-        found.into_iter().map(|f| (f.pid, f.kind, f.session_id)).collect()
+        found
+            .into_iter()
+            .map(|f| (f.pid, f.kind, f.session_id))
+            .collect()
     }
 
     #[test]
     fn proc_stat_lines() {
         let st = parse_proc_stat(include_str!("platform/fixtures/proc/4242/stat")).unwrap();
-        assert_eq!(st, ProcStat { pid: 4242, comm: "claude".into(), ppid: 4100, tpgid: 4242 });
+        assert_eq!(
+            st,
+            ProcStat {
+                pid: 4242,
+                comm: "claude".into(),
+                ppid: 4100,
+                tpgid: 4242
+            }
+        );
         // A name with spaces and parentheses; a process without a terminal.
         let st = parse_proc_stat("77 (we(ird) name)) S 1 77 77 0 -1 4194560 120 0 0 0").unwrap();
-        assert_eq!((st.comm.as_str(), st.ppid, st.tpgid), ("we(ird) name)", 1, -1));
+        assert_eq!(
+            (st.comm.as_str(), st.ppid, st.tpgid),
+            ("we(ird) name)", 1, -1)
+        );
         assert_eq!(parse_proc_stat("12 (short) S 1"), None);
         assert_eq!(parse_proc_stat(""), None);
     }
 
     #[test]
     fn proc_cmdlines() {
-        assert_eq!(cmdline_args(b"node\0/usr/bin/codex\0resume\x00019e\0", "node"), "node /usr/bin/codex resume 019e");
+        assert_eq!(
+            cmdline_args(b"node\0/usr/bin/codex\0resume\x00019e\0", "node"),
+            "node /usr/bin/codex resume 019e"
+        );
         assert_eq!(cmdline_args(b"", "kthreadd"), "[kthreadd]");
         // setproctitle-style: one string with spaces, padded with NULs.
-        assert_eq!(cmdline_args(b"postgres: writer\0\0\0", "postgres"), "postgres: writer");
+        assert_eq!(
+            cmdline_args(b"postgres: writer\0\0\0", "postgres"),
+            "postgres: writer"
+        );
         assert_eq!(cmdline_args(b"sh\0-c\0echo a\nb\0", "sh"), "sh -c echo a b");
     }
 
@@ -344,12 +397,24 @@ mod tests {
 
     #[test]
     fn session_ids_from_args() {
-        assert_eq!(session_from_args("claude", &["--resume", "s1"]).as_deref(), Some("s1"));
-        assert_eq!(session_from_args("claude", &["-r", "s2", "--verbose"]).as_deref(), Some("s2"));
-        assert_eq!(session_from_args("claude", &["--session-id=s3"]).as_deref(), Some("s3"));
+        assert_eq!(
+            session_from_args("claude", &["--resume", "s1"]).as_deref(),
+            Some("s1")
+        );
+        assert_eq!(
+            session_from_args("claude", &["-r", "s2", "--verbose"]).as_deref(),
+            Some("s2")
+        );
+        assert_eq!(
+            session_from_args("claude", &["--session-id=s3"]).as_deref(),
+            Some("s3")
+        );
         assert_eq!(session_from_args("claude", &["--resume"]), None);
         assert_eq!(session_from_args("claude", &["--continue"]), None);
-        assert_eq!(session_from_args("codex", &["resume", "019e"]).as_deref(), Some("019e"));
+        assert_eq!(
+            session_from_args("codex", &["resume", "019e"]).as_deref(),
+            Some("019e")
+        );
         assert_eq!(session_from_args("codex", &["resume", "--last"]), None);
         assert_eq!(session_from_args("codex", &[]), None);
     }
@@ -373,13 +438,27 @@ mod tests {
         assert_eq!(kind("/opt/homebrew/bin/claude").as_deref(), Some("claude"));
         // Windows process rows (windows_procs.rs): the executable's name.
         assert_eq!(kind("claude.exe --resume s1").as_deref(), Some("claude"));
-        assert_eq!(kind("node.exe C:\\Users\\d\\AppData\\Roaming\\npm\\codex.js").as_deref(), None);
-        assert_eq!(kind("node --no-warnings /usr/local/bin/gemini -m pro").as_deref(), Some("gemini"));
+        assert_eq!(
+            kind("node.exe C:\\Users\\d\\AppData\\Roaming\\npm\\codex.js").as_deref(),
+            None
+        );
+        assert_eq!(
+            kind("node --no-warnings /usr/local/bin/gemini -m pro").as_deref(),
+            Some("gemini")
+        );
         assert_eq!(kind("cursor-agent").as_deref(), Some("cursor"));
         assert_eq!(kind("aider --model sonnet").as_deref(), Some("aider"));
         assert_eq!(m.recognise("claude").unwrap().kind_name, "Claude Code");
         // Not agents: the shell, look-alikes, servers, plain node.
-        for line in ["-zsh", "/bin/zsh -l", "claude-trace foo", "codex app-server --listen", "node", "vim claude.md", ""] {
+        for line in [
+            "-zsh",
+            "/bin/zsh -l",
+            "claude-trace foo",
+            "codex app-server --listen",
+            "node",
+            "vim claude.md",
+            "",
+        ] {
             assert_eq!(kind(line), None, "{line}");
         }
     }
@@ -392,7 +471,10 @@ mod tests {
             .unwrap();
         k.process_names = vec!["gem".into(), "gemini-cli".into()];
         let m = Matcher::new(&[k]);
-        assert_eq!(m.recognise("gemini-cli").map(|r| r.kind).as_deref(), Some("gemini"));
+        assert_eq!(
+            m.recognise("gemini-cli").map(|r| r.kind).as_deref(),
+            Some("gemini")
+        );
         assert_eq!(m.recognise("gemini"), None);
     }
 
@@ -405,7 +487,10 @@ mod tests {
         );
         // A job in the foreground: its group leader.
         let (pid, r) = foreground_agent(700, &tpgids, &args, &m).unwrap();
-        assert_eq!((pid, r.kind.as_str(), r.session_id.as_deref()), (900, "codex", Some("019e")));
+        assert_eq!(
+            (pid, r.kind.as_str(), r.session_id.as_deref()),
+            (900, "codex", Some("019e"))
+        );
         // The shell itself is in the foreground: nothing.
         assert_eq!(foreground_agent(800, &tpgids, &args, &m), None);
         // No terminal group known (exec'd agent): the process itself.
@@ -418,8 +503,21 @@ mod tests {
 
     #[test]
     fn ps_field_parsing_tolerates_noise() {
-        assert_eq!(parse_pid_numbers("x y\n 12 34\n\n"), HashMap::from([(12, 34)]));
-        assert_eq!(parse_pid_args("  7 a b  c\nnope\n"), HashMap::from([(7, "a b  c".to_string())]));
-        assert_eq!(parse_table("  1 0 /sbin/launchd\nbad\n"), vec![ProcRow { pid: 1, ppid: 0, args: "/sbin/launchd".into() }]);
+        assert_eq!(
+            parse_pid_numbers("x y\n 12 34\n\n"),
+            HashMap::from([(12, 34)])
+        );
+        assert_eq!(
+            parse_pid_args("  7 a b  c\nnope\n"),
+            HashMap::from([(7, "a b  c".to_string())])
+        );
+        assert_eq!(
+            parse_table("  1 0 /sbin/launchd\nbad\n"),
+            vec![ProcRow {
+                pid: 1,
+                ppid: 0,
+                args: "/sbin/launchd".into()
+            }]
+        );
     }
 }

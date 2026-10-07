@@ -32,7 +32,9 @@ pub(crate) struct Flights<V> {
 
 impl<V> Default for Flights<V> {
     fn default() -> Self {
-        Flights { slots: Mutex::default() }
+        Flights {
+            slots: Mutex::default(),
+        }
     }
 }
 
@@ -65,14 +67,23 @@ impl<V: Clone> Flights<V> {
                 match slots.get(key) {
                     Some(s) => (s.clone(), false),
                     None => {
-                        let s = Arc::new(Slot { state: Mutex::new(State::Running), done: Condvar::new(), waiters: AtomicUsize::new(0) });
+                        let s = Arc::new(Slot {
+                            state: Mutex::new(State::Running),
+                            done: Condvar::new(),
+                            waiters: AtomicUsize::new(0),
+                        });
                         slots.insert(key.to_string(), s.clone());
                         (s, true)
                     }
                 }
             };
             if leader {
-                let mut finish = Finish { flights: self, key, slot, value: None };
+                let mut finish = Finish {
+                    flights: self,
+                    key,
+                    slot,
+                    value: None,
+                };
                 let v = work();
                 finish.value = Some(v.clone());
                 return v;
@@ -98,7 +109,9 @@ impl<V: Clone> Flights<V> {
     /// Callers waiting for `key`'s running work.
     #[cfg(test)]
     pub fn waiters(&self, key: &str) -> usize {
-        lock(&self.slots).get(key).map_or(0, |s| s.waiters.load(Ordering::SeqCst))
+        lock(&self.slots)
+            .get(key)
+            .map_or(0, |s| s.waiters.load(Ordering::SeqCst))
     }
 }
 
@@ -142,7 +155,11 @@ mod tests {
         }
         go.send(()).unwrap();
         assert_eq!(leader.join().unwrap(), 7);
-        assert_eq!(follower.join().unwrap(), 7, "the follower gets the leader's result");
+        assert_eq!(
+            follower.join().unwrap(),
+            7,
+            "the follower gets the leader's result"
+        );
         assert_eq!(runs.load(Ordering::SeqCst), 1, "ran once");
         // Once done, the next call runs again.
         assert_eq!(f.run("a", || 8), 8);
@@ -152,7 +169,9 @@ mod tests {
     #[test]
     fn a_panic_doesnt_strand_waiters() {
         let f: Arc<Flights<u32>> = Arc::default();
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f.run("a", || panic!("boom"))));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f.run("a", || panic!("boom"))
+        }));
         assert!(r.is_err());
         assert!(!f.running("a"));
         assert_eq!(f.run("a", || 3), 3);

@@ -9,18 +9,31 @@ const BIN: &str = env!("CARGO_BIN_EXE_pitwall-hook");
 
 fn run(env: &[(&str, &str)], stdin: &[u8]) -> std::process::Output {
     let mut cmd = Command::new(BIN);
-    cmd.env_remove("PITWALL_AGENT_ID").env_remove("PITWALL_SOCKET");
+    cmd.env_remove("PITWALL_AGENT_ID")
+        .env_remove("PITWALL_SOCKET");
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
     child.stdin.take().unwrap().write_all(stdin).unwrap();
     child.wait_with_output().unwrap()
 }
 
 #[test]
 fn silent_outside_pitwall_and_without_a_listener() {
-    for env in [vec![], vec![("PITWALL_AGENT_ID", "a1")], vec![("PITWALL_AGENT_ID", "a1"), ("PITWALL_SOCKET", "/nonexistent/pw.sock")]] {
+    for env in [
+        vec![],
+        vec![("PITWALL_AGENT_ID", "a1")],
+        vec![
+            ("PITWALL_AGENT_ID", "a1"),
+            ("PITWALL_SOCKET", "/nonexistent/pw.sock"),
+        ],
+    ] {
         let out = run(&env, br#"{"hook_event_name":"Stop"}"#);
         assert!(out.status.success(), "{env:?}");
         assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{env:?}");
@@ -42,7 +55,11 @@ fn serve_one(path: &std::path::Path) -> std::thread::JoinHandle<Vec<u8>> {
     let listener = {
         use interprocess::os::windows::named_pipe::{pipe_mode, PipeListenerOptions, PipeMode};
         let name = windows_pipe_name(&path.to_string_lossy());
-        PipeListenerOptions::new().path(name.as_str()).mode(PipeMode::Bytes).create_duplex::<pipe_mode::Bytes>().unwrap()
+        PipeListenerOptions::new()
+            .path(name.as_str())
+            .mode(PipeMode::Bytes)
+            .create_duplex::<pipe_mode::Bytes>()
+            .unwrap()
     };
     std::thread::spawn(move || {
         #[cfg(unix)]
@@ -58,7 +75,8 @@ fn serve_one(path: &std::path::Path) -> std::thread::JoinHandle<Vec<u8>> {
             }
             got.extend_from_slice(&buf[..n]);
         }
-        conn.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").unwrap();
+        conn.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+            .unwrap();
         got
     })
 }
@@ -73,7 +91,11 @@ fn windows_pipe_name(path: &str) -> String {
     }
     let stem = norm.rsplit('\\').next().unwrap_or("");
     let stem = stem.strip_suffix(".sock").unwrap_or(stem);
-    let stem: String = stem.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
+    let stem: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
     format!(r"\\.\pipe\pitwall-{h:016x}-{stem}")
 }
 
@@ -82,7 +104,10 @@ fn posts_the_payload_to_the_hook_socket() {
     let path = socket_path();
     let server = serve_one(&path);
     let socket = path.to_string_lossy().into_owned();
-    let out = run(&[("PITWALL_AGENT_ID", "agent-7"), ("PITWALL_SOCKET", &socket)], br#"{"hook_event_name":"Stop"}"#);
+    let out = run(
+        &[("PITWALL_AGENT_ID", "agent-7"), ("PITWALL_SOCKET", &socket)],
+        br#"{"hook_event_name":"Stop"}"#,
+    );
     let got = String::from_utf8(server.join().unwrap()).unwrap();
     let _ = std::fs::remove_file(&path);
     assert!(out.status.success() && out.stdout.is_empty());

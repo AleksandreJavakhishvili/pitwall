@@ -16,7 +16,11 @@ pub fn program(command: &str) -> String {
     let first = command.split_whitespace().next().unwrap_or("");
     match first.strip_prefix('$') {
         Some(var) => std::env::var(var).unwrap_or_else(|_| {
-            if var == "SHELL" { shell::user_shell() } else { String::new() }
+            if var == "SHELL" {
+                shell::user_shell()
+            } else {
+                String::new()
+            }
         }),
         None => first.to_string(),
     }
@@ -71,7 +75,10 @@ mod tests {
         assert_eq!(c.find("claude").unwrap().name, "Claude Code");
         assert!(c.find("nope").is_none());
         let custom = c.for_record("custom", Some("npx foo")).unwrap();
-        assert_eq!((custom.id.as_str(), custom.command.as_str()), ("custom", "npx foo"));
+        assert_eq!(
+            (custom.id.as_str(), custom.command.as_str()),
+            ("custom", "npx foo")
+        );
         assert_eq!(c.for_record("codex", None).unwrap().id, "codex");
     }
 }

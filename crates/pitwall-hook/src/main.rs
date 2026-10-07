@@ -21,7 +21,10 @@ fn main() {
     });
     let mut body = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut body);
-    let (id, socket) = (std::env::var("PITWALL_AGENT_ID").unwrap_or_default(), std::env::var_os("PITWALL_SOCKET").unwrap_or_default());
+    let (id, socket) = (
+        std::env::var("PITWALL_AGENT_ID").unwrap_or_default(),
+        std::env::var_os("PITWALL_SOCKET").unwrap_or_default(),
+    );
     if let Some(request) = request(&id, &body) {
         if !socket.is_empty() {
             let _ = post(std::path::Path::new(&socket), &request);
@@ -32,7 +35,11 @@ fn main() {
 
 /// The HTTP request for agent `id`, or `None` when `id` can't be one.
 fn request(id: &str, body: &[u8]) -> Option<Vec<u8>> {
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return None;
     }
     let mut req = format!(
@@ -62,10 +69,17 @@ fn connect(socket: &std::path::Path) -> std::io::Result<std::os::unix::net::Unix
 #[cfg(windows)]
 fn connect(
     socket: &std::path::Path,
-) -> std::io::Result<interprocess::os::windows::named_pipe::DuplexPipeStream<interprocess::os::windows::named_pipe::pipe_mode::Bytes>> {
+) -> std::io::Result<
+    interprocess::os::windows::named_pipe::DuplexPipeStream<
+        interprocess::os::windows::named_pipe::pipe_mode::Bytes,
+    >,
+> {
     use interprocess::os::windows::named_pipe::{pipe_mode, DuplexPipeStream};
     let name = pipe_name(&socket.to_string_lossy());
-    DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path_with_wait_mode(name.as_str(), interprocess::ConnectWaitMode::Timeout(DEADLINE))
+    DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path_with_wait_mode(
+        name.as_str(),
+        interprocess::ConnectWaitMode::Timeout(DEADLINE),
+    )
 }
 
 /// A copy of `pitwall_proto::pipe::pipe_name` (kept dependency-free; same
@@ -80,7 +94,11 @@ fn pipe_name(path: &str) -> String {
     }
     let stem = norm.rsplit('\\').next().unwrap_or("");
     let stem = stem.strip_suffix(".sock").unwrap_or(stem);
-    let stem: String = stem.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
+    let stem: String = stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
     format!(r"\\.\pipe\pitwall-{h:016x}-{stem}")
 }
 
@@ -101,7 +119,13 @@ mod tests {
 
     #[test]
     fn shared_pipe_name_vectors() {
-        assert_eq!(pipe_name(r"C:\Users\Dev\AppData\Roaming\Pitwall\run\pitwall.sock"), r"\\.\pipe\pitwall-743ad10ab31a747c-pitwall");
-        assert_eq!(pipe_name("C:/Users/Dev/AppData/Roaming/Pitwall/run/hold/a1.sock"), r"\\.\pipe\pitwall-98930f412d88a184-a1");
+        assert_eq!(
+            pipe_name(r"C:\Users\Dev\AppData\Roaming\Pitwall\run\pitwall.sock"),
+            r"\\.\pipe\pitwall-743ad10ab31a747c-pitwall"
+        );
+        assert_eq!(
+            pipe_name("C:/Users/Dev/AppData/Roaming/Pitwall/run/hold/a1.sock"),
+            r"\\.\pipe\pitwall-98930f412d88a184-a1"
+        );
     }
 }

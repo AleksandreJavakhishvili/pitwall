@@ -37,7 +37,10 @@ mod tests {
     #[test]
     fn reads_groups_and_args_of_given_pids_only() {
         // A harmless process of our own; killed by its exact pid below.
-        let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().expect("spawn sleep");
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
         let pid = child.id();
         let args = parse_pid_args(&process_args(&[pid, std::process::id()]).unwrap());
         let groups = parse_pid_numbers(&terminal_groups(&[pid]).unwrap());

@@ -35,7 +35,10 @@ fn frame(ty: u8, body: &[u8]) -> Vec<u8> {
 
 /// A JSON message frame.
 pub fn json<T: Serialize>(msg: &T) -> Vec<u8> {
-    frame(JSON, &serde_json::to_vec(msg).expect("wire types serialize"))
+    frame(
+        JSON,
+        &serde_json::to_vec(msg).expect("wire types serialize"),
+    )
 }
 
 /// A terminal data frame.
@@ -77,7 +80,10 @@ pub fn read(r: &mut impl Read) -> io::Result<Option<Frame>> {
                 return Err(bad("short terminal frame"));
             }
             let stream = u32::from_be_bytes([body[0], body[1], body[2], body[3]]);
-            Frame::Term { stream, data: body[4..].to_vec() }
+            Frame::Term {
+                stream,
+                data: body[4..].to_vec(),
+            }
         }
         other => Frame::Unknown(other),
     }))
@@ -93,8 +99,17 @@ mod tests {
         wire.extend(term(3, b"\x1b[0mhi"));
         wire.extend(frame(9, b"future"));
         let mut r = &wire[..];
-        assert_eq!(read(&mut r).unwrap(), Some(Frame::Json(br#"{"id":1}"#.to_vec())));
-        assert_eq!(read(&mut r).unwrap(), Some(Frame::Term { stream: 3, data: b"\x1b[0mhi".to_vec() }));
+        assert_eq!(
+            read(&mut r).unwrap(),
+            Some(Frame::Json(br#"{"id":1}"#.to_vec()))
+        );
+        assert_eq!(
+            read(&mut r).unwrap(),
+            Some(Frame::Term {
+                stream: 3,
+                data: b"\x1b[0mhi".to_vec()
+            })
+        );
         assert_eq!(read(&mut r).unwrap(), Some(Frame::Unknown(9)));
         assert_eq!(read(&mut r).unwrap(), None);
     }
@@ -108,7 +123,13 @@ mod tests {
     fn broken_frames_are_errors() {
         assert!(read(&mut &[0u8, 0, 0, 0][..]).is_err(), "zero length");
         assert!(read(&mut &[0xffu8, 0, 0, 0][..]).is_err(), "too long");
-        assert!(read(&mut &[0u8, 0, 0, 3, TERM, 0, 0][..]).is_err(), "short terminal frame");
-        assert!(read(&mut &[0u8, 0, 0, 5, JSON, b'{'][..]).is_err(), "truncated body");
+        assert!(
+            read(&mut &[0u8, 0, 0, 3, TERM, 0, 0][..]).is_err(),
+            "short terminal frame"
+        );
+        assert!(
+            read(&mut &[0u8, 0, 0, 5, JSON, b'{'][..]).is_err(),
+            "truncated body"
+        );
     }
 }

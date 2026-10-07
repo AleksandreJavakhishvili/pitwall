@@ -67,7 +67,10 @@ pub fn claude_settings_arg(command: &str) -> String {
         h ^= u64::from(b);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    let path = paths::Paths::new(paths::Paths::default_root()).root().join("run").join(format!("claude-hooks-{h:016x}.json"));
+    let path = paths::Paths::new(paths::Paths::default_root())
+        .root()
+        .join("run")
+        .join(format!("claude-hooks-{h:016x}.json"));
     let write = || -> std::io::Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -213,7 +216,10 @@ pub fn agent_id_from_path(path: &str) -> Option<&str> {
 }
 
 /// Bind the hook socket at `path` and serve forever on a background thread.
-pub fn serve(path: &Path, on_hook: impl Fn(&str, Value) + Send + Sync + 'static) -> Result<(), String> {
+pub fn serve(
+    path: &Path,
+    on_hook: impl Fn(&str, Value) + Send + Sync + 'static,
+) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -287,8 +293,12 @@ fn has_command(entries: &Value, command: &str) -> bool {
 /// Whether every Pitwall event already runs `command` in this hooks.json text.
 pub fn codex_installed_in(existing: Option<&str>, command: &str) -> bool {
     let Some(src) = existing else { return false };
-    let Ok(root) = serde_json::from_str::<Value>(src) else { return false };
-    let Some(hooks) = root.get("hooks") else { return false };
+    let Ok(root) = serde_json::from_str::<Value>(src) else {
+        return false;
+    };
+    let Some(hooks) = root.get("hooks") else {
+        return false;
+    };
     EVENTS
         .iter()
         .all(|e| hooks.get(*e).is_some_and(|v| has_command(v, command)))
@@ -299,7 +309,9 @@ pub fn codex_installed_in(existing: Option<&str>, command: &str) -> bool {
 pub fn merge_codex_hooks(existing: Option<&str>, command: &str) -> Result<Option<String>, String> {
     let mut root: Value = match existing.map(str::trim) {
         None | Some("") => json!({}),
-        Some(src) => serde_json::from_str(src).map_err(|e| format!("hooks.json is not valid JSON: {e}"))?,
+        Some(src) => {
+            serde_json::from_str(src).map_err(|e| format!("hooks.json is not valid JSON: {e}"))?
+        }
     };
     let obj = root
         .as_object_mut()
@@ -387,7 +399,10 @@ mod tests {
 
     #[test]
     fn waits_for_partial_request() {
-        assert_eq!(parse_request(b"POST /hook/a HTTP/1.1\r\nContent-Le").unwrap(), None);
+        assert_eq!(
+            parse_request(b"POST /hook/a HTTP/1.1\r\nContent-Le").unwrap(),
+            None
+        );
         assert_eq!(
             parse_request(b"POST /hook/a HTTP/1.1\r\nContent-Length: 10\r\n\r\n{}").unwrap(),
             None
@@ -404,7 +419,9 @@ mod tests {
 
     #[test]
     fn no_body_without_length() {
-        let req = parse_request(b"POST /hook/x HTTP/1.1\r\n\r\n").unwrap().unwrap();
+        let req = parse_request(b"POST /hook/x HTTP/1.1\r\n\r\n")
+            .unwrap()
+            .unwrap();
         assert!(req.body.is_empty());
     }
 
@@ -412,7 +429,10 @@ mod tests {
     fn serves_a_hook_over_a_socket() {
         let (mut client, server) = LocalStream::pair().unwrap();
         let body = r#"{"hook_event_name":"Stop"}"#;
-        let req = format!("POST /hook/a1 HTTP/1.1\r\nHost: pitwall\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+        let req = format!(
+            "POST /hook/a1 HTTP/1.1\r\nHost: pitwall\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
         client.write_all(req.as_bytes()).unwrap();
         let (id, payload) = handle(server).unwrap();
         assert_eq!(id, "a1");
@@ -451,9 +471,15 @@ mod tests {
     #[test]
     fn maps_hook_events() {
         let m = |v: Value| map_hook(&v);
-        assert_eq!(m(json!({"hook_event_name":"UserPromptSubmit"})).state, Some(HookState::Working));
+        assert_eq!(
+            m(json!({"hook_event_name":"UserPromptSubmit"})).state,
+            Some(HookState::Working)
+        );
         assert!(m(json!({"hook_event_name":"UserPromptSubmit"})).prompt_submitted);
-        assert_eq!(m(json!({"hook_event_name":"PostToolUse"})).state, Some(HookState::Working));
+        assert_eq!(
+            m(json!({"hook_event_name":"PostToolUse"})).state,
+            Some(HookState::Working)
+        );
         assert_eq!(
             m(json!({"hook_event_name":"PreToolUse","tool_name":"Bash"})).state,
             Some(HookState::Working)
@@ -465,8 +491,14 @@ mod tests {
         let perm = m(json!({"hook_event_name":"PermissionRequest","tool_name":"Edit"}));
         assert_eq!(perm.state, Some(HookState::Blocked));
         assert_eq!(perm.detail.as_deref(), Some("Permission: Edit"));
-        assert_eq!(m(json!({"hook_event_name":"Stop"})).state, Some(HookState::Done));
-        assert_eq!(m(json!({"hook_event_name":"Interrupt"})).state, Some(HookState::Done));
+        assert_eq!(
+            m(json!({"hook_event_name":"Stop"})).state,
+            Some(HookState::Done)
+        );
+        assert_eq!(
+            m(json!({"hook_event_name":"Interrupt"})).state,
+            Some(HookState::Done)
+        );
         let start = m(json!({"hook_event_name":"SessionStart","session_id":"s-1"}));
         assert!(start.session_start);
         assert_eq!(start.session_id.as_deref(), Some("s-1"));
@@ -490,7 +522,10 @@ mod tests {
         let merged = merge_codex_hooks(Some(existing), "pw").unwrap().unwrap();
         let v: Value = serde_json::from_str(&merged).unwrap();
         assert_eq!(v["x"], 1);
-        assert_eq!(v["hooks"]["SessionStart"][0]["hooks"][0]["command"], "other");
+        assert_eq!(
+            v["hooks"]["SessionStart"][0]["hooks"][0]["command"],
+            "other"
+        );
         assert_eq!(v["hooks"]["SessionStart"][1]["hooks"][0]["command"], "pw");
         assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "pw");
         assert!(codex_installed_in(Some(&merged), "pw"));

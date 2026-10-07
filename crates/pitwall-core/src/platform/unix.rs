@@ -55,13 +55,18 @@ pub fn hide_console(_cmd: &mut std::process::Command) {}
 
 /// `$SHELL`, else the OS's default shell (`macos.rs` / `linux.rs`).
 pub fn default_login_shell() -> String {
-    std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(super::default_shell)
+    std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(super::default_shell)
 }
 
 /// `program` on PATH, for a login shell that isn't POSIX (`$PITWALL_SHELL`
 /// set to pwsh); POSIX shells resolve with `command -v` (`shell::which`).
 pub fn which(program: &str) -> Option<String> {
-    let path = crate::shell::spawn_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH"))?;
+    let path = crate::shell::spawn_path()
+        .map(std::ffi::OsString::from)
+        .or_else(|| std::env::var_os("PATH"))?;
     std::env::split_paths(&path)
         .map(|d| d.join(program))
         .find(|p| is_executable(p))

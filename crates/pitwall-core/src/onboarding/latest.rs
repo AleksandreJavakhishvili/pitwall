@@ -30,7 +30,9 @@ fn mtime_ms(path: &Path) -> u64 {
 
 /// Entries of `dir`, newest name first (dated folders sort by name).
 fn names_desc(dir: &Path) -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
     let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
     v.sort_by(|a, b| b.cmp(a));
     v
@@ -52,11 +54,15 @@ fn jsonl_newest_first(dir: &Path) -> Vec<(PathBuf, u64)> {
 /// Claude Code's folder for a cwd under `~/.claude/projects`: every
 /// character other than ASCII letters and digits becomes `-`.
 pub fn claude_project_dir(cwd: &str) -> String {
-    cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
+    cwd.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 fn claude_dir(home: &Path, cwd: &str) -> PathBuf {
-    home.join(".claude").join("projects").join(claude_project_dir(cwd))
+    home.join(".claude")
+        .join("projects")
+        .join(claude_project_dir(cwd))
 }
 
 fn claude_title(file: &Path) -> Option<String> {
@@ -96,17 +102,26 @@ pub fn newest(home: &Path, kind: &str, cwd: &str, since: Option<u64>) -> Option<
     let fresh = |t: u64| since.is_none_or(|s| t >= s);
     match kind {
         "claude" => {
-            let (file, _) = jsonl_newest_first(&claude_dir(home, &cwd)).into_iter().find(|(_, t)| fresh(*t))?;
+            let (file, _) = jsonl_newest_first(&claude_dir(home, &cwd))
+                .into_iter()
+                .find(|(_, t)| fresh(*t))?;
             Some(Latest {
                 session_id: file.file_stem()?.to_string_lossy().into_owned(),
                 title: claude_title(&file),
             })
         }
-        "codex" => codex_recent(home).into_iter().filter(|(_, t)| fresh(*t)).find_map(|(file, _)| {
-            let info = codex_info(&file)?;
-            (info.cwd.as_deref().map(normalize).as_deref() == Some(cwd.as_str())).then_some(())?;
-            Some(Latest { session_id: info.session_id?, title: info.title })
-        }),
+        "codex" => codex_recent(home)
+            .into_iter()
+            .filter(|(_, t)| fresh(*t))
+            .find_map(|(file, _)| {
+                let info = codex_info(&file)?;
+                (info.cwd.as_deref().map(normalize).as_deref() == Some(cwd.as_str()))
+                    .then_some(())?;
+                Some(Latest {
+                    session_id: info.session_id?,
+                    title: info.title,
+                })
+            }),
         _ => None,
     }
 }
@@ -114,10 +129,15 @@ pub fn newest(home: &Path, kind: &str, cwd: &str, since: Option<u64>) -> Option<
 /// Title of a known conversation (its first prompt), when it can be found cheaply.
 pub fn title(home: &Path, kind: &str, cwd: &str, session_id: &str) -> Option<String> {
     match kind {
-        "claude" => claude_title(&claude_dir(home, &normalize(cwd)).join(format!("{session_id}.jsonl"))),
+        "claude" => {
+            claude_title(&claude_dir(home, &normalize(cwd)).join(format!("{session_id}.jsonl")))
+        }
         "codex" => codex_recent(home)
             .into_iter()
-            .filter(|(f, _)| f.file_name().is_some_and(|n| n.to_string_lossy().contains(session_id)))
+            .filter(|(f, _)| {
+                f.file_name()
+                    .is_some_and(|n| n.to_string_lossy().contains(session_id))
+            })
             .find_map(|(f, _)| codex_info(&f)?.title),
         _ => None,
     }
@@ -135,7 +155,12 @@ mod tests {
 
     fn age(path: &Path, ms_ago: u64) {
         let t = std::time::SystemTime::now() - std::time::Duration::from_millis(ms_ago);
-        std::fs::File::options().write(true).open(path).unwrap().set_modified(t).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
     }
 
     fn now_ms() -> u64 {
@@ -144,13 +169,19 @@ mod tests {
 
     #[test]
     fn claude_folder_names() {
-        assert_eq!(claude_project_dir("/Users/dev/My Projects/web.app"), "-Users-dev-My-Projects-web-app");
+        assert_eq!(
+            claude_project_dir("/Users/dev/My Projects/web.app"),
+            "-Users-dev-My-Projects-web-app"
+        );
     }
 
     #[test]
     fn newest_claude_conversation_for_a_folder() {
         let home = TempDir::new("latest-claude");
-        let dir = home.path().join(".claude/projects").join(claude_project_dir("/w/app"));
+        let dir = home
+            .path()
+            .join(".claude/projects")
+            .join(claude_project_dir("/w/app"));
         let line = |id: &str, prompt: &str| {
             format!("{{\"type\":\"user\",\"cwd\":\"/w/app\",\"sessionId\":\"{id}\",\"message\":{{\"content\":\"{prompt}\"}}}}\n")
         };
@@ -159,11 +190,23 @@ mod tests {
         age(&dir.join("old.jsonl"), 60_000);
         age(&dir.join("new.jsonl"), 1_000);
         let got = newest(home.path(), "claude", "/w/app/", None).unwrap();
-        assert_eq!(got, Latest { session_id: "new".into(), title: Some("second thing".into()) });
+        assert_eq!(
+            got,
+            Latest {
+                session_id: "new".into(),
+                title: Some("second thing".into())
+            }
+        );
         // Only conversations written since the agent started count.
-        assert_eq!(newest(home.path(), "claude", "/w/app", Some(now_ms() + 60_000)), None);
+        assert_eq!(
+            newest(home.path(), "claude", "/w/app", Some(now_ms() + 60_000)),
+            None
+        );
         assert_eq!(newest(home.path(), "claude", "/w/other", None), None);
-        assert_eq!(title(home.path(), "claude", "/w/app", "old").as_deref(), Some("first thing"));
+        assert_eq!(
+            title(home.path(), "claude", "/w/app", "old").as_deref(),
+            Some("first thing")
+        );
         assert_eq!(newest(home.path(), "gemini", "/w/app", None), None);
     }
 
@@ -178,13 +221,29 @@ mod tests {
         };
         write(&day.join("rollout-a-019a.jsonl"), &meta("019a", "/w/app"));
         write(&day.join("rollout-b-019b.jsonl"), &meta("019b", "/w/other"));
-        write(&home.path().join(".codex/sessions/2026/10/05/rollout-c-019c.jsonl"), &meta("019c", "/w/app"));
+        write(
+            &home
+                .path()
+                .join(".codex/sessions/2026/10/05/rollout-c-019c.jsonl"),
+            &meta("019c", "/w/app"),
+        );
         age(&day.join("rollout-a-019a.jsonl"), 5_000);
         age(&day.join("rollout-b-019b.jsonl"), 1_000);
-        age(&home.path().join(".codex/sessions/2026/10/05/rollout-c-019c.jsonl"), 90_000_000);
+        age(
+            &home
+                .path()
+                .join(".codex/sessions/2026/10/05/rollout-c-019c.jsonl"),
+            90_000_000,
+        );
         let got = newest(home.path(), "codex", "/w/app", None).unwrap();
-        assert_eq!((got.session_id.as_str(), got.title.as_deref()), ("019a", Some("hello 019a")));
-        assert_eq!(title(home.path(), "codex", "/w/app", "019c").as_deref(), Some("hello 019c"));
+        assert_eq!(
+            (got.session_id.as_str(), got.title.as_deref()),
+            ("019a", Some("hello 019a"))
+        );
+        assert_eq!(
+            title(home.path(), "codex", "/w/app", "019c").as_deref(),
+            Some("hello 019c")
+        );
         assert_eq!(newest(home.path(), "codex", "/w/none", None), None);
     }
 }

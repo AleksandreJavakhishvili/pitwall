@@ -13,11 +13,12 @@ use std::time::Duration;
 use crate::error::{ErrorCode, PwError, Result};
 use crate::exec::Exec;
 use crate::kind::{launch, KindCatalog};
-use pitwall_proto::CreateForm;
 use crate::provider::{
-    CreateSpec, Discovered, ExitInfo, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec, Locator, Machine,
-    MachineId, NativeState, Provider, ProviderCaps, ProviderId, Started, TermIo, TermSize,
+    CreateSpec, Discovered, ExitInfo, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec,
+    Locator, Machine, MachineId, NativeState, Provider, ProviderCaps, ProviderId, Started, TermIo,
+    TermSize,
 };
+use pitwall_proto::CreateForm;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -69,8 +70,15 @@ static NEXT_PID: AtomicU32 = AtomicU32::new(90_000);
 
 impl Proc {
     fn new(size: TermSize, shell: bool) -> Arc<Proc> {
-        let st = ProcState { size: Some(size), ..Default::default() };
-        Arc::new(Proc { pid: NEXT_PID.fetch_add(1, Ordering::Relaxed), st: Mutex::new(st), shell })
+        let st = ProcState {
+            size: Some(size),
+            ..Default::default()
+        };
+        Arc::new(Proc {
+            pid: NEXT_PID.fetch_add(1, Ordering::Relaxed),
+            st: Mutex::new(st),
+            shell,
+        })
     }
 
     fn output(&self, bytes: &[u8]) {
@@ -107,7 +115,14 @@ impl Proc {
         } else {
             st.conns.push(conn.clone());
         }
-        (conn, if with_history { st.history.clone() } else { Vec::new() })
+        (
+            conn,
+            if with_history {
+                st.history.clone()
+            } else {
+                Vec::new()
+            },
+        )
     }
 
     fn disconnect(&self, conn: &Arc<Conn>) {
@@ -191,12 +206,25 @@ impl FakeTerm {
             Arc::get_mut(&mut proc).expect("fresh").pid = pid;
         }
         let (conn, _) = proc.connect(false);
-        (FakeTerm { proc: proc.clone(), conn, history: None, eof_is_exit: true }, FakeTermCtl(proc))
+        (
+            FakeTerm {
+                proc: proc.clone(),
+                conn,
+                history: None,
+                eof_is_exit: true,
+            },
+            FakeTermCtl(proc),
+        )
     }
 
     fn open(proc: &Arc<Proc>, with_history: bool, eof_is_exit: bool) -> FakeTerm {
         let (conn, history) = proc.connect(with_history);
-        FakeTerm { proc: proc.clone(), conn, history: Some(history), eof_is_exit }
+        FakeTerm {
+            proc: proc.clone(),
+            conn,
+            history: Some(history),
+            eof_is_exit,
+        }
     }
 }
 
@@ -275,7 +303,9 @@ impl Write for ProcWriter {
 impl TermIo for FakeTerm {
     fn take_history(&mut self) -> Vec<u8> {
         // `FakeTerm::new`: what the test put there before the host took it.
-        self.history.take().unwrap_or_else(|| lock(&self.proc.st).history.clone())
+        self.history
+            .take()
+            .unwrap_or_else(|| lock(&self.proc.st).history.clone())
     }
     fn take_reader(&mut self) -> Box<dyn Read + Send> {
         Box::new(ConnReader(self.conn.clone()))
@@ -359,7 +389,11 @@ impl FakeProvider {
     pub fn named(id: &str, machine: &str, exec: Arc<dyn Exec>) -> Arc<FakeProvider> {
         Arc::new(FakeProvider {
             id: ProviderId::new(id),
-            machine: Machine { id: MachineId::new(machine), label: format!("Fake {machine}"), detail: None },
+            machine: Machine {
+                id: MachineId::new(machine),
+                label: format!("Fake {machine}"),
+                detail: None,
+            },
             caps: Mutex::new(FakeProvider::local_like()),
             exec,
             eof_is_exit: Mutex::new(true),
@@ -430,14 +464,23 @@ impl FakeProvider {
 
     /// Drive the process of the session `native` (agent id for local-like use).
     pub fn ctl(&self, native: &str) -> Option<FakeTermCtl> {
-        lock(&self.sessions).get(native).map(|s| FakeTermCtl(s.proc.clone()))
+        lock(&self.sessions)
+            .get(native)
+            .map(|s| FakeTermCtl(s.proc.clone()))
     }
 
     /// A running session the provider has but Pitwall didn't start (for
     /// `discover`/adopt tests).
     pub fn add_session(&self, native: &str, kind: &str, cwd: &str) -> FakeTermCtl {
         let proc = Proc::new(TermSize::DEFAULT, true);
-        lock(&self.sessions).insert(native.into(), Session { proc: proc.clone(), cwd: cwd.into(), kind: kind.into() });
+        lock(&self.sessions).insert(
+            native.into(),
+            Session {
+                proc: proc.clone(),
+                cwd: cwd.into(),
+                kind: kind.into(),
+            },
+        );
         FakeTermCtl(proc)
     }
 
@@ -472,12 +515,18 @@ impl FakeProvider {
         let plan = launch::plan(spec.kind, session_id, resume, hook, spec.worktree);
         let proc = Proc::new(spec.size, true);
         if plan.resumed {
-            proc.output(format!("resumed:{}\r\n", plan.session_id.as_deref().unwrap_or("")).as_bytes());
+            proc.output(
+                format!("resumed:{}\r\n", plan.session_id.as_deref().unwrap_or("")).as_bytes(),
+            );
         }
         proc.output(b"$ ");
         let old = lock(&self.sessions).insert(
             loc.native.clone(),
-            Session { proc: proc.clone(), cwd: spec.cwd.into(), kind: spec.kind.id.clone() },
+            Session {
+                proc: proc.clone(),
+                cwd: spec.cwd.into(),
+                kind: spec.kind.id.clone(),
+            },
         );
         if let Some(old) = old {
             old.proc.exit(129);
@@ -497,7 +546,8 @@ impl FakeProvider {
             resumed: plan.resumed,
             cwd: spec.cwd.into(),
             // Local-like: the session is the process; tmux-like: attach to it.
-            term: eof_is_exit.then(|| Box::new(FakeTerm::open(&proc, true, true)) as Box<dyn TermIo>),
+            term: eof_is_exit
+                .then(|| Box::new(FakeTerm::open(&proc, true, true)) as Box<dyn TermIo>),
             kind: None,
         })
     }
@@ -528,7 +578,15 @@ impl Provider for FakeProvider {
     }
 
     fn kinds(&self, _m: &MachineId, catalog: &KindCatalog) -> Result<Vec<KindOnMachine>> {
-        Ok(catalog.kinds().into_iter().map(|kind| KindOnMachine { kind, installed: true, path: None }).collect())
+        Ok(catalog
+            .kinds()
+            .into_iter()
+            .map(|kind| KindOnMachine {
+                kind,
+                installed: true,
+                path: None,
+            })
+            .collect())
     }
 
     fn discover(&self, _m: &MachineId) -> Result<Vec<Discovered>> {
@@ -537,7 +595,11 @@ impl Provider for FakeProvider {
             .map(|(native, s)| Discovered {
                 locator: Locator::new(&self.id, &self.machine.id, native),
                 kind: s.kind.clone(),
-                state: Some(if s.proc.running() { NativeState::Running } else { NativeState::Stopped }),
+                state: Some(if s.proc.running() {
+                    NativeState::Running
+                } else {
+                    NativeState::Stopped
+                }),
                 cwd: Some(s.cwd.clone()),
                 title: None,
                 workspace: None,
@@ -547,7 +609,9 @@ impl Provider for FakeProvider {
     }
 
     fn create_form(&self, m: &MachineId) -> Result<CreateForm> {
-        Ok(lock(&self.form).clone().unwrap_or_else(|| CreateForm::folder(self.id.as_str(), m.as_str(), &self.machine.label)))
+        Ok(lock(&self.form).clone().unwrap_or_else(|| {
+            CreateForm::folder(self.id.as_str(), m.as_str(), &self.machine.label)
+        }))
     }
 
     fn create(&self, spec: &CreateSpec) -> Result<Started> {
@@ -563,11 +627,23 @@ impl Provider for FakeProvider {
             return self.launch(loc, &spec.launch);
         }
         if lock(&self.sessions).contains_key(spec.name) {
-            return Err(PwError::new(ErrorCode::Conflict, format!("session '{}' already exists", spec.name)));
+            return Err(PwError::new(
+                ErrorCode::Conflict,
+                format!("session '{}' already exists", spec.name),
+            ));
         }
-        let cwd = format!("/srv/{}", spec.options.get("workspace").map_or(spec.name, String::as_str));
-        let launch = LaunchSpec { cwd: &cwd, ..spec.launch.clone() };
-        let mut started = self.launch(Locator::new(&self.id, &self.machine.id, spec.name), &launch)?;
+        let cwd = format!(
+            "/srv/{}",
+            spec.options
+                .get("workspace")
+                .map_or(spec.name, String::as_str)
+        );
+        let launch = LaunchSpec {
+            cwd: &cwd,
+            ..spec.launch.clone()
+        };
+        let mut started =
+            self.launch(Locator::new(&self.id, &self.machine.id, spec.name), &launch)?;
         started.kind = spec.options.get("template").cloned();
         if let (Some(s), Some(k)) = (lock(&self.sessions).get_mut(spec.name), &started.kind) {
             s.kind = k.clone();
@@ -586,11 +662,17 @@ impl Provider for FakeProvider {
         self.mine(loc)?;
         let caps = self.caps();
         self.check(caps.survives_detach || caps.attach_existing, "attach")?;
-        let proc = self.session(loc, |s| s.proc.clone()).ok_or_else(PwError::not_running)?;
+        let proc = self
+            .session(loc, |s| s.proc.clone())
+            .ok_or_else(PwError::not_running)?;
         if !proc.running() {
             return Err(PwError::not_running());
         }
-        Ok(Box::new(FakeTerm::open(&proc, true, *lock(&self.eof_is_exit))))
+        Ok(Box::new(FakeTerm::open(
+            &proc,
+            true,
+            *lock(&self.eof_is_exit),
+        )))
     }
 
     fn stop(&self, loc: &Locator) -> Result<()> {
@@ -606,7 +688,9 @@ impl Provider for FakeProvider {
     /// is left as it is.
     fn remove(&self, loc: &Locator) -> Result<()> {
         self.mine(loc)?;
-        let platform = lock(&self.created).iter().any(|(name, _)| *name == loc.native);
+        let platform = lock(&self.created)
+            .iter()
+            .any(|(name, _)| *name == loc.native);
         if platform || !lock(&self.launched).iter().any(|l| l.locator == *loc) {
             return Ok(());
         }
@@ -636,13 +720,17 @@ impl Provider for FakeProvider {
     fn process_cwd(&self, loc: &Locator, _pid: Option<u32>) -> Result<Option<String>> {
         self.mine(loc)?;
         self.check(self.caps().process_cwd, "find a process's folder")?;
-        Ok(self.session(loc, |s| s.proc.running().then(|| s.cwd.clone())).flatten())
+        Ok(self
+            .session(loc, |s| s.proc.running().then(|| s.cwd.clone()))
+            .flatten())
     }
 
     fn capture(&self, loc: &Locator) -> Result<String> {
         self.mine(loc)?;
         self.check(self.caps().capture, "capture a screen")?;
-        let proc = self.session(loc, |s| s.proc.clone()).ok_or_else(PwError::not_running)?;
+        let proc = self
+            .session(loc, |s| s.proc.clone())
+            .ok_or_else(PwError::not_running)?;
         let text = String::from_utf8_lossy(&lock(&proc.st).history).into_owned();
         Ok(text)
     }

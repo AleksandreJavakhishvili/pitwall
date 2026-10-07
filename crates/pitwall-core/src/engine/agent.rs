@@ -78,7 +78,11 @@ pub struct Agent {
 impl Agent {
     /// `now`: the engine clock's mono ms.
     pub fn new(rec: AgentRecord, host: Option<Arc<TermHost>>, now: u64) -> Self {
-        let status = if host.is_some() { Status::Unknown } else { Status::Stopped };
+        let status = if host.is_some() {
+            Status::Unknown
+        } else {
+            Status::Stopped
+        };
         Agent {
             rec,
             host,
@@ -154,7 +158,10 @@ impl Agent {
     /// last started in it), when its provider runs command lines and its
     /// kind is known there.
     pub fn restart_inner(&self) -> Option<(&crate::model::InnerAgent, KindCaps)> {
-        let caps = self.facts.inner.filter(|_| self.is_terminal() && self.facts.provider.custom_command)?;
+        let caps = self
+            .facts
+            .inner
+            .filter(|_| self.is_terminal() && self.facts.provider.custom_command)?;
         Some((self.rec.inner_agent.as_ref()?, caps))
     }
 
@@ -164,7 +171,10 @@ impl Agent {
 
     /// The agent's local process, when its provider runs agents on this Mac.
     pub fn local_pid(&self) -> Option<u32> {
-        self.host.as_ref().filter(|_| self.facts.provider.local_process).and_then(|h| h.pid())
+        self.host
+            .as_ref()
+            .filter(|_| self.facts.provider.local_process)
+            .and_then(|h| h.pid())
     }
 
     /// What the UI may offer for it now (architecture.md §3).
@@ -205,7 +215,11 @@ impl Agent {
             id: r.id.clone(),
             name: r.name.clone(),
             kind: self.kind().to_string(),
-            kind_name: self.inner.as_ref().map_or(&r.kind_name, |i| &i.kind_name).clone(),
+            kind_name: self
+                .inner
+                .as_ref()
+                .map_or(&r.kind_name, |i| &i.kind_name)
+                .clone(),
             terminal: self.is_terminal(),
             session_id: match &self.inner {
                 Some(i) => i.session_id.clone(),
@@ -223,7 +237,11 @@ impl Agent {
             machine: MachineView {
                 provider: loc.provider.to_string(),
                 id: loc.machine.to_string(),
-                label: if self.facts.machine_label.is_empty() { loc.machine.to_string() } else { self.facts.machine_label.clone() },
+                label: if self.facts.machine_label.is_empty() {
+                    loc.machine.to_string()
+                } else {
+                    self.facts.machine_label.clone()
+                },
                 can_create: self.facts.provider.create && !self.facts.provider.platform_create,
             },
             agent_in_terminal: self.is_terminal() && self.inner.is_some(),
@@ -315,7 +333,11 @@ mod tests {
         assert_eq!(a.rec.session_id.as_deref(), Some("s1"));
         assert!(a.rec.has_conversation);
         // SessionStart never overrides a known hook state.
-        a.apply_hook(HookEffect { state: Some(HookState::Idle), session_start: true, ..Default::default() });
+        a.apply_hook(HookEffect {
+            state: Some(HookState::Idle),
+            session_start: true,
+            ..Default::default()
+        });
         assert_eq!(a.hook.as_ref().map(|h| h.0), Some(HookState::Working));
     }
 
