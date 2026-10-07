@@ -240,7 +240,7 @@ export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version,
           />
           <div className="rv-composer-foot">
             <span className="hint">
-              Collected, not sent. <Kbd>⌘↵</Kbd> to add
+              Collected, not sent. <Kbd submit>⌘↵</Kbd> to add
             </span>
             <span className="spacer" />
             <button className="ghost-btn" onClick={() => setComposer(null)}>

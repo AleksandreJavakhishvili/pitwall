@@ -14,6 +14,7 @@ import type {
   ScannedProject,
 } from "../../types";
 import { relTime } from "../../lib/time";
+import { host } from "../../lib/host";
 import { useActions } from "../../lib/actions";
 import { canPickFolder, pickFolder } from "../../lib/pickFolder";
 import { Icon } from "../Icon";
@@ -709,7 +710,7 @@ function ScanScreen({ mode, agents, onClose, onFinished }: Props) {
                     {running.length > 0 && (
                       <>
                         <div className="onb-machine">
-                          <span className="onb-machine-name">This Mac</span>
+                          <span className="onb-machine-name">{host().machineLabel}</span>
                           <span className="muted-sm">running outside Pitwall</span>
                         </div>
                         <ul className="onb-list">

@@ -331,3 +331,16 @@ export interface PermissionsStatus {
 }
 /** System Settings panes `open_privacy_settings` can show. */
 export type PrivacyPane = "fullDiskAccess" | "filesAndFolders";
+
+/** The modifier of Pitwall's own shortcuts (`host_info`): ⌘, or Ctrl+Shift where Ctrl belongs to the terminal. */
+export type ShortcutModifier = "meta" | "ctrlShift";
+/** What this desktop offers (`host_info`); the UI decides by these, never by OS. */
+export interface HostInfo {
+  /** How the UI names this machine ("This Mac", "This computer"). */
+  machineLabel: string;
+  shortcuts: ShortcutModifier;
+  /** Pitwall's data folder as shown to the user ("~/.pitwall"). */
+  dataDir: string;
+  /** A Dock brings hidden windows back; without one, closing the main window quits. */
+  dock: boolean;
+}

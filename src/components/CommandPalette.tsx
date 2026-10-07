@@ -217,7 +217,9 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
       },
       { id: "sidebar", icon: <span className="pal-icon">⇤</span>, label: "Toggle agents sidebar", search: "toggle sidebar agents panel hide show", hint: <Kbd>⌘B</Kbd>, run: commands.toggleSidebar },
       { id: "right", icon: <span className="pal-icon">⇥</span>, label: "Toggle details panel", search: "toggle right panel details queue changes hide show", hint: <Kbd>⌘.</Kbd>, run: commands.toggleRight },
-      { id: "settings", icon: <span className="pal-icon">⚙</span>, label: "Settings", search: "settings codex hooks preferences", run: commands.settings },
+      { id: "settings", icon: <span className="pal-icon">⚙</span>, label: "Settings", search: "settings codex hooks preferences", hint: <Kbd>⌘,</Kbd>, run: commands.settings },
+      { id: "quit", icon: <span className="pal-icon">⏻</span>, label: "Quit Pitwall (agents keep running)", search: "quit exit close app leave running", run: () => void api.quitApp(false).catch(() => {}) },
+      { id: "quit-stop", icon: <span className="pal-icon">⏻</span>, label: "Quit and stop all agents", search: "quit exit stop all agents end", run: () => void api.quitApp(true).catch(() => {}) },
       ...(commands.theme
         ? THEME_PREFS.map<Item>((t) => ({
             id: `theme-${t}`,
