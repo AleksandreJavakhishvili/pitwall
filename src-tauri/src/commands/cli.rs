@@ -27,7 +27,7 @@ pub fn answer_approval(approvals: State<'_, Arc<Approvals>>, id: String, allow: 
 pub fn cli_status() -> CliStatus {
     let bin = cli_install::cli_bin().ok();
     let dirs = cli_install::candidate_dirs(&pitwall_core::paths::home());
-    cli_install::status(bin.as_deref(), &dirs, &std::env::var("PATH").unwrap_or_default())
+    cli_install::status(bin.as_deref(), &dirs, &pitwall_core::shell::spawn_path().or_else(|| std::env::var("PATH").ok()).unwrap_or_default())
 }
 
 /// Create the `pitwall` link in `dir` (one of `cli_status().dirs`), after

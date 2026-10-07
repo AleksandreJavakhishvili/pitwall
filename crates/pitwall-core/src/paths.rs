@@ -42,6 +42,11 @@ impl Paths {
         self.root.join("projects.json")
     }
 
+    /// The login shell's PATH from the last run (`shell::adopt_login_path`).
+    pub fn login_path_file(&self) -> PathBuf {
+        self.root.join("login-path")
+    }
+
     /// The hook relay posts here (`PITWALL_SOCKET` in agents' environment).
     pub fn hook_socket(&self) -> PathBuf {
         self.root.join("run").join("pitwall.sock")

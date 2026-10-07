@@ -38,6 +38,11 @@ impl Exec for LocalExec {
         if let Some(dir) = cmd.cwd {
             c.current_dir(dir);
         }
+        // The app's PATH for what it starts (shell::adopt_login_path);
+        // the command's own environment still wins.
+        if let Some(path) = crate::shell::spawn_path() {
+            c.env("PATH", path);
+        }
         for (k, v) in cmd.env {
             c.env(k, v);
         }
