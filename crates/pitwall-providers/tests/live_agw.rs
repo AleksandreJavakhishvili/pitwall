@@ -13,6 +13,9 @@
 //! → `agw session stop <session>`. A guard stops it if anything fails after
 //! it was started. Processes are only ended through their holder (exact pid).
 
+// The fake agw (and agw itself) are shell scripts / Unix tools.
+#![cfg(unix)]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;

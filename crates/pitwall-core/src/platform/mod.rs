@@ -24,7 +24,3 @@ pub use windows::{LocalListener, LocalStream};
 mod windows_procs;
 #[cfg(windows)]
 pub(crate) use windows_procs::*;
-
-/// Named pipes for local sockets on Windows (pure; tested everywhere).
-#[cfg_attr(not(windows), allow(dead_code))]
-mod pipe_name;

@@ -20,6 +20,7 @@ use pitwall_core::provider::{Locator, MachineId, Provider, ProviderCaps};
 use pitwall_core::testing::contract::{self, ContractHarness};
 use pitwall_core::testing::{FakeProvider, TempDir};
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
+#[cfg(unix)]
 use pitwall_providers::local::{LocalConfig, LocalProvider};
 
 /// The holder binary: `PITWALL_HOLD_BIN`, else built once for these tests
@@ -65,6 +66,10 @@ fn repo(dir: &Path) -> String {
     dir.to_string_lossy().into_owned()
 }
 
+// Unix for now: the contract's agents are POSIX shells and the fake agw is
+// shell scripts. On Windows, pitwall-hold's own tests cover the holder
+// contract (tests/holder.rs).
+#[cfg(unix)]
 struct Local {
     provider: Arc<LocalProvider>,
     workspace: String,
@@ -72,12 +77,14 @@ struct Local {
     _dir: TempDir,
 }
 
+#[cfg(unix)]
 impl Drop for Local {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.run);
     }
 }
 
+#[cfg(unix)]
 impl Local {
     fn new() -> Local {
         let dir = TempDir::new("contract-local");
@@ -102,6 +109,7 @@ fn uuid_ish() -> String {
     format!("{}-{n:x}", std::process::id())
 }
 
+#[cfg(unix)]
 impl ContractHarness for Local {
     fn provider(&self) -> Arc<dyn Provider> {
         self.provider.clone()
@@ -114,11 +122,13 @@ impl ContractHarness for Local {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn local_provider_passes_the_contract() {
     contract::run(&Local::new());
 }
 
+#[cfg(unix)]
 /// An agent started on this Mac can find Pitwall: its id, the hook socket
 /// and the CLI's socket are in its environment (the `pitwall` CLI run
 /// inside it connects there).
@@ -200,6 +210,7 @@ fn a_remote_like_provider_with_fewer_caps_passes_too() {
 /// The agw provider against the fake agw in `tests/fake_agw/`: the contract
 /// creates its session in workspace "work" (`agw session create`); one
 /// running session ("adopt-me") is there to adopt.
+#[cfg(unix)]
 struct Agw {
     provider: Arc<AgwProvider>,
     workspace: String,
@@ -207,12 +218,14 @@ struct Agw {
     _dir: TempDir,
 }
 
+#[cfg(unix)]
 impl Drop for Agw {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.run);
     }
 }
 
+#[cfg(unix)]
 fn install_fake(src: &str, to: &Path, dir: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let body = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agw").join(src)).unwrap();
@@ -220,6 +233,7 @@ fn install_fake(src: &str, to: &Path, dir: &Path) {
     std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+#[cfg(unix)]
 impl Agw {
     fn new() -> Agw {
         let dir = TempDir::new("contract-agw");
@@ -243,6 +257,7 @@ impl Agw {
     }
 }
 
+#[cfg(unix)]
 impl ContractHarness for Agw {
     fn provider(&self) -> Arc<dyn Provider> {
         self.provider.clone()
@@ -261,6 +276,7 @@ impl ContractHarness for Agw {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn agw_provider_passes_the_contract_against_a_fake_agw() {
     contract::run(&Agw::new());

@@ -1,10 +1,10 @@
 //! The named pipe a Pitwall endpoint path maps to on Windows. Pure string
 //! logic, so it is tested on every OS.
 //!
-//! Frozen: `pitwall-core` (its hook and CLI sockets) and `pitwall-hook`
-//! compute the same name from the same path; all three copies share the test
-//! vectors below. The path is per user (`%APPDATA%\Pitwall\…`), so two users
-//! never share a name; the stem keeps names readable in pipe listings.
+//! Frozen: a copy of `pitwall_proto::pipe` (this crate has no Pitwall
+//! dependencies); both share the test vectors below. The path is per user
+//! (`%APPDATA%\Pitwall\…`), so two users never share a name; the stem keeps
+//! names readable in pipe listings.
 
 /// `\\.\pipe\pitwall-<FNV-1a 64 of the normalised path>-<file stem>`.
 pub fn pipe_name(path: &str) -> String {

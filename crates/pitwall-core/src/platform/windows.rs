@@ -24,7 +24,7 @@ use windows_sys::Win32::System::Pipes::PeekNamedPipe;
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken, CREATE_NO_WINDOW};
 
-use super::pipe_name::pipe_name;
+use pitwall_proto::pipe::pipe_name;
 use crate::exec::{Cmd, Exec, LocalExec};
 
 pub use super::windows_procs::{process_cwds, process_table};

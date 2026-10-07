@@ -17,6 +17,9 @@
 //! so nothing else needs deleting) → gone from `agw session list`. A guard
 //! runs the same delete if anything fails after the create.
 
+// The fake agw (and agw itself) are shell scripts / Unix tools.
+#![cfg(unix)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;

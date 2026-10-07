@@ -1,9 +1,10 @@
-//! The named pipe a Pitwall endpoint path maps to on Windows. Pure string
-//! logic, so it is tested on every OS.
+//! The named pipe a Pitwall endpoint path maps to on Windows (Pitwall names
+//! its sockets by path: `run/pitwall.sock`, `run/pitwalld.sock`, …). Pure
+//! string logic, so it is tested on every OS.
 //!
-//! Frozen: `pitwall-hold` (terminal holders) and `pitwall-hook`
-//! compute the same name from the same path; all three copies share the test
-//! vectors below. The path is per user (`%APPDATA%\Pitwall\…`), so two users
+//! Frozen: used by pitwall-core (hook and CLI sockets), pitwall-client and
+//! pitwall-hook; `pitwall-hold` (which has no Pitwall dependencies) keeps an
+//! identical copy for its holders. Both copies share the test vectors below. The path is per user (`%APPDATA%\Pitwall\…`), so two users
 //! never share a name; the stem keeps names readable in pipe listings.
 
 /// `\\.\pipe\pitwall-<FNV-1a 64 of the normalised path>-<file stem>`.
