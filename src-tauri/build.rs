@@ -3,8 +3,13 @@
 //! `pnpm tauri dev` (`target/<profile>/…`) and in the bundle
 //! (`Pitwall.app/Contents/MacOS/…`): the `pitwall-hold` terminal holder and
 //! the `pitwall-cli` command-line tool (linked as `pitwall` from Settings;
-//! the app's own executable is already called `pitwall`). See
+//! the app's own executable is already called `pitwall`), and on Windows the
+//! `pitwall-hook` relay (tauri.windows.conf.json lists it). See
 //! docs/spec/backend.md.
+//!
+//! `PITWALL_SIDECAR_STUBS=1` writes empty stand-ins instead of building them,
+//! for a `cargo check` of the app for another OS (cross-checking Windows from
+//! a Mac: the sidecars would need that OS's linker).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,25 +19,54 @@ const SIDECARS: &[(&str, &str, &str)] = &[("pitwall-hold", "pitwall-hold", "PITW
 
 fn main() {
     build_sidecars();
+    // Cross-checking from another OS: Windows resources (the icon, the
+    // manifest) need that OS's resource compiler, so they are left out.
+    let host = std::env::var("HOST").unwrap_or_default();
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if std::env::var_os("PITWALL_SIDECAR_STUBS").is_some() && target.contains("windows") && !host.contains("windows") {
+        for alias in ["desktop", "mobile", "dev"] {
+            println!("cargo:rustc-check-cfg=cfg({alias})");
+        }
+        println!("cargo:rustc-cfg=desktop");
+        println!("cargo:rustc-env=TAURI_ENV_TARGET_TRIPLE={target}");
+        return;
+    }
     tauri_build::build()
 }
+
+/// The `pitwall-hook` relay ships on Windows only (Unix keeps the sh script).
+const WINDOWS_SIDECARS: &[(&str, &str, &str)] = &[("pitwall-hook", "pitwall-hook", "PITWALL_HOOK_BUILT")];
 
 fn build_sidecars() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest_dir.parent().unwrap().to_path_buf();
     let target = std::env::var("TARGET").unwrap();
     let release = std::env::var("PROFILE").as_deref() == Ok("release");
-    for dir in ["pitwall-hold", "pitwall-cli", "pitwall-client", "pitwall-proto"] {
+    for dir in ["pitwall-hold", "pitwall-cli", "pitwall-client", "pitwall-proto", "pitwall-hook"] {
         println!("cargo:rerun-if-changed=../crates/{dir}");
     }
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=PITWALL_SIDECAR_STUBS");
+    let exe = if target.contains("windows") { ".exe" } else { "" };
+    let sidecars: Vec<_> = SIDECARS.iter().chain(if exe.is_empty() { &[][..] } else { WINDOWS_SIDECARS }).collect();
+
+    if std::env::var_os("PITWALL_SIDECAR_STUBS").is_some() {
+        for (_, bin, _) in &sidecars {
+            let sidecar = manifest_dir.join("binaries").join(format!("{bin}-{target}{exe}"));
+            if !sidecar.exists() {
+                std::fs::create_dir_all(sidecar.parent().unwrap()).unwrap();
+                std::fs::write(&sidecar, b"").unwrap();
+            }
+        }
+        return;
+    }
 
     // A separate target dir, so this nested build never waits on the lock the
     // outer build holds.
     let target_dir = root.join("target").join("hold");
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.current_dir(&root).arg("build");
-    for (package, bin, _) in SIDECARS {
+    for (package, bin, _) in &sidecars {
         cmd.args(["-p", package, "--bin", bin]);
     }
     cmd.args(["--target", &target, "--target-dir"]).arg(&target_dir);
@@ -44,10 +78,9 @@ fn build_sidecars() {
         cmd.env_remove(key);
     }
     let status = cmd.status().expect("run cargo to build the sidecars");
-    assert!(status.success(), "building the sidecars (pitwall-hold, pitwall-cli) failed");
+    assert!(status.success(), "building the sidecars (pitwall-hold, pitwall-cli, pitwall-hook) failed");
 
-    let exe = if target.contains("windows") { ".exe" } else { "" };
-    for (_, bin, env) in SIDECARS {
+    for (_, bin, env) in &sidecars {
         let built = target_dir.join(&target).join(if release { "release" } else { "debug" }).join(format!("{bin}{exe}"));
         println!("cargo:rustc-env={env}={}", built.display());
         // Tauri's sidecar convention: binaries/<name>-<target triple>.

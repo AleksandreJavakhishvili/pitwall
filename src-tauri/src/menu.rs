@@ -1,4 +1,5 @@
-//! Native app menu: Tauri's default menu (standard Edit items so copy/paste/
+//! Native app menu (macOS / Unix; Windows builds its own in
+//! `platform::windows`, sharing these ids and `on_event`): Tauri's default menu (standard Edit items so copy/paste/
 //! select-all keep working in inputs and terminals, ⌘Q quit, Window menu)
 //! plus "Pitwall → Settings… ⌘," which asks the focused window's UI to open
 //! Settings via the `open-settings` event. "Quit and Stop Agents" is the one
@@ -13,11 +14,18 @@ use pitwall_core::Shared;
 
 use crate::windows;
 
-const SETTINGS_ID: &str = "pitwall-settings";
-const QUIT_STOP_ID: &str = "pitwall-quit-stop";
+pub const SETTINGS_ID: &str = "pitwall-settings";
+pub const QUIT_STOP_ID: &str = "pitwall-quit-stop";
+/// Windows' tray and File menu: show the main window / quit the UI only
+/// (agents keep running, as with ⌘Q).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const SHOW_ID: &str = "pitwall-show";
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const QUIT_ID: &str = "pitwall-quit";
 /// Event the UI listens to (payload: none).
 pub const OPEN_SETTINGS: &str = "open-settings";
 
+#[cfg_attr(windows, allow(dead_code))]
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
     let settings = MenuItem::with_id(app, SETTINGS_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
@@ -36,6 +44,18 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    if event.id() == SHOW_ID {
+        if let Some(w) = app.get_webview_window(windows::MAIN) {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+        return;
+    }
+    if event.id() == QUIT_ID {
+        app.exit(0);
+        return;
+    }
     if event.id() == QUIT_STOP_ID {
         let app = app.clone();
         std::thread::spawn(move || {

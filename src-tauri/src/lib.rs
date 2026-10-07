@@ -1,5 +1,5 @@
 //! The Pitwall app: windows, the webview bridge, notifications, the Dock
-//! badge and the menu. All logic lives in `pitwall_core`; this crate only
+//! badge (Windows: taskbar overlay + tray) and the menu. All logic lives in `pitwall_core`; this crate only
 //! hosts the engine and adapts it to Tauri (architecture.md §1).
 
 mod attention;
@@ -9,6 +9,7 @@ mod commands;
 mod events;
 mod holder;
 mod menu;
+mod platform;
 mod server;
 mod windows;
 
@@ -48,11 +49,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The `pitwall` CLI's socket (architecture.md §4).
     server::start(app.handle(), engine.clone(), &paths);
     windows::restore(app.handle());
+    platform::setup(app.handle())?;
     bench::start(app.handle(), started());
     Ok(())
 }
 
-fn show_main(app: &tauri::AppHandle) {
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+pub(crate) fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -73,7 +76,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .menu(menu::build)
+        .menu(platform::build_menu)
         .on_menu_event(menu::on_event)
         .setup(setup)
         .on_window_event(|window, event| match event {
