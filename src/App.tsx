@@ -4,7 +4,8 @@ import type { AgentView, FileChange, RunningElsewhere } from "./types";
 import { groupByProject } from "./lib/groups";
 import { useAgents } from "./lib/useAgents";
 import { useToasts } from "./lib/useToasts";
-import { ActionsContext, type Actions } from "./lib/actions";
+import { ActionsContext, type Actions, type ExplorerTarget, type ReviewTarget } from "./lib/actions";
+import { reviewScope } from "./lib/reviewScope";
 import { useShortcuts } from "./lib/useShortcuts";
 import { useBreakpoint } from "./lib/useBreakpoint";
 import { usePersistentFlag } from "./lib/usePersistentFlag";
@@ -53,6 +54,8 @@ import { installBench, type BenchHandlers } from "./lib/bench";
 import { useWorktrees, WorktreesContext } from "./lib/useWorktrees";
 import { RemoveWorktreeDialog } from "./components/RemoveWorktreeDialog";
 import { findWorktree } from "./lib/worktrees";
+import { QuickOpen } from "./components/explorer/QuickOpen";
+import type { ViewerTarget } from "./components/explorer/Viewer";
 
 type ModalState =
   | null
@@ -64,11 +67,13 @@ type ModalState =
   | { type: "removeWorktree"; projectId: string; path: string }
   | { type: "terminal"; path?: string }
   | { type: "bring"; row: RunningElsewhere }
-  | { type: "diff"; agentId: string; file: FileChange };
+  | { type: "diff"; agentId: string; file: FileChange }
+  | { type: "quickOpen"; agentId: string };
 
 // Heavy, rarely shown screens load on first use (perf.md): Review (CodeMirror diff),
-// onboarding, Settings (rules UI).
+// the file viewer (same CodeMirror), onboarding, Settings (rules UI).
 const Review = lazy(() => import("./components/review/Review"));
+const Viewer = lazy(() => import("./components/explorer/Viewer"));
 const Onboarding = lazy(() => import("./components/onboarding/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
 
@@ -91,8 +96,12 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [reviewOn, setReviewOn] = useState(false);
-  /** What Review selects when opened from a worktree ("Review" in its menu). */
-  const [reviewFocus, setReviewFocus] = useState<{ projectId: string; path: string; nonce: number } | null>(null);
+  /** What Review selects first: a worktree ("Review" in its menu), or an agent (and file). */
+  const [reviewFocus, setReviewFocus] = useState<(ReviewTarget & { nonce: number }) | null>(null);
+  /** Review lists every project instead of the active space's (this session). */
+  const [reviewAll, setReviewAll] = useState(false);
+  /** The read-only file viewer (docs/spec/explorer.md), when shown. */
+  const [explorer, setExplorer] = useState<ViewerTarget | null>(null);
   const { toasts, push, dismiss } = useToasts();
 
   const groups = useMemo(() => groupByProject(agents), [agents]);
@@ -113,6 +122,8 @@ export default function App() {
   focusedRef.current = focusedAgentId;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+  const explorerRef = useRef<ViewerTarget | null>(null);
+  explorerRef.current = explorer && !reviewOn && !wallOn ? explorer : null;
   const wallOnRef = useRef(wallOn);
   wallOnRef.current = wallOn;
 
@@ -252,6 +263,7 @@ export default function App() {
       const s = current.current;
       if (s.wall.includes(me)) update((x) => W.setWall(x, me, false));
       setReviewOn(false);
+      setExplorer(null);
       setOverlaySidebar(false);
       const loc = W.locate(s, agentId);
       if (loc && loc.window === me) {
@@ -306,10 +318,41 @@ export default function App() {
   };
 
   const setWall = (on: boolean | null) => update((s) => W.setWall(s, me, on ?? !s.wall.includes(me)));
-  const toggleReview = () => {
-    setReviewFocus(null);
-    setReviewOn((v) => !v);
+  const openReview = (focus?: ReviewTarget) => {
+    setReviewFocus(focus ? { ...focus, nonce: Date.now() } : null);
+    setReviewOn(true);
+    setExplorer(null);
     if (wallOn) setWall(false);
+  };
+  // ⌘R: Review opens on the focused agent (when it has changes to review).
+  const toggleReview = () => {
+    if (reviewOn && !wallOn) return setReviewOn(false);
+    const a = selectedRef.current;
+    openReview(a?.caps.review ? { agentId: a.id } : undefined);
+  };
+
+  // The file viewer and ⌘P act on the viewer's agent, else the focused one.
+  const explorerAgent = (id?: string) => {
+    const a = agentsRef.current.find((x) => x.id === (id ?? explorerRef.current?.agentId ?? focusedRef.current));
+    if (a?.caps.explorer) return a;
+    push({ tone: "info", title: a ? `${a.name}'s files can't be read from here` : "Focus an agent to browse its files" });
+    return null;
+  };
+  const openExplorer = (t: ExplorerTarget) => {
+    if (!explorerAgent(t.agentId)) return;
+    setExplorer({ ...t, nonce: Date.now() });
+    setReviewOn(false);
+    setOverlaySidebar(false);
+    setDrawerOpen(false);
+    if (wallOn) setWall(false);
+  };
+  const openQuickOpen = (id?: string) => {
+    const a = explorerAgent(id);
+    if (a) setModal({ type: "quickOpen", agentId: a.id });
+  };
+  const searchFiles = () => {
+    const a = explorerAgent();
+    if (a) openExplorer({ agentId: a.id, pane: "search" });
   };
 
   const moveSpaceToNewWindow = async (spaceId: string) => {
@@ -387,11 +430,9 @@ export default function App() {
     openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
     openRemoveWorktree: (projectId, path) => setModal({ type: "removeWorktree", projectId, path }),
-    openReview: (focus) => {
-      setReviewFocus(focus ? { ...focus, nonce: Date.now() } : null);
-      setReviewOn(true);
-      if (wallOn) setWall(false);
-    },
+    openReview,
+    openExplorer,
+    openQuickOpen: (id) => openQuickOpen(typeof id === "string" ? id : undefined),
     openNewAgent: (p) => setModal({ type: "new", projectPath: typeof p === "string" ? p : undefined }),
     dropAgent: (agentId, t) => dropAgentOn(agentId, t),
     focusPane: (paneId) => withActive((s, id) => W.focusPane(s, id, paneId)),
@@ -467,6 +508,8 @@ export default function App() {
     toggleRight,
     toggleWall: () => setWall(null),
     toggleReview,
+    quickOpen: () => openQuickOpen(),
+    searchFiles,
     toggleMaximize: () => actions.toggleMaximize(),
     moveSpaceToWindow: () => {
       if (activeRef.current) moveSpaceToNewWindow(activeRef.current);
@@ -482,6 +525,7 @@ export default function App() {
     wall: (on) => setWall(on),
     review: (on) => {
       setReviewOn(on);
+      if (on) setExplorer(null);
       if (on && wallOn) setWall(false);
     },
     visitAll: async () => {
@@ -580,10 +624,20 @@ export default function App() {
   const blocked = ordered.filter((a) => a.status === "blocked");
   const sidebarMode: "full" | "rail" | "hidden" =
     resp.sidebar === "full" ? (sidebarCollapsed ? "hidden" : "full") : resp.sidebar;
+  const explorerOn = !!explorer && !wallOn && !reviewOn;
+  const viewerAgent = explorer ? (agents.find((a) => a.id === explorer.agentId && a.caps.explorer) ?? null) : null;
   const rightMode: "docked" | "drawer" | "hidden" =
-    !selected || wallOn || reviewOn ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
+    !selected || wallOn || reviewOn || explorerOn ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
 
   const sidebarGroups = useMemo(() => withProjects(groups, projects), [groups, projects]);
+  // Review lists the active space's agents (docs/spec/review.md), plus the one it was opened for.
+  const focusExtra = useMemo(() => {
+    const f = reviewFocus;
+    if (!f) return [];
+    if ("agentId" in f) return [f.agentId];
+    return worktrees.find((p) => p.id === f.projectId)?.agentIds ?? [];
+  }, [reviewFocus, worktrees]);
+  const reviewList = useMemo(() => reviewScope(agents, activeSpace, reviewAll, focusExtra), [agents, activeSpace, reviewAll, focusExtra]);
   // Not before onboarding: reading other agents' folders could make macOS ask
   // about Desktop/Documents before the welcome screen's "Folder access" step.
   const elsewhereRows = useElsewhere(ready && !ui.hideElsewhere && onboarded === true);
@@ -648,7 +702,28 @@ export default function App() {
           ) : reviewOn ? (
             <ErrorBoundary key="review" where="Review" onClose={() => setReviewOn(false)}>
               <Suspense fallback={<p className="hint pad">Loading review…</p>}>
-                <Review agents={agents} focus={reviewFocus} onExit={() => setReviewOn(false)} />
+                <Review
+                  agents={reviewList.agents}
+                  focus={reviewFocus}
+                  onExit={() => setReviewOn(false)}
+                  scope={reviewList.canWiden ? { all: reviewAll, space: activeSpace?.name ?? "", onAll: setReviewAll } : null}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          ) : explorerOn && viewerAgent ? (
+            <ErrorBoundary key={`files:${viewerAgent.id}`} where="Files" onClose={() => setExplorer(null)}>
+              <Suspense fallback={<p className="hint pad">Loading files…</p>}>
+                <Viewer
+                  key={viewerAgent.id}
+                  agent={viewerAgent}
+                  target={explorer!}
+                  onExit={() => {
+                    setExplorer(null);
+                    nextFrame(() => focusTerminal(viewerAgent.id));
+                  }}
+                  onShowDiff={(path) => openReview({ agentId: viewerAgent.id, path })}
+                  onQuickOpen={() => openQuickOpen(viewerAgent.id)}
+                />
               </Suspense>
             </ErrorBoundary>
           ) : activeSpace ? (
@@ -722,6 +797,9 @@ export default function App() {
             toggleRight,
             toggleWall: () => setWall(null),
             toggleReview,
+            quickOpen: selected?.caps.explorer ? () => openQuickOpen(selected.id) : undefined,
+            searchFiles: selected?.caps.explorer ? () => openExplorer({ agentId: selected.id, pane: "search" }) : undefined,
+            browseFiles: selected?.caps.explorer ? () => openExplorer({ agentId: selected.id }) : undefined,
             moveToWindow: () => {
               if (activeRef.current) moveSpaceToNewWindow(activeRef.current);
             },
@@ -767,6 +845,13 @@ export default function App() {
       )}
       {modal?.type === "removeWorktree" && (
         <RemoveWorktreeDialog target={findWorktree(worktrees, modal.projectId, modal.path)} onClose={closeModal} />
+      )}
+      {modal?.type === "quickOpen" && agents.some((a) => a.id === modal.agentId) && (
+        <QuickOpen
+          agent={agents.find((a) => a.id === modal.agentId)!}
+          onClose={closeModal}
+          onPick={(path) => openExplorer({ agentId: modal.agentId, path })}
+        />
       )}
       {modal?.type === "diff" && (
         <DiffView agent={agents.find((a) => a.id === modal.agentId) ?? null} file={modal.file} onClose={closeModal} />

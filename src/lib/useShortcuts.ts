@@ -16,6 +16,10 @@ export interface ShortcutHandlers {
   toggleWall(): void;
   /** ⌘R (also stops the webview from reloading). ⌘⇧R refreshes source control (`lib/freshness`). */
   toggleReview?(): void;
+  /** ⌘P: go to a file of the focused agent (docs/spec/explorer.md). */
+  quickOpen?(): void;
+  /** ⌘⇧F: search in the focused agent's files. */
+  searchFiles?(): void;
   toggleMaximize(): void;
   /** ⌘, (the native menu's Settings… item sends the same request). */
   settings?(): void;
@@ -40,6 +44,8 @@ export function useShortcuts(h: ShortcutHandlers) {
       else if (shift && k === "t") x.newTerminalAt?.();
       // ⌘⇧R: open source-control views (Changes, Review, worktrees) refresh now.
       else if (shift && k === "r") requestRefresh();
+      else if (shift && k === "f") x.searchFiles?.();
+      else if (k === "p") x.quickOpen?.();
       else if (k === "t") x.newTerminal?.();
       else if (k === "k") x.palette();
       else if (k === "n") x.newAgent();

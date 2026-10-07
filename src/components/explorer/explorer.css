@@ -1,0 +1,296 @@
+/* ── Read-only file viewer (docs/spec/explorer.md) ─────────
+   Built on Review's layout (.review, .review-bar, .review-body, .rv-*) and its
+   editor colours (review.css); only what differs is here. */
+.ex-bar-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.ex-bar-agent .rv-agent-label {
+  color: var(--text);
+}
+.ex-bar-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* left: tree or search */
+.ex-side {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.ex-side-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 8px 10px 6px 12px;
+}
+.ex-side > .ex-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+/* center: open files */
+.ex-tabs {
+  display: flex;
+  flex: none;
+  height: 32px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.ex-tabs::-webkit-scrollbar {
+  display: none;
+}
+.ex-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 240px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-right: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+}
+.ex-tab:hover {
+  color: var(--text-2);
+}
+.ex-tab[aria-selected="true"] {
+  color: var(--text);
+  background: var(--term-bg);
+  box-shadow: inset 0 1px 0 var(--text-2);
+  height: 33px;
+}
+.ex-tab:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+.ex-tab[data-status="U"] .ex-tab-name,
+.ex-tab[data-status="A"] .ex-tab-name {
+  color: var(--green);
+}
+.ex-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ex-tab-close {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  opacity: 0;
+}
+.ex-tab:hover .ex-tab-close,
+.ex-tab[aria-selected="true"] .ex-tab-close,
+.ex-tab-close:focus-visible {
+  opacity: 1;
+}
+.ex-tab-close:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.ex-size {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.ex-head-btn {
+  height: 26px;
+  padding: 0 9px;
+  gap: 6px;
+  font-size: 12px;
+}
+.ex-stale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--amber-soft);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ex-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.ex-empty .small-btn,
+.ex-empty .hint {
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--font-ui);
+}
+.ex-editor .rv-cm-file > .cm-editor {
+  height: 100%;
+}
+
+/* search (⇧⌘F) */
+.ex-search {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ex-search-form {
+  flex: none;
+  padding: 0 10px 8px 6px;
+}
+.ex-search-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ex-details {
+  flex: none;
+}
+.ex-search-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 28px;
+  padding: 0 3px 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.ex-search-box:focus-within {
+  border-color: var(--text-3);
+}
+.ex-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 12.5px;
+}
+.ex-opt {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 20px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.ex-opt:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.ex-opt[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--text-4);
+}
+.ex-search-globs {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 0 0 26px;
+}
+.ex-glob {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ex-glob .label {
+  font-size: 10.5px;
+}
+.ex-glob .input {
+  height: 26px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.ex-search-sum {
+  flex: none;
+  min-height: 18px;
+  padding: 0 12px 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.ex-search-error {
+  padding: 0 12px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ex-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+.ex-results .file-row {
+  gap: 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.ex-results .chev {
+  flex: none;
+  width: 10px;
+}
+.ex-count {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  font-size: 10.5px;
+  text-align: center;
+  color: var(--text-2);
+}
+.ex-match {
+  padding-left: 28px;
+}
+.ex-match-line {
+  flex: none;
+  min-width: 26px;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--text-4);
+}
+.ex-match-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  color: var(--text-2);
+}
+.ex-results .ex-match mark {
+  font-weight: 600;
+  border-radius: 2px;
+  background: var(--amber-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--amber) 35%, transparent);
+}
+
+.app[data-bp="xs"] .ex-bar-hint,
+.app[data-bp="sm"] .ex-bar-hint,
+.app[data-bp="xs"] .ex-tool .kbd {
+  display: none;
+}

@@ -23,6 +23,10 @@ interface Commands {
   toggleRight(): void;
   toggleWall(): void;
   toggleReview?(): void;
+  /** The focused agent's files (only when they can be read). */
+  quickOpen?(): void;
+  searchFiles?(): void;
+  browseFiles?(): void;
   moveToWindow(): void;
   preset(p: Preset): void;
   /** Presets that fit the current space (default: all). */
@@ -180,6 +184,15 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
       { id: "wall", icon: <span className="pal-icon">▦</span>, label: "Toggle Wall (all terminals)", search: "wall overview all terminals expose", hint: <Kbd>⌘E</Kbd>, run: commands.toggleWall },
       ...(commands.toggleReview
         ? [{ id: "review", icon: <span className="pal-icon">±</span>, label: "Review changes (diffs, comments, merge)", search: "review changes diff merge commit comments", hint: <Kbd>⌘R</Kbd>, run: commands.toggleReview }]
+        : []),
+      ...(commands.quickOpen
+        ? [{ id: "quick-open", icon: <span className="pal-icon"><Icon name="file" size={14} /></span>, label: "Go to file…", search: "go to file open quick find path explorer", hint: <Kbd>⌘P</Kbd>, run: commands.quickOpen }]
+        : []),
+      ...(commands.searchFiles
+        ? [{ id: "search-files", icon: <span className="pal-icon"><Icon name="search" size={14} /></span>, label: "Search in files", search: "search find grep text in files explorer", hint: <Kbd>⌘⇧F</Kbd>, run: commands.searchFiles }]
+        : []),
+      ...(commands.browseFiles
+        ? [{ id: "browse-files", icon: <span className="pal-icon"><Icon name="folder" size={14} /></span>, label: "Browse files (read-only)", search: "browse files explorer tree folder code view read", run: commands.browseFiles }]
         : []),
       { id: "window", icon: <span className="pal-icon">⧉</span>, label: "Move space to new window", search: "move space new window monitor", hint: <Kbd>⌘⇧N</Kbd>, run: commands.moveToWindow },
       ...(commands.presets ?? PRESETS).map<Item>((p) => ({
