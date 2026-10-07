@@ -4,7 +4,7 @@ import type { AgentView } from "../types";
 import type { Space } from "../state/workspace";
 import { reviewScope } from "./reviewScope";
 
-const a = (id: string, project: string) => ({ id, project }) as AgentView;
+const a = (id: string, project: string) => ({ id, project, projectDisplay: project }) as AgentView;
 const AGENTS = [a("api", "/code/orders"), a("docs", "/code/handbook"), a("tests", "/code/checkout"), a("fix", "/code/orders")];
 const layout = { type: "pane", id: "p1", agentId: null } as unknown as Space["layout"];
 const space = (p: Partial<Space>): Space => ({ id: "s", name: "S", kind: "custom", members: [], layout, focusedPaneId: "p1", maximizedPaneId: null, ...p });
@@ -16,6 +16,13 @@ describe("reviewScope", () => {
     expect(ids(r)).toEqual(["api", "docs", "tests", "fix"]);
     expect(r.canWiden).toBe(false);
     expect(reviewScope(AGENTS, null, false).canWiden).toBe(false);
+  });
+
+  it("All space with a focused agent: that agent's project, widenable", () => {
+    const r = reviewScope(AGENTS, space({ kind: "all" }), false, [], AGENTS[0]);
+    expect(ids(r)).toEqual(["api", "fix"]);
+    expect(r).toMatchObject({ canWiden: true, label: "/code/orders" });
+    expect(ids(reviewScope(AGENTS, space({ kind: "all" }), true, [], AGENTS[0]))).toEqual(["api", "docs", "tests", "fix"]);
   });
 
   it("project space: that project's agents", () => {
