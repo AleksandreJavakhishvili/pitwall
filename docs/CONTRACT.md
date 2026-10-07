@@ -35,4 +35,5 @@ how Pitwall behaves and why; the code is organised as:
 | [spec/worktrees.md](spec/worktrees.md) | Worktrees via the agent's own flag | Backend, UI |
 | [spec/architecture.md](spec/architecture.md) | Wave 2 design: crates, Provider/TermIo/Exec traits, capabilities, daemon protocol, migration steps | all |
 | [spec/worktrees-view.md](spec/worktrees-view.md) | All git worktrees per project/agent in source control | Backend, UI |
+| [spec/explorer.md](spec/explorer.md) | Read-only code explorer: file tree, viewer, quick open, search, open in editor | Backend, UI |
 | [spec/roadmap.md](spec/roadmap.md) | Waves and what comes later | – |

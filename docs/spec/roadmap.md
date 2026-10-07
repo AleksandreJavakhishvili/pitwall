@@ -17,6 +17,8 @@
 ## Queued UI
 - Terminals anywhere (⌘T, "Open terminal here") + agents started by hand are recognised (inside Pitwall terminals and "Elsewhere") → [terminals.md](terminals.md)
 - Better git diff UI: VS Code-style file icons, status letters, folder tree → [diff-ui.md](diff-ui.md)
+- Read-only code explorer (Files tab, viewer, ⌘P, ⇧⌘F, open in editor) → [explorer.md](explorer.md):
+  spec, backend and API done; the UI comes after Review moves to CodeMirror 6
 
 ## Wave 2 — Architecture: providers + daemon (in design)
 Goal: clean, low-coupling core so new places-to-run (agw, SSH, cloud) and new
