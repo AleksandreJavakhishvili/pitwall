@@ -1,7 +1,9 @@
 //! "Install command-line tool" (Settings), like VS Code's `code`: a symlink
 //! named `pitwall` to the `pitwall-cli` the app ships (a Tauri `externalBin`
-//! next to the app executable), in `~/.local/bin` or `/usr/local/bin`. The
-//! UI asks the user first; nothing that isn't Pitwall's own link is ever
+//! next to the app executable), in `~/.local/bin` or `/usr/local/bin`. On
+//! Windows (no symlinks without privileges) it is a copy, `pitwall.exe`, in
+//! `%LOCALAPPDATA%\Pitwall\bin`, with a marker file saying it is Pitwall's.
+//! The UI asks the user first; nothing that isn't Pitwall's own is ever
 //! replaced.
 
 use std::path::{Path, PathBuf};
@@ -26,7 +28,7 @@ pub fn cli_bin() -> Result<PathBuf, String> {
     if let Some(built) = option_env!("PITWALL_CLI_BUILT") {
         candidates.push(PathBuf::from(built));
     }
-    candidates.into_iter().find(|p| p.is_file()).ok_or_else(|| "the command-line tool (pitwall-cli) is missing next to the app".into())
+    candidates.into_iter().find(|p| p.is_file()).map(crate::platform::stable_sidecar).ok_or_else(|| "the command-line tool (pitwall-cli) is missing next to the app".into())
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -51,19 +53,42 @@ pub struct CliStatus {
 }
 
 /// `~/.local/bin`, then `/usr/local/bin`.
+#[cfg(not(windows))]
 pub fn candidate_dirs(home: &Path) -> Vec<PathBuf> {
     vec![home.join(".local").join("bin"), PathBuf::from("/usr/local/bin")]
 }
 
-/// A `pitwall` link in `dir` that points at a Pitwall CLI.
+/// `%LOCALAPPDATA%\Pitwall\bin`.
+#[cfg(windows)]
+pub fn candidate_dirs(home: &Path) -> Vec<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData").join("Local"));
+    vec![local.join("Pitwall").join("bin")]
+}
+
+/// The installed command: `pitwall` (`pitwall.exe` on Windows).
+fn link_path(dir: &Path) -> PathBuf {
+    dir.join(format!("{LINK_NAME}{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// Marks a Windows copy as Pitwall's own.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn marker(dir: &Path) -> PathBuf {
+    dir.join("pitwall-cli.installed")
+}
+
+/// A `pitwall` link in `dir` that points at a Pitwall CLI (Windows: our copy).
 fn our_link(dir: &Path) -> Option<PathBuf> {
-    let link = dir.join(LINK_NAME);
+    let link = link_path(dir);
+    if cfg!(windows) {
+        return (link.is_file() && marker(dir).is_file()).then_some(link);
+    }
     let target = std::fs::read_link(&link).ok()?;
     (target.file_name()?.to_string_lossy().starts_with(BIN_NAME)).then_some(link)
 }
 
 pub fn status(bin: Option<&Path>, dirs: &[PathBuf], path_env: &str) -> CliStatus {
-    let on_path: Vec<&Path> = path_env.split(':').filter(|p| !p.is_empty()).map(Path::new).collect();
+    let on_path: Vec<PathBuf> = std::env::split_paths(path_env).filter(|p| !p.as_os_str().is_empty()).collect();
+    let on_path: Vec<&Path> = on_path.iter().map(PathBuf::as_path).collect();
     CliStatus {
         bin: bin.map(|b| b.to_string_lossy().into_owned()),
         installed: dirs.iter().find_map(|d| our_link(d)).map(|l| l.to_string_lossy().into_owned()),
@@ -78,7 +103,7 @@ pub fn status(bin: Option<&Path>, dirs: &[PathBuf], path_env: &str) -> CliStatus
 /// `pitwall` link that is already Pitwall's.
 pub fn install(bin: &Path, dir: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
-    let link = dir.join(LINK_NAME);
+    let link = link_path(dir);
     if std::fs::symlink_metadata(&link).is_ok() {
         if our_link(dir).is_none() {
             return Err(format!("{} already exists and isn't Pitwall's; not replacing it", link.display()));
@@ -86,6 +111,8 @@ pub fn install(bin: &Path, dir: &Path) -> Result<PathBuf, String> {
         std::fs::remove_file(&link).map_err(|e| format!("can't replace {}: {e}", link.display()))?;
     }
     symlink(bin, &link).map_err(|e| format!("can't create {}: {e}", link.display()))?;
+    #[cfg(windows)]
+    std::fs::write(marker(dir), bin.to_string_lossy().as_bytes()).map_err(|e| format!("can't create {}: {e}", marker(dir).display()))?;
     Ok(link)
 }
 
@@ -94,9 +121,10 @@ fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// Windows: a copy (symlinks need Developer Mode or admin rights).
 #[cfg(not(unix))]
-fn symlink(_target: &Path, _link: &Path) -> std::io::Result<()> {
-    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "not on this platform yet"))
+fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::fs::copy(target, link).map(drop)
 }
 
 #[cfg(test)]
@@ -111,6 +139,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn installs_a_link_and_reports_it() {
         let root = temp("ok");
         let bin = root.join("app").join("pitwall-cli");
@@ -140,10 +169,10 @@ mod tests {
         let root = temp("other");
         let dir = root.join("bin");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("pitwall"), "someone else's").unwrap();
+        std::fs::write(link_path(&dir), "someone else's").unwrap();
         let e = install(Path::new("/x/pitwall-cli"), &dir).unwrap_err();
         assert!(e.contains("isn't Pitwall's"), "{e}");
-        assert_eq!(std::fs::read_to_string(dir.join("pitwall")).unwrap(), "someone else's");
+        assert_eq!(std::fs::read_to_string(link_path(&dir)).unwrap(), "someone else's");
         let _ = std::fs::remove_dir_all(&root);
     }
 

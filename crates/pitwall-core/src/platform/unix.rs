@@ -1,13 +1,14 @@
-//! Unix (macOS) implementations.
+//! Unix (macOS and Linux): the home folder, executable bits and local
+//! sockets. Where the two differ (data folders, process facts, privacy) see
+//! `macos.rs` and `linux.rs`.
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::exec::local_stdout;
-
-const PROCESS_TIMEOUT: Duration = Duration::from_secs(5);
+/// Socket files (`host::HostInfo`).
+pub const LOCAL_SOCKETS: crate::host::LocalSockets = crate::host::LocalSockets::Unix;
 
 pub fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
@@ -15,18 +16,13 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Everything Pitwall owns lives under ~/.pitwall, or under `$PITWALL_HOME`
-/// when set (isolated test instances and benchmarks, scripts/bench.sh).
-pub fn data_dir() -> PathBuf {
+/// `$PITWALL_HOME` when set (isolated test instances and benchmarks,
+/// scripts/bench.sh); otherwise the platform's default.
+pub(super) fn data_dir_or(default: impl FnOnce() -> PathBuf) -> PathBuf {
     match std::env::var_os(crate::paths::HOME_ENV) {
         Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => home_dir().join(".pitwall"),
+        _ => default(),
     }
-}
-
-/// Per-user application data of other apps (editors' "recently opened").
-pub fn app_support_dir() -> PathBuf {
-    home_dir().join("Library/Application Support")
 }
 
 /// A file anyone may execute.
@@ -42,41 +38,49 @@ pub fn make_executable(path: &Path) -> io::Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
 }
 
-// ---------------------------------------------------------------- privacy (macOS TCC)
-
-/// Opens items that only Full Disk Access unlocks, read-only, without reading
-/// them (`permissions::classify` maps the results). These locations have no
-/// consent prompt: without the grant macOS fails the open with EPERM, so
-/// checking never makes macOS ask. Desktop/Documents/Downloads and other
-/// apps' containers are deliberately absent — touching those *does* prompt.
-/// Empty where there is no such permission (not macOS).
-pub fn full_disk_access_probes() -> Vec<io::Result<()>> {
-    if !cfg!(target_os = "macos") {
-        return Vec::new();
-    }
-    let home = home_dir();
-    vec![
-        // The per-user privacy database: present on every Mac.
-        std::fs::File::open(home.join("Library/Application Support/com.apple.TCC/TCC.db")).map(drop),
-        // Safari's data folder, in case the database moves.
-        std::fs::read_dir(home.join("Library/Safari")).map(drop),
-    ]
+/// Files `path` may name as a program (Unix: exactly that one).
+pub fn executable_candidates(path: &Path) -> Vec<PathBuf> {
+    vec![path.to_path_buf()]
 }
 
-/// Opens a system URL (a System Settings pane) with the default handler.
-pub fn open_system_url(url: &str) -> Result<(), String> {
-    if !cfg!(target_os = "macos") {
-        return Err("privacy settings are a macOS feature".into());
+/// `std::fs::canonicalize`.
+pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
+    std::fs::canonicalize(path)
+}
+
+/// Nothing to hide: Unix programs get no window of their own.
+pub fn hide_console(_cmd: &mut std::process::Command) {}
+
+// ---------------------------------------------------------------- login shell
+
+/// `$SHELL`, else the OS's default shell (`macos.rs` / `linux.rs`).
+pub fn default_login_shell() -> String {
+    std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(super::default_shell)
+}
+
+/// `program` on PATH, for a login shell that isn't POSIX (`$PITWALL_SHELL`
+/// set to pwsh); POSIX shells resolve with `command -v` (`shell::which`).
+pub fn which(program: &str) -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join(program))
+        .find(|p| is_executable(p))
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+// ---------------------------------------------------------------- hook relay
+
+/// Write the relay script (`script`) at `dest`, executable.
+pub fn install_hook_relay(dest: &Path, script: &str) -> Result<(), String> {
+    if std::fs::read_to_string(dest).ok().as_deref() != Some(script) {
+        std::fs::write(dest, script).map_err(|e| e.to_string())?;
     }
-    let status = std::process::Command::new("/usr/bin/open")
-        .arg(url)
-        .status()
-        .map_err(|e| format!("could not open System Settings: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("could not open System Settings".into())
-    }
+    make_executable(dest).map_err(|e| e.to_string())
+}
+
+/// `sh '<dest>'`.
+pub fn hook_relay_command(dest: &Path) -> String {
+    format!("sh {}", crate::shell::quote(&dest.to_string_lossy()))
 }
 
 // ---------------------------------------------------------------- local sockets
@@ -127,51 +131,9 @@ impl Write for LocalStream {
     }
 }
 
-// ---------------------------------------------------------------- processes
-
-/// `ps -axww -o pid=,ppid=,args=` output (parsed by `procs::parse_table`).
-pub fn process_table() -> Option<String> {
-    local_stdout(&["/bin/ps", "-axww", "-o", "pid=,ppid=,args="], PROCESS_TIMEOUT)
-}
-
-/// `(pid, cwd)` of each process in `pids` that lsof could see.
-pub fn process_cwds(pids: &[u32], timeout: Duration) -> Option<Vec<(u32, String)>> {
-    let pids: Vec<String> = pids.iter().map(u32::to_string).collect();
-    let pids = pids.join(",");
-    local_stdout(&["/usr/sbin/lsof", "-a", "-d", "cwd", "-p", &pids, "-Fn"], timeout).map(|out| parse_lsof_cwd(&out))
-}
-
-/// `(pid, cwd)` pairs from `lsof -a -d cwd -p <pids> -Fn`.
-fn parse_lsof_cwd(out: &str) -> Vec<(u32, String)> {
-    let mut res = Vec::new();
-    let mut pid: Option<u32> = None;
-    for line in out.lines() {
-        if let Some(p) = line.strip_prefix('p') {
-            pid = p.trim().parse().ok();
-        } else if let Some(n) = line.strip_prefix('n') {
-            if let Some(p) = pid.take() {
-                res.push((p, n.to_string()));
-            }
-        }
-    }
-    res
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn lsof_output() {
-        let got = parse_lsof_cwd(include_str!("fixtures/lsof_cwd.txt"));
-        assert_eq!(
-            got,
-            vec![
-                (41207, "/Users/dev/code/orders-api".to_string()),
-                (52318, "/Users/dev/My Projects/web app".to_string()),
-            ]
-        );
-    }
 
     #[test]
     fn local_sockets_carry_bytes_both_ways() {

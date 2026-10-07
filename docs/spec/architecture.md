@@ -64,7 +64,7 @@ in easily, with few ties to specific things. In concrete terms:
 | `pitwall-daemon` (`pitwalld`) | Hosts the Engine: socket server, `FileStore` (`~/.pitwall`), hook ingest, approvals, rules (rulesync), onboarding scan, the daemon lifecycle. | It is the process that owns sessions. Tokio lives here only. |
 | `pitwall-client` | Connect, handshake, typed calls, event stream, terminal streams. | Shared by the app and the CLI, so the protocol is implemented on the client side exactly once. |
 | `pitwall-cli` (`pitwall`) | Argument parsing, JSON and human output. | A tiny binary built on `pitwall-client`. |
-| `src-tauri` | Windows, window bounds (`windows.json`), the webview bridge, notifications, Dock badge, menu-bar item, and starting the daemon. | A thin client. It never touches agents or state files directly. |
+| `src-tauri` | Windows, window bounds (`windows.json`), the webview bridge, notifications, Dock/taskbar badge, tray, native menu, and starting the daemon. | A thin client. It never touches agents or state files directly. |
 
 What is deliberately **not** split out:
 - No separate git or vcs crate. Git is ~600 lines of parsing over `Exec`, and
@@ -998,9 +998,14 @@ Where today's modules end up:
    logic); local IPC (hooks, daemon, holder) via `interprocess` local sockets
    (UDS on macOS/Linux, named pipes on Windows); the hook becomes a tiny
    cross-platform `pitwall-hook` binary instead of sh+curl; paths via a
-   platform data-dir helper (`~/.pitwall` / `%APPDATA%\Pitwall`); shell launch
-   behind a `LoginShell` abstraction (zsh/bash login on Unix, PowerShell/cmd on
-   Windows); tray/badge behind the app's platform layer.
+   platform data-dir helper (`~/.pitwall` / `$XDG_DATA_HOME/pitwall` on Linux /
+   `%APPDATA%\Pitwall`); desktop differences the UI sees are capabilities
+   (`host::HostInfo`: shortcut modifier, Dock, tray, menu bar, badge, local
+   sockets, machine label, data folder — one mechanism for UI and app shell);
+   shell launch behind a `LoginShell` abstraction (zsh/bash login on Unix,
+   PowerShell/cmd on Windows); the tray and badge OS calls behind the app's
+   platform layer (`src-tauri/src/platform/`). Hosts' hook relay: an sh script
+   on macOS/Linux (curl), the `pitwall-hook` binary on Windows.
 8. **Migration order (user choice, option A):** Step 2 → 3 → 4 → **8 (agw
    provider)** → 5 (protocol + CLI) → 6 (daemon) → 7 (approvals). agw moves
    ahead of the CLI/daemon because it only depends on Steps 2–4.

@@ -1,6 +1,7 @@
-//! The Pitwall app: windows, the webview bridge, notifications, the Dock
-//! badge and the menu. All logic lives in `pitwall_core`; this crate only
-//! hosts the engine and adapts it to Tauri (architecture.md §1).
+//! The Pitwall app: windows, the webview bridge, notifications, the badge
+//! (Dock, or taskbar overlay + tray), the tray and the menu, each chosen by
+//! `HostInfo` capabilities. All logic lives in `pitwall_core`; this crate
+//! only hosts the engine and adapts it to Tauri (architecture.md §1).
 
 mod attention;
 mod bench;
@@ -9,6 +10,7 @@ mod commands;
 mod events;
 mod holder;
 mod menu;
+mod platform;
 mod server;
 mod windows;
 
@@ -48,11 +50,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The `pitwall` CLI's socket (architecture.md §4).
     server::start(app.handle(), engine.clone(), &paths);
     windows::restore(app.handle());
+    if pitwall_core::host::HostInfo::current(&paths).tray {
+        platform::setup_tray(app.handle())?;
+    }
     bench::start(app.handle(), started());
     Ok(())
 }
 
-fn show_main(app: &tauri::AppHandle) {
+/// The Dock's "reopen" (macOS) and the tray icon's click (Windows).
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+pub(crate) fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -69,20 +76,31 @@ static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     started();
-    let app = tauri::Builder::default()
+    platform::prepare_env();
+    let host = pitwall_core::host::HostInfo::current(&Paths::new(Paths::default_root()));
+    let hides_on_close = host.hides_on_close();
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .menu(menu::build)
-        .on_menu_event(menu::on_event)
+        // Native menu items and the tray's menu.
+        .on_menu_event(menu::on_event);
+    if let Some(build) = menu::for_host(&host) {
+        builder = builder.menu(build);
+    }
+    let app = builder
         .setup(setup)
-        .on_window_event(|window, event| match event {
-            // Closing main hides it (agents keep running); ⌘Q quits.
-            // Secondary windows close for real.
+        .on_window_event(move |window, event| match event {
+            // Closing main hides it (agents keep running; the Dock or the
+            // tray brings it back); Quit quits. Without either nothing could
+            // bring it back, so closing main quits — agents still keep
+            // running in their holders. Secondary windows close for real.
             WindowEvent::CloseRequested { api, .. } => {
-                if window.label() == windows::MAIN {
+                if window.label() == windows::MAIN && hides_on_close {
                     api.prevent_close();
                     let _ = window.hide();
+                } else if window.label() == windows::MAIN {
+                    window.app_handle().exit(0);
                 } else {
                     windows::on_closed(window.app_handle(), window.label());
                 }
@@ -166,6 +184,8 @@ pub fn run() {
             commands::terminals::list_elsewhere,
             commands::permissions::permissions_status,
             commands::permissions::open_privacy_settings,
+            commands::host::host_info,
+            commands::host::quit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -18,9 +18,9 @@ env:
 
 jobs:
   rust:
-    name: Rust (test + clippy)
-    # The app is macOS-first: PTYs, the terminal holder and the platform layer
-    # are tested on the OS they ship on.
+    name: Rust on macOS (test + clippy)
+    # PTYs, the terminal holder and the platform layer are tested on each OS
+    # they ship on (rust-linux and rust-windows below).
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,107 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  rust-linux:
+    name: Rust on Linux (build + test + clippy)
+    # The Linux platform layer (/proc, XDG folders), the holder's forkpty and
+    # the app shell (WebKitGTK) are checked on the OS they ship on.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux build dependencies (https://v2.tauri.app/start/prerequisites/#linux).
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config patchelf \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev
+
+      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      # tauri-build needs the frontend dist folder to exist, even for tests.
+      - name: Placeholder frontend dist
+        run: mkdir -p dist
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets --target x86_64-unknown-linux-gnu
+
+      - name: cargo test
+        run: cargo test --workspace --target x86_64-unknown-linux-gnu
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+
+  rust-windows:
+    name: Rust on Windows (build + test + clippy)
+    # The Windows port (ConPTY holder, named pipes, pitwall-hook, PowerShell
+    # launch, tray). Build and clippy cover the whole workspace; the suites
+    # that are portable must pass. The ones listed under "not yet ported"
+    # still assume POSIX shells in their fixtures and run with
+    # continue-on-error, one step each so a regression in a passing suite is
+    # never hidden behind them.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      # tauri-build needs the frontend dist folder to exist, even for tests.
+      - name: Placeholder frontend dist
+        shell: bash
+        run: mkdir -p dist
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Holder protocol + the terminal-survives-restart contract (ConPTY,
+      # named pipes), the hook relay, wire formats, screen detection.
+      - name: cargo test (holder, hook, proto, detect, client)
+        run: cargo test -p pitwall-hold -p pitwall-hook -p pitwall-proto -p pitwall-detect -p pitwall-client
+
+      # Core: architecture rules, the Windows platform layer and the parsers
+      # it feeds (process rows, foreground, where.exe), shells and hooks.
+      - name: cargo test (core platform, parsers, shell, hooks)
+        run: |
+          cargo test -p pitwall-core --test boundaries
+          cargo test -p pitwall-core --lib -- platform:: procs:: shell:: host:: hooks:: kind::catalog
+
+      # ---- not yet ported: informational until their fixtures run on Windows.
+      # TODO(windows): port the POSIX-shell fixtures, then move each suite up
+      # into the required steps and delete its continue-on-error.
+
+      # TODO(windows): the rest of core (engine, rules, onboarding, git,
+      # review/worktrees) — fixtures write `#!/bin/sh` fake programs.
+      - name: cargo test (core, rest) — not yet ported
+        continue-on-error: true
+        run: |
+          cargo test -p pitwall-core --lib -- --skip platform:: --skip procs:: --skip shell:: --skip host:: --skip hooks:: --skip kind::catalog
+
+      # TODO(windows): provider contract + fake agw (shell scripts).
+      - name: cargo test (providers) — not yet ported
+        continue-on-error: true
+        run: cargo test -p pitwall-providers
+
+      # TODO(windows): daemon server tests (agents started through sh).
+      - name: cargo test (daemon) — not yet ported
+        continue-on-error: true
+        run: cargo test -p pitwall-daemon
+
+      # TODO(windows): the CLI and the app crate's tests.
+      - name: cargo test (cli, app) — not yet ported
+        continue-on-error: true
+        run: cargo test -p pitwall-cli -p pitwall
 
   web:
     name: UI (build + test) and website

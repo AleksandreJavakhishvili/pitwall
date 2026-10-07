@@ -82,6 +82,26 @@ describe("terminal shortcuts", () => {
     expect(OWNED_SHORTCUT(key("y", true))).toBe(false);
   });
 
+  it("with Ctrl+Shift shortcuts (Linux, Windows) plain Ctrl stays the terminal's", async () => {
+    const { OWNED_SHORTCUT } = await import("./shortcuts");
+    const { appChord, DEFAULT_HOST, keys, setHost } = await import("./host");
+    const ev = (code: string, key: string, mods: Partial<KeyboardEvent>) =>
+      ({ code, key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods }) as KeyboardEvent;
+    setHost({ ...DEFAULT_HOST, shortcuts: "ctrlShift" });
+    try {
+      expect(OWNED_SHORTCUT(ev("KeyK", "k", { ctrlKey: true }))).toBe(false);
+      expect(OWNED_SHORTCUT(ev("KeyK", "K", { ctrlKey: true, shiftKey: true }))).toBe(true);
+      expect(appChord(ev("Digit2", "@", { ctrlKey: true, shiftKey: true }))).toEqual({ key: "2", shift: false });
+      expect(appChord(ev("KeyT", "T", { ctrlKey: true, shiftKey: true, altKey: true }))).toEqual({ key: "t", shift: true });
+      expect(OWNED_SHORTCUT(key("t"))).toBe(false);
+      expect(keys("⌘⇧T")).toBe("Ctrl+Shift+Alt+T");
+      expect(keys("⌘K")).toBe("Ctrl+Shift+K");
+      expect(keys("⌘K", { mod: "meta" })).toBe("⌘K");
+    } finally {
+      setHost(null);
+    }
+  });
+
   it("labels Restart/Resume from caps, naming the agent a terminal restarts as", () => {
     const caps = (resume: boolean) => ({ caps: { resume } as AgentView["caps"] });
     expect(restartAction({ ...caps(false) })).toEqual({ label: "Restart", busy: "Restarting…", note: "" });

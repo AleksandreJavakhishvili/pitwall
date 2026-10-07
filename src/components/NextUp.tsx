@@ -95,7 +95,7 @@ export function NextUp({ agent: a }: { agent: AgentView }) {
             {a.autoSend ? "Sends when the agent is free" : "Auto-send off — send items manually"}
           </span>
           <button className="small-btn" onClick={add} disabled={!text.trim()}>
-            Queue <Kbd>⌘↵</Kbd>
+            Queue <Kbd submit>⌘↵</Kbd>
           </button>
         </div>
       </div>

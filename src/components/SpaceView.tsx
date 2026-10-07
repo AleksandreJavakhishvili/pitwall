@@ -18,6 +18,7 @@ import { useActions } from "../lib/actions";
 import { LayoutView } from "./LayoutView";
 import { ChipStrip } from "./ChipStrip";
 import { Icon } from "./Icon";
+import { keys } from "../lib/host";
 
 interface Props {
   space: Space;
@@ -76,7 +77,7 @@ export function SpaceView({ space, agents, ui, me, maxPerRow, fontSize, onMoveTo
         </span>
         <span className="spacer" />
         {maximized && (
-          <button className="small-btn" onClick={() => toggleMaximize(maximized.id)} title="Restore (⌘⏎)">
+          <button className="small-btn" onClick={() => toggleMaximize(maximized.id)} title={keys("Restore (⌘⏎)")}>
             <Icon name="restore" size={12} /> Restore layout
           </button>
         )}
@@ -107,7 +108,7 @@ export function SpaceView({ space, agents, ui, me, maxPerRow, fontSize, onMoveTo
           ))}
         </div>
         {onMoveToWindow && (
-          <button className="icon-btn icon-btn-sm" onClick={onMoveToWindow} title="Move to new window (⌘⇧N)">
+          <button className="icon-btn icon-btn-sm" onClick={onMoveToWindow} title={keys("Move to new window (⌘⇧N)")}>
             <Icon name="window" size={14} />
           </button>
         )}

@@ -6,6 +6,7 @@ import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { countLabel } from "../lib/worktrees";
+import { keys } from "../lib/host";
 
 interface Props {
   agent: AgentView;
@@ -69,7 +70,7 @@ function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMen
           </span>
           {a.status === "blocked" && a.statusDetail && <span className="agent-row-detail">{a.statusDetail}</span>}
         </span>
-        {index < 9 && <span className="row-index">⌘{index + 1}</span>}
+        {index < 9 && <span className="row-index">{keys(`⌘${index + 1}`, { compact: true })}</span>}
       </button>
       {worktrees > 0 && (
         <button

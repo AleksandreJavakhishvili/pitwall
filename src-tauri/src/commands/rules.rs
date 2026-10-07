@@ -34,16 +34,15 @@ pub async fn list_rule_library(core: State<'_, Shared>) -> Res<Vec<RuleFile>> {
     blocking(move || Ok(rules::library_files(&d))).await
 }
 
-/// Opens ~/.pitwall/rules in Finder (rules are edited in the user's editor).
+/// Opens the rule library folder in the file manager (Finder, or the
+/// desktop's default on Linux); rules are edited in the user's editor.
 #[tauri::command]
-pub async fn reveal_rule_library(core: State<'_, Shared>) -> Res<String> {
+pub async fn reveal_rule_library(app: tauri::AppHandle, core: State<'_, Shared>) -> Res<String> {
+    use tauri_plugin_opener::OpenerExt;
     let d = dirs(&core);
     blocking(move || {
         let dir = rules::library_dir(&d)?;
-        std::process::Command::new("open")
-            .arg(&dir)
-            .status()
-            .map_err(|e| e.to_string())?;
+        app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())?;
         Ok(dir.to_string_lossy().into_owned())
     })
     .await

@@ -147,6 +147,9 @@ impl Proc {
 
     fn run_line(&self, line: &str) {
         if let Some(text) = line.strip_prefix("echo ") {
+            // The contract echoes `$((1+1))` so output differs from the typed
+            // line; expand it like a shell would.
+            let text = text.replace("$((1+1))", "2");
             self.output(format!("{text}\r\n").as_bytes());
         } else if line == "stty size" {
             let size = lock(&self.st).size.unwrap_or(TermSize::DEFAULT);

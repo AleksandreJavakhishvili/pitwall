@@ -18,7 +18,9 @@ pitwall agent list            # fails with "not_connected" if Pitwall isn't runn
 
 Inside a Pitwall pane, `PITWALL_ENV=1`, `PITWALL_AGENT_ID` (your own agent id)
 and `PITWALL_CLI_SOCKET` are set, and `pitwall` uses that socket. Outside
-Pitwall it uses `~/.pitwall/run/pitwalld.sock`. Use `--socket <path>` only if
+Pitwall it uses `~/.pitwall/run/pitwalld.sock` (Linux:
+`~/.local/share/pitwall/run/pitwalld.sock`; Windows: the named pipe for
+`%APPDATA%\Pitwall\run\pitwalld.sock`). Use `--socket <path>` only if
 told to.
 
 ## Output

@@ -1,11 +1,16 @@
 //! OS-specific pieces behind narrow functions (architecture.md §9 decision
 //! 7): the listening socket, the peer's pid, the process table. Unix
-//! sockets on macOS/Linux; Windows (named pipes) comes with that port.
+//! sockets on macOS/Linux; per-user named pipes on Windows.
 
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
 pub use unix::*;
 
-#[cfg(not(unix))]
-compile_error!("pitwall-daemon: only Unix platforms are supported so far (named pipes come with the Windows port)");
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::*;
+
+#[cfg(not(any(unix, windows)))]
+compile_error!("pitwall-daemon: no platform module for this OS (see platform/mod.rs)");

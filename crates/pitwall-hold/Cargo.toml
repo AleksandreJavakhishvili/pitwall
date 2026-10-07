@@ -2,7 +2,7 @@
 name = "pitwall-hold"
 version = "0.1.0"
 edition = "2021"
-description = "Per-agent terminal holder: owns one PTY + child process and serves it on a Unix socket, so terminals outlive the Pitwall app (architecture.md §9, decision 1)."
+description = "Per-agent terminal holder: owns one PTY + child process and serves it on a local socket (Unix socket / named pipe), so terminals outlive the Pitwall app (architecture.md §9, decision 1)."
 
 [lib]
 name = "pitwall_hold"
@@ -17,4 +17,19 @@ interprocess = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# ConPTY (Windows 10 1809+).
+portable-pty = "0.9"
+# SDDL for the per-user pipe security descriptor.
+widestring = "1"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 

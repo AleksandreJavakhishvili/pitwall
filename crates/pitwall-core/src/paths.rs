@@ -1,5 +1,5 @@
-//! Where things are. [`Paths`] is everything Pitwall owns (`~/.pitwall` by
-//! default); it is a value handed to the engine, so tests run in a temp dir.
+//! Where things are. [`Paths`] is everything Pitwall owns (`~/.pitwall` on
+//! macOS, `~/.local/share/pitwall` on Linux); it is a value handed to the engine, so tests run in a temp dir.
 //! The user's home folder (for `~` in what the user types and sees) is a
 //! separate, read-only concern: [`home`], [`tildify`], [`expand_tilde`].
 
@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use crate::platform;
 
-/// Overrides Pitwall's data folder (default `~/.pitwall`): a test or
+/// Overrides Pitwall's data folder (default `~/.pitwall` on macOS,
+/// `$XDG_DATA_HOME/pitwall` on Linux): a test or
 /// benchmark instance with its own state, sockets and holders.
 pub const HOME_ENV: &str = "PITWALL_HOME";
 
@@ -22,8 +23,9 @@ impl Paths {
         Paths { root: root.into() }
     }
 
-    /// The platform's data dir for Pitwall (`~/.pitwall` on macOS;
-    /// `$PITWALL_HOME` when set).
+    /// The platform's data dir for Pitwall (`~/.pitwall` on macOS,
+    /// `$XDG_DATA_HOME/pitwall` — default `~/.local/share/pitwall` — on
+    /// Linux; `$PITWALL_HOME` when set).
     pub fn default_root() -> PathBuf {
         platform::data_dir()
     }
@@ -56,8 +58,9 @@ impl Paths {
         self.root.join("run").join("hold")
     }
 
+    /// The hook relay (`pitwall-hook`; `.exe` on Windows).
     pub fn hook_script(&self) -> PathBuf {
-        self.root.join("bin").join("pitwall-hook")
+        self.root.join("bin").join(format!("pitwall-hook{}", std::env::consts::EXE_SUFFIX))
     }
 
     pub fn user_agents_dir(&self) -> PathBuf {
@@ -85,7 +88,7 @@ pub fn tildify(path: &str) -> String {
 pub fn tildify_in(home: Option<&str>, path: &str) -> String {
     let Some(home) = home.filter(|h| !h.is_empty()) else { return path.to_string() };
     match path.strip_prefix(home) {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
+        Some(rest) if rest.is_empty() || rest.starts_with(['/', '\\']) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }

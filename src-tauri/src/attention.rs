@@ -1,4 +1,4 @@
-//! Telling the user something needs them: notification and Dock badge.
+//! Telling the user something needs them: notification and badge.
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -30,11 +30,9 @@ pub fn notify(app: &AppHandle, item: &Attention) {
     let _ = app.notification().builder().title(&item.name).body(body(item)).show();
 }
 
+/// Dock badge on macOS; taskbar overlay and tray tooltip on Windows.
 pub fn set_badge(app: &AppHandle, blocked: usize) {
-    if let Some(w) = app.get_webview_window("main") {
-        let count = (blocked > 0).then_some(blocked as i64);
-        let _ = w.set_badge_count(count);
-    }
+    crate::platform::set_badge(app, blocked);
 }
 
 #[cfg(test)]

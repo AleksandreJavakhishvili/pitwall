@@ -4,6 +4,7 @@ import { spaceMembers, type Space } from "../state/workspace";
 import { agentsIn } from "../layout/tree";
 import { useSpaceDropOver } from "../lib/dnd";
 import { Icon } from "./Icon";
+import { keys } from "../lib/host";
 
 interface Props {
   spaces: Space[];
@@ -70,7 +71,7 @@ export function SpaceTabs(p: Props) {
               <span className="tab-actions">
                 <button
                   className="tab-btn"
-                  title="Move to new window (⌘⇧N)"
+                  title={keys("Move to new window (⌘⇧N)")}
                   onClick={(e) => {
                     e.stopPropagation();
                     p.onMove(s.id);

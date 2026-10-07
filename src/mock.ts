@@ -3,6 +3,7 @@
 import type { Api, Unlisten } from "./api";
 import { createOnboardingMock } from "./components/onboarding/mockOnboarding";
 import { createPermissionsMock } from "./components/onboarding/mockPermissions";
+import { DEFAULT_HOST } from "./lib/host";
 import { createReviewMock } from "./mockReview";
 import { createWorktreesMock } from "./mockWorktrees";
 import type {
@@ -931,6 +932,8 @@ export function createMockApi(): Api {
     },
     ...createOnboardingMock((req) => mock.createAgent(req), update),
     ...createPermissionsMock(),
+    hostInfo: async () => DEFAULT_HOST,
+    quitApp: async () => {},
   };
   return mock;
 }

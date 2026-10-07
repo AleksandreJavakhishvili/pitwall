@@ -35,6 +35,12 @@ pub mod worktrees;
 mod platform;
 mod slug;
 
+/// This machine's local sockets (Unix sockets; named pipes reachable only by
+/// this user on Windows), for hosts that serve Pitwall's protocol.
+pub mod ipc {
+    pub use crate::platform::{LocalListener, LocalStream};
+}
+
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 

@@ -30,6 +30,7 @@ impl Exec for LocalExec {
     fn run(&self, cmd: &Cmd) -> Result<Out> {
         let (program, args) = cmd.argv.split_first().ok_or("empty command")?;
         let mut c = Command::new(program);
+        platform::hide_console(&mut c);
         c.args(args)
             .stdin(if cmd.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
@@ -131,7 +132,7 @@ impl Exec for LocalExec {
     }
 
     fn real_path(&self, path: &str) -> Result<String> {
-        std::fs::canonicalize(path)
+        platform::canonicalize(std::path::Path::new(path))
             .map(|p| p.to_string_lossy().into_owned())
             .map_err(|e| err(path, e))
     }

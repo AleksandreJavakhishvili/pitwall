@@ -3,6 +3,7 @@ import type { Space } from "../state/workspace";
 import { Kbd } from "./Kbd";
 import { Icon } from "./Icon";
 import { SpaceTabs } from "./SpaceTabs";
+import { keys } from "../lib/host";
 
 interface Props {
   agents: AgentView[];
@@ -39,7 +40,7 @@ export function TopBar(p: Props) {
         <button
           className="icon-btn"
           onClick={p.onToggleSidebar}
-          title={`${p.sidebarOpen ? "Hide" : "Show"} agents (⌘B)`}
+          title={keys(`${p.sidebarOpen ? "Hide" : "Show"} agents (⌘B)`)}
           aria-pressed={p.sidebarOpen}
         >
           <Icon name="sidebar" />
@@ -66,7 +67,7 @@ export function TopBar(p: Props) {
       />
 
       <div className="topbar-right" data-tauri-drag-region>
-        <button className="palette-hint" onClick={p.onPalette} title="Command palette (⌘K)">
+        <button className="palette-hint" onClick={p.onPalette} title={keys("Command palette (⌘K)")}>
           <Icon name="search" size={14} />
           {!p.compact && <span>Search</span>}
           <Kbd>⌘K</Kbd>
@@ -97,7 +98,7 @@ export function TopBar(p: Props) {
             onClick={p.onToggleReview}
             aria-pressed={!!p.reviewOn}
             data-on={!!p.reviewOn}
-            title="Review: what agents changed (⌘R)"
+            title={keys("Review: what agents changed (⌘R)")}
           >
             <Icon name="review" />
           </button>
@@ -107,7 +108,7 @@ export function TopBar(p: Props) {
           onClick={p.onToggleWall}
           aria-pressed={p.wallOn}
           data-on={p.wallOn}
-          title="Wall: every agent at once (⌘E)"
+          title={keys("Wall: every agent at once (⌘E)")}
         >
           <Icon name="wall" />
         </button>
@@ -117,7 +118,7 @@ export function TopBar(p: Props) {
         <button
           className="icon-btn"
           onClick={p.onToggleRight}
-          title={`${p.rightOpen ? "Hide" : "Show"} details (⌘.)`}
+          title={keys(`${p.rightOpen ? "Hide" : "Show"} details (⌘.)`)}
           aria-pressed={p.rightOpen}
         >
           <Icon name="panel" />

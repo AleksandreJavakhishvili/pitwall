@@ -1,6 +1,6 @@
 # Pitwall — developer docs
 
-Pitwall is a macOS desktop app (Tauri 2 + React/TS) that hosts terminal coding
+Pitwall is a macOS, Linux and Windows desktop app (Tauri 2 + React/TS) that hosts terminal coding
 agents (Claude Code, Codex, any CLI) and shows who needs you, a per-agent
 "Next up" queue, and git diffs. **It is a tool, not an agent**: it never
 rewrites prompts, never decides what agents do, and delivers user text verbatim.

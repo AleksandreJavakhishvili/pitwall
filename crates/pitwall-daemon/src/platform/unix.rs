@@ -4,7 +4,6 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
-use std::process::Command;
 
 use crate::identity::Proc;
 
@@ -66,14 +65,46 @@ pub fn peer_pid(_s: &Stream) -> Option<u32> {
 }
 
 /// Every process's parent and program name (`ps`), or `None` if `ps` failed.
+#[cfg(not(target_os = "linux"))]
 pub fn process_table() -> Option<HashMap<u32, Proc>> {
-    let out = Command::new("ps").args(["-axo", "pid=,ppid=,comm="]).output().ok()?;
+    let out = std::process::Command::new("ps").args(["-axo", "pid=,ppid=,comm="]).output().ok()?;
     if !out.status.success() {
         return None;
     }
     Some(parse_ps(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Every process's parent and program name, from `/proc` (Linux).
+#[cfg(target_os = "linux")]
+pub fn process_table() -> Option<HashMap<u32, Proc>> {
+    Path::new("/proc").is_dir().then(|| proc_table(Path::new("/proc")))
+}
+
+/// [`process_table`] over a `/proc`-shaped tree (tests read a fixture): the
+/// name is the program of the command line (`comm` is cut at 15 bytes),
+/// else `comm`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn proc_table(root: &Path) -> HashMap<u32, Proc> {
+    let Ok(entries) = std::fs::read_dir(root) else { return HashMap::new() };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let pid: u32 = e.file_name().to_str()?.parse().ok()?;
+            let stat = pitwall_core::procs::parse_proc_stat(&std::fs::read_to_string(e.path().join("stat")).ok()?)?;
+            let argv0 = std::fs::read(e.path().join("cmdline")).ok().and_then(|raw| {
+                let first = raw.split(|b| *b == 0).next()?;
+                (!first.is_empty()).then(|| String::from_utf8_lossy(first).into_owned())
+            });
+            let name = match argv0 {
+                Some(a) => Path::new(&a).file_name().map_or(a.clone(), |n| n.to_string_lossy().into_owned()),
+                None => stat.comm,
+            };
+            Some((pid, Proc { ppid: stat.ppid, name }))
+        })
+        .collect()
+}
+
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 pub fn parse_ps(text: &str) -> HashMap<u32, Proc> {
     text.lines()
         .filter_map(|line| {
@@ -97,6 +128,18 @@ mod tests {
         assert_eq!(t[&412], Proc { ppid: 1, name: "pitwall-hold".into() });
         assert_eq!(t[&413].name, "-zsh");
         assert_eq!(t.len(), 3);
+    }
+
+    #[test]
+    fn reads_a_proc_tree() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../pitwall-core/src/platform/fixtures/proc");
+        let t = proc_table(&root);
+        assert_eq!(t[&3900], Proc { ppid: 1, name: "pitwall-hold".into() });
+        assert_eq!(t[&4100], Proc { ppid: 3900, name: "-bash".into() });
+        // No command line (kernel thread): the kernel's name.
+        assert_eq!(t[&2].name, "kthreadd");
+        assert_eq!(t[&4300].name, "node");
+        assert!(!t.contains_key(&5000), "no stat: gone mid-read");
     }
 
     #[test]

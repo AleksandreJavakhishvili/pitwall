@@ -10,9 +10,12 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use interprocess::local_socket::{GenericFilePath, Name, ToFsName};
+use std::time::Duration;
 
-use super::PtySpec;
+use interprocess::local_socket::{traits, GenericFilePath, ListenerOptions, Name, ToFsName};
+pub use interprocess::local_socket::{Listener, RecvHalf, SendHalf, Stream};
+
+use super::{Conn, PtySpec, Role};
 
 fn errno() -> io::Error {
     io::Error::last_os_error()
@@ -30,6 +33,31 @@ fn set_cloexec(fd: RawFd) {
 /// The socket file itself.
 pub fn endpoint_name(path: &Path) -> io::Result<Name<'_>> {
     path.to_fs_name::<GenericFilePath>()
+}
+
+/// Listen on the socket file (see `prepare_endpoint` / `secure_endpoint`).
+pub fn listen(path: &Path) -> io::Result<Listener> {
+    ListenerOptions::new().name(endpoint_name(path)?).reclaim_name(false).create_sync()
+}
+
+pub fn accept(listener: &Listener) -> io::Result<Stream> {
+    traits::Listener::accept(listener)
+}
+
+pub fn connect(path: &Path) -> io::Result<Stream> {
+    traits::Stream::connect(endpoint_name(path)?)
+}
+
+impl Conn for Stream {
+    fn set_recv_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        traits::Stream::set_recv_timeout(self, timeout)
+    }
+    fn set_send_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        traits::Stream::set_send_timeout(self, timeout)
+    }
+    fn split(self) -> (RecvHalf, SendHalf) {
+        traits::Stream::split(self)
+    }
 }
 
 /// Create the socket's directory, private to the user (0700).
@@ -65,13 +93,6 @@ pub fn remove_endpoint(path: &Path, token: Option<u64>) {
 
 // --- Detaching -------------------------------------------------------------
 
-pub enum Role {
-    /// The process that was started: read the holder's one-line report.
-    Launcher(File),
-    /// The detached holder: write the report, then serve.
-    Holder(File),
-}
-
 /// Fork; the child leaves the caller's session (`setsid`), ignores SIGHUP,
 /// moves to `/` and points stdio at /dev/null. Call before any thread exists.
 pub fn detach() -> io::Result<Role> {
@@ -87,7 +108,7 @@ pub fn detach() -> io::Result<Role> {
     }
     if pid > 0 {
         unsafe { libc::close(fds[1]) };
-        return Ok(Role::Launcher(unsafe { File::from_raw_fd(fds[0]) }));
+        return Ok(Role::Launcher(Box::new(unsafe { File::from_raw_fd(fds[0]) })));
     }
     unsafe {
         libc::close(fds[0]);
@@ -105,8 +126,11 @@ pub fn detach() -> io::Result<Role> {
             }
         }
     }
-    Ok(Role::Holder(unsafe { File::from_raw_fd(fds[1]) }))
+    Ok(Role::Holder(Box::new(unsafe { File::from_raw_fd(fds[1]) })))
 }
+
+/// Nothing to hide: Unix programs get no window of their own.
+pub fn hide_console(_cmd: &mut std::process::Command) {}
 
 // --- PTY -------------------------------------------------------------------
 
@@ -218,7 +242,9 @@ pub fn spawn_pty(spec: &PtySpec) -> io::Result<Pty> {
 
     let mut ws = libc::winsize { ws_row: spec.rows, ws_col: spec.cols, ws_xpixel: 0, ws_ypixel: 0 };
     let mut master: libc::c_int = -1;
-    let pid = unsafe { libc::forkpty(&mut master, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws) };
+    // A raw pointer: macOS's libc takes `*mut winsize`, Linux's `*const`.
+    let ws_ptr = std::ptr::addr_of_mut!(ws);
+    let pid = unsafe { libc::forkpty(&mut master, std::ptr::null_mut(), std::ptr::null_mut(), ws_ptr) };
     if pid < 0 {
         return Err(errno());
     }

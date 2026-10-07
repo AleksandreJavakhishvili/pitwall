@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { appChord } from "./host";
 import { OWNED_SHORTCUT } from "./shortcuts";
 
 export interface ShortcutHandlers {
@@ -22,19 +23,20 @@ export interface ShortcutHandlers {
   selectIndex(i: number): void;
 }
 
-/** Global ⌘ shortcuts, captured before the terminal sees them. */
+/** Global ⌘ (or Ctrl+Shift, `lib/host.ts`) shortcuts, captured before the terminal sees them. */
 export function useShortcuts(h: ShortcutHandlers) {
   const ref = useRef(h);
   ref.current = h;
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (!OWNED_SHORTCUT(ev)) return;
-      const k = ev.key.toLowerCase();
+      const chord = appChord(ev);
+      if (!chord || !OWNED_SHORTCUT(ev)) return;
+      const { key: k, shift } = chord;
       const x = ref.current;
       ev.preventDefault();
       ev.stopPropagation();
-      if (ev.shiftKey && k === "n") x.moveSpaceToWindow();
-      else if (ev.shiftKey && k === "t") x.newTerminalAt?.();
+      if (shift && k === "n") x.moveSpaceToWindow();
+      else if (shift && k === "t") x.newTerminalAt?.();
       else if (k === "t") x.newTerminal?.();
       else if (k === "k") x.palette();
       else if (k === "n") x.newAgent();

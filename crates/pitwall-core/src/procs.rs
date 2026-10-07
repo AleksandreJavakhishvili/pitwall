@@ -58,8 +58,49 @@ pub fn parse_pid_args(out: &str) -> HashMap<u32, String> {
         .collect()
 }
 
+/// The fields Pitwall reads from a Linux `/proc/<pid>/stat` line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcStat {
+    pub pid: u32,
+    /// The program name, at most 15 bytes (the kernel's `comm`).
+    pub comm: String,
+    pub ppid: u32,
+    /// The foreground process group of its terminal (`-1`: no terminal).
+    pub tpgid: i64,
+}
+
+/// One `/proc/<pid>/stat` line. `comm` may hold spaces and parentheses, so
+/// the fields after it are found from the *last* `)`.
+pub fn parse_proc_stat(text: &str) -> Option<ProcStat> {
+    let open = text.find('(')?;
+    let close = text.rfind(')')?;
+    let pid = text[..open].trim().parse().ok()?;
+    let comm = text.get(open + 1..close)?.to_string();
+    // state ppid pgrp session tty_nr tpgid …
+    let rest: Vec<&str> = text[close + 1..].split_whitespace().take(6).collect();
+    let [_state, ppid, _pgrp, _session, _tty, tpgid] = rest[..] else { return None };
+    Some(ProcStat { pid, comm, ppid: ppid.parse().ok()?, tpgid: tpgid.parse().ok()? })
+}
+
+/// A Linux `/proc/<pid>/cmdline` as `ps -o args=` shows it: the
+/// NUL-separated arguments joined by spaces, on one line. Empty (kernel
+/// threads, zombies) shows the program name in brackets, as `ps` does.
+pub fn cmdline_args(raw: &[u8], comm: &str) -> String {
+    let text = String::from_utf8_lossy(raw);
+    let args: Vec<&str> = text.split('\0').filter(|a| !a.is_empty()).collect();
+    if args.is_empty() {
+        return format!("[{comm}]");
+    }
+    args.join(" ").replace(['\n', '\r'], " ")
+}
+
+/// A program's name: its last path component, without Windows' `.exe`.
 fn base(s: &str) -> &str {
-    s.rsplit('/').next().unwrap_or(s)
+    let b = s.rsplit(['/', '\\']).next().unwrap_or(s);
+    match b.len().checked_sub(4).filter(|&i| b.is_char_boundary(i)) {
+        Some(i) if b[i..].eq_ignore_ascii_case(".exe") => &b[..i],
+        _ => b,
+    }
 }
 
 /// An agent kind as the process table shows it.
@@ -257,6 +298,26 @@ mod tests {
     }
 
     #[test]
+    fn proc_stat_lines() {
+        let st = parse_proc_stat(include_str!("platform/fixtures/proc/4242/stat")).unwrap();
+        assert_eq!(st, ProcStat { pid: 4242, comm: "claude".into(), ppid: 4100, tpgid: 4242 });
+        // A name with spaces and parentheses; a process without a terminal.
+        let st = parse_proc_stat("77 (we(ird) name)) S 1 77 77 0 -1 4194560 120 0 0 0").unwrap();
+        assert_eq!((st.comm.as_str(), st.ppid, st.tpgid), ("we(ird) name)", 1, -1));
+        assert_eq!(parse_proc_stat("12 (short) S 1"), None);
+        assert_eq!(parse_proc_stat(""), None);
+    }
+
+    #[test]
+    fn proc_cmdlines() {
+        assert_eq!(cmdline_args(b"node\0/usr/bin/codex\0resume\x00019e\0", "node"), "node /usr/bin/codex resume 019e");
+        assert_eq!(cmdline_args(b"", "kthreadd"), "[kthreadd]");
+        // setproctitle-style: one string with spaces, padded with NULs.
+        assert_eq!(cmdline_args(b"postgres: writer\0\0\0", "postgres"), "postgres: writer");
+        assert_eq!(cmdline_args(b"sh\0-c\0echo a\nb\0", "sh"), "sh -c echo a b");
+    }
+
+    #[test]
     fn ps_output_skips_own_children_and_servers() {
         let rows = parse_table(include_str!("onboarding/scan_fixtures/ps.txt"));
         let got = short(agents_outside(&rows, &roots(&[500]), &matcher()));
@@ -310,6 +371,9 @@ mod tests {
         let m = matcher();
         let kind = |line: &str| m.recognise(line).map(|r| r.kind);
         assert_eq!(kind("/opt/homebrew/bin/claude").as_deref(), Some("claude"));
+        // Windows process rows (windows_procs.rs): the executable's name.
+        assert_eq!(kind("claude.exe --resume s1").as_deref(), Some("claude"));
+        assert_eq!(kind("node.exe C:\\Users\\d\\AppData\\Roaming\\npm\\codex.js").as_deref(), None);
         assert_eq!(kind("node --no-warnings /usr/local/bin/gemini -m pro").as_deref(), Some("gemini"));
         assert_eq!(kind("cursor-agent").as_deref(), Some("cursor"));
         assert_eq!(kind("aider --model sonnet").as_deref(), Some("aider"));

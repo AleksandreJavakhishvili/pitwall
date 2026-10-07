@@ -1,7 +1,7 @@
 [package]
 name = "pitwall"
 version = "0.1.0"
-description = "A Tauri App"
+description = "Pitwall: a pit wall for your coding agents"
 authors = ["you"]
 edition = "2021"
 
@@ -28,4 +28,8 @@ pitwall-core = { path = "../crates/pitwall-core" }
 pitwall-providers = { path = "../crates/pitwall-providers" }
 pitwall-daemon = { path = "../crates/pitwall-daemon" }
 pitwall-proto = { path = "../crates/pitwall-proto" }
+
+[target.'cfg(windows)'.dependencies]
+# The tray icon (the way back to a hidden window; there is no Dock).
+tauri = { version = "2", features = ["tray-icon"] }
 

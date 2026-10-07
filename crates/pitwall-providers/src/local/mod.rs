@@ -54,7 +54,7 @@ fn resolve(program: &str) -> Option<String> {
     if program.is_empty() {
         return None;
     }
-    if program.starts_with('/') {
+    if Path::new(program).is_absolute() {
         return Path::new(program).exists().then(|| program.to_string());
     }
     pitwall_core::shell::which(program)
@@ -64,7 +64,7 @@ impl LocalProvider {
     pub fn new(cfg: LocalConfig) -> LocalProvider {
         LocalProvider {
             id: ProviderId::local(),
-            machine: Machine { id: MachineId::new(MachineId::THIS_MAC), label: "This Mac".into(), detail: None },
+            machine: Machine { id: MachineId::new(MachineId::THIS_MAC), label: pitwall_core::host::machine_label().into(), detail: None },
             cfg,
             exec: Arc::new(LocalExec),
             resolved: Mutex::default(),

@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use interprocess::local_socket::{prelude::*, RecvHalf, SendHalf, Stream};
-
-use crate::platform;
+use crate::platform::{self, RecvHalf, SendHalf, Stream};
 use crate::proto::{self, Info, Msg, PROTOCOL_VERSION};
 
 /// Reading half of a connection (after `Conn::split`).
@@ -17,7 +15,7 @@ pub type Reader = RecvHalf;
 pub type Writer = SendHalf;
 
 /// Where the holder of `agent_id` listens: `<dir>/<agent_id>.sock`. On Unix
-/// this is the socket file; other platforms map it to their own endpoint.
+/// this is the socket file; Windows maps it to a named pipe.
 pub fn socket_path(dir: &Path, agent_id: &str) -> PathBuf {
     dir.join(format!("{agent_id}.sock"))
 }
@@ -29,6 +27,15 @@ pub fn remove_stale(path: &Path) {
 }
 
 pub use platform::{alive, force_kill};
+
+/// A raw connection to whatever listens at `path`, without the handshake
+/// (tests and diagnostics). `Read` / `Write` work on it and on `&RawStream`.
+pub type RawStream = Stream;
+pub use platform::Conn as RawConn;
+
+pub fn connect_raw(path: &Path) -> io::Result<RawStream> {
+    platform::connect(path)
+}
 
 /// A connection that has completed the HELLO / WELCOME handshake.
 pub struct Conn {
@@ -43,7 +50,7 @@ pub struct Conn {
 /// speaks another protocol version), or IO errors / timeouts for a peer that
 /// doesn't answer within `timeout`.
 pub fn connect(path: &Path, timeout: Duration) -> io::Result<Conn> {
-    let stream = Stream::connect(platform::endpoint_name(path)?)?;
+    let stream = platform::connect(path)?;
     stream.set_recv_timeout(Some(timeout))?;
     stream.set_send_timeout(Some(timeout))?;
     (&stream).write_all(&proto::hello())?;
@@ -127,6 +134,7 @@ pub fn command(bin: &Path, l: &Launch) -> Command {
     }
     cmd.arg("--").arg(l.program).args(l.args);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    platform::hide_console(&mut cmd);
     cmd
 }
 

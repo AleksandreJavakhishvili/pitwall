@@ -39,8 +39,13 @@ agents plug in without touching the rest. Design first, review, then build.
   signing + notarization, so macOS privacy grants (Desktop/Documents access)
   persist across builds instead of re-prompting for every new unsigned copy.
 - Windows port (ConPTY via portable-pty, named pipes, pitwall-hook binary,
-  PowerShell launch, tray + taskbar badge); test in a Parallels Windows VM and a
-  CI windows build. Linux comes nearly free with the same work.
+  PowerShell launch, tray + taskbar badge) — implemented behind the platform
+  layers, CI windows job + NSIS/MSI release; still to do: verify on a real
+  Windows machine (Parallels VM), port the POSIX-shell test fixtures
+  (provider contract, agw fakes) to run on Windows, code signing.
+- Linux port — DONE: `/proc` process facts, XDG folders, Ctrl+Shift shortcuts,
+  no native menu, AppImage + .deb releases, CI on Ubuntu (see
+  architecture.md §9 decision 7 and api.md `host_info`).
 - Performance pass with hard budgets → [perf.md](perf.md) (after the
   restructure, so we optimise the final shape).
 - Plain SSH machines provider; drag a space tab out to create a window.

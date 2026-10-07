@@ -19,6 +19,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { api, errorText } from "../api";
 import { OWNED_SHORTCUT } from "../lib/shortcuts";
+import { terminalClipboardChord } from "../lib/host";
 import { compute as responsive } from "../lib/useBreakpoint";
 import { currentScheme, onSchemeChange } from "../lib/theme";
 import { fitCells, tileBox, type Box, type TermSize } from "./spawnSize";
@@ -168,7 +169,22 @@ function create(agentId: string, running: boolean): Entry {
   const fit = new FitAddon();
   term.loadAddon(fit);
   // Let app shortcuts (⌘K, ⌘J, ⌘1…) through instead of the terminal eating them.
-  term.attachCustomKeyEventHandler((ev) => !OWNED_SHORTCUT(ev));
+  term.attachCustomKeyEventHandler((ev) => {
+    if (OWNED_SHORTCUT(ev)) return false;
+    // Ctrl+Shift+C / V where Ctrl+C belongs to the terminal (lib/host.ts).
+    const clip = terminalClipboardChord(ev);
+    if (!clip) return true;
+    if (ev.type === "keydown") {
+      ev.preventDefault();
+      if (clip === "copy") {
+        const sel = term.getSelection();
+        if (sel) void navigator.clipboard?.writeText(sel).catch(() => {});
+      } else {
+        void navigator.clipboard?.readText().then((t) => t && term.paste(t), () => {});
+      }
+    }
+    return false;
+  });
   term.onData((data) => {
     api.writeInput(agentId, data).catch(() => {});
   });

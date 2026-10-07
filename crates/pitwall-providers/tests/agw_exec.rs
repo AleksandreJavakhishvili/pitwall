@@ -7,6 +7,9 @@
 //! Safety: only `/bin/sh`, git and coreutils run, in temp folders. The real
 //! agw is never run here (see `live_agw_exec.rs`).
 
+// The fake agw (and agw itself) are shell scripts / Unix tools.
+#![cfg(unix)]
+
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;

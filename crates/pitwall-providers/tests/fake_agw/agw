@@ -59,7 +59,8 @@ case "$1 $2" in
     [ "$1" = "--" ] || { echo "Error: expected -- before the remote command, got '$1'" >&2; exit 2; }
     shift
     [ "$what" = vm ] && [ "$name" != fakevm ] && { echo "Error: VM '$name' not found" >&2; exit 1; }
-    echo "$what $name ${ws:--} $*" >> "$D/exec.log"
+    # printf, not echo: dash's echo turns backslash escapes in the script into bytes.
+    printf '%s\n' "$what $name ${ws:--} $*" >> "$D/exec.log"
     if [ -n "$ws" ]; then
         [ -f "$D/$ws.ws" ] || { echo "Error: workspace '$ws' not found" >&2; exit 1; }
         cd "$(cat "$D/$ws.ws")" || exit 1
@@ -88,7 +89,7 @@ case "$1 $2" in
     printf '{"kind":"agent-template","name":"default","used_by_count":0,"not_ready_reason":null,"disabled":false}]}}\n' ;;
 "session create")
     shift 2
-    echo "$*" >> "$D/create.log"
+    printf '%s\n' "$*" >> "$D/create.log"
     vm= ws= new_ws= ws_name= name= mode=
     while [ $# -gt 0 ]; do
         case $1 in

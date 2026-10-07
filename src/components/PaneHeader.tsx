@@ -7,6 +7,7 @@ import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { RulesStaleButton } from "./rules/RulesStaleButton";
+import { keys } from "../lib/host";
 
 interface Props {
   agent: AgentView;
@@ -64,7 +65,7 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
         <button
           className="icon-btn icon-btn-sm"
           onClick={() => toggleMaximize(paneId)}
-          title={maximized ? "Restore (⌘⏎)" : "Maximise (⌘⏎)"}
+          title={keys(maximized ? "Restore (⌘⏎)" : "Maximise (⌘⏎)")}
         >
           <Icon name={maximized ? "restore" : "maximize"} size={13} />
         </button>

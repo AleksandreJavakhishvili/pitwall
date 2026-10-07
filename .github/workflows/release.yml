@@ -1,5 +1,7 @@
 # Builds Pitwall.app as a universal macOS binary (Apple silicon + Intel), packs a
-# .dmg and an .app.tar.gz, and publishes them with SHA-256 checksums.
+# .dmg and an .app.tar.gz; builds a Linux x86_64 AppImage and .deb and the
+# Windows x64 installers (NSIS .exe and .msi); publishes them all in one
+# release with one SHA256SUMS.txt (job `publish`).
 #
 #   git tag v0.1.0 && git push origin v0.1.0     → GitHub Release with generated notes
 #   Actions → Release → Run workflow              → build only (artifacts on the run),
@@ -12,6 +14,11 @@
 #   APPLE_CERTIFICATE_PASSWORD  password of that .p12
 #   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID   for notarization
+#
+# Windows: unsigned by default (SmartScreen warns on first run; see README
+# "Windows"). For Authenticode signing add:
+#   WINDOWS_CERTIFICATE           base64 of the code-signing .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD  password of that .pfx
 name: Release
 
 on:
@@ -38,6 +45,9 @@ env:
 jobs:
   macos:
     runs-on: macos-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      mode: ${{ steps.signing.outputs.mode }}
     env:
       # Secrets can't be tested in `if:` directly; empty when not configured. They
       # get their real names (which Tauri reads) only in "Signing mode", and only
@@ -161,18 +171,203 @@ jobs:
           path: ${{ steps.pkg.outputs.dir }}/*
           if-no-files-found: error
 
+  # Linux x86_64: an AppImage (runs on most distributions) and a .deb. Built on
+  # the oldest supported Ubuntu so the AppImage's glibc floor stays low.
+  # src-tauri/build.rs builds the pitwall-hold / pitwall-cli sidecars for the
+  # same target triple; Tauri puts them next to the app (/usr/bin in the .deb,
+  # usr/bin inside the AppImage; the app copies them out of an AppImage's
+  # mount before agents use them).
+  linux:
+    runs-on: ubuntu-22.04
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config patchelf libfuse2 \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="${INPUT_TAG}"; fi
+          echo "app=$app_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build the AppImage and .deb
+        run: pnpm tauri build --target "$TARGET" --bundles appimage,deb
+
+      - name: Package and checksum
+        id: pkg
+        env:
+          VERSION: ${{ steps.version.outputs.app }}
+        run: |
+          bundle="target/$TARGET/release/bundle"
+          out=release-assets
+          mkdir -p "$out"
+          appimage=$(find "$bundle/appimage" -name "*.AppImage" | head -1)
+          deb=$(find "$bundle/deb" -name "*.deb" | head -1)
+          # The sidecars must ship in both.
+          dpkg-deb -c "$deb" | grep -E 'usr/bin/pitwall-hold$'
+          dpkg-deb -c "$deb" | grep -E 'usr/bin/pitwall-cli$'
+          (cd "$(mktemp -d)" && "$OLDPWD/$appimage" --appimage-extract >/dev/null && test -x squashfs-root/usr/bin/pitwall-hold && test -x squashfs-root/usr/bin/pitwall-cli)
+          cp "$appimage" "$out/Pitwall_${VERSION}_amd64.AppImage"
+          cp "$deb" "$out/Pitwall_${VERSION}_amd64.deb"
+          chmod +x "$out"/*.AppImage
+          (cd "$out" && sha256sum -- *.AppImage *.deb > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "dir=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pitwall-linux-x86_64
+          path: ${{ steps.pkg.outputs.dir }}/*
+          if-no-files-found: error
+
+  # Windows x64: the NSIS installer (per user, no admin rights) and an .msi.
+  # src-tauri/build.rs builds the pitwall-hold / pitwall-cli / pitwall-hook
+  # sidecars (tauri.windows.conf.json ships all three next to the app).
+  windows:
+    runs-on: windows-latest
+    outputs:
+      mode: ${{ steps.signing.outputs.mode }}
+    env:
+      SECRET_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      SECRET_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Version
+        id: version
+        run: |
+          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "app=$app_version" >> "$GITHUB_OUTPUT"
+
+      # Authenticode only when a certificate is configured: import it and
+      # hand its thumbprint to Tauri, which signs the app and the installers.
+      - name: Signing mode
+        id: signing
+        shell: pwsh
+        run: |
+          if ($env:SECRET_WINDOWS_CERTIFICATE) {
+            $pfx = Join-Path $env:RUNNER_TEMP "pitwall.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SECRET_WINDOWS_CERTIFICATE))
+            $pw = ConvertTo-SecureString $env:SECRET_WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+            Remove-Item $pfx
+            $config = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint; digestAlgorithm = "sha256"; timestampUrl = "http://timestamp.digicert.com" } } } | ConvertTo-Json -Compress -Depth 5
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "sign.json") -Value $config
+            "mode=authenticode" >> $env:GITHUB_OUTPUT
+          } else {
+            "mode=unsigned" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build the installers (NSIS + MSI)
+        env:
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          flags=(--bundles "nsis,msi")
+          if [ "$MODE" = authenticode ]; then flags+=(--config "$RUNNER_TEMP/sign.json"); fi
+          pnpm tauri build "${flags[@]}"
+
+      - name: Package and checksum
+        id: pkg
+        env:
+          VERSION: ${{ steps.version.outputs.app }}
+        run: |
+          bundle=target/release/bundle
+          out=release-assets
+          mkdir -p "$out"
+          cp "$(find "$bundle/nsis" -name "*.exe" | head -1)" "$out/Pitwall_${VERSION}_x64-setup.exe"
+          cp "$(find "$bundle/msi" -name "*.msi" | head -1)" "$out/Pitwall_${VERSION}_x64.msi"
+          (cd "$out" && sha256sum -- *.exe *.msi > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "dir=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pitwall-windows-x64
+          path: ${{ steps.pkg.outputs.dir }}/*
+          if-no-files-found: error
+
+  # One release with every platform's downloads and one SHA256SUMS.txt: each
+  # build's own checksums are verified, then one file covers every asset.
+  publish:
+    needs: [macos, linux, windows]
+    if: needs.macos.outputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
       - name: GitHub Release
-        if: steps.version.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          MODE: ${{ steps.signing.outputs.mode }}
-          ASSETS: ${{ steps.pkg.outputs.dir }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.macos.outputs.tag }}
+          MODE: ${{ needs.macos.outputs.mode }}
+          WINDOWS_MODE: ${{ needs.windows.outputs.mode }}
         run: |
-          note="macOS, Apple silicon and Intel (universal)."
+          for dir in artifacts/*/; do (cd "$dir" && sha256sum -c SHA256SUMS.txt); done
+          mkdir -p assets
+          find artifacts -type f ! -name SHA256SUMS.txt -exec cp {} assets/ \;
+          (cd assets && sha256sum -- * > ../SHA256SUMS.txt) && mv SHA256SUMS.txt assets/
+          cat assets/SHA256SUMS.txt
+          note="macOS: Apple silicon and Intel (universal). Linux: x86_64 AppImage and .deb. Windows: x64 installer (.exe, per user) and .msi."
           if [ "$MODE" = ad-hoc ]; then
-            note="$note This build isn't notarized: open it the first time with right-click → Open, or run \`xattr -dr com.apple.quarantine /Applications/Pitwall.app\`."
+            note="$note The macOS build isn't notarized: open it the first time with right-click → Open, or run \`xattr -dr com.apple.quarantine /Applications/Pitwall.app\`."
+          fi
+          if [ "$WINDOWS_MODE" = unsigned ]; then
+            note="$note The Windows installers aren't code-signed: SmartScreen asks on first run (More info → Run anyway)."
           fi
           flags=(--verify-tag --generate-notes --notes "$note")
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$TAG" "${flags[@]}" "$ASSETS"/*
+          gh release create "$TAG" "${flags[@]}" assets/*
