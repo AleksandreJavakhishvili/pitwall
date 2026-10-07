@@ -32,6 +32,16 @@ License 2.0 text is in LICENSES/Apache-2.0.txt):
     opencode.toml, copilot.toml and qwen.toml follow Herdr's agent
     integrations (src/agent_resume.rs).
 
+  - The Windows platform layer follows approaches from Herdr's Windows
+    support (src/platform/windows.rs): a named-pipe security descriptor
+    granting only the current account (its SID from the process token, in
+    an SDDL DACL), reading another process's command line with
+    ProcessCommandLineInformation and its current folder from the PEB, and
+    finding a ConPTY's foreground program from a Toolhelp process snapshot.
+    Pitwall's code is its own, written for its platform interfaces:
+    crates/pitwall-hold/src/platform/windows.rs,
+    crates/pitwall-core/src/platform/windows.rs and windows_procs.rs.
+
   crates/pitwall-detect/detect/aider.toml is not derived from Herdr (Herdr
   has no Aider manifest); it was written for Pitwall.
 

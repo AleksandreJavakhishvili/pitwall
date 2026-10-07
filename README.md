@@ -86,7 +86,7 @@ Today the CLI lists and adds; it can't stop, remove or prompt agents. Anything t
 
 ## Install
 
-macOS only for now, Apple silicon and Intel. Windows and Linux are planned.
+macOS, Apple silicon and Intel. Windows is coming with the next release (see [Windows](#windows)); Linux is planned.
 
 ### Download
 
@@ -131,6 +131,22 @@ scripts/install-local.sh                         # uses target/release/bundle/ma
 PITWALL_SIGN_IDENTITY="My Identity" scripts/install-local.sh path/to/Pitwall.app
 ```
 
+### Windows
+
+Coming with the first Windows release: an installer (`Pitwall_<version>_x64-setup.exe`, per user, no admin rights) and an `.msi`, both on the [releases page](https://github.com/AleksandreJavakhishvili/pitwall/releases) with a `SHA256SUMS-windows.txt`. Windows 10 1809 or newer (Pitwall's terminals use ConPTY); the installer fetches the WebView2 runtime if it's missing.
+
+The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS-windows.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
+
+How it differs from macOS:
+
+- Agents start through PowerShell (`pwsh` if installed, else Windows PowerShell), with PATH as a new terminal would have it, so CLIs installed after Pitwall started are found. Set `PITWALL_SHELL` to use another shell.
+- Pitwall's data lives in `%APPDATA%\Pitwall` (`PITWALL_HOME` still overrides it); terminals, hooks and the CLI talk over named pipes only your account can open.
+- Closing the window keeps Pitwall in the tray (click it to come back); the number of agents that need you shows on the taskbar button.
+- App shortcuts are **Ctrl+Shift**+key (plain Ctrl keys go to the terminal): Ctrl+Shift+K for the command palette, Ctrl+Shift+T for a terminal, and so on.
+- "Install command-line tool" puts `pitwall.exe` in `%LOCALAPPDATA%\Pitwall\bin`; add that folder to your PATH.
+
+To build it yourself on Windows: the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) (MSVC build tools, WebView2), Rust, Node.js and pnpm, then `pnpm install` and `pnpm tauri build --bundles nsis`.
+
 ## Development
 
 ```bash
@@ -152,12 +168,12 @@ It deploys to GitHub Pages from `.github/workflows/pages.yml` on every push to `
 
 ### CI and releases
 
-- `.github/workflows/ci.yml`: `cargo test` and `cargo clippy` on macOS, UI build + tests and the website build on Linux.
-- `.github/workflows/release.yml`: push a tag like `v0.1.0` to build a universal `.dmg` and `.app.tar.gz` with checksums and publish a GitHub Release. Builds are ad-hoc signed unless the Apple signing secrets listed at the top of the workflow are set, in which case they're Developer ID signed and notarized.
+- `.github/workflows/ci.yml`: `cargo test` and `cargo clippy` on macOS; build, clippy and the portable test suites on Windows; UI build + tests and the website build on Linux.
+- `.github/workflows/release.yml`: push a tag like `v0.1.0` to build a universal `.dmg` and `.app.tar.gz` with checksums and publish a GitHub Release, then add the Windows installers (NSIS `.exe`, `.msi`) to it. Builds are ad-hoc signed unless the Apple signing secrets listed at the top of the workflow are set, in which case they're Developer ID signed and notarized; Windows builds are unsigned unless `WINDOWS_CERTIFICATE` / `WINDOWS_CERTIFICATE_PASSWORD` are set (Authenticode).
 
 ## Credits
 
-- Agent detection rules and parts of the rule model are adapted from [Herdr](https://github.com/herdrdev/herdr) (Apache-2.0). Details in [NOTICE](NOTICE).
+- Agent detection rules, parts of the rule model and approaches in the Windows platform layer are adapted from [Herdr](https://github.com/herdrdev/herdr) (Apache-2.0). Details in [NOTICE](NOTICE).
 - File and folder icons from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT).
 - Fonts: Inter, JetBrains Mono and Barlow Condensed (SIL Open Font License 1.1), bundled through `@fontsource`. Licence texts are in [LICENSES/](LICENSES).
 
