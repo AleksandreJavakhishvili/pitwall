@@ -284,16 +284,16 @@ mod tests {
     }
 
     fn argv(name: &str, kv: &[(&str, &str)]) -> Vec<String> {
-        args(name, "shakedown", &opts(kv)).unwrap()
+        args(name, "my-vm", &opts(kv)).unwrap()
     }
 
     fn err(name: &str, kv: &[(&str, &str)]) -> String {
-        args(name, "shakedown", &opts(kv)).unwrap_err().message
+        args(name, "my-vm", &opts(kv)).unwrap_err().message
     }
 
     #[test]
     fn every_combination_maps_to_agws_flags() {
-        let base = ["session", "create", "--vm", "shakedown"];
+        let base = ["session", "create", "--vm", "my-vm"];
         let with = |rest: &[&str]| base.iter().chain(rest).map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(argv("api-fix", &[("workspace", "work"), ("runAs", "admin")]), with(&["--workspace", "work", "--admin", "api-fix"]));
         assert_eq!(
@@ -303,8 +303,8 @@ mod tests {
         assert_eq!(argv("s", &[("workspace", "work"), ("runAs", "agent:bot")]), with(&["--workspace", "work", "--agent", "bot", "s"]));
         assert_eq!(argv("s", &[("workspace", "+new"), ("runAs", "admin")]), with(&["--new-workspace", "--admin", "s"]));
         assert_eq!(
-            argv("s", &[("workspace", "+new"), ("workspaceName", "scratch"), ("workspaceTemplate", "gwlive"), ("runAs", "admin")]),
-            with(&["--workspace-name", "scratch", "--workspace-template", "gwlive", "--new-workspace", "--admin", "s"])
+            argv("s", &[("workspace", "+new"), ("workspaceName", "scratch"), ("workspaceTemplate", "api-session"), ("runAs", "admin")]),
+            with(&["--workspace-name", "scratch", "--workspace-template", "api-session", "--new-workspace", "--admin", "s"])
         );
         assert_eq!(argv("s", &[("workspace", "work"), ("runAs", "+new")]), with(&["--workspace", "work", "--new-agent", "s"]));
         assert_eq!(
@@ -349,29 +349,29 @@ mod tests {
 
     #[test]
     fn the_form_lists_what_the_vm_has() {
-        let f = form("shakedown", &listings());
+        let f = form("my-vm", &listings());
         assert!(!f.folder && f.error.is_none());
         assert_eq!((f.name.max_len, f.submit.as_str()), (34, "Create"));
         let values = |id: &str| f.field(id).unwrap().choices.iter().map(|c| c.value.clone()).collect::<Vec<_>>();
-        assert_eq!(values("workspace"), ["gwlive", "work", "+new"]);
+        assert_eq!(values("workspace"), ["api-session", "work", "+new"]);
         assert_eq!(values("runAs"), ["admin", "agent:bot", "+new"]);
         assert!(values("template").contains(&"claude".to_string()) && values("template").contains(&"default".to_string()));
         assert!(values("workspaceTemplate").contains(&"agentworks".to_string()));
         assert!(values("agentTemplate").contains(&"claude_light".to_string()));
         // Defaults: the first workspace, the admin, the session template in use.
         let v = f.values(&BTreeMap::new()).unwrap();
-        assert_eq!(v, opts(&[("workspace", "gwlive"), ("runAs", "admin"), ("template", "claude")]));
+        assert_eq!(v, opts(&[("workspace", "api-session"), ("runAs", "admin"), ("template", "claude")]));
         let s = f.summarize("api-fix", &f.values(&opts(&[("workspace", "work")])).unwrap());
-        assert_eq!(s.text, "Creates and starts session api-fix on shakedown in workspace work as the admin user, with session template claude.");
+        assert_eq!(s.text, "Creates and starts session api-fix on my-vm in workspace work as the admin user, with session template claude.");
         assert!(s.creates.is_empty());
         // Extra things made on the VM are spelled out.
         let v = f.values(&opts(&[("workspace", "+new"), ("runAs", "+new"), ("agentName", "helper")])).unwrap();
         assert_eq!(v.get("workspaceTemplate").map(String::as_str), Some("default"));
         let s = f.summarize("api-fix", &v);
-        assert_eq!(s.text, "Creates and starts session api-fix on shakedown in a new workspace api-fix as a new agent helper, with session template claude.");
+        assert_eq!(s.text, "Creates and starts session api-fix on my-vm in a new workspace api-fix as a new agent helper, with session template claude.");
         assert_eq!(s.creates, ["workspace api-fix (template default)", "agent user agt-helper (template default)"]);
         // Every default and every choice turns into a valid command.
-        assert!(args("api-fix", "shakedown", &v).is_ok());
+        assert!(args("api-fix", "my-vm", &v).is_ok());
     }
 
     #[test]

@@ -161,7 +161,7 @@ It deploys to GitHub Pages from `.github/workflows/pages.yml` on every push to `
 
 - Agent detection rules and parts of the rule model are adapted from [Herdr](https://github.com/herdrdev/herdr) (Apache-2.0). Details in [NOTICE](NOTICE).
 - File and folder icons from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT).
-- Fonts: Inter, JetBrains Mono and Barlow Condensed (SIL Open Font License 1.1), bundled through `@fontsource`.
+- Fonts: Inter, JetBrains Mono and Barlow Condensed (SIL Open Font License 1.1), bundled through `@fontsource`. Licence texts are in [LICENSES/](LICENSES).
 
 Pitwall is not affiliated with Formula 1 or with any agent vendor named here.
 

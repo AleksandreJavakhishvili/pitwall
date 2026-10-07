@@ -539,19 +539,19 @@ mod tests {
     fn machines_and_sessions_come_from_agw_listings() {
         let x = FakeExec::new();
         x.on(&["/opt/agw", "--non-interactive", "vm", "list", "--output", "json"], include_str!("fixtures/vm_list.json"));
-        x.on(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "shakedown", "--status", "--output", "json"], LIST);
-        x.on(&["/opt/agw", "--non-interactive", "workspace", "describe", "gwlive", "--output", "json"], include_str!("fixtures/workspace_describe.json"));
+        x.on(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "my-vm", "--status", "--output", "json"], LIST);
+        x.on(&["/opt/agw", "--non-interactive", "workspace", "describe", "api-session", "--output", "json"], include_str!("fixtures/workspace_describe.json"));
         x.on_exit(&["/opt/agw", "--non-interactive", "workspace", "describe", "work", ".."], 1, "", "Error: boom");
         x.on(&["/opt/agw", "--non-interactive", "--version"], "0.19.0\n");
         let p = provider(&x);
         assert_eq!(p.version().as_deref(), Some("0.19.0"));
         let m = p.machines().unwrap();
-        assert_eq!((m[0].id.as_str(), m[0].label.as_str(), m[0].detail.as_deref()), ("shakedown", "shakedown", Some("lima-local")));
-        let d = p.discover(&MachineId::new("shakedown")).unwrap();
+        assert_eq!((m[0].id.as_str(), m[0].label.as_str(), m[0].detail.as_deref()), ("my-vm", "my-vm", Some("local-site")));
+        let d = p.discover(&MachineId::new("my-vm")).unwrap();
         assert_eq!(d.len(), 2);
-        assert_eq!(d[0].locator.to_string(), "agw:shakedown/gwlive");
+        assert_eq!(d[0].locator.to_string(), "agw:my-vm/api-session");
         assert_eq!((d[0].kind.as_str(), d[0].state), ("claude-code", Some(NativeState::Running)));
-        assert_eq!(d[0].cwd.as_deref(), Some("/opt/agentworks/workspaces/gwlive"));
+        assert_eq!(d[0].cwd.as_deref(), Some("/opt/agentworks/workspaces/api-session"));
         assert_eq!((d[1].state, d[1].cwd.as_deref(), d[1].user.as_deref()), (Some(NativeState::Stopped), None, None));
         // Only read-only commands ran.
         assert!(x.calls().iter().all(|c| ["vm", "session", "workspace", "--version"].contains(&c.argv[2].as_str())));
@@ -561,20 +561,20 @@ mod tests {
     #[test]
     fn state_follows_agw_status() {
         let x = FakeExec::new();
-        x.on(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "shakedown", "--status", "--output", "json"], LIST);
+        x.on(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "my-vm", "--status", "--output", "json"], LIST);
         x.on_exit(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "gone", ".."], 1, "", "Error: unknown VM 'gone'\n  Hint: x");
         x.on(
             &["/opt/agw", "--non-interactive", "session", "list", "--vm", "dim", ".."],
-            include_str!("fixtures/session_list_nostatus.json").replace("shakedown", "dim").as_str(),
+            include_str!("fixtures/session_list_nostatus.json").replace("my-vm", "dim").as_str(),
         );
         let p = provider(&x);
-        assert_eq!(p.state(&loc("shakedown", "gwlive")).unwrap(), NativeState::Running);
-        assert_eq!(p.state(&loc("shakedown", "work")).unwrap(), NativeState::Stopped);
-        assert_eq!(p.state(&loc("shakedown", "nope")).unwrap(), NativeState::Gone);
+        assert_eq!(p.state(&loc("my-vm", "api-session")).unwrap(), NativeState::Running);
+        assert_eq!(p.state(&loc("my-vm", "work")).unwrap(), NativeState::Stopped);
+        assert_eq!(p.state(&loc("my-vm", "nope")).unwrap(), NativeState::Gone);
         assert_eq!(p.state(&loc("gone", "x")).unwrap(), NativeState::Gone);
-        assert!(p.state(&loc("dim", "gwlive")).unwrap_err().is(ErrorCode::Unreachable));
+        assert!(p.state(&loc("dim", "api-session")).unwrap_err().is(ErrorCode::Unreachable));
         // Not running: nothing to attach to, and nothing is started.
-        assert!(p.attach(&loc("shakedown", "work"), TermSize::DEFAULT).err().unwrap().is(ErrorCode::NotRunning));
+        assert!(p.attach(&loc("my-vm", "work"), TermSize::DEFAULT).err().unwrap().is(ErrorCode::NotRunning));
         let local = Locator::local("a");
         assert!(p.state(&local).unwrap_err().is(ErrorCode::NotFound));
     }
@@ -582,11 +582,11 @@ mod tests {
     #[test]
     fn stop_and_start_are_agws_own_commands() {
         let x = FakeExec::new();
-        x.on(&["/opt/agw", "--non-interactive", "session", "stop", "gwlive"], "");
-        x.on(&["/opt/agw", "--non-interactive", "session", "start", "gwlive"], "");
+        x.on(&["/opt/agw", "--non-interactive", "session", "stop", "api-session"], "");
+        x.on(&["/opt/agw", "--non-interactive", "session", "start", "api-session"], "");
         x.on_exit(&["/opt/agw", "--non-interactive", "session", "start", "work"], 1, "", "Error: VM is stopped\n");
         let p = provider(&x);
-        p.stop(&loc("shakedown", "gwlive")).unwrap();
+        p.stop(&loc("my-vm", "api-session")).unwrap();
         let kind = pitwall_core::kind::custom_kind("x");
         let mut spec = LaunchSpec {
             agent: "a",
@@ -597,11 +597,11 @@ mod tests {
             size: TermSize::DEFAULT,
             hooks: None,
         };
-        let s = p.start(&loc("shakedown", "gwlive"), &spec).unwrap();
+        let s = p.start(&loc("my-vm", "api-session"), &spec).unwrap();
         assert!(s.term.is_none() && !s.resumed && s.conversation_id.is_none());
-        assert_eq!(p.start(&loc("shakedown", "work"), &spec).err().unwrap().message, "agw: VM is stopped");
+        assert_eq!(p.start(&loc("my-vm", "work"), &spec).err().unwrap().message, "agw: VM is stopped");
         spec.intent = LaunchIntent::Resume("c".into());
-        assert!(p.start(&loc("shakedown", "gwlive"), &spec).err().unwrap().is(ErrorCode::Unsupported));
+        assert!(p.start(&loc("my-vm", "api-session"), &spec).err().unwrap().is(ErrorCode::Unsupported));
         assert_eq!(x.ran(&["/opt/agw", "--non-interactive", "session", ".."]), 3, "a resume never reaches agw");
         assert!(!x.calls().iter().any(|c| c.argv.iter().any(|a| a == "--force-new" || a == "delete")));
     }
@@ -609,27 +609,27 @@ mod tests {
     #[test]
     fn capture_reads_the_session_socket_over_agws_ssh_alias() {
         let x = FakeExec::new();
-        x.on(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "shakedown", "--output", "json"], LIST);
-        x.on(&["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "awvm--shakedown", "--", "*"], "screen\n");
+        x.on(&["/opt/agw", "--non-interactive", "session", "list", "--vm", "my-vm", "--output", "json"], LIST);
+        x.on(&["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "awvm--my-vm", "--", "*"], "screen\n");
         let p = provider(&x);
-        assert_eq!(p.capture(&loc("shakedown", "gwlive")).unwrap(), "screen\n");
+        assert_eq!(p.capture(&loc("my-vm", "api-session")).unwrap(), "screen\n");
         let script = x.calls().last().unwrap().argv.last().unwrap().clone();
-        assert_eq!(script, capture_script("gwlive", None));
-        assert!(script.contains("/run/agentworks/admin-tmux-sockets/\"$(id -un)\"/'gwlive'.sock") && script.contains("-t '=gwlive:'"));
+        assert_eq!(script, capture_script("api-session", None));
+        assert!(script.contains("/run/agentworks/admin-tmux-sockets/\"$(id -un)\"/'api-session'.sock") && script.contains("-t '=api-session:'"));
         assert!(capture_script("s", Some("bot")).contains("/run/agentworks/agent-tmux-sockets/'agt-bot'/'s'.sock"));
-        assert!(p.capture(&loc("shakedown", "nope")).err().unwrap().is(ErrorCode::NotRunning));
+        assert!(p.capture(&loc("my-vm", "nope")).err().unwrap().is(ErrorCode::NotRunning));
     }
 
     #[test]
     fn what_is_not_here_yet_is_unsupported() {
         let x = FakeExec::new();
         let p = provider(&x);
-        assert!(p.process_cwd(&loc("shakedown", "gwlive"), None).unwrap_err().is(ErrorCode::Unsupported));
+        assert!(p.process_cwd(&loc("my-vm", "api-session"), None).unwrap_err().is(ErrorCode::Unsupported));
         let caps = p.caps();
         assert!(caps.create && caps.platform_create && !caps.resume && !caps.rules && !caps.process_cwd && caps.hooks == HookTransport::None);
         assert!(caps.exec && caps.git_poll_ms >= 10_000, "diffs and Review, polled rarely");
         assert!(caps.attach_existing && caps.start && caps.capture && !caps.local_process);
-        assert!(p.remove(&loc("shakedown", "gwlive")).is_ok(), "nothing attached: nothing to do");
+        assert!(p.remove(&loc("my-vm", "api-session")).is_ok(), "nothing attached: nothing to do");
         assert!(x.calls().is_empty(), "remove never asks agw to delete anything");
     }
 
@@ -642,23 +642,23 @@ mod tests {
         x.on(&["/opt/agw", "--non-interactive", "session", "describe", "bot-s", "--output", "json"], &as_agent);
         x.on(&["/opt/agw", "--non-interactive", "session", "start", "work"], "");
         let p = provider(&x);
-        let admin = p.session_exec(&loc("shakedown", "work")).unwrap();
-        assert_eq!((admin.user(), admin.workspace()), (&User::Admin { vm: "shakedown".into() }, Some("work")));
-        assert_eq!(admin.argv("s")[2..8], ["vm", "exec", "--workspace", "work", "shakedown", "--"]);
-        let agent = p.session_exec(&loc("shakedown", "bot-s")).unwrap();
+        let admin = p.session_exec(&loc("my-vm", "work")).unwrap();
+        assert_eq!((admin.user(), admin.workspace()), (&User::Admin { vm: "my-vm".into() }, Some("work")));
+        assert_eq!(admin.argv("s")[2..8], ["vm", "exec", "--workspace", "work", "my-vm", "--"]);
+        let agent = p.session_exec(&loc("my-vm", "bot-s")).unwrap();
         assert_eq!(agent.user(), &User::Agent { agent: "bot".into() });
         assert_eq!(agent.argv("s")[2..8], ["agent", "exec", "--workspace", "work", "bot", "--"]);
         // Asked once per session; again after a start.
-        p.session_exec(&loc("shakedown", "work")).unwrap();
+        p.session_exec(&loc("my-vm", "work")).unwrap();
         let described = || x.ran(&["/opt/agw", "--non-interactive", "session", "describe", "work", ".."]);
         assert_eq!(described(), 1);
         let kind = pitwall_core::kind::custom_kind("x");
         let spec = LaunchSpec { agent: "a", kind: &kind, cwd: "/w", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None };
-        p.start(&loc("shakedown", "work"), &spec).unwrap();
-        p.exec_at(&loc("shakedown", "work")).unwrap();
+        p.start(&loc("my-vm", "work"), &spec).unwrap();
+        p.exec_at(&loc("my-vm", "work")).unwrap();
         assert_eq!(described(), 2);
         // The machine's exec is the admin's, with no workspace.
-        assert!(p.exec(&MachineId::new("shakedown")).is_ok());
+        assert!(p.exec(&MachineId::new("my-vm")).is_ok());
         assert!(p.exec_at(&Locator::local("a")).is_err_and(|e| e.is(ErrorCode::NotFound)));
         // Nothing but describe/start reached agw: no command ran on the VM.
         assert!(x.calls().iter().all(|c| c.argv[2] == "session"));
@@ -667,8 +667,8 @@ mod tests {
     const AGW: &str = "/opt/agw";
 
     fn listings_on(x: &FakeExec) {
-        x.on(&[AGW, "--non-interactive", "workspace", "list", "--vm", "shakedown", "--output", "json"], include_str!("fixtures/workspace_list.json"));
-        x.on(&[AGW, "--non-interactive", "agent", "list", "--vm", "shakedown", "--output", "json"], include_str!("fixtures/agent_list_empty.json"));
+        x.on(&[AGW, "--non-interactive", "workspace", "list", "--vm", "my-vm", "--output", "json"], include_str!("fixtures/workspace_list.json"));
+        x.on(&[AGW, "--non-interactive", "agent", "list", "--vm", "my-vm", "--output", "json"], include_str!("fixtures/agent_list_empty.json"));
         x.on(
             &[AGW, "--non-interactive", "resource", "list", "--kind", "session-template,workspace-template,agent-template", "--output", "json"],
             include_str!("fixtures/resource_list.json"),
@@ -680,14 +680,14 @@ mod tests {
         let x = FakeExec::new();
         listings_on(&x);
         let p = provider(&x);
-        let f = p.create_form(&MachineId::new("shakedown")).unwrap();
-        assert_eq!((f.provider.as_str(), f.machine.as_str(), f.folder, f.error.as_deref()), ("agw", "shakedown", false, None));
+        let f = p.create_form(&MachineId::new("my-vm")).unwrap();
+        assert_eq!((f.provider.as_str(), f.machine.as_str(), f.folder, f.error.as_deref()), ("agw", "my-vm", false, None));
         let ws: Vec<_> = f.field("workspace").unwrap().choices.iter().map(|c| c.value.as_str()).collect();
-        assert_eq!(ws, ["gwlive", "work", "+new"]);
+        assert_eq!(ws, ["api-session", "work", "+new"]);
         let run_as: Vec<_> = f.field("runAs").unwrap().choices.iter().map(|c| c.value.as_str()).collect();
         assert_eq!(run_as, ["admin", "+new"], "no agent users on this VM yet");
         assert_eq!(x.calls().len(), 3);
-        p.create_form(&MachineId::new("shakedown")).unwrap();
+        p.create_form(&MachineId::new("my-vm")).unwrap();
         assert_eq!(x.calls().len(), 3, "asked again within a few seconds: cached");
         // Only read-only listings ran, each time-boxed.
         assert!(x.calls().iter().all(|c| c.argv.contains(&"list".to_string()) && c.timeout <= create::OPTIONS_TIMEOUT));
@@ -696,13 +696,13 @@ mod tests {
     #[test]
     fn a_vm_that_cant_be_listed_still_gets_a_form() {
         let x = FakeExec::new();
-        x.on_exit(&[AGW, "--non-interactive", "workspace", "list", ".."], 1, "", "Error: VM 'shakedown' is stopped\n  Hint: agw vm start shakedown");
-        x.on_exit(&[AGW, "--non-interactive", "agent", "list", ".."], 1, "", "Error: VM 'shakedown' is stopped");
+        x.on_exit(&[AGW, "--non-interactive", "workspace", "list", ".."], 1, "", "Error: VM 'my-vm' is stopped\n  Hint: agw vm start my-vm");
+        x.on_exit(&[AGW, "--non-interactive", "agent", "list", ".."], 1, "", "Error: VM 'my-vm' is stopped");
         x.on(&[AGW, "--non-interactive", "resource", "list", ".."], include_str!("fixtures/resource_list.json"));
-        let f = provider(&x).create_form(&MachineId::new("shakedown")).unwrap();
+        let f = provider(&x).create_form(&MachineId::new("my-vm")).unwrap();
         assert_eq!(
             f.error.as_deref(),
-            Some("couldn't list workspaces: VM 'shakedown' is stopped; couldn't list agents: VM 'shakedown' is stopped")
+            Some("couldn't list workspaces: VM 'my-vm' is stopped; couldn't list agents: VM 'my-vm' is stopped")
         );
         assert_eq!(f.field("workspace").unwrap().default.as_deref(), Some("+new"));
     }
@@ -711,32 +711,32 @@ mod tests {
     fn create_runs_agws_create_then_reads_what_runs_there() {
         let x = FakeExec::new();
         listings_on(&x);
-        let created = [AGW, "--non-interactive", "session", "create", "--vm", "shakedown", "--workspace", "work", "--template", "claude", "--admin", "api-fix"];
+        let created = [AGW, "--non-interactive", "session", "create", "--vm", "my-vm", "--workspace", "work", "--template", "claude", "--admin", "api-fix"];
         x.on(&created, "Created session 'api-fix'\n");
         let describe = include_str!("fixtures/session_describe.json").replace("\"name\":\"work\"", "\"name\":\"api-fix\"");
         x.on(&[AGW, "--non-interactive", "session", "describe", "api-fix", "--output", "json"], &describe);
         x.on(&[AGW, "--non-interactive", "workspace", "describe", "work", "--output", "json"], include_str!("fixtures/workspace_describe.json"));
         let p = provider(&x);
-        p.create_form(&MachineId::new("shakedown")).unwrap();
+        p.create_form(&MachineId::new("my-vm")).unwrap();
         let kind = pitwall_core::kind::custom_kind("x");
         let options: BTreeMap<String, String> =
             [("workspace", "work"), ("runAs", "admin"), ("template", "claude")].into_iter().map(|(k, v)| (k.into(), v.into())).collect();
         let spec = CreateSpec {
-            machine: &MachineId::new("shakedown"),
+            machine: &MachineId::new("my-vm"),
             name: "api-fix",
             options: &options,
             launch: LaunchSpec { agent: "a", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None },
         };
         let s = p.create(&spec).unwrap();
-        assert_eq!(s.locator.to_string(), "agw:shakedown/api-fix");
-        assert_eq!((s.kind.as_deref(), s.cwd.as_str()), (Some("claude-code"), "/opt/agentworks/workspaces/gwlive"));
+        assert_eq!(s.locator.to_string(), "agw:my-vm/api-fix");
+        assert_eq!((s.kind.as_deref(), s.cwd.as_str()), (Some("claude-code"), "/opt/agentworks/workspaces/api-session"));
         assert!(s.term.is_none(), "the terminal comes from attach");
         let call = x.calls().into_iter().find(|c| c.argv.contains(&"create".to_string())).unwrap();
         assert_eq!(call.argv, created);
         assert_eq!(call.timeout, create::CREATE_TIMEOUT);
         // The VM changed: its form is listed again next time.
         let before = x.ran(&[AGW, "--non-interactive", "workspace", "list", ".."]);
-        p.create_form(&MachineId::new("shakedown")).unwrap();
+        p.create_form(&MachineId::new("my-vm")).unwrap();
         assert_eq!(x.ran(&[AGW, "--non-interactive", "workspace", "list", ".."]), before + 1);
 
         // agw's refusal, in its own words (notices before it are skipped).
@@ -748,7 +748,7 @@ mod tests {
         );
         let e = p.create(&spec).err().unwrap();
         assert!(e.is(ErrorCode::Conflict));
-        assert_eq!(e.message, "agw couldn't create \"api-fix\" on shakedown: session 'api-fix' already exists (Delete it first: agw session delete api-fix)");
+        assert_eq!(e.message, "agw couldn't create \"api-fix\" on my-vm: session 'api-fix' already exists (Delete it first: agw session delete api-fix)");
         // A bad name never reaches agw.
         let n = x.calls().len();
         assert!(p.create(&CreateSpec { name: "Bad Name", ..spec.clone() }).is_err());

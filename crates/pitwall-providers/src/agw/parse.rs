@@ -9,7 +9,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Vm {
     pub name: String,
-    /// vm-site it lives at ("lima-local", …).
+    /// vm-site it lives at ("local-site", …).
     pub site: Option<String>,
 }
 
@@ -171,9 +171,9 @@ mod tests {
         let got = sessions(&fixture(include_str!("fixtures/session_list.json"))).unwrap();
         assert_eq!(got.len(), 2);
         let s = &got[0];
-        assert_eq!((s.vm.as_str(), s.name.as_str()), ("shakedown", "gwlive"));
+        assert_eq!((s.vm.as_str(), s.name.as_str()), ("my-vm", "api-session"));
         assert_eq!(s.harness.as_deref(), Some("claude-code"));
-        assert_eq!(s.workspace.as_deref(), Some("gwlive"));
+        assert_eq!(s.workspace.as_deref(), Some("api-session"));
         assert_eq!((s.agent.as_deref(), s.status), (None, Status::Running));
         assert_eq!(got[1].status, Status::Stopped);
         // Without `--status` agw reports "unavailable".
@@ -194,9 +194,9 @@ mod tests {
     #[test]
     fn vm_list_and_workspaces() {
         let got = vms(&fixture(include_str!("fixtures/vm_list.json"))).unwrap();
-        assert_eq!(got, [Vm { name: "shakedown".into(), site: Some("lima-local".into()) }]);
+        assert_eq!(got, [Vm { name: "my-vm".into(), site: Some("local-site".into()) }]);
         let ws = fixture(include_str!("fixtures/workspace_describe.json"));
-        assert_eq!(workspace_path(&ws).as_deref(), Some("/opt/agentworks/workspaces/gwlive"));
+        assert_eq!(workspace_path(&ws).as_deref(), Some("/opt/agentworks/workspaces/api-session"));
         assert_eq!(workspace_path(&fixture("{}")), None);
     }
 
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn workspaces_agents_and_templates() {
         let ws = workspaces(&fixture(include_str!("fixtures/workspace_list.json"))).unwrap();
-        assert_eq!(ws, [Named { name: "gwlive".into(), template: Some("gwlive".into()) }, Named { name: "work".into(), template: Some("agentworks".into()) }]);
+        assert_eq!(ws, [Named { name: "api-session".into(), template: Some("api-session".into()) }, Named { name: "work".into(), template: Some("agentworks".into()) }]);
         assert!(agents(&fixture(include_str!("fixtures/agent_list_empty.json"))).unwrap().is_empty());
         let a = agents(&fixture(include_str!("fixtures/agent_list.json"))).unwrap();
         assert_eq!(a[0], Named { name: "bot".into(), template: Some("claude".into()) });

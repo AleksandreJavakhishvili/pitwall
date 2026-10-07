@@ -4,7 +4,7 @@ Status: **approved design, migration in progress** (see §6 "Progress").
 Written against the code as of wave 1.5, with worktrees done the new way
 (worktrees.md: the agent's own flag, then discovery).
 
-Goals, from the user: proper code and proper abstractions, so new things plug
+Goals: proper code and proper abstractions, so new things plug
 in easily, with few ties to specific things. In concrete terms:
 
 - A new **place to run** (agw, SSH, later cloud) is one new `Provider`
@@ -57,7 +57,7 @@ in easily, with few ties to specific things. In concrete terms:
 | Crate | Owns | Why it is its own crate |
 |---|---|---|
 | `pitwall-proto` | Request/response/event types, `AgentView`, `KindView`, `Caps`, `PROTOCOL_VERSION`. Depends only on serde. | The one contract that the daemon, the client, the CLI and the TS types share. Clients must not have to pull in the engine to talk to it. |
-| `pitwall-detect` | `screen.rs`, `detect.rs`, `detect/*.toml` and their fixtures. | Pure, has heavy dependencies (vt100, regex), and has its own owner (the Detection workstream). Today's boundary, now enforced by the compiler. |
+| `pitwall-detect` | `screen.rs`, `detect.rs`, `detect/*.toml` and their fixtures. | Pure, has heavy dependencies (vt100, regex), and is maintained on its own. Today's boundary, now enforced by the compiler. |
 | `pitwall-hold` (bin + lib) | The per-agent terminal holder (§9 decision 1): owns one PTY + child, serves a frozen, versioned protocol (documented in its `lib.rs`) on `run/hold/<agentId>.sock`; the lib has the protocol and the client. OS code only in `platform/` (unix today). Deps: `interprocess`, `libc`. | Must outlive every other Pitwall process and almost never change, so it is tiny and has no Pitwall dependencies. |
 | `pitwall-core` | Domain model, the traits in §2, the `Engine` (today's registry, ticker policy, auto-send, status folding, tasks), kinds and launch planning, git operations written against `Exec`, the `Store` trait. Also `testing::{FakeProvider, MemStore, contract}` behind the `testing` feature. | All the logic, runnable and testable without sockets, Tauri, real processes or `$HOME`. It has no knowledge of macOS, PTYs, ssh or agw. |
 | `pitwall-providers` | `local` (portable-pty, lsof, login shell), `agw` (agw CLI + ssh), `ssh` (wave 3). Each is a cargo feature. | It is the only crate that knows about specific places to run. Every provider runs the same contract test suite. |
@@ -66,7 +66,7 @@ in easily, with few ties to specific things. In concrete terms:
 | `pitwall-cli` (`pitwall`) | Argument parsing, JSON and human output. | A tiny binary built on `pitwall-client`. |
 | `src-tauri` | Windows, window bounds (`windows.json`), the webview bridge, notifications, Dock badge, menu-bar item, and starting the daemon. | A thin client. It never touches agents or state files directly. |
 
-What I deliberately did **not** split out:
+What is deliberately **not** split out:
 - No separate git or vcs crate. Git is ~600 lines of parsing over `Exec`, and
   the Engine and the daemon are its only users.
 - No separate rules crate. Rules run rulesync through `Exec` and are a daemon
@@ -685,11 +685,11 @@ the UI build green.
   fake ssh/tmux for capture) and an adopting `FakeProvider`; two `#[ignore]`d
   read-only checks against the real agw (listing + capture; attach at the
   session's current size without typing); `tests/live_agw.rs`, `#[ignore]`d,
-  user-approved: on the `work` session only — start, attach, screen status
+  run only on a session named in the environment — start, attach, screen status
   Idle, type without Enter and clear, restart, detach + remove leave it
   running, stop).
 
-- Step 5 done, narrowed by the user to "adding things to Pitwall", with the
+- Step 5 done, narrowed to "adding things to Pitwall", with the
   approval part of step 7 for it: `crates/pitwall-proto` (framing, versioned
   handshake, request/response/event, method names, `AgentView` & co. and
   `Scanned*` moved here from core and re-exported; TS generated with ts-rs
@@ -733,8 +733,8 @@ the UI build green.
   no worktree). Tests: unit tests on argv/framing/quoting; `tests/agw_exec.rs`
   runs LocalExec's checks, changes and snapshots against the fake agw (same
   results as on this Mac, call counts asserted); the contract also checks
-  `exec_at`; `tests/live_agw_exec.rs` (`#[ignore]`, user-approved, read-only
-  on `work`): changes, one file read, a temp-index snapshot with objects in a
+  `exec_at`; `tests/live_agw_exec.rs` (`#[ignore]`, read-only, on a session
+  named in the environment): changes, one file read, a temp-index snapshot with objects in a
   throwaway `GIT_OBJECT_DIRECTORY` under the VM's temp dir and no ref, then
   `git status`/index/HEAD/refs compared. Not done: knowing whether an agent
   is visible (polling is by activity), fewer calls for snapshots (~7) and
@@ -773,8 +773,8 @@ the UI build green.
   FakeProvider (platform form) and in the contract against the fake agw
   (`session create`), CLI/daemon approval (deny = nothing created), UI
   form logic and field rendering. `tests/live_agw_create.rs` (`#[ignore]`,
-  `PITWALL_AGW_LIVE_CREATE=1`, not run yet): creates `pitwall-test` in
-  `work` on `shakedown` as admin, attaches, detaches, then `agw
+  `PITWALL_AGW_LIVE_CREATE=<vm>`, `PITWALL_AGW_LIVE_WORKSPACE=<workspace>`):
+  creates `pitwall-test` in that workspace as admin, attaches, detaches, then `agw
   --non-interactive session delete pitwall-test --yes`. Deferred: an
   explicit "Delete session on agw…" action (removing only detaches).
 
@@ -922,7 +922,7 @@ Where today's modules end up:
     round-trip; `temp_dir` is writable
   - `discover` is read-only: it changes nothing between two calls
   - Local runs in CI. The agw run is opt-in (`PITWALL_CONTRACT_AGW=<vm>`)
-    because it creates and deletes a real session, so it needs the user's
+    because it creates and deletes a real session, so it needs explicit
     consent. The SSH run is opt-in against localhost.
 - **Protocol:**
   - Golden JSON fixtures for the handshake, every method and every event.
@@ -938,7 +938,7 @@ Where today's modules end up:
 
 ---
 
-## 8. Risks and open questions (for the user)
+## 8. Risks and open questions
 
 1. **Daemon updates restart local agents.** A new `pitwalld` can't take over
    the PTYs of the old one without fd-passing (SCM_RIGHTS), which is

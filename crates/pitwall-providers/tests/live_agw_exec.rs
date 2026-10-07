@@ -12,9 +12,8 @@
 //! every agw call is checked against agw's read-only commands and `exec`.
 //!
 //! Runs against the fake agw always; against the real one only when asked:
-//! `PITWALL_AGW_LIVE_EXEC=work cargo test -p pitwall-providers --test
-//! live_agw_exec -- --ignored --nocapture` (user-approved for the `work`
-//! session: read-only commands only).
+//! `PITWALL_AGW_LIVE_EXEC=<session> cargo test -p pitwall-providers --test
+//! live_agw_exec -- --ignored --nocapture` (read-only commands only).
 
 use std::path::Path;
 use std::process::Command;
@@ -319,7 +318,7 @@ fn read_only_walk_against_the_fake_agw() {
 }
 
 #[test]
-#[ignore = "live: read-only commands in the real agw session named by PITWALL_AGW_LIVE_EXEC (user-approved: work)"]
+#[ignore = "live: read-only commands in the real agw session named by PITWALL_AGW_LIVE_EXEC (read-only)"]
 fn live_agw_exec_read_only() {
     let Ok(name) = std::env::var("PITWALL_AGW_LIVE_EXEC") else { return };
     let rec = Arc::new(Recorder::default());
@@ -328,9 +327,7 @@ fn live_agw_exec_read_only() {
     let p = AgwProvider::new(cfg);
     let log = walk(&p, &rec, &name);
     eprintln!("{log}");
-    if name == "work" {
-        assert!(log.contains("agw:shakedown/work: Admin { vm: \"shakedown\" } in workspace Some(\"work\")"), "{log}");
-    }
+    assert!(log.contains(&format!("/{name}: ")) && log.contains(" in workspace "), "{log}");
 }
 
 /// Files under `dir` (recursively), with their sizes.

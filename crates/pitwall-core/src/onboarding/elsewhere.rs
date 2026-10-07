@@ -155,14 +155,14 @@ mod tests {
     #[test]
     fn conversations_pitwall_runs_are_not_elsewhere() {
         let known = HashMap::from([
-            (29306, known("claude", "/w/shop", Some("from-transcript"))),
-            (83806, known("claude", "/w/web", None)),
-            (31479, known("codex", "/", None)),
+            (41207, known("claude", "/w/shop", Some("from-transcript"))),
+            (52318, known("claude", "/w/web", None)),
+            (36504, known("codex", "/", None)),
         ]);
         let ids = |rows: &[RunningAgent]| rows.iter().map(|r| r.pid).collect::<Vec<_>>();
 
         let all = assemble(found(), &known, &HashSet::new(), |p| p != "/");
-        assert_eq!(ids(&all), vec![29306, 83806, 31479]);
+        assert_eq!(ids(&all), vec![41207, 52318, 36504]);
         assert_eq!(all[0].session_id.as_deref(), Some("from-transcript"));
         assert_eq!(all[1].session_id.as_deref(), Some("abc"), "the args win");
         assert_eq!((all[0].cwd.as_deref(), all[0].title.as_deref()), (Some("/w/shop"), Some("t")));
@@ -170,13 +170,13 @@ mod tests {
 
         // A Pitwall agent (or a Pitwall terminal) has `abc` and `019e`.
         let owned = HashSet::from(["abc".to_string(), "019e".to_string()]);
-        assert_eq!(ids(&assemble(found(), &known, &owned, |_| true)), vec![29306]);
+        assert_eq!(ids(&assemble(found(), &known, &owned, |_| true)), vec![41207]);
     }
 
     #[test]
     fn stale_cache_entries_are_ignored() {
         // The pid now runs another kind: what was learned about it no longer applies.
-        let known = HashMap::from([(29306, known("codex", "/w/x", Some("old")))]);
+        let known = HashMap::from([(41207, known("codex", "/w/x", Some("old")))]);
         let rows = assemble(found(), &known, &HashSet::new(), |_| true);
         assert_eq!((rows[0].session_id.as_deref(), rows[0].cwd.as_deref()), (None, None));
     }

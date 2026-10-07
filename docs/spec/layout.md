@@ -58,9 +58,9 @@ Backend additions:
   window attaches and the old one drops its channel (add `detach_output(agentId, subscriptionId)`; `attach_output` returns the subscription id as a number).
 
 
-## Revision: more and smaller tiles (user feedback)
+## Revision: more and smaller tiles
 
-User: "currently I see only two rows — we need the ability to put small ones."
+Need: more than two rows of tiles, with room for small ones.
 - **Density** setting replaces the fixed 80×20 minimum: Comfortable 80×20,
   Compact 60×12 (new default), Dense 40×8. Global default in Settings + ⌘K,
   overridable per space (persisted in the UI state blob).
@@ -73,9 +73,9 @@ User: "currently I see only two rows — we need the ability to put small ones."
 - **Free splitting**: any number of rows/columns, limited only by density.
 - Breakpoint table's "max panes per row" becomes a default for Auto grid, not a cap.
 
-## Revision: drag & drop must rearrange properly (user feedback)
+## Revision: drag & drop must rearrange properly
 
-User: "when dragging the agent it should re-arrange and be properly added."
+Need: dragging an agent rearranges the layout and adds it properly.
 Expected behaviour (VS Code editor-group feel), with a clear drop preview:
 - Drag an agent (sidebar row, pane header, Wall tile, chip in the overflow
   strip) over a pane → highlight zones: left/right/top/bottom half = split
@@ -94,10 +94,10 @@ Expected behaviour (VS Code editor-group feel), with a clear drop preview:
 - Never restart or resize-thrash a process: moving only re-parents the xterm
   and sends one final resize.
 
-## Revision: the "needs you" strip never changes the layout (user feedback)
+## Revision: the "needs you" strip never changes the layout
 
-User: "this yellow stuff shouldn't change the layout, it should be visible at
-the bottom."
+Need: the amber "needs you" strip must not change the layout; it lives at
+the bottom.
 - The bottom of every window is a **permanent status strip** of fixed height
   (`--statusbar-h`, 28px; a fixed grid row). Only its look changes, never its
   size, so terminals are never resized by it (no PTY resize churn or TUI redraws):

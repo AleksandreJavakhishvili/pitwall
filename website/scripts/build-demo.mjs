@@ -37,27 +37,12 @@ const flag = (name) => {
 const siteBase = normalizeBase(flag("--base") ?? process.env.SITE_BASE ?? "/");
 const serve = flag("--serve");
 
-// Demo data must not carry anyone's home folder or host name: rewrite them in
-// the mock modules (only in this build, the app's sources are untouched).
-function scrubMockData() {
-  return {
-    name: "pitwall-demo-scrub",
-    enforce: "pre",
-    transform(code, id) {
-      if (!/\/src\/(mock\.ts|components\/onboarding\/mock\w*\.ts)$/.test(id)) return null;
-      return code
-        .replace(/\/Users\/[A-Za-z0-9._-]+/g, "/Users/dev")
-        .replace(/\b[A-Za-z0-9._-]+@mbp\b/g, "dev@mac");
-    },
-  };
-}
-
 const loaded = await loadConfigFromFile(
   { command: serve !== undefined ? "serve" : "build", mode: "production" },
   resolve(root, "vite.config.ts"),
   root,
 );
-const common = { root, configFile: false, plugins: [scrubMockData()], clearScreen: false };
+const common = { root, configFile: false, clearScreen: false };
 
 if (serve !== undefined) {
   const port = Number(serve) || 5199;

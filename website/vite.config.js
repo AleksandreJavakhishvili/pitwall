@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL } from "./site.config.js";
 
@@ -30,12 +31,32 @@ function siteLinks() {
   };
 }
 
+// The self-hosted fonts are under the SIL Open Font License 1.1, which asks for
+// the licence to travel with them: copy each package's LICENSE into dist/licenses/.
+const FONT_LICENSES = {
+  "OFL-1.1-barlow-condensed.txt": "@fontsource/barlow-condensed",
+  "OFL-1.1-inter.txt": "@fontsource-variable/inter",
+  "OFL-1.1-jetbrains-mono.txt": "@fontsource-variable/jetbrains-mono",
+};
+function fontLicenses() {
+  return {
+    name: "pitwall-font-licenses",
+    apply: "build",
+    generateBundle() {
+      for (const [name, pkg] of Object.entries(FONT_LICENSES)) {
+        const source = readFileSync(resolve(import.meta.dirname, "node_modules", pkg, "LICENSE"), "utf8");
+        this.emitFile({ type: "asset", fileName: `licenses/${name}`, source });
+      }
+    },
+  };
+}
+
 // Static multi-page site. Every page is a plain HTML file; Vite only bundles
 // the shared CSS/JS and the self-hosted fonts. The base path comes from
 // `--base` (see scripts/build.mjs); it defaults to "/".
 export default defineConfig({
   server: { port: 4321 },
-  plugins: [siteLinks()],
+  plugins: [siteLinks(), fontLicenses()],
   build: {
     outDir: "dist",
     rollupOptions: {

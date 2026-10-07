@@ -405,9 +405,9 @@ mod tests {
     #[test]
     fn argv_puts_options_before_the_name_and_the_command_after_dashes() {
         let x = FakeExec::new();
-        let vm = AgwExec::new("/opt/agw", x.clone(), User::Admin { vm: "shakedown".into() }, Some("work"));
+        let vm = AgwExec::new("/opt/agw", x.clone(), User::Admin { vm: "my-vm".into() }, Some("work"));
         let a = vm.argv("echo hi");
-        assert_eq!(a, ["/opt/agw", "--non-interactive", "vm", "exec", "--workspace", "work", "shakedown", "--", "sh", "-c", "echo hi"]);
+        assert_eq!(a, ["/opt/agw", "--non-interactive", "vm", "exec", "--workspace", "work", "my-vm", "--", "sh", "-c", "echo hi"]);
         let agent = AgwExec::new("agw", x, User::Agent { agent: "bot".into() }, None);
         assert_eq!(agent.argv("s"), ["agw", "--non-interactive", "agent", "exec", "bot", "--", "sh", "-c", "s"]);
     }

@@ -1,7 +1,7 @@
-# Plain terminals anywhere + auto-recognised agents (user feedback)
+# Plain terminals anywhere + auto-recognised agents
 
-User: "I should be able to easily run a terminal at a specific path, and if I
-start an agent manually it should also appear."
+Need: run a terminal at a specific path easily, and have an agent started
+there by hand show up too.
 
 ## 1. Open a terminal anywhere (one action)
 - ⌘T: new shell terminal in the focused agent's working folder (else the
@@ -33,9 +33,8 @@ start an agent manually it should also appear."
   to hide the group.
 - Never kill or adopt someone else's process; outside agents stay read-only.
 
-## 3. Restart a terminal as the agent that ran in it (user feedback)
-User: "when I started from a shell and the agent became claude, on restart it
-should be claude."
+## 3. Restart a terminal as the agent that ran in it
+Need: a shell that became `claude` should restart as `claude`.
 - While an agent runs in a terminal, the terminal's record remembers it
   (`AgentRecord.innerAgent = { kind, kindName, sessionId?, pid?, leftAt? }`,
   optional in state.json v2): kind and conversation id as detected above

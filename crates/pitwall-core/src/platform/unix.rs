@@ -167,8 +167,8 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                (29306, "/Users/dev/code/orders-api".to_string()),
-                (83806, "/Users/dev/My Projects/web app".to_string()),
+                (41207, "/Users/dev/code/orders-api".to_string()),
+                (52318, "/Users/dev/My Projects/web app".to_string()),
             ]
         );
     }

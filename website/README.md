@@ -63,12 +63,11 @@ iframe (`<base>demo/?onboarded&shots=1&demo=1`), rendered at 1120×700 and scale
 the frame (below 1100 px the app collapses its sidebar). The tabs then drive it via
 `postMessage`, handled by `src/lib/demoBridge.ts` in the app, which is inert outside
 the browser mock and without `?demo=1`. Each start clears the mock's `pitwall.*`
-localStorage keys. The demo build rewrites home-folder paths and `user@host` prompts
-in the mock data to `/Users/dev` and `dev@mac` (`scrubMockData` in `build-demo.mjs`).
+localStorage keys. The mock data only uses
+placeholder paths and names (`/Users/dev`, `dev@mac`).
 
-**Re-recording the video:** `pnpm demo:serve` (the mock on port 5199, with the same
-scrub), open `?onboarded&shots=1` (`shots=1` hides the MOCK chip) in headless Chrome
-at 1120×700, device scale 1.5, and script it over CDP: 2×2, tests focused → Jump →
+**Re-recording the video:** `pnpm demo:serve` (the mock on port 5199), open `?onboarded&shots=1`
+(`shots=1` hides the MOCK chip) in headless Chrome at 1120×700, device scale 1.5, and script it over CDP: 2×2, tests focused → Jump →
 type `1` → Wall → api-fix, queue a prompt in Next up → Review → ⌘T terminal, type
 `claude` → Settings/Rules. Record with `Page.startScreencast`, then encode with ffmpeg:
 30 fps, 1680×1050, a 0.8 s crossfade from the end into the start for a seamless loop,

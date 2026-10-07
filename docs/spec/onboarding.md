@@ -46,7 +46,7 @@ changes" disclosure (explains ~/.codex/hooks.json edit + backup). Buttons: Skip
 / Start Pitwall →. Settings gets "Scan again" (opens the same screen, minus
 welcome copy). Mock mode must simulate the scan with staggered progress.
 
-## Revision: "Start Pitwall" sets up agents (user feedback)
+## Revision: "Start Pitwall" sets up agents
 
 Clicking Start Pitwall must leave the user with agents attached to projects,
 running and visible — not just a saved project list.
@@ -75,7 +75,7 @@ running and visible — not just a saved project list.
   set by `scan_environment`). Agents are created with the existing
   `continue_conversation` / `create_agent` after `complete_onboarding`.
 
-## Revision: conversations started in the home folder (user feedback)
+## Revision: conversations started in the home folder
 
 Conversations whose cwd is `~` (or another non-project folder that the scan
 excludes) must not disappear.
@@ -98,7 +98,7 @@ excludes) must not disappear.
   (`conversationProjects`: session id → project). `~` itself is never added
   to the project list.
 
-## Revision: agw is part of "agents", not a separate step (user feedback)
+## Revision: agw is part of "agents", not a separate step
 
 agw is where agents run, and agw sessions ARE agents (Claude/Codex/shell on a VM).
 - Drop the separate "agw" checklist step. The Agents step summary includes it:

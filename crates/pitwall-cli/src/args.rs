@@ -155,11 +155,11 @@ mod tests {
                 ..Default::default()
             })))
         );
-        let c = parse(&["agent", "new", "--machine", "shakedown", "--name", "api-fix", "--workspace", "work", "--as", "admin", "--template", "claude"]).unwrap();
+        let c = parse(&["agent", "new", "--machine", "my-vm", "--name", "api-fix", "--workspace", "work", "--as", "admin", "--template", "claude"]).unwrap();
         assert_eq!(
             c.command,
             Command::Agent(AgentCmd::New(Box::new(AgentNew {
-                machine: Some("shakedown".into()),
+                machine: Some("my-vm".into()),
                 name: Some("api-fix".into()),
                 workspace: Some("work".into()),
                 run_as: Some("admin".into()),
@@ -172,8 +172,8 @@ mod tests {
         };
         assert_eq!((n.new_workspace.as_deref(), n.run_as.as_deref()), (Some(""), Some("new-agent:bot")));
         assert_eq!(
-            parse(&["machine", "form", "shakedown"]).unwrap().command,
-            Command::Machine(MachineCmd::Form { machine: "shakedown".into(), provider: None })
+            parse(&["machine", "form", "my-vm"]).unwrap().command,
+            Command::Machine(MachineCmd::Form { machine: "my-vm".into(), provider: None })
         );
         assert_eq!(parse(&["machine", "list"]).unwrap().command, Command::Machine(MachineCmd::List));
         assert_eq!(

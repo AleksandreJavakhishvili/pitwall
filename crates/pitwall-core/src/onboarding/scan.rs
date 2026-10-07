@@ -948,7 +948,7 @@ mod tests {
         let src = include_str!("scan_fixtures/claude_transcript.jsonl");
         let info = parse_claude_transcript(reader(src), true);
         assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/orders-api"));
-        assert_eq!(info.session_id.as_deref(), Some("f1d7cc90-148a-44a6-893b-c3629d391872"));
+        assert_eq!(info.session_id.as_deref(), Some("19bd83bc-617c-4e41-8e79-ff6d237cff1c"));
         let title = info.title.unwrap();
         assert!(title.starts_with("Fix the 500 on /v2/orders when the cart is empty. Add a regression"), "{title}");
         assert!(title.chars().count() <= 80);
@@ -971,23 +971,23 @@ mod tests {
     #[test]
     fn codex_session_meta() {
         let info = parse_codex_session(reader(include_str!("scan_fixtures/codex_session.jsonl")), true);
-        assert_eq!(info.cwd.as_deref(), Some("/Users/dev/Desktop/Projects/combat"));
-        assert_eq!(info.session_id.as_deref(), Some("019efa39-c007-7e73-85bc-c56d596129ad"));
-        assert_eq!(info.title.as_deref(), Some("add an MMA mode with proper takedowns"));
+        assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/signup"));
+        assert_eq!(info.session_id.as_deref(), Some("615b8985-7987-4a23-b961-3eb1b48731ec"));
+        assert_eq!(info.title.as_deref(), Some("add input validation to the signup form"));
     }
 
     #[test]
     fn codex_old_format() {
         let info = parse_codex_session(reader(include_str!("scan_fixtures/codex_session_old.jsonl")), true);
         assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/legacy"));
-        assert_eq!(info.session_id.as_deref(), Some("5973b6c0-94b8-487b-a530-2aeb6098ae0e"));
+        assert_eq!(info.session_id.as_deref(), Some("047921e2-e8c8-43fa-b1fe-14bbd6c814f0"));
         assert_eq!(info.title.as_deref(), Some("rename the config loader"));
     }
 
     #[test]
     fn vscode_recents_state_db_value() {
         let got = parse_vscode_recents(include_str!("scan_fixtures/vscode_recents.json"));
-        assert_eq!(got, vec!["/Users/dev/Desktop/sparks-api", "/Users/dev/My Projects/web app"]);
+        assert_eq!(got, vec!["/Users/dev/Desktop/billing-api", "/Users/dev/My Projects/web app"]);
     }
 
     #[test]

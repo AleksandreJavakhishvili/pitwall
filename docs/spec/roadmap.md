@@ -19,9 +19,9 @@
 
 ## Wave 2 — Architecture: providers + daemon (in design)
 Goal: clean, low-coupling core so new places-to-run (agw, SSH, cloud) and new
-agents plug in without touching the rest. Design first, user reviews, then build.
-1. Architecture design → [architecture.md](architecture.md) (written by an
-   architect agent, reviewed by the user before implementation).
+agents plug in without touching the rest. Design first, review, then build.
+1. Architecture design → [architecture.md](architecture.md) (designed and
+   reviewed before implementation).
 2. Core extraction + background daemon (`pitwalld`) + Local provider: agents
    survive ⌘Q; the Tauri app becomes a thin client; menu-bar item.
 3. agw provider: agw sessions as real agents (terminal, status, Next up), then
@@ -50,4 +50,4 @@ agents plug in without touching the rest. Design first, user reviews, then build
   is built with it; video re-recorded at 1120×700 (legible text), tabs follow the
   video in order and a picked tab loops its chapter; Terminals tab is ⌘T;
   waitlist replaced by Download / Star on GitHub / Build from source.
-  Critique moved to docs/website/CRITIQUE.md. Open: Open Graph image.
+  Open: Open Graph image.

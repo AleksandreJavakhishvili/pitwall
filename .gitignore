@@ -28,3 +28,17 @@ dist-ssr
 
 # Website: built by website/scripts/build-demo.mjs
 /website/public/demo/
+
+# Build output (also covered by the patterns above; listed for clarity)
+/dist/
+/website/dist/
+target/
+
+# Scratch artefacts
+scratch/
+.scratch/
+*.tmp
+*.orig
+*.bak
+.env
+.env.*

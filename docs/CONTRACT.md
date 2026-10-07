@@ -1,22 +1,24 @@
-# Pitwall v0.1 — build contract (index)
+# Pitwall — developer docs
 
 Pitwall is a macOS desktop app (Tauri 2 + React/TS) that hosts terminal coding
 agents (Claude Code, Codex, any CLI) and shows who needs you, a per-agent
 "Next up" queue, and git diffs. **It is a tool, not an agent**: it never
 rewrites prompts, never decides what agents do, and delivers user text verbatim.
 
-Three workstreams build against this file. Change it only via the coordinator.
+## Spec index
 
-| Workstream | Owns |
+Design notes and specs live in small files under `docs/spec/`. They describe
+how Pitwall behaves and why; the code is organised as:
+
+| Area | Where |
 |---|---|
-| Backend | `src-tauri/`, `crates/pitwall-hold/` (terminal holder) |
-| Detection | `crates/pitwall-detect/` (`src/screen.rs`, `src/detect.rs`, `detect/*.toml`, fixtures), `NOTICE` |
-| UI | `src/`, `index.html`, `public/`, frontend deps in `package.json` |
+| Core, providers, daemon, CLI | `crates/` (`pitwall-core`, `pitwall-providers`, `pitwall-daemon`, `pitwall-cli`, …) |
+| Terminal holder | `crates/pitwall-hold/` |
+| Screen detection | `crates/pitwall-detect/` (`src/screen.rs`, `src/detect.rs`, `detect/*.toml`, fixtures) |
+| Desktop app | `src-tauri/` |
+| UI | `src/`, `index.html`, `public/` |
 
-
-The spec is split into small files under `docs/spec/`:
-
-| File | Contents | Main readers |
+| File | Contents | Area |
 |---|---|---|
 | [spec/status.md](spec/status.md) | Status values and sources (hooks > screen > activity) | all |
 | [spec/api.md](spec/api.md) | Tauri commands, events, TS/Rust shapes | Backend, UI |

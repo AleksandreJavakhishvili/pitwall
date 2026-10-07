@@ -3,7 +3,7 @@ import type { AgentView, MachineView } from "../types";
 import { groupByProject, machineHeading } from "./groups";
 
 const here: MachineView = { provider: "p1", id: "m1", label: "This Mac", canCreate: true };
-const vm: MachineView = { provider: "p2", id: "vm", label: "shakedown", canCreate: false };
+const vm: MachineView = { provider: "p2", id: "vm", label: "my-vm", canCreate: false };
 const agent = (id: string, project: string, machine: MachineView, status: AgentView["status"] = "idle") =>
   ({ id, name: id, project, projectDisplay: project.split("/").pop(), machine, status }) as AgentView;
 
@@ -21,7 +21,7 @@ describe("groupByProject", () => {
       ["p2:vm|/w/api", 2, false],
     ]);
     expect(g[0].blocked).toBe(1);
-    expect([0, 1, 2].map((i) => machineHeading(g, i))).toEqual(["This Mac", null, "shakedown"]);
+    expect([0, 1, 2].map((i) => machineHeading(g, i))).toEqual(["This Mac", null, "my-vm"]);
   });
 
   it("shows no machine headings with one machine", () => {

@@ -1,6 +1,6 @@
 # Better git diff UI (VS Code feel)
 
-User: "better git diff … include file extensions as logos like in VS Code".
+Goal: a better git diff, with file-type icons like in VS Code.
 Frontend only; applies to the right-panel CHANGES list, the Review screen's
 file tree and the Diff view header.
 

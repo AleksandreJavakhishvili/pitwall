@@ -263,9 +263,9 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                (29306, "claude".into(), None),
-                (83806, "claude".into(), Some("abc".into())),
-                (31479, "codex".into(), Some("019e".into()))
+                (41207, "claude".into(), None),
+                (52318, "claude".into(), Some("abc".into())),
+                (36504, "codex".into(), Some("019e".into()))
             ]
         );
         // Not running under Pitwall: its child agent counts too.
@@ -278,7 +278,7 @@ mod tests {
         // A terminal holder is detached from the app: its shell (700) is a root.
         let rows = parse_table(include_str!("onboarding/scan_fixtures/ps.txt"));
         let got = short(agents_outside(&rows, &roots(&[500, 700]), &matcher()));
-        assert_eq!(got, vec![(83806, "claude".into(), Some("abc".into()))]);
+        assert_eq!(got, vec![(52318, "claude".into(), Some("abc".into()))]);
     }
 
     #[test]

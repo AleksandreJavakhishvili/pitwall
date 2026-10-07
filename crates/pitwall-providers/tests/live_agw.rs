@@ -1,16 +1,16 @@
-//! One live check of the agw provider against a real agw session the user
-//! named and approved for it: `work` on VM `shakedown` (a Claude Code
-//! session, stopped before and after). Nothing else is touched.
+//! One live check of the agw provider against a real agw session you name
+//! for it (a Claude Code session, stopped before and after). Nothing else is
+//! touched. The VM and session come only from the environment:
 //!
-//! `PITWALL_AGW_LIVE=work cargo test -p pitwall-providers --test live_agw -- --ignored --nocapture`
+//! `PITWALL_AGW_LIVE_VM=<vm> PITWALL_AGW_LIVE=<session> cargo test -p pitwall-providers --test live_agw -- --ignored --nocapture`
 //!
-//! Steps: describe (must be stopped) → `agw session start work` → attach
-//! (holder running `agw session attach work`) → screen status → type
+//! Steps: describe (must be stopped) → `agw session start <session>` → attach
+//! (holder running `agw session attach <session>`) → screen status → type
 //! "pitwall live test" WITHOUT Enter (an agent harness: nothing is ever
 //! submitted), see it in the stream and the ssh capture, clear it (Ctrl-U,
 //! then backspaces if needed) → restart through the provider (stop, start,
 //! attach) → close the attachment and `remove` (the session keeps running)
-//! → `agw session stop work`. A guard stops `work` if anything fails after
+//! → `agw session stop <session>`. A guard stops it if anything fails after
 //! it was started. Processes are only ended through their holder (exact pid).
 
 use std::path::{Path, PathBuf};
@@ -24,8 +24,6 @@ use pitwall_core::provider::{LaunchIntent, LaunchSpec, Locator, MachineId, Nativ
 use pitwall_core::term::TermHost;
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
 
-const VM: &str = "shakedown";
-const SESSION: &str = "work";
 const TEXT: &str = "pitwall live test";
 
 fn holder() -> PathBuf {
@@ -58,7 +56,7 @@ fn screen(h: &TermHost) -> String {
     h.screen_text().0
 }
 
-/// Stops `work` when dropped (only armed once this test started it).
+/// Stops the session when dropped (only armed once this test started it).
 struct StopGuard<'a>(&'a AgwProvider, &'a Locator, bool);
 impl Drop for StopGuard<'_> {
     fn drop(&mut self) {
@@ -70,25 +68,25 @@ impl Drop for StopGuard<'_> {
 }
 
 #[test]
-#[ignore = "live: starts, types into (no Enter) and stops the real agw session `work` (user-approved)"]
-fn live_agw_work_session() {
-    if std::env::var("PITWALL_AGW_LIVE").ok().as_deref() != Some(SESSION) {
-        eprintln!("set PITWALL_AGW_LIVE=work to run");
+#[ignore = "live: starts, types into (no Enter) and stops the agw session named by PITWALL_AGW_LIVE"]
+fn live_agw_session() {
+    let (Ok(vm), Ok(session)) = (std::env::var("PITWALL_AGW_LIVE_VM"), std::env::var("PITWALL_AGW_LIVE")) else {
+        eprintln!("set PITWALL_AGW_LIVE_VM=<vm> and PITWALL_AGW_LIVE=<session> to run");
         return;
-    }
+    };
     let run = std::env::temp_dir().join(format!("pwlive-{}", std::process::id()));
     let p = AgwProvider::new(AgwConfig::new(run.join("hold"), Ok(holder())));
-    let loc = Locator::new(p.id(), &MachineId::new(VM), SESSION);
+    let loc = Locator::new(p.id(), &MachineId::new(&vm), &session);
     let size = TermSize::new(120, 40);
     let clock = Arc::new(SystemClock::new());
 
     // 1. Describe: it must be a stopped Claude Code session.
-    let out = Command::new("agw").args(["session", "describe", SESSION, "--output", "json"]).output().expect("agw");
+    let out = Command::new("agw").args(["session", "describe", &session, "--output", "json"]).output().expect("agw");
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("describe JSON");
     let s = &v["data"]["session"];
     eprintln!("1. describe: status={} harness={} vm={}", s["status"], s["harness_integration"], s["vm_name"]);
-    assert_eq!(s["vm_name"], VM);
-    assert_eq!(s["status"], "stopped", "only run from a stopped `work`");
+    assert_eq!(s["vm_name"], vm.as_str());
+    assert_eq!(s["status"], "stopped", "only run from a stopped session");
     let agent_harness = s["harness_integration"] != "shell";
     assert!(agent_harness, "this check is written for an agent harness (no Enter)");
     assert_eq!(p.state(&loc).unwrap(), NativeState::Stopped);
@@ -97,7 +95,7 @@ fn live_agw_work_session() {
     let kind = custom_kind("unused");
     let launch = LaunchSpec { agent: "live", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size, hooks: None };
     let mut guard = StopGuard(&p, &loc, false);
-    let started = p.start(&loc, &launch).expect("agw session start work");
+    let started = p.start(&loc, &launch).expect("agw session start");
     guard.2 = true;
     assert!(started.term.is_none());
     assert!(wait("state Running", 60, || p.state(&loc).ok() == Some(NativeState::Running)));

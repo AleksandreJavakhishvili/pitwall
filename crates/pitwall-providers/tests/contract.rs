@@ -314,8 +314,8 @@ fn real_agw_read_only_listing_and_capture() {
     }
 }
 
-/// Read-only check of the attach path against one real session the user
-/// names: `agw session attach` in a holder at the session's current size
+/// Read-only check of the attach path against one real session you
+/// name: `agw session attach` in a holder at the session's current size
 /// (so the window isn't resized), wait for tmux to draw the screen, then
 /// detach. Nothing is typed. `PITWALL_AGW_ATTACH=<vm>/<session>
 /// PITWALL_AGW_SIZE=<cols>x<rows> cargo test -p pitwall-providers --test

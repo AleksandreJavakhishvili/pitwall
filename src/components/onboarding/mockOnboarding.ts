@@ -18,7 +18,7 @@ type OnboardingApi = Pick<
 >;
 
 const KEY = "pitwall.mock.projects";
-const HOME = "/Users/ako";
+const HOME = "/Users/dev";
 const min = 60_000;
 const hour = 60 * min;
 
@@ -111,16 +111,16 @@ function fakeScan(known: Set<string>): ScanResult {
       proj(`${HOME}/code/orders-api`, ["claude", "codex", "vscode"], now - 10 * min, { claudeMd: true, agentsMd: true }),
       proj(`${HOME}/code/checkout-web`, ["claude", "folder"], now - 50 * min, { rulesync: true }),
       proj(`${HOME}/code/handbook`, ["claude"], now - 3 * hour, {}, true),
-      proj(`${HOME}/Desktop/Projects/combat-sim`, ["codex"], now - 26 * hour, { agentsMd: true }),
+      proj(`${HOME}/code/signup`, ["codex"], now - 26 * hour, { agentsMd: true }),
       proj(`${HOME}/code/infra`, ["folder"], now - 9 * 24 * hour),
-      proj(`${HOME}/Desktop/sparks-api`, ["vscode"], null),
-      proj(`${HOME}/Desktop/sparks-web`, ["vscode", "cursor"], null, {}, false),
+      proj(`${HOME}/Desktop/billing-api`, ["vscode"], null),
+      proj(`${HOME}/Desktop/billing-web`, ["vscode", "cursor"], null, {}, false),
     ],
     conversations: [
       {
         kind: "claude",
         kindName: "Claude Code",
-        sessionId: "985e7068-10dd-4ed3-a8fa-4d6b402c38e6",
+        sessionId: "609ada31-9864-497d-9697-e7985d720175",
         projectPath: `${HOME}/code/orders-api`,
         projectDisplay: "~/code/orders-api",
         title: "Fix the 500 on /v2/orders when the cart is empty. Add a regression test.",
@@ -130,7 +130,7 @@ function fakeScan(known: Set<string>): ScanResult {
       {
         kind: "codex",
         kindName: "Codex",
-        sessionId: "019efa39-c007-7e73-85bc-c56d596129ad",
+        sessionId: "615b8985-7987-4a23-b961-3eb1b48731ec",
         projectPath: `${HOME}/code/orders-api`,
         projectDisplay: "~/code/orders-api",
         title: "Rename createOrder() to placeOrder() everywhere and update the docs",
@@ -140,7 +140,7 @@ function fakeScan(known: Set<string>): ScanResult {
       {
         kind: "claude",
         kindName: "Claude Code",
-        sessionId: "1919cf60-564d-4dff-8aae-6d9c26d58726",
+        sessionId: "1827ef7b-b4d1-47e6-ac3c-c966030923d1",
         projectPath: `${HOME}/code/checkout-web`,
         projectDisplay: "~/code/checkout-web",
         title: "Run the test suite and fix the flaky cart spec. Don't touch the snapshot files.",
@@ -150,7 +150,7 @@ function fakeScan(known: Set<string>): ScanResult {
       {
         kind: "claude",
         kindName: "Claude Code",
-        sessionId: "f1d7cc90-148a-44a6-893b-c3629d391872",
+        sessionId: "19bd83bc-617c-4e41-8e79-ff6d237cff1c",
         projectPath: `${HOME}/code/handbook`,
         projectDisplay: "~/code/handbook",
         title: "Rewrite the onboarding page so a new hire can get a dev env running in 15 minutes.",
@@ -186,7 +186,7 @@ function fakeScan(known: Set<string>): ScanResult {
     ].map((c) => ({ outsideProject: false, displayProject: null, runningElsewhere: false, ...c })),
     running: [
       {
-        pid: 29306,
+        pid: 41207,
         kind: "claude",
         kindName: "Claude Code",
         cwd: `${HOME}/code/infra`,
@@ -210,7 +210,7 @@ function fakeScan(known: Set<string>): ScanResult {
         displayProject: null,
       },
       {
-        pid: 31479,
+        pid: 36504,
         kind: "codex",
         kindName: "Codex",
         cwd: null,
@@ -229,13 +229,13 @@ function fakeScan(known: Set<string>): ScanResult {
         version: "0.19.0",
         machines: [
           {
-            id: "shakedown",
-            label: "shakedown",
-            detail: "lima-local",
+            id: "my-vm",
+            label: "my-vm",
+            detail: "local-site",
             sessions: [
-              agwSession("shakedown", "gwlive", "claude", "gwlive", null, "running"),
-              agwSession("shakedown", "orders-fix", "codex", "orders-api", "codex-bot", "running"),
-              agwSession("shakedown", "work", "claude", "work", null, "stopped"),
+              agwSession("my-vm", "api-session", "claude", "api-session", null, "running"),
+              agwSession("my-vm", "orders-fix", "codex", "orders-api", "codex-bot", "running"),
+              agwSession("my-vm", "work", "claude", "work", null, "stopped"),
             ],
           },
           {

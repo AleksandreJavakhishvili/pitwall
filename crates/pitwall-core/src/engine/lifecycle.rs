@@ -735,7 +735,7 @@ mod tests {
         vm.set_form(CreateForm {
             folder: false,
             fields: vec![
-                CreateField::select("workspace", "Workspace", vec![pick("work"), pick("gwlive")], Some("work".into())),
+                CreateField::select("workspace", "Workspace", vec![pick("work"), pick("api-session")], Some("work".into())),
                 CreateField::select("template", "Template", vec![pick("claude-code"), pick("login-shell")], Some("login-shell".into())),
             ],
             submit: "Create".into(),

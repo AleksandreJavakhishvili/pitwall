@@ -1,13 +1,14 @@
 //! Live check of creating an agw session from Pitwall (step 8 slice c).
-//! NOT run by default, and only with the user's go-ahead: it creates and
-//! then deletes a real session on the VM.
+//! NOT run by default, and only when you ask for it: it creates and then
+//! deletes a real session on the VM. The VM and workspace come only from the
+//! environment:
 //!
-//! `PITWALL_AGW_LIVE_CREATE=1 cargo test -p pitwall-providers --test live_agw_create -- --ignored --nocapture`
+//! `PITWALL_AGW_LIVE_CREATE=<vm> PITWALL_AGW_LIVE_WORKSPACE=<workspace> cargo test -p pitwall-providers --test live_agw_create -- --ignored --nocapture`
 //!
-//! Steps: `pitwall-test` must not exist on `shakedown` → the provider's form
-//! for `shakedown` (read-only listings; workspace `work` must be offered) →
-//! `create` = `agw --non-interactive session create --vm shakedown
-//! --workspace work --template <form default> --admin pitwall-test` →
+//! Steps: `pitwall-test` must not exist on the VM → the provider's form
+//! for it (read-only listings; the workspace must be offered) →
+//! `create` = `agw --non-interactive session create --vm <vm>
+//! --workspace <workspace> --template <form default> --admin pitwall-test` →
 //! attach (holder running `agw session attach pitwall-test`) → output
 //! arrives and the screen has something on it (nothing is typed) → close the
 //! attachment and `remove` (Pitwall only detaches; the session still runs)
@@ -28,9 +29,7 @@ use pitwall_core::provider::{CreateSpec, LaunchIntent, LaunchSpec, MachineId, Na
 use pitwall_core::term::TermHost;
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
 
-const VM: &str = "shakedown";
 const SESSION: &str = "pitwall-test";
-const WORKSPACE: &str = "work";
 
 fn holder() -> PathBuf {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -74,26 +73,26 @@ fn wait(what: &str, secs: u64, f: impl Fn() -> bool) -> bool {
 }
 
 #[test]
-#[ignore = "live: creates and deletes the agw session `pitwall-test` on `shakedown` (needs the user's approval)"]
+#[ignore = "live: creates and deletes the agw session `pitwall-test` on the VM named by PITWALL_AGW_LIVE_CREATE"]
 fn live_agw_create_attach_and_clean_up() {
-    if std::env::var("PITWALL_AGW_LIVE_CREATE").ok().as_deref() != Some("1") {
-        eprintln!("set PITWALL_AGW_LIVE_CREATE=1 to run");
+    let (Ok(vm_name), Ok(workspace)) = (std::env::var("PITWALL_AGW_LIVE_CREATE"), std::env::var("PITWALL_AGW_LIVE_WORKSPACE")) else {
+        eprintln!("set PITWALL_AGW_LIVE_CREATE=<vm> and PITWALL_AGW_LIVE_WORKSPACE=<workspace> to run");
         return;
-    }
+    };
     let run = std::env::temp_dir().join(format!("pwlivec-{}", std::process::id()));
     let p = AgwProvider::new(AgwConfig::new(run.join("hold"), Ok(holder())));
-    let vm = MachineId::new(VM);
+    let vm = MachineId::new(&vm_name);
     assert!(
-        !p.sessions(VM, false).expect("agw session list").iter().any(|s| s.name == SESSION),
-        "{SESSION} already exists on {VM}: not touching it"
+        !p.sessions(&vm_name, false).expect("agw session list").iter().any(|s| s.name == SESSION),
+        "{SESSION} already exists on {vm_name}: not touching it"
     );
 
     let form = p.create_form(&vm).expect("form");
     eprintln!("form error: {:?}", form.error);
     assert!(!form.folder);
     let ws = form.field("workspace").expect("workspace field");
-    assert!(ws.choices.iter().any(|c| c.value == WORKSPACE), "workspace {WORKSPACE} is offered");
-    let chosen: BTreeMap<String, String> = [("workspace", WORKSPACE), ("runAs", "admin")].into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+    assert!(ws.choices.iter().any(|c| c.value == workspace), "workspace {workspace} is offered");
+    let chosen: BTreeMap<String, String> = [("workspace", workspace.as_str()), ("runAs", "admin")].into_iter().map(|(k, v)| (k.into(), v.into())).collect();
     let options = form.values(&chosen).expect("options fit the form");
     let summary = form.summarize(SESSION, &options);
     eprintln!("{}", summary.text);
@@ -124,9 +123,9 @@ fn live_agw_create_attach_and_clean_up() {
 
     guard.0 = false;
     let deleted = delete_session();
-    let gone = !p.sessions(VM, false).expect("agw session list").iter().any(|s| s.name == SESSION);
+    let gone = !p.sessions(&vm_name, false).expect("agw session list").iter().any(|s| s.name == SESSION);
     let _ = std::fs::remove_dir_all(&run);
     assert!(got_output && lines > 0, "the new session's screen arrived");
     assert_eq!(still, NativeState::Running, "removing it from Pitwall left it running");
-    assert!(deleted && gone, "cleaned up: {SESSION} deleted on {VM}");
+    assert!(deleted && gone, "cleaned up: {SESSION} deleted on {vm_name}");
 }

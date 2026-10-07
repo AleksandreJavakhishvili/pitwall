@@ -122,14 +122,14 @@ const screens: Record<string, string> = {
     `${grey("─".repeat(60))}${NL}${grey(">")} ${NL}${grey("─".repeat(60))}${NL}` +
     `  ${grey("? for shortcuts")}${NL}`,
   "orders-api":
-    `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ ${grey("# try typing: claude  (then /exit)")}${NL}` +
-    `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ `,
+    `${green("dev@mac")} ${blue("~/code/orders-api")} ${grey("(main)")} $ ${grey("# try typing: claude  (then /exit)")}${NL}` +
+    `${green("dev@mac")} ${blue("~/code/orders-api")} ${grey("(main)")} $ `,
   scratch:
-    `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ git log --oneline -3${NL}` +
+    `${green("dev@mac")} ${blue("~/code/orders-api")} ${grey("(main)")} $ git log --oneline -3${NL}` +
     `${yellow("a41c9e2")} orders: reject empty carts${NL}` +
     `${yellow("77b0d13")} pricing: currency from store config${NL}` +
     `${yellow("e09f5aa")} ci: cache pnpm store${NL}` +
-    `${green("ako@mbp")} ${blue("~/code/orders-api")} ${grey("(main)")} $ exit${NL}`,
+    `${green("dev@mac")} ${blue("~/code/orders-api")} ${grey("(main)")} $ exit${NL}`,
 };
 
 const workingTicks = [
@@ -238,7 +238,7 @@ function withCaps(a: Omit<AgentView, "caps"> & { caps?: AgentView["caps"] }): Ag
   // Agents adopted from another machine (an agw VM): no diffs, rules or hooks yet.
   const adopted = a.machine ? !a.machine.canCreate : false;
   // Mock folders outside a repo: the home folder.
-  const diff = !adopted && a.cwd !== "/Users/ako" && a.cwd !== "~";
+  const diff = !adopted && a.cwd !== "/Users/dev" && a.cwd !== "~";
   const kind = a.terminal ? "shell" : a.kind;
   return {
     ...a,
@@ -267,9 +267,9 @@ function agent(p: Partial<AgentView> & Pick<AgentView, "id" | "name" | "status">
     kindName: "Claude Code",
     terminal: false,
     sessionId: null,
-    cwd: "/Users/ako/code/orders-api",
+    cwd: "/Users/dev/code/orders-api",
     cwdDisplay: "~/code/orders-api",
-    project: "/Users/ako/code/orders-api",
+    project: "/Users/dev/code/orders-api",
     projectDisplay: "orders-api",
     branch: "main",
     worktree: false,
@@ -307,9 +307,9 @@ let agents: AgentView[] = [
     status: "blocked",
     statusSource: "hooks",
     statusDetail: "Bash: pnpm test --run src/cart",
-    cwd: "/Users/ako/code/checkout-web/.claude/worktrees/tests",
+    cwd: "/Users/dev/code/checkout-web/.claude/worktrees/tests",
     cwdDisplay: "~/code/checkout-web/.claude/worktrees/tests",
-    project: "/Users/ako/code/checkout-web",
+    project: "/Users/dev/code/checkout-web",
     projectDisplay: "checkout-web",
     branch: "worktree-tests",
     worktree: true,
@@ -327,7 +327,7 @@ let agents: AgentView[] = [
     statusSource: "screen",
     branch: "codex/api-fix",
     worktree: true,
-    cwd: "/Users/ako/.codex/worktrees/a1b2/orders-api",
+    cwd: "/Users/dev/.codex/worktrees/a1b2/orders-api",
     cwdDisplay: "~/.codex/worktrees/a1b2/orders-api",
     queue: [
       { id: "q1", text: "Now add the same guard to PATCH /v2/orders/:id and cover it with a test." },
@@ -343,9 +343,9 @@ let agents: AgentView[] = [
     name: "docs",
     status: "done",
     statusSource: "hooks",
-    cwd: "/Users/ako/code/handbook/.claude/worktrees/docs",
+    cwd: "/Users/dev/code/handbook/.claude/worktrees/docs",
     cwdDisplay: "~/code/handbook/.claude/worktrees/docs",
-    project: "/Users/ako/code/handbook",
+    project: "/Users/dev/code/handbook",
     projectDisplay: "handbook",
     branch: "worktree-docs",
     worktree: true,
@@ -461,7 +461,7 @@ setInterval(() => {
 // Typing an agent's command in a terminal turns the pane into that agent;
 // /exit (or ⌃C / ⌃D) turns it back into a shell. Same agent id and tile.
 const lines = new Map<string, string>();
-const prompt = (a: AgentView) => `${green("ako@mbp")} ${blue(a.cwdDisplay)} $ `;
+const prompt = (a: AgentView) => `${green("dev@mac")} ${blue(a.cwdDisplay)} $ `;
 const AGENT_PROGRAMS: Record<string, string> = { claude: "claude", codex: "codex", gemini: "gemini", aider: "aider" };
 
 function typeInTerminal(a: AgentView, data: string) {
@@ -525,10 +525,10 @@ function leaveTerminalAgent(a: AgentView) {
 // Agents in other terminal apps: one comes and goes so the group visibly updates.
 const elsewhere: RunningElsewhere[] = [
   {
-    pid: 29306,
+    pid: 41207,
     kind: "claude",
     kindName: "Claude Code",
-    cwd: "/Users/ako/code/infra",
+    cwd: "/Users/dev/code/infra",
     cwdDisplay: "~/code/infra",
     sessionId: "5c0ffee0-2b1e-4c55-9d1a-0d5f3e7a9b21",
     title: "Bump the Terraform AWS provider and fix the plan diff",
@@ -537,10 +537,10 @@ const elsewhere: RunningElsewhere[] = [
     displayProject: null,
   },
   {
-    pid: 31479,
+    pid: 36504,
     kind: "codex",
     kindName: "Codex",
-    cwd: "/Users/ako/code/checkout-web",
+    cwd: "/Users/dev/code/checkout-web",
     cwdDisplay: "~/code/checkout-web",
     sessionId: null,
     title: null,
@@ -553,7 +553,7 @@ const flicker: RunningElsewhere = {
   pid: 52210,
   kind: "gemini",
   kindName: "Gemini CLI",
-  cwd: "/Users/ako/code/handbook",
+  cwd: "/Users/dev/code/handbook",
   cwdDisplay: "~/code/handbook",
   sessionId: "gem-7781",
   title: "Proofread the release notes",
@@ -580,9 +580,9 @@ const kinds: KindView[] = [
   { id: "custom", name: "Custom command", installed: true, caps: kcaps({ customCommand: true }) },
 ];
 const recents: RecentProject[] = [
-  { path: "/Users/ako/code/orders-api", display: "~/code/orders-api", lastUsed: now - 10 * min },
-  { path: "/Users/ako/code/checkout-web", display: "~/code/checkout-web", lastUsed: now - 50 * min },
-  { path: "/Users/ako/code/handbook", display: "~/code/handbook", lastUsed: now - 3 * 60 * min },
+  { path: "/Users/dev/code/orders-api", display: "~/code/orders-api", lastUsed: now - 10 * min },
+  { path: "/Users/dev/code/checkout-web", display: "~/code/checkout-web", lastUsed: now - 50 * min },
+  { path: "/Users/dev/code/handbook", display: "~/code/handbook", lastUsed: now - 3 * 60 * min },
 ];
 let hooks: HooksStatus = { installed: false, path: "~/.codex/hooks.json" };
 let seq = 0;
@@ -590,7 +590,7 @@ let cli: CliStatus = {
   bin: "/Applications/Pitwall.app/Contents/MacOS/pitwall-cli",
   installed: null,
   dirs: [
-    { path: "/Users/ako/.local/bin", onPath: true, exists: true },
+    { path: "/Users/dev/.local/bin", onPath: true, exists: true },
     { path: "/usr/local/bin", onPath: true, exists: true },
   ],
 };
@@ -618,7 +618,7 @@ const approvalSubs = new Set<(list: ApprovalView[]) => void>();
 // New agent → Runs on: this Mac, and an agw VM whose form lists its workspaces etc.
 const machines: ProviderMachines[] = [
   { provider: "local", label: "This Mac", version: null, canCreate: true, canAddSessions: false, machines: [{ id: "this-mac", label: "This Mac", detail: null }], error: null },
-  { provider: "agw", label: "agw", version: "0.19.0", canCreate: true, canAddSessions: true, machines: [{ id: "shakedown", label: "shakedown", detail: "lima-local" }], error: null },
+  { provider: "agw", label: "agw", version: "0.19.0", canCreate: true, canAddSessions: true, machines: [{ id: "my-vm", label: "my-vm", detail: "local-site" }], error: null },
 ];
 const mockChoice = (value: string, label: string, detail: string | null, phrase: string, creates: string | null = null) => ({ value, label, detail, phrase, creates });
 const agwName = (maxLen: number) => ({
@@ -652,16 +652,16 @@ function mockForm(provider: string, machine: string): CreateForm {
       field({
         id: "workspace",
         label: "Workspace",
-        default: "gwlive",
+        default: "api-session",
         hint: "Where it works on the VM: its repositories and environment",
         choices: [
-          mockChoice("gwlive", "gwlive", "template gwlive", "in workspace gwlive"),
+          mockChoice("api-session", "api-session", "template api-session", "in workspace api-session"),
           mockChoice("work", "work", "template agentworks", "in workspace work"),
           mockChoice("+new", "New workspace…", null, "in a new workspace {workspaceName}", "workspace {workspaceName} (template {workspaceTemplate})"),
         ],
       }),
       field({ id: "workspaceName", label: "Workspace name", input: "text", when: isNew, defaultsToName: true, placeholder: "same as the session", rule: agwName(29) }),
-      field({ id: "workspaceTemplate", label: "Workspace template", when: isNew, default: "default", choices: ["default", "agentworks", "gwlive"].map((t) => mockChoice(t, t, null, t)) }),
+      field({ id: "workspaceTemplate", label: "Workspace template", when: isNew, default: "default", choices: ["default", "agentworks", "api-session"].map((t) => mockChoice(t, t, null, t)) }),
       field({
         id: "runAs",
         label: "Runs as",
@@ -744,7 +744,7 @@ export function createMockApi(): Api {
         kind: req.kind,
         kindName: kind?.name ?? (req.kind === "custom" ? "Custom" : req.kind),
         cwd,
-        cwdDisplay: cwd.replace("/Users/ako", "~"),
+        cwdDisplay: cwd.replace("/Users/dev", "~"),
         project,
         projectDisplay,
         branch: "main",
@@ -767,11 +767,11 @@ export function createMockApi(): Api {
       }, 400);
       setTimeout(() => setStatus(a.id, "idle"), 1800);
       if (req.worktree) {
-        const wt = req.kind === "codex" ? `/Users/ako/.codex/worktrees/c0de/${projectDisplay}` : `${project}/.claude/worktrees/${req.name}`;
+        const wt = req.kind === "codex" ? `/Users/dev/.codex/worktrees/c0de/${projectDisplay}` : `${project}/.claude/worktrees/${req.name}`;
         setTimeout(() => {
           update(a.id, {
             cwd: wt,
-            cwdDisplay: wt.replace("/Users/ako", "~"),
+            cwdDisplay: wt.replace("/Users/dev", "~"),
             branch: req.kind === "codex" ? null : `worktree-${req.name}`,
             worktree: true,
             worktreePending: false,
@@ -846,7 +846,7 @@ export function createMockApi(): Api {
       const a = find(agentId);
       outBuf.set(agentId, "");
       setTimeout(() => {
-        out(agentId, a.terminal || a.kind === "shell" ? `${green("ako@mbp")} ${blue(a.cwdDisplay)} $ ` : claudeBanner(a.cwdDisplay) + grey("Resumed session.") + NL);
+        out(agentId, a.terminal || a.kind === "shell" ? `${green("dev@mac")} ${blue(a.cwdDisplay)} $ ` : claudeBanner(a.cwdDisplay) + grey("Resumed session.") + NL);
       }, 300);
       if (a.terminal && !a.restartAs) update(agentId, { kind: "shell", kindName: "Shell", sessionId: null });
       return update(agentId, { running: true, status: "idle", statusSource: "screen" });

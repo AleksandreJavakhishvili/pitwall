@@ -3,8 +3,7 @@
 Pitwall never reimplements rulesync; it calls the `rulesync` CLI (detect
 `rulesync` on PATH, else `npx -y rulesync` only if the user enabled it in
 Settings; show install hint otherwise — never install automatically).
-Reference docs: rulesync repo cloned at
-/private/tmp/claude-501/-Users-ako/f9e56143-b7ff-4854-8c11-e94c05e197cc/scratchpad/rulesync (docs/).
+Reference docs: the `docs/` folder of a local clone of rulesync.
 
 ## Model
 - **Library**: `~/.pitwall/rules/` is a rulesync-format input root

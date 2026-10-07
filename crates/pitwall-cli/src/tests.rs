@@ -127,8 +127,8 @@ fn machine_flags_become_form_options() {
     assert_eq!(new(&["--workspace", "work", "--as", "admin", "--template", "claude"]).unwrap(), map(&[("workspace", "work"), ("runAs", "admin"), ("template", "claude")]));
     assert_eq!(new(&["--workspace", "work", "--as", "agent:bot"]).unwrap(), map(&[("workspace", "work"), ("runAs", "agent:bot")]));
     assert_eq!(
-        new(&["--new-workspace", "--workspace-template", "gwlive", "--as", "new-agent:helper", "--agent-template", "claude"]).unwrap(),
-        map(&[("workspace", "+new"), ("workspaceTemplate", "gwlive"), ("runAs", "+new"), ("agentName", "helper"), ("agentTemplate", "claude")])
+        new(&["--new-workspace", "--workspace-template", "api-session", "--as", "new-agent:helper", "--agent-template", "claude"]).unwrap(),
+        map(&[("workspace", "+new"), ("workspaceTemplate", "api-session"), ("runAs", "+new"), ("agentName", "helper"), ("agentTemplate", "claude")])
     );
     assert_eq!(new(&["--new-workspace", "scratch", "--as", "new-agent"]).unwrap(), map(&[("workspace", "+new"), ("workspaceName", "scratch"), ("runAs", "+new")]));
     assert_eq!(new(&["--option", "color=red"]).unwrap(), map(&[("color", "red")]));

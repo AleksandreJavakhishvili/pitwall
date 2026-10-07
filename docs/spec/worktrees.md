@@ -1,6 +1,6 @@
 # Worktrees: use the agent's own feature, nothing tied to Pitwall
 
-User feedback: "Own git worktree" created folders in `~/.pitwall/worktrees/`
+Problem: "Own git worktree" created folders in `~/.pitwall/worktrees/`
 and branches named `pitwall/<agent>`, tying the user's work to Pitwall.
 Pitwall is a tool: it must not invent its own scheme.
 
