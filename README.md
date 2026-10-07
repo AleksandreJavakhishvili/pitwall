@@ -126,6 +126,7 @@ Where things live on Linux:
 
 - Pitwall's own data: `$XDG_DATA_HOME/pitwall` (default `~/.local/share/pitwall`) instead of macOS's `~/.pitwall`. `PITWALL_HOME` overrides both.
 - Onboarding reads VS Code's and Cursor's recent folders from `$XDG_CONFIG_HOME` (default `~/.config/Code`, `~/.config/Cursor`), Claude Code and Codex from `~/.claude` and `~/.codex` as on macOS.
+- Hooks (Claude Code, Codex) reach Pitwall through `curl`: the `.deb` depends on it; with the AppImage install it yourself if your distribution lacks it (without it, status comes from the screen instead).
 - Agents start through your login shell (`$SHELL -l -i`), so your PATH from `.bashrc` / `.zshrc` applies even when Pitwall is started from the desktop.
 - Closing the main window quits the app; agents keep running in their holders and are back when you open Pitwall again. They end when you log out, or with **Quit and stop all agents** in the command palette.
 - If the window stays blank on your GPU driver, WebKitGTK's DMA-BUF renderer is the usual cause: Pitwall turns it off by default (`WEBKIT_DISABLE_DMABUF_RENDERER=1`); set it to `0` to turn it back on.
