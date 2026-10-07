@@ -85,6 +85,9 @@ if grep -q '[^[:space:]]' "$highlights"; then
     { print }' CHANGELOG.md > "$rest"
   cp "$rest" CHANGELOG.md
 fi
+# One newline at the end, not git-cliff's trailing blank lines.
+awk '/^[[:space:]]*$/ { blank++; next } { while (blank) { print ""; blank-- } print }' CHANGELOG.md > "$rest"
+cp "$rest" CHANGELOG.md
 
 # --- 3. commit --------------------------------------------------------------
 git add -A package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/*/Cargo.toml Cargo.lock CHANGELOG.md
