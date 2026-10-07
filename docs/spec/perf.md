@@ -19,7 +19,8 @@ tree (Rust process + WebKit content/GPU processes, excluding agent processes).
 - Hidden terminals: buffer output and write in batches; no render work.
 - Each extra window is a separate WebKit process — keep per-window state minimal.
 - Lazy-load heavy chunks: Monaco/Review, onboarding, rules UI.
-- Git polling only for visible or recently active agents; back off when idle.
+- Git polling only for visible or recently active agents; back off when idle
+  (pass 2: local agents refresh on file changes instead, see "Git refresh").
 - Avoid React re-render storms on `agents-changed` (memoised rows/panes,
   per-agent selectors).
 - Ticker does no work when nothing changed.
@@ -115,6 +116,74 @@ Findings while measuring:
   floor) while refreshes find nothing new; resets on a change or a new turn.
   Idle agents were already never polled. The ticker already did no work
   without new output (atomics only; detection only on new output).
+
+## Git refresh (pass 2)
+Local agents' git numbers (Changes list, +/−, branch) are refreshed when
+their files change instead of by polling. Same data, same pace limit
+(at most every 3 s per agent), never later than polling would have.
+
+- **Capability, not platform**: `ProviderCaps.fs_events` (local: yes, agw:
+  no) says the machine's `Exec` can `watch`; `LocalExec::watch`
+  (`exec/watch.rs`) implements it with the `notify` crate, other execs answer
+  `Unsupported` and are polled exactly as before.
+- **One watch per checkout** (`engine/gitwatch.rs`): on an agent's first
+  refresh, `git rev-parse --show-toplevel --git-dir --git-common-dir` finds
+  the checkout and `git ls-files --others --ignored --exclude-standard
+  --directory` what git ignores; agents in the same checkout (same machine +
+  root) share the watch, which ends with its last agent (stopped agents keep
+  none). At most 64 checkouts are watched; beyond, agents are polled.
+- **What counts**: anything under the working tree except git internals
+  (HEAD, index, packed-refs and refs do count — branch switches, commits;
+  a linked worktree's own git folder and the repository's refs are watched
+  too) and git-ignored paths. A refresh woken by a change that finds nothing
+  new lists git's ignored paths again (≤ once a minute per checkout), so a
+  build's new output folder stops counting. Access events are ignored, so
+  git's own reads never wake anything.
+- **One OS watcher** for all checkouts and one thread that filters events:
+  FSEvents (macOS) and ReadDirectoryChangesW (Windows) watch each tree
+  recursively; inotify/kqueue get one watch per folder, skipping git-ignored
+  folders and `NOISE_DIRS` (node_modules, target, .venv, …), at most 32 768
+  folders. Past that, when the OS refuses (`max_user_watches`), or when a
+  new folder can't be added later, that checkout falls back to polling
+  (retried after 5 min). FSEvents restarts its stream when a path is added
+  or removed; every other checkout is then treated as changed once.
+- **Pace** (`ticker.rs git_due`): a watched agent is refreshed when its
+  watch saw a change (≥ 3 s after the last look, idle or not), when asked
+  (task end, Changes/Review, ↻), and by a safety poll while it works or
+  prints: 60 s where the watch sees everything git status can (FSEvents,
+  Windows), 30 s where folders are skipped by name (inotify) — polling's
+  longest back-off, so no case is staler than before. Unwatched agents:
+  unchanged (3 s doubling to 30 s while active, never while idle).
+
+Measured (`engine/ticker/bench.rs`, `#[ignore]`: 20 temp repos, real git and
+the real ticker on a wall-clock-driven clock, 60 s after a 5 s settle,
+release build, M-series Mac). Git processes per minute and CPU s/min spent
+by the test process and its children, minus an idle run of the same mode
+(= git + watching). "Polling" is today's path (`BENCH_WATCH=0`, the exact
+pre-change logic; the original binary gave the same counts).
+
+| 20 local agents | Polling: git/min | CPU s/min | Watching: git/min | CPU s/min |
+|---|---|---|---|---|
+| Idle, nothing changes | 0 | 0 | 0 | ~0.1 (watcher) |
+| Working, no file changes ("thinking") | 180 (239 in the first minute) | 11.0 | 60 | 2.8 |
+| Working, an edit every 10 s each | 613 | 21.0 | 353 | 3.3 |
+| Working, an edit every 2 s each (stress) | 1076 | 43 | 1124 | 31 |
+
+Each refresh is 3 git processes (diff, untracked, branch). Edits every 2 s
+keep both paths at the 3 s cap, so they do the same work; the gain is
+everywhere else. Freshness: an edit shows ≤ 3.4 s later (polling: up to 30 s
+once backed off). One-off cost per checkout: 2 git processes to start
+watching (and one extra refresh per FSEvents restart).
+
+**`gix` instead of spawning git — not done.** Once refreshes only follow
+real changes, git processes are the remaining cost only while agents edit
+files, and identical output would need gix to match `git diff --raw
+--numstat -z -M <base>` exactly (rename pairing and similarity, line counts
+from git's xdiff vs imara-diff, binary detection, submodules, untracked with
+`--exclude-standard`), plus a second implementation next to the git CLI that
+agw machines still need. A large dependency (dozens of crates, build time,
+binary size) for a cost that is now small; revisit if busy-agent CPU shows
+up in a profile.
 
 ## Still over budget / next
 - Per-agent cost is now inside 15 MB, idle is inside 150 MB (footprint), but
