@@ -14,11 +14,9 @@
 
 ---
 
-<p align="center">
-  <img src="docs/media/demo.webp" alt="Pitwall: an agent needs you, you jump to it and answer; then the Wall, a queued prompt, Review, a terminal that becomes Claude Code, and rule settings" width="840" />
-</p>
+https://github.com/user-attachments/assets/65903f5d-1b2c-41a0-ab35-a2451a26d7c0
 
-<p align="center"><sub>Recorded from the app's browser mock mode. <a href="https://aleksandrejavakhishvili.github.io/pitwall/">Sharper video and a clickable live demo on the website.</a></sub></p>
+<p align="center"><sub>Recorded from the app's browser mock mode. <a href="https://aleksandrejavakhishvili.github.io/pitwall/">Try the clickable live demo on the website.</a></sub></p>
 
 **You call the strategy. Agents drive.**
 
