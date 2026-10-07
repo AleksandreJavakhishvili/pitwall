@@ -77,9 +77,23 @@ describe("terminal shortcuts", () => {
   const key = (k: string, shift = false) => ({ key: k, metaKey: true, ctrlKey: false, altKey: false, shiftKey: shift }) as KeyboardEvent;
   it("⌘T and ⌘⇧T belong to the app, not the terminal", async () => {
     const { OWNED_SHORTCUT } = await import("./shortcuts");
-    expect(OWNED_SHORTCUT(key("t"))).toBe(true);
-    expect(OWNED_SHORTCUT(key("T", true))).toBe(true);
-    expect(OWNED_SHORTCUT(key("y", true))).toBe(false);
+    expect(OWNED_SHORTCUT(key("t"), true)).toBe(true);
+    expect(OWNED_SHORTCUT(key("T", true), true)).toBe(true);
+    expect(OWNED_SHORTCUT(key("y", true), true)).toBe(false);
+  });
+
+  it("off macOS the app uses Ctrl+Shift and leaves plain Ctrl to the terminal", async () => {
+    const { OWNED_SHORTCUT, chord, shortcutLabel } = await import("./shortcuts");
+    const ev = (code: string, key: string, mods: Partial<KeyboardEvent>) =>
+      ({ code, key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...mods }) as KeyboardEvent;
+    expect(OWNED_SHORTCUT(ev("KeyK", "k", { ctrlKey: true }), false)).toBe(false);
+    expect(OWNED_SHORTCUT(ev("KeyK", "K", { ctrlKey: true, shiftKey: true }), false)).toBe(true);
+    expect(chord(ev("Digit2", "@", { ctrlKey: true, shiftKey: true }), false)).toEqual({ key: "2", shift: false });
+    expect(chord(ev("KeyT", "T", { ctrlKey: true, shiftKey: true, altKey: true }), false)).toEqual({ key: "t", shift: true });
+    expect(OWNED_SHORTCUT(key("t"), false)).toBe(false);
+    expect(shortcutLabel("⌘⇧T", false)).toBe("Ctrl+Shift+Alt+T");
+    expect(shortcutLabel("⌘K", false)).toBe("Ctrl+Shift+K");
+    expect(shortcutLabel("⌘K", true)).toBe("⌘K");
   });
 
   it("labels Restart/Resume from caps, naming the agent a terminal restarts as", () => {
