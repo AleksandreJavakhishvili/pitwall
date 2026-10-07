@@ -304,6 +304,7 @@ impl Provider for AgwProvider {
             custom_command: false,
             local_process: false,
             git_poll_ms: GIT_POLL_MS,
+            fs_events: false,
         }
     }
 

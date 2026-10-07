@@ -371,7 +371,8 @@ impl FakeProvider {
         })
     }
 
-    /// The local provider's capabilities, except `local_process`.
+    /// The local provider's capabilities, except `local_process` and
+    /// `fs_events`.
     pub fn local_like() -> ProviderCaps {
         ProviderCaps {
             create: true,
@@ -388,6 +389,8 @@ impl FakeProvider {
             custom_command: true,
             local_process: false,
             git_poll_ms: 0,
+            // Tests opt in (their machines are often a FakeExec).
+            fs_events: false,
         }
     }
 

@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::{Cmd, Exec, FileKind, Out, PwError, Result, Stat};
+use super::{Cmd, Exec, FileKind, OnChange, Out, PwError, Result, Stat, WatchSpec, Watching};
 use crate::platform;
 
 /// This machine.
@@ -148,6 +148,10 @@ impl Exec for LocalExec {
 
     fn home(&self) -> Result<String> {
         Ok(platform::home_dir().to_string_lossy().into_owned())
+    }
+
+    fn watch(&self, spec: &WatchSpec, on_change: OnChange) -> Result<Box<dyn Watching>> {
+        super::watch::watch(spec, on_change)
     }
 }
 
