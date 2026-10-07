@@ -23,7 +23,6 @@ Designed, starting after the current work.
 - **Rules and hooks on agw machines.** The same rules and status hooks for agw sessions as for local agents.
 - **Race Engineer.** An optional assistant: an ordinary agent, on your own subscription, that knows Pitwall's command line and can set things up or rearrange agents when you ask. Anything risky still waits for your approval in the app, and Pitwall works fully without it.
 - **Plain SSH machines.** Run and watch agents on any machine you can reach over SSH, not only agw sessions.
-- **More from the command line.** Stop, remove, prompt and queue agents and manage spaces from the `pitwall` CLI, with the same approvals.
 
 ## Later
 
