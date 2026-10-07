@@ -17,6 +17,8 @@ use pitwall_core::engine::lifecycle;
 use pitwall_core::host::{HostInfo, Shortcuts};
 use pitwall_core::Shared;
 
+use crate::windows;
+
 /// Whether this desktop gets the native menu (module docs).
 pub fn wanted(host: &HostInfo) -> bool {
     host.shortcuts == Shortcuts::Meta
@@ -35,8 +37,6 @@ pub fn quit<R: Runtime>(app: &AppHandle<R>, stop_agents: bool) {
         app.exit(0);
     });
 }
-
-use crate::windows;
 
 const SETTINGS_ID: &str = "pitwall-settings";
 const QUIT_STOP_ID: &str = "pitwall-quit-stop";
