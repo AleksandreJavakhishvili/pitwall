@@ -1,0 +1,85 @@
+#!/bin/sh
+# Validates a commit message against Pitwall's commit convention
+# (Conventional Commits 1.0, see CONTRIBUTING.md "Commit messages").
+#
+#   git config core.hooksPath .githooks     # enable once per clone
+#
+# Usage: commit-msg <message-file>          (what git passes to the hook)
+#        commit-msg --title <message-file>  (header only: PR titles)
+#
+# POSIX sh + grep/sed only. scripts/check-commits.sh runs this same file in CI.
+
+title_only=0
+if [ "$1" = "--title" ]; then title_only=1; shift; fi
+file=$1
+if [ -z "$file" ] || [ ! -r "$file" ]; then
+  echo "commit-msg: no readable message file given" >&2
+  exit 2
+fi
+
+TYPES='feat|fix|perf|refactor|docs|test|ci|build|chore|revert'
+SCOPES='core|providers|agw|hold|cli|daemon|detect|ui|app|website|release|deps'
+
+# Drop the comment lines git adds and everything below a scissors line,
+# then trailing whitespace and leading blank lines.
+msg=$(sed -e '/^# -\{8,\} >8 -\{8,\}$/,$d' -e '/^#/d' -e 's/[[:space:]]*$//' "$file" \
+  | sed -e '/./,$!d')
+header=$(printf '%s\n' "$msg" | sed -n '1p')
+
+fail() {
+  echo "commit-msg: $1" >&2
+  echo "  header: $header" >&2
+  echo "  expected: <type>[(scope)][!]: <summary>   e.g. fix(core): keep the PATH from the login shell" >&2
+  echo "  types:  $(echo "$TYPES" | tr '|' ' ')" >&2
+  echo "  scopes: $(echo "$SCOPES" | tr '|' ' ')" >&2
+  echo "  see CONTRIBUTING.md \"Commit messages\"" >&2
+  exit 1
+}
+
+[ -n "$header" ] || fail "empty message"
+
+# Messages git writes itself, and autosquash markers.
+case "$header" in
+  "Merge "*|"Revert \""*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+
+printf '%s\n' "$header" | grep -Eq "^[a-z]+(\([^)]*\))?!?: " \
+  || fail "header is not '<type>[(scope)][!]: <summary>'"
+
+type=$(printf '%s\n' "$header" | sed -E 's/^([a-z]+).*/\1/')
+printf '%s\n' "$type" | grep -Eqx "$TYPES" || fail "unknown type '$type'"
+
+if printf '%s\n' "$header" | grep -Eq '^[a-z]+\('; then
+  scope=$(printf '%s\n' "$header" | sed -E 's/^[a-z]+\(([^)]*)\).*/\1/')
+  printf '%s\n' "$scope" | grep -Eqx "$SCOPES" || fail "unknown scope '$scope'"
+fi
+
+summary=$(printf '%s\n' "$header" | sed -E 's/^[^:]*: //')
+[ -n "$summary" ] || fail "empty summary"
+case "$summary" in
+  [[:space:]]*) fail "extra space before the summary" ;;
+  [A-Z]*) fail "summary starts with a capital letter (use lower case, imperative: 'add', not 'Added')" ;;
+  *.) fail "summary ends with a period" ;;
+esac
+
+len=$(printf '%s' "$header" | wc -m | tr -d ' ')
+[ "$len" -le 72 ] || fail "header is $len characters (max 72)"
+
+[ "$title_only" = 1 ] && exit 0
+
+# Body: separated from the header by a blank line.
+second=$(printf '%s\n' "$msg" | sed -n '2p')
+[ -z "$second" ] || fail "put a blank line between the header and the body"
+
+bang=0
+printf '%s\n' "$header" | grep -Eq '^[a-z]+(\([^)]*\))?!: ' && bang=1
+footer=0
+printf '%s\n' "$msg" | sed '1d' | grep -Eq '^BREAKING[ -]CHANGE: .+' && footer=1
+if [ "$bang" = 1 ] && [ "$footer" = 0 ]; then
+  fail "breaking change ('!') needs a 'BREAKING CHANGE: <what breaks>' footer"
+fi
+if [ "$footer" = 1 ] && [ "$bang" = 0 ]; then
+  fail "'BREAKING CHANGE:' footer needs a '!' before the colon in the header"
+fi
+
+exit 0
