@@ -53,14 +53,15 @@ agents plug in without touching the rest. Design first, review, then build.
   alacritty_terminal behind `Screen` (the parser was ~0.01 % of app CPU, not
   the bottleneck); Wall tiles drawn from the backend's screen copy instead of
   xterm.js (pixel-identical; Wall WebContent −40–55 MB, WebKit CPU −15–20
-  points with 20 busy agents).
+  points with 20 busy agents); Review memory — Monaco replaced by CodeMirror 6
+  + `@codemirror/merge` with the same look and behaviour (WebContent kept after
+  closing Review +75–102 MB → +1–23 MB, diff chunk 3.2 MB → 0.4 MB); local
+  agents refresh git on file changes instead of polling ("Git refresh").
 - Performance pass 3 (still over budget / unverified):
   - ~220 MB in WebKit's GPU process as soon as any terminal (or Wall tile) is
     visible and repainting (independent of agent count, and not xterm-specific:
     snapshot tiles cost the same): audit compositing layers, repaint rate,
     continuous animations (pulse dots, blocked glow), `contain: paint`.
-  - Monaco's ~100 MB of code stays resident after Review closes: host Review in
-    a separate lightweight webview/window that is destroyed on close.
   - CPU with 20 busy agents: the app's share is WebKit IPC for the output
     channels (not parsing or detection); WebContent's is xterm.js in visible
     panes. Batch harder for panes that aren't focused; React updates.
