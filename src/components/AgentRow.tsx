@@ -1,9 +1,11 @@
-import { memo, type MouseEvent } from "react";
+import { memo, type MouseEvent, type ReactNode } from "react";
 import type { AgentView } from "../types";
 import { STATUS_WORD } from "../lib/status";
 import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
+import { Icon } from "./Icon";
+import { countLabel } from "../lib/worktrees";
 
 interface Props {
   agent: AgentView;
@@ -13,6 +15,12 @@ interface Props {
   where: string | null;
   onSelect(): void;
   onContextMenu?(e: MouseEvent): void;
+  /** Worktrees it has besides its own folder (docs/spec/worktrees-view.md): a chip that expands `children`. */
+  worktrees?: number;
+  worktreesOpen?: boolean;
+  onToggleWorktrees?(): void;
+  /** The expanded worktree list. */
+  children?: ReactNode;
 }
 
 /**
@@ -21,10 +29,17 @@ interface Props {
  */
 export const AgentRow = memo(
   AgentRowImpl,
-  (a, b) => a.agent === b.agent && a.index === b.index && a.selected === b.selected && a.where === b.where,
+  (a, b) =>
+    a.agent === b.agent &&
+    a.index === b.index &&
+    a.selected === b.selected &&
+    a.where === b.where &&
+    a.worktrees === b.worktrees &&
+    a.worktreesOpen === b.worktreesOpen &&
+    a.children === b.children,
 );
 
-function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMenu }: Props) {
+function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMenu, worktrees = 0, worktreesOpen = false, onToggleWorktrees, children }: Props) {
   return (
     <li>
       <button
@@ -56,6 +71,21 @@ function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMen
         </span>
         {index < 9 && <span className="row-index">⌘{index + 1}</span>}
       </button>
+      {worktrees > 0 && (
+        <button
+          className="wt-chip"
+          aria-expanded={worktreesOpen}
+          onClick={onToggleWorktrees}
+          title={worktreesOpen ? "Hide its worktrees" : "Show its worktrees"}
+        >
+          <span className="chev" data-open={worktreesOpen}>
+            <Icon name="chevron" size={10} />
+          </span>
+          <Icon name="branch" size={11} />
+          {countLabel(worktrees)}
+        </button>
+      )}
+      {worktreesOpen && children}
     </li>
   );
 }

@@ -88,6 +88,30 @@ Review ([review.md](review.md)):
 | `merge_agent` | `agentId` | `MergeResult` |
 | `get_merge_status` | `agentId` | `MergeStatus` |
 
+Worktrees in source control ([worktrees-view.md](worktrees-view.md)); a worktree is named by its project's `id` and its `path` from `list_worktrees` (any other path is refused):
+
+| Command | Args | Returns |
+|---|---|---|
+| `list_worktrees` | – | `ProjectWorktrees[]` (`src/gen/ProjectWorktrees.ts`). One `git worktree list --porcelain` per project, and only when due: something about its agents changed (at most every 2 s, or the provider's `git_poll_ms`) or the last list is ~30 s old; otherwise the cached list, re-attributed |
+| `get_worktree_changes` | `projectId, path` | `FileChange[]` against the merge-base with the project's current branch (committed, uncommitted, untracked) |
+| `get_worktree_file_versions` | `projectId, path, file` | `FileVersions` |
+| `get_worktree_merge_status` | `projectId, path` | `MergeStatus` |
+| `commit_worktree` | `projectId, path, message` | `string` short commit id (`git add -A && git commit`) |
+| `merge_worktree` | `projectId, path` | `MergeResult` (Review merge rules: dirty main checkout refused, conflicts aborted; detached refused) |
+| `remove_worktree` | `projectId, path` | `void` (`git worktree remove`, never `--force`; locked worktrees and agents' own folders refused; branch kept) |
+
+```ts
+interface ProjectWorktrees { id: string; repo: string; repoDisplay: string;
+  branch: string | null; // main checkout's branch (merge target)
+  machine: MachineView; agentIds: string[]; worktrees: WorktreeView[];
+  error: string | null } // last list failed (the previous one is kept)
+interface WorktreeView { path: string; pathDisplay: string; name: string;
+  branch: string | null; head: string | null; locked: boolean; lockReason: string | null;
+  prunable: boolean; agentId: string | null;
+  via: "own" | "toolDir" | "process" | "other"; caps: WorktreeCaps }
+interface WorktreeCaps { diff: boolean; commit: boolean; merge: boolean; remove: boolean; terminal: boolean }
+```
+
 Rules ([rules.md](rules.md)):
 
 | Command | Args | Returns |
@@ -169,6 +193,7 @@ interface AgentCaps {
   merge: boolean;          // diff && worktree && on a branch
   rules: boolean;          // provider.rules && kind has a rulesync target
   hooks: boolean;          // provider delivers hooks && kind has hooks
+  worktrees: boolean;      // its project's worktrees can be listed (= diff); missing from older servers = false
   removeKeepsSession: boolean; // adopted (agw): remove only stops tracking, the session keeps running
 }
 interface CreateAgentRequest {

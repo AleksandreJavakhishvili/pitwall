@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentView, FileChange } from "../types";
 import { api, errorText } from "../api";
 import { useActions } from "../lib/actions";
@@ -6,6 +6,10 @@ import { DiffStat } from "./DiffStat";
 import { FileIcon, FileStats } from "./FileIcon";
 import { fileStatus, splitPath } from "../lib/fileTree";
 import { noteAccessError } from "../lib/permissions";
+import { useWorktreeList } from "../lib/useWorktrees";
+import { countLabel, worktreesByAgent } from "../lib/worktrees";
+import { WorktreeRows } from "./WorktreeRows";
+import { Icon } from "./Icon";
 
 /** Changed files for an agent; refetched when its totals move, and every 5s.
  * Nothing is fetched when its changes can't be read (`caps.diff`). */
@@ -41,6 +45,26 @@ function useChanges(a: AgentView) {
   }, [sig, canDiff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { files, error };
+}
+
+/** The agent's other worktrees (docs/spec/worktrees-view.md), collapsed until asked for. */
+function AgentWorktrees({ agent: a }: { agent: AgentView }) {
+  const projects = useWorktreeList();
+  const refs = useMemo(() => worktreesByAgent(projects).get(a.id) ?? [], [projects, a.id]);
+  const [open, setOpen] = useState(false);
+  if (!refs.length) return null;
+  return (
+    <div className="panel-wts">
+      <button className="wt-chip" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className="chev" data-open={open}>
+          <Icon name="chevron" size={10} />
+        </span>
+        <Icon name="branch" size={11} />
+        {countLabel(refs.length)}
+      </button>
+      {open && <WorktreeRows refs={refs} label={`Worktrees of ${a.name}`} />}
+    </div>
+  );
 }
 
 export function Changes({ agent: a }: { agent: AgentView }) {
@@ -93,6 +117,7 @@ export function Changes({ agent: a }: { agent: AgentView }) {
           })}
         </ul>
       )}
+      <AgentWorktrees agent={a} />
     </section>
   );
 }

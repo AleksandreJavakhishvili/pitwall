@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import type { ProjectGroup } from "../lib/groups";
 import type { RunningElsewhere } from "../types";
 import { machineHeading, summarize } from "../lib/groups";
@@ -12,6 +12,9 @@ import { Kbd } from "./Kbd";
 import { api } from "../api";
 import { Menu, type MenuItem } from "./Menu";
 import { ElsewhereGroup } from "./ElsewhereGroup";
+import { useWorktreeList } from "../lib/useWorktrees";
+import { otherWorktrees, worktreesByAgent } from "../lib/worktrees";
+import { WorktreeRows } from "./WorktreeRows";
 
 /** Collapse key of the "Elsewhere" group (shares `ui.collapsed` with projects). */
 const ELSEWHERE = "\u0000elsewhere";
@@ -29,6 +32,16 @@ interface Props {
 export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }: Props) {
   const { showAgent, openNewAgent, openProjectSpace, toggleCollapsed, run, openTerminal, openRemove } = useActions();
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; label: string; items: MenuItem[] } | null>(null);
+  // Worktrees (docs/spec/worktrees-view.md): expanded lists, per agent id / project key.
+  const projectsWt = useWorktreeList();
+  const byAgent = useMemo(() => worktreesByAgent(projectsWt), [projectsWt]);
+  const [openWt, setOpenWt] = useState<Set<string>>(() => new Set());
+  const toggleWt = (key: string) =>
+    setOpenWt((s) => {
+      const n = new Set(s);
+      if (!n.delete(key)) n.add(key);
+      return n;
+    });
   let index = 0;
 
   const terminalItem = (path: string): MenuItem => ({
@@ -76,6 +89,11 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
           const start = index;
           index += g.agents.length;
           const heading = machineHeading(groups, gi);
+          const others = otherWorktrees(
+            projectsWt,
+            g.agents.map((a) => a.id),
+          );
+          const othersKey = `\u0000wt:${g.key}`;
           return (
             <section key={g.key} className="project-group" data-blocked={g.blocked > 0}>
               {heading && <div className="machine-head">{heading}</div>}
@@ -151,6 +169,9 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
                         selected={a.id === focusedAgentId}
                         where={where}
                         onSelect={() => showAgent(a.id)}
+                        worktrees={byAgent.get(a.id)?.length ?? 0}
+                        worktreesOpen={openWt.has(a.id)}
+                        onToggleWorktrees={() => toggleWt(a.id)}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setMenu({
@@ -165,9 +186,23 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
                             ],
                           });
                         }}
-                      />
+                      >
+                        {openWt.has(a.id) && <WorktreeRows refs={byAgent.get(a.id) ?? []} label={`Worktrees of ${a.name}`} />}
+                      </AgentRow>
                     );
                   })}
+                  {others.length > 0 && (
+                    <li className="wt-others">
+                      <button className="wt-chip" aria-expanded={openWt.has(othersKey)} onClick={() => toggleWt(othersKey)} title="Worktrees of this project no agent works in">
+                        <span className="chev" data-open={openWt.has(othersKey)}>
+                          <Icon name="chevron" size={10} />
+                        </span>
+                        <Icon name="branch" size={11} />
+                        {others.length === 1 ? "1 other worktree" : `${others.length} other worktrees`}
+                      </button>
+                      {openWt.has(othersKey) && <WorktreeRows refs={others} label={`Other worktrees of ${g.display}`} />}
+                    </li>
+                  )}
                 </ul>
               )}
             </section>

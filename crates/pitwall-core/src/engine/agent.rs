@@ -70,6 +70,9 @@ pub struct Agent {
     /// Terminals: Enter was pressed in the shell after the remembered agent
     /// exited (the user went on using the shell; terminals.rs `FORGET_AFTER_MS`).
     pub shell_used: bool,
+    /// `rec.cwd` resolved on its machine (symlinks, letter case), for
+    /// matching worktree paths; (cwd it was resolved from, result).
+    pub real_cwd: Option<(String, String)>,
 }
 
 impl Agent {
@@ -106,6 +109,7 @@ impl Agent {
             fg: Default::default(),
             hook_session: None,
             shell_used: false,
+            real_cwd: None,
         }
     }
 
@@ -182,6 +186,7 @@ impl Agent {
             merge: diff && r.worktree.is_some() && self.branch.is_some(),
             rules: k.rules,
             hooks: k.hooks,
+            worktrees: diff,
             remove_keeps_session: r.adopted,
         }
     }

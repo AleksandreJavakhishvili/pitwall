@@ -24,10 +24,11 @@ import type {
 } from "./types";
 
 import { tauriReviewApi, type ReviewApi } from "./reviewTypes";
+import { tauriWorktreesApi, type WorktreesApi } from "./worktreesApi";
 
 export type Unlisten = () => void;
 
-export interface Api extends ReviewApi {
+export interface Api extends ReviewApi, WorktreesApi {
   isMock: boolean;
   listKinds(): Promise<KindView[]>;
   recentProjects(): Promise<RecentProject[]>;
@@ -140,6 +141,7 @@ async function createTauriApi(): Promise<Api> {
   return {
     isMock: false,
     ...tauriReviewApi(invoke),
+    ...tauriWorktreesApi(invoke),
     listKinds: () => invoke("list_kinds"),
     recentProjects: () => invoke("recent_projects"),
     listAgents: () => invoke("list_agents"),

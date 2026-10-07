@@ -32,6 +32,12 @@ diff: boolean, review: boolean,
  */
 merge: boolean, rules: boolean, hooks: boolean, 
 /**
+ * Its project's worktrees can be listed (`list_worktrees`): the
+ * provider runs commands there and it works in a git repository.
+ * Missing from older servers: no.
+ */
+worktrees: boolean, 
+/**
  * Pitwall adopted a session that was already there: removing it from
  * Pitwall only stops tracking it, the session keeps running.
  */

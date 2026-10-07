@@ -11,6 +11,7 @@ pub mod review;
 pub mod rules;
 pub mod terminals;
 pub mod windows;
+pub mod worktrees;
 
 pub type Res<T> = Result<T, String>;
 

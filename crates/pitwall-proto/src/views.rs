@@ -55,6 +55,11 @@ pub struct AgentCaps {
     pub merge: bool,
     pub rules: bool,
     pub hooks: bool,
+    /// Its project's worktrees can be listed (`list_worktrees`): the
+    /// provider runs commands there and it works in a git repository.
+    /// Missing from older servers: no.
+    #[serde(default)]
+    pub worktrees: bool,
     /// Pitwall adopted a session that was already there: removing it from
     /// Pitwall only stops tracking it, the session keeps running.
     pub remove_keeps_session: bool,
@@ -171,4 +176,80 @@ pub struct ScannedSession {
     pub status: String,
     /// A Pitwall agent already tracks this session.
     pub in_pitwall: bool,
+}
+
+/// How a worktree was matched to an agent (docs/spec/worktrees-view.md), in
+/// the order the rules are tried.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum WorktreeVia {
+    /// It is the agent's own working folder.
+    Own,
+    /// It lives under the agent's folder in a location its tool manages
+    /// (`worktree_dirs` of the agent definition, e.g. `.claude/worktrees`).
+    ToolDir,
+    /// A process in the agent's terminal works in it.
+    Process,
+    /// No agent: one of the project's other worktrees.
+    Other,
+}
+
+/// What may be done with one worktree from Pitwall. The UI reads only this.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeCaps {
+    /// Its changes can be read (its folder exists).
+    pub diff: bool,
+    /// `git add -A && git commit` there.
+    pub commit: bool,
+    /// Merge its branch into the project's current branch (it is on a
+    /// branch, and the main checkout is on another one).
+    pub merge: bool,
+    /// `git worktree remove` (never `--force`): not locked, not an agent's
+    /// own folder (remove the agent instead).
+    pub remove: bool,
+    /// "Open a terminal there" (Pitwall can start terminals on its machine).
+    pub terminal: bool,
+}
+
+/// One linked worktree of a project (the main checkout is the project itself).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeView {
+    pub path: String,
+    pub path_display: String,
+    /// Its folder's name.
+    pub name: String,
+    /// `None` when detached.
+    pub branch: Option<String>,
+    pub head: Option<String>,
+    pub locked: bool,
+    pub lock_reason: Option<String>,
+    /// Its folder is gone (git would prune it).
+    pub prunable: bool,
+    /// The agent it belongs to, if any.
+    pub agent_id: Option<String>,
+    pub via: WorktreeVia,
+    pub caps: WorktreeCaps,
+}
+
+/// Every worktree of one project (git repository) on one machine
+/// (`list_worktrees`). Per-worktree changes are fetched separately, only
+/// for the ones shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWorktrees {
+    /// Opaque; what the per-worktree commands take.
+    pub id: String,
+    /// The main checkout.
+    pub repo: String,
+    pub repo_display: String,
+    /// The main checkout's current branch (merge target); `None` when detached.
+    pub branch: Option<String>,
+    pub machine: MachineView,
+    /// Agents working in this repository.
+    pub agent_ids: Vec<String>,
+    pub worktrees: Vec<WorktreeView>,
+    /// The list couldn't be read (the last good one is kept in `worktrees`).
+    pub error: Option<String>,
 }

@@ -50,6 +50,9 @@ import { useProjects } from "./components/onboarding/useProjects";
 import { ACCESS_ERROR_EVENT, noteAccessError, takeAccessHint } from "./lib/permissions";
 import { withProjects } from "./components/onboarding/projects";
 import { installBench, type BenchHandlers } from "./lib/bench";
+import { useWorktrees, WorktreesContext } from "./lib/useWorktrees";
+import { RemoveWorktreeDialog } from "./components/RemoveWorktreeDialog";
+import { findWorktree } from "./lib/worktrees";
 
 type ModalState =
   | null
@@ -58,6 +61,7 @@ type ModalState =
   | { type: "palette" }
   | { type: "settings" }
   | { type: "remove"; agentId: string }
+  | { type: "removeWorktree"; projectId: string; path: string }
   | { type: "terminal"; path?: string }
   | { type: "bring"; row: RunningElsewhere }
   | { type: "diff"; agentId: string; file: FileChange };
@@ -73,6 +77,8 @@ const nextFrame = (fn: () => void) => requestAnimationFrame(() => requestAnimati
 
 export default function App() {
   const { agents, loaded, isMock, label, patch } = useAgents();
+  // Worktrees of every project (one shared, throttled list per window).
+  const worktrees = useWorktrees(agents);
   const { projects, onboarded, setOnboarded } = useProjects();
   const { ui, ready, update, flush, current } = useUiState(label);
   const resp = useBreakpoint();
@@ -85,6 +91,8 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>(null);
   const [reviewOn, setReviewOn] = useState(false);
+  /** What Review selects when opened from a worktree ("Review" in its menu). */
+  const [reviewFocus, setReviewFocus] = useState<{ projectId: string; path: string; nonce: number } | null>(null);
   const { toasts, push, dismiss } = useToasts();
 
   const groups = useMemo(() => groupByProject(agents), [agents]);
@@ -299,6 +307,7 @@ export default function App() {
 
   const setWall = (on: boolean | null) => update((s) => W.setWall(s, me, on ?? !s.wall.includes(me)));
   const toggleReview = () => {
+    setReviewFocus(null);
     setReviewOn((v) => !v);
     if (wallOn) setWall(false);
   };
@@ -377,6 +386,12 @@ export default function App() {
     setTheme: (theme) => update((s) => W.setTheme(s, theme)),
     openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
+    openRemoveWorktree: (projectId, path) => setModal({ type: "removeWorktree", projectId, path }),
+    openReview: (focus) => {
+      setReviewFocus(focus ? { ...focus, nonce: Date.now() } : null);
+      setReviewOn(true);
+      if (wallOn) setWall(false);
+    },
     openNewAgent: (p) => setModal({ type: "new", projectPath: typeof p === "string" ? p : undefined }),
     dropAgent: (agentId, t) => dropAgentOn(agentId, t),
     focusPane: (paneId) => withActive((s, id) => W.focusPane(s, id, paneId)),
@@ -577,6 +592,7 @@ export default function App() {
 
   return (
     <ActionsContext.Provider value={stableActions}>
+      <WorktreesContext.Provider value={worktrees}>
       <div
         className="app"
         data-bp={resp.bp}
@@ -632,7 +648,7 @@ export default function App() {
           ) : reviewOn ? (
             <ErrorBoundary key="review" where="Review" onClose={() => setReviewOn(false)}>
               <Suspense fallback={<p className="hint pad">Loading review…</p>}>
-                <Review agents={agents} onExit={() => setReviewOn(false)} />
+                <Review agents={agents} focus={reviewFocus} onExit={() => setReviewOn(false)} />
               </Suspense>
             </ErrorBoundary>
           ) : activeSpace ? (
@@ -749,6 +765,9 @@ export default function App() {
       {modal?.type === "remove" && (
         <RemoveDialog agent={agents.find((a) => a.id === modal.agentId) ?? null} onClose={closeModal} />
       )}
+      {modal?.type === "removeWorktree" && (
+        <RemoveWorktreeDialog target={findWorktree(worktrees, modal.projectId, modal.path)} onClose={closeModal} />
+      )}
       {modal?.type === "diff" && (
         <DiffView agent={agents.find((a) => a.id === modal.agentId) ?? null} file={modal.file} onClose={closeModal} />
       )}
@@ -787,6 +806,7 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       )}
+      </WorktreesContext.Provider>
     </ActionsContext.Provider>
   );
 }

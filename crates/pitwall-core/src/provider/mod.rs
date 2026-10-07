@@ -395,6 +395,11 @@ pub trait Provider: Send + Sync {
     }
     /// The folder a running agent is in (worktree discovery).
     fn process_cwd(&self, loc: &Locator, pid: Option<u32>) -> Result<Option<String>>;
+    /// [`process_cwd`](Self::process_cwd) for several processes at once (the
+    /// local provider asks `lsof` once). One answer per ask, in order.
+    fn process_cwds(&self, asks: &[(Locator, Option<u32>)]) -> Vec<Option<String>> {
+        asks.iter().map(|(loc, pid)| self.process_cwd(loc, *pid).ok().flatten()).collect()
+    }
     /// Plain-text screen without attaching.
     fn capture(&self, loc: &Locator) -> Result<String>;
 }

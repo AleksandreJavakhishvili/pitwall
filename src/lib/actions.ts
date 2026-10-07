@@ -16,6 +16,10 @@ export interface Actions {
   patch(a: AgentView): void;
   openDiff(agentId: string, file: FileChange): void;
   openRemove(agentId: string): void;
+  /** Confirm, then `git worktree remove` (docs/spec/worktrees-view.md). */
+  openRemoveWorktree(projectId: string, path: string): void;
+  /** Review (⌘R), optionally with one worktree selected. */
+  openReview(focus?: { projectId: string; path: string }): void;
   /** `projectPath` preselects the project (non-string args, e.g. click events, are ignored). */
   openNewAgent(projectPath?: unknown): void;
   restart(agentId: string): void;

@@ -4,6 +4,7 @@ import type { Api, Unlisten } from "./api";
 import { createOnboardingMock } from "./components/onboarding/mockOnboarding";
 import { createPermissionsMock } from "./components/onboarding/mockPermissions";
 import { createReviewMock } from "./mockReview";
+import { createWorktreesMock } from "./mockWorktrees";
 import type {
   AgentView,
   ApprovalView,
@@ -256,6 +257,7 @@ function withCaps(a: Omit<AgentView, "caps"> & { caps?: AgentView["caps"] }): Ag
       merge: diff && a.worktree && !!a.branch,
       rules: !adopted && RULES.has(kind),
       hooks: !adopted && (kind === "claude" || kind === "codex"),
+      worktrees: diff,
       removeKeepsSession: adopted,
     },
   };
@@ -695,6 +697,7 @@ function mockForm(provider: string, machine: string): CreateForm {
 export function createMockApi(): Api {
   const mock: Api = {
     isMock: true,
+    ...createWorktreesMock(() => agents),
     ...createReviewMock({ find, update, changes: (id) => (changes[find(id).name] ??= []) }),
     listKinds: () => delay(kinds),
     listMachines: () => delay(machines),

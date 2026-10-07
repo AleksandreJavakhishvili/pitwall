@@ -12,7 +12,11 @@ import { FileIcon, StatusLetter } from "../FileIcon";
 import { FileTree } from "./FileTree";
 import { splitPath, treeOrder } from "../../lib/fileTree";
 import { commentStore, composePrompt, sortComments, useComments } from "./comments";
-import { CommitMergeDialog, ConflictDialog, DiscardDialog, PromptDialog } from "./ReviewDialogs";
+import { agentTarget, CommitMergeDialog, ConflictDialog, DiscardDialog, PromptDialog, type CommitTarget } from "./ReviewDialogs";
+import { WorktreeSection } from "./WorktreeSection";
+import { refreshWorktrees, useWorktreeList } from "../../lib/useWorktrees";
+import { otherWorktrees, refKey, worktreesByAgent, type WorktreeRef } from "../../lib/worktrees";
+import { useActions } from "../../lib/actions";
 import { releaseMonaco } from "./monacoLifecycle";
 import "./review.css";
 
@@ -24,6 +28,7 @@ type Dialog =
   | { type: "discard" }
   | { type: "send" }
   | { type: "commit" }
+  | { type: "commitWorktree" }
   | { type: "conflict"; result: MergeResult };
 
 interface Sel {
@@ -79,11 +84,37 @@ function useAgentFiles(agents: AgentView[], scope: Record<string, string | null>
   return { files, errors };
 }
 
-export default function Review({ agents, onExit }: { agents: AgentView[]; onExit(): void }) {
+/** What Review shows first when opened from a worktree. */
+export interface ReviewFocus {
+  projectId: string;
+  path: string;
+  nonce: number;
+}
+
+export default function Review({ agents, focus = null, onExit }: { agents: AgentView[]; focus?: ReviewFocus | null; onExit(): void }) {
   // Only agents whose changes can be read (not outside a git repository).
   const reviewable = useMemo(() => agents.filter((a) => a.caps.review), [agents]);
   const hidden = agents.length - reviewable.length;
-  const ordered = useMemo(() => groupByProject(reviewable).flatMap((g) => g.agents), [reviewable]);
+  const groups = useMemo(() => groupByProject(reviewable), [reviewable]);
+  const ordered = useMemo(() => groups.flatMap((g) => g.agents), [groups]);
+  const { openRemoveWorktree, openTerminal } = useActions();
+
+  // Worktrees (docs/spec/worktrees-view.md): each agent's own ones under it, the rest per project.
+  const projects = useWorktreeList();
+  const byAgent = useMemo(() => worktreesByAgent(projects), [projects]);
+  const othersOf = useMemo(() => new Map(groups.map((g) => [g.key, otherWorktrees(projects, g.agents.map((a) => a.id))])), [groups, projects]);
+  const wtRefs = useMemo(() => {
+    const m = new Map<string, WorktreeRef>();
+    for (const list of [...byAgent.values(), ...othersOf.values()]) for (const r of list) m.set(refKey(r), r);
+    return m;
+  }, [byAgent, othersOf]);
+  /** The worktree the main pane shows (instead of an agent), and its file. */
+  const [wtSel, setWtSel] = useState<{ key: string; path: string | null } | null>(null);
+  const [wtOpen, setWtOpen] = useState<Record<string, boolean>>({});
+  const [wtFiles, setWtFiles] = useState<Record<string, FileChange[] | null>>({});
+  const wt = wtSel ? (wtRefs.get(wtSel.key) ?? null) : null;
+  const wtList = wtSel ? wtFiles[wtSel.key] : undefined;
+  const wtFile = wtSel?.path && wtList ? (wtList.find((f) => f.path === wtSel.path) ?? null) : null;
   const [scope, setScope] = useState<Record<string, string | null>>({});
   const [nonce, setNonce] = useState(0);
   const { files, errors } = useAgentFiles(ordered, scope, nonce);
@@ -99,7 +130,7 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
   const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null);
   const comments = useComments();
 
-  const agent = ordered.find((a) => a.id === (sel?.agentId ?? selAgentId)) ?? null;
+  const agent = wtSel ? null : (ordered.find((a) => a.id === (sel?.agentId ?? selAgentId)) ?? null);
   const agentFiles = agent ? files[agent.id] : undefined;
   const file = sel && agentFiles ? (agentFiles.find((f) => f.path === sel.path) ?? null) : null;
   const taskId = agent ? (scope[agent.id] ?? null) : null;
@@ -107,7 +138,7 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
 
   // Default selection: the first agent with changes, its first file.
   useEffect(() => {
-    if (sel || selAgentId) return;
+    if (sel || selAgentId || wtSel) return;
     const first = ordered.find((a) => (files[a.id]?.length ?? 0) > 0);
     if (first) setSel({ agentId: first.id, path: treeOrder(files[first.id])[0].path });
   }, [files, ordered, sel, selAgentId]);
@@ -119,6 +150,29 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
     setSel(next ? { agentId: sel.agentId, path: next.path } : null);
     setSelAgentId(sel.agentId);
   }, [sel, agentFiles, file]);
+
+  // Opened from a worktree: show it.
+  useEffect(() => {
+    if (!focus) return;
+    const key = refKey(focus);
+    setWtSel({ key, path: null });
+    setWtOpen((o) => ({ ...o, [key]: true }));
+    setSel(null);
+    setSelAgentId(null);
+  }, [focus?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A shown worktree: its first file once read; gone from the list (removed): nothing.
+  useEffect(() => {
+    if (!wtSel) return;
+    if (projects.length && !wt) {
+      setWtSel(null);
+      return;
+    }
+    if (wtList && (!wtSel.path || !wtList.some((f) => f.path === wtSel.path))) {
+      const first = treeOrder(wtList)[0]?.path ?? null;
+      if (first !== wtSel.path) setWtSel({ key: wtSel.key, path: first });
+    }
+  }, [wtSel, wt, wtList, projects.length]);
 
   // Removed agent.
   useEffect(() => {
@@ -187,11 +241,52 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
   const select = (agentId: string, path: string) => {
     setSel({ agentId, path });
     setSelAgentId(agentId);
+    setWtSel(null);
   };
+  const showWorktree = (key: string, path: string | null) => {
+    setWtSel({ key, path });
+    setSel(null);
+    setSelAgentId(null);
+  };
+  const onWtFiles = useCallback(
+    (key: string, f: FileChange[] | null) => setWtFiles((m) => (m[key] === f ? m : { ...m, [key]: f })),
+    [],
+  );
+  const worktreeSection = (r: WorktreeRef) => {
+    const key = refKey(r);
+    return (
+      <WorktreeSection
+        key={key}
+        r={r}
+        open={!!wtOpen[key]}
+        current={wtSel?.key === key}
+        selected={wtSel?.key === key ? wtSel.path : null}
+        nonce={nonce}
+        onToggle={() => setWtOpen((o) => ({ ...o, [key]: !o[key] }))}
+        onShow={(first) => {
+          showWorktree(key, first);
+          setWtOpen((o) => ({ ...o, [key]: true }));
+        }}
+        onSelect={(path) => showWorktree(key, path)}
+        isClosed={(dir) => !!closedDirs[`${key}\0${dir}`]}
+        onToggleDir={(dir) => setClosedDirs((m) => ({ ...m, [`${key}\0${dir}`]: !m[`${key}\0${dir}`] }))}
+        onFiles={onWtFiles}
+      />
+    );
+  };
+  const wtTarget = (r: WorktreeRef): CommitTarget => ({
+    name: `worktree ${r.wt.name}`,
+    where: r.wt.pathDisplay,
+    projectDisplay: r.repoDisplay,
+    status: () => api.getWorktreeMergeStatus(r.projectId, r.wt.path),
+    commit: (m) => api.commitWorktree(r.projectId, r.wt.path, m),
+    merge: () => api.mergeWorktree(r.projectId, r.wt.path),
+  });
 
   const done = useCallback((msg: string) => {
     setNotice(msg);
     setNonce((n) => n + 1);
+    refreshWorktrees();
   }, []);
 
   const versionSig = agent ? `${agent.added}:${agent.removed}:${agent.filesChanged}:${nonce}:${file?.added}:${file?.removed}` : "";
@@ -218,88 +313,103 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
       <div className="review-body">
         <aside className="rv-list" aria-label="Changes by agent" ref={listRef}>
           {ordered.length === 0 && <p className="hint pad">{hidden ? "No agents with changes to review." : "No agents yet."}</p>}
-          {ordered.map((a) => {
-            const list = files[a.id];
-            const err = errors[a.id];
-            const isOpen = !collapsed[a.id];
-            const cs = sortComments(comments[a.id] ?? []);
-            const scoped = !!scope[a.id];
-            const added = list?.reduce((s, f) => s + f.added, 0) ?? 0;
-            const removed = list?.reduce((s, f) => s + f.removed, 0) ?? 0;
-            return (
-              <section key={a.id} className="rv-agent" data-current={agent?.id === a.id}>
-                <div className="rv-agent-head">
-                  <button
-                    className="rv-agent-toggle"
-                    onClick={() => setCollapsed((c) => ({ ...c, [a.id]: isOpen }))}
-                    aria-expanded={isOpen}
-                    aria-label={isOpen ? "Collapse" : "Expand"}
-                  >
-                    <span className="chev" data-open={isOpen}>
-                      <Icon name="chevron" size={12} />
-                    </span>
-                  </button>
-                  <button
-                    className="rv-agent-name"
-                    onClick={() => {
-                      setSelAgentId(a.id);
-                      const first = list && treeOrder(list)[0];
-                      if (first) select(a.id, first.path);
-                      else setSel(null);
-                    }}
-                    title={`${a.name} · ${a.cwdDisplay}`}
-                  >
-                    <StatusGlyph status={a.status} size="sm" />
-                    <span className="rv-agent-label">{a.name}</span>
-                    {a.branch && <span className="rv-branch mono">{a.branch}</span>}
-                  </button>
-                  {list && list.length > 0 ? <DiffStat added={added} removed={removed} /> : null}
+          {groups.map((g) => (
+            <div key={g.key} className="rv-project">
+              {g.agents.map((a) => {
+                const list = files[a.id];
+                const err = errors[a.id];
+                const isOpen = !collapsed[a.id];
+                const cs = sortComments(comments[a.id] ?? []);
+                const scoped = !!scope[a.id];
+                const added = list?.reduce((s, f) => s + f.added, 0) ?? 0;
+                const removed = list?.reduce((s, f) => s + f.removed, 0) ?? 0;
+                return (
+                  <section key={a.id} className="rv-agent" data-current={!wtSel && agent?.id === a.id}>
+                    <div className="rv-agent-head">
+                      <button
+                        className="rv-agent-toggle"
+                        onClick={() => setCollapsed((c) => ({ ...c, [a.id]: isOpen }))}
+                        aria-expanded={isOpen}
+                        aria-label={isOpen ? "Collapse" : "Expand"}
+                      >
+                        <span className="chev" data-open={isOpen}>
+                          <Icon name="chevron" size={12} />
+                        </span>
+                      </button>
+                      <button
+                        className="rv-agent-name"
+                        onClick={() => {
+                          setSelAgentId(a.id);
+                          const first = list && treeOrder(list)[0];
+                          if (first) select(a.id, first.path);
+                          else setSel(null);
+                        }}
+                        title={`${a.name} · ${a.cwdDisplay}`}
+                      >
+                        <StatusGlyph status={a.status} size="sm" />
+                        <span className="rv-agent-label">{a.name}</span>
+                        {a.branch && <span className="rv-branch mono">{a.branch}</span>}
+                      </button>
+                      {list && list.length > 0 ? <DiffStat added={added} removed={removed} /> : null}
+                    </div>
+                    {isOpen && (
+                      <>
+                        {scoped && <div className="rv-scope-note">this task only</div>}
+                        {err && <p className="hint hint-error rv-pad">{err}</p>}
+                        {!err && !list && <p className="hint rv-pad">Reading git…</p>}
+                        {!err && list?.length === 0 && <p className="hint rv-pad">{scoped ? "No changes in this task." : "No changes."}</p>}
+                        {list && list.length > 0 && (
+                          <FileTree
+                            files={list}
+                            selected={sel?.agentId === a.id ? sel.path : null}
+                            commentCounts={cs.reduce<Record<string, number>>((m, c) => ((m[c.path] = (m[c.path] ?? 0) + 1), m), {})}
+                            isClosed={(dir) => !!closedDirs[`${a.id}\0${dir}`]}
+                            onToggle={(dir) => setClosedDirs((m) => ({ ...m, [`${a.id}\0${dir}`]: !m[`${a.id}\0${dir}`] }))}
+                            onSelect={(path) => select(a.id, path)}
+                          />
+                        )}
+                        {cs.length > 0 && (
+                          <ul className="rv-comments" aria-label={`Comments for ${a.name}`}>
+                            {cs.map((c) => (
+                              <li key={c.id} className="rv-comment">
+                                <button
+                                  className="rv-comment-jump"
+                                  onClick={() => {
+                                    select(a.id, c.path);
+                                    setReveal({ line: c.line, nonce: Date.now() });
+                                  }}
+                                  title="Show in diff"
+                                >
+                                  <span className="mono rv-comment-where">
+                                    {splitPath(c.path).base}:{c.line}
+                                  </span>
+                                  <span className="rv-comment-text">{c.text}</span>
+                                </button>
+                                <button className="icon-btn icon-btn-sm" onClick={() => commentStore.remove(a.id, c.id)} aria-label="Delete comment" title="Delete comment">
+                                  ✕
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {(byAgent.get(a.id)?.length ?? 0) > 0 && (
+                          <div className="rv-wts" aria-label={`Worktrees of ${a.name}`}>
+                            {byAgent.get(a.id)!.map(worktreeSection)}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </section>
+                );
+              })}
+              {(othersOf.get(g.key)?.length ?? 0) > 0 && (
+                <div className="rv-others" aria-label={`Other worktrees of ${g.display}`}>
+                  <div className="rv-others-head label">Other worktrees · {g.display}</div>
+                  {othersOf.get(g.key)!.map(worktreeSection)}
                 </div>
-                {isOpen && (
-                  <>
-                    {scoped && <div className="rv-scope-note">this task only</div>}
-                    {err && <p className="hint hint-error rv-pad">{err}</p>}
-                    {!err && !list && <p className="hint rv-pad">Reading git…</p>}
-                    {!err && list?.length === 0 && <p className="hint rv-pad">{scoped ? "No changes in this task." : "No changes."}</p>}
-                    {list && list.length > 0 && (
-                      <FileTree
-                        files={list}
-                        selected={sel?.agentId === a.id ? sel.path : null}
-                        commentCounts={cs.reduce<Record<string, number>>((m, c) => ((m[c.path] = (m[c.path] ?? 0) + 1), m), {})}
-                        isClosed={(dir) => !!closedDirs[`${a.id}\0${dir}`]}
-                        onToggle={(dir) => setClosedDirs((m) => ({ ...m, [`${a.id}\0${dir}`]: !m[`${a.id}\0${dir}`] }))}
-                        onSelect={(path) => select(a.id, path)}
-                      />
-                    )}
-                    {cs.length > 0 && (
-                      <ul className="rv-comments" aria-label={`Comments for ${a.name}`}>
-                        {cs.map((c) => (
-                          <li key={c.id} className="rv-comment">
-                            <button
-                              className="rv-comment-jump"
-                              onClick={() => {
-                                select(a.id, c.path);
-                                setReveal({ line: c.line, nonce: Date.now() });
-                              }}
-                              title="Show in diff"
-                            >
-                              <span className="mono rv-comment-where">
-                                {splitPath(c.path).base}:{c.line}
-                              </span>
-                              <span className="rv-comment-text">{c.text}</span>
-                            </button>
-                            <button className="icon-btn icon-btn-sm" onClick={() => commentStore.remove(a.id, c.id)} aria-label="Delete comment" title="Delete comment">
-                              ✕
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
-                )}
-              </section>
-            );
-          })}
+              )}
+            </div>
+          ))}
           {hidden > 0 && ordered.length > 0 && (
             <p className="hint pad">
               {hidden === 1 ? "1 agent works" : `${hidden} agents work`} outside a git repository — no changes to review.
@@ -308,7 +418,69 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
         </aside>
 
         <section className="rv-main">
-          {agent ? (
+          {wt ? (
+            <>
+              <div className="rv-head">
+                <span className="rv-scope rv-scope-static" title={wt.wt.pathDisplay}>
+                  Worktree <span className="mono">{wt.wt.name}</span> · {wt.wt.branch ?? "detached"} · against{" "}
+                  {wt.target ?? "its HEAD"}
+                </span>
+                {wtFile && (
+                  <>
+                    <FileIcon path={wtFile.path} />
+                    <span className="rv-path mono" title={wtFile.path}>
+                      <span className="file-base">{splitPath(wtFile.path).base}</span>
+                      <span className="file-dir"> {splitPath(wtFile.path).dir.replace(/\/$/, "")}</span>
+                    </span>
+                    <StatusLetter file={wtFile} />
+                    {wtFile.binary ? <span className="chip chip-subtle">bin</span> : <DiffStat added={wtFile.added} removed={wtFile.removed} />}
+                  </>
+                )}
+              </div>
+              {wtFile ? (
+                <Suspense fallback={<p className="hint pad">Loading editor…</p>}>
+                  <ReviewDiff
+                    sourceKey={wtSel!.key}
+                    load={(path) => api.getWorktreeFileVersions(wt.projectId, wt.wt.path, path)}
+                    file={wtFile}
+                    taskId={null}
+                    sideBySide={sideBySide}
+                    version={`${wt.wt.head}:${nonce}:${wtFile.added}:${wtFile.removed}`}
+                    comments={[]}
+                    reveal={null}
+                  />
+                </Suspense>
+              ) : (
+                <div className="rv-empty">{wtList?.length === 0 ? "Nothing to review here." : wtList ? "Pick a file on the left." : "Reading git…"}</div>
+              )}
+              <footer className="rv-actions">
+                <Icon name="branch" size={12} />
+                <span className="rv-actions-name">{wt.wt.name}</span>
+                {wt.wt.locked && <span className="chip chip-warn" title={wt.wt.lockReason ?? undefined}>locked</span>}
+                {notice && (
+                  <span className="muted-sm rv-notice" title={notice}>
+                    {notice}
+                  </span>
+                )}
+                <span className="spacer" />
+                {wt.wt.caps.terminal && (
+                  <button className="ghost-btn" onClick={() => openTerminal(wt.wt.path)} title="A shell in this worktree">
+                    Open terminal
+                  </button>
+                )}
+                {wt.wt.caps.remove && (
+                  <button className="ghost-btn" onClick={() => openRemoveWorktree(wt.projectId, wt.wt.path)} title="git worktree remove (asks first)">
+                    Remove worktree…
+                  </button>
+                )}
+                {wt.wt.caps.commit && (
+                  <button className="primary-btn" onClick={() => setDialog({ type: "commitWorktree" })}>
+                    {wt.wt.caps.merge ? "Commit & merge" : "Commit"}
+                  </button>
+                )}
+              </footer>
+            </>
+          ) : agent ? (
             <>
               <div className="rv-head">
                 <select
@@ -352,7 +524,8 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
               {file ? (
                 <Suspense fallback={<p className="hint pad">Loading editor…</p>}>
                   <ReviewDiff
-                    agentId={agent.id}
+                    sourceKey={agent.id}
+                    load={(path) => api.getFileVersions(agent.id, path, taskId)}
                     file={file}
                     taskId={taskId}
                     sideBySide={sideBySide}
@@ -409,12 +582,23 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
       )}
       {agent && dialog?.type === "commit" && (
         <CommitMergeDialog
-          agent={agent}
+          target={agentTarget(agent)}
           onClose={() => setDialog(null)}
           onDone={done}
           onConflict={(result) => {
             setNonce((n) => n + 1);
             setDialog({ type: "conflict", result });
+          }}
+        />
+      )}
+      {wt && dialog?.type === "commitWorktree" && (
+        <CommitMergeDialog
+          target={wtTarget(wt)}
+          onClose={() => setDialog(null)}
+          onDone={done}
+          onConflict={(result) => {
+            setDialog(null);
+            done(result.message);
           }}
         />
       )}
