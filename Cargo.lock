@@ -2790,6 +2790,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pitwall-hook"
+version = "0.1.0"
+dependencies = [
+ "interprocess",
+]
+
+[[package]]
 name = "pitwall-proto"
 version = "0.1.0"
 dependencies = [

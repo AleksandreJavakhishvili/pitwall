@@ -1,7 +1,7 @@
 # Cargo workspace (architecture.md §1, migration step 0).
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-cli"]
+members = ["src-tauri", "crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-cli", "crates/pitwall-hook"]
 
 # Profiles only take effect at the workspace root.
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
