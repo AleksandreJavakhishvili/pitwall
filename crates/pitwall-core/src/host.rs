@@ -1,4 +1,4 @@
-//! This Mac, for the local provider (`pitwall-providers`): process facts the
+//! This machine, for the local provider (`pitwall-providers`): process facts the
 //! platform layer reads (architecture.md §9 decision 7). Nothing in the
 //! engine calls these for an agent; it asks the agent's provider.
 
@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use crate::platform;
 
-/// The current folder of each of `pids` that could be read (`lsof`);
+/// The current folder of each of `pids` that could be read (`lsof` on
+/// macOS, `/proc` on Linux);
 /// `None` when the lookup itself failed.
 pub fn process_cwds(pids: &[u32], timeout: Duration) -> Option<Vec<(u32, String)>> {
     platform::process_cwds(pids, timeout)

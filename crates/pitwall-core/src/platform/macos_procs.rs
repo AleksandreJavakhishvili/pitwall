@@ -1,4 +1,4 @@
-//! Unix (macOS) process queries for recognising agents in terminals
+//! macOS process queries for recognising agents in terminals
 //! (docs/spec/terminals.md). Each returns raw `ps` output; `crate::procs`
 //! parses it. Cheap: one `ps` per call, for exactly the given pids.
 
