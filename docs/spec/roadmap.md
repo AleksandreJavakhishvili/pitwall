@@ -11,7 +11,6 @@
 - Error boundaries, ⌘, + app menu Settings, native folder picker, new agents
   add their project, api.md refreshed, clippy clean.
 - In progress: denser tiles (density setting, per-tile font, more presets) → layout.md revision.
-- Perf note kept for wave 3: WebKit content process ~585 MB after opening Review.
 
 ## Queued UI
 - Terminals anywhere (⌘T, "Open terminal here") + agents started by hand are recognised (inside Pitwall terminals and "Elsewhere") → [terminals.md](terminals.md)
@@ -46,8 +45,20 @@ agents plug in without touching the rest. Design first, review, then build.
 - Linux port — DONE: `/proc` process facts, XDG folders, Ctrl+Shift shortcuts,
   no native menu, AppImage + .deb releases, CI on Ubuntu (see
   architecture.md §9 decision 7 and api.md `host_info`).
-- Performance pass with hard budgets → [perf.md](perf.md) (after the
-  restructure, so we optimise the final shape).
+- DONE: performance pass 1 with hard budgets → [perf.md](perf.md): idle, cold
+  start and per-agent memory within budget; 20 agents 882 → 613 MB, CPU 68 → 42 %.
+- Performance pass 2 (still over budget / unverified):
+  - ~220 MB in WebKit's GPU process as soon as any terminal is visible
+    (independent of agent count): audit compositing layers, continuous
+    animations (pulse dots, blocked glow) forcing repaints, xterm DOM/canvas
+    renderer cost, oversized canvases.
+  - Monaco's ~100 MB of code stays resident after Review closes: host Review in
+    a separate lightweight webview/window that is destroyed on close.
+  - CPU 26–42 % with 20 busy agents: profile PTY → vt100 screen feed + detection
+    per byte, output batching to the webview, React updates.
+  - Visual check that 20 agents + Wall shows no blank tiles and scrolls smoothly.
+  - Keep cold start < 1 s with the login-PATH probe (now non-blocking).
+  - Per-window cost (each window is its own WebKit process) and agw polling cost.
 - Plain SSH machines provider; drag a space tab out to create a window.
 
 ## Website — DONE
