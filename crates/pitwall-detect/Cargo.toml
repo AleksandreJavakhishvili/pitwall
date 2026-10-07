@@ -7,5 +7,10 @@ description = "Headless terminal screen + data-driven (TOML) screen status rules
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 toml = "1.1.6"
-vt100 = "0.16"
 regex = "1"
+# The terminal emulator behind `Screen` (src/screen.rs); swappable.
+alacritty_terminal = { version = "0.26", default-features = false }
+
+[dev-dependencies]
+# The previous emulator: kept for the parity test and the parser benchmark.
+vt100 = "0.16"
