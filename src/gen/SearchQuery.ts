@@ -21,4 +21,9 @@ maxResults: number | null,
  * Search hidden files (dotfiles) too (default yes); ignore files still
  * apply.
  */
-hidden: boolean | null, };
+hidden: boolean | null, 
+/**
+ * Leave out `node_modules` and `bower_components` (VS Code's default
+ * `search.exclude`; default yes). `.git` is never searched.
+ */
+defaultExcludes: boolean | null, };

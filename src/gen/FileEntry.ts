@@ -18,4 +18,9 @@ status: FileStatus | null,
 /**
  * Folders: changed paths below it (0 for files).
  */
-changes: number, };
+changes: number, 
+/**
+ * Ignored by git (`.gitignore` and the like): only listed when asked
+ * for ("Show ignored files"), shown dimmed.
+ */
+ignored: boolean, };

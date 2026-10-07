@@ -1,7 +1,7 @@
 //! The read-only code explorer (docs/spec/explorer.md): a lazy file tree of
 //! the folder an agent works in, file contents for the viewer, a quick-open
-//! index, search results and the "Open in editor" setting. Every path here
-//! is relative to that folder and uses `/`.
+//! index and search results. Every path here is relative to that folder and
+//! uses `/`.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -55,6 +55,10 @@ pub struct FileEntry {
     pub status: Option<FileStatus>,
     /// Folders: changed paths below it (0 for files).
     pub changes: u32,
+    /// Ignored by git (`.gitignore` and the like): only listed when asked
+    /// for ("Show ignored files"), shown dimmed.
+    #[serde(default)]
+    pub ignored: bool,
 }
 
 /// One folder's children (`list_files`).
@@ -88,7 +92,8 @@ pub enum ContentKind {
     Text,
     /// Not transferred.
     Binary,
-    /// Over the size cap; not transferred.
+    /// Over the size cap (2 MiB, or 10 MiB when asked for); not
+    /// transferred.
     TooLarge,
 }
 
@@ -132,6 +137,10 @@ pub struct SearchQuery {
     /// apply.
     #[serde(default)]
     pub hidden: Option<bool>,
+    /// Leave out `node_modules` and `bower_components` (VS Code's default
+    /// `search.exclude`; default yes). `.git` is never searched.
+    #[serde(default)]
+    pub default_excludes: Option<bool>,
 }
 
 /// Start and end of a highlighted part, in UTF-16 code units of
@@ -174,26 +183,4 @@ pub struct SearchResult {
     /// Stopped at the cap; there are more.
     pub truncated: bool,
     pub engine: SearchEngine,
-}
-
-/// An editor found on this computer (Settings → Editor).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct EditorChoice {
-    pub id: String,
-    pub label: String,
-    /// Its command line, with `{path}`, `{line}`, `{column}`.
-    pub command: String,
-}
-
-/// The "Open in editor" setting.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct EditorSettings {
-    /// What the user set; `None`: the first detected one.
-    pub command: Option<String>,
-    /// Editors found on the login PATH, then the system opener.
-    pub detected: Vec<EditorChoice>,
-    /// What "Open in editor" runs now.
-    pub effective: Option<String>,
 }

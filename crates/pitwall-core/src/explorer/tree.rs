@@ -35,20 +35,35 @@ fn git<'a>(dir: &'a str, args: &[&'a str]) -> Vec<&'a str> {
     [&["git", "-C", dir][..], args].concat()
 }
 
-/// Folder `rel` (resolved: `real`) of the agent's folder.
-pub(super) fn list(c: &Ctx, rel: &str, real: &str) -> Res<DirListing> {
+/// Folder `rel` (resolved: `real`) of the agent's folder; `ignored`: list
+/// what git ignores too (marked).
+pub(super) fn list(c: &Ctx, rel: &str, real: &str, ignored: bool) -> Res<DirListing> {
     if c.git_repo != Some(false) {
-        if let Some(listing) = git_list(c, rel, real) {
-            return Ok(listing);
+        match git_list(c, rel, real, ignored) {
+            Some(Listed::Git(listing)) => return Ok(listing),
+            Some(Listed::Ignored) => {
+                // An ignored folder, opened: everything in it is ignored.
+                let mut l = plain_list(&*c.exec, rel, real)?;
+                l.entries.iter_mut().for_each(|e| e.ignored = true);
+                return Ok(l);
+            }
+            None => {}
         }
     }
     plain_list(&*c.exec, rel, real)
 }
 
+enum Listed {
+    Git(DirListing),
+    /// The folder itself is ignored (asked for with `ignored`).
+    Ignored,
+}
+
 /// git's view of the folder: tracked files (with their modes), untracked
-/// ones that aren't ignored, and the changes since the agent's base, in
-/// one round trip. `None` when git can't list it (not a repository).
-fn git_list(c: &Ctx, rel: &str, real: &str) -> Option<DirListing> {
+/// ones that aren't ignored (with `ignored`: ignored ones too), and the
+/// changes since the agent's base, in one round trip. `None` when git
+/// can't list it (not a repository).
+fn git_list(c: &Ctx, rel: &str, real: &str, ignored: bool) -> Option<Listed> {
     let base = c.base.as_deref().unwrap_or("HEAD");
     let cached = git(real, &["ls-files", "-z", "--stage"]);
     let others = git(
@@ -66,7 +81,22 @@ fn git_list(c: &Ctx, rel: &str, real: &str) -> Option<DirListing> {
         real,
         &["diff", "--raw", "--numstat", "-z", "-M", "--relative", base],
     );
-    let cmds: Vec<Cmd> = [&cached, &others, &diff]
+    let ignored_cmd = git(
+        real,
+        &[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ],
+    );
+    let mut list = vec![&cached, &others, &diff];
+    if ignored {
+        list.push(&ignored_cmd);
+    }
+    let cmds: Vec<Cmd> = list
         .iter()
         .map(|a| Cmd::new(a).env(&GIT_ENV).timeout(LIST_TIMEOUT))
         .collect();
@@ -81,6 +111,14 @@ fn git_list(c: &Ctx, rel: &str, real: &str) -> Option<DirListing> {
                 .collect()
         })
         .unwrap_or_default();
+    let ignored_out = if ignored {
+        stdout(outs.next()).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    if ignored_out.split('\0').any(|p| p == "./") {
+        return Some(Listed::Ignored);
+    }
     if others.split('\0').any(|p| p == "./") {
         // The folder itself is untracked (`--directory` names only it): its
         // files one by one, in a second round trip.
@@ -91,7 +129,13 @@ fn git_list(c: &Ctx, rel: &str, real: &str) -> Option<DirListing> {
         ))
         .unwrap_or_default();
     }
-    Some(children(rel, &cached, &others, &changes))
+    Some(Listed::Git(children(
+        rel,
+        &cached,
+        &others,
+        &ignored_out,
+        &changes,
+    )))
 }
 
 #[derive(Default)]
@@ -99,14 +143,17 @@ struct Child {
     kind: Option<EntryKind>,
     status: Option<FileStatus>,
     changes: u32,
+    ignored: bool,
 }
 
 /// One folder's entries from `ls-files --stage` / `--others --directory`
-/// output and the changes (paths relative to the folder).
+/// / `--others --ignored --directory` output and the changes (paths
+/// relative to the folder).
 fn children(
     rel: &str,
     cached: &str,
     others: &str,
+    ignored: &str,
     changes: &HashMap<String, FileStatus>,
 ) -> DirListing {
     let mut kids: BTreeMap<String, Child> = BTreeMap::new();
@@ -152,6 +199,27 @@ fn children(
             kid.changes += 1;
         }
     }
+    // Ignored entries of this folder itself (deeper ones sit in folders
+    // listed already, or in an ignored folder named here).
+    for path in ignored.split('\0').filter(|r| !r.is_empty()) {
+        let whole_dir = path.ends_with('/');
+        let path = path.trim_end_matches('/');
+        if path.contains('/') || kids.contains_key(path) {
+            continue;
+        }
+        kids.insert(
+            path.to_string(),
+            Child {
+                kind: Some(if whole_dir {
+                    EntryKind::Dir
+                } else {
+                    EntryKind::File
+                }),
+                ignored: true,
+                ..Default::default()
+            },
+        );
+    }
     for (path, status) in changes {
         let (name, nested) = match path.split_once('/') {
             Some((dir, _)) => (dir, true),
@@ -177,6 +245,7 @@ fn children(
                 kind,
                 status: k.status,
                 changes,
+                ignored: k.ignored,
             })
         })
         .collect();
@@ -209,6 +278,7 @@ fn plain_list(exec: &dyn Exec, rel: &str, real: &str) -> Res<DirListing> {
             name: e.name,
             status: None,
             changes: 0,
+            ignored: false,
         })
         .collect();
     Ok(finish(rel, entries, false))
@@ -368,21 +438,24 @@ mod tests {
         .into_iter()
         .map(|(p, s)| (p.to_string(), s))
         .collect();
-        let l = children("", cached, others, &changes);
+        let ignored = "target/\0debug.log\0src/gen/\0";
+        let l = children("", cached, others, ignored, &changes);
         let got: Vec<_> = l
             .entries
             .iter()
-            .map(|e| (e.name.as_str(), e.kind, e.status, e.changes))
+            .map(|e| (e.name.as_str(), e.kind, e.status, e.changes, e.ignored))
             .collect();
         assert_eq!(
             got,
             [
-                ("newdir", EntryKind::Dir, Some(FileStatus::U), 1),
-                ("src", EntryKind::Dir, None, 2),
-                ("vendor", EntryKind::Dir, None, 0),
-                ("link", EntryKind::Symlink, None, 0),
-                ("new.txt", EntryKind::File, Some(FileStatus::U), 0),
-                ("README.md", EntryKind::File, Some(FileStatus::M), 0),
+                ("newdir", EntryKind::Dir, Some(FileStatus::U), 1, false),
+                ("src", EntryKind::Dir, None, 2, false),
+                ("target", EntryKind::Dir, None, 0, true),
+                ("vendor", EntryKind::Dir, None, 0, false),
+                ("debug.log", EntryKind::File, None, 0, true),
+                ("link", EntryKind::Symlink, None, 0, false),
+                ("new.txt", EntryKind::File, Some(FileStatus::U), 0, false),
+                ("README.md", EntryKind::File, Some(FileStatus::M), 0, false),
             ]
         );
         assert!(l.git && !l.truncated);
@@ -390,6 +463,7 @@ mod tests {
         let sub = children(
             "src",
             "100644 bb 0\ta.rs\x00160000 cc 0\tmod\0",
+            "",
             "",
             &HashMap::new(),
         );
@@ -412,6 +486,7 @@ mod tests {
             kind,
             status: None,
             changes: 0,
+            ignored: false,
         };
         let l = finish(
             "",
