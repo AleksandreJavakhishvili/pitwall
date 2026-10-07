@@ -18,9 +18,7 @@ fn builtin(kind: &str, screen: &str, title: Option<&str>) -> Detection {
         .find(|(k, _)| *k == kind)
         .unwrap_or_else(|| panic!("no built-in rules for {kind}"))
         .1;
-    RuleSet::parse(src)
-        .unwrap()
-        .evaluate(screen, title.unwrap_or(""))
+    RuleSet::parse(src).unwrap().evaluate(screen, title.unwrap_or(""))
 }
 
 fn state(kind: &str, screen: &str) -> Option<Detected> {
@@ -89,10 +87,7 @@ fn gemini_states() {
     assert_eq!(apply.detail.as_deref(), Some("Apply this change?"));
     let shell = builtin("gemini", GEMINI_SHELL, None);
     assert_eq!(shell.state, Some(Blocked));
-    assert_eq!(
-        shell.detail.as_deref(),
-        Some("Allow execution of: 'cargo'?")
-    );
+    assert_eq!(shell.detail.as_deref(), Some("Allow execution of: 'cargo'?"));
 }
 
 #[test]
@@ -251,10 +246,7 @@ fn copilot_states() {
     assert_eq!(state("copilot", COPILOT_WORKING), Some(Working));
     let blocked = builtin("copilot", COPILOT_APPROVAL, None);
     assert_eq!(blocked.state, Some(Blocked));
-    assert_eq!(
-        blocked.detail.as_deref(),
-        Some("Do you want to run this command?")
-    );
+    assert_eq!(blocked.detail.as_deref(), Some("Do you want to run this command?"));
     let bg = " > ship it\n\n ◎ Waiting for background agents · 2 running\n";
     assert_eq!(state("copilot", bg), Some(Working));
 }
@@ -307,21 +299,12 @@ fn qwen_states() {
     assert_eq!(state("qwen", QWEN_WORKING), Some(Working));
     let confirm = builtin("qwen", QWEN_CONFIRM, None);
     assert_eq!(confirm.state, Some(Blocked));
-    assert_eq!(
-        confirm.detail.as_deref(),
-        Some("Allow execution of: 'cargo'?")
-    );
+    assert_eq!(confirm.detail.as_deref(), Some("Allow execution of: 'cargo'?"));
     let trust = builtin("qwen", QWEN_TRUST, None);
     assert_eq!(trust.state, Some(Blocked));
     assert_eq!(trust.detail.as_deref(), Some("Trust this folder?"));
     // The composer stays visible while working; the cancel hint wins.
-    assert_eq!(
-        state(
-            "qwen",
-            "(5s · esc to cancel)\n>   Type your message or @path/to/file"
-        ),
-        Some(Working)
-    );
+    assert_eq!(state("qwen", "(5s · esc to cancel)\n>   Type your message or @path/to/file"), Some(Working));
 }
 
 #[test]
@@ -387,10 +370,7 @@ fn amp_titles() {
 fn aider_states() {
     let idle = "Aider v0.86.1\nMain model: anthropic/claude-sonnet-4 with diff edit format\nGit repo: .git with 42 files\n\n>";
     assert_eq!(state("aider", idle), Some(Idle));
-    assert_eq!(
-        state("aider", "src/parser.rs\nask> what does this do"),
-        Some(Idle)
-    );
+    assert_eq!(state("aider", "src/parser.rs\nask> what does this do"), Some(Idle));
     assert_eq!(state("aider", "architect multi> "), Some(Idle));
 
     let confirm = builtin(
@@ -399,29 +379,14 @@ fn aider_states() {
         None,
     );
     assert_eq!(confirm.state, Some(Blocked));
-    assert_eq!(
-        confirm.detail.as_deref(),
-        Some("Add src/parser.rs to the chat?")
-    );
+    assert_eq!(confirm.detail.as_deref(), Some("Add src/parser.rs to the chat?"));
 
-    assert_eq!(
-        state(
-            "aider",
-            "> explain\n\n░█        Waiting for anthropic/claude-sonnet-4"
-        ),
-        Some(Working)
-    );
+    assert_eq!(state("aider", "> explain\n\n░█        Waiting for anthropic/claude-sonnet-4"), Some(Working));
     // Mid-response text: no rule, status falls back to output activity.
-    assert_eq!(
-        state("aider", "> explain\n\nThe parser reads tokens and"),
-        None
-    );
+    assert_eq!(state("aider", "> explain\n\nThe parser reads tokens and"), None);
     // An answered confirmation scrolled above the prompt is history.
     assert_eq!(
-        state(
-            "aider",
-            "Run shell command? (Y)es/(N)o/(D)on't ask again [Yes]: y\nok\n>"
-        ),
+        state("aider", "Run shell command? (Y)es/(N)o/(D)on't ask again [Yes]: y\nok\n>"),
         Some(Idle)
     );
 }

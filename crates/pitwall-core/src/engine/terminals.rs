@@ -75,11 +75,7 @@ pub struct Watch {
 
 impl Default for Watch {
     fn default() -> Self {
-        Watch {
-            last_at: 0,
-            gap: MIN_GAP_MS,
-            seen_seq: u64::MAX,
-        }
+        Watch { last_at: 0, gap: MIN_GAP_MS, seen_seq: u64::MAX }
     }
 }
 
@@ -93,11 +89,7 @@ impl Watch {
         if self.last_at != 0 && since < if active { MIN_GAP_MS } else { self.gap } {
             return false;
         }
-        self.gap = if active {
-            MIN_GAP_MS
-        } else {
-            (self.gap * 2).min(MAX_GAP_MS)
-        };
+        self.gap = if active { MIN_GAP_MS } else { (self.gap * 2).min(MAX_GAP_MS) };
         self.seen_seq = seq;
         self.last_at = now;
         true
@@ -136,11 +128,7 @@ pub(crate) fn remember_session(rec: &mut AgentRecord, pid: u32, id: &str) -> boo
 /// the shell since.
 fn forget_due(a: &Agent, unix_now: u64) -> bool {
     a.shell_used
-        && a.rec
-            .inner_agent
-            .as_ref()
-            .and_then(|m| m.left_at)
-            .is_some_and(|t| unix_now.saturating_sub(t) >= FORGET_AFTER_MS)
+        && a.rec.inner_agent.as_ref().and_then(|m| m.left_at).is_some_and(|t| unix_now.saturating_sub(t) >= FORGET_AFTER_MS)
 }
 
 /// Forget everything the previous foreground program told us about status.
@@ -161,12 +149,7 @@ fn reset_signals(a: &mut Agent, now: u64) {
 /// Fold what runs in a terminal's foreground (`None` = the shell itself)
 /// into the agent. Pure bookkeeping, done under the registry lock.
 /// `now`: mono ms; `unix_now`: unix ms.
-pub fn apply(
-    a: &mut Agent,
-    seen: Option<(u32, Recognised)>,
-    now: u64,
-    unix_now: u64,
-) -> Transition {
+pub fn apply(a: &mut Agent, seen: Option<(u32, Recognised)>, now: u64, unix_now: u64) -> Transition {
     if seen.is_none() && a.inner.is_none() && forget_due(a, unix_now) {
         a.rec.inner_agent = None;
         a.facts.inner = None;
@@ -200,12 +183,7 @@ pub fn apply(
             // A conversation id from a hook that arrived first counts too,
             // and so does the one remembered for this very process (Pitwall
             // restarted while it ran).
-            let carried = a
-                .rec
-                .inner_agent
-                .as_ref()
-                .filter(|m| m.kind == r.kind && m.pid == Some(pid))
-                .and_then(|m| m.session_id.clone());
+            let carried = a.rec.inner_agent.as_ref().filter(|m| m.kind == r.kind && m.pid == Some(pid)).and_then(|m| m.session_id.clone());
             let session_id = r.session_id.or_else(|| a.hook_session.clone()).or(carried);
             a.rec.inner_agent = Some(InnerAgent {
                 kind: r.kind.clone(),
@@ -232,13 +210,7 @@ pub fn apply(
 
 /// [`apply`], then what the remembered agent's kind can do on the
 /// terminal's provider (`kinds`: the current definitions).
-pub fn observe(
-    a: &mut Agent,
-    seen: Option<(u32, Recognised)>,
-    now: u64,
-    unix_now: u64,
-    kinds: &[AgentKind],
-) -> Transition {
+pub fn observe(a: &mut Agent, seen: Option<(u32, Recognised)>, now: u64, unix_now: u64, kinds: &[AgentKind]) -> Transition {
     let t = apply(a, seen, now, unix_now);
     if t == Transition::Entered {
         let provider = a.facts.provider;
@@ -301,19 +273,12 @@ fn poll(core: &Shared, matcher: &mut Option<(u64, Matcher, Vec<AgentKind>)>) {
                 return None;
             }
             let seq = session.output_seq.load(Ordering::Relaxed);
-            a.fg.due(seq, now).then(|| Target {
-                id: a.rec.id.clone(),
-                session,
-                shell,
-            })
+            a.fg.due(seq, now).then(|| Target { id: a.rec.id.clone(), session, shell })
         })
         .collect();
     let mut changed = false;
     if !targets.is_empty() {
-        if matcher
-            .as_ref()
-            .is_none_or(|(at, _, _)| now.saturating_sub(*at) >= MATCHER_TTL_MS)
-        {
+        if matcher.as_ref().is_none_or(|(at, _, _)| now.saturating_sub(*at) >= MATCHER_TTL_MS) {
             let kinds = core.kinds().kinds();
             *matcher = Some((now, Matcher::new(&kinds), kinds));
         }
@@ -322,9 +287,7 @@ fn poll(core: &Shared, matcher: &mut Option<(u64, Matcher, Vec<AgentKind>)>) {
             let unix_now = crate::clock::unix_ms();
             let mut agents = core.agents();
             for (t, fg) in targets.iter().zip(seen) {
-                let Some(a) = agents.iter_mut().find(|a| a.rec.id == t.id) else {
-                    continue;
-                };
+                let Some(a) = agents.iter_mut().find(|a| a.rec.id == t.id) else { continue };
                 if !a.host.as_ref().is_some_and(|s| Arc::ptr_eq(s, &t.session)) {
                     continue;
                 }
@@ -352,12 +315,7 @@ fn look(targets: &[Target], m: &Matcher) -> Option<Vec<Option<(u32, Recognised)>
     pids.sort_unstable();
     pids.dedup();
     let args = procs::parse_pid_args(&platform::process_args(&pids)?);
-    Some(
-        shells
-            .iter()
-            .map(|s| procs::foreground_agent(*s, &groups, &args, m))
-            .collect(),
-    )
+    Some(shells.iter().map(|s| procs::foreground_agent(*s, &groups, &args, m)).collect())
 }
 
 fn due_lookups(core: &Engine, now: u64) -> Vec<Lookup> {
@@ -405,12 +363,8 @@ fn find_conversations(core: &Engine, lookups: Vec<Lookup>) -> bool {
     let mut changed = false;
     let mut agents = core.agents();
     for (l, session_id) in found {
-        let Some(a) = agents.iter_mut().find(|a| a.rec.id == l.id) else {
-            continue;
-        };
-        let Some(inner) = a.inner.as_mut() else {
-            continue;
-        };
+        let Some(a) = agents.iter_mut().find(|a| a.rec.id == l.id) else { continue };
+        let Some(inner) = a.inner.as_mut() else { continue };
         if inner.pid == l.pid && inner.session_id.is_none() {
             inner.session_id = Some(session_id.clone());
             remember_session(&mut a.rec, l.pid, &session_id);
@@ -430,10 +384,7 @@ impl Engine {
                 [
                     a.rec.session_id.clone(),
                     a.inner.as_ref().and_then(|i| i.session_id.clone()),
-                    a.rec
-                        .inner_agent
-                        .as_ref()
-                        .and_then(|i| i.session_id.clone()),
+                    a.rec.inner_agent.as_ref().and_then(|i| i.session_id.clone()),
                 ]
             })
             .flatten()
@@ -472,16 +423,8 @@ mod tests {
     use crate::testing::record;
 
     fn rec(kind: &str, sid: Option<&str>) -> Recognised {
-        let name = if kind == "claude" {
-            "Claude Code"
-        } else {
-            "Codex"
-        };
-        Recognised {
-            kind: kind.into(),
-            kind_name: name.into(),
-            session_id: sid.map(String::from),
-        }
+        let name = if kind == "claude" { "Claude Code" } else { "Codex" };
+        Recognised { kind: kind.into(), kind_name: name.into(), session_id: sid.map(String::from) }
     }
 
     fn terminal() -> Agent {
@@ -498,45 +441,23 @@ mod tests {
 
         // `claude` typed in the shell.
         a.screen_state = Some(pitwall_detect::Detected::Idle);
-        assert_eq!(
-            apply(&mut a, Some((42, rec("claude", None))), 20, 2_000),
-            Transition::Entered
-        );
+        assert_eq!(apply(&mut a, Some((42, rec("claude", None))), 20, 2_000), Transition::Entered);
         let v = a.view();
-        assert_eq!(
-            (v.kind.as_str(), v.kind_name.as_str(), v.terminal),
-            ("claude", "Claude Code", true)
-        );
-        assert_eq!(
-            (a.status, a.screen_state, a.detect_seq),
-            (Status::Unknown, None, u64::MAX),
-            "status starts over"
-        );
+        assert_eq!((v.kind.as_str(), v.kind_name.as_str(), v.terminal), ("claude", "Claude Code", true));
+        assert_eq!((a.status, a.screen_state, a.detect_seq), (Status::Unknown, None, u64::MAX), "status starts over");
         assert_eq!(a.inner.as_ref().unwrap().noticed_at, 2_000);
-        assert_eq!(
-            a.rec.kind, "shell",
-            "the record stays a terminal: a restart starts the shell"
-        );
+        assert_eq!(a.rec.kind, "shell", "the record stays a terminal: a restart starts the shell");
 
         // Still running: nothing changes, an id from the args fills in.
-        assert_eq!(
-            apply(&mut a, Some((42, rec("claude", Some("s1")))), 30, 3_000),
-            Transition::Learned
-        );
-        assert_eq!(
-            apply(&mut a, Some((42, rec("claude", Some("s1")))), 35, 3_500),
-            Transition::Same
-        );
+        assert_eq!(apply(&mut a, Some((42, rec("claude", Some("s1")))), 30, 3_000), Transition::Learned);
+        assert_eq!(apply(&mut a, Some((42, rec("claude", Some("s1")))), 35, 3_500), Transition::Same);
         assert_eq!(a.view().session_id.as_deref(), Some("s1"));
 
         // Exited: a shell again, same agent.
         a.hook = Some((HookState::Working, None));
         assert_eq!(apply(&mut a, None, 40, 4_000), Transition::Left);
         let v = a.view();
-        assert_eq!(
-            (v.id.as_str(), v.kind.as_str(), v.kind_name.as_str()),
-            ("t", "shell", "Shell")
-        );
+        assert_eq!((v.id.as_str(), v.kind.as_str(), v.kind_name.as_str()), ("t", "shell", "Shell"));
         assert_eq!((a.hook, a.status), (None, Status::Unknown));
         assert_eq!(v.session_id, None);
     }
@@ -549,10 +470,7 @@ mod tests {
     type Remembered = (String, Option<String>, Option<u32>, Option<u64>);
 
     fn remembered(a: &Agent) -> Option<Remembered> {
-        a.rec
-            .inner_agent
-            .as_ref()
-            .map(|m| (m.kind.clone(), m.session_id.clone(), m.pid, m.left_at))
+        a.rec.inner_agent.as_ref().map(|m| (m.kind.clone(), m.session_id.clone(), m.pid, m.left_at))
     }
 
     #[test]
@@ -562,59 +480,29 @@ mod tests {
         let kinds = kinds();
         assert_eq!((a.view().restart_as, a.caps().resume), (None, false));
 
-        assert_eq!(
-            observe(&mut a, Some((42, rec("claude", None))), 1, 1_000, &kinds),
-            Transition::Entered
-        );
-        assert_eq!(
-            remembered(&a),
-            Some(("claude".into(), None, Some(42), None))
-        );
+        assert_eq!(observe(&mut a, Some((42, rec("claude", None))), 1, 1_000, &kinds), Transition::Entered);
+        assert_eq!(remembered(&a), Some(("claude".into(), None, Some(42), None)));
         assert_eq!(a.view().restart_as.as_deref(), Some("Claude Code"));
-        assert!(
-            !a.caps().resume,
-            "no conversation known yet: a restart starts it fresh"
-        );
-        observe(
-            &mut a,
-            Some((42, rec("claude", Some("s1")))),
-            2,
-            2_000,
-            &kinds,
-        );
+        assert!(!a.caps().resume, "no conversation known yet: a restart starts it fresh");
+        observe(&mut a, Some((42, rec("claude", Some("s1")))), 2, 2_000, &kinds);
         assert_eq!(remembered(&a).unwrap().1.as_deref(), Some("s1"));
         assert!(a.caps().resume);
 
         // The agent exits: the pane is a shell, but still restarts as it.
         assert_eq!(apply(&mut a, None, 3, 10_000), Transition::Left);
         assert_eq!(a.view().kind, "shell");
-        assert_eq!(
-            remembered(&a),
-            Some(("claude".into(), Some("s1".into()), None, Some(10_000)))
-        );
+        assert_eq!(remembered(&a), Some(("claude".into(), Some("s1".into()), None, Some(10_000))));
         assert!(a.caps().resume && a.view().restart_as.is_some());
 
         // Left at the prompt for a long time: still remembered.
-        assert_eq!(
-            apply(&mut a, None, 4, 10_000 + 10 * FORGET_AFTER_MS),
-            Transition::Same
-        );
+        assert_eq!(apply(&mut a, None, 4, 10_000 + 10 * FORGET_AFTER_MS), Transition::Same);
         // The shell is used, but only just after the agent left.
         a.shell_used = true;
-        assert_eq!(
-            apply(&mut a, None, 5, 10_000 + FORGET_AFTER_MS - 1),
-            Transition::Same
-        );
+        assert_eq!(apply(&mut a, None, 5, 10_000 + FORGET_AFTER_MS - 1), Transition::Same);
         assert!(a.rec.inner_agent.is_some());
         // …and for a while: a plain shell again.
-        assert_eq!(
-            apply(&mut a, None, 6, 10_000 + FORGET_AFTER_MS),
-            Transition::Forgot
-        );
-        assert_eq!(
-            (a.rec.inner_agent.clone(), a.facts.inner, a.shell_used),
-            (None, None, false)
-        );
+        assert_eq!(apply(&mut a, None, 6, 10_000 + FORGET_AFTER_MS), Transition::Forgot);
+        assert_eq!((a.rec.inner_agent.clone(), a.facts.inner, a.shell_used), (None, None, false));
         assert_eq!((a.view().restart_as, a.caps().resume), (None, false));
     }
 
@@ -626,10 +514,7 @@ mod tests {
         observe(&mut a, Some((42, rec("claude", Some("s1")))), 1, 1, &kinds);
         apply(&mut a, None, 2, 2);
         a.shell_used = true;
-        assert_eq!(
-            observe(&mut a, Some((43, rec("codex", None))), 3, 3, &kinds),
-            Transition::Entered
-        );
+        assert_eq!(observe(&mut a, Some((43, rec("codex", None))), 3, 3, &kinds), Transition::Entered);
         assert_eq!(remembered(&a), Some(("codex".into(), None, Some(43), None)));
         assert!(!a.shell_used);
         assert_eq!(a.view().restart_as.as_deref(), Some("Codex"));
@@ -642,92 +527,56 @@ mod tests {
         // Pitwall restarts: the record comes back from disk, the poller sees
         // the agent again (its arguments don't name the conversation).
         let mut again = Agent::new(a.rec.clone(), None, 1);
-        assert_eq!(
-            apply(&mut again, Some((42, rec("claude", None))), 2, 2),
-            Transition::Entered
-        );
+        assert_eq!(apply(&mut again, Some((42, rec("claude", None))), 2, 2), Transition::Entered);
         assert_eq!(again.view().session_id.as_deref(), Some("s1"));
         // A different process of the same kind is a different conversation.
         let mut other = Agent::new(a.rec.clone(), None, 1);
         apply(&mut other, Some((50, rec("claude", None))), 2, 2);
-        assert_eq!(
-            (other.view().session_id, remembered(&other).unwrap().1),
-            (None, None)
-        );
+        assert_eq!((other.view().session_id, remembered(&other).unwrap().1), (None, None));
     }
 
     #[test]
     fn hooks_name_the_remembered_conversation() {
         let mut a = terminal();
         apply(&mut a, Some((7, rec("claude", None))), 1, 1);
-        let persist = a.apply_hook(HookEffect {
-            session_id: Some("h1".into()),
-            ..Default::default()
-        });
+        let persist = a.apply_hook(HookEffect { session_id: Some("h1".into()), ..Default::default() });
         assert!(persist, "the remembered agent is on the record");
         assert_eq!(remembered(&a).unwrap().1.as_deref(), Some("h1"));
-        assert!(!a.apply_hook(HookEffect {
-            session_id: Some("h1".into()),
-            ..Default::default()
-        }));
+        assert!(!a.apply_hook(HookEffect { session_id: Some("h1".into()), ..Default::default() }));
     }
 
     #[test]
     fn another_agent_replaces_the_first() {
         let mut a = terminal();
         apply(&mut a, Some((42, rec("claude", Some("s1")))), 1, 1);
-        assert_eq!(
-            apply(&mut a, Some((43, rec("codex", None))), 2, 2),
-            Transition::Entered
-        );
+        assert_eq!(apply(&mut a, Some((43, rec("codex", None))), 2, 2), Transition::Entered);
         let inner = a.inner.as_ref().unwrap();
-        assert_eq!(
-            (inner.kind.as_str(), inner.pid, inner.session_id.as_deref()),
-            ("codex", 43, None)
-        );
+        assert_eq!((inner.kind.as_str(), inner.pid, inner.session_id.as_deref()), ("codex", 43, None));
         // Same kind, new process (quit and started again): a new run too.
-        assert_eq!(
-            apply(&mut a, Some((44, rec("codex", None))), 3, 3),
-            Transition::Entered
-        );
+        assert_eq!(apply(&mut a, Some((44, rec("codex", None))), 3, 3), Transition::Entered);
     }
 
     #[test]
     fn hooks_in_a_terminal_name_the_inner_conversation() {
         let mut a = terminal();
-        let start = |id: &str| HookEffect {
-            session_id: Some(id.into()),
-            state: Some(HookState::Idle),
-            session_start: true,
-            ..Default::default()
-        };
+        let start = |id: &str| HookEffect { session_id: Some(id.into()), state: Some(HookState::Idle), session_start: true, ..Default::default() };
         // SessionStart can arrive before the poller sees the process.
         a.apply_hook(start("h1"));
-        assert_eq!(
-            a.rec.session_id, None,
-            "a terminal's own record has no conversation"
-        );
+        assert_eq!(a.rec.session_id, None, "a terminal's own record has no conversation");
         apply(&mut a, Some((7, rec("codex", None))), 1, 1);
         assert_eq!(a.view().session_id.as_deref(), Some("h1"));
         a.apply_hook(start("h2"));
         assert_eq!(a.inner.as_ref().unwrap().session_id.as_deref(), Some("h2"));
         apply(&mut a, None, 2, 2);
         apply(&mut a, Some((8, rec("codex", None))), 3, 3);
-        assert_eq!(
-            a.view().session_id,
-            None,
-            "an exited agent's id isn't reused"
-        );
+        assert_eq!(a.view().session_id, None, "an exited agent's id isn't reused");
     }
 
     #[test]
     fn non_terminals_keep_hook_sessions_on_the_record() {
         let mut a = Agent::new(record("c", "/w"), None, 1);
         a.rec.kind = "claude".into();
-        a.apply_hook(HookEffect {
-            session_id: Some("s".into()),
-            ..Default::default()
-        });
+        a.apply_hook(HookEffect { session_id: Some("s".into()), ..Default::default() });
         assert_eq!(a.rec.session_id.as_deref(), Some("s"));
     }
 
@@ -763,10 +612,7 @@ mod tests {
     }
 
     fn shell_request(dir: &str) -> crate::model::CreateAgentRequest {
-        serde_json::from_value(
-            serde_json::json!({ "name": "t", "kind": "shell", "projectPath": dir }),
-        )
-        .unwrap()
+        serde_json::from_value(serde_json::json!({ "name": "t", "kind": "shell", "projectPath": dir })).unwrap()
     }
 
     #[test]
@@ -777,11 +623,7 @@ mod tests {
         let v = lifecycle::create(&h.engine, shell_request(&dir)).unwrap();
         assert_eq!(h.provider.launched()[0].command_line, "$SHELL");
         let kinds = kinds();
-        h.engine
-            .with(&v.id, |a| {
-                observe(a, Some((42, rec("claude", Some("s1")))), 1, 1_000, &kinds)
-            })
-            .unwrap();
+        h.engine.with(&v.id, |a| observe(a, Some((42, rec("claude", Some("s1")))), 1, 1_000, &kinds)).unwrap();
         h.engine.with(&v.id, |a| apply(a, None, 2, 2_000)).unwrap();
         // Back at the prompt; Enter there marks the shell as in use.
         input::write_input(&h.engine, &v.id, "\r").unwrap();
@@ -789,49 +631,24 @@ mod tests {
         lifecycle::stop(&h.engine, &v.id).unwrap();
         assert!(wait_until(|| !h.engine.views()[0].running));
         let v = h.engine.views().remove(0);
-        assert_eq!(
-            (v.kind.as_str(), v.restart_as.as_deref(), v.caps.resume),
-            ("shell", Some("Claude Code"), true)
-        );
+        assert_eq!((v.kind.as_str(), v.restart_as.as_deref(), v.caps.resume), ("shell", Some("Claude Code"), true));
 
         // Restart: the shell runs `claude --resume s1` (hooks wired), then
         // itself again when Claude exits.
         let v = lifecycle::restart(&h.engine, &v.id, None).unwrap();
         let l = h.provider.launched().pop().unwrap();
         assert_eq!(l.kind, "shell");
-        assert!(
-            l.command_line
-                .starts_with("claude --resume s1 --settings '"),
-            "{}",
-            l.command_line
-        );
-        assert!(
-            l.command_line.ends_with("; exec $SHELL"),
-            "{}",
-            l.command_line
-        );
+        assert!(l.command_line.starts_with("claude --resume s1 --settings '"), "{}", l.command_line);
+        assert!(l.command_line.ends_with("; exec $SHELL"), "{}", l.command_line);
         assert!(v.running);
         let r = h.engine.records().remove(0);
         let m = r.inner_agent.unwrap();
-        assert_eq!(
-            (m.session_id.as_deref(), m.pid, m.left_at),
-            (Some("s1"), None, None)
-        );
+        assert_eq!((m.session_id.as_deref(), m.pid, m.left_at), (Some("s1"), None, None));
         assert!(!h.engine.with(&v.id, |a| a.shell_used).unwrap());
-        assert_eq!(
-            (r.kind.as_str(), r.session_id),
-            ("shell", None),
-            "still a terminal"
-        );
+        assert_eq!((r.kind.as_str(), r.session_id), ("shell", None), "still a terminal");
         // Survives a save and reload (state.json v2 with an optional field).
         h.engine.save().unwrap();
-        assert_eq!(
-            crate::store::Store::load(&*h.store).agents[0]
-                .inner_agent
-                .as_ref()
-                .and_then(|m| m.session_id.as_deref()),
-            Some("s1")
-        );
+        assert_eq!(crate::store::Store::load(&*h.store).agents[0].inner_agent.as_ref().and_then(|m| m.session_id.as_deref()), Some("s1"));
     }
 
     #[test]
@@ -841,45 +658,19 @@ mod tests {
         let dir = h.dir.path().to_string_lossy().into_owned();
         let v = lifecycle::create(&h.engine, shell_request(&dir)).unwrap();
         let kinds = kinds();
-        h.engine
-            .with(&v.id, |a| {
-                observe(a, Some((42, rec("codex", None))), 1, 1_000, &kinds)
-            })
-            .unwrap();
+        h.engine.with(&v.id, |a| observe(a, Some((42, rec("codex", None))), 1, 1_000, &kinds)).unwrap();
         let v = h.engine.views().remove(0);
-        assert_eq!(
-            (v.restart_as.as_deref(), v.caps.resume),
-            (Some("Codex"), false)
-        );
+        assert_eq!((v.restart_as.as_deref(), v.caps.resume), (Some("Codex"), false));
         lifecycle::restart(&h.engine, &v.id, None).unwrap();
-        assert_eq!(
-            h.provider.launched().pop().unwrap().command_line,
-            "codex; exec $SHELL"
-        );
+        assert_eq!(h.provider.launched().pop().unwrap().command_line, "codex; exec $SHELL");
 
         // Claude gets its conversation id up front, which is remembered.
-        h.engine
-            .with(&v.id, |a| {
-                observe(a, Some((43, rec("claude", None))), 2, 2_000, &kinds)
-            })
-            .unwrap();
-        h.provider.set_caps(ProviderCaps {
-            resume: false,
-            ..crate::testing::FakeProvider::local_like()
-        });
+        h.engine.with(&v.id, |a| observe(a, Some((43, rec("claude", None))), 2, 2_000, &kinds)).unwrap();
+        h.provider.set_caps(ProviderCaps { resume: false, ..crate::testing::FakeProvider::local_like() });
         lifecycle::restart(&h.engine, &v.id, None).unwrap();
         let line = h.provider.launched().pop().unwrap().command_line;
-        let sid = h.engine.records()[0]
-            .inner_agent
-            .as_ref()
-            .unwrap()
-            .session_id
-            .clone()
-            .unwrap();
-        assert!(
-            line.starts_with(&format!("claude --session-id {sid} ")),
-            "{line}"
-        );
+        let sid = h.engine.records()[0].inner_agent.as_ref().unwrap().session_id.clone().unwrap();
+        assert!(line.starts_with(&format!("claude --session-id {sid} ")), "{line}");
     }
 
     #[test]
@@ -888,17 +679,10 @@ mod tests {
         let h = crate::testing::Harness::new(vec![]);
         let dir = h.dir.path().to_string_lossy().into_owned();
         let v = lifecycle::create(&h.engine, shell_request(&dir)).unwrap();
-        h.provider.set_caps(ProviderCaps {
-            custom_command: false,
-            ..crate::testing::FakeProvider::local_like()
-        });
+        h.provider.set_caps(ProviderCaps { custom_command: false, ..crate::testing::FakeProvider::local_like() });
         lifecycle::restart(&h.engine, &v.id, None).unwrap(); // facts follow the new caps
         let kinds = kinds();
-        h.engine
-            .with(&v.id, |a| {
-                observe(a, Some((42, rec("claude", Some("s1")))), 1, 1_000, &kinds)
-            })
-            .unwrap();
+        h.engine.with(&v.id, |a| observe(a, Some((42, rec("claude", Some("s1")))), 1, 1_000, &kinds)).unwrap();
         let v = h.engine.views().remove(0);
         assert_eq!((v.restart_as, v.caps.resume), (None, false));
         lifecycle::restart(&h.engine, &v.id, None).unwrap();
@@ -912,11 +696,7 @@ mod tests {
             r.session_id = Some("rec-1".into());
             r
         }]);
-        h.engine
-            .with("t", |a| {
-                apply(a, Some((77, rec("claude", Some("in-1")))), 1, 1)
-            })
-            .unwrap();
+        h.engine.with("t", |a| apply(a, Some((77, rec("claude", Some("in-1")))), 1, 1)).unwrap();
         let s = h.engine.owned_sessions();
         assert!(s.contains("rec-1") && s.contains("in-1"));
         let p = h.engine.owned_pids();

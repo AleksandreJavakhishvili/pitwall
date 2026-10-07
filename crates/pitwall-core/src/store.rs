@@ -46,18 +46,14 @@ impl FileStore {
 impl Store for FileStore {
     fn load(&self) -> Snapshot {
         let path = &self.path;
-        let Ok(src) = std::fs::read_to_string(path) else {
-            return Snapshot::default();
-        };
+        let Ok(src) = std::fs::read_to_string(path) else { return Snapshot::default() };
         match serde_json::from_str::<StateFile>(&src) {
             Ok(state) => {
                 let backup = path.with_file_name("state.v1.json");
                 if state.version < STATE_VERSION && !backup.exists() {
                     let _ = std::fs::copy(path, &backup);
                 }
-                Snapshot {
-                    agents: state.agents,
-                }
+                Snapshot { agents: state.agents }
             }
             Err(err) => {
                 eprintln!("pitwall: ignoring unreadable {}: {err}", path.display());
@@ -72,10 +68,7 @@ impl Store for FileStore {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let file = StateFile {
-            version: STATE_VERSION,
-            agents: snapshot.agents.clone(),
-        };
+        let file = StateFile { version: STATE_VERSION, agents: snapshot.agents.clone() };
         let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
@@ -107,10 +100,7 @@ mod tests {
         let state: StateFile = serde_json::from_str(src).unwrap();
         let a = &state.agents[0];
         let wt = a.worktree.as_ref().unwrap();
-        assert_eq!(
-            (wt.path.as_str(), wt.branch.as_str()),
-            ("/h/.pitwall/worktrees/r/n", "pitwall/n")
-        );
+        assert_eq!((wt.path.as_str(), wt.branch.as_str()), ("/h/.pitwall/worktrees/r/n", "pitwall/n"));
         assert_eq!(a.cwd, wt.path);
         assert!(!a.worktree_pending);
     }
@@ -123,10 +113,7 @@ mod tests {
         std::fs::write(&path, v1).unwrap();
         let store = FileStore::new(&path);
         let snap = store.load();
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("state.v1.json")).unwrap(),
-            v1
-        );
+        assert_eq!(std::fs::read_to_string(dir.path().join("state.v1.json")).unwrap(), v1);
         let loc = snap.agents[0].locator();
         assert_eq!(snap.agents[0].locator, None);
         assert_eq!(loc.to_string(), "local:this-mac/a");
@@ -134,19 +121,8 @@ mod tests {
         snap.agents[0].locator = Some(loc);
         store.save(&snap).unwrap();
         let back = store.load();
-        assert_eq!(
-            back.agents[0]
-                .locator
-                .as_ref()
-                .map(|l| l.to_string())
-                .as_deref(),
-            Some("local:this-mac/a")
-        );
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join("state.v1.json")).unwrap(),
-            v1,
-            "backup kept as it was"
-        );
+        assert_eq!(back.agents[0].locator.as_ref().map(|l| l.to_string()).as_deref(), Some("local:this-mac/a"));
+        assert_eq!(std::fs::read_to_string(dir.path().join("state.v1.json")).unwrap(), v1, "backup kept as it was");
     }
 
     #[test]
@@ -160,10 +136,7 @@ mod tests {
         assert_eq!(back.agents.len(), 1);
         assert_eq!(back.agents[0].id, "a1");
 
-        let saved: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.path().join("sub").join("state.json")).unwrap(),
-        )
-        .unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("sub").join("state.json")).unwrap()).unwrap();
         assert_eq!(saved["version"], 2);
 
         std::fs::write(dir.path().join("sub").join("state.json"), "{nope").unwrap();

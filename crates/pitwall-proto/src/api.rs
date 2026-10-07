@@ -108,11 +108,7 @@ impl SessionFilter {
     pub fn apply(&self, places: Vec<ScannedPlace>) -> Vec<ScannedPlace> {
         places
             .into_iter()
-            .filter(|p| {
-                self.provider
-                    .as_ref()
-                    .is_none_or(|want| *want == p.provider)
-            })
+            .filter(|p| self.provider.as_ref().is_none_or(|want| *want == p.provider))
             .map(|mut p| {
                 if let (Some(want), Some(ms)) = (&self.machine, p.machines.as_mut()) {
                     ms.retain(|m| m.id == *want);
@@ -253,59 +249,28 @@ mod tests {
 
     #[test]
     fn params_golden_json() {
-        let add: SessionAdd =
-            serde_json::from_value(json!({"provider":"agw","machine":"vm-1","native":"work"}))
-                .unwrap();
+        let add: SessionAdd = serde_json::from_value(json!({"provider":"agw","machine":"vm-1","native":"work"})).unwrap();
         assert!(!add.start, "start defaults to off");
         assert_eq!(
             serde_json::to_value(SessionAdd { start: true, ..add }).unwrap(),
             json!({"provider":"agw","machine":"vm-1","native":"work","start":true})
         );
-        let create = AgentCreate {
-            kind: "claude".into(),
-            project: "/p".into(),
-            name: Some("api".into()),
-            ..Default::default()
-        };
+        let create = AgentCreate { kind: "claude".into(), project: "/p".into(), name: Some("api".into()), ..Default::default() };
         let wire = json!({"kind":"claude","project":"/p","name":"api"});
         assert_eq!(serde_json::to_value(&create).unwrap(), wire);
         assert_eq!(serde_json::from_value::<AgentCreate>(wire).unwrap(), create);
-        let answer: ApprovalAnswer =
-            serde_json::from_value(json!({"id":"a1","allow":true})).unwrap();
+        let answer: ApprovalAnswer = serde_json::from_value(json!({"id":"a1","allow":true})).unwrap();
         assert!(!answer.remember);
     }
 
     #[test]
     fn session_filters_narrow_by_provider_and_machine() {
-        let m = |id: &str| ScannedMachine {
-            id: id.into(),
-            label: id.into(),
-            detail: None,
-            sessions: vec![],
-        };
-        let place = |p: &str| ScannedPlace {
-            provider: p.into(),
-            label: p.into(),
-            version: None,
-            machines: Some(vec![m("a"), m("b")]),
-        };
+        let m = |id: &str| ScannedMachine { id: id.into(), label: id.into(), detail: None, sessions: vec![] };
+        let place = |p: &str| ScannedPlace { provider: p.into(), label: p.into(), version: None, machines: Some(vec![m("a"), m("b")]) };
         let all = vec![place("agw"), place("ssh")];
         assert_eq!(SessionFilter::default().apply(all.clone()), all);
-        let got = SessionFilter {
-            provider: Some("agw".into()),
-            machine: Some("b".into()),
-        }
-        .apply(all);
+        let got = SessionFilter { provider: Some("agw".into()), machine: Some("b".into()) }.apply(all);
         assert_eq!(got.len(), 1);
-        assert_eq!(
-            got[0]
-                .machines
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|m| m.id.as_str())
-                .collect::<Vec<_>>(),
-            ["b"]
-        );
+        assert_eq!(got[0].machines.as_ref().unwrap().iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["b"]);
     }
 }

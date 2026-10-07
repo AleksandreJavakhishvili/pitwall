@@ -16,11 +16,7 @@ pub fn pipe_name(path: &str) -> String {
     }
     let stem = norm.rsplit('\\').next().unwrap_or("");
     let stem = stem.strip_suffix(".sock").unwrap_or(stem);
-    let stem: String = stem
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(64)
-        .collect();
+    let stem: String = stem.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(64).collect();
     format!(r"\\.\pipe\pitwall-{h:016x}-{stem}")
 }
 
@@ -30,18 +26,9 @@ mod tests {
 
     #[test]
     fn shared_test_vectors() {
-        assert_eq!(
-            pipe_name(r"C:\Users\Dev\AppData\Roaming\Pitwall\run\pitwall.sock"),
-            r"\\.\pipe\pitwall-743ad10ab31a747c-pitwall"
-        );
-        assert_eq!(
-            pipe_name("C:/Users/Dev/AppData/Roaming/Pitwall/run/hold/a1.sock"),
-            r"\\.\pipe\pitwall-98930f412d88a184-a1"
-        );
+        assert_eq!(pipe_name(r"C:\Users\Dev\AppData\Roaming\Pitwall\run\pitwall.sock"), r"\\.\pipe\pitwall-743ad10ab31a747c-pitwall");
+        assert_eq!(pipe_name("C:/Users/Dev/AppData/Roaming/Pitwall/run/hold/a1.sock"), r"\\.\pipe\pitwall-98930f412d88a184-a1");
         // Case and separators don't matter (Windows paths are case-insensitive).
-        assert_eq!(
-            pipe_name(r"c:\users\dev\appdata\roaming\pitwall\run\hold\A1.sock"),
-            pipe_name("C:/Users/Dev/AppData/Roaming/Pitwall/run/hold/a1.sock")
-        );
+        assert_eq!(pipe_name(r"c:\users\dev\appdata\roaming\pitwall\run\hold\A1.sock"), pipe_name("C:/Users/Dev/AppData/Roaming/Pitwall/run/hold/a1.sock"));
     }
 }

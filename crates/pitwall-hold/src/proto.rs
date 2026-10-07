@@ -63,10 +63,7 @@ impl Info {
 /// A decoded holder → client frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Msg {
-    Welcome {
-        version: u16,
-        info: Option<Info>,
-    },
+    Welcome { version: u16, info: Option<Info> },
     Output(Vec<u8>),
     Replay(Vec<u8>),
     Exit(i32),
@@ -78,26 +75,15 @@ pub enum Msg {
 
 impl Msg {
     pub fn decode(ty: u8, body: Vec<u8>) -> io::Result<Msg> {
-        let short = || {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("short frame 0x{ty:02x}"),
-            )
-        };
+        let short = || io::Error::new(io::ErrorKind::InvalidData, format!("short frame 0x{ty:02x}"));
         Ok(match ty {
             WELCOME => {
-                let version =
-                    u16::from_be_bytes(body.get(0..2).ok_or_else(short)?.try_into().unwrap());
-                Msg::Welcome {
-                    version,
-                    info: Info::decode(&body[2..]),
-                }
+                let version = u16::from_be_bytes(body.get(0..2).ok_or_else(short)?.try_into().unwrap());
+                Msg::Welcome { version, info: Info::decode(&body[2..]) }
             }
             OUTPUT => Msg::Output(body),
             REPLAY => Msg::Replay(body),
-            EXIT => Msg::Exit(i32::from_be_bytes(
-                body.get(0..4).ok_or_else(short)?.try_into().unwrap(),
-            )),
+            EXIT => Msg::Exit(i32::from_be_bytes(body.get(0..4).ok_or_else(short)?.try_into().unwrap())),
             INFO => Msg::Info(Info::decode(&body).ok_or_else(short)?),
             ERROR => Msg::Error(String::from_utf8_lossy(&body).into_owned()),
             other => Msg::Unknown(other),
@@ -153,10 +139,7 @@ pub fn take_frame(buf: &mut Vec<u8>) -> io::Result<Option<(u8, Vec<u8>)>> {
     }
     let len = u32::from_be_bytes(buf[0..4].try_into().unwrap()) as usize;
     if len == 0 || len > MAX_FRAME {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("bad frame length {len}"),
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, format!("bad frame length {len}")));
     }
     if buf.len() < 4 + len {
         return Ok(None);
@@ -182,10 +165,7 @@ pub fn read_frame(r: &mut impl Read) -> io::Result<Option<(u8, Vec<u8>)>> {
     }
     let len = u32::from_be_bytes(head) as usize;
     if len == 0 || len > MAX_FRAME {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("bad frame length {len}"),
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, format!("bad frame length {len}")));
     }
     let mut rest = vec![0u8; len];
     r.read_exact(&mut rest)?;
@@ -214,14 +194,8 @@ mod tests {
         let mut r = &wire[..];
         assert_eq!(read_frame(&mut r).unwrap(), Some((HELLO, vec![0, 1])));
         assert_eq!(read_frame(&mut r).unwrap(), Some((INPUT, b"ls\r".to_vec())));
-        assert_eq!(
-            read_frame(&mut r).unwrap(),
-            Some((RESIZE, vec![0, 120, 0, 40]))
-        );
-        assert_eq!(
-            read_frame(&mut r).unwrap(),
-            Some((SHUTDOWN, 1500u32.to_be_bytes().to_vec()))
-        );
+        assert_eq!(read_frame(&mut r).unwrap(), Some((RESIZE, vec![0, 120, 0, 40])));
+        assert_eq!(read_frame(&mut r).unwrap(), Some((SHUTDOWN, 1500u32.to_be_bytes().to_vec())));
         assert_eq!(read_frame(&mut r).unwrap(), None);
 
         // Byte by byte through the incremental parser.
@@ -249,34 +223,16 @@ mod tests {
 
     #[test]
     fn welcome_and_info_decode() {
-        let info = Info {
-            holder_pid: 10,
-            child_pid: 11,
-            cols: 80,
-            rows: 24,
-            exit: None,
-        };
+        let info = Info { holder_pid: 10, child_pid: 11, cols: 80, rows: 24, exit: None };
         let (ty, body) = read_frame(&mut &welcome(&info)[..]).unwrap().unwrap();
-        assert_eq!(
-            Msg::decode(ty, body).unwrap(),
-            Msg::Welcome {
-                version: PROTOCOL_VERSION,
-                info: Some(info)
-            }
-        );
+        assert_eq!(Msg::decode(ty, body).unwrap(), Msg::Welcome { version: PROTOCOL_VERSION, info: Some(info) });
 
-        let done = Info {
-            exit: Some(137),
-            ..info
-        };
+        let done = Info { exit: Some(137), ..info };
         let mut b = Vec::new();
         done.encode(&mut b);
         b.extend_from_slice(b"future fields");
         assert_eq!(Msg::decode(INFO, b).unwrap(), Msg::Info(done));
-        assert_eq!(
-            Msg::decode(EXIT, (-1i32).to_be_bytes().to_vec()).unwrap(),
-            Msg::Exit(-1)
-        );
+        assert_eq!(Msg::decode(EXIT, (-1i32).to_be_bytes().to_vec()).unwrap(), Msg::Exit(-1));
         assert_eq!(Msg::decode(0x99, vec![]).unwrap(), Msg::Unknown(0x99));
         assert!(Msg::decode(INFO, vec![1, 2]).is_err());
     }

@@ -15,10 +15,7 @@ pub struct Providers {
 impl Providers {
     /// The first provider that can create agents is where new agents go.
     pub fn new(list: Vec<Arc<dyn Provider>>) -> Providers {
-        Providers {
-            list,
-            machines: Mutex::default(),
-        }
+        Providers { list, machines: Mutex::default() }
     }
 
     pub fn all(&self) -> &[Arc<dyn Provider>] {
@@ -46,28 +43,18 @@ impl Providers {
             .find(|p| p.caps().create)
             .cloned()
             .ok_or_else(|| PwError::unsupported("no provider can start agents"))?;
-        let m = self
-            .machines(&p)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| PwError::unreachable(format!("{} has no machines", p.id())))?;
+        let m = self.machines(&p)?.into_iter().next().ok_or_else(|| PwError::unreachable(format!("{} has no machines", p.id())))?;
         Ok((p, m))
     }
 
     /// Where to make a new agent: `machine` of `provider` (or of whichever
     /// provider has a machine by that name), else the default target.
-    pub fn target(
-        &self,
-        provider: Option<&str>,
-        machine: Option<&str>,
-    ) -> Result<(Arc<dyn Provider>, Machine)> {
+    pub fn target(&self, provider: Option<&str>, machine: Option<&str>) -> Result<(Arc<dyn Provider>, Machine)> {
         let Some(machine) = machine.map(str::trim).filter(|m| !m.is_empty()) else {
             return match provider {
                 Some(p) => {
                     let p = self.get(&ProviderId::new(p))?;
-                    let m = self.machines(&p)?.into_iter().next().ok_or_else(|| {
-                        PwError::unreachable(format!("{} has no machines", p.id()))
-                    })?;
+                    let m = self.machines(&p)?.into_iter().next().ok_or_else(|| PwError::unreachable(format!("{} has no machines", p.id())))?;
                     Ok((p, m))
                 }
                 None => self.default_target(),
@@ -79,47 +66,27 @@ impl Providers {
         };
         let mut found = Vec::new();
         for p in candidates {
-            if let Some(m) = self
-                .machines(&p)
-                .ok()
-                .and_then(|ms| ms.into_iter().find(|m| m.id.as_str() == machine))
-            {
+            if let Some(m) = self.machines(&p).ok().and_then(|ms| ms.into_iter().find(|m| m.id.as_str() == machine)) {
                 found.push((p, m));
             }
         }
         match found.len() {
-            0 => Err(PwError::not_found(format!(
-                "no machine \"{machine}\" (see `pitwall machine list`)"
-            ))),
+            0 => Err(PwError::not_found(format!("no machine \"{machine}\" (see `pitwall machine list`)"))),
             1 => Ok(found.remove(0)),
             _ => {
                 let ids: Vec<_> = found.iter().map(|(p, _)| p.id().to_string()).collect();
-                Err(PwError::new(
-                    super::ErrorCode::Conflict,
-                    format!(
-                        "\"{machine}\" is a machine of {}: name the provider",
-                        ids.join(" and ")
-                    ),
-                ))
+                Err(PwError::new(super::ErrorCode::Conflict, format!("\"{machine}\" is a machine of {}: name the provider", ids.join(" and "))))
             }
         }
     }
 
     /// A provider's machines (cached after the first successful answer).
     pub fn machines(&self, p: &Arc<dyn Provider>) -> Result<Vec<Machine>> {
-        if let Some(m) = self
-            .machines
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(p.id())
-        {
+        if let Some(m) = self.machines.lock().unwrap_or_else(|e| e.into_inner()).get(p.id()) {
             return Ok(m.clone());
         }
         let m = p.machines()?;
-        self.machines
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(p.id().clone(), m.clone());
+        self.machines.lock().unwrap_or_else(|e| e.into_inner()).insert(p.id().clone(), m.clone());
         Ok(m)
     }
 

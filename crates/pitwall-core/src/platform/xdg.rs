@@ -29,21 +29,9 @@ mod tests {
     #[test]
     fn absolute_values_win_and_others_fall_back() {
         let home = Path::new("/home/dev");
-        assert_eq!(
-            base_dir(None, home, ".local/share"),
-            PathBuf::from("/home/dev/.local/share")
-        );
-        assert_eq!(
-            base_dir(Some("".into()), home, ".config"),
-            PathBuf::from("/home/dev/.config")
-        );
-        assert_eq!(
-            base_dir(Some("rel/data".into()), home, ".local/share"),
-            PathBuf::from("/home/dev/.local/share")
-        );
-        assert_eq!(
-            base_dir(Some("/data/dev".into()), home, ".local/share"),
-            PathBuf::from("/data/dev")
-        );
+        assert_eq!(base_dir(None, home, ".local/share"), PathBuf::from("/home/dev/.local/share"));
+        assert_eq!(base_dir(Some("".into()), home, ".config"), PathBuf::from("/home/dev/.config"));
+        assert_eq!(base_dir(Some("rel/data".into()), home, ".local/share"), PathBuf::from("/home/dev/.local/share"));
+        assert_eq!(base_dir(Some("/data/dev".into()), home, ".local/share"), PathBuf::from("/data/dev"));
     }
 }

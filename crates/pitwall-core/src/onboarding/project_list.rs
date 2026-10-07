@@ -43,9 +43,7 @@ struct ProjectsFile {
 }
 
 fn load_from(path: &Path) -> ProjectsFile {
-    let Ok(src) = std::fs::read_to_string(path) else {
-        return ProjectsFile::default();
-    };
+    let Ok(src) = std::fs::read_to_string(path) else { return ProjectsFile::default() };
     serde_json::from_str(&src).unwrap_or_else(|err| {
         eprintln!("pitwall: ignoring unreadable {}: {err}", path.display());
         let _ = std::fs::copy(path, path.with_extension("json.corrupt"));
@@ -57,11 +55,7 @@ fn save_to(path: &Path, file: &ProjectsFile) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let json = serde_json::to_string_pretty(&ProjectsFile {
-        version: 1,
-        ..file.clone()
-    })
-    .map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&ProjectsFile { version: 1, ..file.clone() }).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
@@ -77,11 +71,7 @@ pub fn normalize(path: &str) -> String {
         _ => p.to_string(),
     };
     let trimmed = p.trim_end_matches('/');
-    if trimmed.is_empty() {
-        "/".into()
-    } else {
-        trimmed.to_string()
-    }
+    if trimmed.is_empty() { "/".into() } else { trimmed.to_string() }
 }
 
 pub fn view(entry: &ProjectEntry) -> Project {
@@ -110,10 +100,7 @@ fn add_at(path: &Path, folders: &[String]) -> Result<usize, String> {
         if file.projects.iter().any(|e| e.path == p) {
             continue;
         }
-        file.projects.push(ProjectEntry {
-            path: p,
-            added_at: unix_ms(),
-        });
+        file.projects.push(ProjectEntry { path: p, added_at: unix_ms() });
         added += 1;
     }
     if added > 0 {
@@ -143,17 +130,11 @@ fn set_onboarded_at(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn remember_conversation_project_at(
-    path: &Path,
-    session_id: &str,
-    project: Option<&str>,
-) -> Result<(), String> {
+fn remember_conversation_project_at(path: &Path, session_id: &str, project: Option<&str>) -> Result<(), String> {
     let mut file = load_from(path);
     let before = file.conversation_projects.get(session_id).cloned();
     match project.map(str::trim).filter(|p| !p.is_empty()) {
-        Some(p) => file
-            .conversation_projects
-            .insert(session_id.to_string(), normalize(p)),
+        Some(p) => file.conversation_projects.insert(session_id.to_string(), normalize(p)),
         None => file.conversation_projects.remove(session_id),
     };
     if file.conversation_projects.get(session_id) != before.as_ref() {
@@ -171,10 +152,7 @@ pub struct ProjectList {
 
 impl ProjectList {
     pub fn new(file: PathBuf) -> ProjectList {
-        ProjectList {
-            file,
-            lock: Mutex::new(()),
-        }
+        ProjectList { file, lock: Mutex::new(()) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -208,11 +186,7 @@ impl ProjectList {
     }
 
     /// Remember (or forget, with `None`) which project a conversation is shown under.
-    pub fn remember_conversation_project(
-        &self,
-        session_id: &str,
-        project: Option<&str>,
-    ) -> Result<(), String> {
+    pub fn remember_conversation_project(&self, session_id: &str, project: Option<&str>) -> Result<(), String> {
         let _g = self.lock();
         remember_conversation_project_at(&self.file, session_id, project)
     }
@@ -226,11 +200,7 @@ impl ProjectList {
     /// Paths currently in the list (for marking scan results as already added).
     pub fn known_paths(&self) -> Vec<String> {
         let _g = self.lock();
-        load_from(&self.file)
-            .projects
-            .into_iter()
-            .map(|e| e.path)
-            .collect()
+        load_from(&self.file).projects.into_iter().map(|e| e.path).collect()
     }
 }
 
@@ -239,8 +209,7 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("pitwall-projects-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pitwall-projects-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -267,13 +236,7 @@ mod tests {
         assert_eq!(list.len(), 2);
         let alpha = list.iter().find(|p| p.path.ends_with("alpha")).unwrap();
         assert!(alpha.is_git);
-        assert!(
-            !list
-                .iter()
-                .find(|p| p.path.ends_with("beta"))
-                .unwrap()
-                .is_git
-        );
+        assert!(!list.iter().find(|p| p.path.ends_with("beta")).unwrap().is_git);
 
         assert!(remove_at(&file, &b.to_string_lossy()).unwrap());
         assert!(!remove_at(&file, "/nope").unwrap());
@@ -319,9 +282,6 @@ mod tests {
     fn normalize_paths() {
         assert_eq!(normalize("/a/b/"), "/a/b");
         assert_eq!(normalize("/"), "/");
-        assert_eq!(
-            normalize("~/x"),
-            format!("{}/x", paths::home().to_string_lossy())
-        );
+        assert_eq!(normalize("~/x"), format!("{}/x", paths::home().to_string_lossy()));
     }
 }

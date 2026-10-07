@@ -37,10 +37,7 @@ pub fn endpoint_name(path: &Path) -> io::Result<Name<'_>> {
 
 /// Listen on the socket file (see `prepare_endpoint` / `secure_endpoint`).
 pub fn listen(path: &Path) -> io::Result<Listener> {
-    ListenerOptions::new()
-        .name(endpoint_name(path)?)
-        .reclaim_name(false)
-        .create_sync()
+    ListenerOptions::new().name(endpoint_name(path)?).reclaim_name(false).create_sync()
 }
 
 pub fn accept(listener: &Listener) -> io::Result<Stream> {
@@ -111,9 +108,7 @@ pub fn detach() -> io::Result<Role> {
     }
     if pid > 0 {
         unsafe { libc::close(fds[1]) };
-        return Ok(Role::Launcher(Box::new(unsafe {
-            File::from_raw_fd(fds[0])
-        })));
+        return Ok(Role::Launcher(Box::new(unsafe { File::from_raw_fd(fds[0]) })));
     }
     unsafe {
         libc::close(fds[0]);
@@ -160,12 +155,7 @@ struct Control {
 
 impl PtyControl {
     pub fn resize(&self, cols: u16, rows: u16) {
-        let ws = libc::winsize {
-            ws_row: rows,
-            ws_col: cols,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
+        let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
         unsafe { libc::ioctl(self.inner.master.as_raw_fd(), libc::TIOCSWINSZ, &ws) };
     }
 
@@ -218,14 +208,7 @@ struct Exec {
 
 /// In the forked child: only async-signal-safe calls from here on.
 unsafe fn exec_child(e: &Exec, argv: &[*const libc::c_char]) -> ! {
-    for sig in [
-        libc::SIGPIPE,
-        libc::SIGHUP,
-        libc::SIGINT,
-        libc::SIGQUIT,
-        libc::SIGTERM,
-        libc::SIGCHLD,
-    ] {
+    for sig in [libc::SIGPIPE, libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM, libc::SIGCHLD] {
         libc::signal(sig, libc::SIG_DFL);
     }
     let mut empty: libc::sigset_t = std::mem::zeroed();
@@ -246,44 +229,22 @@ unsafe fn exec_child(e: &Exec, argv: &[*const libc::c_char]) -> ! {
 
 /// Start the program in a new PTY. Call before any thread exists.
 pub fn spawn_pty(spec: &PtySpec) -> io::Result<Pty> {
-    let c = |s: &[u8]| {
-        CString::new(s).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in argument"))
-    };
+    let c = |s: &[u8]| CString::new(s).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in argument"));
     let program = c(spec.program.as_bytes())?;
     let mut args = vec![program.clone()];
     for a in &spec.args {
         args.push(c(a.as_bytes())?);
     }
-    let cwd = spec
-        .cwd
-        .as_ref()
-        .map(|p| c(p.as_os_str().as_bytes()))
-        .transpose()?;
-    let exec = Exec {
-        program,
-        argv: args,
-        cwd,
-    };
+    let cwd = spec.cwd.as_ref().map(|p| c(p.as_os_str().as_bytes())).transpose()?;
+    let exec = Exec { program, argv: args, cwd };
     let mut argv: Vec<*const libc::c_char> = exec.argv.iter().map(|a| a.as_ptr()).collect();
     argv.push(std::ptr::null());
 
-    let mut ws = libc::winsize {
-        ws_row: spec.rows,
-        ws_col: spec.cols,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
+    let mut ws = libc::winsize { ws_row: spec.rows, ws_col: spec.cols, ws_xpixel: 0, ws_ypixel: 0 };
     let mut master: libc::c_int = -1;
     // A raw pointer: macOS's libc takes `*mut winsize`, Linux's `*const`.
     let ws_ptr = std::ptr::addr_of_mut!(ws);
-    let pid = unsafe {
-        libc::forkpty(
-            &mut master,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            ws_ptr,
-        )
-    };
+    let pid = unsafe { libc::forkpty(&mut master, std::ptr::null_mut(), std::ptr::null_mut(), ws_ptr) };
     if pid < 0 {
         return Err(errno());
     }
@@ -298,13 +259,7 @@ pub fn spawn_pty(spec: &PtySpec) -> io::Result<Pty> {
         pid: pid as u32,
         reader: Box::new(reader),
         writer: Box::new(writer),
-        control: PtyControl {
-            inner: Arc::new(Control {
-                master: control,
-                pid,
-                reaped: AtomicBool::new(false),
-            }),
-        },
+        control: PtyControl { inner: Arc::new(Control { master: control, pid, reaped: AtomicBool::new(false) }) },
     })
 }
 

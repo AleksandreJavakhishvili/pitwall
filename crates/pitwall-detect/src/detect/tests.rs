@@ -39,9 +39,7 @@ fn fixture(name: &str) -> (String, Option<String>) {
 /// Detect using the built-in rules only (never the developer's overrides).
 fn builtin(kind: &str, screen: &str, title: Option<&str>) -> Detection {
     let src = BUILTIN.iter().find(|(k, _)| *k == kind).unwrap().1;
-    RuleSet::parse(src)
-        .unwrap()
-        .evaluate(screen, title.unwrap_or(""))
+    RuleSet::parse(src).unwrap().evaluate(screen, title.unwrap_or(""))
 }
 
 fn check(kind: &str, name: &str, want: Option<Detected>) -> Detection {
@@ -110,11 +108,7 @@ fn claude_working_with_default_footer() {
 fn claude_blocked_permission() {
     for name in ["claude_blocked_bash", "claude_blocked_bash_moved"] {
         let d = check("claude", name, Some(Blocked));
-        assert_eq!(
-            d.detail.as_deref(),
-            Some("Do you want to proceed?"),
-            "{name}"
-        );
+        assert_eq!(d.detail.as_deref(), Some("Do you want to proceed?"), "{name}");
         check_screen_only("claude", name, Some(Blocked));
     }
 }
@@ -148,10 +142,7 @@ fn claude_permission_dialog_beats_idle_title() {
     // The title stays "✳" (idle) while a permission dialog is open.
     let (screen, title) = fixture("claude_blocked_bash");
     assert!(title.as_deref().unwrap().starts_with('✳'));
-    assert_eq!(
-        builtin("claude", &screen, title.as_deref()).state,
-        Some(Blocked)
-    );
+    assert_eq!(builtin("claude", &screen, title.as_deref()).state, Some(Blocked));
 }
 
 // Negative cases: text the user typed or the agent printed must not
@@ -269,29 +260,16 @@ fn codex_typed_blocker_phrase_is_not_blocked() {
         "› Reply with just the word hi, nothing else.",
         "› press enter to confirm or esc to cancel [y/n] allow command?",
     );
-    assert_eq!(
-        builtin("codex", &screen, title.as_deref()).state,
-        Some(Idle)
-    );
+    assert_eq!(builtin("codex", &screen, title.as_deref()).state, Some(Idle));
     assert_eq!(builtin("codex", &screen, None).state, Some(Idle));
 }
 
 #[test]
 fn codex_titles() {
-    assert_eq!(
-        builtin("codex", "", Some("⠙ ⠙ | proj")).state,
-        Some(Working)
-    );
-    let d = builtin(
-        "codex",
-        "",
-        Some("[ ! ] Action Required | Create marker file | proj"),
-    );
+    assert_eq!(builtin("codex", "", Some("⠙ ⠙ | proj")).state, Some(Working));
+    let d = builtin("codex", "", Some("[ ! ] Action Required | Create marker file | proj"));
     assert_eq!(d.state, Some(Blocked));
-    assert_eq!(
-        builtin("codex", "", Some("Reply with hi | proj")).state,
-        Some(Idle)
-    );
+    assert_eq!(builtin("codex", "", Some("Reply with hi | proj")).state, Some(Idle));
 }
 
 // --- Engine ----------------------------------------------------------------
@@ -366,10 +344,7 @@ fn combinators() {
     // Outside the region (3rd line from bottom) does not count.
     assert_eq!(set.evaluate("❯ 1. yes\nfooter\nmore", "").state, None);
     // Trailing blank lines are ignored by regions.
-    assert_eq!(
-        set.evaluate("❯ 1. yes\nfooter\n\n   \n", "").state,
-        Some(Blocked)
-    );
+    assert_eq!(set.evaluate("❯ 1. yes\nfooter\n\n   \n", "").state, Some(Blocked));
 }
 
 #[test]
@@ -454,10 +429,7 @@ fn regions() {
     assert_eq!(Region::PromptBoxBody.select(s, ""), "box ❯\n");
     assert_eq!(Region::AbovePromptBox.select(s, ""), "a\n\nb\n");
     assert_eq!(Region::LastNonEmptyAbovePromptBox.select(s, ""), "b\n");
-    assert_eq!(
-        Region::BottomNonEmptyLines(2).select(s, ""),
-        "──────\nfooter"
-    );
+    assert_eq!(Region::BottomNonEmptyLines(2).select(s, ""), "──────\nfooter");
     assert_eq!(Region::TopNonEmptyLines(2).select(s, ""), "a\n\nb");
     assert_eq!(Region::BottomLines(1).select(s, ""), "footer");
     assert_eq!(Region::Title.select(s, "t"), "t");
@@ -467,18 +439,12 @@ fn regions() {
 
     let c = "› old\n• answer\n› now typing\n  footer";
     assert_eq!(Region::CurrentPromptLine.select(c, ""), "› now typing");
-    assert_eq!(
-        Region::BeforeCurrentPromptMarker.select(c, ""),
-        "› old\n• answer\n"
-    );
+    assert_eq!(Region::BeforeCurrentPromptMarker.select(c, ""), "› old\n• answer\n");
     assert_eq!(Region::AfterLastPromptMarker.select(c, ""), "  footer");
     assert_eq!(Region::WholeWithoutCurrentPromptMarker.select(c, ""), "");
     let stale = "› old\n• answer";
     assert_eq!(Region::CurrentPromptLine.select(stale, ""), "");
-    assert_eq!(
-        Region::WholeWithoutCurrentPromptMarker.select(stale, ""),
-        stale
-    );
+    assert_eq!(Region::WholeWithoutCurrentPromptMarker.select(stale, ""), stale);
 }
 
 #[test]
@@ -494,13 +460,7 @@ fn screen_to_detect_end_to_end() {
     assert_eq!(builtin("claude", &screen.text(), None).state, Some(Working));
 
     screen.feed("\x1b]0;✳ Claude Code\x07".as_bytes());
-    screen.feed(
-        "\x1b[2;1H\x1b[2K✻ Baked for 3s\x1b[7;1H\x1b[2K  ⏸ manual mode on · ? for shortcuts"
-            .as_bytes(),
-    );
+    screen.feed("\x1b[2;1H\x1b[2K✻ Baked for 3s\x1b[7;1H\x1b[2K  ⏸ manual mode on · ? for shortcuts".as_bytes());
     let title = screen.title();
-    assert_eq!(
-        builtin("claude", &screen.text(), title.as_deref()).state,
-        Some(Idle)
-    );
+    assert_eq!(builtin("claude", &screen.text(), title.as_deref()).state, Some(Idle));
 }

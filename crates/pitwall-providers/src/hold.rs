@@ -56,17 +56,10 @@ pub fn spawn(spec: Spawn) -> Result<HoldTerm> {
         ("PITWALL_SOCKET", spec.hook_socket.as_os_str()),
         ("PITWALL_CLI_SOCKET", spec.cli_socket.as_os_str()),
     ];
-    let program = Program {
-        program: &program,
-        args: &args,
-        cwd: Some(Path::new(spec.cwd)),
-        env: &env,
-    };
-    run(spec.holder, spec.socket, spec.size, program)
-        .map_err(|e| PwError::other(format!("could not start agent: {e}")))?;
+    let program = Program { program: &program, args: &args, cwd: Some(Path::new(spec.cwd)), env: &env };
+    run(spec.holder, spec.socket, spec.size, program).map_err(|e| PwError::other(format!("could not start agent: {e}")))?;
     // Even if it already exited: its output and exit still come through.
-    HoldTerm::connect(spec.socket, true)
-        .map_err(|e| PwError::other(format!("could not connect to the agent's terminal: {e}")))
+    HoldTerm::connect(spec.socket, true).map_err(|e| PwError::other(format!("could not connect to the agent's terminal: {e}")))
 }
 
 /// A program to run in a holder, as it is (no shell around it).
@@ -151,10 +144,7 @@ impl HoldTerm {
         let mut conn = client::connect(socket, CONNECT_TIMEOUT)?;
         let info = conn.info;
         if let (Some(code), false) = (info.exit, allow_exited) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("the agent already exited ({code})"),
-            ));
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("the agent already exited ({code})")));
         }
         // History first (output from before we connected), then live output.
         // STATUS is answered after every REPLAY frame, so INFO marks where
@@ -182,25 +172,16 @@ impl HoldTerm {
         Self::start(conn, history, early, end, exited, info)
     }
 
-    fn start(
-        conn: Conn,
-        history: Vec<u8>,
-        early: Vec<u8>,
-        end: Arc<End>,
-        exited: bool,
-        info: pitwall_hold::Info,
-    ) -> io::Result<HoldTerm> {
+    fn start(conn: Conn, history: Vec<u8>, early: Vec<u8>, end: Arc<End>, exited: bool, info: pitwall_hold::Info) -> io::Result<HoldTerm> {
         let (reader, mut writer) = conn.split();
         let (tx, rx) = mpsc::channel::<Vec<u8>>();
-        std::thread::Builder::new()
-            .name("hold-in".into())
-            .spawn(move || {
-                for frame in rx {
-                    if writer.write_all(&frame).is_err() {
-                        break;
-                    }
+        std::thread::Builder::new().name("hold-in".into()).spawn(move || {
+            for frame in rx {
+                if writer.write_all(&frame).is_err() {
+                    break;
                 }
-            })?;
+            }
+        })?;
         Ok(HoldTerm {
             tx: Mutex::new(tx),
             history,
@@ -215,9 +196,7 @@ impl HoldTerm {
     }
 
     fn send(&self, frame: Vec<u8>) -> Result<()> {
-        lock(&self.tx)
-            .send(frame)
-            .map_err(|_| PwError::not_running())
+        lock(&self.tx).send(frame).map_err(|_| PwError::not_running())
     }
 }
 
@@ -262,9 +241,7 @@ struct HoldWriter(Sender<Vec<u8>>);
 
 impl Write for HoldWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0
-            .send(proto::input(buf))
-            .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
+        self.0.send(proto::input(buf)).map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
         Ok(buf.len())
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -278,11 +255,7 @@ impl TermIo for HoldTerm {
     }
 
     fn take_reader(&mut self) -> Box<dyn Read + Send> {
-        Box::new(HoldReader {
-            pending: std::mem::take(&mut self.early),
-            stream: self.reader.take(),
-            end: self.end.clone(),
-        })
+        Box::new(HoldReader { pending: std::mem::take(&mut self.early), stream: self.reader.take(), end: self.end.clone() })
     }
 
     fn take_writer(&mut self) -> Box<dyn Write + Send> {
@@ -294,9 +267,7 @@ impl TermIo for HoldTerm {
     }
 
     fn try_wait(&self) -> Result<Option<ExitInfo>> {
-        Ok(self.end.ended().then(|| ExitInfo {
-            code: *lock(&self.end.code),
-        }))
+        Ok(self.end.ended().then(|| ExitInfo { code: *lock(&self.end.code) }))
     }
 
     /// Hang up, let the holder force the process after `grace`, and wait for
@@ -305,9 +276,7 @@ impl TermIo for HoldTerm {
         if self.end.ended() {
             return;
         }
-        let _ = self.send(proto::shutdown(
-            grace.as_millis().min(u32::MAX as u128) as u32
-        ));
+        let _ = self.send(proto::shutdown(grace.as_millis().min(u32::MAX as u128) as u32));
         let deadline = Instant::now() + grace + Duration::from_secs(2);
         while Instant::now() < deadline {
             if self.end.ended() {
@@ -348,10 +317,7 @@ pub fn shutdown(socket: &Path, grace: Duration) -> Result<()> {
         Err(e)
             if matches!(
                 e.kind(),
-                io::ErrorKind::NotFound
-                    | io::ErrorKind::UnexpectedEof
-                    | io::ErrorKind::ConnectionReset
-                    | io::ErrorKind::BrokenPipe
+                io::ErrorKind::NotFound | io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe
             ) =>
         {
             return Ok(())
@@ -362,20 +328,14 @@ pub fn shutdown(socket: &Path, grace: Duration) -> Result<()> {
         return Ok(());
     }
     conn.send(&proto::attach(false))?;
-    conn.send(&proto::shutdown(
-        grace.as_millis().min(u32::MAX as u128) as u32
-    ))?;
+    conn.send(&proto::shutdown(grace.as_millis().min(u32::MAX as u128) as u32))?;
     let deadline = Instant::now() + grace + Duration::from_secs(2);
     conn.set_recv_timeout(Some(Duration::from_millis(200)))?;
     while Instant::now() < deadline {
         match conn.recv() {
             Ok(Some(Msg::Exit(_))) | Ok(None) => return Ok(()),
             Ok(_) => {}
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
             Err(_) => return Ok(()),
         }
     }
@@ -400,10 +360,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pw-hold-none-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let socket = client::socket_path(&dir, "never-started");
-        assert_eq!(
-            HoldTerm::connect(&socket, false).err().map(|e| e.kind()),
-            Some(io::ErrorKind::NotFound)
-        );
+        assert_eq!(HoldTerm::connect(&socket, false).err().map(|e| e.kind()), Some(io::ErrorKind::NotFound));
         assert!(shutdown(&socket, Duration::from_millis(100)).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }

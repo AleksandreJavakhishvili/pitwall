@@ -90,10 +90,7 @@ mod tests {
     #[test]
     fn reads_this_machines_processes() {
         // A harmless process of our own; killed by its exact pid below.
-        let mut child = std::process::Command::new("/bin/sleep")
-            .arg("30")
-            .spawn()
-            .expect("spawn sleep");
+        let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().expect("spawn sleep");
         let pid = child.id();
         let me = std::process::id();
         let args = parse_pid_args(&process_args(&[pid, me]).unwrap());

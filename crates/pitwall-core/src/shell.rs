@@ -48,11 +48,7 @@ pub enum Flavor {
 impl Flavor {
     /// From the shell program's file name.
     pub fn of(program: &str) -> Flavor {
-        let name = program
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(program)
-            .to_ascii_lowercase();
+        let name = program.rsplit(['/', '\\']).next().unwrap_or(program).to_ascii_lowercase();
         match name.strip_suffix(".exe").unwrap_or(&name) {
             "pwsh" | "powershell" => Flavor::PowerShell,
             "cmd" => Flavor::Cmd,
@@ -71,10 +67,7 @@ pub struct LoginShell {
 impl LoginShell {
     pub fn new(program: impl Into<String>) -> LoginShell {
         let program = program.into();
-        LoginShell {
-            flavor: Flavor::of(&program),
-            program,
-        }
+        LoginShell { flavor: Flavor::of(&program), program }
     }
 
     /// `$PITWALL_SHELL`, else the platform's default.
@@ -90,22 +83,14 @@ impl LoginShell {
         match self.flavor {
             Flavor::Posix => posix_quote(arg),
             Flavor::PowerShell => {
-                if !arg.is_empty()
-                    && arg
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || "-_./=:+\\".contains(c))
-                {
+                if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:+\\".contains(c)) {
                     arg.to_string()
                 } else {
                     format!("'{}'", arg.replace('\'', "''"))
                 }
             }
             Flavor::Cmd => {
-                if !arg.is_empty()
-                    && arg
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || "-_./=:+\\".contains(c))
-                {
+                if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:+\\".contains(c)) {
                     arg.to_string()
                 } else {
                     format!("\"{}\"", arg.replace('"', "\"\""))
@@ -138,24 +123,12 @@ impl LoginShell {
             Flavor::PowerShell => {
                 let line = self.expand_self(line);
                 // A first word in quotes is a string, not a command, without `&`.
-                let call = if line.starts_with(['\'', '"']) {
-                    format!("& {line}")
-                } else {
-                    line
-                };
+                let call = if line.starts_with(['\'', '"']) { format!("& {line}") } else { line };
                 let args = ["-NoLogo", "-Command", &format!("{PS_FRESH_PATH}; {call}")];
                 (self.program.clone(), args.map(String::from).to_vec())
             }
             Flavor::Cmd if line == "$SHELL" => (self.program.clone(), vec!["/D".into()]),
-            Flavor::Cmd => (
-                self.program.clone(),
-                vec![
-                    "/D".into(),
-                    "/S".into(),
-                    "/C".into(),
-                    format!("\"{}\"", self.expand_self(line)),
-                ],
-            ),
+            Flavor::Cmd => (self.program.clone(), vec!["/D".into(), "/S".into(), "/C".into(), format!("\"{}\"", self.expand_self(line))]),
         }
     }
 
@@ -163,18 +136,8 @@ impl LoginShell {
     pub fn run(&self, script: &str) -> (String, Vec<String>) {
         let args: Vec<String> = match self.flavor {
             Flavor::Posix => vec!["-l".into(), "-i".into(), "-c".into(), script.into()],
-            Flavor::PowerShell => vec![
-                "-NoLogo".into(),
-                "-NonInteractive".into(),
-                "-Command".into(),
-                format!("{PS_FRESH_PATH}; {script}"),
-            ],
-            Flavor::Cmd => vec![
-                "/D".into(),
-                "/S".into(),
-                "/C".into(),
-                format!("\"{script}\""),
-            ],
+            Flavor::PowerShell => vec!["-NoLogo".into(), "-NonInteractive".into(), "-Command".into(), format!("{PS_FRESH_PATH}; {script}")],
+            Flavor::Cmd => vec!["/D".into(), "/S".into(), "/C".into(), format!("\"{script}\"")],
         };
         (self.program.clone(), args)
     }
@@ -289,10 +252,7 @@ fn probed_login_path() -> Option<String> {
         platform::system_path().or_else(|| {
             let current = std::env::var("PATH").ok();
             let login = probe_path(&LoginShell::current(), PATH_PROBE_TIMEOUT)?;
-            Some(merge_paths(vec![
-                split(&login),
-                current.as_deref().map(split).unwrap_or_default(),
-            ]))
+            Some(merge_paths(vec![split(&login), current.as_deref().map(split).unwrap_or_default()]))
         })
     })
     .clone()
@@ -317,25 +277,14 @@ pub fn adopt_login_path(cache: Option<PathBuf>) -> Option<std::thread::JoinHandl
         return None;
     }
     let current = std::env::var("PATH").ok();
-    let cached = cache
-        .as_deref()
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .filter(|p| !p.trim().is_empty());
-    set_spawn_path(fallback_path(
-        cached.as_deref().map(str::trim),
-        current.as_deref(),
-        &platform::home_dir(),
-    ));
+    let cached = cache.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).filter(|p| !p.trim().is_empty());
+    set_spawn_path(fallback_path(cached.as_deref().map(str::trim), current.as_deref(), &platform::home_dir()));
     std::thread::Builder::new()
         .name("login-path".into())
         .spawn(move || {
-            let Some(path) = probed_login_path() else {
-                return;
-            };
+            let Some(path) = probed_login_path() else { return };
             set_spawn_path(path.clone());
-            if let Some(file) =
-                cache.filter(|_| cached.as_deref().map(str::trim) != Some(path.as_str()))
-            {
+            if let Some(file) = cache.filter(|_| cached.as_deref().map(str::trim) != Some(path.as_str())) {
                 if let Some(dir) = file.parent() {
                     let _ = std::fs::create_dir_all(dir);
                 }
@@ -348,26 +297,14 @@ pub fn adopt_login_path(cache: Option<PathBuf>) -> Option<std::thread::JoinHandl
 /// PATH without asking the shell: `cached` (the last login PATH), then
 /// `current`, then those of [`platform::common_bin_dirs`] that exist.
 pub fn fallback_path(cached: Option<&str>, current: Option<&str>, home: &Path) -> String {
-    let common: Vec<PathBuf> = platform::common_bin_dirs(home)
-        .into_iter()
-        .filter(|d| d.is_dir())
-        .collect();
-    merge_paths(vec![
-        cached.map(split).unwrap_or_default(),
-        current.map(split).unwrap_or_default(),
-        common,
-    ])
+    let common: Vec<PathBuf> = platform::common_bin_dirs(home).into_iter().filter(|d| d.is_dir()).collect();
+    merge_paths(vec![cached.map(split).unwrap_or_default(), current.map(split).unwrap_or_default(), common])
 }
 
 /// The login shell's PATH (`shell` asked to print it, within `timeout`), with
 /// the dirs of `current` it lacks after it; [`fallback_path`] when the shell
 /// can't be asked (missing, failing, hanging, printing nothing).
-pub fn resolve_path(
-    shell: &LoginShell,
-    current: Option<&str>,
-    home: &Path,
-    timeout: Duration,
-) -> String {
+pub fn resolve_path(shell: &LoginShell, current: Option<&str>, home: &Path, timeout: Duration) -> String {
     match probe_path(shell, timeout) {
         Some(login) => merge_paths(vec![split(&login), current.map(split).unwrap_or_default()]),
         None => fallback_path(None, current, home),
@@ -381,9 +318,7 @@ pub fn probe_path(shell: &LoginShell, timeout: Duration) -> Option<String> {
     let mut argv = vec![program.as_str()];
     argv.extend(args.iter().map(String::as_str));
     let own = std::env::var("PATH").unwrap_or_default();
-    let out = LocalExec
-        .run(&Cmd::new(&argv).env(&[("PATH", &own)]).timeout(timeout))
-        .ok()?;
+    let out = LocalExec.run(&Cmd::new(&argv).env(&[("PATH", &own)]).timeout(timeout)).ok()?;
     out.stdout_text()
         .lines()
         .rev()
@@ -404,9 +339,7 @@ fn merge_paths(parts: Vec<Vec<PathBuf>>) -> String {
             seen.push(dir);
         }
     }
-    std::env::join_paths(seen)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    std::env::join_paths(seen).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 fn posix_quote(arg: &str) -> String {
@@ -455,14 +388,8 @@ mod tests {
     fn flavors_from_program_names() {
         assert_eq!(Flavor::of("/bin/zsh"), Flavor::Posix);
         assert_eq!(Flavor::of("bash"), Flavor::Posix);
-        assert_eq!(
-            Flavor::of(r"C:\Program Files\PowerShell\7\pwsh.exe"),
-            Flavor::PowerShell
-        );
-        assert_eq!(
-            Flavor::of(r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE"),
-            Flavor::PowerShell
-        );
+        assert_eq!(Flavor::of(r"C:\Program Files\PowerShell\7\pwsh.exe"), Flavor::PowerShell);
+        assert_eq!(Flavor::of(r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE"), Flavor::PowerShell);
         assert_eq!(Flavor::of("cmd.exe"), Flavor::Cmd);
     }
 
@@ -471,18 +398,7 @@ mod tests {
         let sh = LoginShell::new("/bin/zsh");
         assert_eq!(sh.quote("abc"), "abc");
         assert_eq!(sh.quote("it's"), r"'it'\''s'");
-        assert_eq!(
-            sh.launch("claude --resume x"),
-            (
-                "/bin/zsh".into(),
-                vec![
-                    "-l".into(),
-                    "-i".into(),
-                    "-c".into(),
-                    "exec claude --resume x".into()
-                ]
-            )
-        );
+        assert_eq!(sh.launch("claude --resume x"), ("/bin/zsh".into(), vec!["-l".into(), "-i".into(), "-c".into(), "exec claude --resume x".into()]));
         assert_eq!(sh.then("claude", "$SHELL"), "claude; exec $SHELL");
         assert!(sh.passes_json());
     }
@@ -499,31 +415,17 @@ mod tests {
         let (prog, args) = ps.launch("claude --resume abc");
         assert_eq!(prog, r"C:\Program Files\PowerShell\7\pwsh.exe");
         assert_eq!(&args[..2], ["-NoLogo", "-Command"]);
-        assert!(
-            args[2].starts_with("$env:Path = ") && args[2].ends_with("; claude --resume abc"),
-            "{}",
-            args[2]
-        );
+        assert!(args[2].starts_with("$env:Path = ") && args[2].ends_with("; claude --resume abc"), "{}", args[2]);
         // A quoted program needs the call operator.
         let (_, args) = ps.launch("'C:\\a b\\tool.exe' --x");
-        assert!(
-            args[2].ends_with("; & 'C:\\a b\\tool.exe' --x"),
-            "{}",
-            args[2]
-        );
+        assert!(args[2].ends_with("; & 'C:\\a b\\tool.exe' --x"), "{}", args[2]);
         // The shell kind: the interactive shell itself, no nesting.
         let (_, args) = ps.launch("$SHELL");
         assert_eq!(&args[..3], ["-NoLogo", "-NoExit", "-Command"]);
         // A terminal resuming its agent, then a shell again.
         let line = ps.then("claude --resume abc", "$SHELL");
         let (_, args) = ps.launch(&line);
-        assert!(
-            args[2].ends_with(
-                "; claude --resume abc; & 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' -NoLogo"
-            ),
-            "{}",
-            args[2]
-        );
+        assert!(args[2].ends_with("; claude --resume abc; & 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' -NoLogo"), "{}", args[2]);
         assert!(!ps.passes_json());
         assert!(ps.print_path("MARK").contains("'MARK' + $env:Path"));
     }
@@ -531,10 +433,7 @@ mod tests {
     #[test]
     fn paths_merge_in_order_without_repeats_or_empties() {
         let p = |s: &str| PathBuf::from(s);
-        let merged = merge_paths(vec![
-            vec![p("/a"), p(""), p("/b")],
-            vec![p("/b"), p("/c"), p("/a")],
-        ]);
+        let merged = merge_paths(vec![vec![p("/a"), p(""), p("/b")], vec![p("/b"), p("/c"), p("/a")]]);
         assert_eq!(split(&merged), vec![p("/a"), p("/b"), p("/c")]);
     }
 
@@ -542,37 +441,21 @@ mod tests {
     fn a_shell_that_cannot_run_falls_back_to_current_and_existing_common_dirs() {
         let home = crate::testing::TempDir::new("login-path-home");
         let common = platform::common_bin_dirs(home.path());
-        let mine: Vec<&PathBuf> = common
-            .iter()
-            .filter(|d| d.starts_with(home.path()))
-            .collect();
+        let mine: Vec<&PathBuf> = common.iter().filter(|d| d.starts_with(home.path())).collect();
         std::fs::create_dir_all(mine[0]).unwrap();
         let sh = LoginShell::new("/no/such/shell-for-pitwall");
         let path = resolve_path(&sh, Some("/usr/bin"), home.path(), Duration::from_secs(5));
         let dirs = split(&path);
         assert_eq!(dirs[0], PathBuf::from("/usr/bin"), "{path}");
         assert!(dirs.contains(mine[0]), "{path}");
-        assert!(
-            mine[1..].iter().all(|d| !dirs.contains(d)),
-            "missing dirs are left out: {path}"
-        );
+        assert!(mine[1..].iter().all(|d| !dirs.contains(d)), "missing dirs are left out: {path}");
         // The last login PATH first, when there is one.
-        let quick = split(&fallback_path(
-            Some("/cached/bin"),
-            Some("/usr/bin"),
-            home.path(),
-        ));
-        assert_eq!(
-            &quick[..2],
-            [PathBuf::from("/cached/bin"), PathBuf::from("/usr/bin")]
-        );
+        let quick = split(&fallback_path(Some("/cached/bin"), Some("/usr/bin"), home.path()));
+        assert_eq!(&quick[..2], [PathBuf::from("/cached/bin"), PathBuf::from("/usr/bin")]);
     }
 
     #[test]
     fn shell_variable_is_replaced_as_a_word_only() {
-        assert_eq!(
-            replace_word("$SHELL; $SHELLX $SHELL", "$SHELL", "sh"),
-            "sh; $SHELLX sh"
-        );
+        assert_eq!(replace_word("$SHELL; $SHELLX $SHELL", "$SHELL", "sh"), "sh; $SHELLX sh");
     }
 }

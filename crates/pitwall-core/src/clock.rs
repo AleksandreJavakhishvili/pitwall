@@ -17,9 +17,7 @@ pub struct SystemClock {
 
 impl SystemClock {
     pub fn new() -> SystemClock {
-        SystemClock {
-            start: Instant::now(),
-        }
+        SystemClock { start: Instant::now() }
     }
 }
 

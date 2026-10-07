@@ -20,15 +20,11 @@ pub struct RecentProject {
 /// `pitwall`: to leave out worktrees that old Pitwall versions made.
 pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
     let root = paths::home().join(".claude").join("projects");
-    let Ok(dirs) = std::fs::read_dir(root) else {
-        return vec![];
-    };
+    let Ok(dirs) = std::fs::read_dir(root) else { return vec![] };
 
     let mut found: Vec<RecentProject> = Vec::new();
     for dir in dirs.flatten() {
-        let Ok(files) = std::fs::read_dir(dir.path()) else {
-            continue;
-        };
+        let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
         let newest = files
             .flatten()
             .filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("jsonl"))
@@ -37,13 +33,9 @@ pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
                 Some((modified, f.path()))
             })
             .max_by_key(|(m, _)| *m);
-        let Some((modified, file)) = newest else {
-            continue;
-        };
+        let Some((modified, file)) = newest else { continue };
         // The directory name encodes the path lossily; the transcript has the real cwd.
-        let Some(cwd) = transcript_cwd(&file) else {
-            continue;
-        };
+        let Some(cwd) = transcript_cwd(&file) else { continue };
         if !std::path::Path::new(&cwd).is_dir() || found.iter().any(|p| p.path == cwd) {
             continue;
         }
@@ -58,10 +50,7 @@ pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
     }
     found.sort_by(|a, b| b.last_used.cmp(&a.last_used));
     // Worktrees older Pitwall versions made show up here too; they aren't projects.
-    let worktrees = pitwall
-        .legacy_worktrees_dir()
-        .to_string_lossy()
-        .into_owned();
+    let worktrees = pitwall.legacy_worktrees_dir().to_string_lossy().into_owned();
     found.retain(|p| !p.path.starts_with(&worktrees));
     found.truncate(limit);
     found
@@ -70,9 +59,7 @@ pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
 fn transcript_cwd(file: &std::path::Path) -> Option<String> {
     let reader = BufReader::new(std::fs::File::open(file).ok()?);
     for line in reader.lines().take(50).map_while(Result::ok) {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
-        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
         if let Some(cwd) = value.get("cwd").and_then(|c| c.as_str()) {
             return Some(cwd.to_string());
         }

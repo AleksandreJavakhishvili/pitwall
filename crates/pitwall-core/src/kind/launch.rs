@@ -114,9 +114,7 @@ mod tests {
         let p = plan(&claude(), None, false, "sh '/h'", None);
         let id = p.session_id.clone().unwrap();
         assert!(!p.resumed);
-        assert!(p
-            .command_line
-            .starts_with(&format!("claude --session-id {id} --settings '")));
+        assert!(p.command_line.starts_with(&format!("claude --session-id {id} --settings '")));
         assert!(p.command_line.contains(r#""command":"sh '\''/h'\''""#));
     }
 
@@ -130,9 +128,7 @@ mod tests {
     fn claude_resume() {
         let p = plan(&claude(), Some("abc"), true, "x", None);
         assert!(p.resumed);
-        assert!(p
-            .command_line
-            .starts_with("claude --resume abc --settings "));
+        assert!(p.command_line.starts_with("claude --resume abc --settings "));
     }
 
     #[test]
@@ -148,19 +144,11 @@ mod tests {
     fn worktree_flag_only_on_fresh_starts() {
         let p = plan(&claude(), None, false, "x", Some("fix-login"));
         let id = p.session_id.clone().unwrap();
-        assert!(p.command_line.starts_with(&format!(
-            "claude --session-id {id} --worktree fix-login --settings "
-        )));
+        assert!(p.command_line.starts_with(&format!("claude --session-id {id} --worktree fix-login --settings ")));
         let p = plan(&claude(), Some("abc"), true, "x", Some("fix-login"));
         assert!(!p.command_line.contains("--worktree"));
-        assert_eq!(
-            plan(&codex(), None, false, "x", Some("n")).command_line,
-            "codex --worktree"
-        );
-        assert_eq!(
-            plan(&codex(), Some("s"), true, "x", Some("n")).command_line,
-            "codex resume s"
-        );
+        assert_eq!(plan(&codex(), None, false, "x", Some("n")).command_line, "codex --worktree");
+        assert_eq!(plan(&codex(), Some("s"), true, "x", Some("n")).command_line, "codex resume s");
     }
 
     #[test]
@@ -170,10 +158,7 @@ mod tests {
         assert!(p.resumed && p.session_id.as_deref() == Some("abc"));
         assert_eq!((k.id.as_str(), k.hooks), ("shell", HookMode::None));
         let line = plan(&k, None, false, "x", None).command_line;
-        assert!(
-            line.starts_with("claude --resume abc --settings '"),
-            "{line}"
-        );
+        assert!(line.starts_with("claude --resume abc --settings '"), "{line}");
         assert!(line.ends_with("; exec $SHELL"), "{line}");
         // Nothing to resume (or not allowed): the agent starts fresh, with
         // the id it is given up front.
@@ -182,29 +167,14 @@ mod tests {
         assert!(!p.resumed && id != "abc");
         assert_eq!(k.command, format!("claude --session-id {id}; exec $SHELL"));
         let (k, p) = then_shell(&shell, &codex(), None, true, "x");
-        assert_eq!(
-            (k.command.as_str(), p.session_id),
-            ("codex; exec $SHELL", None)
-        );
+        assert_eq!((k.command.as_str(), p.session_id), ("codex; exec $SHELL", None));
     }
 
     #[test]
     fn custom_command_is_kept_as_written() {
-        let p = plan(
-            &crate::kind::custom_kind("npx foo --bar"),
-            None,
-            false,
-            "x",
-            None,
-        );
+        let p = plan(&crate::kind::custom_kind("npx foo --bar"), None, false, "x", None);
         assert_eq!(p.command_line, "npx foo --bar");
-        let p = plan(
-            &kind(include_str!("../../agents/shell.toml")),
-            None,
-            true,
-            "x",
-            None,
-        );
+        let p = plan(&kind(include_str!("../../agents/shell.toml")), None, true, "x", None);
         assert_eq!(p.command_line, "$SHELL");
     }
 }

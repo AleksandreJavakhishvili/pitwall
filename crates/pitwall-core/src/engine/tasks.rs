@@ -43,21 +43,9 @@ pub struct Task {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Job {
-    Start {
-        agent: String,
-        task: String,
-        cwd: String,
-    },
-    End {
-        agent: String,
-        task: String,
-        cwd: String,
-    },
-    Drop {
-        agent: String,
-        task: String,
-        cwd: String,
-    },
+    Start { agent: String, task: String, cwd: String },
+    End { agent: String, task: String, cwd: String },
+    Drop { agent: String, task: String, cwd: String },
 }
 
 // ------------------------------------------------------------------ bookkeeping
@@ -67,10 +55,7 @@ fn open_task(rec: &mut AgentRecord) -> Option<&mut Task> {
 }
 
 pub fn current_task_id(rec: &AgentRecord) -> Option<String> {
-    rec.tasks
-        .last()
-        .filter(|t| t.ended_at.is_none())
-        .map(|t| t.id.clone())
+    rec.tasks.last().filter(|t| t.ended_at.is_none()).map(|t| t.id.clone())
 }
 
 /// A prompt went to the agent. `explicit` = sent by Pitwall or reported by a
@@ -97,11 +82,7 @@ fn begin_at(rec: &mut AgentRecord, prompt: Option<&str>, explicit: bool, now: u6
             return jobs;
         }
         open.ended_at = Some(now);
-        jobs.push(Job::End {
-            agent: agent.clone(),
-            task: open.id.clone(),
-            cwd: cwd.clone(),
-        });
+        jobs.push(Job::End { agent: agent.clone(), task: open.id.clone(), cwd: cwd.clone() });
     }
     let id = uuid::Uuid::new_v4().to_string();
     rec.tasks.push(Task {
@@ -112,18 +93,10 @@ fn begin_at(rec: &mut AgentRecord, prompt: Option<&str>, explicit: bool, now: u6
         start_tree: None,
         end_tree: None,
     });
-    jobs.push(Job::Start {
-        agent: agent.clone(),
-        task: id,
-        cwd: cwd.clone(),
-    });
+    jobs.push(Job::Start { agent: agent.clone(), task: id, cwd: cwd.clone() });
     while rec.tasks.len() > MAX_TASKS {
         let old = rec.tasks.remove(0);
-        jobs.push(Job::Drop {
-            agent: agent.clone(),
-            task: old.id,
-            cwd: cwd.clone(),
-        });
+        jobs.push(Job::Drop { agent: agent.clone(), task: old.id, cwd: cwd.clone() });
     }
     jobs
 }
@@ -134,11 +107,7 @@ pub fn end(a: &mut Agent) -> Vec<Job> {
     match open_task(&mut a.rec) {
         Some(t) => {
             t.ended_at = Some(unix_ms());
-            vec![Job::End {
-                agent,
-                task: t.id.clone(),
-                cwd,
-            }]
+            vec![Job::End { agent, task: t.id.clone(), cwd }]
         }
         None => vec![],
     }
@@ -253,11 +222,7 @@ fn process(core: &Shared, job: Job) {
 /// Agent removed: delete all its snapshot refs (best effort; call before its
 /// worktree goes away). `exec`: the agent's machine.
 pub fn forget(exec: &dyn Exec, rec: &AgentRecord) {
-    let dirs = [
-        Some(rec.cwd.as_str()),
-        rec.worktree.as_ref().map(|w| w.repo.as_str()),
-        Some(rec.project.as_str()),
-    ];
+    let dirs = [Some(rec.cwd.as_str()), rec.worktree.as_ref().map(|w| w.repo.as_str()), Some(rec.project.as_str())];
     for dir in dirs.into_iter().flatten() {
         if exec::is_dir(exec, dir) && drop_refs(&Git::new(exec, dir), &rec.id, None).is_ok() {
             return;
@@ -302,10 +267,7 @@ mod tests {
         let mut drops = 0;
         for i in 0..(MAX_TASKS as u64 + 3) {
             let jobs = begin_at(&mut r, Some("p"), true, i * 10_000);
-            drops += jobs
-                .iter()
-                .filter(|j| matches!(j, Job::Drop { .. }))
-                .count();
+            drops += jobs.iter().filter(|j| matches!(j, Job::Drop { .. })).count();
         }
         assert_eq!(r.tasks.len(), MAX_TASKS);
         assert_eq!(drops, 3);

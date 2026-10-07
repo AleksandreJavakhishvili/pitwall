@@ -58,12 +58,7 @@ pub fn connect(path: &Path, timeout: Duration) -> io::Result<Conn> {
     let (version, info) = match Msg::decode(ty, body)? {
         Msg::Welcome { version, info } => (version, info),
         Msg::Error(e) => return Err(io::Error::other(format!("holder: {e}"))),
-        other => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected WELCOME, got {other:?}"),
-            ))
-        }
+        other => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("expected WELCOME, got {other:?}"))),
     };
     if version != PROTOCOL_VERSION {
         return Err(io::Error::new(
@@ -71,15 +66,10 @@ pub fn connect(path: &Path, timeout: Duration) -> io::Result<Conn> {
             format!("holder speaks protocol {version}, this client {PROTOCOL_VERSION}"),
         ));
     }
-    let info =
-        info.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "WELCOME without info"))?;
+    let info = info.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "WELCOME without info"))?;
     stream.set_recv_timeout(None)?;
     stream.set_send_timeout(None)?;
-    Ok(Conn {
-        stream,
-        version,
-        info,
-    })
+    Ok(Conn { stream, version, info })
 }
 
 impl Conn {
@@ -143,9 +133,7 @@ pub fn command(bin: &Path, l: &Launch) -> Command {
         cmd.arg("--grace-ms").arg(g.as_millis().to_string());
     }
     cmd.arg("--").arg(l.program).args(l.args);
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     platform::hide_console(&mut cmd);
     cmd
 }
@@ -155,20 +143,12 @@ pub fn launch(cmd: &mut Command) -> io::Result<(u32, u32)> {
     let out = cmd.output()?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     if out.status.success() {
-        let mut it = stdout
-            .trim()
-            .strip_prefix("ready ")
-            .unwrap_or("")
-            .split_whitespace();
+        let mut it = stdout.trim().strip_prefix("ready ").unwrap_or("").split_whitespace();
         if let (Some(Ok(h)), Some(Ok(c))) = (it.next().map(str::parse), it.next().map(str::parse)) {
             return Ok((h, c));
         }
     }
     let err = String::from_utf8_lossy(&out.stderr);
     let msg = err.trim().trim_start_matches("pitwall-hold: ");
-    Err(io::Error::other(if msg.is_empty() {
-        format!("holder failed to start ({})", out.status)
-    } else {
-        msg.to_string()
-    }))
+    Err(io::Error::other(if msg.is_empty() { format!("holder failed to start ({})", out.status) } else { msg.to_string() }))
 }

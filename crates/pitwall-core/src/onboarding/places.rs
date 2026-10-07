@@ -16,34 +16,15 @@ pub use pitwall_proto::{ScannedMachine, ScannedPlace, ScannedSession};
 /// Every adopting provider's machines and sessions. `owned`: the locators
 /// of Pitwall's agents. Providers and machines are asked in parallel.
 /// Blocking.
-pub fn places(
-    providers: &Providers,
-    catalog: &KindCatalog,
-    owned: &HashSet<Locator>,
-) -> Vec<ScannedPlace> {
-    let adopting: Vec<_> = providers
-        .all()
-        .iter()
-        .filter(|p| p.caps().attach_existing)
-        .cloned()
-        .collect();
+pub fn places(providers: &Providers, catalog: &KindCatalog, owned: &HashSet<Locator>) -> Vec<ScannedPlace> {
+    let adopting: Vec<_> = providers.all().iter().filter(|p| p.caps().attach_existing).cloned().collect();
     std::thread::scope(|s| {
-        let tasks: Vec<_> = adopting
-            .iter()
-            .map(|p| s.spawn(move || place(&**p, catalog, owned)))
-            .collect();
-        tasks
-            .into_iter()
-            .filter_map(|t| t.join().ok().flatten())
-            .collect()
+        let tasks: Vec<_> = adopting.iter().map(|p| s.spawn(move || place(&**p, catalog, owned))).collect();
+        tasks.into_iter().filter_map(|t| t.join().ok().flatten()).collect()
     })
 }
 
-fn place(
-    p: &dyn Provider,
-    catalog: &KindCatalog,
-    owned: &HashSet<Locator>,
-) -> Option<ScannedPlace> {
+fn place(p: &dyn Provider, catalog: &KindCatalog, owned: &HashSet<Locator>) -> Option<ScannedPlace> {
     let (version, machines) = std::thread::scope(|s| {
         let version = s.spawn(|| p.version());
         let machines = p.machines();
@@ -57,49 +38,23 @@ fn place(
             None
         }
         Ok(list) => std::thread::scope(|s| {
-            let found: Vec<_> = list
-                .iter()
-                .map(|m| s.spawn(move || p.discover(&m.id)))
-                .collect();
+            let found: Vec<_> = list.iter().map(|m| s.spawn(move || p.discover(&m.id))).collect();
             list.iter()
                 .zip(found)
                 .map(|(m, f)| {
-                    let found = f
-                        .join()
-                        .ok()
-                        .and_then(|r| r.map_err(|e| eprintln!("pitwall: {}: {e}", m.label)).ok());
-                    let mut sessions: Vec<_> = found
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|d| session(p, d, catalog, owned))
-                        .collect();
-                    sessions.sort_by(|a, b| {
-                        (a.status != "running", &a.name).cmp(&(b.status != "running", &b.name))
-                    });
-                    Some(ScannedMachine {
-                        id: m.id.to_string(),
-                        label: m.label.clone(),
-                        detail: m.detail.clone(),
-                        sessions,
-                    })
+                    let found = f.join().ok().and_then(|r| r.map_err(|e| eprintln!("pitwall: {}: {e}", m.label)).ok());
+                    let mut sessions: Vec<_> =
+                        found.unwrap_or_default().into_iter().map(|d| session(p, d, catalog, owned)).collect();
+                    sessions.sort_by(|a, b| (a.status != "running", &a.name).cmp(&(b.status != "running", &b.name)));
+                    Some(ScannedMachine { id: m.id.to_string(), label: m.label.clone(), detail: m.detail.clone(), sessions })
                 })
                 .collect()
         }),
     };
-    Some(ScannedPlace {
-        provider: p.id().to_string(),
-        label: p.label(),
-        version,
-        machines,
-    })
+    Some(ScannedPlace { provider: p.id().to_string(), label: p.label(), version, machines })
 }
 
-fn session(
-    p: &dyn Provider,
-    d: Discovered,
-    catalog: &KindCatalog,
-    owned: &HashSet<Locator>,
-) -> ScannedSession {
+fn session(p: &dyn Provider, d: Discovered, catalog: &KindCatalog, owned: &HashSet<Locator>) -> ScannedSession {
     let (kind, kind_name) = match catalog.resolve(&d.kind) {
         Some(k) => (k.id, k.name),
         None => (d.kind.clone(), d.kind.clone()),
@@ -142,35 +97,15 @@ mod tests {
         fake.add_session("work", "claude-code", "/srv/work");
         assert!(places(&providers, &catalog, &HashSet::new()).is_empty());
 
-        fake.set_caps(ProviderCaps {
-            attach_existing: true,
-            ..Default::default()
-        });
+        fake.set_caps(ProviderCaps { attach_existing: true, ..Default::default() });
         fake.add_session("zed", "grok", "/srv/z").exit(0);
         let mine = Locator::new(fake.id(), fake.machine_id(), "work");
         let got = places(&providers, &catalog, &[mine].into_iter().collect());
         assert_eq!(got.len(), 1);
         let m = &got[0].machines.as_ref().unwrap()[0];
         assert_eq!((got[0].label.as_str(), m.id.as_str()), ("vmhost", "box"));
-        let names: Vec<_> = m
-            .sessions
-            .iter()
-            .map(|s| {
-                (
-                    s.native.as_str(),
-                    s.kind.as_str(),
-                    s.status.as_str(),
-                    s.in_pitwall,
-                )
-            })
-            .collect();
-        assert_eq!(
-            names,
-            [
-                ("work", "claude", "running", true),
-                ("zed", "grok", "stopped", false)
-            ]
-        );
+        let names: Vec<_> = m.sessions.iter().map(|s| (s.native.as_str(), s.kind.as_str(), s.status.as_str(), s.in_pitwall)).collect();
+        assert_eq!(names, [("work", "claude", "running", true), ("zed", "grok", "stopped", false)]);
         assert_eq!(m.sessions[0].kind_name, "Claude Code");
         assert_eq!(m.sessions[0].program, "claude-code");
     }
@@ -185,12 +120,7 @@ mod tests {
         let dir = TempDir::new("adopt");
         let local = FakeProvider::named("local", "this-mac", Arc::new(LocalExec));
         let vm = FakeProvider::named("vmhost", "box", Arc::new(LocalExec));
-        vm.set_caps(ProviderCaps {
-            start: true,
-            attach_existing: true,
-            survives_detach: true,
-            ..Default::default()
-        });
+        vm.set_caps(ProviderCaps { start: true, attach_existing: true, survives_detach: true, ..Default::default() });
         vm.set_remote(true);
         let ctl = vm.add_session("work", "claude-code", "/srv/work");
         vm.add_session("idle", "grok", "/srv/idle").exit(0);
@@ -209,59 +139,27 @@ mod tests {
             rows: Some(30),
         };
         let v = lifecycle::adopt(&engine, req("work")).unwrap();
-        assert_eq!(
-            (v.name.as_str(), v.kind.as_str(), v.cwd.as_str()),
-            ("work", "claude", "/srv/work")
-        );
-        assert!(
-            v.running
-                && v.caps.input
-                && v.caps.stop
-                && v.caps.restart
-                && v.caps.remove_keeps_session
-        );
+        assert_eq!((v.name.as_str(), v.kind.as_str(), v.cwd.as_str()), ("work", "claude", "/srv/work"));
+        assert!(v.running && v.caps.input && v.caps.stop && v.caps.restart && v.caps.remove_keeps_session);
         assert!(!v.caps.diff && !v.caps.hooks && !v.caps.resume && !v.machine.can_create);
-        assert_eq!(
-            (v.machine.provider.as_str(), v.machine.label.as_str()),
-            ("vmhost", "Fake box")
-        );
+        assert_eq!((v.machine.provider.as_str(), v.machine.label.as_str()), ("vmhost", "Fake box"));
         // Input goes through the attached stream.
         crate::engine::input::write_input(&engine, &v.id, "hi\r").unwrap();
         assert_eq!(ctl.input(), b"hi\r");
-        assert_eq!(
-            lifecycle::adopt(&engine, req("work")).unwrap().id,
-            v.id,
-            "adopting twice is one agent"
-        );
+        assert_eq!(lifecycle::adopt(&engine, req("work")).unwrap().id, v.id, "adopting twice is one agent");
         let idle = lifecycle::adopt(&engine, req("idle")).unwrap();
-        assert_eq!(
-            (idle.status, idle.running, idle.kind.as_str()),
-            (Status::Stopped, false, "shell")
-        );
+        assert_eq!((idle.status, idle.running, idle.kind.as_str()), (Status::Stopped, false, "shell"));
         assert!(lifecycle::adopt(&engine, req("nope")).is_err());
         assert!(vm.launched().is_empty(), "nothing was started");
         // The scan now marks it as in Pitwall.
         let owned = engine.records().iter().map(|r| r.locator()).collect();
         let got = places(engine.providers(), engine.kinds(), &owned);
-        assert!(got[0].machines.as_ref().unwrap()[0]
-            .sessions
-            .iter()
-            .all(|s| s.in_pitwall));
+        assert!(got[0].machines.as_ref().unwrap()[0].sessions.iter().all(|s| s.in_pitwall));
         lifecycle::remove(&engine, &v.id, false).unwrap();
-        assert!(
-            ctl.running(),
-            "removing an adopted session leaves it running"
-        );
+        assert!(ctl.running(), "removing an adopted session leaves it running");
         // A provider that can't adopt is refused.
         local.add_session("x", "shell", "/");
-        let e = lifecycle::adopt(
-            &engine,
-            AdoptSessionRequest {
-                provider: "local".into(),
-                machine: "this-mac".into(),
-                ..req("x")
-            },
-        );
+        let e = lifecycle::adopt(&engine, AdoptSessionRequest { provider: "local".into(), machine: "this-mac".into(), ..req("x") });
         assert!(e.unwrap_err().contains("can't be added"));
     }
 }

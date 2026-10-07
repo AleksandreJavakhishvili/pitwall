@@ -27,8 +27,7 @@ use crate::error::ErrorCode;
 use crate::exec::{self, Cmd};
 use crate::kind::{AgentKind, KindCatalog};
 use crate::provider::{
-    CreateSpec, LaunchIntent, LaunchSpec, Locator, MachineId, NativeState, Provider, Started,
-    TermSize,
+    CreateSpec, LaunchIntent, LaunchSpec, Locator, MachineId, NativeState, Provider, Started, TermSize,
 };
 use crate::term::TermHost;
 
@@ -65,10 +64,7 @@ pub fn shell_kind() -> AgentKind {
         name: "Contract shell".into(),
         command: "/bin/sh".into(),
         new_args: vec!["-i".into()],
-        resume_args: vec![
-            "-c".into(),
-            "echo resumed:{session_id}; exec /bin/sh -i".into(),
-        ],
+        resume_args: vec!["-c".into(), "echo resumed:{session_id}; exec /bin/sh -i".into()],
         assign_session_id: false,
         hooks: crate::kind::HookMode::None,
         rulesync_target: None,
@@ -94,10 +90,7 @@ fn wait_for(h: &TermHost, needle: &str, patience: Duration, what: &str) -> Strin
         std::thread::sleep(Duration::from_millis(20));
     }
     let t = text(h);
-    assert!(
-        t.contains(needle),
-        "contract: {what}: no {needle:?} in output:\n{t}"
-    );
+    assert!(t.contains(needle), "contract: {what}: no {needle:?} in output:\n{t}");
     t
 }
 
@@ -112,13 +105,8 @@ fn wait_until(patience: Duration, what: &str, f: impl Fn() -> bool) {
 fn unsupported<T>(r: crate::error::Result<T>, what: &str) {
     match r {
         Err(e) if e.is(ErrorCode::Unsupported) => {}
-        Err(e) => panic!(
-            "contract: {what} is not a capability, so it must answer Unsupported, got {:?}: {e}",
-            e.code
-        ),
-        Ok(_) => panic!(
-            "contract: {what} is not a capability, so it must answer Unsupported, but it worked"
-        ),
+        Err(e) => panic!("contract: {what} is not a capability, so it must answer Unsupported, got {:?}: {e}", e.code),
+        Ok(_) => panic!("contract: {what} is not a capability, so it must answer Unsupported, but it worked"),
     }
 }
 
@@ -126,29 +114,13 @@ fn unsupported<T>(r: crate::error::Result<T>, what: &str) {
 fn host_of(p: &dyn Provider, started: Started, size: TermSize) -> Arc<TermHost> {
     let io = match started.term {
         Some(t) => t,
-        None => p
-            .attach(&started.locator, size)
-            .expect("contract: attach after start"),
+        None => p.attach(&started.locator, size).expect("contract: attach after start"),
     };
     TermHost::new(io, size, clock())
 }
 
-fn launch<'a>(
-    agent: &'a str,
-    kind: &'a AgentKind,
-    cwd: &'a str,
-    intent: LaunchIntent,
-    size: TermSize,
-) -> LaunchSpec<'a> {
-    LaunchSpec {
-        agent,
-        kind,
-        cwd,
-        intent,
-        worktree: None,
-        size,
-        hooks: None,
-    }
+fn launch<'a>(agent: &'a str, kind: &'a AgentKind, cwd: &'a str, intent: LaunchIntent, size: TermSize) -> LaunchSpec<'a> {
+    LaunchSpec { agent, kind, cwd, intent, worktree: None, size, hooks: None }
 }
 
 /// Run the whole contract against `h`'s provider. Panics on the first
@@ -166,43 +138,24 @@ pub fn run(h: &dyn ContractHarness) {
 
     // Machines, kinds, discover.
     let machines = p.machines().expect("contract: machines");
-    assert!(
-        machines.iter().any(|x| x.id == m),
-        "contract: machines() lists the harness machine"
-    );
-    let catalog = KindCatalog::new(std::path::PathBuf::from(
-        "/nonexistent/pitwall-contract-agents",
-    ));
+    assert!(machines.iter().any(|x| x.id == m), "contract: machines() lists the harness machine");
+    let catalog = KindCatalog::new(std::path::PathBuf::from("/nonexistent/pitwall-contract-agents"));
     let kinds = p.kinds(&m, &catalog).expect("contract: kinds");
-    assert!(
-        !kinds.is_empty(),
-        "contract: kinds() lists the catalog's kinds"
-    );
+    assert!(!kinds.is_empty(), "contract: kinds() lists the catalog's kinds");
     let before = p.discover(&m).expect("contract: discover");
-    assert_eq!(
-        before,
-        p.discover(&m).expect("contract: discover again"),
-        "contract: discover is read-only"
-    );
+    assert_eq!(before, p.discover(&m).expect("contract: discover again"), "contract: discover is read-only");
 
     // Create, or adopt the harness's session.
     let size = TermSize::new(100, 30);
     let options = h.create_options();
     let form = p.create_form(&m).expect("contract: create_form");
     if caps.create {
-        assert_eq!(
-            form.folder, !caps.platform_create,
-            "contract: caps.platform_create says whether the form has a folder"
-        );
+        assert_eq!(form.folder, !caps.platform_create, "contract: caps.platform_create says whether the form has a folder");
     }
     if form.folder {
-        assert!(
-            options.is_empty(),
-            "contract: a folder form takes no options"
-        );
+        assert!(options.is_empty(), "contract: a folder form takes no options");
     } else {
-        form.values(&options)
-            .expect("contract: the harness's options fit the provider's form");
+        form.values(&options).expect("contract: the harness's options fit the provider's form");
     }
     let spec = CreateSpec {
         machine: &m,
@@ -220,45 +173,19 @@ pub fn run(h: &dyn ContractHarness) {
         if !caps.attach_existing {
             return;
         }
-        let loc = h
-            .existing()
-            .expect("contract: a provider that adopts sessions needs ContractHarness::existing");
-        let listed = before
-            .iter()
-            .find(|d| d.locator == loc)
-            .expect("contract: discover lists the existing session");
-        assert_eq!(
-            listed.state,
-            Some(NativeState::Running),
-            "contract: discover says it runs"
-        );
-        (
-            loc.clone(),
-            TermHost::new(
-                p.attach(&loc, size)
-                    .expect("contract: attach to an existing session"),
-                size,
-                clock(),
-            ),
-        )
+        let loc = h.existing().expect("contract: a provider that adopts sessions needs ContractHarness::existing");
+        let listed = before.iter().find(|d| d.locator == loc).expect("contract: discover lists the existing session");
+        assert_eq!(listed.state, Some(NativeState::Running), "contract: discover says it runs");
+        (loc.clone(), TermHost::new(p.attach(&loc, size).expect("contract: attach to an existing session"), size, clock()))
     };
-    assert_eq!(
-        loc.provider,
-        *p.id(),
-        "contract: the locator names its provider"
-    );
+    assert_eq!(loc.provider, *p.id(), "contract: the locator names its provider");
     assert_eq!(loc.machine, m, "contract: the locator names its machine");
-    assert_eq!(
-        p.state(&loc).expect("contract: state"),
-        NativeState::Running,
-        "contract: created → Running"
-    );
+    assert_eq!(p.state(&loc).expect("contract: state"), NativeState::Running, "contract: created → Running");
 
     // Input echoes; output arrives. The output differs from the typed line
     // (`$((1+1))`), because a shell may print its prompt after the echoed
     // typeahead and before the output (dash, as root: "# pw-2-…").
-    host.write(format!("echo pw-$((1+1))-{tag}\r").as_bytes())
-        .expect("contract: write");
+    host.write(format!("echo pw-$((1+1))-{tag}\r").as_bytes()).expect("contract: write");
     wait_for(&host, &format!("pw-2-{tag}"), patience, "echo output");
 
     // Resize reaches the process.
@@ -275,10 +202,7 @@ pub fn run(h: &dyn ContractHarness) {
         true
     }));
     let replay = String::from_utf8_lossy(&got.lock().unwrap()).into_owned();
-    assert!(
-        replay.contains(&format!("pw-2-{tag}")),
-        "contract: a new subscriber gets the replay:\n{replay}"
-    );
+    assert!(replay.contains(&format!("pw-2-{tag}")), "contract: a new subscriber gets the replay:\n{replay}");
     host.detach(sub);
 
     // Where it works; its screen.
@@ -297,55 +221,24 @@ pub fn run(h: &dyn ContractHarness) {
                 std::thread::sleep(Duration::from_millis(100));
             }
             let cwd = cwd.expect("contract: process_cwd finds the running agent");
-            assert_eq!(
-                x.real_path(&cwd).unwrap_or(cwd),
-                want,
-                "contract: process_cwd is the workspace"
-            );
+            assert_eq!(x.real_path(&cwd).unwrap_or(cwd), want, "contract: process_cwd is the workspace");
         }
         false => unsupported(p.process_cwd(&loc, pid), "process_cwd"),
     }
     match caps.capture {
-        true => assert!(p
-            .capture(&loc)
-            .expect("contract: capture")
-            .contains(&format!("pw-2-{tag}"))),
+        true => assert!(p.capture(&loc).expect("contract: capture").contains(&format!("pw-2-{tag}"))),
         false => unsupported(p.capture(&loc), "capture"),
     }
 
     // Pitwall goes away and comes back: the same process, its history, input.
     if caps.survives_detach {
-        let again = TermHost::new(
-            p.attach(&loc, size).expect("contract: re-attach"),
-            size,
-            clock(),
-        );
-        assert_eq!(
-            again.pid(),
-            pid,
-            "contract: re-attach finds the same process (no respawn)"
-        );
+        let again = TermHost::new(p.attach(&loc, size).expect("contract: re-attach"), size, clock());
+        assert_eq!(again.pid(), pid, "contract: re-attach finds the same process (no respawn)");
         let seen = text(&again);
-        assert_eq!(
-            seen.matches(&format!("pw-2-{tag}")).count(),
-            1,
-            "contract: history replayed once on re-attach:\n{seen}"
-        );
-        again
-            .write(format!("echo again-$((1+1))-{tag}\r").as_bytes())
-            .expect("contract: write after re-attach");
-        wait_for(
-            &again,
-            &format!("again-2-{tag}"),
-            patience,
-            "input after re-attach",
-        );
-        wait_for(
-            &host,
-            &format!("again-2-{tag}"),
-            patience,
-            "the first client sees it too",
-        );
+        assert_eq!(seen.matches(&format!("pw-2-{tag}")).count(), 1, "contract: history replayed once on re-attach:\n{seen}");
+        again.write(format!("echo again-$((1+1))-{tag}\r").as_bytes()).expect("contract: write after re-attach");
+        wait_for(&again, &format!("again-2-{tag}"), patience, "input after re-attach");
+        wait_for(&host, &format!("again-2-{tag}"), patience, "the first client sees it too");
     } else if !caps.attach_existing {
         unsupported(p.attach(&loc, size), "attach");
     }
@@ -353,34 +246,16 @@ pub fn run(h: &dyn ContractHarness) {
     // Commands and files where the agent works.
     if caps.exec {
         let x = p.exec(&m).expect("contract: exec");
-        let out = x
-            .run(&Cmd::new(&["git", "status", "--porcelain"]).cwd(&ws))
-            .expect("contract: git status runs");
-        assert!(
-            out.ok(),
-            "contract: git status in the workspace: {}",
-            out.stderr_text()
-        );
+        let out = x.run(&Cmd::new(&["git", "status", "--porcelain"]).cwd(&ws)).expect("contract: git status runs");
+        assert!(out.ok(), "contract: git status in the workspace: {}", out.stderr_text());
         // Where this agent works, as the user it runs as.
         let at = p.exec_at(&loc).expect("contract: exec_at");
-        let out = at
-            .run(&Cmd::new(&["git", "status", "--porcelain"]).cwd(&ws))
-            .expect("contract: git status runs as the agent");
-        assert!(
-            out.ok(),
-            "contract: git status as the agent: {}",
-            out.stderr_text()
-        );
+        let out = at.run(&Cmd::new(&["git", "status", "--porcelain"]).cwd(&ws)).expect("contract: git status runs as the agent");
+        assert!(out.ok(), "contract: git status as the agent: {}", out.stderr_text());
         let tmp = x.temp_dir().expect("contract: temp_dir");
         let f = exec::join(&tmp, &format!("pitwall-contract-{tag}.txt"));
-        x.write_file(&f, b"round trip")
-            .expect("contract: temp_dir is writable");
-        assert_eq!(
-            x.read_file(&f, 100)
-                .expect("contract: read_file")
-                .as_deref(),
-            Some(&b"round trip"[..])
-        );
+        x.write_file(&f, b"round trip").expect("contract: temp_dir is writable");
+        assert_eq!(x.read_file(&f, 100).expect("contract: read_file").as_deref(), Some(&b"round trip"[..]));
         x.remove_file(&f).expect("contract: remove_file");
         assert_eq!(x.read_file(&f, 100).expect("contract: read_file"), None);
     } else {
@@ -393,22 +268,12 @@ pub fn run(h: &dyn ContractHarness) {
     }
     p.stop(&loc).expect("contract: stop");
     wait_until(patience, "stop ends the terminal", || host.ended());
-    assert_ne!(
-        p.state(&loc).expect("contract: state"),
-        NativeState::Running,
-        "contract: stopped → not Running"
-    );
+    assert_ne!(p.state(&loc).expect("contract: state"), NativeState::Running, "contract: stopped → not Running");
     if host.eof_is_exit() {
-        assert!(
-            host.exit().is_some(),
-            "contract: a stopped local agent reports its exit"
-        );
+        assert!(host.exit().is_some(), "contract: a stopped local agent reports its exit");
     }
     let after_stop = p.attach(&loc, size);
-    assert!(
-        after_stop.is_err(),
-        "contract: nothing to attach to after stop"
-    );
+    assert!(after_stop.is_err(), "contract: nothing to attach to after stop");
 
     // Started again, it exits by itself with its code.
     let fresh = launch(&agent, &kind, &ws, LaunchIntent::Fresh, size);
@@ -416,54 +281,26 @@ pub fn run(h: &dyn ContractHarness) {
         let restarted = p.start(&loc, &fresh).expect("contract: start");
         assert_eq!(restarted.locator, loc, "contract: start keeps the locator");
         let host = host_of(p, restarted, size);
-        host.write(format!("echo up-$((1+1))-{tag}\r").as_bytes())
-            .expect("contract: write");
-        wait_for(
-            &host,
-            &format!("up-2-{tag}"),
-            patience,
-            "restarted agent echoes",
-        );
+        host.write(format!("echo up-$((1+1))-{tag}\r").as_bytes()).expect("contract: write");
+        wait_for(&host, &format!("up-2-{tag}"), patience, "restarted agent echoes");
         host.write(b"exit 3\r").expect("contract: write");
-        wait_until(patience, "an exiting agent ends its terminal", || {
-            host.ended()
-        });
+        wait_until(patience, "an exiting agent ends its terminal", || host.ended());
         if host.eof_is_exit() {
-            wait_until(patience, "exit code 3 is reported", || {
-                host.exit().and_then(|e| e.code) == Some(3)
-            });
+            wait_until(patience, "exit code 3 is reported", || host.exit().and_then(|e| e.code) == Some(3));
         }
-        wait_until(patience, "an exited agent is not Running", || {
-            p.state(&loc)
-                .map(|s| s != NativeState::Running)
-                .unwrap_or(false)
-        });
+        wait_until(patience, "an exited agent is not Running", || p.state(&loc).map(|s| s != NativeState::Running).unwrap_or(false));
     } else {
         unsupported(p.start(&loc, &fresh).map(|_| ()), "start");
     }
 
     // Resume continues the conversation, exactly when the provider can.
-    let resume = launch(
-        &agent,
-        &kind,
-        &ws,
-        LaunchIntent::Resume(format!("conv-{tag}")),
-        size,
-    );
+    let resume = launch(&agent, &kind, &ws, LaunchIntent::Resume(format!("conv-{tag}")), size);
     if caps.resume {
         let s = p.start(&loc, &resume).expect("contract: start(Resume)");
-        assert!(
-            s.resumed,
-            "contract: start(Resume) with a resumable kind resumes"
-        );
+        assert!(s.resumed, "contract: start(Resume) with a resumable kind resumes");
         assert_eq!(s.conversation_id.as_deref(), Some(&*format!("conv-{tag}")));
         let host = host_of(p, s, size);
-        wait_for(
-            &host,
-            &format!("resumed:conv-{tag}"),
-            patience,
-            "the kind's resume args ran",
-        );
+        wait_for(&host, &format!("resumed:conv-{tag}"), patience, "the kind's resume args ran");
         host.close(Duration::from_millis(500));
         p.stop(&loc).expect("contract: stop");
         wait_until(patience, "stop ends the resumed agent", || host.ended());
@@ -473,9 +310,5 @@ pub fn run(h: &dyn ContractHarness) {
 
     // Remove.
     p.remove(&loc).expect("contract: remove");
-    assert_ne!(
-        p.state(&loc).expect("contract: state"),
-        NativeState::Running,
-        "contract: removed → not Running"
-    );
+    assert_ne!(p.state(&loc).expect("contract: state"), NativeState::Running, "contract: removed → not Running");
 }

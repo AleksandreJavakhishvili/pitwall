@@ -162,9 +162,7 @@ pub struct Dirs {
 impl Dirs {
     /// The rules files under Pitwall's root.
     pub fn of(paths: &Paths) -> Dirs {
-        Dirs {
-            base: paths.root().to_path_buf(),
-        }
+        Dirs { base: paths.root().to_path_buf() }
     }
     /// The library input root (~/.pitwall/rules).
     pub fn library(&self) -> PathBuf {
@@ -203,9 +201,7 @@ pub struct Store {
 static LOCK: Mutex<()> = Mutex::new(());
 
 fn load(dirs: &Dirs) -> Store {
-    let Ok(src) = std::fs::read_to_string(dirs.store()) else {
-        return Store::default();
-    };
+    let Ok(src) = std::fs::read_to_string(dirs.store()) else { return Store::default() };
     serde_json::from_str(&src).unwrap_or_else(|e| {
         eprintln!("pitwall: ignoring unreadable rules.json: {e}");
         let _ = std::fs::copy(dirs.store(), dirs.store().with_extension("json.corrupt"));
@@ -238,23 +234,20 @@ fn update<T>(dirs: &Dirs, f: impl FnOnce(&mut Store) -> Result<T, String>) -> Re
 fn project_key(path: &str) -> String {
     let p = path.trim().trim_end_matches('/');
     // Projects are folders on this Mac.
-    Git::new(&LocalExec, p)
-        .repo_root()
-        .unwrap_or_else(|| p.to_string())
+    Git::new(&LocalExec, p).repo_root().unwrap_or_else(|| p.to_string())
 }
 
 // ------------------------------------------------------------------ core logic
 
 /// rulesync `--targets` id for an agent kind.
 pub fn target_for(kind: &AgentKind) -> Option<String> {
-    kind.rulesync_target
-        .clone()
-        .filter(|t| !t.trim().is_empty())
-        .or_else(|| match kind.id.as_str() {
+    kind.rulesync_target.clone().filter(|t| !t.trim().is_empty()).or_else(|| {
+        match kind.id.as_str() {
             "claude" => Some("claudecode".into()),
             "codex" => Some("codexcli".into()),
             _ => None,
-        })
+        }
+    })
 }
 
 /// What `apply` needs to know about an agent.
@@ -329,32 +322,17 @@ pub fn apply_with(
         log.push("No rule set assigned to this agent or its project.".into());
         (vec![], None, None)
     } else {
-        let target = ctx.target.clone().ok_or_else(|| {
-            format!(
-                "{} has no rulesync target (set rulesync_target in its agent definition)",
-                ctx.kind_name
-            )
-        })?;
+        let target = ctx
+            .target
+            .clone()
+            .ok_or_else(|| format!("{} has no rulesync target (set rulesync_target in its agent definition)", ctx.kind_name))?;
         let runner = runner.ok_or("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.")?;
         let inputs = inputs_for(dirs, &store, ctx, &target);
         let stage = dirs.run().join(&ctx.id);
-        let out = apply::run(
-            runner,
-            &stage,
-            exec,
-            &ctx.id,
-            cwd,
-            &target,
-            &inputs,
-            &state.files,
-        )?;
+        let out = apply::run(runner, &stage, exec, &ctx.id, cwd, &target, &inputs, &state.files)?;
         let _ = std::fs::remove_dir_all(&stage);
         log.extend(out.log);
-        (
-            out.files,
-            out.exclude_file,
-            Some(apply::fingerprint(&inputs, &target)),
-        )
+        (out.files, out.exclude_file, Some(apply::fingerprint(&inputs, &target)))
     };
     let generated: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
     if generated.is_empty() && any_set {
@@ -371,16 +349,11 @@ pub fn apply_with(
         e.error = None;
         Ok(())
     })?;
-    Ok(ApplyResult {
-        generated,
-        log: log.join("\n"),
-    })
+    Ok(ApplyResult { generated, log: log.join("\n") })
 }
 
 fn stale(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> bool {
-    let Some(target) = &ctx.target else {
-        return false;
-    };
+    let Some(target) = &ctx.target else { return false };
     let Some(state) = store.agents.get(&ctx.id) else {
         return project_set(store, ctx).is_some() && ctx.worktree;
     };
@@ -392,9 +365,7 @@ fn stale(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> bool {
         (None, false) => !state.files.is_empty(),
         (None, true) => true,
         (Some(_), false) => true,
-        (Some(fp), true) => {
-            *fp != apply::fingerprint(&inputs_for(dirs, store, ctx, target), target)
-        }
+        (Some(fp), true) => *fp != apply::fingerprint(&inputs_for(dirs, store, ctx, target), target),
     }
 }
 
@@ -442,10 +413,7 @@ pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, exec: &dyn Exec, rec:
     let ctx = AgentCtx::from_record(rec, kinds);
     let wants = {
         let store = read(dirs);
-        let own = store
-            .agents
-            .get(&rec.id)
-            .and_then(|s| s.rule_set_id.clone());
+        let own = store.agents.get(&rec.id).and_then(|s| s.rule_set_id.clone());
         own.is_some() || project_set(&store, &ctx).is_some()
     };
     let _ = update(dirs, |s| {
@@ -489,10 +457,7 @@ pub fn status(dirs: &Dirs) -> RulesStatus {
         available: r.is_some(),
         via: r.as_ref().map(|r| r.via),
         // Asking npx for a version could download rulesync; only ask a real install.
-        version: r
-            .as_ref()
-            .filter(|r| r.via == "rulesync")
-            .and_then(|r| r.version()),
+        version: r.as_ref().filter(|r| r.via == "rulesync").and_then(|r| r.version()),
         npx_allowed: allow,
         npx_found: found.npx.is_some(),
     }
@@ -540,17 +505,11 @@ pub fn save_set(dirs: &Dirs, set: SaveRuleSet) -> Res<RuleSet> {
         }
     }
     update(dirs, |s| {
-        if s.sets
-            .iter()
-            .any(|x| x.name.eq_ignore_ascii_case(&name) && Some(&x.id) != set.id.as_ref())
-        {
+        if s.sets.iter().any(|x| x.name.eq_ignore_ascii_case(&name) && Some(&x.id) != set.id.as_ref()) {
             return Err(format!("a rule set named \"{name}\" already exists"));
         }
         let saved = RuleSet {
-            id: set
-                .id
-                .clone()
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            id: set.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             name: name.clone(),
             rule_ids: ids.clone(),
         };
@@ -586,16 +545,8 @@ pub fn import(dirs: &Dirs, req: ImportRequest) -> Res<ImportResult> {
             } else {
                 library::add_git(dirs, &req.source, &current)?
             };
-            let added: Vec<String> = library::rules_in(&src.name, Path::new(&src.root))
-                .into_iter()
-                .map(|f| f.id)
-                .collect();
-            let log = format!(
-                "Added source \"{}\" ({} rules) from {}",
-                src.name,
-                added.len(),
-                src.root
-            );
+            let added: Vec<String> = library::rules_in(&src.name, Path::new(&src.root)).into_iter().map(|f| f.id).collect();
+            let log = format!("Added source \"{}\" ({} rules) from {}", src.name, added.len(), src.root);
             update(dirs, |s| {
                 s.sources.push(src);
                 Ok(())
@@ -604,14 +555,10 @@ pub fn import(dirs: &Dirs, req: ImportRequest) -> Res<ImportResult> {
         }
         "file" => {
             let allow = read(dirs).allow_npx;
-            let r = runner::runner(allow)
-                .ok_or("rulesync isn't available, and importing a file needs `rulesync import`.")?;
+            let r = runner::runner(allow).ok_or("rulesync isn't available, and importing a file needs `rulesync import`.")?;
             let (names, log) = library::import_file(dirs, &r, &source)?;
             Ok(ImportResult {
-                added: names
-                    .into_iter()
-                    .map(|n| format!("{}:{n}", library::LIBRARY))
-                    .collect(),
+                added: names.into_iter().map(|n| format!("{}:{n}", library::LIBRARY)).collect(),
                 log,
             })
         }
@@ -628,11 +575,7 @@ pub fn sources(dirs: &Dirs) -> Vec<RuleSource> {
 }
 
 pub fn pull_source(dirs: &Dirs, name: &str) -> Res<String> {
-    let src = read(dirs)
-        .sources
-        .into_iter()
-        .find(|s| s.name == name)
-        .ok_or("no such source")?;
+    let src = read(dirs).sources.into_iter().find(|s| s.name == name).ok_or("no such source")?;
     library::pull(dirs, &src)
 }
 
@@ -674,22 +617,12 @@ pub fn project_rules_for(dirs: &Dirs, project_path: &str) -> Option<String> {
 }
 
 /// Generate an agent's rule files now (takes effect on its next session).
-pub fn apply_to_agent(
-    engine: &Engine,
-    agent_id: &str,
-    confirm_main_checkout: bool,
-) -> Res<ApplyResult> {
+pub fn apply_to_agent(engine: &Engine, agent_id: &str, confirm_main_checkout: bool) -> Res<ApplyResult> {
     let rec = engine.with(agent_id, |a| a.rec.clone())?;
     let dirs = Dirs::of(engine.paths());
     let ctx = AgentCtx::from_record(&rec, engine.kinds());
     let r = runner::runner(read(&dirs).allow_npx);
-    let res = apply_with(
-        &dirs,
-        r.as_ref(),
-        &*engine.exec_for(agent_id),
-        &ctx,
-        confirm_main_checkout,
-    );
+    let res = apply_with(&dirs, r.as_ref(), &*engine.exec_for(agent_id), &ctx, confirm_main_checkout);
     if let Err(e) = &res {
         let _ = update(&dirs, |s| {
             s.agents.entry(ctx.id.clone()).or_default().error = Some(e.clone());
@@ -703,10 +636,7 @@ pub fn apply_to_agent(
 pub fn set_agent_rules(engine: &Engine, agent_id: &str, rule_set_id: Option<String>) -> Res<()> {
     engine.with(agent_id, |_| ())?;
     update(&Dirs::of(engine.paths()), |s| {
-        s.agents
-            .entry(agent_id.to_string())
-            .or_default()
-            .rule_set_id = rule_set_id.filter(|x| !x.is_empty());
+        s.agents.entry(agent_id.to_string()).or_default().rule_set_id = rule_set_id.filter(|x| !x.is_empty());
         Ok(())
     })
 }

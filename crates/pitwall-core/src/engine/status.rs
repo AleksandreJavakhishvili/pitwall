@@ -1,8 +1,8 @@
 //! Turning raw signals (hooks, screen rules, output activity) into a Status.
 
+use pitwall_detect::Detected;
 use crate::hooks::HookState;
 use crate::model::{Source, Status};
-use pitwall_detect::Detected;
 
 /// Output within this window counts as "working" for the activity fallback.
 pub const ACTIVITY_WINDOW_MS: u64 = 1200;
@@ -18,11 +18,7 @@ pub enum Raw {
 }
 
 /// Pick the signal by priority: hooks > screen > activity.
-pub fn raw_state(
-    hook: Option<HookState>,
-    screen: Option<Detected>,
-    recent_output: bool,
-) -> (Raw, Source) {
+pub fn raw_state(hook: Option<HookState>, screen: Option<Detected>, recent_output: bool) -> (Raw, Source) {
     if let Some(h) = hook {
         let raw = match h {
             HookState::Working => Raw::Working,
@@ -40,11 +36,7 @@ pub fn raw_state(
         };
         return (raw, Source::Screen);
     }
-    let raw = if recent_output {
-        Raw::Working
-    } else {
-        Raw::Unknown
-    };
+    let raw = if recent_output { Raw::Working } else { Raw::Unknown };
     (raw, Source::Activity)
 }
 
@@ -89,14 +81,8 @@ mod tests {
             raw_state(None, Some(Detected::Blocked), true),
             (Raw::Blocked, Source::Screen)
         );
-        assert_eq!(
-            raw_state(None, None, true),
-            (Raw::Working, Source::Activity)
-        );
-        assert_eq!(
-            raw_state(None, None, false),
-            (Raw::Unknown, Source::Activity)
-        );
+        assert_eq!(raw_state(None, None, true), (Raw::Working, Source::Activity));
+        assert_eq!(raw_state(None, None, false), (Raw::Unknown, Source::Activity));
     }
 
     #[test]
@@ -111,10 +97,7 @@ mod tests {
         let s = next_status(s, Raw::Idle, &mut turn);
         assert_eq!(s, Status::Done);
         // mark_seen sets Idle; it stays idle.
-        assert_eq!(
-            next_status(Status::Idle, Raw::Idle, &mut turn),
-            Status::Idle
-        );
+        assert_eq!(next_status(Status::Idle, Raw::Idle, &mut turn), Status::Idle);
     }
 
     #[test]

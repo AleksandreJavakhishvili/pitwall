@@ -195,9 +195,7 @@ pub struct InnerAgent {
 impl AgentRecord {
     /// Where it lives (`local:this-mac/<id>` for records from before providers).
     pub fn locator(&self) -> Locator {
-        self.locator
-            .clone()
-            .unwrap_or_else(|| Locator::local(&self.id))
+        self.locator.clone().unwrap_or_else(|| Locator::local(&self.id))
     }
 
     pub fn term_size(&self) -> Option<(u16, u16)> {
@@ -264,8 +262,7 @@ mod tests {
         assert_eq!(rec.term_size(), None); // older state files have no size
         assert!(rec.set_term_size((90, 30)));
         assert!(!rec.set_term_size((90, 30)));
-        let back: AgentRecord =
-            serde_json::from_value(serde_json::to_value(&rec).unwrap()).unwrap();
+        let back: AgentRecord = serde_json::from_value(serde_json::to_value(&rec).unwrap()).unwrap();
         assert_eq!(back.term_size(), Some((90, 30)));
         assert!(rec.set_term_size((0, 9999)));
         assert_eq!(rec.term_size(), Some((2, 1000)));
@@ -280,13 +277,7 @@ mod tests {
         });
         let mut rec: AgentRecord = serde_json::from_value(old).unwrap();
         assert_eq!(rec.inner_agent, None, "older state files have none");
-        assert!(
-            serde_json::to_value(&rec)
-                .unwrap()
-                .get("innerAgent")
-                .is_none(),
-            "not written when absent"
-        );
+        assert!(serde_json::to_value(&rec).unwrap().get("innerAgent").is_none(), "not written when absent");
         rec.inner_agent = Some(InnerAgent {
             kind: "claude".into(),
             kind_name: "Claude Code".into(),
@@ -295,18 +286,10 @@ mod tests {
             left_at: Some(5),
         });
         let v = serde_json::to_value(&rec).unwrap();
-        assert_eq!(
-            v["innerAgent"],
-            serde_json::json!({ "kind": "claude", "kindName": "Claude Code", "sessionId": "s1", "leftAt": 5 })
-        );
+        assert_eq!(v["innerAgent"], serde_json::json!({ "kind": "claude", "kindName": "Claude Code", "sessionId": "s1", "leftAt": 5 }));
         let back: AgentRecord = serde_json::from_value(v).unwrap();
         assert_eq!(back.inner_agent, rec.inner_agent);
-        let bare: InnerAgent =
-            serde_json::from_value(serde_json::json!({ "kind": "codex", "kindName": "Codex" }))
-                .unwrap();
-        assert_eq!(
-            (bare.session_id, bare.pid, bare.left_at),
-            (None, None, None)
-        );
+        let bare: InnerAgent = serde_json::from_value(serde_json::json!({ "kind": "codex", "kindName": "Codex" })).unwrap();
+        assert_eq!((bare.session_id, bare.pid, bare.left_at), (None, None, None));
     }
 }

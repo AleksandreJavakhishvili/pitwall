@@ -117,11 +117,7 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
         a.status = Status::Exited;
         a.detail = None;
     } else {
-        let (raw, source) = raw_state(
-            a.hook.as_ref().map(|h| h.0),
-            a.screen_state,
-            obs.recent_output,
-        );
+        let (raw, source) = raw_state(a.hook.as_ref().map(|h| h.0), a.screen_state, obs.recent_output);
         a.status = next_status(a.status, raw, &mut a.turn_active);
         a.source = source;
         a.detail = match source {
@@ -168,8 +164,7 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
     {
         let item = a.rec.queue.remove(0);
         a.note_sent(&item.text, now);
-        out.task_jobs
-            .extend(tasks::begin(a, Some(&item.text), true));
+        out.task_jobs.extend(tasks::begin(a, Some(&item.text), true));
         out.send = Some(item.text);
         out.changed = true;
         out.persist = true;
@@ -224,9 +219,7 @@ fn tick(core: &Shared, badge: &mut usize) {
     {
         let mut agents = core.agents();
         for p in probes {
-            let Some(a) = agents.iter_mut().find(|a| a.rec.id == p.id) else {
-                continue;
-            };
+            let Some(a) = agents.iter_mut().find(|a| a.rec.id == p.id) else { continue };
             if !a.host.as_ref().is_some_and(|s| Arc::ptr_eq(s, &p.session)) {
                 continue;
             }
@@ -240,10 +233,7 @@ fn tick(core: &Shared, badge: &mut usize) {
             }
         }
         jobs = git_due(&mut agents, now);
-        blocked = agents
-            .iter()
-            .filter(|a| a.status == Status::Blocked)
-            .count();
+        blocked = agents.iter().filter(|a| a.status == Status::Blocked).count();
         wt_probes = worktree::due(&mut agents, now);
     }
 
@@ -320,10 +310,7 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
 #[cfg(test)]
 pub(super) fn git_due_for_test(core: &Engine) -> Vec<String> {
     let now = core.now();
-    git_due(&mut core.agents(), now)
-        .into_iter()
-        .map(|j| j.id)
-        .collect()
+    git_due(&mut core.agents(), now).into_iter().map(|j| j.id).collect()
 }
 
 /// The provider's git interval, or the default.
@@ -366,13 +353,7 @@ fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
             a.git_inflight = false;
             a.git_at = now;
             a.git_seq = job.seq;
-            let before = (
-                a.branch.clone(),
-                a.added,
-                a.removed,
-                a.files_changed,
-                a.git_repo,
-            );
+            let before = (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo);
             a.branch = branch;
             match &changes {
                 Ok(files) => {
@@ -384,14 +365,7 @@ fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
                 Err(e) if e == NOT_A_REPO => a.git_repo = Some(false),
                 Err(_) => {}
             }
-            let differs = before
-                != (
-                    a.branch.clone(),
-                    a.added,
-                    a.removed,
-                    a.files_changed,
-                    a.git_repo,
-                );
+            let differs = before != (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo);
             a.git_every = next_git_every(a.git_every, git_base_ms(a), differs);
             differs
         })
@@ -412,16 +386,8 @@ pub(super) fn refresh_git_now(core: &Engine, id: &str) -> Result<Vec<FileChange>
             return Err("Pitwall can't run git on this agent's machine.".to_string());
         }
         a.git_inflight = true;
-        let seq = a
-            .host
-            .as_ref()
-            .map(|s| s.output_seq.load(Ordering::Relaxed))
-            .unwrap_or(a.git_seq);
-        Ok(GitJob {
-            id: a.rec.id.clone(),
-            cwd: a.rec.cwd.clone(),
-            seq,
-        })
+        let seq = a.host.as_ref().map(|s| s.output_seq.load(Ordering::Relaxed)).unwrap_or(a.git_seq);
+        Ok(GitJob { id: a.rec.id.clone(), cwd: a.rec.cwd.clone(), seq })
     })??;
     refresh_git(core, job)
 }
@@ -441,10 +407,7 @@ mod tests {
     }
 
     fn live(last_input: u64) -> Observation {
-        Observation {
-            last_input,
-            ..Default::default()
-        }
+        Observation { last_input, ..Default::default() }
     }
 
     #[test]
@@ -452,39 +415,23 @@ mod tests {
         let mut a = agent();
         a.hook = Some((HookState::Blocked, Some("Permission: Edit".into())));
         let f = fold(&mut a, live(0), 10_000);
-        assert_eq!(
-            (a.status, a.source, a.status_since),
-            (Status::Blocked, Source::Hooks, 10_000)
-        );
+        assert_eq!((a.status, a.source, a.status_since), (Status::Blocked, Source::Hooks, 10_000));
         let alert = f.alert.expect("attention");
-        assert_eq!(
-            (alert.reason, alert.detail.as_deref()),
-            ("blocked", Some("Permission: Edit"))
-        );
+        assert_eq!((alert.reason, alert.detail.as_deref()), ("blocked", Some("Permission: Edit")));
         assert!(f.changed);
         // Same state again: nothing new.
         let f = fold(&mut a, live(0), 10_400);
         assert!(f.alert.is_none() && !f.changed);
 
         a.hook = Some((HookState::Done, None));
-        assert_eq!(
-            fold(&mut a, live(0), 11_000).alert.map(|x| x.reason),
-            Some("done")
-        );
+        assert_eq!(fold(&mut a, live(0), 11_000).alert.map(|x| x.reason), Some("done"));
     }
 
     #[test]
     fn exit_wins_over_every_signal() {
         let mut a = agent();
         a.hook = Some((HookState::Working, None));
-        let f = fold(
-            &mut a,
-            Observation {
-                exited: true,
-                ..Default::default()
-            },
-            5_000,
-        );
+        let f = fold(&mut a, Observation { exited: true, ..Default::default() }, 5_000);
         assert_eq!(a.status, Status::Exited);
         assert!(f.changed && f.alert.is_none());
     }
@@ -492,20 +439,12 @@ mod tests {
     #[test]
     fn auto_send_waits_for_the_agent_and_the_user_to_settle() {
         let mut a = agent();
-        a.rec.queue.push(QueueItem {
-            id: "q1".into(),
-            text: "next please".into(),
-        });
-        a.rec.queue.push(QueueItem {
-            id: "q2".into(),
-            text: "and then".into(),
-        });
+        a.rec.queue.push(QueueItem { id: "q1".into(), text: "next please".into() });
+        a.rec.queue.push(QueueItem { id: "q2".into(), text: "and then".into() });
         a.hook = Some((HookState::Idle, None));
         // Turns idle at t=10s: not settled yet.
         assert!(fold(&mut a, live(0), 10_000).send.is_none());
-        assert!(fold(&mut a, live(0), 10_000 + AUTO_SEND_SETTLE_MS - 1)
-            .send
-            .is_none());
+        assert!(fold(&mut a, live(0), 10_000 + AUTO_SEND_SETTLE_MS - 1).send.is_none());
         // Settled, but the user typed a moment ago.
         let typed = 10_000 + AUTO_SEND_SETTLE_MS;
         assert!(fold(&mut a, live(typed), typed + 100).send.is_none());
@@ -517,13 +456,9 @@ mod tests {
         assert_eq!(a.rec.last_sent.as_deref(), Some("next please"));
         assert_eq!(a.rec.queue.len(), 1);
         // Cooldown before the next one, even though the agent looks idle.
-        assert!(fold(&mut a, live(typed), t + AUTO_SEND_COOLDOWN_MS - 1)
-            .send
-            .is_none());
+        assert!(fold(&mut a, live(typed), t + AUTO_SEND_COOLDOWN_MS - 1).send.is_none());
         a.rec.auto_send = false;
-        assert!(fold(&mut a, live(typed), t + AUTO_SEND_COOLDOWN_MS * 10)
-            .send
-            .is_none());
+        assert!(fold(&mut a, live(typed), t + AUTO_SEND_COOLDOWN_MS * 10).send.is_none());
     }
 
     #[test]
@@ -563,25 +498,16 @@ mod tests {
         assert!(git_due(&mut agents, 200).is_empty(), "in flight");
         agents[0].git_inflight = false;
         agents[0].git_at = 200;
-        assert!(
-            git_due(&mut agents, 200 + GIT_EVERY_MS).is_empty(),
-            "idle and no new output"
-        );
+        assert!(git_due(&mut agents, 200 + GIT_EVERY_MS).is_empty(), "idle and no new output");
         agents[0].status = Status::Working;
         assert_eq!(git_due(&mut agents, 200 + GIT_EVERY_MS).len(), 1);
         agents[0].git_inflight = false;
         agents[0].git_repo = Some(false);
         agents[0].git_wanted = true;
-        assert!(
-            git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(),
-            "outside a repo: never"
-        );
+        assert!(git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(), "outside a repo: never");
         agents[0].git_repo = None;
         agents[0].facts.provider.exec = false;
-        assert!(
-            git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(),
-            "no commands on that machine: never"
-        );
+        assert!(git_due(&mut agents, 400 + GIT_EVERY_MS * 2).is_empty(), "no commands on that machine: never");
     }
 
     #[test]
@@ -594,19 +520,13 @@ mod tests {
         agents[0].git_seq = 0;
         agents[0].host = None;
         agents[0].status = Status::Working;
-        assert!(
-            git_due(&mut agents, 100 + GIT_EVERY_MS).is_empty(),
-            "not after the default interval"
-        );
+        assert!(git_due(&mut agents, 100 + GIT_EVERY_MS).is_empty(), "not after the default interval");
         assert_eq!(git_due(&mut agents, 100 + 15_000).len(), 1);
         agents[0].git_inflight = false;
         agents[0].git_at = 20_000;
         agents[0].status = Status::Idle;
         agents[0].git_seq = 7; // new output alone doesn't count for a slow provider
-        assert!(
-            git_due(&mut agents, 20_000 + 60_000).is_empty(),
-            "idle: never on its own"
-        );
+        assert!(git_due(&mut agents, 20_000 + 60_000).is_empty(), "idle: never on its own");
         // A turn that ends asks for one refresh.
         agents[0].rec.tasks.push(super::tasks::Task {
             id: "t".into(),
@@ -628,15 +548,8 @@ mod tests {
     fn git_polling_backs_off_while_nothing_changes() {
         assert_eq!(next_git_every(0, GIT_EVERY_MS, false), 6_000);
         assert_eq!(next_git_every(6_000, GIT_EVERY_MS, false), 12_000);
-        assert_eq!(
-            next_git_every(24_000, GIT_EVERY_MS, false),
-            GIT_MAX_EVERY_MS
-        );
-        assert_eq!(
-            next_git_every(GIT_MAX_EVERY_MS, GIT_EVERY_MS, true),
-            GIT_EVERY_MS,
-            "a change resets it"
-        );
+        assert_eq!(next_git_every(24_000, GIT_EVERY_MS, false), GIT_MAX_EVERY_MS);
+        assert_eq!(next_git_every(GIT_MAX_EVERY_MS, GIT_EVERY_MS, true), GIT_EVERY_MS, "a change resets it");
         // A slow provider's own interval is the floor.
         assert_eq!(next_git_every(0, 45_000, false), 45_000);
         assert_eq!(next_git_every(0, 15_000, true), 15_000);
@@ -655,18 +568,8 @@ mod tests {
     #[test]
     fn git_polling_stops_outside_a_repository() {
         let x = crate::testing::FakeExec::new();
-        x.on_exit(
-            &["git", "-C", "/tmp/w", "diff", ".."],
-            128,
-            "",
-            "fatal: not a git repository (or any parent)",
-        )
-        .on_exit(
-            &["git", "-C", "/tmp/w", "symbolic-ref", ".."],
-            128,
-            "",
-            "fatal: not a git repository",
-        );
+        x.on_exit(&["git", "-C", "/tmp/w", "diff", ".."], 128, "", "fatal: not a git repository (or any parent)")
+            .on_exit(&["git", "-C", "/tmp/w", "symbolic-ref", ".."], 128, "", "fatal: not a git repository");
         let h = Harness::with_exec(vec![record("a", "/tmp/w")], x.clone());
         let jobs = git_due(&mut h.engine.agents(), 10_000);
         assert_eq!(jobs.len(), 1, "wanted once at start");

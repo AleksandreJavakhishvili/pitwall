@@ -27,18 +27,12 @@ impl Drop for Tmp {
 fn sh(cwd: &Path, args: &[&str]) -> String {
     let mut all = vec!["-c", "user.email=t@t", "-c", "user.name=t"];
     all.extend_from_slice(args);
-    Git::new(&LocalExec, &cwd.to_string_lossy())
-        .run(&all)
-        .unwrap_or_else(|e| panic!("git {args:?}: {e}"))
+    Git::new(&LocalExec, &cwd.to_string_lossy()).run(&all).unwrap_or_else(|e| panic!("git {args:?}: {e}"))
 }
 
 fn real_runner() -> Option<Runner> {
     let bin = std::env::var("PITWALL_TEST_RULESYNC").ok()?;
-    Some(Runner {
-        argv: vec![bin],
-        path_env: std::env::var("PATH").ok(),
-        via: "rulesync",
-    })
+    Some(Runner { argv: vec![bin], path_env: std::env::var("PATH").ok(), via: "rulesync" })
 }
 
 fn write(p: &Path, s: &str) {
@@ -50,53 +44,19 @@ fn write(p: &Path, s: &str) {
 fn rule_sets_save_rename_and_reject_duplicates() {
     let t = Tmp::new("sets");
     let dirs = Dirs { base: t.0.clone() };
-    let a = save_set(
-        &dirs,
-        SaveRuleSet {
-            id: None,
-            name: "Web".into(),
-            rule_ids: vec!["library:a.md".into(), "library:a.md".into()],
-        },
-    )
-    .unwrap();
+    let a = save_set(&dirs, SaveRuleSet { id: None, name: "Web".into(), rule_ids: vec!["library:a.md".into(), "library:a.md".into()] }).unwrap();
     assert_eq!(a.rule_ids, vec!["library:a.md"]);
-    assert!(save_set(
-        &dirs,
-        SaveRuleSet {
-            id: None,
-            name: "web".into(),
-            rule_ids: vec![]
-        }
-    )
-    .is_err());
-    let b = save_set(
-        &dirs,
-        SaveRuleSet {
-            id: Some(a.id.clone()),
-            name: "Web 2".into(),
-            rule_ids: vec![],
-        },
-    )
-    .unwrap();
+    assert!(save_set(&dirs, SaveRuleSet { id: None, name: "web".into(), rule_ids: vec![] }).is_err());
+    let b = save_set(&dirs, SaveRuleSet { id: Some(a.id.clone()), name: "Web 2".into(), rule_ids: vec![] }).unwrap();
     assert_eq!(b.id, a.id);
     assert_eq!(read(&dirs).sets, vec![b]);
-    assert!(save_set(
-        &dirs,
-        SaveRuleSet {
-            id: Some("gone".into()),
-            name: "x".into(),
-            rule_ids: vec![]
-        }
-    )
-    .is_err());
+    assert!(save_set(&dirs, SaveRuleSet { id: Some("gone".into()), name: "x".into(), rule_ids: vec![] }).is_err());
 }
 
 #[test]
 fn main_checkout_needs_confirmation() {
     let t = Tmp::new("confirm");
-    let dirs = Dirs {
-        base: t.0.join("pw"),
-    };
+    let dirs = Dirs { base: t.0.join("pw") };
     let ctx = AgentCtx {
         id: "a".into(),
         cwd: t.0.to_string_lossy().into_owned(),
@@ -130,45 +90,18 @@ fn fixture() -> Fixture {
     write(&repo.join("CLAUDE.md"), "# project claude\n");
     write(&repo.join("AGENTS.md"), "# project agents\n");
     // A project config that would wipe things if Pitwall let it apply.
-    write(
-        &repo.join("rulesync.jsonc"),
-        "{ \"delete\": true, \"targets\": [\"*\"] }\n",
-    );
+    write(&repo.join("rulesync.jsonc"), "{ \"delete\": true, \"targets\": [\"*\"] }\n");
     sh(&repo, &["add", "-A"]);
     sh(&repo, &["commit", "-qm", "init"]);
     let wt = t.0.join("wt");
-    sh(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            "worktree-x",
-            wt.to_str().unwrap(),
-            "HEAD",
-        ],
-    );
+    sh(&repo, &["worktree", "add", "-q", "-b", "worktree-x", wt.to_str().unwrap(), "HEAD"]);
 
-    let dirs = Dirs {
-        base: t.0.join("pitwall"),
-    };
+    let dirs = Dirs { base: t.0.join("pitwall") };
     let lib = dirs.library_rules();
     write(&lib.join("style.md"), "---\nroot: false\ntargets: [\"*\"]\ndescription: \"Style\"\nglobs: [\"**/*\"]\n---\nUse tabs.\n");
-    write(
-        &lib.join("base.md"),
-        "---\nroot: true\ntargets: [\"*\"]\ndescription: \"Base\"\n---\n# Base\n\nBe careful.\n",
-    );
-    write(
-        &lib.join("mine.md"),
-        "---\nroot: false\ntargets: [\"*\"]\ndescription: \"Personal\"\n---\nPersonal note.\n",
-    );
-    Fixture {
-        dirs,
-        repo,
-        wt,
-        _t: t,
-    }
+    write(&lib.join("base.md"), "---\nroot: true\ntargets: [\"*\"]\ndescription: \"Base\"\n---\n# Base\n\nBe careful.\n");
+    write(&lib.join("mine.md"), "---\nroot: false\ntargets: [\"*\"]\ndescription: \"Personal\"\n---\nPersonal note.\n");
+    Fixture { dirs, repo, wt, _t: t }
 }
 
 fn ctx(f: &Fixture, target: &str) -> AgentCtx {
@@ -184,27 +117,10 @@ fn ctx(f: &Fixture, target: &str) -> AgentCtx {
 
 fn assign(f: &Fixture, shared: &[&str], extra: &[&str]) {
     let ids = |v: &[&str]| v.iter().map(|s| format!("library:{s}")).collect::<Vec<_>>();
-    let s = save_set(
-        &f.dirs,
-        SaveRuleSet {
-            id: None,
-            name: format!("p{}", uuid::Uuid::new_v4()),
-            rule_ids: ids(shared),
-        },
-    )
-    .unwrap();
-    let e = save_set(
-        &f.dirs,
-        SaveRuleSet {
-            id: None,
-            name: format!("e{}", uuid::Uuid::new_v4()),
-            rule_ids: ids(extra),
-        },
-    )
-    .unwrap();
+    let s = save_set(&f.dirs, SaveRuleSet { id: None, name: format!("p{}", uuid::Uuid::new_v4()), rule_ids: ids(shared) }).unwrap();
+    let e = save_set(&f.dirs, SaveRuleSet { id: None, name: format!("e{}", uuid::Uuid::new_v4()), rule_ids: ids(extra) }).unwrap();
     update(&f.dirs, |st| {
-        st.project_defaults
-            .insert(f.repo.to_string_lossy().into_owned(), s.id.clone());
+        st.project_defaults.insert(f.repo.to_string_lossy().into_owned(), s.id.clone());
         st.agents.entry("agent-1".into()).or_default().rule_set_id = Some(e.id.clone());
         Ok(())
     })
@@ -220,21 +136,11 @@ fn e2e_claude_worktree() {
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     eprintln!("{res:?}");
     // CLAUDE.md is tracked: never touched. Shared rule → .claude/rules, own rule → CLAUDE.local.md.
-    assert_eq!(
-        std::fs::read_to_string(f.wt.join("CLAUDE.md")).unwrap(),
-        "# project claude\n"
-    );
+    assert_eq!(std::fs::read_to_string(f.wt.join("CLAUDE.md")).unwrap(), "# project claude\n");
     assert!(res.log.contains("kept the project's CLAUDE.md"));
-    assert_eq!(
-        res.generated,
-        vec![".claude/rules/style.md", "CLAUDE.local.md"]
-    );
-    assert!(std::fs::read_to_string(f.wt.join(".claude/rules/style.md"))
-        .unwrap()
-        .contains("Use tabs."));
-    assert!(std::fs::read_to_string(f.wt.join("CLAUDE.local.md"))
-        .unwrap()
-        .contains("Personal note."));
+    assert_eq!(res.generated, vec![".claude/rules/style.md", "CLAUDE.local.md"]);
+    assert!(std::fs::read_to_string(f.wt.join(".claude/rules/style.md")).unwrap().contains("Use tabs."));
+    assert!(std::fs::read_to_string(f.wt.join("CLAUDE.local.md")).unwrap().contains("Personal note."));
     // The project's rulesync.jsonc (delete: true) did not apply: AGENTS.md still there.
     assert!(f.wt.join("AGENTS.md").exists());
     // Nothing shows up in git.
@@ -242,15 +148,10 @@ fn e2e_claude_worktree() {
     assert!(!stale(&f.dirs, &read(&f.dirs), &c));
 
     // Editing a library rule marks the agent stale; re-apply updates in place.
-    write(
-        &f.dirs.library_rules().join("style.md"),
-        "---\nroot: false\n---\nUse spaces.\n",
-    );
+    write(&f.dirs.library_rules().join("style.md"), "---\nroot: false\n---\nUse spaces.\n");
     assert!(stale(&f.dirs, &read(&f.dirs), &c));
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
-    assert!(std::fs::read_to_string(f.wt.join(".claude/rules/style.md"))
-        .unwrap()
-        .contains("Use spaces."));
+    assert!(std::fs::read_to_string(f.wt.join(".claude/rules/style.md")).unwrap().contains("Use spaces."));
     assert_eq!(res.generated.len(), 2);
     assert!(!stale(&f.dirs, &read(&f.dirs), &c));
 
@@ -268,10 +169,7 @@ fn e2e_codex_and_cleanup() {
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert!(res.generated.is_empty(), "{res:?}");
     assert!(res.log.contains("kept the project's AGENTS.md"));
-    assert_eq!(
-        std::fs::read_to_string(f.wt.join("AGENTS.md")).unwrap(),
-        "# project agents\n"
-    );
+    assert_eq!(std::fs::read_to_string(f.wt.join("AGENTS.md")).unwrap(), "# project agents\n");
 
     // Without the tracked AGENTS.md, Pitwall writes and excludes it.
     sh(&f.wt, &["rm", "-q", "AGENTS.md"]);
@@ -279,15 +177,8 @@ fn e2e_codex_and_cleanup() {
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert_eq!(res.generated, vec!["AGENTS.md"]);
     assert_eq!(sh(&f.wt, &["status", "--porcelain"]), "");
-    let exclude = PathBuf::from(
-        read(&f.dirs).agents["agent-1"]
-            .exclude_file
-            .clone()
-            .unwrap(),
-    );
-    assert!(std::fs::read_to_string(&exclude)
-        .unwrap()
-        .contains("/AGENTS.md"));
+    let exclude = PathBuf::from(read(&f.dirs).agents["agent-1"].exclude_file.clone().unwrap());
+    assert!(std::fs::read_to_string(&exclude).unwrap().contains("/AGENTS.md"));
 
     // Unassigning removes what Pitwall wrote and its exclude block.
     update(&f.dirs, |s| {
@@ -299,9 +190,7 @@ fn e2e_codex_and_cleanup() {
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &c, false).unwrap();
     assert!(res.generated.is_empty());
     assert!(!f.wt.join("AGENTS.md").exists());
-    assert!(!std::fs::read_to_string(&exclude)
-        .unwrap()
-        .contains("pitwall rules agent-1"));
+    assert!(!std::fs::read_to_string(&exclude).unwrap().contains("pitwall rules agent-1"));
 }
 
 #[test]
@@ -309,44 +198,28 @@ fn e2e_project_rulesync_is_an_input_root() {
     let Some(r) = real_runner() else { return };
     let f = fixture();
     // The project uses rulesync itself (generated files untracked).
-    write(
-        &f.wt.join(".rulesync/rules/project.md"),
-        "---\nroot: false\ntargets: [\"*\"]\n---\nProject rule.\n",
-    );
+    write(&f.wt.join(".rulesync/rules/project.md"), "---\nroot: false\ntargets: [\"*\"]\n---\nProject rule.\n");
     assign(&f, &["style.md"], &[]);
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &ctx(&f, "claudecode"), false).unwrap();
-    assert!(
-        res.generated
-            .contains(&".claude/rules/project.md".to_string()),
-        "{res:?}"
-    );
-    assert!(res
-        .generated
-        .contains(&".claude/rules/style.md".to_string()));
+    assert!(res.generated.contains(&".claude/rules/project.md".to_string()), "{res:?}");
+    assert!(res.generated.contains(&".claude/rules/style.md".to_string()));
 }
 
 #[test]
 fn e2e_import_file() {
     let Some(r) = real_runner() else { return };
     let t = Tmp::new("import");
-    let dirs = Dirs {
-        base: t.0.join("pitwall"),
-    };
+    let dirs = Dirs { base: t.0.join("pitwall") };
     let proj = t.0.join("myproj");
     write(&proj.join("CLAUDE.md"), "# Mine\n\nAlways test.\n");
-    let (added, _log) =
-        library::import_file(&dirs, &r, proj.join("CLAUDE.md").to_str().unwrap()).unwrap();
+    let (added, _log) = library::import_file(&dirs, &r, proj.join("CLAUDE.md").to_str().unwrap()).unwrap();
     assert_eq!(added, vec!["myproj.md"]);
     let lib = library::list(&dirs, &[]);
     assert_eq!(lib.len(), 1);
     assert!(lib[0].root);
     // The source project is untouched (no .rulesync created there).
     assert!(!proj.join(".rulesync").exists());
-    assert!(!dirs
-        .run()
-        .read_dir()
-        .map(|mut d| d.next().is_some())
-        .unwrap_or(false));
+    assert!(!dirs.run().read_dir().map(|mut d| d.next().is_some()).unwrap_or(false));
 }
 
 /// Unassigning cleans up in the agent's folder through its machine's exec:
@@ -354,9 +227,7 @@ fn e2e_import_file() {
 #[test]
 fn cleanup_goes_through_the_agents_machine() {
     let t = Tmp::new("fake-cleanup");
-    let dirs = Dirs {
-        base: t.0.join("pw"),
-    };
+    let dirs = Dirs { base: t.0.join("pw") };
     let x = FakeExec::new();
     let exclude = "/w/.git/info/exclude";
     x.dir("/w")
@@ -367,14 +238,8 @@ fn cleanup_goes_through_the_agents_machine() {
     update(&dirs, |s| {
         let st = s.agents.entry("a".into()).or_default();
         st.files = vec![
-            GenFile {
-                path: ".claude/rules/x.md".into(),
-                hash: apply::content_hash(b"gen"),
-            },
-            GenFile {
-                path: "edited.md".into(),
-                hash: apply::content_hash(b"original"),
-            },
+            GenFile { path: ".claude/rules/x.md".into(), hash: apply::content_hash(b"gen") },
+            GenFile { path: "edited.md".into(), hash: apply::content_hash(b"original") },
         ];
         st.exclude_file = Some(exclude.into());
         Ok(())
@@ -395,11 +260,6 @@ fn cleanup_goes_through_the_agents_machine() {
     assert!(x.contents("/w/edited.md").is_some());
     assert_eq!(x.contents(exclude).as_deref(), Some(&b"*.log\n"[..]));
     // Gone folders are reported, not created.
-    let gone = AgentCtx {
-        cwd: "/nowhere".into(),
-        ..ctx
-    };
-    assert!(apply_with(&dirs, None, &*x, &gone, false)
-        .unwrap_err()
-        .contains("no longer exists"));
+    let gone = AgentCtx { cwd: "/nowhere".into(), ..ctx };
+    assert!(apply_with(&dirs, None, &*x, &gone, false).unwrap_err().contains("no longer exists"));
 }

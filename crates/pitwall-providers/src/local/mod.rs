@@ -10,16 +10,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::hold;
-pub use crate::hold::HoldTerm;
 use pitwall_core::exec::{Exec, LocalExec};
 use pitwall_core::kind::catalog::program;
 use pitwall_core::kind::{launch, KindCatalog};
 use pitwall_core::provider::{
-    CreateSpec, Discovered, ErrorCode, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec,
-    Locator, Machine, MachineId, NativeState, Provider, ProviderCaps, ProviderId, PwError, Result,
-    Started, TermIo, TermSize,
+    CreateSpec, Discovered, ErrorCode, HookTransport, KindOnMachine, LaunchIntent, LaunchSpec, Locator, Machine,
+    MachineId, NativeState, Provider, ProviderCaps, ProviderId, PwError, Result, Started, TermIo, TermSize,
 };
+use crate::hold;
+pub use crate::hold::HoldTerm;
 use pitwall_hold::client;
 
 /// How long `stop` gives an agent after the hang-up before it is killed.
@@ -65,11 +64,7 @@ impl LocalProvider {
     pub fn new(cfg: LocalConfig) -> LocalProvider {
         LocalProvider {
             id: ProviderId::local(),
-            machine: Machine {
-                id: MachineId::new(MachineId::THIS_MAC),
-                label: pitwall_core::host::machine_label().into(),
-                detail: None,
-            },
+            machine: Machine { id: MachineId::new(MachineId::THIS_MAC), label: pitwall_core::host::machine_label().into(), detail: None },
             cfg,
             exec: Arc::new(LocalExec),
             resolved: Mutex::default(),
@@ -88,11 +83,7 @@ impl LocalProvider {
     }
 
     fn launch(&self, loc: Locator, spec: &LaunchSpec) -> Result<Started> {
-        let holder = self
-            .cfg
-            .holder_bin
-            .as_deref()
-            .map_err(|e| PwError::unsupported(e.clone()))?;
+        let holder = self.cfg.holder_bin.as_deref().map_err(|e| PwError::unsupported(e.clone()))?;
         let (session_id, resume) = match &spec.intent {
             LaunchIntent::Fresh => (None, false),
             LaunchIntent::Resume(id) => (Some(id.as_str()), true),
@@ -167,15 +158,8 @@ impl Provider for LocalProvider {
             .into_iter()
             .map(|kind| {
                 let p = program(&kind.command);
-                let path = resolved
-                    .entry(p.clone())
-                    .or_insert_with(|| resolve(&p))
-                    .clone();
-                KindOnMachine {
-                    installed: path.is_some(),
-                    path,
-                    kind,
-                }
+                let path = resolved.entry(p.clone()).or_insert_with(|| resolve(&p)).clone();
+                KindOnMachine { installed: path.is_some(), path, kind }
             })
             .collect())
     }
@@ -189,10 +173,7 @@ impl Provider for LocalProvider {
 
     fn create(&self, spec: &CreateSpec) -> Result<Started> {
         if *spec.machine != self.machine.id {
-            return Err(PwError::not_found(format!(
-                "no machine {} here",
-                spec.machine
-            )));
+            return Err(PwError::not_found(format!("no machine {} here", spec.machine)));
         }
         if !spec.options.is_empty() {
             return Err(PwError::unsupported("agents on this Mac work in a folder"));
@@ -238,13 +219,11 @@ impl Provider for LocalProvider {
 
     fn state(&self, loc: &Locator) -> Result<NativeState> {
         self.mine(loc)?;
-        Ok(
-            match client::connect(&self.socket(loc), hold::CONNECT_TIMEOUT) {
-                Ok(c) if c.info.exit.is_none() => NativeState::Running,
-                Ok(_) => NativeState::Stopped,
-                Err(_) => NativeState::Gone,
-            },
-        )
+        Ok(match client::connect(&self.socket(loc), hold::CONNECT_TIMEOUT) {
+            Ok(c) if c.info.exit.is_none() => NativeState::Running,
+            Ok(_) => NativeState::Stopped,
+            Err(_) => NativeState::Gone,
+        })
     }
 
     fn exec(&self, m: &MachineId) -> Result<Arc<dyn Exec>> {
@@ -256,44 +235,21 @@ impl Provider for LocalProvider {
 
     fn process_cwd(&self, loc: &Locator, pid: Option<u32>) -> Result<Option<String>> {
         self.mine(loc)?;
-        let Some(pid) = pid.or_else(|| self.child_pid(loc)) else {
-            return Ok(None);
-        };
+        let Some(pid) = pid.or_else(|| self.child_pid(loc)) else { return Ok(None) };
         Ok(pitwall_core::host::process_cwd(pid, LSOF_TIMEOUT))
     }
 
     fn process_cwds(&self, asks: &[(Locator, Option<u32>)]) -> Vec<Option<String>> {
-        let pids: Vec<Option<u32>> = asks
-            .iter()
-            .map(|(loc, pid)| {
-                self.mine(loc)
-                    .ok()
-                    .and_then(|_| pid.or_else(|| self.child_pid(loc)))
-            })
-            .collect();
+        let pids: Vec<Option<u32>> =
+            asks.iter().map(|(loc, pid)| self.mine(loc).ok().and_then(|_| pid.or_else(|| self.child_pid(loc)))).collect();
         let known: Vec<u32> = pids.iter().flatten().copied().collect();
-        let found = if known.is_empty() {
-            None
-        } else {
-            pitwall_core::host::process_cwds(&known, LSOF_TIMEOUT)
-        };
+        let found = if known.is_empty() { None } else { pitwall_core::host::process_cwds(&known, LSOF_TIMEOUT) };
         let found = found.unwrap_or_default();
-        pids.iter()
-            .map(|p| {
-                p.and_then(|p| {
-                    found
-                        .iter()
-                        .find(|(q, _)| *q == p)
-                        .map(|(_, cwd)| cwd.clone())
-                })
-            })
-            .collect()
+        pids.iter().map(|p| p.and_then(|p| found.iter().find(|(q, _)| *q == p).map(|(_, cwd)| cwd.clone()))).collect()
     }
 
     fn capture(&self, _loc: &Locator) -> Result<String> {
-        Err(PwError::unsupported(
-            "this Mac's terminals are read through their holder, not captured",
-        ))
+        Err(PwError::unsupported("this Mac's terminals are read through their holder, not captured"))
     }
 }
 
@@ -303,12 +259,7 @@ mod tests {
 
     fn provider(holder: std::result::Result<PathBuf, String>) -> LocalProvider {
         let dir = std::env::temp_dir().join(format!("pw-local-{}", std::process::id()));
-        LocalProvider::new(LocalConfig {
-            hold_dir: dir.join("hold"),
-            holder_bin: holder,
-            hook_socket: dir.join("hook.sock"),
-            cli_socket: dir.join("cli.sock"),
-        })
+        LocalProvider::new(LocalConfig { hold_dir: dir.join("hold"), holder_bin: holder, hook_socket: dir.join("hook.sock"), cli_socket: dir.join("cli.sock") })
     }
 
     #[test]
@@ -331,19 +282,9 @@ mod tests {
             },
         };
         let e = p.create(&spec).err().unwrap();
-        assert_eq!(
-            (e.code, e.message.as_str()),
-            (
-                ErrorCode::Unsupported,
-                "the terminal holder (pitwall-hold) is missing"
-            )
-        );
-        let options =
-            std::collections::BTreeMap::from([("workspace".to_string(), "w".to_string())]);
-        let other = CreateSpec {
-            options: &options,
-            ..spec.clone()
-        };
+        assert_eq!((e.code, e.message.as_str()), (ErrorCode::Unsupported, "the terminal holder (pitwall-hold) is missing"));
+        let options = std::collections::BTreeMap::from([("workspace".to_string(), "w".to_string())]);
+        let other = CreateSpec { options: &options, ..spec.clone() };
         assert!(p.create(&other).err().unwrap().is(ErrorCode::Unsupported));
     }
 
@@ -355,11 +296,7 @@ mod tests {
         assert!(p.exec(&MachineId::new("vm")).is_err());
         let here = Locator::local("never-started");
         assert_eq!(p.state(&here).unwrap(), NativeState::Gone);
-        assert!(p
-            .attach(&here, TermSize::DEFAULT)
-            .err()
-            .unwrap()
-            .is(ErrorCode::NotRunning));
+        assert!(p.attach(&here, TermSize::DEFAULT).err().unwrap().is(ErrorCode::NotRunning));
         assert!(p.stop(&here).is_ok());
         assert!(p.capture(&here).unwrap_err().is(ErrorCode::Unsupported));
         assert_eq!(p.process_cwd(&here, None).unwrap(), None);
@@ -371,21 +308,10 @@ mod tests {
         let here = Locator::local("never-started");
         let elsewhere = Locator::new(&ProviderId::new("agw"), &MachineId::new("vm"), "s");
         let me = std::process::id();
-        let got = p.process_cwds(&[
-            (here.clone(), Some(me)),
-            (here, None),
-            (elsewhere, Some(me)),
-        ]);
+        let got = p.process_cwds(&[(here.clone(), Some(me)), (here, None), (elsewhere, Some(me))]);
         let cwd = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
         assert_eq!(got.len(), 3);
-        assert_eq!(
-            got[0].as_deref().map(std::path::Path::new),
-            Some(cwd.as_path())
-        );
-        assert_eq!(
-            (got[1].as_deref(), got[2].as_deref()),
-            (None, None),
-            "no process; not this Mac"
-        );
+        assert_eq!(got[0].as_deref().map(std::path::Path::new), Some(cwd.as_path()));
+        assert_eq!((got[1].as_deref(), got[2].as_deref()), (None, None), "no process; not this Mac");
     }
 }

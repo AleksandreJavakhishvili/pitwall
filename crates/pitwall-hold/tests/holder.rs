@@ -48,12 +48,7 @@ fn start(tag: &str, program: &str, args: &[&str], grace_ms: u64) -> Held {
     );
     cmd.env("PW_TEST_MARK", "marked");
     let (holder, child) = client::launch(&mut cmd).expect("holder starts");
-    Held {
-        dir,
-        socket,
-        holder,
-        child,
-    }
+    Held { dir, socket, holder, child }
 }
 
 impl Held {
@@ -83,16 +78,7 @@ impl Drop for Held {
 /// PowerShell, which every Windows has).
 fn script(unix: &str, windows: &str) -> (&'static str, Vec<String>) {
     if cfg!(windows) {
-        (
-            "powershell.exe",
-            vec![
-                "-NoLogo".into(),
-                "-NoProfile".into(),
-                "-NonInteractive".into(),
-                "-Command".into(),
-                windows.into(),
-            ],
-        )
+        ("powershell.exe", vec!["-NoLogo".into(), "-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), windows.into()])
     } else {
         ("/bin/sh", vec!["-c".into(), unix.into()])
     }
@@ -108,13 +94,8 @@ fn start_script(tag: &str, unix: &str, windows: &str, grace_ms: u64) -> Held {
 const ENTER: &str = if cfg!(windows) { "\r" } else { "\n" };
 
 /// Read frames until `done(collected_output, last_msg)` or the timeout.
-fn read_until(
-    c: &mut Conn,
-    secs: u64,
-    mut done: impl FnMut(&str, &Msg) -> bool,
-) -> (String, Vec<Msg>) {
-    c.set_recv_timeout(Some(Duration::from_millis(200)))
-        .unwrap();
+fn read_until(c: &mut Conn, secs: u64, mut done: impl FnMut(&str, &Msg) -> bool) -> (String, Vec<Msg>) {
+    c.set_recv_timeout(Some(Duration::from_millis(200))).unwrap();
     let deadline = Instant::now() + Duration::from_secs(secs);
     let mut text = String::new();
     let mut msgs = Vec::new();
@@ -131,11 +112,7 @@ fn read_until(
                 }
             }
             Ok(None) => break,
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
             Err(e) => panic!("recv: {e}"),
         }
     }
@@ -171,26 +148,18 @@ fn input_resize_status_and_env() {
     let want = if cfg!(windows) {
         "ready marked ".to_string()
     } else {
-        format!(
-            "ready marked {}",
-            std::fs::canonicalize(&h.dir).unwrap().display()
-        )
+        format!("ready marked {}", std::fs::canonicalize(&h.dir).unwrap().display())
     };
     let name = h.dir.file_name().unwrap().to_string_lossy().into_owned();
     let (text, _) = read_until(&mut c, 10, |t, _| t.contains(&want) && t.contains(&name));
-    assert!(
-        text.contains(&want) && text.contains(&name),
-        "env + cwd reach the child: {text:?}"
-    );
+    assert!(text.contains(&want) && text.contains(&name), "env + cwd reach the child: {text:?}");
 
-    c.send(&proto::input(format!("hello{ENTER}").as_bytes()))
-        .unwrap();
+    c.send(&proto::input(format!("hello{ENTER}").as_bytes())).unwrap();
     let (text, _) = read_until(&mut c, 10, |t, _| t.contains("got:hello"));
     assert!(text.contains("got:hello"), "{text:?}");
 
     c.send(&proto::resize(90, 33)).unwrap();
-    c.send(&proto::input(format!("size{ENTER}").as_bytes()))
-        .unwrap();
+    c.send(&proto::input(format!("size{ENTER}").as_bytes())).unwrap();
     let (text, _) = read_until(&mut c, 10, |t, _| t.contains("33 90"));
     assert!(text.contains("33 90"), "{text:?}");
     let info = c.status().unwrap();
@@ -210,23 +179,11 @@ fn second_holder_on_a_live_socket_is_refused() {
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
     let mut cmd = client::command(
         Path::new(BIN),
-        &Launch {
-            socket: &h.socket,
-            cols: 80,
-            rows: 24,
-            cwd: None,
-            grace: None,
-            program: program.as_ref(),
-            args: &args,
-        },
+        &Launch { socket: &h.socket, cols: 80, rows: 24, cwd: None, grace: None, program: program.as_ref(), args: &args },
     );
     let err = client::launch(&mut cmd).unwrap_err();
     assert!(err.to_string().contains("already uses"), "{err}");
-    assert_eq!(
-        h.connect().info.child_pid,
-        h.child,
-        "the original is untouched"
-    );
+    assert_eq!(h.connect().info.child_pid, h.child, "the original is untouched");
 }
 
 #[test]
@@ -238,8 +195,7 @@ fn other_protocol_versions_get_welcome_then_close() {
         s
     };
     let mut s = raw();
-    s.write_all(&proto::encode(proto::HELLO, &99u16.to_be_bytes()))
-        .unwrap();
+    s.write_all(&proto::encode(proto::HELLO, &99u16.to_be_bytes())).unwrap();
     let (ty, body) = proto::read_frame(&mut s).unwrap().unwrap();
     match Msg::decode(ty, body).unwrap() {
         Msg::Welcome { version, info } => {
@@ -248,10 +204,7 @@ fn other_protocol_versions_get_welcome_then_close() {
         }
         m => panic!("expected WELCOME, got {m:?}"),
     }
-    assert!(
-        proto::read_frame(&mut s).unwrap().is_none(),
-        "closed after WELCOME"
-    );
+    assert!(proto::read_frame(&mut s).unwrap().is_none(), "closed after WELCOME");
 
     // Anything before HELLO is an error.
     let mut s = raw();
@@ -262,12 +215,7 @@ fn other_protocol_versions_get_welcome_then_close() {
 
 #[test]
 fn holder_exits_after_its_child_with_a_readable_final_status() {
-    let h = start_script(
-        "exit",
-        "sleep 0.3; echo bye; exit 3",
-        "Start-Sleep -Milliseconds 300; Write-Output bye; exit 3",
-        1500,
-    );
+    let h = start_script("exit", "sleep 0.3; echo bye; exit 3", "Start-Sleep -Milliseconds 300; Write-Output bye; exit 3", 1500);
     let mut c = h.connect();
     c.send(&proto::attach(true)).unwrap();
     let (text, msgs) = read_until(&mut c, 10, |_, m| matches!(m, Msg::Exit(_)));
@@ -334,15 +282,8 @@ while True:
 
     // Detached: the holder is not our child (re-parented) and not in our session.
     if cfg!(unix) {
-        let ppid = std::process::Command::new("ps")
-            .args(["-o", "ppid=", "-p", &h.holder.to_string()])
-            .output()
-            .unwrap();
-        assert_eq!(
-            String::from_utf8_lossy(&ppid.stdout).trim(),
-            "1",
-            "holder is re-parented"
-        );
+        let ppid = std::process::Command::new("ps").args(["-o", "ppid=", "-p", &h.holder.to_string()]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&ppid.stdout).trim(), "1", "holder is re-parented");
     }
 
     let mut c = h.connect();
@@ -354,50 +295,25 @@ while True:
         .and_then(|r| r.split_whitespace().next())
         .and_then(|p| p.parse().ok())
         .unwrap_or_else(|| panic!("no port in {text:?}"));
-    let last_tick = |t: &str| {
-        t.rsplit("tick ")
-            .next()
-            .and_then(|r| r.split_whitespace().next())
-            .and_then(|n| n.parse::<u32>().ok())
-            .unwrap_or(0)
-    };
+    let last_tick = |t: &str| t.rsplit("tick ").next().and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse::<u32>().ok()).unwrap_or(0);
     let before = last_tick(&text);
     assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
 
     // The client side goes away entirely (the app quits / is rebuilt).
     drop(c);
     std::thread::sleep(Duration::from_millis(800));
-    assert!(
-        TcpStream::connect(("127.0.0.1", port)).is_ok(),
-        "port still open with no client"
-    );
+    assert!(TcpStream::connect(("127.0.0.1", port)).is_ok(), "port still open with no client");
 
     // A new client comes back: same process, history replayed, output continues.
     let mut c = h.connect();
     assert_eq!(c.info.child_pid, h.child, "no respawn");
     assert_eq!(c.info.exit, None);
     c.send(&proto::attach(true)).unwrap();
-    let (text, msgs) = read_until(&mut c, 15, |t, m| {
-        matches!(m, Msg::Output(_)) && last_tick(t) > before + 8
-    });
-    assert_eq!(
-        text.matches("started pid=").count(),
-        1,
-        "started once: {text:?}"
-    );
-    assert!(
-        text.contains(&format!("started pid={} port={port}", h.child)),
-        "the child is the agent itself"
-    );
-    assert!(
-        matches!(msgs.first(), Some(Msg::Replay(_))),
-        "history first"
-    );
-    assert!(
-        last_tick(&text) > before + 8,
-        "output kept going: {before} → {}",
-        last_tick(&text)
-    );
+    let (text, msgs) = read_until(&mut c, 15, |t, m| matches!(m, Msg::Output(_)) && last_tick(t) > before + 8);
+    assert_eq!(text.matches("started pid=").count(), 1, "started once: {text:?}");
+    assert!(text.contains(&format!("started pid={} port={port}", h.child)), "the child is the agent itself");
+    assert!(matches!(msgs.first(), Some(Msg::Replay(_))), "history first");
+    assert!(last_tick(&text) > before + 8, "output kept going: {before} → {}", last_tick(&text));
     assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
 
     // Only an explicit request ends it.
@@ -405,8 +321,5 @@ while True:
     let (_, msgs) = read_until(&mut c, 10, |_, m| matches!(m, Msg::Exit(_)));
     assert!(matches!(msgs.last(), Some(Msg::Exit(_))));
     assert!(wait_gone(&h, 5));
-    assert!(
-        TcpStream::connect(("127.0.0.1", port)).is_err(),
-        "port closed with the agent"
-    );
+    assert!(TcpStream::connect(("127.0.0.1", port)).is_err(), "port closed with the agent");
 }

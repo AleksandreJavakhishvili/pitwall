@@ -65,9 +65,7 @@ impl Paths {
 
     /// The hook relay (`pitwall-hook`; `.exe` on Windows).
     pub fn hook_script(&self) -> PathBuf {
-        self.root
-            .join("bin")
-            .join(format!("pitwall-hook{}", std::env::consts::EXE_SUFFIX))
+        self.root.join("bin").join(format!("pitwall-hook{}", std::env::consts::EXE_SUFFIX))
     }
 
     pub fn user_agents_dir(&self) -> PathBuf {
@@ -93,9 +91,7 @@ pub fn tildify(path: &str) -> String {
 
 /// [`tildify`] for a machine whose home is `home` (`None`: unknown, shown as is).
 pub fn tildify_in(home: Option<&str>, path: &str) -> String {
-    let Some(home) = home.filter(|h| !h.is_empty()) else {
-        return path.to_string();
-    };
+    let Some(home) = home.filter(|h| !h.is_empty()) else { return path.to_string() };
     match path.strip_prefix(home) {
         Some(rest) if rest.is_empty() || rest.starts_with(['/', '\\']) => format!("~{rest}"),
         _ => path.to_string(),
@@ -107,11 +103,7 @@ pub fn expand_tilde_in(home: Option<&str>, p: &str) -> String {
     match (p.strip_prefix('~'), home) {
         (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
             let rest = rest.trim_start_matches('/');
-            if rest.is_empty() {
-                home.to_string()
-            } else {
-                format!("{}/{rest}", home.trim_end_matches('/'))
-            }
+            if rest.is_empty() { home.to_string() } else { format!("{}/{rest}", home.trim_end_matches('/')) }
         }
         _ => p.to_string(),
     }
@@ -120,9 +112,7 @@ pub fn expand_tilde_in(home: Option<&str>, p: &str) -> String {
 /// `~` / `~/x` as typed by the user → under the home folder.
 pub fn expand_tilde(p: &str) -> PathBuf {
     match p.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
-            home().join(rest.trim_start_matches('/'))
-        }
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => home().join(rest.trim_start_matches('/')),
         _ => PathBuf::from(p),
     }
 }
@@ -134,15 +124,7 @@ mod tests {
     #[test]
     fn everything_lives_under_the_root() {
         let p = Paths::new("/tmp/pw-root");
-        for f in [
-            p.state_file(),
-            p.projects_file(),
-            p.hook_socket(),
-            p.cli_socket(),
-            p.hold_dir(),
-            p.hook_script(),
-            p.user_agents_dir(),
-        ] {
+        for f in [p.state_file(), p.projects_file(), p.hook_socket(), p.cli_socket(), p.hold_dir(), p.hook_script(), p.user_agents_dir()] {
             assert!(f.starts_with("/tmp/pw-root"), "{}", f.display());
         }
         assert_eq!(p.root(), Path::new("/tmp/pw-root"));

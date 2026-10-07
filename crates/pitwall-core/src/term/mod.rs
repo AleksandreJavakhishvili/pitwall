@@ -83,9 +83,7 @@ impl TermHost {
             host.on_output(&history, false);
         }
         let h = host.clone();
-        let spawned = std::thread::Builder::new()
-            .name("term-read".into())
-            .spawn(move || h.read_loop(reader));
+        let spawned = std::thread::Builder::new().name("term-read".into()).spawn(move || h.read_loop(reader));
         if spawned.is_err() {
             host.ended.store(true, Ordering::Relaxed);
         }
@@ -132,10 +130,7 @@ impl TermHost {
                 return;
             }
             s.touch_input();
-            let _ = s.io.resize(TermSize {
-                rows: size.rows - 1,
-                ..size
-            });
+            let _ = s.io.resize(TermSize { rows: size.rows - 1, ..size });
             std::thread::sleep(Duration::from_millis(60));
             s.touch_input();
             let _ = s.io.resize(size);
@@ -180,8 +175,7 @@ impl TermHost {
     }
 
     pub fn touch_input(&self) {
-        self.last_input
-            .store(self.clock.mono_ms(), Ordering::Relaxed);
+        self.last_input.store(self.clock.mono_ms(), Ordering::Relaxed);
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {

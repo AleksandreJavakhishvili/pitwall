@@ -15,9 +15,7 @@ pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
         Ok(files) => files,
         Err(e) => {
             // Outside a repository: no diffs for it (caps.diff) and no polling.
-            if e == NOT_A_REPO
-                && engine.with(agent_id, |a| a.git_repo.replace(false) != Some(false))?
-            {
+            if e == NOT_A_REPO && engine.with(agent_id, |a| a.git_repo.replace(false) != Some(false))? {
                 engine.changed(false);
             }
             return Err(e);
@@ -77,13 +75,8 @@ mod tests {
         assert_eq!(files.len(), 2);
         let v = &h.engine.views()[0];
         assert_eq!((v.added, v.removed, v.files_changed), (2, 0, 2));
-        assert!(file_diff(&h.engine, "a", "a.txt", false)
-            .unwrap()
-            .contains("+2"));
-        assert_eq!(
-            file_diff(&h.engine, "a", "../x", false).unwrap_err(),
-            "invalid path"
-        );
+        assert!(file_diff(&h.engine, "a", "a.txt", false).unwrap().contains("+2"));
+        assert_eq!(file_diff(&h.engine, "a", "../x", false).unwrap_err(), "invalid path");
     }
 
     #[test]
@@ -117,43 +110,9 @@ mod tests {
 
     fn scripted(numstat: &str) -> Arc<FakeExec> {
         let x = FakeExec::new();
-        x.on(
-            &[
-                "git",
-                "-C",
-                "/w",
-                "diff",
-                "--raw",
-                "--numstat",
-                "-z",
-                "-M",
-                "HEAD",
-            ],
-            numstat,
-        )
-        .on(
-            &[
-                "git",
-                "-C",
-                "/w",
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-            ],
-            "",
-        )
-        .on(
-            &[
-                "git",
-                "-C",
-                "/w",
-                "symbolic-ref",
-                "--quiet",
-                "--short",
-                "HEAD",
-            ],
-            "main\n",
-        );
+        x.on(&["git", "-C", "/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"], numstat)
+            .on(&["git", "-C", "/w", "ls-files", "--others", "--exclude-standard"], "")
+            .on(&["git", "-C", "/w", "symbolic-ref", "--quiet", "--short", "HEAD"], "main\n");
         x
     }
 
@@ -172,31 +131,18 @@ mod tests {
             })
             .unwrap();
         h.clock.advance(1_000);
-        assert!(
-            super::super::ticker::git_due_for_test(&h.engine).is_empty(),
-            "not due"
-        );
+        assert!(super::super::ticker::git_due_for_test(&h.engine).is_empty(), "not due");
 
         let files = refresh(&h.engine, "a").unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(x.ran(DIFF), 1);
         let v = &h.engine.views()[0];
-        assert_eq!(
-            (v.added, v.removed, v.files_changed, v.branch.as_deref()),
-            (3, 1, 1, Some("main"))
-        );
-        assert_eq!(
-            h.engine.wait_dirty(),
-            (true, false),
-            "agents-changed goes out"
-        );
+        assert_eq!((v.added, v.removed, v.files_changed, v.branch.as_deref()), (3, 1, 1, Some("main")));
+        assert_eq!(h.engine.wait_dirty(), (true, false), "agents-changed goes out");
         h.engine
             .with("a", |a| {
                 assert_eq!(a.git_at, h.engine.now(), "counts as the latest look");
-                assert_eq!(
-                    a.git_every, 15_000,
-                    "a change resets the back-off to the provider's pace"
-                );
+                assert_eq!(a.git_every, 15_000, "a change resets the back-off to the provider's pace");
                 assert!(!a.git_inflight);
             })
             .unwrap();
@@ -210,12 +156,8 @@ mod tests {
     #[test]
     fn refresh_refuses_where_git_cant_run() {
         let h = Harness::with_exec(vec![record("a", "/w")], scripted(""));
-        h.engine
-            .with("a", |a| a.facts.provider.exec = false)
-            .unwrap();
-        assert!(refresh(&h.engine, "a")
-            .unwrap_err()
-            .contains("can't run git"));
+        h.engine.with("a", |a| a.facts.provider.exec = false).unwrap();
+        assert!(refresh(&h.engine, "a").unwrap_err().contains("can't run git"));
     }
 
     /// A machine whose `git diff` waits until the test lets it go.
@@ -229,11 +171,7 @@ mod tests {
         fn run(&self, cmd: &Cmd) -> PwResult<Out> {
             if cmd.argv.get(3) == Some(&"diff") {
                 let _ = self.entered.lock().unwrap().send(());
-                let _ = self
-                    .release
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(10));
+                let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(10));
             }
             self.inner.run(cmd)
         }
@@ -271,19 +209,13 @@ mod tests {
         let x = scripted("2\t0\tb.txt\0");
         let (entered_tx, entered) = channel();
         let (release, release_rx) = channel();
-        let gated = Arc::new(Gated {
-            inner: x.clone(),
-            entered: Mutex::new(entered_tx),
-            release: Mutex::new(release_rx),
-        });
+        let gated = Arc::new(Gated { inner: x.clone(), entered: Mutex::new(entered_tx), release: Mutex::new(release_rx) });
         let h = Harness::with_exec(vec![record("a", "/w")], gated);
         let first = {
             let e = h.engine.clone();
             std::thread::spawn(move || refresh(&e, "a"))
         };
-        entered
-            .recv_timeout(Duration::from_secs(10))
-            .expect("git started");
+        entered.recv_timeout(Duration::from_secs(10)).expect("git started");
         let second = {
             let e = h.engine.clone();
             std::thread::spawn(move || refresh(&e, "a"))
@@ -292,10 +224,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         release.send(()).unwrap();
-        let (a, b) = (
-            first.join().unwrap().unwrap(),
-            second.join().unwrap().unwrap(),
-        );
+        let (a, b) = (first.join().unwrap().unwrap(), second.join().unwrap().unwrap());
         assert_eq!(a, b, "the second caller gets the first one's result");
         assert_eq!(x.ran(DIFF), 1, "git ran once");
         assert!(!h.engine.with("a", |a| a.git_inflight).unwrap());
@@ -304,31 +233,8 @@ mod tests {
     #[test]
     fn git_runs_on_the_agents_machine() {
         let x = crate::testing::FakeExec::new();
-        x.on(
-            &[
-                "git",
-                "-C",
-                "/remote/w",
-                "diff",
-                "--raw",
-                "--numstat",
-                "-z",
-                "-M",
-                "HEAD",
-            ],
-            "4\t2\tsrc/a.rs\0",
-        )
-        .on(
-            &[
-                "git",
-                "-C",
-                "/remote/w",
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-            ],
-            "",
-        );
+        x.on(&["git", "-C", "/remote/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"], "4\t2\tsrc/a.rs\0")
+            .on(&["git", "-C", "/remote/w", "ls-files", "--others", "--exclude-standard"], "");
         let mut rec = record("a", "/remote/w");
         rec.base_commit = Some("b0".into());
         let h = Harness::with_exec(vec![rec], x.clone());

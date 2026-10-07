@@ -28,12 +28,7 @@ pub struct Caller {
 impl Caller {
     /// Someone outside Pitwall's agents (pid unknown).
     pub fn outside() -> Caller {
-        Caller {
-            pid: None,
-            agent: None,
-            process: None,
-            ui: false,
-        }
+        Caller { pid: None, agent: None, process: None, ui: false }
     }
 
     /// How the approval dialog names it.
@@ -97,12 +92,7 @@ pub fn ancestors(pid: u32, table: &HashMap<u32, Proc>) -> Vec<u32> {
 /// The agent the nearest ancestor in `chain` belongs to. `agents`: (agent
 /// id, name, pid of the process its holder runs).
 pub fn agent_of(chain: &[u32], agents: &[(String, String, u32)]) -> Option<(String, String)> {
-    chain.iter().find_map(|pid| {
-        agents
-            .iter()
-            .find(|(_, _, p)| p == pid)
-            .map(|(id, name, _)| (id.clone(), name.clone()))
-    })
+    chain.iter().find_map(|pid| agents.iter().find(|(_, _, p)| p == pid).map(|(id, name, _)| (id.clone(), name.clone())))
 }
 
 /// The real thing: the process table and the engine's agents.
@@ -118,9 +108,7 @@ impl ProcessIdentity {
 
 impl Identify for ProcessIdentity {
     fn identify(&self, pid: Option<u32>) -> Caller {
-        let Some(pid) = pid else {
-            return Caller::outside();
-        };
+        let Some(pid) = pid else { return Caller::outside() };
         let table = platform::process_table().unwrap_or_default();
         let chain = ancestors(pid, &table);
         let agent = agent_of(&chain, &self.engine.agent_pids());
@@ -128,12 +116,7 @@ impl Identify for ProcessIdentity {
         // In-process server: only this very process is Pitwall's UI. (A
         // standalone daemon will check the signed app's path instead.)
         let ui = pid == std::process::id() && agent.is_none();
-        Caller {
-            pid: Some(pid),
-            agent,
-            process,
-            ui,
-        }
+        Caller { pid: Some(pid), agent, process, ui }
     }
 }
 
@@ -142,44 +125,17 @@ mod tests {
     use super::*;
 
     fn table(rows: &[(u32, u32)]) -> HashMap<u32, Proc> {
-        rows.iter()
-            .map(|&(pid, ppid)| {
-                (
-                    pid,
-                    Proc {
-                        ppid,
-                        name: format!("p{pid}"),
-                    },
-                )
-            })
-            .collect()
+        rows.iter().map(|&(pid, ppid)| (pid, Proc { ppid, name: format!("p{pid}") })).collect()
     }
 
     #[test]
     fn walks_up_to_the_agent_its_holder_runs() {
         // launchd(1) → holder(100) → shell(101) → claude(102) → sh(103) → pitwall(104)
-        let t = table(&[
-            (100, 1),
-            (101, 100),
-            (102, 101),
-            (103, 102),
-            (104, 103),
-            (200, 1),
-            (201, 200),
-        ]);
+        let t = table(&[(100, 1), (101, 100), (102, 101), (103, 102), (104, 103), (200, 1), (201, 200)]);
         assert_eq!(ancestors(104, &t), [104, 103, 102, 101, 100]);
-        let agents = vec![
-            ("a1".to_string(), "api".to_string(), 101),
-            ("a2".into(), "web".into(), 201),
-        ];
-        assert_eq!(
-            agent_of(&ancestors(104, &t), &agents),
-            Some(("a1".into(), "api".into()))
-        );
-        assert_eq!(
-            agent_of(&ancestors(201, &t), &agents),
-            Some(("a2".into(), "web".into()))
-        );
+        let agents = vec![("a1".to_string(), "api".to_string(), 101), ("a2".into(), "web".into(), 201)];
+        assert_eq!(agent_of(&ancestors(104, &t), &agents), Some(("a1".into(), "api".into())));
+        assert_eq!(agent_of(&ancestors(201, &t), &agents), Some(("a2".into(), "web".into())));
         // Outside every agent (the user's own terminal), or a process that
         // isn't in the table any more.
         assert_eq!(agent_of(&ancestors(100, &t), &agents), None);
@@ -190,10 +146,7 @@ mod tests {
     fn the_nearest_agent_wins_and_loops_end() {
         // A terminal (301) running an agent that is itself tracked (303).
         let t = table(&[(301, 1), (302, 301), (303, 302), (304, 303)]);
-        let agents = vec![
-            ("outer".to_string(), "term".to_string(), 301),
-            ("inner".into(), "claude".into(), 303),
-        ];
+        let agents = vec![("outer".to_string(), "term".to_string(), 301), ("inner".into(), "claude".into(), 303)];
         assert_eq!(agent_of(&ancestors(304, &t), &agents).unwrap().0, "inner");
         let looped = table(&[(5, 6), (6, 5)]);
         assert_eq!(ancestors(5, &looped), [5, 6]);
@@ -201,17 +154,9 @@ mod tests {
 
     #[test]
     fn callers_are_named_for_the_dialog() {
-        let c = Caller {
-            pid: Some(7),
-            agent: Some(("a1".into(), "api".into())),
-            process: Some("pitwall".into()),
-            ui: false,
-        };
+        let c = Caller { pid: Some(7), agent: Some(("a1".into(), "api".into())), process: Some("pitwall".into()), ui: false };
         let r = c.requester();
-        assert_eq!(
-            (r.kind, r.name.as_str(), r.agent_id.as_deref()),
-            (RequesterKind::Agent, "api", Some("a1"))
-        );
+        assert_eq!((r.kind, r.name.as_str(), r.agent_id.as_deref()), (RequesterKind::Agent, "api", Some("a1")));
         assert_eq!(c.key(), "agent:a1");
         assert_eq!(Caller::outside().key(), "outside");
         assert_eq!(Caller::outside().requester().kind, RequesterKind::Outside);

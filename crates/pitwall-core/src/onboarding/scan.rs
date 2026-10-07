@@ -16,11 +16,11 @@ use serde_json::Value;
 
 use super::places::ScannedPlace;
 use super::project_list::{self, ProjectList};
-use crate::exec::local_stdout;
 use crate::kind::{HookMode, KindCatalog};
-use crate::model::CodexHooksStatus;
 use crate::model::KindView;
+use crate::model::CodexHooksStatus;
 use crate::paths::{self, Paths};
+use crate::exec::local_stdout;
 use crate::shell;
 use crate::{hooks, platform, procs};
 
@@ -159,22 +159,13 @@ pub fn scan(
     let folders = Folders::new(paths);
 
     let step = |name: &'static str, f: &mut dyn FnMut() -> StepOutcome| {
-        progress(ScanProgress {
-            step: name,
-            status: "running",
-            summary: None,
-        });
-        let outcome = std::panic::catch_unwind(AssertUnwindSafe(f))
-            .unwrap_or_else(|_| StepOutcome::Error("failed".into()));
+        progress(ScanProgress { step: name, status: "running", summary: None });
+        let outcome = std::panic::catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| StepOutcome::Error("failed".into()));
         let (status, summary) = match outcome {
             StepOutcome::Done(s) => ("done", s),
             StepOutcome::Error(s) => ("error", s),
         };
-        progress(ScanProgress {
-            step: name,
-            status,
-            summary: Some(summary),
-        });
+        progress(ScanProgress { step: name, status, summary: Some(summary) });
     };
 
     // Other places agents run (agw, …) are part of this step, not separate ones.
@@ -195,11 +186,7 @@ pub fn scan(
             })
             .collect();
         found.extend(result.places.iter().map(place_summary));
-        StepOutcome::Done(if found.is_empty() {
-            "none found".into()
-        } else {
-            found.join(" · ")
-        })
+        StepOutcome::Done(if found.is_empty() { "none found".into() } else { found.join(" · ") })
     });
 
     step("projects", &mut || {
@@ -225,20 +212,12 @@ pub fn scan(
         match running_elsewhere(&folders, kinds) {
             Some(list) => {
                 result.running = list;
-                let here = (!result.running.is_empty())
-                    .then(|| format!("{} on this Mac", result.running.len()));
+                let here = (!result.running.is_empty()).then(|| format!("{} on this Mac", result.running.len()));
                 let parts: Vec<String> = here.into_iter().chain(elsewhere).collect();
-                StepOutcome::Done(if parts.is_empty() {
-                    "none".into()
-                } else {
-                    parts.join(" · ")
-                })
+                StepOutcome::Done(if parts.is_empty() { "none".into() } else { parts.join(" · ") })
             }
             None => StepOutcome::Error(
-                std::iter::once("could not read the process list".to_string())
-                    .chain(elsewhere)
-                    .collect::<Vec<_>>()
-                    .join(" · "),
+                std::iter::once("could not read the process list".to_string()).chain(elsewhere).collect::<Vec<_>>().join(" · "),
             ),
         }
     });
@@ -250,30 +229,18 @@ pub fn scan(
         for p in &mut result.projects {
             p.rules = rules_in(Path::new(&p.path));
         }
-        let n = result
-            .projects
-            .iter()
-            .filter(|p| p.rules != RulesInfo::default())
-            .count();
+        let n = result.projects.iter().filter(|p| p.rules != RulesInfo::default()).count();
         StepOutcome::Done(format!("{} with rule files", plural(n, "project")))
     });
 
     step("hooks", &mut || {
         // Only when an installed agent takes its hooks from Codex's global file.
         let installed = |id: &str| views.iter().any(|v| v.id == id && v.installed);
-        if !kinds
-            .kinds()
-            .iter()
-            .any(|k| k.hooks == HookMode::CodexGlobal && installed(&k.id))
-        {
+        if !kinds.kinds().iter().any(|k| k.hooks == HookMode::CodexGlobal && installed(&k.id)) {
             return StepOutcome::Done("No agent needs global hooks".into());
         }
         let status = hooks::codex_status(paths);
-        let summary = if status.installed {
-            "Codex hooks installed"
-        } else {
-            "Codex hooks not installed"
-        };
+        let summary = if status.installed { "Codex hooks installed" } else { "Codex hooks not installed" };
         result.codex_hooks = Some(status);
         StepOutcome::Done(summary.into())
     });
@@ -316,8 +283,7 @@ fn scan_agents(views: &[KindView]) -> Vec<ScannedAgent> {
             .map(|k| {
                 s.spawn(move || {
                     let version = k.path.as_deref().and_then(|p| {
-                        login_shell(&shell::LoginShell::current().invoke(p, "--version"))
-                            .and_then(|o| version_line(&o))
+                        login_shell(&shell::LoginShell::current().invoke(p, "--version")).and_then(|o| version_line(&o))
                     });
                     ScannedAgent {
                         kind: k.id,
@@ -406,8 +372,7 @@ impl Found {
                     is_git: Path::new(p).join(".git").exists(),
                     last_used: c.and_then(|c| c.last_used),
                     sources: c.map(|c| c.sources.clone()).unwrap_or_default(),
-                    agent_history: c
-                        .is_some_and(|c| c.sources.iter().any(|s| !EDITOR_SOURCES.contains(s))),
+                    agent_history: c.is_some_and(|c| c.sources.iter().any(|s| !EDITOR_SOURCES.contains(s))),
                     added: known.contains(p),
                     rules: RulesInfo::default(),
                     path: p.clone(),
@@ -441,24 +406,12 @@ impl Folders {
     }
 
     fn usable(&self, path: &str) -> bool {
-        let tmp = std::env::temp_dir()
-            .to_string_lossy()
-            .trim_end_matches('/')
-            .to_string();
+        let tmp = std::env::temp_dir().to_string_lossy().trim_end_matches('/').to_string();
         // Scratch folders (agents run in temp dirs a lot) and Pitwall's own worktrees aren't projects.
-        let scratch = [
-            "/tmp",
-            "/private/tmp",
-            "/var/folders",
-            "/private/var/folders",
-            tmp.as_str(),
-            self.pitwall.as_str(),
-        ];
+        let scratch = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders", tmp.as_str(), self.pitwall.as_str()];
         path != "/"
             && path != self.home
-            && !scratch
-                .iter()
-                .any(|s| path == *s || path.starts_with(&format!("{s}/")))
+            && !scratch.iter().any(|s| path == *s || path.starts_with(&format!("{s}/")))
             && Path::new(path).is_dir()
     }
 
@@ -480,9 +433,7 @@ fn mtime_ms(meta: &std::fs::Metadata) -> u64 {
 
 /// `*.jsonl` files directly in `dir`, newest first.
 fn jsonl_files(dir: &Path) -> Vec<(PathBuf, u64)> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return vec![];
-    };
+    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
     let mut files: Vec<(PathBuf, u64)> = entries
         .flatten()
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
@@ -504,9 +455,11 @@ fn discover() -> Found {
     if let Ok(dirs) = std::fs::read_dir(home.join(".claude").join("projects")) {
         for dir in dirs.flatten() {
             let files = jsonl_files(&dir.path());
-            let Some(cwd) = files.iter().take(3).find_map(|(f, _)| {
-                open_lines(f).and_then(|r| parse_claude_transcript(r, false).cwd)
-            }) else {
+            let Some(cwd) = files
+                .iter()
+                .take(3)
+                .find_map(|(f, _)| open_lines(f).and_then(|r| parse_claude_transcript(r, false).cwd))
+            else {
                 continue;
             };
             found.add(&cwd, "claude", files.first().map(|f| f.1));
@@ -523,9 +476,7 @@ fn discover() -> Found {
     codex_files.truncate(MAX_CODEX_FILES);
     let mut per_cwd: HashMap<String, usize> = HashMap::new();
     for (file, t) in codex_files {
-        let Some(cwd) = open_lines(&file).and_then(|r| parse_codex_session(r, false).cwd) else {
-            continue;
-        };
+        let Some(cwd) = open_lines(&file).and_then(|r| parse_codex_session(r, false).cwd) else { continue };
         found.add(&cwd, "codex", Some(t));
         let n = per_cwd.entry(cwd).or_default();
         if *n < CONVERSATIONS_PER_PROJECT {
@@ -543,9 +494,7 @@ fn discover() -> Found {
 
     // One level deep in well-known code folders (never Desktop/Documents/Downloads).
     for root in CODE_ROOTS {
-        let Ok(entries) = std::fs::read_dir(home.join(root)) else {
-            continue;
-        };
+        let Ok(entries) = std::fs::read_dir(home.join(root)) else { continue };
         for e in entries.flatten().take(200) {
             let name = e.file_name().to_string_lossy().into_owned();
             let Ok(meta) = e.metadata() else { continue };
@@ -559,9 +508,7 @@ fn discover() -> Found {
 }
 
 fn collect_jsonl(dir: &Path, depth: u32, out: &mut Vec<(PathBuf, u64)>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
         let Ok(meta) = e.metadata() else { continue };
         let path = e.path();
@@ -584,10 +531,7 @@ fn editor_recents(app: &str) -> Vec<String> {
     let db = dir.join("state.vscdb");
     if db.is_file() {
         // Read-only + immutable: never takes a lock or writes a journal.
-        let uri = format!(
-            "file:{}?mode=ro&immutable=1",
-            percent_encode_path(&db.to_string_lossy())
-        );
+        let uri = format!("file:{}?mode=ro&immutable=1", percent_encode_path(&db.to_string_lossy()));
         let argv = [
             "/usr/bin/sqlite3",
             uri.as_str(),
@@ -643,9 +587,7 @@ fn percent_decode(s: &str) -> String {
 /// (`{"openedPathsList":{"workspaces3":[…],"entries":[…]}}`). Workspaces,
 /// files and remote folders are skipped.
 pub fn parse_vscode_recents(json: &str) -> Vec<String> {
-    let Ok(root) = serde_json::from_str::<Value>(json.trim()) else {
-        return vec![];
-    };
+    let Ok(root) = serde_json::from_str::<Value>(json.trim()) else { return vec![] };
     let lists: Vec<&Value> = match root.get("openedPathsList") {
         Some(opened) => ["entries", "workspaces3", "folders2", "folders"]
             .iter()
@@ -660,12 +602,7 @@ pub fn parse_vscode_recents(json: &str) -> Vec<String> {
             Value::Object(_) => item.get("folderUri").and_then(Value::as_str),
             _ => None,
         };
-        let Some(path) = uri
-            .and_then(|u| u.strip_prefix("file://"))
-            .map(percent_decode)
-        else {
-            continue;
-        };
+        let Some(path) = uri.and_then(|u| u.strip_prefix("file://")).map(percent_decode) else { continue };
         let path = project_list::normalize(&path);
         if !out.contains(&path) {
             out.push(path);
@@ -718,10 +655,7 @@ fn claude_user_text(content: &Value) -> Option<String> {
     match content {
         Value::String(s) => Some(s.clone()),
         Value::Array(items) => {
-            if items
-                .iter()
-                .any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result"))
-            {
+            if items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result")) {
                 return None;
             }
             let text: Vec<&str> = items
@@ -758,8 +692,7 @@ pub fn parse_claude_transcript(r: impl BufRead, want_title: bool) -> TranscriptI
                 .and_then(claude_user_text)
                 .and_then(|t| usable_prompt(&t));
         }
-        if info.cwd.is_some() && info.session_id.is_some() && (!want_title || info.title.is_some())
-        {
+        if info.cwd.is_some() && info.session_id.is_some() && (!want_title || info.title.is_some()) {
             break;
         }
     }
@@ -776,12 +709,7 @@ fn env_context_cwd(text: &str) -> Option<String> {
 fn codex_message_text(msg: &Value) -> Vec<&str> {
     msg.get("content")
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|i| i.get("text").and_then(Value::as_str))
-                .collect()
-        })
+        .map(|items| items.iter().filter_map(|i| i.get("text").and_then(Value::as_str)).collect())
         .unwrap_or_default()
 }
 
@@ -800,20 +728,11 @@ pub fn parse_codex_session(r: impl BufRead, want_title: bool) -> TranscriptInfo 
                     .or_else(|| p.get("session_id"))
                     .and_then(Value::as_str)
                     .map(String::from);
-                info.cwd = p
-                    .get("cwd")
-                    .and_then(Value::as_str)
-                    .map(String::from)
-                    .or(info.cwd);
+                info.cwd = p.get("cwd").and_then(Value::as_str).map(String::from).or(info.cwd);
             }
-            (Some("event_msg"), Some(p))
-                if p.get("type").and_then(Value::as_str) == Some("user_message") =>
-            {
+            (Some("event_msg"), Some(p)) if p.get("type").and_then(Value::as_str) == Some("user_message") => {
                 if want_title && info.title.is_none() {
-                    info.title = p
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .and_then(usable_prompt);
+                    info.title = p.get("message").and_then(Value::as_str).and_then(usable_prompt);
                 }
             }
             _ => {
@@ -826,9 +745,7 @@ pub fn parse_codex_session(r: impl BufRead, want_title: bool) -> TranscriptInfo 
                     (Some("message"), _) => Some(&v),
                     _ => None,
                 };
-                if let Some(msg) =
-                    msg.filter(|m| m.get("role").and_then(Value::as_str) == Some("user"))
-                {
+                if let Some(msg) = msg.filter(|m| m.get("role").and_then(Value::as_str) == Some("user")) {
                     for text in codex_message_text(msg) {
                         if info.cwd.is_none() {
                             info.cwd = env_context_cwd(text);
@@ -840,8 +757,7 @@ pub fn parse_codex_session(r: impl BufRead, want_title: bool) -> TranscriptInfo 
                 }
             }
         }
-        if info.cwd.is_some() && info.session_id.is_some() && (!want_title || info.title.is_some())
-        {
+        if info.cwd.is_some() && info.session_id.is_some() && (!want_title || info.title.is_some()) {
             break;
         }
     }
@@ -850,10 +766,7 @@ pub fn parse_codex_session(r: impl BufRead, want_title: bool) -> TranscriptInfo 
 
 // ------------------------------------------------------------------ 3. conversations
 
-fn conversations(
-    candidates: &[(&'static str, PathBuf, u64)],
-    folders: &Folders,
-) -> Vec<Conversation> {
+fn conversations(candidates: &[(&'static str, PathBuf, u64)], folders: &Folders) -> Vec<Conversation> {
     let mut out: Vec<Conversation> = candidates
         .iter()
         .filter_map(|(kind, file, t)| {
@@ -862,10 +775,7 @@ fn conversations(
                 "claude" => {
                     let mut info = parse_claude_transcript(r, true);
                     // The file name is the session id `claude --resume` takes.
-                    info.session_id = file
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .or(info.session_id);
+                    info.session_id = file.file_stem().map(|s| s.to_string_lossy().into_owned()).or(info.session_id);
                     info
                 }
                 _ => parse_codex_session(r, true),
@@ -877,12 +787,7 @@ fn conversations(
             }
             Some(Conversation {
                 kind: kind.to_string(),
-                kind_name: if *kind == "claude" {
-                    "Claude Code"
-                } else {
-                    "Codex"
-                }
-                .into(),
+                kind_name: if *kind == "claude" { "Claude Code" } else { "Codex" }.into(),
                 session_id: info.session_id?,
                 project_display: paths::tildify(&cwd),
                 project_path: cwd,
@@ -927,16 +832,9 @@ fn mark_running_elsewhere(conversations: &mut [Conversation], running: &[Running
 }
 
 /// Fill in the project the user picked last time for outside-project rows.
-pub fn apply_project_choices(
-    result: &mut ScanResult,
-    choices: &std::collections::BTreeMap<String, String>,
-) {
+pub fn apply_project_choices(result: &mut ScanResult, choices: &std::collections::BTreeMap<String, String>) {
     let usable = |p: &String| Path::new(p).is_dir();
-    for c in result
-        .conversations
-        .iter_mut()
-        .filter(|c| c.outside_project)
-    {
+    for c in result.conversations.iter_mut().filter(|c| c.outside_project) {
         c.display_project = choices.get(&c.session_id).filter(|p| usable(p)).cloned();
     }
     for r in result.running.iter_mut().filter(|r| r.outside_project) {
@@ -964,10 +862,7 @@ fn fill_running_sessions(running: &mut [RunningAgent], conversations: &[Conversa
                 .map(|c| c.session_id.clone());
         }
         if let Some(id) = &r.session_id {
-            r.title = conversations
-                .iter()
-                .find(|c| &c.session_id == id)
-                .map(|c| c.title.clone());
+            r.title = conversations.iter().find(|c| &c.session_id == id).map(|c| c.title.clone());
         }
     }
 }
@@ -998,31 +893,24 @@ fn running_elsewhere(folders: &Folders, kinds: &KindCatalog) -> Option<Vec<Runni
     Some(
         found
             .into_iter()
-            .map(
-                |procs::Found {
-                     pid,
-                     kind,
-                     kind_name,
-                     session_id,
-                 }| {
-                    let cwd = cwds.get(&pid).cloned();
-                    let outside_project = cwd
-                        .as_deref()
-                        .is_some_and(|c| !folders.usable(&project_list::normalize(c)));
-                    RunningAgent {
-                        pid,
-                        kind,
-                        kind_name,
-                        cwd_display: cwd.as_deref().map(paths::tildify),
-                        cwd,
-                        session_id,
-                        title: None,
-                        in_pitwall: false,
-                        outside_project,
-                        display_project: None,
-                    }
-                },
-            )
+            .map(|procs::Found { pid, kind, kind_name, session_id }| {
+                let cwd = cwds.get(&pid).cloned();
+                let outside_project = cwd
+                    .as_deref()
+                    .is_some_and(|c| !folders.usable(&project_list::normalize(c)));
+                RunningAgent {
+                    pid,
+                    kind,
+                    kind_name,
+                    cwd_display: cwd.as_deref().map(paths::tildify),
+                    cwd,
+                    session_id,
+                    title: None,
+                    in_pitwall: false,
+                    outside_project,
+                    display_project: None,
+                }
+            })
             .collect(),
     )
 }
@@ -1034,6 +922,7 @@ pub fn json_payload(out: &str) -> Option<Value> {
     let start = out.find(['[', '{'])?;
     serde_json::from_str(out[start..].trim()).ok()
 }
+
 
 // ------------------------------------------------------------------ 6. rules
 
@@ -1059,15 +948,9 @@ mod tests {
         let src = include_str!("scan_fixtures/claude_transcript.jsonl");
         let info = parse_claude_transcript(reader(src), true);
         assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/orders-api"));
-        assert_eq!(
-            info.session_id.as_deref(),
-            Some("19bd83bc-617c-4e41-8e79-ff6d237cff1c")
-        );
+        assert_eq!(info.session_id.as_deref(), Some("19bd83bc-617c-4e41-8e79-ff6d237cff1c"));
         let title = info.title.unwrap();
-        assert!(
-            title.starts_with("Fix the 500 on /v2/orders when the cart is empty. Add a regression"),
-            "{title}"
-        );
+        assert!(title.starts_with("Fix the 500 on /v2/orders when the cart is empty. Add a regression"), "{title}");
         assert!(title.chars().count() <= 80);
         assert!(title.ends_with('…'));
 
@@ -1078,73 +961,39 @@ mod tests {
 
     #[test]
     fn claude_transcript_without_prompt_has_no_title() {
-        let info = parse_claude_transcript(
-            reader(include_str!("scan_fixtures/claude_tool_only.jsonl")),
-            true,
-        );
+        let info = parse_claude_transcript(reader(include_str!("scan_fixtures/claude_tool_only.jsonl")), true);
         assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/handbook"));
         assert_eq!(info.session_id.as_deref(), Some("s2"));
         assert_eq!(info.title, None);
-        assert_eq!(
-            parse_claude_transcript(reader(""), true),
-            TranscriptInfo::default()
-        );
+        assert_eq!(parse_claude_transcript(reader(""), true), TranscriptInfo::default());
     }
 
     #[test]
     fn codex_session_meta() {
-        let info = parse_codex_session(
-            reader(include_str!("scan_fixtures/codex_session.jsonl")),
-            true,
-        );
+        let info = parse_codex_session(reader(include_str!("scan_fixtures/codex_session.jsonl")), true);
         assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/signup"));
-        assert_eq!(
-            info.session_id.as_deref(),
-            Some("615b8985-7987-4a23-b961-3eb1b48731ec")
-        );
-        assert_eq!(
-            info.title.as_deref(),
-            Some("add input validation to the signup form")
-        );
+        assert_eq!(info.session_id.as_deref(), Some("615b8985-7987-4a23-b961-3eb1b48731ec"));
+        assert_eq!(info.title.as_deref(), Some("add input validation to the signup form"));
     }
 
     #[test]
     fn codex_old_format() {
-        let info = parse_codex_session(
-            reader(include_str!("scan_fixtures/codex_session_old.jsonl")),
-            true,
-        );
+        let info = parse_codex_session(reader(include_str!("scan_fixtures/codex_session_old.jsonl")), true);
         assert_eq!(info.cwd.as_deref(), Some("/Users/dev/code/legacy"));
-        assert_eq!(
-            info.session_id.as_deref(),
-            Some("047921e2-e8c8-43fa-b1fe-14bbd6c814f0")
-        );
+        assert_eq!(info.session_id.as_deref(), Some("047921e2-e8c8-43fa-b1fe-14bbd6c814f0"));
         assert_eq!(info.title.as_deref(), Some("rename the config loader"));
     }
 
     #[test]
     fn vscode_recents_state_db_value() {
         let got = parse_vscode_recents(include_str!("scan_fixtures/vscode_recents.json"));
-        assert_eq!(
-            got,
-            vec![
-                "/Users/dev/Desktop/billing-api",
-                "/Users/dev/My Projects/web app"
-            ]
-        );
+        assert_eq!(got, vec!["/Users/dev/Desktop/billing-api", "/Users/dev/My Projects/web app"]);
     }
 
     #[test]
     fn vscode_recents_storage_json() {
         let got = parse_vscode_recents(include_str!("scan_fixtures/vscode_storage.json"));
-        assert_eq!(
-            got,
-            vec![
-                "/Users/dev/old/three",
-                "/Users/dev/old/one",
-                "/Users/dev/old/two"
-            ]
-        );
+        assert_eq!(got, vec!["/Users/dev/old/three", "/Users/dev/old/one", "/Users/dev/old/two"]);
         assert!(parse_vscode_recents("").is_empty());
         assert!(parse_vscode_recents("{\"theme\":1}").is_empty());
     }
@@ -1191,9 +1040,7 @@ mod tests {
         assert!(!folders.outside(&pw.legacy_worktrees_dir().to_string_lossy()));
         assert!(!folders.outside("/definitely/not/here"));
 
-        let mut list: Vec<Conversation> = (0..50)
-            .map(|i| conv("claude", &format!("p{i}"), "/p", 1000 - i))
-            .collect();
+        let mut list: Vec<Conversation> = (0..50).map(|i| conv("claude", &format!("p{i}"), "/p", 1000 - i)).collect();
         for i in 0..20 {
             let mut c = conv("claude", &format!("h{i}"), &home, 2000 - i);
             c.outside_project = true;
@@ -1201,14 +1048,8 @@ mod tests {
         }
         list.sort_by(|a, b| b.last_used.cmp(&a.last_used));
         let capped = cap_conversations(list);
-        assert_eq!(
-            capped.iter().filter(|c| c.outside_project).count(),
-            MAX_OUTSIDE_CONVERSATIONS
-        );
-        assert_eq!(
-            capped.iter().filter(|c| !c.outside_project).count(),
-            MAX_CONVERSATIONS
-        );
+        assert_eq!(capped.iter().filter(|c| c.outside_project).count(), MAX_OUTSIDE_CONVERSATIONS);
+        assert_eq!(capped.iter().filter(|c| !c.outside_project).count(), MAX_CONVERSATIONS);
         assert_eq!(capped[0].session_id, "h0");
     }
 
@@ -1224,10 +1065,7 @@ mod tests {
         gone.outside_project = true;
         let mut res = ScanResult {
             conversations: vec![h, gone, conv("claude", "p", "/p", 3)],
-            running: vec![
-                running("claude", Some(&home), Some("h")),
-                running("codex", Some("/p"), Some("p")),
-            ],
+            running: vec![running("claude", Some(&home), Some("h")), running("codex", Some("/p"), Some("p"))],
             ..Default::default()
         };
         res.running[0].outside_project = true;
@@ -1237,35 +1075,21 @@ mod tests {
         // A codex process doesn't make a claude session "running elsewhere".
         assert!(!res.conversations[2].running_elsewhere);
 
-        let choices = [
-            ("h", tmp.as_str()),
-            ("g", "/definitely/not/here"),
-            ("p", tmp.as_str()),
-        ]
-        .into_iter()
-        .map(|(a, b)| (a.to_string(), b.to_string()))
-        .collect();
+        let choices = [("h", tmp.as_str()), ("g", "/definitely/not/here"), ("p", tmp.as_str())]
+            .into_iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect();
         apply_project_choices(&mut res, &choices);
-        assert_eq!(
-            res.conversations[0].display_project.as_deref(),
-            Some(tmp.as_str())
-        );
+        assert_eq!(res.conversations[0].display_project.as_deref(), Some(tmp.as_str()));
         assert_eq!(res.conversations[1].display_project, None);
         assert_eq!(res.conversations[2].display_project, None);
-        assert_eq!(
-            res.running[0].display_project.as_deref(),
-            Some(tmp.as_str())
-        );
+        assert_eq!(res.running[0].display_project.as_deref(), Some(tmp.as_str()));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn running_sessions_fall_back_to_newest_transcript() {
-        let convs = vec![
-            conv("claude", "new", "/p", 9),
-            conv("codex", "cx", "/p", 8),
-            conv("claude", "old", "/p", 1),
-        ];
+        let convs = vec![conv("claude", "new", "/p", 9), conv("codex", "cx", "/p", 8), conv("claude", "old", "/p", 1)];
         let mut r = vec![
             running("claude", Some("/p/"), None),
             running("codex", Some("/p"), Some("given")),
@@ -1285,10 +1109,7 @@ mod tests {
     fn marks_sessions_pitwall_already_has() {
         let mut res = ScanResult {
             conversations: vec![conv("claude", "a", "/p", 2), conv("claude", "b", "/p", 1)],
-            running: vec![
-                running("claude", Some("/p"), Some("a")),
-                running("claude", Some("/p"), None),
-            ],
+            running: vec![running("claude", Some("/p"), Some("a")), running("claude", Some("/p"), None)],
             ..Default::default()
         };
         mark_in_pitwall(&mut res, &["a".to_string()].into_iter().collect());
@@ -1298,28 +1119,16 @@ mod tests {
 
     #[test]
     fn versions_and_counts() {
-        assert_eq!(
-            version_line("Last login: Mon 6 10:00\n2.1.3 (Claude Code)\n").as_deref(),
-            Some("2.1.3")
-        );
-        assert_eq!(
-            version_line("codex-cli 0.142.0").as_deref(),
-            Some("0.142.0")
-        );
+        assert_eq!(version_line("Last login: Mon 6 10:00\n2.1.3 (Claude Code)\n").as_deref(), Some("2.1.3"));
+        assert_eq!(version_line("codex-cli 0.142.0").as_deref(), Some("0.142.0"));
         assert_eq!(version_line("agw v0.19.0").as_deref(), Some("0.19.0"));
-        assert_eq!(
-            version_line("2025.09.18-7ae6800").as_deref(),
-            Some("2025.09.18-7ae6800")
-        );
+        assert_eq!(version_line("2025.09.18-7ae6800").as_deref(), Some("2025.09.18-7ae6800"));
         assert_eq!(version_line("no digits 42"), None);
     }
 
     #[test]
     fn json_after_noise() {
-        assert_eq!(
-            json_payload("Last login: Mon\n{\"a\":1}"),
-            Some(serde_json::json!({"a": 1}))
-        );
+        assert_eq!(json_payload("Last login: Mon\n{\"a\":1}"), Some(serde_json::json!({"a": 1})));
         assert!(json_payload("oops").is_none());
     }
 
@@ -1332,24 +1141,14 @@ mod tests {
             machines: Some(vec![]),
         };
         assert_eq!(place_summary(&p), "agw 0.19.0 (0 machines)");
-        assert_eq!(
-            place_summary(&ScannedPlace {
-                machines: None,
-                version: None,
-                ..p
-            }),
-            "agw"
-        );
+        assert_eq!(place_summary(&ScannedPlace { machines: None, version: None, ..p }), "agw");
     }
 
     #[test]
     fn paths_and_titles() {
         assert_eq!(percent_decode("/a%20b/%E2%9C%93"), "/a b/✓");
         assert_eq!(percent_decode("/50%"), "/50%");
-        assert_eq!(
-            percent_encode_path("/Library/Application Support/x"),
-            "/Library/Application%20Support/x"
-        );
+        assert_eq!(percent_encode_path("/Library/Application Support/x"), "/Library/Application%20Support/x");
         assert_eq!(title_of("  a\n\n b  "), "a b");
         assert_eq!(env_context_cwd("<cwd> /x </cwd>").as_deref(), Some("/x"));
     }
@@ -1374,23 +1173,13 @@ mod tests {
         let kinds = KindCatalog::new(pw.user_agents_dir());
         let projects = ProjectList::new(pw.projects_file());
         let t = Instant::now();
-        let r = scan(&pw, &kinds, &[], &projects, &Vec::new, &|p| {
-            eprintln!(
-                "{:>13} {:>8} {}",
-                p.step,
-                p.status,
-                p.summary.unwrap_or_default()
-            )
-        });
+        let r = scan(&pw, &kinds, &[], &projects, &Vec::new, &|p| eprintln!("{:>13} {:>8} {}", p.step, p.status, p.summary.unwrap_or_default()));
         eprintln!("took {:?}", t.elapsed());
         for p in r.projects.iter().take(12) {
             eprintln!("  {} {:?} {:?}", p.display, p.sources, p.last_used);
         }
         for c in r.conversations.iter().take(8) {
-            eprintln!(
-                "  [{}] {} — {} ({})",
-                c.kind, c.project_display, c.title, c.session_id
-            );
+            eprintln!("  [{}] {} — {} ({})", c.kind, c.project_display, c.title, c.session_id);
         }
         for a in &r.running {
             eprintln!("  pid {} {} {:?}", a.pid, a.kind, a.cwd_display);
@@ -1403,14 +1192,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".rulesync")).unwrap();
         std::fs::write(dir.join("AGENTS.md"), "x").unwrap();
-        assert_eq!(
-            rules_in(&dir),
-            RulesInfo {
-                rulesync: true,
-                claude_md: false,
-                agents_md: true
-            }
-        );
+        assert_eq!(rules_in(&dir), RulesInfo { rulesync: true, claude_md: false, agents_md: true });
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

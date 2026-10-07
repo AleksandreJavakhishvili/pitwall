@@ -52,8 +52,7 @@ pub fn full_disk_access_probes() -> Vec<io::Result<()>> {
     let home = home_dir();
     vec![
         // The per-user privacy database: present on every Mac.
-        std::fs::File::open(home.join("Library/Application Support/com.apple.TCC/TCC.db"))
-            .map(drop),
+        std::fs::File::open(home.join("Library/Application Support/com.apple.TCC/TCC.db")).map(drop),
         // Safari's data folder, in case the database moves.
         std::fs::read_dir(home.join("Library/Safari")).map(drop),
     ]
@@ -79,21 +78,14 @@ pub fn open_system_url(url: &str) -> Result<(), String> {
 
 /// `ps -axww -o pid=,ppid=,args=` output (parsed by `procs::parse_table`).
 pub fn process_table() -> Option<String> {
-    local_stdout(
-        &["/bin/ps", "-axww", "-o", "pid=,ppid=,args="],
-        PROCESS_TIMEOUT,
-    )
+    local_stdout(&["/bin/ps", "-axww", "-o", "pid=,ppid=,args="], PROCESS_TIMEOUT)
 }
 
 /// `(pid, cwd)` of each process in `pids` that lsof could see.
 pub fn process_cwds(pids: &[u32], timeout: Duration) -> Option<Vec<(u32, String)>> {
     let pids: Vec<String> = pids.iter().map(u32::to_string).collect();
     let pids = pids.join(",");
-    local_stdout(
-        &["/usr/sbin/lsof", "-a", "-d", "cwd", "-p", &pids, "-Fn"],
-        timeout,
-    )
-    .map(|out| parse_lsof_cwd(&out))
+    local_stdout(&["/usr/sbin/lsof", "-a", "-d", "cwd", "-p", &pids, "-Fn"], timeout).map(|out| parse_lsof_cwd(&out))
 }
 
 /// `(pid, cwd)` pairs from `lsof -a -d cwd -p <pids> -Fn`.

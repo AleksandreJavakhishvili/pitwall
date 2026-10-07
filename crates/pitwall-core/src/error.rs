@@ -33,10 +33,7 @@ pub type Result<T> = std::result::Result<T, PwError>;
 
 impl PwError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> PwError {
-        PwError {
-            code,
-            message: message.into(),
-        }
+        PwError { code, message: message.into() }
     }
     pub fn other(message: impl Into<String>) -> PwError {
         PwError::new(ErrorCode::Other, message)
@@ -56,10 +53,7 @@ impl PwError {
 
     /// The same code with `context: ` in front of the message.
     pub fn context(self, context: &str) -> PwError {
-        PwError {
-            code: self.code,
-            message: format!("{context}: {}", self.message),
-        }
+        PwError { code: self.code, message: format!("{context}: {}", self.message) }
     }
 
     pub fn is(&self, code: ErrorCode) -> bool {

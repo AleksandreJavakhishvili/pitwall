@@ -67,12 +67,7 @@ pub struct AgentNew {
     #[arg(long, requires = "machine")]
     pub provider: Option<String>,
     /// --machine: an existing workspace there.
-    #[arg(
-        long,
-        value_name = "NAME",
-        requires = "machine",
-        conflicts_with = "new_workspace"
-    )]
+    #[arg(long, value_name = "NAME", requires = "machine", conflicts_with = "new_workspace")]
     pub workspace: Option<String>,
     /// --machine: a new workspace (named NAME; default: the session's name).
     #[arg(long, value_name = "NAME", requires = "machine", num_args = 0..=1, default_missing_value = "")]
@@ -148,23 +143,8 @@ mod tests {
 
     #[test]
     fn parses_every_command() {
-        assert_eq!(
-            parse(&["agent", "list"]).unwrap().command,
-            Command::Agent(AgentCmd::List)
-        );
-        let c = parse(&[
-            "agent",
-            "new",
-            "--kind",
-            "claude",
-            "--project",
-            "~/p",
-            "--name",
-            "api",
-            "--resume",
-            "s-1",
-        ])
-        .unwrap();
+        assert_eq!(parse(&["agent", "list"]).unwrap().command, Command::Agent(AgentCmd::List));
+        let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(
             c.command,
             Command::Agent(AgentCmd::New(Box::new(AgentNew {
@@ -175,21 +155,7 @@ mod tests {
                 ..Default::default()
             })))
         );
-        let c = parse(&[
-            "agent",
-            "new",
-            "--machine",
-            "my-vm",
-            "--name",
-            "api-fix",
-            "--workspace",
-            "work",
-            "--as",
-            "admin",
-            "--template",
-            "claude",
-        ])
-        .unwrap();
+        let c = parse(&["agent", "new", "--machine", "my-vm", "--name", "api-fix", "--workspace", "work", "--as", "admin", "--template", "claude"]).unwrap();
         assert_eq!(
             c.command,
             Command::Agent(AgentCmd::New(Box::new(AgentNew {
@@ -201,66 +167,27 @@ mod tests {
                 ..Default::default()
             })))
         );
-        let Command::Agent(AgentCmd::New(n)) = parse(&[
-            "agent",
-            "new",
-            "--machine",
-            "vm",
-            "--name",
-            "s",
-            "--new-workspace",
-            "--as",
-            "new-agent:bot",
-        ])
-        .unwrap()
-        .command
-        else {
+        let Command::Agent(AgentCmd::New(n)) = parse(&["agent", "new", "--machine", "vm", "--name", "s", "--new-workspace", "--as", "new-agent:bot"]).unwrap().command else {
             panic!()
         };
-        assert_eq!(
-            (n.new_workspace.as_deref(), n.run_as.as_deref()),
-            (Some(""), Some("new-agent:bot"))
-        );
+        assert_eq!((n.new_workspace.as_deref(), n.run_as.as_deref()), (Some(""), Some("new-agent:bot")));
         assert_eq!(
             parse(&["machine", "form", "my-vm"]).unwrap().command,
-            Command::Machine(MachineCmd::Form {
-                machine: "my-vm".into(),
-                provider: None
-            })
+            Command::Machine(MachineCmd::Form { machine: "my-vm".into(), provider: None })
         );
+        assert_eq!(parse(&["machine", "list"]).unwrap().command, Command::Machine(MachineCmd::List));
         assert_eq!(
-            parse(&["machine", "list"]).unwrap().command,
-            Command::Machine(MachineCmd::List)
+            parse(&["session", "list", "--provider", "agw"]).unwrap().command,
+            Command::Session(SessionCmd::List { provider: Some("agw".into()), machine: None })
         );
-        assert_eq!(
-            parse(&["session", "list", "--provider", "agw"])
-                .unwrap()
-                .command,
-            Command::Session(SessionCmd::List {
-                provider: Some("agw".into()),
-                machine: None
-            })
-        );
-        let c = parse(&[
-            "--human", "session", "add", "agw", "vm-1", "work", "--start", "--socket", "/tmp/s",
-        ])
-        .unwrap();
+        let c = parse(&["--human", "session", "add", "agw", "vm-1", "work", "--start", "--socket", "/tmp/s"]).unwrap();
         assert!(c.human);
         assert_eq!(c.socket, Some(PathBuf::from("/tmp/s")));
         assert_eq!(
             c.command,
-            Command::Session(SessionCmd::Add {
-                provider: "agw".into(),
-                machine: "vm-1".into(),
-                name: "work".into(),
-                start: true
-            })
+            Command::Session(SessionCmd::Add { provider: "agw".into(), machine: "vm-1".into(), name: "work".into(), start: true })
         );
-        assert!(
-            !parse(&["session", "add", "agw", "vm-1", "work"])
-                .unwrap()
-                .human
-        );
+        assert!(!parse(&["session", "add", "agw", "vm-1", "work"]).unwrap().human);
     }
 
     #[test]
@@ -274,37 +201,9 @@ mod tests {
             // Platform options need a machine; a session there needs a name; no folder there.
             &["agent", "new", "--kind", "shell", "--workspace", "w"],
             &["agent", "new", "--machine", "vm"],
-            &[
-                "agent",
-                "new",
-                "--machine",
-                "vm",
-                "--name",
-                "s",
-                "--project",
-                "/p",
-            ],
-            &[
-                "agent",
-                "new",
-                "--machine",
-                "vm",
-                "--name",
-                "s",
-                "--workspace",
-                "w",
-                "--new-workspace",
-            ],
-            &[
-                "agent",
-                "new",
-                "--machine",
-                "vm",
-                "--name",
-                "s",
-                "--workspace-template",
-                "t",
-            ],
+            &["agent", "new", "--machine", "vm", "--name", "s", "--project", "/p"],
+            &["agent", "new", "--machine", "vm", "--name", "s", "--workspace", "w", "--new-workspace"],
+            &["agent", "new", "--machine", "vm", "--name", "s", "--workspace-template", "t"],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
