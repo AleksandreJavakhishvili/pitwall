@@ -18,9 +18,9 @@ env:
 
 jobs:
   rust:
-    name: Rust (test + clippy)
-    # The app is macOS-first: PTYs, the terminal holder and the platform layer
-    # are tested on the OS they ship on.
+    name: Rust on macOS (test + clippy)
+    # PTYs, the terminal holder and the platform layer are tested on each OS
+    # they ship on (Linux: rust-linux below).
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,41 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  rust-linux:
+    name: Rust on Linux (build + test + clippy)
+    # The Linux platform layer (/proc, XDG folders), the holder's forkpty and
+    # the app shell (WebKitGTK) are checked on the OS they ship on.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux build dependencies (https://v2.tauri.app/start/prerequisites/#linux).
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config patchelf \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev
+
+      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      # tauri-build needs the frontend dist folder to exist, even for tests.
+      - name: Placeholder frontend dist
+        run: mkdir -p dist
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets --target x86_64-unknown-linux-gnu
+
+      - name: cargo test
+        run: cargo test --workspace --target x86_64-unknown-linux-gnu
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
 
   web:
     name: UI (build + test) and website
