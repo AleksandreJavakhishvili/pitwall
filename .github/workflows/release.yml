@@ -1,5 +1,7 @@
 # Builds Pitwall.app as a universal macOS binary (Apple silicon + Intel), packs a
-# .dmg and an .app.tar.gz, and publishes them with SHA-256 checksums.
+# .dmg and an .app.tar.gz, and publishes them with SHA-256 checksums. A second
+# job builds the Windows installers (NSIS .exe and .msi, x64) and adds them to
+# the same release.
 #
 #   git tag v0.1.0 && git push origin v0.1.0     → GitHub Release with generated notes
 #   Actions → Release → Run workflow              → build only (artifacts on the run),
@@ -12,6 +14,11 @@
 #   APPLE_CERTIFICATE_PASSWORD  password of that .p12
 #   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID   for notarization
+#
+# Windows: unsigned by default (SmartScreen warns on first run; see README
+# "Windows"). For Authenticode signing add:
+#   WINDOWS_CERTIFICATE           base64 of the code-signing .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD  password of that .pfx
 name: Release
 
 on:
@@ -176,3 +183,97 @@ jobs:
           flags=(--verify-tag --generate-notes --notes "$note")
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" "${flags[@]}" "$ASSETS"/*
+
+  windows:
+    # After the macOS job, which creates the GitHub Release this adds to.
+    needs: macos
+    runs-on: windows-latest
+    env:
+      SECRET_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      SECRET_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="${INPUT_TAG}"; fi
+          echo "app=$app_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Authenticode only when a certificate is configured: import it and
+      # hand its thumbprint to Tauri, which signs the app and the installers.
+      - name: Signing mode
+        id: signing
+        shell: pwsh
+        run: |
+          if ($env:SECRET_WINDOWS_CERTIFICATE) {
+            $pfx = Join-Path $env:RUNNER_TEMP "pitwall.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SECRET_WINDOWS_CERTIFICATE))
+            $pw = ConvertTo-SecureString $env:SECRET_WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+            Remove-Item $pfx
+            $config = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint; digestAlgorithm = "sha256"; timestampUrl = "http://timestamp.digicert.com" } } } | ConvertTo-Json -Compress -Depth 5
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP "sign.json") -Value $config
+            "mode=authenticode" >> $env:GITHUB_OUTPUT
+          } else {
+            "mode=unsigned" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build the installers (NSIS + MSI)
+        env:
+          MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          flags=(--bundles nsis,msi)
+          if [ "$MODE" = authenticode ]; then flags+=(--config "$RUNNER_TEMP/sign.json"); fi
+          pnpm tauri build "${flags[@]}"
+
+      - name: Package and checksum
+        id: pkg
+        env:
+          VERSION: ${{ steps.version.outputs.app }}
+        run: |
+          bundle=target/release/bundle
+          out=release-assets-windows
+          mkdir -p "$out"
+          cp "$(find "$bundle/nsis" -name "*.exe" | head -1)" "$out/Pitwall_${VERSION}_x64-setup.exe"
+          cp "$(find "$bundle/msi" -name "*.msi" | head -1)" "$out/Pitwall_${VERSION}_x64.msi"
+          (cd "$out" && sha256sum -- *.exe *.msi > SHA256SUMS-windows.txt && cat SHA256SUMS-windows.txt)
+          echo "dir=$out" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pitwall-windows-x64
+          path: ${{ steps.pkg.outputs.dir }}/*
+          if-no-files-found: error
+
+      - name: Add to the GitHub Release
+        if: steps.version.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ASSETS: ${{ steps.pkg.outputs.dir }}
+        run: gh release upload "$TAG" "$ASSETS"/* --clobber

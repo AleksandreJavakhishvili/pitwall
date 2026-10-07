@@ -40,6 +40,60 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  windows:
+    name: Windows (build + test + clippy)
+    # The Windows port (ConPTY holder, named pipes, pitwall-hook, PowerShell
+    # launch, tray). The suites that are portable run here; the rest of the
+    # workspace still assumes POSIX shells in its fixtures and runs
+    # informationally until it is ported.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the version pinned in rust-toolchain.toml (+ x86_64-pc-windows-msvc).
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Placeholder frontend dist
+        shell: bash
+        run: mkdir -p dist
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Holder protocol + the terminal-survives-restart contract (ConPTY,
+      # named pipes), the hook relay, wire formats, screen detection.
+      - name: cargo test (holder, hook, proto, detect, client)
+        run: cargo test -p pitwall-hold -p pitwall-hook -p pitwall-proto -p pitwall-detect -p pitwall-client
+
+      # Core: architecture rules, the Windows platform layer and the parsers
+      # it feeds (process rows, foreground, where.exe), shells and hooks.
+      - name: cargo test (core platform, parsers, shell, hooks)
+        run: |
+          cargo test -p pitwall-core --test boundaries
+          cargo test -p pitwall-core --lib -- platform:: procs:: shell:: hooks:: kind::catalog
+
+      - name: cargo test (whole workspace, informational)
+        continue-on-error: true
+        run: cargo test --workspace
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+
   web:
     name: UI (build + test) and website
     runs-on: ubuntu-latest
