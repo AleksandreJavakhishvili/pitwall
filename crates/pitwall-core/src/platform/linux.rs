@@ -29,6 +29,9 @@ pub const HAS_TRAY: bool = false;
 pub const MENU_BAR: crate::host::MenuBar = crate::host::MenuBar::None;
 /// The launcher's count where the desktop supports one (Unity API).
 pub const BADGE: crate::host::Badge = crate::host::Badge::Dock;
+/// Opens a file with its associated program ("Open in editor" without an
+/// editor set or found).
+pub const SYSTEM_OPENER: &[&str] = &["xdg-open"];
 
 fn proc() -> ProcFs {
     ProcFs::new("/proc")

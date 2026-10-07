@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::exec::{self, Cmd, Exec, Out};
 
-const GIT_ENV: [(&str, &str); 3] = [("GIT_OPTIONAL_LOCKS", "0"), ("GIT_TERMINAL_PROMPT", "0"), ("GIT_EDITOR", "true")];
+pub(crate) const GIT_ENV: [(&str, &str); 3] = [("GIT_OPTIONAL_LOCKS", "0"), ("GIT_TERMINAL_PROMPT", "0"), ("GIT_EDITOR", "true")];
 
 /// Untracked files larger than this count as binary in [`Git::changes`].
 const MAX_COUNTED_BYTES: u64 = 1_000_000;
@@ -251,28 +251,8 @@ pub struct FileChange {
     pub status: Option<FileStatus>,
 }
 
-/// Modified, Added, Deleted, Renamed, Untracked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum FileStatus {
-    M,
-    A,
-    D,
-    R,
-    U,
-}
-
-impl FileStatus {
-    /// From a `git diff --raw` / `--name-status` letter (copies count as
-    /// added, type changes and unmerged paths as modified).
-    pub fn from_git(letter: &str) -> FileStatus {
-        match letter.chars().next() {
-            Some('A') | Some('C') => FileStatus::A,
-            Some('D') => FileStatus::D,
-            Some('R') => FileStatus::R,
-            _ => FileStatus::M,
-        }
-    }
-}
+/// Modified, Added, Deleted, Renamed, Untracked (shared with the explorer).
+pub use pitwall_proto::FileStatus;
 
 /// Output of `git diff --raw --numstat -z -M`: raw records (`:<modes> <shas>
 /// <letter>`, then one path, two for renames/copies), then numstat records

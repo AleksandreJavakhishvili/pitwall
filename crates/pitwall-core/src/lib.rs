@@ -7,14 +7,15 @@
 //! persistence ([`Store`](store::Store)), and
 //! the places agents run ([`Provider`](provider::Provider)s, each with an
 //! [`Exec`](exec::Exec) for its machines) — and calls the service modules:
-//! `engine::{input, lifecycle, changes}`, `review`, `worktrees`, `rules`,
-//! `onboarding`.
+//! `engine::{input, lifecycle, changes}`, `review`, `worktrees`, `explorer`,
+//! `rules`, `onboarding`.
 
 pub mod clock;
 pub mod engine;
 pub mod error;
 pub mod events;
 pub mod exec;
+pub mod explorer;
 mod flight;
 pub mod hooks;
 pub mod host;

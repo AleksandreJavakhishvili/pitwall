@@ -251,3 +251,56 @@ fn changes_and_snapshots_match_this_mac_in_two_calls() {
     snapshot::drop_refs(&remote, "agent", None).unwrap();
     assert!(git_in(Path::new(&f.ws), &["for-each-ref", "refs/pitwall/"]).is_empty());
 }
+
+#[test]
+fn folders_list_like_local_exec() {
+    let f = Fake::new();
+    let x = f.exec(None);
+    let root = Path::new(&f.ws);
+    std::fs::create_dir_all(root.join("sub dir")).unwrap();
+    for name in ["a.txt", ".hidden", "..odd", "it's *.txt"] {
+        std::fs::write(root.join(name), "x").unwrap();
+    }
+    std::os::unix::fs::symlink("/etc", root.join("link")).unwrap();
+    let sorted = |mut v: Vec<exec::DirEntry>| {
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v.into_iter().map(|e| (e.name, e.kind)).collect::<Vec<_>>()
+    };
+    let remote = sorted(x.list_dir(&f.ws).unwrap());
+    assert_eq!(remote, sorted(LocalExec.list_dir(&f.ws).unwrap()));
+    assert_eq!(remote.len(), 6);
+    assert!(remote.contains(&("link".into(), FileKind::Symlink)) && remote.contains(&("sub dir".into(), FileKind::Dir)));
+    assert_eq!(x.list_dir(&exec::join(&f.ws, "sub dir")).unwrap(), Vec::new());
+    assert!(x.list_dir(&exec::join(&f.ws, "a.txt")).is_err(), "not a folder");
+    assert!(x.list_dir(&exec::join(&f.ws, "gone")).is_err());
+}
+
+/// The code explorer on an agw machine: the tree (git's view), a file, an
+/// escape refused, and search where there is no ripgrep (git grep).
+#[test]
+fn the_explorer_works_through_agw() {
+    use pitwall_core::explorer;
+    use pitwall_core::testing::{record, Harness};
+    use pitwall_core::vcs::git::FileStatus;
+    let f = Fake::new();
+    f.repo();
+    std::os::unix::fs::symlink("/etc", Path::new(&f.ws).join("escape")).unwrap();
+    let h = Harness::with_exec(vec![record("a", &f.ws)], Arc::new(f.exec(None)));
+    let before = f.calls().len();
+    let l = explorer::list_files(&h.engine, "a", "").unwrap();
+    assert_eq!(f.calls().len(), before + 2, "resolve the folder, then one batch");
+    let names: Vec<_> = l.entries.iter().map(|e| (e.name.as_str(), e.status)).collect();
+    assert_eq!(names, [
+        (".gitignore", None),
+        ("a.txt", Some(FileStatus::M)),
+        ("blob.bin", Some(FileStatus::U)),
+        ("escape", Some(FileStatus::U)),
+        ("new file's.txt", Some(FileStatus::U)),
+    ]);
+    let file = explorer::read_file(&h.engine, "a", "a.txt").unwrap();
+    assert_eq!(file.text.as_deref(), Some("one\n2\nthree\n"));
+    assert!(explorer::read_file(&h.engine, "a", "escape/hosts").unwrap_err().contains("outside"));
+    let q = pitwall_core::explorer::SearchQuery { query: "THREE".into(), ..Default::default() };
+    let r = explorer::search(&h.engine, "a", &q).unwrap();
+    assert_eq!(r.matches.iter().map(|m| (m.path.as_str(), m.line)).collect::<Vec<_>>(), [("a.txt", 3)]);
+}

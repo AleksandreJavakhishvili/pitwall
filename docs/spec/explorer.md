@@ -43,7 +43,8 @@ move to CodeMirror 6 and reuses its read-only editor.
   global excludes apply exactly as git applies them. Tracked symlinks
   (mode 120000) are `symlink` entries. Submodules (160000) and nested repos
   are folders, listed by their own git when expanded. Files deleted from
-  the working tree are not shown (Review shows them).
+  the working tree are not shown (Review shows them). An untracked folder
+  is listed with a second `ls-files --others` (without `--directory`).
 - **Tree, not a repo** (or no git there): a plain directory listing
   (`Exec::list_dir`) without VS Code's default `files.exclude` names
   (`.git`, `.svn`, `.hg`, `CVS`, `.DS_Store`, `Thumbs.db`).

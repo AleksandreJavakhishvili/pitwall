@@ -60,6 +60,15 @@ pub struct AgentCaps {
     /// Missing from older servers: no.
     #[serde(default)]
     pub worktrees: bool,
+    /// Its folder can be browsed, read and searched (read-only code
+    /// explorer, docs/spec/explorer.md): the provider runs commands there.
+    /// Missing from older servers: no.
+    #[serde(default)]
+    pub explorer: bool,
+    /// Its files are on this computer: "Open in editor" can hand one to the
+    /// user's editor (otherwise only "Copy path"). Missing: no.
+    #[serde(default)]
+    pub open_in_editor: bool,
     /// Pitwall adopted a session that was already there: removing it from
     /// Pitwall only stops tracking it, the session keeps running.
     pub remove_keeps_session: bool,

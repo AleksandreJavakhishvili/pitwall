@@ -145,7 +145,17 @@ fn git_review_and_worktrees_reach_files_only_through_exec() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     rust_files(&src.join("vcs"), &mut files);
-    for f in ["review.rs", "engine/worktree.rs", "engine/tasks.rs", "engine/changes.rs", "engine/ticker.rs"] {
+    for f in [
+        "review.rs",
+        "engine/worktree.rs",
+        "engine/tasks.rs",
+        "engine/changes.rs",
+        "engine/ticker.rs",
+        "explorer/mod.rs",
+        "explorer/tree.rs",
+        "explorer/read.rs",
+        "explorer/search.rs",
+    ] {
         files.push(src.join(f));
     }
     let found = offenders(&files, &src, &["std::fs", "fs::", "File::", ".is_dir()", ".exists()", "canonicalize"]);

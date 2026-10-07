@@ -38,6 +38,17 @@ merge: boolean, rules: boolean, hooks: boolean,
  */
 worktrees: boolean, 
 /**
+ * Its folder can be browsed, read and searched (read-only code
+ * explorer, docs/spec/explorer.md): the provider runs commands there.
+ * Missing from older servers: no.
+ */
+explorer: boolean, 
+/**
+ * Its files are on this computer: "Open in editor" can hand one to the
+ * user's editor (otherwise only "Copy path"). Missing: no.
+ */
+openInEditor: boolean, 
+/**
  * Pitwall adopted a session that was already there: removing it from
  * Pitwall only stops tracking it, the session keeps running.
  */

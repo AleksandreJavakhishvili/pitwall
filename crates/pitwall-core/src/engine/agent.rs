@@ -190,6 +190,8 @@ impl Agent {
             rules: k.rules,
             hooks: k.hooks,
             worktrees: diff,
+            explorer: p.exec,
+            open_in_editor: p.exec && p.local_files,
             remove_keeps_session: r.adopted,
         }
     }

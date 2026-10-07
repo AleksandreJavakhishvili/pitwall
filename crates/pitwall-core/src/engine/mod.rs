@@ -72,6 +72,8 @@ pub struct Engine {
     pub(crate) git_flights: crate::flight::Flights<Result<Vec<crate::vcs::git::FileChange>, String>>,
     /// Agents' checkouts watched for changes (gitwatch.rs).
     pub(crate) trees: gitwatch::Trees,
+    /// The code explorer's running searches and what it knows per machine.
+    pub(crate) explorer: crate::explorer::State,
 }
 
 pub type Shared = Arc<Engine>;
@@ -97,6 +99,7 @@ impl Engine {
             worktrees: Default::default(),
             git_flights: Default::default(),
             trees: Default::default(),
+            explorer: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,

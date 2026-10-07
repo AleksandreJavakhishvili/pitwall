@@ -259,6 +259,9 @@ function withCaps(a: Omit<AgentView, "caps"> & { caps?: AgentView["caps"] }): Ag
       rules: !adopted && RULES.has(kind),
       hooks: !adopted && (kind === "claude" || kind === "codex"),
       worktrees: diff,
+      // Any machine Pitwall runs commands on can be browsed; only this one's files open in an editor.
+      explorer: true,
+      openInEditor: !adopted,
       removeKeepsSession: adopted,
     },
   };
