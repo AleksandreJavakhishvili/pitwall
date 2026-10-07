@@ -1,0 +1,7 @@
+# One compiler for everyone: local builds and CI use exactly this version, so
+# a new Rust release (and its new lints) can't break CI without a code change.
+# Bump deliberately and fix any new clippy findings in the same commit.
+[toolchain]
+channel = "1.91.1"
+components = ["clippy", "rustfmt"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

@@ -60,9 +60,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      - run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
         with:

@@ -264,7 +264,7 @@ impl RuleSet {
             rules.push(rule);
         }
         // Stable: equal priorities keep file order.
-        rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
         Ok(RuleSet { rules })
     }
 
