@@ -531,3 +531,48 @@
 .panel-wts .fresh-error {
   margin: 2px 0 4px;
 }
+
+/* Branch + folder under the Changes heading. */
+.where {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 14px 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  min-width: 0;
+}
+.where-branch,
+.where-path {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.where-path {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.where-path:hover .where-text {
+  color: var(--text);
+  text-decoration: underline;
+}
+.where-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.where-tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-ui, inherit);
+  font-size: 10px;
+}
