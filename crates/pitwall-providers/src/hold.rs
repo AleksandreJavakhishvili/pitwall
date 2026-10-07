@@ -28,15 +28,12 @@ pub fn is_claude_session_var(key: &str) -> bool {
     key == "CLAUDECODE" || key.starts_with("CLAUDE_CODE_")
 }
 
-pub fn launch_script(command_line: &str) -> String {
-    format!("exec {command_line}")
-}
-
 /// What to start in a new holder.
 pub struct Spawn<'a> {
     pub agent_id: &'a str,
     pub cwd: &'a str,
-    /// Shell fragment run as `exec <command_line>` in a login shell.
+    /// Command line run by the login shell (`exec <command_line>` on Unix;
+    /// `pitwall_core::shell::LoginShell::launch`).
     pub command_line: &'a str,
     pub size: TermSize,
     pub socket: &'a Path,
@@ -52,7 +49,7 @@ pub struct Spawn<'a> {
 /// Start the agent in a new holder (through the user's login shell) and
 /// connect to it.
 pub fn spawn(spec: Spawn) -> Result<HoldTerm> {
-    let (program, args) = pitwall_core::shell::login_invocation(&launch_script(spec.command_line));
+    let (program, args) = pitwall_core::shell::launch_invocation(spec.command_line);
     let env = [
         ("PITWALL_ENV", OsStr::new("1")),
         ("PITWALL_AGENT_ID", OsStr::new(spec.agent_id)),

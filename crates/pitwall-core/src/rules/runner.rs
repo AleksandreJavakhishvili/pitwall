@@ -25,8 +25,8 @@ const MARK: &str = "__PITWALL_PATH__";
 pub fn login_path() -> Option<String> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| {
-        let (shell, script) = (shell::user_shell(), format!("printf '\\n{MARK}%s\\n' \"$PATH\""));
-        let text = exec::local_stdout(&[&shell, "-l", "-i", "-c", &script], exec::LONG)?;
+        let shell = shell::LoginShell::current();
+        let text = shell.output(&shell.print_path(MARK), exec::LONG)?;
         text.lines()
             .rev()
             .find_map(|l| l.strip_prefix(MARK))
@@ -39,7 +39,7 @@ pub fn login_path() -> Option<String> {
 fn find_in(path_env: &str, program: &str) -> Option<PathBuf> {
     std::env::split_paths(path_env)
         .filter(|d| !d.as_os_str().is_empty())
-        .map(|d| d.join(program))
+        .flat_map(|d| crate::platform::executable_candidates(&d.join(program)))
         .find(|p| crate::platform::is_executable(p))
 }
 

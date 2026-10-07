@@ -38,20 +38,49 @@ curl -s -m 2 --unix-socket "$PITWALL_SOCKET" \
 exit 0
 "#;
 
+/// Put the hook relay at `paths.hook_script()`: the sh script above on Unix;
+/// on Windows a copy of the `pitwall-hook` binary shipped next to Pitwall.
 pub fn install_script(paths: &Paths) -> Result<(), String> {
     let path = paths.hook_script();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    if std::fs::read_to_string(&path).ok().as_deref() != Some(SCRIPT) {
-        std::fs::write(&path, SCRIPT).map_err(|e| e.to_string())?;
-    }
-    crate::platform::make_executable(&path).map_err(|e| e.to_string())
+    crate::platform::install_hook_relay(&path, SCRIPT)
 }
 
-/// The command hook configs run: `sh '<script>'`.
+/// The command hook configs run: `sh '<script>'` (Windows: the relay
+/// binary's path, which bash, cmd and PowerShell all run).
 pub fn hook_command(paths: &Paths) -> String {
-    format!("sh {}", shell::quote(&paths.hook_script().to_string_lossy()))
+    crate::platform::hook_relay_command(&paths.hook_script())
+}
+
+/// What follows `claude --settings`: the JSON itself, or — where the login
+/// shell can't hand JSON to a program intact (PowerShell) — the path of a
+/// file holding it (Claude Code takes either).
+pub fn claude_settings_arg(command: &str) -> String {
+    let json = claude_settings_json(command);
+    if shell::LoginShell::current().passes_json() {
+        return json;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in json.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let path = paths::Paths::new(paths::Paths::default_root()).root().join("run").join(format!("claude-hooks-{h:016x}.json"));
+    let write = || -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
+            std::fs::write(&path, &json)?;
+        }
+        Ok(())
+    };
+    match write() {
+        Ok(()) => path.to_string_lossy().into_owned(),
+        Err(_) => json,
+    }
 }
 
 /// `claude --settings` value wiring every event to the relay script.

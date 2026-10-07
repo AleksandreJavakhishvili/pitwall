@@ -52,7 +52,7 @@ pub fn plan(
     // No hook command: the provider can't deliver hooks (caps.hooks = None).
     if kind.hooks == HookMode::ClaudeSettings && !hook_command.is_empty() {
         line.push_str(" --settings ");
-        line.push_str(&shell::quote(&hooks::claude_settings_json(hook_command)));
+        line.push_str(&shell::quote(&hooks::claude_settings_arg(hook_command)));
     }
     Plan {
         command_line: line,
@@ -79,7 +79,7 @@ pub fn then_shell(
     let kind = AgentKind {
         id: shell.id.clone(),
         name: shell.name.clone(),
-        command: format!("{}; exec {}", inner.command_line, after.command_line),
+        command: shell::LoginShell::current().then(&inner.command_line, &after.command_line),
         new_args: vec![],
         resume_args: vec![],
         assign_session_id: false,

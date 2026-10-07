@@ -2742,12 +2742,15 @@ dependencies = [
 name = "pitwall-core"
 version = "0.1.0"
 dependencies = [
+ "interprocess",
  "pitwall-detect",
  "pitwall-proto",
  "serde",
  "serde_json",
  "toml 1.1.6+spec-1.1.0",
  "uuid",
+ "widestring",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

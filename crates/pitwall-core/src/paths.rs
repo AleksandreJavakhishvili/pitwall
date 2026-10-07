@@ -56,8 +56,9 @@ impl Paths {
         self.root.join("run").join("hold")
     }
 
+    /// The hook relay (`pitwall-hook`; `.exe` on Windows).
     pub fn hook_script(&self) -> PathBuf {
-        self.root.join("bin").join("pitwall-hook")
+        self.root.join("bin").join(format!("pitwall-hook{}", std::env::consts::EXE_SUFFIX))
     }
 
     pub fn user_agents_dir(&self) -> PathBuf {
@@ -85,7 +86,7 @@ pub fn tildify(path: &str) -> String {
 pub fn tildify_in(home: Option<&str>, path: &str) -> String {
     let Some(home) = home.filter(|h| !h.is_empty()) else { return path.to_string() };
     match path.strip_prefix(home) {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
+        Some(rest) if rest.is_empty() || rest.starts_with(['/', '\\']) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }

@@ -283,7 +283,7 @@ fn scan_agents(views: &[KindView]) -> Vec<ScannedAgent> {
             .map(|k| {
                 s.spawn(move || {
                     let version = k.path.as_deref().and_then(|p| {
-                        login_shell(&format!("exec {} --version", shell::quote(p))).and_then(|o| version_line(&o))
+                        login_shell(&shell::LoginShell::current().invoke(p, "--version")).and_then(|o| version_line(&o))
                     });
                     ScannedAgent {
                         kind: k.id,
@@ -321,7 +321,7 @@ fn login_shell(script: &str) -> Option<String> {
 }
 
 fn login_shell_within(script: &str, timeout: Duration) -> Option<String> {
-    local_stdout(&[&shell::user_shell(), "-l", "-i", "-c", script], timeout)
+    shell::LoginShell::current().output(script, timeout)
 }
 
 // ------------------------------------------------------------------ 2. projects
