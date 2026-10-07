@@ -17,6 +17,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  commits:
+    name: Commit messages (Conventional Commits)
+    # Pull requests only: the history on main from before the convention
+    # stays as it is. Same rules as the commit-msg hook (.githooks/commit-msg,
+    # see CONTRIBUTING.md "Commit messages").
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Hook self-test
+        run: sh scripts/test-commit-msg.sh
+
+      - name: PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: sh scripts/check-commits.sh --title "$TITLE"
+
+      - name: PR commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: sh scripts/check-commits.sh "$BASE..$HEAD"
+
   rust:
     name: Rust on macOS (test + clippy)
     # PTYs, the terminal holder and the platform layer are tested on each OS

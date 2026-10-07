@@ -3,7 +3,7 @@
 # Windows x64 installers (NSIS .exe and .msi); publishes them all in one
 # release with one SHA256SUMS.txt (job `publish`).
 #
-#   git tag v0.1.0 && git push origin v0.1.0     → GitHub Release with generated notes
+#   git tag v0.1.0 && git push origin v0.1.0     → GitHub Release, notes from git-cliff (cliff.toml)
 #   Actions → Release → Run workflow              → build only (artifacts on the run),
 #                                                   or a release if you give a tag
 #
@@ -344,9 +344,40 @@ jobs:
     if: needs.macos.outputs.tag != ''
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags: the release notes cover the commits since the
+      # previous tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      # From the previous v* tag to this one; the first release starts at the
+      # root commit.
+      - name: Release notes range
+        id: range
+        env:
+          TAG: ${{ needs.macos.outputs.tag }}
+        run: |
+          git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null || { echo "::error::tag $TAG not found"; exit 1; }
+          if prev=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$TAG^" 2>/dev/null); then
+            from=$prev
+          else
+            from=$(git rev-list --max-parents=0 "$TAG" | tail -n 1)
+          fi
+          echo "range=$from..$TAG" >> "$GITHUB_OUTPUT"
+
+      # Notes grouped by commit type (cliff.toml); commits that don't follow the
+      # convention are left out. Nothing is committed: they're only the body.
+      - name: Release notes (git-cliff)
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --strip all ${{ steps.range.outputs.range }}
+        env:
+          OUTPUT: release-notes.md
 
       - name: GitHub Release
         env:
@@ -368,6 +399,13 @@ jobs:
           if [ "$WINDOWS_MODE" = unsigned ]; then
             note="$note The Windows installers aren't code-signed: SmartScreen asks on first run (More info → Run anyway)."
           fi
-          flags=(--verify-tag --generate-notes --notes "$note")
+          {
+            cat release-notes.md 2>/dev/null
+            printf '\n### Downloads\n\n%s\n' "$note"
+          } > notes.md
+          flags=(--verify-tag --notes-file notes.md)
+          # No conventional commits in the range (the history before the
+          # convention): fall back to GitHub's generated notes.
+          if ! grep -q '^- ' release-notes.md; then flags+=(--generate-notes); fi
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" "${flags[@]}" assets/*

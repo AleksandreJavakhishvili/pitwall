@@ -1,0 +1,80 @@
+# git-cliff configuration: release notes and CHANGELOG.md from Conventional
+# Commits (see CONTRIBUTING.md "Commit messages").
+#
+#   npx git-cliff --unreleased                 # what the next release contains
+#   npx git-cliff -o CHANGELOG.md              # regenerate the whole changelog
+#
+# The release workflow renders the notes for one tag with this file and uses
+# them as the GitHub Release body. Commits that don't follow the convention
+# (the history before it existed) are left out.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) \
+from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); \
+see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
+"""
+# Links are spelled out (not [remote.github]) so rendering never calls the GitHub API.
+body = """
+{%- macro commit_link(commit) -%}
+  [`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/AleksandreJavakhishvili/pitwall/commit/{{ commit.id }})
+{%- endmacro -%}
+
+{% if version %}\
+  ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+  ## Unreleased
+{% endif %}\
+
+{%- set breaking = commits | filter(attribute="breaking", value=true) -%}
+{%- if breaking | length > 0 %}
+### ⚠ Breaking changes
+{% for commit in breaking %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+  {{ commit.breaking_description | default(value=commit.message) | upper_first }} \
+  ({{ self::commit_link(commit=commit) }})
+{%- endfor %}
+{% endif %}
+
+{%- for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+  {% if commit.breaking %}**[breaking]** {% endif %}\
+  {{ commit.message | upper_first }} ({{ self::commit_link(commit=commit) }})
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = false
+
+[git]
+conventional_commits = true
+# Commits that aren't Conventional Commits are skipped, not errors.
+filter_unconventional = true
+require_conventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9].*"
+topo_order = false
+sort_commits = "oldest"
+commit_preprocessors = [
+  # Link "#123" issue / PR references.
+  { pattern = '\(#(\d+)\)', replace = "([#${1}](https://github.com/AleksandreJavakhishvili/pitwall/issues/${1}))" },
+]
+# The HTML comments only fix the order of the groups; they're stripped on output.
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactors" },
+  { message = "^docs", group = "<!-- 4 -->Documentation" },
+  { message = "^test", group = "<!-- 5 -->Tests" },
+  { message = "^(ci|build)", group = "<!-- 6 -->CI/Build" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^(chore|revert)", group = "<!-- 7 -->Chores" },
+  { message = ".*", skip = true },
+]
