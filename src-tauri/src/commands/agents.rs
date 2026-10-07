@@ -9,7 +9,7 @@ use pitwall_core::onboarding::{self, recent::RecentProject};
 use pitwall_core::vcs::git::FileChange;
 use pitwall_core::{hooks, Shared};
 
-use pitwall_proto::{CreateForm, ProviderMachines};
+use pitwall_proto::{CreateForm, ProviderMachines, ScreenFrame};
 
 use super::{blocking, Res};
 
@@ -66,6 +66,23 @@ pub fn attach_output(core: State<'_, Shared>, agent_id: String, on_data: Channel
 #[tauri::command]
 pub fn detach_output(core: State<'_, Shared>, agent_id: String, subscription_id: u64) -> Res<()> {
     input::detach_output(&core, &agent_id, subscription_id);
+    Ok(())
+}
+
+/// Wall tiles: at most this many screen frames per second per tile.
+const FRAME_GAP: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Styled frames of the agent's screen for a view-only Wall tile (no
+/// terminal emulator in the UI); only while the tile is visible.
+#[tauri::command]
+pub fn watch_screen(core: State<'_, Shared>, agent_id: String, on_frame: Channel<ScreenFrame>) -> Res<u64> {
+    let sink = Box::new(move |frame: &ScreenFrame| on_frame.send(frame.clone()).is_ok());
+    input::watch_screen(&core, &agent_id, sink, FRAME_GAP)
+}
+
+#[tauri::command]
+pub fn unwatch_screen(core: State<'_, Shared>, agent_id: String, watch_id: u64) -> Res<()> {
+    input::unwatch_screen(&core, &agent_id, watch_id);
     Ok(())
 }
 

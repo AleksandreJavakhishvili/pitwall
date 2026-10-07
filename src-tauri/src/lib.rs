@@ -118,6 +118,8 @@ pub fn run() {
             commands::agents::create_form,
             commands::agents::attach_output,
             commands::agents::detach_output,
+            commands::agents::watch_screen,
+            commands::agents::unwatch_screen,
             commands::agents::write_input,
             commands::agents::resize,
             commands::agents::send_prompt,

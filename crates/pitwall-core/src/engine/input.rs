@@ -2,7 +2,7 @@
 
 use super::{tasks, Engine, Shared};
 use crate::model::AgentView;
-use crate::term::OutputSink;
+use crate::term::{FrameSink, OutputSink};
 
 type Res<T> = Result<T, String>;
 
@@ -16,6 +16,19 @@ pub fn detach_output(engine: &Engine, agent_id: &str, subscription_id: u64) {
     // Detaching from an agent that is gone or restarted is not an error.
     if let Ok(Some(host)) = engine.with(agent_id, |a| a.host.clone()) {
         host.detach(subscription_id);
+    }
+}
+
+/// Styled frames of the agent's screen (the Wall), at most one per `gap`.
+/// Returns the watch id for [`unwatch_screen`].
+pub fn watch_screen(engine: &Engine, agent_id: &str, sink: FrameSink, gap: std::time::Duration) -> Res<u64> {
+    Ok(engine.host(agent_id)?.watch_screen(sink, gap))
+}
+
+pub fn unwatch_screen(engine: &Engine, agent_id: &str, watch_id: u64) {
+    // Like detach_output: a gone or restarted agent is not an error.
+    if let Ok(Some(host)) = engine.with(agent_id, |a| a.host.clone()) {
+        host.unwatch_screen(watch_id);
     }
 }
 
@@ -103,6 +116,9 @@ mod tests {
         assert!(attach_output(e, "a", Box::new(|_: &[u8]| true)).is_err());
         detach_output(e, "a", 7);
         detach_output(e, "ghost", 7);
+        assert!(watch_screen(e, "a", Box::new(|_| true), std::time::Duration::from_millis(100)).is_err());
+        unwatch_screen(e, "a", 7);
+        unwatch_screen(e, "ghost", 7);
         let item = e.queue_add("a", "later".into()).unwrap().queue[0].id.clone();
         assert_eq!(queue_send_now(e, "a", &item).unwrap_err(), "agent is not running");
         assert_eq!(e.views()[0].queue.len(), 1, "a refused send keeps the item");

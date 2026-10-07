@@ -12,7 +12,9 @@
 // - Hidden (parked) terminals don't get every chunk written as it arrives:
 //   output is buffered and written in batches (they render nothing while
 //   parked); showing one flushes it first.
-// - Scrollback is capped (`SCROLLBACK`), and Wall viewers keep almost none.
+// - Scrollback is capped (`SCROLLBACK`).
+// - The Wall draws running agents from the backend's screen copy
+//   (screenView.ts): no xterm instance per Wall tile.
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -23,6 +25,7 @@ import { terminalClipboardChord } from "../lib/host";
 import { compute as responsive } from "../lib/useBreakpoint";
 import { currentScheme, onSchemeChange } from "../lib/theme";
 import { fitCells, tileBox, type Box, type TermSize } from "./spawnSize";
+import { LINE_HEIGHT } from "./screenStyle";
 
 export type { TermSize } from "./spawnSize";
 
@@ -76,11 +79,13 @@ const LIGHT: ITheme = {
   brightWhite: "#ffffff",
 };
 
-const currentTheme = () => (currentScheme() === "dark" ? DARK : LIGHT);
+/** The xterm theme for the scheme shown now (Wall snapshots use it too). */
+export const currentTheme = () => (currentScheme() === "dark" ? DARK : LIGHT);
+export { LINE_HEIGHT };
 
 /** Lines of scrollback per interactive terminal (xterm keeps ~12 bytes per cell). */
 export const SCROLLBACK = 5_000;
-/** Wall viewers show the bottom of the screen only. */
+/** Throwaway measuring terminals keep none to speak of. */
 const VIEWER_SCROLLBACK = 50;
 /**
  * Visible terminals that may use the WebGL renderer at once. 0 = DOM renderer
@@ -117,7 +122,6 @@ interface Entry {
 }
 
 const entries = new Map<string, Entry>(); // interactive, one per agent
-const viewers = new Map<string, Entry>(); // view-only, Wall only
 let fontSize = 13;
 /** Last size any interactive terminal was fitted to. */
 let lastFitted: TermSize | null = null;
@@ -129,9 +133,9 @@ const fontsReady: Promise<unknown> = document.fonts
     ]).catch(() => undefined)
   : Promise.resolve();
 
-// Settings → Appearance (or macOS, on System): restyle every live terminal, Wall viewers included.
+// Settings → Appearance (or macOS, on System): restyle every live terminal.
 onSchemeChange(() => {
-  for (const e of [...entries.values(), ...viewers.values()]) e.term.options.theme = currentTheme();
+  for (const e of entries.values()) e.term.options.theme = currentTheme();
 });
 
 /** Off-screen home for terminals that are not in any pane right now. */
@@ -151,7 +155,7 @@ function makeTerminal(viewOnly: boolean): Terminal {
   const term = new Terminal({
     fontFamily: FONT,
     fontSize,
-    lineHeight: 1.15,
+    lineHeight: LINE_HEIGHT,
     allowProposedApi: true,
     cursorBlink: !viewOnly,
     scrollback: viewOnly ? VIEWER_SCROLLBACK : SCROLLBACK,
@@ -408,6 +412,48 @@ function cellOf(term: Terminal): Box | null {
 }
 
 let probed: { size: number; cell: Box } | null = null;
+const charSizes = new Map<number, Box>();
+
+function charSizeOf(term: Terminal): Box | null {
+  const cs = (term as unknown as { _core?: { _charSizeService?: { width: number; height: number } } })._core?._charSizeService;
+  return cs && cs.width > 0 && cs.height > 0 ? { w: cs.width, h: cs.height } : null;
+}
+
+/**
+ * xterm's measured character size at `size` px (CharSizeService), from an
+ * open terminal or a throwaway one; what screenView.ts lays out cells with.
+ */
+export async function charSize(size: number): Promise<Box | null> {
+  const known = charSizes.get(size);
+  if (known) return known;
+  await fontsReady;
+  for (const e of entries.values()) {
+    const c = e.opened && e.term.options.fontSize === size ? charSizeOf(e.term) : null;
+    if (c) {
+      charSizes.set(size, c);
+      return c;
+    }
+  }
+  const host = document.createElement("div");
+  host.style.cssText = "width:400px;height:200px;";
+  parking().appendChild(host);
+  const term = makeTerminal(true);
+  term.options.fontSize = size;
+  try {
+    term.open(host);
+    const c = charSizeOf(term);
+    if (c) charSizes.set(size, c);
+    return c;
+  } catch {
+    return null;
+  } finally {
+    term.dispose();
+    host.remove();
+  }
+}
+
+/** Resolves once the terminal font is loaded. */
+export const terminalFontsReady = (): Promise<unknown> => fontsReady;
 
 /** Cell size at the current font: from an open terminal, else a throwaway one. */
 async function cellSize(): Promise<Box | null> {
@@ -520,7 +566,7 @@ export function knownTerminals(): string[] {
   return [...entries.keys()];
 }
 
-/** Base font size: every terminal without a per-tile size (and every Wall viewer). */
+/** Base font size: every terminal without a per-tile size (and the Wall's snapshot tiles). */
 export function setTerminalFontSize(size: number) {
   if (size === fontSize) return;
   fontSize = size;
@@ -529,7 +575,6 @@ export function setTerminalFontSize(size: number) {
     e.term.options.fontSize = size;
     fitTerminal(id);
   }
-  for (const e of viewers.values()) e.term.options.fontSize = size;
 }
 
 /**
@@ -545,6 +590,17 @@ export function setTileFont(agentId: string, size: number | null) {
   fitTerminal(agentId);
 }
 
+/**
+ * Whether xterm would draw this agent's cursor: it hides it until the
+ * terminal was focused or typed into, or the program switched screens
+ * (`isCursorInitialized`). Wall snapshots follow the agent's own terminal.
+ */
+export function cursorShown(agentId: string): boolean {
+  const e = entries.get(agentId);
+  const core = (e?.term as unknown as { _core?: { coreService?: { isCursorInitialized?: boolean } } } | undefined)?._core;
+  return !!core?.coreService?.isCursorInitialized;
+}
+
 /** The font size the agent's terminal shows now. */
 export function tileFontOf(agentId: string): number | undefined {
   return entries.get(agentId)?.term.options.fontSize;
@@ -558,76 +614,25 @@ export function cellPerPx(agentId: string): { w: number; h: number } | null {
   return cell && size ? { w: cell.w / size, h: cell.h / size } : null;
 }
 
-// ── Wall: view-only terminals ──────────────────────────────────────────────
+// ── Wall ───────────────────────────────────────────────────────────────────
+// Running agents' Wall tiles are drawn from the backend's screen copy
+// (screenView.ts), not by xterm.js. Only a stopped agent's tile shows its own
+// terminal's last screen, as before.
 
 /**
- * Show the agent's terminal inside a Wall tile without ever resizing the PTY.
- * Reuses the interactive instance when its size matches the PTY; otherwise
- * a view-only instance is attached at the PTY's cols × rows.
- * Returns the element to scale and a cleanup fn.
+ * Show a stopped agent's own terminal (its last screen) inside a Wall tile,
+ * if this window has one. Returns the element to scale and a cleanup fn.
  */
-export function mountWallView(
-  agentId: string,
-  parent: HTMLElement,
-  pty: { cols: number; rows: number; running: boolean },
-): { element: HTMLElement; release(): void } | null {
+export function mountStoppedWallView(agentId: string, parent: HTMLElement): { element: HTMLElement; release(): void } | null {
   const own = entries.get(agentId);
-  if (own && own.opened && ((own.term.cols === pty.cols && own.term.rows === pty.rows) || !pty.running)) {
-    parent.appendChild(own.host);
-    setVisible(own, true);
-    dropWebgl(own); // Wall tiles use the DOM renderer
-    return {
-      element: own.host,
-      release: () => {
-        if (own.host.parentElement === parent) park(own);
-      },
-    };
-  }
-  if (!pty.running) return null;
-  let v = viewers.get(agentId);
-  if (!v) {
-    const term = makeTerminal(true);
-    const host = document.createElement("div");
-    host.className = "xterm-host xterm-viewer";
-    v = {
-      term,
-      fit: null,
-      host,
-      opened: false,
-      detach: null,
-      gen: 0,
-      cols: 0,
-      rows: 0,
-      fitted: null,
-      viewOnly: true,
-      visible: true,
-      pending: [],
-      pendingBytes: 0,
-      flushTimer: null,
-      webgl: null,
-    };
-    viewers.set(agentId, v);
-    term.resize(Math.max(2, pty.cols), Math.max(1, pty.rows));
-    attach(agentId, v);
-  } else if (v.term.cols !== pty.cols || v.term.rows !== pty.rows) {
-    v.term.resize(Math.max(2, pty.cols), Math.max(1, pty.rows));
-  }
-  parent.appendChild(v.host);
-  const entry = v;
-  fontsReady.then(() => open(entry));
-  open(entry);
-  return { element: v.host, release: () => {} };
+  if (!own || !own.opened) return null;
+  parent.appendChild(own.host);
+  setVisible(own, true);
+  dropWebgl(own); // Wall tiles use the DOM renderer
+  return {
+    element: own.host,
+    release: () => {
+      if (own.host.parentElement === parent) park(own);
+    },
+  };
 }
-
-/** Leaving the Wall: drop all view-only instances and their channels. */
-export function disposeWallViewers() {
-  for (const v of viewers.values()) {
-    v.gen++;
-    v.detach?.();
-    dropPending(v);
-    v.term.dispose();
-    v.host.remove();
-  }
-  viewers.clear();
-}
-

@@ -253,3 +253,49 @@ pub struct ProjectWorktrees {
     /// The list couldn't be read (the last good one is kept in `worktrees`).
     pub error: Option<String>,
 }
+
+/// One update of an agent's screen as styled text, for drawing it without a
+/// terminal emulator (the Wall's view-only tiles, docs/spec/wall.md). The
+/// engine sends one when the screen changed, at most ~10 per second per
+/// watcher, and only while someone watches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenFrame {
+    pub cols: u16,
+    pub rows: u16,
+    /// `[col, row]` while the program shows its cursor.
+    pub cursor: Option<(u16, u16)>,
+    /// `lines` holds every row (first frame, or the size changed); otherwise
+    /// only the rows that changed since the previous frame.
+    pub full: bool,
+    pub lines: Vec<ScreenLine>,
+}
+
+/// `[row, runs]`: a row's runs up to the last cell that draws anything.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ScreenLine(pub u16, pub Vec<ScreenRun>);
+
+/// `[text, fg, bg, attrs]`: cells sharing one style. Each character is one
+/// cell, except in a run with [`screen_attr::WIDE`] (one character, two
+/// cells) or [`screen_attr::CLUSTER`] (one character plus combining marks,
+/// one cell). Colours: 0 = the theme's default, 1–256 = palette entry + 1,
+/// `0x100_0000 | 0xRRGGBB` = truecolor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ScreenRun(pub String, pub u32, pub u32, pub u16);
+
+/// [`ScreenRun`] attribute bits.
+pub mod screen_attr {
+    pub const BOLD: u16 = 1;
+    pub const ITALIC: u16 = 1 << 1;
+    pub const DIM: u16 = 1 << 2;
+    pub const INVERSE: u16 = 1 << 3;
+    pub const HIDDEN: u16 = 1 << 4;
+    pub const STRIKE: u16 = 1 << 5;
+    /// Underline style in bits 6–8: 1 single, 2 double, 3 curly, 4 dotted, 5 dashed.
+    pub const UNDERLINE_SHIFT: u16 = 6;
+    pub const UNDERLINE_MASK: u16 = 0b111 << UNDERLINE_SHIFT;
+    pub const WIDE: u16 = 1 << 9;
+    pub const CLUSTER: u16 = 1 << 10;
+    /// Truecolor marker in a colour value.
+    pub const RGB: u32 = 0x100_0000;
+}
