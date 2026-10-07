@@ -1,7 +1,7 @@
 import { appChord } from "./host";
 
 const PLAIN = new Set(["k", "j", "n", "t", "b", "e", "r", ".", ",", "=", "+", "-", "0", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
-const SHIFTED = new Set(["n", "t"]);
+const SHIFTED = new Set(["n", "t", "r"]);
 
 /**
  * Shortcuts the app owns; the terminal must not swallow these. The chord is

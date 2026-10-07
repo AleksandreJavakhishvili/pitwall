@@ -115,6 +115,14 @@ pub async fn get_changes(core: State<'_, Shared>, agent_id: String) -> Res<Vec<F
     blocking(move || changes::changes(&core, &agent_id)).await
 }
 
+/// Its changes read now, bypassing the polling pace; one already running is
+/// awaited. The agent's numbers follow via `agents-changed`.
+#[tauri::command]
+pub async fn refresh_changes(core: State<'_, Shared>, agent_id: String) -> Res<Vec<FileChange>> {
+    let core = core.inner().clone();
+    blocking(move || changes::refresh(&core, &agent_id)).await
+}
+
 #[tauri::command]
 pub async fn get_file_diff(core: State<'_, Shared>, agent_id: String, path: String, untracked: bool) -> Res<String> {
     let core = core.inner().clone();

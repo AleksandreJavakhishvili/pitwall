@@ -18,6 +18,9 @@ pub mod method {
     pub const AGENT_LIST: &str = "agent.list";
     /// [`AgentCreate`](super::AgentCreate) → `AgentView`
     pub const AGENT_CREATE: &str = "agent.create";
+    /// [`AgentRef`](super::AgentRef) → `AgentView`: its git numbers read
+    /// now, whatever the polling pace (`refresh_changes`).
+    pub const AGENT_REFRESH: &str = "agent.refresh";
     /// → [`ProviderMachines`](super::ProviderMachines)`[]`
     pub const MACHINE_LIST: &str = "machine.list";
     /// [`FormRequest`](super::FormRequest) → [`CreateForm`](super::CreateForm):
@@ -46,6 +49,13 @@ pub mod caps {
 pub mod event {
     /// The pending approvals changed: `ApprovalView[]`.
     pub const APPROVALS_CHANGED: &str = "approvals.changed";
+}
+
+/// One agent, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRef {
+    pub agent_id: String,
 }
 
 /// Start a new agent (or terminal) in Pitwall: on this Mac by default, or

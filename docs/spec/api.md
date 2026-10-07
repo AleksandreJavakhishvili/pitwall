@@ -19,6 +19,7 @@
 | `set_auto_send` | `agentId, enabled` | `AgentView` |
 | `mark_seen` | `agentId` | `void` |
 | `get_changes` | `agentId` | `FileChange[]` |
+| `refresh_changes` | `agentId` | `FileChange[]`. Reads the agent's changes and branch now, bypassing the ticker's polling pace (back-off, a slow provider's `git_poll_ms`, idle agents); a refresh already running for the agent is awaited, not repeated. Through the agent's machine (`Exec`); the agent's numbers update via `agents-changed`. The UI calls it when Changes or Review opens, an agent is picked in Review, or the user refreshes (↻, ⌘⇧R) |
 | `get_file_diff` | `agentId, path, untracked` | `string` (unified diff) |
 | `stop_agent` | `agentId` | `void` |
 | `restart_agent` | `agentId, cols?, rows?` | `AgentView` (resumes the session when the kind supports it; starts at `cols`×`rows`, else the agent's last known size) |
@@ -95,6 +96,7 @@ Worktrees in source control ([worktrees-view.md](worktrees-view.md)); a worktree
 | Command | Args | Returns |
 |---|---|---|
 | `list_worktrees` | – | `ProjectWorktrees[]` (`src/gen/ProjectWorktrees.ts`). One `git worktree list --porcelain` per project, and only when due: something about its agents changed (at most every 2 s, or the provider's `git_poll_ms`) or the last list is ~30 s old; otherwise the cached list, re-attributed |
+| `refresh_worktrees` | `projectId?` | `ProjectWorktrees[]`, with that project (all, when omitted) listed again now whatever its age or its machine's pace; asked again while one runs, it waits for that one |
 | `get_worktree_changes` | `projectId, path` | `FileChange[]` against the merge-base with the project's current branch (committed, uncommitted, untracked) |
 | `get_worktree_file_versions` | `projectId, path, file` | `FileVersions` |
 | `get_worktree_merge_status` | `projectId, path` | `MergeStatus` |

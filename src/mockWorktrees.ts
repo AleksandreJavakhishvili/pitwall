@@ -91,26 +91,32 @@ export function createWorktreesMock(agents: () => AgentView[]): WorktreesApi {
     ahead: w.files.length ? 1 : 0,
   });
 
+  const listWorktrees = async (): Promise<ProjectWorktrees[]> => {
+    const list = agents().filter((a) => a.caps.worktrees);
+    const repos = [...new Set(worktrees.map((w) => w.repo))];
+    return wait(
+      repos
+        .map((repo) => ({ repo, members: list.filter((a) => a.project === repo) }))
+        .filter((r) => r.members.length > 0)
+        .map(({ repo, members }) => ({
+          id: key(repo),
+          repo,
+          repoDisplay: tilde(repo),
+          branch: "main",
+          machine: LOCAL,
+          agentIds: members.map((a) => a.id),
+          worktrees: worktrees.filter((w) => w.repo === repo).map((w) => view(w, list)),
+          error: null,
+        })),
+      80,
+    );
+  };
+
   return {
-    async listWorktrees(): Promise<ProjectWorktrees[]> {
-      const list = agents().filter((a) => a.caps.worktrees);
-      const repos = [...new Set(worktrees.map((w) => w.repo))];
-      return wait(
-        repos
-          .map((repo) => ({ repo, members: list.filter((a) => a.project === repo) }))
-          .filter((r) => r.members.length > 0)
-          .map(({ repo, members }) => ({
-            id: key(repo),
-            repo,
-            repoDisplay: tilde(repo),
-            branch: "main",
-            machine: LOCAL,
-            agentIds: members.map((a) => a.id),
-            worktrees: worktrees.filter((w) => w.repo === repo).map((w) => view(w, list)),
-            error: null,
-          })),
-        80,
-      );
+    listWorktrees,
+    async refreshWorktrees() {
+      await wait(null, 300);
+      return listWorktrees();
     },
     getWorktreeChanges: async (projectId, path) => wait(find(projectId, path).files.map((f) => ({ ...f }))),
     getWorktreeFileVersions: async (projectId, path, file) =>

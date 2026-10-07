@@ -10,6 +10,7 @@ const PATHS: Record<string, string> = {
   send: "M4 10h10M10 5l5 5-5 5",
   stop: "M6 6h8v8H6z",
   restart: "M4.5 10a5.5 5.5 0 1 0 1.7-4M4 3.5v3h3",
+  refresh: "M15.5 10a5.5 5.5 0 1 1-1.7-4M16 3.5v3h-3",
   trash: "M4.5 6h11M8 6V4.5h4V6M6 6l.7 10h6.6L14 6",
   branch: "M6 4v12M6 9c0-2 1.5-3 4-3h1M13 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM6 16",
   folder: "M3 5.5h5l1.5 1.5H17v8.5H3z",

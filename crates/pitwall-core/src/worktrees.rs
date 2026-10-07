@@ -136,6 +136,18 @@ pub struct Cache {
     listed: Mutex<HashMap<String, Listed>>,
     /// One refresh at a time (two windows asking at once list once).
     refresh: Mutex<()>,
+    /// Forced refreshes running, by project id (`*`: all): asked again while
+    /// one runs, the caller waits for it.
+    forced: crate::flight::Flights<Vec<ProjectWorktrees>>,
+}
+
+/// Which projects a refresh lists regardless of their age.
+#[derive(Debug, Clone, Copy)]
+enum Force<'a> {
+    None,
+    All,
+    /// By its id (`ProjectWorktrees::id`).
+    Project(&'a str),
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -283,9 +295,9 @@ fn process_cwds(engine: &Engine, ms: &[&Member]) -> Vec<(String, String)> {
     out
 }
 
-/// List the projects that are due (all of them with `force`) and build the
-/// views. Blocking (git, `lsof`).
-fn refresh(engine: &Engine, force: bool) -> Vec<ProjectWorktrees> {
+/// List the projects that are due (and the `force`d ones, whatever their
+/// age or their machine's pace) and build the views. Blocking (git, `lsof`).
+fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
     let _one = lock(&engine.worktrees.refresh);
     let mut ms = members(engine);
     let execs: HashMap<String, Arc<dyn Exec>> = ms.iter().map(|m| (m.id.clone(), engine.exec_for(&m.id))).collect();
@@ -299,7 +311,13 @@ fn refresh(engine: &Engine, force: bool) -> Vec<ProjectWorktrees> {
             None => true,
             Some(l) => {
                 let age = now.saturating_sub(l.at);
-                force || l.at == 0 || age + PERIOD_SLACK_MS >= PERIOD_MS || (l.sig != sig && age >= list[0].min_gap)
+                let forced = match force {
+                    Force::None => false,
+                    Force::All => true,
+                    // The project's id names its main checkout (`build`).
+                    Force::Project(id) => l.entries.first().is_none_or(|main| project_id(list[0], &main.path) == id),
+                };
+                forced || l.at == 0 || age + PERIOD_SLACK_MS >= PERIOD_MS || (l.sig != sig && age >= list[0].min_gap)
             }
         };
         if !due {
@@ -329,6 +347,11 @@ fn refresh(engine: &Engine, force: bool) -> Vec<ProjectWorktrees> {
     build(engine, &groups, &listed)
 }
 
+/// A project's id: where it is and its main checkout.
+fn project_id(m: &Member, main: &str) -> String {
+    format!("{}:{}:{}", m.loc.provider, m.loc.machine, main)
+}
+
 /// Views from the listings: groups that turned out to be the same repository
 /// (same machine and main checkout) become one project.
 fn build(engine: &Engine, groups: &[(String, Vec<&Member>)], listed: &HashMap<String, Listed>) -> Vec<ProjectWorktrees> {
@@ -340,7 +363,7 @@ fn build(engine: &Engine, groups: &[(String, Vec<&Member>)], listed: &HashMap<St
             // Nothing listed yet (an error before the first good list).
             continue;
         };
-        let id = format!("{}:{}:{}", m0.loc.provider, m0.loc.machine, main.path);
+        let id = project_id(m0, &main.path);
         if let Some((_, ms, prev)) = out.iter_mut().find(|(p, _, _)| p.id == id) {
             ms.extend(list.iter().copied());
             if l.at > prev.at {
@@ -408,7 +431,16 @@ fn worktree_view(e: &WorktreeEntry, main: &WorktreeEntry, agent_id: Option<Strin
 
 /// Every project's worktrees, listing the projects that are due. Blocking.
 pub fn list(engine: &Engine) -> Vec<ProjectWorktrees> {
-    refresh(engine, false)
+    refresh(engine, Force::None)
+}
+
+/// Every project's worktrees, with `project` (its `id`; `None`: every
+/// project) listed again now, whatever its age or its machine's pace: the
+/// user asked. Asked again while that runs, the caller waits for it instead
+/// of listing again. Blocking.
+pub fn refresh_now(engine: &Engine, project: Option<&str>) -> Vec<ProjectWorktrees> {
+    let force = project.map_or(Force::All, Force::Project);
+    engine.worktrees.forced.run(project.unwrap_or("*"), || refresh(engine, force))
 }
 
 /// One worktree, as the UI was last shown it (never a path it wasn't).

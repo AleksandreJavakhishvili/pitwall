@@ -14,6 +14,9 @@ export interface WorktreesApi {
   /** Every project's worktrees (projects agents with `caps.worktrees` work in). The backend
    * lists a project again only when something there changed or its list is ~30 s old. */
   listWorktrees(): Promise<ProjectWorktrees[]>;
+  /** Every project's worktrees, with `projectId` (all, when omitted) listed again now whatever
+   * its age or its machine's pace; one already running is awaited. */
+  refreshWorktrees(projectId?: string): Promise<ProjectWorktrees[]>;
   /** Changes against the merge-base with the project's current branch (committed, uncommitted, untracked). */
   getWorktreeChanges(projectId: string, path: string): Promise<FileChange[]>;
   getWorktreeFileVersions(projectId: string, path: string, file: string): Promise<FileVersions>;
@@ -31,6 +34,7 @@ type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 export function tauriWorktreesApi(invoke: Invoke): WorktreesApi {
   return {
     listWorktrees: () => invoke("list_worktrees"),
+    refreshWorktrees: (projectId) => invoke("refresh_worktrees", { projectId: projectId ?? null }),
     getWorktreeChanges: (projectId, path) => invoke("get_worktree_changes", { projectId, path }),
     getWorktreeFileVersions: (projectId, path, file) => invoke("get_worktree_file_versions", { projectId, path, file }),
     getWorktreeMergeStatus: (projectId, path) => invoke("get_worktree_merge_status", { projectId, path }),

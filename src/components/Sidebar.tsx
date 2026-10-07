@@ -12,7 +12,7 @@ import { Kbd } from "./Kbd";
 import { api } from "../api";
 import { Menu, type MenuItem } from "./Menu";
 import { ElsewhereGroup } from "./ElsewhereGroup";
-import { useWorktreeList } from "../lib/useWorktrees";
+import { forceRefreshWorktrees, useWorktreeList } from "../lib/useWorktrees";
 import { otherWorktrees, worktreesByAgent } from "../lib/worktrees";
 import { WorktreeRows } from "./WorktreeRows";
 import { keys } from "../lib/host";
@@ -37,12 +37,15 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
   const projectsWt = useWorktreeList();
   const byAgent = useMemo(() => worktreesByAgent(projectsWt), [projectsWt]);
   const [openWt, setOpenWt] = useState<Set<string>>(() => new Set());
-  const toggleWt = (key: string) =>
+  const toggleWt = (key: string) => {
+    // Expanding lists them again now (the backend's pace is bypassed).
+    if (!openWt.has(key)) void forceRefreshWorktrees().catch(() => {});
     setOpenWt((s) => {
       const n = new Set(s);
       if (!n.delete(key)) n.add(key);
       return n;
     });
+  };
   let index = 0;
 
   const terminalItem = (path: string): MenuItem => ({

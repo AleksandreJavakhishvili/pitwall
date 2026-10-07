@@ -368,3 +368,52 @@ textarea {
 .diffstat-empty {
   color: var(--text-4);
 }
+
+/* source-control freshness (components/Freshness.tsx) */
+.fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.fresh-note {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fresh-btn[data-busy="true"] .icon {
+  animation: fresh-spin 0.9s linear infinite;
+}
+@keyframes fresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fresh-btn[data-busy="true"] .icon {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+.fresh-error {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.fresh-error > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.retry-btn {
+  flex: none;
+  color: var(--text-2);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.retry-btn:hover {
+  color: var(--text);
+}

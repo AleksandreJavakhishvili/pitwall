@@ -50,6 +50,9 @@ export interface Api extends ReviewApi, WorktreesApi {
   setAutoSend(agentId: string, enabled: boolean): Promise<AgentView>;
   markSeen(agentId: string): Promise<void>;
   getChanges(agentId: string): Promise<FileChange[]>;
+  /** Its changes and branch read now, bypassing the backend's polling pace (back-off,
+   * slow machines); one already running is awaited. Totals follow via agents-changed. */
+  refreshChanges(agentId: string): Promise<FileChange[]>;
   getFileDiff(agentId: string, path: string, untracked: boolean): Promise<string>;
   stopAgent(agentId: string): Promise<void>;
   /** `size`: what the terminal shows now; omitted → the agent's last known size. */
@@ -176,6 +179,7 @@ async function createTauriApi(): Promise<Api> {
     setAutoSend: (agentId, enabled) => invoke("set_auto_send", { agentId, enabled }),
     markSeen: (agentId) => invoke("mark_seen", { agentId }),
     getChanges: (agentId) => invoke("get_changes", { agentId }),
+    refreshChanges: (agentId) => invoke("refresh_changes", { agentId }),
     getFileDiff: (agentId, path, untracked) =>
       invoke("get_file_diff", { agentId, path, untracked }),
     stopAgent: (agentId) => invoke("stop_agent", { agentId }),

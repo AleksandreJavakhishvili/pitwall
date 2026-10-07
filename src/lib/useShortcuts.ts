@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { appChord } from "./host";
 import { OWNED_SHORTCUT } from "./shortcuts";
+import { requestRefresh } from "./freshness";
 
 export interface ShortcutHandlers {
   palette(): void;
@@ -13,7 +14,7 @@ export interface ShortcutHandlers {
   toggleSidebar(): void;
   toggleRight(): void;
   toggleWall(): void;
-  /** ⌘R (also stops the webview from reloading). */
+  /** ⌘R (also stops the webview from reloading). ⌘⇧R refreshes source control (`lib/freshness`). */
   toggleReview?(): void;
   toggleMaximize(): void;
   /** ⌘, (the native menu's Settings… item sends the same request). */
@@ -37,6 +38,8 @@ export function useShortcuts(h: ShortcutHandlers) {
       ev.stopPropagation();
       if (shift && k === "n") x.moveSpaceToWindow();
       else if (shift && k === "t") x.newTerminalAt?.();
+      // ⌘⇧R: open source-control views (Changes, Review, worktrees) refresh now.
+      else if (shift && k === "r") requestRefresh();
       else if (k === "t") x.newTerminal?.();
       else if (k === "k") x.palette();
       else if (k === "n") x.newAgent();

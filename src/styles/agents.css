@@ -523,3 +523,11 @@
 .panel-wts .wt-list {
   margin-left: 0;
 }
+.panel-wts-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.panel-wts .fresh-error {
+  margin: 2px 0 4px;
+}

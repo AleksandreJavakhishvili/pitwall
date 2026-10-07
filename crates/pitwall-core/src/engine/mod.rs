@@ -67,6 +67,8 @@ pub struct Engine {
     snapshots: tasks::Worker,
     /// Worktree listings per project (crate::worktrees).
     pub(crate) worktrees: crate::worktrees::Cache,
+    /// Git refreshes running, by agent id (ticker and forced ones share them).
+    pub(crate) git_flights: crate::flight::Flights<Result<Vec<crate::vcs::git::FileChange>, String>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -90,6 +92,7 @@ impl Engine {
             projects: ProjectList::new(paths.projects_file()),
             snapshots: tasks::Worker::default(),
             worktrees: Default::default(),
+            git_flights: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,
