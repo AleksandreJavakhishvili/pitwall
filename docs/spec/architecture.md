@@ -998,7 +998,9 @@ Where today's modules end up:
    logic); local IPC (hooks, daemon, holder) via `interprocess` local sockets
    (UDS on macOS/Linux, named pipes on Windows); the hook becomes a tiny
    cross-platform `pitwall-hook` binary instead of sh+curl; paths via a
-   platform data-dir helper (`~/.pitwall` / `%APPDATA%\Pitwall`); shell launch
+   platform data-dir helper (`~/.pitwall` / `$XDG_DATA_HOME/pitwall` on Linux /
+   `%APPDATA%\Pitwall`); desktop differences the UI sees are capabilities
+   (`host::HostInfo`: shortcut modifier, Dock, machine label); shell launch
    behind a `LoginShell` abstraction (zsh/bash login on Unix, PowerShell/cmd on
    Windows); tray/badge behind the app's platform layer.
 8. **Migration order (user choice, option A):** Step 2 → 3 → 4 → **8 (agw

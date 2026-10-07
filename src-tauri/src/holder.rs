@@ -2,7 +2,8 @@
 //! the app executable (`Contents/MacOS/`, bundled as a Tauri `externalBin`).
 //! Dev: `tauri_build` copies it next to `target/<profile>/pitwall`; tests run
 //! from `deps/`, one level down. `build.rs` also bakes in where it built it,
-//! and `PITWALL_HOLD_BIN` overrides everything.
+//! and `PITWALL_HOLD_BIN` overrides everything. Linux: `/usr/bin/` (.deb), or
+//! copied out of an AppImage's mount (`platform::stable_sidecar`).
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,7 @@ pub fn holder_bin() -> Result<PathBuf, String> {
     candidates
         .into_iter()
         .find(|p| p.is_file())
+        .map(crate::platform::stable_sidecar)
         .ok_or_else(|| "the terminal holder (pitwall-hold) is missing next to the app".into())
 }
 

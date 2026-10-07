@@ -38,6 +38,14 @@
     "externalBin": [
       "binaries/pitwall-hold",
       "binaries/pitwall-cli"
-    ]
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Hosts terminal coding agents and shows who needs you",
+    "linux": {
+      "deb": {
+        "section": "devel",
+        "depends": ["curl"]
+      }
+    }
   }
 }

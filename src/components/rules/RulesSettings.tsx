@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errorText } from "../../api";
 import { useActions } from "../../lib/actions";
+import { host } from "../../lib/host";
 import { rulesApi, ruleLabel, type ImportKind, type RuleFile, type RuleSet, type RuleSource, type RulesStatus } from "../../rules/api";
 import { refreshAgentRules } from "../../rules/useAgentRules";
 import "./rules.css";
@@ -118,7 +119,7 @@ function RulesManager({ available }: { available: boolean }) {
         </header>
         {lib.length === 0 ? (
           <p className="hint">
-            Add rulesync rule files to <span className="mono">~/.pitwall/rules/rules/</span>, or import below.
+            Add rulesync rule files to <span className="mono">{host().dataDir}/rules/rules/</span>, or import below.
           </p>
         ) : (
           <ul className="rules-list">
@@ -261,7 +262,7 @@ function ImportForm({ available, onDone }: { available: boolean; onDone(): void 
           ? "Runs rulesync import on a copy; your project is not touched."
           : kind === "project"
             ? "Read in place from the project's .rulesync/ (read-only)."
-            : "Cloned into ~/.pitwall/rules-sources; pull to update."}
+            : `Cloned into ${host().dataDir}/rules-sources; pull to update.`}
       </span>
       {msg && <pre className={msg.ok ? "rules-log" : "rules-log rules-log-error"}>{msg.text}</pre>}
     </form>

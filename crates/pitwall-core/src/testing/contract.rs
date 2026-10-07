@@ -182,9 +182,11 @@ pub fn run(h: &dyn ContractHarness) {
     assert_eq!(loc.machine, m, "contract: the locator names its machine");
     assert_eq!(p.state(&loc).expect("contract: state"), NativeState::Running, "contract: created → Running");
 
-    // Input echoes; output arrives.
-    host.write(format!("echo pw-{tag}\r").as_bytes()).expect("contract: write");
-    wait_for(&host, &format!("\npw-{tag}"), patience, "echo output");
+    // Input echoes; output arrives. The output differs from the typed line
+    // (`$((1+1))`), because a shell may print its prompt after the echoed
+    // typeahead and before the output (dash, as root: "# pw-2-…").
+    host.write(format!("echo pw-$((1+1))-{tag}\r").as_bytes()).expect("contract: write");
+    wait_for(&host, &format!("pw-2-{tag}"), patience, "echo output");
 
     // Resize reaches the process.
     assert!(host.resize(90, 33));
@@ -200,7 +202,7 @@ pub fn run(h: &dyn ContractHarness) {
         true
     }));
     let replay = String::from_utf8_lossy(&got.lock().unwrap()).into_owned();
-    assert!(replay.contains(&format!("\npw-{tag}")), "contract: a new subscriber gets the replay:\n{replay}");
+    assert!(replay.contains(&format!("pw-2-{tag}")), "contract: a new subscriber gets the replay:\n{replay}");
     host.detach(sub);
 
     // Where it works; its screen.
@@ -224,7 +226,7 @@ pub fn run(h: &dyn ContractHarness) {
         false => unsupported(p.process_cwd(&loc, pid), "process_cwd"),
     }
     match caps.capture {
-        true => assert!(p.capture(&loc).expect("contract: capture").contains(&format!("pw-{tag}"))),
+        true => assert!(p.capture(&loc).expect("contract: capture").contains(&format!("pw-2-{tag}"))),
         false => unsupported(p.capture(&loc), "capture"),
     }
 
@@ -233,10 +235,10 @@ pub fn run(h: &dyn ContractHarness) {
         let again = TermHost::new(p.attach(&loc, size).expect("contract: re-attach"), size, clock());
         assert_eq!(again.pid(), pid, "contract: re-attach finds the same process (no respawn)");
         let seen = text(&again);
-        assert_eq!(seen.matches(&format!("\npw-{tag}")).count(), 1, "contract: history replayed once on re-attach:\n{seen}");
-        again.write(format!("echo again-{tag}\r").as_bytes()).expect("contract: write after re-attach");
-        wait_for(&again, &format!("\nagain-{tag}"), patience, "input after re-attach");
-        wait_for(&host, &format!("\nagain-{tag}"), patience, "the first client sees it too");
+        assert_eq!(seen.matches(&format!("pw-2-{tag}")).count(), 1, "contract: history replayed once on re-attach:\n{seen}");
+        again.write(format!("echo again-$((1+1))-{tag}\r").as_bytes()).expect("contract: write after re-attach");
+        wait_for(&again, &format!("again-2-{tag}"), patience, "input after re-attach");
+        wait_for(&host, &format!("again-2-{tag}"), patience, "the first client sees it too");
     } else if !caps.attach_existing {
         unsupported(p.attach(&loc, size), "attach");
     }
@@ -279,8 +281,8 @@ pub fn run(h: &dyn ContractHarness) {
         let restarted = p.start(&loc, &fresh).expect("contract: start");
         assert_eq!(restarted.locator, loc, "contract: start keeps the locator");
         let host = host_of(p, restarted, size);
-        host.write(format!("echo up-{tag}\r").as_bytes()).expect("contract: write");
-        wait_for(&host, &format!("\nup-{tag}"), patience, "restarted agent echoes");
+        host.write(format!("echo up-$((1+1))-{tag}\r").as_bytes()).expect("contract: write");
+        wait_for(&host, &format!("up-2-{tag}"), patience, "restarted agent echoes");
         host.write(b"exit 3\r").expect("contract: write");
         wait_until(patience, "an exiting agent ends its terminal", || host.ended());
         if host.eof_is_exit() {

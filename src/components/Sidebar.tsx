@@ -15,6 +15,7 @@ import { ElsewhereGroup } from "./ElsewhereGroup";
 import { useWorktreeList } from "../lib/useWorktrees";
 import { otherWorktrees, worktreesByAgent } from "../lib/worktrees";
 import { WorktreeRows } from "./WorktreeRows";
+import { keys } from "../lib/host";
 
 /** Collapse key of the "Elsewhere" group (shares `ui.collapsed` with projects). */
 const ELSEWHERE = "\u0000elsewhere";
@@ -74,7 +75,7 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
             ))}
           </div>
         ))}
-        <button className="rail-new" onClick={openNewAgent} title="New agent (⌘N)">
+        <button className="rail-new" onClick={openNewAgent} title={keys("New agent (⌘N)")}>
           <Icon name="plus" />
         </button>
       </nav>
@@ -218,7 +219,7 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
           <span>New agent</span>
           <Kbd>⌘N</Kbd>
         </button>
-        <button className="icon-btn new-terminal-btn" onClick={() => openTerminal()} title="New terminal here (⌘T) · ⌘⇧T to choose a folder">
+        <button className="icon-btn new-terminal-btn" onClick={() => openTerminal()} title={keys("New terminal here (⌘T) · ⌘⇧T to choose a folder")}>
           <Icon name="terminal" />
         </button>
       </div>

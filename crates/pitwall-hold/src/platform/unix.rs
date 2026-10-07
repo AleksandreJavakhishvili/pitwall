@@ -218,7 +218,9 @@ pub fn spawn_pty(spec: &PtySpec) -> io::Result<Pty> {
 
     let mut ws = libc::winsize { ws_row: spec.rows, ws_col: spec.cols, ws_xpixel: 0, ws_ypixel: 0 };
     let mut master: libc::c_int = -1;
-    let pid = unsafe { libc::forkpty(&mut master, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws) };
+    // A raw pointer: macOS's libc takes `*mut winsize`, Linux's `*const`.
+    let ws_ptr = std::ptr::addr_of_mut!(ws);
+    let pid = unsafe { libc::forkpty(&mut master, std::ptr::null_mut(), std::ptr::null_mut(), ws_ptr) };
     if pid < 0 {
         return Err(errno());
     }

@@ -13,6 +13,7 @@ import type {
   CliStatus,
   PermissionsStatus,
   PrivacyPane,
+  HostInfo,
   CreateAgentRequest,
   CreateForm,
   FileChange,
@@ -103,6 +104,11 @@ export interface Api extends ReviewApi, WorktreesApi {
   permissionsStatus(): Promise<PermissionsStatus>;
   /** Shows that System Settings pane; the user changes it there. */
   openPrivacySettings(kind: PrivacyPane): Promise<void>;
+
+  /** What this desktop offers: shortcut modifier, machine label, data folder (`lib/host.ts`). */
+  hostInfo(): Promise<HostInfo>;
+  /** Quit Pitwall; agents keep running in their holders unless `stopAgents`. */
+  quitApp(stopAgents: boolean): Promise<void>;
 }
 
 export const inTauri =
@@ -209,6 +215,8 @@ async function createTauriApi(): Promise<Api> {
     onProjectsChanged: (cb) => listen<Project[]>("projects-changed", (e) => cb(e.payload)),
     permissionsStatus: () => invoke("permissions_status"),
     openPrivacySettings: (kind) => invoke("open_privacy_settings", { kind }),
+    hostInfo: () => invoke("host_info"),
+    quitApp: (stopAgents) => invoke("quit_app", { stopAgents }),
   };
 }
 

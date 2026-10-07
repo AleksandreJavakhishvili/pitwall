@@ -9,6 +9,7 @@ mod commands;
 mod events;
 mod holder;
 mod menu;
+mod platform;
 mod server;
 mod windows;
 
@@ -52,6 +53,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The Dock's "reopen" (macOS only).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn show_main(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -69,20 +72,29 @@ static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     started();
-    let app = tauri::Builder::default()
+    platform::prepare_env();
+    let host = pitwall_core::host::HostInfo::current(&Paths::new(Paths::default_root()));
+    let has_dock = host.dock;
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_dialog::init())
-        .menu(menu::build)
-        .on_menu_event(menu::on_event)
+        .plugin(tauri_plugin_dialog::init());
+    if menu::wanted(&host) {
+        builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+    }
+    let app = builder
         .setup(setup)
-        .on_window_event(|window, event| match event {
-            // Closing main hides it (agents keep running); ⌘Q quits.
-            // Secondary windows close for real.
+        .on_window_event(move |window, event| match event {
+            // Closing main hides it (agents keep running; the Dock brings it
+            // back); ⌘Q quits. Without a Dock nothing could bring it back,
+            // so closing main quits — agents still keep running in their
+            // holders. Secondary windows close for real.
             WindowEvent::CloseRequested { api, .. } => {
-                if window.label() == windows::MAIN {
+                if window.label() == windows::MAIN && has_dock {
                     api.prevent_close();
                     let _ = window.hide();
+                } else if window.label() == windows::MAIN {
+                    window.app_handle().exit(0);
                 } else {
                     windows::on_closed(window.app_handle(), window.label());
                 }
@@ -166,6 +178,8 @@ pub fn run() {
             commands::terminals::list_elsewhere,
             commands::permissions::permissions_status,
             commands::permissions::open_privacy_settings,
+            commands::host::host_info,
+            commands::host::quit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

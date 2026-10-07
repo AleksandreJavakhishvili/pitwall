@@ -4,14 +4,39 @@
 //! Settings via the `open-settings` event. "Quit and Stop Agents" is the one
 //! way to end every agent at once; plain ⌘Q leaves them running in their
 //! holders.
+//!
+//! Only where app shortcuts use ⌘ (`HostInfo::shortcuts`): elsewhere the
+//! default menu's accelerators (Ctrl+C, Ctrl+W, Ctrl+Q, F10 for the menu bar)
+//! would take keys from the terminals. There Settings is Ctrl+Shift+, and
+//! quitting (with or without stopping agents) is in the command palette.
 
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use pitwall_core::engine::lifecycle;
+use pitwall_core::host::{HostInfo, Shortcuts};
 use pitwall_core::Shared;
 
 use crate::windows;
+
+/// Whether this desktop gets the native menu (module docs).
+pub fn wanted(host: &HostInfo) -> bool {
+    host.shortcuts == Shortcuts::Meta
+}
+
+/// Quit the app; with `stop_agents`, end every agent first (otherwise they
+/// keep running in their holders).
+pub fn quit<R: Runtime>(app: &AppHandle<R>, stop_agents: bool) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if stop_agents {
+            if let Some(core) = app.try_state::<Shared>() {
+                lifecycle::stop_all(core.inner());
+            }
+        }
+        app.exit(0);
+    });
+}
 
 const SETTINGS_ID: &str = "pitwall-settings";
 const QUIT_STOP_ID: &str = "pitwall-quit-stop";
@@ -37,13 +62,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
 pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     if event.id() == QUIT_STOP_ID {
-        let app = app.clone();
-        std::thread::spawn(move || {
-            if let Some(core) = app.try_state::<Shared>() {
-                lifecycle::stop_all(core.inner());
-            }
-            app.exit(0);
-        });
+        quit(app, true);
         return;
     }
     if event.id() != SETTINGS_ID {

@@ -1,5 +1,5 @@
-//! Running programs. Mac apps started from the Dock don't inherit the
-//! terminal's PATH, so agents are launched through the user's login +
+//! Running programs. Apps started from the Dock or a desktop launcher
+//! don't inherit the terminal's PATH, so agents are launched through the user's login +
 //! interactive shell. (A `LoginShell` abstraction replaces the Unix
 //! specifics here for the Windows port, architecture.md §9 decision 7.)
 //! Programs run through [`LocalExec`]: this is about this machine.
@@ -7,12 +7,16 @@
 use std::time::Duration;
 
 use crate::exec::{Cmd, Exec, LocalExec};
+use crate::platform;
 
 /// A login shell that hangs (waiting on something in the user's rc files).
 const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub fn user_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into())
+    match std::env::var("SHELL") {
+        Ok(s) if !s.is_empty() => s,
+        _ => platform::default_shell(),
+    }
 }
 
 /// How agents are launched: `$SHELL -l -i -c <script>`, as (program, args).
