@@ -23,7 +23,8 @@ pub fn body(item: &Attention) -> String {
 
 /// A system notification, unless the user is looking at Pitwall already.
 pub fn notify(app: &AppHandle, item: &Attention) {
-    if window_focused(app) {
+    // Bench instances (scripts/bench.sh) stay out of the user's way.
+    if window_focused(app) || crate::bench::enabled() {
         return;
     }
     let _ = app.notification().builder().title(&item.name).body(body(item)).show();

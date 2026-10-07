@@ -6,6 +6,7 @@
 pub mod agents;
 pub mod cli;
 pub mod onboarding;
+pub mod permissions;
 pub mod review;
 pub mod rules;
 pub mod terminals;

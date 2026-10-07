@@ -1,10 +1,22 @@
 // One xterm instance per agent, created once and kept alive for the agent's
 // lifetime. Components only mount the host element; switching agents never
 // recreates a terminal, so screen state and scrollback survive.
+//
+// Performance (docs/spec/perf.md):
+// - Renderer: xterm's DOM renderer by default. A WebGL context costs a lot of
+//   GPU-process memory in WKWebView (one terminal took the GPU process from
+//   ~16 MB to ~390 MB), and WebKit caps contexts per page (~16). WebGL is
+//   only ever attached to terminals that are visible in a pane, at most
+//   `MAX_WEBGL` at once (most recently shown first), and it is disposed as
+//   soon as a terminal is parked or shown in the Wall.
+// - Hidden (parked) terminals don't get every chunk written as it arrives:
+//   output is buffered and written in batches (they render nothing while
+//   parked); showing one flushes it first.
+// - Scrollback is capped (`SCROLLBACK`), and Wall viewers keep almost none.
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { WebglAddon } from "@xterm/addon-webgl";
+import type { WebglAddon } from "@xterm/addon-webgl";
 import { api, errorText } from "../api";
 import { OWNED_SHORTCUT } from "../lib/shortcuts";
 import { compute as responsive } from "../lib/useBreakpoint";
@@ -65,6 +77,20 @@ const LIGHT: ITheme = {
 
 const currentTheme = () => (currentScheme() === "dark" ? DARK : LIGHT);
 
+/** Lines of scrollback per interactive terminal (xterm keeps ~12 bytes per cell). */
+export const SCROLLBACK = 5_000;
+/** Wall viewers show the bottom of the screen only. */
+const VIEWER_SCROLLBACK = 50;
+/**
+ * Visible terminals that may use the WebGL renderer at once. 0 = DOM renderer
+ * everywhere (default: see the header comment for the measured cost).
+ */
+export const MAX_WEBGL = 0;
+/** Hidden terminals: write buffered output at most this often… */
+const HIDDEN_FLUSH_MS = 1000;
+/** …or as soon as this much is waiting. */
+const HIDDEN_FLUSH_BYTES = 256 * 1024;
+
 interface Entry {
   term: Terminal;
   fit: FitAddon | null;
@@ -80,6 +106,13 @@ interface Entry {
   viewOnly: boolean;
   /** Per-tile font size (set by its pane); null follows the global base size. */
   font?: number | null;
+  /** Shown in a pane or a Wall tile (not parked). Hidden output is batched. */
+  visible: boolean;
+  /** Output waiting to be written while hidden. */
+  pending: Uint8Array[];
+  pendingBytes: number;
+  flushTimer: number | null;
+  webgl: WebglAddon | null;
 }
 
 const entries = new Map<string, Entry>(); // interactive, one per agent
@@ -120,7 +153,7 @@ function makeTerminal(viewOnly: boolean): Terminal {
     lineHeight: 1.15,
     allowProposedApi: true,
     cursorBlink: !viewOnly,
-    scrollback: viewOnly ? 500 : 10_000,
+    scrollback: viewOnly ? VIEWER_SCROLLBACK : SCROLLBACK,
     macOptionIsMeta: true,
     theme: currentTheme(),
     disableStdin: viewOnly,
@@ -152,19 +185,74 @@ function create(agentId: string, running: boolean): Entry {
     rows: 0,
     fitted: null,
     viewOnly: false,
+    visible: false,
+    pending: [],
+    pendingBytes: 0,
+    flushTimer: null,
+    webgl: null,
   };
   entries.set(agentId, entry);
   if (running) attach(agentId, entry);
   return entry;
 }
 
+/** Write everything buffered while the terminal was hidden. */
+function flush(e: Entry) {
+  if (e.flushTimer !== null) {
+    clearTimeout(e.flushTimer);
+    e.flushTimer = null;
+  }
+  if (!e.pending.length) return;
+  const chunks = e.pending;
+  e.pending = [];
+  e.pendingBytes = 0;
+  if (chunks.length === 1) {
+    e.term.write(chunks[0]);
+    return;
+  }
+  const all = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.length;
+  }
+  e.term.write(all);
+}
+
+/** Output for `e`: straight in while visible, batched while hidden. */
+function deliver(e: Entry, bytes: Uint8Array) {
+  if (e.visible) {
+    if (e.pending.length) flush(e);
+    e.term.write(bytes);
+    return;
+  }
+  e.pending.push(bytes);
+  e.pendingBytes += bytes.length;
+  if (e.pendingBytes >= HIDDEN_FLUSH_BYTES) flush(e);
+  else if (e.flushTimer === null) e.flushTimer = window.setTimeout(() => flush(e), HIDDEN_FLUSH_MS);
+}
+
+function setVisible(e: Entry, visible: boolean) {
+  if (e.visible === visible) return;
+  e.visible = visible;
+  if (visible) flush(e);
+}
+
+function dropPending(e: Entry) {
+  if (e.flushTimer !== null) clearTimeout(e.flushTimer);
+  e.flushTimer = null;
+  e.pending = [];
+  e.pendingBytes = 0;
+}
+
 function attach(agentId: string, e: Entry) {
   const gen = ++e.gen;
   e.detach?.();
   e.detach = null;
+  dropPending(e);
   api
     .attachOutput(agentId, (bytes) => {
-      if (e.gen === gen) e.term.write(bytes);
+      if (e.gen === gen) deliver(e, bytes);
     })
     .then((detach) => {
       if (e.gen === gen) e.detach = detach;
@@ -176,35 +264,80 @@ function attach(agentId: string, e: Entry) {
     });
 }
 
-function open(e: Entry, webgl: boolean) {
+function open(e: Entry) {
   if (e.opened) return;
   e.opened = true;
   e.term.open(e.host);
-  if (!webgl) return;
+}
+
+// ── WebGL: only for visible panes, at most MAX_WEBGL, newest first ─────────
+
+/** Terminals holding a WebGL context, least recently shown first. */
+const webglOrder: Entry[] = [];
+
+function dropWebgl(e: Entry) {
+  const i = webglOrder.indexOf(e);
+  if (i >= 0) webglOrder.splice(i, 1);
+  const addon = e.webgl;
+  e.webgl = null;
   try {
-    const addon = new WebglAddon();
-    addon.onContextLoss(() => addon.dispose()); // fall back to the DOM renderer
-    e.term.loadAddon(addon);
+    addon?.dispose(); // back to the DOM renderer
   } catch {
-    // WebGL unavailable: xterm's default renderer is fine.
+    // already gone with its context
   }
+}
+
+/** The WebGL addon's code, loaded on first use (never while MAX_WEBGL is 0). */
+let webglModule: Promise<typeof import("@xterm/addon-webgl")> | null = null;
+
+function wantWebgl(e: Entry) {
+  if (MAX_WEBGL <= 0 || !e.opened || !e.visible) return;
+  if (e.webgl) {
+    webglOrder.splice(webglOrder.indexOf(e), 1);
+    webglOrder.push(e);
+    return;
+  }
+  webglModule ??= import("@xterm/addon-webgl");
+  webglModule.then(({ WebglAddon: Addon }) => {
+    if (e.webgl || !e.visible || !e.opened || !e.host.isConnected) return;
+    while (webglOrder.length >= MAX_WEBGL) dropWebgl(webglOrder[0]);
+    try {
+      const addon = new Addon();
+      addon.onContextLoss(() => {
+        if (e.webgl === addon) dropWebgl(e);
+      });
+      e.term.loadAddon(addon);
+      e.webgl = addon;
+      webglOrder.push(e);
+    } catch {
+      // WebGL unavailable: xterm's DOM renderer is fine.
+    }
+  }, () => {});
 }
 
 /** Mount the agent's interactive terminal into `parent` (idempotent; re-parents). */
 export function mountTerminal(agentId: string, parent: HTMLElement, running: boolean) {
   const e = entries.get(agentId) ?? create(agentId, running);
   if (e.host.parentElement !== parent) parent.appendChild(e.host);
+  setVisible(e, true);
   fontsReady.then(() => {
-    if (entries.get(agentId) !== e) return;
-    open(e, true);
+    if (entries.get(agentId) !== e || e.host.parentElement !== parent) return;
+    open(e);
+    wantWebgl(e);
     fitTerminal(agentId);
   });
+}
+
+function park(e: Entry) {
+  parking().appendChild(e.host);
+  setVisible(e, false);
+  dropWebgl(e);
 }
 
 /** Move the terminal out of `parent` (if it is still there) into the parking lot. */
 export function unmountTerminal(agentId: string, parent: HTMLElement) {
   const e = entries.get(agentId);
-  if (e && e.host.parentElement === parent) parking().appendChild(e.host);
+  if (e && e.host.parentElement === parent) park(e);
 }
 
 /** Fit to the container and tell the backend about new dimensions. */
@@ -360,6 +493,8 @@ export function disposeTerminal(agentId: string) {
   if (!e) return;
   e.gen++;
   e.detach?.();
+  dropPending(e);
+  dropWebgl(e);
   e.term.dispose();
   e.host.remove();
   entries.delete(agentId);
@@ -423,10 +558,12 @@ export function mountWallView(
   const own = entries.get(agentId);
   if (own && own.opened && ((own.term.cols === pty.cols && own.term.rows === pty.rows) || !pty.running)) {
     parent.appendChild(own.host);
+    setVisible(own, true);
+    dropWebgl(own); // Wall tiles use the DOM renderer
     return {
       element: own.host,
       release: () => {
-        if (own.host.parentElement === parent) parking().appendChild(own.host);
+        if (own.host.parentElement === parent) park(own);
       },
     };
   }
@@ -436,7 +573,23 @@ export function mountWallView(
     const term = makeTerminal(true);
     const host = document.createElement("div");
     host.className = "xterm-host xterm-viewer";
-    v = { term, fit: null, host, opened: false, detach: null, gen: 0, cols: 0, rows: 0, fitted: null, viewOnly: true };
+    v = {
+      term,
+      fit: null,
+      host,
+      opened: false,
+      detach: null,
+      gen: 0,
+      cols: 0,
+      rows: 0,
+      fitted: null,
+      viewOnly: true,
+      visible: true,
+      pending: [],
+      pendingBytes: 0,
+      flushTimer: null,
+      webgl: null,
+    };
     viewers.set(agentId, v);
     term.resize(Math.max(2, pty.cols), Math.max(1, pty.rows));
     attach(agentId, v);
@@ -445,8 +598,8 @@ export function mountWallView(
   }
   parent.appendChild(v.host);
   const entry = v;
-  fontsReady.then(() => open(entry, false));
-  open(entry, false);
+  fontsReady.then(() => open(entry));
+  open(entry);
   return { element: v.host, release: () => {} };
 }
 
@@ -455,8 +608,10 @@ export function disposeWallViewers() {
   for (const v of viewers.values()) {
     v.gen++;
     v.detach?.();
+    dropPending(v);
     v.term.dispose();
     v.host.remove();
   }
   viewers.clear();
 }
+

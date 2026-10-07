@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Not found — Pitwall</title>
+  <meta name="description" content="Page not found." />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>
+    try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Pitwall home">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>PITWALL</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="hide-sm" href="/docs/how-it-works/">How it works</a>
+        <a href="/docs/quick-start/">Docs</a>
+        <a class="hide-sm" href="/changelog/">Changelog</a>
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <div class="wrap">
+      <article class="prose">
+        <p class="label">404</p>
+        <h1>Off track.</h1>
+        <p>That page doesn't exist. Try the <a href="/">home page</a> or the <a href="/docs/quick-start/">quick start</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <nav aria-label="Footer">
+          <a href="/">Home</a>
+          <a href="/changelog/">Changelog</a>
+          <a href="%REPO_URL%">GitHub</a>
+        </nav>
+      </div>
+      <p>Pitwall is licensed under the <a href="%REPO_URL%/blob/main/LICENSE">Apache License 2.0</a>. Agent detection rules are adapted from <a href="https://github.com/herdrdev/herdr">Herdr</a> under the Apache License 2.0. Pitwall is not affiliated with Formula&nbsp;1 or with any agent vendor named here.</p>
+    </div>
+  </footer>
+</body>
+</html>

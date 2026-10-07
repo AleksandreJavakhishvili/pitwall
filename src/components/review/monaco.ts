@@ -16,11 +16,18 @@ import "monaco-editor/basic-languages/monaco.contribution";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import { loader } from "@monaco-editor/react";
 import { currentScheme } from "../../lib/theme";
+import { onMonacoRelease } from "./monacoLifecycle";
 
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 };
 loader.config({ monaco });
+
+onMonacoRelease(() => {
+  for (const ed of monaco.editor.getDiffEditors()) ed.dispose();
+  for (const ed of monaco.editor.getEditors()) ed.dispose();
+  for (const m of monaco.editor.getModels()) m.dispose();
+});
 
 const css = (name: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Changelog — Pitwall</title>
+  <meta name="description" content="What changed in each Pitwall build." />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>
+    try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Pitwall home">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>PITWALL</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="hide-sm" href="/docs/how-it-works/">How it works</a>
+        <a href="/docs/quick-start/">Docs</a>
+        <a class="hide-sm" href="/changelog/" aria-current="page">Changelog</a>
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <div class="wrap">
+      <article class="prose">
+        <p class="label">Changelog</p>
+        <h1>Changelog</h1>
+        <p>Pitwall hasn't had a public release. This page will list each build once there is one.</p>
+
+        <section class="release" aria-labelledby="v010">
+          <div class="release-head"><h2 id="v010">0.1.0</h2><span class="pill">Unreleased · in development</span></div>
+          <h3>Hosting and status</h3>
+          <ul>
+            <li>Terminal agents in tiled spaces with status flags: needs you, done, working, idle, exited, stopped.</li>
+            <li>Status from hooks, then screen rules, then activity. Screen rules for Claude Code, Codex, Gemini CLI, opencode, Cursor Agent, GitHub Copilot CLI, Qwen Code, Amp and Aider.</li>
+            <li>Needs-you bar with <kbd>⌘J</kbd>, Dock badge, native notifications.</li>
+            <li>Per-agent Next up queue with auto-send.</li>
+            <li>Terminals live in <code>pitwall-hold</code> processes and survive <kbd>⌘Q</kbd>.</li>
+          </ul>
+          <h3>Screens</h3>
+          <ul>
+            <li>Wall (<kbd>⌘E</kbd>): every terminal, view-only, grouped by project.</li>
+            <li>Review (<kbd>⌘R</kbd>): per-task diffs, line comments sent as one prompt, commit &amp; merge.</li>
+            <li>First-launch read-only scan that resumes recent conversations.</li>
+            <li>Density setting (Comfortable / Compact / Dense), presets up to 4×4 and Auto grid, spaces in separate windows.</li>
+          </ul>
+          <h3>Setup</h3>
+          <ul>
+            <li>Rules via <code>rulesync</code>: library, rule sets, per-project and per-agent assignment.</li>
+            <li>Worktrees through the agent's own <code>--worktree</code> flag; Pitwall creates no worktrees or branches of its own.</li>
+          </ul>
+          <h3>Terminals and machines</h3>
+          <ul>
+            <li><kbd>⌘T</kbd> opens a terminal in the focused agent's folder; an agent started in it is recognised, and Restart resumes it.</li>
+            <li>Agents running in other terminal apps are listed under Elsewhere, with "Bring in".</li>
+            <li>agw sessions on VMs: add or create them, live terminal, status, Next up, diffs and Review.</li>
+            <li><code>pitwall</code> CLI to list and add agents and sessions; changes to another machine wait for approval in the app.</li>
+          </ul>
+        </section>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <nav aria-label="Footer">
+          <a href="/">Home</a>
+          <a href="/docs/quick-start/">Quick start</a>
+          <a href="%REPO_URL%">GitHub</a>
+        </nav>
+      </div>
+      <p>Pitwall is licensed under the <a href="%REPO_URL%/blob/main/LICENSE">Apache License 2.0</a>. Agent detection rules are adapted from <a href="https://github.com/herdrdev/herdr">Herdr</a> under the Apache License 2.0. Pitwall is not affiliated with Formula&nbsp;1 or with any agent vendor named here.</p>
+    </div>
+  </footer>
+</body>
+</html>

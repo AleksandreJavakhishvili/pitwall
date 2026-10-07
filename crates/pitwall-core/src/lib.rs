@@ -20,6 +20,7 @@ pub mod kind;
 pub mod model;
 pub mod onboarding;
 pub mod paths;
+pub mod permissions;
 pub mod procs;
 pub mod provider;
 pub mod review;

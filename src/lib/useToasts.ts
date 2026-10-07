@@ -7,6 +7,8 @@ export interface Toast {
   title: string;
   detail?: string;
   agentId?: string;
+  /** Clicking the toast does this (instead of jumping to `agentId`). */
+  onClick?(): void;
 }
 
 export function useToasts() {

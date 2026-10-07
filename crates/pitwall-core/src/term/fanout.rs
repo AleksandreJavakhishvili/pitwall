@@ -8,6 +8,31 @@ use std::collections::VecDeque;
 /// gone).
 pub type OutputSink = Box<dyn FnMut(&[u8]) -> bool + Send>;
 
+/// Wrap `sink` so a stream of small chunks reaches it as fewer, larger ones:
+/// a chunk after a quiet spell is passed on at once (typing stays instant),
+/// then whatever arrives within `gap` goes as one batch, so a busy agent
+/// costs the consumer (a webview IPC message each) at most one call per
+/// `gap`. Runs on its own thread, which ends when the subscription is
+/// dropped or `sink` refuses a batch.
+pub fn coalesce(mut sink: OutputSink, gap: std::time::Duration) -> OutputSink {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let spawned = std::thread::Builder::new().name("term-out".into()).spawn(move || {
+        while let Ok(mut buf) = rx.recv() {
+            while let Ok(more) = rx.try_recv() {
+                buf.extend_from_slice(&more);
+            }
+            if !sink(&buf) {
+                return;
+            }
+            std::thread::sleep(gap);
+        }
+    });
+    if spawned.is_err() {
+        return Box::new(|_: &[u8]| false);
+    }
+    Box::new(move |chunk: &[u8]| tx.send(chunk.to_vec()).is_ok())
+}
+
 pub(crate) struct Fanout {
     ring: VecDeque<u8>,
     ring_cap: usize,
@@ -121,6 +146,41 @@ mod tests {
         let (dead, _) = collector(false);
         assert!(!f.subscribe(2, dead));
         assert!(f.subscribers.is_empty());
+    }
+
+    #[test]
+    fn coalesced_output_arrives_whole_and_batched() {
+        let calls = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let c = calls.clone();
+        let mut sink = coalesce(
+            Box::new(move |b: &[u8]| {
+                c.lock().unwrap().push(b.to_vec());
+                true
+            }),
+            std::time::Duration::from_millis(30),
+        );
+        assert!(sink(b"a"));
+        for _ in 0..50 {
+            assert!(sink(b"b"));
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while calls.lock().unwrap().concat().len() < 51 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let got = calls.lock().unwrap().clone();
+        assert_eq!(got.concat(), [b"a".to_vec(), vec![b'b'; 50]].concat(), "everything, in order");
+        assert!(got.len() <= 3, "batched: {} calls", got.len());
+    }
+
+    #[test]
+    fn coalesced_sink_reports_a_gone_consumer() {
+        let mut sink = coalesce(Box::new(|_: &[u8]| false), std::time::Duration::from_millis(1));
+        sink(b"x");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while sink(b"y") && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!sink(b"z"), "unsubscribes once the consumer refused");
     }
 
     #[test]

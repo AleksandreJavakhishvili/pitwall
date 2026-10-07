@@ -17,7 +17,7 @@ use crate::clock::Clock;
 use crate::error::{ErrorCode, PwError, Result};
 use crate::provider::{ExitInfo, TermIo, TermSize};
 use fanout::Fanout;
-pub use fanout::OutputSink;
+pub use fanout::{coalesce, OutputSink};
 
 const RING_CAP: usize = 1024 * 1024;
 pub const DEFAULT_ROWS: u16 = TermSize::DEFAULT.rows;

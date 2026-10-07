@@ -3,6 +3,7 @@
 //! hosts the engine and adapts it to Tauri (architecture.md §1).
 
 mod attention;
+mod bench;
 mod cli_install;
 mod commands;
 mod events;
@@ -23,6 +24,7 @@ use pitwall_providers::agw::{AgwConfig, AgwProvider};
 use pitwall_providers::local::{LocalConfig, LocalProvider};
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    bench::prepare(app);
     let paths = Paths::new(Paths::default_root());
     let local = LocalProvider::new(LocalConfig {
         hold_dir: paths.hold_dir(),
@@ -46,6 +48,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The `pitwall` CLI's socket (architecture.md §4).
     server::start(app.handle(), engine.clone(), &paths);
     windows::restore(app.handle());
+    bench::start(app.handle(), started());
     Ok(())
 }
 
@@ -57,8 +60,15 @@ fn show_main(app: &tauri::AppHandle) {
     }
 }
 
+/// When `run` began (bench: cold start to first window).
+fn started() -> std::time::Instant {
+    *START.get_or_init(std::time::Instant::now)
+}
+static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    started();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
@@ -147,6 +157,8 @@ pub fn run() {
             commands::onboarding::continue_conversation,
             commands::onboarding::adopt_session,
             commands::terminals::list_elsewhere,
+            commands::permissions::permissions_status,
+            commands::permissions::open_privacy_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

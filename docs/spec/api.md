@@ -46,6 +46,13 @@ Windows and shared UI state ([layout.md](layout.md)):
 | `focus_window` | `label` | `void` |
 | `list_windows` | – | `string[]` open window labels |
 
+macOS privacy (onboarding.md "Folder access"; core `permissions.rs`, probe in `platform`):
+
+| Command | Args | Returns |
+|---|---|---|
+| `permissions_status` | – | `PermissionsStatus { applies, fullDiskAccess, desktop, documents, downloads }`, each `"granted"\|"denied"\|"unknown"`. Read-only and never makes macOS ask: it opens items only Full Disk Access unlocks (`~/Library/Application Support/com.apple.TCC/TCC.db`, `~/Library/Safari`), which have no consent prompt. Desktop/Documents/Downloads are never probed (that would prompt): `granted` with Full Disk Access, else `unknown` |
+| `open_privacy_settings` | `kind: "fullDiskAccess"\|"filesAndFolders"` | `void` (shows that System Settings pane; changes nothing) |
+
 Onboarding and project list ([onboarding.md](onboarding.md)):
 
 | Command | Args | Returns |

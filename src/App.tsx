@@ -35,7 +35,6 @@ import { Toasts } from "./components/Toasts";
 import { DiffView } from "./components/DiffView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { CommandPalette } from "./components/CommandPalette";
-import { SettingsDialog } from "./components/SettingsDialog";
 import { ApprovalDialog } from "./components/ApprovalDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { TerminalDialog } from "./components/TerminalDialog";
@@ -47,9 +46,10 @@ import { EmptyState } from "./components/EmptyState";
 import { Wall } from "./components/Wall";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Suspense, lazy } from "react";
-import { Onboarding } from "./components/onboarding/Onboarding";
 import { useProjects } from "./components/onboarding/useProjects";
+import { ACCESS_ERROR_EVENT, noteAccessError, takeAccessHint } from "./lib/permissions";
 import { withProjects } from "./components/onboarding/projects";
+import { installBench, type BenchHandlers } from "./lib/bench";
 
 type ModalState =
   | null
@@ -62,8 +62,11 @@ type ModalState =
   | { type: "bring"; row: RunningElsewhere }
   | { type: "diff"; agentId: string; file: FileChange };
 
-// Review screen (Monaco) loads on first use.
+// Heavy, rarely shown screens load on first use (perf.md): Review (Monaco),
+// onboarding, Settings (rules UI).
 const Review = lazy(() => import("./components/review/Review"));
+const Onboarding = lazy(() => import("./components/onboarding/Onboarding").then((m) => ({ default: m.Onboarding })));
+const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
 
 const urlSpace = new URLSearchParams(window.location.search).get("space");
 const nextFrame = (fn: () => void) => requestAnimationFrame(() => requestAnimationFrame(fn));
@@ -187,12 +190,31 @@ export default function App() {
   }, [agents, ui, me]);
 
   // ── actions ─────────────────────────────────────────────────────────────
+  // macOS refused a folder (privacy): once ever, point at Full Disk Access.
+  const accessHint = useCallback(async () => {
+    const s = await api.permissionsStatus().catch(() => null);
+    if (!s?.applies || s.fullDiskAccess === "granted" || !takeAccessHint()) return;
+    push({
+      tone: "info",
+      title: "macOS blocked a folder",
+      detail: "Give Pitwall Full Disk Access and macOS stops asking. Click for Settings → Permissions.",
+      onClick: () => setModal({ type: "settings" }),
+    });
+  }, [push]);
+  useEffect(() => {
+    const on = () => void accessHint();
+    window.addEventListener(ACCESS_ERROR_EVENT, on);
+    return () => window.removeEventListener(ACCESS_ERROR_EVENT, on);
+  }, [accessHint]);
+
   const run = useCallback(
     async <T,>(p: Promise<T>, what: string): Promise<T | undefined> => {
       try {
         return await p;
       } catch (e) {
-        push({ tone: "error", title: `Couldn't ${what}`, detail: errorText(e) });
+        const detail = errorText(e);
+        push({ tone: "error", title: `Couldn't ${what}`, detail });
+        noteAccessError(detail);
         return undefined;
       }
     },
@@ -388,6 +410,22 @@ export default function App() {
       ),
   };
 
+  // One context value for the window's lifetime (its methods always call the
+  // latest closures), replaced only when a plain value in it changes — so an
+  // agents-changed doesn't re-render every useActions() consumer.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const stableActions = useMemo<Actions>(() => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(actionsRef.current)) {
+      out[k] =
+        typeof v === "function"
+          ? (...args: unknown[]) => (actionsRef.current as unknown as Record<string, (...a: unknown[]) => unknown>)[k](...args)
+          : v;
+    }
+    return out as unknown as Actions;
+  }, [ui.hideElsewhere, ui.theme, ui.density, ui.fontSize]);
+
   const toggleSidebar = () => {
     if (resp.sidebar === "full") setSidebarCollapsed((v) => !v);
     else setOverlaySidebar((v) => !v);
@@ -422,6 +460,34 @@ export default function App() {
     selectIndex: (i) => ordered[i] && showAgent(ordered[i].id),
     settings: () => setModal({ type: "settings" }),
   });
+
+  // scripts/bench.sh (inert unless the backend runs with PITWALL_BENCH=1).
+  const benchRef = useRef<BenchHandlers | null>(null);
+  benchRef.current = {
+    wall: (on) => setWall(on),
+    review: (on) => {
+      setReviewOn(on);
+      if (on && wallOn) setWall(false);
+    },
+    visitAll: async () => {
+      for (const a of ordered) {
+        showAgent(a.id);
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      actions.applyPreset("auto");
+    },
+  };
+  const benchOn = loaded && ready && !isMock && me === W.MAIN;
+  useEffect(() => {
+    if (!benchOn) return;
+    let off: (() => void) | null = null;
+    let alive = true;
+    installBench(() => benchRef.current!).then((u) => (alive ? (off = u) : u()), () => {});
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [benchOn]);
 
   // Native menu "Pitwall → Settings… ⌘," (sent to the focused window).
   useEffect(() => {
@@ -503,12 +569,14 @@ export default function App() {
     !selected || wallOn || reviewOn ? "hidden" : resp.rightDocked ? (rightPinned ? "docked" : "hidden") : drawerOpen ? "drawer" : "hidden";
 
   const sidebarGroups = useMemo(() => withProjects(groups, projects), [groups, projects]);
-  const elsewhereRows = useElsewhere(ready && !ui.hideElsewhere);
+  // Not before onboarding: reading other agents' folders could make macOS ask
+  // about Desktop/Documents before the welcome screen's "Folder access" step.
+  const elsewhereRows = useElsewhere(ready && !ui.hideElsewhere && onboarded === true);
   const elsewhere = useMemo(() => visibleElsewhere(elsewhereRows, agents), [elsewhereRows, agents]);
   const sidebarProps = { groups: sidebarGroups, ui, me, focusedAgentId, elsewhere };
 
   return (
-    <ActionsContext.Provider value={actions}>
+    <ActionsContext.Provider value={stableActions}>
       <div
         className="app"
         data-bp={resp.bp}
@@ -651,7 +719,9 @@ export default function App() {
       )}
       {modal?.type === "settings" && (
         <ErrorBoundary where="Settings" variant="modal" onClose={closeModal}>
-          <SettingsDialog onClose={closeModal} onScanAgain={() => setModal({ type: "scan" })} />
+          <Suspense fallback={null}>
+            <SettingsDialog onClose={closeModal} onScanAgain={() => setModal({ type: "scan" })} />
+          </Suspense>
         </ErrorBoundary>
       )}
       {modal?.type === "terminal" && (
@@ -691,28 +761,30 @@ export default function App() {
             if (modal?.type === "scan") closeModal();
           }}
         >
-          <Onboarding
-            mode={modal?.type === "scan" ? "rescan" : "welcome"}
-            agents={agents}
-            onClose={() => {
-              setOnboarded(true);
-              if (modal?.type === "scan") closeModal();
-            }}
-            onFinished={(created) => {
-              setOnboarded(true);
-              if (modal?.type === "scan") closeModal();
-              if (!created.length) return;
-              // Hand over: the new agents tiled in the All space (overflow as chips), first one focused.
-              created.forEach(patch);
-              setReviewOn(false);
-              setOverlaySidebar(false);
-              setActiveSpaceId(W.ALL_SPACE);
-              const ids = created.map((a) => a.id);
-              update((s) => W.setWall(W.tileAgents(s, W.ALL_SPACE, ids, Math.max(2, resp.maxPerRow * 2)), me, false));
-              flush();
-              nextFrame(() => focusTerminal(ids[0]));
-            }}
-          />
+          <Suspense fallback={null}>
+            <Onboarding
+              mode={modal?.type === "scan" ? "rescan" : "welcome"}
+              agents={agents}
+              onClose={() => {
+                setOnboarded(true);
+                if (modal?.type === "scan") closeModal();
+              }}
+              onFinished={(created) => {
+                setOnboarded(true);
+                if (modal?.type === "scan") closeModal();
+                if (!created.length) return;
+                // Hand over: the new agents tiled in the All space (overflow as chips), first one focused.
+                created.forEach(patch);
+                setReviewOn(false);
+                setOverlaySidebar(false);
+                setActiveSpaceId(W.ALL_SPACE);
+                const ids = created.map((a) => a.id);
+                update((s) => W.setWall(W.tileAgents(s, W.ALL_SPACE, ids, Math.max(2, resp.maxPerRow * 2)), me, false));
+                flush();
+                nextFrame(() => focusTerminal(ids[0]));
+              }}
+            />
+          </Suspense>
         </ErrorBoundary>
       )}
     </ActionsContext.Provider>

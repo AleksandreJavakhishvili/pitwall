@@ -347,6 +347,11 @@
 .setting .small-btn {
   align-self: flex-start;
 }
+.settings-steps {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
 .confirm-box {
   padding: 12px 14px;
   border-radius: var(--radius);

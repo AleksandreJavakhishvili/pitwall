@@ -15,9 +15,13 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Everything Pitwall owns lives under ~/.pitwall.
+/// Everything Pitwall owns lives under ~/.pitwall, or under `$PITWALL_HOME`
+/// when set (isolated test instances and benchmarks, scripts/bench.sh).
 pub fn data_dir() -> PathBuf {
-    home_dir().join(".pitwall")
+    match std::env::var_os(crate::paths::HOME_ENV) {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => home_dir().join(".pitwall"),
+    }
 }
 
 /// Per-user application data of other apps (editors' "recently opened").
@@ -36,6 +40,43 @@ pub fn is_executable(path: &Path) -> bool {
 pub fn make_executable(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+// ---------------------------------------------------------------- privacy (macOS TCC)
+
+/// Opens items that only Full Disk Access unlocks, read-only, without reading
+/// them (`permissions::classify` maps the results). These locations have no
+/// consent prompt: without the grant macOS fails the open with EPERM, so
+/// checking never makes macOS ask. Desktop/Documents/Downloads and other
+/// apps' containers are deliberately absent — touching those *does* prompt.
+/// Empty where there is no such permission (not macOS).
+pub fn full_disk_access_probes() -> Vec<io::Result<()>> {
+    if !cfg!(target_os = "macos") {
+        return Vec::new();
+    }
+    let home = home_dir();
+    vec![
+        // The per-user privacy database: present on every Mac.
+        std::fs::File::open(home.join("Library/Application Support/com.apple.TCC/TCC.db")).map(drop),
+        // Safari's data folder, in case the database moves.
+        std::fs::read_dir(home.join("Library/Safari")).map(drop),
+    ]
+}
+
+/// Opens a system URL (a System Settings pane) with the default handler.
+pub fn open_system_url(url: &str) -> Result<(), String> {
+    if !cfg!(target_os = "macos") {
+        return Err("privacy settings are a macOS feature".into());
+    }
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(url)
+        .status()
+        .map_err(|e| format!("could not open System Settings: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("could not open System Settings".into())
+    }
 }
 
 // ---------------------------------------------------------------- local sockets

@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import { memo, type MouseEvent } from "react";
 import type { AgentView } from "../types";
 import { STATUS_WORD } from "../lib/status";
 import { agentDragSource } from "../lib/dnd";
@@ -15,7 +15,16 @@ interface Props {
   onContextMenu?(e: MouseEvent): void;
 }
 
-export function AgentRow({ agent: a, index, selected, where, onSelect, onContextMenu }: Props) {
+/**
+ * Re-renders only when what it shows changes. The callbacks are left out on
+ * purpose: they only call the window's stable actions with this agent.
+ */
+export const AgentRow = memo(
+  AgentRowImpl,
+  (a, b) => a.agent === b.agent && a.index === b.index && a.selected === b.selected && a.where === b.where,
+);
+
+function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMenu }: Props) {
   return (
     <li>
       <button

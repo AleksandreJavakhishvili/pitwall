@@ -467,3 +467,46 @@
   font-weight: 600;
   font-size: 12px;
 }
+
+/* welcome step 1: folder access (macOS) */
+.onb-access {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.onb-access[data-phase="granted"] {
+  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
+}
+.onb-access .muted {
+  line-height: 1.55;
+}
+.onb-access-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.5;
+}
+.onb-access-live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 0;
+}
+.onb-access-live[data-on="false"] .onb-glyph {
+  border-color: var(--line-strong);
+  border-top-color: var(--text);
+  animation: onb-spin 0.9s linear infinite;
+}
+.onb-access-live[data-on="true"] .onb-glyph {
+  border-color: transparent;
+  background: var(--green-soft);
+  color: var(--green);
+  animation: pop 0.22s ease-out;
+}

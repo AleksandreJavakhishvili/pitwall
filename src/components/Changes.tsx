@@ -5,6 +5,7 @@ import { useActions } from "../lib/actions";
 import { DiffStat } from "./DiffStat";
 import { FileIcon, FileStats } from "./FileIcon";
 import { fileStatus, splitPath } from "../lib/fileTree";
+import { noteAccessError } from "../lib/permissions";
 
 /** Changed files for an agent; refetched when its totals move, and every 5s.
  * Nothing is fetched when its changes can't be read (`caps.diff`). */
@@ -26,7 +27,11 @@ function useChanges(a: AgentView) {
           setFiles(f);
           setError(null);
         })
-        .catch((e) => alive && setError(errorText(e)));
+        .catch((e) => {
+          if (!alive) return;
+          setError(errorText(e));
+          noteAccessError(errorText(e));
+        });
     load();
     const t = setInterval(load, 5000);
     return () => {

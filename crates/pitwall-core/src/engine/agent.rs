@@ -53,6 +53,10 @@ pub struct Agent {
     pub git_seq: u64,
     pub git_inflight: bool,
     pub git_wanted: bool,
+    /// Current git polling interval (ms): starts at the provider's, doubles
+    /// while refreshes find nothing new, back to the start on a change
+    /// (ticker.rs `git_due`). 0 = not backed off yet.
+    pub git_every: u64,
     pub last_auto_send: u64,
     /// Looking for the worktree the agent makes itself (worktree.rs).
     pub watch: Option<super::worktree::Watch>,
@@ -95,6 +99,7 @@ impl Agent {
             git_seq: 0,
             git_inflight: false,
             git_wanted: true,
+            git_every: 0,
             last_auto_send: 0,
             watch: None,
             inner: None,
@@ -122,6 +127,7 @@ impl Agent {
         self.screen_detail = None;
         self.detect_seq = u64::MAX;
         self.git_wanted = true;
+        self.git_every = 0;
         self.git_repo = None;
         self.relinking = false;
         self.inner = None;

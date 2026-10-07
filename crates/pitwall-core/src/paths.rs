@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 
 use crate::platform;
 
+/// Overrides Pitwall's data folder (default `~/.pitwall`): a test or
+/// benchmark instance with its own state, sockets and holders.
+pub const HOME_ENV: &str = "PITWALL_HOME";
+
 /// Pitwall's own files, all under one root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -18,7 +22,8 @@ impl Paths {
         Paths { root: root.into() }
     }
 
-    /// The platform's data dir for Pitwall (`~/.pitwall` on macOS).
+    /// The platform's data dir for Pitwall (`~/.pitwall` on macOS;
+    /// `$PITWALL_HOME` when set).
     pub fn default_root() -> PathBuf {
         platform::data_dir()
     }

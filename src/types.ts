@@ -317,3 +317,17 @@ export interface CliStatus {
   /** Where it can be linked, best first. */
   dirs: { path: string; onPath: boolean; exists: boolean }[];
 }
+
+/** macOS privacy permissions (`permissions_status`). Checking never makes macOS ask. */
+export type Access = "granted" | "denied" | "unknown";
+export interface PermissionsStatus {
+  /** This OS guards folders per app (macOS); elsewhere everything is "unknown". */
+  applies: boolean;
+  fullDiskAccess: Access;
+  /** "granted" with Full Disk Access; otherwise "unknown" (macOS asks on first use). */
+  desktop: Access;
+  documents: Access;
+  downloads: Access;
+}
+/** System Settings panes `open_privacy_settings` can show. */
+export type PrivacyPane = "fullDiskAccess" | "filesAndFolders";

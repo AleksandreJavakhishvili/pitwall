@@ -11,6 +11,8 @@ import type {
   ApprovalView,
   AttentionEvent,
   CliStatus,
+  PermissionsStatus,
+  PrivacyPane,
   CreateAgentRequest,
   CreateForm,
   FileChange,
@@ -94,6 +96,12 @@ export interface Api extends ReviewApi {
   listElsewhere(): Promise<RunningElsewhere[]>;
   onScanProgress(cb: (e: ScanProgress) => void): Promise<Unlisten>;
   onProjectsChanged(cb: (projects: Project[]) => void): Promise<Unlisten>;
+
+  // macOS privacy (welcome screen "Folder access", Settings → Permissions)
+  /** Full Disk Access and folder access; read-only, never makes macOS ask. */
+  permissionsStatus(): Promise<PermissionsStatus>;
+  /** Shows that System Settings pane; the user changes it there. */
+  openPrivacySettings(kind: PrivacyPane): Promise<void>;
 }
 
 export const inTauri =
@@ -197,6 +205,8 @@ async function createTauriApi(): Promise<Api> {
     listElsewhere: () => invoke("list_elsewhere"),
     onScanProgress: (cb) => listen<ScanProgress>("scan-progress", (e) => cb(e.payload)),
     onProjectsChanged: (cb) => listen<Project[]>("projects-changed", (e) => cb(e.payload)),
+    permissionsStatus: () => invoke("permissions_status"),
+    openPrivacySettings: (kind) => invoke("open_privacy_settings", { kind }),
   };
 }
 

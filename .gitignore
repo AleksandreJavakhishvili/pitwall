@@ -25,3 +25,6 @@ dist-ssr
 
 # Rust (workspace target dir)
 /target
+
+# Website: built by website/scripts/build-demo.mjs
+/website/public/demo/

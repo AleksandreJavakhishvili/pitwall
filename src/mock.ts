@@ -2,6 +2,7 @@
 // Behaves like the real contract: commands mutate state and emit agents-changed.
 import type { Api, Unlisten } from "./api";
 import { createOnboardingMock } from "./components/onboarding/mockOnboarding";
+import { createPermissionsMock } from "./components/onboarding/mockPermissions";
 import { createReviewMock } from "./mockReview";
 import type {
   AgentView,
@@ -926,6 +927,7 @@ export function createMockApi(): Api {
       return () => attnSubs.delete(cb);
     },
     ...createOnboardingMock((req) => mock.createAgent(req), update),
+    ...createPermissionsMock(),
   };
   return mock;
 }

@@ -11,7 +11,8 @@ export function Toasts({ toasts, onDismiss, onJump }: { toasts: Toast[]; onDismi
           <button
             className="toast-body"
             onClick={() => {
-              if (t.agentId) onJump(t.agentId);
+              if (t.onClick) t.onClick();
+              else if (t.agentId) onJump(t.agentId);
               onDismiss(t.id);
             }}
           >

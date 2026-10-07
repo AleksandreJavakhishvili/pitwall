@@ -3,6 +3,17 @@
 Shown on first launch (state flag `onboarded == false`) and from Settings →
 "Scan again". Nothing on the machine changes unless the user ticks a box.
 
+## Step 1 (welcome only, macOS): Folder access
+Before the scan, because the scan's first read of a project in Desktop,
+Documents or Downloads is what makes macOS ask. Explains why, "Open Settings"
+(Privacy & Security → Full Disk Access) with three steps, a live ✓ (re-reads
+`permissions_status` every ~2 s and on window focus), "Skip for now" (macOS
+then asks per folder, with the Info.plist usage text). Skipped automatically
+when already granted, not macOS, or the check fails. Settings → Permissions
+shows the same status and button; an "Operation not permitted" error later
+gives a one-time hint toast. Nothing reads other agents' folders (the
+"Elsewhere" group) before onboarding is finished.
+
 ## What the scan finds (backend `scan.rs`, each step independent, failures non-fatal)
 1. **Agents**: every known kind on the login-shell PATH, with `--version`.
    Never run an agent beyond `--version`; never answer prompts/dialogs.

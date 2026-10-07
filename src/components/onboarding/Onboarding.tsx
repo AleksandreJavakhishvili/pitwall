@@ -1,6 +1,6 @@
 // First-launch welcome screen and Settings → "Scan again" (docs/spec/onboarding.md).
 // The scan is read-only; nothing changes until the user ticks a box and confirms.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText, getApi } from "../../api";
 import type {
   AgentView,
@@ -28,6 +28,7 @@ import {
   startAll,
   type PlannedAgent,
 } from "./projects";
+import { FolderAccessStep } from "./FolderAccess";
 import "./onboarding.css";
 
 const STEPS: { step: ScanStep; label: string }[] = [
@@ -66,7 +67,18 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 /** "Show under project…" option that opens the inline Add folder form. */
 const ADD_FOLDER = "\u0000add";
 
-export function Onboarding({ mode, agents, onClose, onFinished }: Props) {
+/**
+ * The welcome screen starts with "Folder access" (FolderAccess.tsx) and only
+ * then scans: the scan reads project folders, and on macOS the first read of
+ * Desktop/Documents/Downloads is what makes macOS ask. "Scan again" skips it.
+ */
+export function Onboarding(props: Props) {
+  const [accessDone, setAccessDone] = useState(props.mode !== "welcome");
+  const done = useCallback(() => setAccessDone(true), []);
+  return accessDone ? <ScanScreen {...props} /> : <FolderAccessStep onDone={done} />;
+}
+
+function ScanScreen({ mode, agents, onClose, onFinished }: Props) {
   const { run } = useActions();
   const [steps, setSteps] = useState<StepState>({});
   const [result, setResult] = useState<ScanResult | null>(null);

@@ -13,6 +13,7 @@ import { FileTree } from "./FileTree";
 import { splitPath, treeOrder } from "../../lib/fileTree";
 import { commentStore, composePrompt, sortComments, useComments } from "./comments";
 import { CommitMergeDialog, ConflictDialog, DiscardDialog, PromptDialog } from "./ReviewDialogs";
+import { releaseMonaco } from "./monacoLifecycle";
 import "./review.css";
 
 // Monaco is big: load it only when a file is opened.
@@ -138,6 +139,10 @@ export default function Review({ agents, onExit }: { agents: AgentView[]; onExit
       alive = false;
     };
   }, [agentId, currentTask, nonce]);
+
+  // Closing Review frees Monaco's editors, models and worker (after the diff
+  // editor's own unmount has run).
+  useEffect(() => () => void setTimeout(releaseMonaco, 0), []);
 
   // Esc leaves the review (unless a dialog, the editor or a text field has it).
   useEffect(() => {

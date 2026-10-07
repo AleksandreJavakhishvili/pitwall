@@ -21,6 +21,8 @@ const AUTO_SEND_SETTLE_MS: u64 = 800;
 const AUTO_SEND_QUIET_INPUT_MS: u64 = 2500;
 const AUTO_SEND_COOLDOWN_MS: u64 = 3000;
 const GIT_EVERY_MS: u64 = 3000;
+/// Git polling backs off (doubling) while refreshes find nothing new, up to this.
+const GIT_MAX_EVERY_MS: u64 = 30_000;
 
 pub fn start(core: Shared) {
     let c = core.clone();
@@ -132,6 +134,10 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
         // What the task changed shows up right away, even where git is
         // polled rarely (`ProviderCaps::git_poll_ms`).
         a.git_wanted |= ended.iter().any(|j| matches!(j, Job::End { .. }));
+        // A new turn of work: poll at the normal pace again (git backoff).
+        if a.status == Status::Working {
+            a.git_every = 0;
+        }
         out.task_jobs.extend(ended);
         a.status_since = now;
         let reason = match a.status {
@@ -267,7 +273,10 @@ fn tick(core: &Shared, badge: &mut usize) {
 /// Git refresh: wanted, or every 3s while active / after new output. Where
 /// the provider asks for slower polling (`ProviderCaps::git_poll_ms`), only
 /// while the agent works, at most that often. Never for an agent outside a
-/// git repository, or whose machine can't run git.
+/// git repository, or whose machine can't run git. Idle agents (no new
+/// output, not working) are never polled; active ones whose refreshes keep
+/// finding nothing new back off to `GIT_MAX_EVERY_MS` (or the provider's
+/// interval, if slower) until one finds a change.
 fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
     let mut jobs = Vec::new();
     for a in agents.iter_mut() {
@@ -280,7 +289,7 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
             .map(|s| s.output_seq.load(Ordering::Relaxed))
             .unwrap_or(a.git_seq);
         let slow = a.facts.provider.git_poll_ms > 0;
-        let every = if slow { u64::from(a.facts.provider.git_poll_ms) } else { GIT_EVERY_MS };
+        let every = a.git_every.max(git_base_ms(a));
         let active = a.status == Status::Working || (!slow && seq != a.git_seq);
         let due = now.saturating_sub(a.git_at) >= every && active;
         if a.git_wanted || due {
@@ -295,6 +304,24 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
         }
     }
     jobs
+}
+
+/// The provider's git interval, or the default.
+fn git_base_ms(a: &Agent) -> u64 {
+    match a.facts.provider.git_poll_ms {
+        0 => GIT_EVERY_MS,
+        ms => u64::from(ms),
+    }
+}
+
+/// The next polling interval after a refresh: back to `base` when it found a
+/// change, else twice as long, up to `GIT_MAX_EVERY_MS` (never below `base`).
+fn next_git_every(prev: u64, base: u64, differs: bool) -> u64 {
+    if differs {
+        base
+    } else {
+        (prev.max(base) * 2).min(GIT_MAX_EVERY_MS.max(base))
+    }
 }
 
 fn refresh_git(core: &Shared, job: GitJob) {
@@ -319,7 +346,9 @@ fn refresh_git(core: &Shared, job: GitJob) {
                 Err(e) if e == NOT_A_REPO => a.git_repo = Some(false),
                 Err(_) => {}
             }
-            before != (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo)
+            let differs = before != (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo);
+            a.git_every = next_git_every(a.git_every, git_base_ms(a), differs);
+            differs
         })
         .unwrap_or(false);
     if differs {
@@ -477,6 +506,27 @@ mod tests {
         let f = fold(&mut agents[0], live(0), 90_000);
         assert!(!f.task_jobs.is_empty() && agents[0].git_wanted);
         assert_eq!(git_due(&mut agents, 90_001).len(), 1);
+    }
+
+    #[test]
+    fn git_polling_backs_off_while_nothing_changes() {
+        assert_eq!(next_git_every(0, GIT_EVERY_MS, false), 6_000);
+        assert_eq!(next_git_every(6_000, GIT_EVERY_MS, false), 12_000);
+        assert_eq!(next_git_every(24_000, GIT_EVERY_MS, false), GIT_MAX_EVERY_MS);
+        assert_eq!(next_git_every(GIT_MAX_EVERY_MS, GIT_EVERY_MS, true), GIT_EVERY_MS, "a change resets it");
+        // A slow provider's own interval is the floor.
+        assert_eq!(next_git_every(0, 45_000, false), 45_000);
+        assert_eq!(next_git_every(0, 15_000, true), 15_000);
+
+        // Backed off: new output alone isn't due before the longer interval.
+        let mut agents = vec![agent()];
+        agents[0].git_wanted = false;
+        agents[0].git_at = 1_000;
+        agents[0].git_seq = 1;
+        agents[0].git_every = 12_000;
+        agents[0].status = Status::Working;
+        assert!(git_due(&mut agents, 1_000 + GIT_EVERY_MS).is_empty());
+        assert_eq!(git_due(&mut agents, 1_000 + 12_000).len(), 1);
     }
 
     #[test]

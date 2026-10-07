@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useRef } from "react";
 import type { AgentView } from "../types";
 import type { PaneNode } from "../layout/tree";
 import { useActions } from "../lib/actions";
@@ -21,7 +21,24 @@ interface Props {
   spaceId: string;
 }
 
-export function PaneView({ pane, agent, focused, maximized, canClose, members, fonts, spaceId }: Props) {
+/** Re-render only when something it shows changed (members: element-wise). */
+function sameProps(a: Props, b: Props): boolean {
+  return (
+    a.pane === b.pane &&
+    a.agent === b.agent &&
+    a.focused === b.focused &&
+    a.maximized === b.maximized &&
+    a.canClose === b.canClose &&
+    a.fonts === b.fonts &&
+    a.spaceId === b.spaceId &&
+    a.members.length === b.members.length &&
+    a.members.every((m, i) => m === b.members[i])
+  );
+}
+
+export const PaneView = memo(PaneViewImpl, sameProps);
+
+function PaneViewImpl({ pane, agent, focused, maximized, canClose, members, fonts, spaceId }: Props) {
   const { focusPane, dropAgent } = useActions();
   // Live drop preview (lib/dnd hit-tests the data-drop attributes below).
   const zone = usePaneDropZone(pane.id);

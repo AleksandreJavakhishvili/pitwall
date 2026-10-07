@@ -53,10 +53,14 @@ pub async fn create_form(core: State<'_, Shared>, provider: String, machine: Str
     blocking(move || core.create_form(Some(&provider), Some(&machine))).await
 }
 
+/// Output batching window for the webview channel (a lone chunk goes at once).
+const OUTPUT_GAP: std::time::Duration = std::time::Duration::from_millis(12);
+
 #[tauri::command]
 pub fn attach_output(core: State<'_, Shared>, agent_id: String, on_data: Channel<InvokeResponseBody>) -> Res<u64> {
     let sink = Box::new(move |bytes: &[u8]| on_data.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok());
-    input::attach_output(&core, &agent_id, sink)
+    // One webview message per OUTPUT_GAP at most while an agent streams (perf.md).
+    input::attach_output(&core, &agent_id, pitwall_core::term::coalesce(sink, OUTPUT_GAP))
 }
 
 #[tauri::command]

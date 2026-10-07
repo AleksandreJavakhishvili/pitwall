@@ -170,6 +170,11 @@ blockquote,
   border-color: transparent;
   background: var(--green-soft);
 }
+.chip-warn {
+  color: var(--amber);
+  border-color: transparent;
+  background: var(--amber-soft);
+}
 .chip-mock {
   color: var(--text-2);
   border-style: dashed;

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentView } from "../types";
 import type { ProjectGroup } from "../lib/groups";
 import { machineHeading, summarize } from "../lib/groups";
@@ -76,7 +76,9 @@ export function Wall({ groups, ui, onExit }: { groups: ProjectGroup[]; ui: UiSta
   );
 }
 
-function WallTile({ agent: a, fontSize }: { agent: AgentView; fontSize: number }) {
+const WallTile = memo(WallTileImpl);
+
+function WallTileImpl({ agent: a, fontSize }: { agent: AgentView; fontSize: number }) {
   const { showAgent } = useActions();
   const bodyRef = useRef<HTMLDivElement>(null);
   const scaleRef = useRef<HTMLDivElement>(null);

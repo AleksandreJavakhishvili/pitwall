@@ -95,6 +95,10 @@ fn rules_for(kind: &str) -> Option<Arc<RuleSet>> {
 }
 
 fn user_dir() -> Option<PathBuf> {
+    // Pitwall's data folder: `$PITWALL_HOME`, else ~/.pitwall (pitwall-core paths).
+    if let Some(root) = std::env::var_os("PITWALL_HOME").filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(root).join("detect"));
+    }
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".pitwall").join("detect"))
 }

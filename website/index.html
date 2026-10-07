@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pitwall — you call the strategy, agents drive</title>
+  <meta name="description" content="Pitwall is a macOS app that hosts terminal coding agents — Claude Code, Codex, Gemini CLI, opencode, Cursor, Copilot, Qwen, Amp, Aider or any CLI — and tells you which one needs you." />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0a0b0d" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>
+    try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Pitwall home">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>PITWALL</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="hide-sm" href="/docs/how-it-works/">How it works</a>
+        <a href="/docs/quick-start/">Docs</a>
+        <a class="hide-sm" href="/changelog/">Changelog</a>
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-h">
+      <div class="wrap">
+        <div class="hero-top">
+          <div>
+            <p class="label">macOS · early builds · Apache-2.0</p>
+            <h1 id="hero-h">You call the strategy. <span class="dim">Agents drive.</span></h1>
+          </div>
+          <div class="hero-side">
+            <p class="lede">Run Claude Code, Codex and any other terminal agent side by side. The one that needs you turns amber.</p>
+            <div class="cta">
+              <a class="btn btn-primary" href="%RELEASES_URL%">Download for macOS</a>
+              <a class="btn" href="%REPO_URL%">Star on GitHub</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="demo" data-demo>
+          <div class="tabs" role="tablist" aria-label="What Pitwall does">
+            <button role="tab" id="tab-needs-you" aria-selected="true" aria-controls="demo-panel" data-view="needs-you" data-t="0"><span class="g g-blocked" aria-hidden="true">▲</span>Needs you <kbd>⌘J</kbd></button>
+            <button role="tab" id="tab-wall" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="wall" data-t="7.7">Wall <kbd>⌘E</kbd></button>
+            <button role="tab" id="tab-next-up" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="next-up" data-t="11.7">Next up <kbd>⌘.</kbd></button>
+            <button role="tab" id="tab-review" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="review" data-t="17.4">Review <kbd>⌘R</kbd></button>
+            <button role="tab" id="tab-terminals" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="terminals" data-t="22">Terminals <kbd>⌘T</kbd></button>
+            <button role="tab" id="tab-rules" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="rules" data-t="27">Rules <kbd>⌘,</kbd></button>
+          </div>
+
+          <div class="demo-panel" id="demo-panel" role="tabpanel" aria-labelledby="tab-needs-you">
+            <div class="copy">
+              <p data-copy="needs-you">A permission prompt or a question turns the agent amber, sorts it to the top and lights the bar along the bottom. <kbd>⌘J</kbd> jumps there.</p>
+              <p data-copy="wall" hidden>Every terminal, live, grouped by project, the ones that need you first. The Wall only watches; click a tile to take over.</p>
+              <p data-copy="next-up" hidden>Queue the next instruction while the agent works. It goes in exactly as written once the agent is done or idle.</p>
+              <p data-copy="review" hidden>What each agent changed, task by task. Comment on lines, send them back as one prompt, merge when you click.</p>
+              <p data-copy="terminals" hidden><kbd>⌘T</kbd> opens a terminal in the focused agent's folder. Start <code>claude</code> or <code>codex</code> in it and the pane becomes that agent, with its flag and Next up.</p>
+              <p data-copy="rules" hidden>One rule library, written into CLAUDE.md, AGENTS.md and the rest through rulesync. Generated files stay out of your diffs.</p>
+            </div>
+
+            <div class="frame">
+              <div class="frame-bar">
+                <span class="frame-title">Pitwall <span class="dim">· demo projects</span></span>
+                <button class="frame-btn" type="button" data-live hidden>Try it live</button>
+                <button class="frame-btn" type="button" data-play hidden aria-label="Play video">Play</button>
+              </div>
+              <div class="frame-body">
+                <video data-video muted loop playsinline preload="metadata" width="1680" height="1050"
+                  poster="/video/poster-dark.webp" data-dark="/video/demo-dark.mp4" data-light="/video/demo-light.mp4"
+                  data-poster-dark="/video/poster-dark.webp" data-poster-light="/video/poster-light.webp"
+                  aria-label="Pitwall in use: tests needs you, you jump to it and answer, it works and finishes; then the Wall, a prompt queued in Next up, Review, a new terminal that becomes Claude Code, and rule settings.">
+                  <source src="/video/demo-light.mp4" type="video/mp4" media="(prefers-color-scheme: light)" />
+                  <source src="/video/demo-dark.mp4" type="video/mp4" />
+                </video>
+                <div class="skeleton" aria-hidden="true" hidden>
+                  <span></span><span class="amber"></span><span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pit" aria-label="Details">
+      <div class="wrap">
+        <div class="pit-row">
+          <p class="label">Works with</p>
+          <ul class="chips" aria-label="Supported agents">
+            <li>Claude Code <small>hooks</small></li>
+            <li>Codex <small>hooks</small></li>
+            <li>Gemini CLI</li>
+            <li>opencode</li>
+            <li>Cursor Agent</li>
+            <li>Copilot CLI</li>
+            <li>Qwen Code</li>
+            <li>Amp</li>
+            <li>Aider</li>
+            <li>any CLI</li>
+          </ul>
+        </div>
+        <div class="pit-row">
+          <p class="label">Pit stop</p>
+          <p><kbd>⌘Q</kbd> closes the window, not your agents. Their terminals keep running and come back with the scrollback on the next launch.</p>
+        </div>
+        <div class="pit-row">
+          <p class="label">Also</p>
+          <p>Sessions on agw VMs show up next to local agents, and a <code>pitwall</code> CLI lets you or an agent add more; anything that touches another machine waits for your OK in the app.</p>
+        </div>
+        <div class="pit-row">
+          <p class="label">Coming</p>
+          <p class="dim-copy">A background daemon with a menu-bar item, more CLI commands, then Windows and Linux. Not in a build yet. <a href="/docs/how-it-works/#roadmap">Roadmap</a></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing" id="get" aria-labelledby="closing-h">
+      <div class="wrap">
+        <h2 id="closing-h">Box, box. <span class="dim">Stop hunting for the stuck agent.</span></h2>
+        <div class="cta">
+          <a class="btn btn-primary" href="%RELEASES_URL%">Download for macOS</a>
+          <a class="btn" href="%REPO_URL%">Star on GitHub</a>
+          <a class="btn" href="/docs/quick-start/#build-from-source">Build from source</a>
+        </div>
+        <p class="closing-note">Apple silicon and Intel, macOS only for now. Builds aren't notarized yet, so the first launch needs right-click → Open (<a href="/docs/quick-start/#install">why</a>). This site has no tracking.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <nav aria-label="Footer">
+          <a href="/docs/how-it-works/">How it works</a>
+          <a href="/docs/quick-start/">Quick start</a>
+          <a href="/changelog/">Changelog</a>
+          <a href="%REPO_URL%">GitHub</a>
+        </nav>
+      </div>
+      <p>Pitwall is licensed under the <a href="%REPO_URL%/blob/main/LICENSE">Apache License 2.0</a>. Agent detection rules are adapted from <a href="https://github.com/herdrdev/herdr">Herdr</a> under the Apache License 2.0. Pitwall is not affiliated with Formula&nbsp;1 or with any agent vendor named here. No cookies, nothing loaded from third parties.</p>
+    </div>
+  </footer>
+</body>
+</html>

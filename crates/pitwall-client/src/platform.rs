@@ -21,7 +21,11 @@ pub fn connect(_path: &Path) -> io::Result<Conn> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "Pitwall's socket isn't available on this platform yet"))
 }
 
-/// `~/.pitwall` (pitwall-core's `Paths::default_root` on macOS/Linux).
+/// `~/.pitwall`, or `$PITWALL_HOME` (pitwall-core's `Paths::default_root`
+/// on macOS/Linux).
 pub fn data_dir() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/")).join(".pitwall")
+    match std::env::var_os("PITWALL_HOME") {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/")).join(".pitwall"),
+    }
 }

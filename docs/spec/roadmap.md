@@ -45,9 +45,9 @@ agents plug in without touching the rest. Design first, user reviews, then build
   restructure, so we optimise the final shape).
 - Plain SSH machines provider; drag a space tab out to create a window.
 
-## Parked
-- Website (`website/`, uncommitted): landing with looping demo video + tabs,
-  docs pages, CRITIQUE.md. To resume: build the live demo (`cd website &&
-  pnpm demo`, needs the user to run it), make video text larger than ~9 px,
-  stop auto-play from resetting the tab highlight, relabel the Terminals tab
-  (shows ⌘Q; ⌘T opens a terminal), set a waitlist email and repo link.
+## Website — DONE
+- `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo
+  is built with it; video re-recorded at 1120×700 (legible text), tabs follow the
+  video in order and a picked tab loops its chapter; Terminals tab is ⌘T;
+  waitlist replaced by Download / Star on GitHub / Build from source.
+  Critique moved to docs/website/CRITIQUE.md. Open: Open Graph image.
