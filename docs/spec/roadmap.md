@@ -1,5 +1,7 @@
 # Roadmap
 
+> The public summary is [ROADMAP.md](../../ROADMAP.md) (also on the website); update it when items here move.
+
 ## Wave 1 — DONE
 - First-launch auto-detect → [onboarding.md](onboarding.md)
 - Review screen → [review.md](review.md)
