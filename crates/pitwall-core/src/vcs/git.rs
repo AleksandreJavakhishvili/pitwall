@@ -6,7 +6,17 @@ use serde::Serialize;
 
 use crate::exec::{self, Cmd, Exec, Out};
 
-pub(crate) const GIT_ENV: [(&str, &str); 3] = [("GIT_OPTIONAL_LOCKS", "0"), ("GIT_TERMINAL_PROMPT", "0"), ("GIT_EDITOR", "true")];
+/// Every git Pitwall runs: no lock files, no prompts, and paths printed as
+/// they are (`core.quotePath=false`) so non-ASCII names (Georgian, emoji, …)
+/// aren't shown as octal escapes.
+pub(crate) const GIT_ENV: [(&str, &str); 6] = [
+    ("GIT_OPTIONAL_LOCKS", "0"),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GIT_EDITOR", "true"),
+    ("GIT_CONFIG_COUNT", "1"),
+    ("GIT_CONFIG_KEY_0", "core.quotePath"),
+    ("GIT_CONFIG_VALUE_0", "false"),
+];
 
 /// Untracked files larger than this count as binary in [`Git::changes`].
 const MAX_COUNTED_BYTES: u64 = 1_000_000;
@@ -113,7 +123,7 @@ impl<'a> Git<'a> {
         // Status letters (`--raw`) and line counts (`--numstat`) in one
         // diff, NUL-separated so odd paths survive; renames detected (`-M`).
         let diff = git_argv(&self.dir, &["diff", "--raw", "--numstat", "-z", "-M", base]);
-        let others = git_argv(&self.dir, &["ls-files", "--others", "--exclude-standard"]);
+        let others = git_argv(&self.dir, &["ls-files", "-z", "--others", "--exclude-standard"]);
         let head = git_argv(&self.dir, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
         let mut cmds = vec![Cmd::new(&diff).env(&GIT_ENV), Cmd::new(&others).env(&GIT_ENV)];
         if branch {
@@ -140,7 +150,8 @@ impl<'a> Git<'a> {
         })?;
         files.extend(parse_raw_numstat(&out));
         let untracked = others?;
-        let paths: Vec<&str> = untracked.lines().filter(|l| !l.is_empty()).collect();
+        // NUL-separated (`-z`): names with quotes, tabs or newlines survive.
+        let paths: Vec<&str> = untracked.split('\0').filter(|l| !l.is_empty()).collect();
         let full: Vec<String> = paths.iter().map(|p| exec::join(&self.dir, p)).collect();
         let full: Vec<&str> = full.iter().map(String::as_str).collect();
         let contents = if full.is_empty() { Vec::new() } else { self.exec.read_files(&full, MAX_COUNTED_BYTES + 1) };
@@ -326,8 +337,8 @@ mod tests {
              3\t1\tsrc/a.rs\0-\t-\timg.png\0",
         );
         x.on(
-            &["git", "-C", "/r", "ls-files", "--others", "--exclude-standard"],
-            "new.txt\nno-newline.txt\nbin.dat\nbig.log\nvanished\n",
+            &["git", "-C", "/r", "ls-files", "-z", "--others", "--exclude-standard"],
+            "new.txt\0no-newline.txt\0bin.dat\0big.log\0vanished\0",
         );
         x.file("/r/new.txt", b"a\nb\n")
             .file("/r/no-newline.txt", b"a\nb")
