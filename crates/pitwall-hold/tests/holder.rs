@@ -1,6 +1,6 @@
 //! End-to-end tests against the real `pitwall-hold` binary. Only harmless
-//! programs (sh, python3 on 127.0.0.1), sockets in a temp dir, and cleanup by
-//! exact pid.
+//! programs (sh / PowerShell, python on 127.0.0.1), sockets in a temp dir
+//! (named pipes derived from them on Windows), and cleanup by exact pid.
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -8,8 +8,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use interprocess::local_socket::{prelude::*, GenericFilePath, Stream};
-use pitwall_hold::client::{self, Conn, Launch};
+use pitwall_hold::client::{self, Conn, Launch, RawConn as _};
 use pitwall_hold::{proto, Msg};
 
 const BIN: &str = env!("CARGO_BIN_EXE_pitwall-hold");
@@ -75,6 +74,25 @@ impl Drop for Held {
     }
 }
 
+/// A program that runs `script` (Unix: `/bin/sh -c`; Windows: Windows
+/// PowerShell, which every Windows has).
+fn script(unix: &str, windows: &str) -> (&'static str, Vec<String>) {
+    if cfg!(windows) {
+        ("powershell.exe", vec!["-NoLogo".into(), "-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), windows.into()])
+    } else {
+        ("/bin/sh", vec!["-c".into(), unix.into()])
+    }
+}
+
+fn start_script(tag: &str, unix: &str, windows: &str, grace_ms: u64) -> Held {
+    let (program, args) = script(unix, windows);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    start(tag, program, &args, grace_ms)
+}
+
+/// Enter, as a terminal sends it.
+const ENTER: &str = if cfg!(windows) { "\r" } else { "\n" };
+
 /// Read frames until `done(collected_output, last_msg)` or the timeout.
 fn read_until(c: &mut Conn, secs: u64, mut done: impl FnMut(&str, &Msg) -> bool) -> (String, Vec<Msg>) {
     c.set_recv_timeout(Some(Duration::from_millis(200))).unwrap();
@@ -114,10 +132,10 @@ fn wait_gone(h: &Held, secs: u64) -> bool {
 
 #[test]
 fn input_resize_status_and_env() {
-    let h = start(
+    let h = start_script(
         "io",
-        "/bin/sh",
-        &["-c", "echo ready $PW_TEST_MARK $(pwd -P); while IFS= read -r l; do echo \"got:$l\"; [ \"$l\" = size ] && stty size; done"],
+        "echo ready $PW_TEST_MARK $(pwd -P); while IFS= read -r l; do echo \"got:$l\"; [ \"$l\" = size ] && stty size; done",
+        "Write-Output ('ready ' + $env:PW_TEST_MARK + ' ' + (Get-Location).Path); while ($true) { $l = [Console]::ReadLine(); if ($null -eq $l) { break }; Write-Output ('got:' + $l); if ($l -eq 'size') { Write-Output ('' + [Console]::WindowHeight + ' ' + [Console]::WindowWidth) } }",
         500,
     );
     let mut c = h.connect();
@@ -125,17 +143,23 @@ fn input_resize_status_and_env() {
     assert_eq!(c.info.holder_pid, h.holder);
     assert_eq!((c.info.cols, c.info.rows), (100, 30));
     c.send(&proto::attach(true)).unwrap();
-    let dir = std::fs::canonicalize(&h.dir).unwrap();
-    let want = format!("ready marked {}", dir.display());
-    let (text, _) = read_until(&mut c, 10, |t, _| t.contains(&want));
-    assert!(text.contains(&want), "env + cwd reach the child: {text:?}");
+    // Windows: the folder as the child sees it may use 8.3 short names, so
+    // only its own (unique) name is compared.
+    let want = if cfg!(windows) {
+        "ready marked ".to_string()
+    } else {
+        format!("ready marked {}", std::fs::canonicalize(&h.dir).unwrap().display())
+    };
+    let name = h.dir.file_name().unwrap().to_string_lossy().into_owned();
+    let (text, _) = read_until(&mut c, 10, |t, _| t.contains(&want) && t.contains(&name));
+    assert!(text.contains(&want) && text.contains(&name), "env + cwd reach the child: {text:?}");
 
-    c.send(&proto::input(b"hello\n")).unwrap();
+    c.send(&proto::input(format!("hello{ENTER}").as_bytes())).unwrap();
     let (text, _) = read_until(&mut c, 10, |t, _| t.contains("got:hello"));
     assert!(text.contains("got:hello"), "{text:?}");
 
     c.send(&proto::resize(90, 33)).unwrap();
-    c.send(&proto::input(b"size\n")).unwrap();
+    c.send(&proto::input(format!("size{ENTER}").as_bytes())).unwrap();
     let (text, _) = read_until(&mut c, 10, |t, _| t.contains("33 90"));
     assert!(text.contains("33 90"), "{text:?}");
     let info = c.status().unwrap();
@@ -150,11 +174,12 @@ fn input_resize_status_and_env() {
 
 #[test]
 fn second_holder_on_a_live_socket_is_refused() {
-    let h = start("dup", "/bin/sh", &["-c", "sleep 30"], 200);
-    let args = [OsString::from("-c"), OsString::from("echo nope")];
+    let h = start_script("dup", "sleep 30", "Start-Sleep 30", 200);
+    let (program, args) = script("echo nope", "Write-Output nope");
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
     let mut cmd = client::command(
         Path::new(BIN),
-        &Launch { socket: &h.socket, cols: 80, rows: 24, cwd: None, grace: None, program: "/bin/sh".as_ref(), args: &args },
+        &Launch { socket: &h.socket, cols: 80, rows: 24, cwd: None, grace: None, program: program.as_ref(), args: &args },
     );
     let err = client::launch(&mut cmd).unwrap_err();
     assert!(err.to_string().contains("already uses"), "{err}");
@@ -163,9 +188,9 @@ fn second_holder_on_a_live_socket_is_refused() {
 
 #[test]
 fn other_protocol_versions_get_welcome_then_close() {
-    let h = start("ver", "/bin/sh", &["-c", "sleep 30"], 200);
+    let h = start_script("ver", "sleep 30", "Start-Sleep 30", 200);
     let raw = || {
-        let s = Stream::connect(h.socket.as_path().to_fs_name::<GenericFilePath>().unwrap()).unwrap();
+        let s = client::connect_raw(&h.socket).unwrap();
         s.set_recv_timeout(Some(Duration::from_secs(5))).unwrap();
         s
     };
@@ -190,7 +215,7 @@ fn other_protocol_versions_get_welcome_then_close() {
 
 #[test]
 fn holder_exits_after_its_child_with_a_readable_final_status() {
-    let h = start("exit", "/bin/sh", &["-c", "sleep 0.3; echo bye; exit 3"], 1500);
+    let h = start_script("exit", "sleep 0.3; echo bye; exit 3", "Start-Sleep -Milliseconds 300; Write-Output bye; exit 3", 1500);
     let mut c = h.connect();
     c.send(&proto::attach(true)).unwrap();
     let (text, msgs) = read_until(&mut c, 10, |_, m| matches!(m, Msg::Exit(_)));
@@ -210,15 +235,25 @@ fn holder_exits_after_its_child_with_a_readable_final_status() {
 #[test]
 fn shutdown_hangs_up_then_kills() {
     // Ignores SIGHUP, so the holder has to escalate after the grace period.
-    let h = start("stop", "/bin/sh", &["-c", "trap '' HUP; echo armed; while :; do sleep 0.1; done"], 3000);
+    // (Windows: closing the console ends it, or the kill does.)
+    let h = start_script(
+        "stop",
+        "trap '' HUP; echo armed; while :; do sleep 0.1; done",
+        "Write-Output armed; while ($true) { Start-Sleep -Milliseconds 100 }",
+        3000,
+    );
     let mut c = h.connect();
     c.send(&proto::attach(true)).unwrap();
     read_until(&mut c, 10, |t, _| t.contains("armed"));
     let t0 = Instant::now();
     c.send(&proto::shutdown(300)).unwrap();
     let (_, msgs) = read_until(&mut c, 10, |_, m| matches!(m, Msg::Exit(_)));
-    assert_eq!(msgs.last(), Some(&Msg::Exit(128 + 9)));
-    assert!(t0.elapsed() >= Duration::from_millis(250));
+    if cfg!(windows) {
+        assert!(matches!(msgs.last(), Some(Msg::Exit(_))), "{msgs:?}");
+    } else {
+        assert_eq!(msgs.last(), Some(&Msg::Exit(128 + 9)));
+        assert!(t0.elapsed() >= Duration::from_millis(250));
+    }
     // After SHUTDOWN it doesn't linger for the whole grace period.
     assert!(wait_gone(&h, 2), "holder {} still running", h.holder);
 }
@@ -242,11 +277,14 @@ while True:
     print("tick %d" % i, flush=True)
     time.sleep(0.1)
 "#;
-    let h = start("contract", "python3", &["-u", "-c", script], 500);
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let h = start("contract", python, &["-u", "-c", script], 500);
 
     // Detached: the holder is not our child (re-parented) and not in our session.
-    let ppid = std::process::Command::new("ps").args(["-o", "ppid=", "-p", &h.holder.to_string()]).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&ppid.stdout).trim(), "1", "holder is re-parented");
+    if cfg!(unix) {
+        let ppid = std::process::Command::new("ps").args(["-o", "ppid=", "-p", &h.holder.to_string()]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&ppid.stdout).trim(), "1", "holder is re-parented");
+    }
 
     let mut c = h.connect();
     c.send(&proto::attach(true)).unwrap();
