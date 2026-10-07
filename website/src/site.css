@@ -143,7 +143,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 }
 .theme-btn:hover { color: var(--text); }
 .theme-btn svg { width: 16px; height: 16px; }
-@media (max-width: 560px) {
+@media (max-width: 720px) {
   .site-nav { gap: 14px; }
   .site-nav .hide-sm { display: none; }
 }
@@ -308,7 +308,29 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .release { padding: 28px 0; border-top: 1px solid var(--line); }
 .release-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 8px; }
 .release-head h2 { margin: 0; padding: 0; border: 0; font-size: 1.8rem; }
+.release-head h2 a { text-decoration: none; }
+.release-head h2 a:hover { text-decoration: underline; text-decoration-color: var(--line-strong); }
+.prose h4 { margin: 22px 0 4px; font: 600 0.82rem var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
 .pill { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; font-size: 0.75rem; border: 1px solid var(--line-strong); color: var(--text-2); border-radius: 4px; padding: 1px 7px; }
+
+/* ---------- roadmap: Now / Next / Later lanes ---------- */
+.roadmap-intro { margin-top: 18px; }
+.lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 40px; align-items: start; }
+.lane { border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); padding: 18px 20px 8px; min-width: 0; }
+.lane h2 { display: flex; align-items: center; gap: 10px; font-size: 1.5rem; margin: 0; }
+.lane h2::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); flex: none; }
+.lane-now { box-shadow: inset 0 3px 0 var(--green); }
+.lane-now h2::before { background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
+.lane-next h2::before { background: var(--text-2); }
+.lane-later h2::before { background: transparent; border: 1.5px solid var(--text-3); }
+.lane > p { margin: 6px 0 0; color: var(--text-3); font-size: 0.86rem; }
+.lane ul { list-style: none; margin: 14px 0 0; padding: 0; }
+.lane li { padding: 12px 0; border-top: 1px solid var(--line); color: var(--text-2); font-size: 0.93rem; line-height: 1.55; }
+.lane li > strong:first-child { display: block; margin-bottom: 2px; color: var(--text); font-weight: 600; }
+.roadmap-rest { margin-top: 16px; }
+.roadmap-rest > p:first-of-type { font-size: 1rem; }
+.roadmap-rest h2 { margin-top: 40px; }
+@media (max-width: 900px) { .lanes { grid-template-columns: minmax(0, 1fr); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

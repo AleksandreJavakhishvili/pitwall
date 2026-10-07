@@ -1,7 +1,13 @@
 # Pitwall website
 
 Static marketing site for Pitwall: a one-screen landing page built around a demo,
-`/docs/how-it-works/`, `/docs/quick-start/`, `/changelog/` and a 404.
+`/docs/how-it-works/`, `/docs/quick-start/`, `/changelog/`, `/roadmap/` and a 404.
+
+`/changelog/` and `/roadmap/` are rendered at build time from the repository's
+`CHANGELOG.md` and `ROADMAP.md`: each page has a `<!-- markdown:<name> -->` marker
+that the `pitwall-markdown-pages` plugin in `vite.config.js` replaces with the output
+of `scripts/pages.mjs` (a small Markdown converter in `scripts/markdown.mjs`, for the
+subset those files use). Edit the Markdown files, not the pages.
 
 Plain HTML pages and one CSS file, bundled by Vite. No framework, no analytics, no
 external CDNs. Fonts (Inter, JetBrains Mono, Barlow Condensed) are self-hosted
@@ -37,12 +43,15 @@ The GitHub owner and repository name live only in `site.config.js`; pages use
 index.html                    landing: hero, demo with tabs, agents, download / GitHub
 docs/how-it-works/index.html  flags, Wall, Next up, Review, terminals, agents, rules, agw, CLI, roadmap
 docs/quick-start/index.html   install, build from source, first steps
-changelog/index.html
+changelog/index.html          page chrome; content from ../CHANGELOG.md
+roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Next / Later lanes)
 404.html
 site.config.js                OWNER / REPO and the URLs derived from them
 src/site.css                  all styles; tokens mirror the app's src/styles/tokens.css
 src/main.js                   theme toggle, demo tabs, live demo (no network calls)
 scripts/build.mjs             full build (demo + pages)
+scripts/pages.mjs             renders CHANGELOG.md / ROADMAP.md into the two pages
+scripts/markdown.mjs          minimal Markdown → HTML
 scripts/build-demo.mjs        builds the app's browser mock into public/demo/ (or serves it)
 public/video/                 demo recording, dark + light, with poster frames
 public/favicon.svg            copy of docs/brand/pitwall-mark.svg
@@ -78,6 +87,5 @@ The README's animated `docs/media/demo.webp` comes from the dark video (10 fps,
 
 ## TODO
 
-- Changelog has a single unreleased 0.1.0 entry; add dated entries per release.
 - Re-record the demo video when the UI changes (see Demo).
 - No Open Graph image or social card yet.

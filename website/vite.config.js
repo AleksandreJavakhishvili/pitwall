@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL } from "./site.config.js";
+import { renderPage, SOURCES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/video/…`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
@@ -26,6 +27,32 @@ function siteLinks() {
         const already = base.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const attr = new RegExp(`(\\s(?:href|src|poster|data-[\\w-]+)=")/(?!/|${already})`, "g");
         return html.replace(attr, `$1${base}`);
+      },
+    },
+  };
+}
+
+// /changelog/ and /roadmap/ are rendered from the repository's CHANGELOG.md and
+// ROADMAP.md (scripts/pages.mjs): each page has a <!-- markdown:<name> --> marker
+// where the content goes. Runs before pitwall-site-links, so the generated
+// root-absolute links get the base too. In dev, editing either file reloads the page.
+function markdownPages() {
+  return {
+    name: "pitwall-markdown-pages",
+    configureServer(server) {
+      server.watcher.add(Object.values(SOURCES));
+      server.watcher.on("change", (file) => {
+        if (Object.values(SOURCES).includes(file)) server.ws.send({ type: "full-reload" });
+      });
+    },
+    transformIndexHtml: {
+      order: "pre",
+      handler(html) {
+        if (!html.includes("<!-- markdown:")) return html;
+        const appVersion = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
+        return html.replace(/<!-- markdown:(changelog|roadmap) -->/g, (_, name) =>
+          renderPage(name, { repoUrl: REPO_URL, appVersion }),
+        );
       },
     },
   };
@@ -56,7 +83,7 @@ function fontLicenses() {
 // `--base` (see scripts/build.mjs); it defaults to "/".
 export default defineConfig({
   server: { port: 4321 },
-  plugins: [siteLinks(), fontLicenses()],
+  plugins: [markdownPages(), siteLinks(), fontLicenses()],
   build: {
     outDir: "dist",
     rollupOptions: {
@@ -65,6 +92,7 @@ export default defineConfig({
         quickstart: resolve(import.meta.dirname, "docs/quick-start/index.html"),
         howitworks: resolve(import.meta.dirname, "docs/how-it-works/index.html"),
         changelog: resolve(import.meta.dirname, "changelog/index.html"),
+        roadmap: resolve(import.meta.dirname, "roadmap/index.html"),
         notfound: resolve(import.meta.dirname, "404.html"),
       },
     },
