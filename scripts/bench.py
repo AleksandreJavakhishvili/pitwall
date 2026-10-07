@@ -345,7 +345,7 @@ def make_project(root: Path) -> Path:
     subprocess.run(git + ["init", "-q"], check=True, timeout=30)
     subprocess.run(git + ["add", "."], check=True, timeout=30)
     subprocess.run(git + ["commit", "-qm", "init"], check=True, timeout=30)
-    # An uncommitted change, so Review has a diff to open in Monaco.
+    # An uncommitted change, so Review has a diff to open.
     lines = body.splitlines()
     for k in range(0, len(lines), 40):
         lines[k] = lines[k].replace("return x", "return 2 * x")

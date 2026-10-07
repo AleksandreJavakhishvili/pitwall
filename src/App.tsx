@@ -66,7 +66,7 @@ type ModalState =
   | { type: "bring"; row: RunningElsewhere }
   | { type: "diff"; agentId: string; file: FileChange };
 
-// Heavy, rarely shown screens load on first use (perf.md): Review (Monaco),
+// Heavy, rarely shown screens load on first use (perf.md): Review (CodeMirror diff),
 // onboarding, Settings (rules UI).
 const Review = lazy(() => import("./components/review/Review"));
 const Onboarding = lazy(() => import("./components/onboarding/Onboarding").then((m) => ({ default: m.Onboarding })));

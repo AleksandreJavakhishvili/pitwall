@@ -25,7 +25,7 @@ each agent's own working folder.
 - Sidebar: an agent row shows a small "2 worktrees" chip; expanding lists
   them (branch, +/−, locked badge).
 - Review (⌘R): left tree groups by agent → its folder + its worktrees, plus
-  "Other worktrees" per project; selecting one shows its files and Monaco diff,
+  "Other worktrees" per project; selecting one shows its files and diff,
   per-task diffs only for the agent's own folder.
 - Actions per worktree (confirmations as today): open a terminal there,
   commit, merge into the project's current branch (same rules as Review merge:
@@ -67,6 +67,6 @@ drive the UI; no provider/kind special cases.
   worktrees" per project, rows show branch, +/−, locked; right-click: Review,
   Open terminal here, Remove worktree…. Changes panel: the same chip. Review:
   worktrees nested under their agent and "Other worktrees · project";
-  selecting one shows its files and Monaco diff (no task scope, no comments),
+  selecting one shows its files and diff (no task scope, no comments),
   with Open terminal / Remove worktree… / Commit (& merge) in the footer.
   Commit & merge reuses the Review dialog; removal has its own confirmation.

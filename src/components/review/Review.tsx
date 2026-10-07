@@ -19,10 +19,9 @@ import { useFresh } from "../../lib/freshness";
 import { FreshError, RefreshControl } from "../Freshness";
 import { otherWorktrees, refKey, worktreesByAgent, type WorktreeRef } from "../../lib/worktrees";
 import { useActions } from "../../lib/actions";
-import { releaseMonaco } from "./monacoLifecycle";
 import "./review.css";
 
-// Monaco is big: load it only when a file is opened.
+// The diff editor (CodeMirror) loads only when a file is opened.
 const ReviewDiff = lazy(() => import("./ReviewDiff").then((m) => ({ default: m.ReviewDiff })));
 
 type Dialog =
@@ -240,17 +239,13 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
     };
   }, [agentId, currentTask, nonce]);
 
-  // Closing Review frees Monaco's editors, models and worker (after the diff
-  // editor's own unmount has run).
-  useEffect(() => () => void setTimeout(releaseMonaco, 0), []);
-
   // Esc leaves the review (unless a dialog, the editor or a text field has it).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (document.querySelector(".backdrop")) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest?.(".monaco-editor, textarea, input, select, .rv-composer")) return;
+      if (t?.closest?.(".cm-editor, textarea, input, select, .rv-composer, .rv-menu")) return;
       e.preventDefault();
       onExit();
     };

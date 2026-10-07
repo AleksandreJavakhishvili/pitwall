@@ -3,9 +3,11 @@
 Full-window mode (⌘R, top-bar button, ⌘K) for reviewing what agents changed.
 
 ## Layout
-Left: changes grouped by agent → files (+/−, untracked badge). Center: Monaco
-diff editor (side-by-side / inline toggle, syntax highlight, collapsed
-unchanged regions), bundled locally — no CDN (desktop app works offline).
+Left: changes grouped by agent → files (+/−, untracked badge). Center: diff
+editor (side-by-side / inline toggle, syntax highlight, collapsed unchanged
+regions), bundled locally — no CDN (desktop app works offline). It is
+CodeMirror 6 + `@codemirror/merge` (`src/components/review/diffView.ts`), made
+to look and behave like the Monaco diff editor it replaced (perf.md, pass 2).
 Above the diff: "All changes" or a specific task (see below). Bottom actions
 per agent: Discard file, Send comments, Commit & merge.
 
@@ -35,7 +37,7 @@ and sends it verbatim via send_prompt (or adds to Next up if the agent is busy).
 
 ## API (new commands)
 `list_tasks(agentId)`, `get_task_changes(agentId, taskId)`,
-`get_file_versions(agentId, path, taskId?)` → `{ original: string|null, modified: string|null, binary: boolean }` (for Monaco),
+`get_file_versions(agentId, path, taskId?)` → `{ original: string|null, modified: string|null, binary: boolean }` (for the diff editor),
 `discard_file(agentId, path)`, `commit_agent(agentId, message)`,
 `merge_agent(agentId)` → `{ merged: boolean, conflict: boolean, message: string }`.
 `AgentView` gains `currentTaskId: string|null`. Mock mode covers all of it.

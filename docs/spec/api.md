@@ -87,7 +87,7 @@ Review ([review.md](review.md)):
 |---|---|---|
 | `list_tasks` | `agentId` | `Task[]` |
 | `get_task_changes` | `agentId, taskId?` | `FileChange[]` (no `taskId`: whole agent diff) |
-| `get_file_versions` | `agentId, path, taskId?` | `FileVersions` (before/after text for Monaco) |
+| `get_file_versions` | `agentId, path, taskId?` | `FileVersions` (before/after text for the diff editor) |
 | `discard_file` | `agentId, path` | `void` |
 | `commit_agent` | `agentId, message` | `string` commit hash |
 | `merge_agent` | `agentId` | `MergeResult` |

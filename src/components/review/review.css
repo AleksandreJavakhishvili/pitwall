@@ -272,9 +272,394 @@
   color: var(--text-4);
 }
 
-/* Monaco glyphs: + on hover, a flag on commented lines */
+/* ── the diff editor (CodeMirror; diffView.ts) ──
+   Colours are Monaco's (vs-dark / vs plus the Pitwall theme it was given), so
+   Review looks as it did with Monaco. data-scheme follows Settings → Appearance. */
+.rv-diff {
+  --rv-sys: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, sans-serif;
+  --rv-ins-line: #3fd07f14;
+  --rv-del-line: #ff5f5f14;
+  --rv-ins-char: #3fd07f26;
+  --rv-del-char: #ff5f5f26;
+  --rv-ins-gutter: #3fd07f22;
+  --rv-del-gutter: #ff5f5f22;
+  --rv-fill: #cccccc33;
+  --rv-ov-ins: rgba(72, 185, 123, 0.35);
+  --rv-ov-del: rgba(223, 97, 100, 0.35);
+  --rv-slider: #ffffff14;
+  --rv-slider-hover: #ffffff24;
+  --rv-slider-active: rgba(191, 191, 191, 0.4);
+  --rv-shadow: #000000;
+  --rv-side-shadow: #000000;
+  --rv-guide: #404040;
+  --rv-guide-active: #707070;
+  --rv-cursor: #aeafad;
+  --rv-sel: #264f78;
+  --rv-sel-inactive: #3a3d41;
+  --rv-bm-bg: #0064001a;
+  --rv-bm-border: #888888;
+  --rv-find: rgba(234, 92, 0, 0.33);
+  --rv-find-cur: #515c6a;
+  --rv-lane-cursor: #a0a0a0cc;
+  --rv-lane-find: #d186167e;
+  --rv-widget-fg: #cccccc;
+  --rv-widget-shadow: 0 0 8px 2px rgba(0, 0, 0, 0.36);
+  --rv-input-bg: #3c3c3c;
+  --rv-focus: #007fd4;
+  --rv-info: #007acc;
+  --rv-opt-bg: rgba(0, 127, 212, 0.4);
+  --rv-opt-fg: #ffffff;
+  --rv-tool-hover: rgba(90, 93, 94, 0.31);
+  --rv-error: #f48771;
+  --rv-menu-bg: #3c3c3c;
+  --rv-menu-fg: #f0f0f0;
+  --rv-menu-sel: #2a2d2e;
+  --rv-menu-sep: rgba(204, 204, 204, 0.2);
+  --rv-menu-shadow: rgba(0, 0, 0, 0.36);
+  --rv-br0: #ffd700;
+  --rv-br1: #da70d6;
+  --rv-br2: #179fff;
+  --rv-br-x: rgba(255, 18, 18, 0.8);
+  --rv-tk-keyword: #569cd6;
+  --rv-tk-string: #ce9178;
+  --rv-tk-number: #b5cea8;
+  --rv-tk-comment: #6a9955;
+  --rv-tk-type: #3dc9b0;
+  --rv-tk-delimiter: #dcdcdc;
+  --rv-tk-regexp: #b46695;
+  --rv-tk-tag: #569cd6;
+  --rv-tk-attr: #9cdcfe;
+  --rv-tk-variable: #74b0df;
+}
+.rv-diff[data-scheme="light"] {
+  --rv-ins-line: #14a05214;
+  --rv-del-line: #d63a3a12;
+  --rv-ins-char: #14a05224;
+  --rv-del-char: #d63a3a22;
+  --rv-ins-gutter: #14a05222;
+  --rv-del-gutter: #d63a3a20;
+  --rv-fill: #22222233;
+  --rv-ov-ins: rgba(62, 165, 109, 0.35);
+  --rv-ov-del: rgba(205, 94, 95, 0.35);
+  --rv-slider: #00000014;
+  --rv-slider-hover: #00000024;
+  --rv-slider-active: rgba(0, 0, 0, 0.6);
+  --rv-shadow: rgba(115, 115, 115, 0.75);
+  --rv-side-shadow: #dddddd;
+  --rv-guide: #d3d3d3;
+  --rv-guide-active: #939393;
+  --rv-cursor: #000000;
+  --rv-sel: #add6ff;
+  --rv-sel-inactive: #e5ebf1;
+  --rv-bm-border: #b9b9b9;
+  --rv-find-cur: #a8ac94;
+  --rv-widget-fg: #616161;
+  --rv-widget-shadow: 0 0 8px 2px rgba(0, 0, 0, 0.16);
+  --rv-input-bg: #ffffff;
+  --rv-focus: #0090f1;
+  --rv-opt-bg: rgba(0, 127, 212, 0.2);
+  --rv-opt-fg: #000000;
+  --rv-tool-hover: rgba(184, 184, 184, 0.31);
+  --rv-error: #a1260d;
+  --rv-menu-bg: #ffffff;
+  --rv-menu-fg: #616161;
+  --rv-menu-sel: #f0f0f0;
+  --rv-menu-sep: rgba(97, 97, 97, 0.2);
+  --rv-menu-shadow: rgba(0, 0, 0, 0.16);
+  --rv-br0: #0431fa;
+  --rv-br1: #319331;
+  --rv-br2: #7b3814;
+  --rv-tk-keyword: #0000ff;
+  --rv-tk-string: #a31515;
+  --rv-tk-number: #098658;
+  --rv-tk-comment: #008000;
+  --rv-tk-type: #008080;
+  --rv-tk-delimiter: #000000;
+  --rv-tk-regexp: #811f3f;
+  --rv-tk-tag: #800000;
+  --rv-tk-attr: #e50000;
+  --rv-tk-variable: #001188;
+}
+.rv-diffbox {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.rv-cm {
+  position: absolute;
+  inset: 0 30px 0 0;
+}
+.rv-diff .rv-cm .cm-mergeView,
+.rv-diff .rv-cm .cm-mergeViewEditors,
+.rv-diff .rv-cm .cm-mergeViewEditor,
+.rv-diff .rv-cm .cm-editor {
+  height: 100% !important;
+}
+.rv-diff .rv-cm .cm-mergeView {
+  overflow: hidden;
+}
+.rv-diff .rv-cm .cm-mergeViewEditor {
+  min-width: 0;
+}
+.rv-diff .rv-cm .cm-mergeViewEditor + .cm-mergeViewEditor {
+  position: relative;
+  z-index: 1;
+  box-shadow: -6px 0 5px -5px var(--rv-side-shadow);
+}
+.rv-diff .rv-cm .cm-mergeViewEditor + .cm-mergeViewEditor .cm-editor {
+  border-left: 1px solid var(--line);
+}
+.rv-diff .rv-cm .cm-editor {
+  background: var(--term-bg);
+  color: var(--text);
+}
+.rv-diff .rv-cm .cm-editor.cm-focused {
+  outline: none;
+}
+/* Each editor scrolls on its own (merge's default is one shared scroller); the bars are drawn over the text. */
+.rv-diff .rv-cm .cm-editor .cm-scroller {
+  height: 100% !important;
+  overflow: auto !important;
+  font: 12.5px/19px var(--font-mono);
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+.rv-diff .rv-cm .cm-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.rv-diff .rv-cm .cm-content {
+  padding: 0;
+}
+.rv-diff .rv-cm .cm-line {
+  padding: 0;
+}
+.rv-diff .rv-cm .cm-cursor {
+  border-left: 2px solid var(--rv-cursor);
+}
+.rv-diff .rv-cm .cm-selectionBackground {
+  background: var(--rv-sel-inactive) !important;
+}
+.rv-diff .rv-cm .cm-focused .cm-selectionBackground {
+  background: var(--rv-sel) !important;
+}
+.rv-diff .rv-cm .cm-matchingBracket,
+.rv-diff .rv-cm .cm-nonmatchingBracket {
+  background: var(--rv-bm-bg) !important;
+  outline: 1px solid var(--rv-bm-border);
+  outline-offset: -1px;
+}
+.rv-diff .rv-cm .cm-searchMatch {
+  background: var(--rv-find) !important;
+  outline: none !important;
+}
+.rv-diff .rv-cm .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--rv-find-cur) !important;
+}
+.rv-diff .rv-br0,
+.rv-diff .rv-br0 * {
+  color: var(--rv-br0) !important;
+}
+.rv-diff .rv-br1,
+.rv-diff .rv-br1 * {
+  color: var(--rv-br1) !important;
+}
+.rv-diff .rv-br2,
+.rv-diff .rv-br2 * {
+  color: var(--rv-br2) !important;
+}
+.rv-diff .rv-br-x,
+.rv-diff .rv-br-x * {
+  color: var(--rv-br-x) !important;
+}
+
+/* changes: line tint, changed text, whole inserted/deleted lines, filler */
+.rv-diff .rv-cm .cm-merge-b .cm-changedLine {
+  background: var(--rv-ins-line);
+}
+.rv-diff .rv-cm .cm-merge-a .cm-changedLine,
+.rv-diff .rv-cm .cm-deletedChunk {
+  background: var(--rv-del-line);
+}
+.rv-diff .rv-cm .cm-merge-b .cm-changedText {
+  background: var(--rv-ins-char);
+}
+.rv-diff .rv-cm .cm-merge-a .cm-changedText,
+.rv-diff .rv-cm .cm-deletedChunk .cm-deletedText {
+  background: var(--rv-del-char);
+}
+.rv-diff .rv-cm .cm-merge-b .cm-line.rv-full {
+  background: linear-gradient(var(--rv-ins-char), var(--rv-ins-char)), var(--rv-ins-line);
+}
+.rv-diff .rv-cm .cm-merge-a .cm-line.rv-full {
+  background: linear-gradient(var(--rv-del-char), var(--rv-del-char)), var(--rv-del-line);
+}
+.rv-diff .rv-cm .cm-deletedChunk .cm-deletedLine.rv-full {
+  background: var(--rv-del-char);
+}
+.rv-diff .rv-cm .rv-full .cm-changedText,
+.rv-diff .rv-cm .rv-full .cm-deletedText {
+  background: none;
+}
+.rv-diff .rv-cm .cm-deletedChunk {
+  padding: 0;
+}
+.rv-diff .rv-cm .cm-insertedLine,
+.rv-diff .rv-cm .cm-deletedLine,
+.rv-diff .rv-cm .cm-deletedLine del {
+  text-decoration: none;
+}
+.rv-diff .rv-cm .cm-mergeSpacer {
+  background-image: linear-gradient(-45deg, var(--rv-fill) 12.5%, #0000 12.5%, #0000 50%, var(--rv-fill) 50%, var(--rv-fill) 62.5%, #0000 62.5%, #0000 100%);
+  background-size: 8px 8px;
+}
+/* where the other side inserted text (Monaco's empty-range bar) */
+.rv-empty-range {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 19px;
+  vertical-align: top;
+}
+.rv-empty-range::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 19px;
+  background: var(--rv-ins-char);
+}
+.rv-diff .rv-cm .cm-merge-a .rv-empty-range::after {
+  background: var(--rv-del-char);
+}
+/* indentation guides at the indent column itself (the package draws half a character in) */
+.rv-diff .rv-cm .cm-indent-markers::before {
+  left: -0.5ch;
+}
+.rv-diff .rv-cm .cm-line.rv-line-commented {
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* collapsed unchanged regions (Monaco's "N hidden lines") */
+.rv-diff .rv-cm .cm-collapsedLines {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: sticky;
+  left: var(--rv-gutter-w, 67px);
+  box-sizing: border-box;
+  width: calc(var(--rv-view-w, 100%) - var(--rv-gutter-w, 67px));
+  /* Monaco's bar sits 4px high in its 24px slot */
+  height: 24px;
+  border-bottom: 4px solid var(--term-bg);
+  /* centred on the whole editor, margin included */
+  padding: 0 var(--rv-gutter-w, 67px) 0 0;
+  font: 13px/14px var(--rv-sys);
+  color: var(--text-3);
+  background: var(--surface-2);
+  box-shadow:
+    inset 0 -5px 5px -7px var(--rv-shadow),
+    inset 0 5px 5px -7px var(--rv-shadow);
+}
+/* inline: centred on the modified editor, which in Monaco starts after the original numbers */
+.rv-diff .rv-cm > .cm-editor .cm-collapsedLines {
+  padding-right: calc(var(--rv-gutter-w, 105px) - 38px);
+}
+.rv-diff .rv-cm .cm-collapsedLines::before,
+.rv-diff .rv-cm .cm-collapsedLines::after {
+  content: none;
+}
+
+/* the margin: [original number ·] glyph · number · sign */
+.rv-diff .rv-cm .cm-gutters {
+  background: var(--term-bg);
+  border: none;
+  color: var(--text-4);
+}
+.rv-diff .rv-cm .rv-gutter .cm-gutterElement {
+  padding: 0;
+}
+.rv-gm {
+  display: flex;
+  height: 19px;
+}
+.rv-gm > span {
+  flex: none;
+  height: 19px;
+}
+.rv-gm-orig,
+.rv-gm-num {
+  width: 38px;
+  text-align: right;
+}
+.rv-gm-num.active {
+  color: var(--text-3);
+}
+.rv-gm-glyph {
+  width: 19px;
+}
+.rv-gm-sign {
+  position: relative;
+  width: 10px;
+}
+.rv-g-ins {
+  background: var(--rv-ins-gutter);
+}
+.rv-g-del {
+  background: var(--rv-del-gutter);
+}
+/* inline, an inserted line: original column red (as Monaco draws it), the rest green */
+.rv-g-ins.rv-g-uni {
+  background: linear-gradient(to right, var(--rv-del-gutter) 38px, var(--rv-ins-gutter) 38px);
+}
+/* + / − as Monaco's diff-insert / diff-remove codicons */
+.rv-g-ins .rv-gm-sign::before,
+.rv-g-del .rv-gm-sign::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3.5px;
+  width: 12px;
+  height: 12px;
+  background: var(--text);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 7.5h10v1H3z'/%3E%3C/svg%3E") center / 12px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 7.5h10v1H3z'/%3E%3C/svg%3E") center / 12px no-repeat;
+}
+.rv-g-ins .rv-gm-sign::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M7.5 3h1v4.5H13v1H8.5V13h-1V8.5H3v-1h4.5z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M7.5 3h1v4.5H13v1H8.5V13h-1V8.5H3v-1h4.5z'/%3E%3C/svg%3E");
+}
+
+.rv-g-fold {
+  box-sizing: border-box;
+  border-bottom: 4px solid var(--term-bg);
+  background: var(--surface-2);
+  box-shadow:
+    inset 0 -5px 5px -7px var(--rv-shadow),
+    inset 0 5px 5px -7px var(--rv-shadow);
+  cursor: pointer;
+}
+.rv-unfold {
+  width: 16px;
+  height: 16px;
+  margin: -3px 0 0 26px;
+  background: var(--text-3);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.3 4.6 4.6l.7.7L8 2.7l2.7 2.6.7-.7zM8 14.7l3.4-3.3-.7-.7L8 13.3l-2.7-2.6-.7.7z'/%3E%3C/svg%3E") center / 16px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.3 4.6 4.6l.7.7L8 2.7l2.7 2.6.7-.7zM8 14.7l3.4-3.3-.7-.7L8 13.3l-2.7-2.6-.7.7z'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+.rv-gutter-unified .rv-unfold {
+  margin-left: 64px;
+}
+
+/* glyphs: + on hover, a flag on commented lines */
 .rv-glyph-add,
 .rv-glyph-comment {
+  /* Monaco centres a glyph's box (margins included) in the 19px cell */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
   cursor: pointer;
 }
 .rv-glyph-add::before {
@@ -299,8 +684,330 @@
   background: var(--text);
   box-shadow: 0 0 0 2px var(--term-bg);
 }
-.rv-line-commented {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
+.rv-hover {
+  position: absolute;
+  z-index: 30;
+  transform: translateY(-50%);
+  max-width: 500px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--rv-widget-fg);
+  font: 13px/19px var(--rv-sys);
+  white-space: pre-wrap;
+  box-shadow: var(--rv-widget-shadow);
+  pointer-events: none;
+}
+
+/* overlay scrollbars, the cursor lane, and the diff overview ruler */
+.rv-sb {
+  position: absolute;
+  inset: 0;
+  z-index: 201;
+  pointer-events: none;
+}
+.rv-sb-v {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  pointer-events: auto;
+}
+.rv-sb-h {
+  position: absolute;
+  height: 10px;
+  pointer-events: auto;
+}
+.rv-sb-lane {
+  position: absolute;
+  inset: 0;
+}
+.rv-lane-cursor,
+.rv-lane-find {
+  position: absolute;
+  height: 2px;
+}
+.rv-lane-cursor {
+  left: 1px;
+  right: 0;
+  background: var(--rv-lane-cursor);
+}
+.rv-lane-find {
+  left: 1px;
+  width: 8px;
+  height: 3px;
+  background: var(--rv-lane-find);
+}
+.rv-sb-slider {
+  position: absolute;
+  background: var(--rv-slider);
+  opacity: 0;
+  transition: opacity 0.8s linear;
+}
+.rv-sb.visible .rv-sb-slider,
+.rv-sb-slider.active {
+  opacity: 1;
+  transition: opacity 0.1s linear;
+}
+.rv-sb-slider:hover {
+  background: var(--rv-slider-hover);
+}
+.rv-sb-slider.active {
+  background: var(--rv-slider-active);
+}
+.rv-sb-v .rv-sb-slider {
+  left: 0;
+  width: 14px;
+}
+.rv-sb-h .rv-sb-slider {
+  top: 0;
+  height: 10px;
+}
+.rv-overview {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 30px;
+  height: 100%;
+}
+.rv-ov-viewport {
+  position: absolute;
+  left: 0;
+  width: 30px;
+  background: var(--rv-slider);
+}
+.rv-ov-viewport:hover {
+  background: var(--rv-slider-hover);
+}
+.rv-ov-viewport.active {
+  background: var(--rv-slider-active);
+}
+.rv-ov-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.rv-ov-del,
+.rv-ov-ins {
+  position: absolute;
+  width: 15px;
+}
+.rv-ov-del {
+  left: 0;
+  background: var(--rv-ov-del);
+}
+.rv-ov-ins {
+  left: 15px;
+  background: var(--rv-ov-ins);
+}
+
+/* typing into the read-only diff (Monaco's message) */
+.rv-diff .cm-tooltip.rv-ro {
+  padding-bottom: 8px;
+  border: none;
+  background: none;
+}
+.rv-ro-msg {
+  padding: 2px 4px;
+  border: 1px solid var(--rv-info);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--rv-widget-fg);
+  font: 13px/18.85px var(--rv-sys);
+  white-space: nowrap;
+}
+.rv-ro-anchor {
+  position: absolute;
+  left: 2px;
+  bottom: -8px;
+  border: 8px solid transparent;
+  border-top-color: var(--rv-info);
+}
+
+/* Find (Monaco's find widget) */
+.rv-diff .rv-cm .cm-panels.cm-panels-top {
+  position: absolute;
+  top: 0;
+  right: 28px;
+  left: auto;
+  z-index: 202;
+  padding: 0;
+  border: none;
+  background: none;
+  overflow: hidden;
+}
+/* the space kept above the first line while Find is open: plain where Find is, hatched opposite */
+.rv-diff .rv-cm[data-find-a] .cm-content,
+.rv-diff .rv-cm[data-find-b] .cm-content {
+  padding-top: 33px;
+}
+.rv-diff .rv-cm[data-find-b]:not([data-find-a]) .cm-merge-a .cm-content,
+.rv-diff .rv-cm[data-find-a]:not([data-find-b]) .cm-merge-b .cm-content {
+  background:
+    linear-gradient(var(--term-bg), var(--term-bg)) 0 33px / 100% 100% no-repeat,
+    linear-gradient(-45deg, var(--rv-fill) 12.5%, #0000 12.5%, #0000 50%, var(--rv-fill) 50%, var(--rv-fill) 62.5%, #0000 62.5%, #0000 100%) 0 0 / 8px 8px;
+}
+.rv-find {
+  position: relative;
+  box-sizing: border-box;
+  width: 419px;
+  height: 33px;
+  padding: 0 4px 0 9px;
+  background: var(--surface-2);
+  color: var(--rv-widget-fg);
+  font: 13px/19px var(--rv-sys);
+  transform: translateY(calc(-100% - 10px));
+  transition: transform 0.2s linear;
+}
+/* the resize sash Monaco draws on the left edge */
+.rv-find::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--line);
+}
+.rv-find.visible {
+  transform: none;
+}
+.rv-find-part {
+  display: flex;
+  align-items: center;
+  height: 25px;
+  margin: 3px 25px 0 17px;
+}
+.rv-find-input {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 25px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--rv-input-bg);
+}
+.rv-find-input:focus-within {
+  border-color: var(--rv-focus);
+}
+.rv-find-input input {
+  flex: 1;
+  min-width: 0;
+  height: 23px;
+  padding: 2px 6px;
+  box-sizing: border-box;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  font: 13px/19px var(--rv-sys);
+}
+.rv-find-toggle,
+.rv-find-btn {
+  display: grid;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  cursor: pointer;
+  user-select: none;
+}
+.rv-find-toggle {
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: 13px/1 var(--rv-sys);
+  letter-spacing: -0.04em;
+}
+.rv-find-toggle u {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.rv-find-toggle.on,
+.rv-find-btn.on {
+  border-color: var(--rv-info);
+  background: var(--rv-opt-bg);
+  color: var(--rv-opt-fg);
+}
+.rv-find-count {
+  flex: none;
+  min-width: 69px;
+  height: 25px;
+  margin-left: 3px;
+  padding: 2px 0 0 2px;
+  box-sizing: border-box;
+  font: 12px/23px var(--rv-sys);
+}
+.rv-find-count.none {
+  color: var(--rv-error);
+}
+.rv-find.narrow .rv-find-count {
+  display: none;
+}
+.rv-find-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 25px;
+}
+.rv-find-btn {
+  width: 16px;
+  height: 16px;
+  margin-left: 3px;
+  border-radius: 5px;
+}
+.rv-find-btn.rv-find-insel {
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  border: 1px solid transparent;
+}
+.rv-find-btn.rv-find-close {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+}
+.rv-find-btn:hover {
+  background: var(--rv-tool-hover);
+}
+.rv-find-btn.disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+
+/* the editor's context menu (Monaco's) */
+.rv-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 130px;
+  padding: 4px 0;
+  border-radius: 5px;
+  background: var(--rv-menu-bg);
+  color: var(--rv-menu-fg);
+  box-shadow: 0 0 12px var(--rv-menu-shadow);
+  font: 13px/24px var(--rv-sys);
+  outline: none;
+  user-select: none;
+}
+.rv-menu-item {
+  height: 24px;
+  margin: 0 4px;
+  padding: 0 26px;
+  white-space: nowrap;
+  cursor: default;
+}
+.rv-menu-item.active {
+  background: var(--rv-menu-sel);
+}
+.rv-menu-sep {
+  height: 1px;
+  margin: 5px 0;
+  background: var(--rv-menu-sep);
 }
 
 /* inline comment composer */

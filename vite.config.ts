@@ -8,23 +8,21 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react()],
 
-  // Pre-bundle Monaco at dev-server start. Otherwise Vite discovers it the first
-  // time Review opens, re-optimizes and force-reloads the webview mid-import,
-  // which left the window blank.
+  // Pre-bundle the Review diff editor (CodeMirror) at dev-server start. Otherwise
+  // Vite discovers it the first time Review opens, re-optimizes and
+  // force-reloads the webview mid-import, which left the window blank.
   optimizeDeps: {
     include: [
-      "@monaco-editor/react",
-      "monaco-editor/editor/editor.api",
-      "monaco-editor/basic-languages/monaco.contribution",
-      "monaco-editor/features/bracketMatching/register",
-      "monaco-editor/features/clipboard/register",
-      "monaco-editor/features/codicon/register",
-      "monaco-editor/features/contextmenu/register",
-      "monaco-editor/features/diffEditor/register",
-      "monaco-editor/features/find/register",
-      "monaco-editor/features/folding/register",
-      "monaco-editor/features/hover/register",
-      "monaco-editor/features/readOnlyMessage/register",
+      "@codemirror/commands",
+      "@codemirror/lang-markdown",
+      "@codemirror/language",
+      "@codemirror/language-data",
+      "@codemirror/merge",
+      "@codemirror/search",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@lezer/highlight",
+      "@replit/codemirror-indentation-markers",
     ],
   },
 
