@@ -369,9 +369,29 @@ jobs:
           fi
           echo "range=$from..$TAG" >> "$GITHUB_OUTPUT"
 
-      # Notes grouped by commit type (cliff.toml); commits that don't follow the
+      # The tag's section of CHANGELOG.md, which scripts/release.sh wrote and
+      # committed before tagging (the git-cliff entries plus the hand-written
+      # highlights).
+      - name: Release notes (CHANGELOG.md)
+        id: changelog
+        env:
+          TAG: ${{ needs.macos.outputs.tag }}
+        run: |
+          awk -v ver="${TAG#v}" '
+            index($0, "## [" ver "]") == 1 { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }' CHANGELOG.md > release-notes.md
+          if grep -q '[^[:space:]]' release-notes.md; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            rm release-notes.md
+          fi
+
+      # Tagged without scripts/release.sh: render the notes for the range with
+      # cliff.toml, grouped by commit type; commits that don't follow the
       # convention are left out. Nothing is committed: they're only the body.
       - name: Release notes (git-cliff)
+        if: steps.changelog.outputs.found != 'true'
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
