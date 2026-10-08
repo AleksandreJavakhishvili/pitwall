@@ -106,6 +106,8 @@ jobs:
             cargo build --release --target "$t" --target-dir target/hold \
               -p pitwall-hold --bin pitwall-hold -p pitwall-cli --bin pitwall-cli
           done
+          # binaries/ is git-ignored (build.rs fills it), so a fresh checkout lacks it.
+          mkdir -p src-tauri/binaries
           for b in pitwall-hold pitwall-cli; do
             lipo -create -output "src-tauri/binaries/$b-universal-apple-darwin" \
               "target/hold/aarch64-apple-darwin/release/$b" "target/hold/x86_64-apple-darwin/release/$b"
