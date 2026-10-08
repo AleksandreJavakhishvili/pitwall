@@ -3,6 +3,8 @@
 //! `DiffView.tsx`): one modal at a time over a backdrop; Esc or a click on
 //! the backdrop closes; Tab moves between fields; ⏎ submits.
 
+use crate::kit::Ellipsis as _;
+use crate::kit::Span;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -101,7 +103,7 @@ fn select_box(
                 .border_color(if open { t.text_3 } else { t.line_strong })
                 .cursor_pointer()
                 .on_click(move |_, window, cx| on_toggle(window, cx))
-                .child(div().flex_1().min_w_0().truncate().child(current))
+                .child(div().flex_1().min_w_0().ellipsis().child(crate::kit::one_line(current)))
                 .child(icon("chevron", 12., t.text_3).with_transformation(
                     gpui::Transformation::rotate(gpui::radians(std::f32::consts::FRAC_PI_2)),
                 )),
@@ -1080,7 +1082,6 @@ impl TerminalDialog {
         cx: &mut Context<Self>,
     ) -> TerminalDialog {
         let input = cx.new(|cx| TextInput::new(cx, &initial, "~/code/project").mono());
-        input.update(cx, |i, cx| i.select_all_text(cx));
         window.focus(&input.focus_handle(cx));
         let subs =
             vec![
@@ -1208,14 +1209,14 @@ impl Render for TerminalDialog {
                                         .font_family(MONO_FONT)
                                         .text_size(px(12.))
                                         .text_color(t.text_2)
-                                        .truncate()
+                                        .ellipsis()
                                         .cursor_pointer()
                                         .hover_text(t.text, |s| s.bg(t.surface_3))
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             cx.emit(DialogEvent::OpenTerminal(path.clone()));
                                             let _ = this;
                                         }))
-                                        .child(f)
+                                        .child(crate::kit::one_line(f))
                                 }),
                             ))
                         }),
@@ -1350,15 +1351,29 @@ impl MainScreen {
                                         .text_color(t.text_3)
                                         .child(a.cwd_display.clone()),
                                 )
-                                .child(hint(
-                                    match &a.branch {
-                                        Some(b) => format!(
-                                            "Runs git worktree remove, which refuses if it has uncommitted changes. Branch {b} is kept."
+                                // `.hint` with the command and branch in `.mono`.
+                                .child(
+                                    div().text_size(px(12.)).child(match &a.branch {
+                                        Some(b) => crate::kit::rich(
+                                            &[
+                                                ("Runs ", Span::Text),
+                                                ("git worktree remove", Span::Mono),
+                                                (", which refuses if it has uncommitted changes. Branch ", Span::Text),
+                                                (b, Span::Mono),
+                                                (" is kept.", Span::Text),
+                                            ],
+                                            t.text_3,
                                         ),
-                                        None => "Runs git worktree remove, which refuses if it has uncommitted changes. Its branch is kept.".into(),
-                                    },
-                                    t,
-                                )),
+                                        None => crate::kit::rich(
+                                            &[
+                                                ("Runs ", Span::Text),
+                                                ("git worktree remove", Span::Mono),
+                                                (", which refuses if it has uncommitted changes. Its branch is kept.", Span::Text),
+                                            ],
+                                            t.text_3,
+                                        ),
+                                    }),
+                                ),
                         ),
                 )
             })
@@ -1528,7 +1543,7 @@ impl Render for DiffDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let (dir, base) = split_path(&self.file.path);
-        let letter = super::panel::status_letter(&self.file);
+        let status = crate::kit::file_status(&self.file);
         let height = (f32::from(window.viewport_size().height) * 0.88).min(1000.);
         let head = div()
             .flex()
@@ -1544,7 +1559,7 @@ impl Render for DiffDialog {
             .child(
                 div()
                     .min_w_0()
-                    .truncate()
+                    .ellipsis()
                     .flex()
                     .font_family(MONO_FONT)
                     .text_size(px(13.))
@@ -1555,22 +1570,12 @@ impl Render for DiffDialog {
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .text_color(t.text_3)
-                            .child(format!(" {}", dir.trim_end_matches('/'))),
+                            .child(crate::kit::one_line(format!(" {}", dir.trim_end_matches('/')))),
                     ),
             )
-            .child(
-                div()
-                    .font_family(MONO_FONT)
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(match letter {
-                        "A" | "U" => t.green,
-                        "D" => t.red,
-                        _ => t.text_2,
-                    })
-                    .child(letter),
-            )
+            .child(crate::kit::status_letter(status, &t))
             .child(if self.file.binary {
                 chip_subtle("bin", &t).into_any_element()
             } else {

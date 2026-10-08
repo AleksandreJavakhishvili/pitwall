@@ -5,6 +5,7 @@
 //! so; files over 2 MiB offer "Load anyway" (up to 10 MiB); an open file
 //! that changed on disk offers "Reload". Nothing here can change a file.
 
+use crate::kit::Ellipsis as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -417,13 +418,11 @@ impl Viewer {
                     div()
                         .id("ex-viewer-hint")
                         .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
+                        .ellipsis()
                         .text_size(px(12.))
                         .text_color(t.text_3)
                         .tooltip(move |_, cx| tooltip_view(cwd_tip.clone(), cx))
-                        .child(format!("read-only · {}", a.cwd_display)),
+                        .child(crate::kit::one_line(format!("read-only · {}", a.cwd_display))),
                 )
             })
             .child(div().flex_1())
@@ -596,11 +595,9 @@ impl Viewer {
                     .child(
                         div()
                             .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
+                            .ellipsis()
                             .when(green, |d| d.text_color(t.green))
-                            .child(split_path(p).1.to_string()),
+                            .child(crate::kit::one_line(split_path(p).1.to_string())),
                     )
                     .child(
                         div()
@@ -691,9 +688,10 @@ impl Viewer {
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .text_color(t.text_3)
-                            .text_ellipsis()
-                            .child(dir.to_string()),
+                            .ellipsis()
+                            .child(crate::kit::one_line(dir.to_string())),
                     ),
             )
             .when_some(status, |d, s| d.child(status_mark(t, "ex-head-status", s)))

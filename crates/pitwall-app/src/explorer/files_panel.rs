@@ -4,6 +4,7 @@
 //! "Ignored"; then the tree. The right panel (main-screen work) mounts this
 //! view in its Changes / Files section.
 
+use crate::kit::Ellipsis as _;
 use std::time::Duration;
 
 use crate::kit::HoverText;
@@ -221,13 +222,13 @@ impl Render for FilesPanel {
                                 cx.listener(move |this, _, _, cx| this.copy_cwd(cwd.clone(), cx)),
                             )
                             .child(icon("folder", 11., t.text_3))
-                            .child(div().min_w_0().overflow_hidden().text_ellipsis().child(
+                            .child(div().min_w_0().ellipsis().child(crate::kit::one_line(
                                 if self.copied {
                                     "Copied".to_string()
                                 } else {
                                     a.cwd_display.clone()
                                 },
-                            )),
+                            ))),
                     ),
             )
             .child(

@@ -159,6 +159,8 @@ pub struct ReviewView {
     tasks: Vec<AgentTask>,
     tasks_for: Option<String>,
     projects: Vec<ProjectWorktrees>,
+    /// The window's worktree list, shared with the sidebar and Changes.
+    wt_list: Entity<crate::main_screen::wt_list::WorktreeList>,
     wt_open: HashSet<String>,
     wt_files: HashMap<String, Result<Vec<FileChange>, String>>,
     sel: Sel,
@@ -232,8 +234,11 @@ impl ReviewView {
                 cx,
             )
         });
+        let wt_list = crate::main_screen::wt_list::WorktreeList::of(window, cx);
+        let projects = wt_list.read(cx).projects.clone();
         let subs = vec![
             cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
+            cx.observe(&wt_list, |this, _, cx| this.worktrees_taken(cx)),
             cx.subscribe_in(&code, window, |this, _, e: &CodeViewEvent, window, cx| {
                 if let CodeViewEvent::Comment { line } = e {
                     this.start_comment(*line + 1, window, cx);
@@ -262,7 +267,8 @@ impl ReviewView {
             task_scope: HashMap::new(),
             tasks: Vec::new(),
             tasks_for: None,
-            projects: Vec::new(),
+            projects,
+            wt_list,
             wt_open: HashSet::new(),
             wt_files: HashMap::new(),
             sel: Sel::None,
@@ -465,27 +471,29 @@ impl ReviewView {
         );
     }
 
+    /// Read the window's worktree list (`force`: now, for one project or
+    /// all); it is shared with the sidebar and the Changes panel.
     fn load_worktrees(&mut self, force: Option<Option<String>>, cx: &mut Context<Self>) {
-        ops::spawn(
-            cx,
-            move |e| match force {
-                Some(p) => ops::refresh_worktrees(e, p.as_deref()),
-                None => ops::list_worktrees(e),
-            },
-            |this: &mut Self, projects, cx| {
-                if this.projects != projects {
-                    this.projects = projects;
-                    // A shown worktree that left the list: nothing.
-                    if let Sel::Worktree { key, .. } = &this.sel {
-                        if !this.projects.is_empty() && this.wt_ref(key).is_none() {
-                            this.sel = Sel::None;
-                        }
-                    }
-                    this.load_open_worktrees(cx);
-                    cx.notify();
+        self.wt_list.update(cx, |l, cx| match force {
+            Some(p) => l.force(p, cx),
+            None => l.list(cx),
+        });
+    }
+
+    /// The window's list changed.
+    fn worktrees_taken(&mut self, cx: &mut Context<Self>) {
+        let projects = self.wt_list.read(cx).projects.clone();
+        if self.projects != projects {
+            self.projects = projects;
+            // A shown worktree that left the list: nothing.
+            if let Sel::Worktree { key, .. } = &self.sel {
+                if !self.projects.is_empty() && self.wt_ref(key).is_none() {
+                    self.sel = Sel::None;
                 }
-            },
-        );
+            }
+            self.load_open_worktrees(cx);
+        }
+        cx.notify();
     }
 
     /// Read the files of every open or shown worktree.
@@ -533,6 +541,8 @@ impl ReviewView {
             return;
         }
         self.refreshing = true;
+        // The worktrees too: the window's list, forced.
+        self.load_worktrees(Some(None), cx);
         let agents: Vec<(String, String)> = self
             .ordered
             .iter()
@@ -542,16 +552,14 @@ impl ReviewView {
             cx,
             move |e| {
                 let mut failed = Vec::new();
-                ops::refresh_worktrees(e, None);
                 for (id, name) in &agents {
                     if let Err(err) = ops::refresh_changes(e, id) {
                         failed.push(format!("{name}: {err}"));
                     }
                 }
-                let projects = ops::list_worktrees(e);
-                (failed, projects)
+                failed
             },
-            |this: &mut Self, (failed, projects), cx| {
+            |this: &mut Self, failed, cx| {
                 this.refreshing = false;
                 this.fresh_error = match failed.len() {
                     0 => None,
@@ -561,7 +569,6 @@ impl ReviewView {
                 if this.fresh_error.is_none() {
                     this.updated_at = Some(now_ms());
                 }
-                this.projects = projects;
                 this.reload_everything(cx);
             },
         );

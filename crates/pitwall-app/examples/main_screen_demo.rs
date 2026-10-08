@@ -11,6 +11,9 @@
 //! - `DEMO_FILES=1` the right panel on its Files tab
 //! - `DEMO_RULES=1` the browser mock's rules, the first agent's rules stale
 //!   and the second's failed (debug builds)
+//! - `DEMO_OPEN=toasts|bring` also: the attention toasts, Bring in
+//! - `DEMO_LOOK=glass` Glass (with `PITWALL_GLASS=lite|liquid` for the tier)
+//! - `DEMO_MOTION=0` Reduce motion
 
 use gpui::{
     px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
@@ -18,7 +21,7 @@ use gpui::{
 
 use pitwall_app::agents::AgentStore;
 use pitwall_app::main_screen::{self, demo, MainScreen};
-use pitwall_app::theme::{Mode, Theme};
+use pitwall_app::theme::{self, Mode, Theme};
 
 fn main() {
     let (w, h) = std::env::var("DEMO_SIZE")
@@ -38,6 +41,24 @@ fn main() {
             };
             cx.set_global(Theme::for_mode(mode));
             pitwall_app::kit::init(cx);
+            let look = if std::env::var("DEMO_LOOK").as_deref() == Ok("glass") {
+                theme::Look::Glass
+            } else {
+                theme::Look::Flat
+            };
+            theme::apply(
+                theme::Inputs {
+                    pref: if mode == Mode::Light {
+                        theme::ThemePref::Light
+                    } else {
+                        theme::ThemePref::Dark
+                    },
+                    look,
+                    reduce_motion: std::env::var("DEMO_MOTION").as_deref() == Ok("0"),
+                    ..Default::default()
+                },
+                cx,
+            );
             main_screen::init(cx);
             pitwall_app::code_view::register(cx);
             pitwall_app::next_up::register(cx);
@@ -70,6 +91,7 @@ fn main() {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
+                theme::apply_window(window, cx);
                 let screen = cx.new(|cx| MainScreen::new(store.clone(), window, cx));
                 screen.update(cx, |s, cx| {
                     if let Ok(name) = std::env::var("DEMO_SHOW") {
@@ -85,6 +107,7 @@ fn main() {
                         }
                     }
                     s.demo_changes(cx);
+                    s.demo_elsewhere(cx);
                     s.demo_worktrees(std::env::var("DEMO_WT").is_ok(), cx);
                     match std::env::var("DEMO_OPEN").as_deref() {
                         Ok("remove-worktree") => s.demo_remove_worktree(cx),

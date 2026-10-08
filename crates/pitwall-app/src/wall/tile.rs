@@ -3,6 +3,7 @@
 //! screen. Each tile is its own entity drawn as a cached view, so a frame
 //! repaints only its tile.
 
+use crate::kit::Ellipsis as _;
 use gpui::{
     div, prelude::*, px, BoxShadow, Context, FontWeight, Hsla, IntoElement, Render, SharedString,
     WeakEntity, Window,
@@ -28,6 +29,9 @@ pub struct WallTile {
     pub body_h: f32,
     /// Draw the cursor (the agent's own terminal would show it).
     pub show_cursor: bool,
+    /// The pointer is over it (the ring eases to text-4: `.wall-tile`'s
+    /// `transition: box-shadow 0.12s`).
+    hovered: bool,
     wall: WeakEntity<WallView>,
 }
 
@@ -41,6 +45,7 @@ impl WallTile {
             font_size,
             body_h,
             show_cursor: false,
+            hovered: false,
             wall,
         }
     }
@@ -109,6 +114,8 @@ impl Render for WallTile {
             t.focus
         } else if blocked {
             t.amber.opacity(0.6)
+        } else if self.hovered {
+            t.text_4
         } else {
             t.line
         };
@@ -129,16 +136,16 @@ impl Render for WallTile {
             .border_b_1()
             .border_color(t.line)
             .bg(head_bg)
-            .child(kit::glyph(a.status, &t, false))
+            .child(kit::glyph_still(a.status, &t, false))
             .child(
                 div()
                     .flex_none()
                     .max_w(px(220.))
-                    .truncate()
+                    .ellipsis()
                     .text_size(px(13.))
                     .font_weight(FontWeight(650.))
                     .text_color(t.text)
-                    .child(a.name.clone()),
+                    .child(crate::kit::one_line(a.name.clone())),
             )
             .child(kit::status_label(a.status, &t))
             .when_some(a.status_detail.clone().filter(|_| blocked), |d, detail| {
@@ -146,11 +153,11 @@ impl Render for WallTile {
                     div()
                         .min_w_0()
                         .flex_shrink()
-                        .truncate()
+                        .ellipsis()
                         .font_family(kit::MONO_FONT)
                         .text_size(px(11.5))
                         .text_color(t.amber)
-                        .child(detail),
+                        .child(crate::kit::one_line(detail)),
                 )
             })
             .child(div().flex_1())
@@ -184,7 +191,8 @@ impl Render for WallTile {
                 )
             });
 
-        div()
+        let glow = blocked.then(|| amber_glow(&t));
+        let tile = div()
             .id(SharedString::from(format!("wall-tile-{}", a.id)))
             .size_full()
             .flex()
@@ -192,12 +200,13 @@ impl Render for WallTile {
             .rounded(px(8.))
             .overflow_hidden()
             .bg(t.term_bg)
-            // `box-shadow: 0 0 0 1px`: a ring outside the tile, as in wall.css.
-            .shadow(ring_shadows(ring, blocked.then(|| amber_glow(&t))))
             .when(faded, |d| d.opacity(0.6))
-            .when(!self.selected && !blocked, |d| {
-                d.hover(|s| s.shadow(ring_shadows(t.text_4, None)))
-            })
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if this.hovered != *hovered {
+                    this.hovered = *hovered;
+                    cx.notify();
+                }
+            }))
             .cursor_pointer()
             .on_click(move |_, window, cx| {
                 let id = id.clone();
@@ -206,7 +215,16 @@ impl Render for WallTile {
             .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
             .tooltip(kit::tooltip(tip))
             .child(head)
-            .child(body)
+            .child(body);
+        // `box-shadow: 0 0 0 1px`: a ring outside the tile, as in wall.css,
+        // easing over 0.12 s.
+        kit::motion::tween_colors(
+            "tile-ring",
+            vec![ring],
+            std::time::Duration::from_millis(120),
+            kit::motion::Ease::Ease,
+            move |c| tile.shadow(ring_shadows(c[0], glow)).into_any_element(),
+        )
     }
 }
 

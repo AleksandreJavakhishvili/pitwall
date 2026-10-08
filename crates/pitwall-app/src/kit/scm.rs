@@ -21,6 +21,27 @@ pub fn status_letter_text(s: FileStatus) -> &'static str {
     }
 }
 
+/// What a changed file's status is (untracked counts as U; no status as
+/// modified), as the React app's `fileStatus`.
+pub fn file_status(f: &pitwall_core::vcs::git::FileChange) -> FileStatus {
+    f.status.unwrap_or(if f.untracked {
+        FileStatus::U
+    } else {
+        FileStatus::M
+    })
+}
+
+/// The tooltip of a status letter.
+pub fn status_title(s: FileStatus) -> &'static str {
+    match s {
+        FileStatus::M => "Modified",
+        FileStatus::A => "Added",
+        FileStatus::D => "Deleted",
+        FileStatus::R => "Renamed",
+        FileStatus::U => "Untracked",
+    }
+}
+
 /// `.status-letter`: A and U green, D red, the others text-2.
 pub fn status_letter(s: FileStatus, t: &Theme) -> Div {
     let color = match s {

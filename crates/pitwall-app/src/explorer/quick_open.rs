@@ -2,6 +2,7 @@
 //! (`list_all_files`, ignore files respected), filtered here (a port of
 //! `QuickOpen.tsx`). An empty query lists recently opened files first.
 
+use crate::kit::Ellipsis as _;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ use crate::kit::{InputEvent, TextInput};
 use super::logic::{char_positions_to_byte_ranges, quick_open, split_path, QuickHit};
 use super::source::{Res, Source};
 use crate::kit::kbd;
-use crate::theme::{self, RADIUS, RADIUS_LG};
+use crate::theme::{self, RADIUS};
 
 actions!(explorer_quick_open, [Prev, Next, Pick, Close]);
 
@@ -159,12 +160,7 @@ pub fn marked(text: &str, ranges: Vec<Range<usize>>, hit: Hsla) -> StyledText {
 impl Render for QuickOpen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
-        // --backdrop in tokens.css.
-        let backdrop: gpui::Hsla = if t.mode == theme::Mode::Dark {
-            gpui::rgba(0x0405069e).into()
-        } else {
-            gpui::rgba(0x1e222847).into()
-        };
+        let backdrop = t.scrim();
         let top = window.viewport_size().height * 0.12;
         let note = |text: String, color| {
             div()
@@ -251,8 +247,7 @@ impl Render for QuickOpen {
                                         d.child(
                                             div()
                                                 .min_w_0()
-                                                .overflow_hidden()
-                                                .text_ellipsis()
+                                                .ellipsis()
                                                 .text_size(px(11.5))
                                                 .text_color(t.text_3)
                                                 .child(marked(dir, dir_hits, t.text_2)),
@@ -275,7 +270,7 @@ impl Render for QuickOpen {
                 .text_color(t.text_3)
                 .child(text)
         };
-        div()
+        let backdrop = div()
             .id("ex-quick-backdrop")
             .absolute()
             .inset_0()
@@ -288,8 +283,8 @@ impl Render for QuickOpen {
                 MouseButton::Left,
                 cx.listener(|_, _, _, cx| cx.emit(QuickOpenEvent::Dismissed)),
             )
-            .child(
-                div()
+;
+        let panel = div()
                     .id("ex-quick")
                     .key_context(CONTEXT)
                     .track_focus(&self.focus)
@@ -302,11 +297,9 @@ impl Render for QuickOpen {
                     .max_h(px(520.))
                     .flex()
                     .flex_col()
-                    .rounded(RADIUS_LG)
+                    .rounded(px(12.))
                     .bg(t.raised)
-                    .border_1()
-                    .border_color(t.line_strong)
-                    .shadow_lg()
+                    .shadow(t.float_shadow())
                     .overflow_hidden()
                     .child(
                         div()
@@ -340,11 +333,16 @@ impl Render for QuickOpen {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .child(format!("opens in the viewer · {}", self.cwd_display)),
+                                    .ellipsis()
+                                    .child(crate::kit::one_line(format!("opens in the viewer · {}", self.cwd_display))),
                             ),
-                    ),
-            )
+                    );
+        let panel = if theme::motion_on(cx) {
+            crate::kit::motion::enter("ex-quick-in", crate::kit::motion::Fx::PALETTE, panel)
+                .into_any_element()
+        } else {
+            panel.into_any_element()
+        };
+        crate::kit::scrim_in("ex-quick-fade", backdrop.child(panel))
     }
 }

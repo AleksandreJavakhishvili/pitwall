@@ -4,6 +4,7 @@
 //! and close folders (or go to the parent), ↵ opens a file. One view per
 //! place it is shown; the [`TreeModel`] behind it is shared.
 
+use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
 use gpui::{
@@ -18,7 +19,7 @@ use crate::kit::file_icons::{file_icon, folder_icon};
 use super::logic::{split_path, TreeRow};
 use super::tree::TreeModel;
 use super::widgets::status_mark;
-use crate::kit::{icon, tooltip_view, MONO_FONT};
+use crate::kit::{tooltip_view, MONO_FONT};
 use crate::theme;
 
 actions!(explorer_tree, [Up, Down, Collapse, Expand, Confirm]);
@@ -294,11 +295,7 @@ impl TreeView {
             }))
             .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
             .child(div().w(px(10.)).flex_none().when(is_dir, |d| {
-                d.child(icon(
-                    if open { "chevron-down" } else { "chevron" },
-                    10.,
-                    t.text_4,
-                ))
+                d.child(crate::kit::chevron("chev", open, 10., t.text_4))
             }))
             .child(
                 if is_dir {
@@ -312,9 +309,7 @@ impl TreeView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
+                    .ellipsis()
                     .opacity(dim)
                     .when(is_dir, |d| d.text_color(t.text_2))
                     .when(!is_dir, |d| {
@@ -323,9 +318,10 @@ impl TreeView {
                     .when(e.status == Some(pitwall_proto::FileStatus::D), |d| {
                         d.line_through()
                     })
-                    .child(e.name.clone())
+                    .flex()
+                    .child(crate::kit::one_line(e.name.clone()))
                     .when(kind == EntryKind::Symlink, |d| {
-                        d.child(div().text_color(t.text_4).child(" ↗"))
+                        d.child(div().flex_none().text_color(t.text_4).child(" ↗"))
                     }),
             )
             .children(mark)

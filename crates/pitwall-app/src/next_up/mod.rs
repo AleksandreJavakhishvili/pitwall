@@ -26,7 +26,10 @@ use pitwall_core::Shared;
 use pitwall_proto::AgentView;
 
 use crate::code_view::input::{TextField, TextFieldEvent};
-use crate::kit::{button, hint, icon_btn_state, kbd, label, toggle, tooltip, BtnKind, MONO_FONT};
+use crate::kit::{
+    button, hint, icon_btn_state, kbd, label, resize_grip, toggle, tooltip, BtnKind, GripDrag,
+    MONO_FONT,
+};
 use crate::main_screen::{register_panel_section, EngineHandle, MainScreen, PanelSlot};
 use crate::theme::{self, Theme, RADIUS};
 
@@ -142,6 +145,8 @@ pub struct NextUp {
     /// Unsent text per agent (kept while the window is open).
     drafts: HashMap<String, String>,
     field: Entity<TextField>,
+    /// The compose box's height once its grip was dragged (min 64 px).
+    height: Option<f32>,
     _sub: Subscription,
 }
 
@@ -167,6 +172,7 @@ impl NextUp {
             agent: None,
             drafts: HashMap::new(),
             field,
+            height: None,
             _sub: sub,
         }
     }
@@ -244,7 +250,7 @@ impl NextUp {
             .pt(px(12.))
             .px(px(14.))
             .pb(px(6.))
-            .line_height(px(17.4))
+            .line_height(px(17.))
             .child(label("Next up", t.text_3, 12.))
             .when(!a.queue.is_empty(), |d| {
                 d.child(
@@ -314,7 +320,7 @@ impl NextUp {
                             .flex_1()
                             .min_w_0()
                             .text_size(px(12.5))
-                            .line_height(px(18.125))
+                            .line_height(px(18.))
                             .text_color(t.text)
                             .line_clamp(4)
                             .child(q.text.clone()),
@@ -390,8 +396,16 @@ impl NextUp {
             .child(
                 div()
                     .id("queue-compose")
+                    .relative()
                     .w_full()
                     .min_h(px(64.))
+                    .when_some(self.height, |d, h| d.h(px(h)).overflow_hidden())
+                    // `resize: vertical`: the corner grip sets the height.
+                    .on_drag_move(cx.listener(|this, e: &gpui::DragMoveEvent<GripDrag>, _, cx| {
+                        let h = f32::from(e.event.position.y - e.bounds.top()) + 4.;
+                        this.height = Some(h.max(64.));
+                        cx.notify();
+                    }))
                     .px(px(9.))
                     .py(px(7.))
                     .rounded(RADIUS)
@@ -401,7 +415,8 @@ impl NextUp {
                     .text_size(px(COMPOSE_SIZE))
                     .line_height(px(COMPOSE_LINE))
                     .on_click(move |_, window, cx| field.read(cx).focus(window))
-                    .child(self.field.clone()),
+                    .child(self.field.clone())
+                    .child(resize_grip("queue-grip", t.text_4)),
             )
             .child(
                 div()
@@ -419,7 +434,7 @@ impl NextUp {
                         )
                         .flex_1()
                         .min_w_0()
-                        .line_height(px(17.4)),
+                        .line_height(px(17.)),
                     )
                     .child(
                         button("queue-add", BtnKind::Small, empty, t)

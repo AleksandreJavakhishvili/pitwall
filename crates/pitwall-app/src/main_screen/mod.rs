@@ -31,6 +31,7 @@ mod strip;
 mod tile_font;
 mod topbar;
 pub mod worktrees;
+pub mod wt_list;
 pub mod tree;
 pub mod workspace;
 
@@ -236,6 +237,9 @@ pub enum ScreenEvent {
     /// Open Review on one worktree (a sidebar worktree row; the route is
     /// already Review).
     ReviewWorktree { project_id: String, path: String },
+    /// One of its dialogs opened (New agent, Remove, …): the window shows
+    /// one modal at a time, as the React app's single `modal` state does.
+    ModalOpened,
 }
 
 impl EventEmitter<ScreenEvent> for MainScreen {}
@@ -393,6 +397,8 @@ pub struct MainScreen {
     auto_font: HashMap<String, f64>,
     /// The window's worktree list (sidebar chips and rows).
     wt: worktrees::WtState,
+    /// The window's one worktree list (shared with Review).
+    wt_list_entity: Entity<wt_list::WorktreeList>,
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
     agent_ids: Vec<String>,
@@ -416,8 +422,10 @@ impl MainScreen {
             .unwrap_or_default();
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let wt_list = wt_list::WorktreeList::of(window, cx);
         let subs = vec![
             cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
+            cx.observe(&wt_list, |this, _, cx| this.wt_taken(cx)),
             // Settings, the explorer and other windows change it too.
             cx.observe(&ui_store, |this, s, cx| {
                 let next = s.read(cx).state.clone();
@@ -464,6 +472,7 @@ impl MainScreen {
             route_views: HashMap::new(),
             auto_font: HashMap::new(),
             wt: Default::default(),
+            wt_list_entity: wt_list.clone(),
             seen_task: None,
             last_selected: None,
             agent_ids: vec![],
@@ -1012,6 +1021,7 @@ impl MainScreen {
         ));
         self.modal = Some(Modal::NewAgent(dialog));
         self.menu = None;
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
@@ -1037,12 +1047,14 @@ impl MainScreen {
             },
         ));
         self.modal = Some(Modal::Terminal(dialog));
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
     fn open_remove(&mut self, id: &str, cx: &mut Context<Self>) {
         self.modal = Some(Modal::Remove(RemoveState::new(id)));
         self.menu = None;
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
@@ -1063,6 +1075,7 @@ impl MainScreen {
             },
         ));
         self.modal = Some(Modal::Diff(dialog));
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
@@ -1089,6 +1102,20 @@ impl MainScreen {
         self.modal = None;
         window.focus(&self.focus);
         cx.notify();
+    }
+
+    /// Whether one of its dialogs shows.
+    pub fn has_dialog(&self) -> bool {
+        self.modal.is_some() || self.elsewhere.bring.is_some()
+    }
+
+    /// Close its dialogs (another modal opened over the window).
+    pub fn close_dialogs(&mut self, cx: &mut Context<Self>) {
+        if self.has_dialog() {
+            self.modal = None;
+            self.elsewhere.bring = None;
+            cx.notify();
+        }
     }
 
     fn new_space(&mut self, cx: &mut Context<Self>) {
@@ -1284,7 +1311,8 @@ impl Render for MainScreen {
             .when(
                 self.overlay_sidebar && sidebar_mode != SidebarMode::Full,
                 |d| {
-                    d.child(
+                    d.child(crate::kit::scrim_in(
+                        "sidebar-scrim",
                         div()
                             .id("sidebar-scrim")
                             .absolute()
@@ -1294,14 +1322,16 @@ impl Render for MainScreen {
                                 this.overlay_sidebar = false;
                                 cx.notify();
                             })),
-                    )
-                    .child(
+                    ))
+                    .child(crate::kit::motion::enter(
+                        "sidebar-overlay",
+                        crate::kit::motion::Fx::SLIDE_LEFT,
                         div()
                             .absolute()
                             .top_0()
                             .bottom_0()
                             .left_0()
-                            .shadow_lg()
+                            .shadow(t.drop_shadow())
                             .child(self.render_sidebar(
                                 SidebarMode::Full,
                                 &agents,
@@ -1309,11 +1339,12 @@ impl Render for MainScreen {
                                 window,
                                 cx,
                             )),
-                    )
+                    ))
                 },
             )
             .when(right == Some(true), |d| {
-                d.child(
+                d.child(crate::kit::scrim_in(
+                    "drawer-scrim",
                     div()
                         .id("drawer-scrim")
                         .absolute()
@@ -1323,15 +1354,19 @@ impl Render for MainScreen {
                             this.drawer_open = false;
                             cx.notify();
                         })),
-                )
+                ))
                 .children(selected.clone().map(|a| {
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .right_0()
-                        .shadow_lg()
-                        .child(self.render_panel(&a, true, &float, window, cx))
+                    crate::kit::motion::enter(
+                        "right-drawer",
+                        crate::kit::motion::Fx::SLIDE_RIGHT,
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .right_0()
+                            .shadow(t.drop_shadow())
+                            .child(self.render_panel(&a, true, &float, window, cx)),
+                    )
                 }))
             });
         let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);
@@ -1378,7 +1413,16 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &ToggleMaximize, _, cx| {
                 this.with_active(|s, id| s.toggle_maximize(id, None), cx)
             }))
-            .on_action(cx.listener(|this, _: &RefreshChanges, _, cx| this.load_changes(true, cx)))
+            .on_action(cx.listener(|this, _: &RefreshChanges, _, cx| {
+                this.load_changes(true, cx);
+                // The Changes panel's worktree list, when open.
+                let open = this
+                    .selected(cx)
+                    .is_some_and(|a| this.wt.is_open(&worktrees::panel_key(&a.id)));
+                if open {
+                    this.wt_list(true, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
             .on_action(cx.listener(|this, _: &FontReset, _, cx| this.step_font(None, cx)))
@@ -1407,7 +1451,7 @@ impl Render for MainScreen {
             .text_color(t.text)
             .font_family(crate::kit::UI_FONT)
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .child(topbar)
             .child(main_row)
             .child(self.render_strip(&chrome, bp, cx))

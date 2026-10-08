@@ -1,10 +1,11 @@
 //! The palette itself (`CommandPalette.tsx` in a `Modal variant="palette"`,
 //! `overlays.css` `.palette*`) and the per-window host that opens it.
 
+use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, prelude::*, px, uniform_list, AnimationExt, AnyElement, App, Context, ElementId,
+    actions, div, prelude::*, px, uniform_list, AnyElement, App, Context, ElementId,
     Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement,
     KeyBinding, MouseButton, Render, ScrollStrategy, SharedString, Subscription,
     UniformListScrollHandle, WeakEntity, Window,
@@ -13,7 +14,7 @@ use gpui::{
 use crate::explorer::Explorer;
 use crate::kit::{self, icon, kbd, InputEvent, TextInput};
 use crate::main_screen::{CommandState, MainScreen, OpenPalette, ScreenEvent};
-use crate::theme::{self, Motion, Theme, RADIUS};
+use crate::theme::{self, Theme, RADIUS};
 
 use super::matching::{parse_queue, visible};
 use super::registry::{self, Command, Hint, Lead, PaletteContext, Run, RunFn, Span};
@@ -23,8 +24,9 @@ actions!(pw_palette, [Prev, Next, Pick, Close]);
 /// The key context while the palette has the keyboard.
 pub const CONTEXT: &str = "PwPalette";
 
-/// `.palette-item`: 8 px padding around a 13 px × 1.45 line.
-pub const ROW_H: f32 = 35.;
+/// `.palette-item`: 8 px padding around a 13 px × 1.45 line (18 px in
+/// WebKit, which truncates line heights).
+pub const ROW_H: f32 = 34.;
 /// `.modal` width for the palette variant.
 pub const WIDTH: f32 = 600.;
 
@@ -61,6 +63,15 @@ pub struct Palette {
 }
 
 impl EventEmitter<PaletteEvent> for Palette {}
+
+/// What the palette's host tells its window.
+#[derive(Debug, Clone)]
+pub enum PaletteHostEvent {
+    /// The palette opened (the window shows one modal at a time).
+    Opened,
+}
+
+impl EventEmitter<PaletteHostEvent> for PaletteHost {}
 
 impl Focusable for Palette {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
@@ -231,6 +242,9 @@ impl Palette {
 fn lead(l: &Option<Lead>, ix: usize, t: &Theme, motion: bool) -> AnyElement {
     let inner: AnyElement = match l {
         None => div().into_any_element(),
+        // The web view's fallback face draws ✕ about 6 px across; GPUI's
+        // draws it at 9, so it is the kit's x at that ink.
+        Some(Lead::Glyph(g)) if g.as_ref() == "✕" => icon("x", 12., t.text_3).into_any_element(),
         Some(Lead::Glyph(g)) => glyph(g.clone(), t.text_3).into_any_element(),
         // GPUI's fallback face draws ▲ larger than the web view's: sized
         // to the same 9 px width.
@@ -265,7 +279,7 @@ fn glyph(g: SharedString, color: gpui::Hsla) -> gpui::Div {
 
 /// `.pal-label`: the spans on one line, cut with an ellipsis.
 fn label(spans: &[Span], t: &Theme) -> impl IntoElement {
-    let piece = |d: gpui::Div| d.flex_shrink().min_w_0().overflow_hidden().text_ellipsis();
+    let piece = |d: gpui::Div| d.flex_shrink().min_w_0().ellipsis();
     div()
         .flex_1()
         .min_w_0()
@@ -367,13 +381,11 @@ impl Render for Palette {
             .flex_col()
             .rounded(px(12.))
             .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .shadow(t.drop_shadow())
+            .shadow(t.float_shadow())
             .overflow_hidden()
             .font_family(kit::UI_FONT)
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
             .child(
                 div()
@@ -384,7 +396,7 @@ impl Render for Palette {
                     .border_color(t.line)
                     .text_size(px(15.))
                     // 15 px × the body's 1.45.
-                    .line_height(px(21.75))
+                    .line_height(px(21.))
                     .child(self.input.clone()),
             )
             .child(
@@ -401,16 +413,12 @@ impl Render for Palette {
                     .when(n > 0, |d| d.child(list)),
             );
         let panel: AnyElement = if motion {
-            panel
-                .with_animation(
-                    ElementId::NamedInteger("palette-open".into(), self.serial as u64),
-                    Motion::open(),
-                    |el, d| {
-                        let rise = Motion::spring()(d);
-                        el.opacity(d).mt(px((1. - rise) * Motion::RISE))
-                    },
-                )
-                .into_any_element()
+            kit::motion::enter(
+                ElementId::NamedInteger("palette-open".into(), self.serial as u64),
+                kit::motion::Fx::PALETTE,
+                panel,
+            )
+            .into_any_element()
         } else {
             panel.into_any_element()
         };
@@ -431,15 +439,10 @@ impl Render for Palette {
             )
             .child(panel);
         if motion {
-            // `.backdrop`: fade-in 0.12s ease-out.
-            backdrop
-                .with_animation(
-                    ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
-                    gpui::Animation::new(std::time::Duration::from_millis(120))
-                        .with_easing(gpui::ease_out_quint()),
-                    move |el, d| el.bg(scrim.opacity(scrim.a * d)),
-                )
-                .into_any_element()
+            kit::scrim_in(
+                ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
+                backdrop,
+            )
         } else {
             backdrop.into_any_element()
         }
@@ -522,6 +525,7 @@ impl PaletteHost {
             },
         ));
         self.palette = Some(palette);
+        cx.emit(PaletteHostEvent::Opened);
         cx.notify();
     }
 

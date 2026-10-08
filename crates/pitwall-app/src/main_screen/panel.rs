@@ -7,6 +7,7 @@
 //!
 //! Next up, Last sent and the Files tab are other modules' (inventory §10).
 
+use crate::kit::Ellipsis as _;
 use std::time::{Duration, Instant};
 
 use crate::kit::HoverText;
@@ -15,13 +16,13 @@ use gpui::{
     Window,
 };
 
-use pitwall_core::vcs::git::{FileChange, FileStatus};
+use pitwall_core::vcs::git::FileChange;
 use pitwall_proto::AgentView;
 
 use crate::kit::{icon, MONO_FONT};
-use super::model::{split_path, updated_label, CHANGES_POLL};
+use super::model::{split_path, CHANGES_POLL};
 use crate::kit::keys;
-use crate::kit::{diffstat, glyph, icon_btn, label, label_t, tooltip};
+use crate::kit::{diffstat, icon_btn, label, label_t, tooltip};
 use super::{MainScreen, Route};
 use crate::theme::{Theme, RIGHT_W};
 
@@ -52,28 +53,6 @@ impl ChangesState {
     }
 }
 
-/// VS Code's SCM letter (`fileStatus`).
-pub fn status_letter(f: &FileChange) -> &'static str {
-    match f.status {
-        Some(FileStatus::M) => "M",
-        Some(FileStatus::A) => "A",
-        Some(FileStatus::D) => "D",
-        Some(FileStatus::R) => "R",
-        Some(FileStatus::U) => "U",
-        None if f.untracked => "U",
-        None => "M",
-    }
-}
-
-fn status_title(l: &str) -> &'static str {
-    match l {
-        "A" => "Added",
-        "D" => "Deleted",
-        "R" => "Renamed",
-        "U" => "Untracked",
-        _ => "Modified",
-    }
-}
 
 impl MainScreen {
     /// The focused agent changed, or its totals moved: (re)load its changes.
@@ -184,7 +163,7 @@ impl MainScreen {
                     .pr(px(8.))
                     .border_b_1()
                     .border_color(t.line)
-                    .child(glyph(a.status, t, true))
+                    .child(crate::kit::glyph_play(format!("panel-{}", a.id), a.status, t, true))
                     .child(div().flex_1().min_w_0().overflow_hidden().child(
                         label_t(a.name.clone(), t.text, 13., 0.1).font_weight(FontWeight::BOLD),
                     ))
@@ -315,13 +294,8 @@ impl MainScreen {
         }
         let c = &self.changes;
         let count = c.files.as_ref().map(|f| f.len()).unwrap_or(0);
-        let note = if c.refreshing {
-            "refreshing…".to_string()
-        } else {
-            c.updated
-                .map(|u| updated_label(u.elapsed().as_secs()))
-                .unwrap_or_default()
-        };
+        let note = crate::kit::fresh_note(c.refreshing, c.updated.map(|u| u.elapsed().as_secs()));
+        let busy = c.refreshing;
         let head = head
             .when(count > 0 && !files_hook, |d| {
                 d.child(
@@ -334,19 +308,13 @@ impl MainScreen {
             })
             .child(div().flex_1())
             // With tabs the note is left out (React `note={!tabs}`).
-            .when(!files_hook, |d| {
-                d.child(div().text_size(px(11.)).text_color(t.text_3).child(note))
-            })
-            .child(
-                icon_btn(
-                    "refresh-changes",
-                    "refresh",
-                    format!("Refresh ({})", keys("⌘⇧R", false)),
-                    true,
-                    t,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.load_changes(true, cx))),
-            )
+            .child(crate::kit::refresh_control(
+                "refresh-changes",
+                busy,
+                (!files_hook).then_some(note),
+                t,
+                cx.listener(|this, _, _, cx| this.load_changes(true, cx)),
+            ))
             .when(a.caps.review, |d| {
                 d.child(
                     icon_btn(
@@ -374,10 +342,10 @@ impl MainScreen {
                 .py(px(4.))
                 .text_size(px(12.))
                 .text_color(t.red)
-                .child(div().min_w_0().truncate().child(format!(
+                .child(div().min_w_0().ellipsis().child(crate::kit::one_line(format!(
                     "Couldn't read changes: {}",
                     e.lines().next().unwrap_or("")
-                )))
+                ))))
                 .child(
                     crate::kit::small_btn("retry-changes", "Retry", t)
                         .on_click(cx.listener(|this, _, _, cx| this.load_changes(true, cx))),
@@ -400,6 +368,21 @@ impl MainScreen {
                         .map(|(i, f)| self.file_row(i, a, f, t, cx)),
                 )
                 .into_any_element(),
+        };
+        // The agent's other worktrees follow the files (`AgentWorktrees`).
+        let wts = self.panel_worktrees(a, t, cx);
+        let body = match wts {
+            Some(w) => div()
+                .id("changes-body")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .child(body)
+                .child(w)
+                .into_any_element(),
+            None => body,
         };
         div()
             .flex_1()
@@ -430,10 +413,13 @@ impl MainScreen {
             .pb(px(6.))
             .text_size(px(11.))
             .text_color(t.text_2)
-            .font_family(crate::kit::MONO_FONT)
             .child(
+                // `.where-branch.mono` (0.94em); the path below is in the
+                // UI face (`.where-path { font: inherit }`).
                 div()
                     .id("where-branch")
+                    .font_family(crate::kit::MONO_FONT)
+                    .text_size(px(11. * 0.94))
                     .flex()
                     .items_center()
                     .gap(px(5.))
@@ -448,8 +434,8 @@ impl MainScreen {
                     .child(
                         div()
                             .min_w_0()
-                            .truncate()
-                            .child(a.branch.clone().unwrap_or_else(|| "detached HEAD".into())),
+                            .ellipsis()
+                            .child(crate::kit::one_line(a.branch.clone().unwrap_or_else(|| "detached HEAD".into()))),
                     )
                     .when(a.worktree, |d| {
                         d.child(
@@ -459,6 +445,7 @@ impl MainScreen {
                                 .rounded(px(4.))
                                 .border_1()
                                 .border_color(t.line_strong)
+                                .font_family(crate::kit::UI_FONT)
                                 .text_size(px(10.))
                                 .child("worktree"),
                         )
@@ -467,12 +454,12 @@ impl MainScreen {
             .child(
                 div()
                     .id("where-path")
+                    .group("where-path")
                     .flex()
                     .items_center()
                     .gap(px(5.))
                     .min_w_0()
                     .cursor_pointer()
-                    .hover_text(t.text, |s| s)
                     .tooltip(tooltip(path_tip))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(cwd.clone()));
@@ -488,11 +475,17 @@ impl MainScreen {
                         .detach();
                     }))
                     .child(icon("folder", 11., t.text_2))
-                    .child(div().min_w_0().truncate().child(if copied {
-                        "Copied".to_string()
-                    } else {
-                        a.cwd_display.clone()
-                    })),
+                    .child(
+                        div()
+                            .min_w_0()
+                            .ellipsis()
+                            .group_hover_text("where-path", t.text, |s| s.underline())
+                            .child(crate::kit::one_line(if copied {
+                                "Copied".to_string()
+                            } else {
+                                a.cwd_display.clone()
+                            })),
+                    ),
             )
     }
 
@@ -505,12 +498,7 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (dir, base) = split_path(&f.path);
-        let letter = status_letter(f);
-        let letter_color = match letter {
-            "A" | "U" => t.green,
-            "D" => t.red,
-            _ => t.text_2,
-        };
+        let status = crate::kit::file_status(f);
         let (agent, file) = (a.clone(), f.clone());
         div()
             .id(("file-row", i))
@@ -540,16 +528,16 @@ impl MainScreen {
                         div()
                             .flex_shrink()
                             .min_w_0()
-                            .truncate()
+                            .ellipsis()
                             .text_color(t.text_3)
-                            .child(dir.to_string()),
+                            .child(crate::kit::one_line(dir.to_string())),
                     )
                     .child(
                         div()
                             .flex_none()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text)
-                            .when(letter == "D", |d| {
+                            .when(status == pitwall_proto::FileStatus::D, |d| {
                                 d.line_through().text_decoration_color(t.text_3)
                             })
                             .child(base.to_string()),
@@ -559,15 +547,9 @@ impl MainScreen {
             .child(
                 div()
                     .id(("letter", i))
-                    .w(px(10.))
                     .flex_none()
-                    .flex()
-                    .justify_center()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(letter_color)
-                    .tooltip(tooltip(status_title(letter)))
-                    .child(letter),
+                    .tooltip(tooltip(crate::kit::status_title(status)))
+                    .child(crate::kit::status_letter(status, t)),
             )
     }
 }

@@ -5,6 +5,8 @@
 //! conversation in a new Pitwall agent. Settings → "Show agents running
 //! elsewhere" hides it (`ui.hideElsewhere`).
 
+use crate::kit::Ellipsis as _;
+use crate::kit::Span;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,7 +18,7 @@ use pitwall_core::onboarding::ContinueRequest;
 
 use super::MainScreen;
 use crate::kit::{
-    chevron, label_fit, muted, small_btn, text_button, tooltip, BtnKind, HoverText, Modal,
+    chevron, label_fit, small_btn, text_button, tooltip, BtnKind, HoverText, Modal,
     MONO_FONT,
 };
 use crate::theme::{Theme, RADIUS};
@@ -124,7 +126,7 @@ impl MainScreen {
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.update_ui(|s| s.toggle_collapsed(KEY), cx)
                         }))
-                        .child(chevron(!collapsed, 12., t.text_4))
+                        .child(chevron("chev", !collapsed, 12., t.text_4))
                         .child(label_fit("Elsewhere", t.text_4, 12., 22).group_hover_text(
                             "elsewhere-head",
                             t.text_2,
@@ -193,29 +195,47 @@ impl MainScreen {
                     .border_dashed()
                     .border_color(t.text_3),
             )
+            // `.agent-row-main`: the name (13 px, 600) over the kind and
+            // folder (11.5 px); the kind gives way first.
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(div().truncate().text_color(t.text).child(name))
+                    .gap(px(3.))
+                    .child(
+                        div()
+                            .ellipsis()
+                            .text_size(px(13.))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(crate::kit::one_line(name)),
+                    )
                     .child(
                         div()
                             .flex()
-                            .gap(px(8.))
+                            .items_center()
+                            .gap(px(7.))
                             .min_w_0()
-                            .text_size(px(12.))
+                            .text_size(px(11.5))
                             .text_color(t.text_3)
-                            .child(div().flex_none().child(r.kind_name.clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .ellipsis()
+                                    .child(crate::kit::one_line(r.kind_name.clone())),
+                            )
                             .when_some(r.title.as_ref().and(r.cwd_display.clone()), |d, c| {
                                 d.child(
+                                    // Shrinks only once the kind is gone.
                                     div()
-                                        .min_w_0()
-                                        .truncate()
+                                        .flex_shrink_0()
+                                        .max_w_full()
+                                        .ellipsis()
                                         .font_family(MONO_FONT)
                                         .text_size(px(11.))
-                                        .child(c),
+                                        .child(crate::kit::one_line(c)),
                                 )
                             }),
                     ),
@@ -232,6 +252,7 @@ impl MainScreen {
                     .when(can, |d| {
                         d.on_click(cx.listener(move |this, _, _, cx| {
                             this.elsewhere.bring = Some(row.clone());
+                            cx.emit(super::ScreenEvent::ModalOpened);
                             cx.notify();
                         }))
                     }),
@@ -258,19 +279,16 @@ impl MainScreen {
                     .flex()
                     .flex_col()
                     .gap(px(14.))
-                    .child(muted(
+                    .child({
+                        let lead = format!("Resumes this {} conversation in a new Pitwall agent", r.kind_name);
                         match &r.cwd_display {
-                            Some(c) => format!(
-                                "Resumes this {} conversation in a new Pitwall agent in {c}.",
-                                r.kind_name
+                            Some(c) => crate::kit::rich(
+                                &[(&lead, Span::Text), (" in ", Span::Text), (c, Span::Mono), (".", Span::Text)],
+                                t.text,
                             ),
-                            None => format!(
-                                "Resumes this {} conversation in a new Pitwall agent.",
-                                r.kind_name
-                            ),
-                        },
-                        t,
-                    ))
+                            None => crate::kit::rich(&[(&lead, Span::Text), (".", Span::Text)], t.text),
+                        }
+                    })
                     .when_some(r.title.clone(), |d, title| {
                         d.child(crate::kit::hint(format!("“{title}”"), t))
                     })
@@ -282,23 +300,19 @@ impl MainScreen {
                             .bg(t.surface_2)
                             .border_1()
                             .border_color(t.line_strong)
-                            .text_size(px(12.5))
-                            .text_color(t.text_2)
-                            .child(format!(
-                                "Close the original first (in the other terminal, pid {}), so two copies don't work on the same conversation. Pitwall never stops it for you.",
-                                r.pid
+                            .child(crate::kit::rich(
+                                &[
+                                    ("Close the original first", Span::Bold),
+                                    (" (in the other terminal, pid ", Span::Text),
+                                    (&r.pid.to_string(), Span::Mono),
+                                    ("), so two copies don't work on the same conversation. Pitwall never stops it for you.", Span::Text),
+                                ],
+                                t.text,
                             )),
                     ),
             )
             .child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .gap(px(8.))
-                    .px(px(18.))
-                    .py(px(12.))
-                    .border_t_1()
-                    .border_color(t.line)
+                crate::kit::dialog::foot(t)
                     .child(
                         text_button("bring-cancel", "Cancel", BtnKind::Ghost, false, t).on_click(
                             cx.listener(|this, _, _, cx| {

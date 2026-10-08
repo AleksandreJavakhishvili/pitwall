@@ -96,7 +96,7 @@ impl Render for LastSent {
             .pt(px(12.))
             .px(px(14.))
             .pb(px(6.))
-            .line_height(px(17.4))
+            .line_height(px(17.))
             .child(label("Last sent", t.text_3, 12.))
             .child(div().flex_1())
             .children(a.last_sent_at.map(|at| {
@@ -122,7 +122,7 @@ impl Render for LastSent {
                 .border_l_2()
                 .border_color(t.line_strong)
                 .text_size(px(12.5))
-                .line_height(px(18.75))
+                .line_height(px(18.))
                 .text_color(t.text)
                 .child(text.clone())
                 .into_any_element(),
@@ -131,7 +131,7 @@ impl Render for LastSent {
                 &t,
             )
             .mx(px(14.))
-            .line_height(px(17.4))
+            .line_height(px(17.))
             .into_any_element(),
         };
         div()

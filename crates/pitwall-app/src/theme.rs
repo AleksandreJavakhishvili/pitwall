@@ -13,12 +13,11 @@
 //!   surfaces (dialogs, menus, toasts) and Liquid Glass slabs. Terminals,
 //!   Wall tiles and code views keep the plain theme: they stay opaque.
 //! - [`backdrop`] for the window's root background, [`motion_on`] before
-//!   animating anything, [`Motion`] for durations and easings.
-
-use std::time::Duration;
+//!   animating anything ([`crate::kit::motion`] has the durations,
+//!   easings and animated elements).
 
 use gpui::{
-    linear_color_stop, linear_gradient, point, px, rgb, rgba, Animation, App, Background,
+    linear_color_stop, linear_gradient, point, px, rgb, rgba, App, Background,
     BoxShadow, Global, Hsla, Pixels, Window, WindowAppearance,
 };
 use serde::{Deserialize, Serialize};
@@ -585,53 +584,6 @@ pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> impl Fn(f32) -> f32 +
     }
 }
 
-/// motion.css: durations and easings. Nothing animates when
-/// [`Appearance::reduce_motion`] is on (the setting or the OS), nor on the
-/// Wall.
-pub struct Motion;
-
-impl Motion {
-    /// Dialogs and the palette: fade + rise/scale (`m-open`).
-    pub const OPEN: Duration = Duration::from_millis(200);
-    /// Menus (`m-open-sm`).
-    pub const OPEN_SM: Duration = Duration::from_millis(150);
-    /// Drawers sliding in.
-    pub const SLIDE: Duration = Duration::from_millis(200);
-    /// Toasts (`m-toast`).
-    pub const TOAST: Duration = Duration::from_millis(240);
-    /// Switching space / Wall / Review (`m-fade`).
-    pub const FADE: Duration = Duration::from_millis(160);
-    /// Press pop.
-    pub const PRESS: Duration = Duration::from_millis(200);
-    /// "Needs you" halo (played twice).
-    pub const HALO: Duration = Duration::from_millis(1300);
-    /// Blocked glyph bounce (played twice).
-    pub const BOUNCE: Duration = Duration::from_millis(550);
-    /// Done flag pop.
-    pub const FLAG: Duration = Duration::from_millis(450);
-    /// Glass ring on the working dot (loops).
-    pub const RING: Duration = Duration::from_millis(2000);
-    /// Rise of the dialogs (px).
-    pub const RISE: f32 = 8.0;
-
-    /// `--ease-spring`: cubic-bezier(0.2, 0.9, 0.3, 1.18).
-    pub fn spring() -> impl Fn(f32) -> f32 + Clone {
-        cubic_bezier(0.2, 0.9, 0.3, 1.18)
-    }
-
-    /// `--ease-out-soft`: cubic-bezier(0.16, 1, 0.3, 1).
-    pub fn out_soft() -> impl Fn(f32) -> f32 + Clone {
-        cubic_bezier(0.16, 1.0, 0.3, 1.0)
-    }
-
-    /// The dialog opening animation. Linear: GPUI requires eased values in
-    /// 0..=1, so overshooting easings ([`Motion::spring`]) are applied in
-    /// the animator instead.
-    pub fn open() -> Animation {
-        Animation::new(Self::OPEN)
-    }
-}
-
 // ───────────────────────────────────────────── the resolved state
 
 /// The appearance every window shows (a global; promote into theme.rs).
@@ -823,6 +775,29 @@ impl Theme {
         }]
     }
 
+    /// The whole `--shadow` of dialogs, menus and toasts: the drop and its
+    /// 1 px ring outside the box (`0 0 0 1px var(--line-strong)`; a border
+    /// would sit inside and move the content).
+    pub fn float_shadow(&self) -> Vec<BoxShadow> {
+        let mut s = self.drop_shadow();
+        s.push(self.ring(if self.glass.is_some() {
+            self.g.line_strong
+        } else {
+            self.line_strong
+        }));
+        s
+    }
+
+    /// `box-shadow: 0 0 0 1px <color>`: a 1 px ring outside the box.
+    pub fn ring(&self, color: Hsla) -> BoxShadow {
+        BoxShadow {
+            color,
+            offset: point(px(0.), px(0.)),
+            blur_radius: px(0.),
+            spread_radius: px(1.),
+        }
+    }
+
     /// `--amber-glow` as a soft outer glow (blocked rows, panes, the count).
     pub fn amber_glow(&self, blur: f32, spread: f32) -> Vec<BoxShadow> {
         vec![BoxShadow {
@@ -913,6 +888,7 @@ pub fn apply(inputs: Inputs, cx: &mut App) -> bool {
     let changed = cx
         .try_global::<Appearance>()
         .is_none_or(|cur| !same(cur, &next));
+    crate::kit::motion::set_on(!next.reduce_motion);
     cx.set_global(next.theme());
     cx.set_global(next);
     for w in cx.windows() {
@@ -1111,12 +1087,12 @@ mod tests {
 
     #[test]
     fn easings_match_css() {
-        let spring = Motion::spring();
+        let spring = cubic_bezier(0.2, 0.9, 0.3, 1.18);
         assert_eq!(spring(0.0), 0.0);
         assert_eq!(spring(1.0), 1.0);
         // The spring overshoots past 1 before settling.
         assert!((0..100).map(|i| spring(i as f32 / 100.0)).any(|v| v > 1.0));
-        let soft = Motion::out_soft();
+        let soft = cubic_bezier(0.16, 1.0, 0.3, 1.0);
         assert!(soft(0.5) > 0.85, "out-soft is front-loaded: {}", soft(0.5));
         let linear = cubic_bezier(0.0, 0.0, 1.0, 1.0);
         assert!((linear(0.3) - 0.3).abs() < 0.01);

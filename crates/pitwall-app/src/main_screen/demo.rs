@@ -223,6 +223,39 @@ impl MainScreen {
         }
     }
 
+    /// Demo only: the React mock's two agents in other terminal apps.
+    #[doc(hidden)]
+    pub fn demo_elsewhere(&mut self, cx: &mut gpui::Context<Self>) {
+        use pitwall_core::onboarding::scan::RunningAgent;
+        let row = |pid, kind: &str, name: &str, cwd: &str, disp: &str, sid: Option<&str>, title: Option<&str>| {
+            RunningAgent {
+                pid,
+                kind: kind.into(),
+                kind_name: name.into(),
+                cwd: Some(cwd.into()),
+                cwd_display: Some(disp.into()),
+                session_id: sid.map(Into::into),
+                title: title.map(Into::into),
+                in_pitwall: false,
+                outside_project: false,
+                display_project: None,
+            }
+        };
+        self.elsewhere.rows = vec![
+            row(
+                41207,
+                "claude",
+                "Claude Code",
+                "/Users/dev/code/infra",
+                "~/code/infra",
+                Some("5c0ffee0-2b1e-4c55-9d1a-0d5f3e7a9b21"),
+                Some("Bump the Terraform AWS provider and fix the plan diff"),
+            ),
+            row(36504, "codex", "Codex", "/Users/dev/code/checkout-web", "~/code/checkout-web", None, None),
+        ];
+        cx.notify();
+    }
+
     /// Demo only: open something to look at ("new-agent", "remove", "menu",
     /// "diff", "terminal").
     #[doc(hidden)]
@@ -257,6 +290,27 @@ impl MainScreen {
                         }
                     }
                 }
+            }
+            "toasts" => {
+                use super::strip::Toast;
+                let ids: Vec<(String, String)> = self
+                    .agents(cx)
+                    .iter()
+                    .map(|a| (a.id.clone(), a.name.clone()))
+                    .collect();
+                if let Some((id, name)) = ids.iter().find(|(_, n)| n == "api-fix") {
+                    self.toast(Toast::done(format!("{name} is done"), id.clone()), cx);
+                }
+                if let Some((id, name)) = ids.iter().find(|(_, n)| n == "tests") {
+                    let mut t = Toast::blocked(format!("{name} needs you"), id.clone());
+                    t.detail = Some("Bash: pnpm test --run src/cart".into());
+                    self.toast(t, cx);
+                }
+            }
+            "bring" => {
+                self.demo_elsewhere(cx);
+                self.elsewhere.bring = self.elsewhere.rows.first().cloned();
+                cx.notify();
             }
             "menu" => {
                 let agents = self.agents(cx).to_vec();

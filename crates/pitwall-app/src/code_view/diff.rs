@@ -44,6 +44,13 @@ pub struct FileDiff {
     pub new_marks: HashMap<usize, LineMarks>,
     pub added: usize,
     pub removed: usize,
+    /// The original is empty (a new file) or the modified is (a deleted
+    /// one). As in the React app (Monaco's rule), that side's one empty
+    /// line is part of the change, not a removed or added line: it is
+    /// tinted, never listed as a deleted or inserted row inline, and not
+    /// counted.
+    pub empty_old: bool,
+    pub empty_new: bool,
 }
 
 impl FileDiff {
@@ -80,6 +87,16 @@ pub fn diff(old: &str, new: &str) -> FileDiff {
         out.new_marks.extend(h.new.clone().zip(nm));
     }
     out.hunks = hunks;
+    out.empty_old = old.is_empty() && !new.is_empty();
+    out.empty_new = new.is_empty() && !old.is_empty();
+    if out.empty_old {
+        out.removed = 0;
+        out.old_marks.clear();
+    }
+    if out.empty_new {
+        out.added = 0;
+        out.new_marks.clear();
+    }
     out
 }
 
@@ -493,6 +510,18 @@ mod tests {
         let hunk = &d.hunks[0];
         let added: Vec<_> = lines(new)[hunk.new.clone()].to_vec();
         assert_eq!(added, ["f {", "  a", "}"], "{hunk:?}");
+    }
+
+    #[test]
+    fn a_new_file_has_no_removed_line() {
+        // Without a final newline the empty original's one line is
+        // "replaced"; it is still not a removed line.
+        let d = diff("", "fn a() {}\nfn b() {}");
+        assert_eq!((d.added, d.removed), (2, 0));
+        assert!(d.empty_old && d.old_marks.is_empty());
+        let d = diff("x\ny\n", "");
+        assert_eq!((d.added, d.removed), (0, 2));
+        assert!(d.empty_new);
     }
 
     #[test]
