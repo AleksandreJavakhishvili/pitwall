@@ -407,6 +407,19 @@ impl CodeView {
                             if marks.is_some_and(|m| m.full) && !whole {
                                 text.under.push(fill(row_b, char_tint));
                             }
+                            // The empty side of a new or deleted file: one
+                            // 3 px bar where the other side's text goes
+                            // (`.rv-empty-range`).
+                            let empty = match side {
+                                Side::Old => content.diff.empty_old,
+                                Side::New => content.diff.empty_new,
+                            };
+                            if empty && line == 0 {
+                                text.under.push(fill(
+                                    Bounds::new(point(text_x, y), size(px(3.), px(LINE_H))),
+                                    char_tint,
+                                ));
+                            }
                         }
                         if side == Side::New
                             && self.comments.contains_key(&line)
@@ -423,7 +436,8 @@ impl CodeView {
                                 let (a, b) = (l.from_source(rg.start), l.from_source(rg.end));
                                 let x0 = text_x + col_x(&shaped, a);
                                 let x1 = text_x + col_x(&shaped, b);
-                                let w = (x1 - x0).max(px(2.));
+                                // An insertion on the other side: a 3 px bar.
+                                let w = (x1 - x0).max(px(3.));
                                 text.under.push(fill(
                                     Bounds::new(point(x0, y), size(w, px(LINE_H))),
                                     char_tint,

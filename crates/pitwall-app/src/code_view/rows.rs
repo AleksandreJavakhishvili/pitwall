@@ -158,16 +158,21 @@ impl Rows {
                     }
                 }
                 Layout::Unified | Layout::File => {
-                    rows.extend(h.old.clone().map(|i| Row::Line {
-                        old: Some(i),
-                        new: None,
-                        changed: true,
-                    }));
-                    rows.extend(h.new.clone().map(|i| Row::Line {
-                        old: None,
-                        new: Some(i),
-                        changed: true,
-                    }));
+                    // An empty side's one line is no deleted/inserted row.
+                    if !d.empty_old {
+                        rows.extend(h.old.clone().map(|i| Row::Line {
+                            old: Some(i),
+                            new: None,
+                            changed: true,
+                        }));
+                    }
+                    if !d.empty_new {
+                        rows.extend(h.new.clone().map(|i| Row::Line {
+                            old: None,
+                            new: Some(i),
+                            changed: true,
+                        }));
+                    }
                 }
             }
             o = h.old.end;
