@@ -181,11 +181,6 @@ impl Layer {
                     this.settings = None;
                     this.open_onboarding(OnbMode::Rescan, cx);
                 }
-                SettingsEvent::About => {
-                    this.settings = None;
-                    this.about = true;
-                    cx.notify();
-                }
             });
             self._subs.push(sub);
             self.settings = Some(view);

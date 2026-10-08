@@ -26,7 +26,6 @@ pub enum SettingsEvent {
     Close,
     /// "Scan again" (opens the rescan screen in place of Settings).
     ScanAgain,
-    About,
 }
 
 pub struct SettingsView {
@@ -619,19 +618,6 @@ impl SettingsView {
                 keys("⌘+ / ⌘− / ⌘0"),
             ), &ui.t))
     }
-
-    fn about_row(ui: &Ui, cx: &mut Context<Self>) -> gpui::Div {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(crate::kit::hint(format!("Pitwall {} · GPUI preview", super::about::VERSION), &ui.t))
-            .child(div().flex_1())
-            .child(
-                crate::kit::text_button("about", "About Pitwall", BtnKind::Link, false, &ui.t)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::About))),
-            )
-    }
 }
 
 impl Render for SettingsView {
@@ -704,15 +690,14 @@ impl Render for SettingsView {
             .child(self.cli(&ui, cx))
             .child(Self::appearance_section(&ui, cx))
             .child(Self::tiles(&ui, cx))
-            .children(extra)
-            .child(Self::about_row(&ui, cx));
+            .children(extra);
         div()
             .flex()
             .flex_col()
             .min_h_0()
             .max_h_full()
             .child(head)
-            .child(body)
+            .child(crate::kit::vscroll("settings-bar", &self.scroll, &ui.t, body).flex_1())
     }
 }
 

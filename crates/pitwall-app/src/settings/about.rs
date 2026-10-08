@@ -1,5 +1,5 @@
 //! About Pitwall: version and build facts (the macOS app menu's "About
-//! Pitwall", and Settings' footer link). "Copy" puts them on the clipboard
+//! Pitwall"; an in-app box where the OS has no About panel). "Copy" puts them on the clipboard
 //! for bug reports.
 
 use gpui::{
