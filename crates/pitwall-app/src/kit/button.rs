@@ -317,6 +317,19 @@ pub fn glyph_btn(id: impl Into<ElementId>, glyph: &'static str, t: &Theme) -> St
                 d.hover_text(fg, move |s| s.bg(bg))
             }
         });
+    // The web view's fallback face draws ✕ about 6 px across at 12-13
+    // px; GPUI's draws it at 9, so it is the kit's x at that ink.
+    if glyph == "✕" {
+        let group = SharedString::from(format!("gbtn-{id}"));
+        let x = icon("x", 12., t.text_3).group_hover_text(group.clone(), fg, |s| s);
+        return motion::pressable(
+            el.group(group),
+            &id,
+            false,
+            motion::Skin::new(Some(bg), None, RADIUS),
+        )
+        .child(x);
+    }
     motion::pressable(el, &id, false, motion::Skin::new(Some(bg), None, RADIUS)).child(glyph)
 }
 

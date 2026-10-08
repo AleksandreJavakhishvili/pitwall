@@ -365,27 +365,37 @@ impl Element for Para {
             .runs
             .clone()
             .unwrap_or_else(|| vec![style.to_run(self.text.len())]);
-        // Each character's advance in its run's font (kerning is left to
-        // the shaper at paint; it only narrows lines).
+        // Each byte's x on one shaped line (per size group), so the
+        // measure sees the shaper's kerning and fallback faces (⌘, ✓…).
         let ts = window.text_system().clone();
-        let mut adv: Vec<f32> = Vec::with_capacity(self.text.len());
-        let mut at = 0;
-        for (i, r) in runs.iter().enumerate() {
-            let id = ts.resolve_font(&r.font);
-            let size = size * self.scales.get(i).copied().unwrap_or(1.);
-            for c in self.text[at..at + r.len].chars() {
-                let w = ts.advance(id, size, c).map(|s| f32::from(s.width)).unwrap_or(0.);
-                adv.push(w);
-                adv.extend(std::iter::repeat_n(0., c.len_utf8() - 1));
+        let mut prefix = vec![0f32; self.text.len() + 1];
+        let (mut x0, mut at, mut k) = (0f32, 0usize, 0usize);
+        while k < runs.len() {
+            let scale = self.scales.get(k).copied().unwrap_or(1.);
+            let mut group = Vec::new();
+            while k < runs.len() && self.scales.get(k).copied().unwrap_or(1.) == scale {
+                group.push(runs[k].clone());
+                k += 1;
             }
-            at += r.len;
+            let len: usize = group.iter().map(|g| g.len).sum();
+            let line = ts.layout_line(&self.text[at..at + len], size * scale, &group, None);
+            let mut xs: Vec<(usize, f32)> = line
+                .runs
+                .iter()
+                .flat_map(|r| r.glyphs.iter().map(|g| (g.index, f32::from(g.position.x))))
+                .collect();
+            xs.sort_by_key(|g| g.0);
+            let width = f32::from(line.width);
+            let mut g = 0;
+            for b in 0..=len {
+                while g < xs.len() && xs[g].0 < b {
+                    g += 1;
+                }
+                prefix[at + b] = x0 + if g < xs.len() { xs[g].1 } else { width };
+            }
+            x0 += width;
+            at += len;
         }
-        let prefix: Vec<f32> = std::iter::once(0.)
-            .chain(adv.iter().scan(0., |s, w| {
-                *s += w;
-                Some(*s)
-            }))
-            .collect();
         let text = self.text.clone();
         let lines = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let out = lines.clone();
