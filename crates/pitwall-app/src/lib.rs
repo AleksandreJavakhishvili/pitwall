@@ -210,7 +210,7 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
             ..Default::default()
         }),
         window_min_size: Some(size(px(min_w), px(min_h))),
-        app_id: Some("dev.pitwall.app".into()),
+        app_id: Some(platform::WINDOW_APP_ID.into()),
         ..Default::default()
     };
     let main = cx

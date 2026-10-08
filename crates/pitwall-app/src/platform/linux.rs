@@ -10,9 +10,11 @@ use std::sync::{Mutex, OnceLock};
 
 use zbus::zvariant::Value;
 
-/// The desktop entry the badge belongs to (the .deb/AppImage launcher;
-/// keep in step with packaging).
-pub const DESKTOP_ID: &str = "application://Pitwall.desktop";
+/// The desktop entry the badge belongs to: the .deb/AppImage launcher,
+/// which cargo-packager names after the main binary
+/// (`usr/share/applications/pitwall-app.desktop`). Keep in step with
+/// packaging and with [`super::WINDOW_APP_ID`].
+pub const DESKTOP_ID: &str = "application://pitwall-app.desktop";
 
 /// The badge's properties for a count.
 fn props(count: usize) -> HashMap<&'static str, Value<'static>> {
@@ -62,5 +64,13 @@ mod tests {
     fn the_badge_hides_at_zero() {
         assert_eq!(props(0)["count-visible"], Value::from(false));
         assert_eq!(props(4)["count"], Value::from(4i64));
+    }
+
+    #[test]
+    fn the_window_and_the_badge_name_the_same_launcher() {
+        assert_eq!(
+            DESKTOP_ID,
+            format!("application://{}.desktop", super::super::WINDOW_APP_ID)
+        );
     }
 }
