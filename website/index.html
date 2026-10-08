@@ -14,6 +14,7 @@
   <script type="module" src="/src/main.js"></script>
 </head>
 <body>
+  <div class="sky" aria-hidden="true"><i class="sky-base"></i><i class="sky-glow"></i><i class="sky-trails"></i></div>
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="site-head">
@@ -39,17 +40,14 @@
     <section class="hero" aria-labelledby="hero-h">
       <div class="wrap">
         <div class="hero-top">
-          <div>
-            <p class="label">macOS · Linux · Windows preview · early builds</p>
-            <h1 id="hero-h">You call the strategy. <span class="dim">Agents drive.</span></h1>
+          <p class="eyebrow">macOS · Linux · Windows preview · early builds</p>
+          <h1 id="hero-h">You call the strategy. <span class="dim">Agents drive.</span></h1>
+          <p class="lede">Run Claude Code, Codex and any other terminal agent side by side. The one that needs you turns amber.</p>
+          <div class="cta">
+            <a class="btn btn-primary" href="/download/" data-dl-label>Download</a>
+            <a class="btn" href="%REPO_URL%">Star on GitHub</a>
           </div>
-          <div class="hero-side">
-            <p class="lede">Run Claude Code, Codex and any other terminal agent side by side. The one that needs you turns amber.</p>
-            <div class="cta">
-              <a class="btn btn-primary" href="/download/" data-dl-label>Download</a>
-              <a class="btn" href="%REPO_URL%">Star on GitHub</a>
-            </div>
-          </div>
+          <p class="hero-note">Free and open source under Apache-2.0.</p>
         </div>
 
         <div class="demo" data-demo>
@@ -98,6 +96,7 @@
 
     <section class="pit" aria-label="Details">
       <div class="wrap">
+        <div class="pit-panel">
         <div class="pit-row">
           <p class="label">Works with</p>
           <ul class="chips" aria-label="Supported agents">
@@ -124,6 +123,7 @@
         <div class="pit-row">
           <p class="label">Coming</p>
           <p class="dim-copy">A background daemon with a menu-bar item and more CLI commands. Not in a build yet. <a href="/docs/how-it-works/#roadmap">Roadmap</a></p>
+        </div>
         </div>
       </div>
     </section>

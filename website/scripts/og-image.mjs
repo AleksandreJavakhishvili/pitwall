@@ -4,7 +4,7 @@
 //   node scripts/og-image.mjs                 # finds Chrome, or set CHROME=/path/to/chrome
 //
 // Demo content only (made-up projects and agents), same as the site's demo.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -43,24 +43,39 @@ const html = `<!doctype html>
 * { box-sizing: border-box; margin: 0; }
 html, body { width: ${W}px; height: ${H}px; overflow: hidden; }
 body {
-  --bg: #0a0b0d; --surface: #0f1114; --line: #1e2227; --line-strong: #2a2f36;
-  --text: #e6e8eb; --text-2: #a8aeb6; --text-3: #7c838d;
-  --green: #3fd07f; --amber: #ffb224; --amber-soft: rgba(255, 178, 36, 0.1); --flag: #f4f5f7; --flag-dark: #2a2e35;
-  background: var(--bg); color: var(--text); font-family: Inter, sans-serif; position: relative;
+  --text: #f3f5f9; --text-2: #d0d5de; --text-3: #aab1be; --line: rgba(255, 255, 255, 0.1);
+  --green: #45d68a; --amber: #ffb224; --amber-soft: rgba(255, 178, 36, 0.14); --flag: #f4f5f7; --flag-dark: #2a2e35;
+  color: var(--text); font-family: Inter, sans-serif; position: relative;
+  /* Night race sky, same recipe as the site (src/site.css). */
+  background:
+    radial-gradient(70% 3% at 50% 74%, rgba(255, 200, 150, 0.16), transparent),
+    radial-gradient(40% 2% at 24% 77%, rgba(255, 74, 64, 0.24), transparent),
+    radial-gradient(32% 1.8% at 76% 76%, rgba(255, 190, 110, 0.2), transparent),
+    radial-gradient(50% 30% at 50% 78%, rgba(255, 150, 88, 0.34), transparent 72%),
+    radial-gradient(38% 32% at 8% 78%, rgba(255, 112, 60, 0.45), transparent 72%),
+    radial-gradient(36% 30% at 94% 72%, rgba(255, 176, 128, 0.36), transparent 72%),
+    radial-gradient(55% 50% at 16% 0%, rgba(58, 96, 196, 0.55), transparent 70%),
+    radial-gradient(50% 45% at 88% 4%, rgba(104, 132, 210, 0.35), transparent 70%),
+    linear-gradient(180deg, #050812 0%, #0a1230 30%, #16204a 52%, #2a2546 66%, #1d1628 80%, #0b0a15 100%);
 }
-.chequer { position: absolute; left: 0; right: 0; top: 0; height: 28px;
-  background: conic-gradient(var(--flag) 25%, var(--flag-dark) 0 50%, var(--flag) 0 75%, var(--flag-dark) 0) 0 0 / 28px 28px; opacity: 0.9; }
-.main { position: absolute; inset: 28px 0 0 0; padding: 52px 64px 48px; display: grid; grid-template-columns: 1fr 470px; gap: 48px; }
-.brand { display: flex; align-items: center; gap: 16px; font: 700 40px Barlow, sans-serif; letter-spacing: 0.14em; }
-.brand svg { width: 60px; height: 60px; }
-h1 { margin-top: 44px; font-size: 56px; line-height: 1.06; font-weight: 750; letter-spacing: -0.025em; }
+.chequer { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; opacity: 0.45;
+  background: conic-gradient(var(--flag) 25%, var(--flag-dark) 0 50%, var(--flag) 0 75%, var(--flag-dark) 0) 0 0 / 10px 10px;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent); }
+.main { position: absolute; inset: 0; padding: 56px 64px 48px; display: grid; grid-template-columns: 1fr 460px; gap: 48px; }
+.brand { display: flex; align-items: center; gap: 16px; font: 700 36px Barlow, sans-serif; letter-spacing: 0.18em; }
+.brand svg { width: 56px; height: 56px; }
+h1 { margin-top: 48px; font-size: 68px; line-height: 0.98; font-weight: 700; letter-spacing: -0.045em; text-shadow: 0 2px 40px rgba(0, 0, 0, 0.3); }
 h1 span { color: var(--text-3); }
-.sub { margin-top: 26px; font-size: 24px; line-height: 1.4; color: var(--text-2); max-width: 30ch; }
-.foot { position: absolute; left: 64px; bottom: 44px; font: 600 21px Barlow, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
-.board { align-self: center; margin-top: 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); overflow: hidden; }
-.head { display: flex; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--line);
+.sub { margin-top: 24px; font-size: 23px; line-height: 1.4; color: var(--text-2); max-width: 30ch; }
+.foot { position: absolute; left: 64px; bottom: 46px; display: flex; align-items: center; gap: 10px; padding: 7px 18px; border-radius: 999px;
+  background: rgba(13, 18, 36, 0.5); border: 1px solid rgba(255, 255, 255, 0.13);
+  font: 600 18px Barlow, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); }
+.board { align-self: center; margin-top: 8px; border-radius: 22px; overflow: hidden;
+  background: rgba(13, 18, 36, 0.55); border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 40px 100px -40px rgba(255, 146, 84, 0.45), 0 24px 60px -30px rgba(0, 0, 0, 0.8); }
+.head { display: flex; justify-content: space-between; padding: 16px 22px; border-bottom: 1px solid var(--line);
   font: 600 16px Barlow, sans-serif; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); }
-.row { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
 .row:last-child { border-bottom: 0; }
 .pos { font: 500 18px Mono, monospace; color: var(--text-3); }
 .agent { font: 650 21px Mono, monospace; color: var(--text); }
@@ -87,7 +102,7 @@ h1 span { color: var(--text-3); }
       ${rows.map((r) => `<div class="row ${r.state}"><span class="pos">${r.pos}</span><div><div class="agent">${r.agent}</div><div class="meta">${r.project} · ${r.cli}</div></div><span class="flag">${r.flag}${r.state === "done" ? '<span class="mini"></span>' : ""}</span></div>`).join("\n      ")}
     </div>
   </div>
-  <p class="foot">Desktop app · macOS · Linux · Windows · Open source, Apache-2.0</p>
+  <p class="foot">Desktop app · macOS · Linux · Windows · Open source</p>
 </body></html>`;
 
 const tmp = mkdtempSync(join(tmpdir(), "pitwall-og-"));
@@ -122,6 +137,13 @@ try {
   await p.shot(out);
   if (p.logs.length) console.error(p.logs.join("\n"));
   await p.close();
+  // The sky's gradients are dithered by Chrome and compress badly; with ffmpeg around,
+  // squeeze the PNG to a 256-colour palette (about a third of the size, no visible change).
+  const q = join(tmp, "og-q.png");
+  const ff = spawnSync("ffmpeg", ["-loglevel", "error", "-y", "-i", out, "-vf",
+    "split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=bayer:bayer_scale=4", q]);
+  if (ff.status === 0) writeFileSync(out, readFileSync(q));
+  else console.log("ffmpeg not found: og.png left unquantized");
   console.log(`wrote ${out}`);
 } finally {
   const exited = new Promise((r) => chrome.once("exit", r));
