@@ -83,7 +83,7 @@ Releases page and a note says so. Asset names come from `.github/workflows/relea
 
 ## Demo
 
-The landing page's demo is the real app, live: its browser mock mode, built by
+The landing page's demo is the web demo of the UI, live: the React build of the UI in its browser mock mode, built by
 `scripts/build-demo.mjs` into `public/demo/` and loaded in an iframe
 (`<base>demo/?onboarded&shots=1&demo=1&theme=dark|light`). There is no video.
 
@@ -111,5 +111,4 @@ CDP at 1120×700; encode at 10 fps, 1120 px wide, `img2webp -lossy -q 55`.
 
 ## TODO
 
-- Re-record the README animation when the UI changes (see Demo).
-- No Open Graph image or social card yet.
+- Re-record the README animation when the UI changes (see Demo); the current one predates the Apex P top-bar logo.

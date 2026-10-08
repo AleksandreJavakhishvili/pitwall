@@ -92,7 +92,7 @@
 
             <div class="frame">
               <div class="frame-bar">
-                <span class="frame-title">Pitwall <span class="dim">· live demo, made-up projects</span></span>
+                <span class="frame-title">Pitwall <span class="dim">· web demo of the UI, made-up projects</span></span>
               </div>
               <div class="frame-body" data-frame>
                 <div class="skeleton" aria-hidden="true">
@@ -101,7 +101,7 @@
                   <i class="sk-pane"></i><i class="sk-line"></i><i class="sk-line"></i><i class="sk-line"></i><i class="sk-line"></i>
                   <i class="sk-chips"></i><i class="sk-bar"></i>
                 </div>
-                <p class="frame-note" data-demo-missing hidden>The live demo isn't part of this build.</p>
+                <p class="frame-note" data-demo-missing hidden>The web demo isn't part of this build.</p>
               </div>
             </div>
           </div>
@@ -130,6 +130,10 @@
         <div class="pit-row">
           <p class="label">Pit stop</p>
           <p><kbd>⌘Q</kbd> closes the window, not your agents. Their terminals keep running and come back with the scrollback on the next launch.</p>
+        </div>
+        <div class="pit-row">
+          <p class="label">Native</p>
+          <p>A Rust app drawn on the GPU with GPUI, Zed's UI framework. No web view: terminals are parsed and drawn in the same process, so a wall of busy agents stays light. <a href="/docs/how-it-works/#performance">More</a></p>
         </div>
         <div class="pit-row">
           <p class="label">Also</p>

@@ -105,7 +105,7 @@
             <li>Check the download against <code>SHA256SUMS.txt</code> first:
               <pre><code>Get-FileHash .\Pitwall_*_x64-setup.exe</code></pre>
             </li>
-            <li>The installer fetches the WebView2 runtime if it's missing. Closing the window keeps Pitwall in the tray.</li>
+            <li>Closing the window keeps Pitwall in the tray.</li>
           </ol>
         </section>
 
@@ -131,21 +131,21 @@
               <pre><code>chmod +x Pitwall_*_amd64.AppImage
 ./Pitwall_*_amd64.AppImage</code></pre>
             </li>
-            <li>Debian, Ubuntu and derivatives; installs the WebKitGTK 4.1 dependencies too:
+            <li>Debian, Ubuntu and derivatives; installs the libraries it needs too:
               <pre><code>sudo apt install ./Pitwall_*_amd64.deb</code></pre>
             </li>
             <li>Hooks reach Pitwall through <code>curl</code>; the <code>.deb</code> depends on it, with the AppImage install it if it's missing.</li>
+            <li>Pitwall draws with Vulkan, so it needs a working Vulkan driver (Mesa's on most distributions).</li>
           </ol>
         </section>
       </div>
 
       <section class="prose dl-source" aria-labelledby="build-from-source">
         <h2 id="build-from-source">Build from source</h2>
-        <p>Rust, Node.js 20.19+ and <code>pnpm</code> plus the <a href="https://tauri.app/start/prerequisites/">Tauri 2 prerequisites</a> for your platform. Steps for each OS, including the Linux packages, are in the <a href="/docs/quick-start/#build-from-source">quick start</a> and the <a href="%REPO_URL%#build-from-source">README</a>.</p>
+        <p>Rust (<code>rustup</code>) and a few system packages per platform; the steps for each OS, including the Linux libraries, are in the <a href="/docs/quick-start/#build-from-source">quick start</a> and the <a href="%REPO_URL%#install">README</a>.</p>
         <pre><code>git clone %REPO_URL%.git
 cd pitwall
-pnpm install
-pnpm tauri build</code></pre>
+scripts/package-app.sh</code></pre>
         <p class="note">A Homebrew cask is coming; it isn't published yet. This page asks GitHub's API for the latest release; nothing else is loaded from third parties.</p>
       </section>
     </div>
