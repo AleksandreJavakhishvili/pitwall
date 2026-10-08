@@ -67,7 +67,7 @@ fn app(cx: &mut TestAppContext, root: Option<PathBuf>) -> String {
 #[gpui::test]
 fn a_space_moves_to_a_new_window_and_comes_back_on_close(cx: &mut TestAppContext) {
     let space = app(cx, None);
-    cx.update(|cx| move_space(&space, MAIN, Target::New, cx));
+    cx.update(|cx| move_to_new_window(&space, MAIN, cx));
     cx.run_until_parked();
     cx.update(|cx| {
         assert_eq!(labels(cx), [MAIN, "pitwall-1"]);
@@ -83,7 +83,7 @@ fn a_space_moves_to_a_new_window_and_comes_back_on_close(cx: &mut TestAppContext
         );
     });
     // "All" never leaves main.
-    cx.update(|cx| move_space(ALL_SPACE, MAIN, Target::New, cx));
+    cx.update(|cx| move_to_new_window(ALL_SPACE, MAIN, cx));
     cx.update(|cx| assert_eq!(labels(cx).len(), 2));
     // Closing the window gives the space back.
     cx.update(|cx| {
@@ -98,28 +98,23 @@ fn a_space_moves_to_a_new_window_and_comes_back_on_close(cx: &mut TestAppContext
 }
 
 #[gpui::test]
-fn moving_the_last_space_back_closes_the_window(cx: &mut TestAppContext) {
+fn a_window_whose_space_closed_stays_open(cx: &mut TestAppContext) {
     let space = app(cx, None);
-    cx.update(|cx| move_space(&space, MAIN, Target::New, cx));
+    cx.update(|cx| move_to_new_window(&space, MAIN, cx));
     cx.run_until_parked();
-    cx.update(|cx| move_space(&space, "pitwall-1", Target::Window(MAIN.into()), cx));
+    cx.update(|cx| crate::ui_state::update(cx, |ui| *ui = ui.clone().close_space(&space)));
     cx.run_until_parked();
     cx.update(|cx| {
-        assert_eq!(labels(cx), [MAIN]);
-        let ui = crate::ui_state::get(cx);
-        assert!(ui.window_of.is_empty());
-        assert_eq!(
-            screen_of(MAIN, cx).read(cx).focused_agent_id().as_deref(),
-            Some("web"),
-            "main shows the space that came back"
-        );
+        // As in the Tauri app: "No spaces in this window", still open.
+        assert_eq!(labels(cx), [MAIN, "pitwall-1"]);
+        assert!(crate::ui_state::get(cx).spaces_of("pitwall-1").is_empty());
     });
 }
 
 #[gpui::test]
 fn showing_an_agent_of_another_window_focuses_it_there(cx: &mut TestAppContext) {
     let space = app(cx, None);
-    cx.update(|cx| move_space(&space, MAIN, Target::New, cx));
+    cx.update(|cx| move_to_new_window(&space, MAIN, cx));
     cx.run_until_parked();
     // Main shows "api"; "web" lives in pitwall-1.
     let main = cx.update(|cx| state(cx).handle(MAIN).unwrap());
@@ -151,7 +146,7 @@ fn windows_come_back_after_a_restart(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let space = app(cx, Some(dir.clone()));
-    cx.update(|cx| move_space(&space, MAIN, Target::New, cx));
+    cx.update(|cx| move_to_new_window(&space, MAIN, cx));
     cx.executor().advance_clock(Duration::from_millis(600));
     cx.run_until_parked();
     let saved = file::load(&dir);
@@ -203,12 +198,18 @@ fn a_restart_reopens_saved_windows_and_reclaims_lost_ones(cx: &mut TestAppContex
                     height: 1000,
                 }),
             },
+            // Its space was closed: it reopens empty, as in the Tauri app.
+            file::WindowEntry {
+                label: "pitwall-3".into(),
+                space_id: Some("space-closed".into()),
+                bounds: None,
+            },
         ],
     )
     .unwrap();
     app(cx, Some(dir.clone()));
     cx.update(|cx| {
-        assert_eq!(labels(cx), [MAIN, "pitwall-2"]);
+        assert_eq!(labels(cx), [MAIN, "pitwall-2", "pitwall-3"]);
         let ui = crate::ui_state::get(cx);
         assert_eq!(ui.window_of_space(&a), "pitwall-2");
         assert_eq!(ui.window_of_space(&b), MAIN, "pitwall-9 is gone");

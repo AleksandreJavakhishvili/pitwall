@@ -29,7 +29,6 @@ mod sidebar;
 mod space;
 mod strip;
 mod topbar;
-mod window_menu;
 pub mod tree;
 pub mod workspace;
 

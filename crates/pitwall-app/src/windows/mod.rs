@@ -2,10 +2,10 @@
 //! `src-tauri/src/windows.rs` and the window logic of `src/App.tsx`).
 //!
 //! - The first window is `main`; "Move to new window" (⌘⇧N, the tab and
-//!   space-bar buttons, the tab menu) opens `pitwall-N` (the next free
-//!   number) owning that space. A space moves back or between windows from
-//!   its tab's right-click menu; a secondary window left with no space
-//!   closes.
+//!   space-bar buttons, the palette) opens `pitwall-N` (the next free
+//!   number) owning that space. A space goes back to main when its window
+//!   closes. A window whose spaces are all gone stays open ("No spaces in
+//!   this window"), as in the Tauri app.
 //! - Every window has its own tabs, sidebar, Wall flag, toasts and strip
 //!   (`MainScreen` per window) and shares the one `ui.json` store
 //!   (`crate::ui_state`): space ownership is `ui.windowOf`, Wall mode
@@ -41,15 +41,6 @@ pub use file::MAIN;
 
 /// Opens (or brings forward) the main window: `lib.rs`'s `show_main`.
 pub type ShowMain = fn(&mut App) -> WindowHandle<MainView>;
-
-/// Where "move this space" sends it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Target {
-    /// A new window (⌘⇧N).
-    New,
-    /// An open window, by label.
-    Window(String),
-}
 
 /// The windows the app has open and what `windows.json` says about them.
 pub struct Windows {
@@ -178,7 +169,7 @@ pub fn attach(
             cx.subscribe(screen, move |_, _, e: &ScreenEvent, cx| match e {
                 ScreenEvent::MoveSpaceToWindow(space) => {
                     let (space, from) = (space.clone(), label.clone());
-                    cx.defer(move |cx| move_space(&space, &from, Target::New, cx));
+                    cx.defer(move |cx| move_to_new_window(&space, &from, cx));
                 }
                 ScreenEvent::AgentShown(agent) => route_agent(&label, agent, cx),
                 _ => {}
@@ -202,38 +193,18 @@ pub fn active_or_main(cx: &mut App) -> Option<WindowHandle<MainView>> {
     Some(show(cx))
 }
 
-/// Move `space` out of window `from` to `to`. "All" stays in main.
-pub fn move_space(space: &str, from: &str, to: Target, cx: &mut App) {
+/// Move `space` out of window `from` into a new window
+/// (`moveSpaceToNewWindow`). "All" stays in main.
+pub fn move_to_new_window(space: &str, from: &str, cx: &mut App) {
     if space == crate::main_screen::workspace::ALL_SPACE {
         return;
     }
-    let label = match to {
-        // The window opens already owning the space.
-        Target::New => match open_new(space, from, cx) {
-            Some(label) => label,
-            None => return,
-        },
-        Target::Window(label) => label,
-    };
-    if label == from {
+    // The window opens already owning the space.
+    let Some(label) = open_new(space, from, cx) else {
         return;
-    }
-    crate::ui_state::update(cx, |ui| {
-        *ui = ownership::move_space(ui.clone(), space, &label);
-    });
-    if let Some(e) = state(cx).entries.iter_mut().find(|e| e.label == label) {
-        if e.space_id.is_none() {
-            e.space_id = Some(space.to_string());
-        }
-    }
+    };
     schedule_save(cx);
     show_space_in(&label, space, cx);
-    // A secondary window left with nothing to show goes away.
-    if from != MAIN && crate::ui_state::get(cx).spaces_of(from).is_empty() {
-        if let Some(h) = state(cx).handle(from) {
-            let _ = h.update(cx, |_, window, _| window.remove_window());
-        }
-    }
 }
 
 /// Bring the window that owns `space` forward on it (a project space opened
@@ -468,7 +439,7 @@ pub fn debug_hook(cx: &mut App) {
                         space = id;
                     });
                     let from = crate::ui_state::get(cx).window_of_space(&space).to_string();
-                    move_space(&space, &from, Target::New, cx);
+                    move_to_new_window(&space, &from, cx);
                 }
                 "show" => {
                     // From a window that doesn't show it.

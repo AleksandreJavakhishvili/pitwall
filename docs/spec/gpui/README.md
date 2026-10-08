@@ -246,3 +246,18 @@ OSes and the app usable for that slice in a separate `PITWALL_HOME`.
 | Build cost: GPUI adds ~400 crates; Linux needs X11/Wayland/Vulkan dev packages | CI caches; the Tauri jobs already pay for WebKitGTK |
 | Two apps on one data folder | `home.rs` guard; separate `PITWALL_HOME` until phase 9 |
 | Text input, IME, selection quality | Built and tested in phase 1 before any screen depends on it |
+
+## Post-migration ideas
+
+Not built during the migration (parity only); candidates once the GPUI app
+has replaced the Tauri app.
+
+- Multi-window: a space tab's right-click menu to move the space back to
+  the main window or to another open window (today a space returns to main
+  only when its window closes).
+- Multi-window: close a secondary window by itself when its last space
+  moves out or closes, and don't reopen saved windows that have no space
+  left (today, as in the Tauri app, they stay open showing "No spaces in
+  this window").
+- Multi-window: title secondary windows after their space (all windows are
+  titled "Pitwall", so the Window menu lists the same name for each).

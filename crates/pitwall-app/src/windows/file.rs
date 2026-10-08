@@ -87,15 +87,6 @@ pub fn next_label<'a>(taken: impl IntoIterator<Item = &'a str>) -> String {
     format!("{PREFIX}{n}")
 }
 
-/// What the Window menu and the tab menu call a window.
-pub fn display_name(label: &str) -> String {
-    match label_number(label) {
-        _ if label == MAIN => "Main window".into(),
-        Some(n) => format!("Window {}", n + 1),
-        None => label.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,11 +147,5 @@ mod tests {
         };
         assert!(!b.usable());
         assert!(Bounds { width: 800, ..b }.usable());
-    }
-
-    #[test]
-    fn windows_have_readable_names() {
-        assert_eq!(display_name("main"), "Main window");
-        assert_eq!(display_name("pitwall-1"), "Window 2");
     }
 }

@@ -49,17 +49,16 @@ pub struct Reopen {
     pub claim: Option<String>,
 }
 
-/// The saved secondary windows worth reopening: those that still own a
-/// space in `ui.json`, or whose space still exists (a file written before
-/// `ui.json` caught up). A window with nothing to show stays closed.
+/// The saved secondary windows to reopen: every one saved with a space,
+/// as the Tauri app does (`restore`), even when that space is gone (it
+/// shows "No spaces in this window").
 pub fn reopen_plan(entries: &[WindowEntry], ui: &UiState) -> Vec<Reopen> {
     let saved: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
     let mut out = vec![];
     for e in entries {
-        if label_number(&e.label).is_none() {
+        if label_number(&e.label).is_none() || e.space_id.is_none() {
             continue;
         }
-        let owns = ui.window_of.values().any(|w| *w == e.label);
         let claim = e
             .space_id
             .as_deref()
@@ -69,12 +68,10 @@ pub fn reopen_plan(entries: &[WindowEntry], ui: &UiState) -> Vec<Reopen> {
                 owner == MAIN || owner == e.label || !saved.contains(&owner)
             })
             .map(str::to_string);
-        if owns || claim.is_some() {
-            out.push(Reopen {
-                entry: e.clone(),
-                claim,
-            });
-        }
+        out.push(Reopen {
+            entry: e.clone(),
+            claim,
+        });
     }
     out
 }
@@ -172,25 +169,38 @@ mod tests {
     }
 
     #[test]
-    fn saved_windows_reopen_only_with_something_to_show() {
+    fn saved_windows_reopen_as_tauri_reopens_them() {
         let ui = move_space(ui_with(&["a", "b", "c"]), "a", "pitwall-1");
         let ui = move_space(ui, "c", "pitwall-3");
         let entries = vec![
             entry(MAIN, None),
             // Owns a in ui.json.
             entry("pitwall-1", Some("a")),
-            // Its space was closed since.
+            // Its space was closed since: reopens empty.
             entry("pitwall-2", Some("gone")),
-            // c moved on to pitwall-3 (saved too): no claim, owns nothing.
+            // c moved on to pitwall-3 (saved too): reopens, no claim.
             entry("pitwall-4", Some("c")),
+            // Saved without a space: not reopened.
+            entry("pitwall-6", None),
             // b is in main: claimed (ui.json older than windows.json).
             entry("pitwall-5", Some("b")),
             entry("pitwall-3", Some("c")),
         ];
         let plan = reopen_plan(&entries, &ui);
         let labels: Vec<_> = plan.iter().map(|r| r.entry.label.as_str()).collect();
-        assert_eq!(labels, ["pitwall-1", "pitwall-5", "pitwall-3"]);
-        assert_eq!(plan[1].claim.as_deref(), Some("b"));
+        assert_eq!(
+            labels,
+            [
+                "pitwall-1",
+                "pitwall-2",
+                "pitwall-4",
+                "pitwall-5",
+                "pitwall-3"
+            ]
+        );
+        assert_eq!(plan[1].claim, None);
+        assert_eq!(plan[2].claim, None, "c is pitwall-3's now");
+        assert_eq!(plan[3].claim.as_deref(), Some("b"));
     }
 
     #[test]
