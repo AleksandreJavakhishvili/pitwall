@@ -724,9 +724,10 @@ impl MainScreen {
             }))
             .child(crate::kit::glyph_play(format!("pane-{}", a.id), a.status, t, false))
             .child(
+                // `.pane-name`: 650, 13 px.
                 div()
                     .flex_none()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(crate::kit::WEIGHT_650)
                     .text_size(px(13.))
                     .child(a.name.clone()),
             )
@@ -974,6 +975,7 @@ impl MainScreen {
                     .border_1()
                     .border_color(t.line)
                     .text_size(px(12.))
+                    .font_weight(crate::kit::WEIGHT_550)
                     .text_color(t.text_2)
                     .cursor_pointer()
                     .map(|d| {
@@ -987,6 +989,7 @@ impl MainScreen {
                         d.bg(t.amber_soft)
                             .text_color(t.amber)
                             .border_color(t.amber.opacity(0.45))
+                            .shadow(t.amber_glow(12., -3.))
                     });
                 crate::kit::motion::pressable(chip, &eid, false, skin)
                     .when(matches!(a.status, Status::Exited | Status::Stopped), |d| {

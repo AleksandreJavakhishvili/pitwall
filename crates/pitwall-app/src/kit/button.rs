@@ -115,7 +115,7 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
         .justify_center()
         .gap(px(7.))
         .whitespace_nowrap()
-        .font_weight(FontWeight::MEDIUM)
+        .font_weight(super::fonts::WEIGHT_550)
         .when(disabled, |d| d.opacity(0.45))
         .when(!disabled, |d| d.cursor_pointer());
     let (text, bg3, text4) = (t.text, t.surface_3, t.text_4);
@@ -215,7 +215,7 @@ pub fn accent_button(id: impl Into<ElementId>, bg: Hsla, fg: Hsla, t: &Theme) ->
         .px(px(12.))
         .rounded(btn_radius(t))
         .whitespace_nowrap()
-        .font_weight(FontWeight::MEDIUM)
+        .font_weight(super::fonts::WEIGHT_550)
         .text_size(px(12.5))
         .bg(bg)
         .text_color(fg)

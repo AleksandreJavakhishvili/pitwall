@@ -194,25 +194,43 @@ impl MainScreen {
                     .border_dashed()
                     .border_color(t.text_3),
             )
+            // `.agent-row-main`: the name (13 px, 600) over the kind and
+            // folder (11.5 px); the kind gives way first.
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(div().ellipsis().text_color(t.text).child(crate::kit::one_line(name)))
+                    .gap(px(3.))
+                    .child(
+                        div()
+                            .ellipsis()
+                            .text_size(px(13.))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(crate::kit::one_line(name)),
+                    )
                     .child(
                         div()
                             .flex()
-                            .gap(px(8.))
+                            .items_center()
+                            .gap(px(7.))
                             .min_w_0()
-                            .text_size(px(12.))
+                            .text_size(px(11.5))
                             .text_color(t.text_3)
-                            .child(div().flex_none().child(r.kind_name.clone()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .ellipsis()
+                                    .child(crate::kit::one_line(r.kind_name.clone())),
+                            )
                             .when_some(r.title.as_ref().and(r.cwd_display.clone()), |d, c| {
                                 d.child(
+                                    // Shrinks only once the kind is gone.
                                     div()
-                                        .min_w_0()
+                                        .flex_shrink_0()
+                                        .max_w_full()
                                         .ellipsis()
                                         .font_family(MONO_FONT)
                                         .text_size(px(11.))

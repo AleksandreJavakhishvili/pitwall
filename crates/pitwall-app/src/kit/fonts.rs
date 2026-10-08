@@ -12,13 +12,22 @@ use gpui::{App, Global};
 pub const UI_FONT: &str = "Inter";
 /// `--font-label`.
 pub const LABEL_FONT: &str = "Barlow Condensed";
+/// `font-weight: 550` (buttons, chips, the seg's choice).
+pub const WEIGHT_550: gpui::FontWeight = gpui::FontWeight(550.);
+/// `font-weight: 650` (the pane name, strip buttons).
+pub const WEIGHT_650: gpui::FontWeight = gpui::FontWeight(650.);
+
 /// `--font-mono` (also the terminal's first family).
 pub const MONO_FONT: &str = "JetBrains Mono";
 
-const FONTS: [&[u8]; 11] = [
+const FONTS: [&[u8]; 13] = [
     include_bytes!("../../assets/fonts/Inter-Regular.ttf"),
     include_bytes!("../../assets/fonts/Inter-Medium.ttf"),
+    // 550 and 650: weights the CSS uses (chips, the pane name) that the
+    // variable font draws between the named instances.
+    include_bytes!("../../assets/fonts/Inter-MediumPlus.ttf"),
     include_bytes!("../../assets/fonts/Inter-SemiBold.ttf"),
+    include_bytes!("../../assets/fonts/Inter-SemiBoldPlus.ttf"),
     include_bytes!("../../assets/fonts/Inter-Bold.ttf"),
     include_bytes!("../../assets/fonts/BarlowCondensed-SemiBold.ttf"),
     include_bytes!("../../assets/fonts/BarlowCondensed-Bold.ttf"),

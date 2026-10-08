@@ -18,7 +18,9 @@ use super::fonts::LABEL_FONT;
 /// the "…".
 pub trait Ellipsis: Styled + Sized {
     fn ellipsis(self) -> Self {
-        self.overflow_hidden().whitespace_nowrap()
+        // A flex box: its [`one_line`] child is sized as a flex item (a
+        // block box measures it at its smallest).
+        self.overflow_hidden().whitespace_nowrap().flex().items_center()
     }
 }
 
@@ -563,14 +565,14 @@ impl Element for Tracked {
 }
 
 /// `text` with `tracking` em between characters (CSS `letter-spacing`),
-/// at `size` px; line height 1.25.
+/// at `size` px; the line height is inherited, as CSS labels' is (the
+/// body's 1.45 of the label's own size).
 pub fn tracked(text: &str, size: f32, tracking: f32) -> Div {
     div()
         .flex()
         .flex_none()
         .items_center()
         .text_size(px(size))
-        .line_height(px((size * 1.25).round()))
         .whitespace_nowrap()
         .child(Tracked::new(text.to_string(), tracking))
 }

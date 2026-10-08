@@ -74,6 +74,10 @@ impl MainScreen {
             let collapsed = self.ui.collapsed.contains(&g.key);
             let start = index;
             index += g.agents.len();
+            // `.project-group + .project-group { margin-top: 4px }`
+            if gi > 0 {
+                list.push(div().h(px(4.)).flex_none().into_any_element());
+            }
             if let Some(h) = machine_heading(&groups, gi) {
                 list.push(
                     div()
@@ -135,7 +139,11 @@ impl MainScreen {
                 list.extend(self.wt_others(&g.key, &g.agents, t, cx));
             }
         }
-        list.extend(self.render_elsewhere(t, cx));
+        let elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
+        if !groups.is_empty() && !elsewhere.is_empty() {
+            list.push(div().h(px(4.)).flex_none().into_any_element());
+        }
+        list.extend(elsewhere);
 
         div()
             .id("sidebar")
@@ -186,13 +194,13 @@ impl MainScreen {
                             .m(px(8.))
                             .mr_0()
                             .px(px(10.))
-                            .py(px(7.))
+                            .py(px(8.))
                             .rounded(RADIUS)
                             .border_1()
                             .border_dashed()
                             .border_color(t.line_strong)
                             .text_color(t.text_2)
-                            .font_weight(FontWeight::MEDIUM)
+                            .font_weight(crate::kit::WEIGHT_550)
                             .cursor_pointer()
                             .hover_text(t.text, |s| s.border_color(t.text_4).bg(t.surface_2))
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -202,19 +210,39 @@ impl MainScreen {
                             .child(div().flex_1().child("New agent"))
                             .child(kbd("⌘N", t)),
                     )
-                    .child(
-                        icon_btn(
-                            "new-terminal-btn",
-                            "terminal",
-                            keys("New terminal here (⌘T) · ⌘⇧T to choose a folder", false),
-                            false,
-                            t,
-                        )
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            let here = this.here(cx);
-                            this.open_terminal(here, window, cx)
-                        })),
-                    ),
+                    // `.new-terminal-btn`: 36 px, dashed, text-2.
+                    .child({
+                        let (fg, bg, edge) = (t.text, t.surface_2, t.text_4);
+                        div()
+                            .id("new-terminal-btn")
+                            .group("new-terminal-btn")
+                            .flex_none()
+                            .size(px(36.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(RADIUS)
+                            .border_1()
+                            .border_dashed()
+                            .border_color(t.line_strong)
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(bg).border_color(edge))
+                            .tooltip(tooltip(keys(
+                                "New terminal here (⌘T) · ⌘⇧T to choose a folder",
+                                false,
+                            )))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let here = this.here(cx);
+                                this.open_terminal(here, window, cx)
+                            }))
+                            .child(
+                                icon("terminal", 16., t.text_2).group_hover_text(
+                                    "new-terminal-btn",
+                                    fg,
+                                    |s| s,
+                                ),
+                            )
+                    }),
             )
             .into_any_element()
     }
@@ -478,8 +506,6 @@ impl MainScreen {
             .map(|d| {
                 if blocked {
                     d.bg(t.amber_soft)
-                        .border_1()
-                        .border_color(t.amber.opacity(0.3))
                 } else if selected {
                     d.bg(t.surface_3)
                 } else {
@@ -509,6 +535,17 @@ impl MainScreen {
                         .w(px(if blocked { 3. } else { 2. }))
                         .rounded(px(2.))
                         .bg(if blocked { t.amber } else { t.text_2 }),
+                )
+            })
+            // `inset 0 0 0 1px` amber: a ring that takes no room.
+            .when(blocked, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded(RADIUS)
+                        .border_1()
+                        .border_color(t.amber.opacity(0.3)),
                 )
             })
             // "Needs you": a halo twice (`m-halo`), then the steady amber.
@@ -547,29 +584,13 @@ impl MainScreen {
                         .top(px(7.))
                         .bottom(px(7.))
                         .w(px(6.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
                         .child(crate::kit::motion::keyframes(
                             SharedString::from(format!("flag-{}", a.id)),
                             crate::kit::motion::FLAG_ROW,
                             1,
                             move |p| {
                                 let (o, s) = crate::kit::motion::flag_pop(p);
-                                let cell = 3. * s;
-                                div()
-                                    .flex_none()
-                                    .flex()
-                                    .flex_col()
-                                    .opacity(0.55 * o)
-                                    .children((0..6).map(move |i| {
-                                        div()
-                                            .h(px(cell))
-                                            .flex()
-                                            .child(div().w(px(cell)).h_full().when(i % 2 == 0, |d| d.bg(flag)))
-                                            .child(div().w(px(cell)).h_full().when(i % 2 == 1, |d| d.bg(flag)))
-                                    }))
-                                    .into_any_element()
+                                checker(flag, s).opacity(0.55 * o).into_any_element()
                             },
                         )),
                 )
@@ -777,4 +798,37 @@ impl MainScreen {
                     .child(icon("plus", 16., t.text_3)),
             )
     }
+}
+
+/// The chequered edge of a "done" row (`repeating-conic-gradient` of 3 px
+/// squares), filling its box; `scale` shrinks it about the centre.
+fn checker(color: gpui::Hsla, scale: f32) -> gpui::Div {
+    div().size_full().child(
+        gpui::canvas(
+            |_, _, _| {},
+            move |b, _, window, _| {
+                let cell = 3. * scale;
+                let (w, h) = (f32::from(b.size.width) * scale, f32::from(b.size.height) * scale);
+                let c = b.center();
+                let (x0, y0) = (f32::from(c.x) - w / 2., f32::from(c.y) - h / 2.);
+                let rows = (h / cell).ceil() as usize;
+                for r in 0..rows {
+                    for k in 0..2 {
+                        if (r + k) % 2 == 0 {
+                            let y = y0 + r as f32 * cell;
+                            let hh = cell.min(y0 + h - y);
+                            window.paint_quad(gpui::fill(
+                                gpui::Bounds::new(
+                                    gpui::point(px(x0 + k as f32 * cell), px(y)),
+                                    gpui::size(px(cell), px(hh)),
+                                ),
+                                color,
+                            ));
+                        }
+                    }
+                }
+            },
+        )
+        .size_full(),
+    )
 }

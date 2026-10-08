@@ -611,7 +611,6 @@ impl MainScreen {
                     .flex_1()
                     .min_w_0()
                     .ellipsis()
-                    .line_clamp(1)
                     .font_family(MONO_FONT)
                     .child(crate::kit::one_line(row_name(r))),
             )

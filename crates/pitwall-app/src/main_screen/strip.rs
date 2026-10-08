@@ -123,7 +123,7 @@ impl MainScreen {
                 .h(px(STRIP_H - 8.))
                 .px(px(9.))
                 .rounded(px(4.))
-                .font_weight(FontWeight::SEMIBOLD)
+                .font_weight(crate::kit::WEIGHT_650)
                 .cursor_pointer()
         };
         // Background (left, right), border and text colour per tone; they

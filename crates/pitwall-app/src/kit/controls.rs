@@ -179,7 +179,7 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
                 .text_size(px(12.))
                 .cursor_pointer()
                 .text_color(if item.on { fg } else { fg3 })
-                .when(item.on, |d| d.bg(on_bg).font_weight(FontWeight::SEMIBOLD))
+                .when(item.on, |d| d.bg(on_bg).font_weight(super::fonts::WEIGHT_550))
                 .hover_text(fg, move |s| s);
             let skin = super::motion::Skin::new(item.on.then_some(on_bg), None, RADIUS_SM);
             super::motion::pressable(el, &eid, false, skin)
