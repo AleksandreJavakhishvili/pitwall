@@ -33,8 +33,12 @@ impl Host {
     /// Open the engine on `paths` and start its background work and the CLI
     /// socket. Call only after `home::choose` said the folder is ours.
     pub fn start(paths: Paths, bridge: Bridge) -> Host {
-        let holder = holder_bin()
-            .map(|b| crate::packaging::stable_sidecar(b, &paths.root().join("bin")));
+        Host::start_with_holder(paths, bridge, holder_bin())
+    }
+
+    /// [`Host::start`] with a given holder binary (tests).
+    fn start_with_holder(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>) -> Host {
+        let holder = holder.map(|b| crate::packaging::stable_sidecar(b, &paths.root().join("bin")));
         let local = LocalProvider::new(LocalConfig {
             hold_dir: paths.hold_dir(),
             holder_bin: holder.clone(),
@@ -166,5 +170,137 @@ mod tests {
             "and closed on shutdown"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The holder binary for the tests below: `PITWALL_HOLD_BIN`, else built
+    /// once into its own target dir (as pitwall-providers' contract tests do).
+    #[cfg(unix)]
+    fn test_holder() -> PathBuf {
+        use std::sync::OnceLock;
+        static BIN: OnceLock<PathBuf> = OnceLock::new();
+        BIN.get_or_init(|| {
+            if let Some(p) = std::env::var_os("PITWALL_HOLD_BIN") {
+                return PathBuf::from(p);
+            }
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let target = root.join("target").join("hold-tests");
+            let mut cmd = std::process::Command::new(env!("CARGO"));
+            cmd.current_dir(&root)
+                .args(["build", "-q", "-p", "pitwall-hold", "--bin", "pitwall-hold", "--target-dir"])
+                .arg(&target);
+            for key in ["RUSTC_WORKSPACE_WRAPPER", "RUSTC_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_TARGET"] {
+                cmd.env_remove(key);
+            }
+            assert!(cmd.status().expect("run cargo").success(), "building pitwall-hold failed");
+            target.join("debug").join("pitwall-hold")
+        })
+        .clone()
+    }
+
+    /// Everything the agent's terminal printed so far (the holder replays
+    /// its buffer on attach), waiting up to 20 s for `want`.
+    #[cfg(unix)]
+    fn output_until(engine: &pitwall_core::Shared, id: &str, want: &str) -> String {
+        use pitwall_core::engine::input;
+        use std::sync::Mutex;
+        let seen = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let sink = seen.clone();
+        let sub = input::attach_output(
+            engine,
+            id,
+            Box::new(move |b: &[u8]| {
+                sink.lock().unwrap().extend_from_slice(b);
+                true
+            }),
+        )
+        .expect("attach to the agent");
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let text = || String::from_utf8_lossy(&seen.lock().unwrap()).into_owned();
+        while !text().contains(want) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        input::detach_output(engine, id, sub);
+        text()
+    }
+
+    const REATTACH_DIR: &str = "PITWALL_APP_TEST_REATTACH_DIR";
+
+    /// First half of `a_second_app_reattaches_the_first_apps_agents`, run by
+    /// it in a child process (the app that started the agent, e.g. the
+    /// Tauri Pitwall up to v0.1.x): start an agent, see it answer, quit.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "run in its own process by a_second_app_reattaches_the_first_apps_agents"]
+    fn first_app_starts_an_agent() {
+        use pitwall_core::engine::{input, lifecycle};
+        use pitwall_core::model::CreateAgentRequest;
+        let Some(dir) = std::env::var_os(REATTACH_DIR).map(PathBuf::from) else {
+            return;
+        };
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let (bridge, _rx) = Bridge::new();
+        let mut host = Host::start_with_holder(Paths::new(&dir), bridge, Ok(test_holder()));
+        let view = lifecycle::create(
+            &host.engine,
+            CreateAgentRequest {
+                name: "demo".into(),
+                kind: "shell".into(),
+                project_path: project.to_string_lossy().into_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("start a shell agent");
+        input::write_input(&host.engine, &view.id, "echo first-$((40+2))\r").unwrap();
+        let out = output_until(&host.engine, &view.id, "first-42");
+        assert!(out.contains("first-42"), "the agent answered:\n{out}");
+        host.shutdown();
+        std::fs::write(dir.join("agent-id"), &view.id).unwrap();
+        // The process exits here, as the app does on quit: the agent's
+        // terminal lives on in its pitwall-hold process.
+    }
+
+    /// Holder continuity across apps: agents a previous Pitwall process
+    /// started (in its holders, under the same data folder) are re-attached
+    /// by the next one, with their output, and keep taking input. This is
+    /// how the GPUI app picks up the Tauri app's agents at the switch: same
+    /// folder layout (`run/hold/`), same holder binary and protocol.
+    #[cfg(unix)]
+    #[test]
+    fn a_second_app_reattaches_the_first_apps_agents() {
+        use pitwall_core::engine::{input, lifecycle};
+        // Short: holder sockets live under it (104-byte Unix socket limit).
+        let dir = PathBuf::from(format!("/tmp/pwra-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let holder = test_holder();
+        let first = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "host::tests::first_app_starts_an_agent", "--ignored", "--nocapture", "--test-threads=1"])
+            .env(REATTACH_DIR, &dir)
+            .env("PITWALL_HOLD_BIN", &holder)
+            // A plain shell for the made-up agent, not the user's login shell.
+            .env("SHELL", "/bin/sh")
+            .status()
+            .expect("run the first app");
+        assert!(first.success(), "the first app started its agent");
+        let id = std::fs::read_to_string(dir.join("agent-id")).unwrap();
+
+        let (bridge, _rx) = Bridge::new();
+        let mut host = Host::start_with_holder(Paths::new(&dir), bridge, Ok(holder));
+        let view = host.engine.views().into_iter().find(|v| v.id == id);
+        let running = view.as_ref().is_some_and(|v| v.running);
+        let mut out = String::new();
+        if running {
+            out = output_until(&host.engine, &id, "first-42");
+            input::write_input(&host.engine, &id, "echo second-$((50+8))\r").unwrap();
+            out.push_str(&output_until(&host.engine, &id, "second-58"));
+        }
+        // Clean up before asserting: end the agent and its holder.
+        let _ = lifecycle::remove(&host.engine, &id, false);
+        host.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(running, "re-attached and running: {view:?}");
+        assert!(out.contains("first-42"), "the first app's output came back:\n{out}");
+        assert!(out.contains("second-58"), "and the agent takes input:\n{out}");
     }
 }
