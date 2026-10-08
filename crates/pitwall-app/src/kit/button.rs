@@ -4,6 +4,7 @@
 //! passed in decides Flat or Glass: draw chrome with [`Theme::chrome`] and
 //! dialogs with [`Theme::float`].
 
+use crate::kit::HoverText;
 use gpui::{div, prelude::*, px, Div, ElementId, FontWeight, Hsla, Pixels, SharedString, Stateful};
 
 use crate::theme::{Theme, RADIUS, RADIUS_SM};
@@ -145,7 +146,7 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
             .border_1()
             .border_color(t.line_strong)
             .text_color(t.text_2)
-            .when(!disabled, |d| d.hover(move |s| s.text_color(text).bg(bg3))),
+            .when(!disabled, |d| d.hover_text(text, move |s| s.bg(bg3))),
         BtnKind::Danger => base
             .h(px(30.))
             .px(px(12.))
@@ -168,7 +169,7 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
             .text_size(px(12.))
             .text_color(t.text_2)
             .underline()
-            .when(!disabled, |d| d.hover(move |s| s.text_color(text))),
+            .when(!disabled, |d| d.hover_text(text, move |s| s)),
     }
 }
 
@@ -260,7 +261,7 @@ pub fn icon_btn_state(
         .when_some(bg, |d, bg| d.bg(bg))
         .cursor_pointer()
         .hover(move |s| s.bg(hover_bg))
-        .child(icon(icon_name, size, color).group_hover(group, move |s| s.text_color(hover_fg)))
+        .child(icon(icon_name, size, color).group_hover_text(group, hover_fg, move |s| s))
         .when(!tip.is_empty(), |d| d.tooltip(tooltip(tip)))
 }
 
@@ -277,7 +278,7 @@ pub fn glyph_btn(id: impl Into<ElementId>, glyph: &'static str, t: &Theme) -> St
         .text_size(px(13.))
         .text_color(t.text_3)
         .cursor_pointer()
-        .hover(move |s| s.text_color(fg).bg(bg))
+        .hover_text(fg, move |s| s.bg(bg))
         .child(glyph)
 }
 

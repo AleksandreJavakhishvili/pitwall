@@ -84,6 +84,9 @@ impl MainView {
             }
             Content::Refused(_) => None,
         };
+        if let (Some(screen), Some(e)) = (&screen, &explorer) {
+            subs.extend(explorer_seams(screen, e, window, cx));
+        }
         MainView {
             content,
             explorer,
@@ -160,6 +163,97 @@ impl MainView {
                     ),
             )
     }
+}
+
+/// An empty view (a Files tab for an agent whose files can't be read).
+struct Nothing;
+
+impl Render for Nothing {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
+/// The explorer's viewer as the main screen's Explorer route.
+struct ExplorerRoute(Entity<crate::explorer::Explorer>);
+
+impl Render for ExplorerRoute {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex_1()
+            .min_h_0()
+            .size_full()
+            .flex()
+            .children(self.0.read(cx).main_view())
+    }
+}
+
+/// Plug the explorer into the main screen: its Files tab in the right
+/// panel, its viewer as the Explorer route, the focused agent, and the
+/// route following the viewer (and back).
+fn explorer_seams(
+    screen: &Entity<crate::main_screen::MainScreen>,
+    explorer: &Entity<crate::explorer::Explorer>,
+    window: &mut Window,
+    cx: &mut Context<MainView>,
+) -> Vec<Subscription> {
+    use crate::explorer::ExplorerEvent;
+    use crate::main_screen::{Route, ScreenEvent};
+    let e = explorer.downgrade();
+    crate::main_screen::register_files_panel(cx, move |agent, window, cx| {
+        let panel = e.upgrade().and_then(|e| {
+            e.update(cx, |e, cx| {
+                e.set_agent(Some(agent.id.clone()), cx);
+                e.panel(window, cx)
+            })
+        });
+        panel.unwrap_or_else(|| cx.new(|_| Nothing).into())
+    });
+    let e = explorer.clone();
+    crate::main_screen::register_route(cx, Route::Explorer, move |_, _, cx| {
+        let e = e.clone();
+        cx.new(|cx| {
+            cx.observe(&e, |_, _, cx| cx.notify()).detach();
+            ExplorerRoute(e)
+        })
+        .into()
+    });
+    let (s1, s2) = (screen.clone(), screen.clone());
+    let e1 = explorer.clone();
+    vec![
+        // The focused pane's agent is the explorer's.
+        cx.observe(screen, move |_, screen, cx| {
+            let id = screen.read(cx).focused_agent_id();
+            e1.update(cx, |e, cx| e.set_agent(id, cx));
+        }),
+        cx.subscribe_in(explorer, window, move |_, e, ev: &ExplorerEvent, _, cx| {
+            let open = e.read(cx).viewer_open();
+            match ev {
+                ExplorerEvent::ViewerToggled => s1.update(cx, |s, cx| {
+                    if open {
+                        s.set_route(Route::Explorer, cx);
+                    } else if s.route() == Route::Explorer {
+                        s.set_route(Route::Space, cx);
+                    }
+                }),
+                // Review's seam: it opens on the agent (the diff of `path`
+                // once Review is merged).
+                ExplorerEvent::ShowDiff { .. } => {
+                    s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
+                }
+            }
+        }),
+        cx.subscribe(&s2, {
+            let e = explorer.clone();
+            move |_, _, ev: &ScreenEvent, cx| {
+                if let ScreenEvent::RouteChanged(r) = ev {
+                    if *r != Route::Explorer && e.read(cx).viewer_open() {
+                        e.update(cx, |e, cx| e.close_viewer(cx));
+                    }
+                }
+            }
+        }),
+    ]
 }
 
 impl Render for MainView {

@@ -492,7 +492,7 @@ impl MainScreen {
     }
 
     /// The agent in the active space's focused pane.
-    fn focused_agent_id(&self) -> Option<String> {
+    pub fn focused_agent_id(&self) -> Option<String> {
         self.active_space().and_then(|s| s.focused_agent())
     }
 
@@ -541,7 +541,7 @@ impl MainScreen {
         self.update_ui(|s| f(s, &id), cx);
     }
 
-    fn set_route(&mut self, route: Route, cx: &mut Context<Self>) {
+    pub fn set_route(&mut self, route: Route, cx: &mut Context<Self>) {
         if self.route == route {
             return;
         }
@@ -1195,21 +1195,26 @@ impl Render for MainScreen {
             _ => None,
         };
 
+        // Glass: chrome is translucent over the window material, floating
+        // surfaces solid, panes and code views stay opaque (glass.css).
+        let chrome = t.chrome();
+        let slab = crate::theme::panel(&t, cx);
+        let float = t.float();
         let main_row = div()
             .flex_1()
             .min_h_0()
             .flex()
             .relative()
             .when(sidebar_mode != SidebarMode::Hidden, |d| {
-                d.child(self.render_sidebar(sidebar_mode, &agents, &t, window, cx))
+                let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
+                d.child(crate::kit::chrome_panel("sidebar", bar, cx))
             })
             .child(self.render_center(&agents, bp, &t, window, cx))
             .when(right == Some(false), |d| {
-                d.children(
-                    selected
-                        .clone()
-                        .map(|a| self.render_panel(&a, false, &t, window, cx)),
-                )
+                d.children(selected.clone().map(|a| {
+                    let panel = self.render_panel(&a, false, &slab, window, cx);
+                    crate::kit::chrome_panel("right-panel", panel, cx)
+                }))
             })
             .when(
                 self.overlay_sidebar && sidebar_mode != SidebarMode::Full,
@@ -1232,7 +1237,13 @@ impl Render for MainScreen {
                             .bottom_0()
                             .left_0()
                             .shadow_lg()
-                            .child(self.render_sidebar(SidebarMode::Full, &agents, &t, window, cx)),
+                            .child(self.render_sidebar(
+                                SidebarMode::Full,
+                                &agents,
+                                &float,
+                                window,
+                                cx,
+                            )),
                     )
                 },
             )
@@ -1255,9 +1266,18 @@ impl Render for MainScreen {
                         .bottom_0()
                         .right_0()
                         .shadow_lg()
-                        .child(self.render_panel(&a, true, &t, window, cx))
+                        .child(self.render_panel(&a, true, &float, window, cx))
                 }))
             });
+        let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);
+        let topbar = if crate::theme::glass_regions(cx) {
+            crate::kit::glass_region("topbar", 0., topbar)
+                .w_full()
+                .flex_none()
+                .into_any_element()
+        } else {
+            topbar.into_any_element()
+        };
 
         div()
             .id("main-screen")
@@ -1317,17 +1337,17 @@ impl Render for MainScreen {
             .size_full()
             .flex()
             .flex_col()
-            .bg(t.bg)
+            .bg(crate::theme::backdrop(cx))
             .text_color(t.text)
             .font_family(crate::kit::UI_FONT)
             .text_size(px(13.))
             .line_height(gpui::relative(1.45))
-            .child(self.render_topbar(&agents, bp, &t, window, cx))
+            .child(topbar)
             .child(main_row)
-            .child(self.render_strip(&t, bp, cx))
-            .child(self.render_toasts(&t, cx))
+            .child(self.render_strip(&chrome, bp, cx))
+            .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
-            .children(self.render_menu(&t, cx))
+            .children(self.render_menu(&float, cx))
     }
 }
 

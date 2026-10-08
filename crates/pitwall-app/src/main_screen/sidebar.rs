@@ -4,6 +4,7 @@
 //! menu; ⌘1–9 hints; drag sources; ↑/↓/⏎ when it has keyboard focus; an
 //! icon rail on narrow windows.
 
+use crate::kit::HoverText;
 use gpui::{
     div, point, prelude::*, px, AnyElement, Context, FontWeight, IntoElement, MouseButton,
     MouseDownEvent, SharedString, Window,
@@ -189,7 +190,7 @@ impl MainScreen {
                             .text_color(t.text_2)
                             .font_weight(FontWeight::MEDIUM)
                             .cursor_pointer()
-                            .hover(|s| s.text_color(t.text).border_color(t.text_4).bg(t.surface_2))
+                            .hover_text(t.text, |s| s.border_color(t.text_4).bg(t.surface_2))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_new_agent(None, window, cx)
                             }))
@@ -272,7 +273,7 @@ impl MainScreen {
                     .child(
                         div().min_w_0().overflow_hidden().child(
                             label_fit(g.display.clone(), t.text_3, 12., 22)
-                                .group_hover("project-head", |s| s.text_color(t.text_2)),
+                                .group_hover_text("project-head", t.text_2, |s| s),
                         ),
                     )
                     .when(g.blocked > 0, |d| {
@@ -666,7 +667,7 @@ impl MainScreen {
                                 d.opacity(0.55)
                             })
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3).text_color(t.text))
+                            .hover_text(t.text, |s| s.bg(t.surface_3))
                             .tooltip(tooltip(tip))
                             .on_drag(
                                 AgentDrag {
@@ -717,7 +718,7 @@ impl MainScreen {
                     .justify_center()
                     .text_color(t.text_3)
                     .cursor_pointer()
-                    .hover(|s| s.text_color(t.text))
+                    .hover_text(t.text, |s| s)
                     .tooltip(tooltip(keys("New agent (⌘N)", false)))
                     .on_click(
                         cx.listener(|this, _, window, cx| this.open_new_agent(None, window, cx)),

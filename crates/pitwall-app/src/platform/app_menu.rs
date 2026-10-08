@@ -4,6 +4,7 @@
 //! in-house; the title bar places [`AppMenu`] at its left edge. Linux has
 //! no menu (`HostInfo::menu` = None): the palette has these commands.
 
+use crate::kit::HoverText;
 use gpui::{
     anchored, deferred, div, prelude::*, px, Action, Context, Corner, IntoElement, Render,
     SharedString, Window,
@@ -81,7 +82,7 @@ impl Render for AppMenu {
             .text_xs()
             .text_color(if self.open { t.text } else { t.text_2 })
             .when(self.open, |d| d.bg(t.surface_3))
-            .hover(|s| s.bg(t.surface_3).text_color(t.text))
+            .hover_text(t.text, |s| s.bg(t.surface_3))
             .on_click(cx.listener(|this, _, _, cx| this.toggle(cx)))
             .child("File");
         let mut root = div().relative().child(button);

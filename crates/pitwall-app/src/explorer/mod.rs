@@ -107,7 +107,11 @@ pub fn on_actions<E: InteractiveElement>(el: E, explorer: &Entity<Explorer>) -> 
         .on_action(move |_: &BrowseFiles, window, cx| {
             c.update(cx, |e, cx| e.browse_files(window, cx))
         })
-        .on_action(move |_: &RefreshFiles, _, cx| d.update(cx, |e, cx| e.refresh_files(cx)))
+        .on_action(move |_: &RefreshFiles, _, cx| {
+            d.update(cx, |e, cx| e.refresh_files(cx));
+            // ⌘⇧R refreshes every source-control view: Changes too.
+            cx.propagate();
+        })
 }
 
 /// What the rest of the app hears from the explorer.

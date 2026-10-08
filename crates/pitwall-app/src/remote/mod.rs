@@ -12,6 +12,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::kit::HoverText;
 use gpui::{
     div, prelude::*, px, AnyElement, Context, FontWeight, IntoElement, Render, SharedString, Window,
 };
@@ -332,7 +333,7 @@ impl Render for MachineSessions {
                                 .text_color(t.text_2)
                                 .when(!busy, |d| {
                                     d.cursor_pointer()
-                                        .hover(|s| s.bg(t.surface_3).text_color(t.text))
+                                        .hover_text(t.text, |s| s.bg(t.surface_3))
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.add(x.clone(), cx)
                                         }))

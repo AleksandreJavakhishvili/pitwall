@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::kit::HoverText;
 use gpui::{
     actions, div, prelude::*, px, AnyElement, App, ClipboardItem, Context, Entity, EventEmitter,
     FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton, SharedString, Subscription, Task,
@@ -469,7 +470,7 @@ impl Viewer {
                 .text_color(if on { t.text } else { t.text_3 })
                 .when(on, |d| d.bg(t.surface_3))
                 .when(!first, |d| d.border_l_1().border_color(t.line_strong))
-                .when(!on, |d| d.hover(move |s| s.text_color(hover)))
+                .when(!on, |d| d.hover_text(hover, move |s| s))
                 .child(text)
                 .on_click(cx.listener(move |this, _, window, cx| this.show(Some(pane), window, cx)))
         };
@@ -584,7 +585,7 @@ impl Viewer {
                                 .bg(t.text_2),
                         )
                     })
-                    .when(!selected, |d| d.hover(move |s| s.text_color(hover)))
+                    .when(!selected, |d| d.hover_text(hover, move |s| s))
                     .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(p1.clone(), cx)))
                     .on_mouse_down(
@@ -612,7 +613,7 @@ impl Viewer {
                             .when(!selected, |d| {
                                 d.invisible().group_hover("ex-tab", |s| s.visible())
                             })
-                            .hover(move |s| s.bg(close_hover).text_color(close_text))
+                            .hover_text(close_text, move |s| s.bg(close_hover))
                             .tooltip(|_, cx| tooltip_view("Close", cx))
                             .child(icon("x", 11., t.text_3))
                             .on_click(cx.listener(move |this, _, _, cx| {

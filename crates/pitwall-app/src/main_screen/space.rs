@@ -4,6 +4,7 @@
 //! space — its bar (presets, density, maximise), the split tree of panes with
 //! draggable dividers and drop zones, and the chip strip.
 
+use crate::kit::HoverText;
 use gpui::{
     canvas, div, prelude::*, px, AnyElement, App, Bounds, Context, DragMoveEvent, FontWeight,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString,
@@ -69,7 +70,8 @@ impl MainScreen {
             .min_h_0()
             .flex()
             .flex_col()
-            .bg(t.bg)
+            // Glass: the panes float on the window's glass (`.center`).
+            .when(!t.is_glass(), |d| d.bg(t.bg))
             .child(body)
     }
 
@@ -190,7 +192,7 @@ impl MainScreen {
                             .rounded(px(4.))
                             .text_color(t.text_4)
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3).text_color(t.text))
+                            .hover_text(t.text, |s| s.bg(t.surface_3))
                             .tooltip(tooltip(tip))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.apply_preset(p, window, cx)
@@ -271,7 +273,7 @@ impl MainScreen {
             .text_size(px(11.5))
             .text_color(t.text_3)
             .cursor_pointer()
-            .hover(|s| s.text_color(t.text).border_color(t.line_strong))
+            .hover_text(t.text, |s| s.border_color(t.line_strong))
             .child(div().truncate().child(current))
             .child(crate::kit::chevron(true, 11., t.text_3))
             .tooltip(tooltip("Tile density for this space (smallest tile before it folds into a chip)"))
@@ -905,9 +907,9 @@ impl MainScreen {
                     .text_size(px(12.))
                     .text_color(t.text_2)
                     .cursor_pointer()
-                    .hover(|s| {
+                    .hover_text(t.text, |s| {
                         s.bg(t.surface_3)
-                            .text_color(t.text)
+                            
                             .border_color(t.line_strong)
                     })
                     .when(a.status == Status::Blocked, |d| {

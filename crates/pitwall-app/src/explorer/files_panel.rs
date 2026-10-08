@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use crate::kit::HoverText;
 use gpui::{
     div, prelude::*, px, ClipboardItem, Context, Entity, EventEmitter, FontWeight, SharedString,
     Subscription, Task, Window,
@@ -119,7 +120,7 @@ impl Render for FilesPanel {
                 .text_size(px(11.5))
                 .text_color(t.text_2)
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover).text_color(text))
+                .hover_text(text, move |s| s.bg(hover))
                 .tooltip(move |_, cx| tooltip_view(tip.clone(), cx))
                 .child(glyph)
                 .child(label)
@@ -227,7 +228,7 @@ impl Render for FilesPanel {
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .cursor_pointer()
-                            .hover(|s| s.text_color(t.text_2))
+                            .hover_text(t.text_2, |s| s)
                             .tooltip(move |_, cx| tooltip_view(where_tip.clone(), cx))
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.copy_cwd(cwd.clone(), cx)),

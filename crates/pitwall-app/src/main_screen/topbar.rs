@@ -2,6 +2,7 @@
 //! wordmark, space tabs, Search ⌘K, live counts, Review / Wall / Settings /
 //! details buttons. The whole bar is the window's drag area.
 
+use crate::kit::HoverText;
 use gpui::{
     div, prelude::*, px, AnyElement, Context, Focusable, FontWeight, IntoElement, MouseButton,
     SharedString, Window,
@@ -181,7 +182,7 @@ impl MainScreen {
                     .text_size(px(12.))
                     .text_color(t.text_3)
                     .cursor_pointer()
-                    .hover(|s| s.text_color(t.text_2).border_color(t.line_strong))
+                    .hover_text(t.text_2, |s| s.border_color(t.line_strong))
                     .tooltip(tooltip(keys("Command palette (⌘K)", false)))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(ScreenEvent::OpenPalette)))
                     .child(crate::kit::icon("search", 14., t.text_3))
@@ -324,7 +325,7 @@ impl MainScreen {
                 .text_color(if is_active { t.text } else { t.text_3 })
                 .cursor_pointer()
                 .when(!is_active, |d| {
-                    d.hover(|s| s.bg(t.surface_2).text_color(t.text_2))
+                    d.hover_text(t.text_2, |s| s.bg(t.surface_2))
                 })
                 .drag_over::<AgentDrag>({
                     let c = t.surface_3;
@@ -405,7 +406,7 @@ impl MainScreen {
                 .rounded_t(px(7.))
                 .text_color(t.text_3)
                 .cursor_pointer()
-                .hover(|s| s.bg(t.surface_2).text_color(t.text_2))
+                .hover_text(t.text_2, |s| s.bg(t.surface_2))
                 .drag_over::<AgentDrag>({
                     let c = t.surface_3;
                     move |s, _, _, _| s.bg(c)
@@ -538,7 +539,7 @@ fn tab_btn(id: &str, name: &str, tip: String, t: &Theme) -> gpui::Stateful<gpui:
         .hover(|s| s.bg(t.surface_3))
         .tooltip(tooltip(tip))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(icon(name, 12., t.text_4).group_hover("tab-btn", |s| s.text_color(t.text)))
+        .child(icon(name, 12., t.text_4).group_hover_text("tab-btn", t.text, |s| s))
 }
 
 #[allow(clippy::too_many_arguments)]

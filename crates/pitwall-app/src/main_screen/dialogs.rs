@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::kit::HoverText;
 use gpui::{
     anchored, deferred, div, prelude::*, px, uniform_list, AnyElement, App, Context,
     Entity, EventEmitter, FocusHandle, Focusable, FontWeight, IntoElement,
@@ -1228,7 +1229,7 @@ impl Render for TerminalDialog {
                                         .text_color(t.text_2)
                                         .truncate()
                                         .cursor_pointer()
-                                        .hover(|s| s.bg(t.surface_3).text_color(t.text))
+                                        .hover_text(t.text, |s| s.bg(t.surface_3))
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             cx.emit(DialogEvent::OpenTerminal(path.clone()));
                                             let _ = this;

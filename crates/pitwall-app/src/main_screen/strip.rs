@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use crate::kit::HoverText;
 use gpui::{div, prelude::*, px, Context, FontWeight, IntoElement, SharedString, Task};
 
 use super::model::{strip, Tone};
@@ -311,7 +312,7 @@ impl MainScreen {
                             .px(px(4.))
                             .rounded(RADIUS)
                             .text_color(t.text_4)
-                            .hover(|s| s.text_color(t.text))
+                            .hover_text(t.text, |s| s)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.toasts.retain(|t| t.id != id);

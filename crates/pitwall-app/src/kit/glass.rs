@@ -11,11 +11,11 @@ use crate::theme::{appearance, glass_regions, GlassTier};
 pub const PANEL_RADIUS: f32 = 14.;
 
 /// A chrome region with its own glass piece under Liquid Glass. Draw the
-/// region translucent (`Theme::chrome`).
-pub fn glass_region(id: &'static str, radius: f32, child: impl IntoElement) -> impl IntoElement {
+/// region translucent (`Theme::chrome`); size the returned box like the
+/// region (`size_full`, `w_full`, …).
+pub fn glass_region(id: &'static str, radius: f32, child: impl IntoElement) -> gpui::Div {
     div()
         .relative()
-        .size_full()
         .child(
             canvas(
                 move |bounds: Bounds<Pixels>, window, cx| {
@@ -44,17 +44,20 @@ pub fn chrome_panel(id: &'static str, child: impl IntoElement, cx: &App) -> AnyE
         .h_full()
         .flex_none()
         .p(px(8.))
-        .child(glass_region(
-            id,
-            PANEL_RADIUS,
-            div()
-                .h_full()
-                .rounded(px(PANEL_RADIUS))
-                .border_1()
-                .border_color(line)
-                .overflow_hidden()
-                .child(child),
-        ))
+        .child(
+            glass_region(
+                id,
+                PANEL_RADIUS,
+                div()
+                    .h_full()
+                    .rounded(px(PANEL_RADIUS))
+                    .border_1()
+                    .border_color(line)
+                    .overflow_hidden()
+                    .child(child),
+            )
+            .h_full(),
+        )
         .into_any_element()
 }
 

@@ -9,6 +9,7 @@
 
 use std::time::{Duration, Instant};
 
+use crate::kit::HoverText;
 use gpui::{
     div, prelude::*, px, ClipboardItem, Context, FontWeight, IntoElement, SharedString, Task,
     Window,
@@ -454,7 +455,7 @@ impl MainScreen {
                     .gap(px(5.))
                     .min_w_0()
                     .cursor_pointer()
-                    .hover(|s| s.text_color(t.text))
+                    .hover_text(t.text, |s| s)
                     .tooltip(tooltip(path_tip))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(cwd.clone()));

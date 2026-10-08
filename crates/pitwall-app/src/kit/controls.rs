@@ -4,6 +4,7 @@
 
 use std::rc::Rc;
 
+use crate::kit::HoverText;
 use gpui::{
     anchored, canvas, deferred, div, point, prelude::*, px, AnimationExt, AnyElement, App,
     ClickEvent, Div, ElementId, FontWeight, IntoElement, PathBuilder, SharedString, Stateful,
@@ -62,7 +63,7 @@ pub fn checkbox(
         .text_color(t.text_3)
         .whitespace_nowrap()
         .cursor_pointer()
-        .hover(move |s| s.text_color(hover))
+        .hover_text(hover, move |s| s)
         .child(
             div()
                 .size(px(12.))
@@ -166,7 +167,7 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
                 .cursor_pointer()
                 .text_color(if item.on { fg } else { fg3 })
                 .when(item.on, |d| d.bg(on_bg).font_weight(FontWeight::SEMIBOLD))
-                .hover(move |s| s.text_color(fg))
+                .hover_text(fg, move |s| s)
                 .when_some(item.tooltip, |d, tip| d.tooltip(tooltip(tip)))
                 .on_click(move |_, window, cx| pick(i, window, cx))
                 .child(item.label)

@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::kit::HoverText;
 use gpui::{
     actions, div, prelude::*, px, uniform_list, App, Context, Entity, EventEmitter, FocusHandle,
     Focusable, FontWeight, HighlightStyle, KeyBinding, SharedString, StyledText, Subscription,
@@ -312,7 +313,7 @@ impl SearchPane {
             .when(on, |d| d.bg(t.surface_3).border_1().border_color(t.text_4))
             .when(text == "ab", |d| d.underline())
             .cursor_pointer()
-            .hover(move |s| s.bg(hover).text_color(text_c))
+            .hover_text(text_c, move |s| s.bg(hover))
             .tooltip(move |_, cx| tooltip_view(label, cx))
             .child(text)
             .on_click(cx.listener(move |this, _, _, cx| {
