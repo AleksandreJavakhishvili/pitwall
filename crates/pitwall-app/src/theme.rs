@@ -872,7 +872,7 @@ pub fn float(t: &Theme, _cx: &App) -> Theme {
 pub fn backdrop(cx: &App) -> Background {
     let ap = appearance(cx);
     match ap.glass {
-        None => ap.theme().bg.into(),
+        None => theme(cx).bg.into(),
         Some(GlassTier::Lite) => linear_gradient(
             180.,
             linear_color_stop(ap.glass_tokens.base_top, 0.),

@@ -126,7 +126,11 @@ impl MainScreen {
         };
         match (s.tone, s.lead) {
             (Tone::Blocked, Some(lead)) => base
-                .bg(t.amber_soft)
+                .bg(gpui::linear_gradient(
+                    90.,
+                    gpui::linear_color_stop(t.surface.blend(t.amber.opacity(0.2)), 0.),
+                    gpui::linear_color_stop(t.surface.blend(t.amber_soft), 0.6),
+                ))
                 .border_color(t.amber.opacity(0.5))
                 .text_color(t.text)
                 .child(div().w(px(12.)).text_color(t.amber).child("▲"))
@@ -176,7 +180,11 @@ impl MainScreen {
                 ),
             (Tone::Done, Some(lead)) => {
                 let id = lead.id.clone();
-                base.bg(t.finish_soft)
+                base.bg(gpui::linear_gradient(
+                    90.,
+                    gpui::linear_color_stop(t.surface.blend(t.finish.opacity(0.14)), 0.),
+                    gpui::linear_color_stop(t.surface.blend(t.finish_soft), 0.6),
+                ))
                     .border_color(t.finish.opacity(0.4))
                     .text_color(t.text)
                     .child(div().w(px(12.)).text_color(t.finish).child("⚑"))

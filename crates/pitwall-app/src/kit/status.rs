@@ -113,6 +113,11 @@ pub fn status_glyph_el(s: Status, t: &Theme, size: GlyphSize, pulse: Option<Elem
             d.child(div().size(px(dot)).rounded_full().bg(color))
         }
         Status::Blocked => d.child(triangle(color, (base * 0.64).round())),
+        // `■` at 0.75em.
+        Status::Exited | Status::Stopped => {
+            let side = (base * 0.75 * 0.62).round();
+            d.child(div().size(px(side)).rounded(px(1.)).bg(color))
+        }
         _ => {
             let font = match s {
                 Status::Done => base * 1.15,
