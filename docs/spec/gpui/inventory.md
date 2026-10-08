@@ -264,27 +264,27 @@ marks terminal items. Section 36 lists each component once.
 
 ## 14. Code explorer (read-only)
 
-- [ ] Offered only with `AgentView.caps.explorer`; otherwise info toast "Focus an agent to browse its files" / "<name>'s files can't be read from here" (`src/App.tsx`) [in-house: toast]
-- [ ] Files tab: refresh control, "Open the file viewer" button, Where line, "Go to file ⌘P" and "Search ⌘⇧F" tool buttons, "Ignored" checkbox (`src/components/explorer/FilesPanel.tsx`) [in-house: tooltip] [in-house: checkbox/toggle]
-- [ ] "Show ignored files" persisted (`pitwall.explorer.showIgnored`); ignored entries dimmed (`src/components/explorer/useTree.ts`) [in-house: checkbox/toggle]
-- [ ] Lazy tree with VS Code file/folder icons, change letter on files, dot on folders with changes, symlink marker, "Reading…", per-folder error, "Only the first 5 000 entries are shown" (`src/components/explorer/ExplorerTree.tsx`) [in-house: file tree] [in-house: list/virtual list]
-- [ ] Tree keys: ↑/↓ move, → expand/enter, ← collapse/parent, click opens file or toggles folder (`src/components/explorer/ExplorerTree.tsx`) [in-house: file tree]
-- [ ] One tree model per agent shared by the Files tab and the viewer; refreshed on open, ↻, ⌘⇧R, totals change, every 10 s while visible (`src/components/explorer/useTree.ts`) [in-house: file tree]
-- [ ] Viewer: full main area; bar "Files", agent, "read-only · <cwd>", refresh, "Go to file ⌘P", "Back esc"; Esc leaves (`src/components/explorer/Viewer.tsx`)
-- [ ] Viewer side pane switch "Explorer" / "Search" (`src/components/explorer/Viewer.tsx`) [in-house: segmented control]
+- [x] Offered only with `AgentView.caps.explorer`; otherwise info toast "Focus an agent to browse its files" / "<name>'s files can't be read from here" (`src/App.tsx`) [in-house: toast]
+- [x] Files tab: refresh control, "Open the file viewer" button, Where line, "Go to file ⌘P" and "Search ⌘⇧F" tool buttons, "Ignored" checkbox (`src/components/explorer/FilesPanel.tsx`) [in-house: tooltip] [in-house: checkbox/toggle]
+- [x] "Show ignored files" persisted (`pitwall.explorer.showIgnored`); ignored entries dimmed (`src/components/explorer/useTree.ts`) [in-house: checkbox/toggle]
+- [x] Lazy tree with VS Code file/folder icons, change letter on files, dot on folders with changes, symlink marker, "Reading…", per-folder error, "Only the first 5 000 entries are shown" (`src/components/explorer/ExplorerTree.tsx`) [in-house: file tree] [in-house: list/virtual list]
+- [x] Tree keys: ↑/↓ move, → expand/enter, ← collapse/parent, click opens file or toggles folder (`src/components/explorer/ExplorerTree.tsx`) [in-house: file tree]
+- [x] One tree model per agent shared by the Files tab and the viewer; refreshed on open, ↻, ⌘⇧R, totals change, every 10 s while visible (`src/components/explorer/useTree.ts`) [in-house: file tree]
+- [x] Viewer: full main area; bar "Files", agent, "read-only · <cwd>", refresh, "Go to file ⌘P", "Back esc"; Esc leaves (`src/components/explorer/Viewer.tsx`)
+- [x] Viewer side pane switch "Explorer" / "Search" (`src/components/explorer/Viewer.tsx`) [in-house: segmented control]
 - [ ] Viewer tabs of open files (icon, name, status colour, close button, middle-click closes, Enter/Space selects); kept per agent for the window session (`src/components/explorer/Viewer.tsx`) [in-house: tabs]
-- [ ] File header: icon, base + dir, status letter, size, "Copy path" (absolute), "Show diff" (opens Review on the file) (`src/components/explorer/Viewer.tsx`) [in-house: tooltip]
+- [x] File header: icon, base + dir, status letter, size, "Copy path" (absolute), "Show diff" (opens Review on the file) (`src/components/explorer/Viewer.tsx`) [in-house: tooltip]
 - [ ] Read-only editor (same setup as Review: highlighting, find, gutter) with reveal of a line/selection (`src/components/explorer/FileEditor.tsx`) [in-house: code/diff viewer]
-- [ ] Binary file: "Binary file · size · not shown"; over 2 MiB: "Large file · size · not opened" + "Load anyway" (≤ 10 MiB) (`src/components/explorer/Viewer.tsx`, `src/explorerApi.ts`)
-- [ ] Quiet re-read on refresh/totals change; "Changed on disk since it was opened. Reload" banner (`src/components/explorer/Viewer.tsx`)
-- [ ] Empty viewer: "Pick a file on the left" + "Go to file ⌘P" (`src/components/explorer/Viewer.tsx`)
-- [ ] Quick open (⌘P): palette-style fuzzy picker over `list_all_files`, highlighted matches in base and dir, recent files (20 per agent) first on empty query, ↑/↓/Enter, "Only the first 100 000 files are listed", footer hint (`src/components/explorer/QuickOpen.tsx`, `src/lib/explorer.ts`) [in-house: command palette] [in-house: text input] [in-house: list/virtual list]
-- [ ] Search pane (⌘⇧F): query box with Aa / whole word / .* toggles, include/exclude globs, "Leave out node_modules and bower_components", hint ".gitignore applies; .git is never searched" (`src/components/explorer/SearchPane.tsx`) [in-house: text input] [in-house: checkbox/toggle]
-- [ ] Search as you type (300 ms debounce), Enter re-runs, newer search cancels older, leaving cancels (`src/components/explorer/SearchPane.tsx`) [in-house: text input]
-- [ ] Results grouped by file (collapsible, count), match lines with highlighted ranges and line number; click opens at line/columns (`src/components/explorer/SearchPane.tsx`) [in-house: list/virtual list] [in-house: scroll view]
-- [ ] Summary "N results in M files" (+ "stopped there, narrow the search" when truncated), "Searching…", error (`src/components/explorer/SearchPane.tsx`)
-- [ ] Search form and results kept per agent for the window session (`src/components/explorer/SearchPane.tsx`)
-- [ ] File icons: Material Icon Theme subset (137 SVGs) by file name, then longest extension, folder icons open/closed (`src/lib/fileIcons.ts`, `src/assets/file-icons/`) [in-house: file icons]
+- [x] Binary file: "Binary file · size · not shown"; over 2 MiB: "Large file · size · not opened" + "Load anyway" (≤ 10 MiB) (`src/components/explorer/Viewer.tsx`, `src/explorerApi.ts`)
+- [x] Quiet re-read on refresh/totals change; "Changed on disk since it was opened. Reload" banner (`src/components/explorer/Viewer.tsx`)
+- [x] Empty viewer: "Pick a file on the left" + "Go to file ⌘P" (`src/components/explorer/Viewer.tsx`)
+- [x] Quick open (⌘P): palette-style fuzzy picker over `list_all_files`, highlighted matches in base and dir, recent files (20 per agent) first on empty query, ↑/↓/Enter, "Only the first 100 000 files are listed", footer hint (`src/components/explorer/QuickOpen.tsx`, `src/lib/explorer.ts`) [in-house: command palette] [in-house: text input] [in-house: list/virtual list]
+- [x] Search pane (⌘⇧F): query box with Aa / whole word / .* toggles, include/exclude globs, "Leave out node_modules and bower_components", hint ".gitignore applies; .git is never searched" (`src/components/explorer/SearchPane.tsx`) [in-house: text input] [in-house: checkbox/toggle]
+- [x] Search as you type (300 ms debounce), Enter re-runs, newer search cancels older, leaving cancels (`src/components/explorer/SearchPane.tsx`) [in-house: text input]
+- [x] Results grouped by file (collapsible, count), match lines with highlighted ranges and line number; click opens at line/columns (`src/components/explorer/SearchPane.tsx`) [in-house: list/virtual list] [in-house: scroll view]
+- [x] Summary "N results in M files" (+ "stopped there, narrow the search" when truncated), "Searching…", error (`src/components/explorer/SearchPane.tsx`)
+- [x] Search form and results kept per agent for the window session (`src/components/explorer/SearchPane.tsx`)
+- [x] File icons: Material Icon Theme subset (137 SVGs) by file name, then longest extension, folder icons open/closed (`src/lib/fileIcons.ts`, `src/assets/file-icons/`) [in-house: file icons]
 
 ## 15. Worktrees
 

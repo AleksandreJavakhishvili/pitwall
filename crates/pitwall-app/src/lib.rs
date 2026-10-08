@@ -8,6 +8,7 @@
 pub mod agents;
 pub mod approvals;
 pub mod bridge;
+pub mod explorer;
 pub mod home;
 pub mod host;
 pub mod main_screen;
@@ -74,11 +75,13 @@ pub fn run() {
         menu::register(cx);
         main_screen::init(cx);
         platform::init(cx);
+        explorer::register(cx);
 
         let state = match chosen {
             Ok(paths) => {
                 let (bridge, rx) = Bridge::new();
                 let host = Host::start(paths.clone(), bridge);
+                cx.set_global(explorer::ExplorerSource::engine(host.engine.clone()));
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 cx.set_global(main_screen::EngineHandle(host.engine.clone()));
                 AgentStore::listen(&store, rx, cx);

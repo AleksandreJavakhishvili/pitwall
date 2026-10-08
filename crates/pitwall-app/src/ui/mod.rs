@@ -27,6 +27,8 @@ pub enum Content {
 
 pub struct MainView {
     content: Content,
+    /// The read-only code explorer (Files panel, viewer, ⌘P, ⇧⌘F).
+    explorer: Option<Entity<crate::explorer::Explorer>>,
     selected: Option<String>,
     /// Settings, About and onboarding (settings::Layer).
     layer: Entity<crate::settings::Layer>,
@@ -56,8 +58,12 @@ impl MainView {
             crate::settings::attach_window(window, cx),
             cx.observe_window_bounds(window, |this, window, cx| this.bounds_changed(window, cx)),
         ];
+        let mut explorer = None;
         if let Content::Live { store, .. } = &content {
             subs.push(cx.observe(store, |_, _, cx| cx.notify()));
+            let e = cx.new(|cx| crate::explorer::Explorer::new(store.clone(), root.clone(), cx));
+            subs.push(cx.observe(&e, |_, _, cx| cx.notify()));
+            explorer = Some(e);
         }
         let store = match &content {
             Content::Live { store, .. } => Some(store.clone()),
@@ -81,6 +87,7 @@ impl MainView {
         };
         MainView {
             content,
+            explorer,
             selected: None,
             layer,
             focus,
@@ -124,6 +131,9 @@ impl MainView {
     }
 
     pub(super) fn select(&mut self, id: String, cx: &mut Context<Self>) {
+        if let Some(e) = &self.explorer {
+            e.update(cx, |e, cx| e.set_agent(Some(id.clone()), cx));
+        }
         self.selected = Some(id);
         cx.notify();
     }
@@ -249,6 +259,10 @@ impl Render for MainView {
             .flex()
             .bg(crate::settings::appearance::backdrop(cx))
             .text_color(t.text);
+        let root = match &self.explorer {
+            Some(e) => crate::explorer::on_actions(root, e),
+            None => root,
+        };
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
             Content::Live { .. } if self.screen.is_some() => root.children(self.screen.clone()),
