@@ -87,12 +87,19 @@ impl MainView {
         if let (Some(screen), Some(e)) = (&screen, &explorer) {
             subs.extend(explorer_seams(screen, e, window, cx));
         }
+        subs.extend(crate::windows::attach(screen.as_ref(), window, cx));
+        // Onboarding is the main window's (a moved-out space's window skips it).
+        let main = crate::windows::label_of(window, cx) == crate::windows::MAIN;
+        if !main {
+            layer.update(cx, |l, cx| l.close(cx));
+        }
         MainView {
             content,
             explorer,
             layer,
             focus,
-            root,
+            // Secondary windows' bounds live in windows.json only.
+            root: root.filter(|_| main),
             save_bounds: None,
             screen,
             _subscriptions: subs,

@@ -335,6 +335,15 @@ impl MainScreen {
                     this.drop_on_space(&id_drop, &d.id, window, cx);
                 }))
                 .tooltip(tooltip(tip))
+                .when(can_edit, |d| {
+                    let id = id.clone();
+                    d.on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(move |this, e, window, cx| {
+                            this.space_window_menu(&id, e, window, cx)
+                        }),
+                    )
+                })
                 .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                     if e.click_count() >= 2 && can_edit {
                         this.start_rename(&id_dbl, window, cx);
