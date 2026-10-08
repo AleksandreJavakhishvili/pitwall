@@ -2,6 +2,13 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Windows x64 builds (preview): an installer (`-setup.exe`, per user) and an `.msi`. Not code-signed yet, so SmartScreen asks on first run (More info → Run anyway).
+- Fixed on Windows: terminals hung on start (the holder inherited its launcher's handles) and showed no output (ConPTY's cursor-position request went unanswered).
+
 ## [0.1.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.0) - 2026-10-08
 
 ### Highlights

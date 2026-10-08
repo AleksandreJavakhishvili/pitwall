@@ -20,7 +20,7 @@ https://github.com/user-attachments/assets/65903f5d-1b2c-41a0-ab35-a2451a26d7c0
 
 **You call the strategy. Agents drive.**
 
-Pitwall is a desktop app for macOS and Linux (Windows coming) for running terminal coding agents (Claude Code, Codex, Gemini CLI and the rest) side by side, and seeing at a glance which one is waiting for you. It is a tool, not an agent: it never rewrites your prompts or decides what an agent does. Text you send goes in exactly as written.
+Pitwall is a desktop app for macOS, Linux and Windows (preview) for running terminal coding agents (Claude Code, Codex, Gemini CLI and the rest) side by side, and seeing at a glance which one is waiting for you. It is a tool, not an agent: it never rewrites your prompts or decides what an agent does. Text you send goes in exactly as written.
 
 - **The one that needs you turns amber.** A permission prompt or a question flags the agent, sorts it to the top, lights a bar along the bottom of the window and counts it on the Dock badge (taskbar button on Windows). `⌘J` jumps there. Done agents get a flag of their own until you look.
 - **Status without wrapping the agent.** Hooks when the agent offers them (Claude Code per launch, Codex opt-in), otherwise its terminal screen matched against per-agent rules, otherwise output activity. Hooks are never required.
@@ -86,12 +86,12 @@ Today the CLI lists and adds; it can't stop, remove or prompt agents. Anything t
 
 ## Install
 
-Download from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest) (or the [download page](https://aleksandrejavakhishvili.github.io/pitwall/download/), which picks your system). Builds aren't code-signed yet, so the first launch takes one extra click on macOS. Windows builds come in a later release.
+Download from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest) (or the [download page](https://aleksandrejavakhishvili.github.io/pitwall/download/), which picks your system). Builds aren't code-signed yet, so the first launch takes one extra click on macOS and Windows.
 
 | Platform | Download | First launch |
 |---|---|---|
 | macOS (Apple silicon, Intel) | `Pitwall_<version>_universal.dmg` (or `.app.tar.gz`) | Right-click Pitwall.app → **Open** → **Open**, or System Settings → Privacy & Security → **Open Anyway**. [More](#download-macos) |
-| Windows 10 1809+ / 11, x64 | `Pitwall_<version>_x64-setup.exe` (recommended, per user) or `.msi` | Coming in a later release. [More](#windows) |
+| Windows 10 1809+ / 11, x64 | `Pitwall_<version>_x64-setup.exe` (recommended, per user) or `.msi` | SmartScreen: **More info → Run anyway**. Preview: less tested than macOS. [More](#windows) |
 | Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04, Debian 12, Fedora 36) | `Pitwall_<version>_amd64.AppImage` or `.deb` | `chmod +x` the AppImage, or `sudo apt install ./Pitwall_*_amd64.deb`. [More](#linux) |
 
 Platform differences: on macOS shortcuts use ⌘, with a Dock badge and a Full Disk Access check. On Linux shortcuts use Ctrl+Shift (Ctrl stays with the terminal); there's no native menu: Settings is Ctrl+Shift+, and Quit is in the command palette. On Windows shortcuts use Ctrl+Shift, there's a File menu (no Edit accelerators), closing the window keeps Pitwall in the tray, and the taskbar shows a badge.
@@ -141,7 +141,7 @@ Settings → **Install command-line tool** links `pitwall` into `~/.local/bin`. 
 
 Get the installer (`Pitwall_<version>_x64-setup.exe`, per user, no admin rights) or the `.msi` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest). Windows 10 1809 or newer (Pitwall's terminals use ConPTY); the installer fetches the WebView2 runtime if it's missing.
 
-Windows builds aren't in the first release yet: the port builds, but its terminal holder still needs fixing on real Windows. Once released, please [report problems](https://github.com/AleksandreJavakhishvili/pitwall/issues). The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
+Windows is a preview since 0.1.1: CI tests pass, but it has seen little use on real PCs yet; please [report problems](https://github.com/AleksandreJavakhishvili/pitwall/issues). The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
 
 Where things live and how it differs from macOS:
 

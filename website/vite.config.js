@@ -122,7 +122,7 @@ function seo() {
             name: "Pitwall",
             description: decode(description),
             applicationCategory: "DeveloperApplication",
-            operatingSystem: "macOS, Linux",
+            operatingSystem: "macOS, Linux, Windows",
             offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
             license: "https://www.apache.org/licenses/LICENSE-2.0",
             url,
