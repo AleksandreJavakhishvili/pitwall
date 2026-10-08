@@ -5,7 +5,10 @@
 // opened with `?demo=1`. It accepts same-origin messages
 // `{ type: "pitwall-demo", view }` and drives the UI by clicking the app's own
 // controls, so it needs no access to app state. Replies `{ type: "pitwall-demo-ready" }`
-// once agents are on screen.
+// once agents are on screen. `{ type: "pitwall-demo", theme: "dark" | "light" }` (or
+// `?theme=` in the URL) makes the app follow the site's theme toggle instead of the OS.
+
+import { applyTheme } from "./theme";
 
 type View = "needs-you" | "wall" | "next-up" | "review" | "terminals" | "rules";
 
@@ -64,12 +67,17 @@ async function show(view: View) {
 if (enabled) {
   window.addEventListener("message", (e) => {
     if (e.origin !== window.location.origin) return;
-    const d = e.data as { type?: string; view?: View } | null;
-    if (d?.type === "pitwall-demo" && d.view && d.view in views) void show(d.view);
+    const d = e.data as { type?: string; view?: View; theme?: string } | null;
+    if (d?.type !== "pitwall-demo") return;
+    if (d.theme === "dark" || d.theme === "light") applyTheme(d.theme);
+    if (d.view && d.view in views) void show(d.view);
   });
   const ready = setInterval(() => {
     if (!document.querySelector(".agent-row")) return;
     clearInterval(ready);
+    // After the app has applied its own (System) preference from its saved state.
+    const theme = new URLSearchParams(window.location.search).get("theme");
+    if (theme === "dark" || theme === "light") applyTheme(theme);
     window.parent?.postMessage({ type: "pitwall-demo-ready" }, window.location.origin);
   }, 200);
 }
