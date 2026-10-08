@@ -22,10 +22,14 @@ use interprocess::os::windows::named_pipe::{
 use interprocess::os::windows::security_descriptor::SecurityDescriptor;
 use interprocess::ConnectWaitMode;
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, SlavePty};
-use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, INVALID_HANDLE_VALUE, STILL_ACTIVE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, LocalFree, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, STILL_ACTIVE,
+};
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
-use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_OUTPUT_HANDLE};
+use windows_sys::Win32::System::Console::{
+    GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -273,6 +277,18 @@ pub fn detach() -> io::Result<Role> {
         let report = unsafe { File::from_raw_handle(out as RawHandle) };
         return Ok(Role::Holder(Box::new(report)));
     }
+    // `Command` starts the holder with handle inheritance on, which passes it
+    // every inheritable handle of ours, not only the ones it is given. Our
+    // own stdio usually is inheritable (we inherited it): the holder would
+    // keep our caller's stdout / stderr pipes open for as long as it runs,
+    // and a caller reading them to the end (`client::launch`) would wait for
+    // the holder to exit instead of for this launcher.
+    for std in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        let h = unsafe { GetStdHandle(std) };
+        if !h.is_null() && h != INVALID_HANDLE_VALUE {
+            unsafe { SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0) };
+        }
+    }
     let (reader, writer) = io::pipe()?;
     let exe = std::env::current_exe()?;
     let spawn = |flags: u32| -> io::Result<()> {
@@ -365,6 +381,96 @@ impl PtyControl {
     }
 }
 
+/// The ConPTY's input, shared by the holder and `CursorAnswer`.
+#[derive(Clone)]
+struct SharedWriter(Arc<Mutex<Box<dyn Write + Send>>>);
+
+impl Write for SharedWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        lock(&self.0).write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        lock(&self.0).flush()
+    }
+}
+
+/// Cursor position request (DSR 6).
+const DSR_CPR: &[u8] = b"\x1b[6n";
+/// How much of the start of the output is watched for the request.
+const DSR_WINDOW: usize = 64 * 1024;
+
+/// `portable-pty` opens the pseudo console with `PSEUDOCONSOLE_INHERIT_CURSOR`:
+/// at startup the console asks its terminal where the cursor is (`ESC[6n`)
+/// and shows nothing until it gets the answer. The holder starts the program
+/// before any client is attached, so it answers for the terminal itself: a
+/// fresh screen, cursor at the top left. The request is taken out of the
+/// output; everything else passes through unchanged and undelayed.
+struct CursorAnswer {
+    inner: Box<dyn Read + Send>,
+    /// `None` once answered (or no longer watched for).
+    input: Option<SharedWriter>,
+    watched: usize,
+    /// A trailing part of the output that may be the start of the request.
+    carry: Vec<u8>,
+    /// Output to hand out before reading more.
+    ready: Vec<u8>,
+}
+
+impl CursorAnswer {
+    fn new(inner: Box<dyn Read + Send>, input: SharedWriter) -> CursorAnswer {
+        CursorAnswer { inner, input: Some(input), watched: 0, carry: Vec::new(), ready: Vec::new() }
+    }
+
+    /// Look at `data` (after the carry); returns what can go out now.
+    fn scan(&mut self, data: &[u8]) -> Vec<u8> {
+        let mut all = std::mem::take(&mut self.carry);
+        all.extend_from_slice(data);
+        let Some(input) = &self.input else { return all };
+        self.watched += data.len();
+        if let Some(at) = all.windows(DSR_CPR.len()).position(|w| w == DSR_CPR) {
+            all.drain(at..at + DSR_CPR.len());
+            let mut input = input.clone();
+            let _ = input.write_all(b"\x1b[1;1R").and_then(|_| input.flush());
+            self.input = None;
+            return all;
+        }
+        if self.watched >= DSR_WINDOW {
+            self.input = None;
+            return all;
+        }
+        let keep = (1..DSR_CPR.len()).rev().find(|&k| all.len() >= k && all.ends_with(&DSR_CPR[..k])).unwrap_or(0);
+        self.carry = all.split_off(all.len() - keep);
+        all
+    }
+}
+
+impl Read for CursorAnswer {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            if !self.ready.is_empty() {
+                let n = self.ready.len().min(buf.len());
+                buf[..n].copy_from_slice(&self.ready[..n]);
+                self.ready.drain(..n);
+                return Ok(n);
+            }
+            if self.input.is_none() && self.carry.is_empty() {
+                return self.inner.read(buf);
+            }
+            let n = self.inner.read(buf)?;
+            if n == 0 {
+                self.input = None;
+                self.ready = std::mem::take(&mut self.carry);
+                if self.ready.is_empty() {
+                    return Ok(0);
+                }
+                continue;
+            }
+            let data = buf[..n].to_vec();
+            self.ready = self.scan(&data);
+        }
+    }
+}
+
 fn other(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
 }
@@ -381,13 +487,13 @@ pub fn spawn_pty(spec: &PtySpec) -> io::Result<Pty> {
     }
     let child = pair.slave.spawn_command(cmd).map_err(other)?;
     let pid = child.process_id().unwrap_or(0);
-    let reader = pair.master.try_clone_reader().map_err(other)?;
-    let writer = pair.master.take_writer().map_err(other)?;
+    let input = SharedWriter(Arc::new(Mutex::new(pair.master.take_writer().map_err(other)?)));
+    let reader = Box::new(CursorAnswer::new(pair.master.try_clone_reader().map_err(other)?, input.clone()));
     let killer = child.clone_killer();
     Ok(Pty {
         pid,
         reader,
-        writer,
+        writer: Box::new(input),
         control: PtyControl {
             inner: Arc::new(Control {
                 console: Mutex::new(Some((pair.master, pair.slave))),
@@ -460,5 +566,55 @@ pub fn force_kill(pid: u32) {
     if !h.is_null() {
         let h = Handle(h);
         unsafe { TerminateProcess(h.0, 1) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hands out the given chunks one read at a time.
+    struct Chunks(std::collections::VecDeque<Vec<u8>>);
+
+    impl Read for Chunks {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let Some(c) = self.0.pop_front() else { return Ok(0) };
+            buf[..c.len()].copy_from_slice(&c);
+            Ok(c.len())
+        }
+    }
+
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            lock(&self.0).extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn run(chunks: &[&[u8]]) -> (Vec<u8>, Vec<u8>) {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let input = SharedWriter(Arc::new(Mutex::new(Box::new(Sink(sent.clone())))));
+        let inner = Chunks(chunks.iter().map(|c| c.to_vec()).collect());
+        let mut r = CursorAnswer::new(Box::new(inner), input);
+        let mut out = Vec::new();
+        r.read_to_end(&mut out).unwrap();
+        let sent = lock(&sent).clone();
+        (out, sent)
+    }
+
+    #[test]
+    fn answers_the_first_cursor_request_and_hides_it() {
+        assert_eq!(run(&[b"\x1b[?9001h\x1b[6n", b"hello"]), (b"\x1b[?9001hhello".to_vec(), b"\x1b[1;1R".to_vec()));
+        // Split across reads.
+        assert_eq!(run(&[b"a\x1b[", b"6nb"]), (b"ab".to_vec(), b"\x1b[1;1R".to_vec()));
+        // Only once: a later request is the program's, for the client.
+        assert_eq!(run(&[b"\x1b[6n", b"x\x1b[6n"]), (b"x\x1b[6n".to_vec(), b"\x1b[1;1R".to_vec()));
+        // No request: output unchanged, a partial one at the end included.
+        assert_eq!(run(&[b"plain", b"\x1b["]), (b"plain\x1b[".to_vec(), Vec::new()));
     }
 }
