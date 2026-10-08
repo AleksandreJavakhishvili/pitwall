@@ -35,3 +35,13 @@ commit convention, which the entries generated from commits don't include.
 - Agents running in other terminal apps are listed under Elsewhere, with "Bring in".
 - agw sessions on VMs: add or create them, live terminal, status, Next up, diffs and Review.
 - `pitwall` CLI to list and add agents and sessions; changes to another machine wait for approval in the app.
+
+#### Code and changes
+
+- Read-only file explorer per agent: Files tab, full viewer, <kbd>⌘P</kbd> quick open and <kbd>⇧⌘F</kbd> search, on this computer or an agw machine.
+- The Changes panel matches `git status` and shows the branch and folder; Review follows the current project.
+
+#### Platforms and performance
+
+- macOS (universal), Linux (AppImage, .deb) and Windows (installer, .msi; new and less tested). Builds aren't code-signed yet.
+- Git refreshes when files change instead of polling; Review's diff editor and the Wall are lighter on memory and CPU.
