@@ -16,6 +16,7 @@ pub mod layout;
 pub mod paint;
 pub mod screen;
 pub mod source;
+pub mod style;
 pub mod tile;
 
 use std::cell::Cell;
@@ -151,6 +152,9 @@ pub struct WallView {
     viewport: Rc<Cell<Size<Pixels>>>,
     font_size: f32,
     look: Look,
+    /// The app window's width for the breakpoints, when the Wall is not
+    /// in it (previews).
+    app_width: Option<f32>,
     _drain: Task<()>,
     _retry: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -166,6 +170,7 @@ impl Focusable for WallView {
 
 impl WallView {
     pub fn new(store: Entity<AgentStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        style::ensure_fonts(cx);
         let source = Screens::get(cx);
         let (tx, rx) = unbounded();
         let drain = cx.spawn(async move |this, cx| drain(this, rx, cx).await);
@@ -192,6 +197,7 @@ impl WallView {
             viewport: Rc::new(Cell::new(Size::default())),
             font_size: paint::DEFAULT_FONT,
             look: Look::Flat,
+            app_width: None,
             _drain: drain,
             _retry: cx.spawn(async move |this, cx| loop {
                 cx.background_executor().timer(RETRY).await;
@@ -208,6 +214,13 @@ impl WallView {
     /// Sections folded (from `ui.wallCollapsed`).
     pub fn set_collapsed(&mut self, keys: BTreeSet<String>, cx: &mut Context<Self>) {
         self.collapsed = keys;
+        cx.notify();
+    }
+
+    /// Size tiles for an app window this wide (previews; the app uses its
+    /// own window).
+    pub fn set_app_width(&mut self, width: Option<f32>, cx: &mut Context<Self>) {
+        self.app_width = width;
         cx.notify();
     }
 
@@ -294,7 +307,7 @@ impl WallView {
                 None => {
                     let (font, body_h, wall) = (
                         self.font_size,
-                        self.tile_h - layout::TILE_HEAD_H - 1.,
+                        self.tile_h - layout::TILE_HEAD_H,
                         wall.clone(),
                     );
                     let id = a.id.clone();
@@ -459,7 +472,7 @@ impl WallView {
         }
     }
 
-    fn bar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn bar(&self, t: &Theme, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let line = match self.look {
             Look::Flat => t.line,
             Look::Glass => t.line.opacity(0.6),
@@ -474,13 +487,15 @@ impl WallView {
             .pr(px(8.))
             .border_b_1()
             .border_color(line)
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.text_3)
-                    .child("WALL"),
-            )
+            .child(style::tracked_label(
+                window,
+                "Wall",
+                style::LABEL,
+                12.,
+                FontWeight::SEMIBOLD,
+                0.12,
+                t.text_3,
+            ))
             .child(
                 div()
                     .text_size(px(12.))
@@ -504,7 +519,7 @@ impl WallView {
                     .hover(|s| s.border_color(t.text_4))
                     .cursor_pointer()
                     .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
+                    .font_weight(FontWeight(550.))
                     .text_color(t.text)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(WallEvent::Exit)))
                     .child("Back")
@@ -512,7 +527,13 @@ impl WallView {
             )
     }
 
-    fn section_head(&self, g: &ProjectGroup, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn section_head(
+        &self,
+        g: &ProjectGroup,
+        t: &Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let collapsed = self.collapsed.contains(&g.key);
         let key = g.key.clone();
         let n = g.agents.len();
@@ -535,22 +556,35 @@ impl WallView {
             .child(chevron(!collapsed, t.text_4))
             .child(
                 div()
-                    .text_size(px(14.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(if g.blocked > 0 { t.text } else { t.text_2 })
-                    .truncate()
-                    .child(g.display.to_uppercase()),
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(style::tracked_label(
+                        window,
+                        style::project_name(&g.display),
+                        style::LABEL,
+                        14.,
+                        FontWeight::BOLD,
+                        0.12,
+                        if g.blocked > 0 { t.text } else { t.text_2 },
+                    )),
             )
             .when(g.blocked > 0, |d| {
                 d.child(
                     div()
-                        .font_family(paint::MONO)
+                        .flex_none()
+                        .font_family(style::MONO)
                         .text_size(px(10.5))
                         .text_color(t.amber)
                         .child(format!("▲ {}", g.blocked)),
                 )
             })
-            .child(div().text_size(px(12.)).text_color(t.text_3).child(summary))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(px(12.))
+                    .text_color(t.text_3)
+                    .child(summary),
+            )
             .into_any_element()
     }
 
@@ -638,7 +672,7 @@ fn kbd(text: &'static str, t: &Theme) -> impl IntoElement {
         .border_1()
         .border_color(t.line_strong)
         .bg(t.surface_2)
-        .font_family(paint::MONO)
+        .font_family(style::MONO)
         .text_size(px(10.5))
         .text_color(t.text_3)
         .child(text)
@@ -679,10 +713,10 @@ impl Render for WallView {
         let t = theme::theme(cx).clone();
         let groups = self.store.read(cx).groups();
         let win = window.viewport_size();
-        let tile_h = layout::tile_height(f32::from(win.width));
+        let tile_h = layout::tile_height(self.app_width.unwrap_or(f32::from(win.width)));
         if tile_h != self.tile_h {
             self.tile_h = tile_h;
-            let body_h = tile_h - layout::TILE_HEAD_H - 1.;
+            let body_h = tile_h - layout::TILE_HEAD_H;
             for tile in self.tiles.values() {
                 tile.update(cx, |t, cx| {
                     t.body_h = body_h;
@@ -728,12 +762,18 @@ impl Render for WallView {
                     .pt(px(6.))
                     .pb(px(4.))
                     .px(px(2.))
-                    .text_size(px(10.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.text_4)
-                    .child(label.to_uppercase())
+                    .flex()
+                    .child(style::tracked_label(
+                        window,
+                        label,
+                        style::UI,
+                        10.5,
+                        FontWeight::SEMIBOLD,
+                        0.06,
+                        t.text_4,
+                    ))
                     .into_any_element(),
-                WallRow::Head(gi) => self.section_head(&groups[*gi], &t, cx),
+                WallRow::Head(gi) => self.section_head(&groups[*gi], &t, window, cx),
                 WallRow::Tiles {
                     group,
                     start,
@@ -789,9 +829,11 @@ impl Render for WallView {
             .min_w_0()
             .flex()
             .flex_col()
+            .font_family(style::UI)
+            .text_size(px(13.))
             .bg(t.bg)
             .text_color(t.text)
-            .child(self.bar(&t, cx))
+            .child(self.bar(&t, window, cx))
             .when(empty, |d| d.child(Self::empty(&t)))
             .when(!empty, |d| {
                 d.child(

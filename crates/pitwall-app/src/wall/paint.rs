@@ -12,8 +12,8 @@ use std::sync::{Arc, OnceLock};
 
 use gpui::{
     canvas, fill, font, outline, point, prelude::*, px, size, App, BorderStyle, Bounds, Font,
-    FontStyle, FontWeight, Hsla, Pixels, Point, ShapedLine, StrikethroughStyle, TextRun,
-    UnderlineStyle, Window,
+    FontFeatures, FontStyle, FontWeight, Hsla, Pixels, Point, ShapedLine, SharedString,
+    StrikethroughStyle, TextRun, UnderlineStyle, Window,
 };
 
 use super::screen::{resolve, Row, Screen, TermColors};
@@ -29,14 +29,7 @@ const LINE_HEIGHT: f32 = 1.15;
 /// The terminals' font size by default (`DEFAULT_FONT`, src/layout/density.ts).
 pub const DEFAULT_FONT: f32 = 13.;
 
-/// The monospace family until the app embeds JetBrains Mono (phase 1).
-pub const MONO: &str = if cfg!(target_os = "macos") {
-    "Menlo"
-} else if cfg!(target_os = "windows") {
-    "Consolas"
-} else {
-    "DejaVu Sans Mono"
-};
+pub use super::style::MONO;
 
 /// The terminal colours of a theme mode (built once).
 pub fn term_colors(mode: Mode) -> Arc<TermColors> {
@@ -103,13 +96,21 @@ fn metrics(family: &Font, font_size: Pixels, window: &Window) -> (f32, f32) {
         .advance(id, font_size, 'm')
         .map(|s| f32::from(s.width))
         .unwrap_or(f32::from(font_size) * 0.6);
-    let h = f32::from(ts.ascent(id, font_size)) + f32::from(ts.descent(id, font_size)).abs();
+    // Chrome rounds ascent and descent to whole pixels for `line-height:
+    // normal`; xterm then rounds the cell in device pixels.
+    let h = f32::from(ts.ascent(id, font_size)).round()
+        + f32::from(ts.descent(id, font_size)).abs().round();
     let h = if h > 0. {
         h
     } else {
         f32::from(font_size) * 1.2
     };
-    (w, (h.ceil() * LINE_HEIGHT).floor())
+    (w, cell_height(h, window.scale_factor()))
+}
+
+/// xterm's cell height for a character `h` px high at `dpr` (RenderDimensions).
+pub fn cell_height(h: f32, dpr: f32) -> f32 {
+    ((h * dpr).ceil() * LINE_HEIGHT).floor() / dpr
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -123,7 +124,9 @@ fn prepaint(
     window: &mut Window,
     _cx: &mut App,
 ) -> Prepainted {
-    let base = font(MONO);
+    // Like the React Wall: no programming ligatures (`=>` stays two cells).
+    let mut base = font(MONO);
+    base.features = FontFeatures::disable_ligatures();
     let (cw, ch) = metrics(&base, px(opts.font_size), window);
     let s = scale_for(f32::from(bounds.size.width), cw * cols as f32);
     let font_size = px(opts.font_size * s);
@@ -161,12 +164,29 @@ fn prepaint(
             continue;
         };
         for seg in &row.segments {
-            let x = left + seg.col as f32 * cell_w;
-            if x >= right_limit {
+            if left + seg.col as f32 * cell_w >= right_limit {
                 break;
             }
-            let mut runs = Vec::with_capacity(seg.pieces.len());
+            // One shaped line per stretch of one font face: gpui 0.2.2 on
+            // macOS draws every run of a line in the first run's face when
+            // the faces are bundled fonts (bold would come out regular).
+            let force = (!seg.single).then_some(px(cell_w));
             let mut col = seg.col as f32;
+            let mut start_col = col;
+            let mut start_byte = 0usize;
+            let mut byte = 0usize;
+            let mut runs: Vec<TextRun> = Vec::new();
+            let flush =
+                |runs: &mut Vec<TextRun>, from: usize, to: usize, at: f32, out: &mut Prepainted| {
+                    if runs.is_empty() {
+                        return;
+                    }
+                    let text: SharedString = seg.text[from..to].to_string().into();
+                    let shaped = ts.shape_line(text, font_size, runs, force);
+                    out.lines
+                        .push((point(px(left + at * cell_w), px(y)), shaped));
+                    runs.clear();
+                };
             for p in &seg.pieces {
                 let st = resolve(p.fg, p.bg, p.attrs, c);
                 if let Some(bg) = st.bg {
@@ -178,13 +198,18 @@ fn prepaint(
                         bg,
                     ));
                 }
-                col += p.cells as f32;
                 let mut f = base.clone();
                 if st.bold {
-                    f.weight = FontWeight::BOLD;
+                    // The heaviest bundled JetBrains Mono face.
+                    f.weight = FontWeight::SEMIBOLD;
                 }
                 if st.italic {
                     f.style = FontStyle::Italic;
+                }
+                if runs.last().is_some_and(|r: &TextRun| r.font != f) {
+                    flush(&mut runs, start_byte, byte, start_col, &mut out);
+                    start_byte = byte;
+                    start_col = col;
                 }
                 runs.push(TextRun {
                     len: p.len,
@@ -201,12 +226,10 @@ fn prepaint(
                         color: Some(st.fg),
                     }),
                 });
+                byte += p.len;
+                col += p.cells as f32;
             }
-            // Narrow characters sit on the cell grid; a wide or clustered
-            // one is drawn as the font draws it.
-            let force = (!seg.single).then_some(px(cell_w));
-            let shaped = ts.shape_line(seg.text.clone(), font_size, &runs, force);
-            out.lines.push((point(px(x), px(y)), shaped));
+            flush(&mut runs, start_byte, byte, start_col, &mut out);
         }
     }
     out
@@ -226,6 +249,12 @@ mod tests {
             "cropped below the minimum"
         );
         assert_eq!(scale_for(100., 0.), 1.);
+    }
+
+    #[test]
+    fn cells_round_like_xterm() {
+        assert_eq!(cell_height(17., 2.), 19.5);
+        assert_eq!(cell_height(17., 1.), 19.);
     }
 
     #[test]

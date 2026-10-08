@@ -10,10 +10,11 @@ use gpui::{
 
 use pitwall_proto::{AgentView, Status};
 
-use super::paint::{screen_view, term_colors, ScreenOpts, MONO};
+use super::paint::{screen_view, term_colors, ScreenOpts};
 use super::screen::Screen;
+use super::style::{self, MONO};
 use super::WallView;
-use crate::agents::{status_glyph, status_word};
+use crate::agents::status_word;
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
 
 pub struct WallTile {
@@ -94,6 +95,27 @@ fn amber_glow(t: &Theme) -> Hsla {
     })
 }
 
+/// A 1 px ring outside the tile, and the blocked glow
+/// (`0 0 26px -6px var(--amber-glow)`).
+fn ring_shadows(ring: Hsla, glow: Option<Hsla>) -> Vec<BoxShadow> {
+    let mut v = vec![BoxShadow {
+        color: ring,
+        offset: gpui::point(px(0.), px(0.)),
+        blur_radius: px(0.),
+        spread_radius: px(1.),
+    }];
+    if let Some(color) = glow {
+        v.push(BoxShadow {
+            color,
+            offset: gpui::point(px(0.), px(0.)),
+            // CSS blur radius = 2 sigma; gpui's is the sigma.
+            blur_radius: px(13.),
+            spread_radius: px(-6.),
+        });
+    }
+    v
+}
+
 /// What a dragged tile carries (a drop onto a space tab moves the agent
 /// there, phase 2), drawn as a small chip under the pointer.
 #[derive(Clone)]
@@ -138,7 +160,7 @@ impl Render for Tip {
 }
 
 impl Render for WallTile {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let a = &self.agent;
         let blocked = a.status == Status::Blocked;
@@ -175,31 +197,26 @@ impl Render for WallTile {
             .border_b_1()
             .border_color(t.line)
             .bg(head_bg)
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(12.))
-                    .text_color(t.status_color(a.status))
-                    .child(status_glyph(a.status)),
-            )
+            .child(style::glyph(a.status, &t))
             .child(
                 div()
                     .flex_none()
                     .max_w(px(220.))
                     .truncate()
                     .text_size(px(13.))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight(650.))
                     .text_color(t.text)
                     .child(a.name.clone()),
             )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(status_word_color(a.status, &t))
-                    .child(status_word(a.status).to_uppercase()),
-            )
+            .child(style::tracked_label(
+                window,
+                status_word(a.status),
+                style::LABEL,
+                11.,
+                FontWeight::SEMIBOLD,
+                0.09,
+                status_word_color(a.status, &t),
+            ))
             .when_some(a.status_detail.clone().filter(|_| blocked), |d, detail| {
                 d.child(
                     div()
@@ -239,9 +256,15 @@ impl Render for WallTile {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(12.))
-                        .text_color(t.text_4)
-                        .child(label),
+                        .child(style::tracked_label(
+                            window,
+                            label,
+                            style::LABEL,
+                            13.,
+                            FontWeight::SEMIBOLD,
+                            0.12,
+                            t.text_4,
+                        )),
                 )
             });
 
@@ -253,19 +276,11 @@ impl Render for WallTile {
             .rounded(px(8.))
             .overflow_hidden()
             .bg(t.term_bg)
-            .border_1()
-            .border_color(ring)
-            .when(blocked, |d| {
-                d.shadow(vec![BoxShadow {
-                    color: amber_glow(&t),
-                    offset: gpui::point(px(0.), px(0.)),
-                    blur_radius: px(26.),
-                    spread_radius: px(-6.),
-                }])
-            })
+            // `box-shadow: 0 0 0 1px`: a ring outside the tile, as in wall.css.
+            .shadow(ring_shadows(ring, blocked.then(|| amber_glow(&t))))
             .when(faded, |d| d.opacity(0.6))
             .when(!self.selected && !blocked, |d| {
-                d.hover(|s| s.border_color(t.text_4))
+                d.hover(|s| s.shadow(ring_shadows(t.text_4, None)))
             })
             .cursor_pointer()
             .on_click(move |_, window, cx| {

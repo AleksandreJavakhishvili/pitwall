@@ -40,9 +40,10 @@ pub fn body_height(window_width: f32) -> f32 {
     }
 }
 
-/// A tile's full height (header, its bottom line, body).
+/// A tile's full height (header with its bottom line, body); its ring is
+/// drawn outside.
 pub fn tile_height(window_width: f32) -> f32 {
-    TILE_HEAD_H + 1. + body_height(window_width)
+    TILE_HEAD_H + body_height(window_width)
 }
 
 /// Grid columns for a Wall this wide (its scroll area, padding included).
@@ -267,8 +268,14 @@ mod tests {
         assert_eq!(columns(889. + 24.), 1);
         assert_eq!(columns(890. + 24.), 2);
         assert_eq!(columns(1900.), 4);
-        assert_eq!(tile_height(1400.), 283.);
-        assert_eq!(tile_height(2400.), 333.);
+        // The React Wall at the same window widths (sidebar 268 px, no right
+        // panel in Wall mode): 1100 → 1, 1400 → 2, 2200 → 4 columns.
+        let sidebar = 268.;
+        assert_eq!(columns(1100. - sidebar), 1);
+        assert_eq!(columns(1400. - sidebar), 2);
+        assert_eq!(columns(2200. - sidebar), 4);
+        assert_eq!(tile_height(1400.), 282.);
+        assert_eq!(tile_height(2400.), 332.);
     }
 
     #[test]

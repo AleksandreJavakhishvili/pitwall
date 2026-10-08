@@ -134,3 +134,5 @@ good follow-up once the Tauri app is gone.
 | MPL-2.0 | 1 | cbindgen 0.28.0 |
 | CC0-1.0 OR Apache-2.0 | 1 | imgref 1.12.3 |
 | Apache-2.0 OR GPL-2.0-only | 1 | self_cell 1.3.0 |
+
+Fonts bundled by the Wall (`crates/pitwall-app/assets/fonts/`, loaded with `text_system().add_fonts`; to be promoted to the shared kit): Inter (Regular, Medium, SemiBold, Bold), Barlow Condensed (SemiBold, Bold) and JetBrains Mono (Regular, SemiBold), static latin instances of the fonts the React app ships via @fontsource; all SIL OFL-1.1, licence texts already in `LICENSES/` (OFL-1.1-inter.txt, OFL-1.1-barlow-condensed.txt, OFL-1.1-jetbrains-mono.txt).
