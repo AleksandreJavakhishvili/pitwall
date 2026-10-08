@@ -1,6 +1,6 @@
-// Builds the Pitwall app UI (repo root) as a static browser bundle into
-// website/public/demo/. Outside Tauri the app runs its built-in mock mode, so the
-// result is a self-contained, clickable demo. The landing page embeds it as
+// Builds the React UI (repo root src/, the web demo; src/README.md) as a static
+// browser bundle into website/public/demo/. It always runs its built-in mock mode,
+// so the result is a self-contained, clickable demo. The landing page embeds it as
 // <base>demo/?onboarded&shots=1&demo=1 (skip the welcome screen, hide the MOCK chip,
 // enable the tab bridge in src/lib/demoBridge.ts).
 //
