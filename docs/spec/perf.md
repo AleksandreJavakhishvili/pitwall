@@ -199,3 +199,76 @@ up in a profile.
 - "No blank terminals / smooth scroll" at 20 + Wall was not verified by eye
   (the bench can't see pixels); no WebGL contexts are used any more, so the
   ~16-context cap can't blank tiles.
+
+## Pass 2 (2026-10-07): parser and Wall tiles
+
+### Tooling
+- `scripts/tui-agent.py`: a synthetic busy coding agent (Claude Code / Codex
+  style: ~10 frames/s of Ink-style erase + redraw of a live region, truecolor
+  and 256-colour SGR, diff lines with backgrounds, wide characters; ~12 KB/s).
+  `bench.py --agent tui` uses it instead of the shell loop; `--profile <dir>`
+  also runs macOS `sample` on the app per scenario (build with
+  `CARGO_PROFILE_RELEASE_STRIP=false` for symbols).
+- `cargo run --release -p pitwall-detect --example screen_bench -- <rec>`:
+  per-emulator cost on a recording (`tui-agent.py --frames 3000 --cols 100`),
+  with allocation counts. `cargo run -p pitwall-core --example screen_frame
+  -- <rec> <cols> <rows>` prints the `ScreenFrame` the engine sends, for
+  comparing with xterm.js.
+
+### Part A — where backend CPU goes (20 busy TUI agents)
+Profile of the release app (`sample`, 5 s, 20 × tui-agent): the app process
+is ~17 % of a core; almost all of it is in WebKit IPC / tao event-loop
+plumbing for the output channels (`tauri::ipc::channel` → `send_event`), the
+holder socket threads and `term-out` coalescing; **vt100 feed + detection
+was ~10 samples of ~79 000 (≈ 0.01 %)**. The parser is not the bottleneck,
+and detection already runs on a dirty flag (ticker, 400 ms, only after new
+output: ≤ 2.5×/s per agent, never per chunk). The rest of the tree's CPU is
+WebContent (xterm.js parsing + DOM rendering of the visible panes).
+
+`screen_bench` (3000 frames, 1.1 KB/frame, 30 × 100, M-series):
+
+| | vt100 0.16 | alacritty_terminal 0.26 |
+|---|---|---|
+| feed | 3.96 µs/frame, 1 alloc (3.2 KB) | 3.63 µs/frame, 0 allocs |
+| feed + text + rules every 4th frame | 12.2 µs/frame, 71 allocs (22.6 KB) | 8.3 µs/frame, 10.5 allocs (4.4 KB) |
+| 20 agents × 10 frames/s | 0.24 % of a core | 0.17 % of a core |
+
+Switched to alacritty_terminal anyway (faster, allocation-free feed, and it
+gives the styled screen the Wall needs); `Screen` stays the abstraction
+(detection-interface.md). End-to-end app CPU with 20 tui agents did not
+change measurably (17.5 → 17.6 %): as predicted, the parser never mattered.
+
+### Part B — Wall tiles from the backend's screen copy
+Wall tiles no longer run xterm.js: the engine sends `ScreenFrame`s (styled
+runs; full screen, then changed rows; ≤ 10/s; only for tiles on screen) and
+`src/terminal/screenView.ts` draws them as xterm's DOM renderer would
+(wall.md). Fidelity, checked in headless Chrome with the mock UI: the
+Wall before/after (dark + light, DPR 2) differs only in the mock's own
+time-dependent sidebar row and xterm's blank-cursor quirk (fixed); a
+style torture screen (16/256/truecolor, bold-bright, dim, inverse, all
+underline styles, strike, hidden, italic, wide CJK/emoji, tabs, cursor) and
+a tui-agent screen render **pixel-identical** to xterm at DPR 1 and 2,
+font 11 and 13, scale 0.5 / 0.7, in both themes — both from xterm's own
+buffer and from the Rust frames (cell-identical to xterm's buffer).
+
+Measured (release, off-screen bench window; footprint MB / CPU % of a core;
+3 runs each for 20 tui agents + Wall):
+
+| Scenario | Before | After |
+|---|---|---|
+| 20 tui agents + Wall: WebContent | 344 / 343 / 306 MB | 290 / 299 / 277 MB |
+| 20 tui agents + Wall: WebKit CPU | 52 / 56 / 28 % | 36 / 36 / 35 % |
+| 20 tui agents + Wall: tree CPU | 63 / 68 / 40 % | 48 / 49 / 46 % |
+| 20 tui agents + Wall: GPU process | 225 / 228 / 221 MB | 230 / 226 / 231 MB |
+| 20 bench agents + Wall: WebContent | 328 MB | 300 MB |
+| 20 tui agents (no Wall), app process | 57 MB, 17.5 % | 60 MB, 17.6 % |
+
+So: the Wall costs ~40–55 MB less WebContent memory and ~15–20 points less
+WebKit CPU with 20 busy agents (no xterm parse/render per tile; changed rows
+only, ≤ 10/s). **The ~220 MB in the GPU process did not move**: it is not
+xterm-specific. Any visible, frequently repainting text layer makes WebKit
+keep its tiles (pass 1: hiding `.xterm-screen` drops it to 16 MB), and the
+snapshot tiles repaint too. Next candidates: repaint Wall tiles less often
+(e.g. 2–4/s when not hovered), test whether `contain: paint` / one canvas
+for all tiles shrinks the tile cache, and check whether WebKit's GPU memory
+is per window area rather than per layer.

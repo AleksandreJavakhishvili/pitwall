@@ -1,10 +1,11 @@
 //! One agent's terminal, whatever provider it comes from (architecture.md
 //! §2.3): the provider supplies a raw byte pipe ([`TermIo`]); this side keeps
 //! everything Pitwall does with the bytes, written once: ring + replay,
-//! subscribers, the headless `Screen`, activity/echo timing, paste sending
-//! and the redraw nudge.
+//! subscribers, the headless `Screen` (and styled frames of it for the
+//! Wall), activity/echo timing, paste sending and the redraw nudge.
 
 mod fanout;
+mod frames;
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -18,6 +19,7 @@ use crate::error::{ErrorCode, PwError, Result};
 use crate::provider::{ExitInfo, TermIo, TermSize};
 use fanout::Fanout;
 pub use fanout::{coalesce, OutputSink};
+pub use frames::{full_frame, FrameSink};
 
 const RING_CAP: usize = 1024 * 1024;
 pub const DEFAULT_ROWS: u16 = TermSize::DEFAULT.rows;
@@ -52,6 +54,8 @@ pub struct TermHost {
     /// The connection ended (the agent exited, or — when `!eof_is_exit` —
     /// only the attachment dropped).
     ended: AtomicBool,
+    /// Who wants styled frames of the screen: woken on every change.
+    watchers: Mutex<Vec<frames::Watcher>>,
     clock: Arc<dyn Clock>,
 }
 
@@ -76,6 +80,7 @@ impl TermHost {
             last_activity: AtomicU64::new(0),
             last_input: AtomicU64::new(0),
             ended: AtomicBool::new(false),
+            watchers: Mutex::new(Vec::new()),
             clock,
         });
         if !history.is_empty() {
@@ -106,6 +111,7 @@ impl TermHost {
     fn on_output(&self, chunk: &[u8], live: bool) {
         lock(&self.output).push(chunk);
         lock(&self.screen).feed(chunk);
+        self.screen_changed();
         let now = self.clock.mono_ms();
         self.output_seq.fetch_add(1, Ordering::Relaxed);
         if live && now.saturating_sub(self.last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
@@ -171,7 +177,32 @@ impl TermHost {
         self.touch_input();
         let _ = self.io.resize(size);
         lock(&self.screen).resize(size.rows, size.cols);
+        self.screen_changed();
         true
+    }
+
+    /// Stream styled frames of the screen to `sink` (the Wall): the whole
+    /// screen first, then the rows that changed, at most one frame per
+    /// `gap`. Returns an id for `unwatch_screen`.
+    pub fn watch_screen(self: &Arc<Self>, sink: FrameSink, gap: Duration) -> u64 {
+        static NEXT_WATCH: AtomicU64 = AtomicU64::new(1);
+        let id = NEXT_WATCH.fetch_add(1, Ordering::Relaxed);
+        if let Some(w) = frames::spawn(id, Arc::downgrade(self), sink, gap) {
+            lock(&self.watchers).push(w);
+        }
+        id
+    }
+
+    pub fn unwatch_screen(&self, id: u64) {
+        lock(&self.watchers).retain(|w| w.id != id);
+    }
+
+    /// Wake the frame watchers (and drop those whose thread has ended).
+    fn screen_changed(&self) {
+        let mut w = lock(&self.watchers);
+        if !w.is_empty() {
+            w.retain(|w| w.wake());
+        }
     }
 
     pub fn touch_input(&self) {
@@ -278,6 +309,32 @@ mod tests {
         assert_eq!(host.last_activity.load(Ordering::Relaxed), 10_000);
         assert!(host.screen_text().0.contains("before live"));
         assert_eq!(host.pid(), Some(7));
+    }
+
+    #[test]
+    fn screen_frames_while_watched() {
+        let clock = crate::testing::ManualClock::new(1);
+        let (term, ctl) = FakeTerm::new(TermSize::new(20, 3), None);
+        let host = TermHost::new(Box::new(term), TermSize::new(20, 3), clock);
+        let got = Arc::new(Mutex::new(Vec::<pitwall_proto::ScreenFrame>::new()));
+        let g = got.clone();
+        let sink = Box::new(move |f: &pitwall_proto::ScreenFrame| {
+            g.lock().unwrap().push(f.clone());
+            true
+        });
+        let id = host.watch_screen(sink, Duration::from_millis(5));
+        assert!(wait_until(|| got.lock().unwrap().len() == 1), "the whole screen first");
+        assert!(got.lock().unwrap()[0].full);
+        ctl.output(b"hello");
+        let has_hello = |f: &pitwall_proto::ScreenFrame| !f.full && f.lines.iter().any(|l| l.1.iter().any(|r| r.0 == "hello"));
+        assert!(wait_until(|| got.lock().unwrap().iter().any(has_hello)));
+        host.unwatch_screen(id);
+        let n = got.lock().unwrap().len();
+        ctl.output(b" more");
+        assert!(wait_until(|| host.screen_text().0.contains("more")));
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(got.lock().unwrap().len(), n, "no frames after unwatch");
+        assert!(lock(&host.watchers).is_empty());
     }
 
     #[test]

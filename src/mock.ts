@@ -795,6 +795,42 @@ export function createMockApi(): Api {
       set.add(onData);
       return () => set!.delete(onData);
     },
+    async watchScreen(agentId, onFrame) {
+      // The real backend keeps a screen copy per agent; here an unopened
+      // xterm stands in for it (same frames as the backend would send).
+      const a = find(agentId);
+      if (!a.running) throw "agent is not running";
+      const [{ Terminal }, { Unicode11Addon }, { frameFromXterm }] = await Promise.all([
+        import("@xterm/xterm"),
+        import("@xterm/addon-unicode11"),
+        import("./terminal/xtermFrames"),
+      ]);
+      const term = new Terminal({ cols: a.cols || 80, rows: a.rows || 24, scrollback: 0, allowProposedApi: true });
+      term.loadAddon(new Unicode11Addon());
+      term.unicode.activeVersion = "11";
+      let dirty = true;
+      const feed = (b: Uint8Array) => term.write(b, () => (dirty = true));
+      term.write(outBuf.get(agentId) ?? "", () => (dirty = true));
+      let set = outSubs.get(agentId);
+      if (!set) outSubs.set(agentId, (set = new Set()));
+      set.add(feed);
+      const send = () => {
+        const cur = agents.find((x) => x.id === agentId);
+        if (cur && (cur.cols !== term.cols || cur.rows !== term.rows) && cur.cols && cur.rows) {
+          term.resize(cur.cols, cur.rows);
+          dirty = true;
+        }
+        if (!dirty) return;
+        dirty = false;
+        onFrame(frameFromXterm(term));
+      };
+      const timer = window.setInterval(send, 100);
+      return () => {
+        window.clearInterval(timer);
+        set!.delete(feed);
+        term.dispose();
+      };
+    },
     async writeInput(agentId, data) {
       const a = find(agentId);
       if (!a.running) return;

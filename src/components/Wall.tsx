@@ -6,7 +6,9 @@ import type { UiState } from "../state/workspace";
 import { useActions } from "../lib/actions";
 import { STATUS_WORD } from "../lib/status";
 import { agentDragSource } from "../lib/dnd";
-import { disposeWallViewers, mountWallView } from "../terminal/registry";
+import { cursorShown, mountStoppedWallView, tileFontOf } from "../terminal/registry";
+import { ScreenView } from "../terminal/screenView";
+import { api } from "../api";
 import { StatusGlyph } from "./StatusGlyph";
 import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
@@ -32,9 +34,6 @@ export function Wall({ groups, ui, onExit }: { groups: ProjectGroup[]; ui: UiSta
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onExit]);
-
-  // Leaving the Wall drops the view-only instances and their channels.
-  useEffect(() => () => disposeWallViewers(), []);
 
   return (
     <div className="wall">
@@ -86,14 +85,55 @@ function WallTileImpl({ agent: a, fontSize }: { agent: AgentView; fontSize: numb
   const cols = a.cols || 80;
   const rows = a.rows || 24;
 
-  // Mount the terminal (own instance if sizes match, else a view-only one).
+  const font = tileFontOf(a.id) ?? fontSize;
+  const fontRef = useRef(font);
+  fontRef.current = font;
+  const viewRef = useRef<ScreenView | null>(null);
+  const visible = useVisible(bodyRef);
+
+  // A running agent is drawn from the backend's screen copy (no xterm.js in
+  // the Wall, docs/spec/perf.md); a stopped one shows its own terminal's
+  // last screen if this window has it.
   useLayoutEffect(() => {
     const el = scaleRef.current;
     if (!el) return;
-    const v = mountWallView(a.id, el, { cols, rows, running: a.running });
-    setHasView(!!v);
-    return () => v?.release();
-  }, [a.id, cols, rows, a.running]);
+    if (!a.running) {
+      const v = mountStoppedWallView(a.id, el);
+      setHasView(!!v);
+      return () => v?.release();
+    }
+    const view = new ScreenView(fontRef.current, () => cursorShown(a.id));
+    viewRef.current = view;
+    el.appendChild(view.host);
+    setHasView(true);
+    return () => {
+      viewRef.current = null;
+      view.dispose();
+    };
+  }, [a.id, a.running]);
+
+  useEffect(() => viewRef.current?.setFont(font), [font]);
+
+  // Frames only while the tile is on screen.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!a.running || !visible || !view) return;
+    let stop: (() => void) | null = null;
+    let gone = false;
+    api
+      .watchScreen(a.id, (f) => view.apply(f))
+      .then((unwatch) => {
+        if (gone) unwatch();
+        else stop = unwatch;
+      })
+      .catch(() => {
+        if (!gone) setHasView(false);
+      });
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, [a.id, a.running, visible]);
 
   // Scale to the tile width; anchored bottom-left so the bottom rows stay visible.
   useEffect(() => {
@@ -101,7 +141,7 @@ function WallTileImpl({ agent: a, fontSize }: { agent: AgentView; fontSize: numb
     const el = scaleRef.current;
     if (!body || !el) return;
     const apply = () => {
-      const screen = el.querySelector<HTMLElement>(".xterm-screen");
+      const screen = el.querySelector<HTMLElement>(".wall-snap-screen, .xterm-screen");
       const natW = screen?.offsetWidth ?? 0;
       if (!natW) return;
       const s = Math.min(1, Math.max(MIN_SCALE, body.clientWidth / natW));
@@ -116,7 +156,7 @@ function WallTileImpl({ agent: a, fontSize }: { agent: AgentView; fontSize: numb
       ro.disconnect();
       window.clearInterval(t);
     };
-  }, [a.id, cols, rows, fontSize]);
+  }, [a.id, cols, rows, font, a.running]);
 
   return (
     <div
@@ -150,4 +190,23 @@ function WallTileImpl({ agent: a, fontSize }: { agent: AgentView; fontSize: numb
       </div>
     </div>
   );
+}
+
+/** Whether `ref` is on screen (or close to it) in the Wall's scroller. */
+function useVisible(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), {
+      root: el.closest(".wall-scroll"),
+      rootMargin: "200px 0px",
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref]);
+  return visible;
 }

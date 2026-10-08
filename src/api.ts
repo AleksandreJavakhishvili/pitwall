@@ -24,6 +24,7 @@ import type {
   RunningElsewhere,
 } from "./types";
 
+import type { ScreenFrame } from "./gen/ScreenFrame";
 import { tauriReviewApi, type ReviewApi } from "./reviewTypes";
 import { tauriWorktreesApi, type WorktreesApi } from "./worktreesApi";
 
@@ -41,6 +42,9 @@ export interface Api extends ReviewApi, WorktreesApi {
   createForm(provider: string, machine: string): Promise<CreateForm>;
   /** Replays buffered output, then streams raw PTY bytes. Returns a detach fn (local only). */
   attachOutput(agentId: string, onData: (bytes: Uint8Array) => void): Promise<Unlisten>;
+  /** Styled frames of the agent's screen (the Wall's view-only tiles): the whole
+   * screen first, then changed rows, ≤ ~10/s. Returns an unwatch fn. */
+  watchScreen(agentId: string, onFrame: (frame: ScreenFrame) => void): Promise<Unlisten>;
   writeInput(agentId: string, data: string): Promise<void>;
   resize(agentId: string, cols: number, rows: number): Promise<void>;
   sendPrompt(agentId: string, text: string): Promise<void>;
@@ -168,6 +172,17 @@ async function createTauriApi(): Promise<Api> {
         if (typeof subscriptionId === "number") {
           invoke("detach_output", { agentId, subscriptionId }).catch(() => {});
         }
+      };
+    },
+    async watchScreen(agentId, onFrame) {
+      let live = true;
+      const channel = new Channel<ScreenFrame>((frame) => {
+        if (live) onFrame(frame);
+      });
+      const watchId = await invoke<number>("watch_screen", { agentId, onFrame: channel });
+      return () => {
+        live = false;
+        invoke("unwatch_screen", { agentId, watchId }).catch(() => {});
       };
     },
     writeInput: (agentId, data) => invoke("write_input", { agentId, data }),

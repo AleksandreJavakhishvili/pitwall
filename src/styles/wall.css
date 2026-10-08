@@ -99,6 +99,12 @@
 .wall-scale .xterm-helper-textarea {
   display: none;
 }
+/* Snapshot tiles (terminal/screenView.ts): xterm's DOM renderer's span rule. */
+.wall-snap-rows span {
+  display: inline-block;
+  height: 100%;
+  vertical-align: top;
+}
 .wall-off {
   position: absolute;
   inset: 0;

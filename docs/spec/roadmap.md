@@ -49,15 +49,21 @@ agents plug in without touching the rest. Design first, review, then build.
   architecture.md §9 decision 7 and api.md `host_info`).
 - DONE: performance pass 1 with hard budgets → [perf.md](perf.md): idle, cold
   start and per-agent memory within budget; 20 agents 882 → 613 MB, CPU 68 → 42 %.
-- Performance pass 2 (still over budget / unverified):
-  - ~220 MB in WebKit's GPU process as soon as any terminal is visible
-    (independent of agent count): audit compositing layers, continuous
-    animations (pulse dots, blocked glow) forcing repaints, xterm DOM/canvas
-    renderer cost, oversized canvases.
+- DONE: performance pass 2 → [perf.md](perf.md) "Pass 2": headless screens on
+  alacritty_terminal behind `Screen` (the parser was ~0.01 % of app CPU, not
+  the bottleneck); Wall tiles drawn from the backend's screen copy instead of
+  xterm.js (pixel-identical; Wall WebContent −40–55 MB, WebKit CPU −15–20
+  points with 20 busy agents).
+- Performance pass 3 (still over budget / unverified):
+  - ~220 MB in WebKit's GPU process as soon as any terminal (or Wall tile) is
+    visible and repainting (independent of agent count, and not xterm-specific:
+    snapshot tiles cost the same): audit compositing layers, repaint rate,
+    continuous animations (pulse dots, blocked glow), `contain: paint`.
   - Monaco's ~100 MB of code stays resident after Review closes: host Review in
     a separate lightweight webview/window that is destroyed on close.
-  - CPU 26–42 % with 20 busy agents: profile PTY → vt100 screen feed + detection
-    per byte, output batching to the webview, React updates.
+  - CPU with 20 busy agents: the app's share is WebKit IPC for the output
+    channels (not parsing or detection); WebContent's is xterm.js in visible
+    panes. Batch harder for panes that aren't focused; React updates.
   - Visual check that 20 agents + Wall shows no blank tiles and scrolls smoothly.
   - Keep cold start < 1 s with the login-PATH probe (now non-blocking).
   - Per-window cost (each window is its own WebKit process) and agw polling cost.

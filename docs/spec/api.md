@@ -10,6 +10,8 @@
 | `create_agent` | `req: CreateAgentRequest` | `AgentView` (its project joins the project list if new → `projects-changed`) |
 | `attach_output` | `agentId, onData: Channel<ArrayBuffer>` | `number` subscription id (replays buffered output, then streams raw PTY bytes) |
 | `detach_output` | `agentId, subscriptionId` | `void` (unknown/restarted agent is not an error) |
+| `watch_screen` | `agentId, onFrame: Channel<ScreenFrame>` | `number` watch id (the agent's screen as styled text for Wall tiles: whole screen first, then changed rows, ≤ 10 frames/s; wall.md) |
+| `unwatch_screen` | `agentId, watchId` | `void` (unknown/restarted agent is not an error) |
 | `write_input` | `agentId, data: string` | `void` |
 | `resize` | `agentId, cols, rows` | `void` (also remembered on the agent, even while it isn't running, for its next start) |
 | `send_prompt` | `agentId, text` | `void` (bracketed paste + Enter) |
