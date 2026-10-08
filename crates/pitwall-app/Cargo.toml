@@ -1,0 +1,37 @@
+[package]
+name = "pitwall-app"
+version = "0.1.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pitwall's native app (GPUI): hosts pitwall-core's Engine in-process, like src-tauri, and draws the UI with GPUI. Replaces the Tauri app once it reaches feature parity (docs/spec/gpui/README.md)."
+
+[[bin]]
+name = "pitwall-app"
+path = "src/main.rs"
+
+[features]
+# Compile GPUI's Metal shaders when the app starts instead of at build time:
+# builds need no Metal toolchain (Xcode 26 ships it as a separate download).
+# Release bundles turn it off (`--no-default-features`) for precompiled
+# shaders (docs/spec/gpui/packaging.md).
+default = ["runtime-shaders"]
+runtime-shaders = ["gpui/runtime_shaders"]
+
+[dependencies]
+# Zed's UI framework, Apache-2.0. Pinned exactly: GPUI's API changes between
+# releases (docs/spec/gpui/README.md "Version and licensing"). Only `gpui`
+# itself: Zed's other crates (terminal, editor, ui, workspace, …) are GPL-3.0.
+gpui = "=0.2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The engine-to-UI event channel (MIT OR Apache-2.0; already in the tree via gpui).
+futures = "0.3"
+pitwall-core = { path = "../pitwall-core" }
+pitwall-providers = { path = "../pitwall-providers" }
+pitwall-daemon = { path = "../pitwall-daemon" }
+pitwall-proto = { path = "../pitwall-proto" }
+pitwall-client = { path = "../pitwall-client" }
+
+[dev-dependencies]
+gpui = { version = "=0.2.2", features = ["test-support"] }
+pitwall-core = { path = "../pitwall-core", features = ["testing"] }

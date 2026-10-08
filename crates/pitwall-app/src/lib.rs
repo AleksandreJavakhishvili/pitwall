@@ -1,0 +1,182 @@
+//! Pitwall's native app, drawn with GPUI (docs/spec/gpui/README.md). It
+//! hosts `pitwall-core`'s Engine in-process exactly as the Tauri app does
+//! (`host`), hears it through a channel (`bridge`) into GPUI entities
+//! (`agents`), and draws windows from them (`ui`). Phase 0: the shell — one
+//! window that remembers its bounds, the app menu, theme tokens and a live
+//! sidebar of agents; terminals come from `pitwall-term-view`.
+
+pub mod agents;
+pub mod bridge;
+pub mod home;
+pub mod host;
+pub mod menu;
+pub mod theme;
+pub mod ui;
+pub mod window_state;
+
+use std::path::PathBuf;
+
+use gpui::{
+    px, size, App, AppContext, Application, Bounds, Global, SharedString, TitlebarOptions,
+    WindowBounds, WindowHandle, WindowOptions,
+};
+
+use pitwall_core::paths::{tildify, Paths};
+
+use crate::agents::AgentStore;
+use crate::bridge::Bridge;
+use crate::host::Host;
+use crate::menu::{OpenSettings, Quit, QuitAndStopAgents};
+use crate::theme::{Mode, Theme};
+use crate::ui::{Content, MainView};
+
+/// The app's own state: the hosted engine (none when refused), what windows
+/// show, and the main window.
+struct AppState {
+    host: Option<Host>,
+    content: Content,
+    /// The data folder (`None` when refused: nothing is written anywhere).
+    root: Option<PathBuf>,
+    main: Option<WindowHandle<MainView>>,
+}
+
+impl Global for AppState {}
+
+pub fn run() {
+    let chosen = home::choose(&home::Env::current(), Paths::default_root(), home::answers);
+    // PATH as the user's terminal has it, for everything agents start (an app
+    // opened from the Dock gets a minimal one). Tauri: platform::prepare_env.
+    let _probe =
+        pitwall_core::shell::adopt_login_path(chosen.as_ref().ok().map(Paths::login_path_file));
+
+    let app = Application::new();
+    // macOS: closing the window keeps the app (and the Dock icon); the Dock
+    // brings the window back. Elsewhere the last window quits (the Windows
+    // tray arrives in phase 7).
+    app.on_reopen(|cx| {
+        show_main(cx);
+    });
+    app.run(move |cx: &mut App| {
+        cx.set_global(Theme::for_mode(Mode::for_appearance(
+            cx.window_appearance(),
+        )));
+        menu::register(cx);
+
+        let state = match chosen {
+            Ok(paths) => {
+                let (bridge, rx) = Bridge::new();
+                let host = Host::start(paths.clone(), bridge);
+                let store = cx.new(|_| AgentStore::new(host.engine.views()));
+                AgentStore::listen(&store, rx, cx);
+                let data_dir = SharedString::from(tildify(&paths.root().to_string_lossy()));
+                AppState {
+                    host: Some(host),
+                    content: Content::Live { store, data_dir },
+                    root: Some(paths.root().into()),
+                    main: None,
+                }
+            }
+            Err(refusal) => {
+                eprintln!("pitwall: {}", refusal.title());
+                for line in refusal.explanation() {
+                    eprintln!("  {line}");
+                }
+                AppState {
+                    host: None,
+                    content: Content::Refused(refusal),
+                    root: None,
+                    main: None,
+                }
+            }
+        };
+        cx.set_global(state);
+
+        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.on_action(quit_and_stop_agents);
+        cx.on_action(|_: &OpenSettings, cx| {
+            let main = show_main(cx);
+            let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
+        });
+        // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
+        cx.on_app_quit(|cx| {
+            if let Some(host) = cx.global_mut::<AppState>().host.as_mut() {
+                host.shutdown();
+            }
+            async {}
+        })
+        .detach();
+        cx.on_window_closed(|cx| {
+            cx.global_mut::<AppState>().main = None;
+            if !cfg!(target_os = "macos") && cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+
+        show_main(cx);
+        cx.activate(true);
+    });
+}
+
+/// The main window, opened where it last was if it isn't open.
+fn show_main(cx: &mut App) -> WindowHandle<MainView> {
+    if let Some(main) = cx.global::<AppState>().main {
+        if main
+            .update(cx, |_, window, _| window.activate_window())
+            .is_ok()
+        {
+            return main;
+        }
+    }
+    let state = cx.global::<AppState>();
+    let (content, root) = (state.content.clone(), state.root.clone());
+    let displays: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
+    let bounds = root
+        .as_deref()
+        .and_then(window_state::load)
+        .filter(|s| s.visible_on(&displays))
+        .map(window_state::Saved::to_bounds)
+        .unwrap_or_else(|| {
+            let (w, h) = window_state::DEFAULT_SIZE;
+            WindowBounds::Windowed(Bounds::centered(None, size(px(w), px(h)), cx))
+        });
+    let (min_w, min_h) = window_state::MIN_SIZE;
+    let options = WindowOptions {
+        window_bounds: Some(bounds),
+        titlebar: Some(TitlebarOptions {
+            title: Some("Pitwall".into()),
+            ..Default::default()
+        }),
+        window_min_size: Some(size(px(min_w), px(min_h))),
+        app_id: Some("dev.pitwall.app".into()),
+        ..Default::default()
+    };
+    let main = cx
+        .open_window(options, |window, cx| {
+            cx.new(|cx| MainView::new(content, root, window, cx))
+        })
+        .expect("open the main window");
+    cx.global_mut::<AppState>().main = Some(main);
+    main
+}
+
+/// End every agent (off the main thread: stopping waits on holders), then quit.
+fn quit_and_stop_agents(_: &QuitAndStopAgents, cx: &mut App) {
+    let Some(engine) = cx
+        .global::<AppState>()
+        .host
+        .as_ref()
+        .map(|h| h.engine.clone())
+    else {
+        cx.quit();
+        return;
+    };
+    let stopping = cx
+        .background_executor()
+        .spawn(async move { pitwall_core::engine::lifecycle::stop_all(&engine) });
+    cx.spawn(async move |cx| {
+        stopping.await;
+        let _ = cx.update(|cx| cx.quit());
+    })
+    .detach();
+}
