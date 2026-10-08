@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::{Cmd, Exec, FileKind, OnChange, Out, PwError, Result, Stat, WatchSpec, Watching};
+use super::{Cmd, DirEntry, Exec, FileKind, OnChange, Out, PwError, Result, Stat, WatchSpec, Watching};
 use crate::platform;
 
 /// This machine.
@@ -61,7 +61,7 @@ impl Exec for LocalExec {
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
-                Ok(None) if deadline.is_none_or(|d| Instant::now() < d) => {
+                Ok(None) if !cmd.cancelled() && deadline.is_none_or(|d| Instant::now() < d) => {
                     std::thread::sleep(nap);
                     nap = (nap * 2).min(Duration::from_millis(25));
                 }
@@ -71,6 +71,7 @@ impl Exec for LocalExec {
                     let _ = child.wait();
                     return Err(match res {
                         Err(e) => PwError::from(e).context(program),
+                        _ if cmd.cancelled() => PwError::other(format!("{program}: cancelled")),
                         _ => PwError::other(format!("{program}: timed out after {}s", cmd.timeout.as_secs_f32())),
                     });
                 }
@@ -119,16 +120,7 @@ impl Exec for LocalExec {
     fn stat(&self, path: &str) -> Result<Option<Stat>> {
         match std::fs::symlink_metadata(path) {
             Ok(m) => {
-                let t = m.file_type();
-                let kind = if t.is_symlink() {
-                    FileKind::Symlink
-                } else if t.is_dir() {
-                    FileKind::Dir
-                } else if t.is_file() {
-                    FileKind::File
-                } else {
-                    FileKind::Other
-                };
+                let kind = kind_of(m.file_type());
                 Ok(Some(Stat { kind, len: m.len() }))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -152,6 +144,29 @@ impl Exec for LocalExec {
 
     fn watch(&self, spec: &WatchSpec, on_change: OnChange) -> Result<Box<dyn Watching>> {
         super::watch::watch(spec, on_change)
+    }
+
+    fn list_dir(&self, path: &str) -> Result<Vec<DirEntry>> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(path).map_err(|e| err(path, e))? {
+            let entry = entry.map_err(|e| err(path, e))?;
+            let kind = entry.file_type().map_or(FileKind::Other, kind_of);
+            out.push(DirEntry { name: entry.file_name().to_string_lossy().into_owned(), kind });
+        }
+        Ok(out)
+    }
+}
+
+/// What a (not followed) entry is.
+fn kind_of(t: std::fs::FileType) -> FileKind {
+    if t.is_symlink() {
+        FileKind::Symlink
+    } else if t.is_dir() {
+        FileKind::Dir
+    } else if t.is_file() {
+        FileKind::File
+    } else {
+        FileKind::Other
     }
 }
 
@@ -187,6 +202,37 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
         // A timeout too large for a deadline means none.
         assert!(LocalExec.run(&Cmd::new(&["true"]).timeout(Duration::MAX)).unwrap().ok());
+    }
+
+    #[test]
+    fn cancel_kills_its_own_child() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let started = Instant::now();
+        let res = std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_millis(100));
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
+            LocalExec.run(&Cmd::new(&["sleep", "5"]).cancel(&flag))
+        });
+        assert!(res.unwrap_err().contains("cancelled"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn lists_a_folder_without_following_links() {
+        let dir = TempDir::new("exec-list");
+        let root = dir.path().to_string_lossy().into_owned();
+        LocalExec.write_file(&join(&root, "a.txt"), b"a").unwrap();
+        LocalExec.write_file(&join(&root, "sub/b.txt"), b"b").unwrap();
+        let mut got = LocalExec.list_dir(&root).unwrap();
+        got.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(got, [
+            DirEntry { name: "a.txt".into(), kind: FileKind::File },
+            DirEntry { name: "sub".into(), kind: FileKind::Dir }
+        ]);
+        assert!(LocalExec.list_dir(&join(&root, "a.txt")).is_err(), "not a folder");
+        assert!(LocalExec.list_dir(&join(&root, "gone")).is_err());
     }
 
     #[test]

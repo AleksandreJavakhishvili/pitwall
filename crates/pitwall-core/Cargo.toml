@@ -19,6 +19,8 @@ toml = "1.1.6"
 # (`exec::LocalExec::watch`): agents' changes are refreshed when their files
 # change instead of being polled.
 notify = "8"
+# Match ranges for git grep results (explorer search); already in the tree via pitwall-detect.
+regex = "1"
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
 

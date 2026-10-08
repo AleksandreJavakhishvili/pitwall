@@ -163,6 +163,9 @@ pub struct ProviderCaps {
     /// to the local process table (terminals: recognising agents started by
     /// hand; worktree discovery by process cwd).
     pub local_process: bool,
+    /// The agent's files are on this computer's file system: their paths
+    /// can be handed to the user's editor ("Open in editor").
+    pub local_files: bool,
     /// How often the engine may refresh an agent's git changes, in ms; 0 =
     /// the engine's default (every few seconds while the agent works or
     /// prints). A provider whose `exec` is slow (one remote round trip per

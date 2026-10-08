@@ -125,6 +125,38 @@ pub fn hide_console(cmd: &mut std::process::Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
+/// Start the user's program (their editor) and leave it running on its own:
+/// no stdio, the app's login PATH, never waited for here (a thread reaps
+/// it) and never killed.
+pub fn spawn_detached(argv: &[String]) -> io::Result<()> {
+    let (program, args) = argv.split_first().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty command"))?;
+    let mut c = std::process::Command::new(program);
+    c.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    if let Some(path) = crate::shell::spawn_path() {
+        c.env("PATH", path);
+    }
+    hide_console(&mut c);
+    let mut child = c.spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+/// A symlink at `link` to `target` (tests; needs Developer Mode or admin).
+#[cfg(test)]
+pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
+    if target.is_dir() {
+        std::os::windows::fs::symlink_dir(target, link)
+    } else {
+        std::os::windows::fs::symlink_file(target, link)
+    }
+}
+
+/// Opens a file with its associated program ("Open in editor" without an
+/// editor set or found).
+pub const SYSTEM_OPENER: &[&str] = &["explorer.exe"];
+
 // ---------------------------------------------------------------- PATH and shell
 
 /// A string value from the registry (environment strings expanded).

@@ -16,7 +16,7 @@ use crate::clock::Clock;
 use crate::engine::{Deps, Engine, Shared};
 use crate::events::{Event, EventSink};
 use crate::error::{PwError, Result};
-use crate::exec::{Cmd, Exec, FileKind, LocalExec, Out, Stat};
+use crate::exec::{Cmd, DirEntry, Exec, FileKind, LocalExec, Out, Stat};
 use crate::model::AgentRecord;
 use crate::paths::Paths;
 use crate::provider::{MachineId, ProviderId};
@@ -195,6 +195,8 @@ fn matches(pattern: &[&str], argv: &[String]) -> bool {
 enum Entry {
     File(Vec<u8>),
     Dir,
+    /// A symlink to this (absolute) path.
+    Link(String),
 }
 
 /// An argv pattern and what running a matching command returns.
@@ -253,6 +255,29 @@ impl FakeExec {
         self
     }
 
+    /// A symlink at `path` pointing to the absolute path `target`.
+    pub fn link(&self, path: &str, target: &str) -> &Self {
+        guard(&self.files).insert(path.trim_end_matches('/').to_string(), Entry::Link(target.to_string()));
+        self
+    }
+
+    /// `path` with every symlink in it resolved (`None`: a dangling or
+    /// looping link).
+    fn resolve(&self, path: &str) -> Option<String> {
+        let mut path = path.trim_end_matches('/').to_string();
+        for _ in 0..40 {
+            let files = guard(&self.files);
+            let parts: Vec<&str> = path.split('/').collect();
+            let hit = (1..=parts.len()).find_map(|n| match files.get(&parts[..n].join("/")) {
+                Some(Entry::Link(t)) => Some((n, t.clone())),
+                _ => None,
+            });
+            let Some((n, target)) = hit else { return Some(path) };
+            path = std::iter::once(target.trim_end_matches('/')).chain(parts[n..].iter().copied()).collect::<Vec<_>>().join("/");
+        }
+        None
+    }
+
     /// A file's contents, if it exists.
     pub fn contents(&self, path: &str) -> Option<Vec<u8>> {
         match guard(&self.files).get(path) {
@@ -280,6 +305,7 @@ impl FakeExec {
         match files.get(path) {
             Some(Entry::File(_)) => Some(FileKind::File),
             Some(Entry::Dir) => Some(FileKind::Dir),
+            Some(Entry::Link(_)) => Some(FileKind::Symlink),
             // A folder that holds something exists implicitly.
             None => files.keys().any(|k| k.starts_with(&format!("{path}/"))).then_some(FileKind::Dir),
         }
@@ -296,6 +322,9 @@ impl Exec for FakeExec {
             stdin: cmd.stdin.map(<[u8]>::to_vec),
             timeout: cmd.timeout,
         });
+        if cmd.cancelled() {
+            return Err(PwError::other(format!("{}: cancelled", argv[0])));
+        }
         let scripts = guard(&self.scripts);
         let hit = scripts.iter().rev().find(|(p, _)| matches(&p.iter().map(String::as_str).collect::<Vec<_>>(), &argv));
         match hit {
@@ -305,10 +334,12 @@ impl Exec for FakeExec {
     }
 
     fn read_file(&self, path: &str, max: u64) -> Result<Option<Vec<u8>>> {
+        let Some(path) = self.resolve(path) else { return Ok(None) };
+        let path = path.as_str();
         match guard(&self.files).get(path) {
             Some(Entry::File(b)) => Ok(Some(b[..b.len().min(max as usize)].to_vec())),
             Some(Entry::Dir) => Err(PwError::other(format!("{path}: is a directory"))),
-            None => Ok(None),
+            Some(Entry::Link(_)) | None => Ok(None),
         }
     }
 
@@ -328,6 +359,10 @@ impl Exec for FakeExec {
                 Ok(())
             }
             Some(Entry::Dir) => Err(PwError::other(format!("{path}: is a directory"))),
+            Some(Entry::Link(_)) => {
+                files.remove(path);
+                Ok(())
+            }
             None => Err(PwError::other(format!("{path}: not found"))),
         }
     }
@@ -355,8 +390,8 @@ impl Exec for FakeExec {
     }
 
     fn real_path(&self, path: &str) -> Result<String> {
-        let p = path.trim_end_matches('/');
-        self.kind(p).map(|_| p.to_string()).ok_or_else(|| PwError::not_found(format!("{path}: not found")))
+        let p = self.resolve(path).filter(|p| self.kind(p).is_some());
+        p.ok_or_else(|| PwError::not_found(format!("{path}: not found")))
     }
 
     fn temp_dir(&self) -> Result<String> {
@@ -365,5 +400,21 @@ impl Exec for FakeExec {
 
     fn home(&self) -> Result<String> {
         Ok(FAKE_HOME.into())
+    }
+
+    fn list_dir(&self, path: &str) -> Result<Vec<DirEntry>> {
+        let dir = self.resolve(path).ok_or_else(|| PwError::not_found(format!("{path}: not found")))?;
+        if self.kind(&dir) != Some(FileKind::Dir) {
+            return Err(PwError::other(format!("{path}: not a directory")));
+        }
+        let prefix = format!("{dir}/");
+        let names: std::collections::BTreeSet<String> = guard(&self.files)
+            .keys()
+            .filter_map(|k| k.strip_prefix(&prefix))
+            .filter_map(|rest| rest.split('/').next())
+            .filter(|n| !n.is_empty())
+            .map(String::from)
+            .collect();
+        Ok(names.into_iter().map(|name| DirEntry { kind: self.kind(&format!("{prefix}{name}")).unwrap_or(FileKind::Other), name }).collect())
     }
 }

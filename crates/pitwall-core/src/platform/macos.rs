@@ -20,6 +20,9 @@ pub const HAS_DOCK: bool = true;
 pub const HAS_TRAY: bool = false;
 pub const MENU_BAR: crate::host::MenuBar = crate::host::MenuBar::App;
 pub const BADGE: crate::host::Badge = crate::host::Badge::Dock;
+/// Opens a file in the default text editor ("Open in editor" without an
+/// editor set or found).
+pub const SYSTEM_OPENER: &[&str] = &["open", "-t"];
 
 /// Everything Pitwall owns lives under ~/.pitwall, or under `$PITWALL_HOME`
 /// when set.

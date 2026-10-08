@@ -30,7 +30,7 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use pitwall_core::exec::{Cmd, Exec, FileKind, Out, Stat};
+use pitwall_core::exec::{Cmd, DirEntry, Exec, FileKind, Out, Stat};
 use pitwall_core::provider::{PwError, Result};
 
 use super::{parse, sq};
@@ -268,6 +268,23 @@ impl AgwExec {
     }
 }
 
+/// `list_dir`'s output: `<L|D|F|O> <name>\0` per entry.
+fn parse_list(out: &[u8]) -> Vec<DirEntry> {
+    out.split(|&b| b == 0)
+        .filter_map(|rec| {
+            let rec = String::from_utf8_lossy(rec);
+            let (k, name) = rec.split_once(' ')?;
+            let kind = match k {
+                "L" => FileKind::Symlink,
+                "D" => FileKind::Dir,
+                "F" => FileKind::File,
+                _ => FileKind::Other,
+            };
+            Some(DirEntry { name: name.to_string(), kind }).filter(|e| !e.name.is_empty())
+        })
+        .collect()
+}
+
 fn to_out(f: Frame, cmd: &Cmd) -> Result<Out> {
     let program = cmd.argv.first().copied().unwrap_or_default();
     match f.ended {
@@ -375,6 +392,19 @@ impl Exec for AgwExec {
         let out = self.file_op(path, body, None)?;
         let text = String::from_utf8_lossy(&out);
         Ok(text.strip_suffix('\n').unwrap_or(&text).to_string())
+    }
+
+    fn list_dir(&self, path: &str) -> Result<Vec<DirEntry>> {
+        // Shell builtins only (no process per entry): fast on big folders.
+        let p = sq(path);
+        let body = format!(
+            "[ -d {p} ] || {{ printf '%s: Not a directory\\n' {p} >&2; exit 1; }}; cd -- {p} || exit 1; \
+             for f in * .[!.]* ..?*; do \
+             if [ -L \"$f\" ]; then k=L; elif [ -d \"$f\" ]; then k=D; elif [ -f \"$f\" ]; then k=F; \
+             elif [ -e \"$f\" ]; then k=O; else continue; fi; printf '%s %s\\000' \"$k\" \"$f\"; done"
+        );
+        let out = self.file_op(path, body, None)?;
+        Ok(parse_list(&out))
     }
 
     fn temp_dir(&self) -> Result<String> {

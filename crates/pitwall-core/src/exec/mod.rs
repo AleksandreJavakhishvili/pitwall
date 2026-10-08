@@ -12,6 +12,7 @@ mod local;
 pub(crate) mod watch;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 pub use local::LocalExec;
@@ -35,11 +36,15 @@ pub struct Cmd<'a> {
     pub stdin: Option<&'a [u8]>,
     /// The program is killed after this long (`run` then fails).
     pub timeout: Duration,
+    /// Set to stop waiting for it: [`LocalExec`] kills it and `run` fails.
+    /// An exec that can't stop a running program may ignore it (the
+    /// caller then drops the answer).
+    pub cancel: Option<&'a AtomicBool>,
 }
 
 impl<'a> Cmd<'a> {
     pub fn new(argv: &'a [&'a str]) -> Cmd<'a> {
-        Cmd { argv, cwd: None, env: &[], stdin: None, timeout: LONG }
+        Cmd { argv, cwd: None, env: &[], stdin: None, timeout: LONG, cancel: None }
     }
     pub fn cwd(self, cwd: &'a str) -> Cmd<'a> {
         Cmd { cwd: Some(cwd), ..self }
@@ -52,6 +57,13 @@ impl<'a> Cmd<'a> {
     }
     pub fn timeout(self, timeout: Duration) -> Cmd<'a> {
         Cmd { timeout, ..self }
+    }
+    pub fn cancel(self, flag: &'a AtomicBool) -> Cmd<'a> {
+        Cmd { cancel: Some(flag), ..self }
+    }
+    /// [`cancel`](Self::cancel) was set.
+    pub fn cancelled(&self) -> bool {
+        self.cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
     }
 }
 
@@ -129,6 +141,13 @@ pub trait Watching: Send + Sync {
     fn set_ignored(&self, _ignored: &[String]) {}
 }
 
+/// One entry of a folder ([`Exec::list_dir`]); symlinks are not followed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirEntry {
+    pub name: String,
+    pub kind: FileKind,
+}
+
 /// Run programs and read/write files on one machine. Errors carry a code
 /// and a human-readable message. Blocking, like everything in the core.
 pub trait Exec: Send + Sync {
@@ -153,6 +172,13 @@ pub trait Exec: Send + Sync {
     fn temp_dir(&self) -> Result<String>;
     /// The user's home folder there (for "~/…" display).
     fn home(&self) -> Result<String>;
+
+    /// The entries of folder `path` (not `.` and `..`), in no particular
+    /// order. Fails when it isn't a folder. An exec that can't list folders
+    /// answers `Unsupported`.
+    fn list_dir(&self, path: &str) -> Result<Vec<DirEntry>> {
+        Err(PwError::unsupported(format!("{path}: listing folders isn't supported here")))
+    }
 
     /// Several commands that don't depend on each other, each answered like
     /// [`run`](Self::run), in order. A remote exec runs them in one round
