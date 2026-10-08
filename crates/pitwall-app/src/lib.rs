@@ -9,6 +9,7 @@ pub mod agents;
 pub mod approvals;
 pub mod bridge;
 pub mod explorer;
+pub mod frame_stats;
 pub mod home;
 pub mod kit;
 pub mod host;

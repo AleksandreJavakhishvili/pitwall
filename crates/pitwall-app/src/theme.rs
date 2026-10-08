@@ -854,7 +854,9 @@ pub fn chrome(t: &Theme, _cx: &App) -> Theme {
 pub fn panel(t: &Theme, cx: &App) -> Theme {
     let mut out = t.chrome();
     if glass_regions(cx) {
-        out.surface = gpui::transparent_black();
+        // The slab is its own glass piece: no hairline of our own, and only
+        // a light tint (`--g-surface`) so text isn't drawn on bare
+        // transparency, where its antialiasing comes out hollow.
         out.line = gpui::transparent_black();
     }
     out

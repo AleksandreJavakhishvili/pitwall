@@ -17,6 +17,7 @@
 //! elsewhere); ⌘+ / ⌘− / ⌘0 are the main screen's (per tile, `ui.tileFont`).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use gpui::{
@@ -40,6 +41,11 @@ pub struct EngineStream {
     engine: Shared,
     agent: String,
     sub: Mutex<Option<u64>>,
+    /// The engine is replaying buffered output (synchronously, inside
+    /// `attach`): what the parser answers now (cursor reports, colour
+    /// queries of a program that ran earlier) must not reach the agent as
+    /// typed input.
+    replaying: AtomicBool,
 }
 
 impl EngineStream {
@@ -48,6 +54,7 @@ impl EngineStream {
             engine,
             agent: agent.into(),
             sub: Mutex::new(None),
+            replaying: AtomicBool::new(false),
         }
     }
 }
@@ -60,13 +67,19 @@ impl TermStream for EngineStream {
             to.push(bytes);
             true
         });
-        match input::attach_output(&self.engine, &self.agent, sink) {
+        self.replaying.store(true, Ordering::SeqCst);
+        let attached = input::attach_output(&self.engine, &self.agent, sink);
+        self.replaying.store(false, Ordering::SeqCst);
+        match attached {
             Ok(id) => *self.sub.lock().unwrap_or_else(|e| e.into_inner()) = Some(id),
             Err(_) => feed.close(),
         }
     }
 
     fn write(&self, bytes: &[u8]) {
+        if self.replaying.load(Ordering::SeqCst) {
+            return;
+        }
         let _ = input::write_input_bytes(&self.engine, &self.agent, bytes);
     }
 

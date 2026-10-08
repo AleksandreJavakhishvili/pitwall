@@ -1186,6 +1186,11 @@ impl MainScreen {
 impl Render for MainScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
+        // A dialog, menu or overlay that had the keyboard closed: the screen
+        // takes it back (and passes it on to the focused pane's terminal).
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus);
+        }
         let bp = Self::breakpoint(window);
         // Drawers close when the window grows past their breakpoint.
         if bp.right_docked() {

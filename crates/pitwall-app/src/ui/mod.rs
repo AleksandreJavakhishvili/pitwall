@@ -258,6 +258,7 @@ fn explorer_seams(
 
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::frame_stats::render_started();
         let t = theme::theme(cx).clone();
         let root = div()
             .id("main")
@@ -280,5 +281,6 @@ impl Render for MainView {
         };
         root.child(self.layer.clone())
             .children(crate::approvals::overlay(window, cx))
+            .children(crate::frame_stats::probe())
     }
 }
