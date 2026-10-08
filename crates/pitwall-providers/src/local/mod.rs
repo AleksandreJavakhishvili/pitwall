@@ -142,6 +142,7 @@ impl Provider for LocalProvider {
             custom_command: true,
             local_process: true,
             git_poll_ms: 0,
+            fs_events: true,
         }
     }
 

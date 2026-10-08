@@ -57,6 +57,8 @@ pub struct Agent {
     /// while refreshes find nothing new, back to the start on a change
     /// (ticker.rs `git_due`). 0 = not backed off yet.
     pub git_every: u64,
+    /// Its checkout's file watch, where the provider can (gitwatch.rs).
+    pub fs: super::gitwatch::FsWatch,
     pub last_auto_send: u64,
     /// Looking for the worktree the agent makes itself (worktree.rs).
     pub watch: Option<super::worktree::Watch>,
@@ -103,6 +105,7 @@ impl Agent {
             git_inflight: false,
             git_wanted: true,
             git_every: 0,
+            fs: Default::default(),
             last_auto_send: 0,
             watch: None,
             inner: None,

@@ -9,10 +9,13 @@
 //! join them with [`join`], never with `std::path` on the host.
 
 mod local;
+pub(crate) mod watch;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use local::LocalExec;
+pub use watch::{MAX_DIRS, NOISE_DIRS};
 pub use crate::error::{PwError, Result};
 
 /// Generous bound for commands that had none before (git, rulesync, login
@@ -88,6 +91,44 @@ pub struct Stat {
     pub len: u64,
 }
 
+/// One checkout for [`Exec::watch`].
+#[derive(Debug, Clone, Default)]
+pub struct WatchSpec {
+    /// The working tree, watched whole (of git's own files only HEAD, the
+    /// index and refs count).
+    pub tree: String,
+    /// The checkout's git folders when they are outside `tree` (a linked
+    /// worktree's own and its repository's): their HEAD, index and refs.
+    pub git_dirs: Vec<String>,
+    /// Paths in `tree` git ignores (relative, `/`-separated, folders may end
+    /// in `/`): their changes don't count.
+    pub ignored: Vec<String>,
+}
+
+/// Called (from another thread) whenever something in a watched checkout
+/// changed. Keep it cheap: bump a counter.
+pub type OnChange = Arc<dyn Fn() + Send + Sync>;
+
+/// A running watch; dropping it stops watching.
+pub trait Watching: Send + Sync {
+    /// `false` once changes may be missed (a new folder couldn't be
+    /// watched): the caller should poll again.
+    fn healthy(&self) -> bool {
+        true
+    }
+
+    /// It sees every change `git status` could show. `false` where folders
+    /// are skipped by name to save OS watches (inotify: [`NOISE_DIRS`] even
+    /// when git doesn't ignore them): the caller polls more often.
+    fn complete(&self) -> bool {
+        false
+    }
+
+    /// Replace [`WatchSpec::ignored`] (git's list changed: a build made a
+    /// new ignored folder).
+    fn set_ignored(&self, _ignored: &[String]) {}
+}
+
 /// Run programs and read/write files on one machine. Errors carry a code
 /// and a human-readable message. Blocking, like everything in the core.
 pub trait Exec: Send + Sync {
@@ -124,6 +165,14 @@ pub trait Exec: Send + Sync {
     /// for a remote exec).
     fn read_files(&self, paths: &[&str], max: u64) -> Vec<Result<Option<Vec<u8>>>> {
         paths.iter().map(|p| self.read_file(p, max)).collect()
+    }
+
+    /// Call `on_change` whenever something in `spec`'s checkout changes that
+    /// could change `git status` or the branch, until the returned watch is
+    /// dropped. Fails where the machine can't (remote ones: callers poll),
+    /// or when the OS refuses more watches. See `ProviderCaps::fs_events`.
+    fn watch(&self, _spec: &WatchSpec, _on_change: OnChange) -> Result<Box<dyn Watching>> {
+        Err(PwError::unsupported("this machine can't watch files"))
     }
 }
 

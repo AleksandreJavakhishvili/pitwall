@@ -8,6 +8,7 @@
 
 pub(crate) mod agent;
 pub mod changes;
+pub(crate) mod gitwatch;
 pub mod input;
 pub mod lifecycle;
 mod status;
@@ -69,6 +70,8 @@ pub struct Engine {
     pub(crate) worktrees: crate::worktrees::Cache,
     /// Git refreshes running, by agent id (ticker and forced ones share them).
     pub(crate) git_flights: crate::flight::Flights<Result<Vec<crate::vcs::git::FileChange>, String>>,
+    /// Agents' checkouts watched for changes (gitwatch.rs).
+    pub(crate) trees: gitwatch::Trees,
 }
 
 pub type Shared = Arc<Engine>;
@@ -93,6 +96,7 @@ impl Engine {
             snapshots: tasks::Worker::default(),
             worktrees: Default::default(),
             git_flights: Default::default(),
+            trees: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,

@@ -9,6 +9,7 @@ use pitwall_detect::{self as detect, Detection};
 
 use super::status::{next_status, raw_state, ACTIVITY_WINDOW_MS};
 use super::tasks::{self, Job};
+use super::gitwatch::{self, FsWatch};
 use super::{worktree, Agent, Engine, Shared};
 use crate::events::Event;
 use crate::model::{Attention, Source, Status};
@@ -23,6 +24,14 @@ const AUTO_SEND_COOLDOWN_MS: u64 = 3000;
 const GIT_EVERY_MS: u64 = 3000;
 /// Git polling backs off (doubling) while refreshes find nothing new, up to this.
 const GIT_MAX_EVERY_MS: u64 = 30_000;
+/// A watched agent that works is still refreshed this often when its watch
+/// saw nothing. Where the watch skips folders by name that git may not
+/// ignore (inotify: `exec::NOISE_DIRS`), polling's longest back-off, so never
+/// staler than polling.
+const WATCH_SAFETY_MS: u64 = GIT_MAX_EVERY_MS;
+/// The same where the watch sees everything `git status` could show
+/// (FSEvents, Windows): only a safety net.
+const WATCH_SAFETY_COMPLETE_MS: u64 = 60_000;
 
 pub fn start(core: Shared) {
     let c = core.clone();
@@ -278,9 +287,18 @@ fn tick(core: &Shared, badge: &mut usize) {
 /// output, not working) are never polled; active ones whose refreshes keep
 /// finding nothing new back off to `GIT_MAX_EVERY_MS` (or the provider's
 /// interval, if slower) until one finds a change.
+///
+/// An agent whose checkout is watched (gitwatch.rs) is refreshed instead
+/// when the watch saw a change, at most every 3s (whether it is active or
+/// not), plus every `WATCH_SAFETY_MS` while active: never later than polling
+/// would have, and not at all while nothing changes.
 fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
     let mut jobs = Vec::new();
     for a in agents.iter_mut() {
+        // A stopped agent isn't polled; it keeps no watch either.
+        if a.status == Status::Stopped && !matches!(a.fs, FsWatch::None) {
+            a.fs = FsWatch::None;
+        }
         if a.git_inflight || a.git_repo == Some(false) || !a.facts.provider.exec {
             continue;
         }
@@ -292,7 +310,14 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
         let slow = a.facts.provider.git_poll_ms > 0;
         let every = a.git_every.max(git_base_ms(a));
         let active = a.status == Status::Working || (!slow && seq != a.git_seq);
-        let due = now.saturating_sub(a.git_at) >= every && active;
+        let since = now.saturating_sub(a.git_at);
+        let due = match a.fs.changed(&a.rec.cwd) {
+            Some(changed) => {
+                let safety = if a.fs.complete() { WATCH_SAFETY_COMPLETE_MS } else { WATCH_SAFETY_MS };
+                (changed && since >= git_base_ms(a)) || (active && since >= safety.max(git_base_ms(a)))
+            }
+            None => since >= every && active,
+        };
         if a.git_wanted || due {
             a.git_wanted = false;
             a.git_inflight = true;
@@ -311,6 +336,20 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
 pub(super) fn git_due_for_test(core: &Engine) -> Vec<String> {
     let now = core.now();
     git_due(&mut core.agents(), now).into_iter().map(|j| j.id).collect()
+}
+
+/// Run the refreshes the ticker would start now, here; their agent ids.
+#[cfg(test)]
+pub(super) fn run_git_due_for_test(core: &Engine) -> Vec<String> {
+    let now = core.now();
+    let jobs = git_due(&mut core.agents(), now);
+    jobs.into_iter()
+        .map(|job| {
+            let id = job.id.clone();
+            let _ = refresh_git(core, job);
+            id
+        })
+        .collect()
 }
 
 /// The provider's git interval, or the default.
@@ -345,11 +384,19 @@ pub(super) fn refresh_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>,
 
 fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
     let exec = core.exec_for(&job.id);
+    // Watching starts before git looks, so nothing in between is missed.
+    let tree = gitwatch::ensure(core, &job.id, &*exec, &job.cwd);
+    let seen = tree.as_ref().map(|t| t.gen());
     let git = Git::new(&*exec, &job.cwd);
     let (changes, branch) = git.changes_and_branch(None);
     let now = core.now();
-    let differs = core
+    let (differs, woke) = core
         .with(&job.id, |a| {
+            // The watch saw a change since the last refresh.
+            let woke = matches!(&a.fs, FsWatch::On { seen: old, .. } if Some(*old) != seen);
+            if let (Some(tree), Some(seen)) = (tree.clone(), seen) {
+                a.fs = FsWatch::On { cwd: job.cwd.clone(), tree, seen };
+            }
             a.git_inflight = false;
             a.git_at = now;
             a.git_seq = job.seq;
@@ -367,11 +414,16 @@ fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
             }
             let differs = before != (a.branch.clone(), a.added, a.removed, a.files_changed, a.git_repo);
             a.git_every = next_git_every(a.git_every, git_base_ms(a), differs);
-            differs
+            (differs, woke)
         })
-        .unwrap_or(false);
+        .unwrap_or((false, false));
     if differs {
         core.changed(false);
+    }
+    if let Some(tree) = tree.filter(|_| woke && !differs) {
+        // Woken for nothing: maybe by something git ignores that appeared
+        // since the watch began (a build's new output folder).
+        gitwatch::relist_ignored(&tree, &*exec, now);
     }
     changes
 }
@@ -391,6 +443,9 @@ pub(super) fn refresh_git_now(core: &Engine, id: &str) -> Result<Vec<FileChange>
     })??;
     refresh_git(core, job)
 }
+
+#[cfg(test)]
+mod bench;
 
 #[cfg(test)]
 mod tests {

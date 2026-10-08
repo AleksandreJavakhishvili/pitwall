@@ -169,6 +169,11 @@ pub struct ProviderCaps {
     /// call) sets it: its agents are then refreshed only while working, at
     /// most this often, plus once when a task ends and whenever asked.
     pub git_poll_ms: u32,
+    /// Its machines can watch folders (`Exec::watch`): an agent's changes are
+    /// then refreshed when its files change (plus a slow safety poll while it
+    /// works) instead of polled every few seconds. Local: yes; remote
+    /// machines poll.
+    pub fs_events: bool,
 }
 
 // ------------------------------------------------------------------ terminals
