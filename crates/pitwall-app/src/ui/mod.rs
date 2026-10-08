@@ -390,8 +390,8 @@ mod tests {
             crate::settings::init(cx, None, None);
             crate::palette::init(cx);
         });
-        let refused = Content::Refused(Refusal::NoSeparateHome {
-            default_root: "/nowhere".into(),
+        let refused = Content::Refused(Refusal::InUse {
+            root: "/nowhere".into(),
         });
         let (view, vcx) =
             cx.add_window_view(move |window, cx| MainView::new(refused, None, window, cx));
