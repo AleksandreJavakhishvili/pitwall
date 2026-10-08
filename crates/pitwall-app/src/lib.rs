@@ -235,6 +235,18 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
         app_id: Some("dev.pitwall.app".into()),
         ..Default::default()
     };
+    // Debug builds and benches: `PITWALL_DEBUG_FLOAT=1` floats the window
+    // above the others without taking focus, so animations keep running
+    // (they pause while the window is covered) during a CPU measurement.
+    let options = if std::env::var_os("PITWALL_DEBUG_FLOAT").is_some() {
+        WindowOptions {
+            kind: gpui::WindowKind::PopUp,
+            focus: false,
+            ..options
+        }
+    } else {
+        options
+    };
     let main = cx
         .open_window(options, |window, cx| {
             platform::keep_on_close(window, cx);

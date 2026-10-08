@@ -11,6 +11,7 @@ use crate::theme::{Theme, RADIUS, RADIUS_SM};
 
 use super::fonts::MONO_FONT;
 use super::icons::icon;
+use super::motion;
 use super::tooltip::tooltip;
 
 /// A shortcut as this desktop writes it: unchanged on macOS; elsewhere ⌘
@@ -101,9 +102,13 @@ pub fn btn_radius(t: &Theme) -> Pixels {
 /// A button of `kind`; add its label and icon as children, then `.on_click`.
 /// `disabled` dims it (0.45) and drops the hover.
 pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme) -> Stateful<Div> {
+    let id: ElementId = id.into();
     let radius = btn_radius(t);
+    // `m-press`: while the pop runs the surface is drawn scaled (see
+    // `motion::pressable`), so the hover background stays off it.
+    let pressing = kind != BtnKind::Link && motion::press_scale(motion::press_key(&id)).is_some();
     let base = div()
-        .id(id)
+        .id(id.clone())
         .flex_none()
         .flex()
         .items_center()
@@ -114,7 +119,8 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
         .when(disabled, |d| d.opacity(0.45))
         .when(!disabled, |d| d.cursor_pointer());
     let (text, bg3, text4) = (t.text, t.surface_3, t.text_4);
-    match kind {
+    let hover_ok = !disabled && !pressing;
+    let (el, skin) = match kind {
         BtnKind::Primary | BtnKind::PrimaryLg => {
             let lg = kind == BtnKind::PrimaryLg;
             let hover = if t.is_glass() {
@@ -122,7 +128,8 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
             } else {
                 t.text.blend(t.bg.opacity(0.12))
             };
-            base.h(px(if lg { 38. } else { 30. }))
+            let el = base
+                .h(px(if lg { 38. } else { 30. }))
                 .px(px(if lg { 16. } else { 12. }))
                 .text_size(px(if lg { 14. } else { 12.5 }))
                 .rounded(radius)
@@ -136,41 +143,61 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
                         spread_radius: px(-8.),
                     }])
                 })
-                .when(!disabled, |d| d.hover(move |s| s.bg(hover)))
+                .when(hover_ok, |d| d.hover(move |s| s.bg(hover)));
+            (el, Some(motion::Skin::new(Some(hover), None, radius)))
         }
-        BtnKind::Ghost | BtnKind::GhostSm => base
-            .h(px(if kind == BtnKind::Ghost { 30. } else { 26. }))
-            .px(px(if kind == BtnKind::Ghost { 12. } else { 10. }))
-            .text_size(px(12.5))
-            .rounded(radius)
-            .border_1()
-            .border_color(t.line_strong)
-            .text_color(t.text_2)
-            .when(!disabled, |d| d.hover_text(text, move |s| s.bg(bg3))),
-        BtnKind::Danger => base
-            .h(px(30.))
-            .px(px(12.))
-            .text_size(px(12.5))
-            .rounded(radius)
-            .bg(t.red)
-            .text_color(gpui::white()),
-        BtnKind::Small => base
-            .h(px(26.))
-            .px(px(9.))
-            .text_size(px(12.))
-            .rounded(radius)
-            .bg(t.surface_3)
-            .border_1()
-            .border_color(t.line_strong)
-            .text_color(t.text)
-            .when(!disabled, |d| d.hover(move |s| s.border_color(text4))),
-        BtnKind::Link => base
-            .font_weight(FontWeight::NORMAL)
-            .text_size(px(12.))
-            .text_color(t.text_2)
-            .underline()
-            .when(!disabled, |d| d.hover_text(text, move |s| s)),
-    }
+        BtnKind::Ghost | BtnKind::GhostSm => {
+            let el = base
+                .h(px(if kind == BtnKind::Ghost { 30. } else { 26. }))
+                .px(px(if kind == BtnKind::Ghost { 12. } else { 10. }))
+                .text_size(px(12.5))
+                .rounded(radius)
+                .border_1()
+                .border_color(t.line_strong)
+                .text_color(t.text_2)
+                .when(hover_ok, |d| d.hover_text(text, move |s| s.bg(bg3)))
+                .when(pressing, |d| d.hover_text(text, |s| s));
+            (el, Some(motion::Skin::new(Some(bg3), Some(t.line_strong), radius)))
+        }
+        BtnKind::Danger => {
+            let el = base
+                .h(px(30.))
+                .px(px(12.))
+                .text_size(px(12.5))
+                .rounded(radius)
+                .bg(t.red)
+                .text_color(gpui::white());
+            (el, Some(motion::Skin::new(Some(t.red), None, radius)))
+        }
+        BtnKind::Small => {
+            let el = base
+                .h(px(26.))
+                .px(px(9.))
+                .text_size(px(12.))
+                .rounded(radius)
+                .bg(t.surface_3)
+                .border_1()
+                .border_color(t.line_strong)
+                .text_color(t.text)
+                .when(hover_ok, |d| d.hover(move |s| s.border_color(text4)));
+            (el, Some(motion::Skin::new(Some(t.surface_3), Some(text4), radius)))
+        }
+        BtnKind::Link => (
+            base.font_weight(FontWeight::NORMAL)
+                .text_size(px(12.))
+                .text_color(t.text_2)
+                .underline()
+                .when(!disabled, |d| d.hover_text(text, move |s| s)),
+            None,
+        ),
+    };
+    let el = match skin {
+        Some(skin) => motion::pressable(el, &id, disabled, skin),
+        None => el,
+    };
+    // Glass: the primary button's sheen sweeps across on hover.
+    let sheen = matches!(kind, BtnKind::Primary | BtnKind::PrimaryLg) && t.is_glass() && !disabled;
+    el.when(sheen, |d| d.child(motion::sheen(t.g.sheen)))
 }
 
 /// A primary-shaped button in its own colours (the amber Allow of the
@@ -249,8 +276,10 @@ pub fn icon_btn_state(
     let id: SharedString = id.into();
     let group = SharedString::from(format!("ibtn-{id}"));
     let (hover_bg, hover_fg) = (t.surface_3, t.text);
-    div()
-        .id(ElementId::Name(id))
+    let id = ElementId::Name(id);
+    let pressing = motion::press_scale(motion::press_key(&id)).is_some();
+    let el = div()
+        .id(id.clone())
         .group(group.clone())
         .size(px(side))
         .flex_none()
@@ -260,7 +289,8 @@ pub fn icon_btn_state(
         .rounded(RADIUS)
         .when_some(bg, |d, bg| d.bg(bg))
         .cursor_pointer()
-        .hover(move |s| s.bg(hover_bg))
+        .when(!pressing, |d| d.hover(move |s| s.bg(hover_bg)));
+    motion::pressable(el, &id, false, motion::Skin::new(Some(hover_bg), None, RADIUS))
         .child(icon(icon_name, size, color).group_hover_text(group, hover_fg, move |s| s))
         .when(!tip.is_empty(), |d| d.tooltip(tooltip(tip)))
 }
@@ -268,8 +298,10 @@ pub fn icon_btn_state(
 /// An icon button showing a text glyph instead of an icon (rare).
 pub fn glyph_btn(id: impl Into<ElementId>, glyph: &'static str, t: &Theme) -> Stateful<Div> {
     let (fg, bg) = (t.text, t.surface_3);
-    div()
-        .id(id)
+    let id: ElementId = id.into();
+    let pressing = motion::press_scale(motion::press_key(&id)).is_some();
+    let el = div()
+        .id(id.clone())
         .size(px(28.))
         .flex()
         .items_center()
@@ -278,8 +310,14 @@ pub fn glyph_btn(id: impl Into<ElementId>, glyph: &'static str, t: &Theme) -> St
         .text_size(px(13.))
         .text_color(t.text_3)
         .cursor_pointer()
-        .hover_text(fg, move |s| s.bg(bg))
-        .child(glyph)
+        .map(|d| {
+            if pressing {
+                d.hover_text(fg, |s| s)
+            } else {
+                d.hover_text(fg, move |s| s.bg(bg))
+            }
+        });
+    motion::pressable(el, &id, false, motion::Skin::new(Some(bg), None, RADIUS)).child(glyph)
 }
 
 #[cfg(test)]

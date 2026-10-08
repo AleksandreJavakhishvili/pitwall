@@ -118,7 +118,9 @@ impl MainScreen {
                 anchored()
                     .position(m.at)
                     .snap_to_window_with_margin(px(4.))
-                    .child(
+                    .child(crate::kit::motion::enter(
+                        "ctx-menu-in",
+                        crate::kit::motion::Fx::MENU,
                         div()
                             .id("ctx-menu")
                             .key_context("PwMenu")
@@ -143,11 +145,9 @@ impl MainScreen {
                             .font_family(crate::kit::UI_FONT)
                             .rounded(RADIUS)
                             .bg(t.raised)
-                            .border_1()
-                            .border_color(t.line_strong)
-                            .shadow_lg()
+                            .shadow(t.float_shadow())
                             .children(rows),
-                    ),
+                    )),
             )
             .with_priority(2),
         )

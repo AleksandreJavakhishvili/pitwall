@@ -559,7 +559,7 @@ impl WallView {
             .gap_2()
             .cursor_pointer()
             .on_click(cx.listener(move |w, _, _, cx| w.toggle_section(&key, cx)))
-            .child(kit::chevron(!collapsed, 12., t.text_4))
+            .child(kit::chevron("chev", !collapsed, 12., t.text_4))
             .child(
                 div()
                     .min_w_0()

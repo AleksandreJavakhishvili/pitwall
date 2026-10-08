@@ -93,8 +93,8 @@ pub fn icon(name: &str, size: f32, color: Hsla) -> Svg {
         .text_color(color)
 }
 
-/// `.chev`: the chevron icon, turned down when open.
-pub fn chevron(open: bool, size: f32, color: Hsla) -> Svg {
+/// `.chev`: the chevron icon, turned down when open (still).
+pub fn chevron_at(open: bool, size: f32, color: Hsla) -> Svg {
     let i = icon("chevron", size, color);
     if open {
         i.with_transformation(gpui::Transformation::rotate(gpui::radians(
@@ -103,6 +103,25 @@ pub fn chevron(open: bool, size: f32, color: Hsla) -> Svg {
     } else {
         i
     }
+}
+
+/// `.chev`: the chevron turning down when open (`transition: transform
+/// 0.12s`); `id` keeps its turn between frames.
+pub fn chevron(id: impl Into<gpui::ElementId>, open: bool, size: f32, color: Hsla) -> gpui::AnyElement {
+    use gpui::IntoElement;
+    use super::motion::{tween, Ease, CHEVRON};
+    tween(id, if open { 1. } else { 0. }, CHEVRON, Ease::Ease, move |v| {
+        let i = icon("chevron", size, color);
+        if v > 0. {
+            i.with_transformation(gpui::Transformation::rotate(gpui::radians(
+                v * std::f32::consts::FRAC_PI_2,
+            )))
+            .into_any_element()
+        } else {
+            i.into_any_element()
+        }
+    })
+    .into_any_element()
 }
 
 #[cfg(test)]

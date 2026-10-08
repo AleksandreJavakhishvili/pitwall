@@ -1284,7 +1284,8 @@ impl Render for MainScreen {
             .when(
                 self.overlay_sidebar && sidebar_mode != SidebarMode::Full,
                 |d| {
-                    d.child(
+                    d.child(crate::kit::scrim_in(
+                        "sidebar-scrim",
                         div()
                             .id("sidebar-scrim")
                             .absolute()
@@ -1294,14 +1295,16 @@ impl Render for MainScreen {
                                 this.overlay_sidebar = false;
                                 cx.notify();
                             })),
-                    )
-                    .child(
+                    ))
+                    .child(crate::kit::motion::enter(
+                        "sidebar-overlay",
+                        crate::kit::motion::Fx::SLIDE_LEFT,
                         div()
                             .absolute()
                             .top_0()
                             .bottom_0()
                             .left_0()
-                            .shadow_lg()
+                            .shadow(t.drop_shadow())
                             .child(self.render_sidebar(
                                 SidebarMode::Full,
                                 &agents,
@@ -1309,11 +1312,12 @@ impl Render for MainScreen {
                                 window,
                                 cx,
                             )),
-                    )
+                    ))
                 },
             )
             .when(right == Some(true), |d| {
-                d.child(
+                d.child(crate::kit::scrim_in(
+                    "drawer-scrim",
                     div()
                         .id("drawer-scrim")
                         .absolute()
@@ -1323,15 +1327,19 @@ impl Render for MainScreen {
                             this.drawer_open = false;
                             cx.notify();
                         })),
-                )
+                ))
                 .children(selected.clone().map(|a| {
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .right_0()
-                        .shadow_lg()
-                        .child(self.render_panel(&a, true, &float, window, cx))
+                    crate::kit::motion::enter(
+                        "right-drawer",
+                        crate::kit::motion::Fx::SLIDE_RIGHT,
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .right_0()
+                            .shadow(t.drop_shadow())
+                            .child(self.render_panel(&a, true, &float, window, cx)),
+                    )
                 }))
             });
         let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);

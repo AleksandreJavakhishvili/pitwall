@@ -10,7 +10,8 @@ use crate::theme::{Theme, RADIUS, RADIUS_SM};
 use super::fonts::UI_FONT;
 use super::icons::icon;
 
-/// `.menu`: the panel (draw with [`Theme::float`]).
+/// `.menu`: the panel (draw with [`Theme::float`]); open it with
+/// [`super::motion::Fx::MENU`].
 pub fn menu_panel(t: &Theme) -> Div {
     div()
         .min_w(px(190.))
@@ -20,9 +21,7 @@ pub fn menu_panel(t: &Theme) -> Div {
         .font_family(UI_FONT)
         .rounded(RADIUS)
         .bg(t.raised)
-        .border_1()
-        .border_color(t.line_strong)
-        .shadow(t.drop_shadow())
+        .shadow(t.float_shadow())
 }
 
 /// `.menu-item`: icon (or an empty 16 px column), label, optional hint.

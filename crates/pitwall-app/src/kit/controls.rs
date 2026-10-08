@@ -80,8 +80,12 @@ pub fn checkbox(
         .on_click(on_click)
 }
 
-/// `.toggle-track`: the switch, 26×15. Attach `.on_click`.
+/// `.toggle-track`: the switch, 26×15. Attach `.on_click`. The track's
+/// colour and the knob ease over 0.15 s when it flips.
 pub fn toggle(id: impl Into<ElementId>, on: bool, t: &Theme) -> Stateful<Div> {
+    use super::motion::{mix, tween, Ease, TOGGLE};
+    let (track_off, track_on) = (t.surface_3, t.text);
+    let (knob_off, knob_on) = (t.text_3, t.bg);
     div()
         .id(id)
         .flex_none()
@@ -91,17 +95,24 @@ pub fn toggle(id: impl Into<ElementId>, on: bool, t: &Theme) -> Stateful<Div> {
         .border_1()
         .cursor_pointer()
         .border_color(if on { t.text } else { t.line_strong })
-        .bg(if on { t.text } else { t.surface_3 })
         .relative()
-        .child(
+        .child(tween("knob", if on { 1. } else { 0. }, TOGGLE, Ease::Ease, move |v| {
             div()
                 .absolute()
-                .top(px(2.))
-                .left(px(if on { 13. } else { 2. }))
-                .size(px(9.))
-                .rounded_full()
-                .bg(if on { t.bg } else { t.text_3 }),
-        )
+                .inset_0()
+                .rounded(px(10.))
+                .bg(mix(track_off, track_on, v))
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(2.))
+                        .left(px(2. + 11. * v))
+                        .size(px(9.))
+                        .rounded_full()
+                        .bg(mix(knob_off, knob_on, v)),
+                )
+                .into_any_element()
+        }))
 }
 
 /// A radio dot, 14 px.
@@ -156,8 +167,9 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
         .when(t.is_glass(), |d| d.border_1().border_color(t.g.line))
         .children(items.into_iter().enumerate().map(move |(i, item)| {
             let pick = on_pick.clone();
-            div()
-                .id((id, i))
+            let eid = ElementId::from((id, i));
+            let el = div()
+                .id(eid.clone())
                 .h(px(24.))
                 .px(px(10.))
                 .flex()
@@ -167,7 +179,9 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
                 .cursor_pointer()
                 .text_color(if item.on { fg } else { fg3 })
                 .when(item.on, |d| d.bg(on_bg).font_weight(FontWeight::SEMIBOLD))
-                .hover_text(fg, move |s| s)
+                .hover_text(fg, move |s| s);
+            let skin = super::motion::Skin::new(item.on.then_some(on_bg), None, RADIUS_SM);
+            super::motion::pressable(el, &eid, false, skin)
                 .when_some(item.tooltip, |d, tip| d.tooltip(tooltip(tip)))
                 .on_click(move |_, window, cx| pick(i, window, cx))
                 .child(item.label)
@@ -257,6 +271,18 @@ pub fn select_menu(
 /// The spinning ring (`onb-spin`, `fresh-spin`): a faint track with a
 /// bright quarter turning; still when `motion` is off.
 pub fn spinner(id: impl Into<ElementId>, size: f32, motion: bool, t: &Theme) -> AnyElement {
+    spinner_ms(id, size, 900, motion, t)
+}
+
+/// [`spinner`] turning once every `ms` (`onb-spin` 0.7 s, `fresh-spin`
+/// 0.9 s).
+pub fn spinner_ms(
+    id: impl Into<ElementId>,
+    size: f32,
+    ms: u64,
+    motion: bool,
+    t: &Theme,
+) -> AnyElement {
     let (track, head) = (t.line_strong, t.text);
     let ring = move |turn: f32| {
         div()
@@ -297,7 +323,7 @@ pub fn spinner(id: impl Into<ElementId>, size: f32, motion: bool, t: &Theme) -> 
         ring(0.)
             .with_animation(
                 id,
-                gpui::Animation::new(std::time::Duration::from_millis(900)).repeat(),
+                gpui::Animation::new(std::time::Duration::from_millis(ms)).repeat(),
                 move |_, d| ring(d),
             )
             .into_any_element()

@@ -18,7 +18,7 @@ use crate::kit::file_icons::{file_icon, folder_icon};
 use super::logic::{split_path, TreeRow};
 use super::tree::TreeModel;
 use super::widgets::status_mark;
-use crate::kit::{icon, tooltip_view, MONO_FONT};
+use crate::kit::{tooltip_view, MONO_FONT};
 use crate::theme;
 
 actions!(explorer_tree, [Up, Down, Collapse, Expand, Confirm]);
@@ -294,11 +294,7 @@ impl TreeView {
             }))
             .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
             .child(div().w(px(10.)).flex_none().when(is_dir, |d| {
-                d.child(icon(
-                    if open { "chevron-down" } else { "chevron" },
-                    10.,
-                    t.text_4,
-                ))
+                d.child(crate::kit::chevron("chev", open, 10., t.text_4))
             }))
             .child(
                 if is_dir {

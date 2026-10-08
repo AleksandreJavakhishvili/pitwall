@@ -334,7 +334,7 @@ impl ReviewView {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .child(kit::chevron(open, size, t.text_4))
+            .child(kit::chevron("chev", open, size, t.text_4))
     }
 
     fn agent_section(
@@ -398,7 +398,7 @@ impl ReviewView {
                         let id = id.clone();
                         move |v, _, _, cx| v.show_agent(&id, cx)
                     }))
-                    .child(kit::glyph(a.status, t, true))
+                    .child(kit::glyph_play(format!("rv-list-{}", a.id), a.status, t, true))
                     .child(
                         kit::label_t(a.name.clone(), if current { t.text } else { t.text_2 }, 13., 0.1)
                             .font_weight(FontWeight::BOLD),
@@ -661,7 +661,7 @@ impl ReviewView {
                                 div()
                                     .w(px(10.))
                                     .flex_none()
-                                    .child(kit::chevron(open, 10., t.text_4)),
+                                    .child(kit::chevron("chev", open, 10., t.text_4)),
                             )
                             .child(kit::folder_icon(&path, open, 16.))
                             .child(
@@ -1313,7 +1313,7 @@ impl ReviewView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         self.footer_base(t)
-            .child(kit::glyph(a.status, t, true))
+            .child(kit::glyph_play(format!("rv-foot-{}", a.id), a.status, t, true))
             .child(kit::label_t(a.name.clone(), t.text, 13., 0.1).font_weight(FontWeight::BOLD))
             .children(self.notice(t))
             .child(spacer())

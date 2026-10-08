@@ -25,7 +25,7 @@ use super::logic::{
     MatchGroup,
 };
 use super::source::{Source, CANCELLED};
-use crate::kit::{checkbox, icon, icon_btn, tooltip_view, MONO_FONT};
+use crate::kit::{checkbox, icon_btn, tooltip_view, MONO_FONT};
 use crate::theme::{self, RADIUS, RADIUS_SM};
 
 actions!(explorer_search, [Rerun, Leave]);
@@ -345,11 +345,7 @@ impl SearchPane {
                     .hover(move |s| s.bg(hover))
                     .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&path, cx)))
-                    .child(icon(
-                        if open { "chevron-down" } else { "chevron" },
-                        10.,
-                        t.text_4,
-                    ))
+                    .child(crate::kit::chevron("chev", open, 10., t.text_4))
                     .child(file_icon(&g.path, 16.))
                     .child(
                         div()

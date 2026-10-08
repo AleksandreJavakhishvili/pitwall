@@ -4,16 +4,17 @@
 //! them at other sizes on each OS.
 
 use gpui::{
-    canvas, div, point, prelude::*, px, Animation, AnimationExt, Div, ElementId, FontWeight, Hsla,
-    IntoElement, PathBuilder,
+    canvas, div, point, prelude::*, px, Div, ElementId, FontWeight, Hsla, IntoElement,
+    PathBuilder, SharedString,
 };
 
 use pitwall_proto::Status;
 
-use crate::agents::{status_glyph, status_word};
+use crate::agents::{status_glyph as status_glyph_text, status_word};
 use crate::theme::Theme;
 
 use super::fonts::MONO_FONT;
+use super::motion;
 use super::text::label_t;
 
 /// `.glyph` sizes.
@@ -35,11 +36,34 @@ impl GlyphSize {
             GlyphSize::Lg => (20., 14.),
         }
     }
+
+    /// The ink of `●` (idle), `■` (stopped) and `⚑`'s type size, as the web
+    /// view draws them in Inter: their `0.8em`, `0.75em` and `1.15em` are of
+    /// the row's type (13 px rows, 12 px chips and lists), not the glyph's.
+    fn ink(self) -> (f32, f32, f32) {
+        match self {
+            GlyphSize::Sm => (8.0, 6.8, 13.8),
+            GlyphSize::Md => (8.2, 6.94, 14.95),
+            GlyphSize::Lg => (10.3, 8.7, 18.4),
+        }
+    }
+}
+
+/// How a status glyph moves.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GlyphMotion {
+    /// Nothing moves (the Wall).
+    Still,
+    /// The working dot pulses.
+    Live,
+    /// The working dot pulses, and "needs you" bounces and "done" pops when
+    /// the status starts (keyed by this name: one per agent and place).
+    Play(SharedString),
 }
 
 /// The blocked triangle, `w` px wide.
 fn triangle(color: Hsla, w: f32) -> impl IntoElement {
-    let h = w * 0.93;
+    let h = w * 1.025;
     canvas(
         |_, _, _| {},
         move |b, _, window, _| {
@@ -59,10 +83,20 @@ fn triangle(color: Hsla, w: f32) -> impl IntoElement {
     .flex_none()
 }
 
-/// The status flag (`StatusGlyph`). Working is a green dot; with `pulse`
-/// (an id, when motion is on) its ring pulses as `.pulse-dot` does.
-pub fn status_glyph_el(s: Status, t: &Theme, size: GlyphSize, pulse: Option<ElementId>) -> Div {
+/// The status flag (`StatusGlyph`). Working is the green `.pulse-dot`.
+/// `play`: see [`GlyphMotion::Play`] (`None`: [`GlyphMotion::Live`]).
+pub fn status_glyph_el(s: Status, t: &Theme, size: GlyphSize, play: Option<ElementId>) -> Div {
+    let m = match play {
+        Some(id) => GlyphMotion::Play(id.to_string().into()),
+        None => GlyphMotion::Live,
+    };
+    status_glyph(s, t, size, m)
+}
+
+/// The status glyph with its motion (see [`GlyphMotion`]).
+pub fn status_glyph(s: Status, t: &Theme, size: GlyphSize, m: GlyphMotion) -> Div {
     let (side, base) = size.metrics();
+    let (dot_ink, square_ink, flag_px) = size.ink();
     let color = t.status_color(s);
     let d = div()
         .size(px(side))
@@ -71,79 +105,104 @@ pub fn status_glyph_el(s: Status, t: &Theme, size: GlyphSize, pulse: Option<Elem
         .items_center()
         .justify_center()
         .text_color(color);
+    let key = |what: &str| match &m {
+        GlyphMotion::Play(k) => Some(ElementId::Name(format!("{k}-{what}").into())),
+        _ => None,
+    };
     match s {
         Status::Working => {
             let dot = if size == GlyphSize::Sm { 6. } else { 7. };
-            let green = t.green;
-            let ring = div()
-                .absolute()
-                .size(px(dot))
-                .rounded_full()
-                .bg(green.opacity(0.55));
-            let ring = match pulse {
-                Some(id) => ring
-                    .with_animation(
-                        id,
-                        Animation::new(std::time::Duration::from_millis(1800))
-                            .repeat()
-                            .with_easing(gpui::ease_out_quint()),
-                        move |el, p| {
-                            let s = dot * (1. + 1.6 * p);
-                            let off = (dot - s) / 2.;
-                            el.size(px(s))
-                                .left(px(off))
-                                .top(px(off))
-                                .bg(green.opacity(0.55 * (1. - p)))
-                        },
-                    )
-                    .into_any_element(),
-                None => ring.bg(green.opacity(0.18)).into_any_element(),
-            };
-            d.child(
+            d.child(motion::pulse_dot(dot, t.green, t.is_glass(), m == GlyphMotion::Still))
+        }
+        Status::Idle => d.child(div().size(px(dot_ink)).rounded_full().bg(color)),
+        Status::Blocked => {
+            let w = base * 0.611;
+            // `text-shadow: 0 0 8px var(--amber-glow)` around the ▲.
+            let glow = t.amber_glow;
+            let draw = move |dy: f32, scale: f32| {
+                let w = w * scale;
                 div()
                     .relative()
-                    .size(px(dot))
-                    .child(ring)
-                    .child(div().absolute().size(px(dot)).rounded_full().bg(green)),
-            )
-        }
-        // `●` at 0.8em.
-        Status::Idle => {
-            let dot = (base * 0.8 * 0.72).round();
-            d.child(div().size(px(dot)).rounded_full().bg(color))
-        }
-        Status::Blocked => d.child(triangle(color, (base * 0.64).round())),
-        // `■` at 0.75em.
-        Status::Exited | Status::Stopped => {
-            let side = (base * 0.75 * 0.62).round();
-            d.child(div().size(px(side)).rounded(px(1.)).bg(color))
-        }
-        _ => {
-            let font = match s {
-                Status::Done => base * 1.15,
-                Status::Exited | Status::Stopped => base * 0.75,
-                _ => base,
+                    .top(px(dy))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .absolute()
+                            .size(px(w * 0.7))
+                            .rounded_full()
+                            .shadow(vec![gpui::BoxShadow {
+                                color: glow,
+                                offset: point(px(0.), px(0.)),
+                                blur_radius: px(8.),
+                                spread_radius: px(0.),
+                            }]),
+                    )
+                    .child(triangle(color, w))
+                    .into_any_element()
             };
-            let d = d.text_size(px(font)).line_height(px(side));
-            if s == Status::Unknown {
-                d.font_family(MONO_FONT)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("?")
-            } else {
-                d.child(status_glyph(s))
+            match key("blocked") {
+                Some(id) => d.child(motion::keyframes(id, motion::BOUNCE, 2, move |t| {
+                    let (dy, s) = motion::bounce(t);
+                    draw(dy, s)
+                })),
+                None => d.child(draw(0., 1.)),
             }
         }
+        // `■` at 0.75em.
+        Status::Exited | Status::Stopped => {
+            d.child(div().size(px(square_ink)).rounded(px(0.5)).bg(color))
+        }
+        Status::Done => {
+            let draw = move |opacity: f32, scale: f32| {
+                div()
+                    .opacity(opacity)
+                    .text_size(px(flag_px * scale))
+                    .line_height(px(side))
+                    .child(status_glyph_text(Status::Done))
+                    .into_any_element()
+            };
+            match key("done") {
+                Some(id) => d.child(motion::keyframes(id, motion::FLAG, 1, move |t| {
+                    let (o, s) = motion::flag_pop(t);
+                    draw(o, s)
+                })),
+                None => d.child(draw(1., 1.)),
+            }
+        }
+        Status::Unknown => d
+            .text_size(px(base))
+            .line_height(px(side))
+            .font_family(MONO_FONT)
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("?"),
     }
 }
 
-/// The status glyph at `.glyph` (16 px) or `.glyph-sm` (12 px), still.
+/// The status glyph at `.glyph` (16 px) or `.glyph-sm` (12 px); the
+/// working dot pulses.
 pub fn glyph(s: Status, t: &Theme, small: bool) -> Div {
-    status_glyph_el(
-        s,
-        t,
-        if small { GlyphSize::Sm } else { GlyphSize::Md },
-        None,
-    )
+    status_glyph(s, t, glyph_size(small), GlyphMotion::Live)
+}
+
+/// [`glyph`] that also bounces ("needs you") or pops ("done") when the
+/// status starts; `key` names it (one per agent and place).
+pub fn glyph_play(key: impl Into<SharedString>, s: Status, t: &Theme, small: bool) -> Div {
+    status_glyph(s, t, glyph_size(small), GlyphMotion::Play(key.into()))
+}
+
+/// [`glyph`] where nothing moves (the Wall).
+pub fn glyph_still(s: Status, t: &Theme, small: bool) -> Div {
+    status_glyph(s, t, glyph_size(small), GlyphMotion::Still)
+}
+
+fn glyph_size(small: bool) -> GlyphSize {
+    if small {
+        GlyphSize::Sm
+    } else {
+        GlyphSize::Md
+    }
 }
 
 /// `.status-word[data-status]`.

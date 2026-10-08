@@ -1,14 +1,16 @@
 //! The modal frame (`Modal.tsx`, `overlays.css` `.modal`): a backdrop over
-//! the window, a raised box with the app's shadow that rises in (still with
-//! Reduce motion), an optional title row with ✕. A click on the backdrop
+//! the window (fading in: [`scrim_in`]), a raised box with the app's shadow
+//! that rises in (still with Reduce motion), an optional title row with ✕. A click on the backdrop
 //! closes; Tab and Shift-Tab move between the fields inside.
 
 use gpui::{
-    actions, div, prelude::*, px, AnimationExt, AnyElement, App, IntoElement, KeyBinding,
+    actions, div, prelude::*, px, AnyElement, App, ElementId, IntoElement, KeyBinding,
     MouseButton, SharedString, Window,
 };
 
-use crate::theme::{Motion, Theme};
+use crate::theme::Theme;
+
+use super::motion::{enter, Fx};
 
 use super::button::icon_btn;
 use super::text::label;
@@ -79,9 +81,7 @@ impl Modal {
             .flex_col()
             .rounded(px(12.))
             .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .shadow(t.drop_shadow())
+            .shadow(t.float_shadow())
             .overflow_hidden()
             .when_some(self.title, |d, title| {
                 let close = self.on_close.clone();
@@ -104,16 +104,11 @@ impl Modal {
             })
             .child(body);
         let panel: AnyElement = if self.motion {
-            panel
-                .with_animation(self.id, Motion::open(), |el, d| {
-                    let rise = Motion::spring()(d);
-                    el.opacity(d).mt(px((1. - rise) * Motion::RISE))
-                })
-                .into_any_element()
+            enter(self.id, Fx::MODAL, panel).into_any_element()
         } else {
             panel.into_any_element()
         };
-        div()
+        let backdrop = div()
             .id("modal-backdrop")
             .absolute()
             .inset_0()
@@ -123,7 +118,17 @@ impl Modal {
             .items_center()
             .justify_center()
             .on_mouse_down(MouseButton::Left, move |_, window, cx| close_bg(window, cx))
-            .child(panel)
-            .into_any_element()
+            .child(panel);
+        scrim_in("modal-backdrop", backdrop)
     }
+}
+
+/// A backdrop (`.backdrop`, `.scrim`: [`Theme::scrim`]) fading in over
+/// 0.12 s; its content fades with it, as in CSS. Every dialog, drawer and
+/// the palette put their scrim through this.
+pub fn scrim_in<E: IntoElement + gpui::Styled + 'static>(
+    id: impl Into<ElementId>,
+    el: E,
+) -> AnyElement {
+    enter(id, Fx::SCRIM, el).into_any_element()
 }

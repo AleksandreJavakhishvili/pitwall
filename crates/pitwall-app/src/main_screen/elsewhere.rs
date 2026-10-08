@@ -124,7 +124,7 @@ impl MainScreen {
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.update_ui(|s| s.toggle_collapsed(KEY), cx)
                         }))
-                        .child(chevron(!collapsed, 12., t.text_4))
+                        .child(chevron("chev", !collapsed, 12., t.text_4))
                         .child(label_fit("Elsewhere", t.text_4, 12., 22).group_hover_text(
                             "elsewhere-head",
                             t.text_2,

@@ -34,6 +34,7 @@ use crate::theme::{Theme, RADIUS, RADIUS_LG};
 use crate::theme::{appearance, chrome};
 use super::permissions::{AccessEvent, AccessPhase, POLL};
 use super::widgets::Ui;
+use crate::kit::motion::{enter, tween, Ease, Fx};
 use crate::kit::{tooltip, BtnKind, InputEvent, TextInput};
 use super::SettingsHost;
 
@@ -848,11 +849,12 @@ impl Paint {
                                 .font_weight(FontWeight::BOLD),
                         );
                     if live && self.motion {
-                        // `onb-blink`: steps(2) at 1.1 s.
+                        // `onb-blink`: 1 → 0.45 in `steps(2, start)` over
+                        // 1.1 s: it shows 0.725, then 0.45.
                         cell.with_animation(
                             ("board-blink", i),
                             Animation::new(std::time::Duration::from_millis(1100)).repeat(),
-                            |el, d| el.opacity(if d < 0.5 { 1.0 } else { 0.45 }),
+                            |el, d| el.opacity(if d < 0.5 { 0.725 } else { 0.45 }),
                         )
                         .into_any_element()
                     } else {
@@ -931,6 +933,17 @@ impl Paint {
             })
     }
 
+    /// [`Paint::glyph`] with its motion: running spins (`onb-spin` 0.7 s),
+    /// done pops in (`pop` 0.22 s).
+    fn glyph_in(&self, id: SharedString, status: &str) -> AnyElement {
+        match status {
+            "running" => crate::kit::spinner_ms(id, 16., 700, self.motion, &self.ui.t)
+                .into_any_element(),
+            "done" => enter(id, Fx::ONB_POP, self.glyph(status)).into_any_element(),
+            _ => self.glyph(status).into_any_element(),
+        }
+    }
+
     fn glyph(&self, status: &str) -> Div {
         let t = &self.t;
         let (bg, border, fg, text): (Option<Hsla>, Hsla, Hsla, &str) = match status {
@@ -971,12 +984,17 @@ impl Onboarding {
             .rounded(px(3.))
             .bg(t.surface_3)
             .overflow_hidden()
-            .child(
-                div()
-                    .h_full()
-                    .w(relative(done as f32 / STEPS.len() as f32))
-                    .bg(t.green),
-            );
+            // `.onb-lap span`: `transition: width 0.35s ease-out`.
+            .child({
+                let green = t.green;
+                tween(
+                    "onb-lap",
+                    done as f32 / STEPS.len() as f32,
+                    std::time::Duration::from_millis(350),
+                    Ease::EaseOut,
+                    move |w| div().h_full().w(relative(w)).bg(green).into_any_element(),
+                )
+            });
         div()
             .w(if p.narrow {
                 relative(1.)
@@ -1006,7 +1024,7 @@ impl Onboarding {
                     .items_start()
                     .py(px(7.))
                     .when(i + 1 < STEPS.len(), |d| d.border_b_1().border_color(t.line))
-                    .child(p.glyph(status))
+                    .child(p.glyph_in(SharedString::from(format!("onb-glyph-{step}")), status))
                     .child(
                         div()
                             .flex()
@@ -1023,13 +1041,16 @@ impl Onboarding {
                                 ),
                             )
                             .when_some(st.and_then(|s| s.1.clone()), |d, s| {
-                                d.child(
+                                // `.onb-step-summary` fades in (0.2 s).
+                                d.child(enter(
+                                    SharedString::from(format!("onb-sum-{step}")),
+                                    Fx::ONB_FADE,
                                     div()
                                         .font_family(crate::kit::MONO_FONT)
                                         .text_size(px(11.))
                                         .text_color(t.text_2)
                                         .child(s),
-                                )
+                                ))
                             })
                             .when(status == "running", |d| {
                                 d.child(
@@ -2055,9 +2076,9 @@ impl Onboarding {
                     .mt(px(4.))
                     .gap(px(10.))
                     .child(if granted {
-                        p.glyph("done").into_any_element()
+                        p.glyph_in("fda-done".into(), "done").into_any_element()
                     } else {
-                        crate::kit::spinner("fda-spin", 16., p.motion, &p.ui.t).into_any_element()
+                        crate::kit::spinner_ms("fda-spin", 16., 900, p.motion, &p.ui.t).into_any_element()
                     })
                     .child(div().text_color(if granted { t.green } else { t.text_2 }).child(if granted {
                         "Full Disk Access is on. macOS won't ask about your folders again."
@@ -2201,12 +2222,20 @@ impl Onboarding {
             None => {}
             Some(r) => {
                 let r = r.clone();
+                // `.onb-section`: each rises in (`rise` 0.22 s).
+                let rise = |id: &'static str, d: Div| enter(id, Fx::ONB_RISE, d);
                 results = results
-                    .child(self.projects_section(p, &r, cx))
-                    .children(self.conversations_section(p, &r, false, cx))
-                    .children(self.conversations_section(p, &r, true, cx))
-                    .children(self.running_section(p, &r, cx))
-                    .children(self.codex_section(p, &r, cx));
+                    .child(rise("onb-sec-projects", self.projects_section(p, &r, cx)))
+                    .children(
+                        self.conversations_section(p, &r, false, cx)
+                            .map(|d| rise("onb-sec-conv", d)),
+                    )
+                    .children(
+                        self.conversations_section(p, &r, true, cx)
+                            .map(|d| rise("onb-sec-home", d)),
+                    )
+                    .children(self.running_section(p, &r, cx).map(|d| rise("onb-sec-running", d)))
+                    .children(self.codex_section(p, &r, cx).map(|d| rise("onb-sec-codex", d)));
             }
         }
         let head = div()
@@ -2316,7 +2345,7 @@ impl Render for Onboarding {
                 self.scroll.set_offset(gpui::point(px(0.), px(-y)));
             }
         }
-        div()
+        let root = div()
             .id("onboarding")
             .absolute()
             .inset_0()
@@ -2364,6 +2393,8 @@ impl Render for Onboarding {
                             .pb(px(18.))
                             .child(footer),
                     ),
-            )
+            );
+        // `.onb`: fades in over 0.2 s.
+        enter("onboarding-in", Fx::ONB_FADE, root)
     }
 }

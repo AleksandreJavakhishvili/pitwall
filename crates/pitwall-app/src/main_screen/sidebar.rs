@@ -18,7 +18,7 @@ use super::model::{initials, machine_heading, summarize, with_projects};
 use crate::kit::keys;
 use super::topbar::AgentDrag;
 use crate::kit::{
-    chevron, chip, diffstat, glyph, icon_btn, kbd, label_fit, status_label, tooltip,
+    chevron, chip, diffstat, icon_btn, kbd, label_fit, status_label, tooltip,
 };
 use super::{Confirm, MainScreen, SelectNext, SelectPrev, SidebarMode};
 use crate::agents::{group_by_project, status_word, ProjectGroup};
@@ -272,7 +272,7 @@ impl MainScreen {
                         let k = key.clone();
                         this.update_ui(|s| s.toggle_collapsed(&k), cx);
                     }))
-                    .child(chevron(!collapsed, 12., t.text_4))
+                    .child(chevron("chev", !collapsed, 12., t.text_4))
                     .child(
                         div().min_w_0().overflow_hidden().child(
                             label_fit(
@@ -510,8 +510,35 @@ impl MainScreen {
                         .bg(if blocked { t.amber } else { t.text_2 }),
                 )
             })
-            // The chequered edge of "done".
+            // "Needs you": a halo twice (`m-halo`), then the steady amber.
+            .when(blocked, |d| {
+                let (amber, glow) = (t.amber.opacity(0.6), t.amber_glow);
+                d.child(crate::kit::motion::keyframes(
+                    SharedString::from(format!("halo-{}", a.id)),
+                    crate::kit::motion::HALO,
+                    2,
+                    move |p| {
+                        let o = if p >= 1. { 0. } else { crate::kit::motion::halo(p) };
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .rounded(RADIUS)
+                            .border_1()
+                            .border_color(amber)
+                            .shadow(vec![gpui::BoxShadow {
+                                color: glow,
+                                offset: gpui::point(px(0.), px(0.)),
+                                blur_radius: px(18.),
+                                spread_radius: px(-4.),
+                            }])
+                            .opacity(o)
+                            .into_any_element()
+                    },
+                ))
+            })
+            // The chequered edge of "done", popping in (`m-flag`).
             .when(a.status == Status::Done, |d| {
+                let flag = t.flag;
                 d.child(
                     div()
                         .absolute()
@@ -520,18 +547,33 @@ impl MainScreen {
                         .bottom(px(7.))
                         .w(px(6.))
                         .flex()
-                        .flex_col()
-                        .opacity(0.55)
-                        .children((0..6).map(|i| {
-                            div()
-                                .h(px(3.))
-                                .flex()
-                                .child(div().w(px(3.)).h_full().when(i % 2 == 0, |d| d.bg(t.flag)))
-                                .child(div().w(px(3.)).h_full().when(i % 2 == 1, |d| d.bg(t.flag)))
-                        })),
+                        .items_center()
+                        .justify_center()
+                        .child(crate::kit::motion::keyframes(
+                            SharedString::from(format!("flag-{}", a.id)),
+                            crate::kit::motion::FLAG_ROW,
+                            1,
+                            move |p| {
+                                let (o, s) = crate::kit::motion::flag_pop(p);
+                                let cell = 3. * s;
+                                div()
+                                    .flex_none()
+                                    .flex()
+                                    .flex_col()
+                                    .opacity(0.55 * o)
+                                    .children((0..6).map(move |i| {
+                                        div()
+                                            .h(px(cell))
+                                            .flex()
+                                            .child(div().w(px(cell)).h_full().when(i % 2 == 0, |d| d.bg(flag)))
+                                            .child(div().w(px(cell)).h_full().when(i % 2 == 1, |d| d.bg(flag)))
+                                    }))
+                                    .into_any_element()
+                            },
+                        )),
                 )
             })
-            .child(div().mt(px(1.)).child(glyph(a.status, t, false)))
+            .child(div().mt(px(1.)).child(crate::kit::glyph_play(format!("row-{}", a.id), a.status, t, false)))
             .child(
                 div()
                     .flex_1()

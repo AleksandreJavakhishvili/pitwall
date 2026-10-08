@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, prelude::*, px, uniform_list, AnimationExt, AnyElement, App, Context, ElementId,
+    actions, div, prelude::*, px, uniform_list, AnyElement, App, Context, ElementId,
     Entity, EventEmitter, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement,
     KeyBinding, MouseButton, Render, ScrollStrategy, SharedString, Subscription,
     UniformListScrollHandle, WeakEntity, Window,
@@ -13,7 +13,7 @@ use gpui::{
 use crate::explorer::Explorer;
 use crate::kit::{self, icon, kbd, InputEvent, TextInput};
 use crate::main_screen::{CommandState, MainScreen, OpenPalette, ScreenEvent};
-use crate::theme::{self, Motion, Theme, RADIUS};
+use crate::theme::{self, Theme, RADIUS};
 
 use super::matching::{parse_queue, visible};
 use super::registry::{self, Command, Hint, Lead, PaletteContext, Run, RunFn, Span};
@@ -367,9 +367,7 @@ impl Render for Palette {
             .flex_col()
             .rounded(px(12.))
             .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .shadow(t.drop_shadow())
+            .shadow(t.float_shadow())
             .overflow_hidden()
             .font_family(kit::UI_FONT)
             .text_size(px(13.))
@@ -401,16 +399,12 @@ impl Render for Palette {
                     .when(n > 0, |d| d.child(list)),
             );
         let panel: AnyElement = if motion {
-            panel
-                .with_animation(
-                    ElementId::NamedInteger("palette-open".into(), self.serial as u64),
-                    Motion::open(),
-                    |el, d| {
-                        let rise = Motion::spring()(d);
-                        el.opacity(d).mt(px((1. - rise) * Motion::RISE))
-                    },
-                )
-                .into_any_element()
+            kit::motion::enter(
+                ElementId::NamedInteger("palette-open".into(), self.serial as u64),
+                kit::motion::Fx::PALETTE,
+                panel,
+            )
+            .into_any_element()
         } else {
             panel.into_any_element()
         };
@@ -431,15 +425,10 @@ impl Render for Palette {
             )
             .child(panel);
         if motion {
-            // `.backdrop`: fade-in 0.12s ease-out.
-            backdrop
-                .with_animation(
-                    ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
-                    gpui::Animation::new(std::time::Duration::from_millis(120))
-                        .with_easing(gpui::ease_out_quint()),
-                    move |el, d| el.bg(scrim.opacity(scrim.a * d)),
-                )
-                .into_any_element()
+            kit::scrim_in(
+                ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
+                backdrop,
+            )
         } else {
             backdrop.into_any_element()
         }

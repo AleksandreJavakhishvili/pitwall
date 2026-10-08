@@ -5,6 +5,8 @@
 //! draggable dividers and drop zones, and the chip strip.
 
 use crate::kit::HoverText;
+use std::collections::HashMap;
+
 use gpui::{
     canvas, div, prelude::*, px, AnyElement, App, Bounds, Context, DragMoveEvent, FontWeight, Hsla,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString,
@@ -39,6 +41,16 @@ impl MainScreen {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        // Switching space / Wall / Review: a short cross-fade in (`m-fade`).
+        let fade_key: Option<SharedString> = match self.route {
+            _ if agents.is_empty() && self.engine.is_some() => None,
+            Route::Wall => Some("center-wall".into()),
+            Route::Review => Some("center-review".into()),
+            Route::Explorer => None,
+            Route::Space => self
+                .active_space()
+                .map(|s| format!("center-space-{}", s.id).into()),
+        };
         let body: AnyElement = if agents.is_empty() && self.engine.is_some() {
             empty_state(t, cx).into_any_element()
         } else if self.route != Route::Space {
@@ -72,7 +84,15 @@ impl MainScreen {
             .flex_col()
             // Glass: the panes float on the window's glass (`.center`).
             .when(!t.is_glass(), |d| d.bg(t.bg))
-            .child(body)
+            .child(match fade_key {
+                Some(key) => crate::kit::motion::enter(
+                    key,
+                    crate::kit::motion::Fx::FADE,
+                    div().flex_1().min_w_0().min_h_0().flex().flex_col().child(body),
+                )
+                .into_any_element(),
+                None => body,
+            })
     }
 
     fn render_space(
@@ -188,8 +208,10 @@ impl MainScreen {
                         let group = SharedString::from(format!("preset-{}", p.label()));
                         // `.preset-btn`: text-4 (text-3 on glass), text on hover.
                         let ink = if t.is_glass() { t.text_3 } else { t.text_4 };
-                        div()
-                            .id(group.clone())
+                        let eid = gpui::ElementId::Name(group.clone());
+                        let pressing = crate::kit::motion::pressing(&eid);
+                        let el = div()
+                            .id(eid.clone())
                             .group(group.clone())
                             .w(px(28.))
                             .h(px(22.))
@@ -198,7 +220,13 @@ impl MainScreen {
                             .justify_center()
                             .rounded(px(4.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3))
+                            .when(!pressing, |d| d.hover(|s| s.bg(t.surface_3)));
+                        crate::kit::motion::pressable(
+                            el,
+                            &eid,
+                            false,
+                            crate::kit::motion::Skin::new(Some(t.surface_3), None, px(4.)),
+                        )
                             .tooltip(tooltip(tip))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.apply_preset(p, window, cx)
@@ -221,11 +249,21 @@ impl MainScreen {
                 )
             });
 
+        let sizes = area
+            .map(|(w, h)| {
+                tree::pane_rects(&tree, tree::Rect { x: 0., y: 0., w, h })
+                    .into_iter()
+                    .map(|(id, r)| (id, (r.w, r.h)))
+                    .collect()
+            })
+            .unwrap_or_default();
         let ctx = PaneCtx {
             focused: space.focused_pane_id.clone(),
             maximized: maximized.is_some(),
             pane_count,
             members: chips.clone(),
+            sizes,
+            min,
         };
         let area_el = div()
             .id("space-area")
@@ -281,7 +319,7 @@ impl MainScreen {
             .cursor_pointer()
             .hover_text(t.text, |s| s.border_color(t.line_strong))
             .child(div().truncate().child(current))
-            .child(crate::kit::chevron(true, 11., t.text_3))
+            .child(crate::kit::chevron_at(true, 11., t.text_3))
             .tooltip(tooltip("Tile density for this space (smallest tile before it folds into a chip)"))
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                 let mut items = vec![{
@@ -532,14 +570,15 @@ impl MainScreen {
                 d.shadow(t.amber_glow(22., -6.))
             })
             .when(status == Some(Status::Done), |d| {
+                // The finish bar pops in (`m-flag`).
                 d.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .h(px(4.))
-                        .bg(t.finish),
+                    div().absolute().top_0().left_0().right_0().h(px(4.)).child(
+                        crate::kit::motion::flag_in(
+                            SharedString::from(format!("pane-flag-{pane_id}")),
+                            crate::kit::motion::FLAG_ROW,
+                            div().size_full().bg(t.finish),
+                        ),
+                    ),
                 )
             })
             .on_mouse_down(
@@ -591,7 +630,15 @@ impl MainScreen {
                 this.drop_on_pane(&drop_id, &d.id, zone, window, cx);
             }))
             .child(body)
-            .when_some(hint, |d, zone| d.child(drop_indicator(zone, has_agent, t)))
+            .when_some(hint, |d, zone| {
+                let no_room = has_agent
+                    && match (zone, ctx.sizes.get(pane_id)) {
+                        (Some(Side::Left | Side::Right), Some((w, _))) => w / 2. < ctx.min.min_w,
+                        (Some(Side::Top | Side::Bottom), Some((_, h))) => h / 2. < ctx.min.min_h,
+                        _ => false,
+                    };
+                d.child(drop_indicator(zone, has_agent, no_room, t))
+            })
     }
 
     fn drop_on_pane(
@@ -674,7 +721,7 @@ impl MainScreen {
                     this.with_active(|s, id| s.toggle_maximize(id, Some(&p)), cx);
                 }
             }))
-            .child(glyph(a.status, t, false))
+            .child(crate::kit::glyph_play(format!("pane-{}", a.id), a.status, t, false))
             .child(
                 div()
                     .flex_none()
@@ -904,8 +951,16 @@ impl MainScreen {
                     None => format!("Show {}", a.name),
                 };
                 let id = a.id.clone();
-                div()
-                    .id(SharedString::from(format!("chip-{}", a.id)))
+                let eid = gpui::ElementId::Name(SharedString::from(format!("chip-{}", a.id)));
+                let pressing = crate::kit::motion::pressing(&eid);
+                let blocked = a.status == Status::Blocked;
+                let skin = crate::kit::motion::Skin::new(
+                    Some(if blocked { t.amber_soft } else { t.surface_3 }),
+                    Some(if blocked { t.amber.opacity(0.45) } else { t.line_strong }),
+                    px(14.),
+                );
+                let chip = div()
+                    .id(eid.clone())
                     .flex()
                     .flex_none()
                     .items_center()
@@ -920,16 +975,19 @@ impl MainScreen {
                     .text_size(px(12.))
                     .text_color(t.text_2)
                     .cursor_pointer()
-                    .hover_text(t.text, |s| {
-                        s.bg(t.surface_3)
-                            
-                            .border_color(t.line_strong)
+                    .map(|d| {
+                        if pressing {
+                            d.hover_text(t.text, |s| s)
+                        } else {
+                            d.hover_text(t.text, |s| s.bg(t.surface_3).border_color(t.line_strong))
+                        }
                     })
-                    .when(a.status == Status::Blocked, |d| {
+                    .when(blocked, |d| {
                         d.bg(t.amber_soft)
                             .text_color(t.amber)
                             .border_color(t.amber.opacity(0.45))
-                    })
+                    });
+                crate::kit::motion::pressable(chip, &eid, false, skin)
                     .when(matches!(a.status, Status::Exited | Status::Stopped), |d| {
                         d.opacity(0.6)
                     })
@@ -944,7 +1002,7 @@ impl MainScreen {
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.show_agent(&id, window, cx)),
                     )
-                    .child(glyph(a.status, t, true))
+                    .child(crate::kit::glyph_play(format!("chip-{}", a.id), a.status, t, true))
                     .child(a.name.clone())
                     .when_some(elsewhere, |d, w| {
                         d.child(
@@ -974,6 +1032,10 @@ struct PaneCtx {
     pane_count: usize,
     /// Agents offered in empty panes (members not shown).
     members: Vec<AgentView>,
+    /// Each pane's size (px) and the density's smallest tile: a split that
+    /// would go below it lands as a chip (the drop says "No room").
+    sizes: HashMap<String, (f64, f64)>,
+    min: tree::MinSize,
 }
 
 /// The rect of split `id` inside `rect`.
@@ -1154,10 +1216,12 @@ fn stopped_overlay(a: &AgentView, t: &Theme, cx: &mut Context<MainScreen>) -> im
         )
 }
 
-fn drop_indicator(zone: Option<Side>, has_agent: bool, t: &Theme) -> impl IntoElement {
+/// `.drop-indicator`: where a dragged agent lands (`.drop-label` inside).
+fn drop_indicator(zone: Option<Side>, has_agent: bool, no_room: bool, t: &Theme) -> impl IntoElement {
     let text = match zone {
         None if has_agent => "Swap".to_string(),
         None => "Show here".to_string(),
+        Some(_) if no_room => "No room · adds as a chip".to_string(),
         Some(s) => format!(
             "Split {}",
             match s {
@@ -1168,49 +1232,57 @@ fn drop_indicator(zone: Option<Side>, has_agent: bool, t: &Theme) -> impl IntoEl
             }
         ),
     };
-    let d = div()
-        .absolute()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(6.))
-        .bg(t.text.opacity(0.08))
-        .border_2()
-        .border_color(t.text.opacity(0.45));
-    let d = match zone {
-        None => d.inset(px(6.)),
-        Some(Side::Left) => d
-            .top(px(6.))
-            .bottom(px(6.))
-            .left(px(6.))
-            .w(gpui::relative(0.5)),
-        Some(Side::Right) => d
-            .top(px(6.))
-            .bottom(px(6.))
-            .right(px(6.))
-            .w(gpui::relative(0.5)),
-        Some(Side::Top) => d
-            .left(px(6.))
-            .right(px(6.))
-            .top(px(6.))
-            .h(gpui::relative(0.5)),
-        Some(Side::Bottom) => d
-            .left(px(6.))
-            .right(px(6.))
-            .bottom(px(6.))
-            .h(gpui::relative(0.5)),
+    // Insets as in space.css: 38 px from the top (under the pane head),
+    // 6 px elsewhere; an empty pane's whole area. The edges are fractions of
+    // that box and ease between zones (`transition: all 0.08s ease-out`).
+    let (l, tp, r, b) = match zone {
+        None => (0., 0., 0., 0.),
+        Some(Side::Left) => (0., 0., 0.5, 0.),
+        Some(Side::Right) => (0.5, 0., 0., 0.),
+        Some(Side::Top) => (0., 0., 0., 0.5),
+        Some(Side::Bottom) => (0., 0.5, 0., 0.),
     };
-    d.child(
-        div()
-            .px(px(10.))
-            .py(px(4.))
-            .rounded(RADIUS)
-            .bg(t.surface_3)
-            .text_size(px(12.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(text),
-    )
+    let tint = if no_room { t.amber } else { t.text };
+    let (bg, ring) = (tint.opacity(0.10), tint.opacity(if no_room { 0.55 } else { 0.45 }));
+    let label = div()
+        .px(px(9.))
+        .py(px(3.))
+        .rounded(px(5.))
+        .bg(t.surface_3)
+        .text_color(t.text)
+        // `.drop-label`: Inter 600, 11 px, upper case, 0.04em.
+        .child(crate::kit::tracked(&text.to_uppercase(), 11., 0.04).font_weight(FontWeight::SEMIBOLD));
+    div()
+        .absolute()
+        .top(px(if has_agent { 38. } else { 6. }))
+        .left(px(6.))
+        .right(px(6.))
+        .bottom(px(6.))
+        .child(crate::kit::motion::tween_many(
+            "drop-zone",
+            vec![l, tp, r, b],
+            std::time::Duration::from_millis(80),
+            crate::kit::motion::Ease::EaseOut,
+            move |e| {
+                div()
+                    .absolute()
+                    .left(gpui::relative(e[0]))
+                    .top(gpui::relative(e[1]))
+                    .right(gpui::relative(e[2]))
+                    .bottom(gpui::relative(e[3]))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .bg(bg)
+                    .border_2()
+                    .border_color(ring)
+                    .child(label)
+                    .into_any_element()
+            },
+        ))
 }
+
 
 /// A preset's mini layout (`PresetIcon`), drawn from its pane rects.
 fn preset_icon(p: Preset, ink: Hsla, hover: Hsla, group: SharedString) -> impl IntoElement {

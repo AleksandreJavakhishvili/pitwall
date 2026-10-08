@@ -29,6 +29,7 @@ pub mod icons;
 pub mod input;
 pub mod menu;
 pub mod modal;
+pub mod motion;
 pub mod scm;
 pub mod status;
 pub mod text;
@@ -40,19 +41,22 @@ pub use button::{
 };
 pub use chip::{chip, chip_sm, chip_subtle, chip_tone, Tone};
 pub use controls::{
-    check, checkbox, checkbox_box, radio, seg, select_menu, select_trigger, spinner, toggle,
+    check, checkbox, checkbox_box, radio, seg, select_menu, select_trigger, spinner, spinner_ms, toggle,
     OnClose, OnPick, SegItem,
 };
 pub use file_icons::{file_icon, folder_icon, svg_image};
 pub use fonts::{LABEL_FONT, MONO_FONT, UI_FONT};
 pub use hover::HoverText;
 pub use glass::{chrome_panel, glass_region, region_sweeper, PANEL_RADIUS};
-pub use icons::{chevron, icon, Assets};
+pub use icons::{chevron, chevron_at, icon, Assets};
 pub use input::{InputEvent, TextFieldEvent, TextInput};
 pub use menu::{menu_item, menu_panel};
-pub use modal::Modal;
+pub use modal::{scrim_in, Modal};
 pub use scm::{count_badge, diffstat_inline, status_letter, status_letter_text};
-pub use status::{diffstat, glyph, status_glyph_el, status_label, word_color, GlyphSize};
+pub use status::{
+    diffstat, glyph, glyph_play, glyph_still, status_glyph, status_glyph_el, status_label,
+    word_color, GlyphMotion, GlyphSize,
+};
 pub use text::{
     error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,
 };

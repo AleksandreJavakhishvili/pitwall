@@ -437,7 +437,7 @@ impl MainScreen {
                     .hover_text(fg, move |s| s.bg(bg))
                     .tooltip(tooltip(tip))
                     .on_click(cx.listener(move |this, _, _, cx| this.wt_toggle(key.clone(), cx)))
-                    .child(chevron(open, 10., t.text_4))
+                    .child(chevron("chev", open, 10., t.text_4))
                     .child(icon("branch", 11., t.text_3).group_hover_text(group, fg, |s| s))
                     .child(text),
             )

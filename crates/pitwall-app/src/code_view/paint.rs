@@ -1359,8 +1359,10 @@ pub(super) fn overlays(
                 .child(label)
                 .tooltip(move |_, cx| tooltip(tip, cx))
         };
+        // `.rv-find`: slides down into place (`transition: transform 0.2s
+        // linear` from `translateY(calc(-100% - 10px))`).
         out.push(
-            ui_text()
+            crate::kit::motion::enter("find-in", crate::kit::motion::Fx::FIND_SLIDE, ui_text()
                 .id("find")
                 .occlude()
                 .absolute()
@@ -1447,7 +1449,7 @@ pub(super) fn overlays(
                     button("find-close", "×", "Close (Escape)", true)
                         .on_click(cx.listener(|v, _, w, cx| v.close_find(w, cx))),
                 )
-                .into_any_element(),
+                ).into_any_element(),
         );
     }
 

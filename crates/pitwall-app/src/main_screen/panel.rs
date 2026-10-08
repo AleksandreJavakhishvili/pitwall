@@ -21,7 +21,7 @@ use pitwall_proto::AgentView;
 use crate::kit::{icon, MONO_FONT};
 use super::model::{split_path, updated_label, CHANGES_POLL};
 use crate::kit::keys;
-use crate::kit::{diffstat, glyph, icon_btn, label, label_t, tooltip};
+use crate::kit::{diffstat, icon_btn, label, label_t, tooltip};
 use super::{MainScreen, Route};
 use crate::theme::{Theme, RIGHT_W};
 
@@ -184,7 +184,7 @@ impl MainScreen {
                     .pr(px(8.))
                     .border_b_1()
                     .border_color(t.line)
-                    .child(glyph(a.status, t, true))
+                    .child(crate::kit::glyph_play(format!("panel-{}", a.id), a.status, t, true))
                     .child(div().flex_1().min_w_0().overflow_hidden().child(
                         label_t(a.name.clone(), t.text, 13., 0.1).font_weight(FontWeight::BOLD),
                     ))

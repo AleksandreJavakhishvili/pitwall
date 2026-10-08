@@ -345,10 +345,30 @@ impl MainScreen {
                     cx.notify();
                 }))
                 .when(blocked, |d| {
-                    d.child(div().text_size(px(10.)).text_color(t.amber).child("▲"))
+                    d.child(crate::kit::motion::bounce_in(
+                        SharedString::from(format!("tab-b-{}", s.id)),
+                        div().text_size(px(10.)).text_color(t.amber).child("▲"),
+                    ))
                 })
                 .when(done, |d| {
-                    d.child(div().text_size(px(10.)).text_color(t.finish).child("⚑"))
+                    let finish = t.finish;
+                    d.child(crate::kit::motion::keyframes(
+                        SharedString::from(format!("tab-d-{}", s.id)),
+                        crate::kit::motion::FLAG,
+                        1,
+                        move |p| {
+                            let (o, sc) = crate::kit::motion::flag_pop(p);
+                            div()
+                                .w(px(10.))
+                                .flex()
+                                .justify_center()
+                                .opacity(o)
+                                .text_size(px(10. * sc))
+                                .text_color(finish)
+                                .child("⚑")
+                                .into_any_element()
+                        },
+                    ))
                 })
                 .child(match editing {
                     Some(input) => div().w(px(120.)).child(input).into_any_element(),
@@ -552,8 +572,8 @@ fn count_pill(
     loud: bool,
     t: &Theme,
     tip: &'static str,
-) -> impl IntoElement {
-    div()
+) -> AnyElement {
+    let pill = div()
         .id(word)
         .flex()
         .items_center()
@@ -575,7 +595,13 @@ fn count_pill(
             format!("{n}")
         } else {
             format!("{n} {word}")
-        })
+        });
+    // `.count-loud` bounces twice when it shows.
+    if loud {
+        crate::kit::motion::bounce_in("count-loud", pill).into_any_element()
+    } else {
+        pill.into_any_element()
+    }
 }
 
 /// The brand mark (`public/pitwall.svg`, a 64-unit pit board), drawn from
