@@ -24,8 +24,9 @@ actions!(pw_palette, [Prev, Next, Pick, Close]);
 /// The key context while the palette has the keyboard.
 pub const CONTEXT: &str = "PwPalette";
 
-/// `.palette-item`: 8 px padding around a 13 px × 1.45 line.
-pub const ROW_H: f32 = 35.;
+/// `.palette-item`: 8 px padding around a 13 px × 1.45 line (18 px in
+/// WebKit, which truncates line heights).
+pub const ROW_H: f32 = 34.;
 /// `.modal` width for the palette variant.
 pub const WIDTH: f32 = 600.;
 
@@ -241,6 +242,9 @@ impl Palette {
 fn lead(l: &Option<Lead>, ix: usize, t: &Theme, motion: bool) -> AnyElement {
     let inner: AnyElement = match l {
         None => div().into_any_element(),
+        // The web view's fallback face draws ✕ about 6 px across; GPUI's
+        // draws it at 9, so it is the kit's x at that ink.
+        Some(Lead::Glyph(g)) if g.as_ref() == "✕" => icon("x", 12., t.text_3).into_any_element(),
         Some(Lead::Glyph(g)) => glyph(g.clone(), t.text_3).into_any_element(),
         // GPUI's fallback face draws ▲ larger than the web view's: sized
         // to the same 9 px width.
