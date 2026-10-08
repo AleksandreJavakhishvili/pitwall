@@ -364,3 +364,14 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 .prose .toc { padding-left: 0; }
+
+/* A platform not in the latest release yet (download page). */
+.dl.is-soon .dl-files,
+.dl.is-soon h3,
+.dl.is-soon .dl-notes {
+  display: none;
+}
+.dl-soon {
+  margin: 0.5rem 0 0;
+  color: var(--text-2, inherit);
+}

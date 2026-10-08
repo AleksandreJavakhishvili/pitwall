@@ -111,6 +111,9 @@ jobs:
     # continue-on-error, one step each so a regression in a passing suite is
     # never hidden behind them.
     runs-on: windows-latest
+    # A hang (the ConPTY holder suites) fails here instead of running into
+    # GitHub's 6-hour limit and showing up as "cancelled".
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
