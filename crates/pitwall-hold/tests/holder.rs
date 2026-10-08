@@ -93,6 +93,11 @@ fn start_script(tag: &str, unix: &str, windows: &str, grace_ms: u64) -> Held {
 /// Enter, as a terminal sends it.
 const ENTER: &str = if cfg!(windows) { "\r" } else { "\n" };
 
+/// How long a program may take to start and print its first line. Windows
+/// PowerShell's first starts on a fresh machine (CI), several at once, can
+/// take longer than 10 s.
+const STARTUP_SECS: u64 = if cfg!(windows) { 60 } else { 10 };
+
 /// Read frames until `done(collected_output, last_msg)` or the timeout.
 fn read_until(c: &mut Conn, secs: u64, mut done: impl FnMut(&str, &Msg) -> bool) -> (String, Vec<Msg>) {
     c.set_recv_timeout(Some(Duration::from_millis(200))).unwrap();
@@ -151,7 +156,7 @@ fn input_resize_status_and_env() {
         format!("ready marked {}", std::fs::canonicalize(&h.dir).unwrap().display())
     };
     let name = h.dir.file_name().unwrap().to_string_lossy().into_owned();
-    let (text, _) = read_until(&mut c, 10, |t, _| t.contains(&want) && t.contains(&name));
+    let (text, _) = read_until(&mut c, STARTUP_SECS, |t, _| t.contains(&want) && t.contains(&name));
     assert!(text.contains(&want) && text.contains(&name), "env + cwd reach the child: {text:?}");
 
     c.send(&proto::input(format!("hello{ENTER}").as_bytes())).unwrap();
@@ -218,8 +223,8 @@ fn holder_exits_after_its_child_with_a_readable_final_status() {
     let h = start_script("exit", "sleep 0.3; echo bye; exit 3", "Start-Sleep -Milliseconds 300; Write-Output bye; exit 3", 1500);
     let mut c = h.connect();
     c.send(&proto::attach(true)).unwrap();
-    let (text, msgs) = read_until(&mut c, 10, |_, m| matches!(m, Msg::Exit(_)));
-    assert!(text.contains("bye"), "output before exit: {text:?}");
+    let (text, msgs) = read_until(&mut c, STARTUP_SECS, |_, m| matches!(m, Msg::Exit(_)));
+    assert!(text.contains("bye"), "output before exit: {text:?}, last: {:?}", msgs.last());
     assert_eq!(msgs.last(), Some(&Msg::Exit(3)));
 
     // Within the grace period a late client still reads the status…
@@ -244,7 +249,7 @@ fn shutdown_hangs_up_then_kills() {
     );
     let mut c = h.connect();
     c.send(&proto::attach(true)).unwrap();
-    read_until(&mut c, 10, |t, _| t.contains("armed"));
+    read_until(&mut c, STARTUP_SECS, |t, _| t.contains("armed"));
     let t0 = Instant::now();
     c.send(&proto::shutdown(300)).unwrap();
     let (_, msgs) = read_until(&mut c, 10, |_, m| matches!(m, Msg::Exit(_)));
