@@ -19,11 +19,10 @@ pub mod view;
 pub mod widgets;
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use gpui::{
     div, prelude::*, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Global,
-    Subscription, Task, Window,
+    Subscription, Window,
 };
 
 use pitwall_core::Shared;
@@ -46,78 +45,39 @@ pub struct SettingsHost {
 
 impl Global for SettingsHost {}
 
-/// The preferences as last set, and the pending write of `ui.json`.
-pub struct PrefsState {
-    pub prefs: UiPrefs,
-    root: Option<PathBuf>,
-    saving: Option<Task<()>>,
-}
-
-impl Global for PrefsState {}
-
 /// Settings sections other modules add (Rules, §21): drawn after Tiles.
 #[derive(Default)]
 pub struct ExtraSections(pub Vec<fn(&mut Window, &mut App) -> AnyElement>);
 
 impl Global for ExtraSections {}
 
-/// Load the preferences from `ui.json`, set the appearance globals and keep
-/// the engine for Settings and onboarding. Call once, before windows open.
+/// Keep the engine and data folder for Settings and onboarding. Call once,
+/// after `ui_state::init` (which loads the preferences and applies the
+/// appearance), before windows open.
 pub fn init(cx: &mut App, engine: Option<Shared>, root: Option<PathBuf>) {
-    let prefs = root.as_deref().map(prefs::load).unwrap_or_default();
-    cx.set_global(SettingsHost {
-        engine,
-        root: root.clone(),
-    });
-    cx.set_global(PrefsState {
-        prefs,
-        root,
-        saving: None,
-    });
+    cx.set_global(SettingsHost { engine, root });
     if !cx.has_global::<ExtraSections>() {
         cx.set_global(ExtraSections::default());
     }
-    appearance::apply(prefs.inputs(), cx);
 }
 
-/// The current preferences.
+/// The current preferences (from `ui.json`).
 pub fn prefs(cx: &App) -> UiPrefs {
-    cx.try_global::<PrefsState>()
-        .map(|s| s.prefs)
-        .unwrap_or_default()
+    UiPrefs::of(&crate::ui_state::get(cx))
 }
 
 /// Change preferences: the appearance follows at once in every window, and
 /// `ui.json` is written 150 ms after the last change (as `useUiState`).
 pub fn set_prefs(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut UiPrefs)) {
-    if !cx.has_global::<PrefsState>() {
-        return;
-    }
-    let state = cx.global_mut::<PrefsState>();
-    let before = state.prefs;
-    f(&mut state.prefs);
-    let (now, root) = (state.prefs, state.root.clone());
+    let before = prefs(cx);
+    let mut now = before;
+    f(&mut now);
     if now == before {
         return;
     }
-    appearance::apply(now.inputs(), cx);
+    crate::ui_state::update(cx, |s| now.write(s));
     // `apply` can't reach the window being updated right now.
     appearance::apply_window(window, cx);
-    let Some(root) = root else {
-        return;
-    };
-    let task = cx.spawn(async move |cx| {
-        cx.background_executor()
-            .timer(Duration::from_millis(150))
-            .await;
-        let write = cx
-            .background_executor()
-            .spawn(async move { prefs::save(&root, &now) });
-        if let Err(e) = write.await {
-            eprintln!("pitwall: could not save ui.json: {e}");
-        }
-    });
-    cx.global_mut::<PrefsState>().saving = Some(task);
 }
 
 /// A new window: give it the material and native appearance, and re-check

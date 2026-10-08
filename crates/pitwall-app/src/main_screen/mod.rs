@@ -32,7 +32,6 @@ pub mod tree;
 pub mod workspace;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -345,7 +344,6 @@ struct DividerDrag {
 pub struct MainScreen {
     store: Entity<AgentStore>,
     engine: Option<Shared>,
-    root: Option<PathBuf>,
     label: String,
     pub ui: UiState,
     active: String,
@@ -372,7 +370,6 @@ pub struct MainScreen {
     /// The sidebar's keyboard cursor.
     cursor: Option<String>,
     route_views: HashMap<Route, AnyView>,
-    save_task: Option<Task<()>>,
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
     agent_ids: Vec<String>,
@@ -382,12 +379,12 @@ pub struct MainScreen {
 impl MainScreen {
     pub fn new(
         store: Entity<AgentStore>,
-        root: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> MainScreen {
         let engine = cx.try_global::<EngineHandle>().map(|e| e.0.clone());
-        let ui = root.as_deref().map(workspace::load).unwrap_or_default();
+        let ui_store = crate::ui_state::store(cx);
+        let ui = ui_store.read(cx).state.clone();
         let projects = engine
             .as_ref()
             .map(|e| e.projects().list())
@@ -396,6 +393,14 @@ impl MainScreen {
         window.focus(&focus);
         let subs = vec![
             cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
+            // Settings, the explorer and other windows change it too.
+            cx.observe(&ui_store, |this, s, cx| {
+                let next = s.read(cx).state.clone();
+                if next != this.ui {
+                    this.ui = next;
+                    cx.notify();
+                }
+            }),
             cx.subscribe(&store, |this, _, e: &crate::agents::StoreEvent, cx| {
                 this.attention(e, cx)
             }),
@@ -411,7 +416,6 @@ impl MainScreen {
         let mut screen = MainScreen {
             store,
             engine,
-            root,
             label: MAIN.into(),
             active: ALL_SPACE.into(),
             ui,
@@ -434,7 +438,6 @@ impl MainScreen {
             drop_hint: None,
             cursor: None,
             route_views: HashMap::new(),
-            save_task: None,
             seen_task: None,
             last_selected: None,
             agent_ids: vec![],
@@ -507,29 +510,17 @@ impl MainScreen {
 
     // ── state changes ────────────────────────────────────────────────────
 
-    /// Change `ui.json` and save it 150 ms after the last change.
+    /// Change `ui.json` (`crate::ui_state` saves it 150 ms after the last
+    /// change).
     fn update_ui(&mut self, f: impl FnOnce(UiState) -> UiState, cx: &mut Context<Self>) {
         let next = f(self.ui.clone());
         if next == self.ui {
             return;
         }
-        self.ui = next;
+        self.ui = next.clone();
         cx.notify();
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let state = self.ui.clone();
-        self.save_task = Some(cx.spawn(async move |_, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(150))
-                .await;
-            let write = cx
-                .background_executor()
-                .spawn(async move { workspace::save(&root, &state) });
-            if let Err(e) = write.await {
-                eprintln!("pitwall: could not save ui.json: {e}");
-            }
-        }));
+        let store = crate::ui_state::store(cx);
+        store.update(cx, |s, cx| s.set(next, cx));
     }
 
     fn with_active(&mut self, f: impl FnOnce(UiState, &str) -> UiState, cx: &mut Context<Self>) {

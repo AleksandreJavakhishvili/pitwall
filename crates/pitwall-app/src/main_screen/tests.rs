@@ -28,7 +28,7 @@ fn screen(
     });
     let s = store.clone();
     let (view, cx) =
-        cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), None, window, cx));
+        cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), window, cx));
     (view, store, cx)
 }
 

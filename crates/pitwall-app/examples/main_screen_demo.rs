@@ -49,7 +49,7 @@ fn main() {
                 ..Default::default()
             };
             cx.open_window(options, |window, cx| {
-                let screen = cx.new(|cx| MainScreen::new(store.clone(), None, window, cx));
+                let screen = cx.new(|cx| MainScreen::new(store.clone(), window, cx));
                 screen.update(cx, |s, cx| {
                     if let Ok(name) = std::env::var("DEMO_SHOW") {
                         let id = s

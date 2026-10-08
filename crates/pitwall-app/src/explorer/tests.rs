@@ -35,7 +35,7 @@ fn setup(
     let s = store.clone();
     let source: Arc<dyn Source> = src;
     let (explorer, cx) =
-        cx.add_window_view(move |_, cx| Explorer::with_source(Some(source), s, None, cx));
+        cx.add_window_view(move |_, cx| Explorer::with_source(Some(source), s, cx));
     (store, explorer, cx)
 }
 

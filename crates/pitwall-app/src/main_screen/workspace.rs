@@ -137,7 +137,31 @@ fn default_v() -> u32 {
     1
 }
 
-/// `ui.json`.
+/// A field that falls back to its default when the file has something else
+/// there (as `sanitize` in `workspace.ts` does field by field), so one bad
+/// value never resets the whole file.
+fn lenient<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let v = Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_default())
+}
+
+fn lenient_font<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    let v = Value::deserialize(d)?;
+    Ok(v.as_f64().filter(|n| n.is_finite()).unwrap_or(DEFAULT_FONT))
+}
+
+/// `true` only for a JSON `true` (`r.reduceMotion === true`).
+fn strict_true<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Value::deserialize(d)? == Value::Bool(true))
+}
+
+/// `ui.json`: the whole UI state, in the Tauri app's keys and values
+/// (`UiState` in `src/state/workspace.ts`), so the switch keeps the user's
+/// spaces, layout and settings. One copy per app ([`crate::ui_state`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiState {
@@ -146,24 +170,60 @@ pub struct UiState {
     #[serde(default)]
     pub spaces: Vec<Space>,
     /// spaceId → window label; missing means "main".
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub window_of: BTreeMap<String, String>,
     /// Window labels in Wall mode.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub wall: Vec<String>,
-    #[serde(default = "default_font")]
+    /// Settings → Terminal font (px); tiles may shrink below it.
+    #[serde(default = "default_font", deserialize_with = "lenient_font")]
     pub font_size: f64,
-    #[serde(default = "default_density")]
+    /// Settings → Tiles → Density (the default; spaces may override it).
+    #[serde(default = "default_density", deserialize_with = "lenient")]
     pub density: Density,
-    #[serde(default)]
+    /// Per-agent tile font chosen with ⌘+ / ⌘− (⌘0 removes it).
+    #[serde(default, deserialize_with = "lenient")]
     pub tile_font: BTreeMap<String, f64>,
-    /// Collapsed sidebar groups (group keys).
-    #[serde(default)]
+    /// Collapsed project groups in the sidebar (group keys).
+    #[serde(default, deserialize_with = "lenient")]
     pub collapsed: Vec<String>,
-    /// Everything else in the file (theme, look, Wall's collapsed list, …),
-    /// written back untouched.
+    /// Collapsed project groups on the Wall.
+    #[serde(default, deserialize_with = "lenient")]
+    pub wall_collapsed: Vec<String>,
+    /// Settings: hide the sidebar's "Elsewhere" group.
+    #[serde(default, deserialize_with = "strict_true")]
+    pub hide_elsewhere: bool,
+    /// Settings → Appearance → Theme.
+    #[serde(default, deserialize_with = "lenient")]
+    pub theme: crate::theme::ThemePref,
+    /// Settings → Appearance → Look (Flat or Glass).
+    #[serde(default, deserialize_with = "lenient")]
+    pub look: crate::theme::Look,
+    /// Settings → Appearance → Reduce motion (the OS setting applies too).
+    #[serde(default, deserialize_with = "strict_true")]
+    pub reduce_motion: bool,
+    /// Files: "Ignored" (list what .gitignore leaves out). The Tauri app
+    /// keeps this in localStorage and drops unknown keys when it rewrites
+    /// the file, so it costs it nothing.
+    #[serde(default, deserialize_with = "strict_true")]
+    pub explorer_show_ignored: bool,
+    /// Everything else in the file (`focusRequest`, keys of later
+    /// versions), written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
+}
+
+impl UiState {
+    /// The appearance inputs (Settings → Appearance and Tiles).
+    pub fn appearance_inputs(&self) -> crate::theme::Inputs {
+        crate::theme::Inputs {
+            pref: self.theme,
+            look: self.look,
+            reduce_motion: self.reduce_motion,
+            density: self.density,
+            font_size: crate::theme::clamp_font(self.font_size.round() as i32),
+        }
+    }
 }
 
 impl Default for UiState {
@@ -188,6 +248,12 @@ impl Default for UiState {
             density: Density::Compact,
             tile_font: BTreeMap::new(),
             collapsed: vec![],
+            wall_collapsed: vec![],
+            hide_elsewhere: false,
+            theme: Default::default(),
+            look: Default::default(),
+            reduce_motion: false,
+            explorer_show_ignored: false,
             rest: serde_json::Map::new(),
         }
     }

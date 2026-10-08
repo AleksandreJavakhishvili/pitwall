@@ -20,6 +20,7 @@ pub mod remote;
 pub mod packaging;
 pub mod theme;
 pub mod ui;
+pub mod ui_state;
 pub mod window_state;
 
 use std::path::PathBuf;
@@ -114,6 +115,7 @@ pub fn run() {
         let engine = state.host.as_ref().map(|h| h.engine.clone());
         let root = state.root.clone();
         cx.set_global(state);
+        ui_state::init(root.clone(), cx);
         settings::init(cx, engine, root);
 
         cx.on_action(|_: &Quit, cx| cx.quit());

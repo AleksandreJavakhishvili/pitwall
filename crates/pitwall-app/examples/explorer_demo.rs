@@ -102,7 +102,7 @@ fn main() {
             },
             move |window, cx| {
                 let _keep = _keep.clone();
-                let explorer = cx.new(|cx| Explorer::new(store.clone(), None, cx));
+                let explorer = cx.new(|cx| Explorer::new(store.clone(), cx));
                 explorer.update(cx, |e, cx| {
                     e.set_agent(Some("demo".into()), cx);
                     match mode.as_str() {

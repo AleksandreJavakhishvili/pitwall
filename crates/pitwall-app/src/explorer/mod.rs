@@ -18,7 +18,6 @@ pub mod files_panel;
 
 
 pub mod logic;
-pub mod prefs;
 pub mod quick_open;
 pub mod search;
 pub mod source;
@@ -28,7 +27,6 @@ pub mod viewer;
 pub mod widgets;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -124,8 +122,6 @@ pub enum ExplorerEvent {
 pub struct Explorer {
     source: Option<Arc<dyn Source>>,
     store: Entity<AgentStore>,
-    /// The data folder ("Show ignored files" is kept there).
-    root: Option<PathBuf>,
     /// The focused agent.
     agent: Option<String>,
     show_ignored: bool,
@@ -147,26 +143,28 @@ pub struct Explorer {
 impl EventEmitter<ExplorerEvent> for Explorer {}
 
 impl Explorer {
-    pub fn new(
-        store: Entity<AgentStore>,
-        root: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) -> Explorer {
+    pub fn new(store: Entity<AgentStore>, cx: &mut Context<Self>) -> Explorer {
         let source = ExplorerSource::get(cx);
-        Self::with_source(source, store, root, cx)
+        Self::with_source(source, store, cx)
     }
 
     pub fn with_source(
         source: Option<Arc<dyn Source>>,
         store: Entity<AgentStore>,
-        root: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) -> Explorer {
-        let show_ignored = root
-            .as_deref()
-            .and_then(|r| prefs::get_bool(r, prefs::SHOW_IGNORED))
-            .unwrap_or(false);
-        let subs = vec![cx.observe(&store, |this, _, cx| this.store_changed(cx))];
+        let show_ignored = crate::ui_state::get(cx).explorer_show_ignored;
+        let ui = crate::ui_state::store(cx);
+        let subs = vec![
+            cx.observe(&store, |this, _, cx| this.store_changed(cx)),
+            // "Ignored" set in another window.
+            cx.observe(&ui, |this, ui, cx| {
+                let on = ui.read(cx).state.explorer_show_ignored;
+                if on != this.show_ignored {
+                    this.apply_ignored(on, cx);
+                }
+            }),
+        ];
         let poll = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(TREE_POLL).await;
             if this.update(cx, |this, cx| this.poll(cx)).is_err() {
@@ -176,7 +174,6 @@ impl Explorer {
         Explorer {
             source,
             store,
-            root,
             agent: None,
             show_ignored,
             trees: HashMap::new(),
@@ -391,21 +388,17 @@ impl Explorer {
         cx.notify();
     }
 
-    /// "Show ignored files" toggled (kept in prefs.json): every tree lists
+    /// "Show ignored files" toggled (kept in `ui.json`): every tree lists
     /// again that way.
     pub fn set_ignored(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.apply_ignored(on, cx);
+        crate::ui_state::update(cx, |s| s.explorer_show_ignored = on);
+    }
+
+    fn apply_ignored(&mut self, on: bool, cx: &mut Context<Self>) {
         self.show_ignored = on;
         for t in self.trees.values() {
             t.update(cx, |t, cx| t.set_ignored(on, cx));
-        }
-        if let Some(root) = self.root.clone() {
-            cx.background_executor()
-                .spawn(async move {
-                    if let Err(e) = prefs::set_bool(&root, prefs::SHOW_IGNORED, on) {
-                        eprintln!("pitwall: could not save prefs.json: {e}");
-                    }
-                })
-                .detach();
         }
         cx.notify();
     }

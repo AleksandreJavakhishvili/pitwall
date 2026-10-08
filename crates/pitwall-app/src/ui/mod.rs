@@ -55,7 +55,7 @@ impl MainView {
         let mut explorer = None;
         if let Content::Live { store, .. } = &content {
             subs.push(cx.observe(store, |_, _, cx| cx.notify()));
-            let e = cx.new(|cx| crate::explorer::Explorer::new(store.clone(), root.clone(), cx));
+            let e = cx.new(|cx| crate::explorer::Explorer::new(store.clone(), cx));
             subs.push(cx.observe(&e, |_, _, cx| cx.notify()));
             explorer = Some(e);
         }
@@ -79,8 +79,8 @@ impl MainView {
         window.focus(&focus);
         let screen = match &content {
             Content::Live { store, .. } => {
-                let (store, root) = (store.clone(), root.clone());
-                Some(cx.new(|cx| crate::main_screen::MainScreen::new(store, root, window, cx)))
+                let store = store.clone();
+                Some(cx.new(|cx| crate::main_screen::MainScreen::new(store, window, cx)))
             }
             Content::Refused(_) => None,
         };
