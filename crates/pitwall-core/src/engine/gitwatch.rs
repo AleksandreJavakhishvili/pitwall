@@ -146,6 +146,7 @@ fn checkout(git: &Git) -> Option<Checkout> {
 fn ignored(git: &Git) -> Vec<String> {
     git.run(&[
         "ls-files",
+        "-z",
         "--others",
         "--ignored",
         "--exclude-standard",
@@ -153,7 +154,7 @@ fn ignored(git: &Git) -> Vec<String> {
         "--no-empty-directory",
     ])
     .map(|out| {
-        out.lines()
+        out.split('\0')
             .filter(|l| !l.is_empty())
             .take(MAX_IGNORED)
             .map(str::to_string)

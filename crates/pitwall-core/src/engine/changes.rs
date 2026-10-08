@@ -80,6 +80,26 @@ mod tests {
     }
 
     #[test]
+    fn non_ascii_names_are_kept() {
+        // git would print these as octal escapes ("\341\203\221…") by default.
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let h = Harness::new(vec![record("a", r.path())]);
+        r.write("ფაილი.xlsx", "x\n");
+        r.write("a.txt", "1\n2\n");
+        r.commit_all("tracked");
+        r.write("ანგარიში 2.txt", "y\n");
+        let files = changes(&h.engine, "a").unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["ანგარიში 2.txt"]);
+        assert_eq!((files[0].added, files[0].binary), (1, false));
+        r.write("ფაილი.xlsx", "x\nz\n");
+        let files = changes(&h.engine, "a").unwrap();
+        assert!(files.iter().any(|f| f.path == "ფაილი.xlsx" && !f.untracked));
+    }
+
+    #[test]
     fn committed_work_is_not_listed() {
         // Matches `git status`: commits the agent made since it started are
         // Review's business, not the Changes list's.
@@ -111,7 +131,7 @@ mod tests {
     fn scripted(numstat: &str) -> Arc<FakeExec> {
         let x = FakeExec::new();
         x.on(&["git", "-C", "/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"], numstat)
-            .on(&["git", "-C", "/w", "ls-files", "--others", "--exclude-standard"], "")
+            .on(&["git", "-C", "/w", "ls-files", "-z", "--others", "--exclude-standard"], "")
             .on(&["git", "-C", "/w", "symbolic-ref", "--quiet", "--short", "HEAD"], "main\n");
         x
     }
@@ -234,7 +254,7 @@ mod tests {
     fn git_runs_on_the_agents_machine() {
         let x = crate::testing::FakeExec::new();
         x.on(&["git", "-C", "/remote/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"], "4\t2\tsrc/a.rs\0")
-            .on(&["git", "-C", "/remote/w", "ls-files", "--others", "--exclude-standard"], "");
+            .on(&["git", "-C", "/remote/w", "ls-files", "-z", "--others", "--exclude-standard"], "");
         let mut rec = record("a", "/remote/w");
         rec.base_commit = Some("b0".into());
         let h = Harness::with_exec(vec![rec], x.clone());
