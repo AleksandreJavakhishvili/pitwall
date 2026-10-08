@@ -18,7 +18,7 @@ tree (Rust process + WebKit content/GPU processes, excluding agent processes).
 - Scrollback cap per xterm; dispose view-only Wall instances on exit.
 - Hidden terminals: buffer output and write in batches; no render work.
 - Each extra window is a separate WebKit process — keep per-window state minimal.
-- Lazy-load heavy chunks: Monaco/Review, onboarding, rules UI.
+- Lazy-load heavy chunks: Review (and its diff editor), onboarding, rules UI.
 - Git polling only for visible or recently active agents; back off when idle
   (pass 2: local agents refresh on file changes instead, see "Git refresh").
 - Avoid React re-render storms on `agents-changed` (memoised rows/panes,
@@ -35,7 +35,7 @@ The instance gets a fresh `PITWALL_HOME` under `/tmp` (state, sockets, holders;
 `src/lib/bench.ts`: wall on/off, review on/off, visit-all, and a readiness
 event for cold start). Agents are a `bench` kind (a shell loop printing ~1.5 KB
 of coloured text every 0.5 s) created with `pitwall-cli` in a temp git repo
-with an uncommitted change (so Review opens Monaco). Only processes it
+with an uncommitted change (so Review opens a diff). Only processes it
 started are stopped, by exact PID; the user's app, `~/.pitwall` and holders
 are never touched.
 
@@ -191,8 +191,8 @@ up in a profile.
   renderer). Candidates: try `will-change`/layer hints or the canvas renderer
   addon, and measure; investigate WebKit's tile cache for the scrolling
   `.xterm-rows`.
-- Monaco code stays resident after Review; to free it, host Review in an
-  iframe that is removed on close, or ask before loading.
+- Monaco's code staying resident after Review: done in pass 2 (below),
+  Review's diff is CodeMirror now.
 - Wall with many agents is WebContent-bound (~5 MB per view-only xterm);
   view-only instances could be replaced by reusing the interactive ones when
   sizes match more often.
@@ -272,3 +272,43 @@ snapshot tiles repaint too. Next candidates: repaint Wall tiles less often
 (e.g. 2–4/s when not hovered), test whether `contain: paint` / one canvas
 for all tiles shrinks the tile cache, and check whether WebKit's GPU memory
 is per window area rather than per layer.
+
+## Pass 2: Review memory (2026-10-07)
+Monaco (`monaco-editor` + `@monaco-editor/react`) is replaced by CodeMirror 6 +
+`@codemirror/merge` in Review's diff (`src/components/review/diffView.ts`,
+`editorSetup.ts`, `findPanel.ts`, `lineDiff.ts`). It still loads only when a
+file is opened in Review (`ReviewDiff` is a lazy chunk; each language is its
+own chunk, loaded for the open file). The UI is unchanged: side by side and
+inline, Monaco's colours (vs / vs-dark + the Pitwall tokens), margin (glyph,
+number(s), +/−), hatched filler, "N hidden lines" bars, word highlights,
+bracket-pair colours, indent guides, overlay scrollbars + cursor lane, the
+diff overview ruler, Find widget, context menu (Add review comment · Copy),
+the read-only message, comment glyphs/hover/composer and `reveal`. Line
+alignment follows Monaco's (`lineDiff.ts`: lines first, inserted blocks slid
+to Monaco's boundary, then characters). Checked by screenshotting the browser
+mock before/after in both themes and layouts (comment, hover, composer,
+reveal, find, context menu, read-only message, new/deleted/markdown files):
+0.3–2 % of diff-area pixels differ, mostly the "hidden lines" label (Monaco
+drew it clipped) and character-level highlights where the two diff
+algorithms split a rewritten line differently.
+
+Bundle (`vite build`): the diff chunk 3,234 KB (827 KB gzip) + editor worker
+304 KB + 146 KB CSS + 153 KB codicon font → 412 KB (132 KB gzip) plus the
+open file's language (e.g. TypeScript ~100 KB); whole `dist` 6.3 → 3.8 MB.
+Main chunk unchanged (727 KB).
+
+Memory, `scripts/bench.sh … --counts 5`, two alternating runs per build,
+off-screen (so GPU is not comparable, see above); WebContent MB:
+
+| 5 agents | Before (Monaco) | After (CodeMirror) |
+|---|---|---|
+| before opening Review | 178 / 188 | 204 / 111 |
+| Review open | 285 / 293 | 226 / 171 |
+| Review closed again | 280 / 263 | 205 / 134 |
+| kept after closing | +102 / +75 | +1 / +23 |
+
+Browser mock, JS heap after GC (median of 3; open = four files, both
+layouts): idle 3.7 MB; Review open 16.5 → 8.5 MB; closed 15.9 → 7.9 MB.
+Cold start unchanged (318–327 ms). Monaco's dispose-on-close hook is gone:
+closing Review destroys the editors with the component, and there is no
+worker.
