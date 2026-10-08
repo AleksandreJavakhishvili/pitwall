@@ -277,7 +277,7 @@ impl SettingsView {
                             .child("This edits")
                             .child(
                                 div()
-                                    .font_family("Menlo")
+                                    .font_family(crate::kit::MONO_FONT)
                                     .text_size(px(12.))
                                     .child("~/.codex/hooks.json"),
                             )
@@ -589,7 +589,7 @@ impl SettingsView {
                     .min_w(px(38.))
                     .flex()
                     .justify_center()
-                    .font_family("Menlo")
+                    .font_family(crate::kit::MONO_FONT)
                     .text_size(px(12.5))
                     .child(format!("{font}px")),
             )

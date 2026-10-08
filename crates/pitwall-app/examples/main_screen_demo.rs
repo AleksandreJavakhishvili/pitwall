@@ -9,6 +9,8 @@
 //! - `DEMO_OPEN=new-agent|remove|diff|menu|terminal|remove-worktree` open a dialog or menu
 //! - `DEMO_WT=open` expand every worktree list (the mock's worktrees show either way)
 //! - `DEMO_FILES=1` the right panel on its Files tab
+//! - `DEMO_RULES=1` the browser mock's rules, the first agent's rules stale
+//!   and the second's failed (debug builds)
 
 use gpui::{
     px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
@@ -43,6 +45,18 @@ fn main() {
                 pitwall_app::ui_state::update(cx, |s| s.right_files = true);
             }
             let store = cx.new(|_| AgentStore::new(demo::agents()));
+            #[cfg(debug_assertions)]
+            if std::env::var_os("DEMO_RULES").is_some() {
+                let rules = std::sync::Arc::new(pitwall_app::rules::mock::MockRules::new());
+                let agents = demo::agents();
+                if let Some(a) = agents.first() {
+                    rules.set_agent(&a.id, true, None);
+                }
+                if let Some(a) = agents.get(1) {
+                    rules.set_agent(&a.id, false, Some("rulesync exited with status 1".into()));
+                }
+                pitwall_app::rules::install(cx, rules);
+            }
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,

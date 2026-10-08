@@ -739,6 +739,13 @@ impl MainScreen {
                     .child(diffstat(a.added, a.removed, t)),
             )
             .child(div().flex_1())
+            .children(crate::rules::stale::button(&a.id, t, cx, {
+                let id = a.id.clone();
+                move |this: &mut Self, r, cx| match r {
+                    Ok(()) => this.restart_agent(id.clone(), cx),
+                    Err(e) => this.failed("re-apply rules", e, cx),
+                }
+            }))
             .child(
                 div()
                     .flex()
