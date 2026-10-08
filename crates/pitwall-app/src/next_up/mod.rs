@@ -204,6 +204,8 @@ impl NextUp {
         let Some(id) = self.agent.as_ref().map(|a| a.id.clone()) else {
             return;
         };
+        // `set_text` sends no Changed, so the saved draft is cleared here too.
+        self.drafts.insert(id.clone(), String::new());
         self.field.update(cx, |f, cx| f.set_text("", cx));
         self.run(id, Op::Add(text), window, cx);
     }
