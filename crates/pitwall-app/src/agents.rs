@@ -33,6 +33,10 @@ pub enum StoreEvent {
         name: String,
         reason: &'static str,
     },
+    /// A scan step started or finished (onboarding's checklist).
+    ScanProgress(pitwall_core::onboarding::scan::ScanProgress),
+    /// The project list changed.
+    ProjectsChanged(Vec<pitwall_core::onboarding::project_list::Project>),
 }
 
 impl EventEmitter<StoreEvent> for AgentStore {}
@@ -66,8 +70,15 @@ impl AgentStore {
                 return false;
             }
             AppEvent::Approvals(list) => self.approvals = list,
-            // Onboarding (phase 6) listens to these.
-            AppEvent::Engine(Event::ScanProgress(_) | Event::ProjectsChanged(_)) => return false,
+            // Onboarding listens to these (settings::onboarding).
+            AppEvent::Engine(Event::ScanProgress(p)) => {
+                cx.emit(StoreEvent::ScanProgress(p));
+                return false;
+            }
+            AppEvent::Engine(Event::ProjectsChanged(list)) => {
+                cx.emit(StoreEvent::ProjectsChanged(list));
+                return false;
+            }
         }
         true
     }

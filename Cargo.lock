@@ -5429,13 +5429,18 @@ version = "0.1.1"
 dependencies = [
  "futures",
  "gpui",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "pitwall-client",
  "pitwall-core",
  "pitwall-daemon",
  "pitwall-proto",
  "pitwall-providers",
+ "raw-window-handle",
  "serde",
  "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

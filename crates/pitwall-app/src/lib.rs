@@ -10,6 +10,7 @@ pub mod bridge;
 pub mod home;
 pub mod host;
 pub mod menu;
+pub mod settings;
 pub mod theme;
 pub mod ui;
 pub mod window_state;
@@ -89,13 +90,20 @@ pub fn run() {
                 }
             }
         };
+        let engine = state.host.as_ref().map(|h| h.engine.clone());
+        let root = state.root.clone();
         cx.set_global(state);
+        settings::init(cx, engine, root);
 
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(quit_and_stop_agents);
         cx.on_action(|_: &OpenSettings, cx| {
             let main = show_main(cx);
             let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
+        });
+        cx.on_action(|_: &settings::About, cx| {
+            let main = show_main(cx);
+            let _ = main.update(cx, |view, _, cx| view.open_about(cx));
         });
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
         cx.on_app_quit(|cx| {

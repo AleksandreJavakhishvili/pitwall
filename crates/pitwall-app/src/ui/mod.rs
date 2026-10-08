@@ -6,14 +6,13 @@
 mod sidebar;
 
 use gpui::{
-    div, prelude::*, px, Context, Entity, FocusHandle, Hsla, IntoElement, Render, SharedString,
+    div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, Render, SharedString,
     Subscription, Task, Window,
 };
 
 use crate::agents::{status_word, AgentStore};
 use crate::home::Refusal;
-use crate::menu::Dismiss;
-use crate::theme::{self, Mode, Theme, RADIUS_LG};
+use crate::theme::{self, Theme, RADIUS_LG};
 use crate::window_state;
 
 /// What the window shows.
@@ -29,7 +28,8 @@ pub enum Content {
 pub struct MainView {
     content: Content,
     selected: Option<String>,
-    settings_open: bool,
+    /// Settings, About and onboarding (settings::Layer).
+    layer: Entity<crate::settings::Layer>,
     focus: FocusHandle,
     /// Where the window's bounds are saved (`None`: refused, nothing saved).
     root: Option<std::path::PathBuf>,
@@ -45,22 +45,35 @@ impl MainView {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut subs = vec![
-            // Light or dark follows the system (Settings → Appearance: phase 6).
+            // Light or dark follows the system unless Settings → Appearance
+            // forces one.
             cx.observe_window_appearance(window, |_, window, cx| {
-                cx.set_global(Theme::for_mode(Mode::for_appearance(window.appearance())));
-                cx.refresh_windows();
+                crate::settings::appearance::os_changed(cx);
+                crate::settings::appearance::apply_window(window, cx);
             }),
+            crate::settings::attach_window(window, cx),
             cx.observe_window_bounds(window, |this, window, cx| this.bounds_changed(window, cx)),
         ];
         if let Content::Live { store, .. } = &content {
             subs.push(cx.observe(store, |_, _, cx| cx.notify()));
         }
+        let store = match &content {
+            Content::Live { store, .. } => Some(store.clone()),
+            Content::Refused(_) => None,
+        };
+        let layer = cx.new(|cx| crate::settings::Layer::new(store, cx));
+        subs.push(cx.subscribe(&layer, |this, _, e: &crate::settings::LayerEvent, cx| {
+            let crate::settings::LayerEvent::HandOver { agents, .. } = e;
+            if let Some(first) = agents.first() {
+                this.select(first.id.clone(), cx);
+            }
+        }));
         let focus = cx.focus_handle();
         window.focus(&focus);
         MainView {
             content,
             selected: None,
-            settings_open: false,
+            layer,
             focus,
             root,
             save_bounds: None,
@@ -69,8 +82,11 @@ impl MainView {
     }
 
     pub fn open_settings(&mut self, cx: &mut Context<Self>) {
-        self.settings_open = true;
-        cx.notify();
+        self.layer.update(cx, |l, cx| l.open_settings(cx));
+    }
+
+    pub fn open_about(&mut self, cx: &mut Context<Self>) {
+        self.layer.update(cx, |l, cx| l.open_about(cx));
     }
 
     /// Saved half a second after the last move or resize.
@@ -209,42 +225,6 @@ impl MainView {
                     ),
             )
     }
-
-    fn settings_overlay(t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let backdrop: Hsla = gpui::black().opacity(if t.mode == Mode::Dark { 0.62 } else { 0.28 });
-        div()
-            .id("settings-overlay")
-            .absolute()
-            .inset_0()
-            .bg(backdrop)
-            .flex()
-            .items_center()
-            .justify_center()
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.settings_open = false;
-                cx.notify();
-            }))
-            .child(
-                div()
-                    .id("settings")
-                    .w(px(480.))
-                    .p_6()
-                    .rounded(RADIUS_LG)
-                    .bg(t.raised)
-                    .border_1()
-                    .border_color(t.line_strong)
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(div().text_color(t.text).child("Settings"))
-                    .child(
-                        div().text_sm().text_color(t.text_3).child(
-                            "Coming in phase 6 (docs/spec/gpui/README.md). Esc closes this.",
-                        ),
-                    ),
-            )
-    }
 }
 
 impl Render for MainView {
@@ -254,25 +234,26 @@ impl Render for MainView {
             .id("main")
             .track_focus(&self.focus)
             .key_context("MainView")
-            .on_action(cx.listener(|this, _: &Dismiss, _, cx| {
-                this.settings_open = false;
-                cx.notify();
-            }))
             .relative()
             .size_full()
             .flex()
-            .bg(t.bg)
+            .bg(crate::settings::appearance::backdrop(cx))
             .text_color(t.text);
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
             Content::Live { store, data_dir } => {
-                let sidebar =
-                    sidebar::render(store.read(cx), self.selected.as_deref(), data_dir, &t, cx);
+                let chrome = crate::settings::appearance::panel(&t, cx);
+                let sidebar = sidebar::render(
+                    store.read(cx),
+                    self.selected.as_deref(),
+                    data_dir,
+                    &chrome,
+                    cx,
+                );
+                let sidebar = crate::settings::chrome_panel("sidebar", sidebar, cx);
                 root.child(sidebar).child(self.placeholder(&t, cx))
             }
         };
-        root.when(self.settings_open, |r| {
-            r.child(Self::settings_overlay(&t, cx))
-        })
+        root.child(self.layer.clone())
     }
 }
