@@ -2,6 +2,62 @@ import "./site.css";
 
 const root = document.documentElement;
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+root.classList.add("js");
+
+// ---------- motion: header glass, reveals, pausing what nobody can see ----------
+// The header frosts in once the page scrolls (CSS fades the glass layer in).
+let scrolled = null;
+function onScroll() {
+  const s = window.scrollY > 12;
+  if (s === scrolled) return;
+  scrolled = s;
+  root.classList.toggle("scrolled", s);
+}
+addEventListener("scroll", onScroll, { passive: true });
+onScroll();
+
+// Background tab: stop the sky's loops.
+document.addEventListener("visibilitychange", () => root.classList.toggle("motion-paused", document.hidden));
+
+// Looping status animations pause while their block is off screen.
+const motionIO =
+  "IntersectionObserver" in window &&
+  new IntersectionObserver((entries) => {
+    for (const e of entries) e.target.classList.toggle("motion-off", !e.isIntersecting);
+  });
+if (motionIO) for (const el of document.querySelectorAll("[data-demo], .board-wrap, .lanes")) motionIO.observe(el);
+
+// Sections and cards below the fold fade and rise in as they arrive. Nothing already
+// on screen is hidden, and with reduced motion nothing is hidden at all.
+const REVEAL = ".pit-panel, .closing .wrap, .dl, .lane, .release, .board-wrap, .table-scroll, .callout, .keys";
+if (!reduceMotion.matches && "IntersectionObserver" in window) {
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        io.unobserve(e.target);
+        e.target.classList.add("is-in");
+      }
+    },
+    { rootMargin: "0px 0px -6% 0px" },
+  );
+  for (const el of document.querySelectorAll(REVEAL)) {
+    if (el.getBoundingClientRect().top < window.innerHeight) continue;
+    // Cards in a row arrive one after another.
+    const row = [...el.parentElement.children].filter((c) => c.matches(REVEAL));
+    el.style.setProperty("--i", String(row.indexOf(el) % 3));
+    el.classList.add("reveal");
+    el.addEventListener(
+      "transitionend",
+      (ev) => {
+        if (ev.target !== el || ev.propertyName !== "transform") return;
+        el.classList.remove("reveal", "is-in");
+        el.style.removeProperty("--i");
+      },
+    );
+    io.observe(el);
+  }
+}
 
 function currentTheme() {
   const set = root.dataset.theme;
@@ -60,6 +116,41 @@ function setupDemo(demo) {
     const i = chapters.indexOf(c);
     return i + 1 < chapters.length ? chapters[i + 1].t : Infinity;
   };
+
+  // Chapter fill: a thin bar under the playing tab shows how far its chapter has got.
+  let fillTab = null;
+  let fillRaf = 0;
+  let demoOnScreen = true;
+  function chapterAt(t) {
+    let cur = chapters[0];
+    for (const c of chapters) if (t + 0.05 >= c.t) cur = c;
+    return cur;
+  }
+  function paintFill() {
+    fillRaf = 0;
+    if (live) {
+      fillTab?.style.removeProperty("--p");
+      fillTab = null;
+      return;
+    }
+    const cur = pinned ?? chapterAt(video.currentTime);
+    const end = Math.min(chapterEnd(cur), video.duration || Infinity);
+    const p = Number.isFinite(end) && end > cur.t ? Math.min(1, Math.max(0, (video.currentTime - cur.t) / (end - cur.t))) : 0;
+    if (fillTab && fillTab !== cur.tab) fillTab.style.removeProperty("--p");
+    cur.tab.style.setProperty("--p", p.toFixed(4));
+    fillTab = cur.tab;
+    if (!video.paused && demoOnScreen && !document.hidden && !reduceMotion.matches) fillRaf = requestAnimationFrame(paintFill);
+  }
+  function queueFill() {
+    if (!fillRaf) fillRaf = requestAnimationFrame(paintFill);
+  }
+  for (const ev of ["play", "seeked", "timeupdate", "loadedmetadata"]) video.addEventListener(ev, queueFill);
+  if ("IntersectionObserver" in window)
+    new IntersectionObserver(([e]) => {
+      demoOnScreen = e.isIntersecting;
+      if (demoOnScreen) queueFill();
+    }).observe(demo);
+  document.addEventListener("visibilitychange", queueFill);
 
   function select(tab, { fromVideo = false } = {}) {
     for (const t of tabs) {
@@ -163,6 +254,7 @@ function setupDemo(demo) {
     }
     live = true;
     video.pause();
+    queueFill();
     video.hidden = true;
     playBtn.hidden = true;
     skeleton.hidden = false;
@@ -204,6 +296,7 @@ function setupDemo(demo) {
   function stopLive() {
     clearTimeout(revealTimer);
     live = false;
+    queueFill();
     iframe?.remove();
     iframe = null;
     skeleton.hidden = true;
