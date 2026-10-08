@@ -83,8 +83,8 @@ marks terminal items. Section 36 lists each component once.
 - [x] Click agent row → show agent (section 6 "Show agent") (`src/components/Sidebar.tsx`)
 - [x] Agent row is a drag source (`src/components/AgentRow.tsx`) [in-house: drag and drop]
 - [x] Agent row context menu: "Open terminal here" (creatable machines), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
-- [ ] Agent row worktree chip "N worktrees" toggles its worktree list; expanding forces a worktree refresh (`src/components/AgentRow.tsx`, `src/components/Sidebar.tsx`)
-- [ ] Per-project "N other worktrees" chip listing worktrees no agent works in (`src/components/Sidebar.tsx`)
+- [x] Agent row worktree chip "N worktrees" toggles its worktree list; expanding forces a worktree refresh (`src/components/AgentRow.tsx`, `src/components/Sidebar.tsx`)
+- [x] Per-project "N other worktrees" chip listing worktrees no agent works in (`src/components/Sidebar.tsx`)
 - [x] "Elsewhere" group: agents running in other terminal apps, collapsible, count (section 22) (`src/components/ElsewhereGroup.tsx`) [in-house: list/virtual list]
 - [x] Footer: "New agent ⌘N" button and terminal icon button "New terminal here (⌘T) · ⌘⇧T to choose a folder" (`src/components/Sidebar.tsx`) [in-house: tooltip]
 - [x] Icon rail mode: per-group column of initials + status dot; click shows agent; drag source; "+" new agent (`src/components/Sidebar.tsx`, `src/components/RailItem.tsx`) [in-house: drag and drop] [in-house: tooltip]
@@ -161,7 +161,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Fit to container on resize; sends `resize(cols, rows)` only when changed; retried on next fit if it failed (`src/terminal/registry.ts`) [pitwall-term-view]
 - [x] App shortcuts pass through the terminal (custom key handler) (`src/terminal/registry.ts`, `src/lib/shortcuts.ts`) [pitwall-term-view]
 - [x] Copy/paste: macOS via the native Edit menu (⌘C/⌘V); Windows/Linux Ctrl+Shift+C copies selection, Ctrl+Shift+V pastes (`src/terminal/registry.ts`, `src/lib/host.ts`) [pitwall-term-view]
-- [ ] Per-tile font: auto-shrink from the base font down to a 10 px floor to keep the density minimum; user override via ⌘+/⌘−/⌘0 (`src/components/PaneView.tsx`, `src/layout/density.ts`) [pitwall-term-view]
+- [x] Per-tile font: auto-shrink from the base font down to a 10 px floor to keep the density minimum; user override via ⌘+/⌘−/⌘0 (`src/components/PaneView.tsx`, `src/layout/density.ts`) [pitwall-term-view]
 - [x] Base font size global (Settings), default 13, range 9–22 (`src/layout/density.ts`) [pitwall-term-view]
 - [x] Re-attach and reset the screen after a restart (not running → running) (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
 - [x] Dispose terminals of removed agents or agents now shown in another window (`src/App.tsx`) [pitwall-term-view]
@@ -193,19 +193,19 @@ marks terminal items. Section 36 lists each component once.
 ## 10. Right panel (details for the focused agent)
 
 - [x] Header: status glyph, name; close button in drawer mode (`src/components/RightPanel.tsx`)
-- [ ] Next up section: queue count, Auto-send toggle ("Send the next item when the agent is idle or done and you're not typing") (`src/components/NextUp.tsx`) [in-house: checkbox/toggle] [in-house: tooltip]
-- [ ] Queue list: numbered items, "Send now" (disabled when not running), "Remove from queue" (`src/components/NextUp.tsx`) [in-house: list/virtual list] [in-house: tooltip]
-- [ ] Compose textarea "queue a prompt…", ⌘↵ / Ctrl+↵ queues, "Queue" button; text sent verbatim; restored on failure (`src/components/NextUp.tsx`) [in-house: text input]
-- [ ] Unsent drafts kept per agent for the window session (`src/components/NextUp.tsx`)
-- [ ] Hint: "Sends when the agent is free" / "Auto-send off — send items manually" (`src/components/NextUp.tsx`)
-- [ ] Changes / Files tabs (Files only with `caps.explorer`), selected tab persisted (`pitwall.right.files`) (`src/components/RightPanel.tsx`) [in-house: tabs]
+- [x] Next up section: queue count, Auto-send toggle ("Send the next item when the agent is idle or done and you're not typing") (`src/components/NextUp.tsx`) [in-house: checkbox/toggle] [in-house: tooltip]
+- [x] Queue list: numbered items, "Send now" (disabled when not running), "Remove from queue" (`src/components/NextUp.tsx`) [in-house: list/virtual list] [in-house: tooltip]
+- [x] Compose textarea "queue a prompt…", ⌘↵ / Ctrl+↵ queues, "Queue" button; text sent verbatim; restored on failure (`src/components/NextUp.tsx`) [in-house: text input]
+- [x] Unsent drafts kept per agent for the window session (`src/components/NextUp.tsx`)
+- [x] Hint: "Sends when the agent is free" / "Auto-send off — send items manually" (`src/components/NextUp.tsx`)
+- [x] Changes / Files tabs (Files only with `caps.explorer`), selected tab persisted (`pitwall.right.files`) (`src/components/RightPanel.tsx`) [in-house: tabs]
 - [x] Changes: count, refresh control ("refreshing…"/"updated N s ago" + ↻), "Open in Review" button (with `caps.review`), diffstat (`src/components/Changes.tsx`, `src/components/Freshness.tsx`) [in-house: tooltip]
 - [x] Where line: branch (or "detached HEAD") with "worktree" tag; folder path, click copies the absolute path ("Copied") (`src/components/Changes.tsx`) [in-house: tooltip]
 - [x] Changes list: file icon, dir + base name, +/− or "bin", status letter (M/A/D/R/U); click opens the diff dialog (`src/components/Changes.tsx`, `src/components/FileIcon.tsx`) [in-house: list/virtual list] [in-house: scroll view]
 - [x] Changes states: "Reading git…", "No changes since the agent started.", "Not a git repository…", error with Retry (`src/components/Changes.tsx`)
 - [x] Changes refresh: forced on open, on totals change, every 5 s while visible, ↻ and ⌘⇧R (`src/components/Changes.tsx`, `src/lib/freshness.ts`)
 - [ ] Agent's worktrees sub-list (collapsed chip; expanding forces refresh; refresh control; error with Retry) (`src/components/Changes.tsx`) [in-house: list/virtual list]
-- [ ] Last sent: relative time (tooltip absolute), quoted text, or "Nothing sent through Pitwall yet…" (`src/components/LastSent.tsx`) [in-house: tooltip]
+- [x] Last sent: relative time (tooltip absolute), quoted text, or "Nothing sent through Pitwall yet…" (`src/components/LastSent.tsx`) [in-house: tooltip]
 - [x] Files tab (section 14) (`src/components/explorer/FilesPanel.tsx`) [in-house: file tree]
 
 ## 11. Diff dialog (single file from Changes)
@@ -290,10 +290,10 @@ marks terminal items. Section 36 lists each component once.
 
 - [ ] One worktree list per window (`list_worktrees`), shared by sidebar, Changes and Review; only when any agent has `caps.worktrees` (`src/lib/useWorktrees.ts`)
 - [ ] Polled every 30 s while visible, 1 s after agents' numbers settle; forced refresh on expand/↻/⌘⇧R (`src/lib/useWorktrees.ts`)
-- [ ] Worktree row: branch (or "<name> (detached)"), "locked" chip (reason tooltip), "gone" chip (prunable), diffstat read only while shown; tooltip path and "A process of this agent works here" (`src/components/WorktreeRows.tsx`) [in-house: list/virtual list] [in-house: tooltip]
+- [x] Worktree row: branch (or "<name> (detached)"), "locked" chip (reason tooltip), "gone" chip (prunable), diffstat read only while shown; tooltip path and "A process of this agent works here" (`src/components/WorktreeRows.tsx`) [in-house: list/virtual list] [in-house: tooltip]
 - [ ] Click a worktree row opens Review on it (`src/components/WorktreeRows.tsx`)
-- [ ] Worktree context menu: "Review changes", "Open terminal here" (caps.terminal), "Remove worktree…" (caps.remove) (`src/components/WorktreeRows.tsx`) [in-house: popover/menu]
-- [ ] Worktree changes against merge-base polled every 15 s (10 s in Review) while shown (`src/lib/useWorktrees.ts`)
+- [x] Worktree context menu: "Review changes", "Open terminal here" (caps.terminal), "Remove worktree…" (caps.remove) (`src/components/WorktreeRows.tsx`) [in-house: popover/menu]
+- [x] Worktree changes against merge-base polled every 15 s (10 s in Review) while shown (`src/lib/useWorktrees.ts`)
 - [x] Review worktree section: toggle, name/branch/locked, diffstat, refresh control, "Its folder is gone.", "No changes against <target>", file tree (`src/components/review/WorktreeSection.tsx`) [in-house: file tree]
 - [x] Review main pane for a worktree: "Worktree <name> · <branch> · against <target>" header and diff (no comments) (`src/components/review/Review.tsx`) [in-house: code/diff viewer]
 - [x] Commit / Commit & merge a worktree (same dialog as agents; conflicts become a notice) (`src/components/review/Review.tsx`) [in-house: modal/dialog]
@@ -343,7 +343,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] New terminal (⌘⇧T): Folder input (prefilled), "Browse…", up to 8 filtered recent/listed folders, "Open terminal ↵" (needs `/` or `~` path) (`src/components/TerminalDialog.tsx`) [in-house: modal/dialog] [in-house: text input] [in-house: list/virtual list]
 - [x] Bring into Pitwall: explains resume in a new agent, title quote, "Close the original first (pid N)", "I closed it, resume here" (`src/components/BringInDialog.tsx`) [in-house: modal/dialog]
 - [x] Remove agent: text differs for adopted sessions (keeps running) vs local; "Also remove worktree" checkbox with path, git note and branch kept; red warning; "Remove" / "Remove agent & worktree" (`src/components/RemoveDialog.tsx`) [in-house: modal/dialog] [in-house: checkbox/toggle]
-- [ ] Remove worktree: path, explanation (no --force, branch kept or detached warning), red warning; refusal text for locked / agent-owned; "Remove worktree" (`src/components/RemoveWorktreeDialog.tsx`) [in-house: modal/dialog]
+- [x] Remove worktree: path, explanation (no --force, branch kept or detached warning), red warning; refusal text for locked / agent-owned; "Remove worktree" (`src/components/RemoveWorktreeDialog.tsx`) [in-house: modal/dialog]
 - [ ] Approval dialog (section 26) (`src/components/ApprovalDialog.tsx`) [in-house: modal/dialog]
 - [ ] Prompt dialog (Send comments / Merge conflict): editable textarea sent verbatim; "Send now" / "Add to Next up" / "Send now anyway" by agent state; ⌘↵ sends default (`src/components/review/ReviewDialogs.tsx`) [in-house: modal/dialog] [in-house: text input]
 - [ ] Discard file dialog: deleted (untracked) vs restored to base commit; task-scope note; "This can't be undone." (`src/components/review/ReviewDialogs.tsx`) [in-house: modal/dialog]

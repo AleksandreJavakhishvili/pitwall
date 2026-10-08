@@ -129,7 +129,9 @@ impl MainScreen {
                         self.agent_row(a, start + i, selected, cursor, g.can_create, t, cx)
                             .into_any_element(),
                     );
+                    list.extend(self.wt_agent(a, t, cx));
                 }
+                list.extend(self.wt_others(&g.key, &g.agents, t, cx));
             }
         }
         list.extend(self.render_elsewhere(t, cx));

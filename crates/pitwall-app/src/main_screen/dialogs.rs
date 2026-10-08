@@ -1416,6 +1416,7 @@ impl MainScreen {
                     .into_any_element(),
             ),
             Some(super::Modal::Remove(_)) => self.render_remove(t, cx),
+            Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, cx),
         }
     }
 }

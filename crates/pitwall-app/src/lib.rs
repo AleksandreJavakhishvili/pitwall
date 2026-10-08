@@ -17,6 +17,7 @@ pub mod host;
 pub mod main_screen;
 pub mod menu;
 pub mod palette;
+pub mod next_up;
 pub mod settings;
 pub mod platform;
 pub mod remote;
@@ -88,6 +89,7 @@ pub fn run() {
         platform::init(cx);
         explorer::register(cx);
         review::register(cx);
+        next_up::register(cx);
 
         let state = match chosen {
             Ok(paths) => {

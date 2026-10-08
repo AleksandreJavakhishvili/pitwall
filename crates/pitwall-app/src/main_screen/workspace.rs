@@ -212,6 +212,10 @@ pub struct UiState {
     /// app keeps it in localStorage (`pitwall.review.sideBySide`).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub review_side_by_side: Option<bool>,
+    /// The right panel shows Files instead of Changes (the Tauri app's
+    /// localStorage `pitwall.right.files`).
+    #[serde(default, deserialize_with = "strict_true")]
+    pub right_files: bool,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -260,6 +264,7 @@ impl Default for UiState {
             reduce_motion: false,
             explorer_show_ignored: false,
             review_side_by_side: None,
+            right_files: false,
             rest: serde_json::Map::new(),
         }
     }

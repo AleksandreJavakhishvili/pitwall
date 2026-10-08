@@ -60,8 +60,8 @@ impl ReviewRoute {
     ) -> ReviewRoute {
         let store = screen.read(cx).store().clone();
         let subs = vec![
-            cx.subscribe_in(screen, window, |this, _, e: &ScreenEvent, window, cx| {
-                if let ScreenEvent::RouteChanged(r) = e {
+            cx.subscribe_in(screen, window, |this, _, e: &ScreenEvent, window, cx| match e {
+                ScreenEvent::RouteChanged(r) => {
                     if *r != Route::Review {
                         this.close(cx);
                     } else if !this.is_open() {
@@ -69,6 +69,11 @@ impl ReviewRoute {
                         this.open_at(None, window, cx);
                     }
                 }
+                // A sidebar worktree row: Review on that worktree.
+                ScreenEvent::ReviewWorktree { project_id, path } => {
+                    this.open_worktree(project_id.clone(), path.clone(), window, cx);
+                }
+                _ => {}
             }),
             // The space or the focused agent changed while Review is open.
             cx.observe(screen, |this, _, cx| this.follow(cx)),

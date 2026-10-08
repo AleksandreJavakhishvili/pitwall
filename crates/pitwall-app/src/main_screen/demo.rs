@@ -41,6 +41,11 @@ fn agent(v: serde_json::Value) -> AgentView {
 
 /// The mock's six agents.
 pub fn agents() -> Vec<AgentView> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let ago = |min: u64| now.saturating_sub(min * 60_000);
     vec![
         agent(json!({
             "id": "a-tests", "name": "tests", "status": "blocked", "statusSource": "hooks",
@@ -49,6 +54,8 @@ pub fn agents() -> Vec<AgentView> {
             "cwdDisplay": "~/code/checkout-web/.claude/worktrees/tests",
             "project": "/Users/dev/code/checkout-web", "projectDisplay": "checkout-web",
             "branch": "worktree-tests", "worktree": true, "createdAt": 10,
+            "lastSent": "Run the test suite and fix the flaky cart spec. Don't touch the snapshot files.",
+            "lastSentAt": ago(4),
             "added": 13, "removed": 4, "filesChanged": 3, "caps": {"removeWorktree": true, "merge": true}
         })),
         agent(json!({
@@ -56,6 +63,12 @@ pub fn agents() -> Vec<AgentView> {
             "branch": "codex/api-fix", "worktree": true,
             "cwd": "/Users/dev/.codex/worktrees/a1b2/orders-api",
             "cwdDisplay": "~/.codex/worktrees/a1b2/orders-api", "createdAt": 20,
+            "queue": [
+                {"id": "q1", "text": "Now add the same guard to PATCH /v2/orders/:id and cover it with a test."},
+                {"id": "q2", "text": "Summarise the change in 3 bullets for the PR description."}
+            ],
+            "lastSent": "Fix the 500 on /v2/orders when the cart is empty. Add a regression test.",
+            "lastSentAt": ago(11),
             "added": 174, "removed": 74, "filesChanged": 7, "caps": {"removeWorktree": true, "merge": true}
         })),
         agent(json!({
@@ -64,6 +77,8 @@ pub fn agents() -> Vec<AgentView> {
             "cwdDisplay": "~/code/handbook/.claude/worktrees/docs",
             "project": "/Users/dev/code/handbook", "projectDisplay": "handbook",
             "branch": "worktree-docs", "worktree": true, "createdAt": 30,
+            "lastSent": "Rewrite the onboarding page so a new hire can get a dev env running in 15 minutes.",
+            "lastSentAt": ago(26),
             "added": 64, "removed": 8, "filesChanged": 3, "caps": {"removeWorktree": true, "merge": true}
         })),
         agent(json!({"id": "a-refactor", "name": "refactor", "status": "idle", "createdAt": 40})),
