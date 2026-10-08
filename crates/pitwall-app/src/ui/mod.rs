@@ -248,7 +248,7 @@ impl MainView {
 }
 
 impl Render for MainView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let root = div()
             .id("main")
@@ -274,5 +274,6 @@ impl Render for MainView {
         root.when(self.settings_open, |r| {
             r.child(Self::settings_overlay(&t, cx))
         })
+        .children(crate::approvals::overlay(window, cx))
     }
 }

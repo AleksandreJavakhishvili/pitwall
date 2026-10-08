@@ -31,6 +31,31 @@ pitwall-providers = { path = "../pitwall-providers" }
 pitwall-daemon = { path = "../pitwall-daemon" }
 pitwall-proto = { path = "../pitwall-proto" }
 pitwall-client = { path = "../pitwall-client" }
+# OS integration (src/platform/). The window handle for Win32 calls on gpui's
+# windows (MIT OR Apache-2.0 OR Zlib; already in the tree via gpui).
+raw-window-handle = "0.6"
+# System notifications, as tauri-plugin-notification sends them
+# (MIT OR Apache-2.0; already in the tree via the Tauri app).
+notify-rust = "4.11"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Dock badge, attention bounce, About panel (MIT; already in the tree).
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSDockTile", "NSResponder", "NSRunningApplication"] }
+
+[target.'cfg(windows)'.dependencies]
+# Tray icon and its menu (MIT OR Apache-2.0; already in the tree via Tauri).
+tray-icon = { version = "0.25", default-features = false }
+# Decoding the tray's PNG icon (MIT OR Apache-2.0; already in the tree via gpui).
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Taskbar overlay badge, FlashWindowEx, hiding to the tray (MIT OR
+# Apache-2.0; the version gpui uses).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The launcher badge over D-Bus (MIT; already in the tree via notify-rust).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }
