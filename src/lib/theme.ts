@@ -78,23 +78,7 @@ export function onSchemeChange(fn: (s: Scheme) => void): () => void {
   return () => listeners.delete(fn);
 }
 
-let nativeSeq = 0;
-async function applyNative(p: ThemePref) {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
-  const seq = ++nativeSeq;
-  try {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    if (seq !== nativeSeq) return;
-    // Title bar, native menus and vibrancy; null = follow the OS.
-    await getCurrentWindow().setTheme(themeAttr(p));
-  } catch {
-    /* older capability set / not a Tauri window: CSS still switches */
-  }
-}
-
-let nativeApplied: ThemePref | null = null;
-
-/** Apply a preference to this window: CSS attribute, mirror, native chrome, listeners. */
+/** Apply a preference to this window: CSS attribute, mirror, listeners. */
 export function applyTheme(p: ThemePref) {
   pref = p;
   const attr = themeAttr(p);
@@ -105,10 +89,6 @@ export function applyTheme(p: ThemePref) {
     localStorage.setItem(THEME_KEY, p);
   } catch {
     /* private mode etc. */
-  }
-  if (nativeApplied !== p) {
-    nativeApplied = p;
-    void applyNative(p);
   }
   recompute();
 }

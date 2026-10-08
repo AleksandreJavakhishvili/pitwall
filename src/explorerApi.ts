@@ -43,15 +43,3 @@ export interface ExplorerApi {
   searchFiles(agentId: string, query: SearchQuery): Promise<SearchResult>;
   cancelSearch(agentId: string): Promise<void>;
 }
-
-type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-
-export function tauriExplorerApi(invoke: Invoke): ExplorerApi {
-  return {
-    listFiles: (agentId, dir, ignored) => invoke("list_files", { agentId, dir: dir ?? null, ignored: ignored ?? false }),
-    listAllFiles: (agentId) => invoke("list_all_files", { agentId }),
-    readFile: (agentId, path, large) => invoke("read_file", { agentId, path, large: large ?? false }),
-    searchFiles: (agentId, query) => invoke("search_files", { agentId, query }),
-    cancelSearch: (agentId) => invoke("cancel_search", { agentId }),
-  };
-}

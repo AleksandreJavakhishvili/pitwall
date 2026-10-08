@@ -28,18 +28,3 @@ export interface WorktreesApi {
   /** `git worktree remove` (never --force; locked worktrees are refused). The branch is kept. */
   removeWorktree(projectId: string, path: string): Promise<void>;
 }
-
-type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-
-export function tauriWorktreesApi(invoke: Invoke): WorktreesApi {
-  return {
-    listWorktrees: () => invoke("list_worktrees"),
-    refreshWorktrees: (projectId) => invoke("refresh_worktrees", { projectId: projectId ?? null }),
-    getWorktreeChanges: (projectId, path) => invoke("get_worktree_changes", { projectId, path }),
-    getWorktreeFileVersions: (projectId, path, file) => invoke("get_worktree_file_versions", { projectId, path, file }),
-    getWorktreeMergeStatus: (projectId, path) => invoke("get_worktree_merge_status", { projectId, path }),
-    commitWorktree: (projectId, path, message) => invoke("commit_worktree", { projectId, path, message }),
-    mergeWorktree: (projectId, path) => invoke("merge_worktree", { projectId, path }),
-    removeWorktree: (projectId, path) => invoke("remove_worktree", { projectId, path }),
-  };
-}

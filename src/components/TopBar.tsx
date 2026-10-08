@@ -69,7 +69,7 @@ export function TopBar(p: Props) {
         </span>
         {/* `?shots=1` hides the chip for marketing screenshots (website/public/shots). */}
         {p.isMock && new URLSearchParams(location.search).get("shots") !== "1" && (
-          <span className="chip chip-mock" title="Not running inside Tauri: showing mock data">MOCK</span>
+          <span className="chip chip-mock" title="Web demo: showing mock data">MOCK</span>
         )}
       </div>
 
