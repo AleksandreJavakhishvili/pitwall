@@ -337,7 +337,9 @@ mod tests {
         for _ in 0..100 {
             let cwd = crate::host::process_cwd(pid, std::time::Duration::from_secs(3));
             got = discover(&LocalExec, &probe, cwd);
-            if got.is_some() {
+            // `git worktree add` lists the folder before it checks out the
+            // branch: wait for the branch too.
+            if got.as_ref().is_some_and(|f| !f.branch.is_empty()) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
