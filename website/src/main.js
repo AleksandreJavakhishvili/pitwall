@@ -222,3 +222,114 @@ function setupDemo(demo) {
     if (tab) select(tab);
   });
 }
+
+// ---------- downloads: the visitor's OS first, links from the latest release ----------
+// Which desktop OS this is, or null (phones, tablets, unknown). userAgentData where the
+// browser has it, the user agent string otherwise. iPads that report "Macintosh" have touch.
+function detectOS() {
+  const p = (navigator.userAgentData?.platform || "").toLowerCase();
+  const ua = navigator.userAgent || "";
+  if (p) {
+    if (p === "macos") return "mac";
+    if (p === "windows") return "win";
+    if (p === "linux") return "linux";
+    return null; // Android, iOS, Chrome OS: no build
+  }
+  if (/Android|iPhone|iPad|iPod/i.test(ua)) return null;
+  if (/Macintosh|Mac OS X/i.test(ua)) return navigator.maxTouchPoints > 1 ? null : "mac";
+  if (/Windows/i.test(ua)) return "win";
+  if (/Linux|X11/i.test(ua) && !/CrOS/i.test(ua)) return "linux";
+  return null;
+}
+
+const OS_NAMES = { mac: "macOS", win: "Windows", linux: "Linux" };
+const os = detectOS();
+
+// "Download" buttons elsewhere on the site name the visitor's OS.
+if (os) for (const el of document.querySelectorAll("[data-dl-label]")) el.textContent = `Download for ${OS_NAMES[os]}`;
+
+const downloads = document.querySelector("[data-downloads]");
+if (downloads) setupDownloads(downloads);
+
+function setupDownloads(page) {
+  const grid = page.querySelector("[data-dl-grid]");
+  const card = os && grid.querySelector(`[data-os="${os}"]`);
+  if (card) {
+    grid.prepend(card);
+    card.classList.add("is-you");
+    card.querySelector(".dl-you").hidden = false;
+  }
+
+  const status = page.querySelector("[data-release-status]");
+  const fail = (message) => {
+    status.textContent = message;
+    status.hidden = false;
+  };
+
+  const CACHE = "pitwall-release";
+  let cached = null;
+  try {
+    const c = JSON.parse(sessionStorage.getItem(CACHE) || "null");
+    if (c && Date.now() - c.at < 10 * 60 * 1000) cached = c.release;
+  } catch {
+    /* storage blocked: fetch every time */
+  }
+
+  const got = cached
+    ? Promise.resolve(cached)
+    : fetch(page.dataset.api, { headers: { Accept: "application/vnd.github+json" } }).then((r) => {
+        if (r.status === 404) throw new Error("none");
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      });
+
+  got
+    .then((release) => {
+      const assets = Array.isArray(release?.assets) ? release.assets : [];
+      if (!release?.tag_name || !assets.length) throw new Error("none");
+      try {
+        sessionStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), release }));
+      } catch {
+        /* not cached */
+      }
+      fill(release, assets);
+    })
+    .catch((e) => {
+      const why = e.message === "none" ? "No published release found." : "Couldn't reach GitHub for the latest version.";
+      fail(`${why} The buttons open the Releases page on GitHub, which lists every file.`);
+    });
+
+  function fill(release, assets) {
+    const version = release.tag_name.replace(/^v/, "");
+    const date = release.published_at ? new Date(release.published_at) : null;
+    const when = date && !isNaN(date) ? date.toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" }) : "";
+    page.querySelector("[data-release-label]").textContent = `Download · v${version}`;
+    const info = page.querySelector("[data-release-info]");
+    info.textContent = "";
+    const strong = document.createElement("strong");
+    strong.textContent = `v${version}`;
+    info.append(strong, when ? ` · released ${when}` : "");
+    const changelog = page.querySelector("[data-changelog]");
+    changelog.hash = `v${version.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+    let missing = 0;
+    for (const a of page.querySelectorAll("a[data-asset]")) {
+      const suffix = a.dataset.asset;
+      const asset = assets.find((x) => typeof x?.name === "string" && x.name.endsWith(suffix) && /^https:\/\//.test(x.browser_download_url || ""));
+      const row = a.closest("li");
+      if (!asset) {
+        if (row) missing++;
+        continue;
+      }
+      a.href = asset.browser_download_url;
+      if (!row) continue;
+      row.querySelector("[data-name]").textContent = asset.name;
+      if (asset.size) row.querySelector("[data-size]").textContent = `· ${formatSize(asset.size)}`;
+    }
+    if (missing) fail(`Some files aren't in v${version} yet; their buttons open the Releases page.`);
+  }
+}
+
+function formatSize(bytes) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}

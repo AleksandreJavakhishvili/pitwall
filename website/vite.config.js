@@ -1,14 +1,14 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { REPO_URL, PAGES_URL, RELEASES_URL } from "./site.config.js";
+import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL } from "./site.config.js";
 import { renderPage, SOURCES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/video/…`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
 // <video>/<source>); this rewrites the rest after it, so the site also works from a
 // sub-path such as https://<owner>.github.io/<repo>/: anchors and data-* URLs.
-// It also fills in %REPO_URL%, %RELEASES_URL% and %PAGES_URL% from site.config.js.
+// It also fills in %REPO_URL%, %RELEASES_URL%, %RELEASE_API_URL% and %PAGES_URL% from site.config.js.
 function siteLinks() {
   let base = "/";
   return {
@@ -20,6 +20,7 @@ function siteLinks() {
       order: "post",
       handler(html) {
         html = html
+          .replaceAll("%RELEASE_API_URL%", RELEASE_API_URL)
           .replaceAll("%RELEASES_URL%", RELEASES_URL)
           .replaceAll("%REPO_URL%", REPO_URL)
           .replaceAll("%PAGES_URL%", PAGES_URL);
@@ -89,6 +90,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: resolve(import.meta.dirname, "index.html"),
+        download: resolve(import.meta.dirname, "download/index.html"),
         quickstart: resolve(import.meta.dirname, "docs/quick-start/index.html"),
         howitworks: resolve(import.meta.dirname, "docs/how-it-works/index.html"),
         changelog: resolve(import.meta.dirname, "changelog/index.html"),
