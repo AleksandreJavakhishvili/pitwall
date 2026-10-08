@@ -281,15 +281,28 @@ impl MainScreen {
             head.child(crate::kit::label("Changes", t.text_3, 12.))
         };
         if self.files_tab && files_hook {
+            // The Files panel draws its own head row (refresh, open the
+            // viewer); the tabs sit at its start, as `FilesPanel`'s `tabs`.
             let build = cx.global::<super::FilesPanel>().0.clone();
             let view = build(a, window, cx);
             return div()
+                .relative()
                 .flex_1()
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .child(head)
-                .child(view);
+                .child(view)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .h(px(34.))
+                        .pl(px(14.))
+                        .flex()
+                        .items_center()
+                        .child(self.panel_tabs(a, t, cx)),
+                );
         }
         if !a.caps.diff {
             return div().flex().flex_col().child(head).child(hint(
@@ -512,7 +525,7 @@ impl MainScreen {
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.open_diff(agent.clone(), file.clone(), window, cx)
             }))
-            .child(div().mr(px(-2.)).child(icon("file", 16., t.text_3)))
+            .child(div().mr(px(-2.)).child(crate::kit::file_icon(&f.path, 16.)))
             .child(
                 div()
                     .flex_1()

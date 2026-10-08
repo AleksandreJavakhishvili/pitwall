@@ -6,7 +6,7 @@
 
 use crate::kit::HoverText;
 use gpui::{
-    canvas, div, prelude::*, px, AnyElement, App, Bounds, Context, DragMoveEvent, FontWeight,
+    canvas, div, prelude::*, px, AnyElement, App, Bounds, Context, DragMoveEvent, FontWeight, Hsla,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString,
     Window,
 };
@@ -182,22 +182,25 @@ impl MainScreen {
                         } else {
                             format!("Tile {}", p.label())
                         };
+                        let group = SharedString::from(format!("preset-{}", p.label()));
+                        // `.preset-btn`: text-4 (text-3 on glass), text on hover.
+                        let ink = if t.is_glass() { t.text_3 } else { t.text_4 };
                         div()
-                            .id(SharedString::from(format!("preset-{}", p.label())))
+                            .id(group.clone())
+                            .group(group.clone())
                             .w(px(28.))
                             .h(px(22.))
                             .flex()
                             .items_center()
                             .justify_center()
                             .rounded(px(4.))
-                            .text_color(t.text_4)
                             .cursor_pointer()
-                            .hover_text(t.text, |s| s.bg(t.surface_3))
+                            .hover(|s| s.bg(t.surface_3))
                             .tooltip(tooltip(tip))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.apply_preset(p, window, cx)
                             }))
-                            .child(preset_icon(p))
+                            .child(preset_icon(p, ink, t.text, group))
                     })),
             )
             .when(space.id != ALL_SPACE, |d| {
@@ -712,7 +715,7 @@ impl MainScreen {
                             .id(SharedString::from(format!("p-{pane_id}")))
                             .truncate()
                             .tooltip(tooltip(a.cwd.clone()))
-                            .child(a.project_display.clone()),
+                            .child(crate::kit::project_name(&a.project_display).to_string()),
                     )
                     .child(div().text_color(t.text_4).child("·"))
                     .child(div().flex_none().child(a.kind_name.clone()))
@@ -1200,7 +1203,7 @@ fn drop_indicator(zone: Option<Side>, has_agent: bool, t: &Theme) -> impl IntoEl
 }
 
 /// A preset's mini layout (`PresetIcon`), drawn from its pane rects.
-fn preset_icon(p: Preset) -> impl IntoElement {
+fn preset_icon(p: Preset, ink: Hsla, hover: Hsla, group: SharedString) -> impl IntoElement {
     let (w, h) = (17., 13.);
     let rects: Vec<tree::Rect> = if p == Preset::Auto {
         let mut v = vec![];
@@ -1217,8 +1220,8 @@ fn preset_icon(p: Preset) -> impl IntoElement {
         v.push(tree::Rect {
             x: 1.,
             y: 9.,
-            w: 15.,
-            h: 3.,
+            w: 16.,
+            h: 4.,
         });
         v
     } else {
@@ -1247,12 +1250,9 @@ fn preset_icon(p: Preset) -> impl IntoElement {
                 .w(px(r.w as f32))
                 .h(px(r.h as f32))
                 .rounded(px(0.8))
-                .bg(gpui::white())
-                .opacity(if p == Preset::Auto && i == 6 {
-                    0.3
-                } else {
-                    0.75
-                })
+                .bg(ink)
+                .group_hover(group.clone(), |s| s.bg(hover))
+                .when(p == Preset::Auto && i == 6, |d| d.opacity(0.45))
         }))
 }
 

@@ -1524,7 +1524,7 @@ impl Render for DiffDialog {
             .border_b_1()
             .border_color(t.line)
             .bg(t.surface)
-            .child(icon("file", 16., t.text_3))
+            .child(crate::kit::file_icon(&self.file.path, 16.))
             .child(
                 div()
                     .min_w_0()

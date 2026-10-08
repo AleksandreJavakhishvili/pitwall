@@ -273,7 +273,12 @@ impl MainScreen {
                     .child(chevron(!collapsed, 12., t.text_4))
                     .child(
                         div().min_w_0().overflow_hidden().child(
-                            label_fit(g.display.clone(), t.text_3, 12., 22)
+                            label_fit(
+                                crate::kit::project_name(&g.display).to_string(),
+                                t.text_3,
+                                12.,
+                                22,
+                            )
                                 .group_hover_text("project-head", t.text_2, |s| s),
                         ),
                     )

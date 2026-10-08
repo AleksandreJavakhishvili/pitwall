@@ -122,12 +122,18 @@ pub fn run() {
 
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(quit_and_stop_agents);
+        // These run deferred: dispatched from inside the window (a button,
+        // a key), the window is being updated and can't be reached yet.
         cx.on_action(|_: &ShowMain, cx| {
-            show_main(cx);
+            cx.defer(|cx| {
+                show_main(cx);
+            })
         });
         cx.on_action(|_: &OpenSettings, cx| {
-            let main = show_main(cx);
-            let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
+            cx.defer(|cx| {
+                let main = show_main(cx);
+                let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
+            })
         });
         // macOS: the standard About panel, like the Tauri app's default
         // menu. Elsewhere: the in-app About box (settings::about).
@@ -135,8 +141,10 @@ pub fn run() {
             if cfg!(target_os = "macos") {
                 platform::about(cx);
             } else {
-                let main = show_main(cx);
-                let _ = main.update(cx, |view, _, cx| view.open_about(cx));
+                cx.defer(|cx| {
+                    let main = show_main(cx);
+                    let _ = main.update(cx, |view, _, cx| view.open_about(cx));
+                })
             }
         });
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
@@ -169,6 +177,8 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
                 window.activate_window()
             })
             .is_ok()
+            // Busy (being updated right now) but open: still the one window.
+            || cx.windows().iter().any(|w| w.window_id() == main.window_id())
         {
             return main;
         }

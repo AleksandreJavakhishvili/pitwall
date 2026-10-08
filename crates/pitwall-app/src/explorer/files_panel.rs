@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::kit::HoverText;
 use gpui::{
-    div, prelude::*, px, ClipboardItem, Context, Entity, EventEmitter, FontWeight, SharedString,
+    div, prelude::*, px, ClipboardItem, Context, Entity, EventEmitter, SharedString,
     Subscription, Task, Window,
 };
 
@@ -147,20 +147,7 @@ impl Render for FilesPanel {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(
-                        div()
-                            .ml(px(-6.))
-                            .h(px(22.))
-                            .px(px(6.))
-                            .flex()
-                            .items_center()
-                            .rounded(RADIUS_SM)
-                            .bg(t.surface_3)
-                            .text_size(px(11.5))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(t.text)
-                            .child("FILES"),
-                    )
+                    // The right panel's Changes / Files tabs go here.
                     .child(div().flex_1())
                     .child(refresh_control(
                         &t,
