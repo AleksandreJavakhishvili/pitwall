@@ -162,6 +162,9 @@ fn build(app: &AppHandle, label: &str, space_id: &str, bounds: Option<Bounds>) -
         // In-webview HTML5 drag & drop (agents between tiles) needs Tauri's
         // native file-drop handler off, as for `main` in tauri.conf.json.
         .disable_drag_drop_handler()
+        // Glass on Windows: Mica only shows behind a transparent window
+        // (platform/glass.rs; main's is in tauri.windows.conf.json).
+        .transparent(crate::platform::glass::TRANSPARENT_WINDOWS)
         .build()
         .map_err(|e| format!("could not open window: {e}"))?;
     apply_bounds(app, &window, bounds);
@@ -244,6 +247,7 @@ pub fn on_closed(app: &AppHandle, label: &str) {
     if QUITTING.load(Ordering::Relaxed) || label == MAIN {
         return;
     }
+    crate::platform::glass::forget(label);
     {
         let mut t = lock(tracker());
         t.entries.retain(|e| e.label != label);

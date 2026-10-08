@@ -57,10 +57,10 @@ describe("shortcut labels", () => {
 
 describe("loading what the desktop offers", () => {
   it("uses the backend's answer", async () => {
-    await loadHost(async () => ({ machineLabel: "This computer", shortcuts: "ctrlShift", dataDir: "~/.local/share/pitwall", dock: false, tray: false, menu: "none", badge: "dock", localSockets: "unix" }));
+    await loadHost(async () => ({ machineLabel: "This computer", shortcuts: "ctrlShift", dataDir: "~/.local/share/pitwall", dock: false, tray: false, menu: "none", badge: "dock", localSockets: "unix", glass: "none" }));
     expect(host().shortcuts).toBe("ctrlShift");
     expect(host().machineLabel).toBe("This computer");
-    await loadHost(async () => ({ machineLabel: "This PC", shortcuts: "ctrlShift", dataDir: "~/AppData/Roaming/Pitwall", dock: false, tray: true, menu: "file", badge: "taskbar", localSockets: "namedPipe" }));
+    await loadHost(async () => ({ machineLabel: "This PC", shortcuts: "ctrlShift", dataDir: "~/AppData/Roaming/Pitwall", dock: false, tray: true, menu: "file", badge: "taskbar", localSockets: "namedPipe", glass: "mica" }));
     expect(host().tray).toBe(true);
     expect(host().menu).toBe("file");
   });

@@ -1,0 +1,233 @@
+/*
+ * Look: Glass (Settings → Appearance; src/lib/look.ts; layout.md "Appearance").
+ *
+ * <html data-look="glass" data-glass="native|mica|lite">. Only the chrome is
+ * glass — top bar + tabs, sidebar, right panel, status strip, palette,
+ * dialogs, menus, toasts, chips. Terminal panes, Wall tiles and the
+ * Review / Files code views keep their solid backgrounds (legibility, and
+ * nothing is blended behind text that repaints all the time).
+ *
+ * Tiers:
+ *   native — macOS vibrancy behind a transparent webview: the window's own
+ *            material does the blur, the chrome only tints it (no CSS blur);
+ *   mica   — Windows 11 Mica behind it, the same tints;
+ *   lite   — no window material (Linux, Windows 10, browser): an opaque
+ *            atmospheric backdrop painted once, the same tints, no blur.
+ * `backdrop-filter` is used only where the window material can't reach:
+ * surfaces floating over terminals (palette, dialogs, menus, toasts, the
+ * overlay sidebar / drawer), on native and mica only, never per row or tile.
+ *
+ * Surfaces only: no size, spacing or density changes (boxes match Flat).
+ *
+ * Chrome containers re-point the surface tokens at translucent ones, so
+ * everything inside (rows, hovers, kbd, inputs, segmented controls) follows
+ * without per-component rules. Status colours are unchanged.
+ */
+
+/* ── tokens: dark ───────────────────────────────────── */
+:root[data-look="glass"] {
+  --g-surface: rgba(14, 16, 22, 0.36);
+  --g-surface-2: rgba(255, 255, 255, 0.045);
+  --g-surface-3: rgba(255, 255, 255, 0.085);
+  --g-raised: rgba(24, 27, 34, 0.72);
+  --g-float: rgba(22, 25, 32, 0.78);
+  --g-well: rgba(0, 0, 0, 0.22);
+  --g-line: rgba(255, 255, 255, 0.075);
+  --g-line-strong: rgba(255, 255, 255, 0.14);
+  --g-highlight: rgba(255, 255, 255, 0.07);
+  --g-on-primary: #0b0d12;
+  --g-blur: blur(22px) saturate(1.6);
+  /* Night session at the circuit: dusk blue above, sodium-rose haze low. */
+  --g-atmo:
+    radial-gradient(120% 85% at 12% -12%, rgba(84, 116, 190, 0.7), transparent 62%),
+    radial-gradient(80% 70% at 100% 0%, rgba(132, 152, 206, 0.42), transparent 58%),
+    radial-gradient(85% 60% at 0% 104%, rgba(186, 98, 116, 0.5), transparent 62%),
+    radial-gradient(70% 55% at 100% 100%, rgba(212, 138, 122, 0.36), transparent 62%);
+  --g-base: linear-gradient(180deg, #19223a 0%, #1d1b2e 55%, #261a25 100%);
+  /* Over the window's material only a whisper of the same colours. */
+  --g-atmo-native:
+    radial-gradient(120% 85% at 12% -12%, rgba(84, 116, 190, 0.38), transparent 62%),
+    radial-gradient(80% 70% at 100% 0%, rgba(132, 152, 206, 0.18), transparent 58%),
+    radial-gradient(85% 60% at 0% 104%, rgba(186, 98, 116, 0.28), transparent 62%),
+    radial-gradient(70% 55% at 100% 100%, rgba(212, 138, 122, 0.16), transparent 62%),
+    linear-gradient(rgba(10, 12, 18, 0.22), rgba(10, 12, 18, 0.22));
+  /* Small text on glass stays ≥ 4.5:1. */
+  --text-3: #858c97;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
+  --backdrop: rgba(6, 8, 12, 0.38);
+}
+
+/* ── tokens: light (forced, or System when macOS is light; keep both copies identical) ── */
+:root[data-look="glass"][data-theme="light"] {
+  --g-surface: rgba(255, 255, 255, 0.5);
+  --g-surface-2: rgba(30, 40, 60, 0.05);
+  --g-surface-3: rgba(30, 40, 60, 0.085);
+  --g-raised: rgba(255, 255, 255, 0.76);
+  --g-float: rgba(255, 255, 255, 0.82);
+  --g-well: rgba(255, 255, 255, 0.55);
+  --g-line: rgba(30, 40, 60, 0.09);
+  --g-line-strong: rgba(30, 40, 60, 0.16);
+  --g-highlight: rgba(255, 255, 255, 0.7);
+  --g-on-primary: #ffffff;
+  --g-atmo:
+    radial-gradient(120% 85% at 12% -12%, rgba(132, 160, 218, 0.5), transparent 62%),
+    radial-gradient(80% 70% at 100% 0%, rgba(170, 186, 226, 0.4), transparent 58%),
+    radial-gradient(85% 60% at 0% 104%, rgba(236, 170, 166, 0.42), transparent 62%),
+    radial-gradient(70% 55% at 100% 100%, rgba(244, 196, 168, 0.36), transparent 62%);
+  --g-base: linear-gradient(180deg, #dde5f1 0%, #e8e6ef 55%, #f1e5e3 100%);
+  --g-atmo-native:
+    radial-gradient(120% 85% at 12% -12%, rgba(132, 160, 218, 0.34), transparent 62%),
+    radial-gradient(80% 70% at 100% 0%, rgba(170, 186, 226, 0.2), transparent 58%),
+    radial-gradient(85% 60% at 0% 104%, rgba(236, 170, 166, 0.3), transparent 62%),
+    radial-gradient(70% 55% at 100% 100%, rgba(244, 196, 168, 0.22), transparent 62%),
+    linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14));
+  --text-3: #5f6670;
+  --shadow: 0 24px 60px rgba(30, 40, 60, 0.2), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
+  --backdrop: rgba(40, 48, 62, 0.16);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-look="glass"]:not([data-theme]) {
+    --g-surface: rgba(255, 255, 255, 0.5);
+    --g-surface-2: rgba(30, 40, 60, 0.05);
+    --g-surface-3: rgba(30, 40, 60, 0.085);
+    --g-raised: rgba(255, 255, 255, 0.76);
+    --g-float: rgba(255, 255, 255, 0.82);
+    --g-well: rgba(255, 255, 255, 0.55);
+    --g-line: rgba(30, 40, 60, 0.09);
+    --g-line-strong: rgba(30, 40, 60, 0.16);
+    --g-highlight: rgba(255, 255, 255, 0.7);
+    --g-on-primary: #ffffff;
+    --g-atmo:
+      radial-gradient(120% 85% at 12% -12%, rgba(132, 160, 218, 0.5), transparent 62%),
+      radial-gradient(80% 70% at 100% 0%, rgba(170, 186, 226, 0.4), transparent 58%),
+      radial-gradient(85% 60% at 0% 104%, rgba(236, 170, 166, 0.42), transparent 62%),
+      radial-gradient(70% 55% at 100% 100%, rgba(244, 196, 168, 0.36), transparent 62%);
+    --g-base: linear-gradient(180deg, #dde5f1 0%, #e8e6ef 55%, #f1e5e3 100%);
+    --g-atmo-native:
+      radial-gradient(120% 85% at 12% -12%, rgba(132, 160, 218, 0.34), transparent 62%),
+      radial-gradient(80% 70% at 100% 0%, rgba(170, 186, 226, 0.2), transparent 58%),
+      radial-gradient(85% 60% at 0% 104%, rgba(236, 170, 166, 0.3), transparent 62%),
+      radial-gradient(70% 55% at 100% 100%, rgba(244, 196, 168, 0.22), transparent 62%),
+      linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14));
+    --text-3: #5f6670;
+    --shadow: 0 24px 60px rgba(30, 40, 60, 0.2), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
+    --backdrop: rgba(40, 48, 62, 0.16);
+  }
+}
+
+/* Lite: nothing blurs what floats over terminals, so those surfaces are
+ * solid (hairline edge and highlight only); text behind would show through. */
+:root[data-look="glass"][data-glass="lite"] {
+  --g-float: var(--raised);
+}
+/* Increase contrast: glass goes (almost) solid, hairlines get stronger. */
+:root[data-look="glass"][data-contrast="more"] {
+  --g-surface: color-mix(in srgb, var(--surface) 94%, transparent);
+  --g-raised: var(--raised);
+  --g-float: var(--raised);
+  --g-line: var(--line-strong);
+  --g-line-strong: var(--text-4);
+  --text-3: var(--text-2);
+}
+
+/* ── the backdrop ───────────────────────────────────── */
+:root[data-look="glass"] body {
+  background: var(--g-atmo), var(--g-base);
+}
+:root[data-look="glass"]:is([data-glass="native"], [data-glass="mica"]),
+:root[data-look="glass"]:is([data-glass="native"], [data-glass="mica"]) body {
+  background: transparent;
+}
+:root[data-look="glass"]:is([data-glass="native"], [data-glass="mica"]) .app {
+  background: var(--g-atmo-native);
+}
+
+/* ── chrome: translucent surface tokens ─────────────── */
+:root[data-look="glass"] :is(.topbar, .sidebar, .right, .status-strip, .modal, .menu, .toast, .crash[data-variant="modal"]) {
+  --surface: var(--g-surface);
+  --surface-2: var(--g-surface-2);
+  --surface-3: var(--g-surface-3);
+  --raised: var(--g-raised);
+  --bg: var(--g-well);
+  --line: var(--g-line);
+  --line-strong: var(--g-line-strong);
+}
+/* Floating over terminals: frosted where the window material can't reach. */
+:root[data-look="glass"] :is(.modal, .menu, .toast, .crash[data-variant="modal"], .sidebar-overlay, .right-drawer) {
+  --surface: var(--g-float);
+  --raised: var(--g-float);
+}
+:root[data-look="glass"]:is([data-glass="native"], [data-glass="mica"]) :is(.modal, .menu, .toast, .sidebar-overlay, .right-drawer) {
+  -webkit-backdrop-filter: var(--g-blur);
+  backdrop-filter: var(--g-blur);
+}
+/* Inside a dialog its parts are on the dialog's glass, not a second layer. */
+:root[data-look="glass"] .modal :is(.modal-head, .modal-foot, .diff-head) {
+  --surface: transparent;
+}
+/* The diff dialog shows code: solid like Review. */
+:root[data-look="glass"] .modal-sheet {
+  --raised: var(--term-bg);
+}
+:root[data-look="glass"] .modal-sheet .diff-body {
+  background: var(--term-bg);
+}
+
+/* Hairline light edge along the top of each chrome band. */
+:root[data-look="glass"] .topbar {
+  box-shadow: inset 0 1px 0 var(--g-highlight);
+}
+
+/* ── center: glass around the panes, panes stay solid ── */
+:root[data-look="glass"] .center {
+  background: transparent;
+  --line: var(--g-line-strong);
+}
+:root[data-look="glass"] .review-body {
+  background: var(--bg);
+}
+:root[data-look="glass"] .review-bar,
+:root[data-look="glass"] .space-bar,
+:root[data-look="glass"] .wall-bar {
+  border-bottom-color: var(--g-line);
+}
+
+/* Tabs: the selected one is a lighter pane of glass. */
+:root[data-look="glass"] .tab[aria-selected="true"] {
+  background: var(--g-surface-3);
+  border-color: var(--g-line-strong);
+  box-shadow: inset 0 1px 0 var(--g-highlight);
+}
+:root[data-look="glass"] .palette-hint {
+  border-radius: 999px;
+}
+
+/* Chips (pane picker strip, Next up) and segmented controls. */
+:root[data-look="glass"] .agent-chip {
+  background: var(--g-surface-2);
+  border-color: var(--g-line-strong);
+  box-shadow: inset 0 1px 0 var(--g-highlight);
+}
+:root[data-look="glass"] .agent-chip:hover {
+  background: var(--g-surface-3);
+}
+:root[data-look="glass"] :is(.seg, .presets) {
+  background: var(--g-surface-2);
+  box-shadow: inset 0 0 0 1px var(--g-line);
+}
+
+/* Buttons: pills; the primary one is the white (light: ink) pill. */
+:root[data-look="glass"] :is(.primary-btn, .ghost-btn, .danger-btn, .small-btn) {
+  border-radius: 999px;
+}
+:root[data-look="glass"] .primary-btn {
+  color: var(--g-on-primary);
+  box-shadow: 0 1px 0 var(--g-highlight), 0 6px 18px -8px rgba(0, 0, 0, 0.5);
+}
+:root[data-look="glass"] .primary-btn .kbd {
+  border-color: color-mix(in srgb, var(--g-on-primary) 35%, transparent);
+  color: color-mix(in srgb, var(--g-on-primary) 70%, transparent);
+}
+:root[data-look="glass"] .primary-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 90%, var(--g-on-primary));
+}

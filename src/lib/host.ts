@@ -1,6 +1,6 @@
 // What this desktop offers (`host_info`, pitwall_core::host::HostInfo): the
 // shortcut modifier, how this machine is named, Pitwall's data folder, Dock /
-// tray, menu bar, badge and local sockets. The UI
+// tray, menu bar, badge, local sockets and the Glass look's window material. The UI
 // decides by these capabilities, never by which OS it runs on. Loaded once
 // before the first render (main.tsx); until then, and when the backend is too
 // old to say, the macOS values apply.
@@ -15,6 +15,7 @@ export const DEFAULT_HOST: HostInfo = {
   menu: "app",
   badge: "dock",
   localSockets: "unix",
+  glass: "vibrancy",
 };
 
 let current: HostInfo = DEFAULT_HOST;

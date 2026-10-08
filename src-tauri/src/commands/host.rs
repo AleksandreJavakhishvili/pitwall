@@ -15,3 +15,11 @@ pub fn host_info() -> HostInfo {
 pub fn quit_app(app: tauri::AppHandle, stop_agents: bool) {
     crate::menu::quit(&app, stop_agents);
 }
+
+/// Settings → Appearance → Look: the native window material for the calling
+/// window (each window asks for itself, so moved-out spaces get it too).
+#[tauri::command]
+pub fn set_window_glass(window: tauri::WebviewWindow, on: bool) -> crate::platform::glass::GlassState {
+    let glass = HostInfo::current(&Paths::new(Paths::default_root())).glass;
+    crate::platform::glass::set(&window, glass, on)
+}

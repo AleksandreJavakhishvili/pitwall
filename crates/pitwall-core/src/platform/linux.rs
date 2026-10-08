@@ -30,6 +30,11 @@ pub const MENU_BAR: crate::host::MenuBar = crate::host::MenuBar::None;
 /// The launcher's count where the desktop supports one (Unity API).
 pub const BADGE: crate::host::Badge = crate::host::Badge::Dock;
 
+/// No compositor material WebKitGTK windows can use: the UI's own backdrop.
+pub fn window_glass() -> crate::host::WindowGlass {
+    crate::host::WindowGlass::None
+}
+
 fn proc() -> ProcFs {
     ProcFs::new("/proc")
 }

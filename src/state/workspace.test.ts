@@ -18,6 +18,8 @@ import {
   setDensity,
   setHideElsewhere,
   setTheme,
+  setLook,
+  setReduceMotion,
   spaceMembers,
   tileAgents,
 } from "./workspace";
@@ -298,5 +300,22 @@ describe("theme", () => {
     expect(sanitize({ ...light, theme: "solarized" }).theme).toBe("system");
     const { theme: _, ...old } = light;
     expect(sanitize(old).theme).toBe("system");
+  });
+});
+
+describe("look and motion", () => {
+  it("default to Flat with motion, survive sanitize, reject junk, and set without churn", () => {
+    const d = defaultUiState();
+    expect(d.look).toBe("flat");
+    expect(d.reduceMotion).toBe(false);
+    const glass = setReduceMotion(setLook(d, "glass"), true);
+    expect(setLook(glass, "glass")).toBe(glass);
+    expect(setReduceMotion(glass, true)).toBe(glass);
+    const back = sanitize(JSON.parse(JSON.stringify(glass)));
+    expect(back.look).toBe("glass");
+    expect(back.reduceMotion).toBe(true);
+    expect(sanitize({ ...glass, look: "frosted", reduceMotion: "yes" })).toMatchObject({ look: "flat", reduceMotion: false });
+    const { look: _l, reduceMotion: _r, ...old } = glass;
+    expect(sanitize(old)).toMatchObject({ look: "flat", reduceMotion: false });
   });
 });

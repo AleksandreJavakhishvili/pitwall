@@ -108,3 +108,72 @@ the bottom.
   status tokens; colour changes fade (none with reduced motion).
 - Other transient UI never takes layout space either: toasts float above the
   strip (`position: fixed`), stopped/drop overlays sit on top of their pane.
+
+## Revision: Appearance — Look (Flat / Glass) and motion
+
+Settings → Appearance has **Theme** (System / Dark / Light), **Look** (Flat /
+Glass; default Flat) and **Reduce motion**. All three live in the shared UI
+state (every window follows them, they survive restarts) and are mirrored to
+localStorage for index.html's pre-paint script (`src/lib/theme.ts`,
+`src/lib/look.ts`).
+
+**Glass**: atmospheric colour behind frosted, translucent chrome with light
+hairline edges and pill buttons (the primary one white in Dark, ink in
+Light). Pitwall's own palette stays: amber "needs you", mint "done", the
+chequered flag; status colours are identical in both looks.
+- **Only chrome is glass**: top bar and tabs, sidebar, right panel, status
+  strip, palette, dialogs, menus, toasts, chips. Terminal panes, Wall tiles,
+  Review / Files code views and the diff dialog keep solid backgrounds
+  (legibility; nothing blends behind text that repaints all the time).
+- **Tiers**, decided in one place: the desktop offers a window material
+  (`HostInfo.glass`, `pitwall_core::host`: `vibrancy` on macOS, `mica` on
+  Windows 11 ≥ build 22000, `none` on Linux and Windows 10), and each
+  window asks for it itself (`set_window_glass`, `src-tauri/src/platform/
+  glass.rs`), so spaces moved to their own windows get it too. Settings
+  names the tier:
+  - **Glass · native** (macOS): an `NSVisualEffectView`
+    (under-window-background material, kept active so unfocused windows
+    stay glass)
+    behind a transparent webview. The compositor does the blur; the chrome
+    only tints it.
+  - **Glass · Mica** (Windows 11): the Mica backdrop, same tints. Not
+    Acrylic (it lags while windows are dragged or resized).
+  - **Glass lite** (Linux, Windows 10, browser): no window material, no
+    transparent window and no blur; Pitwall paints the atmospheric gradient
+    once and the same tinted panels over it — the same look without the
+    desktop showing through. `PITWALL_GLASS=lite|mica|vibrancy` forces a
+    tier (development; e.g. to see Glass lite on a Mac).
+- `backdrop-filter` only where the window material can't reach: surfaces
+  floating over terminals (palette, dialogs, menus, toasts, overlay sidebar /
+  drawer), on native and Mica tiers only, never per row or tile. On Glass
+  lite those surfaces are nearly opaque instead.
+- Glass starts on its lite tier before first paint and switches to native
+  once the window confirms its material (no white flash).
+- **Accessibility**: macOS "Reduce transparency" (read natively;
+  `prefers-reduced-transparency` too) shows Flat and removes the window
+  material; "Increase contrast" (`prefers-contrast: more` too) makes glass
+  nearly solid with stronger hairlines. Small text on glass keeps ≥ 4.5:1
+  (`--text-3` is lifted on glass).
+- **Window**: the standard title bar stays (traffic lights, drag and double
+  click unchanged; the content below it is the glass). The webview only stops
+  painting its own background while Glass is on (`set_background_color`
+  alpha 0; on macOS WebKit's private `drawsBackground` key, which Tauri
+  ≥ 2.12.1 uses for any transparent webview — no `macOSPrivateApi` flag is
+  needed any more). Private API use rules out the Mac App Store, not
+  Developer ID signing or notarization, which is how Pitwall ships. macOS
+  needs no transparent window (the effect view sits behind the webview);
+  on Windows DWM draws Mica only behind a transparent window, so windows
+  are created transparent there (`tauri.windows.conf.json`, `windows.rs`)
+  and the page paints opaque unless Glass is on. Linux windows stay opaque.
+
+**Motion** (`src/styles/motion.css`, both looks): transform and opacity only.
+Palette, dialogs and menus open with a fade + rise/scale on a spring-like
+curve (150–220 ms; closing stays instant), the overlay sidebar / drawer
+slide, toasts slide + fade in, switching space / Wall / Review / Files
+cross-fades, buttons pop slightly when pressed. "Needs you" plays a halo
+twice and the glyph bounces when the status starts (it used to breathe
+forever); "done" pops its chequered flag once. Glass adds a ring on the
+working dot and a sheen across primary buttons on hover. Only the working
+dot loops. Nothing animates on the Wall, while the page is hidden (minimised
+or occluded: `visibilitychange`), with Reduce motion or the system's reduced
+motion. No blur-in: animating `filter` would cost GPU work on every frame.

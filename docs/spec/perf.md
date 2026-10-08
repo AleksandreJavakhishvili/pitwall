@@ -312,3 +312,58 @@ layouts): idle 3.7 MB; Review open 16.5 → 8.5 MB; closed 15.9 → 7.9 MB.
 Cold start unchanged (318–327 ms). Monaco's dispose-on-close hook is gone:
 closing Review destroys the editors with the component, and there is no
 worker.
+
+## Glass look and motion (2026-10-08)
+Settings → Appearance → Look: Glass (layout.md "Appearance"). macOS draws
+the frosting itself (`NSVisualEffectView` behind a transparent webview), so
+the webview only tints; `backdrop-filter` is used only on the palette,
+dialogs, menus, toasts and the overlay sidebar / drawer, never on tiles or
+rows; terminals and Wall tiles stay opaque. Motion (`motion.css`): transform
+/ opacity only, the working dot is the only loop, "needs you" no longer
+breathes forever (a halo twice), nothing animates on the Wall or while the
+page is hidden.
+
+Bench additions: `--ui '<json>'` seeds the instance's UI state (look,
+reduceMotion, …); `--visible` (`PITWALL_BENCH_VISIBLE=1`, with a config
+that puts the window on screen) keeps the window on screen and above other
+windows so WebKit keeps its GPU tiles and the window material is drawn;
+WindowServer's CPU is reported too (shared with every app on screen: only
+differences between runs mean anything).
+
+Measured on-screen (`--visible --quick --counts 5,20`, bench agents, M-series
+Mac, release builds). Footprint MB / CPU % of a core; "base" = 0ce352b
+(before), two runs where there are two values:
+
+| Scenario | base Flat | Flat | Glass | Glass, Reduce motion |
+|---|---|---|---|---|
+| 0 agents: tree | 100 / 100 | 102 / 100 | 102 | 110 |
+| 0 agents: GPU · WebContent | 15 · 47 | 16 · 48 | 16 · 48 | 18 · 54 |
+| 0 agents: WindowServer CPU | 11 / 11 | 12 / 10 | 19 | 17 |
+| 5 agents: tree | 421 / 406 | 425 / 396 | 477 | 505 |
+| 5 agents: GPU · WebContent | 221 · 149 / 216 · 139 | 223 · 151 / 221 · 124 | 259 · 170 | 264 · 194 |
+| 5 agents: tree CPU (WebKit) | 17.3 (15.0) / 11.2 (9.9) | 13.0 (11.3) / 11.7 (10.3) | 13.6 (12.1) | 11.8 (10.6) |
+| 5 agents: WindowServer CPU | 33 / 30 | 33 / 32 | 44 | 20 |
+| 20 agents: tree | 458 / 447 | 480 / 454 | 528 | 557 |
+| 20 agents: GPU · WebContent | 221 · 174 / 219 · 167 | 225 · 194 / 224 · 169 | 267 · 200 | 262 · 235 |
+| 20 agents: tree CPU (WebKit) | 28.5 (22.2) / 15.4 (10.2) | 28.1 (21.7) / 20.7 (14.8) | 31.6 (25.1) | 21.5 (16.3) |
+| 20 agents: WindowServer CPU | 46 / 21 | 46 / 33 | 45 | 44 |
+
+- **Flat is unchanged** by this work (the new motion included): within the
+  run-to-run spread of the base build.
+- **Glass costs ~40–45 MB in the WebKit GPU process** (≈ 220 → 260 MB) once
+  terminals paint: the window-sized layers are now composited with alpha
+  over the window material. WebContent +10–30 MB (noisy). App process
+  unchanged. Idle (no terminal painting) costs nothing measurable.
+- CPU: Glass is within noise of Flat for the app tree (+0.6 / +3.5 points);
+  WindowServer +11 points at 5 agents in this run, equal at 20 — it blurs
+  the desktop behind the window, which macOS does for every vibrant window.
+- Animations: with Reduce motion the tree CPU at 20 agents was ~10 points
+  lower (31.6 → 21.5 %): the working-dot ring (one per working agent in the
+  sidebar) is the only loop left and is what costs; at 5 agents ~2 points.
+  A Flat + Reduce motion run had WebKit drop its GPU tiles (GPU ~26 MB, as
+  seen before in this doc), so it is not comparable and not shown.
+- Glass lite (Linux / Windows 10; `PITWALL_GLASS=lite` on a Mac) paints an
+  opaque gradient once and uses no blur at all; it was not benchmarked
+  separately (it is Flat plus a static background).
+- Not measured here: Windows (Mica is drawn by DWM like vibrancy by
+  WindowServer) and Linux.

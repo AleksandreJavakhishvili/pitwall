@@ -2828,6 +2828,7 @@ dependencies = [
 name = "pitwall"
 version = "0.1.1"
 dependencies = [
+ "objc2-app-kit",
  "pitwall-core",
  "pitwall-daemon",
  "pitwall-proto",

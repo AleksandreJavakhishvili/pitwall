@@ -14,6 +14,8 @@ import "./styles/overlays.css";
 import "./styles/space.css";
 import "./styles/wall.css";
 import "./styles/terminals.css";
+import "./styles/glass.css";
+import "./styles/motion.css";
 import "./lib/demoBridge"; // website demo only: inert unless browser mock + ?demo=1
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";

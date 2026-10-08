@@ -194,6 +194,7 @@ pub fn run() {
             commands::permissions::permissions_status,
             commands::permissions::open_privacy_settings,
             commands::host::host_info,
+            commands::host::set_window_glass,
             commands::host::quit_app,
         ])
         .build(tauri::generate_context!())

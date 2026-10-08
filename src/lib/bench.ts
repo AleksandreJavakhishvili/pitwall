@@ -7,6 +7,8 @@ export interface BenchHandlers {
   review(on: boolean): void;
   /** Show every agent once (so each gets its terminal), then tile with Auto grid. */
   visitAll(): Promise<void>;
+  /** Open the palette or Settings (screenshots of overlays); null closes. */
+  modal(which: "palette" | "settings" | null): void;
 }
 
 /** Subscribe to bench commands; tells the backend once the UI is up. */
@@ -18,6 +20,7 @@ export async function installBench(h: () => BenchHandlers): Promise<() => void> 
     if (cmd === "wall") h().wall(on);
     else if (cmd === "review") h().review(on);
     else if (cmd === "visit-all") void h().visitAll();
+    else if (cmd === "palette" || cmd === "settings") h().modal(on ? cmd : null);
   });
   await emit("bench-ready");
   return off;

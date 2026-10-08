@@ -43,6 +43,15 @@ pub const BADGE: crate::host::Badge = crate::host::Badge::Taskbar;
 /// Per-user named pipes.
 pub const LOCAL_SOCKETS: crate::host::LocalSockets = crate::host::LocalSockets::NamedPipe;
 
+/// Mica from Windows 11 (build 22000); Windows 10 has none usable.
+pub fn window_glass() -> crate::host::WindowGlass {
+    let build = reg_string(HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuildNumber");
+    match build.and_then(|b| b.trim().parse::<u32>().ok()) {
+        Some(b) if b >= 22000 => crate::host::WindowGlass::Mica,
+        _ => crate::host::WindowGlass::None,
+    }
+}
+
 /// How long a client waits for a busy pipe.
 const CONNECT_WAIT: Duration = Duration::from_secs(3);
 

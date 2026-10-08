@@ -8,9 +8,11 @@
 //! - `windows.rs`: the tray icon (the way back to a hidden window; there is
 //!   no Dock) and the blocked count as a taskbar overlay icon (`badge.rs`)
 //!   and in the tray tooltip.
+//! - `glass.rs`: the Glass look's native window material (vibrancy, Mica).
 
 #[cfg_attr(not(windows), allow(dead_code))]
 pub mod badge;
+pub mod glass;
 
 #[cfg(not(windows))]
 mod unix;

@@ -29,6 +29,11 @@ pitwall-providers = { path = "../crates/pitwall-providers" }
 pitwall-daemon = { path = "../crates/pitwall-daemon" }
 pitwall-proto = { path = "../crates/pitwall-proto" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# "Reduce transparency" / "Increase contrast" for the Glass look (already in
+# the tree through tao and window-vibrancy).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSWorkspace"] }
+
 [target.'cfg(windows)'.dependencies]
 # The tray icon (the way back to a hidden window; there is no Dock).
 tauri = { version = "2", features = ["tray-icon"] }

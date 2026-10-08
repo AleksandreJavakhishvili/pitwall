@@ -14,6 +14,7 @@ import type {
   PermissionsStatus,
   PrivacyPane,
   HostInfo,
+  GlassState,
   CreateAgentRequest,
   CreateForm,
   FileChange,
@@ -115,6 +116,8 @@ export interface Api extends ReviewApi, WorktreesApi, ExplorerApi {
 
   /** What this desktop offers: shortcut modifier, machine label, data folder (`lib/host.ts`). */
   hostInfo(): Promise<HostInfo>;
+  /** Settings → Appearance → Look: the native window material behind this window (`lib/look.ts`). */
+  setWindowGlass(on: boolean): Promise<GlassState>;
   /** Quit Pitwall; agents keep running in their holders unless `stopAgents`. */
   quitApp(stopAgents: boolean): Promise<void>;
 }
@@ -237,6 +240,7 @@ async function createTauriApi(): Promise<Api> {
     permissionsStatus: () => invoke("permissions_status"),
     openPrivacySettings: (kind) => invoke("open_privacy_settings", { kind }),
     hostInfo: () => invoke("host_info"),
+    setWindowGlass: (on) => invoke("set_window_glass", { on }),
     quitApp: (stopAgents) => invoke("quit_app", { stopAgents }),
   };
 }

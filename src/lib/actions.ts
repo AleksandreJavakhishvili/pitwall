@@ -5,6 +5,7 @@ import type { AgentDropTarget } from "./dnd";
 import type { Density } from "../layout/density";
 import type { TilingContext } from "./tiling";
 import type { ThemePref } from "./theme";
+import type { Look } from "./look";
 
 /** What Review shows first: a worktree, or an agent (and one of its files). */
 export type ReviewTarget = { projectId: string; path: string } | { agentId: string; path?: string };
@@ -56,6 +57,10 @@ export interface Actions {
   /** Settings → Appearance (shared by all windows). */
   theme: ThemePref;
   setTheme(theme: ThemePref): void;
+  look: Look;
+  setLook(look: Look): void;
+  reduceMotion: boolean;
+  setReduceMotion(reduce: boolean): void;
 
   // spaces & panes (active space of this window unless given)
   /** Drop (or pick) an agent onto a pane zone or a space — same rules as drag & drop. */
