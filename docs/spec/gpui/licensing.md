@@ -156,3 +156,23 @@ and what it downloads while packaging: linuxdeploy and the AppImage runtime
 builds). macOS bundles use Apple's own tools (codesign, hdiutil, lipo).
 
 Integration: `crates/pitwall-app/src/kit/` is the one component kit and asset source. Bundled fonts gain JetBrains Mono Bold, Italic and Bold Italic (OFL-1.1, `LICENSES/`), static instances of the `@fontsource-variable/jetbrains-mono` latin files, so terminal bold and italic match xterm. No new crates.
+## Review and the code/diff viewer (gpui/review)
+
+New crates in `pitwall-app` (`src/code_view`, `src/review`); all permissive,
+none GPL. The tree-sitter grammars compile their C parsers with `cc` (already
+in the tree); their highlight queries ship in the same crates under the same
+licence.
+
+| Crate | Licence | For |
+|---|---|---|
+| similar 2.7 | Apache-2.0 | line and character diff (Myers, with a deadline) |
+| tree-sitter 0.25, tree-sitter-highlight 0.25, tree-sitter-language 0.1 | MIT | syntax highlighting |
+| streaming-iterator 0.1 | MIT OR Apache-2.0 | dependency of tree-sitter |
+| tree-sitter-{rust 0.24, javascript 0.25, typescript 0.23, python 0.25, go 0.25, bash 0.25, css 0.25, html 0.23, c 0.24, cpp 0.23, java 0.23, ruby 0.23, yaml 0.7} | MIT | the highlighted languages (JSON, TOML, diffs stay plain as in the React app; Markdown is not highlighted yet) |
+| regex 1 | MIT OR Apache-2.0 | Find (already in the tree) |
+| unicode-segmentation 1 | MIT OR Apache-2.0 | grapheme and word motion (already in the tree) |
+| chrono 0.4 (`clock` only) | MIT OR Apache-2.0 | task times "HH:MM" (already in the tree) |
+
+The Material Icon Theme subset (MIT) is embedded from `src/assets/file-icons/`
+for Review's file rows (the explorer embeds the same set; one copy should move
+to the shared kit).

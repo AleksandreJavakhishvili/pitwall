@@ -10,6 +10,7 @@ pub mod approvals;
 pub mod bridge;
 pub mod explorer;
 pub mod frame_stats;
+pub mod code_view;
 pub mod home;
 pub mod kit;
 pub mod host;
@@ -20,6 +21,7 @@ pub mod platform;
 pub mod remote;
 pub mod packaging;
 pub mod terminal;
+pub mod review;
 pub mod theme;
 pub mod ui;
 pub mod ui_state;
@@ -82,12 +84,14 @@ pub fn run() {
         main_screen::init(cx);
         platform::init(cx);
         explorer::register(cx);
+        review::register(cx);
 
         let state = match chosen {
             Ok(paths) => {
                 let (bridge, rx) = Bridge::new();
                 let host = Host::start(paths.clone(), bridge);
                 cx.set_global(explorer::ExplorerSource::engine(host.engine.clone()));
+                cx.set_global(review::ReviewEngine { engine: host.engine.clone(), root: Some(paths.root().into()) });
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 cx.set_global(main_screen::EngineHandle(host.engine.clone()));
                 AgentStore::listen(&store, rx, cx);
