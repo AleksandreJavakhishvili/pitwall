@@ -1,91 +1,63 @@
-//! The Pitwall mark (`assets/brand/pitwall.svg`, the 32 px cut of the
-//! Apex P): a solid P with a short chequered tail. The top bar draws it as
-//! the website's header does, without the icon's tile: the P in the page's
-//! ink and the chequered squares at its foot in a quieter tone painted over
-//! the stem, both following the theme.
+//! The Pitwall mark, the Apex P, drawn exactly as the website header and
+//! the React top bar draw it (`website/index.html` `.brand .mark`,
+//! `TopBar.tsx`): the racing-line P stroked in the theme's ink, its
+//! chequered tail masked to the stroke in `--mark-squares`, no tile.
 //!
-//! GPUI draws an SVG as one mask tinted by the text colour, so the file is
-//! served as two layers (`brand/pitwall-ink.svg`, `brand/pitwall-tail.svg`)
-//! through the kit's [`Assets`](super::Assets). Both are cropped to the P
-//! at 1.5 device px per unit (14 x 20 px at 2x), which puts every straight
-//! edge of the 32-unit grid on a whole device pixel.
+//! GPUI draws an SVG as one mask tinted by the text colour, so the mark is
+//! two assets served by the kit's [`Assets`](super::Assets): the line
+//! (`brand/mark-line.svg`) and the squares, already masked to the line's
+//! stroke inside their own file (`brand/mark-squares.svg`), each tinted by
+//! the theme.
 
-use gpui::{div, px, svg, Div, ParentElement, Rgba, SharedString, Styled};
+use gpui::{div, px, svg, Div, Hsla, ParentElement, SharedString, Styled};
 
 use crate::theme::{Mode, Theme};
 
-/// The mark as shipped (`docs/brand/pitwall-small-32.svg`).
-pub const PITWALL_SVG: &str = include_str!("../../assets/brand/pitwall.svg");
+/// The racing line.
+pub const LINE_PATH: &str = "brand/mark-line.svg";
+/// The chequer squares, masked to the line.
+pub const SQUARES_PATH: &str = "brand/mark-squares.svg";
 
-/// The P's ink layer.
-pub const INK_PATH: &str = "brand/pitwall-ink.svg";
-/// The tail's squares.
-pub const TAIL_PATH: &str = "brand/pitwall-tail.svg";
+const LINE_SVG: &str = include_str!("../../assets/brand/mark-line.svg");
+const SQUARES_SVG: &str = include_str!("../../assets/brand/mark-squares.svg");
 
-/// The mark's box in the top bar (px).
-const W: f32 = 14.;
-const H: f32 = 20.;
+/// `.wordmark-mark`: 22 x 22 px.
+const SIZE: f32 = 22.;
 
-/// A layer of [`PITWALL_SVG`]: its `<path>` (ink) or its `<rect x=…>`
-/// squares (tail), without the tile, cropped to the P.
-pub fn layer(path: &str) -> Option<String> {
-    let body: Vec<&str> = if path == INK_PATH {
-        elements(PITWALL_SVG, "<path ")
-    } else if path == TAIL_PATH {
-        elements(PITWALL_SVG, "<rect x=")
-    } else {
-        return None;
-    };
-    // 7,3 is the P's top-left corner; 14 x 20 px at 1.5 device px a unit.
-    let (vw, vh) = (W * 2. / 1.5, H * 2. / 1.5);
-    Some(format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="7 3 {vw:.4} {vh:.4}">{}</svg>"##,
-        body.concat()
-    ))
-}
-
-/// Every `<tag …/>` element of `svg` that starts with `start`.
-fn elements<'a>(svg: &'a str, start: &str) -> Vec<&'a str> {
-    let mut out = vec![];
-    let mut rest = svg;
-    while let Some(i) = rest.find(start) {
-        let Some(end) = rest[i..].find("/>") else {
-            break;
-        };
-        out.push(&rest[i..i + end + 2]);
-        rest = &rest[i + end + 2..];
+/// The asset at `path`, if it is one of the mark's layers.
+pub fn layer(path: &str) -> Option<&'static str> {
+    match path {
+        LINE_PATH => Some(LINE_SVG),
+        SQUARES_PATH => Some(SQUARES_SVG),
+        _ => None,
     }
-    out
 }
 
-/// The website's `--mark-ink` and `--mark-b` for this theme.
-fn colors(t: &Theme) -> (Rgba, Rgba) {
+/// `--mark-squares`.
+fn squares(t: &Theme) -> Hsla {
     match t.mode {
-        Mode::Dark => (gpui::rgb(0xe8ebef), gpui::rgb(0x353c46)),
-        Mode::Light => (gpui::rgb(0x111418), gpui::rgb(0xc5cbd3)),
+        Mode::Dark => gpui::rgb(0x353c46).into(),
+        Mode::Light => gpui::rgb(0xc5cbd3).into(),
     }
 }
 
-/// The mark, in the theme's ink.
+/// The mark, in the theme's ink (`--text`).
 pub fn brand_mark(t: &Theme) -> Div {
-    let (ink, tail) = colors(t);
-    let layer = |path: &'static str, color: Rgba| {
+    let layer = |path: &'static str, color: Hsla| {
         svg()
             .path(SharedString::from(path))
             .absolute()
             .top_0()
             .left_0()
-            .w(px(W))
-            .h(px(H))
+            .size(px(SIZE))
             .text_color(color)
     };
     div()
         .relative()
         .flex_none()
-        .w(px(W))
-        .h(px(H))
-        .child(layer(INK_PATH, ink))
-        .child(layer(TAIL_PATH, tail))
+        .size(px(SIZE))
+        .child(layer(LINE_PATH, t.text))
+        .child(layer(SQUARES_PATH, squares(t)))
 }
 
 #[cfg(test)]
@@ -93,13 +65,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_layers_split_the_mark_without_its_tile() {
-        let ink = layer(INK_PATH).unwrap();
-        assert!(ink.contains("M7 3H17A8 8 0 0 1 17 19H11V29H7Z"));
-        assert!(!ink.contains("<rect"));
-        let tail = layer(TAIL_PATH).unwrap();
-        assert_eq!(tail.matches("<rect").count(), 3);
-        assert!(!tail.contains("rx=\"7\""));
+    fn the_layers_are_the_website_mark() {
+        let line = layer(LINE_PATH).unwrap();
+        assert!(line.contains(r#"viewBox="7 7 50 50""#));
+        assert!(line.contains("M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24"));
+        let sq = layer(SQUARES_PATH).unwrap();
+        assert!(sq.contains(r#"mask="url(#m)""#));
+        assert!(sq.contains("M1 47.5h4.5V52H1z"));
         assert!(layer("brand/nope.svg").is_none());
     }
 }
