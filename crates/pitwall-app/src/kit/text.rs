@@ -145,6 +145,7 @@ pub fn para(text: impl Into<SharedString>) -> Para {
     Para {
         text: text.into(),
         runs: None,
+        scales: Vec::new(),
     }
 }
 
@@ -162,7 +163,10 @@ pub enum Span {
 pub fn rich(parts: &[(&str, Span)], color: Hsla) -> Para {
     let mut text = String::new();
     let mut runs = Vec::new();
+    let mut scales = Vec::new();
     for (s, span) in parts {
+        // `.mono { font-size: 0.94em }`.
+        scales.push(if *span == Span::Mono { 0.94 } else { 1. });
         text.push_str(s);
         let mut f = gpui::font(if *span == Span::Mono {
             super::fonts::MONO_FONT
@@ -183,15 +187,35 @@ pub fn rich(parts: &[(&str, Span)], color: Hsla) -> Para {
             strikethrough: None,
         });
     }
+    distinct_fonts(&mut runs);
     Para {
         text: text.into(),
         runs: Some(runs),
+        scales,
+    }
+}
+
+/// gpui 0.2.2's `layout_line` merges a run into the one before it when
+/// only the font differs (it compares the colour and decorations, not the
+/// font), so a mono or bold part of a line came out in the first part's
+/// font. Neighbours with different fonts get a colour one 10 000th of
+/// lightness apart, which no screen shows but keeps their fonts.
+fn distinct_fonts(runs: &mut [TextRun]) {
+    for i in 1..runs.len() {
+        let (a, b) = runs.split_at_mut(i);
+        let (prev, run) = (&a[i - 1], &mut b[0]);
+        if prev.font != run.font && prev.color == run.color {
+            let l = run.color.l;
+            run.color.l = if l > 0.5 { l - 1e-4 } else { l + 1e-4 };
+        }
     }
 }
 
 pub struct Para {
     text: SharedString,
     runs: Option<Vec<TextRun>>,
+    /// Each run's size against the inherited one (empty: all 1).
+    scales: Vec<f32>,
 }
 
 /// Where lines may break in `text` (byte offsets where a new line may
@@ -280,18 +304,23 @@ pub fn wrap_lines(
     lines
 }
 
-/// The runs of `runs` (covering the whole text) cut to `range`.
-fn slice_runs(runs: &[TextRun], range: std::ops::Range<usize>) -> Vec<TextRun> {
+/// The runs of `runs` (covering the whole text) cut to `range`, each with
+/// its scale.
+fn slice_runs(
+    runs: &[TextRun],
+    scales: &[f32],
+    range: std::ops::Range<usize>,
+) -> Vec<(TextRun, f32)> {
     let mut out = Vec::new();
     let mut at = 0;
-    for r in runs {
+    for (i, r) in runs.iter().enumerate() {
         let (a, b) = (at, at + r.len);
         at = b;
         let (s, e) = (a.max(range.start), b.min(range.end));
         if s < e {
             let mut r = r.clone();
             r.len = e - s;
-            out.push(r);
+            out.push((r, scales.get(i).copied().unwrap_or(1.)));
         }
     }
     out
@@ -341,8 +370,9 @@ impl Element for Para {
         let ts = window.text_system().clone();
         let mut adv: Vec<f32> = Vec::with_capacity(self.text.len());
         let mut at = 0;
-        for r in &runs {
+        for (i, r) in runs.iter().enumerate() {
             let id = ts.resolve_font(&r.font);
+            let size = size * self.scales.get(i).copied().unwrap_or(1.);
             for c in self.text[at..at + r.len].chars() {
                 let w = ts.advance(id, size, c).map(|s| f32::from(s.width)).unwrap_or(0.);
                 adv.push(w);
@@ -413,14 +443,30 @@ impl Element for Para {
             if r.is_empty() {
                 continue;
             }
-            let line = ts.shape_line(
-                SharedString::from(self.text[r.clone()].to_string()),
-                size,
-                &slice_runs(&runs, r),
-                None,
-            );
-            let origin = point(bounds.left(), bounds.top() + line_h * i as f32);
-            let _ = line.paint(origin, line_h, window, cx);
+            // One shaped piece per size, side by side.
+            let mut x = bounds.left();
+            let mut at = r.start;
+            let pieces = slice_runs(&runs, &self.scales, r);
+            let mut k = 0;
+            while k < pieces.len() {
+                let scale = pieces[k].1;
+                let mut group = Vec::new();
+                while k < pieces.len() && pieces[k].1 == scale {
+                    group.push(pieces[k].0.clone());
+                    k += 1;
+                }
+                let len: usize = group.iter().map(|g| g.len).sum();
+                let line = ts.shape_line(
+                    SharedString::from(self.text[at..at + len].to_string()),
+                    size * scale,
+                    &group,
+                    None,
+                );
+                let origin = point(x, bounds.top() + line_h * i as f32);
+                x += line.width;
+                let _ = line.paint(origin, line_h, window, cx);
+                at += len;
+            }
         }
     }
 }
