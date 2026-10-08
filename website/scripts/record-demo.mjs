@@ -1,4 +1,4 @@
-// Records the landing-page demo from the app's mock (see website/README.md "Demo").
+// Records the README animation (docs/media/demo.webp) from the app's mock (see website/README.md "Demo").
 //   pnpm demo:serve                       # mock on http://127.0.0.1:5199
 //   chrome --headless=new --remote-debugging-port=9334 …
 //   node scripts/record-demo.mjs <outDir> dark|light

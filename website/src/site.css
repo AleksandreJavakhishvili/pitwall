@@ -467,7 +467,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .hero-note { margin: 16px 0 0; font-size: 0.86rem; color: var(--text-2); }
 .hero-note a { color: var(--text); }
 
-/* ---------- demo: chapter tabs + framed video / live app ---------- */
+/* ---------- demo: view tabs + the live app in a frame ---------- */
 .demo { margin-top: clamp(56px, 8vw, 96px); }
 .tabs {
   display: flex; gap: 2px; width: fit-content; max-width: 100%; margin: 0 auto; padding: 4px;
@@ -483,13 +483,6 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .tabs [role="tab"]:hover { color: var(--text); }
 .tabs [role="tab"][aria-selected="true"] { color: var(--text); background: var(--chip-on); }
 .tabs [role="tab"][aria-selected="true"][data-view="needs-you"] { background: var(--amber-soft); }
-/* Chapter fill: how far the video is through this tab's chapter. */
-.tabs [role="tab"]::after {
-  content: ""; position: absolute; left: 14px; right: 14px; bottom: 3px; height: 2px; border-radius: 2px;
-  background: currentColor; opacity: 0; transform-origin: 0 50%; transform: scaleX(var(--p, 0));
-}
-.tabs [role="tab"][aria-selected="true"]::after { opacity: 0.55; }
-.tabs [role="tab"][data-view="needs-you"]::after { background: var(--amber); }
 .tabs kbd { font-size: 0.72rem; letter-spacing: 0; text-transform: none; color: var(--text-2); }
 .tabs .g { color: var(--amber); }
 
@@ -505,25 +498,36 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .frame-title { display: inline-flex; align-items: center; gap: 8px; font: 600 0.78rem var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); margin-right: auto; }
 .frame-title::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); animation: live-ring 2.4s ease-out infinite; }
 .frame-title .dim { color: var(--text-3); }
-.frame-btn {
-  height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--glass-line); background: var(--chip);
-  color: var(--text); font: 600 0.8rem var(--font-ui); cursor: pointer;
-}
-.frame-btn:hover { background: var(--chip-on); }
+/* The live app (website/public/demo, the app's browser mock) renders at the size the
+   site was designed around, 1120x700, and main.js scales it to the frame. Phones show
+   its left half (sidebar and first tile) at a readable size instead of the whole window. */
 .frame-body { position: relative; aspect-ratio: 16 / 10; background: var(--app-bg); border-radius: var(--radius); overflow: hidden; }
-.frame-body video, .frame-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
-.frame-body video { object-fit: cover; object-position: left top; }
-/* Phones: crop to the sidebar and first tile instead of shrinking the whole window. */
+.frame-body iframe { position: absolute; left: 0; top: 0; border: 0; display: block; transform-origin: 0 0; }
 @media (max-width: 600px) { .frame-body { aspect-ratio: 4 / 5; } .frame { padding: 0 4px 4px; } }
 
-/* Placeholder while the live app loads: an empty timing tower, not an image. */
-.skeleton { position: absolute; inset: 0; display: grid; align-content: start; gap: 10px; padding: 24px; background: var(--app-bg); width: min(100%, 300px); }
-.skeleton[hidden] { display: none; }
-.skeleton span { height: 34px; border-radius: 6px; background: var(--app-line); animation: wait 1.4s ease-in-out infinite; }
-.skeleton span.amber { background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); }
-.skeleton span:nth-child(2) { animation-delay: 0.1s; } .skeleton span:nth-child(3) { animation-delay: 0.2s; }
-.skeleton span:nth-child(4) { animation-delay: 0.3s; } .skeleton span:nth-child(5) { animation-delay: 0.4s; }
-@keyframes wait { 50% { opacity: 0.45; } }
+/* Placeholder while the app loads: the app's own layout in flat blocks, in the page's
+   theme. Percentages of the 1120x700 window, so it lines up with the app at any width. */
+.skeleton { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: var(--app-bg); }
+@media (max-width: 600px) { .skeleton { width: 200%; } }
+.skeleton i { position: absolute; display: block; border-radius: 6px; background: var(--app-line); }
+.skeleton .sk-top { left: 0; right: 0; top: 0; height: 6.3%; border-radius: 0; background: none; border-bottom: 1px solid var(--app-line); }
+.skeleton .sk-side { left: 0; top: 6.3%; bottom: 4%; width: 23.9%; border-radius: 0; background: none; border-right: 1px solid var(--app-line); }
+.skeleton .sk-row { left: 0.8%; width: 22.3%; height: 8%; animation: wait 1.4s ease-in-out infinite; }
+.skeleton .sk-row:nth-of-type(3) { top: 11.5%; height: 12%; background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); }
+.skeleton .sk-row:nth-of-type(4) { top: 27%; animation-delay: 0.1s; }
+.skeleton .sk-row:nth-of-type(5) { top: 41%; animation-delay: 0.2s; }
+.skeleton .sk-row:nth-of-type(6) { top: 52%; animation-delay: 0.3s; }
+.skeleton .sk-row:nth-of-type(7) { top: 63%; animation-delay: 0.4s; }
+.skeleton .sk-pane { left: 24.4%; right: 0.6%; top: 11.5%; bottom: 14%; background: none; border: 1px solid var(--amber); }
+.skeleton .sk-line { left: 26%; height: 2.4%; }
+.skeleton .sk-line:nth-of-type(9) { top: 20%; width: 18%; }
+.skeleton .sk-line:nth-of-type(10) { top: 28%; width: 46%; }
+.skeleton .sk-line:nth-of-type(11) { top: 33%; width: 40%; }
+.skeleton .sk-line:nth-of-type(12) { top: 41%; width: 30%; }
+.skeleton .sk-chips { left: 24.6%; top: 91%; width: 39%; height: 4.6%; border-radius: 999px; }
+.skeleton .sk-bar { left: 0; right: 0; bottom: 0; height: 4%; border-radius: 0; background: var(--amber-soft); border-top: 1px solid var(--amber); }
+@keyframes wait { 50% { opacity: 0.55; } }
+.frame-note { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; padding: 8px 14px; border-radius: 999px; background: var(--glass-solid); color: var(--text-2); font-size: 0.9rem; }
 
 /* ---------- details under the demo ---------- */
 .pit { padding: clamp(56px, 8vw, 96px) 0 0; }

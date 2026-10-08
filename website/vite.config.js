@@ -4,9 +4,9 @@ import { relative, resolve, sep } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL } from "./site.config.js";
 import { renderPage, SOURCES, ROOT } from "./scripts/pages.mjs";
 
-// Pages are written with root-absolute links (`/docs/quick-start/`, `/video/…`).
+// Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
-// <video>/<source>); this rewrites the rest after it, so the site also works from a
+// <source>); this rewrites the rest after it, so the site also works from a
 // sub-path such as https://<owner>.github.io/<repo>/: anchors and data-* URLs.
 // It also fills in %REPO_URL%, %RELEASES_URL%, %RELEASE_API_URL% and %PAGES_URL% from site.config.js.
 function siteLinks() {

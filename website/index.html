@@ -72,12 +72,12 @@
 
         <div class="demo" data-demo>
           <div class="tabs" role="tablist" aria-label="What Pitwall does">
-            <button role="tab" id="tab-needs-you" aria-selected="true" aria-controls="demo-panel" data-view="needs-you" data-t="0"><span class="g g-blocked" aria-hidden="true">▲</span>Needs you <kbd>⌘J</kbd></button>
-            <button role="tab" id="tab-wall" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="wall" data-t="7.7">Wall <kbd>⌘E</kbd></button>
-            <button role="tab" id="tab-next-up" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="next-up" data-t="11.7">Next up <kbd>⌘.</kbd></button>
-            <button role="tab" id="tab-review" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="review" data-t="17.4">Review <kbd>⌘R</kbd></button>
-            <button role="tab" id="tab-terminals" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="terminals" data-t="22">Terminals <kbd>⌘T</kbd></button>
-            <button role="tab" id="tab-rules" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="rules" data-t="27">Rules <kbd>⌘,</kbd></button>
+            <button role="tab" id="tab-needs-you" aria-selected="true" aria-controls="demo-panel" data-view="needs-you"><span class="g g-blocked" aria-hidden="true">▲</span>Needs you <kbd>⌘J</kbd></button>
+            <button role="tab" id="tab-wall" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="wall">Wall <kbd>⌘E</kbd></button>
+            <button role="tab" id="tab-next-up" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="next-up">Next up <kbd>⌘.</kbd></button>
+            <button role="tab" id="tab-review" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="review">Review <kbd>⌘R</kbd></button>
+            <button role="tab" id="tab-terminals" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="terminals">Terminals <kbd>⌘T</kbd></button>
+            <button role="tab" id="tab-rules" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="rules">Rules <kbd>⌘,</kbd></button>
           </div>
 
           <div class="demo-panel" id="demo-panel" role="tabpanel" aria-labelledby="tab-needs-you">
@@ -92,21 +92,16 @@
 
             <div class="frame">
               <div class="frame-bar">
-                <span class="frame-title">Pitwall <span class="dim">· demo projects</span></span>
-                <button class="frame-btn" type="button" data-live hidden>Try it live</button>
-                <button class="frame-btn" type="button" data-play hidden aria-label="Play video">Play</button>
+                <span class="frame-title">Pitwall <span class="dim">· live demo, made-up projects</span></span>
               </div>
-              <div class="frame-body">
-                <video data-video muted loop playsinline preload="metadata" width="1680" height="1050"
-                  poster="/video/poster-dark.webp" data-dark="/video/demo-dark.mp4" data-light="/video/demo-light.mp4"
-                  data-poster-dark="/video/poster-dark.webp" data-poster-light="/video/poster-light.webp"
-                  aria-label="Pitwall in use: tests needs you, you jump to it and answer, it works and finishes; then the Wall, a prompt queued in Next up, Review, a new terminal that becomes Claude Code, and rule settings.">
-                  <source src="/video/demo-light.mp4" type="video/mp4" media="(prefers-color-scheme: light)" />
-                  <source src="/video/demo-dark.mp4" type="video/mp4" />
-                </video>
-                <div class="skeleton" aria-hidden="true" hidden>
-                  <span></span><span class="amber"></span><span></span><span></span><span></span>
+              <div class="frame-body" data-frame>
+                <div class="skeleton" aria-hidden="true">
+                  <i class="sk-top"></i><i class="sk-side"></i>
+                  <i class="sk-row sk-amber"></i><i class="sk-row"></i><i class="sk-row"></i><i class="sk-row"></i><i class="sk-row"></i>
+                  <i class="sk-pane"></i><i class="sk-line"></i><i class="sk-line"></i><i class="sk-line"></i><i class="sk-line"></i>
+                  <i class="sk-chips"></i><i class="sk-bar"></i>
                 </div>
+                <p class="frame-note" data-demo-missing hidden>The live demo isn't part of this build.</p>
               </div>
             </div>
           </div>
