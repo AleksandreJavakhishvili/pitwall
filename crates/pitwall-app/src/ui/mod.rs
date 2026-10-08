@@ -34,6 +34,8 @@ pub struct MainView {
     pub screen: Option<Entity<crate::main_screen::MainScreen>>,
     /// Its Review route (opened on a file or worktree from elsewhere).
     pub review: Option<Entity<crate::review::ReviewRoute>>,
+    /// The command palette (⌘K).
+    palette: Entity<crate::palette::PaletteHost>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,7 +95,10 @@ impl MainView {
         if let (Some(screen), Some(e), Some(r)) = (&screen, &explorer, &review) {
             subs.extend(explorer_seams(screen, e, r, window, cx));
         }
+        let palette =
+            cx.new(|cx| crate::palette::PaletteHost::new(screen.clone(), explorer.as_ref(), window, cx));
         MainView {
+            palette,
             content,
             explorer,
             layer,
@@ -286,6 +291,7 @@ impl Render for MainView {
             Some(e) => crate::explorer::on_actions(root, e),
             None => root,
         };
+        let root = crate::palette::on_actions(root, &self.palette);
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
             Content::Live { .. } => root
@@ -293,6 +299,7 @@ impl Render for MainView {
                 .children(self.explorer.clone()),
         };
         root.child(self.layer.clone())
+            .child(self.palette.clone())
             .children(crate::approvals::overlay(window, cx))
             .children(crate::frame_stats::probe())
     }

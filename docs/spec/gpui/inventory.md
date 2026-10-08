@@ -312,20 +312,20 @@ marks terminal items. Section 36 lists each component once.
 
 ## 17. Command palette (⌘K)
 
-- [ ] Palette modal, top-anchored, input "Jump to an agent, or type  name: prompt  to queue it"; ↑/↓, Enter, hover selects, click runs (`src/components/CommandPalette.tsx`) [in-house: command palette] [in-house: text input] [in-house: list/virtual list]
-- [ ] Word-AND substring matching over each item's search text (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Inline queue syntax "name: text" or "queue [for] name: text" → single "Queue for <name>" item (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: go to each agent (status, project, "current"), "Remove <name>…" per agent (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Jump to next blocked ⌘J" (only when any blocked), "New agent ⌘N" (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Terminal at <typed path>" (when query looks like a path, listed first), "New terminal here ⌘T", "New terminal in folder… ⌘⇧T", "Terminal in <project>" per project (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Queue for <name>: …" per agent (prefills the input and keeps the palette open) (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Toggle Wall ⌘E", "Review changes ⌘R", "Go to file… ⌘P", "Search in files ⌘⇧F", "Browse files (read-only)" (file items only with `caps.explorer`) (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Move space to new window ⌘⇧N", "Tile layout: <preset>" (presets that fit) (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Density: <d> (default for all spaces)", "Density for this space: <d>", "Density for this space: use default" (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Toggle agents sidebar ⌘B", "Toggle details panel ⌘.", "Settings ⌘,", "Theme: System/Dark/Light" (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Items: "Quit Pitwall (agents keep running)", "Quit and stop all agents" (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] Empty query hides queue-for, preset, density, terminal-in and theme items (`src/components/CommandPalette.tsx`) [in-house: command palette]
-- [ ] "No matches. Try “name: your prompt” to queue." (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Palette modal, top-anchored, input "Jump to an agent, or type  name: prompt  to queue it"; ↑/↓, Enter, hover selects, click runs (`src/components/CommandPalette.tsx`) [in-house: command palette] [in-house: text input] [in-house: list/virtual list]
+- [x] Word-AND substring matching over each item's search text (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Inline queue syntax "name: text" or "queue [for] name: text" → single "Queue for <name>" item (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: go to each agent (status, project, "current"), "Remove <name>…" per agent (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Jump to next blocked ⌘J" (only when any blocked), "New agent ⌘N" (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Terminal at <typed path>" (when query looks like a path, listed first), "New terminal here ⌘T", "New terminal in folder… ⌘⇧T", "Terminal in <project>" per project (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Queue for <name>: …" per agent (prefills the input and keeps the palette open) (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Toggle Wall ⌘E", "Review changes ⌘R", "Go to file… ⌘P", "Search in files ⌘⇧F", "Browse files (read-only)" (file items only with `caps.explorer`) (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Move space to new window ⌘⇧N", "Tile layout: <preset>" (presets that fit) (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Density: <d> (default for all spaces)", "Density for this space: <d>", "Density for this space: use default" (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Toggle agents sidebar ⌘B", "Toggle details panel ⌘.", "Settings ⌘,", "Theme: System/Dark/Light" (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Items: "Quit Pitwall (agents keep running)", "Quit and stop all agents" (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] Empty query hides queue-for, preset, density, terminal-in and theme items (`src/components/CommandPalette.tsx`) [in-house: command palette]
+- [x] "No matches. Try “name: your prompt” to queue." (`src/components/CommandPalette.tsx`) [in-house: command palette]
 
 ## 18. Dialogs
 
@@ -420,7 +420,7 @@ App chords are captured before the terminal (`src/lib/useShortcuts.ts`,
 Windows/Linux use Ctrl+Shift (shift variant Ctrl+Shift+Alt), matched by physical
 key code.
 
-- [ ] Command palette (toggle): ⌘K · Ctrl+Shift+K
+- [x] Command palette (toggle): ⌘K · Ctrl+Shift+K
 - [x] New agent: ⌘N · Ctrl+Shift+N
 - [ ] Move active space to new window: ⌘⇧N · Ctrl+Shift+Alt+N
 - [x] New terminal here: ⌘T · Ctrl+Shift+T
@@ -655,7 +655,7 @@ item. Terminal items are tagged `[pitwall-term-view]` instead.
 - [ ] Basic primitives: button, icon button, label, chip, kbd (all sections)
 - [ ] `checkbox/toggle`: checkbox and switch (§10, §12, §14, §18, §19, §20, §21, §26)
 - [x] `code/diff viewer`: read-only code view and side-by-side / inline diff with gutter, folding, find, highlighting (§11, §13, §14, §15, §23, §24)
-- [ ] `command palette`: palette-style fuzzy picker (⌘K, ⌘P) (§14, §17)
+- [x] `command palette`: palette-style fuzzy picker (⌘K, ⌘P) (§14, §17)
 - [ ] `drag and drop`: pointer drag with ghost, hit-testing and drop previews (§3, §4, §5, §7, §9)
 - [ ] `drawer/overlay`: slide-in drawer / overlay sidebar with scrim (§1, §4)
 - [ ] `file icons`: file/folder icon lookup (Material Icon Theme subset) (§14)

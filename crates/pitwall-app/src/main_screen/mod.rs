@@ -17,6 +17,7 @@
 //! with [`register_route`] for their views, [`TerminalSlot`] for the
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
+mod commands;
 #[doc(hidden)]
 pub mod demo;
 mod dialogs;
@@ -57,6 +58,7 @@ use crate::kit::TextInput;
 use self::tree::Preset;
 pub use self::topbar::AgentDrag;
 use self::workspace::{UiState, ALL_SPACE, MAIN};
+pub use self::commands::CommandState;
 
 actions!(
     main_screen,

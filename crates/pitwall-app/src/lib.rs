@@ -16,6 +16,7 @@ pub mod kit;
 pub mod host;
 pub mod main_screen;
 pub mod menu;
+pub mod palette;
 pub mod settings;
 pub mod platform;
 pub mod remote;
@@ -83,6 +84,7 @@ pub fn run() {
         kit::init(cx);
         menu::register(cx);
         main_screen::init(cx);
+        palette::init(cx);
         platform::init(cx);
         explorer::register(cx);
         review::register(cx);
