@@ -312,8 +312,19 @@ function setupDownloads(page) {
     const changelog = page.querySelector("[data-changelog]");
     changelog.hash = `v${version.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
+    // A platform with none of its files in the release (Windows, until its
+    // port is verified) shows "coming soon" instead of dead buttons.
+    for (const c of grid.querySelectorAll("[data-os]")) {
+      const suffixes = [...c.querySelectorAll("a[data-asset]")].map((a) => a.dataset.asset);
+      if (suffixes.length && !suffixes.some((s) => assets.some((x) => typeof x?.name === "string" && x.name.endsWith(s)))) {
+        c.classList.add("is-soon");
+        const soon = c.querySelector("[data-soon]");
+        if (soon) soon.hidden = false;
+      }
+    }
+
     let missing = 0;
-    for (const a of page.querySelectorAll("a[data-asset]")) {
+    for (const a of page.querySelectorAll("[data-os]:not(.is-soon) a[data-asset]")) {
       const suffix = a.dataset.asset;
       const asset = assets.find((x) => typeof x?.name === "string" && x.name.endsWith(suffix) && /^https:\/\//.test(x.browser_download_url || ""));
       const row = a.closest("li");

@@ -15,6 +15,10 @@
 #   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID   for notarization
 #
+# Windows builds only when the repository variable RELEASE_WINDOWS is "true"
+# (Settings → Secrets and variables → Actions → Variables); until the Windows
+# port is verified, releases ship macOS and Linux only.
+#
 # Windows: unsigned by default (SmartScreen warns on first run; see README
 # "Windows"). For Authenticode signing add:
 #   WINDOWS_CERTIFICATE           base64 of the code-signing .pfx
@@ -255,6 +259,7 @@ jobs:
   # src-tauri/build.rs builds the pitwall-hold / pitwall-cli / pitwall-hook
   # sidecars (tauri.windows.conf.json ships all three next to the app).
   windows:
+    if: vars.RELEASE_WINDOWS == 'true'
     runs-on: windows-latest
     outputs:
       mode: ${{ steps.signing.outputs.mode }}
@@ -341,7 +346,11 @@ jobs:
   # build's own checksums are verified, then one file covers every asset.
   publish:
     needs: [macos, linux, windows]
-    if: needs.macos.outputs.tag != ''
+    # Windows may be skipped (RELEASE_WINDOWS); macOS and Linux must succeed.
+    if: >-
+      !cancelled() && needs.macos.outputs.tag != '' &&
+      needs.macos.result == 'success' && needs.linux.result == 'success' &&
+      (needs.windows.result == 'success' || needs.windows.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       # Full history and tags: the release notes cover the commits since the
@@ -412,7 +421,12 @@ jobs:
           find artifacts -type f ! -name SHA256SUMS.txt -exec cp {} assets/ \;
           (cd assets && sha256sum -- * > ../SHA256SUMS.txt) && mv SHA256SUMS.txt assets/
           cat assets/SHA256SUMS.txt
-          note="macOS: Apple silicon and Intel (universal). Linux: x86_64 AppImage and .deb. Windows: x64 installer (.exe, per user) and .msi."
+          note="macOS: Apple silicon and Intel (universal). Linux: x86_64 AppImage and .deb."
+          if [ -n "$WINDOWS_MODE" ]; then
+            note="$note Windows: x64 installer (.exe, per user) and .msi."
+          else
+            note="$note Windows builds come in a later release."
+          fi
           if [ "$MODE" = ad-hoc ]; then
             note="$note The macOS build isn't notarized: open it the first time with right-click → Open, or run \`xattr -dr com.apple.quarantine /Applications/Pitwall.app\`."
           fi

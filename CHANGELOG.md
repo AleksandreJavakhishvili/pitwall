@@ -43,5 +43,5 @@ commit convention, which the entries generated from commits don't include.
 
 #### Platforms and performance
 
-- macOS (universal), Linux (AppImage, .deb) and Windows (installer, .msi; new and less tested). Builds aren't code-signed yet.
+- macOS (universal) and Linux (AppImage, .deb). Builds aren't code-signed yet. Windows follows in a later release.
 - Git refreshes when files change instead of polling; Review's diff editor and the Wall are lighter on memory and CPU.
