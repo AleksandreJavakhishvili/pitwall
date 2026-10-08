@@ -151,12 +151,34 @@ struct Sample {
 }
 
 fn sample() -> Sample {
+    let (footprint, rss) = mem();
+    Sample { at: Instant::now(), cpu_s: cpu_s(), footprint, rss }
+}
+
+/// This process's user + system CPU time in seconds.
+#[cfg(unix)]
+fn cpu_s() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
     unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
     let tv = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
-    let cpu_s = tv(ru.ru_utime) + tv(ru.ru_stime);
-    let (footprint, rss) = mem();
-    Sample { at: Instant::now(), cpu_s, footprint, rss }
+    tv(ru.ru_utime) + tv(ru.ru_stime)
+}
+
+/// Not measured on Windows (no getrusage); frames and frame times still are.
+#[cfg(not(unix))]
+fn cpu_s() -> f64 {
+    0.0
+}
+
+/// Stop a generator this run started.
+#[cfg(unix)]
+fn stop(pid: u32) {
+    unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+}
+
+#[cfg(not(unix))]
+fn stop(pid: u32) {
+    let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
 }
 
 #[cfg(target_os = "macos")]
@@ -295,7 +317,7 @@ fn main() {
             );
             // Stop the generators this run started (by PID), then quit.
             for pid in &pids {
-                unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
+                stop(*pid);
             }
             let _ = cx.update(|cx| cx.quit());
         })

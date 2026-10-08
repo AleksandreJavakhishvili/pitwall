@@ -95,6 +95,9 @@ elif [ $os = macos ] && ! xcrun -sdk macosx metal -v >/dev/null 2>&1; then
 fi
 
 target_dir="${CARGO_TARGET_DIR:-$root/target}"
+# The channel's identity, baked into the app (platform::BUNDLE_ID): the
+# Windows AppUserModelID its toasts name must be the installers'.
+export PITWALL_BUNDLE_ID=$bundle_id
 for t in $targets; do
   sidecar_args=""
   for s in $sidecars; do sidecar_args="$sidecar_args -p $s --bin $s"; done

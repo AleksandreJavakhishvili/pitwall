@@ -49,20 +49,29 @@ jobs:
     # PTYs, the terminal holder and the platform layer are tested on each OS
     # they ship on (rust-linux and rust-windows below).
     runs-on: macos-latest
+    # The workspace with GPUI and Tauri: ~25 min cold, a few warm. A hang
+    # fails here instead of running into GitHub's 6-hour limit.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
       # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
       - run: rustup toolchain install
 
+      # Saved even when a step fails: a cold GPUI build is long, and a
+      # failing first run shouldn't make the fix-up run start cold again.
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       # tauri-build needs the frontend dist folder to exist, even for tests.
       - name: Placeholder frontend dist
         run: mkdir -p dist
 
+      # pitwall-app builds with runtime Metal shaders (its default feature),
+      # so no Metal toolchain is needed here; release-gpui.yml precompiles.
       - name: cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -73,6 +82,7 @@ jobs:
     # both app shells (Tauri's WebKitGTK, pitwall-app's GPUI) are checked on
     # the OS they ship on.
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +104,8 @@ jobs:
       - run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       # tauri-build needs the frontend dist folder to exist, even for tests.
       - name: Placeholder frontend dist
@@ -103,7 +115,7 @@ jobs:
         run: cargo build --workspace --all-targets --target x86_64-unknown-linux-gnu
 
       - name: cargo test
-        run: cargo test --workspace --target x86_64-unknown-linux-gnu
+        run: cargo test --workspace --no-fail-fast --target x86_64-unknown-linux-gnu
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
@@ -118,8 +130,10 @@ jobs:
     # never hidden behind them.
     runs-on: windows-latest
     # A hang (the ConPTY holder suites) fails here instead of running into
-    # GitHub's 6-hour limit and showing up as "cancelled".
-    timeout-minutes: 45
+    # GitHub's 6-hour limit and showing up as "cancelled". Room for a cold
+    # GPUI + Tauri build: the per-crate test steps below re-resolve features
+    # and rebuild part of the tree.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -127,6 +141,8 @@ jobs:
       - run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       # tauri-build needs the frontend dist folder to exist, even for tests.
       - name: Placeholder frontend dist

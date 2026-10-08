@@ -12,7 +12,7 @@
 //! bench instance (`PITWALL_BENCH=1`, scripts/bench.sh).
 
 /// The bundle id of the installed app (Windows AppUserModelID).
-pub const APP_ID: &str = "dev.pitwall.app";
+pub const APP_ID: &str = super::BUNDLE_ID;
 
 /// The notification text for an attention item (`attention::body`).
 pub fn body(reason: &str, detail: Option<&str>) -> String {

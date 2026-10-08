@@ -33,6 +33,24 @@ use gpui::{AnyWindowHandle, App, Entity, Global, Window};
 
 use crate::agents::{AgentStore, StoreEvent};
 
+/// The bundle id this build ships as: `dev.pitwall.app`, or the channel's
+/// id that `scripts/package-app.sh` bakes in (`dev.pitwall.app.preview`).
+/// Windows: the AppUserModelID the installers give the Start menu shortcut,
+/// which toasts must name to be shown.
+pub const BUNDLE_ID: &str = match option_env!("PITWALL_BUNDLE_ID") {
+    Some(id) => id,
+    None => "dev.pitwall.app",
+};
+
+/// The main window's app id. Linux: the `.desktop` file's name (Wayland
+/// `app_id`, X11 `WM_CLASS`), so docks match the window to its launcher, icon
+/// and badge (`linux::DESKTOP_ID`); the bundle id elsewhere.
+pub const WINDOW_APP_ID: &str = if cfg!(target_os = "linux") {
+    "pitwall-app"
+} else {
+    BUNDLE_ID
+};
+
 /// What the OS glue remembers.
 #[derive(Default)]
 struct PlatformState {
