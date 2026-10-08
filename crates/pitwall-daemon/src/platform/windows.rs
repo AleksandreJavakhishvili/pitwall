@@ -3,8 +3,9 @@
 //! table from a Toolhelp snapshot.
 
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Read};
 use std::path::Path;
+use std::time::Duration;
 
 use pitwall_core::ipc::{LocalListener, LocalStream};
 use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -34,10 +35,19 @@ pub fn bind(path: &Path) -> io::Result<Listener> {
     LocalListener::bind(path).map(Listener)
 }
 
-/// Wake a blocked `accept` (shutting down).
+/// Wake a blocked `accept` (shutting down). The connection stays open until
+/// the server drops it: a pipe client that is already gone when the server
+/// gets to `ConnectNamedPipe` is skipped there (`ERROR_NO_DATA`), and the
+/// accept would go on waiting.
 pub fn poke(path: &Path) {
-    let _ = LocalStream::connect(path);
+    if let Ok(mut s) = LocalStream::connect(path) {
+        let _ = s.set_read_timeout(Some(POKE_WAIT));
+        let _ = s.read(&mut [0u8; 1]);
+    }
 }
+
+/// How long `poke` keeps its connection open at most.
+const POKE_WAIT: Duration = Duration::from_secs(2);
 
 /// The pid of the process at the other end.
 pub fn peer_pid(s: &Stream) -> Option<u32> {
