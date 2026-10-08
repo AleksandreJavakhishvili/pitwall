@@ -33,6 +33,21 @@ pitwall-providers = { path = "../pitwall-providers" }
 pitwall-daemon = { path = "../pitwall-daemon" }
 pitwall-proto = { path = "../pitwall-proto" }
 pitwall-client = { path = "../pitwall-client" }
+# The native window handle for the Glass look (settings/native.rs); already in
+# the tree via gpui. MIT OR Apache-2.0 OR Zlib.
+raw-window-handle = "0.6"
+
+# Settings → Appearance on macOS: Liquid Glass (NSGlassEffectView), the
+# window appearance and the accessibility options. MIT (objc2-app-kit: Zlib
+# OR Apache-2.0 OR MIT); already in the tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSView", "NSWindow", "NSWorkspace"] }
+
+# Settings → Appearance on Windows: Mica and Reduce motion. MIT OR Apache-2.0.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }

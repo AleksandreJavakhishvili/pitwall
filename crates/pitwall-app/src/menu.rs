@@ -52,6 +52,8 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             name: "Pitwall".into(),
             items: vec![
+                MenuItem::action("About Pitwall", crate::settings::About),
+                MenuItem::separator(),
                 MenuItem::action("Settings…", OpenSettings),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),

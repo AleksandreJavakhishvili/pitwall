@@ -136,3 +136,13 @@ good follow-up once the Tauri app is gone.
 | Apache-2.0 OR GPL-2.0-only | 1 | self_cell 1.3.0 |
 
 Main screen (`crates/pitwall-app/src/main_screen`): `regex` 1 (MIT OR Apache-2.0, already in the tree via pitwall-core) for New-agent name rules; embedded fonts `crates/pitwall-app/assets/fonts/` (Inter, Barlow Condensed, JetBrains Mono: OFL-1.1, `LICENSES/`), static TTF instances of the `@fontsource` files the web UI ships; icons are the paths of `src/components/Icon.tsx` (Pitwall's own).
+
+## Added by Settings / appearance (phase 6)
+
+All already in the tree (via gpui or the Tauri app); now direct dependencies of `pitwall-app`:
+
+| Crate | Licence | For |
+|---|---|---|
+| raw-window-handle 0.6 | MIT OR Apache-2.0 OR Zlib | the window's native handle (Glass material) |
+| objc2 0.6, objc2-foundation 0.3 (MIT); objc2-app-kit 0.3 (Zlib OR Apache-2.0 OR MIT) (macOS) | as listed | Liquid Glass (`NSGlassEffectView`), window appearance, accessibility options |
+| windows-sys 0.61 (Windows) | MIT OR Apache-2.0 | Mica (`DwmSetWindowAttribute`), Reduce motion (`SystemParametersInfoW`) |

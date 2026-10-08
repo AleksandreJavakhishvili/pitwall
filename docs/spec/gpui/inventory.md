@@ -354,40 +354,40 @@ marks terminal items. Section 36 lists each component once.
 ## 19. Settings dialog (each field)
 
 - [ ] Opened by ⌘, (Ctrl+Shift+,), gear button, palette, native menu "Settings…", tray "Settings…", access-hint toast (`src/App.tsx`, `src-tauri/src/menu.rs`) [in-house: modal/dialog] [in-house: scroll view]
-- [ ] Projects & agents: "Scan again" button opens the rescan screen (`src/components/SettingsDialog.tsx`)
-- [ ] Exact Codex status (hooks): installed / not installed chip, hooks file path, "Install hooks…" → confirm box (backup, append, no-op outside Pitwall) → Install/Cancel (`src/components/SettingsDialog.tsx`)
-- [ ] Claude Code: "automatic" chip, "Your ~/.claude settings are never edited." (`src/components/SettingsDialog.tsx`)
-- [ ] "Show agents running elsewhere" checkbox (`ui.hideElsewhere` inverted) (`src/components/SettingsDialog.tsx`) [in-house: checkbox/toggle]
-- [ ] Permissions · Full Disk Access row (hidden where it does not apply): chip granted/not granted/unknown/checking, explanation, 3 steps, "Open Settings"; live polling while open (`src/components/PermissionsSettings.tsx`)
-- [ ] Command-line tool: installed chip, link path, "This build doesn't include the tool.", "Install command-line tool…" → choose dir (radio per candidate) → explanation (not-on-PATH note) → Install/Cancel (`src/components/CliSettings.tsx`) [in-house: radio group]
-- [ ] Appearance → Theme: System / Dark / Light segmented (`src/components/AppearanceSettings.tsx`) [in-house: segmented control] [in-house: theme]
-- [ ] Appearance → Look: Flat / Glass (label "Glass · native", "Glass · Mica" or "Glass lite"; tooltip per tier) (`src/components/AppearanceSettings.tsx`, `src/lib/look.ts`) [in-house: segmented control] [in-house: tooltip]
-- [ ] Appearance → Reduce motion toggle (`src/components/AppearanceSettings.tsx`) [in-house: checkbox/toggle]
-- [ ] Tiles → Density: Comfortable / Compact / Dense (global default; tooltip cell size) (`src/components/LayoutSettings.tsx`) [in-house: segmented control] [in-house: tooltip]
-- [ ] Tiles → Terminal font: − / value px / + (9–22), "Reset" when not 13; hint about per-tile ⌘+/⌘−/⌘0 (`src/components/LayoutSettings.tsx`)
+- [x] Projects & agents: "Scan again" button opens the rescan screen (`src/components/SettingsDialog.tsx`)
+- [x] Exact Codex status (hooks): installed / not installed chip, hooks file path, "Install hooks…" → confirm box (backup, append, no-op outside Pitwall) → Install/Cancel (`src/components/SettingsDialog.tsx`)
+- [x] Claude Code: "automatic" chip, "Your ~/.claude settings are never edited." (`src/components/SettingsDialog.tsx`)
+- [x] "Show agents running elsewhere" checkbox (`ui.hideElsewhere` inverted) (`src/components/SettingsDialog.tsx`) [in-house: checkbox/toggle]
+- [x] Permissions · Full Disk Access row (hidden where it does not apply): chip granted/not granted/unknown/checking, explanation, 3 steps, "Open Settings"; live polling while open (`src/components/PermissionsSettings.tsx`)
+- [x] Command-line tool: installed chip, link path, "This build doesn't include the tool.", "Install command-line tool…" → choose dir (radio per candidate) → explanation (not-on-PATH note) → Install/Cancel (`src/components/CliSettings.tsx`) [in-house: radio group]
+- [x] Appearance → Theme: System / Dark / Light segmented (`src/components/AppearanceSettings.tsx`) [in-house: segmented control] [in-house: theme]
+- [x] Appearance → Look: Flat / Glass (label "Glass · native", "Glass · Mica" or "Glass lite"; tooltip per tier) (`src/components/AppearanceSettings.tsx`, `src/lib/look.ts`) [in-house: segmented control] [in-house: tooltip]
+- [x] Appearance → Reduce motion toggle (`src/components/AppearanceSettings.tsx`) [in-house: checkbox/toggle]
+- [x] Tiles → Density: Comfortable / Compact / Dense (global default; tooltip cell size) (`src/components/LayoutSettings.tsx`) [in-house: segmented control] [in-house: tooltip]
+- [x] Tiles → Terminal font: − / value px / + (9–22), "Reset" when not 13; hint about per-tile ⌘+/⌘−/⌘0 (`src/components/LayoutSettings.tsx`)
 - [ ] Rules section (section 21) (`src/components/rules/RulesSettings.tsx`)
 
 ## 20. Onboarding (welcome screen and "Scan again")
 
-- [ ] Shown full-window on first launch in the main window when `get_onboarded` is false; "Scan again" from Settings (`src/App.tsx`, `src/components/onboarding/useProjects.ts`) [in-house: modal/dialog]
-- [ ] Step 1 Folder access (welcome only): skipped when FDA does not apply or is not "denied" (`src/components/onboarding/FolderAccess.tsx`, `src/lib/permissions.ts`)
-- [ ] Folder access screen: board "PIT 1/2 ACCESS/GO", explanation, 3 steps, live status (polls every 2 s and on focus), "Open Settings"/"Open Settings again", "Skip for now", "Continue →" when granted (`src/components/onboarding/FolderAccess.tsx`)
-- [ ] Scan screen: board with step counter and SCAN/BOX, title, lede; ✕ and Esc close only in rescan mode (`src/components/onboarding/Onboarding.tsx`) [in-house: scroll view]
-- [ ] Checklist with progress bar and 6 steps (Agents on your PATH, Projects, Conversations you can continue, Running now, Rule files, Codex hooks) driven by `scan-progress` (✓ ✕ – glyphs, summaries, "looking…") (`src/components/onboarding/Onboarding.tsx`)
-- [ ] Projects section: All/None, list (first 8, "Show all N"), checkbox (disabled when already added), path, chips (in Pitwall, sources Claude/Codex/VS Code/Cursor/Folder, no git, rulesync, CLAUDE.md, AGENTS.md), last used (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: list/virtual list]
-- [ ] Default project selection: recent agent projects (≤ 30 days, max 12) (`src/components/onboarding/projects.ts`)
-- [ ] Per ticked project "Start a new agent" toggle with kind select (when no conversation covers it) (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: select/dropdown]
-- [ ] "Add folder…" inline form: typed path, Add, Browse… (native picker opens automatically), Cancel, error (`src/components/onboarding/Onboarding.tsx`) [in-house: text input]
-- [ ] Conversations to continue: list (first 6 or ticked, "Show all"), None; kind chip, title, project · relative time, "in Pitwall" / "open elsewhere" chips, warning when ticked and open elsewhere (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: list/virtual list]
-- [ ] Default ticked conversations: latest per ticked project in the last 3 days (not in Pitwall, not elsewhere, kind installed) (`src/components/onboarding/projects.ts`)
-- [ ] Conversations started outside a project ("Started in ~"): All/None, "Show under <project>" select incl. "Add folder…"; choice remembered (`src/components/onboarding/Onboarding.tsx`, `src/components/onboarding/projects.ts`) [in-house: select/dropdown]
-- [ ] Running now (this machine): rows with kind, folder, title/session/pid, "Bring into Pitwall"/"can't bring over", "Show under" picker, close-the-original note (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: select/dropdown]
-- [ ] Running now (other places, e.g. agw VMs): machine groups with sessions (kind, name, workspace, user, status chip, "Add to Pitwall"); "could not be listed" note; tracking-only hint (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle]
-- [ ] Codex status: "hooks installed" or "Exact Codex status (install hooks)" checkbox with "Show changes" confirm text (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle]
-- [ ] Footer: errors, "Starting N agents… i/N", "No agents will start…", Skip/Cancel, primary "Start Pitwall · N agents →" / "Add N projects · start N agents" / "Done" (`src/components/onboarding/Onboarding.tsx`)
+- [x] Shown full-window on first launch in the main window when `get_onboarded` is false; "Scan again" from Settings (`src/App.tsx`, `src/components/onboarding/useProjects.ts`) [in-house: modal/dialog]
+- [x] Step 1 Folder access (welcome only): skipped when FDA does not apply or is not "denied" (`src/components/onboarding/FolderAccess.tsx`, `src/lib/permissions.ts`)
+- [x] Folder access screen: board "PIT 1/2 ACCESS/GO", explanation, 3 steps, live status (polls every 2 s and on focus), "Open Settings"/"Open Settings again", "Skip for now", "Continue →" when granted (`src/components/onboarding/FolderAccess.tsx`)
+- [x] Scan screen: board with step counter and SCAN/BOX, title, lede; ✕ and Esc close only in rescan mode (`src/components/onboarding/Onboarding.tsx`) [in-house: scroll view]
+- [x] Checklist with progress bar and 6 steps (Agents on your PATH, Projects, Conversations you can continue, Running now, Rule files, Codex hooks) driven by `scan-progress` (✓ ✕ – glyphs, summaries, "looking…") (`src/components/onboarding/Onboarding.tsx`)
+- [x] Projects section: All/None, list (first 8, "Show all N"), checkbox (disabled when already added), path, chips (in Pitwall, sources Claude/Codex/VS Code/Cursor/Folder, no git, rulesync, CLAUDE.md, AGENTS.md), last used (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: list/virtual list]
+- [x] Default project selection: recent agent projects (≤ 30 days, max 12) (`src/components/onboarding/projects.ts`)
+- [x] Per ticked project "Start a new agent" toggle with kind select (when no conversation covers it) (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: select/dropdown]
+- [x] "Add folder…" inline form: typed path, Add, Browse… (native picker opens automatically), Cancel, error (`src/components/onboarding/Onboarding.tsx`) [in-house: text input]
+- [x] Conversations to continue: list (first 6 or ticked, "Show all"), None; kind chip, title, project · relative time, "in Pitwall" / "open elsewhere" chips, warning when ticked and open elsewhere (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: list/virtual list]
+- [x] Default ticked conversations: latest per ticked project in the last 3 days (not in Pitwall, not elsewhere, kind installed) (`src/components/onboarding/projects.ts`)
+- [x] Conversations started outside a project ("Started in ~"): All/None, "Show under <project>" select incl. "Add folder…"; choice remembered (`src/components/onboarding/Onboarding.tsx`, `src/components/onboarding/projects.ts`) [in-house: select/dropdown]
+- [x] Running now (this machine): rows with kind, folder, title/session/pid, "Bring into Pitwall"/"can't bring over", "Show under" picker, close-the-original note (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle] [in-house: select/dropdown]
+- [x] Running now (other places, e.g. agw VMs): machine groups with sessions (kind, name, workspace, user, status chip, "Add to Pitwall"); "could not be listed" note; tracking-only hint (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle]
+- [x] Codex status: "hooks installed" or "Exact Codex status (install hooks)" checkbox with "Show changes" confirm text (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle]
+- [x] Footer: errors, "Starting N agents… i/N", "No agents will start…", Skip/Cancel, primary "Start Pitwall · N agents →" / "Add N projects · start N agents" / "Done" (`src/components/onboarding/Onboarding.tsx`)
 - [ ] Finish: `complete_onboarding` (partial failure "Projects were saved…" becomes a toast), then start agents one by one (continue / create / adopt) at hand-over sizes; failures toast, rest continue (`src/components/onboarding/Onboarding.tsx`, `src/components/onboarding/projects.ts`) [in-house: toast]
 - [ ] Hand-over: new agents tiled in the All space (cap by breakpoint), first focused, Wall/Review off (`src/App.tsx`)
-- [ ] Skip on welcome still marks onboarded (`src/components/onboarding/Onboarding.tsx`)
+- [x] Skip on welcome still marks onboarded (`src/components/onboarding/Onboarding.tsx`)
 - [ ] "Elsewhere" polling waits until onboarding is done (avoids macOS folder prompts) (`src/App.tsx`)
 
 ## 21. Rules (via rulesync)
@@ -451,16 +451,16 @@ key code.
 
 ## 24. Appearance
 
-- [ ] Theme: System (follow OS) / Dark / Light; stored in `ui.theme`, every window follows; native window theme set too (title bar) (`src/lib/theme.ts`) [in-house: theme]
-- [ ] Pre-paint: theme, look and motion read from localStorage mirrors before first render (no flash) (`index.html`)
-- [ ] Look: Flat (default) / Glass; tiers native (macOS vibrancy) / mica (Windows 11) / lite (painted gradient, no blur) (`src/lib/look.ts`, `src/styles/glass.css`) [in-house: theme]
-- [ ] Glass only on chrome (top bar, tabs, sidebar, right panel, strip, palette, dialogs, menus, toasts, chips); terminals, Wall tiles, code views stay solid (`src/styles/glass.css`, `docs/spec/layout.md`) [in-house: theme]
+- [x] Theme: System (follow OS) / Dark / Light; stored in `ui.theme`, every window follows; native window theme set too (title bar) (`src/lib/theme.ts`) [in-house: theme]
+- [x] Pre-paint: theme, look and motion read from localStorage mirrors before first render (no flash) (`index.html`)
+- [x] Look: Flat (default) / Glass; tiers native (macOS vibrancy) / mica (Windows 11) / lite (painted gradient, no blur) (`src/lib/look.ts`, `src/styles/glass.css`) [in-house: theme]
+- [x] Glass only on chrome (top bar, tabs, sidebar, right panel, strip, palette, dialogs, menus, toasts, chips); terminals, Wall tiles, code views stay solid (`src/styles/glass.css`, `docs/spec/layout.md`) [in-house: theme]
 - [ ] Glass starts on the lite tier and switches when the window confirms its native material (`index.html`, `src/lib/look.ts`)
-- [ ] Reduce transparency (OS or media query) shows Flat and removes the material; Increase contrast makes glass nearly opaque (`data-contrast`) (`src/lib/look.ts`, `src-tauri/src/platform/glass.rs`) [in-house: theme]
-- [ ] Each window re-checks accessibility settings on focus (`src/lib/look.ts`)
+- [x] Reduce transparency (OS or media query) shows Flat and removes the material; Increase contrast makes glass nearly opaque (`data-contrast`) (`src/lib/look.ts`, `src-tauri/src/platform/glass.rs`) [in-house: theme]
+- [x] Each window re-checks accessibility settings on focus (`src/lib/look.ts`)
 - [ ] Reduce motion toggle (`data-motion="reduce"`) plus OS prefers-reduced-motion; all animation paused while the page is hidden (`src/lib/look.ts`, `src/styles/motion.css`)
 - [ ] Motion: open fade + rise/scale for palette/dialogs/menus, toast slide, view cross-fade, press pop, blocked halo twice + glyph bounce, done flag pop, working dot loop, Glass ring + primary sheen; none on the Wall (`src/styles/motion.css`)
-- [ ] Design tokens (dark default + light, two identical light copies): surfaces, lines, text levels, focus, green/finish/amber/red + soft variants, flag, diff colours, shadow, backdrop (`src/styles/tokens.css`) [in-house: theme]
+- [x] Design tokens (dark default + light, two identical light copies): surfaces, lines, text levels, focus, green/finish/amber/red + soft variants, flag, diff colours, shadow, backdrop (`src/styles/tokens.css`) [in-house: theme]
 - [ ] Layout tokens: radii 4/6/10, top bar 44 px, sidebar 268 px, right panel 320 px, status strip 28 px (`src/styles/tokens.css`, `src/styles/layout.css`) [in-house: theme]
 - [ ] Fonts bundled: Inter Variable (UI), Barlow Condensed 600/700 (labels), JetBrains Mono Variable (mono/terminal) (`src/main.tsx`, `src/styles/tokens.css`)
 - [ ] Icon set (inline SVG): sidebar, panel, search, gear, plus, x, send, stop, restart, refresh, trash, branch, folder, chevron, grid, wall, maximize, restore, window, more, review, terminal, file, expand, copy (`src/components/Icon.tsx`) [in-house: icons]
@@ -505,10 +505,10 @@ key code.
 - [ ] Native folder picker (dialog plugin) for New agent, New terminal, onboarding Add folder; typed-path fallback (`src/lib/pickFolder.ts`)
 - [ ] Clipboard: copy agent folder path, copy file path, terminal copy/paste, editor copy (`src/components/Changes.tsx`, `src/components/explorer/Viewer.tsx`, `src/terminal/registry.ts`)
 - [ ] Opener: rules library folder revealed in the file manager (`src-tauri/src/commands/rules.rs`)
-- [ ] macOS privacy: Full Disk Access status (read-only, never prompts) and opening System Settings panes (`fullDiskAccess`, `filesAndFolders`) (`src-tauri/src/commands/permissions.rs`)
+- [x] macOS privacy: Full Disk Access status (read-only, never prompts) and opening System Settings panes (`fullDiskAccess`, `filesAndFolders`) (`src-tauri/src/commands/permissions.rs`)
 - [ ] Info.plist privacy usage strings for Desktop, Documents, Downloads, removable and network volumes (`src-tauri/Info.plist`)
-- [ ] Window material: macOS NSVisualEffectView (under-window-background, always active) behind a non-drawing webview; Windows 11 Mica behind transparent windows; `PITWALL_GLASS` override (`src-tauri/src/platform/glass.rs`)
-- [ ] Install `pitwall` CLI: symlink in `~/.local/bin` or `/usr/local/bin` (Windows: copy + marker in per-user `Pitwall\bin`); never replaces a foreign `pitwall` (`src-tauri/src/cli_install.rs`)
+- [x] Window material: macOS NSVisualEffectView (under-window-background, always active) behind a non-drawing webview; Windows 11 Mica behind transparent windows; `PITWALL_GLASS` override (`src-tauri/src/platform/glass.rs`)
+- [x] Install `pitwall` CLI: symlink in `~/.local/bin` or `/usr/local/bin` (Windows: copy + marker in per-user `Pitwall\bin`); never replaces a foreign `pitwall` (`src-tauri/src/cli_install.rs`)
 - [ ] Ships helper binaries `pitwall-hold`, `pitwall-cli` (and `pitwall-hook` on Windows) next to the app; AppImage copies them to the data folder (`src-tauri/tauri.conf.json`, `src-tauri/tauri.windows.conf.json`, `src-tauri/src/holder.rs`, `src-tauri/src/platform/mod.rs`)
 - [ ] Login-shell PATH adopted at startup (cached in `login-path`) so Dock-launched apps find tools (`src-tauri/src/platform/mod.rs`)
 - [ ] Linux: `WEBKIT_DISABLE_DMABUF_RENDERER=1` default (webview-specific; likely drop) (decide) (`src-tauri/src/platform/mod.rs`)
