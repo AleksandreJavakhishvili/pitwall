@@ -22,6 +22,7 @@ pub mod remote;
 pub mod packaging;
 pub mod terminal;
 pub mod review;
+pub mod rules;
 pub mod theme;
 pub mod ui;
 pub mod ui_state;
@@ -125,7 +126,8 @@ pub fn run() {
         let root = state.root.clone();
         cx.set_global(state);
         ui_state::init(root.clone(), cx);
-        settings::init(cx, engine, root);
+        settings::init(cx, engine.clone(), root);
+        rules::init(cx, engine);
 
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(quit_and_stop_agents);

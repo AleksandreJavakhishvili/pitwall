@@ -947,6 +947,15 @@ impl MainScreen {
             }
         });
         self.show_agent(&id, window, cx);
+        // Rule problems never block the agent: a toast (rules §21).
+        if let Some(check) = crate::rules::error_after_create(cx, id) {
+            cx.spawn(async move |this, cx| {
+                if let Some(e) = check.await {
+                    let _ = this.update(cx, |s, cx| s.failed("apply rules", e, cx));
+                }
+            })
+            .detach();
+        }
     }
 
     fn open_new_agent(

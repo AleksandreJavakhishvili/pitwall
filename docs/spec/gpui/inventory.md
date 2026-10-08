@@ -109,7 +109,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Maximise one pane within the space (⌘⏎, double-click header, header button); only with 2+ panes (`src/state/workspace.ts`) [in-house: pane/split layout]
 - [x] Pane focus on mouse down; focused pane styling (`src/components/PaneView.tsx`) [in-house: pane/split layout]
 - [x] Pane header: status glyph, name, status word, blocked detail, machine chip (tooltip label + provider), project display (tooltip cwd), kind, branch with worktree tooltip, diffstat (`src/components/PaneHeader.tsx`) [in-house: tooltip]
-- [ ] Pane header "Re-apply rules & restart" button when rules are stale or failed (`src/components/rules/RulesStaleButton.tsx`)
+- [x] Pane header "Re-apply rules & restart" button when rules are stale or failed (`src/components/rules/RulesStaleButton.tsx`)
 - [x] Pane header actions: Stop process (when `caps.stop`), Remove agent, Maximise/Restore, Close pane (agent keeps running) (`src/components/PaneHeader.tsx`) [in-house: tooltip]
 - [x] Pane header double-click maximises; header is a drag source (`src/components/PaneHeader.tsx`) [in-house: pane/split layout] [in-house: drag and drop]
 - [x] Empty pane: "Empty pane", hint, up to 8 member chips to pick (drops into that pane) (`src/components/PaneView.tsx`)
@@ -337,7 +337,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] New agent: Name (auto-suggested slug from folder, unique, rule `^[a-z][a-z0-9_-]{0,31}$` or the machine's rule) with inline errors (`src/components/NewAgentDialog.tsx`, `src/lib/status.ts`) [in-house: text input]
 - [x] New agent: platform form fields (selects / text with rules, conditional `when`), summary "Also creates …" for non-folder machines (`src/components/CreateFormFields.tsx`, `src/lib/createForm.ts`) [in-house: select/dropdown] [in-house: text input]
 - [x] New agent: "Separate worktree" checkbox (kinds with worktree support) (`src/components/NewAgentDialog.tsx`) [in-house: checkbox/toggle]
-- [ ] New agent: Rules field (section 21) (`src/components/rules/RulesField.tsx`) [in-house: select/dropdown]
+- [x] New agent: Rules field (section 21) (`src/components/rules/RulesField.tsx`) [in-house: select/dropdown]
 - [x] New agent: submit "Start"/form's label ↵, "Starting…"/"Creating…", "Creating on <machine>… can take a few minutes", submit error; preselect project from caller (`src/components/NewAgentDialog.tsx`) [in-house: modal/dialog]
 - [x] After create: patch agent, show it, report rules errors as a toast (`src/App.tsx`, `src/components/rules/RulesField.tsx`) [in-house: toast]
 - [x] New terminal (⌘⇧T): Folder input (prefilled), "Browse…", up to 8 filtered recent/listed folders, "Open terminal ↵" (needs `/` or `~` path) (`src/components/TerminalDialog.tsx`) [in-house: modal/dialog] [in-house: text input] [in-house: list/virtual list]
@@ -349,7 +349,7 @@ marks terminal items. Section 36 lists each component once.
 - [ ] Discard file dialog: deleted (untracked) vs restored to base commit; task-scope note; "This can't be undone." (`src/components/review/ReviewDialogs.tsx`) [in-house: modal/dialog]
 - [ ] Commit / Commit & merge dialog: reads merge status; commit message (required when uncommitted); "Then merge <branch> into <target>" checkbox; refusals for dirty target, detached target/worktree; ahead count; main-checkout warning; result/err text (`src/components/review/ReviewDialogs.tsx`) [in-house: modal/dialog] [in-house: text input] [in-house: checkbox/toggle]
 - [ ] Merge conflict: prefilled "Rebase onto <branch> and resolve conflicts." prompt dialog (`src/components/review/ReviewDialogs.tsx`, `src/components/review/comments.ts`) [in-house: modal/dialog]
-- [ ] Rules: delete rule set uses a native confirm() (`src/components/rules/RulesSettings.tsx`) [in-house: modal/dialog]
+- [x] Rules: delete rule set uses a native confirm() (`src/components/rules/RulesSettings.tsx`) [in-house: modal/dialog]
 
 ## 19. Settings dialog (each field)
 
@@ -365,7 +365,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Appearance → Reduce motion toggle (`src/components/AppearanceSettings.tsx`) [in-house: checkbox/toggle]
 - [x] Tiles → Density: Comfortable / Compact / Dense (global default; tooltip cell size) (`src/components/LayoutSettings.tsx`) [in-house: segmented control] [in-house: tooltip]
 - [x] Tiles → Terminal font: − / value px / + (9–22), "Reset" when not 13; hint about per-tile ⌘+/⌘−/⌘0 (`src/components/LayoutSettings.tsx`)
-- [ ] Rules section (section 21) (`src/components/rules/RulesSettings.tsx`)
+- [x] Rules section (section 21) (`src/components/rules/RulesSettings.tsx`)
 
 ## 20. Onboarding (welcome screen and "Scan again")
 
@@ -392,18 +392,18 @@ marks terminal items. Section 36 lists each component once.
 
 ## 21. Rules (via rulesync)
 
-- [ ] Settings → Rules: status chip "rulesync <ver>" / "npx rulesync" / "not installed" (`src/components/rules/RulesSettings.tsx`)
-- [ ] Install hint "npm install -g rulesync" and "Use npx -y rulesync when it isn't installed" checkbox (disabled without npx) (`src/components/rules/RulesSettings.tsx`) [in-house: checkbox/toggle]
-- [ ] "Manage rules…" / "Hide rules" expander (`src/components/rules/RulesSettings.tsx`)
-- [ ] Library: count, "Open folder" (reveals in file manager), "Refresh", rule list (label, source chip, root, local, description), empty hint with data dir path (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: tooltip]
-- [ ] Import form: kind select (CLAUDE.md / AGENTS.md file, project's .rulesync, git repository), source input with kind-specific placeholder and hint, Import, log/error output (`src/components/rules/RulesSettings.tsx`) [in-house: select/dropdown] [in-house: text input]
-- [ ] Sources list: name, kind chip, origin, "Pull" (git), "Remove" (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: tooltip]
-- [ ] Rule sets: list (name, rules), Edit, Delete (confirm), "New set" (disabled with an empty library) (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: modal/dialog]
-- [ ] Set editor: name, checkbox per library rule, missing rules shown, Save/Cancel (`src/components/rules/RulesSettings.tsx`) [in-house: text input] [in-house: checkbox/toggle]
-- [ ] Project defaults: up to 40 projects with a set select (None / sets) (`src/components/rules/RulesSettings.tsx`) [in-house: select/dropdown]
-- [ ] New agent Rules field: "No extra rules"/"Project rules only" + sets (project default excluded), project default name, hints, unavailable error, "Write rule files into my main checkout" checkbox when no worktree (`src/components/rules/RulesField.tsx`) [in-house: select/dropdown] [in-house: checkbox/toggle]
-- [ ] Pane "Re-apply rules & restart" button: `apply_rules` then restart; error variant (`src/components/rules/RulesStaleButton.tsx`) [in-house: tooltip]
-- [ ] Shared per-agent rules poller (every 20 s, on window focus, after changes) (`src/rules/useAgentRules.ts`)
+- [x] Settings → Rules: status chip "rulesync <ver>" / "npx rulesync" / "not installed" (`src/components/rules/RulesSettings.tsx`)
+- [x] Install hint "npm install -g rulesync" and "Use npx -y rulesync when it isn't installed" checkbox (disabled without npx) (`src/components/rules/RulesSettings.tsx`) [in-house: checkbox/toggle]
+- [x] "Manage rules…" / "Hide rules" expander (`src/components/rules/RulesSettings.tsx`)
+- [x] Library: count, "Open folder" (reveals in file manager), "Refresh", rule list (label, source chip, root, local, description), empty hint with data dir path (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: tooltip]
+- [x] Import form: kind select (CLAUDE.md / AGENTS.md file, project's .rulesync, git repository), source input with kind-specific placeholder and hint, Import, log/error output (`src/components/rules/RulesSettings.tsx`) [in-house: select/dropdown] [in-house: text input]
+- [x] Sources list: name, kind chip, origin, "Pull" (git), "Remove" (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: tooltip]
+- [x] Rule sets: list (name, rules), Edit, Delete (confirm), "New set" (disabled with an empty library) (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: modal/dialog]
+- [x] Set editor: name, checkbox per library rule, missing rules shown, Save/Cancel (`src/components/rules/RulesSettings.tsx`) [in-house: text input] [in-house: checkbox/toggle]
+- [x] Project defaults: up to 40 projects with a set select (None / sets) (`src/components/rules/RulesSettings.tsx`) [in-house: select/dropdown]
+- [x] New agent Rules field: "No extra rules"/"Project rules only" + sets (project default excluded), project default name, hints, unavailable error, "Write rule files into my main checkout" checkbox when no worktree (`src/components/rules/RulesField.tsx`) [in-house: select/dropdown] [in-house: checkbox/toggle]
+- [x] Pane "Re-apply rules & restart" button: `apply_rules` then restart; error variant (`src/components/rules/RulesStaleButton.tsx`) [in-house: tooltip]
+- [x] Shared per-agent rules poller (every 20 s, on window focus, after changes) (`src/rules/useAgentRules.ts`)
 
 ## 22. Elsewhere (agents in other terminal apps)
 
@@ -504,7 +504,7 @@ key code.
 - [ ] Quit leaves agents running in holders; "Quit and Stop Agents" stops all first; state saved and CLI socket removed on exit (`src-tauri/src/menu.rs`, `src-tauri/src/lib.rs`)
 - [ ] Native folder picker (dialog plugin) for New agent, New terminal, onboarding Add folder; typed-path fallback (`src/lib/pickFolder.ts`)
 - [ ] Clipboard: copy agent folder path, copy file path, terminal copy/paste, editor copy (`src/components/Changes.tsx`, `src/components/explorer/Viewer.tsx`, `src/terminal/registry.ts`)
-- [ ] Opener: rules library folder revealed in the file manager (`src-tauri/src/commands/rules.rs`)
+- [x] Opener: rules library folder revealed in the file manager (`src-tauri/src/commands/rules.rs`)
 - [x] macOS privacy: Full Disk Access status (read-only, never prompts) and opening System Settings panes (`fullDiskAccess`, `filesAndFolders`) (`src-tauri/src/commands/permissions.rs`)
 - [x] Info.plist privacy usage strings for Desktop, Documents, Downloads, removable and network volumes (`src-tauri/Info.plist`)
 - [x] Window material: macOS NSVisualEffectView (under-window-background, always active) behind a non-drawing webview; Windows 11 Mica behind transparent windows; `PITWALL_GLASS` override (`src-tauri/src/platform/glass.rs`)
@@ -577,10 +577,10 @@ Windows (`src-tauri/src/commands/windows.rs`):
 - [ ] `get_ui_state`, `set_ui_state(state)`, `open_window(spaceId)` → label, `focus_window(label)`, `list_windows`
 
 Rules (`src-tauri/src/commands/rules.rs`, wrapper `src/rules/api.ts`):
-- [ ] `rules_status`, `set_rules_npx(enabled)`, `list_rule_library`, `reveal_rule_library`
-- [ ] `list_rule_sets`, `save_rule_set(set)`, `delete_rule_set(id)`
-- [ ] `import_rules({kind, source})`, `list_rule_sources`, `pull_rule_source(name)`, `remove_rule_source(name)`
-- [ ] `set_project_rules(projectPath, ruleSetId)`, `list_project_rules`, `get_project_rules(projectPath)`
+- [x] `rules_status`, `set_rules_npx(enabled)`, `list_rule_library`, `reveal_rule_library`
+- [x] `list_rule_sets`, `save_rule_set(set)`, `delete_rule_set(id)`
+- [x] `import_rules({kind, source})`, `list_rule_sources`, `pull_rule_source(name)`, `remove_rule_source(name)`
+- [x] `set_project_rules(projectPath, ruleSetId)`, `list_project_rules`, `get_project_rules(projectPath)`
 - [ ] `apply_rules(agentId, confirmMainCheckout?)`, `set_agent_rules(agentId, ruleSetId)` (no UI caller today) (decide), `agent_rules`
 
 Review (`src-tauri/src/commands/review.rs`, wrapper `src/reviewTypes.ts`):

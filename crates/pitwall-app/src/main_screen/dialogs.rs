@@ -235,6 +235,7 @@ pub struct NewAgentDialog {
     error: Option<String>,
     size: (Option<u16>, Option<u16>),
     focus: FocusHandle,
+    rules: Entity<crate::rules::field::RulesField>,
     _load: Vec<Task<()>>,
     _subs: Vec<Subscription>,
 }
@@ -269,6 +270,8 @@ impl NewAgentDialog {
             );
         }
         window.focus(&name.focus_handle(cx));
+        let rules = cx.new(crate::rules::field::RulesField::new);
+        subs.push(cx.observe(&rules, |_, _, cx| cx.notify()));
         let mut d = NewAgentDialog {
             engine: engine.clone(),
             taken: existing.into_iter().map(|a| a.name).collect(),
@@ -293,6 +296,7 @@ impl NewAgentDialog {
             error: None,
             size,
             focus: cx.focus_handle(),
+            rules,
             _load: vec![],
             _subs: subs,
         };
@@ -633,6 +637,7 @@ impl NewAgentDialog {
             if custom {
                 req.custom_command = Some(self.custom.read(cx).text().to_string());
             }
+            (req.rule_set_id, req.apply_to_main_checkout) = self.rules.read(cx).request(worktree);
         } else {
             req.options = self.values(cx).unwrap_or_default();
         }
@@ -1021,6 +1026,15 @@ impl Render for NewAgentDialog {
                             )),
                     ),
             );
+        }
+        if folder {
+            let can = self.selected_kind().is_some_and(|k| k.caps.rules);
+            let wt = self.selected_kind().is_some_and(|k| k.caps.worktree) && self.worktree;
+            let path = self.project_path(cx);
+            self.rules.update(cx, |f, cx| f.sync(can, &path, wt, cx));
+            if self.rules.read(cx).visible() {
+                b = b.child(self.rules.clone());
+            }
         }
         if self.busy && !folder {
             if let Some(f) = &self.form {
