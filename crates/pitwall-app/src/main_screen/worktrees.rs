@@ -38,10 +38,6 @@ use crate::theme::{Theme, RADIUS_SM};
 use super::menu::MenuItem;
 use super::{MainScreen, Modal, Route, ScreenEvent};
 
-/// The list is asked for this often while shown (`LIST_EVERY_MS`).
-const LIST_EVERY: Duration = Duration::from_secs(30);
-/// After agents' numbers move, ask once things settle (`SETTLE_MS`).
-const SETTLE: Duration = Duration::from_secs(1);
 /// A shown worktree's changes are read this often (`useWorktreeFiles`).
 const FILES_EVERY: Duration = Duration::from_secs(15);
 
@@ -62,13 +58,35 @@ pub struct WtState {
     open: HashSet<String>,
     /// Changes of the rows shown, by worktree key.
     files: HashMap<String, Files>,
-    /// The agents' numbers last seen (`agentsSignature`).
-    sig: String,
-    inflight: bool,
-    again: bool,
-    poll: Option<Task<()>>,
-    settle: Option<Task<()>>,
     files_poll: Option<Task<()>>,
+}
+
+/// Where a `.wt-chip` sits: under an agent row (30 px in), under a
+/// project's agents (8 px), or in the Changes panel (at its edge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WtChipAt {
+    Agent,
+    Others,
+    Panel,
+}
+
+/// The collapse key of the Changes panel's list for an agent.
+pub fn panel_key(agent: &str) -> String {
+    format!("\u{0}panel:{agent}")
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+impl WtState {
+    /// Whether the list under `key` is expanded.
+    pub fn is_open(&self, key: &str) -> bool {
+        self.open.contains(key)
+    }
 }
 
 /// The collapse key of a project group's other worktrees.
@@ -140,71 +158,35 @@ pub struct RemoveWt {
 }
 
 impl MainScreen {
-    /// The agents changed: start or stop the list, and read it again once
-    /// their numbers settle.
+    /// The agents changed: the window's list follows them (it reads again
+    /// once their numbers settle).
     pub(super) fn wt_follow(&mut self, cx: &mut Context<Self>) {
+        if self.engine.is_none() {
+            return;
+        }
         let agents = self.agents(cx).to_vec();
-        let enabled = agents.iter().any(|a| a.caps.worktrees);
-        if !enabled || self.engine.is_none() {
-            self.wt.poll = None;
-            self.wt.settle = None;
-            self.wt.projects.clear();
-            self.wt.sig.clear();
-            return;
-        }
-        if self.wt.poll.is_none() {
-            self.wt.poll = Some(cx.spawn(async move |this, cx| loop {
-                cx.background_executor().timer(LIST_EVERY).await;
-                if this.update(cx, |s, cx| s.wt_list(false, cx)).is_err() {
-                    break;
-                }
-            }));
-        }
-        let sig = agents_signature(&agents);
-        if sig == self.wt.sig {
-            return;
-        }
-        let first = self.wt.sig.is_empty();
-        self.wt.sig = sig;
-        let wait = if first { Duration::ZERO } else { SETTLE };
-        self.wt.settle = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(wait).await;
-            let _ = this.update(cx, |s, cx| s.wt_list(false, cx));
-        }));
+        self.wt_list_entity.update(cx, |l, cx| l.follow(&agents, cx));
     }
 
-    /// Read the list (`force`: list now, bypassing the engine's pace).
+    /// Read the window's list (`force`: now, bypassing the engine's pace).
     pub(super) fn wt_list(&mut self, force: bool, cx: &mut Context<Self>) {
-        let Some(engine) = self.engine.clone() else {
-            return;
-        };
-        if self.wt.inflight && !force {
-            self.wt.again = true;
-            return;
-        }
-        self.wt.inflight = true;
-        let task = cx.background_executor().spawn(async move {
+        self.wt_list_entity.update(cx, |l, cx| {
             if force {
-                ops::refresh_worktrees(&engine, None)
+                l.force(None, cx)
             } else {
-                ops::list_worktrees(&engine)
+                l.list(cx)
             }
         });
-        cx.spawn(async move |this, cx| {
-            let list = task.await;
-            let _ = this.update(cx, |s, cx| {
-                s.wt.inflight = false;
-                if s.wt.projects != list {
-                    s.wt.projects = list;
-                    s.wt_load_files(false, cx);
-                    cx.notify();
-                }
-                if std::mem::take(&mut s.wt.again) {
-                    s.wt_list(false, cx);
-                }
-            });
-        })
-        .detach();
+    }
+
+    /// The window's list changed: take it and read the shown rows' changes.
+    pub(super) fn wt_taken(&mut self, cx: &mut Context<Self>) {
+        let list = self.wt_list_entity.read(cx).projects.clone();
+        if self.wt.projects != list {
+            self.wt.projects = list;
+            self.wt_load_files(false, cx);
+        }
+        cx.notify();
     }
 
     /// Demo only: the React mock's worktrees (`src/mockWorktrees.ts`) as if
@@ -212,7 +194,8 @@ impl MainScreen {
     pub fn demo_worktrees(&mut self, open: bool, cx: &mut Context<Self>) {
         let agents = self.agents(cx).to_vec();
         let (list, files) = demo_list(&agents);
-        self.wt.projects = list;
+        self.wt.projects = list.clone();
+        self.wt_list_entity.update(cx, |l, cx| l.set(list, cx));
         for (key, f) in files {
             self.wt.files.insert(
                 key,
@@ -279,6 +262,12 @@ impl MainScreen {
             if self.wt.open.contains(&others_key(&g.0)) {
                 let ids: Vec<&str> = g.1.iter().map(String::as_str).collect();
                 out.extend(other_worktrees(&self.wt.projects, &ids));
+            }
+        }
+        // The Changes panel's list of the selected agent.
+        if let Some(a) = self.selected(cx) {
+            if self.wt.open.contains(&panel_key(&a.id)) {
+                out.extend(by_agent.get(&a.id).cloned().unwrap_or_default());
             }
         }
         out
@@ -408,7 +397,7 @@ impl MainScreen {
         key: String,
         text: String,
         tip: &'static str,
-        others: bool,
+        at: WtChipAt,
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -427,7 +416,11 @@ impl MainScreen {
                     .gap(px(5.))
                     .mt(px(1.))
                     .mb(px(3.))
-                    .ml(px(if others { 8. } else { 30. }))
+                    .ml(px(match at {
+                        WtChipAt::Agent => 30.,
+                        WtChipAt::Others => 8.,
+                        WtChipAt::Panel => 0.,
+                    }))
                     .pl(px(4.))
                     .pr(px(7.))
                     .py(px(2.))
@@ -467,12 +460,12 @@ impl MainScreen {
             } else {
                 "Show its worktrees"
             },
-            false,
+            WtChipAt::Agent,
             t,
             cx,
         )];
         if open {
-            out.push(self.wt_rows(refs, 30., t, cx));
+            out.push(self.wt_rows(refs, 30., t, cx).into_any_element());
         }
         out
     }
@@ -499,19 +492,72 @@ impl MainScreen {
                 key,
                 others_label(others.len()),
                 "Worktrees of this project no agent works in",
-                true,
+                WtChipAt::Others,
                 t,
                 cx,
             ))
             .into_any_element()];
         if open {
-            out.push(self.wt_rows(&others, 20., t, cx));
+            out.push(self.wt_rows(&others, 20., t, cx).into_any_element());
         }
         out
     }
 
+    /// The Changes panel's `.panel-wts`: the agent's other worktrees,
+    /// collapsed until asked for; open, a refresh control and the rows.
+    pub(super) fn panel_worktrees(
+        &self,
+        a: &AgentView,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let refs = worktrees_by_agent(&self.wt.projects)
+            .get(&a.id)
+            .cloned()
+            .filter(|r| !r.is_empty())?;
+        let key = panel_key(&a.id);
+        let open = self.wt.open.contains(&key);
+        let list = self.wt_list_entity.read(cx);
+        let busy = list.refreshing();
+        let age = list
+            .updated_at
+            .map(|at| (now_ms() - at).max(0) as u64 / 1000);
+        let chip = self.wt_chip(
+            key,
+            count_label(refs.len()),
+            if open { "Hide its worktrees" } else { "Show its worktrees" },
+            WtChipAt::Panel,
+            t,
+            cx,
+        );
+        Some(
+            div()
+                .mt(px(6.))
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .child(chip)
+                        .when(open, |d| {
+                            d.child(div().flex_1()).child(crate::kit::refresh_control(
+                                "wt-panel-refresh",
+                                busy,
+                                Some(crate::kit::fresh_note(busy, age)),
+                                t,
+                                cx.listener(|this, _, _, cx| this.wt_list(true, cx)),
+                            ))
+                        }),
+                )
+                .when(open, |d| d.child(self.wt_rows(&refs, 0., t, cx).mx(px(0.))))
+                .into_any_element(),
+        )
+    }
+
     /// `.wt-list`: rows `inset` px in from the agent list's edge.
-    fn wt_rows(&self, refs: &[WtRef], inset: f32, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn wt_rows(&self, refs: &[WtRef], inset: f32, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
         div()
             .mx(px(6.))
             .pl(px(inset))
@@ -519,7 +565,6 @@ impl MainScreen {
             .flex()
             .flex_col()
             .children(refs.iter().map(|r| self.wt_row(r, t, cx)))
-            .into_any_element()
     }
 
     fn wt_row(&self, r: &WtRef, t: &Theme, cx: &mut Context<Self>) -> AnyElement {

@@ -235,14 +235,7 @@ pub fn split_path(p: &str) -> (&str, &str) {
 pub const CHANGES_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// "updated 12 s ago" (`updatedLabel`).
-pub fn updated_label(age_secs: u64) -> String {
-    match age_secs {
-        0..=4 => "updated just now".into(),
-        5..=59 => format!("updated {age_secs} s ago"),
-        60..=3599 => format!("updated {} min ago", age_secs / 60),
-        _ => format!("updated {} h ago", age_secs / 3600),
-    }
-}
+pub use crate::kit::updated_label;
 
 #[cfg(test)]
 mod tests {

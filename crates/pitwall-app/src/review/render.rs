@@ -199,32 +199,7 @@ impl ReviewView {
         t: &Theme,
         on: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Div {
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(2.))
-            .min_w_0()
-            .when(show_note, |d| {
-                d.child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(t.text_3)
-                        .whitespace_nowrap()
-                        .child(note.clone()),
-                )
-            })
-            .child(
-                kit::icon_btn(
-                    id,
-                    "refresh",
-                    format!("Refresh ({})", kit::keys("⌘⇧R", false)),
-                    true,
-                    t,
-                )
-                .when(self.refreshing, |d| d.opacity(0.6))
-                .on_click(on),
-            )
+        kit::refresh_control(id, self.refreshing, show_note.then(|| note.clone()), t, on)
     }
 
     // ── the list ────────────────────────────────────────────────────────

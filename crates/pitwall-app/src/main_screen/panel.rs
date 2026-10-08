@@ -20,7 +20,7 @@ use pitwall_core::vcs::git::FileChange;
 use pitwall_proto::AgentView;
 
 use crate::kit::{icon, MONO_FONT};
-use super::model::{split_path, updated_label, CHANGES_POLL};
+use super::model::{split_path, CHANGES_POLL};
 use crate::kit::keys;
 use crate::kit::{diffstat, icon_btn, label, label_t, tooltip};
 use super::{MainScreen, Route};
@@ -294,13 +294,8 @@ impl MainScreen {
         }
         let c = &self.changes;
         let count = c.files.as_ref().map(|f| f.len()).unwrap_or(0);
-        let note = if c.refreshing {
-            "refreshing…".to_string()
-        } else {
-            c.updated
-                .map(|u| updated_label(u.elapsed().as_secs()))
-                .unwrap_or_default()
-        };
+        let note = crate::kit::fresh_note(c.refreshing, c.updated.map(|u| u.elapsed().as_secs()));
+        let busy = c.refreshing;
         let head = head
             .when(count > 0 && !files_hook, |d| {
                 d.child(
@@ -313,19 +308,13 @@ impl MainScreen {
             })
             .child(div().flex_1())
             // With tabs the note is left out (React `note={!tabs}`).
-            .when(!files_hook, |d| {
-                d.child(div().text_size(px(11.)).text_color(t.text_3).child(note))
-            })
-            .child(
-                icon_btn(
-                    "refresh-changes",
-                    "refresh",
-                    format!("Refresh ({})", keys("⌘⇧R", false)),
-                    true,
-                    t,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.load_changes(true, cx))),
-            )
+            .child(crate::kit::refresh_control(
+                "refresh-changes",
+                busy,
+                (!files_hook).then_some(note),
+                t,
+                cx.listener(|this, _, _, cx| this.load_changes(true, cx)),
+            ))
             .when(a.caps.review, |d| {
                 d.child(
                     icon_btn(
@@ -379,6 +368,21 @@ impl MainScreen {
                         .map(|(i, f)| self.file_row(i, a, f, t, cx)),
                 )
                 .into_any_element(),
+        };
+        // The agent's other worktrees follow the files (`AgentWorktrees`).
+        let wts = self.panel_worktrees(a, t, cx);
+        let body = match wts {
+            Some(w) => div()
+                .id("changes-body")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .child(body)
+                .child(w)
+                .into_any_element(),
+            None => body,
         };
         div()
             .flex_1()

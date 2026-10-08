@@ -9,7 +9,7 @@ use gpui::{
 use pitwall_proto::FileStatus;
 
 use super::logic::{ago, status_letter, status_title};
-use crate::kit::{icon_btn, tooltip_view, MONO_FONT};
+use crate::kit::{tooltip_view, MONO_FONT};
 use crate::theme::Theme;
 
 /// A change letter's colour (`.status-letter`): only where it means
@@ -56,18 +56,6 @@ pub fn refresh_control(
     } else {
         "".into()
     };
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(2.))
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(t.text_3)
-                .whitespace_nowrap()
-                .child(label),
-        )
-        .child(icon_btn(id, "refresh", "Refresh files", true, t).on_click(on_click))
+    crate::kit::refresh_control(id, refreshing, Some(label), t, on_click)
         .into_any_element()
 }

@@ -22,6 +22,7 @@ pub mod controls;
 pub mod dialog;
 pub mod edit;
 pub mod file_icons;
+pub mod fresh;
 pub mod fonts;
 pub mod glass;
 pub mod hover;
@@ -45,6 +46,7 @@ pub use controls::{
     OnClose, OnPick, SegItem,
 };
 pub use file_icons::{file_icon, folder_icon, svg_image};
+pub use fresh::{fresh_note, refresh_control, updated_label};
 pub use fonts::{LABEL_FONT, MONO_FONT, UI_FONT};
 pub use hover::HoverText;
 pub use glass::{chrome_panel, glass_region, region_sweeper, PANEL_RADIUS};

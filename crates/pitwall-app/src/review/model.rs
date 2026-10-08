@@ -397,15 +397,7 @@ pub fn clock(ms: u64) -> String {
 /// "updated 12 s ago" (`src/lib/freshness.ts`).
 pub fn updated_label(at_ms: u64, now_ms: u64) -> String {
     let s = (now_ms.saturating_sub(at_ms) as f64 / 1000.0).round() as u64;
-    if s < 5 {
-        "updated just now".into()
-    } else if s < 60 {
-        format!("updated {s} s ago")
-    } else if s / 60 < 60 {
-        format!("updated {} min ago", s / 60)
-    } else {
-        format!("updated {} h ago", s / 3600)
-    }
+    crate::kit::updated_label(s)
 }
 
 // ── comments ───────────────────────────────────────────────────────────────

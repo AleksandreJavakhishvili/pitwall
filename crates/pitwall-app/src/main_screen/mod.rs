@@ -31,6 +31,7 @@ mod strip;
 mod tile_font;
 mod topbar;
 pub mod worktrees;
+pub mod wt_list;
 pub mod tree;
 pub mod workspace;
 
@@ -396,6 +397,8 @@ pub struct MainScreen {
     auto_font: HashMap<String, f64>,
     /// The window's worktree list (sidebar chips and rows).
     wt: worktrees::WtState,
+    /// The window's one worktree list (shared with Review).
+    wt_list_entity: Entity<wt_list::WorktreeList>,
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
     agent_ids: Vec<String>,
@@ -419,8 +422,10 @@ impl MainScreen {
             .unwrap_or_default();
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let wt_list = wt_list::WorktreeList::of(window, cx);
         let subs = vec![
             cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
+            cx.observe(&wt_list, |this, _, cx| this.wt_taken(cx)),
             // Settings, the explorer and other windows change it too.
             cx.observe(&ui_store, |this, s, cx| {
                 let next = s.read(cx).state.clone();
@@ -467,6 +472,7 @@ impl MainScreen {
             route_views: HashMap::new(),
             auto_font: HashMap::new(),
             wt: Default::default(),
+            wt_list_entity: wt_list.clone(),
             seen_task: None,
             last_selected: None,
             agent_ids: vec![],
@@ -1407,7 +1413,16 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &ToggleMaximize, _, cx| {
                 this.with_active(|s, id| s.toggle_maximize(id, None), cx)
             }))
-            .on_action(cx.listener(|this, _: &RefreshChanges, _, cx| this.load_changes(true, cx)))
+            .on_action(cx.listener(|this, _: &RefreshChanges, _, cx| {
+                this.load_changes(true, cx);
+                // The Changes panel's worktree list, when open.
+                let open = this
+                    .selected(cx)
+                    .is_some_and(|a| this.wt.is_open(&worktrees::panel_key(&a.id)));
+                if open {
+                    this.wt_list(true, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
             .on_action(cx.listener(|this, _: &FontReset, _, cx| this.step_font(None, cx)))
