@@ -139,7 +139,11 @@ impl TermHost {
             let _ = s.io.resize(TermSize { rows: size.rows - 1, ..size });
             std::thread::sleep(Duration::from_millis(60));
             s.touch_input();
-            let _ = s.io.resize(size);
+            // The size now: a view that fitted itself meanwhile (a native
+            // terminal sizes itself right after attaching) must not be
+            // undone by the old size.
+            let now = *lock(&s.size);
+            let _ = s.io.resize(now);
         });
         sub_id
     }
