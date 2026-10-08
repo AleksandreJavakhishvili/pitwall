@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 124 124">
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e3e7ec"/></linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M50 0C86 0 100 14 100 50S86 100 50 100 0 86 0 50 14 0 50 0Z" fill="#000" filter="url(#s)"/>
+  <path d="M50 0C86 0 100 14 100 50S86 100 50 100 0 86 0 50 14 0 50 0Z" fill="url(#t)"/>
+  <svg x="16" y="16" width="68" height="68" viewBox="0 0 64 64">
+  <g transform="translate(6.5 -.5)">
+    <defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs>
+    <path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#0d0f12" stroke-width="9" stroke-linejoin="round"/>
+    <path mask="url(#m)" fill="#ffffff" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/>
+  </g>
+  </svg>
+</svg>
