@@ -2,12 +2,38 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.1.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.1) - 2026-10-08
 
 ### Highlights
 
 - Windows x64 builds (preview): an installer (`-setup.exe`, per user) and an `.msi`. Not code-signed yet, so SmartScreen asks on first run (More info → Run anyway).
 - Fixed on Windows: terminals hung on start (the holder inherited its launcher's handles) and showed no output (ConPTY's cursor-position request went unanswered).
+
+### Features
+
+- **website:** Canonical, link previews, sitemap and robots ([`0bbc12f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0bbc12fa7470eaf336fb2ceb12c08f2331914571))
+
+### Fixes
+
+- **release:** Create the sidecar folder before lipo on macOS ([`5a94436`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5a944367d33017410f74f627ebd00c2f899a4714))
+- **hold:** Stop the Windows holder from hanging its launcher ([`b72941a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b72941a5ea9aa931b9709903874430cbcb03beab))
+- **daemon:** Keep the stop poke connected until the server takes it ([`c7e2371`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c7e237174405681585561f868f014128a9cef758))
+
+### Documentation
+
+- **website:** Say Windows is coming, not shipped ([`f24bbbe`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f24bbbeb6fe090c4e1fb30c7ab3802c78cb28984))
+- Offer the Windows builds as a preview ([`70c394c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/70c394c9fbae3659338d1fdbb4e786e390d28925))
+
+### Tests
+
+- **hold:** Give Windows PowerShell time to start in holder tests ([`c4633dd`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c4633ddf7042f568d8d4ff2fb32c8b6f23ba1d25))
+- **core:** Wait for the branch in the fake-agent worktree test ([`f7c3a7f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f7c3a7f36eac3d01590c28054ed8cdf7795af7bc))
+- **core:** Wait for exec in the Linux process-table test ([`80c79e7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/80c79e79a5c230df019a74e55b7aa59f27d0e2cf))
+
+### CI/Build
+
+- Require the daemon tests on Windows ([`d173022`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d173022bef2b88339ab8b313cd2dcb0e7fe0b02e))
+
 
 ## [0.1.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.0) - 2026-10-08
 

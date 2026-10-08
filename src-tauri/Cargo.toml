@@ -1,6 +1,6 @@
 [package]
 name = "pitwall"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pitwall: a pit wall for your coding agents"
 authors = ["you"]
 edition = "2021"

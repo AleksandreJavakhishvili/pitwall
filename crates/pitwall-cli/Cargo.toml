@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "The `pitwall` command-line tool (architecture.md §1): lets you and agents add agents and sessions to Pitwall from a terminal. JSON output by default. Shipped inside the app as `pitwall-cli` and linked as `pitwall` (Settings → Install command-line tool)."
 

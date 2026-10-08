@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Talks to Pitwall's socket (architecture.md §1, §4): connect, the versioned handshake, typed calls, events. Shared by the `pitwall` CLI and, after the daemon split, the app."
 
