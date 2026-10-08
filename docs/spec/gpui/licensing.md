@@ -176,3 +176,4 @@ licence.
 The Material Icon Theme subset (MIT) is embedded from `src/assets/file-icons/`
 for Review's file rows (the explorer embeds the same set; one copy should move
 to the shared kit).
+Fonts bundled by the Wall (`crates/pitwall-app/assets/fonts/`, loaded with `text_system().add_fonts`; to be promoted to the shared kit): Inter (Regular, Medium, SemiBold, Bold), Barlow Condensed (SemiBold, Bold) and JetBrains Mono (Regular, SemiBold), static latin instances of the fonts the React app ships via @fontsource; all SIL OFL-1.1, licence texts already in `LICENSES/` (OFL-1.1-inter.txt, OFL-1.1-barlow-condensed.txt, OFL-1.1-jetbrains-mono.txt).

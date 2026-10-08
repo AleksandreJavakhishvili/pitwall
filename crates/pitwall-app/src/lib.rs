@@ -25,6 +25,7 @@ pub mod review;
 pub mod theme;
 pub mod ui;
 pub mod ui_state;
+pub mod wall;
 pub mod window_state;
 
 use std::path::PathBuf;
@@ -92,6 +93,7 @@ pub fn run() {
                 let host = Host::start(paths.clone(), bridge);
                 cx.set_global(explorer::ExplorerSource::engine(host.engine.clone()));
                 cx.set_global(review::ReviewEngine { engine: host.engine.clone(), root: Some(paths.root().into()) });
+                wall::register(cx, Some(host.engine.clone()));
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 cx.set_global(main_screen::EngineHandle(host.engine.clone()));
                 AgentStore::listen(&store, rx, cx);
