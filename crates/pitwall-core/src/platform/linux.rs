@@ -93,7 +93,16 @@ mod tests {
         let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().expect("spawn sleep");
         let pid = child.id();
         let me = std::process::id();
-        let args = parse_pid_args(&process_args(&[pid, me]).unwrap());
+        // Right after the spawn the child may still be in exec, with no
+        // command line yet: give it a moment.
+        let mut args = parse_pid_args(&process_args(&[pid, me]).unwrap());
+        for _ in 0..100 {
+            if args.get(&pid).map(String::as_str) == Some("/bin/sleep 30") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+            args = parse_pid_args(&process_args(&[pid, me]).unwrap());
+        }
         let groups = parse_pid_numbers(&terminal_groups(&[pid]).unwrap());
         let table = parse_table(&process_table().unwrap());
         let cwds = process_cwds(&[me], Duration::from_secs(1)).unwrap();
