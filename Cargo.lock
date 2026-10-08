@@ -5439,6 +5439,7 @@ dependencies = [
  "pitwall-daemon",
  "pitwall-proto",
  "pitwall-providers",
+ "pitwall-term-view",
  "raw-window-handle",
  "regex",
  "serde",

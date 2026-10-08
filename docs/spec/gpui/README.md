@@ -55,10 +55,15 @@ crates/pitwall-app            (bin "pitwall-app"; renamed "pitwall" at the switc
 ├─ host.rs       Engine + providers + CLI socket server + approvals (= src-tauri setup)
 ├─ bridge.rs     EventSink → channel → main thread (AppEvent)
 ├─ agents.rs     AgentStore entity (agents, approvals, blocked count) + grouping
-├─ theme.rs      tokens from src/styles/tokens.css, dark/light
+├─ theme.rs      tokens (tokens.css, glass.css, motion.css) and the Appearance global
+├─ ui_state.rs   the one typed ui.json (layout, settings, explorer prefs)
+├─ kit/          the shared widgets, fonts, icons and the one asset source
+├─ terminal.rs   pitwall-term-view in panes, fed through the engine
 ├─ window_state  main window bounds (app-windows.json)
 ├─ menu.rs       actions, key bindings, native menu
-└─ ui/           MainView, sidebar, terminal placeholder (later: spaces, Wall, Review, …)
+├─ main_screen/  sidebar, spaces and panes, right panel, dialogs, Elsewhere
+├─ explorer/ settings/ approvals/ remote/ platform/ packaging/
+└─ ui/           MainView: the main screen, explorer, settings layer, approvals
 crates/pitwall-term-view      GPUI terminal element over alacritty_terminal (separate branch)
 ```
 

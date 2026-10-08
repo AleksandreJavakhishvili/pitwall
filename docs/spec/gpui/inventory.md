@@ -85,7 +85,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Agent row context menu: "Open terminal here" (creatable machines), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
 - [ ] Agent row worktree chip "N worktrees" toggles its worktree list; expanding forces a worktree refresh (`src/components/AgentRow.tsx`, `src/components/Sidebar.tsx`)
 - [ ] Per-project "N other worktrees" chip listing worktrees no agent works in (`src/components/Sidebar.tsx`)
-- [ ] "Elsewhere" group: agents running in other terminal apps, collapsible, count (section 22) (`src/components/ElsewhereGroup.tsx`) [in-house: list/virtual list]
+- [x] "Elsewhere" group: agents running in other terminal apps, collapsible, count (section 22) (`src/components/ElsewhereGroup.tsx`) [in-house: list/virtual list]
 - [x] Footer: "New agent ⌘N" button and terminal icon button "New terminal here (⌘T) · ⌘⇧T to choose a folder" (`src/components/Sidebar.tsx`) [in-house: tooltip]
 - [x] Icon rail mode: per-group column of initials + status dot; click shows agent; drag source; "+" new agent (`src/components/Sidebar.tsx`, `src/components/RailItem.tsx`) [in-house: drag and drop] [in-house: tooltip]
 - [x] Rail initials: first letters of the first two `-`/`_` parts, else first two letters (`src/components/RailItem.tsx`)
@@ -123,7 +123,7 @@ marks terminal items. Section 36 lists each component once.
 ## 6. Navigation and focus
 
 - [ ] Show agent: leave Wall/Review/viewer, close overlay sidebar; focus its pane in this window; or ask the owning window (via `focusRequest` in the blob + `focus_window`); or place it in the active space (`src/App.tsx`)
-- [ ] Focus moves keyboard focus into the agent's terminal on the next frame (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Focus moves keyboard focus into the agent's terminal on the next frame (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
 - [ ] Cross-window focus request handled once per nonce by the owning window (`src/App.tsx`)
 - [x] Jump to next blocked (⌘J) cycles through blocked agents in sidebar order (`src/App.tsx`)
 - [x] Select agent by index ⌘1–⌘9 (`src/App.tsx`)
@@ -148,23 +148,23 @@ marks terminal items. Section 36 lists each component once.
 
 ## 8. Terminals (interactive panes)
 
-- [ ] One long-lived terminal emulator per agent; mounting only re-parents it, so screen and scrollback survive switching (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] One long-lived terminal emulator per agent; mounting only re-parents it, so screen and scrollback survive switching (`src/terminal/registry.ts`) [pitwall-term-view]
 - [ ] Hidden terminals are parked off-screen and their output is batched (flush every 1 s or at 256 KiB; flushed when shown) (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Scrollback 5 000 lines (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Font: JetBrains Mono Variable, line height 1.15, waits for font load before first fit (`src/terminal/registry.ts`, `src/terminal/screenStyle.ts`) [pitwall-term-view]
-- [ ] Unicode 11 widths (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Cursor blink on interactive terminals (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] macOS Option acts as Meta (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Dark and light terminal palettes (16 colours, cursor, selection), switched live with the theme (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Output streamed via `attach_output` (replays buffered output, then raw PTY bytes); detach on dispose (`src/terminal/registry.ts`, `src/api.ts`) [pitwall-term-view]
-- [ ] Keystrokes sent via `write_input` (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Fit to container on resize; sends `resize(cols, rows)` only when changed; retried on next fit if it failed (`src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] App shortcuts pass through the terminal (custom key handler) (`src/terminal/registry.ts`, `src/lib/shortcuts.ts`) [pitwall-term-view]
-- [ ] Copy/paste: macOS via the native Edit menu (⌘C/⌘V); Windows/Linux Ctrl+Shift+C copies selection, Ctrl+Shift+V pastes (`src/terminal/registry.ts`, `src/lib/host.ts`) [pitwall-term-view]
+- [x] Scrollback 5 000 lines (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Font: JetBrains Mono Variable, line height 1.15, waits for font load before first fit (`src/terminal/registry.ts`, `src/terminal/screenStyle.ts`) [pitwall-term-view]
+- [x] Unicode 11 widths (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Cursor blink on interactive terminals (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] macOS Option acts as Meta (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Dark and light terminal palettes (16 colours, cursor, selection), switched live with the theme (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Output streamed via `attach_output` (replays buffered output, then raw PTY bytes); detach on dispose (`src/terminal/registry.ts`, `src/api.ts`) [pitwall-term-view]
+- [x] Keystrokes sent via `write_input` (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Fit to container on resize; sends `resize(cols, rows)` only when changed; retried on next fit if it failed (`src/terminal/registry.ts`) [pitwall-term-view]
+- [x] App shortcuts pass through the terminal (custom key handler) (`src/terminal/registry.ts`, `src/lib/shortcuts.ts`) [pitwall-term-view]
+- [x] Copy/paste: macOS via the native Edit menu (⌘C/⌘V); Windows/Linux Ctrl+Shift+C copies selection, Ctrl+Shift+V pastes (`src/terminal/registry.ts`, `src/lib/host.ts`) [pitwall-term-view]
 - [ ] Per-tile font: auto-shrink from the base font down to a 10 px floor to keep the density minimum; user override via ⌘+/⌘−/⌘0 (`src/components/PaneView.tsx`, `src/layout/density.ts`) [pitwall-term-view]
-- [ ] Base font size global (Settings), default 13, range 9–22 (`src/layout/density.ts`) [pitwall-term-view]
-- [ ] Re-attach and reset the screen after a restart (not running → running) (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Dispose terminals of removed agents or agents now shown in another window (`src/App.tsx`) [pitwall-term-view]
+- [x] Base font size global (Settings), default 13, range 9–22 (`src/layout/density.ts`) [pitwall-term-view]
+- [x] Re-attach and reset the screen after a restart (not running → running) (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
+- [x] Dispose terminals of removed agents or agents now shown in another window (`src/App.tsx`) [pitwall-term-view]
 - [ ] New agents start at the size they will be shown at (empty pane, focused pane, or last fitted) (`src/terminal/registry.ts`, `src/terminal/spawnSize.ts`) [pitwall-term-view]
 - [ ] Onboarding hand-over size estimate per tile (`src/terminal/registry.ts`) [pitwall-term-view]
 - [ ] Scrollbar gutter accounted (14 px) in tile font fit (`src/components/PaneView.tsx`) [pitwall-term-view]
@@ -206,7 +206,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Changes refresh: forced on open, on totals change, every 5 s while visible, ↻ and ⌘⇧R (`src/components/Changes.tsx`, `src/lib/freshness.ts`)
 - [ ] Agent's worktrees sub-list (collapsed chip; expanding forces refresh; refresh control; error with Retry) (`src/components/Changes.tsx`) [in-house: list/virtual list]
 - [ ] Last sent: relative time (tooltip absolute), quoted text, or "Nothing sent through Pitwall yet…" (`src/components/LastSent.tsx`) [in-house: tooltip]
-- [ ] Files tab (section 14) (`src/components/explorer/FilesPanel.tsx`) [in-house: file tree]
+- [x] Files tab (section 14) (`src/components/explorer/FilesPanel.tsx`) [in-house: file tree]
 
 ## 11. Diff dialog (single file from Changes)
 
@@ -341,7 +341,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] New agent: submit "Start"/form's label ↵, "Starting…"/"Creating…", "Creating on <machine>… can take a few minutes", submit error; preselect project from caller (`src/components/NewAgentDialog.tsx`) [in-house: modal/dialog]
 - [x] After create: patch agent, show it, report rules errors as a toast (`src/App.tsx`, `src/components/rules/RulesField.tsx`) [in-house: toast]
 - [x] New terminal (⌘⇧T): Folder input (prefilled), "Browse…", up to 8 filtered recent/listed folders, "Open terminal ↵" (needs `/` or `~` path) (`src/components/TerminalDialog.tsx`) [in-house: modal/dialog] [in-house: text input] [in-house: list/virtual list]
-- [ ] Bring into Pitwall: explains resume in a new agent, title quote, "Close the original first (pid N)", "I closed it, resume here" (`src/components/BringInDialog.tsx`) [in-house: modal/dialog]
+- [x] Bring into Pitwall: explains resume in a new agent, title quote, "Close the original first (pid N)", "I closed it, resume here" (`src/components/BringInDialog.tsx`) [in-house: modal/dialog]
 - [x] Remove agent: text differs for adopted sessions (keeps running) vs local; "Also remove worktree" checkbox with path, git note and branch kept; red warning; "Remove" / "Remove agent & worktree" (`src/components/RemoveDialog.tsx`) [in-house: modal/dialog] [in-house: checkbox/toggle]
 - [ ] Remove worktree: path, explanation (no --force, branch kept or detached warning), red warning; refusal text for locked / agent-owned; "Remove worktree" (`src/components/RemoveWorktreeDialog.tsx`) [in-house: modal/dialog]
 - [ ] Approval dialog (section 26) (`src/components/ApprovalDialog.tsx`) [in-house: modal/dialog]
@@ -407,11 +407,11 @@ marks terminal items. Section 36 lists each component once.
 
 ## 22. Elsewhere (agents in other terminal apps)
 
-- [ ] Sidebar group "Elsewhere" polled every 10 s while visible and enabled (`src/lib/useElsewhere.ts`)
-- [ ] Rows hide conversations a Pitwall agent already has (`src/lib/terminals.ts`)
-- [ ] Row: dot, title or folder or kind, kind, folder; tooltip with pid and cwd (`src/components/ElsewhereGroup.tsx`) [in-house: tooltip]
-- [ ] "Bring in" button (disabled when the conversation or folder is unknown) opens the Bring into Pitwall dialog (`src/components/ElsewhereGroup.tsx`) [in-house: tooltip] [in-house: modal/dialog]
-- [ ] Group hidden by the Settings toggle; collapse state shared with project collapse list (`src/components/Sidebar.tsx`)
+- [x] Sidebar group "Elsewhere" polled every 10 s while visible and enabled (`src/lib/useElsewhere.ts`)
+- [x] Rows hide conversations a Pitwall agent already has (`src/lib/terminals.ts`)
+- [x] Row: dot, title or folder or kind, kind, folder; tooltip with pid and cwd (`src/components/ElsewhereGroup.tsx`) [in-house: tooltip]
+- [x] "Bring in" button (disabled when the conversation or folder is unknown) opens the Bring into Pitwall dialog (`src/components/ElsewhereGroup.tsx`) [in-house: tooltip] [in-house: modal/dialog]
+- [x] Group hidden by the Settings toggle; collapse state shared with project collapse list (`src/components/Sidebar.tsx`)
 
 ## 23. Keyboard shortcuts
 
