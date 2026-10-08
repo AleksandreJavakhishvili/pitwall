@@ -12,6 +12,7 @@ pub mod host;
 pub mod menu;
 pub mod theme;
 pub mod ui;
+pub mod wall;
 pub mod window_state;
 
 use std::path::PathBuf;
@@ -66,6 +67,7 @@ pub fn run() {
             Ok(paths) => {
                 let (bridge, rx) = Bridge::new();
                 let host = Host::start(paths.clone(), bridge);
+                wall::register(cx, Some(host.engine.clone()));
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 AgentStore::listen(&store, rx, cx);
                 let data_dir = SharedString::from(tildify(&paths.root().to_string_lossy()));

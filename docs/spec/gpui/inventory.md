@@ -177,18 +177,18 @@ marks terminal items. Section 36 lists each component once.
 ## 9. Wall
 
 - [ ] Wall mode per window (persisted in `ui.wall`), toggled by ⌘E, top bar, palette; any space tab or showing an agent leaves it (`src/App.tsx`, `src/components/Wall.tsx`)
-- [ ] Bar: "Wall", "every agent, live · view only · click a tile to take over", "Back esc" (`src/components/Wall.tsx`)
-- [ ] Esc leaves Wall (unless a dialog is open) (`src/components/Wall.tsx`)
+- [x] Bar: "Wall", "every agent, live · view only · click a tile to take over", "Back esc" (`src/components/Wall.tsx`)
+- [x] Esc leaves Wall (unless a dialog is open) (`src/components/Wall.tsx`)
 - [ ] Sections per project with machine headings, chevron collapse (persisted in `ui.wallCollapsed`), ▲ blocked count, summary when collapsed (`src/components/Wall.tsx`) [in-house: scroll view] [in-house: list/virtual list]
-- [ ] Tile: status glyph, name, status word, blocked detail, diffstat; body shows the screen (`src/components/Wall.tsx`)
-- [ ] Running tiles drawn from backend screen frames (`watch_screen`), not a terminal emulator; ≤ ~10 fps; only while the tile is within 200 px of view (`src/components/Wall.tsx`, `src/terminal/screenView.ts`) [pitwall-term-view]
+- [x] Tile: status glyph, name, status word, blocked detail, diffstat; body shows the screen (`src/components/Wall.tsx`)
+- [x] Running tiles drawn from backend screen frames (`watch_screen`), not a terminal emulator; ≤ ~10 fps; only while the tile is within 200 px of view (`src/components/Wall.tsx`, `src/terminal/screenView.ts`) [pitwall-term-view]
 - [ ] Screen view reproduces xterm DOM rendering: cell metrics, letter-spacing per glyph, 256-colour cube, truecolour, bold-as-bright, dim, inverse, italic, underline styles, strikethrough, hidden, wide/cluster cells, outline cursor (`src/terminal/screenView.ts`, `src/terminal/screenStyle.ts`) [pitwall-term-view]
 - [ ] Cursor drawn only when the agent's own terminal would show it (`src/terminal/registry.ts`) [pitwall-term-view]
 - [ ] Stopped tiles show the agent's own terminal's last screen if this window has it; else "stopped"/"not running" (`src/terminal/registry.ts`, `src/components/Wall.tsx`) [pitwall-term-view]
-- [ ] Scale to tile width (min scale 0.42, crop right), anchored bottom-left so bottom rows show (`src/components/Wall.tsx`) [pitwall-term-view]
-- [ ] Never resizes PTYs or sends input (`src/components/Wall.tsx`) [pitwall-term-view]
-- [ ] Click or Enter/Space on a tile shows that agent; tile is a drag source (`src/components/Wall.tsx`) [in-house: drag and drop]
-- [ ] Theme change restyles all screen views (`src/terminal/screenView.ts`) [pitwall-term-view]
+- [x] Scale to tile width (min scale 0.42, crop right), anchored bottom-left so bottom rows show (`src/components/Wall.tsx`) [pitwall-term-view]
+- [x] Never resizes PTYs or sends input (`src/components/Wall.tsx`) [pitwall-term-view]
+- [x] Click or Enter/Space on a tile shows that agent; tile is a drag source (`src/components/Wall.tsx`) [in-house: drag and drop]
+- [x] Theme change restyles all screen views (`src/terminal/screenView.ts`) [pitwall-term-view]
 
 ## 10. Right panel (details for the focused agent)
 
@@ -428,7 +428,7 @@ key code.
 - [ ] Jump to next blocked: ⌘J · Ctrl+Shift+J
 - [ ] Toggle sidebar: ⌘B · Ctrl+Shift+B
 - [ ] Toggle details panel: ⌘. · Ctrl+Shift+.
-- [ ] Toggle Wall: ⌘E · Ctrl+Shift+E
+- [x] Toggle Wall: ⌘E · Ctrl+Shift+E
 - [ ] Toggle Review: ⌘R · Ctrl+Shift+R (also blocks webview reload)
 - [ ] Refresh source-control views: ⌘⇧R · Ctrl+Shift+Alt+R (`src/lib/freshness.ts`)
 - [ ] Quick open file: ⌘P · Ctrl+Shift+P

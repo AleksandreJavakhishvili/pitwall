@@ -14,6 +14,7 @@ use crate::agents::{status_word, AgentStore};
 use crate::home::Refusal;
 use crate::menu::Dismiss;
 use crate::theme::{self, Mode, Theme, RADIUS_LG};
+use crate::wall::{ToggleWall, WallEvent, WallView};
 use crate::window_state;
 
 /// What the window shows.
@@ -30,6 +31,8 @@ pub struct MainView {
     content: Content,
     selected: Option<String>,
     settings_open: bool,
+    /// The Wall, while this window shows it.
+    wall: Option<(Entity<WallView>, Subscription)>,
     focus: FocusHandle,
     /// Where the window's bounds are saved (`None`: refused, nothing saved).
     root: Option<std::path::PathBuf>,
@@ -57,10 +60,15 @@ impl MainView {
         }
         let focus = cx.focus_handle();
         window.focus(&focus);
+        // Open on the Wall (until `ui.wall` is persisted with UiState).
+        if std::env::var_os("PITWALL_APP_WALL").is_some() {
+            cx.defer_in(window, |this, window, cx| this.toggle_wall(window, cx));
+        }
         MainView {
             content,
             selected: None,
             settings_open: false,
+            wall: None,
             focus,
             root,
             save_bounds: None,
@@ -99,6 +107,29 @@ impl MainView {
 
     pub(super) fn select(&mut self, id: String, cx: &mut Context<Self>) {
         self.selected = Some(id);
+        self.wall = None;
+        cx.notify();
+    }
+
+    /// ⌘E: show the Wall, or leave it.
+    fn toggle_wall(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Content::Live { store, .. } = &self.content else {
+            return;
+        };
+        if self.wall.take().is_some() {
+            window.focus(&self.focus);
+        } else {
+            let wall = cx.new(|cx| WallView::new(store.clone(), window, cx));
+            let sub = cx.subscribe_in(&wall, window, |this, _, e: &WallEvent, window, cx| match e {
+                WallEvent::Open(id) => {
+                    this.select(id.clone(), cx);
+                    window.focus(&this.focus);
+                }
+                WallEvent::Exit => this.toggle_wall(window, cx),
+                WallEvent::Collapsed(_) => {}
+            });
+            self.wall = Some((wall, sub));
+        }
         cx.notify();
     }
 
@@ -254,10 +285,14 @@ impl Render for MainView {
             .id("main")
             .track_focus(&self.focus)
             .key_context("MainView")
-            .on_action(cx.listener(|this, _: &Dismiss, _, cx| {
+            .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
+                if !this.settings_open && this.wall.is_some() {
+                    return this.toggle_wall(window, cx);
+                }
                 this.settings_open = false;
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &ToggleWall, window, cx| this.toggle_wall(window, cx)))
             .relative()
             .size_full()
             .flex()
@@ -268,7 +303,14 @@ impl Render for MainView {
             Content::Live { store, data_dir } => {
                 let sidebar =
                     sidebar::render(store.read(cx), self.selected.as_deref(), data_dir, &t, cx);
-                root.child(sidebar).child(self.placeholder(&t, cx))
+                let root = root.child(sidebar);
+                match &self.wall {
+                    Some((wall, _)) => root.child(
+                        gpui::AnyView::from(wall.clone())
+                            .cached(gpui::StyleRefinement::default().flex_1().min_w_0().h_full()),
+                    ),
+                    None => root.child(self.placeholder(&t, cx)),
+                }
             }
         };
         root.when(self.settings_open, |r| {
