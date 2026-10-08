@@ -54,6 +54,9 @@ actions!(
         Copy,
         Cut,
         Paste,
+        /// The browser's undo history of a field: typing runs undo together.
+        Undo,
+        Redo,
         /// Enter: a new line in a multi-line input, [`InputEvent::Submit`]
         /// otherwise.
         Enter,
@@ -109,6 +112,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(&m("c"), Copy, c),
         KeyBinding::new(&m("x"), Cut, c),
         KeyBinding::new(&m("v"), Paste, c),
+        KeyBinding::new(&m("z"), Undo, c),
+        KeyBinding::new(&m("shift-z"), Redo, c),
         KeyBinding::new("enter", Enter, c),
         KeyBinding::new("shift-enter", ShiftEnter, c),
         KeyBinding::new("cmd-enter", Submit, c),
@@ -198,6 +203,12 @@ pub struct TextInput {
     /// Remembered x for up/down.
     goal_x: Option<Pixels>,
     was_focused: bool,
+    /// Earlier states (text, selection), newest last; and undone ones.
+    undo: Vec<(String, Range<usize>)>,
+    redo: Vec<(String, Range<usize>)>,
+    /// Where the last typed character ended and when (a typing run is one
+    /// undo step).
+    typing: Option<(usize, std::time::Instant)>,
 }
 
 impl TextInput {
@@ -221,6 +232,9 @@ impl TextInput {
             scroll: px(0.),
             goal_x: None,
             was_focused: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            typing: None,
         }
     }
 
@@ -293,6 +307,9 @@ impl TextInput {
         self.selected = end..end;
         self.reversed = false;
         self.marked = None;
+        self.undo.clear();
+        self.redo.clear();
+        self.typing = None;
         cx.notify();
     }
 
@@ -390,8 +407,21 @@ impl TextInput {
             );
             text = text.chars().take(room).collect();
         }
+        let typed = range.is_empty() && text.chars().count() == 1;
+        let run = typed
+            && self.typing.is_some_and(|(at, when)| {
+                at == range.start && when.elapsed() < std::time::Duration::from_secs(1)
+            });
+        if !run {
+            self.undo.push((self.content.clone(), self.selected.clone()));
+            if self.undo.len() > 200 {
+                self.undo.remove(0);
+            }
+        }
+        self.redo.clear();
         self.content.replace_range(range.clone(), &text);
         let end = range.start + text.len();
+        self.typing = typed.then(|| (end, std::time::Instant::now()));
         self.selected = end..end;
         self.reversed = false;
         self.marked = None;
@@ -572,6 +602,35 @@ impl TextInput {
     fn on_paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
             self.edit(self.selected.clone(), &text, cx);
+        }
+    }
+
+    fn restore(&mut self, undo: bool, cx: &mut Context<Self>) {
+        let (from, to) = if undo {
+            (&mut self.undo, &mut self.redo)
+        } else {
+            (&mut self.redo, &mut self.undo)
+        };
+        let Some((text, sel)) = from.pop() else { return };
+        to.push((std::mem::replace(&mut self.content, text), self.selected.clone()));
+        self.selected = sel.start.min(self.content.len())..sel.end.min(self.content.len());
+        self.reversed = false;
+        self.marked = None;
+        self.typing = None;
+        cx.emit(InputEvent::Changed);
+        cx.emit(TextFieldEvent::Changed);
+        cx.notify();
+    }
+
+    fn on_undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.disabled {
+            self.restore(true, cx);
+        }
+    }
+
+    fn on_redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.disabled {
+            self.restore(false, cx);
         }
     }
 
@@ -1116,6 +1175,17 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::on_copy))
             .on_action(cx.listener(Self::on_cut))
             .on_action(cx.listener(Self::on_paste))
+            .on_action(cx.listener(Self::on_undo))
+            .on_action(cx.listener(Self::on_redo))
+            // The macOS Edit menu's items.
+            .on_action(cx.listener(|v, _: &crate::menu::Undo, w, cx| v.on_undo(&Undo, w, cx)))
+            .on_action(cx.listener(|v, _: &crate::menu::Redo, w, cx| v.on_redo(&Redo, w, cx)))
+            .on_action(cx.listener(|v, _: &crate::menu::Cut, w, cx| v.on_cut(&Cut, w, cx)))
+            .on_action(cx.listener(|v, _: &crate::menu::Copy, w, cx| v.on_copy(&Copy, w, cx)))
+            .on_action(cx.listener(|v, _: &crate::menu::Paste, w, cx| v.on_paste(&Paste, w, cx)))
+            .on_action(cx.listener(|v, _: &crate::menu::SelectAll, w, cx| {
+                v.on_select_all(&SelectAll, w, cx)
+            }))
             .on_action(cx.listener(Self::on_enter))
             .on_action(cx.listener(Self::on_shift_enter))
             .on_action(cx.listener(Self::on_submit))
@@ -1194,6 +1264,25 @@ mod tests {
             i.set_text("x", cx);
         });
         assert_eq!(*events.borrow(), vec![InputEvent::Changed]);
+    }
+
+    #[gpui::test]
+    fn typing_undoes_as_one_step(cx: &mut TestAppContext) {
+        let f = cx.new(|cx| TextInput::new(cx, "", ""));
+        f.update(cx, |f, cx| {
+            for (i, ch) in "abc".chars().enumerate() {
+                f.edit(i..i, &ch.to_string(), cx);
+            }
+            f.edit(3..3, " pasted", cx);
+            assert_eq!(f.text(), "abc pasted");
+            f.restore(true, cx);
+            assert_eq!(f.text(), "abc");
+            f.restore(true, cx);
+            assert_eq!(f.text(), "", "the typing run is one step");
+            f.restore(false, cx);
+            f.restore(false, cx);
+            assert_eq!(f.text(), "abc pasted");
+        });
     }
 
     #[gpui::test]

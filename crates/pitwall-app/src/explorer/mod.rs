@@ -76,7 +76,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         vec![
             KeyBinding::new("ctrl-shift-p", GoToFile, None),
             KeyBinding::new("ctrl-shift-alt-f", SearchInFiles, None),
-            KeyBinding::new("ctrl-shift-r", RefreshFiles, None),
+            KeyBinding::new("ctrl-shift-alt-r", RefreshFiles, None),
         ]
     };
 
