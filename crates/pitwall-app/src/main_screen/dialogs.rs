@@ -4,6 +4,7 @@
 //! the backdrop closes; Tab moves between fields; ⏎ submits.
 
 use crate::kit::Ellipsis as _;
+use crate::kit::Span;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -1081,7 +1082,6 @@ impl TerminalDialog {
         cx: &mut Context<Self>,
     ) -> TerminalDialog {
         let input = cx.new(|cx| TextInput::new(cx, &initial, "~/code/project").mono());
-        input.update(cx, |i, cx| i.select_all_text(cx));
         window.focus(&input.focus_handle(cx));
         let subs =
             vec![
@@ -1351,15 +1351,29 @@ impl MainScreen {
                                         .text_color(t.text_3)
                                         .child(a.cwd_display.clone()),
                                 )
-                                .child(hint(
-                                    match &a.branch {
-                                        Some(b) => format!(
-                                            "Runs git worktree remove, which refuses if it has uncommitted changes. Branch {b} is kept."
+                                // `.hint` with the command and branch in `.mono`.
+                                .child(
+                                    div().text_size(px(12.)).child(match &a.branch {
+                                        Some(b) => crate::kit::rich(
+                                            &[
+                                                ("Runs ", Span::Text),
+                                                ("git worktree remove", Span::Mono),
+                                                (", which refuses if it has uncommitted changes. Branch ", Span::Text),
+                                                (b, Span::Mono),
+                                                (" is kept.", Span::Text),
+                                            ],
+                                            t.text_3,
                                         ),
-                                        None => "Runs git worktree remove, which refuses if it has uncommitted changes. Its branch is kept.".into(),
-                                    },
-                                    t,
-                                )),
+                                        None => crate::kit::rich(
+                                            &[
+                                                ("Runs ", Span::Text),
+                                                ("git worktree remove", Span::Mono),
+                                                (", which refuses if it has uncommitted changes. Its branch is kept.", Span::Text),
+                                            ],
+                                            t.text_3,
+                                        ),
+                                    }),
+                                ),
                         ),
                 )
             })

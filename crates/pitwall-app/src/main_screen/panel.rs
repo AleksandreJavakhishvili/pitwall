@@ -413,10 +413,13 @@ impl MainScreen {
             .pb(px(6.))
             .text_size(px(11.))
             .text_color(t.text_2)
-            .font_family(crate::kit::MONO_FONT)
             .child(
+                // `.where-branch.mono` (0.94em); the path below is in the
+                // UI face (`.where-path { font: inherit }`).
                 div()
                     .id("where-branch")
+                    .font_family(crate::kit::MONO_FONT)
+                    .text_size(px(11. * 0.94))
                     .flex()
                     .items_center()
                     .gap(px(5.))
@@ -442,6 +445,7 @@ impl MainScreen {
                                 .rounded(px(4.))
                                 .border_1()
                                 .border_color(t.line_strong)
+                                .font_family(crate::kit::UI_FONT)
                                 .text_size(px(10.))
                                 .child("worktree"),
                         )
@@ -450,12 +454,12 @@ impl MainScreen {
             .child(
                 div()
                     .id("where-path")
+                    .group("where-path")
                     .flex()
                     .items_center()
                     .gap(px(5.))
                     .min_w_0()
                     .cursor_pointer()
-                    .hover_text(t.text, |s| s)
                     .tooltip(tooltip(path_tip))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(cwd.clone()));
@@ -471,11 +475,17 @@ impl MainScreen {
                         .detach();
                     }))
                     .child(icon("folder", 11., t.text_2))
-                    .child(div().min_w_0().ellipsis().child(crate::kit::one_line(if copied {
-                        "Copied".to_string()
-                    } else {
-                        a.cwd_display.clone()
-                    }))),
+                    .child(
+                        div()
+                            .min_w_0()
+                            .ellipsis()
+                            .group_hover_text("where-path", t.text, |s| s.underline())
+                            .child(crate::kit::one_line(if copied {
+                                "Copied".to_string()
+                            } else {
+                                a.cwd_display.clone()
+                            })),
+                    ),
             )
     }
 

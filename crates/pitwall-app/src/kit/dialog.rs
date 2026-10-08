@@ -16,9 +16,11 @@ pub fn body() -> Div {
         .pb(px(16.))
 }
 
-/// `.modal-foot`: buttons on the right over a hairline.
+/// `.modal-foot`: buttons on the right over a hairline. Its bottom corners
+/// follow the modal's (gpui clips to rectangles only).
 pub fn foot(t: &Theme) -> Div {
     div()
+        .rounded_b(px(12.))
         .flex()
         .justify_end()
         .gap(px(8.))

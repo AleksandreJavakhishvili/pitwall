@@ -38,6 +38,9 @@ pub struct CtxMenu {
     at: Point<Pixels>,
     items: Vec<MenuItem>,
     selected: usize,
+    /// ↑/↓ was used: the keyboard row shows (as `:focus-visible` does; a
+    /// menu opened with the pointer shows none).
+    keyboard: bool,
     focus: FocusHandle,
 }
 
@@ -56,6 +59,7 @@ impl MainScreen {
             at,
             items,
             selected: 0,
+            keyboard: false,
             focus,
         });
         cx.notify();
@@ -80,6 +84,7 @@ impl MainScreen {
         if let Some(m) = self.menu.as_mut() {
             let n = m.items.len() as isize;
             m.selected = (m.selected as isize + delta).rem_euclid(n.max(1)) as usize;
+            m.keyboard = true;
             cx.notify();
         }
     }
@@ -92,7 +97,7 @@ impl MainScreen {
         let m = self.menu.as_ref()?;
         let focus = m.focus.clone();
         let rows = m.items.iter().enumerate().map(|(i, it)| {
-            let on = i == m.selected;
+            let on = m.keyboard && i == m.selected;
             div()
                 .id(("menu-item", i))
                 .flex()
