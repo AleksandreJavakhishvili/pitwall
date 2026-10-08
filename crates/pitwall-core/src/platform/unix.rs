@@ -51,24 +51,6 @@ pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
 /// Nothing to hide: Unix programs get no window of their own.
 pub fn hide_console(_cmd: &mut std::process::Command) {}
 
-/// Start the user's program (their editor) and leave it running on its own:
-/// no stdio, the app's login PATH, never waited for here (a thread reaps
-/// it) and never killed.
-pub fn spawn_detached(argv: &[String]) -> io::Result<()> {
-    let (program, args) = argv.split_first().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty command"))?;
-    let mut c = std::process::Command::new(program);
-    c.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    if let Some(path) = crate::shell::spawn_path() {
-        c.env("PATH", path);
-    }
-    hide_console(&mut c);
-    let mut child = c.spawn()?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
-}
-
 /// A symlink at `link` to `target` (tests).
 #[cfg(test)]
 pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {

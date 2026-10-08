@@ -127,8 +127,10 @@ fn rg_argv(q: &SearchQuery) -> Vec<String> {
         a.push("--hidden".into());
     }
     a.extend(["-g".into(), "!.git".into()]);
-    for d in NOT_SEARCHED {
-        a.extend(["-g".into(), format!("!{d}")]);
+    if q.default_excludes.unwrap_or(true) {
+        for d in NOT_SEARCHED {
+            a.extend(["-g".into(), format!("!{d}")]);
+        }
     }
     for g in q.include.iter().filter(|g| !g.trim().is_empty()) {
         a.extend(["-g".into(), g.trim().to_string()]);
@@ -177,8 +179,10 @@ fn git_argv(root: &str, q: &SearchQuery) -> Vec<String> {
     for g in include {
         a.push(format!(":(glob){}", deep(g.trim())));
     }
-    for d in NOT_SEARCHED {
-        a.push(format!(":(exclude,glob)**/{d}/**"));
+    if q.default_excludes.unwrap_or(true) {
+        for d in NOT_SEARCHED {
+            a.push(format!(":(exclude,glob)**/{d}/**"));
+        }
     }
     if !q.hidden.unwrap_or(true) {
         a.extend([
@@ -559,6 +563,14 @@ mod tests {
             assert!(g.contains(&w.to_string()), "{w} in {g:?}");
         }
         assert!(!g.contains(&".".to_string()), "includes given: no '.'");
+        let all = SearchQuery {
+            query: "x".into(),
+            default_excludes: Some(false),
+            ..Default::default()
+        };
+        assert!(!rg_argv(&all).contains(&"!node_modules".to_string()));
+        assert!(!git_argv("/r", &all).iter().any(|a| a.contains("node_modules")));
+        assert!(git_argv("/r", &q).iter().any(|a| a.contains("node_modules")));
         assert_eq!(tidy_path(".\\src\\a.rs"), "src/a.rs");
         assert_eq!(tidy_path("./a b.rs"), "a b.rs");
     }

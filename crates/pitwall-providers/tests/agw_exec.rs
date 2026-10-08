@@ -287,7 +287,7 @@ fn the_explorer_works_through_agw() {
     std::os::unix::fs::symlink("/etc", Path::new(&f.ws).join("escape")).unwrap();
     let h = Harness::with_exec(vec![record("a", &f.ws)], Arc::new(f.exec(None)));
     let before = f.calls().len();
-    let l = explorer::list_files(&h.engine, "a", "").unwrap();
+    let l = explorer::list_files(&h.engine, "a", "", false).unwrap();
     assert_eq!(f.calls().len(), before + 2, "resolve the folder, then one batch");
     let names: Vec<_> = l.entries.iter().map(|e| (e.name.as_str(), e.status)).collect();
     assert_eq!(names, [
@@ -297,9 +297,9 @@ fn the_explorer_works_through_agw() {
         ("escape", Some(FileStatus::U)),
         ("new file's.txt", Some(FileStatus::U)),
     ]);
-    let file = explorer::read_file(&h.engine, "a", "a.txt").unwrap();
+    let file = explorer::read_file(&h.engine, "a", "a.txt", false).unwrap();
     assert_eq!(file.text.as_deref(), Some("one\n2\nthree\n"));
-    assert!(explorer::read_file(&h.engine, "a", "escape/hosts").unwrap_err().contains("outside"));
+    assert!(explorer::read_file(&h.engine, "a", "escape/hosts", false).unwrap_err().contains("outside"));
     let q = pitwall_core::explorer::SearchQuery { query: "THREE".into(), ..Default::default() };
     let r = explorer::search(&h.engine, "a", &q).unwrap();
     assert_eq!(r.matches.iter().map(|m| (m.path.as_str(), m.line)).collect::<Vec<_>>(), [("a.txt", 3)]);

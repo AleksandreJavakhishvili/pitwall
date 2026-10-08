@@ -122,14 +122,11 @@ Explorer, read-only ([explorer.md](explorer.md); `src/explorerApi.ts`, types in 
 
 | Command | Args | Returns |
 |---|---|---|
-| `list_files` | `agentId, dir?` | `DirListing { dir, entries: FileEntry[], truncated, git }`. One folder (lazy tree). In a repository this is git's view (`ls-files` cached + others, ignore files respected), with the Changes panel's letters (`status`) and per-folder `changes` counts. Otherwise a plain listing without `.git`, `.DS_Store` and the like. Folders first, max 5 000 |
+| `list_files` | `agentId, dir?, ignored?` | `DirListing { dir, entries: FileEntry[], truncated, git }`. One folder (lazy tree). In a repository this is git's view (`ls-files` cached + others, ignore files respected), with the Changes panel's letters (`status`) and per-folder `changes` counts. `ignored: true` ("Show ignored files") lists what git ignores too, marked `ignored` (inside an ignored folder everything is). Otherwise a plain listing without `.git`, `.DS_Store` and the like. Folders first, max 5 000 |
 | `list_all_files` | `agentId` | `FileIndex { files, truncated, git }` for quick open (git, else `rg --files`, else a 3 s walk; max 100 000) |
-| `read_file` | `agentId, path` | `FileView { path, size, kind: "text"\|"binary"\|"tooLarge", text, lang }` (text ≤ 2 MiB; binary = NUL in the first 8 000 bytes or a binary extension) |
-| `search_files` | `agentId, query: SearchQuery` | `SearchResult { matches: SearchMatch[], files, truncated, engine: "ripgrep"\|"gitGrep" }`. `rg --json` if installed there, else `git grep`. 100 matches per file, 2 000 total by default (`maxResults` ≤ 10 000). Ranges are in UTF-16 units of `text`. A newer search for the agent cancels this one (error `"cancelled"`) |
+| `read_file` | `agentId, path, large?` | `FileView { path, size, kind: "text"\|"binary"\|"tooLarge", text, lang }` (text ≤ 2 MiB, ≤ 10 MiB with `large` — "Load anyway"; binary = NUL in the first 8 000 bytes or a binary extension) |
+| `search_files` | `agentId, query: SearchQuery` | `SearchResult { matches: SearchMatch[], files, truncated, engine: "ripgrep"\|"gitGrep" }`. `rg --json` if installed there, else `git grep`. 100 matches per file, 2 000 total by default (`maxResults` ≤ 10 000). `node_modules` and `bower_components` are left out unless `defaultExcludes: false`. Ranges are in UTF-16 units of `text`. A newer search for the agent cancels this one (error `"cancelled"`) |
 | `cancel_search` | `agentId` | `void` |
-| `open_in_editor` | `agentId, path, line?, column?` | `void`. Only with `caps.openInEditor`. Runs the user's editor command (`get_editor`), started detached, never through a shell |
-| `get_editor` | – | `EditorSettings { command, detected: EditorChoice[], effective }` (`{path}`, `{line}`, `{column}` placeholders; detected: code, cursor, zed, subl on the login PATH, then the system opener) |
-| `set_editor` | `command: string \| null` | `EditorSettings` (stored in `<data dir>/editor.json`; `null` = first detected) |
 
 Rules ([rules.md](rules.md)):
 
@@ -214,7 +211,6 @@ interface AgentCaps {
   hooks: boolean;          // provider delivers hooks && kind has hooks
   worktrees: boolean;      // its project's worktrees can be listed (= diff); missing from older servers = false
   explorer: boolean;       // provider runs commands there: the read-only code explorer (explorer.md); missing = false
-  openInEditor: boolean;   // explorer && its files are on this computer (ProviderCaps.local_files); missing = false
   removeKeepsSession: boolean; // adopted (agw): remove only stops tracking, the session keeps running
 }
 interface CreateAgentRequest {

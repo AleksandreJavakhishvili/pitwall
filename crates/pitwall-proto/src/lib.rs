@@ -6,7 +6,7 @@
 //! - [`msg`]: the versioned handshake, requests, responses, events.
 //! - [`api`]: method names, their parameters and results, approvals.
 //! - [`create`]: the form a provider describes for new agents on a machine.
-//! - [`explorer`]: the read-only code explorer (tree, file, search, editor).
+//! - [`explorer`]: the read-only code explorer (tree, file, search).
 //! - [`views`]: what clients are shown (`AgentView`, sessions, …).
 //! - [`pipe`]: the Windows named pipe for a socket path.
 //!
@@ -68,7 +68,6 @@ mod ts_export {
         FileView::export_all(&cfg).unwrap();
         SearchQuery::export_all(&cfg).unwrap();
         SearchResult::export_all(&cfg).unwrap();
-        EditorSettings::export_all(&cfg).unwrap();
         assert!(dir.join("AgentView.ts").is_file());
     }
 }

@@ -1,14 +1,13 @@
 //! The read-only code explorer (docs/spec/explorer.md): list, read and
 //! search the folder an agent works in, on its machine (through its
-//! [`Exec`]), and hand a file to the user's editor when the files are on
-//! this computer. Nothing here writes to the agent's folder.
+//! [`Exec`]). Nothing here writes to the agent's folder or starts anything
+//! but read-only commands.
 //!
 //! Every path from a client is relative to the agent's folder (its "root").
 //! It is checked ([`clean`]) before anything runs, and then resolved on the
 //! machine with every symlink followed. It must still be inside the
 //! resolved root ([`inside`]). All calls are blocking.
 
-mod editor;
 mod read;
 mod search;
 mod tree;
@@ -18,15 +17,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub use pitwall_proto::{
-    ContentKind, DirListing, EditorChoice, EditorSettings, EntryKind, FileEntry, FileIndex,
-    FileView, MatchRange, SearchEngine, SearchMatch, SearchQuery, SearchResult,
+    ContentKind, DirListing, EntryKind, FileEntry, FileIndex, FileView, MatchRange, SearchEngine,
+    SearchMatch, SearchQuery, SearchResult,
 };
 
 use crate::engine::Engine;
 use crate::exec::{self, Exec};
 use crate::provider::ProviderCaps;
-
-pub use editor::split_args;
 
 type Res<T> = Result<T, String>;
 
@@ -159,14 +156,15 @@ pub fn inside(root: &str, path: &str) -> bool {
 }
 
 /// The children of folder `dir` ("" = the agent's folder): git's view when
-/// it is a repository (ignore files apply), else a plain listing. With the
-/// Changes panel's letters. One git round trip (plus resolving `dir`).
-pub fn list_files(engine: &Engine, agent_id: &str, dir: &str) -> Res<DirListing> {
+/// it is a repository (ignore files apply; `ignored`: ignored entries are
+/// listed too, marked), else a plain listing. With the Changes panel's
+/// letters. One git round trip (plus resolving `dir`).
+pub fn list_files(engine: &Engine, agent_id: &str, dir: &str, ignored: bool) -> Res<DirListing> {
     let dir = clean(dir)?;
     let c = ctx(engine, agent_id)?;
     let root = c.root(engine, agent_id)?;
     let real = c.resolve(&root, &dir)?;
-    tree::list(&c, &dir, &real)
+    tree::list(&c, &dir, &real, ignored)
 }
 
 /// Every file of the agent's folder, for quick open.
@@ -179,8 +177,9 @@ pub fn list_all_files(engine: &Engine, agent_id: &str) -> Res<FileIndex> {
     Ok(index)
 }
 
-/// One file for the viewer: text (≤ 2 MiB), binary or too large.
-pub fn read_file(engine: &Engine, agent_id: &str, path: &str) -> Res<FileView> {
+/// One file for the viewer: text (≤ 2 MiB, or ≤ 10 MiB with `large`:
+/// "Load anyway"), binary or too large.
+pub fn read_file(engine: &Engine, agent_id: &str, path: &str, large: bool) -> Res<FileView> {
     let rel = clean(path)?;
     if rel.is_empty() {
         return Err("invalid path: a file is needed".into());
@@ -188,7 +187,7 @@ pub fn read_file(engine: &Engine, agent_id: &str, path: &str) -> Res<FileView> {
     let c = ctx(engine, agent_id)?;
     let root = c.root(engine, agent_id)?;
     let real = c.resolve(&root, &rel)?;
-    read::read(&*c.exec, &rel, &real)
+    read::read(&*c.exec, &rel, &real, if large { read::MAX_LARGE } else { read::MAX_TEXT })
 }
 
 /// Search the agent's folder (ripgrep, else `git grep`). A new search for
@@ -219,41 +218,6 @@ pub fn cancel_search(engine: &Engine, agent_id: &str) {
     if let Some(flag) = lock(&engine.explorer.searches).remove(agent_id) {
         flag.store(true, Ordering::Relaxed);
     }
-}
-
-/// Hand `path` to the user's editor (at `line`/`column`, 1-based). Only for
-/// agents whose files are on this computer (`caps.openInEditor`).
-pub fn open_in_editor(
-    engine: &Engine,
-    agent_id: &str,
-    path: &str,
-    line: Option<u32>,
-    column: Option<u32>,
-) -> Res<()> {
-    let rel = clean(path)?;
-    let c = ctx(engine, agent_id)?;
-    if !c.caps.local_files {
-        return Err("This agent's files are on another machine: copy the path instead.".into());
-    }
-    let root = c.root(engine, agent_id)?;
-    let real = c.resolve(&root, &rel)?;
-    editor::open(
-        engine.paths(),
-        &real,
-        line.unwrap_or(1).max(1),
-        column.unwrap_or(1).max(1),
-    )
-}
-
-/// The "Open in editor" setting and the editors found on this computer.
-pub fn editor_settings(engine: &Engine) -> EditorSettings {
-    editor::settings(engine.paths())
-}
-
-/// Set (or with `None` clear) the "Open in editor" command line.
-pub fn set_editor(engine: &Engine, command: Option<&str>) -> Res<EditorSettings> {
-    editor::save(engine.paths(), command)?;
-    Ok(editor::settings(engine.paths()))
 }
 
 fn rg_known(engine: &Engine, c: &Ctx) -> Option<bool> {

@@ -303,7 +303,6 @@ impl Provider for AgwProvider {
             rules: false,
             custom_command: false,
             local_process: false,
-            local_files: false,
             git_poll_ms: GIT_POLL_MS,
             fs_events: false,
         }

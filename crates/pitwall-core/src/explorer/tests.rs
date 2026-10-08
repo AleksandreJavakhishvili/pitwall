@@ -82,7 +82,7 @@ fn gitignore_and_change_letters_in_a_repo() {
     rec.base_commit = Some(base);
     let h = Harness::new(vec![rec]);
 
-    let root = list_files(&h.engine, "a", "").unwrap();
+    let root = list_files(&h.engine, "a", "", false).unwrap();
     assert!(root.git && !root.truncated && root.dir.is_empty());
     assert_eq!(
         names(&root),
@@ -95,7 +95,7 @@ fn gitignore_and_change_letters_in_a_repo() {
         ],
         "ignored target/ and *.log are hidden, the deleted old.txt is gone"
     );
-    let src = list_files(&h.engine, "a", "src").unwrap();
+    let src = list_files(&h.engine, "a", "src", false).unwrap();
     assert_eq!(
         names(&src),
         [
@@ -103,7 +103,7 @@ fn gitignore_and_change_letters_in_a_repo() {
             ("a.rs", EntryKind::File, None, 0)
         ]
     );
-    let deep = list_files(&h.engine, "a", "src/deep/").unwrap();
+    let deep = list_files(&h.engine, "a", "src/deep/", false).unwrap();
     assert_eq!(
         deep.entries
             .iter()
@@ -114,11 +114,34 @@ fn gitignore_and_change_letters_in_a_repo() {
             ("src/deep/c.rs", Some(FileStatus::U))
         ]
     );
-    let fresh = list_files(&h.engine, "a", "fresh").unwrap();
+    let fresh = list_files(&h.engine, "a", "fresh", false).unwrap();
     assert_eq!(fresh.entries[0].path, "fresh/x.rs");
-    assert!(list_files(&h.engine, "a", "nope")
+    assert!(list_files(&h.engine, "a", "nope", false)
         .unwrap_err()
         .contains("not found"));
+
+    // "Show ignored files": listed too, marked; inside an ignored folder all is ignored.
+    let all = list_files(&h.engine, "a", "", true).unwrap();
+    let ignored: Vec<_> = all
+        .entries
+        .iter()
+        .filter(|e| e.ignored)
+        .map(|e| (e.name.as_str(), e.kind))
+        .collect();
+    assert_eq!(
+        ignored,
+        [("target", EntryKind::Dir), ("app.log", EntryKind::File)]
+    );
+    assert_eq!(all.entries.len(), root.entries.len() + 2);
+    let target = list_files(&h.engine, "a", "target", true).unwrap();
+    assert_eq!(
+        target
+            .entries
+            .iter()
+            .map(|e| (e.path.as_str(), e.kind, e.ignored))
+            .collect::<Vec<_>>(),
+        [("target/debug", EntryKind::Dir, true)]
+    );
 
     let index = list_all_files(&h.engine, "a").unwrap();
     assert!(index.git);
@@ -135,21 +158,21 @@ fn gitignore_and_change_letters_in_a_repo() {
         ]
     );
 
-    let f = read_file(&h.engine, "a", "README.md").unwrap();
+    let f = read_file(&h.engine, "a", "README.md", false).unwrap();
     assert_eq!(
         (f.kind, f.text.as_deref(), f.lang.as_deref()),
         (ContentKind::Text, Some("hi there\n"), Some("markdown"))
     );
     // Ignored files aren't listed, but asking for one by name still reads it.
     assert_eq!(
-        read_file(&h.engine, "a", "app.log")
+        read_file(&h.engine, "a", "app.log", false)
             .unwrap()
             .text
             .as_deref(),
         Some("noise")
     );
-    assert!(read_file(&h.engine, "a", "").is_err());
-    assert!(read_file(&h.engine, "a", "src")
+    assert!(read_file(&h.engine, "a", "", false).is_err());
+    assert!(read_file(&h.engine, "a", "src", false)
         .unwrap_err()
         .contains("is a folder"));
 }
@@ -170,19 +193,15 @@ fn traversal_and_symlink_escapes_are_refused() {
 
     for bad in ["../", "..", "/etc", "dir/../../x"] {
         assert!(
-            list_files(&h.engine, "a", bad)
+            list_files(&h.engine, "a", bad, false)
                 .unwrap_err()
                 .starts_with("invalid path"),
             "{bad}"
         );
         assert!(
-            read_file(&h.engine, "a", bad)
+            read_file(&h.engine, "a", bad, false)
                 .unwrap_err()
                 .starts_with("invalid path"),
-            "{bad}"
-        );
-        assert!(
-            open_in_editor(&h.engine, "a", bad, None, None).is_err(),
             "{bad}"
         );
     }
@@ -192,14 +211,14 @@ fn traversal_and_symlink_escapes_are_refused() {
         .to_string_lossy()
         .into_owned();
     assert!(
-        read_file(&h.engine, "a", &real_secret).is_err(),
+        read_file(&h.engine, "a", &real_secret, false).is_err(),
         "absolute paths are refused"
     );
     if !linked {
         eprintln!("symlinks unavailable here: skipping the symlink cases");
         return;
     }
-    let root = list_files(&h.engine, "a", "").unwrap();
+    let root = list_files(&h.engine, "a", "", false).unwrap();
     let kinds: Vec<_> = root
         .entries
         .iter()
@@ -209,29 +228,23 @@ fn traversal_and_symlink_escapes_are_refused() {
         kinds.contains(&("escape", EntryKind::Symlink))
             && kinds.contains(&("secret-link", EntryKind::Symlink))
     );
-    assert!(list_files(&h.engine, "a", "escape")
+    assert!(list_files(&h.engine, "a", "escape", false)
         .unwrap_err()
         .contains("outside the agent's folder"));
-    assert!(read_file(&h.engine, "a", "escape/secret.txt")
+    assert!(read_file(&h.engine, "a", "escape/secret.txt", false)
         .unwrap_err()
         .contains("outside the agent's folder"));
-    assert!(read_file(&h.engine, "a", "secret-link")
+    assert!(read_file(&h.engine, "a", "secret-link", false)
         .unwrap_err()
         .contains("outside the agent's folder"));
     assert_eq!(
-        read_file(&h.engine, "a", "ok-link")
+        read_file(&h.engine, "a", "ok-link", false)
             .unwrap()
             .text
             .as_deref(),
         Some("in\n"),
         "a link inside the folder is followed"
     );
-    h.engine
-        .with("a", |a| a.facts.provider.local_files = true)
-        .unwrap();
-    assert!(open_in_editor(&h.engine, "a", "secret-link", None, None)
-        .unwrap_err()
-        .contains("outside the agent's folder"));
 }
 
 #[test]
@@ -250,7 +263,7 @@ fn a_folder_outside_git_is_listed_plainly() {
             .unwrap();
     }
     let h = Harness::new(vec![record("a", &root)]);
-    let l = list_files(&h.engine, "a", "").unwrap();
+    let l = list_files(&h.engine, "a", "", false).unwrap();
     assert!(!l.git);
     assert_eq!(
         names(&l),
@@ -424,7 +437,7 @@ fn a_remote_folder_in_one_round_trip() {
         ],
         ":100644 100644 a b M\0README.md\x001\t0\tREADME.md\0",
     );
-    let l = list_files(&h.engine, "a", "").unwrap();
+    let l = list_files(&h.engine, "a", "", false).unwrap();
     assert_eq!(
         names(&l),
         [
@@ -439,7 +452,7 @@ fn a_remote_folder_in_one_round_trip() {
         .calls()
         .iter()
         .all(|c| c.env_has("GIT_OPTIONAL_LOCKS", "0")));
-    list_files(&h.engine, "a", "").unwrap();
+    list_files(&h.engine, "a", "", false).unwrap();
     assert_eq!(
         r.trips.load(Ordering::Relaxed),
         3,
@@ -463,7 +476,7 @@ fn a_remote_folder_in_one_round_trip() {
         "",
     )
     .on(&["git", "-C", "/remote/w/src", "diff", ".."], "");
-    let src = list_files(&h.engine, "a", "src").unwrap();
+    let src = list_files(&h.engine, "a", "src", false).unwrap();
     assert_eq!(src.entries[0].path, "src/a.rs");
     assert_eq!(
         r.trips.load(Ordering::Relaxed),
@@ -473,7 +486,7 @@ fn a_remote_folder_in_one_round_trip() {
 
     let before = r.trips.load(Ordering::Relaxed);
     assert_eq!(
-        read_file(&h.engine, "a", "src/a.rs")
+        read_file(&h.engine, "a", "src/a.rs", false)
             .unwrap()
             .text
             .as_deref(),
@@ -484,18 +497,13 @@ fn a_remote_folder_in_one_round_trip() {
         2,
         "resolve + read"
     );
-    assert!(list_files(&h.engine, "a", "out")
+    assert!(list_files(&h.engine, "a", "out", false)
         .unwrap_err()
         .contains("outside"));
-    assert!(read_file(&h.engine, "a", "out/passwd")
+    assert!(read_file(&h.engine, "a", "out/passwd", false)
         .unwrap_err()
         .contains("outside"));
-    // Remote files can't go to a local editor.
-    assert!(open_in_editor(&h.engine, "a", "README.md", None, None)
-        .unwrap_err()
-        .contains("another machine"));
-    let v = &h.engine.views()[0];
-    assert!(v.caps.explorer && !v.caps.open_in_editor);
+    assert!(h.engine.views()[0].caps.explorer);
 }
 
 #[test]
@@ -507,7 +515,7 @@ fn a_remote_folder_outside_git() {
         "",
         "fatal: not a git repository (or any of the parent directories): .git",
     );
-    let l = list_files(&h.engine, "a", "").unwrap();
+    let l = list_files(&h.engine, "a", "", false).unwrap();
     assert!(!l.git);
     assert_eq!(
         names(&l),
@@ -647,57 +655,13 @@ fn a_search_can_be_cancelled_or_replaced() {
 #[test]
 fn caps_follow_the_provider() {
     let h = Harness::with_exec(vec![record("a", "/w")], FakeExec::new());
-    let v = &h.engine.views()[0];
-    assert!(
-        v.caps.explorer && !v.caps.open_in_editor,
-        "fake files aren't on this computer"
-    );
-    h.engine
-        .with("a", |a| a.facts.provider.local_files = true)
-        .unwrap();
-    assert!(h.engine.views()[0].caps.open_in_editor);
+    assert!(h.engine.views()[0].caps.explorer);
     h.engine
         .with("a", |a| a.facts.provider.exec = false)
         .unwrap();
-    let v = &h.engine.views()[0];
-    assert!(!v.caps.explorer && !v.caps.open_in_editor);
-    assert!(list_files(&h.engine, "a", "")
+    assert!(!h.engine.views()[0].caps.explorer);
+    assert!(list_files(&h.engine, "a", "", false)
         .unwrap_err()
         .contains("can't read files"));
-    assert!(list_files(&h.engine, "ghost", "").is_err());
-}
-
-#[test]
-fn open_in_editor_runs_the_users_command_detached() {
-    if crate::platform::which("touch").is_none() {
-        eprintln!("no touch here: skipping");
-        return;
-    }
-    let r = TempRepo::new();
-    r.write("a b.txt", "x\n");
-    let h = Harness::new(vec![record("a", r.path())]);
-    h.engine
-        .with("a", |a| a.facts.provider.local_files = true)
-        .unwrap();
-    set_editor(&h.engine, Some("touch {path}.opened-{line}")).unwrap();
-    open_in_editor(&h.engine, "a", "a b.txt", Some(7), None).unwrap();
-    let made = r.0.join("a b.txt.opened-7");
-    for _ in 0..500 {
-        if made.exists() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        made.exists(),
-        "the editor got the file's path as one argument"
-    );
-    set_editor(&h.engine, Some("no-such-editor-pitwall {path}")).unwrap();
-    assert!(open_in_editor(&h.engine, "a", "a b.txt", None, None)
-        .unwrap_err()
-        .contains("not found"));
-    assert_eq!(
-        editor_settings(&h.engine).command.as_deref(),
-        Some("no-such-editor-pitwall {path}")
-    );
+    assert!(list_files(&h.engine, "ghost", "", false).is_err());
 }
