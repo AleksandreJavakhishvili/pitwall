@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Pitwall's logic: the Engine (agents, status, queue, tasks), kinds and launch planning, git/review, rules, onboarding. No UI framework: the host plugs in through narrow traits (EventSink, Clock, Store). architecture.md §1."
 

@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-daemon"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Pitwall's socket server (architecture.md §1, §4): the versioned protocol over a local socket, the method table with each method's risk, approvals the user answers in Pitwall's UI, and who is calling (peer process → the agent it runs in). Runs inside the app for now; `pitwalld` (step 6) will host the same server."
 

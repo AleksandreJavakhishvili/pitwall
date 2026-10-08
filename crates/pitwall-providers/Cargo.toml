@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-providers"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Places agents run, as pitwall-core Providers (architecture.md §1, §2.7): `local` (this Mac, terminals in pitwall-hold holders) and `agw` (adopted agw sessions); ssh next. The only crate that knows about specific places to run; each provider is a cargo feature and passes pitwall-core's provider contract suite."
 

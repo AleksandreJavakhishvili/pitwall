@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pitwall-core",
  "pitwall-daemon",
@@ -2843,7 +2843,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "pitwall-client",
@@ -2856,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
  "pitwall-proto",
@@ -2866,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
  "notify",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-daemon"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "pitwall-client",
@@ -2897,7 +2897,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-detect"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alacritty_terminal",
  "regex",
@@ -2908,7 +2908,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-hold"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
  "libc",
@@ -2919,14 +2919,14 @@ dependencies = [
 
 [[package]]
 name = "pitwall-hook"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "interprocess",
 ]
 
 [[package]]
 name = "pitwall-proto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2935,7 +2935,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-providers"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pitwall-core",
  "pitwall-detect",
