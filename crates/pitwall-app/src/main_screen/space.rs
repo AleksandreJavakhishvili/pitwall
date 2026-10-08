@@ -756,6 +756,8 @@ impl MainScreen {
                         .child(crate::kit::one_line(det))
                 }))
             })
+            // `.pane-meta`: `flex: 0 1000 auto`, so it gives way before the
+            // blocked detail, clipping its items whole (no ellipsis).
             .child(
                 div()
                     .flex()
@@ -763,6 +765,10 @@ impl MainScreen {
                     .gap(px(8.))
                     .min_w_0()
                     .overflow_hidden()
+                    .map(|mut d| {
+                        d.style().flex_shrink = Some(1000.);
+                        d
+                    })
                     .text_size(px(11.5))
                     .text_color(t.text_3)
                     .child(
@@ -774,7 +780,8 @@ impl MainScreen {
                     .child(
                         div()
                             .id(SharedString::from(format!("p-{pane_id}")))
-                            .ellipsis()
+                            .flex_none()
+                            .flex()
                             .tooltip(tooltip(a.cwd.clone()))
                             .child(crate::kit::one_line(crate::kit::project_name(&a.project_display).to_string())),
                     )
@@ -784,7 +791,7 @@ impl MainScreen {
                         d.child(div().text_color(t.text_4).child("·")).child(
                             div()
                                 .id(SharedString::from(format!("b-{pane_id}")))
-                                .ellipsis()
+                                .flex_none()
                                 .font_family(crate::kit::MONO_FONT)
                                 .tooltip(tooltip(branch_tip.clone()))
                                 .flex()
