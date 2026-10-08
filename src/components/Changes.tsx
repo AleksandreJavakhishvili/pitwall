@@ -86,6 +86,33 @@ function AgentWorktrees({ agent: a }: { agent: AgentView }) {
   );
 }
 
+/** Branch and folder of the agent's checkout; click the path to copy it. */
+function WhereLine({ agent: a }: { agent: AgentView }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(t);
+  }, [copied]);
+  return (
+    <div className="where">
+      <span className="where-branch mono" title={a.worktree ? "Works in its own git worktree" : "Current branch"}>
+        <Icon name="branch" size={11} />
+        <span className="where-text">{a.branch ?? "detached HEAD"}</span>
+        {a.worktree && <span className="where-tag">worktree</span>}
+      </span>
+      <button
+        className="where-path mono"
+        title={copied ? "Copied" : `${a.cwd} — click to copy`}
+        onClick={() => void navigator.clipboard?.writeText(a.cwd).then(() => setCopied(true), () => {})}
+      >
+        <Icon name="folder" size={11} />
+        <span className="where-text">{copied ? "Copied" : a.cwdDisplay}</span>
+      </button>
+    </div>
+  );
+}
+
 export function Changes({ agent: a }: { agent: AgentView }) {
   const { openDiff } = useActions();
   const { data: files, error, refreshing, updatedAt, refresh } = useChanges(a);
@@ -108,6 +135,7 @@ export function Changes({ agent: a }: { agent: AgentView }) {
         <RefreshControl refreshing={refreshing} updatedAt={updatedAt} onRefresh={() => void refresh()} label="Refresh changes" />
         <DiffStat added={a.added} removed={a.removed} />
       </div>
+      <WhereLine agent={a} />
       {error === "not-a-git-repo" && (
         <p className="hint">Not a git repository — Pitwall can't track changes in this folder.</p>
       )}
