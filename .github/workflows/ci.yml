@@ -49,8 +49,8 @@ jobs:
     # PTYs, the terminal holder and the platform layer are tested on each OS
     # they ship on (rust-linux and rust-windows below).
     runs-on: macos-latest
-    # The workspace with GPUI and Tauri: ~25 min cold, a few warm. A hang
-    # fails here instead of running into GitHub's 6-hour limit.
+    # The workspace with GPUI: ~25 min cold, a few warm. A hang fails here
+    # instead of running into GitHub's 6-hour limit.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -64,12 +64,8 @@ jobs:
         with:
           cache-on-failure: true
 
-      # tauri-build needs the frontend dist folder to exist, even for tests.
-      - name: Placeholder frontend dist
-        run: mkdir -p dist
-
       # pitwall-app builds with runtime Metal shaders (its default feature),
-      # so no Metal toolchain is needed here; release-gpui.yml precompiles.
+      # so no Metal toolchain is needed here; release.yml precompiles.
       - name: cargo test
         run: cargo test --workspace --no-fail-fast
 
@@ -79,23 +75,20 @@ jobs:
   rust-linux:
     name: Rust on Linux (build + test + clippy)
     # The Linux platform layer (/proc, XDG folders), the holder's forkpty and
-    # both app shells (Tauri's WebKitGTK, pitwall-app's GPUI) are checked on
-    # the OS they ship on.
+    # the app (GPUI on X11/Wayland) are checked on the OS they ship on.
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      # Tauri's Linux build dependencies (https://v2.tauri.app/start/prerequisites/#linux),
-      # then GPUI's for crates/pitwall-app (X11 + Wayland, xkbcommon, fontconfig,
-      # Vulkan via blade; the subset of Zed's script/linux that gpui links).
+      # GPUI's build dependencies for crates/pitwall-app (X11 + Wayland,
+      # xkbcommon, fontconfig, Vulkan via blade; the subset of Zed's
+      # script/linux that gpui links).
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential curl wget file pkg-config patchelf \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev libxdo-dev \
+            build-essential curl wget file pkg-config libssl-dev \
             clang libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libx11-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
             libvulkan1 libvulkan-dev libzstd-dev libasound2-dev libglib2.0-dev
@@ -106,10 +99,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-
-      # tauri-build needs the frontend dist folder to exist, even for tests.
-      - name: Placeholder frontend dist
-        run: mkdir -p dist
 
       - name: cargo build
         run: cargo build --workspace --all-targets --target x86_64-unknown-linux-gnu
@@ -123,7 +112,7 @@ jobs:
   rust-windows:
     name: Rust on Windows (build + test + clippy)
     # The Windows port (ConPTY holder, named pipes, pitwall-hook, PowerShell
-    # launch, tray). Build and clippy cover the whole workspace; the suites
+    # launch, tray, the GPUI app). Build and clippy cover the whole workspace; the suites
     # that are portable must pass. The ones listed under "not yet ported"
     # still assume POSIX shells in their fixtures and run with
     # continue-on-error, one step each so a regression in a passing suite is
@@ -131,8 +120,8 @@ jobs:
     runs-on: windows-latest
     # A hang (the ConPTY holder suites) fails here instead of running into
     # GitHub's 6-hour limit and showing up as "cancelled". Room for a cold
-    # GPUI + Tauri build: the per-crate test steps below re-resolve features
-    # and rebuild part of the tree.
+    # GPUI build: the per-crate test steps below re-resolve features and
+    # rebuild part of the tree.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -143,11 +132,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-
-      # tauri-build needs the frontend dist folder to exist, even for tests.
-      - name: Placeholder frontend dist
-        shell: bash
-        run: mkdir -p dist
 
       - name: cargo build
         run: cargo build --workspace --all-targets
@@ -194,13 +178,15 @@ jobs:
         continue-on-error: true
         run: cargo test -p pitwall-app
 
-      # TODO(windows): the CLI and the app crate's tests.
-      - name: cargo test (cli, app) — not yet ported
+      # TODO(windows): the CLI's tests.
+      - name: cargo test (cli) — not yet ported
         continue-on-error: true
-        run: cargo test -p pitwall-cli -p pitwall
+        run: cargo test -p pitwall-cli
 
   web:
-    name: UI (build + test) and website
+    # The React UI is the website's live demo (src/README.md): type-check,
+    # build and unit-test it, then build the site that embeds it.
+    name: Web demo (build + test) and website
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
