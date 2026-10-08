@@ -1050,7 +1050,8 @@ impl Onboarding {
                                         .font_family(crate::kit::MONO_FONT)
                                         .text_size(px(11.))
                                         .text_color(t.text_2)
-                                        .child(s),
+                                        // Wraps as the browser does (no lone ")").
+                                        .child(crate::kit::para(s)),
                                 ))
                             })
                             .when(status == "running", |d| {
