@@ -28,6 +28,8 @@ pub enum Content {
 
 pub struct MainView {
     content: Content,
+    /// The read-only code explorer (Files panel, viewer, ⌘P, ⇧⌘F).
+    explorer: Option<Entity<crate::explorer::Explorer>>,
     selected: Option<String>,
     settings_open: bool,
     focus: FocusHandle,
@@ -52,13 +54,18 @@ impl MainView {
             }),
             cx.observe_window_bounds(window, |this, window, cx| this.bounds_changed(window, cx)),
         ];
+        let mut explorer = None;
         if let Content::Live { store, .. } = &content {
             subs.push(cx.observe(store, |_, _, cx| cx.notify()));
+            let e = cx.new(|cx| crate::explorer::Explorer::new(store.clone(), root.clone(), cx));
+            subs.push(cx.observe(&e, |_, _, cx| cx.notify()));
+            explorer = Some(e);
         }
         let focus = cx.focus_handle();
         window.focus(&focus);
         MainView {
             content,
+            explorer,
             selected: None,
             settings_open: false,
             focus,
@@ -98,6 +105,9 @@ impl MainView {
     }
 
     pub(super) fn select(&mut self, id: String, cx: &mut Context<Self>) {
+        if let Some(e) = &self.explorer {
+            e.update(cx, |e, cx| e.set_agent(Some(id.clone()), cx));
+        }
         self.selected = Some(id);
         cx.notify();
     }
@@ -248,7 +258,7 @@ impl MainView {
 }
 
 impl Render for MainView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let root = div()
             .id("main")
@@ -263,12 +273,38 @@ impl Render for MainView {
             .flex()
             .bg(t.bg)
             .text_color(t.text);
+        let root = match &self.explorer {
+            Some(e) => crate::explorer::on_actions(root, e),
+            None => root,
+        };
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
             Content::Live { store, data_dir } => {
                 let sidebar =
                     sidebar::render(store.read(cx), self.selected.as_deref(), data_dir, &t, cx);
-                root.child(sidebar).child(self.placeholder(&t, cx))
+                let root = root.child(sidebar);
+                match self.explorer.clone() {
+                    Some(e) => match e.read(cx).main_view() {
+                        Some(viewer) => root.child(viewer),
+                        None => {
+                            let panel = e.update(cx, |e, cx| e.panel(window, cx));
+                            root.child(self.placeholder(&t, cx)).when_some(panel, |r, p| {
+                                r.child(
+                                    div()
+                                        .w(theme::RIGHT_W)
+                                        .h_full()
+                                        .flex_none()
+                                        .border_l_1()
+                                        .border_color(t.line)
+                                        .bg(t.surface)
+                                        .child(p),
+                                )
+                            })
+                        }
+                    }
+                    .child(e),
+                    None => root.child(self.placeholder(&t, cx)),
+                }
             }
         };
         root.when(self.settings_open, |r| {
