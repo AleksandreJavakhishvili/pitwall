@@ -33,7 +33,7 @@ interface Loaded {
 }
 
 /** Settings → Appearance, or macOS while on System: the editor colours (review.css) follow it. */
-function useScheme(): Scheme {
+export function useScheme(): Scheme {
   const [scheme, setScheme] = useState(currentScheme);
   useEffect(() => onSchemeChange(setScheme), []);
   return scheme;
@@ -198,7 +198,7 @@ export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version,
 }
 
 /** The editor's context menu (Monaco's): Add review comment · Copy. */
-function DiffMenu({ req, onComment, onClose }: { req: MenuRequest; onComment: (() => void) | null; onClose(): void }) {
+export function DiffMenu({ req, onComment, onClose }: { req: MenuRequest; onComment: (() => void) | null; onClose(): void }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState({ left: req.x, top: req.y });
   const [active, setActive] = useState(-1);

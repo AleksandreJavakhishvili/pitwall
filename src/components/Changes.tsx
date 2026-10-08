@@ -12,6 +12,7 @@ import { FreshError, RefreshControl } from "./Freshness";
 import { countLabel, worktreesByAgent } from "../lib/worktrees";
 import { WorktreeRows } from "./WorktreeRows";
 import { Icon } from "./Icon";
+import { keys } from "../lib/host";
 
 /** Changes are polled this often while the panel is shown and the window visible. */
 export const CHANGES_POLL_MS = 5_000;
@@ -87,7 +88,7 @@ function AgentWorktrees({ agent: a }: { agent: AgentView }) {
 }
 
 /** Branch and folder of the agent's checkout; click the path to copy it. */
-function WhereLine({ agent: a }: { agent: AgentView }) {
+export function WhereLine({ agent: a }: { agent: AgentView }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -113,15 +114,14 @@ function WhereLine({ agent: a }: { agent: AgentView }) {
   );
 }
 
-export function Changes({ agent: a }: { agent: AgentView }) {
-  const { openDiff } = useActions();
+/** `tabs`: Changes / Files tabs shown in place of the "Changes" label (RightPanel). */
+export function Changes({ agent: a, tabs }: { agent: AgentView; tabs?: React.ReactNode }) {
+  const { openDiff, openReview } = useActions();
   const { data: files, error, refreshing, updatedAt, refresh } = useChanges(a);
   if (!a.caps.diff) {
     return (
       <section className="panel-section panel-grow">
-        <div className="section-head">
-          <span className="label">Changes</span>
-        </div>
+        <div className="section-head">{tabs ?? <span className="label">Changes</span>}</div>
         <p className="hint">Not a git repository — Pitwall can't track changes in this folder.</p>
       </section>
     );
@@ -129,10 +129,19 @@ export function Changes({ agent: a }: { agent: AgentView }) {
   return (
     <section className="panel-section panel-grow">
       <div className="section-head">
-        <span className="label">Changes</span>
-        {files && files.length > 0 && <span className="label-count">{files.length}</span>}
+        {tabs ?? (
+          <>
+            <span className="label">Changes</span>
+            {files && files.length > 0 && <span className="label-count">{files.length}</span>}
+          </>
+        )}
         <span className="spacer" />
-        <RefreshControl refreshing={refreshing} updatedAt={updatedAt} onRefresh={() => void refresh()} label="Refresh changes" />
+        <RefreshControl refreshing={refreshing} updatedAt={updatedAt} onRefresh={() => void refresh()} label="Refresh changes" note={!tabs} />
+        {a.caps.review && (
+          <button className="icon-btn icon-btn-sm" onClick={() => openReview({ agentId: a.id })} title={keys("Open in Review (⌘R)")} aria-label="Open in Review">
+            <Icon name="review" size={13} />
+          </button>
+        )}
         <DiffStat added={a.added} removed={a.removed} />
       </div>
       <WhereLine agent={a} />

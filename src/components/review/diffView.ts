@@ -822,3 +822,77 @@ export class DiffView {
     for (const f of this.cleanup) f();
   }
 }
+
+// ── one file, no diff (the read-only code explorer, docs/spec/explorer.md) ──────
+
+export interface FileViewOptions {
+  parent: HTMLElement;
+  doc: string;
+  lang: Lang | null;
+  onMenu(req: MenuRequest): void;
+}
+
+/** A single read-only editor with Review's look: same setup, margin, scrollbars and ruler. */
+export class FileViewer {
+  readonly view: EditorView;
+  private overview: Overview;
+  private cleanup: (() => void)[] = [];
+
+  constructor(opts: FileViewOptions) {
+    const host = document.createElement("div");
+    host.className = "rv-cm rv-cm-file";
+    opts.parent.appendChild(host);
+    const diffOpts: DiffViewOptions = {
+      parent: opts.parent,
+      original: "",
+      modified: opts.doc,
+      lang: opts.lang,
+      sideBySide: false,
+      commentable: false,
+      readOnlyText: "Read-only",
+      onComment: () => {},
+      onMenu: opts.onMenu,
+    };
+    this.view = new EditorView({
+      doc: opts.doc,
+      parent: host,
+      extensions: [
+        editorExtensions({ doc: opts.doc, lang: opts.lang, readOnlyText: "Read-only" }),
+        commentsField,
+        hoverField,
+        margin("b", diffOpts),
+        scrollbars,
+        contextMenu("b", diffOpts),
+        EditorView.updateListener.of((u) => {
+          if (u.geometryChanged || u.heightChanged || u.viewportChanged) this.overview?.schedule();
+        }),
+      ],
+    });
+    this.overview = new Overview(opts.parent, this.view, null);
+    const ro = new ResizeObserver(() => this.overview.schedule());
+    ro.observe(opts.parent);
+    this.cleanup.push(() => ro.disconnect(), () => host.remove());
+    this.overview.schedule();
+  }
+
+  /** Scroll `line` (1-based) to the middle and select `from`–`to` on it (0-based columns), or put the cursor there. */
+  reveal(line: number, from?: number, to?: number): boolean {
+    const doc = this.view.state.doc;
+    if (line < 1 || line > doc.lines) return false;
+    const l = doc.line(line);
+    const a = Math.min(l.to, l.from + (from ?? 0));
+    const b = to === undefined ? a : Math.min(l.to, l.from + to);
+    this.view.dispatch({ selection: { anchor: a, head: b }, effects: EditorView.scrollIntoView(a, { y: "center" }) });
+    return true;
+  }
+
+  focus() {
+    this.view.focus();
+  }
+
+  destroy() {
+    this.overview.destroy();
+    this.view.destroy();
+    for (const f of this.cleanup) f();
+  }
+}

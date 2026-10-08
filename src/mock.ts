@@ -6,6 +6,7 @@ import { createPermissionsMock } from "./components/onboarding/mockPermissions";
 import { DEFAULT_HOST } from "./lib/host";
 import { createReviewMock } from "./mockReview";
 import { createWorktreesMock } from "./mockWorktrees";
+import { createExplorerMock } from "./mockExplorer";
 import type {
   AgentView,
   ApprovalView,
@@ -702,6 +703,7 @@ export function createMockApi(): Api {
     isMock: true,
     ...createWorktreesMock(() => agents),
     ...createReviewMock({ find, update, changes: (id) => (changes[find(id).name] ??= []) }),
+    ...createExplorerMock({ find, changes: (id) => (changes[find(id).name] ??= []) }),
     listKinds: () => delay(kinds),
     listMachines: () => delay(machines),
     createForm: (provider, machine) => delay(mockForm(provider, machine), 400),

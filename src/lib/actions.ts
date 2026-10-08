@@ -6,6 +6,21 @@ import type { Density } from "../layout/density";
 import type { TilingContext } from "./tiling";
 import type { ThemePref } from "./theme";
 
+/** What Review shows first: a worktree, or an agent (and one of its files). */
+export type ReviewTarget = { projectId: string; path: string } | { agentId: string; path?: string };
+
+/** Where the file viewer opens. */
+export interface ExplorerTarget {
+  agentId: string;
+  path?: string;
+  /** 1-based line to show; `from`/`to`: 0-based columns to select on it. */
+  line?: number;
+  from?: number;
+  to?: number;
+  /** Which side pane: the tree (default) or Search (⇧⌘F). */
+  pane?: "files" | "search";
+}
+
 /** App-level actions shared with nested components. */
 export interface Actions {
   /** Focus an agent wherever it lives, or show it in the current space. */
@@ -18,8 +33,12 @@ export interface Actions {
   openRemove(agentId: string): void;
   /** Confirm, then `git worktree remove` (docs/spec/worktrees-view.md). */
   openRemoveWorktree(projectId: string, path: string): void;
-  /** Review (⌘R), optionally with one worktree selected. */
-  openReview(focus?: { projectId: string; path: string }): void;
+  /** Review (⌘R), optionally with one worktree, or one agent (and file), selected first. */
+  openReview(focus?: ReviewTarget): void;
+  /** The read-only file viewer (docs/spec/explorer.md) for an agent, optionally at a file / line or on Search. */
+  openExplorer(target: ExplorerTarget): void;
+  /** ⌘P: go to a file of an agent (default: the focused one). */
+  openQuickOpen(agentId?: string): void;
   /** `projectPath` preselects the project (non-string args, e.g. click events, are ignored). */
   openNewAgent(projectPath?: unknown): void;
   restart(agentId: string): void;

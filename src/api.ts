@@ -27,10 +27,11 @@ import type {
 import type { ScreenFrame } from "./gen/ScreenFrame";
 import { tauriReviewApi, type ReviewApi } from "./reviewTypes";
 import { tauriWorktreesApi, type WorktreesApi } from "./worktreesApi";
+import { tauriExplorerApi, type ExplorerApi } from "./explorerApi";
 
 export type Unlisten = () => void;
 
-export interface Api extends ReviewApi, WorktreesApi {
+export interface Api extends ReviewApi, WorktreesApi, ExplorerApi {
   isMock: boolean;
   listKinds(): Promise<KindView[]>;
   recentProjects(): Promise<RecentProject[]>;
@@ -155,6 +156,7 @@ async function createTauriApi(): Promise<Api> {
     isMock: false,
     ...tauriReviewApi(invoke),
     ...tauriWorktreesApi(invoke),
+    ...tauriExplorerApi(invoke),
     listKinds: () => invoke("list_kinds"),
     recentProjects: () => invoke("recent_projects"),
     listAgents: () => invoke("list_agents"),
