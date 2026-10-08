@@ -332,6 +332,34 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .roadmap-rest h2 { margin-top: 40px; }
 @media (max-width: 900px) { .lanes { grid-template-columns: minmax(0, 1fr); } }
 
+/* ---------- download page ---------- */
+.dl-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 28px 0 0; font-size: 0.92rem; color: var(--text-2); }
+.dl-meta a { color: var(--text-2); }
+.dl-meta strong { color: var(--text); font-family: var(--font-mono); font-size: 0.9em; }
+.dl-status { margin: 10px 0 0; font-size: 0.88rem; color: var(--text-3); max-width: 70ch; }
+.dl-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 28px; align-items: start; }
+.dl { min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); padding: 20px 20px 10px; }
+.dl.is-you { border-color: var(--text-3); box-shadow: inset 0 3px 0 var(--text); }
+.dl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.dl h2 { font-size: 1.7rem; }
+.dl-sub { margin: 8px 0 0; color: var(--text-2); font-size: 0.93rem; }
+.dl-files { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 12px; }
+.dl-files li { display: grid; gap: 5px; justify-items: start; }
+.dl-files .btn { max-width: 100%; }
+.dl-file { font: 0.76rem/1.45 var(--font-mono); color: var(--text-3); overflow-wrap: anywhere; }
+.dl h3 { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.82rem; letter-spacing: 0.14em; color: var(--text-3); }
+.dl-notes { margin: 8px 0 0; padding-left: 1.2em; }
+.dl-notes li { margin: 8px 0; color: var(--text-2); font-size: 0.9rem; line-height: 1.55; }
+.dl-notes strong { color: var(--text); }
+.dl-notes pre {
+  margin: 8px 0 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--text); font-size: 0.78rem; line-height: 1.6;
+}
+.dl-notes pre code { background: none; border: 0; padding: 0; font-size: inherit; overflow-wrap: normal; }
+.dl-source { margin-top: 16px; }
+@media (max-width: 1000px) { .dl-grid { grid-template-columns: minmax(0, 1fr); } .dl { padding: 18px 16px 8px; } }
+@media (max-width: 600px) { .dl-files .btn { width: 100%; justify-content: center; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

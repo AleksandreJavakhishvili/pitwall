@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Download — Pitwall</title>
+  <meta name="description" content="Download Pitwall for macOS (Apple silicon and Intel), Windows (x64) or Linux (x86_64), with first-launch notes for unsigned builds." />
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script>
+    try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Pitwall home">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <span>PITWALL</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="hide-sm" href="/docs/how-it-works/">How it works</a>
+        <a href="/docs/quick-start/">Docs</a>
+        <a class="hide-sm" href="/changelog/">Changelog</a>
+        <a class="hide-sm" href="/roadmap/">Roadmap</a>
+        <a href="/download/" aria-current="page">Download</a>
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <div class="wrap" data-downloads data-api="%RELEASE_API_URL%">
+      <div class="prose">
+        <p class="label" data-release-label>Download · latest release</p>
+        <h1>Download</h1>
+        <p>Pitwall for macOS, Windows and Linux. Free and open source under Apache-2.0. Early builds, not code-signed yet: each card says what the first launch looks like.</p>
+      </div>
+
+      <p class="dl-meta" data-release-meta>
+        <span data-release-info>Files are on <a href="%RELEASES_URL%">GitHub Releases</a>.</span>
+        <a href="%RELEASES_URL%" data-asset="SHA256SUMS.txt">SHA256SUMS.txt</a>
+        <a href="/changelog/" data-changelog>Changelog</a>
+        <a href="%RELEASES_URL%">All files</a>
+      </p>
+      <p class="dl-status" data-release-status hidden></p>
+
+      <div class="dl-grid" data-dl-grid>
+        <section class="dl" data-os="mac" aria-labelledby="dl-mac">
+          <div class="dl-head">
+            <h2 id="dl-mac">macOS</h2>
+            <span class="pill dl-you" hidden>Your system</span>
+          </div>
+          <p class="dl-sub">Apple silicon and Intel, one universal build.</p>
+          <ul class="dl-files">
+            <li>
+              <a class="btn btn-primary" href="%RELEASES_URL%" data-asset="_universal.dmg">Download .dmg</a>
+              <span class="dl-file"><span data-name>Pitwall_&lt;version&gt;_universal.dmg</span> <span data-size></span></span>
+            </li>
+            <li>
+              <a class="btn" href="%RELEASES_URL%" data-asset="_universal.app.tar.gz">App bundle (.tar.gz)</a>
+              <span class="dl-file"><span data-name>Pitwall_&lt;version&gt;_universal.app.tar.gz</span> <span data-size></span></span>
+            </li>
+          </ul>
+          <h3>First launch</h3>
+          <ol class="dl-notes">
+            <li>Open the <code>.dmg</code> and drag Pitwall to Applications.</li>
+            <li>The app isn't signed with an Apple Developer ID yet, so a double-click is blocked the first time. Right-click Pitwall.app → <strong>Open</strong>, then <strong>Open</strong> again. Or: System Settings → Privacy &amp; Security → <strong>Open Anyway</strong>.</li>
+            <li>If macOS says the app is damaged, clear the quarantine flag:
+              <pre><code>xattr -dr com.apple.quarantine /Applications/Pitwall.app</code></pre>
+            </li>
+            <li>Reading projects in Desktop or Documents makes macOS ask for folder access. The welcome screen offers Full Disk Access instead; until builds are signed, macOS may ask again after an update.</li>
+          </ol>
+        </section>
+
+        <section class="dl" data-os="win" aria-labelledby="dl-win">
+          <div class="dl-head">
+            <h2 id="dl-win">Windows</h2>
+            <span class="pill dl-you" hidden>Your system</span>
+          </div>
+          <p class="dl-sub">Windows 10 1809+ or 11, x64. New in 0.1 and less tested than macOS.</p>
+          <ul class="dl-files">
+            <li>
+              <a class="btn btn-primary" href="%RELEASES_URL%" data-asset="_x64-setup.exe">Download installer</a>
+              <span class="dl-file"><span data-name>Pitwall_&lt;version&gt;_x64-setup.exe</span> <span data-size></span> · per user, no admin</span>
+            </li>
+            <li>
+              <a class="btn" href="%RELEASES_URL%" data-asset="_x64.msi">.msi package</a>
+              <span class="dl-file"><span data-name>Pitwall_&lt;version&gt;_x64.msi</span> <span data-size></span></span>
+            </li>
+          </ul>
+          <h3>First launch</h3>
+          <ol class="dl-notes">
+            <li>The builds aren't code-signed yet, so SmartScreen shows "Windows protected your PC": click <strong>More info → Run anyway</strong>.</li>
+            <li>Check the download against <code>SHA256SUMS.txt</code> first:
+              <pre><code>Get-FileHash .\Pitwall_*_x64-setup.exe</code></pre>
+            </li>
+            <li>The installer fetches the WebView2 runtime if it's missing. Closing the window keeps Pitwall in the tray.</li>
+          </ol>
+        </section>
+
+        <section class="dl" data-os="linux" aria-labelledby="dl-linux">
+          <div class="dl-head">
+            <h2 id="dl-linux">Linux</h2>
+            <span class="pill dl-you" hidden>Your system</span>
+          </div>
+          <p class="dl-sub">x86_64, glibc 2.35+ (Ubuntu 22.04, Debian 12, Fedora 36 or newer).</p>
+          <ul class="dl-files">
+            <li>
+              <a class="btn btn-primary" href="%RELEASES_URL%" data-asset="_amd64.AppImage">Download AppImage</a>
+              <span class="dl-file"><span data-name>Pitwall_&lt;version&gt;_amd64.AppImage</span> <span data-size></span></span>
+            </li>
+            <li>
+              <a class="btn" href="%RELEASES_URL%" data-asset="_amd64.deb">.deb package</a>
+              <span class="dl-file"><span data-name>Pitwall_&lt;version&gt;_amd64.deb</span> <span data-size></span></span>
+            </li>
+          </ul>
+          <h3>First launch</h3>
+          <ol class="dl-notes">
+            <li>AppImage, any distribution (needs FUSE 2: <code>libfuse2</code>, or <code>libfuse2t64</code> on Ubuntu 24.04):
+              <pre><code>chmod +x Pitwall_*_amd64.AppImage
+./Pitwall_*_amd64.AppImage</code></pre>
+            </li>
+            <li>Debian, Ubuntu and derivatives; installs the WebKitGTK 4.1 dependencies too:
+              <pre><code>sudo apt install ./Pitwall_*_amd64.deb</code></pre>
+            </li>
+            <li>Hooks reach Pitwall through <code>curl</code>; the <code>.deb</code> depends on it, with the AppImage install it if it's missing.</li>
+          </ol>
+        </section>
+      </div>
+
+      <section class="prose dl-source" aria-labelledby="build-from-source">
+        <h2 id="build-from-source">Build from source</h2>
+        <p>Rust, Node.js 20.19+ and <code>pnpm</code> plus the <a href="https://tauri.app/start/prerequisites/">Tauri 2 prerequisites</a> for your platform. Steps for each OS, including the Linux packages, are in the <a href="/docs/quick-start/#build-from-source">quick start</a> and the <a href="%REPO_URL%#build-from-source">README</a>.</p>
+        <pre><code>git clone %REPO_URL%.git
+cd pitwall
+pnpm install
+pnpm tauri build</code></pre>
+        <p class="note">A Homebrew cask is coming; it isn't published yet. This page asks GitHub's API for the latest release; nothing else is loaded from third parties.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <nav aria-label="Footer">
+          <a href="/">Home</a>
+          <a href="/docs/quick-start/">Quick start</a>
+          <a href="/changelog/">Changelog</a>
+          <a href="/roadmap/">Roadmap</a>
+          <a href="%REPO_URL%">GitHub</a>
+        </nav>
+      </div>
+      <p>Pitwall is licensed under the <a href="%REPO_URL%/blob/main/LICENSE">Apache License 2.0</a>. Agent detection rules are adapted from <a href="https://github.com/herdrdev/herdr">Herdr</a> under the Apache License 2.0. Pitwall is not affiliated with Formula&nbsp;1 or with any agent vendor named here. No cookies.</p>
+    </div>
+  </footer>
+</body>
+</html>

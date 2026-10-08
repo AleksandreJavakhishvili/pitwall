@@ -10,3 +10,6 @@ export const REPO = "pitwall";
 export const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
 export const PAGES_URL = `https://${OWNER.toLowerCase()}.github.io/${REPO}/`;
 export const RELEASES_URL = `${REPO_URL}/releases/latest`;
+// The download page reads the latest release (version, date, asset URLs) from here
+// at runtime and falls back to RELEASES_URL when it can't.
+export const RELEASE_API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`;

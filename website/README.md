@@ -1,7 +1,7 @@
 # Pitwall website
 
 Static marketing site for Pitwall: a one-screen landing page built around a demo,
-`/docs/how-it-works/`, `/docs/quick-start/`, `/changelog/`, `/roadmap/` and a 404.
+`/download/`, `/docs/how-it-works/`, `/docs/quick-start/`, `/changelog/`, `/roadmap/` and a 404.
 
 `/changelog/` and `/roadmap/` are rendered at build time from the repository's
 `CHANGELOG.md` and `ROADMAP.md`: each page has a `<!-- markdown:<name> -->` marker
@@ -10,7 +10,8 @@ of `scripts/pages.mjs` (a small Markdown converter in `scripts/markdown.mjs`, fo
 subset those files use). Edit the Markdown files, not the pages.
 
 Plain HTML pages and one CSS file, bundled by Vite. No framework, no analytics, no
-external CDNs. Fonts (Inter, JetBrains Mono, Barlow Condensed) are self-hosted
+external CDNs. The one outside request is the download page asking GitHub's API for
+the latest release. Fonts (Inter, JetBrains Mono, Barlow Condensed) are self-hosted
 from `@fontsource` packages.
 
 ## Run
@@ -34,13 +35,14 @@ with root-absolute links (`/docs/…`, `/video/…`); the `pitwall-site-links` p
 `import.meta.env.BASE_URL`.
 
 The GitHub owner and repository name live only in `site.config.js`; pages use
-`%REPO_URL%`, `%RELEASES_URL%` and `%PAGES_URL%`. Deployment is
+`%REPO_URL%`, `%RELEASES_URL%`, `%RELEASE_API_URL%` and `%PAGES_URL%`. Deployment is
 `.github/workflows/pages.yml` (base from the repository name).
 
 ## Layout
 
 ```
 index.html                    landing: hero, demo with tabs, agents, download / GitHub
+download/index.html           per-OS downloads, first-launch notes, build from source
 docs/how-it-works/index.html  flags, Wall, Next up, Review, terminals, agents, rules, agw, CLI, roadmap
 docs/quick-start/index.html   install, build from source, first steps
 changelog/index.html          page chrome; content from ../CHANGELOG.md
@@ -48,7 +50,7 @@ roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Nex
 404.html
 site.config.js                OWNER / REPO and the URLs derived from them
 src/site.css                  all styles; tokens mirror the app's src/styles/tokens.css
-src/main.js                   theme toggle, demo tabs, live demo (no network calls)
+src/main.js                   theme toggle, demo tabs, live demo, download links
 scripts/build.mjs             full build (demo + pages)
 scripts/pages.mjs             renders CHANGELOG.md / ROADMAP.md into the two pages
 scripts/markdown.mjs          minimal Markdown → HTML
@@ -56,6 +58,17 @@ scripts/build-demo.mjs        builds the app's browser mock into public/demo/ (o
 public/video/                 demo recording, dark + light, with poster frames
 public/favicon.svg            copy of docs/brand/pitwall-mark.svg
 ```
+
+## Downloads
+
+`/download/` has a card per OS; the visitor's OS (`navigator.userAgentData`, else the
+user agent) goes first. Every button links to `%RELEASES_URL%` in the HTML, so the
+page works without JavaScript. `src/main.js` then reads `%RELEASE_API_URL%` (GitHub's
+latest release, cached for 10 minutes in `sessionStorage`) and points each button at
+the asset whose name ends with its `data-asset` suffix (`_universal.dmg`,
+`_x64-setup.exe`, `_amd64.AppImage`, …), with the version, date and file sizes. When
+the API fails, is rate-limited or there's no release, the buttons stay on the
+Releases page and a note says so. Asset names come from `.github/workflows/release.yml`.
 
 ## Demo
 
