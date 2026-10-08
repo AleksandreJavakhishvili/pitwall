@@ -87,7 +87,7 @@ h1 span { color: var(--text-3); }
       ${rows.map((r) => `<div class="row ${r.state}"><span class="pos">${r.pos}</span><div><div class="agent">${r.agent}</div><div class="meta">${r.project} · ${r.cli}</div></div><span class="flag">${r.flag}${r.state === "done" ? '<span class="mini"></span>' : ""}</span></div>`).join("\n      ")}
     </div>
   </div>
-  <p class="foot">Desktop app · macOS · Linux · Open source, Apache-2.0</p>
+  <p class="foot">Desktop app · macOS · Linux · Windows · Open source, Apache-2.0</p>
 </body></html>`;
 
 const tmp = mkdtempSync(join(tmpdir(), "pitwall-og-"));

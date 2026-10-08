@@ -10,7 +10,7 @@ thumbs-up to an existing one.
 Being worked on.
 
 - **Signed builds.** Apple and Windows code signing, so macOS and Windows stop warning on first launch and macOS stops asking for folder access again after every update.
-- **Windows, tested on a real machine.** The Windows build exists; next is running it day to day on real hardware and fixing what turns up.
+- **Windows out of preview.** Windows builds ship since 0.1.1 and pass CI; next is running them day to day on real PCs and fixing what turns up.
 - **Lighter with terminals on screen.** WebKit keeps about 220 MB for drawing as soon as anything on screen repaints; try repainting the Wall less often to bring that down.
 - **Calmer with many busy agents.** Lower CPU when twenty agents are all printing at once.
 
