@@ -25,7 +25,8 @@ const CHROMES = [
 ].filter(Boolean);
 
 const font = (pkg, file) => pathToFileURL(resolve(site, "node_modules", pkg, "files", file)).href;
-const mark = readFileSync(resolve(site, "public/favicon.svg"), "utf8");
+// The Apex P on its dark tile.
+const mark = readFileSync(resolve(site, "../docs/brand/pitwall-mark.svg"), "utf8");
 
 const rows = [
   { pos: 1, agent: "tests", project: "checkout-web", cli: "Claude Code", state: "blocked", flag: "▲ Needs you" },
@@ -63,7 +64,7 @@ body {
   -webkit-mask: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent); }
 .main { position: absolute; inset: 0; padding: 56px 64px 48px; display: grid; grid-template-columns: 1fr 460px; gap: 48px; }
 .brand { display: flex; align-items: center; gap: 16px; font: 700 36px Barlow, sans-serif; letter-spacing: 0.18em; }
-.brand svg { width: 56px; height: 56px; }
+.brand svg { width: 60px; height: 60px; }
 h1 { margin-top: 48px; font-size: 68px; line-height: 0.98; font-weight: 700; letter-spacing: -0.045em; text-shadow: 0 2px 40px rgba(0, 0, 0, 0.3); }
 h1 span { color: var(--text-3); }
 .sub { margin-top: 24px; font-size: 23px; line-height: 1.4; color: var(--text-2); max-width: 30ch; }

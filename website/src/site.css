@@ -49,6 +49,10 @@
   --red: #ff6b6b;
   --flag: #f4f5f7;
   --flag-dark: #2a2e35;
+  /* The Apex P lockup (header, footer): a solid P in the page's ink, its tail through a chequered band. */
+  --mark-ink: #e8ebef;
+  --mark-b: #353c46;
+  --brand-amber: #ffb020;
 
   /* The sky, in three layers (see .sky). */
   --sky-base:
@@ -108,6 +112,8 @@
     --red: #c43030;
     --flag: #15181c;
     --flag-dark: #d4d8dd;
+    --mark-ink: #111418;
+    --mark-b: #c5cbd3;
     --sky-base:
       radial-gradient(60% 50% at 18% 4%, rgba(118, 164, 236, 0.5), transparent 70%),
       radial-gradient(50% 45% at 86% 8%, rgba(168, 198, 246, 0.55), transparent 70%),
@@ -158,6 +164,8 @@
   --red: #c43030;
   --flag: #15181c;
   --flag-dark: #d4d8dd;
+  --mark-ink: #111418;
+  --mark-b: #c5cbd3;
   --sky-base:
     radial-gradient(60% 50% at 18% 4%, rgba(118, 164, 236, 0.5), transparent 70%),
     radial-gradient(50% 45% at 86% 8%, rgba(168, 198, 246, 0.55), transparent 70%),
@@ -312,11 +320,42 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   -webkit-mask: linear-gradient(#000 55%, transparent); mask: linear-gradient(#000 55%, transparent);
 }
 .scrolled .site-head::before { opacity: 1; }
+/* Reading progress: a car runs along the bottom edge of the header bar, past amber pit
+   marks at each section, to a chequered flag. main.js adds it on pages with
+   <body data-progress>. A scroll timeline drives it where the browser has one; elsewhere
+   main.js sets --p. Transform only. */
+.pbar {
+  position: absolute; left: 30px; right: 34px; bottom: -1px; height: 2px; pointer-events: none;
+  opacity: 0; transition: opacity 0.45s ease;
+}
+.scrolled .pbar { opacity: 1; }
+.pb-lane, .pb-fill, .pb-pits { position: absolute; inset: 0; }
+.pb-car .b { fill: var(--text); } .pb-car .w { fill: var(--text-2); } .pb-car .s { stroke: var(--text-3); } .pb-car .c { fill: var(--brand-amber); }
+.pb-lane { background: repeating-linear-gradient(90deg, var(--line-strong) 0 8px, transparent 8px 14px); }
+.pb-fill { background: var(--text); border-radius: 2px; opacity: 0.7; transform-origin: 0 50%; transform: scaleX(var(--p, 0)); }
+/* The rider is as wide as the lane and slides by its own width; the track clips it so the
+   moved box never widens the page. */
+.pb-track { position: absolute; left: -20px; right: -6px; top: -8px; height: 18px; overflow: hidden; }
+.pb-rider { position: absolute; left: 20px; right: 6px; top: 0; bottom: 0; transform: translateX(calc(var(--p, 0) * 100%)); will-change: transform; }
+.pb-car { position: absolute; right: 100%; top: 2px; width: 19px; height: 14px; margin-right: -4px; }
+.pb-pit { position: absolute; top: -3px; width: 2px; height: 8px; margin-left: -1px; border-radius: 1px; background: var(--brand-amber); }
+.pb-flag {
+  position: absolute; left: 100%; top: -4px; width: 10px; height: 10px; margin-left: 6px; border-radius: 2px;
+  background: conic-gradient(var(--flag) 25%, var(--flag-dark) 0 50%, var(--flag) 0 75%, var(--flag-dark) 0) 0 0 / 5px 5px;
+}
+@supports (animation-timeline: scroll()) {
+  .pb-fill { animation: pb-fill linear both; animation-timeline: scroll(root); }
+  .pb-rider { animation: pb-ride linear both; animation-timeline: scroll(root); }
+  @keyframes pb-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes pb-ride { from { transform: translateX(0); } to { transform: translateX(100%); } }
+}
 @media (prefers-reduced-transparency: reduce) {
   .site-head::before { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg); }
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-.brand img { width: 28px; height: 28px; }
+.brand .mark { flex: none; display: block; }
+.mark-s { stroke: var(--mark-ink); }
+.mark-b { fill: var(--mark-b); }
 .brand span { font-family: var(--font-label); font-weight: 700; letter-spacing: 0.22em; font-size: 1.15rem; }
 .site-nav { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .site-nav a { text-decoration: none; color: var(--text-2); font-size: 0.92rem; padding: 6px 12px; border-radius: 999px; transition: background-color 0.2s, color 0.2s; }
@@ -352,13 +391,26 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   box-shadow: 0 10px 30px -12px var(--glow), 0 1px 0 rgba(255, 255, 255, 0.4) inset;
   overflow: hidden; isolation: isolate;
 }
-/* Sheen: a light sweep across on hover. */
-.btn-primary::after {
-  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 196, 150, 0.45) 48%, rgba(255, 255, 255, 0.6) 52%, transparent 70%);
-  transform: translateX(-110%); transition: transform 0.8s ease;
+/* Headlight sweep: two beams cross the button on hover (and once as the hero settles).
+   One pseudo-element, moved by transform only. */
+.cta .btn { overflow: hidden; isolation: isolate; }
+.btn-primary::after, .cta .btn::after {
+  content: ""; position: absolute; top: -40%; bottom: -40%; left: 0; width: 90%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60% 34% at 70% 36%, rgba(255, 236, 200, 0.75), transparent 70%),
+    radial-gradient(60% 34% at 70% 66%, rgba(255, 236, 200, 0.75), transparent 70%),
+    linear-gradient(90deg, transparent 0%, rgba(255, 190, 120, 0.22) 60%, transparent 100%);
+  transform: translateX(-120%) skewX(-12deg); opacity: 0.9;
 }
-.btn-primary:hover::after { transform: translateX(110%); }
+.cta .btn:not(.btn-primary)::after {
+  background:
+    radial-gradient(60% 34% at 70% 36%, rgba(255, 214, 150, 0.35), transparent 70%),
+    radial-gradient(60% 34% at 70% 66%, rgba(255, 214, 150, 0.35), transparent 70%);
+}
+.btn-primary:hover::after, .cta .btn:hover::after, .cta.sweep .btn::after { animation: beam 0.75s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.cta.sweep .btn:nth-child(2)::after { animation-delay: 0.12s; }
+.cta.sweep .btn:nth-child(3)::after { animation-delay: 0.24s; }
+@keyframes beam { to { transform: translateX(150%) skewX(-12deg); } }
 /* The main calls to action get a slowly turning light around the rim. */
 @property --shimmer { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 .cta .btn-primary::before {
@@ -374,6 +426,37 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 /* ---------- hero: centred, big, airy ---------- */
 .hero { padding: clamp(56px, 10vw, 120px) 0 0; }
 .hero-top { display: grid; justify-items: center; text-align: center; gap: 0; }
+/* The app icon, traced once: the line runs from the bowl down to the tail, the tail's
+   squares flip dark one by one as it crosses, and the flag ripples once (about 1.8 s). */
+.hero-mark { width: clamp(64px, 8vw, 80px); height: auto; margin-bottom: 22px; filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.32)); }
+.hm-trace { stroke-dasharray: 1 1; stroke-dashoffset: 0; }
+.hm-sq:nth-child(2) { --k: 1; } .hm-sq:nth-child(3) { --k: 2; } .hm-sq:nth-child(4) { --k: 3; }
+.hm-flag { transform-box: fill-box; transform-origin: 100% 50%; }
+:root:not(.intro-seen) .hm-trace { animation: hm-trace 1s cubic-bezier(0.6, 0, 0.2, 1) both; }
+:root:not(.intro-seen) .hm-sq { animation: hm-sq 0.16s ease-out calc(0.92s + var(--k, 0) * 0.1s) both; }
+:root:not(.intro-seen) .hm-flag { animation: hm-ripple 0.55s ease-in-out 1.25s both; }
+@keyframes hm-trace { from { stroke-dashoffset: 1; } }
+@keyframes hm-sq { from { opacity: 0; } }
+@keyframes hm-ripple { 0%, 100% { transform: none; } 35% { transform: skewY(-9deg) scaleX(0.94); } 70% { transform: skewY(5deg); } }
+
+/* Lights out: the eyebrow's five lights come on one by one and go out together, the
+   middle one stays amber, then the headline rises in. Once per session. */
+.eyebrow-lights::before { content: none; }
+.lights { display: inline-flex; gap: 3px; flex: none; }
+.lights i { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+.lights i::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--text); opacity: 0; }
+.lights i:nth-child(3)::before {
+  content: ""; position: absolute; inset: 0; z-index: 1; border-radius: 50%;
+  background: var(--brand-amber); box-shadow: 0 0 8px var(--brand-amber);
+}
+.lights i:nth-child(2) { --i: 1; } .lights i:nth-child(3) { --i: 2; } .lights i:nth-child(4) { --i: 3; } .lights i:nth-child(5) { --i: 4; }
+:root:not(.intro-seen) .lights i::after { animation: lo-on calc(1s - var(--i, 0) * 0.15s) linear calc(var(--i, 0) * 0.15s) 1 none; }
+:root:not(.intro-seen) .lights i:nth-child(3)::before { animation: lo-amber 1.15s ease-out both; }
+:root:not(.intro-seen) .hero h1 { animation: w1-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) 1.05s both; }
+:root:not(.intro-seen) .hero .lede, :root:not(.intro-seen) .hero .cta, :root:not(.intro-seen) .hero-note { animation: w1-rise 0.6s ease 1.25s both; }
+@keyframes lo-on { 0%, 97% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes lo-amber { 0%, 88% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes w1-rise { from { opacity: 0; transform: translate3d(0, 18px, 0); } }
 .hero h1 {
   font-size: clamp(2.75rem, 7.6vw, 6.2rem); line-height: 0.98; margin-top: 26px; max-width: 15em;
   text-wrap: balance; text-shadow: var(--hero-shadow, none);
@@ -644,4 +727,5 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   .reveal { opacity: 1; transform: none; filter: none; }
+  .pbar { display: none; }
 }

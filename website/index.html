@@ -7,20 +7,24 @@
   <meta name="description" content="Open-source desktop app for macOS, Linux and Windows: run Claude Code, Codex, Gemini CLI and other terminal coding agents side by side and see which needs you." />
   <meta name="color-scheme" content="dark light" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <script>
     try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+    /* The hero intro (lights out, the logo trace) plays once per session. */
+    try { if (sessionStorage.getItem("pitwall-intro")) document.documentElement.classList.add("intro-seen"); else sessionStorage.setItem("pitwall-intro", "1"); } catch (e) {}
   </script>
   <script type="module" src="/src/main.js"></script>
 </head>
-<body>
+<body data-progress>
   <div class="sky" aria-hidden="true"><i class="sky-base"></i><i class="sky-glow"></i><i class="sky-trails"></i></div>
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="site-head">
     <div class="wrap">
       <a class="brand" href="/" aria-label="Pitwall home">
-        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <svg class="mark" viewBox="7 7 50 50" width="28" height="28" aria-hidden="true"><defs><mask id="mk-h" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-h)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
         <span>PITWALL</span>
       </a>
       <nav class="site-nav" aria-label="Main">
@@ -40,7 +44,23 @@
     <section class="hero" aria-labelledby="hero-h">
       <div class="wrap">
         <div class="hero-top">
-          <p class="eyebrow">macOS · Linux · Windows preview · early builds</p>
+          <svg class="hero-mark" viewBox="0 0 100 100" width="80" height="80" aria-hidden="true">
+            <defs>
+              <linearGradient id="hm-t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2028"/><stop offset="1" stop-color="#0c0f13"/></linearGradient>
+              <mask id="hm-m" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask>
+            </defs>
+            <path d="M50 0C86 0 100 14 100 50S86 100 50 100 0 86 0 50 14 0 50 0Z" fill="url(#hm-t)"/>
+            <svg x="16" y="16" width="68" height="68" viewBox="0 0 64 64">
+              <g transform="translate(6.5 -.5)" fill="none" stroke-width="9" stroke-linejoin="round">
+                <path d="M24 38H33A12.5 12.5 0 0 0 33 13H24V40C24 48 19 52 10 52H1" stroke="#252b34"/>
+                <path class="hm-trace" pathLength="1" d="M24 38H33A12.5 12.5 0 0 0 33 13H24V40C24 48 19 52 10 52H1" stroke="#e8ebef"/>
+                <g mask="url(#hm-m)" stroke="none"><g class="hm-flag" fill="#353c46">
+                  <rect class="hm-sq" x="14.5" y="52" width="4.5" height="4.5"/><rect class="hm-sq" x="10" y="47.5" width="4.5" height="4.5"/><rect class="hm-sq" x="5.5" y="52" width="4.5" height="4.5"/><rect class="hm-sq" x="1" y="47.5" width="4.5" height="4.5"/>
+                </g></g>
+              </g>
+            </svg>
+          </svg>
+          <p class="eyebrow eyebrow-lights"><span class="lights" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>macOS · Linux · Windows preview · early builds</p>
           <h1 id="hero-h">You call the strategy. <span class="dim">Agents drive.</span></h1>
           <p class="lede">Run Claude Code, Codex and any other terminal agent side by side. The one that needs you turns amber.</p>
           <div class="cta">
@@ -144,7 +164,7 @@
   <footer class="site-foot">
     <div class="wrap">
       <div class="foot-row">
-        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <a class="brand" href="/"><svg class="mark" viewBox="7 7 50 50" width="24" height="24" aria-hidden="true"><defs><mask id="mk-f" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-f)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg><span>PITWALL</span></a>
         <nav aria-label="Footer">
           <a href="/docs/how-it-works/">How it works</a>
           <a href="/docs/quick-start/">Quick start</a>
