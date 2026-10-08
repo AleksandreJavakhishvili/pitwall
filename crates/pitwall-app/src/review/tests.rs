@@ -21,6 +21,11 @@ impl Repo {
         std::fs::create_dir_all(&dir).unwrap();
         let r = Repo(dir);
         r.git(&["init", "-q", "--template=", "-b", "main"]);
+        // The app's own commits (the Commit dialog) need an identity too:
+        // CI runners and fresh containers have no global one.
+        r.git(&["config", "user.name", "Test"]);
+        r.git(&["config", "user.email", "test@example.com"]);
+        r.git(&["config", "commit.gpgsign", "false"]);
         r
     }
 
