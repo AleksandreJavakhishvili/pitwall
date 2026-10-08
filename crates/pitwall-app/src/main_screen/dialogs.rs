@@ -75,7 +75,7 @@ fn field_error(text: impl Into<SharedString>, t: &Theme) -> impl IntoElement {
         .child(text.into())
 }
 
-fn form_error(text: impl Into<SharedString>, t: &Theme) -> impl IntoElement {
+pub(super) fn form_error(text: impl Into<SharedString>, t: &Theme) -> impl IntoElement {
     div()
         .px(px(10.))
         .py(px(8.))
@@ -86,7 +86,7 @@ fn form_error(text: impl Into<SharedString>, t: &Theme) -> impl IntoElement {
         .child(text.into())
 }
 
-fn foot(t: &Theme) -> gpui::Div {
+pub(super) fn foot(t: &Theme) -> gpui::Div {
     div()
         .flex()
         .justify_end()
@@ -98,7 +98,7 @@ fn foot(t: &Theme) -> gpui::Div {
         .bg(t.surface)
 }
 
-fn body(t: &Theme) -> gpui::Div {
+pub(super) fn body(t: &Theme) -> gpui::Div {
     let _ = t;
     div()
         .flex()
@@ -1449,6 +1449,7 @@ impl MainScreen {
                     .into_any_element(),
             ),
             Some(super::Modal::Remove(_)) => self.render_remove(t, cx),
+            Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, cx),
         }
     }
 }

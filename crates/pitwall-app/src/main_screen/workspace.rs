@@ -207,6 +207,10 @@ pub struct UiState {
     /// the file, so it costs it nothing.
     #[serde(default, deserialize_with = "strict_true")]
     pub explorer_show_ignored: bool,
+    /// The right panel shows Files instead of Changes (the Tauri app's
+    /// localStorage `pitwall.right.files`).
+    #[serde(default, deserialize_with = "strict_true")]
+    pub right_files: bool,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -254,6 +258,7 @@ impl Default for UiState {
             look: Default::default(),
             reduce_motion: false,
             explorer_show_ignored: false,
+            right_files: false,
             rest: serde_json::Map::new(),
         }
     }

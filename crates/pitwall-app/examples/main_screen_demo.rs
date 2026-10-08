@@ -6,7 +6,9 @@
 //! - `DEMO_SIZE=1600x1000` window size (logical px)
 //! - `DEMO_THEME=light` (default: the system's)
 //! - `DEMO_SHOW=api-fix` show that agent (default: the first, as on a first run)
-//! - `DEMO_OPEN=new-agent|remove|diff|menu|terminal` open a dialog or menu
+//! - `DEMO_OPEN=new-agent|remove|diff|menu|terminal|remove-worktree` open a dialog or menu
+//! - `DEMO_WT=open` expand every worktree list (the mock's worktrees show either way)
+//! - `DEMO_FILES=1` the right panel on its Files tab
 
 use gpui::{
     px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
@@ -35,6 +37,11 @@ fn main() {
             cx.set_global(Theme::for_mode(mode));
             pitwall_app::kit::init(cx);
             main_screen::init(cx);
+            pitwall_app::code_view::register(cx);
+            pitwall_app::next_up::register(cx);
+            if std::env::var("DEMO_FILES").is_ok() {
+                pitwall_app::ui_state::update(cx, |s| s.right_files = true);
+            }
             let store = cx.new(|_| AgentStore::new(demo::agents()));
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -64,8 +71,11 @@ fn main() {
                         }
                     }
                     s.demo_changes(cx);
-                    if let Ok(what) = std::env::var("DEMO_OPEN") {
-                        s.demo_open(&what, window, cx);
+                    s.demo_worktrees(std::env::var("DEMO_WT").is_ok(), cx);
+                    match std::env::var("DEMO_OPEN").as_deref() {
+                        Ok("remove-worktree") => s.demo_remove_worktree(cx),
+                        Ok(what) => s.demo_open(what, window, cx),
+                        Err(_) => {}
                     }
                 });
                 screen

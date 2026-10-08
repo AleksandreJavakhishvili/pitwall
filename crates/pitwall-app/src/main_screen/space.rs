@@ -106,6 +106,9 @@ impl MainScreen {
             Some(d) => tree::set_split_sizes(&tree, &d.split, &d.live),
             None => tree,
         };
+        if let Some(a) = area {
+            self.auto_font = super::tile_font::auto_fonts(&tree, a, density, self.ui.font_size);
+        }
         let visible = tree.agents();
         let chips: Vec<AgentView> = space
             .members_of(agents)

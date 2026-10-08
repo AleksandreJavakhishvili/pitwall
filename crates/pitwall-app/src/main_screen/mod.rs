@@ -28,7 +28,9 @@ mod panel;
 mod sidebar;
 mod space;
 mod strip;
+mod tile_font;
 mod topbar;
+pub mod worktrees;
 pub mod tree;
 pub mod workspace;
 
@@ -229,6 +231,9 @@ pub enum ScreenEvent {
     AgentShown(String),
     /// "Move to new window" on a space (multi-window answers it).
     MoveSpaceToWindow(String),
+    /// Open Review on one worktree (a sidebar worktree row; the route is
+    /// already Review).
+    ReviewWorktree { project_id: String, path: String },
 }
 
 impl EventEmitter<ScreenEvent> for MainScreen {}
@@ -339,6 +344,7 @@ enum Modal {
     Terminal(Entity<TerminalDialog>),
     Remove(RemoveState),
     Diff(Entity<DiffDialog>),
+    RemoveWorktree(worktrees::RemoveWt),
 }
 
 /// A divider being dragged: the split, which divider, and the sizes so far.
@@ -364,8 +370,6 @@ pub struct MainScreen {
     right_pinned: bool,
     overlay_sidebar: bool,
     drawer_open: bool,
-    /// The right panel shows Files instead of Changes.
-    files_tab: bool,
     modal: Option<Modal>,
     menu: Option<CtxMenu>,
     rename: Option<(String, Entity<TextInput>)>,
@@ -382,6 +386,11 @@ pub struct MainScreen {
     /// The sidebar's keyboard cursor.
     cursor: Option<String>,
     route_views: HashMap<Route, AnyView>,
+    /// The font each shown tile shrank to (agent id → px), from the last
+    /// layout ([`tile_font`]).
+    auto_font: HashMap<String, f64>,
+    /// The window's worktree list (sidebar chips and rows).
+    wt: worktrees::WtState,
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
     agent_ids: Vec<String>,
@@ -438,7 +447,6 @@ impl MainScreen {
             right_pinned: true,
             overlay_sidebar: false,
             drawer_open: false,
-            files_tab: false,
             modal: None,
             menu: None,
             rename: None,
@@ -452,6 +460,8 @@ impl MainScreen {
             drop_hint: None,
             cursor: None,
             route_views: HashMap::new(),
+            auto_font: HashMap::new(),
+            wt: Default::default(),
             seen_task: None,
             last_selected: None,
             agent_ids: vec![],
@@ -582,6 +592,7 @@ impl MainScreen {
         }
         self.follow_selected(cx);
         self.changes_follow(cx);
+        self.wt_follow(cx);
         cx.notify();
     }
 
@@ -789,11 +800,13 @@ impl MainScreen {
         (Some(cols as u16), Some(rows as u16))
     }
 
-    /// The font an agent's tile shows: its own, else the Settings font.
+    /// The font an agent's tile shows: its own (⌘+ / ⌘−), else the Settings
+    /// font shrunk to fit its pane (down to 10 px).
     pub fn tile_font(&self, agent: &str) -> f64 {
         self.ui
             .tile_font
             .get(agent)
+            .or_else(|| self.auto_font.get(agent))
             .copied()
             .unwrap_or(self.ui.font_size)
     }
@@ -862,7 +875,7 @@ impl MainScreen {
     }
 
     /// A failed engine call (React: `run(…, what)` → "Couldn't <what>").
-    fn failed(&mut self, what: &str, err: String, cx: &mut Context<Self>) {
+    pub fn failed(&mut self, what: &str, err: String, cx: &mut Context<Self>) {
         self.toast(Toast::error(format!("Couldn't {what}"), err), cx);
     }
 

@@ -204,6 +204,17 @@ impl MainScreen {
             .children(section(super::PanelSlot::Bottom, a, window, cx))
     }
 
+    /// Show Files (or Changes); remembered in `ui.json` for every window.
+    fn set_files_tab(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.update_ui(
+            |mut s| {
+                s.right_files = on;
+                s
+            },
+            cx,
+        );
+    }
+
     /// Changes / Files tabs (`PanelTabs`), when a Files panel is registered.
     fn panel_tabs(&self, a: &AgentView, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let tab = |id: &'static str, text: &'static str, on: bool| {
@@ -226,7 +237,7 @@ impl MainScreen {
             .gap(px(2.))
             .ml(px(-6.))
             .child(
-                tab("tab-changes", "Changes", !self.files_tab)
+                tab("tab-changes", "Changes", !self.ui.right_files)
                     .when(changed > 0, |d| {
                         d.child(
                             div()
@@ -236,18 +247,11 @@ impl MainScreen {
                                 .child(changed.to_string()),
                         )
                     })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.files_tab = false;
-                        cx.notify();
-                    })),
+                    .on_click(cx.listener(|this, _, _, cx| this.set_files_tab(false, cx))),
             )
             .child(
-                tab("tab-files", "Files", self.files_tab).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.files_tab = true;
-                        cx.notify();
-                    },
-                )),
+                tab("tab-files", "Files", self.ui.right_files)
+                    .on_click(cx.listener(|this, _, _, cx| this.set_files_tab(true, cx))),
             )
     }
 
@@ -280,7 +284,7 @@ impl MainScreen {
         } else {
             head.child(crate::kit::label("Changes", t.text_3, 12.))
         };
-        if self.files_tab && files_hook {
+        if self.ui.right_files && files_hook {
             // The Files panel draws its own head row (refresh, open the
             // viewer); the tabs sit at its start, as `FilesPanel`'s `tabs`.
             let build = cx.global::<super::FilesPanel>().0.clone();
@@ -305,7 +309,7 @@ impl MainScreen {
                 );
         }
         if !a.caps.diff {
-            return div().flex().flex_col().child(head).child(hint(
+            return div().flex_1().flex().flex_col().child(head).child(hint(
                 "Not a git repository — Pitwall can't track changes in this folder.".into(),
             ));
         }
