@@ -32,7 +32,9 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(3);
     let paths = Paths::new(&home);
-    Application::new().run(move |cx: &mut App| {
+    Application::new()
+        .with_assets(pitwall_app::kit::Assets)
+        .run(move |cx: &mut App| {
         cx.set_global(Theme::for_mode(if light {
             Mode::Light
         } else {

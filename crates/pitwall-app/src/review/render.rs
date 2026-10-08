@@ -1085,6 +1085,16 @@ impl ReviewView {
                 .map(|(n, x)| model::task_label(x, *n, &model::clock))
                 .unwrap_or_default(),
         };
+        // A native `<select>` is as wide as its widest option.
+        let options: Vec<String> = std::iter::once(format!("Since the agent started · {}", a.name))
+            .chain(numbered.iter().map(|(n, x)| {
+                format!(
+                    "{}{}",
+                    model::task_label(x, *n, &model::clock),
+                    if x.start_tree.is_some() { "" } else { " (snapshot pending)" }
+                )
+            }))
+            .collect();
         let open = self.task_menu;
         let mut sel = div()
             .id("rv-scope")
@@ -1092,8 +1102,8 @@ impl ReviewView {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(6.))
-            .min_w(px(260.))
+            // `padding-right: 28px`, the chevron inside it.
+            .gap(px(10.))
             .max_w(px(460.))
             .h(px(28.))
             .pl(px(9.))
@@ -1111,7 +1121,21 @@ impl ReviewView {
                 v.task_menu = !v.task_menu;
                 cx.notify();
             }))
-            .child(div().flex_1().min_w_0().ellipsis().child(crate::kit::one_line(current)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .child(div().ellipsis().child(crate::kit::one_line(current)))
+                    .child(
+                        div()
+                            .h_0()
+                            .overflow_hidden()
+                            .children(options.into_iter().map(|o| div().whitespace_nowrap().child(o))),
+                    ),
+            )
             .child(kit::icon("chevron-down", 12., t.text_3));
         if open {
             let id = a.id.clone();
