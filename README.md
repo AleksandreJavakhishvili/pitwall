@@ -86,18 +86,22 @@ Today the CLI lists and adds; it can't stop, remove or prompt agents. Anything t
 
 ## Install
 
-| Platform | Downloads | Notes |
+Download from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest) (or the [download page](https://aleksandrejavakhishvili.github.io/pitwall/download/), which picks your system). Builds aren't code-signed yet, so the first launch takes one extra click on macOS and Windows.
+
+| Platform | Download | First launch |
 |---|---|---|
-| macOS (Apple silicon, Intel) | `.dmg`, `.app.tar.gz` (universal) | Shortcuts use ⌘. Dock badge, Full Disk Access check. |
-| Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04, Debian 12, Fedora 36) | `.AppImage`, `.deb` | Shortcuts use Ctrl+Shift (Ctrl stays with the terminal). No native menu: Settings is Ctrl+Shift+, and Quit is in the command palette. |
-| Windows 10 1809+ / 11, x64 | `-setup.exe` (per user), `.msi` | Shortcuts use Ctrl+Shift. File menu (no Edit accelerators); closing the window keeps Pitwall in the tray; taskbar badge. Not code-signed yet (SmartScreen). |
+| macOS (Apple silicon, Intel) | `Pitwall_<version>_universal.dmg` (or `.app.tar.gz`) | Right-click Pitwall.app → **Open** → **Open**, or System Settings → Privacy & Security → **Open Anyway**. [More](#download-macos) |
+| Windows 10 1809+ / 11, x64 | `Pitwall_<version>_x64-setup.exe` (recommended, per user) or `.msi` | SmartScreen: **More info → Run anyway**. Newer and less tested than macOS. [More](#windows) |
+| Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04, Debian 12, Fedora 36) | `Pitwall_<version>_amd64.AppImage` or `.deb` | `chmod +x` the AppImage, or `sudo apt install ./Pitwall_*_amd64.deb`. [More](#linux) |
+
+Platform differences: on macOS shortcuts use ⌘, with a Dock badge and a Full Disk Access check. On Linux shortcuts use Ctrl+Shift (Ctrl stays with the terminal); there's no native menu: Settings is Ctrl+Shift+, and Quit is in the command palette. On Windows shortcuts use Ctrl+Shift, there's a File menu (no Edit accelerators), closing the window keeps Pitwall in the tray, and the taskbar shows a badge.
 
 Every release has one `SHA256SUMS.txt` covering all downloads. Shortcuts in this README are written for macOS; on Linux and Windows read ⌘ as Ctrl+Shift and ⌘⇧ as Ctrl+Shift+Alt. Terminals copy and paste with Ctrl+Shift+C / Ctrl+Shift+V there.
 
 ### Download (macOS)
 
 1. Get the `.dmg` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest) and drag Pitwall to Applications.
-2. Open it the first time with right-click → **Open**, then **Open** in the dialog.
+2. Open it the first time with right-click → **Open**, then **Open** in the dialog (or System Settings → Privacy & Security → **Open Anyway** after a blocked launch).
 
 Releases aren't signed with an Apple Developer ID or notarized yet, so Gatekeeper blocks a plain double-click on first launch. If macOS says the app "is damaged", clear the quarantine flag instead:
 
@@ -105,7 +109,7 @@ Releases aren't signed with an Apple Developer ID or notarized yet, so Gatekeepe
 xattr -dr com.apple.quarantine /Applications/Pitwall.app
 ```
 
-Until releases are Developer ID signed, macOS sees each new version as a different app and may ask again for folder access (Desktop, Documents) after an update. Each release has a `SHA256SUMS.txt` next to the downloads.
+Reading projects in Desktop or Documents makes macOS ask for folder access; the welcome screen offers Full Disk Access instead. Until releases are Developer ID signed, macOS sees each new version as a different app and may ask again for folder access (Desktop, Documents) after an update. Each release has a `SHA256SUMS.txt` next to the downloads.
 
 ### Linux
 
@@ -137,7 +141,7 @@ Settings → **Install command-line tool** links `pitwall` into `~/.local/bin`. 
 
 Get the installer (`Pitwall_<version>_x64-setup.exe`, per user, no admin rights) or the `.msi` from the [latest release](https://github.com/AleksandreJavakhishvili/pitwall/releases/latest). Windows 10 1809 or newer (Pitwall's terminals use ConPTY); the installer fetches the WebView2 runtime if it's missing.
 
-The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
+Windows support is new and less tested than macOS; please [report problems](https://github.com/AleksandreJavakhishvili/pitwall/issues). The first builds aren't code-signed, so **SmartScreen** shows "Windows protected your PC" on first run: click **More info → Run anyway**. Check the download against `SHA256SUMS.txt` first (`Get-FileHash .\Pitwall_*_x64-setup.exe`).
 
 Where things live and how it differs from macOS:
 
