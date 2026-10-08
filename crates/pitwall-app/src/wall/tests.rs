@@ -169,7 +169,7 @@ fn visible_running_tiles_are_watched_and_drawn_from_frames(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn stopping_an_agent_ends_its_watch_and_keeps_its_screen(cx: &mut TestAppContext) {
+fn stopping_an_agent_ends_its_watch(cx: &mut TestAppContext) {
     let (fake, store, wall, mut vcx) =
         open(cx, vec![agent("a", "/work/alpha", "working", 0, true)]);
     fake.send("a", &frame("last words"));
@@ -185,7 +185,9 @@ fn stopping_an_agent_ends_its_watch_and_keeps_its_screen(cx: &mut TestAppContext
     wall.read_with(&vcx, |w, cx| {
         assert!(w.watching().is_empty());
         let t = w.tile("a").unwrap().read(cx);
-        assert_eq!(t.off_label(), None, "the last screen stays");
+        // React drops the screen copy of a stopped agent; only its own
+        // terminal (none in this window here) would show.
+        assert_eq!(t.off_label(), Some("STOPPED"));
     });
     // Started again: watched again.
     store.update(&mut vcx, |s, cx| {

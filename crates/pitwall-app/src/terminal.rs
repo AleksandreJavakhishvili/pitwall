@@ -112,6 +112,58 @@ struct Entry {
     mode: Mode,
     /// The window the view was made in (its focus and activation hooks).
     window: gpui::WindowId,
+    /// xterm's `isCursorInitialized`: the cursor shows once the terminal
+    /// was focused (or typed into, which needs focus) or the program
+    /// switched screens. The Wall's tiles follow it.
+    cursor_init: bool,
+}
+
+impl Entry {
+    fn note_cursor(&mut self) -> bool {
+        use pitwall_term_view::alacritty_terminal::term::TermMode;
+        if !self.cursor_init && self.terminal.mode().contains(TermMode::ALT_SCREEN) {
+            self.cursor_init = true;
+        }
+        self.cursor_init
+    }
+}
+
+/// Whether the agent's own terminal would draw its cursor (`cursorShown`
+/// in registry.ts): Wall tiles draw the cursor only then.
+pub fn cursor_shown(agent_id: &str, cx: &mut App) -> bool {
+    if !cx.has_global::<Terminals>() {
+        return false;
+    }
+    cx.global_mut::<Terminals>()
+        .entries
+        .get_mut(agent_id)
+        .is_some_and(Entry::note_cursor)
+}
+
+/// A stopped agent's own terminal, view-only, for its Wall tile in
+/// `window` (`mountStoppedWallView`): its last screen at the terminal's
+/// size, scaled to the tile like the screen tiles. `None` when this window
+/// has no terminal for it.
+pub fn stopped_tile_view(
+    agent_id: &str,
+    font_size: f32,
+    min_scale: f32,
+    padding: [f32; 4],
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Entity<TerminalView>> {
+    let here = window.window_handle().window_id();
+    let terminal = cx
+        .try_global::<Terminals>()?
+        .entries
+        .get(agent_id)
+        .filter(|e| e.window == here)?
+        .terminal
+        .clone();
+    let mut s = settings(font_size);
+    s.scrollbar = false;
+    s.padding = padding;
+    Some(cx.new(|cx| TerminalView::new(terminal, ViewMode::Tile { min_scale }, s, window, cx)))
 }
 
 /// Every agent's terminal.
@@ -227,6 +279,7 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
                 live,
                 mode,
                 window: window.window_handle().window_id(),
+                cursor_init: false,
             },
         );
     }
@@ -269,10 +322,13 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
     }
     // Focus follows the focused pane, unless something else (a dialog, the
     // sidebar, a menu, a field) has the keys.
-    if args.focused && args.screen_focused {
-        let handle = view.read(cx).focus_handle(cx);
-        if !handle.is_focused(window) {
-            window.focus(&handle);
+    let handle = view.read(cx).focus_handle(cx);
+    if args.focused && args.screen_focused && !handle.is_focused(window) {
+        window.focus(&handle);
+    }
+    if handle.is_focused(window) || (args.focused && args.screen_focused) {
+        if let Some(e) = cx.global_mut::<Terminals>().entries.get_mut(&a.id) {
+            e.cursor_init = true;
         }
     }
     div()
@@ -308,6 +364,17 @@ mod tests {
                 "{owned} must reach the app"
             );
         }
+    }
+
+    #[gpui::test]
+    fn no_terminal_no_cursor(cx: &mut gpui::TestAppContext) {
+        // A Wall tile of an agent this window never showed: xterm would
+        // never have drawn its cursor.
+        cx.update(|cx| {
+            assert!(!cursor_shown("never-shown", cx));
+            cx.set_global(Terminals::default());
+            assert!(!cursor_shown("never-shown", cx));
+        });
     }
 
     #[test]

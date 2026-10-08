@@ -11,7 +11,9 @@ use gpui::{
 
 use pitwall_proto::{AgentView, Status};
 
-use super::paint::{screen_view, term_colors, ScreenOpts};
+use super::paint::{screen_view, term_colors, ScreenOpts, MIN_SCALE};
+use gpui::Entity;
+use pitwall_term_view::TerminalView;
 use super::screen::Screen;
 use super::WallView;
 use crate::kit;
@@ -29,6 +31,11 @@ pub struct WallTile {
     pub body_h: f32,
     /// Draw the cursor (the agent's own terminal would show it).
     pub show_cursor: bool,
+    /// Stopped: the agent's own terminal (its last screen), when this
+    /// window has it (`mountStoppedWallView`).
+    own: Option<Entity<TerminalView>>,
+    /// Looked for `own` since the agent stopped.
+    own_looked: bool,
     /// The pointer is over it (the ring eases to text-4: `.wall-tile`'s
     /// `transition: box-shadow 0.12s`).
     hovered: bool,
@@ -45,6 +52,8 @@ impl WallTile {
             font_size,
             body_h,
             show_cursor: false,
+            own: None,
+            own_looked: false,
             hovered: false,
             wall,
         }
@@ -52,7 +61,14 @@ impl WallTile {
 
     /// The words over the body when there is no screen to show.
     pub fn off_label(&self) -> Option<&'static str> {
-        if self.screen.has_frame() {
+        // A stopped agent shows its own terminal or says why; a running one
+        // its screen copy.
+        let shown = if self.agent.running {
+            self.screen.has_frame()
+        } else {
+            self.own.is_some()
+        };
+        if shown {
             return None;
         }
         if !self.agent.running || self.failed {
@@ -97,7 +113,32 @@ fn ring_shadows(ring: Hsla, glow: Option<Hsla>) -> Vec<BoxShadow> {
 }
 
 impl Render for WallTile {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.agent.running {
+            self.own = None;
+            self.own_looked = false;
+        } else if !self.own_looked {
+            self.own_looked = true;
+            self.own = crate::terminal::stopped_tile_view(
+                &self.agent.id,
+                self.font_size,
+                MIN_SCALE,
+                // `.wall-scale`: anchored 8 px from the left, 6 px up.
+                [0., 0., 6., 8.],
+                window,
+                cx,
+            );
+        }
+        if let Some(v) = self.own.clone() {
+            let font = self.font_size;
+            if v.read(cx).settings().font.size != font {
+                v.update(cx, |v, cx| {
+                    let mut s = v.settings().clone();
+                    s.font.size = font;
+                    v.set_settings(s, cx);
+                });
+            }
+        }
         let t = theme::theme(cx).clone();
         let a = &self.agent;
         let blocked = a.status == Status::Blocked;
@@ -169,7 +210,8 @@ impl Render for WallTile {
             .h(px(self.body_h))
             .flex_none()
             .overflow_hidden()
-            .when(self.screen.has_frame(), |d| {
+            .when_some(self.own.clone(), |d, v| d.child(div().size_full().flex().child(v)))
+            .when(a.running && self.screen.has_frame(), |d| {
                 d.child(screen_view(
                     &self.screen,
                     ScreenOpts {
@@ -248,7 +290,11 @@ mod tests {
             full: true,
             lines: vec![],
         });
-        assert_eq!(tile.off_label(), None, "the last screen stays");
+        assert_eq!(
+            tile.off_label(),
+            Some("NOT RUNNING"),
+            "a stopped agent's screen copy isn't shown (only its own terminal)"
+        );
         let running = WallTile::new(
             agent("b", "/work/alpha", "idle", 0, true),
             13.,

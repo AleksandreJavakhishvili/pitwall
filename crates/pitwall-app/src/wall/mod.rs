@@ -426,8 +426,13 @@ impl WallView {
             }
         }
         for id in touched {
+            // The cursor shows when the agent's own terminal would show it.
+            let cursor = crate::terminal::cursor_shown(&id, cx);
             if let Some(tile) = self.tiles.get(&id) {
-                tile.update(cx, |_, cx| cx.notify());
+                tile.update(cx, |t, cx| {
+                    t.show_cursor = cursor;
+                    cx.notify()
+                });
             }
         }
     }
