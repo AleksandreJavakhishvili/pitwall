@@ -38,6 +38,13 @@ The GitHub owner and repository name live only in `site.config.js`; pages use
 `%REPO_URL%`, `%RELEASES_URL%`, `%RELEASE_API_URL%` and `%PAGES_URL%`. Deployment is
 `.github/workflows/pages.yml` (base from the repository name).
 
+Search and link previews come from the `pitwall-seo` plugin in `vite.config.js`: each
+page only writes its `<title>` and `<meta name="description">`; the plugin adds the
+canonical URL, Open Graph / Twitter card tags (image `public/og.png`), theme-color and,
+on the home page, JSON-LD. URLs are absolute, from `PAGES_URL`. The 404 page gets
+`noindex`. The build also writes `sitemap.xml` and `robots.txt` into `dist`. The preview
+image is rendered by `node scripts/og-image.mjs` (headless Chrome, demo content only).
+
 ## Layout
 
 ```
@@ -54,8 +61,10 @@ src/main.js                   theme toggle, demo tabs, live demo, download links
 scripts/build.mjs             full build (demo + pages)
 scripts/pages.mjs             renders CHANGELOG.md / ROADMAP.md into the two pages
 scripts/markdown.mjs          minimal Markdown → HTML
+scripts/og-image.mjs          renders public/og.png (link-preview card) with headless Chrome
 scripts/build-demo.mjs        builds the app's browser mock into public/demo/ (or serves it)
 public/video/                 demo recording, dark + light, with poster frames
+public/og.png                 1200×630 link-preview image
 public/favicon.svg            copy of docs/brand/pitwall-mark.svg
 ```
 
