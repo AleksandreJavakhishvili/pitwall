@@ -51,10 +51,14 @@
   color: var(--text);
   padding: 0 4px;
 }
+/* The mark stands in for the P: the rest of the word sits right up to it. */
+.wordmark-rest {
+  margin-left: -4px;
+}
 /* The Apex P, as the website header draws it: ink follows the theme. */
 .wordmark-mark {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex: none;
   display: block;
 }

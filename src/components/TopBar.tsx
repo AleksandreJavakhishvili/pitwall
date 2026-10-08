@@ -49,7 +49,7 @@ export function TopBar(p: Props) {
         >
           <Icon name="sidebar" />
         </button>
-        <span className="wordmark" data-tauri-drag-region>
+        <span className="wordmark" data-tauri-drag-region aria-label="Pitwall">
           {/* The Apex P, drawn exactly as the website header draws it
               (website/index.html `.brand .mark`): the racing-line P in the
               theme's ink, its chequered tail masked to the stroke. */}
@@ -64,7 +64,8 @@ export function TopBar(p: Props) {
               <path className="wordmark-mark-b" mask="url(#wordmark-mask)" d={MARK_SQUARES} />
             </g>
           </svg>
-          {!p.compact && "PITWALL"}
+          {/* The mark is the P, so the word goes on from it. */}
+          {!p.compact && <span className="wordmark-rest" aria-hidden>ITWALL</span>}
         </span>
         {/* `?shots=1` hides the chip for marketing screenshots (website/public/shots). */}
         {p.isMock && new URLSearchParams(location.search).get("shots") !== "1" && (
