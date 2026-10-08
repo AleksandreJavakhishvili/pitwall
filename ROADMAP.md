@@ -22,6 +22,7 @@ Designed, starting after the current work.
 - **Agents that don't depend on the app.** A small background service owns the agents, so they keep running, with their status and Next up queues, while the app is closed or being updated. With a menu-bar item and Start at login.
 - **Rules and hooks on agw machines.** The same rules and status hooks for agw sessions as for local agents.
 - **Race Engineer.** An optional assistant: an ordinary agent, on your own subscription, that knows Pitwall's command line and can set things up or rearrange agents when you ask. Anything risky still waits for your approval in the app, and Pitwall works fully without it.
+- **Browse an agent's code.** A read-only file tree, viewer, quick open and search for the folder an agent works in, on your computer or an agw machine, plus "Open in editor" to hand a file to your own editor.
 - **Plain SSH machines.** Run and watch agents on any machine you can reach over SSH, not only agw sessions.
 
 ## Later
