@@ -105,12 +105,15 @@ impl MainScreen {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    // The mark is the P, so the word goes on from it: the
+                    // 8 px gap less `.wordmark-rest`'s -4px margin (a
+                    // negative margin upsets GPUI's flex sizing).
+                    .gap(px(4.))
                     .px(px(4.))
-                    .child(wordmark_mark())
+                    .child(crate::kit::brand_mark(t))
                     .when(!compact, |d| {
                         d.child(
-                            tracked("PITWALL", 17., 0.22)
+                            tracked("ITWALL", 17., 0.22)
                                 .font_family(crate::kit::LABEL_FONT)
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(t.text),
@@ -163,7 +166,6 @@ impl MainScreen {
             });
 
         let right = no_drag(div().id("topbar-right"))
-            .ml_auto()
             .flex()
             .items_center()
             .gap(px(6.))
@@ -177,7 +179,7 @@ impl MainScreen {
                     .h(px(28.))
                     .pl(px(9.))
                     .pr(px(6.))
-                    .rounded(RADIUS)
+                    .rounded(if t.is_glass() { px(999.) } else { RADIUS })
                     .border_1()
                     .border_color(t.line)
                     .bg(t.bg)
@@ -254,6 +256,8 @@ impl MainScreen {
             .bg(t.surface)
             .child(left)
             .child(self.render_tabs(agents, t, window, cx))
+            // `.topbar-right { margin-left: auto }`
+            .child(div().flex_1())
             .child(right);
         decorations::title_bar(bar, window, t)
     }
@@ -312,15 +316,16 @@ impl MainScreen {
                 .rounded_t(px(7.))
                 .border_1()
                 .border_b_0()
-                .border_color(if is_active {
-                    t.line
-                } else {
-                    gpui::transparent_black()
+                // Glass: the selected tab is a lighter pane of glass.
+                .border_color(match (is_active, t.is_glass()) {
+                    (true, true) => t.g.line_strong,
+                    (true, false) => t.line,
+                    _ => gpui::transparent_black(),
                 })
-                .bg(if is_active {
-                    t.bg
-                } else {
-                    gpui::transparent_black()
+                .bg(match (is_active, t.is_glass()) {
+                    (true, true) => t.g.surface_3,
+                    (true, false) => t.bg,
+                    _ => gpui::transparent_black(),
                 })
                 .text_size(px(12.))
                 .font_weight(FontWeight::SEMIBOLD)
@@ -347,10 +352,34 @@ impl MainScreen {
                     cx.notify();
                 }))
                 .when(blocked, |d| {
-                    d.child(div().text_size(px(10.)).text_color(t.amber).child("▲"))
+                    d.child(crate::kit::motion::bounce_in(
+                        SharedString::from(format!("tab-b-{}", s.id)),
+                        crate::kit::text_glow(
+                            div().text_size(px(10.)).text_color(t.amber).child("▲"),
+                            t.amber_glow,
+                            8.,
+                        ),
+                    ))
                 })
                 .when(done, |d| {
-                    d.child(div().text_size(px(10.)).text_color(t.finish).child("⚑"))
+                    let finish = t.finish;
+                    d.child(crate::kit::motion::keyframes(
+                        SharedString::from(format!("tab-d-{}", s.id)),
+                        crate::kit::motion::FLAG,
+                        1,
+                        move |p| {
+                            let (o, sc) = crate::kit::motion::flag_pop(p);
+                            div()
+                                .w(px(10.))
+                                .flex()
+                                .justify_center()
+                                .opacity(o)
+                                .text_size(px(10. * sc))
+                                .text_color(finish)
+                                .child("⚑")
+                                .into_any_element()
+                        },
+                    ))
                 })
                 .child(match editing {
                     Some(input) => div().w(px(120.)).child(input).into_any_element(),
@@ -553,8 +582,8 @@ fn count_pill(
     loud: bool,
     t: &Theme,
     tip: &'static str,
-) -> impl IntoElement {
-    div()
+) -> AnyElement {
+    let pill = div()
         .id(word)
         .flex()
         .items_center()
@@ -572,51 +601,17 @@ fn count_pill(
         })
         .tooltip(tooltip(tip))
         .child(div().text_size(px(11.)).text_color(color).child(g))
+        // React writes `<glyph/> {n} working`: the text starts with a space.
         .child(if compact {
-            format!("{n}")
+            format!(" {n}")
         } else {
-            format!("{n} {word}")
-        })
+            format!(" {n} {word}")
+        });
+    // `.count-loud` bounces twice when it shows.
+    if loud {
+        crate::kit::motion::bounce_in("count-loud", pill).into_any_element()
+    } else {
+        pill.into_any_element()
+    }
 }
 
-/// The brand mark (`public/pitwall.svg`, a 64-unit pit board), drawn from
-/// its rectangles at 20 px so it stays crisp.
-fn wordmark_mark() -> impl IntoElement {
-    const S: f32 = 20. / 64.;
-    // x, y, w, h, radius, colour
-    const RECTS: [(f32, f32, f32, f32, f32, u32); 14] = [
-        (0., 0., 64., 64., 14., 0x111418),
-        (8.3, 11.3, 47.4, 13.4, 1.6, 0xe8ebef),
-        (20.5, 12., 11.5, 6., 0., 0x111418),
-        (43.5, 12., 11.5, 6., 0., 0x111418),
-        (9., 18., 11.5, 6., 0., 0x111418),
-        (32., 18., 11.5, 6., 0., 0x111418),
-        (10.5, 24., 2.6, 18.5, 0., 0xe8ebef),
-        (50.9, 24., 2.6, 18.5, 0., 0xe8ebef),
-        (15.5, 29., 10., 9., 1.6, 0x4b5563),
-        (27., 29., 10., 9., 1.6, 0xffb020),
-        (38.5, 29., 10., 9., 1.6, 0x4b5563),
-        (8., 42.5, 48., 4., 1., 0xe8ebef),
-        (10., 48.5, 44., 5.5, 1., 0x2b323b),
-        (0., 0., 0., 0., 0., 0),
-    ];
-    div()
-        .relative()
-        .size(px(20.))
-        .flex_none()
-        .children(
-            RECTS
-                .iter()
-                .filter(|r| r.2 > 0.)
-                .map(|&(x, y, w, h, r, c)| {
-                    div()
-                        .absolute()
-                        .left(px(x * S))
-                        .top(px(y * S))
-                        .w(px(w * S))
-                        .h(px(h * S))
-                        .rounded(px(r * S))
-                        .bg(gpui::rgb(c))
-                }),
-        )
-}

@@ -38,6 +38,9 @@ pub struct CtxMenu {
     at: Point<Pixels>,
     items: Vec<MenuItem>,
     selected: usize,
+    /// ↑/↓ was used: the keyboard row shows (as `:focus-visible` does; a
+    /// menu opened with the pointer shows none).
+    keyboard: bool,
     focus: FocusHandle,
 }
 
@@ -56,6 +59,7 @@ impl MainScreen {
             at,
             items,
             selected: 0,
+            keyboard: false,
             focus,
         });
         cx.notify();
@@ -80,6 +84,7 @@ impl MainScreen {
         if let Some(m) = self.menu.as_mut() {
             let n = m.items.len() as isize;
             m.selected = (m.selected as isize + delta).rem_euclid(n.max(1)) as usize;
+            m.keyboard = true;
             cx.notify();
         }
     }
@@ -92,7 +97,7 @@ impl MainScreen {
         let m = self.menu.as_ref()?;
         let focus = m.focus.clone();
         let rows = m.items.iter().enumerate().map(|(i, it)| {
-            let on = i == m.selected;
+            let on = m.keyboard && i == m.selected;
             div()
                 .id(("menu-item", i))
                 .flex()
@@ -118,7 +123,9 @@ impl MainScreen {
                 anchored()
                     .position(m.at)
                     .snap_to_window_with_margin(px(4.))
-                    .child(
+                    .child(crate::kit::motion::enter(
+                        "ctx-menu-in",
+                        crate::kit::motion::Fx::MENU,
                         div()
                             .id("ctx-menu")
                             .key_context("PwMenu")
@@ -143,11 +150,9 @@ impl MainScreen {
                             .font_family(crate::kit::UI_FONT)
                             .rounded(RADIUS)
                             .bg(t.raised)
-                            .border_1()
-                            .border_color(t.line_strong)
-                            .shadow_lg()
+                            .shadow(t.float_shadow())
                             .children(rows),
-                    ),
+                    )),
             )
             .with_priority(2),
         )

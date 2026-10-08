@@ -6,6 +6,7 @@
 //! [`RulesSection`] alive while Settings shows it (a fresh one, collapsed,
 //! each time Settings opens, as the React component remounts).
 
+use crate::kit::Ellipsis as _;
 use std::collections::{BTreeMap, BTreeSet};
 
 use gpui::{
@@ -948,12 +949,10 @@ impl RulesSection {
                         div()
                             .flex_none()
                             .max_w(px(260.))
-                            .overflow_hidden()
-                            .line_clamp(1)
-                            .text_ellipsis()
+                            .ellipsis()
                             .text_size(px(12.))
                             .text_color(t.text)
-                            .child(display.clone()),
+                            .child(crate::kit::one_line(display.clone())),
                     )
                     .child(div().flex_1())
                     .child(widgets::select(

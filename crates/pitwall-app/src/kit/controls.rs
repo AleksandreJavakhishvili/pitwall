@@ -2,6 +2,7 @@
 //! toggle switch, radio dot, segmented control, dropdown (trigger and
 //! menu) and the spinner. Rows around them take the click.
 
+use super::text::Ellipsis as _;
 use std::rc::Rc;
 
 use crate::kit::HoverText;
@@ -80,8 +81,12 @@ pub fn checkbox(
         .on_click(on_click)
 }
 
-/// `.toggle-track`: the switch, 26×15. Attach `.on_click`.
+/// `.toggle-track`: the switch, 26×15. Attach `.on_click`. The track's
+/// colour and the knob ease over 0.15 s when it flips.
 pub fn toggle(id: impl Into<ElementId>, on: bool, t: &Theme) -> Stateful<Div> {
+    use super::motion::{mix, tween, Ease, TOGGLE};
+    let (track_off, track_on) = (t.surface_3, t.text);
+    let (knob_off, knob_on) = (t.text_3, t.bg);
     div()
         .id(id)
         .flex_none()
@@ -91,17 +96,24 @@ pub fn toggle(id: impl Into<ElementId>, on: bool, t: &Theme) -> Stateful<Div> {
         .border_1()
         .cursor_pointer()
         .border_color(if on { t.text } else { t.line_strong })
-        .bg(if on { t.text } else { t.surface_3 })
         .relative()
-        .child(
+        .child(tween("knob", if on { 1. } else { 0. }, TOGGLE, Ease::Ease, move |v| {
             div()
                 .absolute()
-                .top(px(2.))
-                .left(px(if on { 13. } else { 2. }))
-                .size(px(9.))
-                .rounded_full()
-                .bg(if on { t.bg } else { t.text_3 }),
-        )
+                .inset_0()
+                .rounded(px(10.))
+                .bg(mix(track_off, track_on, v))
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(2.))
+                        .left(px(2. + 11. * v))
+                        .size(px(9.))
+                        .rounded_full()
+                        .bg(mix(knob_off, knob_on, v)),
+                )
+                .into_any_element()
+        }))
 }
 
 /// A radio dot, 14 px.
@@ -150,14 +162,21 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
         .flex()
         .flex_none()
         .gap(px(1.))
-        .p(px(2.))
         .rounded(RADIUS)
         .bg(bg)
-        .when(t.is_glass(), |d| d.border_1().border_color(t.g.line))
+        // Glass: `inset 0 0 0 1px` as a border inside the 2 px padding.
+        .map(|d| {
+            if t.is_glass() {
+                d.p(px(1.)).border_1().border_color(t.g.line)
+            } else {
+                d.p(px(2.))
+            }
+        })
         .children(items.into_iter().enumerate().map(move |(i, item)| {
             let pick = on_pick.clone();
-            div()
-                .id((id, i))
+            let eid = ElementId::from((id, i));
+            let el = div()
+                .id(eid.clone())
                 .h(px(24.))
                 .px(px(10.))
                 .flex()
@@ -166,8 +185,10 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
                 .text_size(px(12.))
                 .cursor_pointer()
                 .text_color(if item.on { fg } else { fg3 })
-                .when(item.on, |d| d.bg(on_bg).font_weight(FontWeight::SEMIBOLD))
-                .hover_text(fg, move |s| s)
+                .when(item.on, |d| d.bg(on_bg).font_weight(super::fonts::WEIGHT_550))
+                .hover_text(fg, move |s| s);
+            let skin = super::motion::Skin::new(item.on.then_some(on_bg), None, RADIUS_SM);
+            super::motion::pressable(el, &eid, false, skin)
                 .when_some(item.tooltip, |d, tip| d.tooltip(tooltip(tip)))
                 .on_click(move |_, window, cx| pick(i, window, cx))
                 .child(item.label)
@@ -200,10 +221,8 @@ pub fn select_trigger(
         .child(
             div()
                 .max_w(px(260.))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(text.into()),
+                .ellipsis()
+                .child(crate::kit::one_line(text.into())),
         )
         .child(icon("chevron-down", 11., t.text_3))
 }
@@ -257,6 +276,18 @@ pub fn select_menu(
 /// The spinning ring (`onb-spin`, `fresh-spin`): a faint track with a
 /// bright quarter turning; still when `motion` is off.
 pub fn spinner(id: impl Into<ElementId>, size: f32, motion: bool, t: &Theme) -> AnyElement {
+    spinner_ms(id, size, 900, motion, t)
+}
+
+/// [`spinner`] turning once every `ms` (`onb-spin` 0.7 s, `fresh-spin`
+/// 0.9 s).
+pub fn spinner_ms(
+    id: impl Into<ElementId>,
+    size: f32,
+    ms: u64,
+    motion: bool,
+    t: &Theme,
+) -> AnyElement {
     let (track, head) = (t.line_strong, t.text);
     let ring = move |turn: f32| {
         div()
@@ -297,11 +328,169 @@ pub fn spinner(id: impl Into<ElementId>, size: f32, motion: bool, t: &Theme) -> 
         ring(0.)
             .with_animation(
                 id,
-                gpui::Animation::new(std::time::Duration::from_millis(900)).repeat(),
+                gpui::Animation::new(std::time::Duration::from_millis(ms)).repeat(),
                 move |_, d| ring(d),
             )
             .into_any_element()
     } else {
         ring(0.).into_any_element()
     }
+}
+
+/// `select.input` (`.rules-kind`: 28 px, 12.5 px; New agent: 34 px, 13
+/// px): the value, a caret, and its menu under it while `open`.
+#[allow(clippy::too_many_arguments)]
+pub fn select(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    height: f32,
+    size: f32,
+    full: bool,
+    open: bool,
+    items: Vec<(SharedString, bool)>,
+    t: &Theme,
+    on_toggle: impl Fn(&mut Window, &mut App) + 'static,
+    on_pick: OnPick,
+    on_close: OnClose,
+) -> Div {
+    let id: ElementId = id.into();
+    let hover = t.text_4;
+    let trigger = div()
+        .id(id.clone())
+        .h(px(height))
+        .pl(px(9.))
+        .pr(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .rounded(RADIUS)
+        .bg(t.bg)
+        .border_1()
+        .border_color(if open { t.text_3 } else { t.line_strong })
+        .text_size(px(size))
+        .text_color(t.text)
+        .cursor_pointer()
+        .when(!open, |d| d.hover(move |s| s.border_color(hover)))
+        .when(full, |d| d.w_full())
+        // A native select is as wide as its longest option.
+        .when(!full, |d| d.min_w(px(widest(&items, size))))
+        .on_click(move |_, window, cx| on_toggle(window, cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .ellipsis()
+                .child(super::text::one_line(text.into())),
+        )
+        .child(icon("chevron-down", 11., t.text_3));
+    div()
+        .relative()
+        .flex_none()
+        .when(full, |d| d.w_full())
+        .child(trigger)
+        .when(open, |d| {
+            // The kit's menu sits 28 px under its box's top.
+            d.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(px(height - 26.))
+                    .child(select_menu(
+                        ElementId::Name(format!("{id}-menu").into()),
+                        items,
+                        t,
+                        on_pick,
+                        on_close,
+                    )),
+            )
+        })
+}
+
+/// About how wide a native select draws for these options: the longest
+/// label, the padding and the caret.
+pub fn widest(items: &[(SharedString, bool)], size: f32) -> f32 {
+    let chars = items
+        .iter()
+        .map(|(l, _)| l.chars().count())
+        .max()
+        .unwrap_or(0);
+    chars as f32 * size * 0.55 + 40.
+}
+
+/// `.check`: a checkbox and its text (a title and a `.hint.block`), the
+/// whole row clickable unless `disabled`.
+pub fn check_row(
+    id: impl Into<ElementId>,
+    on: bool,
+    disabled: bool,
+    title: impl IntoElement,
+    hint: Option<SharedString>,
+    t: &Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .when(!disabled, |d| d.cursor_pointer().on_click(on_click))
+        .child(
+            div()
+                .mt(px(2.))
+                .child(checkbox_box(on, disabled, 14., t)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(title)
+                .when_some(hint, |d, h| d.child(super::text::hint(h, t))),
+        )
+}
+
+
+/// What a textarea's resize grip drags (`textarea { resize: vertical }`):
+/// listen with `on_drag_move::<GripDrag>` on the box and set its height.
+#[derive(Debug, Clone, Copy)]
+pub struct GripDrag;
+
+/// Nothing follows the pointer while the grip drags.
+struct NoGhost;
+
+impl gpui::Render for NoGhost {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
+/// The grip a browser draws in a resizable textarea's bottom-right corner:
+/// two short diagonal strokes. Put it in the (relative) box.
+pub fn resize_grip(id: impl Into<ElementId>, color: gpui::Hsla) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .right(px(1.))
+        .bottom(px(1.))
+        .size(px(11.))
+        .cursor_row_resize()
+        .on_drag(GripDrag, |_, _, _, cx| cx.new(|_| NoGhost))
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |b, _, window, _| {
+                    let (r, btm) = (b.right() - px(2.), b.bottom() - px(2.));
+                    for len in [8., 4.] {
+                        let mut p = PathBuilder::stroke(px(1.));
+                        p.move_to(point(r, btm - px(len)));
+                        p.line_to(point(r - px(len), btm));
+                        if let Ok(path) = p.build() {
+                            window.paint_path(path, color);
+                        }
+                    }
+                },
+            )
+            .size_full(),
+        )
 }

@@ -204,7 +204,7 @@ impl Render for ApprovalDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let Some((a, waiting)) = self.pending(cx) else {
-            return div().id("approval-none");
+            return div().id("approval-none").into_any_element();
         };
         let backdrop = t.scrim();
         let ask = gpui::StyledText::new(format!("{} wants to {}.", a.requester.name, a.summary))
@@ -276,7 +276,8 @@ impl Render for ApprovalDialog {
                             .on_click(cx.listener(|this, _, _, cx| this.answer(true, cx))),
                     ),
             );
-        div()
+        let panel_motion = theme::motion_on(cx);
+        let backdrop_el = div()
             .id("approval-backdrop")
             .key_context("ApprovalDialog")
             .track_focus(&self.focus)
@@ -289,9 +290,8 @@ impl Render for ApprovalDialog {
             .items_center()
             .justify_center()
             .occlude()
-            .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx)))
-            .child(
-                div()
+            .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx)));
+        let panel = div()
                     .id("approval")
                     .w(px(500.))
                     .max_w_full()
@@ -331,8 +331,13 @@ impl Render for ApprovalDialog {
                     ])
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .child(Self::head(&t, cx))
-                    .child(body),
-            )
+                    .child(body);
+        let panel = if panel_motion {
+            kit::motion::enter("approval-in", kit::motion::Fx::MODAL, panel).into_any_element()
+        } else {
+            panel.into_any_element()
+        };
+        kit::scrim_in("approval-fade", backdrop_el.child(panel))
     }
 }
 

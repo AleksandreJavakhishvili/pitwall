@@ -51,7 +51,7 @@ mod tests;
 use gpui::App;
 
 pub use registry::{rank, register, Command, Hint, Lead, PaletteContext, Run, Span};
-pub use view::{on_actions, Palette, PaletteEvent, PaletteHost};
+pub use view::{on_actions, Palette, PaletteEvent, PaletteHost, PaletteHostEvent};
 
 /// Once at start: the palette's keys and the built-in rows.
 pub fn init(cx: &mut App) {

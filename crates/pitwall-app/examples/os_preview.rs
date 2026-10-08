@@ -87,6 +87,10 @@ impl Render for Preview {
             .flex_col()
             .bg(t.bg)
             .text_color(t.text)
+            // The app's body text (`MainView`'s root).
+            .font_family(pitwall_app::kit::UI_FONT)
+            .text_size(px(13.))
+            .line_height(gpui::relative(pitwall_app::kit::BODY_LINE_HEIGHT))
             .child(
                 div()
                     .h(px(36.))

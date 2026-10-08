@@ -45,7 +45,8 @@ pub fn chip_tone(text: impl Into<SharedString>, tone: Tone, t: &Theme) -> Div {
         .border_1()
         .border_color(border)
         .when_some(bg, |d, bg| d.bg(bg))
-        .child(label_t(text, fg, 10.5, 0.08).line_height(px(10.5)))
+        // `line-height: 1`: WebKit lays 10.5 px out as a 10 px line.
+        .child(label_t(text, fg, 10.5, 0.08).line_height(px(10.)))
 }
 
 /// `.chip`.
@@ -72,5 +73,5 @@ pub fn chip_sm(text: impl Into<SharedString>, tone: Tone, t: &Theme) -> Div {
         .border_1()
         .border_color(border)
         .when_some(bg, |d, bg| d.bg(bg))
-        .child(label_t(text, fg, 9.5, 0.08).line_height(px(9.5)))
+        .child(label_t(text, fg, 9.5, 0.08).line_height(px(9.)))
 }

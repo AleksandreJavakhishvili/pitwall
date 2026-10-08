@@ -1154,7 +1154,10 @@ impl Render for TextInput {
                             .text_size(px(if self.mono { 12.5 } else { 13. }))
                             .line_height(px(19.))
                     } else {
-                        d.h(px(34.)).text_size(px(13.)).line_height(px(18.))
+                        // `.input.mono`: 0.94em of 13 px.
+                        d.h(px(34.))
+                            .text_size(px(if self.mono { 13. * 0.94 } else { 13. }))
+                            .line_height(px(18.))
                     }
                 })
                 .child(field),

@@ -2,6 +2,7 @@
 //! and `review.css`: the bar, the agents → files list, the main pane
 //! (header, diff, comment composer, footer actions) and the empty states.
 
+use crate::kit::Ellipsis as _;
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, relative, AnyElement, App, ClickEvent, Context,
     Corner, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
@@ -138,7 +139,7 @@ impl ReviewView {
                     t,
                 )
                 .min_w_0()
-                .truncate(),
+                .ellipsis(),
             )
             .child(spacer())
             .when(self.can_widen, |d| {
@@ -198,32 +199,7 @@ impl ReviewView {
         t: &Theme,
         on: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Div {
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(2.))
-            .min_w_0()
-            .when(show_note, |d| {
-                d.child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(t.text_3)
-                        .whitespace_nowrap()
-                        .child(note.clone()),
-                )
-            })
-            .child(
-                kit::icon_btn(
-                    id,
-                    "refresh",
-                    format!("Refresh ({})", kit::keys("⌘⇧R", false)),
-                    true,
-                    t,
-                )
-                .when(self.refreshing, |d| d.opacity(0.6))
-                .on_click(on),
-            )
+        kit::refresh_control(id, self.refreshing, show_note.then(|| note.clone()), t, on)
     }
 
     // ── the list ────────────────────────────────────────────────────────
@@ -334,7 +310,7 @@ impl ReviewView {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .child(kit::chevron(open, size, t.text_4))
+            .child(kit::chevron("chev", open, size, t.text_4))
     }
 
     fn agent_section(
@@ -398,7 +374,7 @@ impl ReviewView {
                         let id = id.clone();
                         move |v, _, _, cx| v.show_agent(&id, cx)
                     }))
-                    .child(kit::glyph(a.status, t, true))
+                    .child(kit::glyph_play(format!("rv-list-{}", a.id), a.status, t, true))
                     .child(
                         kit::label_t(a.name.clone(), if current { t.text } else { t.text_2 }, 13., 0.1)
                             .font_weight(FontWeight::BOLD),
@@ -407,10 +383,10 @@ impl ReviewView {
                         d.child(
                             mono()
                                 .min_w_0()
-                                .truncate()
+                                .ellipsis()
                                 .text_size(px(10.5))
                                 .text_color(t.text_4)
-                                .child(b),
+                                .child(crate::kit::one_line(b)),
                         )
                     }),
             )
@@ -533,8 +509,8 @@ impl ReviewView {
                                         div()
                                             .text_size(px(12.))
                                             .text_color(t.text_2)
-                                            .truncate()
-                                            .child(c.text.clone()),
+                                            .ellipsis()
+                                            .child(crate::kit::one_line(c.text.clone())),
                                     ),
                             )
                             .child(
@@ -592,9 +568,9 @@ impl ReviewView {
             .child(
                 div()
                     .min_w_0()
-                    .truncate()
+                    .ellipsis()
                     .text_color(t.red)
-                    .child(format!("{prefix}{first}")),
+                    .child(crate::kit::one_line(format!("{prefix}{first}"))),
             )
             .child(
                 div()
@@ -661,16 +637,16 @@ impl ReviewView {
                                 div()
                                     .w(px(10.))
                                     .flex_none()
-                                    .child(kit::chevron(open, 10., t.text_4)),
+                                    .child(kit::chevron("chev", open, 10., t.text_4)),
                             )
                             .child(kit::folder_icon(&path, open, 16.))
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
+                                    .ellipsis()
                                     .text_color(t.text_2)
-                                    .child(name),
+                                    .child(crate::kit::one_line(name)),
                             ),
                     );
                 }
@@ -731,11 +707,11 @@ impl ReviewView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
+                                    .ellipsis()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(t.text)
                                     .when(status == FileStatus::D, |d| d.line_through())
-                                    .child(name),
+                                    .child(crate::kit::one_line(name)),
                             )
                             .when(n > 0, |d| d.child(kit::count_badge(n, t)))
                             .child(
@@ -825,10 +801,10 @@ impl ReviewView {
                     .child(
                         mono()
                             .min_w_0()
-                            .truncate()
+                            .ellipsis()
                             .text_size(px(10.5))
                             .text_color(t.text_4)
-                            .child(wt.branch.clone().unwrap_or_else(|| "detached".into())),
+                            .child(crate::kit::one_line(wt.branch.clone().unwrap_or_else(|| "detached".into()))),
                     )
                     .when(wt.locked, |d| {
                         d.child(kit::chip_tone("locked", kit::Tone::Warn, t).ml(px(4.)))
@@ -922,7 +898,7 @@ impl ReviewView {
             .child(
                 mono()
                     .min_w_0()
-                    .truncate()
+                    .ellipsis()
                     .text_size(px(12.))
                     .flex()
                     .gap(px(4.))
@@ -932,7 +908,7 @@ impl ReviewView {
                             .text_color(t.text)
                             .child(base.to_string()),
                     )
-                    .child(div().text_color(t.text_3).truncate().child(dir)),
+                    .child(div().text_color(t.text_3).ellipsis().child(crate::kit::one_line(dir))),
             )
             .child(kit::status_letter(model::file_status(f), t))
             .child(if f.binary {
@@ -1039,10 +1015,10 @@ impl ReviewView {
                                     .child(
                                         mono()
                                             .min_w_0()
-                                            .truncate()
+                                            .ellipsis()
                                             .text_size(px(11.5))
                                             .text_color(t.text_2)
-                                            .child(format!("{}:{}", c.path, c.line)),
+                                            .child(crate::kit::one_line(format!("{}:{}", c.path, c.line))),
                                     )
                                     .child(spacer())
                                     .child(
@@ -1109,6 +1085,16 @@ impl ReviewView {
                 .map(|(n, x)| model::task_label(x, *n, &model::clock))
                 .unwrap_or_default(),
         };
+        // A native `<select>` is as wide as its widest option.
+        let options: Vec<String> = std::iter::once(format!("Since the agent started · {}", a.name))
+            .chain(numbered.iter().map(|(n, x)| {
+                format!(
+                    "{}{}",
+                    model::task_label(x, *n, &model::clock),
+                    if x.start_tree.is_some() { "" } else { " (snapshot pending)" }
+                )
+            }))
+            .collect();
         let open = self.task_menu;
         let mut sel = div()
             .id("rv-scope")
@@ -1116,8 +1102,8 @@ impl ReviewView {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(6.))
-            .min_w(px(260.))
+            // `padding-right: 28px`, the chevron inside it.
+            .gap(px(10.))
             .max_w(px(460.))
             .h(px(28.))
             .pl(px(9.))
@@ -1135,7 +1121,21 @@ impl ReviewView {
                 v.task_menu = !v.task_menu;
                 cx.notify();
             }))
-            .child(div().flex_1().min_w_0().truncate().child(current))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .overflow_hidden()
+                    .child(div().ellipsis().child(crate::kit::one_line(current)))
+                    .child(
+                        div()
+                            .h_0()
+                            .overflow_hidden()
+                            .children(options.into_iter().map(|o| div().whitespace_nowrap().child(o))),
+                    ),
+            )
             .child(kit::icon("chevron-down", 12., t.text_3));
         if open {
             let id = a.id.clone();
@@ -1169,7 +1169,7 @@ impl ReviewView {
                     .text_color(if enabled { t.text } else { t.text_4 })
                     .when(chosen, |d| d.bg(t.surface_3))
                     .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(t.surface_3)))
-                    .child(div().truncate().child(label))
+                    .child(div().ellipsis().child(crate::kit::one_line(label)))
             };
             {
                 let id = id.clone();
@@ -1297,10 +1297,10 @@ impl ReviewView {
         self.notice.as_ref().map(|n| {
             div()
                 .min_w_0()
-                .truncate()
+                .ellipsis()
                 .text_size(px(12.))
                 .text_color(t.text_3)
-                .child(n.clone())
+                .child(crate::kit::one_line(n.clone()))
         })
     }
 
@@ -1313,7 +1313,7 @@ impl ReviewView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         self.footer_base(t)
-            .child(kit::glyph(a.status, t, true))
+            .child(kit::glyph_play(format!("rv-foot-{}", a.id), a.status, t, true))
             .child(kit::label_t(a.name.clone(), t.text, 13., 0.1).font_weight(FontWeight::BOLD))
             .children(self.notice(t))
             .child(spacer())
