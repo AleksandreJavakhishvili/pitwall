@@ -21,7 +21,7 @@
 
   /* Glass: translucent fill + backdrop blur, a hairline light border and a lit top edge. */
   --glass: rgba(13, 18, 36, 0.52);
-  --glass-head: rgba(10, 14, 30, 0.5);
+  --glass-head: rgba(10, 14, 30, 0.8);
   --glass-solid: #121829;
   --glass-line: rgba(255, 255, 255, 0.13);
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.07);
@@ -79,7 +79,7 @@
     --text-3: #4f5869;
     --focus: #0d1322;
     --glass: rgba(255, 255, 255, 0.58);
-    --glass-head: rgba(255, 255, 255, 0.62);
+    --glass-head: rgba(244, 247, 252, 0.84);
     --glass-solid: #f7f9fc;
     --glass-line: rgba(28, 44, 84, 0.13);
     --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.85);
@@ -126,7 +126,7 @@
   --text-3: #4f5869;
   --focus: #0d1322;
   --glass: rgba(255, 255, 255, 0.58);
-  --glass-head: rgba(255, 255, 255, 0.62);
+  --glass-head: rgba(244, 247, 252, 0.84);
   --glass-solid: #f7f9fc;
   --glass-line: rgba(28, 44, 84, 0.13);
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.85);
@@ -293,6 +293,17 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   background: var(--glass-head); opacity: 0; transition: opacity 0.45s ease;
 }
 .scrolled .site-head .wrap::before, :root:not(.js) .site-head .wrap::before { opacity: 1; }
+/* Content scrolling up past the floating bar is frosted out above and around it too,
+   so no line of text peeks through the gap over the bar. */
+.site-head::before {
+  content: ""; position: absolute; inset: 0 0 -10px; pointer-events: none; opacity: 0; transition: opacity 0.45s ease;
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  -webkit-mask: linear-gradient(#000 55%, transparent); mask: linear-gradient(#000 55%, transparent);
+}
+.scrolled .site-head::before { opacity: 1; }
+@media (prefers-reduced-transparency: reduce) {
+  .site-head::before { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg); }
+}
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
 .brand img { width: 28px; height: 28px; }
 .brand span { font-family: var(--font-label); font-weight: 700; letter-spacing: 0.22em; font-size: 1.15rem; }
