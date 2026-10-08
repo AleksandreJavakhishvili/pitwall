@@ -1,15 +1,17 @@
-//! An agent's uncommitted work as the sidebar shows it.
+//! An agent's uncommitted work as the sidebar shows it: what `git status`
+//! shows (staged, unstaged, untracked), against HEAD. Review keeps its own
+//! "since the agent started" baseline (`base_commit`, review.rs).
 
 use super::Engine;
 use crate::vcs::git::{FileChange, Git, NOT_A_REPO};
 
 type Res<T> = Result<T, String>;
 
-/// Everything that differs from where the agent started; also refreshes the
+/// Uncommitted changes against HEAD, like `git status`; also refreshes the
 /// agent's +/- counts. Blocking (git).
 pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
-    let (cwd, base) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.rec.base_commit.clone()))?;
-    let files = match Git::new(&*engine.exec_for(agent_id), &cwd).changes(base.as_deref()) {
+    let cwd = engine.with(agent_id, |a| a.rec.cwd.clone())?;
+    let files = match Git::new(&*engine.exec_for(agent_id), &cwd).changes(None) {
         Ok(files) => files,
         Err(e) => {
             // Outside a repository: no diffs for it (caps.diff) and no polling.
@@ -46,13 +48,13 @@ pub fn refresh(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
     super::ticker::refresh_git_now(engine, agent_id)
 }
 
-/// One file's diff against where the agent started. Blocking (git).
+/// One file's uncommitted diff against HEAD. Blocking (git).
 pub fn file_diff(engine: &Engine, agent_id: &str, path: &str, untracked: bool) -> Res<String> {
-    let (cwd, base) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.rec.base_commit.clone()))?;
+    let cwd = engine.with(agent_id, |a| a.rec.cwd.clone())?;
     if path.is_empty() || path.starts_with('/') || path.split('/').any(|p| p == "..") {
         return Err("invalid path".into());
     }
-    Git::new(&*engine.exec_for(agent_id), &cwd).file_diff(base.as_deref(), path, untracked)
+    Git::new(&*engine.exec_for(agent_id), &cwd).file_diff(None, path, untracked)
 }
 
 #[cfg(test)]
@@ -75,6 +77,25 @@ mod tests {
         assert_eq!((v.added, v.removed, v.files_changed), (2, 0, 2));
         assert!(file_diff(&h.engine, "a", "a.txt", false).unwrap().contains("+2"));
         assert_eq!(file_diff(&h.engine, "a", "../x", false).unwrap_err(), "invalid path");
+    }
+
+    #[test]
+    fn committed_work_is_not_listed() {
+        // Matches `git status`: commits the agent made since it started are
+        // Review's business, not the Changes list's.
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let mut rec = record("a", r.path());
+        rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]).trim().to_string());
+        let h = Harness::new(vec![rec]);
+        r.write("a.txt", "1\n2\n");
+        r.commit_all("agent's commit");
+        assert!(changes(&h.engine, "a").unwrap().is_empty());
+        r.write("b.txt", "x\n");
+        let files = changes(&h.engine, "a").unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(h.engine.views()[0].files_changed, 1);
     }
 
     use std::sync::mpsc::{channel, Receiver, Sender};
@@ -212,7 +233,7 @@ mod tests {
     #[test]
     fn git_runs_on_the_agents_machine() {
         let x = crate::testing::FakeExec::new();
-        x.on(&["git", "-C", "/remote/w", "diff", "--raw", "--numstat", "-z", "-M", "b0"], "4\t2\tsrc/a.rs\0")
+        x.on(&["git", "-C", "/remote/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"], "4\t2\tsrc/a.rs\0")
             .on(&["git", "-C", "/remote/w", "ls-files", "--others", "--exclude-standard"], "");
         let mut rec = record("a", "/remote/w");
         rec.base_commit = Some("b0".into());

@@ -175,7 +175,6 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
 pub(super) struct GitJob {
     id: String,
     cwd: String,
-    base: Option<String>,
     seq: u64,
 }
 
@@ -300,7 +299,6 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
             jobs.push(GitJob {
                 id: a.rec.id.clone(),
                 cwd: a.rec.cwd.clone(),
-                base: a.rec.base_commit.clone(),
                 seq,
             });
         }
@@ -348,7 +346,7 @@ pub(super) fn refresh_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>,
 fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
     let exec = core.exec_for(&job.id);
     let git = Git::new(&*exec, &job.cwd);
-    let (changes, branch) = git.changes_and_branch(job.base.as_deref());
+    let (changes, branch) = git.changes_and_branch(None);
     let now = core.now();
     let differs = core
         .with(&job.id, |a| {
@@ -389,7 +387,7 @@ pub(super) fn refresh_git_now(core: &Engine, id: &str) -> Result<Vec<FileChange>
         }
         a.git_inflight = true;
         let seq = a.host.as_ref().map(|s| s.output_seq.load(Ordering::Relaxed)).unwrap_or(a.git_seq);
-        Ok(GitJob { id: a.rec.id.clone(), cwd: a.rec.cwd.clone(), base: a.rec.base_commit.clone(), seq })
+        Ok(GitJob { id: a.rec.id.clone(), cwd: a.rec.cwd.clone(), seq })
     })??;
     refresh_git(core, job)
 }
