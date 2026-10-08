@@ -84,6 +84,10 @@ actions!(
         RefreshChanges,
         /// ⌘⇧N
         MoveSpaceToWindow,
+        /// ⌘+ / ⌘− / ⌘0: the focused tile's font (Settings' when no tile).
+        FontBigger,
+        FontSmaller,
+        FontReset,
         SelectAgent1,
         SelectAgent2,
         SelectAgent3,
@@ -188,9 +192,12 @@ impl Global for EngineHandle {}
 /// What a pane hands the terminal element.
 pub struct TerminalArgs<'a> {
     pub agent: &'a AgentView,
-    /// The pane has focus (the terminal should take keyboard focus).
+    /// The pane is the space's focused one.
     pub focused: bool,
-    /// Base terminal font size (Settings) and this tile's override.
+    /// The screen itself holds the keyboard (no dialog, menu, field or
+    /// sidebar has it): the focused pane's terminal should take it.
+    pub screen_focused: bool,
+    /// The font the tile shows: its own (⌘+ / ⌘−), else the Settings font.
     pub font_size: f64,
 }
 
@@ -249,6 +256,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(&s("r"), RefreshChanges, None),
         KeyBinding::new(&s("n"), MoveSpaceToWindow, None),
         KeyBinding::new(&p("enter"), ToggleMaximize, None),
+        KeyBinding::new(&p("="), FontBigger, None),
+        KeyBinding::new(&p("+"), FontBigger, None),
+        KeyBinding::new(&p("-"), FontSmaller, None),
+        KeyBinding::new(&p("0"), FontReset, None),
         KeyBinding::new(&p("1"), SelectAgent1, None),
         KeyBinding::new(&p("2"), SelectAgent2, None),
         KeyBinding::new(&p("3"), SelectAgent3, None),
@@ -772,6 +783,47 @@ impl MainScreen {
         (Some(cols as u16), Some(rows as u16))
     }
 
+    /// The font an agent's tile shows: its own, else the Settings font.
+    pub fn tile_font(&self, agent: &str) -> f64 {
+        self.ui
+            .tile_font
+            .get(agent)
+            .copied()
+            .unwrap_or(self.ui.font_size)
+    }
+
+    /// ⌘+ / ⌘− / ⌘0 on the focused tile (`stepTileFont`); with no tile
+    /// (or on the Wall), the Settings font.
+    fn step_font(&mut self, delta: Option<f64>, cx: &mut Context<Self>) {
+        let clamp = |f: f64| crate::theme::clamp_font(f.round() as i32) as f64;
+        let id = self
+            .focused_agent_id()
+            .filter(|_| self.route == Route::Space);
+        let current = id.as_ref().map(|id| self.tile_font(id));
+        self.update_ui(
+            |mut s| {
+                match (id, current) {
+                    (Some(id), Some(cur)) => match delta {
+                        None => {
+                            s.tile_font.remove(&id);
+                        }
+                        Some(d) => {
+                            s.tile_font.insert(id, clamp(cur + d));
+                        }
+                    },
+                    _ => {
+                        s.font_size = match delta {
+                            None => workspace::DEFAULT_FONT,
+                            Some(d) => clamp(s.font_size + d),
+                        }
+                    }
+                }
+                s
+            },
+            cx,
+        );
+    }
+
     fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if Self::breakpoint(window).full_sidebar() {
             self.sidebar_collapsed = !self.sidebar_collapsed;
@@ -1242,6 +1294,9 @@ impl Render for MainScreen {
                 this.with_active(|s, id| s.toggle_maximize(id, None), cx)
             }))
             .on_action(cx.listener(|this, _: &RefreshChanges, _, cx| this.load_changes(true, cx)))
+            .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
+            .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
+            .on_action(cx.listener(|this, _: &FontReset, _, cx| this.step_font(None, cx)))
             .on_action(cx.listener(|this, _: &MoveSpaceToWindow, _, cx| {
                 if let Some(id) = this.active_space().map(|s| s.id.clone()) {
                     this.move_space(id, cx);

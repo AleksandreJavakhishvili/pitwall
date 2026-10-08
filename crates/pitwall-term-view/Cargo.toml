@@ -6,16 +6,18 @@ license = "Apache-2.0"
 description = "GPUI terminal view: draws an alacritty_terminal grid and turns input into bytes."
 
 [features]
-default = ["pty"]
+default = ["pty", "runtime-shaders"]
+# Compile GPUI's Metal shaders at startup (no Metal toolchain needed to
+# build). The app turns it off for release bundles, like its own feature.
+runtime-shaders = ["gpui/runtime_shaders"]
 # LocalPty (portable-pty): the example, tests and benchmarks.
 pty = ["dep:portable-pty"]
 # HolderStream: feed a terminal from a Pitwall holder (pitwall-hold).
 holder = ["dep:pitwall-hold"]
 
 [dependencies]
-# crates.io release (Apache-2.0); `runtime_shaders` compiles the Metal shaders
-# at startup, so building doesn't need Xcode's Metal toolchain.
-gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+# crates.io release (Apache-2.0).
+gpui = "=0.2.2"
 alacritty_terminal = { version = "0.26", default-features = false }
 futures = "0.3"
 portable-pty = { version = "0.9", optional = true }

@@ -18,6 +18,7 @@ pub mod settings;
 pub mod platform;
 pub mod remote;
 pub mod packaging;
+pub mod terminal;
 pub mod theme;
 pub mod ui;
 pub mod ui_state;
@@ -92,6 +93,7 @@ pub fn run() {
                 platform::follow(&store, cx);
                 platform::single_instance::serve(paths.root(), cx);
                 approvals::init(&store, host.approvals.clone(), cx);
+                terminal::init(&store, cx);
                 AppState {
                     host: Some(host),
                     content: Content::Live { store },

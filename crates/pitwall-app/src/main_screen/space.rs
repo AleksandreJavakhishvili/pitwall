@@ -494,7 +494,14 @@ impl MainScreen {
                         .flex_1()
                         .min_h_0()
                         .flex()
-                        .child(terminal_element(a, focused, self.ui.font_size, window, cx))
+                        .child(terminal_element(
+                            a,
+                            focused,
+                            self.focus.is_focused(window),
+                            self.tile_font(&a.id),
+                            window,
+                            cx,
+                        ))
                         .when(!a.running, |d| d.child(stopped_overlay(a, t, cx))),
                 )
                 .into_any_element(),
@@ -999,6 +1006,7 @@ fn split_rect(node: &Node, rect: tree::Rect, id: &str) -> Option<tree::Rect> {
 fn terminal_element(
     a: &AgentView,
     focused: bool,
+    screen_focused: bool,
     font: f64,
     window: &mut Window,
     cx: &mut App,
@@ -1008,6 +1016,7 @@ fn terminal_element(
             &TerminalArgs {
                 agent: a,
                 focused,
+                screen_focused,
                 font_size: font,
             },
             window,
