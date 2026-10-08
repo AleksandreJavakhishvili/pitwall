@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.1.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.0) - 2026-10-08
 
 ### Highlights
 
@@ -45,3 +45,53 @@ commit convention, which the entries generated from commits don't include.
 
 - macOS (universal) and Linux (AppImage, .deb). Builds aren't code-signed yet. Windows follows in a later release.
 - Git refreshes when files change instead of polling; Review's diff editor and the Wall are lighter on memory and CPU.
+
+### Features
+
+- **ui:** Refresh source control on open, with a refresh button ([`8201cf4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8201cf4ffe32e57eb205eaab0fcfbe92e73b9631))
+- **ui:** Show the branch and folder in the Changes panel ([`040cd0b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/040cd0be2b4c1d977e80ec58d5738855b4ac2ff6))
+- **core:** List, read and search an agent's files ([`c3927d5`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c3927d5c5ab77f218aa92b22aabd343983f9d8c9))
+- **app:** Explorer commands and a typed TS API ([`28b679a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/28b679a5f1f1bfc59fba202abbaacb6e76aa2459))
+- **ui:** Scope Review to the current space ([`7279173`](https://github.com/AleksandreJavakhishvili/pitwall/commit/72791733b78e304ed50f1f3669080f664bdb465c))
+- **ui:** Browse an agent's files read-only ([`a9e76e3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a9e76e30ecc5185aa92904a3a552c31efa68197e))
+- **website:** Download options for macOS, Windows and Linux ([`a52902a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a52902ac943cdab2778f726fd1eb52c2149027fa))
+
+### Fixes
+
+- **app:** Spawn tools with the login shell PATH ([`a62cc03`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a62cc03a0aead8c4ddbb805610860858f08eb3b4))
+- **core:** Match git status in the Changes panel ([`1bb98e4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/1bb98e40a4c9ac1745e43016905ef368c2b5d63b))
+- **ui:** Scope Review to the focused agent's project in All ([`b4d5be4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b4d5be4348f203db241ae0281f9c5f1ac9fccde8))
+- **core:** Show non-ASCII file names instead of octal escapes ([`40b0428`](https://github.com/AleksandreJavakhishvili/pitwall/commit/40b0428a6fdaad9ff061ebee0ac18819ac9b6cfa))
+
+### Performance
+
+- **core:** Refresh git on file changes instead of polling ([`89c2869`](https://github.com/AleksandreJavakhishvili/pitwall/commit/89c286945a79203f2cb235206df16c571be69c44))
+- **detect:** Parse terminals with alacritty_terminal ([`0ffeb44`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0ffeb44af70bc24d5e5ddc83db01c86e516adc22))
+- **ui:** Draw Wall tiles from the backend's screen copy ([`7d02bd7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7d02bd7b05dc742b2cb8567d340927d5d4987c6f))
+- **ui:** Render Review diffs with CodeMirror instead of Monaco ([`7a6abb0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7a6abb032a5fec841009be78fd56feff3e31c2cc))
+
+### Refactors
+
+- **core:** Drop open-in-editor; list ignored, read large files ([`75220e0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/75220e023e316dd98b25c3be4aaaa75c6dea4272))
+
+### Documentation
+
+- Roadmap marks perf pass 1 done and lists pass 2 ([`ad4b7d8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ad4b7d8dbe838e80da58da5bc6d1ff8592ae66d4))
+- Add a public roadmap ([`5f15567`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5f15567c4f0a8cbe5927cbde1372923fc20c92bf))
+- Drop the CLI expansion from the public roadmap ([`973df8a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/973df8a41e6f3549cc970cb714a3503ac0f5ba71))
+- Describe and measure file-change git refresh ([`c37e7ee`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c37e7ee6b28f88f5d9cde67bea1f85ce11cdb53a))
+- Record Review memory results for perf pass 2 ([`d7ad2b3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d7ad2b360f1c7a19f44d104af5ef76db15482c87))
+- Spec a read-only code explorer ([`f46d54f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f46d54fc5563a3415e8bea7cc64c5107e476baf1))
+- Roadmap and changelog highlights for 0.1.0 ([`b9aed04`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b9aed04e1ec3550d5cc80e79ca99eefb2b4602c7))
+- Install instructions per platform in the README ([`47cf7bf`](https://github.com/AleksandreJavakhishvili/pitwall/commit/47cf7bfb7935fd8cbf7db3cb279781a79603ae3f))
+
+### CI/Build
+
+- Adopt conventional commits with a commit-msg hook and git-cliff ([`70d0612`](https://github.com/AleksandreJavakhishvili/pitwall/commit/70d0612219bf207aff0d0b3f4584ee7644197c93))
+- **website:** Render the changelog and roadmap from Markdown ([`6c8a063`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6c8a063a10a2f8b7375ab9490996fd187768bb63))
+- **release:** Ship macOS and Linux; Windows behind RELEASE_WINDOWS ([`2b2c0a0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2b2c0a00b5dd1442a3c54b40731d14e9e67a4290))
+
+### Chores
+
+- Add a release script that prepends to CHANGELOG.md ([`a6a680c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a6a680c02691ac8e34ae82cf61e20ef3c62a0c67))
+- Trim trailing blank lines in the release script ([`0a115d4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0a115d444549bcc817621f3d92e254e4f48f8044))
