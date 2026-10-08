@@ -145,6 +145,10 @@ jobs:
           cargo test -p pitwall-core --test boundaries
           cargo test -p pitwall-core --lib -- platform:: procs:: shell:: host:: hooks:: kind::catalog
 
+      # Daemon server: handshake, methods and approvals over the named pipe.
+      - name: cargo test (daemon)
+        run: cargo test -p pitwall-daemon
+
       # ---- not yet ported: informational until their fixtures run on Windows.
       # TODO(windows): port the POSIX-shell fixtures, then move each suite up
       # into the required steps and delete its continue-on-error.
@@ -160,11 +164,6 @@ jobs:
       - name: cargo test (providers) — not yet ported
         continue-on-error: true
         run: cargo test -p pitwall-providers
-
-      # TODO(windows): daemon server tests (agents started through sh).
-      - name: cargo test (daemon) — not yet ported
-        continue-on-error: true
-        run: cargo test -p pitwall-daemon
 
       # TODO(windows): the CLI and the app crate's tests.
       - name: cargo test (cli, app) — not yet ported
