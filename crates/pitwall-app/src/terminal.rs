@@ -110,6 +110,8 @@ struct Entry {
     /// Attached to a running agent (else a blank, input-less terminal).
     live: bool,
     mode: Mode,
+    /// The window the view was made in (its focus and activation hooks).
+    window: gpui::WindowId,
 }
 
 /// Every agent's terminal.
@@ -224,8 +226,26 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
                 view,
                 live,
                 mode,
+                window: window.window_handle().window_id(),
             },
         );
+    }
+    // Its space moved to another window: a new view there on the same
+    // terminal (the scrollback stays).
+    let here = window.window_handle().window_id();
+    let moved = cx
+        .try_global::<Terminals>()
+        .and_then(|t| t.entries.get(&a.id))
+        .filter(|e| e.window != here)
+        .map(|e| e.terminal.clone());
+    if let Some(terminal) = moved {
+        let view = cx.new(|cx| {
+            TerminalView::new(terminal, ViewMode::Interactive, settings(font), window, cx)
+        });
+        if let Some(e) = cx.global_mut::<Terminals>().entries.get_mut(&a.id) {
+            e.view = view;
+            e.window = here;
+        }
     }
     let t = cx.global_mut::<Terminals>();
     let Some(entry) = t.entries.get_mut(&a.id) else {

@@ -29,6 +29,7 @@ pub mod ui;
 pub mod ui_state;
 pub mod wall;
 pub mod window_state;
+pub mod windows;
 
 use std::path::PathBuf;
 
@@ -129,6 +130,7 @@ pub fn run() {
         let root = state.root.clone();
         cx.set_global(state);
         ui_state::init(root.clone(), cx);
+        windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine, root);
 
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -142,8 +144,8 @@ pub fn run() {
         });
         cx.on_action(|_: &OpenSettings, cx| {
             cx.defer(|cx| {
-                let main = show_main(cx);
-                let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
+                let Some(target) = windows::active_or_main(cx) else { return };
+                let _ = target.update(cx, |view, _, cx| view.open_settings(cx));
             })
         });
         // macOS: the standard About panel, like the Tauri app's default
@@ -153,8 +155,8 @@ pub fn run() {
                 platform::about(cx);
             } else {
                 cx.defer(|cx| {
-                    let main = show_main(cx);
-                    let _ = main.update(cx, |view, _, cx| view.open_about(cx));
+                    let Some(target) = windows::active_or_main(cx) else { return };
+                    let _ = target.update(cx, |view, _, cx| view.open_about(cx));
                 })
             }
         });
@@ -167,14 +169,27 @@ pub fn run() {
         })
         .detach();
         cx.on_window_closed(|cx| {
-            cx.global_mut::<AppState>().main = None;
-            if !cfg!(target_os = "macos") && cx.windows().is_empty() {
+            // Only the main window's closing forgets it (a secondary one
+            // closing leaves it open).
+            let main = cx.global::<AppState>().main;
+            let open = cx.windows();
+            if main.is_some_and(|m| open.iter().all(|w| w.window_id() != m.window_id())) {
+                cx.global_mut::<AppState>().main = None;
+                // Linux and Windows without a tray: closing main quits (agents
+                // keep running in their holders), as the Tauri app does.
+                if !cfg!(target_os = "macos") {
+                    cx.quit();
+                }
+            }
+            if !cfg!(target_os = "macos") && open.is_empty() {
                 cx.quit();
             }
         })
         .detach();
 
         show_main(cx);
+        windows::restore(cx);
+        windows::debug_hook(cx);
         cx.activate(true);
     });
 }
@@ -202,6 +217,7 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
         .and_then(window_state::load)
         .filter(|s| s.visible_on(&displays))
         .map(window_state::Saved::to_bounds)
+        .or_else(|| windows::main_bounds(cx))
         .unwrap_or_else(|| {
             let (w, h) = window_state::DEFAULT_SIZE;
             WindowBounds::Windowed(Bounds::centered(None, size(px(w), px(h)), cx))

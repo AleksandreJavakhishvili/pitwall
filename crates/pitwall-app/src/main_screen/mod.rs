@@ -441,7 +441,7 @@ impl MainScreen {
         let mut screen = MainScreen {
             store,
             engine,
-            label: MAIN.into(),
+            label: crate::windows::label_of(window, cx),
             active: ALL_SPACE.into(),
             ui,
             route: Route::Space,
@@ -552,13 +552,16 @@ impl MainScreen {
     /// Change `ui.json` (`crate::ui_state` saves it 150 ms after the last
     /// change).
     fn update_ui(&mut self, f: impl FnOnce(UiState) -> UiState, cx: &mut Context<Self>) {
-        let next = f(self.ui.clone());
-        if next == self.ui {
+        // From the store's state, not this window's copy: another window may
+        // have changed it since (its notification not delivered yet).
+        let store = crate::ui_state::store(cx);
+        let base = store.read(cx).state.clone();
+        let next = f(base.clone());
+        if next == base {
             return;
         }
         self.ui = next.clone();
         cx.notify();
-        let store = crate::ui_state::store(cx);
         store.update(cx, |s, cx| s.set(next, cx));
     }
 
@@ -701,6 +704,13 @@ impl MainScreen {
         self.changes_follow(cx);
         window.focus(&self.focus);
         cx.emit(ScreenEvent::AgentShown(id.to_string()));
+        cx.notify();
+    }
+
+    /// Show one of this window's spaces (multi-window: a space moved in).
+    pub fn show_space(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.active = id.to_string();
+        self.set_route(Route::Space, cx);
         cx.notify();
     }
 
@@ -1101,6 +1111,8 @@ impl MainScreen {
         );
         if self.ui.window_of_space(&opened) == self.label {
             self.active = opened;
+        } else {
+            crate::windows::show_space(&opened, cx);
         }
         self.overlay_sidebar = false;
         self.set_route(Route::Space, cx);
@@ -1210,6 +1222,12 @@ impl MainScreen {
 
 impl Render for MainScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A change made while this window was being opened reached the
+        // store before this screen's observer was active: catch up.
+        let store = crate::ui_state::store(cx);
+        if store.read(cx).state != self.ui {
+            self.ui = store.read(cx).state.clone();
+        }
         let t = theme::theme(cx).clone();
         // A dialog, menu or overlay that had the keyboard closed: the screen
         // takes it back (and passes it on to the focused pane's terminal).

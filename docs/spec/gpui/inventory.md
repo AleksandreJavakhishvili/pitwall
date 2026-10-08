@@ -53,7 +53,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Tab shows ▲ when an agent it shows/holds is blocked, else ⚑ when one is done (`src/components/SpaceTabs.tsx`) [in-house: tabs]
 - [x] Tab tooltip: project path / "Every agent" / "Custom space — drag agents here" (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: tooltip]
 - [x] Double-click a non-All tab to rename inline; Enter or blur commits, Esc cancels; empty name keeps the old one (`src/components/SpaceTabs.tsx`, `src/state/workspace.ts`) [in-house: tabs] [in-house: text input]
-- [ ] Per-tab "Move to new window (⌘⇧N)" button (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: tooltip]
+- [x] Per-tab "Move to new window (⌘⇧N)" button (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: tooltip]
 - [x] Per-tab "Close space" button (agents just stop being shown there) (`src/components/SpaceTabs.tsx`) [in-house: tabs]
 - [x] "+" tab creates "Space N" (custom) in this window; also a drop target (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: drag and drop]
 - [x] Tab drop highlight while an agent is dragged over it (`src/components/SpaceTabs.tsx`, `src/lib/dnd.ts`) [in-house: tabs] [in-house: drag and drop]
@@ -101,7 +101,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Presets: 1, 2, 3 ("1 big + 2"), 2×2, 3×2, 3×3, 4×3, 4×4, Auto grid (`src/layout/tree.ts`)
 - [x] Applying a preset keeps shown agents first (focused first) then fills with members not shown elsewhere; rest become chips (`src/state/workspace.ts`)
 - [x] Auto grid: tile all candidates evenly in rows sized to the area/density (`src/layout/tree.ts`, `src/lib/tiling.ts`)
-- [ ] Space bar "Move to new window" button (not on All) (`src/components/SpaceView.tsx`) [in-house: tooltip]
+- [x] Space bar "Move to new window" button (not on All) (`src/components/SpaceView.tsx`) [in-house: tooltip]
 - [x] Layout is a tree of panes and row/col splits with fractional sizes (`src/layout/tree.ts`) [in-house: pane/split layout]
 - [x] Drag split dividers to resize (min 8 % per side), live preview, persisted on release (`src/components/LayoutView.tsx`) [in-house: pane/split layout]
 - [x] Render-time fit: panes below the density minimum fold away (focused pane kept) and become chips (`src/components/SpaceView.tsx`, `src/state/hidden.ts`) [in-house: pane/split layout]
@@ -122,9 +122,9 @@ marks terminal items. Section 36 lists each component once.
 
 ## 6. Navigation and focus
 
-- [ ] Show agent: leave Wall/Review/viewer, close overlay sidebar; focus its pane in this window; or ask the owning window (via `focusRequest` in the blob + `focus_window`); or place it in the active space (`src/App.tsx`)
+- [x] Show agent: leave Wall/Review/viewer, close overlay sidebar; focus its pane in this window; or ask the owning window (via `focusRequest` in the blob + `focus_window`); or place it in the active space (`src/App.tsx`)
 - [x] Focus moves keyboard focus into the agent's terminal on the next frame (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
-- [ ] Cross-window focus request handled once per nonce by the owning window (`src/App.tsx`)
+- [x] Cross-window focus request handled once per nonce by the owning window (`src/App.tsx`)
 - [x] Jump to next blocked (⌘J) cycles through blocked agents in sidebar order (`src/App.tsx`)
 - [x] Select agent by index ⌘1–⌘9 (`src/App.tsx`)
 - [x] "Done" means unseen: selecting a done agent calls `mark_seen` at once; finishing while focused is seen after a 1.5 s glance if the window has focus (`src/App.tsx`)
@@ -422,7 +422,7 @@ key code.
 
 - [x] Command palette (toggle): ⌘K · Ctrl+Shift+K
 - [x] New agent: ⌘N · Ctrl+Shift+N
-- [ ] Move active space to new window: ⌘⇧N · Ctrl+Shift+Alt+N
+- [x] Move active space to new window: ⌘⇧N · Ctrl+Shift+Alt+N
 - [x] New terminal here: ⌘T · Ctrl+Shift+T
 - [x] New terminal in folder…: ⌘⇧T · Ctrl+Shift+Alt+T
 - [x] Jump to next blocked: ⌘J · Ctrl+Shift+J
@@ -470,16 +470,16 @@ key code.
 
 ## 25. Multi-window
 
-- [ ] Main window label `main`; extra windows `pitwall-N` (next free number) showing one space each (`src-tauri/src/windows.rs`)
-- [ ] Move space to new window (⌘⇧N, tab button, space bar button, palette) opens a window with `?space=<id>`; the new window claims the space (`src/App.tsx`, `src-tauri/src/windows.rs`)
-- [ ] Every window has its own tabs, sidebar, Wall flag, toasts, strip; shares the UI blob (`src/App.tsx`)
-- [ ] UI blob changes broadcast to other windows (`ui-state-changed`, ignoring own writes) (`src/state/useUiState.ts`)
-- [ ] Closing a secondary window returns its spaces to main (event) and on startup main reclaims spaces of windows that no longer exist (after 1.5 s) (`src/App.tsx`, `src/state/workspace.ts`)
-- [ ] Secondary windows restored on launch with saved bounds; main bounds restored; bounds ignored when tiny or off all monitors (`src-tauri/src/windows.rs`)
-- [ ] Window default size 1400×900, min 640×480, title "Pitwall" (`src-tauri/tauri.conf.json`, `src-tauri/src/windows.rs`)
-- [ ] Settings from the native menu opens in the focused window (fallback main) (`src-tauri/src/menu.rs`)
-- [ ] Glass material requested per window (`set_window_glass`) (`src-tauri/src/commands/host.rs`)
-- [ ] Each window attaches its own terminal output; terminals of agents shown in another window are disposed (`src/App.tsx`)
+- [x] Main window label `main`; extra windows `pitwall-N` (next free number) showing one space each (`src-tauri/src/windows.rs`)
+- [x] Move space to new window (⌘⇧N, tab button, space bar button, palette) opens a window with `?space=<id>`; the new window claims the space (`src/App.tsx`, `src-tauri/src/windows.rs`)
+- [x] Every window has its own tabs, sidebar, Wall flag, toasts, strip; shares the UI blob (`src/App.tsx`)
+- [x] UI blob changes broadcast to other windows (`ui-state-changed`, ignoring own writes) (`src/state/useUiState.ts`)
+- [x] Closing a secondary window returns its spaces to main (event) and on startup main reclaims spaces of windows that no longer exist (after 1.5 s) (`src/App.tsx`, `src/state/workspace.ts`)
+- [x] Secondary windows restored on launch with saved bounds; main bounds restored; bounds ignored when tiny or off all monitors (`src-tauri/src/windows.rs`)
+- [x] Window default size 1400×900, min 640×480, title "Pitwall" (`src-tauri/tauri.conf.json`, `src-tauri/src/windows.rs`)
+- [x] Settings from the native menu opens in the focused window (fallback main) (`src-tauri/src/menu.rs`)
+- [x] Glass material requested per window (`set_window_glass`) (`src-tauri/src/commands/host.rs`)
+- [x] Each window attaches its own terminal output; terminals of agents shown in another window are disposed (`src/App.tsx`)
 - [ ] Spec: drag a tab out to make a window (not implemented) (decide) (`docs/spec/layout.md`)
 
 ## 26. Approvals (requests from the `pitwall` CLI)
