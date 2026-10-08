@@ -51,12 +51,12 @@
   color: var(--text);
   padding: 0 4px;
 }
-/* A tiny pit board: two bars and a status lamp. */
+/* The Apex P, 32 px cut: a solid P with a chequer foot. */
 .wordmark-mark {
   width: 20px;
   height: 20px;
   flex: none;
-  /* Brand mark (docs/brand/pitwall-mark.svg), served from public/. */
+  /* Brand mark (docs/brand/pitwall-small-32.svg), served from public/. */
   background: url("/pitwall.svg") center / contain no-repeat;
 }
 
