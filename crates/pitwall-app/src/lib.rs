@@ -7,9 +7,11 @@
 
 pub mod agents;
 pub mod bridge;
+pub mod code_view;
 pub mod home;
 pub mod host;
 pub mod menu;
+pub mod review;
 pub mod theme;
 pub mod ui;
 pub mod window_state;
@@ -61,11 +63,13 @@ pub fn run() {
             cx.window_appearance(),
         )));
         menu::register(cx);
+        review::register(cx);
 
         let state = match chosen {
             Ok(paths) => {
                 let (bridge, rx) = Bridge::new();
                 let host = Host::start(paths.clone(), bridge);
+                cx.set_global(review::ReviewEngine { engine: host.engine.clone(), root: Some(paths.root().into()) });
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 AgentStore::listen(&store, rx, cx);
                 let data_dir = SharedString::from(tildify(&paths.root().to_string_lossy()));

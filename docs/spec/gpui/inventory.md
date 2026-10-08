@@ -217,50 +217,50 @@ marks terminal items. Section 36 lists each component once.
 ## 12. Review screen
 
 - [ ] Full main-area mode: ⌘R (toggle; opens on the focused agent when it can be reviewed), top bar, palette, Changes "Open in Review", viewer "Show diff", worktree "Review changes" (`src/App.tsx`)
-- [ ] Scope: active space's agents (project space → project, custom → members, All → focused agent's project, or everyone); plus the agent/worktree it was opened for (`src/lib/reviewScope.ts`)
-- [ ] Header: "Review", scope label, hint "what your agents changed · click a line number to comment" (`src/components/review/Review.tsx`)
-- [ ] "All projects" checkbox widens the list (session only) (`src/components/review/Review.tsx`, `src/App.tsx`) [in-house: checkbox/toggle]
-- [ ] Refresh control; opening Review forces a refresh of every agent's changes and worktrees; combined error with Retry (`src/components/review/Review.tsx`) [in-house: tooltip]
-- [ ] "Side by side" / "Inline" toggle, persisted (`pitwall.review.sideBySide`, default side by side) (`src/components/review/Review.tsx`) [in-house: segmented control]
-- [ ] "Back esc"; Esc leaves (unless a dialog, editor, field or menu has it) (`src/components/review/Review.tsx`)
-- [ ] Left list grouped by project → agent: collapse chevron, name button (status, name, branch), diffstat (`src/components/review/Review.tsx`) [in-house: list/virtual list] [in-house: scroll view]
-- [ ] Per-agent states: "this task only" note, error with Retry, "Reading git…", "No changes." (`src/components/review/Review.tsx`)
-- [ ] Compact-folder file tree (VS Code SCM style), collapsible folders (state per agent), comment count badge per file (`src/components/review/FileTree.tsx`) [in-house: file tree]
-- [ ] ↑/↓ moves focus through file rows; Enter opens (`src/components/review/Review.tsx`) [in-house: file tree]
-- [ ] Comments list per agent under its files: "file:line" + text, click jumps to the line, ✕ deletes (`src/components/review/Review.tsx`) [in-house: list/virtual list]
-- [ ] Agent's worktrees and per-project "Other worktrees" sections in the list (section 15) (`src/components/review/WorktreeSection.tsx`) [in-house: file tree]
-- [ ] Hint for agents outside a git repository ("N agents work outside a git repository") (`src/components/review/Review.tsx`)
-- [ ] Default selection: the agent it was opened for (its first file once read), else the first agent with changes (`src/components/review/Review.tsx`)
-- [ ] Selected file disappearing (discarded/merged) picks a neighbour (`src/components/review/Review.tsx`)
-- [ ] Picking an agent/worktree refreshes just that one (`src/components/review/Review.tsx`)
-- [ ] Per-agent task scope select: "Since the agent started · <name>" or "Task N · HH:MM · <prompt…>" (running, snapshot pending disabled) (`src/components/review/Review.tsx`) [in-house: select/dropdown]
-- [ ] Task prompt shown above the diff when a task is selected (`src/components/review/Review.tsx`)
-- [ ] File header: icon, base + dir, status letter, diffstat or "bin" (`src/components/review/Review.tsx`)
-- [ ] Footer actions for an agent: "Discard file", "Send comments (N)", "Commit" or "Commit & merge" (worktree agents); notice text after actions (`src/components/review/Review.tsx`)
+- [x] Scope: active space's agents (project space → project, custom → members, All → focused agent's project, or everyone); plus the agent/worktree it was opened for (`src/lib/reviewScope.ts`)
+- [x] Header: "Review", scope label, hint "what your agents changed · click a line number to comment" (`src/components/review/Review.tsx`)
+- [x] "All projects" checkbox widens the list (session only) (`src/components/review/Review.tsx`, `src/App.tsx`) [in-house: checkbox/toggle]
+- [x] Refresh control; opening Review forces a refresh of every agent's changes and worktrees; combined error with Retry (`src/components/review/Review.tsx`) [in-house: tooltip]
+- [x] "Side by side" / "Inline" toggle, persisted (`pitwall.review.sideBySide`, default side by side) (`src/components/review/Review.tsx`) [in-house: segmented control]
+- [x] "Back esc"; Esc leaves (unless a dialog, editor, field or menu has it) (`src/components/review/Review.tsx`)
+- [x] Left list grouped by project → agent: collapse chevron, name button (status, name, branch), diffstat (`src/components/review/Review.tsx`) [in-house: list/virtual list] [in-house: scroll view]
+- [x] Per-agent states: "this task only" note, error with Retry, "Reading git…", "No changes." (`src/components/review/Review.tsx`)
+- [x] Compact-folder file tree (VS Code SCM style), collapsible folders (state per agent), comment count badge per file (`src/components/review/FileTree.tsx`) [in-house: file tree]
+- [x] ↑/↓ moves focus through file rows; Enter opens (`src/components/review/Review.tsx`) [in-house: file tree]
+- [x] Comments list per agent under its files: "file:line" + text, click jumps to the line, ✕ deletes (`src/components/review/Review.tsx`) [in-house: list/virtual list]
+- [x] Agent's worktrees and per-project "Other worktrees" sections in the list (section 15) (`src/components/review/WorktreeSection.tsx`) [in-house: file tree]
+- [x] Hint for agents outside a git repository ("N agents work outside a git repository") (`src/components/review/Review.tsx`)
+- [x] Default selection: the agent it was opened for (its first file once read), else the first agent with changes (`src/components/review/Review.tsx`)
+- [x] Selected file disappearing (discarded/merged) picks a neighbour (`src/components/review/Review.tsx`)
+- [x] Picking an agent/worktree refreshes just that one (`src/components/review/Review.tsx`)
+- [x] Per-agent task scope select: "Since the agent started · <name>" or "Task N · HH:MM · <prompt…>" (running, snapshot pending disabled) (`src/components/review/Review.tsx`) [in-house: select/dropdown]
+- [x] Task prompt shown above the diff when a task is selected (`src/components/review/Review.tsx`)
+- [x] File header: icon, base + dir, status letter, diffstat or "bin" (`src/components/review/Review.tsx`)
+- [x] Footer actions for an agent: "Discard file", "Send comments (N)", "Commit" or "Commit & merge" (worktree agents); notice text after actions (`src/components/review/Review.tsx`)
 - [ ] Footer for a worktree: name, "locked" chip, "Open terminal", "Remove worktree…", "Commit" / "Commit & merge" by caps (`src/components/review/Review.tsx`) [in-house: tooltip]
-- [ ] Per-agent files refetched every 5 s while visible and on totals change (`src/components/review/Review.tsx`)
-- [ ] Empty states: "Nothing selected.", "Start an agent to review its changes.", "Pick a file on the left.", "Nothing to review here." (`src/components/review/Review.tsx`)
-- [ ] Draft comments kept in memory for the app session per agent (`src/components/review/comments.ts`)
+- [x] Per-agent files refetched every 5 s while visible and on totals change (`src/components/review/Review.tsx`)
+- [x] Empty states: "Nothing selected.", "Start an agent to review its changes.", "Pick a file on the left.", "Nothing to review here." (`src/components/review/Review.tsx`)
+- [x] Draft comments kept in memory for the app session per agent (`src/components/review/comments.ts`)
 
 ## 13. Review diff editor
 
-- [ ] Side-by-side and inline diff (CodeMirror 6 merge view), styled after the Monaco diff editor (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
+- [x] Side-by-side and inline diff (CodeMirror 6 merge view), styled after the Monaco diff editor (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
 - [ ] Syntax highlighting with lazily loaded languages; JSON/TOML/diff kept plain; Markdown marker colouring (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
 - [ ] Bracket pair colours, bracket matching, indentation detection + indent guides (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
-- [ ] Read-only; typing shows a "Read-only…" message (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
-- [ ] Gutter per editor: comment glyph, line number(s), +/− sign; hatched filler opposite inserted/deleted lines (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
-- [ ] Collapsed unchanged regions ("N hidden lines"), click to expand (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
-- [ ] Overlay scrollbars with cursor lane; click on track pages (`src/components/review/diffView.ts`) [in-house: code/diff viewer] [in-house: scroll view]
-- [ ] Diff overview ruler on the right (deletions left half, insertions right half) (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
-- [ ] Click a line number puts the cursor on the line (⌘C copies it); any click in the margin starts a comment; hover shows "+" (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
-- [ ] Commented lines: glyph + soft tint; hovering the glyph shows the comment text (`src/components/review/diffView.ts`) [in-house: code/diff viewer] [in-house: tooltip]
-- [ ] Comment composer: "Comment file:line", textarea "What should change here?", ⌘↵ adds, Esc cancels, "Collected, not sent." (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer] [in-house: text input]
-- [ ] Editor context menu: "Add review comment", separator, "Copy"; ↑/↓, Enter/Space, Esc (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer] [in-house: popover/menu]
-- [ ] Find widget (Monaco-like, top right): query, Match Case, Whole Word, Regex, "n of m", previous/next, Find in Selection, close (`src/components/review/findPanel.ts`) [in-house: code/diff viewer] [in-house: text input]
-- [ ] Find keys: Mod-F open, Enter / Shift+Enter next/prev, F3 / Shift+F3, Mod-G / Shift+Mod-G, Esc closes (`src/components/review/editorSetup.ts`, `src/components/review/findPanel.ts`) [in-house: code/diff viewer]
-- [ ] States: "Loading…", "Binary or very large file — not shown", "No content on either side", load error (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer]
-- [ ] Editor colours follow the scheme (dark/light) live (`src/components/review/ReviewDiff.tsx`, `src/components/review/review.css`) [in-house: code/diff viewer] [in-house: theme]
-- [ ] Reveal: scroll to a line on request (comment jump) (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer]
+- [x] Read-only; typing shows a "Read-only…" message (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
+- [x] Gutter per editor: comment glyph, line number(s), +/− sign; hatched filler opposite inserted/deleted lines (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
+- [x] Collapsed unchanged regions ("N hidden lines"), click to expand (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
+- [x] Overlay scrollbars with cursor lane; click on track pages (`src/components/review/diffView.ts`) [in-house: code/diff viewer] [in-house: scroll view]
+- [x] Diff overview ruler on the right (deletions left half, insertions right half) (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
+- [x] Click a line number puts the cursor on the line (⌘C copies it); any click in the margin starts a comment; hover shows "+" (`src/components/review/diffView.ts`) [in-house: code/diff viewer]
+- [x] Commented lines: glyph + soft tint; hovering the glyph shows the comment text (`src/components/review/diffView.ts`) [in-house: code/diff viewer] [in-house: tooltip]
+- [x] Comment composer: "Comment file:line", textarea "What should change here?", ⌘↵ adds, Esc cancels, "Collected, not sent." (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer] [in-house: text input]
+- [x] Editor context menu: "Add review comment", separator, "Copy"; ↑/↓, Enter/Space, Esc (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer] [in-house: popover/menu]
+- [x] Find widget (Monaco-like, top right): query, Match Case, Whole Word, Regex, "n of m", previous/next, Find in Selection, close (`src/components/review/findPanel.ts`) [in-house: code/diff viewer] [in-house: text input]
+- [x] Find keys: Mod-F open, Enter / Shift+Enter next/prev, F3 / Shift+F3, Mod-G / Shift+Mod-G, Esc closes (`src/components/review/editorSetup.ts`, `src/components/review/findPanel.ts`) [in-house: code/diff viewer]
+- [x] States: "Loading…", "Binary or very large file — not shown", "No content on either side", load error (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer]
+- [x] Editor colours follow the scheme (dark/light) live (`src/components/review/ReviewDiff.tsx`, `src/components/review/review.css`) [in-house: code/diff viewer] [in-house: theme]
+- [x] Reveal: scroll to a line on request (comment jump) (`src/components/review/ReviewDiff.tsx`) [in-house: code/diff viewer]
 
 ## 14. Code explorer (read-only)
 
@@ -294,9 +294,9 @@ marks terminal items. Section 36 lists each component once.
 - [ ] Click a worktree row opens Review on it (`src/components/WorktreeRows.tsx`)
 - [ ] Worktree context menu: "Review changes", "Open terminal here" (caps.terminal), "Remove worktree…" (caps.remove) (`src/components/WorktreeRows.tsx`) [in-house: popover/menu]
 - [ ] Worktree changes against merge-base polled every 15 s (10 s in Review) while shown (`src/lib/useWorktrees.ts`)
-- [ ] Review worktree section: toggle, name/branch/locked, diffstat, refresh control, "Its folder is gone.", "No changes against <target>", file tree (`src/components/review/WorktreeSection.tsx`) [in-house: file tree]
-- [ ] Review main pane for a worktree: "Worktree <name> · <branch> · against <target>" header and diff (no comments) (`src/components/review/Review.tsx`) [in-house: code/diff viewer]
-- [ ] Commit / Commit & merge a worktree (same dialog as agents; conflicts become a notice) (`src/components/review/Review.tsx`) [in-house: modal/dialog]
+- [x] Review worktree section: toggle, name/branch/locked, diffstat, refresh control, "Its folder is gone.", "No changes against <target>", file tree (`src/components/review/WorktreeSection.tsx`) [in-house: file tree]
+- [x] Review main pane for a worktree: "Worktree <name> · <branch> · against <target>" header and diff (no comments) (`src/components/review/Review.tsx`) [in-house: code/diff viewer]
+- [x] Commit / Commit & merge a worktree (same dialog as agents; conflicts become a notice) (`src/components/review/Review.tsx`) [in-house: modal/dialog]
 
 ## 16. Status strip, toasts, notifications in-app
 
@@ -429,7 +429,7 @@ key code.
 - [ ] Toggle sidebar: ⌘B · Ctrl+Shift+B
 - [ ] Toggle details panel: ⌘. · Ctrl+Shift+.
 - [ ] Toggle Wall: ⌘E · Ctrl+Shift+E
-- [ ] Toggle Review: ⌘R · Ctrl+Shift+R (also blocks webview reload)
+- [x] Toggle Review: ⌘R · Ctrl+Shift+R (also blocks webview reload)
 - [ ] Refresh source-control views: ⌘⇧R · Ctrl+Shift+Alt+R (`src/lib/freshness.ts`)
 - [ ] Quick open file: ⌘P · Ctrl+Shift+P
 - [ ] Search in files: ⌘⇧F · Ctrl+Shift+Alt+F
@@ -444,7 +444,7 @@ key code.
 - [ ] Esc: close modal/palette/menu; leave Wall, Review, viewer; cancel drag; cancel tab rename; close rescan; cancel comment; close find
 - [ ] Enter: run palette/quick-open item; submit dialogs; commit tab rename; open tree file; re-run search
 - [ ] Arrows: palette/quick-open/menu ↑/↓; explorer tree ↑/↓/←/→; Review file list ↑/↓; diff menu ↑/↓ [in-house: list/virtual list] [in-house: file tree]
-- [ ] Editor: Mod-F find, Enter/Shift+Enter next/prev in find, F3/Shift+F3, Mod-G/Shift+Mod-G, Esc closes find, default CodeMirror navigation keys (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
+- [x] Editor: Mod-F find, Enter/Shift+Enter next/prev in find, F3/Shift+F3, Mod-G/Shift+Mod-G, Esc closes find, default CodeMirror navigation keys (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
 - [ ] Mouse: double-click tab renames; double-click pane header maximises; middle-click viewer tab closes; right-click project/agent/worktree opens menus [in-house: tabs] [in-house: pane/split layout] [in-house: popover/menu]
 - [ ] Shortcut labels everywhere rendered per desktop (`keys()`, compact "⌃⇧" form in rows) (`src/lib/host.ts`, `src/components/Kbd.tsx`) [in-house: keybinding label]
 - [ ] macOS native menu shortcuts: ⌘Q quit, ⌘W close window, ⌘H hide, ⌥⌘H hide others, ⌘M minimise, ⌃⌘F full screen, Edit ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (Tauri default menu) (`src-tauri/src/menu.rs`)
@@ -584,15 +584,15 @@ Rules (`src-tauri/src/commands/rules.rs`, wrapper `src/rules/api.ts`):
 - [ ] `apply_rules(agentId, confirmMainCheckout?)`, `set_agent_rules(agentId, ruleSetId)` (no UI caller today) (decide), `agent_rules`
 
 Review (`src-tauri/src/commands/review.rs`, wrapper `src/reviewTypes.ts`):
-- [ ] `list_tasks`, `get_task_changes(agentId, taskId)`, `get_file_versions(agentId, path, taskId)`
-- [ ] `discard_file`, `commit_agent(agentId, message)` → short id, `merge_agent` → `MergeResult`, `get_merge_status` → `MergeStatus`
+- [x] `list_tasks`, `get_task_changes(agentId, taskId)`, `get_file_versions(agentId, path, taskId)`
+- [x] `discard_file`, `commit_agent(agentId, message)` → short id, `merge_agent` → `MergeResult`, `get_merge_status` → `MergeStatus`
 
 Explorer (`src-tauri/src/commands/explorer.rs`, wrapper `src/explorerApi.ts`):
 - [ ] `list_files(agentId, dir?, ignored?)`, `list_all_files`, `read_file(agentId, path, large?)`, `search_files(agentId, query)`, `cancel_search`
 
 Worktrees (`src-tauri/src/commands/worktrees.rs`, wrapper `src/worktreesApi.ts`):
-- [ ] `list_worktrees`, `refresh_worktrees(projectId?)`, `get_worktree_changes`, `get_worktree_file_versions`, `get_worktree_merge_status`
-- [ ] `commit_worktree`, `merge_worktree`, `remove_worktree` (never --force)
+- [x] `list_worktrees`, `refresh_worktrees(projectId?)`, `get_worktree_changes`, `get_worktree_file_versions`, `get_worktree_merge_status`
+- [x] `commit_worktree`, `merge_worktree`, `remove_worktree` (never --force)
 
 Onboarding, terminals, permissions, host:
 - [ ] `scan_environment` → `ScanResult`, `get_onboarded`, `list_projects`, `add_project`, `remove_project`, `complete_onboarding(projects, installCodexHooks)` (`src-tauri/src/commands/onboarding.rs`)
@@ -654,7 +654,7 @@ item. Terminal items are tagged `[pitwall-term-view]` instead.
 
 - [ ] Basic primitives: button, icon button, label, chip, kbd (all sections)
 - [ ] `checkbox/toggle`: checkbox and switch (§10, §12, §14, §18, §19, §20, §21, §26)
-- [ ] `code/diff viewer`: read-only code view and side-by-side / inline diff with gutter, folding, find, highlighting (§11, §13, §14, §15, §23, §24)
+- [x] `code/diff viewer`: read-only code view and side-by-side / inline diff with gutter, folding, find, highlighting (§11, §13, §14, §15, §23, §24)
 - [ ] `command palette`: palette-style fuzzy picker (⌘K, ⌘P) (§14, §17)
 - [ ] `drag and drop`: pointer drag with ghost, hit-testing and drop previews (§3, §4, §5, §7, §9)
 - [ ] `drawer/overlay`: slide-in drawer / overlay sidebar with scrim (§1, §4)

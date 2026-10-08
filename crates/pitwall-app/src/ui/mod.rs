@@ -34,6 +34,7 @@ pub struct MainView {
     /// Where the window's bounds are saved (`None`: refused, nothing saved).
     root: Option<std::path::PathBuf>,
     save_bounds: Option<Task<()>>,
+    review: crate::review::ReviewSlot,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -64,6 +65,7 @@ impl MainView {
             focus,
             root,
             save_bounds: None,
+            review: Default::default(),
             _subscriptions: subs,
         }
     }
@@ -98,6 +100,7 @@ impl MainView {
     }
 
     pub(super) fn select(&mut self, id: String, cx: &mut Context<Self>) {
+        self.review.set_focused(Some(id.clone()), cx);
         self.selected = Some(id);
         cx.notify();
     }
@@ -258,6 +261,14 @@ impl Render for MainView {
                 this.settings_open = false;
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &crate::review::ToggleReview, window, cx| {
+                if let Content::Live { store, .. } = this.content.clone() {
+                    let mut slot = std::mem::take(&mut this.review);
+                    let space = crate::review::model::Space::All;
+                    slot.toggle(&store, space, this.selected.clone(), |v: &mut Self| &mut v.review, window, cx);
+                    this.review = slot;
+                }
+            }))
             .relative()
             .size_full()
             .flex()
@@ -268,7 +279,10 @@ impl Render for MainView {
             Content::Live { store, data_dir } => {
                 let sidebar =
                     sidebar::render(store.read(cx), self.selected.as_deref(), data_dir, &t, cx);
-                root.child(sidebar).child(self.placeholder(&t, cx))
+                match self.review.view() {
+                    Some(review) => root.child(sidebar).child(review.clone()),
+                    None => root.child(sidebar).child(self.placeholder(&t, cx)),
+                }
             }
         };
         root.when(self.settings_open, |r| {
