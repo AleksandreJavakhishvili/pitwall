@@ -828,7 +828,10 @@ impl MainScreen {
             agent_id,
             name,
             reason,
-        } = e;
+        } = e
+        else {
+            return;
+        };
         if *reason == "done" && self.focused_agent_id().as_deref() == Some(agent_id) {
             return;
         }
