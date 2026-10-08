@@ -5541,6 +5541,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pitwall-term-view"
+version = "0.1.0"
+dependencies = [
+ "alacritty_terminal",
+ "futures",
+ "gpui",
+ "libc",
+ "pitwall-hold",
+ "portable-pty",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
