@@ -134,3 +134,9 @@ good follow-up once the Tauri app is gone.
 | MPL-2.0 | 1 | cbindgen 0.28.0 |
 | CC0-1.0 OR Apache-2.0 | 1 | imgref 1.12.3 |
 | Apache-2.0 OR GPL-2.0-only | 1 | self_cell 1.3.0 |
+
+Packaging tools (phase 8; build-time only, nothing linked into Pitwall):
+cargo-packager 0.11.8 (MIT OR Apache-2.0) for the Linux and Windows bundles,
+and what it downloads while packaging: linuxdeploy and the AppImage runtime
+(MIT), NSIS (zlib/libpng), WiX 3.11 (MS-RL, covers the toolset, not the .msi it
+builds). macOS bundles use Apple's own tools (codesign, hdiutil, lipo).
