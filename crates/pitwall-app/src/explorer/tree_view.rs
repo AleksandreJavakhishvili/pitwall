@@ -4,6 +4,7 @@
 //! and close folders (or go to the parent), ↵ opens a file. One view per
 //! place it is shown; the [`TreeModel`] behind it is shared.
 
+use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
 use gpui::{
@@ -308,9 +309,7 @@ impl TreeView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
+                    .ellipsis()
                     .opacity(dim)
                     .when(is_dir, |d| d.text_color(t.text_2))
                     .when(!is_dir, |d| {
@@ -319,9 +318,10 @@ impl TreeView {
                     .when(e.status == Some(pitwall_proto::FileStatus::D), |d| {
                         d.line_through()
                     })
-                    .child(e.name.clone())
+                    .flex()
+                    .child(crate::kit::one_line(e.name.clone()))
                     .when(kind == EntryKind::Symlink, |d| {
-                        d.child(div().text_color(t.text_4).child(" ↗"))
+                        d.child(div().flex_none().text_color(t.text_4).child(" ↗"))
                     }),
             )
             .children(mark)

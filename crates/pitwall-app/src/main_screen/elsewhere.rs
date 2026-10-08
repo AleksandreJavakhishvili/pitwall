@@ -5,6 +5,7 @@
 //! conversation in a new Pitwall agent. Settings → "Show agents running
 //! elsewhere" hides it (`ui.hideElsewhere`).
 
+use crate::kit::Ellipsis as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -199,7 +200,7 @@ impl MainScreen {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(div().truncate().text_color(t.text).child(name))
+                    .child(div().ellipsis().text_color(t.text).child(crate::kit::one_line(name)))
                     .child(
                         div()
                             .flex()
@@ -212,10 +213,10 @@ impl MainScreen {
                                 d.child(
                                     div()
                                         .min_w_0()
-                                        .truncate()
+                                        .ellipsis()
                                         .font_family(MONO_FONT)
                                         .text_size(px(11.))
-                                        .child(c),
+                                        .child(crate::kit::one_line(c)),
                                 )
                             }),
                     ),

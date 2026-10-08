@@ -16,6 +16,7 @@
 //! - Remove worktree: `git worktree remove` without `--force`, after a
 //!   confirmation that says what is kept.
 
+use crate::kit::Ellipsis as _;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -564,11 +565,10 @@ impl MainScreen {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
+                    .ellipsis()
                     .line_clamp(1)
                     .font_family(MONO_FONT)
-                    .child(row_name(r)),
+                    .child(crate::kit::one_line(row_name(r))),
             )
             .when(r.wt.locked, |d| {
                 d.child(

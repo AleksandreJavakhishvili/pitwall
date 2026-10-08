@@ -10,6 +10,7 @@
 pub mod plan;
 pub mod source;
 
+use crate::kit::Ellipsis as _;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1296,11 +1297,9 @@ impl Onboarding {
                             div()
                                 .font_family(crate::kit::MONO_FONT)
                                 .text_size(px(12.5))
-                                .overflow_hidden()
-                                .line_clamp(1)
-                                .text_ellipsis()
+                                .ellipsis()
                                 .text_color(if checked { t.text } else { t.text_2 })
-                                .child(pr.display.clone()),
+                                .child(crate::kit::one_line(pr.display.clone())),
                         )
                         .child(div().flex().flex_wrap().gap(px(4.)).children(chips)),
                 )
@@ -1471,24 +1470,20 @@ impl Onboarding {
                     .when(disabled, |d| d.opacity(0.6))
                     .child(
                         div()
-                            .overflow_hidden()
-                            .line_clamp(1)
-                            .text_ellipsis()
-                            .child(c.title.clone()),
+                            .ellipsis()
+                            .child(crate::kit::one_line(c.title.clone())),
                     )
                     .child(
                         div()
                             .font_family(crate::kit::MONO_FONT)
                             .text_size(px(11.5))
                             .text_color(t.text_3)
-                            .overflow_hidden()
-                            .line_clamp(1)
-                            .text_ellipsis()
-                            .child(format!(
+                            .ellipsis()
+                            .child(crate::kit::one_line(format!(
                                 "{} · {}",
                                 c.project_display,
                                 rel_time(c.last_used, now_ms())
-                            )),
+                            ))),
                     ),
             )
             .when(c.in_pitwall, |d| d.child(crate::kit::chip_tone("in Pitwall", crate::kit::Tone::Ok, &p.ui.t)))
@@ -1772,10 +1767,8 @@ impl Onboarding {
                                 div()
                                     .text_size(px(11.5))
                                     .text_color(t.text_3)
-                                    .overflow_hidden()
-                                    .line_clamp(1)
-                                    .text_ellipsis()
-                                    .child(sub),
+                                    .ellipsis()
+                                    .child(crate::kit::one_line(sub)),
                             ),
                     )
                     .child(if ra.in_pitwall {

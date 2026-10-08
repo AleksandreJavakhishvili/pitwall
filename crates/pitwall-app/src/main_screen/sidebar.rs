@@ -4,6 +4,7 @@
 //! menu; ⌘1–9 hints; drag sources; ↑/↓/⏎ when it has keyboard focus; an
 //! icon rail on narrow windows.
 
+use crate::kit::Ellipsis as _;
 use crate::kit::HoverText;
 use gpui::{
     div, point, prelude::*, px, AnyElement, Context, FontWeight, IntoElement, MouseButton,
@@ -590,11 +591,11 @@ impl MainScreen {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
+                                    .ellipsis()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_size(px(13.))
                                     .text_color(t.text)
-                                    .child(a.name.clone()),
+                                    .child(crate::kit::one_line(a.name.clone())),
                             )
                             .child(status_label(a.status, t)),
                     )
@@ -607,13 +608,13 @@ impl MainScreen {
                             .text_color(t.text_3)
                             .min_w_0()
                             .child(chip(a.location.clone(), t))
-                            .child(div().flex_1().min_w_0().truncate().child(
+                            .child(div().flex_1().min_w_0().ellipsis().child(crate::kit::one_line(
                                 if a.agent_in_terminal {
                                     format!("{} · in terminal", a.kind_name)
                                 } else {
                                     a.kind_name.clone()
                                 },
-                            ))
+                            )))
                             .child(
                                 div()
                                     .group_hover("agent-row", |s| s.invisible())
@@ -623,11 +624,11 @@ impl MainScreen {
                     .when(blocked, |d| {
                         d.children(a.status_detail.clone().map(|det| {
                             div()
-                                .truncate()
+                                .ellipsis()
                                 .text_size(px(11.))
                                 .font_family(crate::kit::MONO_FONT)
                                 .text_color(t.amber)
-                                .child(det)
+                                .child(crate::kit::one_line(det))
                         }))
                     }),
             )

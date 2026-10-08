@@ -4,6 +4,7 @@
 //! space — its bar (presets, density, maximise), the split tree of panes with
 //! draggable dividers and drop zones, and the chip strip.
 
+use crate::kit::Ellipsis as _;
 use crate::kit::HoverText;
 use std::collections::HashMap;
 
@@ -318,7 +319,7 @@ impl MainScreen {
             .text_color(t.text_3)
             .cursor_pointer()
             .hover_text(t.text, |s| s.border_color(t.line_strong))
-            .child(div().truncate().child(current))
+            .child(div().ellipsis().child(crate::kit::one_line(current)))
             .child(crate::kit::chevron_at(true, 11., t.text_3))
             .tooltip(tooltip("Tile density for this space (smallest tile before it folds into a chip)"))
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
@@ -738,11 +739,11 @@ impl MainScreen {
                 d.children(a.status_detail.clone().map(|det| {
                     div()
                         .min_w_0()
-                        .truncate()
+                        .ellipsis()
                         .text_size(px(11.5))
                         .font_family(crate::kit::MONO_FONT)
                         .text_color(t.amber)
-                        .child(det)
+                        .child(crate::kit::one_line(det))
                 }))
             })
             .child(
@@ -763,9 +764,9 @@ impl MainScreen {
                     .child(
                         div()
                             .id(SharedString::from(format!("p-{pane_id}")))
-                            .truncate()
+                            .ellipsis()
                             .tooltip(tooltip(a.cwd.clone()))
-                            .child(crate::kit::project_name(&a.project_display).to_string()),
+                            .child(crate::kit::one_line(crate::kit::project_name(&a.project_display).to_string())),
                     )
                     .child(div().text_color(t.text_4).child("·"))
                     .child(div().flex_none().child(a.kind_name.clone()))
@@ -773,14 +774,14 @@ impl MainScreen {
                         d.child(div().text_color(t.text_4).child("·")).child(
                             div()
                                 .id(SharedString::from(format!("b-{pane_id}")))
-                                .truncate()
+                                .ellipsis()
                                 .font_family(crate::kit::MONO_FONT)
                                 .tooltip(tooltip(branch_tip.clone()))
                                 .flex()
                                 .items_center()
                                 .gap(px(4.))
                                 .child(icon("branch", 12., t.text_3))
-                                .child(b),
+                                .child(crate::kit::one_line(b)),
                         )
                     })
                     .child(diffstat(a.added, a.removed, t)),

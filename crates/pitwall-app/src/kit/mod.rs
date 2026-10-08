@@ -41,7 +41,7 @@ pub use button::{
 };
 pub use chip::{chip, chip_sm, chip_subtle, chip_tone, Tone};
 pub use controls::{
-    check, checkbox, checkbox_box, radio, seg, select_menu, select_trigger, spinner, spinner_ms, toggle,
+    check, check_row, checkbox, resize_grip, GripDrag, checkbox_box, radio, seg, select, widest, select_menu, select_trigger, spinner, spinner_ms, toggle,
     OnClose, OnPick, SegItem,
 };
 pub use file_icons::{file_icon, folder_icon, svg_image};
@@ -52,13 +52,15 @@ pub use icons::{chevron, chevron_at, icon, Assets};
 pub use input::{InputEvent, TextFieldEvent, TextInput};
 pub use menu::{menu_item, menu_panel};
 pub use modal::{scrim_in, Modal};
-pub use scm::{count_badge, diffstat_inline, status_letter, status_letter_text};
+pub use scm::{
+    count_badge, diffstat_inline, file_status, status_letter, status_letter_text, status_title,
+};
 pub use status::{
     diffstat, glyph, glyph_play, glyph_still, status_glyph, status_glyph_el, status_label,
     word_color, GlyphMotion, GlyphSize,
 };
 pub use text::{
-    error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,
+    one_line, para, rich, Ellipsis, Para, Span, error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,
 };
 pub use tooltip::{tooltip, tooltip_view, Tooltip};
 

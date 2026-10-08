@@ -2,6 +2,7 @@
 //! (`list_all_files`, ignore files respected), filtered here (a port of
 //! `QuickOpen.tsx`). An empty query lists recently opened files first.
 
+use crate::kit::Ellipsis as _;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -246,8 +247,7 @@ impl Render for QuickOpen {
                                         d.child(
                                             div()
                                                 .min_w_0()
-                                                .overflow_hidden()
-                                                .text_ellipsis()
+                                                .ellipsis()
                                                 .text_size(px(11.5))
                                                 .text_color(t.text_3)
                                                 .child(marked(dir, dir_hits, t.text_2)),
@@ -333,9 +333,8 @@ impl Render for QuickOpen {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .child(format!("opens in the viewer · {}", self.cwd_display)),
+                                    .ellipsis()
+                                    .child(crate::kit::one_line(format!("opens in the viewer · {}", self.cwd_display))),
                             ),
                     );
         let panel = if theme::motion_on(cx) {

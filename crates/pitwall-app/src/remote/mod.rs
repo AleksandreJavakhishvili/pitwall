@@ -9,6 +9,7 @@
 //! blocking, so they run off the main thread), made-up places in tests.
 //! [`machine_group`] draws one machine; onboarding can reuse it.
 
+use crate::kit::Ellipsis as _;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -261,16 +262,16 @@ pub fn machine_group(
                             div()
                                 .font_family(MONO_FONT)
                                 .text_size(px(12.))
-                                .truncate()
+                                .ellipsis()
                                 .text_color(t.text)
-                                .child(SharedString::from(x.name.clone())),
+                                .child(crate::kit::one_line(SharedString::from(x.name.clone()))),
                         )
                         .child(
                             div()
                                 .text_xs()
-                                .truncate()
+                                .ellipsis()
                                 .text_color(t.text_3)
-                                .child(where_line(x)),
+                                .child(crate::kit::one_line(where_line(x))),
                         ),
                 )
                 .child(chip(status_word(&x.status), t, running))

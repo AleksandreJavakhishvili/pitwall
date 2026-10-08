@@ -10,7 +10,6 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use pitwall_core::explorer::{DirListing, EntryKind, FileEntry, SearchMatch};
-use pitwall_proto::FileStatus;
 
 // ── quick open (⌘P) ──────────────────────────────────────────────────────
 
@@ -258,25 +257,9 @@ pub fn glob_list(text: &str) -> Vec<String> {
 }
 
 /// The word for a change letter (tooltips).
-pub fn status_title(s: FileStatus) -> &'static str {
-    match s {
-        FileStatus::M => "Modified",
-        FileStatus::A => "Added",
-        FileStatus::D => "Deleted",
-        FileStatus::R => "Renamed",
-        FileStatus::U => "Untracked",
-    }
-}
+pub use crate::kit::status_title;
 
-pub fn status_letter(s: FileStatus) -> &'static str {
-    match s {
-        FileStatus::M => "M",
-        FileStatus::A => "A",
-        FileStatus::D => "D",
-        FileStatus::R => "R",
-        FileStatus::U => "U",
-    }
-}
+pub use crate::kit::status_letter_text as status_letter;
 
 // ── the lazy tree ────────────────────────────────────────────────────────
 

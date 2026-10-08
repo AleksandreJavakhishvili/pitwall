@@ -1,6 +1,7 @@
 //! The palette itself (`CommandPalette.tsx` in a `Modal variant="palette"`,
 //! `overlays.css` `.palette*`) and the per-window host that opens it.
 
+use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
 use gpui::{
@@ -274,7 +275,7 @@ fn glyph(g: SharedString, color: gpui::Hsla) -> gpui::Div {
 
 /// `.pal-label`: the spans on one line, cut with an ellipsis.
 fn label(spans: &[Span], t: &Theme) -> impl IntoElement {
-    let piece = |d: gpui::Div| d.flex_shrink().min_w_0().overflow_hidden().text_ellipsis();
+    let piece = |d: gpui::Div| d.flex_shrink().min_w_0().ellipsis();
     div()
         .flex_1()
         .min_w_0()

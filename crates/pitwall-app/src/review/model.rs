@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use pitwall_core::engine::Task;
 use pitwall_core::review::MergeStatus;
 use pitwall_core::vcs::git::FileChange;
-use pitwall_proto::{AgentView, FileStatus, ProjectWorktrees, WorktreeVia, WorktreeView};
+use pitwall_proto::{AgentView, ProjectWorktrees, WorktreeVia, WorktreeView};
 
 // ── scope ──────────────────────────────────────────────────────────────────
 
@@ -94,25 +94,11 @@ pub fn scope(
 // ── file tree ──────────────────────────────────────────────────────────────
 
 /// VS Code's SCM letter: the backend's, else U (untracked) or M.
-pub fn file_status(f: &FileChange) -> FileStatus {
-    f.status.unwrap_or(if f.untracked {
-        FileStatus::U
-    } else {
-        FileStatus::M
-    })
-}
+pub use crate::kit::file_status;
 
 pub use crate::kit::status_letter_text as status_letter;
 
-pub fn status_title(s: FileStatus) -> &'static str {
-    match s {
-        FileStatus::M => "Modified",
-        FileStatus::A => "Added",
-        FileStatus::D => "Deleted",
-        FileStatus::R => "Renamed",
-        FileStatus::U => "Untracked",
-    }
-}
+pub use crate::kit::status_title;
 
 /// `src/a/b.rs` → (`src/a/`, `b.rs`).
 pub fn split_path(p: &str) -> (&str, &str) {

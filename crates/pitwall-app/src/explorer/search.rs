@@ -4,6 +4,7 @@
 //! core does, per agent), leaving the pane cancels. Results are grouped by
 //! file (collapsible); a click opens the file at the match.
 
+use crate::kit::Ellipsis as _;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -351,20 +352,24 @@ impl SearchPane {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
+                            .ellipsis()
                             .child(
                                 div()
                                     .flex()
                                     .gap(px(6.))
                                     .child(
                                         div()
+                                            .flex_none()
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(t.text)
                                             .child(base.to_string()),
                                     )
-                                    .child(div().text_color(t.text_3).child(dir.to_string())),
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .text_color(t.text_3)
+                                            .child(crate::kit::one_line(dir.to_string())),
+                                    ),
                             ),
                     )
                     .child(
@@ -451,9 +456,7 @@ impl SearchPane {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
+                            .ellipsis()
                             .text_color(t.text_2)
                             .child(styled),
                     )
@@ -631,10 +634,8 @@ impl Render for SearchPane {
                         .pb(px(6.))
                         .text_size(px(11.5))
                         .text_color(t.red)
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(e.lines().next().unwrap_or_default().to_string()),
+                        .ellipsis()
+                        .child(crate::kit::one_line(e.lines().next().unwrap_or_default().to_string())),
                 )
             })
             .child(

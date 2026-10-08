@@ -3,6 +3,7 @@
 //! screen. Each tile is its own entity drawn as a cached view, so a frame
 //! repaints only its tile.
 
+use crate::kit::Ellipsis as _;
 use gpui::{
     div, prelude::*, px, BoxShadow, Context, FontWeight, Hsla, IntoElement, Render, SharedString,
     WeakEntity, Window,
@@ -140,11 +141,11 @@ impl Render for WallTile {
                 div()
                     .flex_none()
                     .max_w(px(220.))
-                    .truncate()
+                    .ellipsis()
                     .text_size(px(13.))
                     .font_weight(FontWeight(650.))
                     .text_color(t.text)
-                    .child(a.name.clone()),
+                    .child(crate::kit::one_line(a.name.clone())),
             )
             .child(kit::status_label(a.status, &t))
             .when_some(a.status_detail.clone().filter(|_| blocked), |d, detail| {
@@ -152,11 +153,11 @@ impl Render for WallTile {
                     div()
                         .min_w_0()
                         .flex_shrink()
-                        .truncate()
+                        .ellipsis()
                         .font_family(kit::MONO_FONT)
                         .text_size(px(11.5))
                         .text_color(t.amber)
-                        .child(detail),
+                        .child(crate::kit::one_line(detail)),
                 )
             })
             .child(div().flex_1())

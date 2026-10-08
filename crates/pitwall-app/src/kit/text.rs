@@ -7,10 +7,421 @@
 
 use gpui::{
     div, point, prelude::*, px, App, Bounds, Div, Element, ElementId, FontWeight, GlobalElementId,
-    Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, SharedString, Style, TextRun, Window,
+    Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, SharedString, Style, Styled, TextRun,
+    Window,
 };
 
 use super::fonts::LABEL_FONT;
+
+/// A box whose text stays on one line and is clipped (gpui's `truncate()`
+/// without its broken ellipsis). Put the text itself in [`one_line`] to get
+/// the "…".
+pub trait Ellipsis: Styled + Sized {
+    fn ellipsis(self) -> Self {
+        self.overflow_hidden().whitespace_nowrap()
+    }
+}
+
+impl<E: Styled + Sized> Ellipsis for E {}
+
+/// One line of text cut with "…" to the width it gets (CSS `white-space:
+/// nowrap; overflow: hidden; text-overflow: ellipsis`). gpui 0.2.2's
+/// `truncate()` measures a text once, before a flex row shrinks it, and
+/// never cuts it; a one-line clamp keeps the smallest width it was ever
+/// given. This measures the whole line, shrinks freely, and cuts at paint
+/// time. Font, size and colour come from the inherited text style.
+pub fn one_line(text: impl Into<SharedString>) -> OneLine {
+    OneLine { text: text.into() }
+}
+
+pub struct OneLine {
+    text: SharedString,
+}
+
+impl IntoElement for OneLine {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for OneLine {
+    type RequestLayoutState = ();
+    type PrepaintState = Option<gpui::ShapedLine>;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let style = window.text_style();
+        let rem = window.rem_size();
+        let size = style.font_size.to_pixels(rem);
+        let line_h = style.line_height_in_pixels(rem);
+        let run = style.to_run(self.text.len());
+        let full = window
+            .text_system()
+            .shape_line(self.text.clone(), size, &[run], None)
+            .width;
+        let mut layout = Style::default();
+        layout.min_size.width = px(0.).into();
+        layout.flex_shrink = 1.;
+        let id = window.request_measured_layout(layout, move |known, available, _, _| {
+            let w = known.width.unwrap_or(match available.width {
+                gpui::AvailableSpace::Definite(w) => full.min(w),
+                gpui::AvailableSpace::MinContent => px(0.),
+                gpui::AvailableSpace::MaxContent => full,
+            });
+            gpui::size(w, line_h)
+        });
+        let _ = cx;
+        (id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut Window,
+        _: &mut App,
+    ) -> Option<gpui::ShapedLine> {
+        None
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut Option<gpui::ShapedLine>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        // Shaped here, with the colour the text has now (hover included).
+        let style = window.text_style();
+        let rem = window.rem_size();
+        let size = style.font_size.to_pixels(rem);
+        let mut runs = vec![style.to_run(self.text.len())];
+        let ts = window.text_system().clone();
+        let full = ts.shape_line(self.text.clone(), size, &runs, None);
+        let line = if full.width > bounds.size.width + px(0.5) {
+            let cut = cx
+                .text_system()
+                .line_wrapper(style.font(), size)
+                .truncate_line(self.text.clone(), bounds.size.width, "…", &mut runs);
+            ts.shape_line(cut, size, &runs, None)
+        } else {
+            full
+        };
+        window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
+            let _ = line.paint(bounds.origin, bounds.size.height, window, cx);
+        });
+    }
+}
+
+/// A wrapping paragraph (CSS `white-space: normal`) that breaks lines only
+/// where a browser does: after spaces, after a hyphen or a dash between
+/// words, and inside a word only when the word alone is wider than the
+/// line. gpui 0.2.2's wrapper also breaks before any punctuation, which
+/// leaves a lone ")" or "." on the next line. Font, size, line height and
+/// colour come from the inherited text style; [`rich`] sets runs.
+pub fn para(text: impl Into<SharedString>) -> Para {
+    Para {
+        text: text.into(),
+        runs: None,
+    }
+}
+
+/// How a part of [`rich`] text is set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Span {
+    Text,
+    /// `.mono`
+    Mono,
+    /// `<b>`
+    Bold,
+}
+
+/// A paragraph with inline `.mono` and bold parts, in `color`.
+pub fn rich(parts: &[(&str, Span)], color: Hsla) -> Para {
+    let mut text = String::new();
+    let mut runs = Vec::new();
+    for (s, span) in parts {
+        text.push_str(s);
+        let mut f = gpui::font(if *span == Span::Mono {
+            super::fonts::MONO_FONT
+        } else {
+            super::fonts::UI_FONT
+        });
+        f.weight = if *span == Span::Bold {
+            FontWeight::BOLD
+        } else {
+            FontWeight::NORMAL
+        };
+        runs.push(TextRun {
+            len: s.len(),
+            font: f,
+            color,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        });
+    }
+    Para {
+        text: text.into(),
+        runs: Some(runs),
+    }
+}
+
+pub struct Para {
+    text: SharedString,
+    runs: Option<Vec<TextRun>>,
+}
+
+/// Where lines may break in `text` (byte offsets where a new line may
+/// start), as UAX #14 does for the app's texts.
+pub fn break_points(text: &str) -> Vec<usize> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut out = Vec::new();
+    for (k, &(i, c)) in chars.iter().enumerate() {
+        let Some(&(j, next)) = chars.get(k + 1) else {
+            break;
+        };
+        let _ = i;
+        let after_space = c == ' ' && next != ' ';
+        // A hyphen or a dash between letters (`read-only`, `this—that`).
+        let after_dash = matches!(c, '-' | '–' | '—')
+            && next.is_alphabetic()
+            && k > 0
+            && chars[k - 1].1.is_alphanumeric();
+        if after_space || after_dash {
+            out.push(j);
+        }
+    }
+    out
+}
+
+/// Lines (byte ranges) of `text` no wider than `max`; `width(a..b)` measures.
+pub fn wrap_lines(
+    text: &str,
+    max: f32,
+    width: &mut dyn FnMut(std::ops::Range<usize>) -> f32,
+) -> Vec<std::ops::Range<usize>> {
+    let mut lines = Vec::new();
+    if text.is_empty() {
+        #[allow(clippy::single_range_in_vec_init)]
+        return vec![0..0];
+    }
+    for (start, end) in text
+        .split_inclusive('\n')
+        .scan(0, |at, part| {
+            let s = *at;
+            *at += part.len();
+            Some((s, s + part.trim_end_matches('\n').len()))
+        })
+    {
+        let piece = &text[start..end];
+        let mut breaks: Vec<usize> = break_points(piece).into_iter().map(|b| b + start).collect();
+        breaks.push(end);
+        let mut line_start = start;
+        let mut last_fit: Option<usize> = None;
+        let mut i = 0;
+        while i < breaks.len() {
+            let b = breaks[i];
+            // The line's width without trailing spaces.
+            let trimmed = line_start + text[line_start..b].trim_end().len();
+            if width(line_start..trimmed) <= max + 0.5 {
+                last_fit = Some(b);
+                i += 1;
+                continue;
+            }
+            match last_fit {
+                Some(f) if f > line_start => {
+                    lines.push(line_start..line_start + text[line_start..f].trim_end().len());
+                    line_start = f;
+                    last_fit = None;
+                }
+                _ => {
+                    // One word wider than the line: break inside it.
+                    let mut cut = line_start;
+                    for (o, c) in text[line_start..b].char_indices() {
+                        let next = line_start + o + c.len_utf8();
+                        if width(line_start..next) > max + 0.5 && cut > line_start {
+                            break;
+                        }
+                        cut = next;
+                    }
+                    lines.push(line_start..cut);
+                    line_start = cut;
+                    last_fit = None;
+                }
+            }
+        }
+        if line_start < end || lines.is_empty() || start == end {
+            lines.push(line_start..end);
+        }
+    }
+    lines
+}
+
+/// The runs of `runs` (covering the whole text) cut to `range`.
+fn slice_runs(runs: &[TextRun], range: std::ops::Range<usize>) -> Vec<TextRun> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for r in runs {
+        let (a, b) = (at, at + r.len);
+        at = b;
+        let (s, e) = (a.max(range.start), b.min(range.end));
+        if s < e {
+            let mut r = r.clone();
+            r.len = e - s;
+            out.push(r);
+        }
+    }
+    out
+}
+
+pub struct ParaLayout {
+    lines: std::rc::Rc<std::cell::RefCell<Vec<std::ops::Range<usize>>>>,
+}
+
+impl IntoElement for Para {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Para {
+    type RequestLayoutState = ParaLayout;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ParaLayout) {
+        let style = window.text_style();
+        let rem = window.rem_size();
+        let size = style.font_size.to_pixels(rem);
+        let line_h = f32::from(style.line_height_in_pixels(rem));
+        let runs = self
+            .runs
+            .clone()
+            .unwrap_or_else(|| vec![style.to_run(self.text.len())]);
+        // Each character's advance in its run's font (kerning is left to
+        // the shaper at paint; it only narrows lines).
+        let ts = window.text_system().clone();
+        let mut adv: Vec<f32> = Vec::with_capacity(self.text.len());
+        let mut at = 0;
+        for r in &runs {
+            let id = ts.resolve_font(&r.font);
+            for c in self.text[at..at + r.len].chars() {
+                let w = ts.advance(id, size, c).map(|s| f32::from(s.width)).unwrap_or(0.);
+                adv.push(w);
+                adv.extend(std::iter::repeat_n(0., c.len_utf8() - 1));
+            }
+            at += r.len;
+        }
+        let prefix: Vec<f32> = std::iter::once(0.)
+            .chain(adv.iter().scan(0., |s, w| {
+                *s += w;
+                Some(*s)
+            }))
+            .collect();
+        let text = self.text.clone();
+        let lines = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let out = lines.clone();
+        let full = prefix.last().copied().unwrap_or(0.);
+        let id = window.request_measured_layout(Style::default(), move |known, available, _, _| {
+            let max = known.width.map(f32::from).unwrap_or(match available.width {
+                gpui::AvailableSpace::Definite(w) => f32::from(w),
+                gpui::AvailableSpace::MinContent => 0.,
+                gpui::AvailableSpace::MaxContent => f32::INFINITY,
+            });
+            let mut width = |r: std::ops::Range<usize>| prefix[r.end] - prefix[r.start];
+            let l = wrap_lines(&text, max, &mut width);
+            let w = l.iter().map(|r| width(r.clone())).fold(0., f32::max);
+            let n = l.len().max(1);
+            *out.borrow_mut() = l;
+            let _ = full;
+            gpui::size(px(w), px(line_h * n as f32))
+        });
+        let _ = cx;
+        (id, ParaLayout { lines })
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut ParaLayout,
+        _: &mut Window,
+        _: &mut App,
+    ) {
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        layout: &mut ParaLayout,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let style = window.text_style();
+        let rem = window.rem_size();
+        let size = style.font_size.to_pixels(rem);
+        let line_h = style.line_height_in_pixels(rem);
+        let runs = self
+            .runs
+            .clone()
+            .unwrap_or_else(|| vec![style.to_run(self.text.len())]);
+        let ts = window.text_system().clone();
+        let lines = layout.lines.borrow().clone();
+        for (i, r) in lines.into_iter().enumerate() {
+            if r.is_empty() {
+                continue;
+            }
+            let line = ts.shape_line(
+                SharedString::from(self.text[r.clone()].to_string()),
+                size,
+                &slice_runs(&runs, r),
+                None,
+            );
+            let origin = point(bounds.left(), bounds.top() + line_h * i as f32);
+            let _ = line.paint(origin, line_h, window, cx);
+        }
+    }
+}
 
 /// One line of text with `em` letter spacing (see the module docs).
 pub struct Tracked {
@@ -64,17 +475,36 @@ impl Element for Tracked {
         let rem = window.rem_size();
         let size = style.font_size.to_pixels(rem);
         let gap = f32::from(size) * self.em;
-        let ts = window.text_system();
-        let id = ts.resolve_font(&style.font());
-        let chars: Vec<(char, f32)> = self
-            .text
-            .chars()
-            .map(|c| {
-                let w = ts
-                    .advance(id, size, c)
-                    .map(|s| f32::from(s.width))
-                    .unwrap_or(f32::from(size) * 0.5);
-                (c, w)
+        // Advances from the shaped line, so kerning pairs (`AV`, `LT`)
+        // close up as in the browser; the gap goes after every character.
+        let text: SharedString = self.text.clone();
+        let run = style.to_run(text.len());
+        let line = window
+            .text_system()
+            .layout_line(&text, size, &[run], None);
+        let mut starts: Vec<(usize, f32)> = Vec::new();
+        for r in &line.runs {
+            for g in &r.glyphs {
+                if starts.last().is_none_or(|(ix, _)| *ix != g.index) {
+                    starts.push((g.index, f32::from(g.position.x)));
+                }
+            }
+        }
+        let total = f32::from(line.width);
+        let x_at = |byte: usize| -> Option<f32> {
+            starts.iter().find(|(ix, _)| *ix == byte).map(|(_, x)| *x)
+        };
+        let idx: Vec<(usize, char)> = text.char_indices().collect();
+        let chars: Vec<(char, f32)> = idx
+            .iter()
+            .enumerate()
+            .map(|(k, &(b, c))| {
+                let x0 = x_at(b).unwrap_or(0.);
+                let x1 = idx
+                    .get(k + 1)
+                    .and_then(|&(nb, _)| x_at(nb))
+                    .unwrap_or(total);
+                (c, (x1 - x0).max(0.))
             })
             .collect();
         let width: f32 = chars.iter().map(|(_, w)| w + gap).sum();
@@ -168,33 +598,33 @@ pub fn label_fit(text: impl Into<SharedString>, color: Hsla, size: f32, max_char
     }
     div()
         .min_w_0()
-        .truncate()
+        .ellipsis()
         .font_family(LABEL_FONT)
         .font_weight(FontWeight::SEMIBOLD)
         .text_size(px(size))
         .text_color(color)
-        .child(SharedString::from(text.to_uppercase()))
+        .child(crate::kit::one_line(SharedString::from(text.to_uppercase())))
 }
 
-/// `.muted`: body text in text-2.
+/// `.muted`: body text in text-2 (a [`para`]).
 pub fn muted(text: impl Into<SharedString>, t: &crate::theme::Theme) -> Div {
-    div().text_color(t.text_2).child(text.into())
+    div().text_color(t.text_2).child(para(text))
 }
 
-/// `.hint` / `.muted-sm`: 12 px text-3.
+/// `.hint` / `.muted-sm`: 12 px text-3 (a [`para`]).
 pub fn hint(text: impl Into<SharedString>, t: &crate::theme::Theme) -> Div {
     div()
         .text_size(px(12.))
         .text_color(t.text_3)
-        .child(text.into())
+        .child(para(text))
 }
 
-/// `.hint-error` / a field's error: 12 px red.
+/// `.hint-error` / a field's error: 12 px red (a [`para`]).
 pub fn error_text(text: impl Into<SharedString>, t: &crate::theme::Theme) -> Div {
     div()
         .text_size(px(12.))
         .text_color(t.red)
-        .child(text.into())
+        .child(para(text))
 }
 
 /// `.mono` at 12 px text-3 (paths, commands).
@@ -220,6 +650,27 @@ pub fn project_name(display: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every character 1 px wide.
+    fn lines(text: &str, max: f32) -> Vec<&str> {
+        let mut w = |r: std::ops::Range<usize>| text[r].chars().count() as f32;
+        wrap_lines(text, max, &mut w)
+            .into_iter()
+            .map(|r| &text[r])
+            .collect()
+    }
+
+    #[test]
+    fn paragraphs_break_at_spaces_not_before_punctuation() {
+        // gpui's own wrapper would put the ")" alone on the next line.
+        assert_eq!(lines("reads (projects)", 15.), ["reads", "(projects)"]);
+        assert_eq!(lines("one two three", 7.), ["one two", "three"]);
+        assert_eq!(lines("read-only files", 10.), ["read-only", "files"]);
+        assert_eq!(lines("a supercalifragilistic word", 8.), ["a", "supercal", "ifragili", "stic", "word"]);
+        assert_eq!(lines("line one\nline two", 40.), ["line one", "line two"]);
+        assert_eq!(lines("", 10.), [""]);
+        assert!(break_points("x (y).").iter().all(|&b| !"x (y)."[b..].starts_with([')', '.'])));
+    }
 
     #[test]
     fn headings_use_the_folder_name() {

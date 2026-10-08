@@ -19,6 +19,7 @@ pub mod screen;
 pub mod source;
 pub mod tile;
 
+use crate::kit::Ellipsis as _;
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -507,8 +508,8 @@ impl WallView {
                 div()
                     .text_size(px(12.))
                     .text_color(t.text_3)
-                    .truncate()
-                    .child("every agent, live · view only · click a tile to take over"),
+                    .ellipsis()
+                    .child(crate::kit::one_line("every agent, live · view only · click a tile to take over")),
             )
             .child(div().flex_1())
             .child(

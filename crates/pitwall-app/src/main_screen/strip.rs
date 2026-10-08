@@ -3,6 +3,7 @@
 //! And the toast stack (`Toasts.tsx`, `useToasts.ts`): max 4, one per agent,
 //! blocked 9 s, error 8 s, others 5 s; click jumps to the agent.
 
+use crate::kit::Ellipsis as _;
 use std::time::Duration;
 
 use crate::kit::HoverText;
@@ -149,7 +150,7 @@ impl MainScreen {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .truncate()
+                        .ellipsis()
                         .flex()
                         .items_center()
                         .child(
@@ -160,11 +161,11 @@ impl MainScreen {
                             d.child(
                                 div()
                                     .min_w_0()
-                                    .truncate()
+                                    .ellipsis()
                                     .text_size(px(11.5))
                                     .text_color(t.text_2)
                                     .font_family(crate::kit::MONO_FONT)
-                                    .child(format!(": {det}")),
+                                    .child(crate::kit::one_line(format!(": {det}"))),
                             )
                         })
                         .when(s.more > 0, |d| {
@@ -196,7 +197,7 @@ impl MainScreen {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .truncate()
+                            .ellipsis()
                             .flex()
                             .child(
                                 label_t(format!("{} finished", lead.name), t.text, 13., 0.08)
@@ -234,9 +235,9 @@ impl MainScreen {
                     )
             }
             _ => base
-                .child(div().flex_1().min_w_0().truncate().flex().map(|d| {
+                .child(div().flex_1().min_w_0().ellipsis().flex().map(|d| {
                     if s.total == 0 {
-                        d.child("No agents yet")
+                        d.child(crate::kit::one_line("No agents yet"))
                     } else {
                         d.child(
                             div()

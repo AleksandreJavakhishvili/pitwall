@@ -7,6 +7,7 @@
 //!
 //! Next up, Last sent and the Files tab are other modules' (inventory §10).
 
+use crate::kit::Ellipsis as _;
 use std::time::{Duration, Instant};
 
 use crate::kit::HoverText;
@@ -15,7 +16,7 @@ use gpui::{
     Window,
 };
 
-use pitwall_core::vcs::git::{FileChange, FileStatus};
+use pitwall_core::vcs::git::FileChange;
 use pitwall_proto::AgentView;
 
 use crate::kit::{icon, MONO_FONT};
@@ -52,28 +53,6 @@ impl ChangesState {
     }
 }
 
-/// VS Code's SCM letter (`fileStatus`).
-pub fn status_letter(f: &FileChange) -> &'static str {
-    match f.status {
-        Some(FileStatus::M) => "M",
-        Some(FileStatus::A) => "A",
-        Some(FileStatus::D) => "D",
-        Some(FileStatus::R) => "R",
-        Some(FileStatus::U) => "U",
-        None if f.untracked => "U",
-        None => "M",
-    }
-}
-
-fn status_title(l: &str) -> &'static str {
-    match l {
-        "A" => "Added",
-        "D" => "Deleted",
-        "R" => "Renamed",
-        "U" => "Untracked",
-        _ => "Modified",
-    }
-}
 
 impl MainScreen {
     /// The focused agent changed, or its totals moved: (re)load its changes.
@@ -374,10 +353,10 @@ impl MainScreen {
                 .py(px(4.))
                 .text_size(px(12.))
                 .text_color(t.red)
-                .child(div().min_w_0().truncate().child(format!(
+                .child(div().min_w_0().ellipsis().child(crate::kit::one_line(format!(
                     "Couldn't read changes: {}",
                     e.lines().next().unwrap_or("")
-                )))
+                ))))
                 .child(
                     crate::kit::small_btn("retry-changes", "Retry", t)
                         .on_click(cx.listener(|this, _, _, cx| this.load_changes(true, cx))),
@@ -448,8 +427,8 @@ impl MainScreen {
                     .child(
                         div()
                             .min_w_0()
-                            .truncate()
-                            .child(a.branch.clone().unwrap_or_else(|| "detached HEAD".into())),
+                            .ellipsis()
+                            .child(crate::kit::one_line(a.branch.clone().unwrap_or_else(|| "detached HEAD".into()))),
                     )
                     .when(a.worktree, |d| {
                         d.child(
@@ -488,11 +467,11 @@ impl MainScreen {
                         .detach();
                     }))
                     .child(icon("folder", 11., t.text_2))
-                    .child(div().min_w_0().truncate().child(if copied {
+                    .child(div().min_w_0().ellipsis().child(crate::kit::one_line(if copied {
                         "Copied".to_string()
                     } else {
                         a.cwd_display.clone()
-                    })),
+                    }))),
             )
     }
 
@@ -505,12 +484,7 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (dir, base) = split_path(&f.path);
-        let letter = status_letter(f);
-        let letter_color = match letter {
-            "A" | "U" => t.green,
-            "D" => t.red,
-            _ => t.text_2,
-        };
+        let status = crate::kit::file_status(f);
         let (agent, file) = (a.clone(), f.clone());
         div()
             .id(("file-row", i))
@@ -540,16 +514,16 @@ impl MainScreen {
                         div()
                             .flex_shrink()
                             .min_w_0()
-                            .truncate()
+                            .ellipsis()
                             .text_color(t.text_3)
-                            .child(dir.to_string()),
+                            .child(crate::kit::one_line(dir.to_string())),
                     )
                     .child(
                         div()
                             .flex_none()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(t.text)
-                            .when(letter == "D", |d| {
+                            .when(status == pitwall_proto::FileStatus::D, |d| {
                                 d.line_through().text_decoration_color(t.text_3)
                             })
                             .child(base.to_string()),
@@ -559,15 +533,9 @@ impl MainScreen {
             .child(
                 div()
                     .id(("letter", i))
-                    .w(px(10.))
                     .flex_none()
-                    .flex()
-                    .justify_center()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(letter_color)
-                    .tooltip(tooltip(status_title(letter)))
-                    .child(letter),
+                    .tooltip(tooltip(crate::kit::status_title(status)))
+                    .child(crate::kit::status_letter(status, t)),
             )
     }
 }

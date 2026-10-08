@@ -2,6 +2,7 @@
 //! and `review.css`: the bar, the agents → files list, the main pane
 //! (header, diff, comment composer, footer actions) and the empty states.
 
+use crate::kit::Ellipsis as _;
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, relative, AnyElement, App, ClickEvent, Context,
     Corner, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
@@ -138,7 +139,7 @@ impl ReviewView {
                     t,
                 )
                 .min_w_0()
-                .truncate(),
+                .ellipsis(),
             )
             .child(spacer())
             .when(self.can_widen, |d| {
@@ -407,10 +408,10 @@ impl ReviewView {
                         d.child(
                             mono()
                                 .min_w_0()
-                                .truncate()
+                                .ellipsis()
                                 .text_size(px(10.5))
                                 .text_color(t.text_4)
-                                .child(b),
+                                .child(crate::kit::one_line(b)),
                         )
                     }),
             )
@@ -533,8 +534,8 @@ impl ReviewView {
                                         div()
                                             .text_size(px(12.))
                                             .text_color(t.text_2)
-                                            .truncate()
-                                            .child(c.text.clone()),
+                                            .ellipsis()
+                                            .child(crate::kit::one_line(c.text.clone())),
                                     ),
                             )
                             .child(
@@ -592,9 +593,9 @@ impl ReviewView {
             .child(
                 div()
                     .min_w_0()
-                    .truncate()
+                    .ellipsis()
                     .text_color(t.red)
-                    .child(format!("{prefix}{first}")),
+                    .child(crate::kit::one_line(format!("{prefix}{first}"))),
             )
             .child(
                 div()
@@ -668,9 +669,9 @@ impl ReviewView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
+                                    .ellipsis()
                                     .text_color(t.text_2)
-                                    .child(name),
+                                    .child(crate::kit::one_line(name)),
                             ),
                     );
                 }
@@ -731,11 +732,11 @@ impl ReviewView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
+                                    .ellipsis()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(t.text)
                                     .when(status == FileStatus::D, |d| d.line_through())
-                                    .child(name),
+                                    .child(crate::kit::one_line(name)),
                             )
                             .when(n > 0, |d| d.child(kit::count_badge(n, t)))
                             .child(
@@ -825,10 +826,10 @@ impl ReviewView {
                     .child(
                         mono()
                             .min_w_0()
-                            .truncate()
+                            .ellipsis()
                             .text_size(px(10.5))
                             .text_color(t.text_4)
-                            .child(wt.branch.clone().unwrap_or_else(|| "detached".into())),
+                            .child(crate::kit::one_line(wt.branch.clone().unwrap_or_else(|| "detached".into()))),
                     )
                     .when(wt.locked, |d| {
                         d.child(kit::chip_tone("locked", kit::Tone::Warn, t).ml(px(4.)))
@@ -922,7 +923,7 @@ impl ReviewView {
             .child(
                 mono()
                     .min_w_0()
-                    .truncate()
+                    .ellipsis()
                     .text_size(px(12.))
                     .flex()
                     .gap(px(4.))
@@ -932,7 +933,7 @@ impl ReviewView {
                             .text_color(t.text)
                             .child(base.to_string()),
                     )
-                    .child(div().text_color(t.text_3).truncate().child(dir)),
+                    .child(div().text_color(t.text_3).ellipsis().child(crate::kit::one_line(dir))),
             )
             .child(kit::status_letter(model::file_status(f), t))
             .child(if f.binary {
@@ -1039,10 +1040,10 @@ impl ReviewView {
                                     .child(
                                         mono()
                                             .min_w_0()
-                                            .truncate()
+                                            .ellipsis()
                                             .text_size(px(11.5))
                                             .text_color(t.text_2)
-                                            .child(format!("{}:{}", c.path, c.line)),
+                                            .child(crate::kit::one_line(format!("{}:{}", c.path, c.line))),
                                     )
                                     .child(spacer())
                                     .child(
@@ -1135,7 +1136,7 @@ impl ReviewView {
                 v.task_menu = !v.task_menu;
                 cx.notify();
             }))
-            .child(div().flex_1().min_w_0().truncate().child(current))
+            .child(div().flex_1().min_w_0().ellipsis().child(crate::kit::one_line(current)))
             .child(kit::icon("chevron-down", 12., t.text_3));
         if open {
             let id = a.id.clone();
@@ -1169,7 +1170,7 @@ impl ReviewView {
                     .text_color(if enabled { t.text } else { t.text_4 })
                     .when(chosen, |d| d.bg(t.surface_3))
                     .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(t.surface_3)))
-                    .child(div().truncate().child(label))
+                    .child(div().ellipsis().child(crate::kit::one_line(label)))
             };
             {
                 let id = id.clone();
@@ -1297,10 +1298,10 @@ impl ReviewView {
         self.notice.as_ref().map(|n| {
             div()
                 .min_w_0()
-                .truncate()
+                .ellipsis()
                 .text_size(px(12.))
                 .text_color(t.text_3)
-                .child(n.clone())
+                .child(crate::kit::one_line(n.clone()))
         })
     }
 
