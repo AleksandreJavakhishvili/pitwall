@@ -13,12 +13,13 @@ use gpui::{
 use pitwall_core::model::CodexHooksStatus;
 use pitwall_core::permissions::{Access, PermissionsStatus};
 
-use super::appearance::{
+use crate::theme::{
     appearance, clamp_font, Density, Look, ThemePref, DEFAULT_FONT, FONT_FLOOR, FONT_MAX, FONT_MIN,
 };
 use super::cli_install::{self, CliStatus};
 use super::permissions::{self, POLL};
-use super::widgets::{tooltip, Btn, SegItem, Tone, Ui};
+use super::widgets::Ui;
+use crate::kit::{tooltip, BtnKind, SegItem};
 use super::{prefs, set_prefs, ExtraSections, SettingsHost};
 
 pub enum SettingsEvent {
@@ -200,7 +201,7 @@ impl SettingsView {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(ui.label(label.to_string()))
+            .child(crate::kit::label(label.to_string(), ui.t.text_3, 12.))
     }
 
     fn row(ui: &Ui, name: &str) -> gpui::Div {
@@ -208,15 +209,15 @@ impl SettingsView {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(ui.muted(name.to_string()))
+            .child(crate::kit::muted(name.to_string(), &ui.t))
             .child(div().flex_1())
     }
 
     fn status_chip(ui: &Ui, installed: Option<bool>) -> gpui::Div {
         match installed {
-            None => ui.hint("checking…"),
-            Some(true) => ui.chip("installed", Tone::Ok),
-            Some(false) => ui.chip("not installed", Tone::Subtle),
+            None => crate::kit::hint("checking…", &ui.t),
+            Some(true) => crate::kit::chip_tone("installed", crate::kit::Tone::Ok, &ui.t),
+            Some(false) => crate::kit::chip_tone("not installed", crate::kit::Tone::Subtle, &ui.t),
         }
     }
 
@@ -230,13 +231,11 @@ impl SettingsView {
                     Self::head(ui, "Projects & agents")
                         .child(div().flex_1())
                         .child(
-                            ui.button("scan-again", "Scan again", Btn::Small, false)
+                            crate::kit::text_button("scan-again", "Scan again", BtnKind::Small, false, &ui.t)
                                 .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ScanAgain))),
                         ),
                 )
-                .child(ui.muted(
-                    "Look for new projects, conversations you can continue and installed agents. Read-only.",
-                )),
+                .child(crate::kit::muted("Look for new projects, conversations you can continue and installed agents. Read-only.", &ui.t)),
         )
     }
 
@@ -249,18 +248,16 @@ impl SettingsView {
                     .child(if self.live {
                         Self::status_chip(ui, s.map(|s| s.installed))
                     } else {
-                        ui.hint("unavailable")
+                        crate::kit::hint("unavailable", &ui.t)
                     }),
             )
-            .child(ui.muted(
-                "Without hooks, Pitwall reads Codex's screen to tell working, blocked and done apart. Hooks make it exact.",
-            ));
+            .child(crate::kit::muted("Without hooks, Pitwall reads Codex's screen to tell working, blocked and done apart. Hooks make it exact.", &ui.t));
         if let Some(s) = s {
-            sec = sec.child(ui.mono(pitwall_core::paths::tildify(&s.path)));
+            sec = sec.child(crate::kit::mono_text(pitwall_core::paths::tildify(&s.path), &ui.t));
             if !s.installed && !self.hooks_confirm {
                 sec = sec.child(
                     div().flex().child(
-                        ui.button("hooks-install", "Install hooks…", Btn::Small, false)
+                        crate::kit::text_button("hooks-install", "Install hooks…", BtnKind::Small, false, &ui.t)
                             .on_click(cx.listener(|v, _, _, cx| {
                                 v.hooks_confirm = true;
                                 cx.notify();
@@ -303,16 +300,11 @@ impl SettingsView {
                             .flex()
                             .gap(px(8.))
                             .child(
-                                ui.button(
-                                    "hooks-yes",
-                                    if self.hooks_busy {
+                                crate::kit::text_button("hooks-yes", if self.hooks_busy {
                                         "Installing…"
                                     } else {
                                         "Install"
-                                    },
-                                    Btn::Primary,
-                                    self.hooks_busy,
-                                )
+                                    }, BtnKind::Primary, self.hooks_busy, &ui.t)
                                 .on_click(cx.listener(
                                     |v, _, _, cx| {
                                         if !v.hooks_busy {
@@ -321,7 +313,7 @@ impl SettingsView {
                                     },
                                 )),
                             )
-                            .child(ui.button("hooks-no", "Cancel", Btn::Ghost, false).on_click(
+                            .child(crate::kit::text_button("hooks-no", "Cancel", BtnKind::Ghost, false, &ui.t).on_click(
                                 cx.listener(|v, _, _, cx| {
                                     v.hooks_confirm = false;
                                     cx.notify();
@@ -339,10 +331,10 @@ impl SettingsView {
             .child(
                 Self::head(ui, "Claude Code")
                     .child(div().flex_1())
-                    .child(ui.chip("automatic", Tone::Ok)),
+                    .child(crate::kit::chip_tone("automatic", crate::kit::Tone::Ok, &ui.t)),
             )
             .child(
-                ui.muted("Hooks are passed per launch. Your ~/.claude settings are never edited."),
+                crate::kit::muted("Hooks are passed per launch. Your ~/.claude settings are never edited.", &ui.t),
             )
     }
 
@@ -359,7 +351,7 @@ impl SettingsView {
                     set_prefs(window, cx, |p| p.hide_elsewhere = !p.hide_elsewhere);
                     cx.notify();
                 }))
-                .child(div().mt(px(2.)).child(ui.checkbox(show, false)))
+                .child(div().mt(px(2.)).child(crate::kit::checkbox_box(show, false, 14., &ui.t)))
                 .child(
                     div()
                         .flex_1()
@@ -368,9 +360,7 @@ impl SettingsView {
                         .flex_col()
                         .gap(px(2.))
                         .child("Show agents running elsewhere")
-                        .child(ui.hint(
-                            "A sidebar group with Claude Code, Codex and other agents running in other terminal apps (checked every ~10 s, read-only), each with “Bring in”.",
-                        )),
+                        .child(crate::kit::hint("A sidebar group with Claude Code, Codex and other agents running in other terminal apps (checked every ~10 s, read-only), each with “Bring in”.", &ui.t)),
                 ),
         )
     }
@@ -386,13 +376,13 @@ impl SettingsView {
             .child(
                 Self::head(ui, "Permissions · Full Disk Access")
                     .child(div().flex_1())
-                    .child(ui.chip(text, tone.into())),
+                    .child(crate::kit::chip_tone(text, tone, &ui.t)),
             )
-            .child(ui.muted(if granted {
+            .child(crate::kit::muted(if granted {
                 "macOS won't ask about Desktop, Documents or Downloads. Turn it off in System Settings any time."
             } else {
                 "Without it, macOS asks once for each protected folder (Desktop, Documents, Downloads) your projects are in."
-            }));
+            }, &ui.t));
         if s.is_some() && !granted {
             sec = sec
                 .child(
@@ -405,7 +395,7 @@ impl SettingsView {
                 )
                 .child(
                     div().flex().child(
-                        ui.button("fda-open", "Open Settings", Btn::Small, false)
+                        crate::kit::text_button("fda-open", "Open Settings", BtnKind::Small, false, &ui.t)
                             .on_click(cx.listener(|v, _, _, cx| {
                                 if let Err(e) = permissions::open_full_disk_access() {
                                     v.error = Some(format!("Couldn't open System Settings: {e}"));
@@ -435,20 +425,15 @@ impl SettingsView {
             return sec;
         };
         if let Some(link) = &s.installed {
-            sec = sec.child(ui.mono(link.clone()));
+            sec = sec.child(crate::kit::mono_text(link.clone(), &ui.t));
         }
         if s.bin.is_none() {
-            sec = sec.child(ui.hint("This build doesn't include the tool."));
+            sec = sec.child(crate::kit::hint("This build doesn't include the tool.", &ui.t));
         }
         if s.bin.is_some() && s.installed.is_none() && !self.cli_confirm {
             sec = sec.child(
                 div().flex().child(
-                    ui.button(
-                        "cli-install",
-                        "Install command-line tool…",
-                        Btn::Small,
-                        false,
-                    )
+                    crate::kit::text_button("cli-install", "Install command-line tool…", BtnKind::Small, false, &ui.t)
                     .on_click(cx.listener(|v, _, _, cx| {
                         v.cli_confirm = true;
                         cx.notify();
@@ -489,8 +474,8 @@ impl SettingsView {
                                 v.cli_dir = Some(path.clone());
                                 cx.notify();
                             }))
-                            .child(ui.radio(on))
-                            .child(ui.mono(format!("{}/pitwall", d.path)).text_color(ui.t.text)),
+                            .child(crate::kit::radio(on, &ui.t))
+                            .child(crate::kit::mono_text(format!("{}/pitwall", d.path), &ui.t).text_color(ui.t.text)),
                     );
                 }
                 boxed = boxed.child(ui.list(items, false)).child(
@@ -498,23 +483,18 @@ impl SettingsView {
                         .flex()
                         .gap(px(8.))
                         .child(
-                            ui.button(
-                                "cli-yes",
-                                if self.cli_busy {
+                            crate::kit::text_button("cli-yes", if self.cli_busy {
                                     "Installing…"
                                 } else {
                                     "Install"
-                                },
-                                Btn::Primary,
-                                self.cli_busy || self.cli_dir.is_none(),
-                            )
+                                }, BtnKind::Primary, self.cli_busy || self.cli_dir.is_none(), &ui.t)
                             .on_click(cx.listener(|v, _, _, cx| {
                                 if !v.cli_busy {
                                     v.install_cli(cx)
                                 }
                             })),
                         )
-                        .child(ui.button("cli-no", "Cancel", Btn::Ghost, false).on_click(
+                        .child(crate::kit::text_button("cli-no", "Cancel", BtnKind::Ghost, false, &ui.t).on_click(
                             cx.listener(|v, _, _, cx| {
                                 v.cli_confirm = false;
                                 cx.notify();
@@ -530,9 +510,7 @@ impl SettingsView {
     fn appearance_section(ui: &Ui, cx: &mut Context<Self>) -> gpui::Div {
         let ap = appearance(cx).clone();
         let p = prefs(cx);
-        let theme = ui.seg(
-            "theme",
-            ThemePref::ALL
+        let theme = crate::kit::seg("theme", ThemePref::ALL
                 .iter()
                 .map(|&v| SegItem {
                     label: v.label().into(),
@@ -545,12 +523,8 @@ impl SettingsView {
                         })
                     }),
                 })
-                .collect(),
-            Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.theme = ThemePref::ALL[i])),
-        );
-        let look = ui.seg(
-            "look",
-            Look::ALL
+                .collect(), &ui.t, Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.theme = ThemePref::ALL[i])));
+        let look = crate::kit::seg("look", Look::ALL
                 .iter()
                 .map(|&v| SegItem {
                     label: match v {
@@ -560,9 +534,7 @@ impl SettingsView {
                     on: p.look == v,
                     tooltip: (v == Look::Glass).then(|| ap.offer.hint().into()),
                 })
-                .collect(),
-            Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.look = Look::ALL[i])),
-        );
+                .collect(), &ui.t, Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.look = Look::ALL[i])));
         let reduce = p.reduce_motion;
         let mut sec = Self::section(ui)
             .child(Self::head(ui, "Appearance"))
@@ -570,14 +542,12 @@ impl SettingsView {
             .child(Self::row(ui, "Look").child(look));
         if p.look == Look::Glass && ap.os.reduce_transparency {
             sec =
-                sec.child(ui.hint("The system's Reduce transparency is on, so windows show Flat."));
+                sec.child(crate::kit::hint("The system's Reduce transparency is on, so windows show Flat.", &ui.t));
         }
         sec.child(
             Self::row(ui, "Reduce motion").child(
-                ui.toggle("reduce-motion", reduce)
-                    .tooltip(tooltip(
-                        "Fewer animations (the system setting also applies)".into(),
-                    ))
+                crate::kit::toggle("reduce-motion", reduce, &ui.t)
+                    .tooltip(tooltip("Fewer animations (the system setting also applies)"))
                     .on_click(cx.listener(|_, _, window, cx| {
                         set_prefs(window, cx, |p| p.reduce_motion = !p.reduce_motion);
                         cx.notify();
@@ -588,9 +558,7 @@ impl SettingsView {
 
     fn tiles(ui: &Ui, cx: &mut Context<Self>) -> gpui::Div {
         let p = prefs(cx);
-        let density = ui.seg(
-            "density",
-            Density::ALL
+        let density = crate::kit::seg("density", Density::ALL
                 .iter()
                 .map(|&d| {
                     let c = d.cells();
@@ -602,9 +570,7 @@ impl SettingsView {
                         ),
                     }
                 })
-                .collect(),
-            Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.density = Density::ALL[i])),
-        );
+                .collect(), &ui.t, Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.density = Density::ALL[i])));
         let font = p.font_size;
         let step = |delta: i32| {
             move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
@@ -615,7 +581,7 @@ impl SettingsView {
         };
         let font_row = Self::row(ui, "Terminal font")
             .child(
-                ui.button("font-down", "−", Btn::Small, font <= FONT_MIN)
+                crate::kit::text_button("font-down", "−", BtnKind::Small, font <= FONT_MIN, &ui.t)
                     .on_click(step(-1)),
             )
             .child(
@@ -628,12 +594,12 @@ impl SettingsView {
                     .child(format!("{font}px")),
             )
             .child(
-                ui.button("font-up", "+", Btn::Small, font >= FONT_MAX)
+                crate::kit::text_button("font-up", "+", BtnKind::Small, font >= FONT_MAX, &ui.t)
                     .on_click(step(1)),
             )
             .when(font != DEFAULT_FONT, |r| {
                 r.child(
-                    ui.button("font-reset", "Reset", Btn::GhostSm, false)
+                    crate::kit::text_button("font-reset", "Reset", BtnKind::GhostSm, false, &ui.t)
                         .on_click(|_, window, cx| {
                             set_prefs(window, cx, |p| p.font_size = DEFAULT_FONT)
                         }),
@@ -643,11 +609,11 @@ impl SettingsView {
             .child(Self::head(ui, "Tiles"))
             .child(Self::row(ui, "Density").child(density))
             .child(font_row)
-            .child(ui.hint(format!(
+            .child(crate::kit::hint(format!(
                 "Smallest tile before extra agents fold into chips (overridable per space in its bar or {}). Tiles shrink their font down to {FONT_FLOOR}px first; {} change the focused tile only.",
                 keys("⌘K"),
                 keys("⌘+ / ⌘− / ⌘0"),
-            )))
+            ), &ui.t))
     }
 
     fn about_row(ui: &Ui, cx: &mut Context<Self>) -> gpui::Div {
@@ -655,10 +621,10 @@ impl SettingsView {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(ui.hint(format!("Pitwall {} · GPUI preview", super::about::VERSION)))
+            .child(crate::kit::hint(format!("Pitwall {} · GPUI preview", super::about::VERSION), &ui.t))
             .child(div().flex_1())
             .child(
-                ui.button("about", "About Pitwall", Btn::Link, false)
+                crate::kit::text_button("about", "About Pitwall", BtnKind::Link, false, &ui.t)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::About))),
             )
     }
@@ -667,7 +633,7 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ap = appearance(cx);
-        let ui = Ui::new(super::appearance::float(&ap.theme(), cx), cx);
+        let ui = Ui::new(ap.theme().float());
         let t = ui.t.clone();
         let extra: Vec<AnyElement> = cx
             .try_global::<ExtraSections>()
@@ -697,8 +663,8 @@ impl Render for SettingsView {
                     .child("SETTINGS"),
             )
             .child(
-                ui.icon_button("settings-close", "✕")
-                    .tooltip(tooltip("Close (esc)".into()))
+                crate::kit::glyph_btn("settings-close", "✕", &ui.t)
+                    .tooltip(tooltip("Close (esc)"))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
             );
         let body = div()
@@ -722,8 +688,8 @@ impl Render for SettingsView {
                         .id("settings-error")
                         .flex()
                         .gap(px(8.))
-                        .child(ui.error(e).flex_1())
-                        .child(ui.button("err-x", "Dismiss", Btn::Link, false).on_click(
+                        .child(crate::kit::error_text(e, &ui.t).flex_1())
+                        .child(crate::kit::text_button("err-x", "Dismiss", BtnKind::Link, false, &ui.t).on_click(
                             cx.listener(|v, _, _, cx| {
                                 v.error = None;
                                 cx.notify();
@@ -767,7 +733,7 @@ mod tests {
     #[test]
     fn glass_is_named_per_desktop() {
         assert_eq!(
-            super::super::appearance::GlassOffer::Mica.label(),
+            crate::theme::GlassOffer::Mica.label(),
             "Glass · Mica"
         );
     }

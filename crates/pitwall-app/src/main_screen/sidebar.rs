@@ -11,11 +11,12 @@ use gpui::{
 
 use pitwall_proto::{AgentView, Status};
 
-use super::assets::{icon, MONO_FONT};
+use crate::kit::{icon, MONO_FONT};
 use super::menu::MenuItem;
-use super::model::{initials, keys, machine_heading, summarize, with_projects};
+use super::model::{initials, machine_heading, summarize, with_projects};
+use crate::kit::keys;
 use super::topbar::AgentDrag;
-use super::widgets::{
+use crate::kit::{
     chevron, chip, diffstat, glyph, icon_btn, kbd, label_fit, status_label, tooltip,
 };
 use super::{Confirm, MainScreen, SelectNext, SelectPrev, SidebarMode};
@@ -100,7 +101,7 @@ impl MainScreen {
                             .text_color(t.text_3)
                             .child("No agents yet")
                             .child(
-                                super::widgets::small_btn(format!("empty-{}", g.key), "+ Agent", t)
+                                crate::kit::small_btn(SharedString::from(format!("empty-{}", g.key)), "+ Agent", t)
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.open_new_agent(Some(project.clone()), window, cx)
                                     })),
@@ -476,7 +477,7 @@ impl MainScreen {
                 }
             })
             .when(cursor, |d| d.border_1().border_color(t.focus))
-            .tooltip(tooltip(tip.into()))
+            .tooltip(tooltip(tip))
             .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
             .on_click(
                 cx.listener(move |this, _, window, cx| this.show_agent(&id_click, window, cx)),
@@ -573,7 +574,7 @@ impl MainScreen {
                             div()
                                 .truncate()
                                 .text_size(px(11.))
-                                .font_family(super::text_input::mono_font())
+                                .font_family(crate::kit::MONO_FONT)
                                 .text_color(t.amber)
                                 .child(det)
                         }))
@@ -666,7 +667,7 @@ impl MainScreen {
                             })
                             .cursor_pointer()
                             .hover(|s| s.bg(t.surface_3).text_color(t.text))
-                            .tooltip(tooltip(tip.into()))
+                            .tooltip(tooltip(tip))
                             .on_drag(
                                 AgentDrag {
                                     id: a.id.clone(),
@@ -717,7 +718,7 @@ impl MainScreen {
                     .text_color(t.text_3)
                     .cursor_pointer()
                     .hover(|s| s.text_color(t.text))
-                    .tooltip(tooltip(keys("New agent (⌘N)", false).into()))
+                    .tooltip(tooltip(keys("New agent (⌘N)", false)))
                     .on_click(
                         cx.listener(|this, _, window, cx| this.open_new_agent(None, window, cx)),
                     )

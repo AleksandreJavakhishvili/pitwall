@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, AnyView, App, Context, Entity, FocusHandle, FontWeight, Global, Hsla,
+    div, prelude::*, px, AnyView, App, Context, Entity, FocusHandle, FontWeight, Global,
     IntoElement, Render, SharedString, Subscription, Task, Window,
 };
 
@@ -26,8 +26,9 @@ use pitwall_daemon::Approvals;
 use pitwall_proto::{ApprovalAnswer, ApprovalView};
 
 use crate::agents::AgentStore;
+use crate::kit;
 use crate::menu::Dismiss;
-use crate::theme::{self, Mode, Theme, RADIUS, RADIUS_SM};
+use crate::theme::{self, Mode, Theme};
 
 /// Who takes the user's answer: the in-process [`Approvals`] (tests use a
 /// recorder).
@@ -165,28 +166,10 @@ impl ApprovalDialog {
             .bg(t.amber_soft)
             .border_b_1()
             .border_color(t.amber.opacity(0.35))
+            .child(kit::label_t("Approval needed", t.amber, 15., 0.08))
             .child(
-                div()
-                    .when_some(crate::platform::fonts::label(cx), |d, f| d.font_family(f))
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(t.amber)
-                    .child("APPROVAL NEEDED"),
-            )
-            .child(
-                div()
-                    .id("approval-close")
-                    .size(px(28.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(RADIUS)
-                    .text_size(px(12.))
-                    .text_color(t.text_3)
-                    .hover(|s| s.bg(t.surface_3).text_color(t.text))
-                    .tooltip(|_, cx| tooltip("Close (esc)", cx))
-                    .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx)))
-                    .child("✕"),
+                kit::icon_btn("approval-close", "x", "Close (esc)", false, t)
+                    .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx))),
             )
     }
 
@@ -199,31 +182,7 @@ impl ApprovalDialog {
             .gap(px(10.))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| this.set_remember(!on, cx)))
-            .child(
-                div()
-                    .mt(px(3.))
-                    .size(px(14.))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(RADIUS_SM)
-                    .border_1()
-                    // The native checkbox: filled grey in dark, white in light.
-                    .border_color(match (on, t.mode) {
-                        (true, _) => t.text,
-                        (false, Mode::Dark) => t.line_strong,
-                        (false, Mode::Light) => t.text_3,
-                    })
-                    .bg(match (on, t.mode) {
-                        (true, _) => t.text,
-                        (false, Mode::Dark) => t.surface_3,
-                        (false, Mode::Light) => t.raised,
-                    })
-                    .text_size(px(10.))
-                    .text_color(t.bg)
-                    .when(on, |d| d.child("✓")),
-            )
+            .child(kit::check(on, t).mt(px(3.)))
             .child(
                 div()
                     .flex()
@@ -241,40 +200,13 @@ impl ApprovalDialog {
     }
 }
 
-/// A small text tooltip (until the in-house tooltip component exists).
-fn tooltip(label: &'static str, cx: &mut App) -> AnyView {
-    cx.new(|_| Tip(label)).into()
-}
-
-struct Tip(&'static str);
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx);
-        div()
-            .px_2()
-            .py_1()
-            .rounded(RADIUS)
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .text_xs()
-            .text_color(t.text_2)
-            .child(self.0)
-    }
-}
-
 impl Render for ApprovalDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let Some((a, waiting)) = self.pending(cx) else {
             return div().id("approval-none");
         };
-        let backdrop: Hsla = if t.mode == Mode::Dark {
-            gpui::rgba(0x0405_069e).into()
-        } else {
-            gpui::rgba(0x1e22_2847).into()
-        };
+        let backdrop = t.scrim();
         let ask = gpui::StyledText::new(format!("{} wants to {}.", a.requester.name, a.summary))
             .with_highlights([(
                 0..a.requester.name.len(),
@@ -336,7 +268,7 @@ impl Render for ApprovalDialog {
                             .child(text::footer(&a, waiting, self.now)),
                     )
                     .child(
-                        button("approval-deny", "Deny", &t, false)
+                        kit::text_button("approval-deny", "Deny", kit::BtnKind::Ghost, false, &t)
                             .on_click(cx.listener(|this, _, _, cx| this.answer(false, cx))),
                     )
                     .child(
@@ -404,36 +336,14 @@ impl Render for ApprovalDialog {
     }
 }
 
-/// `.ghost-btn` / the amber `.approval-allow` button.
+/// The amber `.approval-allow` button (a primary button in amber).
 fn button(
     id: &'static str,
     label: &'static str,
     t: &Theme,
-    primary: bool,
+    _primary: bool,
 ) -> gpui::Stateful<gpui::Div> {
-    let base = div()
-        .id(id)
-        .h(px(30.))
-        .px(px(12.))
-        .flex()
-        .items_center()
-        .rounded(RADIUS)
-        .text_size(px(12.5))
-        .font_weight(FontWeight::SEMIBOLD)
-        .cursor_pointer();
-    if primary {
-        let amber = t.amber;
-        base.bg(amber)
-            .text_color(gpui::rgb(0x1a1200))
-            .hover(move |s| s.bg(amber.blend(gpui::white().opacity(0.15))))
-            .child(label)
-    } else {
-        base.border_1()
-            .border_color(t.line_strong)
-            .text_color(t.text_2)
-            .hover(|s| s.bg(t.surface_3).text_color(t.text))
-            .child(label)
-    }
+    kit::accent_button(id, t.amber, gpui::rgb(0x1a1200).into(), t).child(label)
 }
 
 #[cfg(test)]

@@ -17,9 +17,10 @@ use gpui::{
 use pitwall_core::vcs::git::{FileChange, FileStatus};
 use pitwall_proto::AgentView;
 
-use super::assets::{icon, MONO_FONT};
-use super::model::{keys, split_path, updated_label, CHANGES_POLL};
-use super::widgets::{diffstat, glyph, icon_btn, label, label_t, tooltip};
+use crate::kit::{icon, MONO_FONT};
+use super::model::{split_path, updated_label, CHANGES_POLL};
+use crate::kit::keys;
+use crate::kit::{diffstat, glyph, icon_btn, label, label_t, tooltip};
 use super::{MainScreen, Route};
 use crate::theme::{Theme, RIGHT_W};
 
@@ -276,7 +277,7 @@ impl MainScreen {
         let head = if files_hook {
             head.child(self.panel_tabs(a, t, cx))
         } else {
-            head.child(super::widgets::label("Changes", t.text_3, 12.))
+            head.child(crate::kit::label("Changes", t.text_3, 12.))
         };
         if self.files_tab && files_hook {
             let build = cx.global::<super::FilesPanel>().0.clone();
@@ -360,7 +361,7 @@ impl MainScreen {
                     e.lines().next().unwrap_or("")
                 )))
                 .child(
-                    super::widgets::small_btn("retry-changes", "Retry", t)
+                    crate::kit::small_btn("retry-changes", "Retry", t)
                         .on_click(cx.listener(|this, _, _, cx| this.load_changes(true, cx))),
                 )
                 .into_any_element(),
@@ -411,7 +412,7 @@ impl MainScreen {
             .pb(px(6.))
             .text_size(px(11.))
             .text_color(t.text_2)
-            .font_family(super::text_input::mono_font())
+            .font_family(crate::kit::MONO_FONT)
             .child(
                 div()
                     .id("where-branch")
@@ -419,14 +420,12 @@ impl MainScreen {
                     .items_center()
                     .gap(px(5.))
                     .min_w_0()
-                    .tooltip(tooltip(
-                        if a.worktree {
+                    .tooltip(tooltip(if a.worktree {
                             "Works in its own git worktree"
                         } else {
                             "Current branch"
                         }
-                        .into(),
-                    ))
+                        ))
                     .child(icon("branch", 11., t.text_2))
                     .child(
                         div()
@@ -508,7 +507,7 @@ impl MainScreen {
             .line_height(px(17.))
             .cursor_pointer()
             .hover(|s| s.bg(t.surface_3))
-            .tooltip(tooltip(f.path.clone().into()))
+            .tooltip(tooltip(f.path.clone()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.open_diff(agent.clone(), file.clone(), window, cx)
             }))
@@ -549,7 +548,7 @@ impl MainScreen {
                     .text_size(px(11.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(letter_color)
-                    .tooltip(tooltip(status_title(letter).into()))
+                    .tooltip(tooltip(status_title(letter)))
                     .child(letter),
             )
     }
@@ -577,9 +576,9 @@ pub fn file_stats(f: &FileChange, t: &Theme) -> impl IntoElement {
         .flex_none()
         .gap(px(4.))
         .text_size(px(11.))
-        .font_family(super::text_input::mono_font());
+        .font_family(crate::kit::MONO_FONT);
     if f.binary {
-        return d.child(super::widgets::chip("bin", t));
+        return d.child(crate::kit::chip("bin", t));
     }
     d.when(f.added > 0, |d| {
         d.child(div().text_color(t.green).child(format!("+{}", f.added)))

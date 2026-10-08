@@ -109,7 +109,7 @@ impl MainScreen {
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, window, cx| this.run_menu_item(i, window, cx)))
                 .child(div().w(px(16.)).flex().when(!it.icon.is_empty(), |d| {
-                    d.child(super::assets::icon(it.icon, 14., t.text_3))
+                    d.child(crate::kit::icon(it.icon, 14., t.text_3))
                 }))
                 .child(div().flex_1().child(it.label.clone()))
         });
@@ -140,7 +140,7 @@ impl MainScreen {
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .min_w(px(190.))
                             .p(px(4.))
-                            .font_family(super::assets::UI_FONT)
+                            .font_family(crate::kit::UI_FONT)
                             .rounded(RADIUS)
                             .bg(t.raised)
                             .border_1()

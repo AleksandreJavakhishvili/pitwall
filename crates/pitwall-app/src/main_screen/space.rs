@@ -12,12 +12,12 @@ use gpui::{
 
 use pitwall_proto::{AgentView, Status};
 
-use super::assets::icon;
+use crate::kit::icon;
 use super::menu::MenuItem;
-use super::model::keys;
+use crate::kit::keys;
 use super::topbar::AgentDrag;
 use super::tree::{self, Dir, Node, Preset, Side};
-use super::widgets::{
+use crate::kit::{
     button, chip, diffstat, glyph, icon_btn, kbd, label, small_btn, status_label, tooltip, BtnKind,
 };
 use super::workspace::{Density, Space, ALL_SPACE};
@@ -86,7 +86,7 @@ impl MainScreen {
             self.drop_hint = None;
         }
         let density = self.ui.density_of(space);
-        let min = density.fold_min(self.ui.font_size);
+        let min = super::workspace::fold_min(density, self.ui.font_size);
         let area = self
             .area
             .map(|a| (f32::from(a.width) as f64, f32::from(a.height) as f64));
@@ -160,7 +160,7 @@ impl MainScreen {
                     small_btn("restore-layout", "Restore layout", t)
                         .child(icon("restore", 12., t.text))
                         .flex_row_reverse()
-                        .tooltip(tooltip(keys("Restore (⌘⏎)", false).into()))
+                        .tooltip(tooltip(keys("Restore (⌘⏎)", false)))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.with_active(|s, id| s.toggle_maximize(id, None), cx)
                         })),
@@ -191,7 +191,7 @@ impl MainScreen {
                             .text_color(t.text_4)
                             .cursor_pointer()
                             .hover(|s| s.bg(t.surface_3).text_color(t.text))
-                            .tooltip(tooltip(tip.into()))
+                            .tooltip(tooltip(tip))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.apply_preset(p, window, cx)
                             }))
@@ -273,10 +273,8 @@ impl MainScreen {
             .cursor_pointer()
             .hover(|s| s.text_color(t.text).border_color(t.line_strong))
             .child(div().truncate().child(current))
-            .child(super::widgets::chevron(true, 11., t.text_3))
-            .tooltip(tooltip(
-                "Tile density for this space (smallest tile before it folds into a chip)".into(),
-            ))
+            .child(crate::kit::chevron(true, 11., t.text_3))
+            .tooltip(tooltip("Tile density for this space (smallest tile before it folds into a chip)"))
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                 let mut items = vec![{
                     let id = space_id.clone();
@@ -288,7 +286,7 @@ impl MainScreen {
                 }];
                 for d in Density::ALL {
                     let id = space_id.clone();
-                    let (c, r) = d.cells();
+                    let crate::theme::Cells { cols: c, rows: r } = d.cells();
                     items.push(MenuItem::new(
                         "",
                         &format!("{} · {c}×{r}", d.label()),
@@ -516,7 +514,7 @@ impl MainScreen {
             .border_1()
             .border_color(border)
             .when(status == Some(Status::Blocked), |d| {
-                d.shadow(super::widgets::amber_glow(t, 22., -6.))
+                d.shadow(t.amber_glow(22., -6.))
             })
             .when(status == Some(Status::Done), |d| {
                 d.child(
@@ -647,7 +645,7 @@ impl MainScreen {
             .bg(t.surface)
             .when_some(tint, |d, c| d.bg(c))
             .min_w_0()
-            .tooltip(tooltip("Double-click to maximise · drag to move".into()))
+            .tooltip(tooltip("Double-click to maximise · drag to move"))
             .on_drag(
                 AgentDrag {
                     id: a.id.clone(),
@@ -680,7 +678,7 @@ impl MainScreen {
                         .min_w_0()
                         .truncate()
                         .text_size(px(11.5))
-                        .font_family(super::text_input::mono_font())
+                        .font_family(crate::kit::MONO_FONT)
                         .text_color(t.amber)
                         .child(det)
                 }))
@@ -697,14 +695,14 @@ impl MainScreen {
                     .child(
                         div()
                             .id(SharedString::from(format!("m-{pane_id}")))
-                            .tooltip(tooltip(machine_tip.into()))
+                            .tooltip(tooltip(machine_tip))
                             .child(chip(a.machine.label.clone(), t)),
                     )
                     .child(
                         div()
                             .id(SharedString::from(format!("p-{pane_id}")))
                             .truncate()
-                            .tooltip(tooltip(a.cwd.clone().into()))
+                            .tooltip(tooltip(a.cwd.clone()))
                             .child(a.project_display.clone()),
                     )
                     .child(div().text_color(t.text_4).child("·"))
@@ -714,8 +712,8 @@ impl MainScreen {
                             div()
                                 .id(SharedString::from(format!("b-{pane_id}")))
                                 .truncate()
-                                .font_family(super::text_input::mono_font())
-                                .tooltip(tooltip(branch_tip.clone().into()))
+                                .font_family(crate::kit::MONO_FONT)
+                                .tooltip(tooltip(branch_tip.clone()))
                                 .flex()
                                 .items_center()
                                 .gap(px(4.))
@@ -913,7 +911,7 @@ impl MainScreen {
                     .when(matches!(a.status, Status::Exited | Status::Stopped), |d| {
                         d.opacity(0.6)
                     })
-                    .tooltip(tooltip(tip.into()))
+                    .tooltip(tooltip(tip))
                     .on_drag(
                         AgentDrag {
                             id: a.id.clone(),
@@ -945,7 +943,7 @@ fn pane_btn(
     tip: impl Into<SharedString>,
     t: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
-    super::widgets::icon_btn_state(id, name, tip, true, 13., None, t)
+    crate::kit::icon_btn_state(id, name, tip, true, 13., None, t)
 }
 
 struct PaneCtx {
@@ -1023,7 +1021,7 @@ fn terminal_element(
         .flex_col()
         .p(px(10.))
         .gap(px(2.))
-        .font_family(super::text_input::mono_font())
+        .font_family(crate::kit::MONO_FONT)
         .text_size(px(12.))
         .text_color(t.text_3)
         .child(format!("{}@{} {}", a.name, a.machine.label, a.cwd_display))
@@ -1113,7 +1111,7 @@ fn stopped_overlay(a: &AgentView, t: &Theme, cx: &mut Context<MainScreen>) -> im
                         .gap(px(8.))
                         .when(a.caps.restart, |d| {
                             d.child(
-                                button(format!("restart-{}", a.id), BtnKind::Primary, false, t)
+                                button(SharedString::from(format!("restart-{}", a.id)), BtnKind::Primary, false, t)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.restart_agent(restart_id.clone(), cx)
                                     }))
@@ -1122,7 +1120,7 @@ fn stopped_overlay(a: &AgentView, t: &Theme, cx: &mut Context<MainScreen>) -> im
                             )
                         })
                         .child(
-                            button(format!("remove-{}", a.id), BtnKind::Ghost, false, t)
+                            button(SharedString::from(format!("remove-{}", a.id)), BtnKind::Ghost, false, t)
                                 .on_click(
                                     cx.listener(move |this, _, _, cx| this.open_remove(&rm_id, cx)),
                                 )

@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use serde_json::{Map, Value};
 
-use super::appearance::{clamp_font, Density, Inputs, Look, ThemePref, DEFAULT_FONT};
+use crate::theme::{clamp_font, Density, Inputs, Look, ThemePref, DEFAULT_FONT};
 
 pub const FILE: &str = "ui.json";
 

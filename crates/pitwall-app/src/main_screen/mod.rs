@@ -17,7 +17,6 @@
 //! with [`register_route`] for their views, [`TerminalSlot`] for the
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
-pub mod assets;
 #[doc(hidden)]
 pub mod demo;
 mod dialogs;
@@ -28,10 +27,8 @@ mod panel;
 mod sidebar;
 mod space;
 mod strip;
-pub mod text_input;
 mod topbar;
 pub mod tree;
-mod widgets;
 pub mod workspace;
 
 use std::collections::HashMap;
@@ -57,7 +54,7 @@ use self::dialogs::{DiffDialog, NewAgentDialog, RemoveState, TerminalDialog};
 use self::menu::CtxMenu;
 use self::panel::ChangesState;
 use self::strip::Toast;
-use self::text_input::TextInput;
+use crate::kit::TextInput;
 use self::tree::Preset;
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 
@@ -273,12 +270,9 @@ pub fn bindings() -> Vec<KeyBinding> {
     b
 }
 
-/// Register the fonts and key bindings (call once at start).
+/// Register the key bindings (call once at start, after `kit::init`).
 pub fn init(cx: &mut App) {
-    assets::register_fonts(cx);
     cx.bind_keys(bindings());
-    cx.bind_keys(text_input::bindings());
-    cx.bind_keys(dialogs::bindings());
 }
 
 /// Window width classes (`useBreakpoint`).
@@ -708,7 +702,7 @@ impl MainScreen {
         let (Some(sp), Some(area)) = (self.active_space(), self.area) else {
             return vec![];
         };
-        let min = self.ui.density_of(sp).fold_min(self.ui.font_size);
+        let min = workspace::fold_min(self.ui.density_of(sp), self.ui.font_size);
         let base = sp
             .maximized_pane_id
             .as_deref()
@@ -746,7 +740,7 @@ impl MainScreen {
         let (sp, area) = (self.active_space()?, self.area?);
         Some(workspace::Fit {
             area: (f32::from(area.width) as f64, f32::from(area.height) as f64),
-            min: self.ui.density_of(sp).fold_min(self.ui.font_size),
+            min: workspace::fold_min(self.ui.density_of(sp), self.ui.font_size),
         })
     }
 
@@ -1182,7 +1176,7 @@ impl Render for MainScreen {
                             .id("sidebar-scrim")
                             .absolute()
                             .inset_0()
-                            .bg(widgets::backdrop(&t))
+                            .bg(t.scrim())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.overlay_sidebar = false;
                                 cx.notify();
@@ -1205,7 +1199,7 @@ impl Render for MainScreen {
                         .id("drawer-scrim")
                         .absolute()
                         .inset_0()
-                        .bg(widgets::backdrop(&t))
+                        .bg(t.scrim())
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.drawer_open = false;
                             cx.notify();
@@ -1279,7 +1273,7 @@ impl Render for MainScreen {
             .flex_col()
             .bg(t.bg)
             .text_color(t.text)
-            .font_family(assets::UI_FONT)
+            .font_family(crate::kit::UI_FONT)
             .text_size(px(13.))
             .line_height(gpui::relative(1.45))
             .child(self.render_topbar(&agents, bp, &t, window, cx))

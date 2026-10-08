@@ -29,9 +29,10 @@ use pitwall_proto::{AgentView, ScannedMachine, ScannedSession};
 use crate::agents::{AgentStore, StoreEvent};
 use crate::theme::{Theme, RADIUS, RADIUS_LG};
 
-use super::appearance::{appearance, chrome};
+use crate::theme::{appearance, chrome};
 use super::permissions::{self, AccessEvent, AccessPhase, POLL};
-use super::widgets::{tooltip, Btn, LineInput, LineInputEvent, Tone, Ui};
+use super::widgets::Ui;
+use crate::kit::{tooltip, BtnKind, InputEvent, TextInput};
 use super::SettingsHost;
 
 use plan::{
@@ -117,7 +118,7 @@ pub struct Onboarding {
     adopt_sel: BTreeSet<String>,
     show_under: HashMap<String, String>,
     adding: Option<AddFor>,
-    add_input: Entity<LineInput>,
+    add_input: Entity<TextInput>,
     add_error: Option<String>,
     /// The open dropdown ("kind:<path>" or "under:<key>").
     open_select: Option<String>,
@@ -137,7 +138,7 @@ impl Onboarding {
         let engine = cx
             .try_global::<SettingsHost>()
             .and_then(|h| h.engine.clone());
-        let add_input = cx.new(|cx| LineInput::new("/Users/you/code/project", cx));
+        let add_input = cx.new(|cx| TextInput::new(cx, "", "/Users/you/code/project").mono());
         let subs = vec![
             cx.subscribe(&store, |this, _, e: &StoreEvent, cx| {
                 if let StoreEvent::ScanProgress(p) = e {
@@ -150,15 +151,16 @@ impl Onboarding {
                     cx.notify();
                 }
             }),
-            cx.subscribe(&add_input, |this, input, e: &LineInputEvent, cx| match e {
-                LineInputEvent::Submit => {
-                    let path = input.read(cx).text.trim().to_string();
+            cx.subscribe(&add_input, |this, input, e: &InputEvent, cx| match e {
+                InputEvent::Submit => {
+                    let path = input.read(cx).text().trim().to_string();
                     if !path.is_empty() {
                         let target = this.adding.clone();
                         this.add_folder(path, target, cx);
                     }
                 }
-                LineInputEvent::Cancel => this.close_add(cx),
+                InputEvent::Cancel => this.close_add(cx),
+                _ => {}
             }),
         ];
         let mut this = Onboarding {
@@ -495,8 +497,10 @@ impl Onboarding {
         self.open_select = None;
         self.adding = Some(target.clone());
         self.add_error = None;
-        self.add_input.update(cx, |i, _| i.text.clear());
-        self.add_input.read(cx).focus(window);
+        self.add_input.update(cx, |i, cx| {
+            i.set_text("", cx);
+            i.focus_all(window, cx)
+        });
         self.browse(target, cx);
         cx.notify();
     }
@@ -827,7 +831,7 @@ impl Paint {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(self.ui.label(label.to_string()).text_color(self.t.text_2))
+            .child(crate::kit::label(label.to_string(), self.ui.t.text_3, 12.).text_color(self.t.text_2))
             .when_some(count, |d, n| {
                 d.child(
                     div()
@@ -955,7 +959,7 @@ impl Onboarding {
                             .gap(px(2.))
                             .min_w_0()
                             .child(
-                                p.ui.label(label.to_string())
+                                crate::kit::label(label.to_string(), p.ui.t.text_3, 12.)
                                     .text_size(px(12.))
                                     .text_color(if lit { t.text } else { t.text_3 }),
                             )
@@ -979,7 +983,7 @@ impl Onboarding {
                     )
             }))
             .when_some(self.scan_error.clone(), |d, e| {
-                d.child(p.ui.error(format!("Scan failed: {e}")).mt(px(8.)))
+                d.child(crate::kit::error_text(format!("Scan failed: {e}"), &p.ui.t).mt(px(8.)))
             })
     }
 
@@ -991,26 +995,26 @@ impl Onboarding {
             .flex_wrap()
             .items_center()
             .gap(px(8.))
-            .child(self.add_input.clone())
+            .child(div().flex_1().min_w(px(220.)).child(self.add_input.clone()))
             .child(
-                p.ui.button("add-go", "Add", Btn::Small, false)
+                crate::kit::text_button("add-go", "Add", BtnKind::Small, false, &p.ui.t)
                     .on_click(cx.listener(move |v, _, _, cx| {
-                        let path = v.add_input.read(cx).text.trim().to_string();
+                        let path = v.add_input.read(cx).text().trim().to_string();
                         if !path.is_empty() {
                             v.add_folder(path, Some(target.clone()), cx);
                         }
                     })),
             )
             .child(
-                p.ui.button("add-browse", "Browse…", Btn::Small, false)
+                crate::kit::text_button("add-browse", "Browse…", BtnKind::Small, false, &p.ui.t)
                     .on_click(cx.listener(move |v, _, _, cx| v.browse(t2.clone(), cx))),
             )
             .child(
-                p.ui.button("add-cancel", "Cancel", Btn::Link, false)
+                crate::kit::text_button("add-cancel", "Cancel", BtnKind::Link, false, &p.ui.t)
                     .on_click(cx.listener(|v, _, _, cx| v.close_add(cx))),
             )
             .when_some(self.add_error.clone(), |d, e| {
-                d.child(p.ui.error(e).w_full())
+                d.child(crate::kit::error_text(e, &p.ui.t).w_full())
             })
     }
 
@@ -1031,7 +1035,7 @@ impl Onboarding {
         div()
             .relative()
             .child(
-                p.ui.select_trigger(SharedString::from(format!("sel-{key}")), current)
+                crate::kit::select_trigger(SharedString::from(format!("sel-{key}")), current, &p.ui.t)
                     .on_click(cx.listener(move |v, _, _, cx| {
                         v.open_select = if v.open_select.as_deref() == Some(k2.as_str()) {
                             None
@@ -1042,24 +1046,19 @@ impl Onboarding {
                     })),
             )
             .when(open, |d| {
-                d.child(p.ui.select_menu(
-                    SharedString::from(format!("menu-{key}")),
-                    items,
-                    Rc::new(move |i, window, cx| {
+                d.child(crate::kit::select_menu(SharedString::from(format!("menu-{key}")), items, &p.ui.t, Rc::new(move |i, window, cx| {
                         let pick = on_pick.clone();
                         let _ = this.update(cx, |v, cx| {
                             v.open_select = None;
                             pick(v, i, window, cx);
                             cx.notify();
                         });
-                    }),
-                    Rc::new(move |_, cx| {
+                    }), Rc::new(move |_, cx| {
                         let _ = this2.update(cx, |v, cx| {
                             v.open_select = None;
                             cx.notify();
                         });
-                    }),
-                ))
+                    })))
             })
     }
 
@@ -1129,10 +1128,10 @@ impl Onboarding {
                     .pr(px(12.))
                     .pb(px(8.))
                     .text_color(if value.is_some() { t.text } else { t.text_3 })
-                    .child(p.ui.hint("Show under"))
+                    .child(crate::kit::hint("Show under", &p.ui.t))
                     .child(self.select(p, format!("under:{key}"), current, items, pick, cx))
                     .when(value.is_some(), |d| {
-                        d.child(p.ui.hint(format!("runs in {where_}")))
+                        d.child(crate::kit::hint(format!("runs in {where_}"), &p.ui.t))
                     }),
             )
             .when(
@@ -1180,32 +1179,32 @@ impl Onboarding {
             let path = pr.path.clone();
             let mut chips: Vec<Div> = Vec::new();
             if pr.added {
-                chips.push(p.ui.chip_sm("in Pitwall", Tone::Ok));
+                chips.push(crate::kit::chip_sm("in Pitwall", crate::kit::Tone::Ok, &p.ui.t));
             }
             chips.extend(
                 pr.sources
                     .iter()
-                    .map(|s| p.ui.chip_sm(source_label(s).to_string(), Tone::Plain)),
+                    .map(|s| crate::kit::chip_sm(source_label(s).to_string(), crate::kit::Tone::Plain, &p.ui.t)),
             );
             if !pr.is_git {
-                chips.push(p.ui.chip_sm("no git", Tone::Subtle));
+                chips.push(crate::kit::chip_sm("no git", crate::kit::Tone::Subtle, &p.ui.t));
             }
             if pr.rules.rulesync {
-                chips.push(p.ui.chip_sm("rulesync", Tone::Subtle));
+                chips.push(crate::kit::chip_sm("rulesync", crate::kit::Tone::Subtle, &p.ui.t));
             }
             if pr.rules.claude_md {
-                chips.push(p.ui.chip_sm("CLAUDE.md", Tone::Subtle));
+                chips.push(crate::kit::chip_sm("CLAUDE.md", crate::kit::Tone::Subtle, &p.ui.t));
             }
             if pr.rules.agents_md {
-                chips.push(p.ui.chip_sm("AGENTS.md", Tone::Subtle));
+                chips.push(crate::kit::chip_sm("AGENTS.md", crate::kit::Tone::Subtle, &p.ui.t));
             }
             let row = p
                 .row(("proj", i), i > 0, pr.added)
                 .when(!pr.added, |d| {
                     d.on_click(cx.listener(move |v, _, _, cx| v.toggle_project(&path, cx)))
                 })
-                .tooltip(tooltip(pr.path.clone().into()))
-                .child(p.ui.checkbox(checked, pr.added))
+                .tooltip(tooltip(pr.path.clone()))
+                .child(crate::kit::checkbox_box(checked, pr.added, 14., &p.ui.t))
                 .child(
                     div()
                         .flex_1()
@@ -1225,10 +1224,10 @@ impl Onboarding {
                         )
                         .child(div().flex().flex_wrap().gap(px(4.)).children(chips)),
                 )
-                .child(p.ui.hint(match pr.last_used {
+                .child(crate::kit::hint(match pr.last_used {
                     Some(ms) => rel_time(ms, now),
                     None => "recently opened".into(),
-                }));
+                }, &p.ui.t));
             let show_fresh = checked && !covered.contains(&pr.path) && default_kind.is_some();
             let fresh_on = self.fresh.get(&pr.path).cloned();
             let item = div().flex().flex_col().child(row).when(show_fresh, |d| {
@@ -1266,7 +1265,7 @@ impl Onboarding {
                                 .gap(px(8.))
                                 .cursor_pointer()
                                 .on_click(cx.listener(move |v, _, _, cx| v.toggle_fresh(&path, cx)))
-                                .child(p.ui.checkbox(fresh_on.is_some(), false))
+                                .child(crate::kit::checkbox_box(fresh_on.is_some(), false, 14., &p.ui.t))
                                 .child("Start a new agent"),
                         )
                         .when(fresh_on.is_some(), |d| {
@@ -1298,13 +1297,13 @@ impl Onboarding {
             .child(
                 p.section_head("Projects", Some(n))
                     .child(
-                        p.ui.button("proj-all", "All", Btn::Link, false)
+                        crate::kit::text_button("proj-all", "All", BtnKind::Link, false, &p.ui.t)
                             .on_click(cx.listener(move |v, _, _, cx| {
                                 v.selected = all.iter().cloned().collect();
                                 cx.notify();
                             })),
                     )
-                    .child(p.ui.button("proj-none", "None", Btn::Link, false).on_click(
+                    .child(crate::kit::text_button("proj-none", "None", BtnKind::Link, false, &p.ui.t).on_click(
                         cx.listener(|v, _, _, cx| {
                             v.selected.clear();
                             cx.notify();
@@ -1312,12 +1311,10 @@ impl Onboarding {
                     )),
             )
             .child(
-                p.ui.hint(
-                    "Projects appear in the sidebar even before they have agents. Recent first.",
-                ),
+                crate::kit::hint("Projects appear in the sidebar even before they have agents. Recent first.", &p.ui.t),
             )
             .when(n == 0, |d| {
-                d.child(p.ui.hint("No projects found. Add a folder below."))
+                d.child(crate::kit::hint("No projects found. Add a folder below.", &p.ui.t))
             })
             .when(n > 0, |d| d.child(list))
             .child(
@@ -1327,16 +1324,11 @@ impl Onboarding {
                     .gap(px(8.))
                     .when(n > FIRST_PROJECTS, |d| {
                         d.child(
-                            p.ui.button(
-                                "proj-more",
-                                if self.all_projects {
+                            crate::kit::text_button("proj-more", if self.all_projects {
                                     "Show fewer".to_string()
                                 } else {
                                     format!("Show all {n}")
-                                },
-                                Btn::Link,
-                                false,
-                            )
+                                }, BtnKind::Link, false, &p.ui.t)
                             .on_click(cx.listener(|v, _, _, cx| {
                                 v.all_projects = !v.all_projects;
                                 cx.notify();
@@ -1346,7 +1338,7 @@ impl Onboarding {
                     .child(div().flex_1())
                     .when(self.adding != Some(AddFor::List), |d| {
                         d.child(
-                            p.ui.button("add-folder", "Add folder…", Btn::Small, false)
+                            crate::kit::text_button("add-folder", "Add folder…", BtnKind::Small, false, &p.ui.t)
                                 .on_click(cx.listener(|v, _, window, cx| {
                                     v.open_add(AddFor::List, window, cx)
                                 })),
@@ -1378,11 +1370,11 @@ impl Onboarding {
                 d.on_click(cx.listener(move |v, _, _, cx| v.toggle_conv(&c2, cx)))
             })
             .when(!can_run, |d| {
-                d.tooltip(tooltip(format!("{} isn't installed", c.kind_name).into()))
+                d.tooltip(tooltip(format!("{} isn't installed", c.kind_name)))
             })
-            .child(p.ui.checkbox(checked, disabled))
+            .child(crate::kit::checkbox_box(checked, disabled, 14., &p.ui.t))
             .child(
-                p.ui.chip(c.kind_name.clone(), Tone::Subtle)
+                crate::kit::chip_tone(c.kind_name.clone(), crate::kit::Tone::Subtle, &p.ui.t)
                     .min_w(px(76.))
                     .justify_center(),
             )
@@ -1416,9 +1408,9 @@ impl Onboarding {
                             )),
                     ),
             )
-            .when(c.in_pitwall, |d| d.child(p.ui.chip("in Pitwall", Tone::Ok)))
+            .when(c.in_pitwall, |d| d.child(crate::kit::chip_tone("in Pitwall", crate::kit::Tone::Ok, &p.ui.t)))
             .when(!c.in_pitwall && c.running_elsewhere, |d| {
-                d.child(p.ui.chip("open elsewhere", Tone::Warn))
+                d.child(crate::kit::chip_tone("open elsewhere", crate::kit::Tone::Warn, &p.ui.t))
             });
         div()
             .flex()
@@ -1487,21 +1479,14 @@ impl Onboarding {
         let mut head = p.section_head(title, Some(n));
         if outside {
             head = head.child(
-                p.ui.button("out-all", "All", Btn::Link, false)
-                    .tooltip(tooltip(
-                        "Tick every conversation that isn't open in another terminal".into(),
-                    ))
+                crate::kit::text_button("out-all", "All", BtnKind::Link, false, &p.ui.t)
+                    .tooltip(tooltip("Tick every conversation that isn't open in another terminal"))
                     .on_click(cx.listener(|v, _, _, cx| v.set_group(true, true, cx))),
             );
         }
         if outside || any_ticked {
             head = head.child(
-                p.ui.button(
-                    if outside { "out-none" } else { "conv-none" },
-                    "None",
-                    Btn::Link,
-                    false,
-                )
+                crate::kit::text_button(if outside { "out-none" } else { "conv-none" }, "None", BtnKind::Link, false, &p.ui.t)
                 .on_click(cx.listener(move |v, _, _, cx| v.set_group(outside, false, cx))),
             );
         }
@@ -1512,20 +1497,15 @@ impl Onboarding {
                 .flex_col()
                 .gap(px(8.))
                 .child(head)
-                .child(p.ui.hint(if outside {
+                .child(crate::kit::hint(if outside {
                     "Conversations started outside a project folder. Pick a project to show one under — it still runs in the folder it started in, because that's the only place it can be resumed."
                 } else {
                     "Each ticked conversation starts an agent in its folder and resumes that session. The latest one of each project from the last 3 days is ticked for you."
-                }).w_full())
+                }, &p.ui.t).w_full())
                 .child(list)
                 .when(!outside && n > FIRST_CONVERSATIONS, |d| {
                     d.child(div().flex().child(
-                        p.ui.button(
-                            "conv-more",
-                            if self.all_convs { "Show fewer".to_string() } else { format!("Show all {n}") },
-                            Btn::Link,
-                            false,
-                        )
+                        crate::kit::text_button("conv-more", if self.all_convs { "Show fewer".to_string() } else { format!("Show all {n}") }, BtnKind::Link, false, &p.ui.t)
                         .on_click(cx.listener(|v, _, _, cx| {
                             v.all_convs = !v.all_convs;
                             cx.notify();
@@ -1547,7 +1527,7 @@ impl Onboarding {
         if m.sessions.is_empty() {
             list = list.child(
                 p.row("no-sessions", false, true)
-                    .child(p.ui.hint("No sessions")),
+                    .child(crate::kit::hint("No sessions", &p.ui.t)),
             );
         }
         for (i, s) in m.sessions.iter().enumerate() {
@@ -1581,9 +1561,9 @@ impl Onboarding {
                         cx.notify();
                     }))
                 })
-                .child(p.ui.checkbox(checked, s.in_pitwall))
+                .child(crate::kit::checkbox_box(checked, s.in_pitwall, 14., &p.ui.t))
                 .child(
-                    p.ui.chip(s.kind_name.clone(), Tone::Subtle)
+                    crate::kit::chip_tone(s.kind_name.clone(), crate::kit::Tone::Subtle, &p.ui.t)
                         .min_w(px(76.))
                         .justify_center(),
                 )
@@ -1602,18 +1582,15 @@ impl Onboarding {
                         )
                         .child(div().text_size(px(11.5)).text_color(t.text_3).child(detail)),
                 )
-                .child(p.ui.chip(
-                    status,
-                    if s.status == "running" {
-                        Tone::Ok
+                .child(crate::kit::chip_tone(status, if s.status == "running" {
+                        crate::kit::Tone::Ok
                     } else {
-                        Tone::Subtle
-                    },
-                ))
+                        crate::kit::Tone::Subtle
+                    }, &p.ui.t))
                 .child(if s.in_pitwall {
-                    p.ui.chip("in Pitwall", Tone::Ok)
+                    crate::kit::chip_tone("in Pitwall", crate::kit::Tone::Ok, &p.ui.t)
                 } else {
-                    p.ui.hint("Add to Pitwall")
+                    crate::kit::hint("Add to Pitwall", &p.ui.t)
                 }),
             );
         }
@@ -1634,13 +1611,11 @@ impl Onboarding {
                             .child(m.label.clone()),
                     )
                     .child(
-                        p.ui.hint(
-                            [Some(place.to_string()), m.detail.clone()]
+                        crate::kit::hint([Some(place.to_string()), m.detail.clone()]
                                 .into_iter()
                                 .flatten()
                                 .collect::<Vec<_>>()
-                                .join(" · "),
-                        ),
+                                .join(" · "), &p.ui.t),
                     ),
             )
             .child(list)
@@ -1686,9 +1661,9 @@ impl Onboarding {
                     .when(can, |d| {
                         d.on_click(cx.listener(move |v, _, _, cx| v.toggle_run(&r2, cx)))
                     })
-                    .child(p.ui.checkbox(checked, !can))
+                    .child(crate::kit::checkbox_box(checked, !can, 14., &p.ui.t))
                     .child(
-                        p.ui.chip(ra.kind_name.clone(), Tone::Subtle)
+                        crate::kit::chip_tone(ra.kind_name.clone(), crate::kit::Tone::Subtle, &p.ui.t)
                             .min_w(px(76.))
                             .justify_center(),
                     )
@@ -1718,13 +1693,13 @@ impl Onboarding {
                             ),
                     )
                     .child(if ra.in_pitwall {
-                        p.ui.chip("in Pitwall", Tone::Ok)
+                        crate::kit::chip_tone("in Pitwall", crate::kit::Tone::Ok, &p.ui.t)
                     } else {
-                        p.ui.hint(if can {
+                        crate::kit::hint(if can {
                             "Bring into Pitwall"
                         } else {
                             "can't bring over"
-                        })
+                        }, &p.ui.t)
                     });
                 let key = ra.session_id.as_ref().map(|s| conv_key(&ra.kind, s));
                 list = list.child(div().flex().flex_col().child(row).when_some(
@@ -1762,7 +1737,7 @@ impl Onboarding {
                                 .text_color(t.text)
                                 .child(pitwall_core::host::machine_label()),
                         )
-                        .child(p.ui.hint("running outside Pitwall")),
+                        .child(crate::kit::hint("running outside Pitwall", &p.ui.t)),
                 )
                 .child(list);
         }
@@ -1779,16 +1754,14 @@ impl Onboarding {
                         .flatten()
                         .collect::<Vec<_>>()
                         .join(" ");
-                    sec = sec.child(p.ui.hint(format!(
+                    sec = sec.child(crate::kit::hint(format!(
                         "{name} is installed, but its machines and sessions couldn't be listed."
-                    )));
+                    ), &p.ui.t));
                 }
             }
         }
         if !self.adoptable().is_empty() {
-            sec = sec.child(p.ui.hint(
-                "Adding a session only starts tracking it: Pitwall attaches to its terminal and reads its status from the screen. Nothing changes on the machine.",
-            ));
+            sec = sec.child(crate::kit::hint("Adding a session only starts tracking it: Pitwall attaches to its terminal and reads its status from the screen. Nothing changes on the machine.", &p.ui.t));
         }
         Some(sec)
     }
@@ -1808,8 +1781,8 @@ impl Onboarding {
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(p.ui.chip("hooks installed", Tone::Ok))
-                        .child(p.ui.hint("Codex status is exact.")),
+                        .child(crate::kit::chip_tone("hooks installed", crate::kit::Tone::Ok, &p.ui.t))
+                        .child(crate::kit::hint("Codex status is exact.", &p.ui.t)),
                 ),
             );
         }
@@ -1827,7 +1800,7 @@ impl Onboarding {
                             v.hooks = !v.hooks;
                             cx.notify();
                         }))
-                        .child(p.ui.checkbox(self.hooks, false)),
+                        .child(crate::kit::checkbox_box(self.hooks, false, 14., &p.ui.t)),
                 )
                 .child(
                     div()
@@ -1849,14 +1822,9 @@ impl Onboarding {
                                 .flex()
                                 .flex_wrap()
                                 .gap(px(4.))
-                                .child(p.ui.hint("Without hooks Pitwall reads Codex's screen to tell working, blocked and done apart."))
+                                .child(crate::kit::hint("Without hooks Pitwall reads Codex's screen to tell working, blocked and done apart.", &p.ui.t))
                                 .child(
-                                    p.ui.button(
-                                        "hook-changes",
-                                        if self.show_hook_changes { "Hide changes" } else { "Show changes" },
-                                        Btn::Link,
-                                        false,
-                                    )
+                                    crate::kit::text_button("hook-changes", if self.show_hook_changes { "Hide changes" } else { "Show changes" }, BtnKind::Link, false, &p.ui.t)
                                     .on_click(cx.listener(|v, _, _, cx| {
                                         v.show_hook_changes = !v.show_hook_changes;
                                         cx.notify();
@@ -1924,16 +1892,16 @@ impl Onboarding {
         };
         let can_finish = !self.finishing && (self.result.is_some() || self.scan_error.is_some());
         let note: Option<Div> = if let Some(e) = &self.finish_error {
-            Some(p.ui.error(e.clone()))
+            Some(crate::kit::error_text(e.clone(), &p.ui.t))
         } else if let Some((done, total)) = self.progress {
-            Some(p.ui.hint(format!(
+            Some(crate::kit::hint(format!(
                 "Starting {}… {}/{}",
                 plural(total, "agent"),
                 done + 1,
                 total
-            )))
+            ), &p.ui.t))
         } else if !self.finishing && self.result.is_some() && start == 0 {
-            Some(p.ui.hint("No agents will start — tick a conversation or “Start a new agent”."))
+            Some(crate::kit::hint("No agents will start — tick a conversation or “Start a new agent”.", &p.ui.t))
         } else {
             None
         };
@@ -1945,16 +1913,11 @@ impl Onboarding {
             .children(note)
             .child(div().flex_1())
             .child(
-                p.ui.button(
-                    "onb-skip",
-                    if self.mode == Mode::Welcome {
+                crate::kit::text_button("onb-skip", if self.mode == Mode::Welcome {
                         "Skip"
                     } else {
                         "Cancel"
-                    },
-                    Btn::Ghost,
-                    self.finishing,
-                )
+                    }, BtnKind::Ghost, self.finishing, &p.ui.t)
                 .on_click(cx.listener(|v, _, _, cx| {
                     if !v.finishing {
                         v.skip(cx)
@@ -1962,7 +1925,7 @@ impl Onboarding {
                 })),
             )
             .child(
-                p.ui.button("onb-start", primary, Btn::PrimaryLg, !can_finish)
+                crate::kit::text_button("onb-start", primary, BtnKind::PrimaryLg, !can_finish, &p.ui.t)
                     .on_click(cx.listener(move |v, _, _, cx| {
                         if can_finish {
                             if v.result.is_some() {
@@ -2003,12 +1966,12 @@ impl Onboarding {
             .border_color(if granted { t.green.opacity(0.4) } else { t.line })
             .child(
                 p.section_head("Allow Full Disk Access", None).child(if granted {
-                    p.ui.chip("✓ granted", Tone::Ok)
+                    crate::kit::chip_tone("✓ granted", crate::kit::Tone::Ok, &p.ui.t)
                 } else {
-                    p.ui.chip("not yet", Tone::Subtle)
+                    crate::kit::chip_tone("not yet", crate::kit::Tone::Subtle, &p.ui.t)
                 }),
             )
-            .child(p.ui.muted("One switch instead of a prompt per folder. Pitwall reads your projects to show what your agents changed, and the agents you start work in those folders.").line_height(relative(1.55)))
+            .child(crate::kit::muted("One switch instead of a prompt per folder. Pitwall reads your projects to show what your agents changed, and the agents you start work in those folders.", &p.ui.t).line_height(relative(1.55)))
             .child(div().flex().flex_col().gap(px(6.)).pl(px(8.)).children(steps.into_iter().enumerate().map(|(i, (b, rest))| {
                 div()
                     .flex()
@@ -2027,7 +1990,7 @@ impl Onboarding {
                     .child(if granted {
                         p.glyph("done").into_any_element()
                     } else {
-                        p.ui.spinner("fda-spin", 16., p.motion).into_any_element()
+                        crate::kit::spinner("fda-spin", 16., p.motion, &p.ui.t).into_any_element()
                     })
                     .child(div().text_color(if granted { t.green } else { t.text_2 }).child(if granted {
                         "Full Disk Access is on. macOS won't ask about your folders again."
@@ -2038,38 +2001,33 @@ impl Onboarding {
                     })),
             )
             .when(waiting, |d| {
-                d.child(p.ui.hint("If macOS offers “Quit & Reopen”, either choice is fine — Pitwall picks up where you left off."))
+                d.child(crate::kit::hint("If macOS offers “Quit & Reopen”, either choice is fine — Pitwall picks up where you left off.", &p.ui.t))
             })
-            .when_some(self.access_error.clone(), |d, e| d.child(p.ui.error(e)))
-            .child(p.ui.hint("You can turn it off any time in the same place."));
+            .when_some(self.access_error.clone(), |d, e| d.child(crate::kit::error_text(e, &p.ui.t)))
+            .child(crate::kit::hint("You can turn it off any time in the same place.", &p.ui.t));
         let footer = div()
             .flex()
             .items_center()
             .gap(px(10.))
             .when(!granted, |d| {
-                d.child(p.ui.hint("Skipping is fine: macOS will ask for each folder instead."))
+                d.child(crate::kit::hint("Skipping is fine: macOS will ask for each folder instead.", &p.ui.t))
             })
             .child(div().flex_1())
             .when(!granted, |d| {
                 d.child(
-                    p.ui.button("fda-skip", "Skip for now", Btn::Ghost, false)
+                    crate::kit::text_button("fda-skip", "Skip for now", BtnKind::Ghost, false, &p.ui.t)
                         .on_click(cx.listener(|v, _, _, cx| v.access_event(AccessEvent::Skip, cx))),
                 )
             })
             .child(if granted {
-                p.ui.button("fda-continue", "Continue →", Btn::PrimaryLg, false)
+                crate::kit::text_button("fda-continue", "Continue →", BtnKind::PrimaryLg, false, &p.ui.t)
                     .on_click(cx.listener(|v, _, _, cx| v.access_event(AccessEvent::Continue, cx)))
             } else {
-                p.ui.button(
-                    "fda-open",
-                    if waiting {
+                crate::kit::text_button("fda-open", if waiting {
                         "Open Settings again"
                     } else {
                         "Open Settings"
-                    },
-                    Btn::PrimaryLg,
-                    false,
-                )
+                    }, BtnKind::PrimaryLg, false, &p.ui.t)
                 .on_click(cx.listener(|v, _, _, cx| v.open_privacy(cx)))
             });
         let content = div()
@@ -2119,7 +2077,7 @@ impl Onboarding {
                 results = results.child(
                     div()
                         .py(px(32.))
-                        .child(p.ui.hint("Results appear here as soon as the scan finishes.")),
+                        .child(crate::kit::hint("Results appear here as soon as the scan finishes.", &p.ui.t)),
                 );
             }
             None => {}
@@ -2156,8 +2114,8 @@ impl Onboarding {
             .when(self.mode == Mode::Rescan, |d| {
                 d.child(
                     div().absolute().top_0().right_0().child(
-                        p.ui.icon_button("onb-close", "✕")
-                            .tooltip(tooltip("Close (esc)".into()))
+                        crate::kit::glyph_btn("onb-close", "✕", &p.ui.t)
+                            .tooltip(tooltip("Close (esc)"))
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(OnboardingEvent::Close))),
                     ),
                 )
@@ -2192,7 +2150,7 @@ impl Render for Onboarding {
         };
         let narrow = window.viewport_size().width < px(860.);
         let p = Paint {
-            ui: Ui::new(t.clone(), cx),
+            ui: Ui::new(t.clone()),
             t: t.clone(),
             motion: !ap.reduce_motion,
             narrow,
@@ -2214,7 +2172,7 @@ impl Render for Onboarding {
         let bg = if self.mode == Mode::Rescan {
             base.bg.into()
         } else if ap.glass.is_some() {
-            super::appearance::backdrop(cx)
+            crate::theme::backdrop(cx)
         } else {
             linear_gradient(
                 180.,

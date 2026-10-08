@@ -1,8 +1,9 @@
 //! VS Code-style file and folder icons (Material Icon Theme subset, MIT,
 //! see NOTICE): the same SVGs and name map as the React app
 //! (`src/lib/fileIcons.ts`, `src/lib/fileIcons.map.json`,
-//! `src/assets/file-icons/`), embedded in the binary and drawn in colour.
-//! Should move to the shared kit (Review's file trees use them too).
+//! `src/assets/file-icons/`), embedded in the binary and drawn in colour
+//! (the explorer's tree, quick open, Review's file lists). Every coloured
+//! SVG goes through [`svg_image`], which carries gpui 0.2.2's red/blue fix.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -71,8 +72,7 @@ fn image(name: &str) -> Arc<Image> {
         .entry(name.to_string())
         .or_insert_with(|| {
             let bytes = svg(name).or_else(|| svg(&map().file)).unwrap_or_default();
-            let svg = swap_red_blue(&String::from_utf8_lossy(bytes));
-            Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
+            svg_image(&String::from_utf8_lossy(bytes))
         })
         .clone()
 }
@@ -110,6 +110,15 @@ pub fn swap_red_blue(svg: &str) -> String {
         i += c.len_utf8();
     }
     out
+}
+
+/// A coloured SVG as an image for `img()`, colours fixed for gpui 0.2.2
+/// ([`swap_red_blue`]). Cache the result: each call decodes again.
+pub fn svg_image(svg: &str) -> Arc<Image> {
+    Arc::new(Image::from_bytes(
+        ImageFormat::Svg,
+        swap_red_blue(svg).into_bytes(),
+    ))
 }
 
 /// A file's icon, `size` points square.

@@ -22,46 +22,16 @@ pub const MAIN: &str = "main";
 pub const ALL_SPACE: &str = "all";
 pub const DEFAULT_FONT: f64 = 13.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Density {
-    Comfortable,
-    Compact,
-    Dense,
-}
+pub use crate::theme::Density;
 
-impl Density {
-    pub const ALL: [Density; 3] = [Density::Comfortable, Density::Compact, Density::Dense];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Density::Comfortable => "Comfortable",
-            Density::Compact => "Compact",
-            Density::Dense => "Dense",
-        }
-    }
-
-    /// Smallest readable terminal (cols × rows).
-    pub fn cells(self) -> (u32, u32) {
-        match self {
-            Density::Comfortable => (80, 20),
-            Density::Compact => (60, 12),
-            Density::Dense => (40, 8),
-        }
-    }
-
-    /// Below this a pane folds into a chip: the minimum cells at the floor
-    /// font (tiles shrink their font before folding), plus pane chrome.
-    pub fn fold_min(self, base_font: f64) -> MinSize {
-        const CELL_W: f64 = 0.6;
-        const CELL_H: f64 = 1.32;
-        const CHROME: (f64, f64) = (28.0, 44.0);
-        let font = base_font.min(10.0);
-        let (c, r) = self.cells();
-        MinSize {
-            min_w: (c as f64 * font * CELL_W + CHROME.0).ceil(),
-            min_h: (r as f64 * font * CELL_H + CHROME.1).ceil(),
-        }
+/// Below this a pane folds into a chip: the minimum cells at the floor
+/// font (tiles shrink their font before folding), plus pane chrome
+/// ([`Density::fold_min`]).
+pub fn fold_min(density: Density, base_font: f64) -> MinSize {
+    let (w, h) = density.fold_min(crate::theme::clamp_font(base_font.round() as i32));
+    MinSize {
+        min_w: w as f64,
+        min_h: h as f64,
     }
 }
 
@@ -1014,7 +984,7 @@ mod tests {
 
     #[test]
     fn density_minimums() {
-        let m = Density::Compact.fold_min(13.0);
+        let m = fold_min(Density::Compact, 13.0);
         assert_eq!((m.min_w, m.min_h), (388.0, 203.0));
     }
 }

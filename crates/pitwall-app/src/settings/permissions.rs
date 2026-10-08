@@ -77,22 +77,17 @@ impl AccessPhase {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tone {
-    Ok,
-    Warn,
-    Subtle,
-}
+pub use crate::kit::Tone;
 
 /// Settings → Permissions chip (`fdaBadge`).
 pub fn badge(s: Option<&PermissionsStatus>) -> (&'static str, Tone) {
     match s {
-        None => ("checking…", Tone::Subtle),
-        Some(s) if !s.applies => ("not needed", Tone::Subtle),
+        None => ("checking…", crate::kit::Tone::Subtle),
+        Some(s) if !s.applies => ("not needed", crate::kit::Tone::Subtle),
         Some(s) => match s.full_disk_access {
-            Access::Granted => ("granted", Tone::Ok),
-            Access::Denied => ("not granted", Tone::Warn),
-            Access::Unknown => ("unknown", Tone::Subtle),
+            Access::Granted => ("granted", crate::kit::Tone::Ok),
+            Access::Denied => ("not granted", crate::kit::Tone::Warn),
+            Access::Unknown => ("unknown", crate::kit::Tone::Subtle),
         },
     }
 }
@@ -139,18 +134,18 @@ mod tests {
 
     #[test]
     fn badges() {
-        assert_eq!(badge(None), ("checking…", Tone::Subtle));
+        assert_eq!(badge(None), ("checking…", crate::kit::Tone::Subtle));
         assert_eq!(
             badge(Some(&status_from(false, Access::Unknown))).0,
             "not needed"
         );
         assert_eq!(
             badge(Some(&status_from(true, Access::Granted))),
-            ("granted", Tone::Ok)
+            ("granted", crate::kit::Tone::Ok)
         );
         assert_eq!(
             badge(Some(&status_from(true, Access::Denied))),
-            ("not granted", Tone::Warn)
+            ("not granted", crate::kit::Tone::Warn)
         );
         assert_eq!(
             badge(Some(&status_from(true, Access::Unknown))).0,

@@ -223,25 +223,6 @@ pub fn name_problem(rule: &pitwall_proto::NameRule, name: &str) -> Option<String
     }
 }
 
-/// A shortcut label written the macOS way ("⌘K", "⌘⇧N") for this desktop:
-/// unchanged on macOS, "Ctrl+Shift+K" / "Ctrl+Shift+Alt+N" elsewhere
-/// (`keys()`); `compact` gives "⌃⇧K" for rows.
-pub fn keys(label: &str, compact: bool) -> String {
-    keys_for(label, compact, cfg!(target_os = "macos"))
-}
-
-pub fn keys_for(label: &str, compact: bool, mac: bool) -> String {
-    if mac {
-        return label.to_string();
-    }
-    let (shifted, plain) = if compact {
-        ("⌃⇧⌥", "⌃⇧")
-    } else {
-        ("Ctrl+Shift+Alt+", "Ctrl+Shift+")
-    };
-    label.replace("⌘⇧", shifted).replace('⌘', plain)
-}
-
 /// `~/work/alpha` → (`work/`, `alpha`) for file rows (`splitPath`).
 pub fn split_path(p: &str) -> (&str, &str) {
     match p.rfind('/') {
@@ -341,10 +322,6 @@ mod tests {
 
     #[test]
     fn shortcut_labels_per_desktop() {
-        assert_eq!(keys_for("⌘K", false, true), "⌘K");
-        assert_eq!(keys_for("⌘K", false, false), "Ctrl+Shift+K");
-        assert_eq!(keys_for("⌘⇧N", false, false), "Ctrl+Shift+Alt+N");
-        assert_eq!(keys_for("⌘1", true, false), "⌃⇧1");
         assert_eq!(split_path("src/app/main.rs"), ("src/app/", "main.rs"));
         assert_eq!(updated_label(12), "updated 12 s ago");
     }

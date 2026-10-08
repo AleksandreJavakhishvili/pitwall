@@ -13,7 +13,8 @@ use gpui::{
 
 use super::tree::{now_ms, TreeModel};
 use super::tree_view::{OpenFile, TreeView};
-use super::widgets::{checkbox, icon, icon_btn, kbd, keys, mono, refresh_control, tooltip};
+use super::widgets::refresh_control;
+use crate::kit::{checkbox, icon, icon_btn, kbd, keys, tooltip_view, MONO_FONT};
 use crate::agents::AgentStore;
 use crate::theme::{self, RADIUS_SM};
 
@@ -99,8 +100,8 @@ impl Render for FilesPanel {
         let tool = |id: &'static str,
                     glyph: &'static str,
                     label: &'static str,
-                    key: &'static str,
-                    tip: &'static str| {
+                    key: String,
+                    tip: String| {
             let glyph = icon(glyph, 12., t.text_3);
             let hover = t.surface_3;
             let text = t.text;
@@ -119,10 +120,10 @@ impl Render for FilesPanel {
                 .text_color(t.text_2)
                 .cursor_pointer()
                 .hover(move |s| s.bg(hover).text_color(text))
-                .tooltip(move |_, cx| tooltip(tip.into(), cx))
+                .tooltip(move |_, cx| tooltip_view(tip.clone(), cx))
                 .child(glyph)
                 .child(label)
-                .child(kbd(&t, key).text_size(px(9.5)))
+                .child(kbd(&key, &t).text_size(px(9.5)))
         };
         let cwd = a.cwd.clone();
         let where_tip: SharedString = format!("{} — click to copy", a.cwd).into();
@@ -171,18 +172,14 @@ impl Render for FilesPanel {
                         }),
                     ))
                     .child(
-                        icon_btn(
-                            &t,
-                            "ex-panel-expand",
-                            "expand",
-                            cx.listener(|_, _, _, cx| {
+                        icon_btn("ex-panel-expand", "expand", "", true, &t)
+.on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(FilesPanelEvent::OpenViewer {
                                     path: None,
                                     search: false,
                                 })
-                            }),
-                        )
-                        .tooltip(|_, cx| tooltip("Open the file viewer".into(), cx)),
+                            }))
+                        .tooltip(|_, cx| tooltip_view("Open the file viewer", cx)),
                     ),
             )
             .child(
@@ -193,7 +190,7 @@ impl Render for FilesPanel {
                     .flex()
                     .flex_col()
                     .gap(px(2.))
-                    .font_family(mono())
+                    .font_family(MONO_FONT)
                     .text_size(px(11.))
                     .text_color(t.text_3)
                     .child(
@@ -205,7 +202,7 @@ impl Render for FilesPanel {
                             .min_w_0()
                             .overflow_hidden()
                             .whitespace_nowrap()
-                            .tooltip(move |_, cx| tooltip(branch_tip.clone(), cx))
+                            .tooltip(move |_, cx| tooltip_view(branch_tip.clone(), cx))
                             .child(icon("branch", 11., t.text_3))
                             .child(a.branch.clone().unwrap_or_else(|| "detached HEAD".into()))
                             .when(a.worktree, |d| {
@@ -231,7 +228,7 @@ impl Render for FilesPanel {
                             .whitespace_nowrap()
                             .cursor_pointer()
                             .hover(|s| s.text_color(t.text_2))
-                            .tooltip(move |_, cx| tooltip(where_tip.clone(), cx))
+                            .tooltip(move |_, cx| tooltip_view(where_tip.clone(), cx))
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.copy_cwd(cwd.clone(), cx)),
                             )
@@ -259,8 +256,8 @@ impl Render for FilesPanel {
                             "ex-tool-goto",
                             "file",
                             "Go to file",
-                            keys("⌘P", "Ctrl+Shift+P"),
-                            keys("Go to file (⌘P)", "Go to file (Ctrl+Shift+P)"),
+                            keys("⌘P", false),
+                            keys("Go to file (⌘P)", false),
                         )
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(FilesPanelEvent::QuickOpen))),
                     )
@@ -269,11 +266,8 @@ impl Render for FilesPanel {
                             "ex-tool-search",
                             "search",
                             "Search",
-                            keys("⌘⇧F", "Ctrl+Shift+Alt+F"),
-                            keys(
-                                "Search in files (⌘⇧F)",
-                                "Search in files (Ctrl+Shift+Alt+F)",
-                            ),
+                            keys("⌘⇧F", false),
+                            keys("Search in files (⌘⇧F)", false),
                         )
                         .on_click(cx.listener(|_, _, _, cx| {
                             cx.emit(FilesPanelEvent::OpenViewer {
@@ -284,17 +278,11 @@ impl Render for FilesPanel {
                     )
                     .child(div().flex_1())
                     .child(
-                        checkbox(
-                            &t,
-                            "ex-panel-ignored",
-                            ignored,
-                            "Ignored",
-                            cx.listener(move |_, _, _, cx| {
+                        checkbox("ex-panel-ignored", ignored, "Ignored", &t, cx.listener(move |_, _, _, cx| {
                                 cx.emit(FilesPanelEvent::SetIgnored(!ignored))
-                            }),
-                        )
+                            }))
                         .tooltip(|_, cx| {
-                            tooltip("Also list what .gitignore leaves out (dimmed)".into(), cx)
+                            tooltip_view("Also list what .gitignore leaves out (dimmed)", cx)
                         }),
                     ),
             )

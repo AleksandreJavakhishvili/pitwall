@@ -118,8 +118,11 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(20);
     let no_dialog = args.iter().any(|a| a == "panel");
-    Application::new().run(move |cx: &mut App| {
+    Application::new()
+        .with_assets(pitwall_app::kit::Assets)
+        .run(move |cx: &mut App| {
         cx.set_global(Theme::for_mode(if light { Mode::Light } else { Mode::Dark }));
+        pitwall_app::kit::init(cx);
         pitwall_app::menu::register(cx);
         platform::init(cx);
         cx.on_action(|_: &pitwall_app::menu::Quit, cx| cx.quit());

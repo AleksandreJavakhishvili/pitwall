@@ -20,7 +20,7 @@ use pitwall_core::model::AdoptSessionRequest;
 use pitwall_core::Shared;
 use pitwall_proto::{ScannedMachine, ScannedPlace, ScannedSession};
 
-use crate::platform::fonts;
+use crate::kit::{self, Tone, MONO_FONT};
 use crate::theme::{self, Theme, RADIUS};
 
 /// Lists every adopting provider's places (blocking).
@@ -194,7 +194,6 @@ pub fn machine_group(
     place: &str,
     m: &ScannedMachine,
     t: &Theme,
-    f: &fonts::Fonts,
     mut action: impl FnMut(&ScannedSession) -> AnyElement,
 ) -> impl IntoElement {
     let sub = [Some(place.to_string()), m.detail.clone()]
@@ -209,7 +208,7 @@ pub fn machine_group(
         .gap_2()
         .child(
             div()
-                .when_some(f.mono.clone(), |d, m| d.font_family(m))
+                .font_family(MONO_FONT)
                 .text_xs()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.text_2)
@@ -245,7 +244,7 @@ pub fn machine_group(
                 .gap(px(10.))
                 .when(i > 0, |d| d.border_t_1().border_color(t.line))
                 .child(
-                    chip(&x.kind_name, t, f, false)
+                    chip(&x.kind_name, t, false)
                         .min_w(px(76.))
                         .justify_center(),
                 )
@@ -259,7 +258,7 @@ pub fn machine_group(
                         .when(x.in_pitwall, |d| d.opacity(0.6))
                         .child(
                             div()
-                                .when_some(f.mono.clone(), |d, m| d.font_family(m))
+                                .font_family(MONO_FONT)
                                 .text_size(px(12.))
                                 .truncate()
                                 .text_color(t.text)
@@ -273,37 +272,21 @@ pub fn machine_group(
                                 .child(where_line(x)),
                         ),
                 )
-                .child(chip(status_word(&x.status), t, f, running))
+                .child(chip(status_word(&x.status), t, running))
                 .child(action(x)),
         );
     }
     div().flex().flex_col().gap_1().child(head).child(list)
 }
 
-/// `.chip` (`chip-ok` when `ok`, else `chip-subtle`): the label font,
-/// upper case, 10.5px.
-fn chip(label: &str, t: &Theme, f: &fonts::Fonts, ok: bool) -> gpui::Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .pt(px(3.))
-        .pb(px(2.))
-        .px(px(5.))
-        .rounded(px(3.))
-        .when_some(f.label.clone(), |d, l| d.font_family(l))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_size(px(10.5))
-        .line_height(px(11.))
-        .text_color(if ok { t.green } else { t.text_3 })
-        .bg(if ok { t.green_soft } else { t.surface_3 })
-        .child(SharedString::from(label.to_uppercase()))
+/// `.chip` (`chip-ok` when `ok`, else `chip-subtle`).
+fn chip(label: &str, t: &Theme, ok: bool) -> gpui::Div {
+    kit::chip_tone(label.to_string(), if ok { Tone::Ok } else { Tone::Subtle }, t)
 }
 
 impl Render for MachineSessions {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
-        let f = fonts::Fonts::get(cx);
         let mut root = div().flex().flex_col().gap_3().text_color(t.text);
         let Some(places) = self.places.clone() else {
             return root.child(
@@ -321,11 +304,11 @@ impl Render for MachineSessions {
             };
             for m in machines {
                 any = true;
-                let group = machine_group(&p.label, m, &t, &f, |x| {
+                let group = machine_group(&p.label, m, &t, |x| {
                     let key = session_key(x);
                     let row = self.rows.get(&key).cloned().unwrap_or(Row::Idle);
                     if x.in_pitwall || row == Row::Added {
-                        return chip("in Pitwall", &t, &f, true).into_any_element();
+                        return chip("in Pitwall", &t, true).into_any_element();
                     }
                     let x = x.clone();
                     let busy = row == Row::Adding;

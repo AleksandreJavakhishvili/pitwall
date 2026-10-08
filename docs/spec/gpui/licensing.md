@@ -154,3 +154,5 @@ cargo-packager 0.11.8 (MIT OR Apache-2.0) for the Linux and Windows bundles,
 and what it downloads while packaging: linuxdeploy and the AppImage runtime
 (MIT), NSIS (zlib/libpng), WiX 3.11 (MS-RL, covers the toolset, not the .msi it
 builds). macOS bundles use Apple's own tools (codesign, hdiutil, lipo).
+
+Integration: `crates/pitwall-app/src/kit/` is the one component kit and asset source. Bundled fonts gain JetBrains Mono Bold, Italic and Bold Italic (OFL-1.1, `LICENSES/`), static instances of the `@fontsource-variable/jetbrains-mono` latin files, so terminal bold and italic match xterm. No new crates.

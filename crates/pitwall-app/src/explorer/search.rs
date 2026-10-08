@@ -17,14 +17,14 @@ use gpui::{
 
 use pitwall_core::explorer::{SearchQuery, SearchResult};
 
-use super::icons::file_icon;
-use super::input::{Changed, TextInput};
+use crate::kit::file_icons::file_icon;
+use crate::kit::{InputEvent, TextInput};
 use super::logic::{
     glob_list, group_matches, match_byte_ranges, match_target, search_summary, split_path,
     MatchGroup,
 };
 use super::source::{Source, CANCELLED};
-use super::widgets::{checkbox, icon, icon_btn, mono, tooltip};
+use crate::kit::{checkbox, icon, icon_btn, tooltip_view, MONO_FONT};
 use crate::theme::{self, RADIUS, RADIUS_SM};
 
 actions!(explorer_search, [Rerun, Leave]);
@@ -105,12 +105,18 @@ impl Focusable for SearchPane {
 
 impl SearchPane {
     pub fn new(source: Arc<dyn Source>, agent_id: String, cx: &mut Context<Self>) -> SearchPane {
-        let query = cx.new(|cx| TextInput::new("Search", cx));
-        let include = cx.new(|cx| TextInput::new("e.g. *.ts, src/**", cx));
-        let exclude = cx.new(|cx| TextInput::new("e.g. *.test.ts", cx));
+        let query = cx.new(|cx| TextInput::new(cx, "", "Search").bare());
+        let include = cx.new(|cx| TextInput::new(cx, "", "e.g. *.ts, src/**").bare());
+        let exclude = cx.new(|cx| TextInput::new(cx, "", "e.g. *.test.ts").bare());
         let subs = [&query, &include, &exclude]
             .into_iter()
-            .map(|i| cx.subscribe(i, |this, _, _: &Changed, cx| this.changed(false, cx)))
+            .map(|i| {
+                cx.subscribe(i, |this, _, e: &InputEvent, cx| {
+                    if *e == InputEvent::Changed {
+                        this.changed(false, cx)
+                    }
+                })
+            })
             .collect();
         SearchPane {
             source,
@@ -144,7 +150,7 @@ impl SearchPane {
 
     pub fn set_query(&mut self, text: &str, cx: &mut Context<Self>) {
         self.query
-            .update(cx, |q, cx| q.set_text(text.to_string(), cx));
+            .update(cx, |q, cx| q.replace_text(text, cx));
     }
 
     pub fn busy(&self) -> bool {
@@ -300,14 +306,14 @@ impl SearchPane {
             .items_center()
             .justify_center()
             .rounded(px(3.))
-            .font_family(mono())
+            .font_family(MONO_FONT)
             .text_size(px(11.))
             .text_color(if on { t.text } else { t.text_3 })
             .when(on, |d| d.bg(t.surface_3).border_1().border_color(t.text_4))
             .when(text == "ab", |d| d.underline())
             .cursor_pointer()
             .hover(move |s| s.bg(hover).text_color(text_c))
-            .tooltip(move |_, cx| tooltip(label.into(), cx))
+            .tooltip(move |_, cx| tooltip_view(label, cx))
             .child(text)
             .on_click(cx.listener(move |this, _, _, cx| {
                 set(this);
@@ -336,7 +342,7 @@ impl SearchPane {
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
                     .hover(move |s| s.bg(hover))
-                    .tooltip(move |_, cx| tooltip(title.clone(), cx))
+                    .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&path, cx)))
                     .child(icon(
                         if open { "chevron-down" } else { "chevron" },
@@ -425,7 +431,7 @@ impl SearchPane {
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
                     .hover(move |s| s.bg(hover))
-                    .tooltip(move |_, cx| tooltip(title.clone(), cx))
+                    .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.emit(OpenHit {
                             path: path.clone(),
@@ -525,16 +531,12 @@ impl Render for SearchPane {
                             .items_center()
                             .gap(px(2.))
                             .child(
-                                icon_btn(
-                                    &t,
-                                    "ex-details",
-                                    if details { "chevron-down" } else { "chevron" },
-                                    cx.listener(|this, _, _, cx| {
+                                icon_btn("ex-details", if details { "chevron-down" } else { "chevron" }, "", true, &t)
+.on_click(cx.listener(|this, _, _, cx| {
                                         this.details = !this.details;
                                         cx.notify();
-                                    }),
-                                )
-                                .tooltip(|_, cx| tooltip("Files to include / exclude".into(), cx)),
+                                    }))
+                                .tooltip(|_, cx| tooltip_view("Files to include / exclude", cx)),
                             )
                             .child(
                                 div()
@@ -588,16 +590,10 @@ impl Render for SearchPane {
                                 .pl(px(26.))
                                 .child(field("files to include", &self.include))
                                 .child(field("files to exclude", &self.exclude))
-                                .child(checkbox(
-                                    &t,
-                                    "ex-default-excludes",
-                                    self.default_excludes,
-                                    "Leave out node_modules and bower_components",
-                                    cx.listener(|this, _, _, cx| {
+                                .child(checkbox("ex-default-excludes", self.default_excludes, "Leave out node_modules and bower_components", &t, cx.listener(|this, _, _, cx| {
                                         this.default_excludes = !this.default_excludes;
                                         this.changed(false, cx);
-                                    }),
-                                ))
+                                    })))
                                 .child(
                                     div()
                                         .text_size(px(11.5))
@@ -650,7 +646,7 @@ impl Render for SearchPane {
                     .min_h_0()
                     .px(px(4.))
                     .pb(px(12.))
-                    .font_family(mono())
+                    .font_family(MONO_FONT)
                     .text_size(px(12.))
                     .child(list),
             )
@@ -676,7 +672,7 @@ mod tests {
         let (pane, cx) = cx.add_window_view(|_, cx| SearchPane::new(src.clone(), "a1".into(), cx));
         let cx: &mut VisualTestContext = cx;
         pane.update(cx, |p, cx| {
-            p.query.update(cx, |q, cx| q.set_text("გამარ", cx))
+            p.query.update(cx, |q, cx| q.replace_text("გამარ", cx))
         });
         cx.run_until_parked();
         cx.executor().advance_clock(DEBOUNCE);
@@ -691,7 +687,7 @@ mod tests {
         });
         pane.update(cx, |p, cx| p.toggle_group("a.rs", cx));
         pane.read_with(cx, |p, _| assert_eq!(p.rows.len(), 1));
-        pane.update(cx, |p, cx| p.query.update(cx, |q, cx| q.set_text("", cx)));
+        pane.update(cx, |p, cx| p.query.update(cx, |q, cx| q.replace_text("", cx)));
         cx.run_until_parked();
         pane.read_with(cx, |p, _| assert!(p.result.is_none()));
         assert!(src.cancels.load(Ordering::SeqCst) >= 1);

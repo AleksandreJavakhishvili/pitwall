@@ -8,7 +8,7 @@ use std::time::Duration;
 use gpui::{div, prelude::*, px, Context, FontWeight, IntoElement, SharedString, Task};
 
 use super::model::{strip, Tone};
-use super::widgets::{kbd, label_t};
+use crate::kit::{kbd, label_t};
 use super::{Breakpoint, MainScreen};
 use crate::theme::{Theme, RADIUS, RADIUS_LG};
 
@@ -147,7 +147,7 @@ impl MainScreen {
                                     .truncate()
                                     .text_size(px(11.5))
                                     .text_color(t.text_2)
-                                    .font_family(super::text_input::mono_font())
+                                    .font_family(crate::kit::MONO_FONT)
                                     .child(format!(": {det}")),
                             )
                         })
@@ -226,7 +226,7 @@ impl MainScreen {
                             div()
                                 .text_size(px(11.5))
                                 .text_color(t.text_2)
-                                .font_family(super::text_input::mono_font())
+                                .font_family(crate::kit::MONO_FONT)
                                 .child(format!("◐ {} working", s.working)),
                         )
                         .when(bp != Breakpoint::Xs, |d| d.child(" · Nothing needs you"))

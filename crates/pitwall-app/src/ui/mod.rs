@@ -1,16 +1,14 @@
-//! The main window (phase 0): a sidebar of agents grouped by project, live
-//! from the engine, and a placeholder where `pitwall-term-view` will draw the
-//! selected agent's terminal. When the app refused to host an engine
+//! The main window: the main screen (`crate::main_screen`) with the
+//! explorer, Settings / About / onboarding (`settings::Layer`) and the CLI
+//! approval dialog over it. When the app refused to host an engine
 //! (`home::Refusal`), the window says why instead.
 
-mod sidebar;
-
 use gpui::{
-    div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, Render, SharedString,
-    Subscription, Task, Window,
+    div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, Render, Subscription, Task,
+    Window,
 };
 
-use crate::agents::{status_word, AgentStore};
+use crate::agents::AgentStore;
 use crate::home::Refusal;
 use crate::theme::{self, Theme, RADIUS_LG};
 use crate::window_state;
@@ -18,10 +16,7 @@ use crate::window_state;
 /// What the window shows.
 #[derive(Clone)]
 pub enum Content {
-    Live {
-        store: Entity<AgentStore>,
-        data_dir: SharedString,
-    },
+    Live { store: Entity<AgentStore> },
     Refused(Refusal),
 }
 
@@ -29,7 +24,6 @@ pub struct MainView {
     content: Content,
     /// The read-only code explorer (Files panel, viewer, ⌘P, ⇧⌘F).
     explorer: Option<Entity<crate::explorer::Explorer>>,
-    selected: Option<String>,
     /// Settings, About and onboarding (settings::Layer).
     layer: Entity<crate::settings::Layer>,
     focus: FocusHandle,
@@ -52,8 +46,8 @@ impl MainView {
             // Light or dark follows the system unless Settings → Appearance
             // forces one.
             cx.observe_window_appearance(window, |_, window, cx| {
-                crate::settings::appearance::os_changed(cx);
-                crate::settings::appearance::apply_window(window, cx);
+                crate::theme::os_changed(cx);
+                crate::theme::apply_window(window, cx);
             }),
             crate::settings::attach_window(window, cx),
             cx.observe_window_bounds(window, |this, window, cx| this.bounds_changed(window, cx)),
@@ -70,12 +64,17 @@ impl MainView {
             Content::Refused(_) => None,
         };
         let layer = cx.new(|cx| crate::settings::Layer::new(store, cx));
-        subs.push(cx.subscribe(&layer, |this, _, e: &crate::settings::LayerEvent, cx| {
-            let crate::settings::LayerEvent::HandOver { agents, .. } = e;
-            if let Some(first) = agents.first() {
-                this.select(first.id.clone(), cx);
-            }
-        }));
+        subs.push(cx.subscribe_in(
+            &layer,
+            window,
+            |this, _, e: &crate::settings::LayerEvent, window, cx| {
+                let crate::settings::LayerEvent::HandOver { agents, .. } = e;
+                if let (Some(first), Some(screen)) = (agents.first(), this.screen.clone()) {
+                    let id = first.id.clone();
+                    screen.update(cx, |s, cx| s.show_agent(&id, window, cx));
+                }
+            },
+        ));
         let focus = cx.focus_handle();
         window.focus(&focus);
         let screen = match &content {
@@ -88,7 +87,6 @@ impl MainView {
         MainView {
             content,
             explorer,
-            selected: None,
             layer,
             focus,
             root,
@@ -128,89 +126,6 @@ impl MainView {
                 eprintln!("pitwall: could not save the window's bounds: {e}");
             }
         }));
-    }
-
-    pub(super) fn select(&mut self, id: String, cx: &mut Context<Self>) {
-        if let Some(e) = &self.explorer {
-            e.update(cx, |e, cx| e.set_agent(Some(id.clone()), cx));
-        }
-        self.selected = Some(id);
-        cx.notify();
-    }
-
-    fn placeholder(&self, t: &Theme, cx: &Context<Self>) -> impl IntoElement {
-        let agent = match (&self.content, &self.selected) {
-            (Content::Live { store, .. }, Some(id)) => store.read(cx).agent(id).cloned(),
-            _ => None,
-        };
-        let (title, lines): (SharedString, Vec<SharedString>) = match agent {
-            Some(a) => (
-                a.name.clone().into(),
-                vec![
-                    format!("{} · {}", a.kind_name, status_word(a.status)).into(),
-                    a.cwd_display.clone().into(),
-                    format!("{}×{}", a.cols, a.rows).into(),
-                ],
-            ),
-            None => (
-                "No agent selected".into(),
-                vec!["Pick one in the sidebar.".into()],
-            ),
-        };
-        div()
-            .id("terminal-placeholder")
-            .flex_1()
-            .h_full()
-            .flex()
-            .flex_col()
-            .bg(t.term_bg)
-            .child(
-                div()
-                    .h(px(36.))
-                    .px_4()
-                    .flex()
-                    .items_center()
-                    .border_b_1()
-                    .border_color(t.line)
-                    .text_sm()
-                    .text_color(t.text_2)
-                    .child(title.clone()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .px_6()
-                            .py_5()
-                            .rounded(RADIUS_LG)
-                            .border_1()
-                            .border_dashed()
-                            .border_color(t.line_strong)
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap_1()
-                            .child(div().text_color(t.text).child(title))
-                            .children(
-                                lines
-                                    .into_iter()
-                                    .map(|l| div().text_xs().text_color(t.text_3).child(l)),
-                            )
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .text_xs()
-                                    .text_color(t.text_4)
-                                    .child("The terminal (pitwall-term-view) is drawn here."),
-                            ),
-                    ),
-            )
     }
 
     fn refused(r: &Refusal, t: &Theme) -> impl IntoElement {
@@ -257,7 +172,7 @@ impl Render for MainView {
             .relative()
             .size_full()
             .flex()
-            .bg(crate::settings::appearance::backdrop(cx))
+            .bg(crate::theme::backdrop(cx))
             .text_color(t.text);
         let root = match &self.explorer {
             Some(e) => crate::explorer::on_actions(root, e),
@@ -265,19 +180,9 @@ impl Render for MainView {
         };
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
-            Content::Live { .. } if self.screen.is_some() => root.children(self.screen.clone()),
-            Content::Live { store, data_dir } => {
-                let chrome = crate::settings::appearance::panel(&t, cx);
-                let sidebar = sidebar::render(
-                    store.read(cx),
-                    self.selected.as_deref(),
-                    data_dir,
-                    &chrome,
-                    cx,
-                );
-                let sidebar = crate::settings::chrome_panel("sidebar", sidebar, cx);
-                root.child(sidebar).child(self.placeholder(&t, cx))
-            }
+            Content::Live { .. } => root
+                .children(self.screen.clone())
+                .children(self.explorer.clone()),
         };
         root.child(self.layer.clone())
             .children(crate::approvals::overlay(window, cx))

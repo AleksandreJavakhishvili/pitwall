@@ -15,8 +15,8 @@
 
 pub mod code_view;
 pub mod files_panel;
-pub mod icons;
-pub mod input;
+
+
 pub mod logic;
 pub mod prefs;
 pub mod quick_open;
@@ -81,7 +81,7 @@ pub fn bindings() -> Vec<KeyBinding> {
             KeyBinding::new("ctrl-shift-r", RefreshFiles, None),
         ]
     };
-    b.extend(input::bindings());
+
     b.extend(tree_view::bindings());
     b.extend(quick_open::bindings());
     b.extend(search::bindings());

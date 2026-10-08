@@ -83,11 +83,14 @@ fn main() {
     let h = Harness::new(vec![rec]);
     let engine = h.engine.clone();
 
-    Application::new().run(move |cx: &mut App| {
+    Application::new()
+        .with_assets(pitwall_app::kit::Assets)
+        .run(move |cx: &mut App| {
         cx.set_global(Theme::for_mode(Mode::for_appearance(
             cx.window_appearance(),
         )));
         cx.set_global(ExplorerSource::engine(engine.clone()));
+        pitwall_app::kit::init(cx);
         explorer::register(cx);
         let store = cx.new(|_| AgentStore::new(engine.views()));
         let bounds = Bounds::centered(None, size(px(1400.), px(820.)), cx);

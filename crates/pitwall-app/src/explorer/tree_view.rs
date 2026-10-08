@@ -14,10 +14,11 @@ use gpui::{
 
 use pitwall_core::explorer::EntryKind;
 
-use super::icons::{file_icon, folder_icon};
+use crate::kit::file_icons::{file_icon, folder_icon};
 use super::logic::{split_path, TreeRow};
 use super::tree::TreeModel;
-use super::widgets::{icon, mono, status_mark, tooltip};
+use super::widgets::status_mark;
+use crate::kit::{icon, tooltip_view, MONO_FONT};
 use crate::theme;
 
 actions!(explorer_tree, [Up, Down, Collapse, Expand, Confirm]);
@@ -264,7 +265,7 @@ impl TreeView {
                         .flex_none()
                         .rounded_full()
                         .bg(t.text_3)
-                        .tooltip(move |_, cx| tooltip(n.clone(), cx))
+                        .tooltip(move |_, cx| tooltip_view(n.clone(), cx))
                         .into_any_element(),
                 )
             }
@@ -291,7 +292,7 @@ impl TreeView {
                 window.focus(&this.focus);
                 this.activate(&path, kind, cx);
             }))
-            .tooltip(move |_, cx| tooltip(title.clone(), cx))
+            .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
             .child(div().w(px(10.)).flex_none().when(is_dir, |d| {
                 d.child(icon(
                     if open { "chevron-down" } else { "chevron" },
@@ -372,7 +373,7 @@ impl Render for TreeView {
             .min_h_0()
             .px(px(4.))
             .pb(px(12.))
-            .font_family(mono())
+            .font_family(MONO_FONT)
             .text_size(px(12.))
             .child(list)
     }

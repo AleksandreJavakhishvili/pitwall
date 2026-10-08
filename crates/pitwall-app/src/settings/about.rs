@@ -9,8 +9,9 @@ use gpui::{
 
 use pitwall_core::paths::tildify;
 
-use super::appearance::{appearance, GlassTier};
-use super::widgets::{Btn, Ui};
+use crate::theme::{appearance, GlassTier};
+use super::widgets::Ui;
+use crate::kit::BtnKind;
 use super::SettingsHost;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -75,7 +76,7 @@ pub fn render(
     on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let ap = appearance(cx);
-    let ui = Ui::new(super::appearance::float(&ap.theme(), cx), cx);
+    let ui = Ui::new(ap.theme().float());
     let t = ui.t.clone();
     let facts = facts(cx);
     let text = as_text(&facts);
@@ -120,7 +121,7 @@ pub fn render(
                         .font_weight(FontWeight::BOLD)
                         .child("PITWALL"),
                 )
-                .child(ui.hint("You call the strategy. Agents drive.")),
+                .child(crate::kit::hint("You call the strategy. Agents drive.", &ui.t)),
         )
         .child(
             div()
@@ -148,7 +149,7 @@ pub fn render(
             div()
                 .px(px(18.))
                 .pb(px(4.))
-                .child(ui.hint("Apache-2.0 · Copyright 2026 the Pitwall authors")),
+                .child(crate::kit::hint("Apache-2.0 · Copyright 2026 the Pitwall authors", &ui.t)),
         )
         .child(
             div()
@@ -160,11 +161,11 @@ pub fn render(
                 .justify_end()
                 .border_t_1()
                 .border_color(t.line)
-                .child(ui.button("about-copy", "Copy", Btn::Ghost, false).on_click(
+                .child(crate::kit::text_button("about-copy", "Copy", BtnKind::Ghost, false, &ui.t).on_click(
                     move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone())),
                 ))
                 .child(
-                    ui.button("about-close", "Close", Btn::Primary, false)
+                    crate::kit::text_button("about-close", "Close", BtnKind::Primary, false, &ui.t)
                         .on_click(on_close),
                 ),
         )

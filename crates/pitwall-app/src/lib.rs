@@ -10,6 +10,7 @@ pub mod approvals;
 pub mod bridge;
 pub mod explorer;
 pub mod home;
+pub mod kit;
 pub mod host;
 pub mod main_screen;
 pub mod menu;
@@ -24,11 +25,11 @@ pub mod window_state;
 use std::path::PathBuf;
 
 use gpui::{
-    px, size, App, AppContext, Application, Bounds, Global, SharedString, TitlebarOptions,
+    px, size, App, AppContext, Application, Bounds, Global, TitlebarOptions,
     WindowBounds, WindowHandle, WindowOptions,
 };
 
-use pitwall_core::paths::{tildify, Paths};
+use pitwall_core::paths::Paths;
 
 use crate::agents::AgentStore;
 use crate::bridge::Bridge;
@@ -62,7 +63,7 @@ pub fn run() {
     let _probe =
         pitwall_core::shell::adopt_login_path(chosen.as_ref().ok().map(Paths::login_path_file));
 
-    let app = Application::new().with_assets(main_screen::assets::Assets);
+    let app = Application::new().with_assets(kit::Assets);
     // macOS: closing the window keeps the app (and the Dock icon); the Dock
     // brings the window back. Elsewhere the last window quits (the Windows
     // tray arrives in phase 7).
@@ -73,6 +74,7 @@ pub fn run() {
         cx.set_global(Theme::for_mode(Mode::for_appearance(
             cx.window_appearance(),
         )));
+        kit::init(cx);
         menu::register(cx);
         main_screen::init(cx);
         platform::init(cx);
@@ -89,10 +91,9 @@ pub fn run() {
                 platform::follow(&store, cx);
                 platform::single_instance::serve(paths.root(), cx);
                 approvals::init(&store, host.approvals.clone(), cx);
-                let data_dir = SharedString::from(tildify(&paths.root().to_string_lossy()));
                 AppState {
                     host: Some(host),
-                    content: Content::Live { store, data_dir },
+                    content: Content::Live { store },
                     root: Some(paths.root().into()),
                     main: None,
                 }
@@ -124,9 +125,15 @@ pub fn run() {
             let main = show_main(cx);
             let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
         });
-        cx.on_action(|_: &settings::About, cx| {
-            let main = show_main(cx);
-            let _ = main.update(cx, |view, _, cx| view.open_about(cx));
+        // macOS: the standard About panel, like the Tauri app's default
+        // menu. Elsewhere: the in-app About box (settings::about).
+        cx.on_action(|_: &menu::About, cx| {
+            if cfg!(target_os = "macos") {
+                platform::about(cx);
+            } else {
+                let main = show_main(cx);
+                let _ = main.update(cx, |view, _, cx| view.open_about(cx));
+            }
         });
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
         cx.on_app_quit(|cx| {

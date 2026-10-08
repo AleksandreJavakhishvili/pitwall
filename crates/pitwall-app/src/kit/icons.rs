@@ -1,39 +1,12 @@
-//! The React app's fonts and icons, for GPUI:
-//!
-//! - Inter (UI), Barlow Condensed (labels), JetBrains Mono (code), OFL-1.1
-//!   (`LICENSES/`): static TTF instances of the `@fontsource` files the web
-//!   UI loads, registered with the text system.
-//! - The stroke icons of `src/components/Icon.tsx` (same paths, 20×20 view
-//!   box, 1.5 stroke), served as SVG assets and tinted by the text colour.
-//!
-//! Promote to the shared kit (fonts + icons for every screen).
+//! The app's one asset source and its stroke icons: the paths of
+//! `src/components/Icon.tsx` (20×20 view box, 1.5 stroke), served as
+//! `icons/<name>.svg` and drawn with `svg()`, tinted by the text colour
+//! (a mask, so hover colours apply). Coloured file icons are in
+//! [`super::file_icons`].
 
 use std::borrow::Cow;
 
-use gpui::{px, svg, App, AssetSource, Hsla, IntoElement, Result, SharedString, Styled, Svg};
-
-pub const UI_FONT: &str = "Inter";
-pub const LABEL_FONT: &str = "Barlow Condensed";
-pub const MONO_FONT: &str = "JetBrains Mono";
-
-const FONTS: [&[u8]; 8] = [
-    include_bytes!("../../assets/fonts/Inter-Regular.ttf"),
-    include_bytes!("../../assets/fonts/Inter-Medium.ttf"),
-    include_bytes!("../../assets/fonts/Inter-SemiBold.ttf"),
-    include_bytes!("../../assets/fonts/Inter-Bold.ttf"),
-    include_bytes!("../../assets/fonts/BarlowCondensed-SemiBold.ttf"),
-    include_bytes!("../../assets/fonts/BarlowCondensed-Bold.ttf"),
-    include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf"),
-    include_bytes!("../../assets/fonts/JetBrainsMono-SemiBold.ttf"),
-];
-
-/// Register the fonts (once, at start).
-pub fn register_fonts(cx: &mut App) {
-    let fonts = FONTS.iter().map(|b| Cow::Borrowed(*b)).collect();
-    if let Err(e) = cx.text_system().add_fonts(fonts) {
-        eprintln!("pitwall: could not load the UI fonts: {e}");
-    }
-}
+use gpui::{px, svg, AssetSource, Hsla, Result, SharedString, Styled, Svg};
 
 /// `Icon.tsx` paths (20×20 view box).
 pub const ICONS: &[(&str, &str)] = &[
@@ -64,6 +37,20 @@ pub const ICONS: &[(&str, &str)] = &[
     ("copy", "M7.5 7.5h8.5v8.5H7.5zM4.5 12.5V4h8.5"),
 ];
 
+/// Icons the screens need beyond `Icon.tsx` (same grid and stroke).
+pub const EXTRA_ICONS: &[(&str, &str)] = &[
+    ("chevron-down", "M5 8l5 5 5-5"),
+    ("check", "M5 10.5l3.2 3L15 6.5"),
+];
+
+fn icon_path(name: &str) -> Option<&'static str> {
+    ICONS
+        .iter()
+        .chain(EXTRA_ICONS)
+        .find(|(n, _)| *n == name)
+        .map(|(_, d)| *d)
+}
+
 fn icon_svg(path: &str) -> String {
     format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="{path}"/></svg>"##
@@ -81,16 +68,14 @@ impl AssetSource for Assets {
         else {
             return Ok(None);
         };
-        Ok(ICONS
-            .iter()
-            .find(|(n, _)| *n == name)
-            .map(|(_, d)| Cow::Owned(icon_svg(d).into_bytes())))
+        Ok(icon_path(name).map(|d| Cow::Owned(icon_svg(d).into_bytes())))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         Ok(if path.is_empty() || path.starts_with("icons") {
             ICONS
                 .iter()
+                .chain(EXTRA_ICONS)
                 .map(|(n, _)| format!("icons/{n}.svg").into())
                 .collect()
         } else {
@@ -108,9 +93,16 @@ pub fn icon(name: &str, size: f32, color: Hsla) -> Svg {
         .text_color(color)
 }
 
-/// For `.child(…)` call sites that want an element.
-pub fn icon_el(name: &str, size: f32, color: Hsla) -> impl IntoElement {
-    icon(name, size, color)
+/// `.chev`: the chevron icon, turned down when open.
+pub fn chevron(open: bool, size: f32, color: Hsla) -> Svg {
+    let i = icon("chevron", size, color);
+    if open {
+        i.with_transformation(gpui::Transformation::rotate(gpui::radians(
+            std::f32::consts::FRAC_PI_2,
+        )))
+    } else {
+        i
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +118,10 @@ mod tests {
             assert!(std::str::from_utf8(&bytes).unwrap().contains(d));
         }
         assert!(Assets.load("icons/nope.svg").unwrap().is_none());
-        assert_eq!(Assets.list("").unwrap().len(), ICONS.len());
+        assert_eq!(
+            Assets.list("").unwrap().len(),
+            ICONS.len() + EXTRA_ICONS.len()
+        );
+        assert!(Assets.load("icons/check.svg").unwrap().is_some());
     }
 }

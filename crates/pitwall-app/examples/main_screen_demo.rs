@@ -25,7 +25,7 @@ fn main() {
         })
         .unwrap_or((1600.0_f32, 1000.0_f32));
     Application::new()
-        .with_assets(main_screen::assets::Assets)
+        .with_assets(pitwall_app::kit::Assets)
         .run(move |cx: &mut App| {
             let mode = match std::env::var("DEMO_THEME").as_deref() {
                 Ok("light") => Mode::Light,
@@ -33,6 +33,7 @@ fn main() {
                 _ => Mode::for_appearance(cx.window_appearance()),
             };
             cx.set_global(Theme::for_mode(mode));
+            pitwall_app::kit::init(cx);
             main_screen::init(cx);
             let store = cx.new(|_| AgentStore::new(demo::agents()));
             let options = WindowOptions {

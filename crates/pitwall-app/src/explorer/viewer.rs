@@ -19,14 +19,15 @@ use pitwall_core::explorer::{ContentKind, FileView};
 use pitwall_proto::{AgentView, FileStatus};
 
 use super::code_view::{code_view, Target};
-use super::icons::file_icon;
+use crate::kit::file_icons::file_icon;
 use super::logic::{absolute_path, size_label, split_path};
 use super::search::{Blurred, OpenHit, SearchPane};
 use super::source::{Res, Source, LARGE_CAP, TEXT_CAP};
 use super::tree::{now_ms, TreeModel};
 use super::tree_view::{OpenFile, TreeView};
-use super::widgets::{
-    checkbox, ghost_btn, icon, keys, label, mono, refresh_control, small_btn, status_mark, tooltip,
+use super::widgets::{refresh_control, status_mark};
+use crate::kit::{
+    button, checkbox, icon, kbd, keys, small_btn, tooltip_view, BtnKind, MONO_FONT,
 };
 use crate::agents::{status_glyph, AgentStore};
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
@@ -395,7 +396,7 @@ impl Viewer {
             .gap(px(10.))
             .border_b_1()
             .border_color(t.line)
-            .child(label(t, "Files"))
+            .child(crate::kit::label("Files", t.text_3, 12.))
             .when_some(a, |d, a| {
                 d.child(
                     div()
@@ -409,7 +410,7 @@ impl Viewer {
                                 .text_color(t.status_color(a.status))
                                 .child(status_glyph(a.status)),
                         )
-                        .child(label(t, a.name.clone()).text_color(t.text)),
+                        .child(crate::kit::label(a.name.clone(), t.text_3, 12.).text_color(t.text)),
                 )
                 .child(
                     div()
@@ -420,7 +421,7 @@ impl Viewer {
                         .text_ellipsis()
                         .text_size(px(12.))
                         .text_color(t.text_3)
-                        .tooltip(move |_, cx| tooltip(cwd_tip.clone(), cx))
+                        .tooltip(move |_, cx| tooltip_view(cwd_tip.clone(), cx))
                         .child(format!("read-only · {}", a.cwd_display)),
                 )
             })
@@ -437,27 +438,14 @@ impl Viewer {
                 }),
             ))
             .child(
-                small_btn(
-                    t,
-                    "ex-viewer-goto",
-                    "Go to file",
-                    Some(keys("⌘P", "Ctrl+Shift+P")),
-                    cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen)),
-                )
+                small_btn("ex-viewer-goto", "Go to file", t).child(kbd(&keys("⌘P", false), t))
+.on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen)))
                 .tooltip(|_, cx| {
-                    tooltip(
-                        keys("Go to file (⌘P)", "Go to file (Ctrl+Shift+P)").into(),
-                        cx,
-                    )
+                    tooltip_view(keys("Go to file (⌘P)", false), cx)
                 }),
             )
-            .child(small_btn(
-                t,
-                "ex-viewer-back",
-                "Back",
-                Some("esc"),
-                cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Exit)),
-            ))
+            .child(small_btn("ex-viewer-back", "Back", t).child(kbd("esc", t))
+.on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Exit))))
     }
 
     fn side(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -529,31 +517,19 @@ impl Viewer {
                                     cx,
                                 )
                                 .tooltip(|_, cx| {
-                                    tooltip(
-                                        keys(
-                                            "Search in files (⌘⇧F)",
-                                            "Search in files (Ctrl+Shift+Alt+F)",
-                                        )
-                                        .into(),
-                                        cx,
-                                    )
+                                    tooltip_view(keys("Search in files (⌘⇧F)", false)
+                                        , cx)
                                 }),
                             ),
                     )
                     .child(div().flex_1())
                     .when(self.pane == Pane::Files, |d| {
                         d.child(
-                            checkbox(
-                                t,
-                                "ex-viewer-ignored",
-                                ignored,
-                                "Ignored",
-                                cx.listener(move |_, _, _, cx| {
+                            checkbox("ex-viewer-ignored", ignored, "Ignored", t, cx.listener(move |_, _, _, cx| {
                                     cx.emit(ViewerEvent::SetIgnored(!ignored))
-                                }),
-                            )
+                                }))
                             .tooltip(|_, cx| {
-                                tooltip("Also list what .gitignore leaves out (dimmed)".into(), cx)
+                                tooltip_view("Also list what .gitignore leaves out (dimmed)", cx)
                             }),
                         )
                     }),
@@ -593,7 +569,7 @@ impl Viewer {
                     .pr(px(4.))
                     .border_r_1()
                     .border_color(t.line)
-                    .font_family(mono())
+                    .font_family(MONO_FONT)
                     .text_size(px(12.))
                     .cursor_pointer()
                     .text_color(if selected { t.text } else { t.text_3 })
@@ -609,7 +585,7 @@ impl Viewer {
                         )
                     })
                     .when(!selected, |d| d.hover(move |s| s.text_color(hover)))
-                    .tooltip(move |_, cx| tooltip(title.clone(), cx))
+                    .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(p1.clone(), cx)))
                     .on_mouse_down(
                         MouseButton::Middle,
@@ -637,7 +613,7 @@ impl Viewer {
                                 d.invisible().group_hover("ex-tab", |s| s.visible())
                             })
                             .hover(move |s| s.bg(close_hover).text_color(close_text))
-                            .tooltip(|_, cx| tooltip("Close".into(), cx))
+                            .tooltip(|_, cx| tooltip_view("Close", cx))
                             .child(icon("x", 11., t.text_3))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
@@ -702,9 +678,9 @@ impl Viewer {
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .font_family(mono())
+                    .font_family(MONO_FONT)
                     .text_size(px(12.))
-                    .tooltip(move |_, cx| tooltip(path_tip.clone(), cx))
+                    .tooltip(move |_, cx| tooltip_view(path_tip.clone(), cx))
                     .child(
                         div()
                             .flex_none()
@@ -724,7 +700,7 @@ impl Viewer {
                 d.child(
                     div()
                         .flex_none()
-                        .font_family(mono())
+                        .font_family(MONO_FONT)
                         .text_size(px(11.))
                         .text_color(t.text_3)
                         .child(s),
@@ -732,27 +708,17 @@ impl Viewer {
             })
             .child(div().flex_1())
             .child(
-                ghost_btn(
-                    t,
-                    "ex-copy-path",
-                    "copy",
-                    if self.copied { "Copied" } else { "Copy path" },
-                    cx.listener(move |this, _, _, cx| this.copy_path(&cwd, cx)),
-                )
-                .tooltip(move |_, cx| tooltip(abs.clone(), cx)),
+                button("ex-copy-path", BtnKind::GhostSm, false, t).gap(px(6.)).child(icon("copy", 13., t.text_2)).child(if self.copied { "Copied" } else { "Copy path" })
+.on_click(cx.listener(move |this, _, _, cx| this.copy_path(&cwd, cx)))
+                .tooltip(move |_, cx| tooltip_view(abs.clone(), cx)),
             )
             .when(can_diff, |d| {
                 d.child(
-                    ghost_btn(
-                        t,
-                        "ex-show-diff",
-                        "review",
-                        "Show diff",
-                        cx.listener(move |_, _, _, cx| {
+                    button("ex-show-diff", BtnKind::GhostSm, false, t).gap(px(6.)).child(icon("review", 13., t.text_2)).child("Show diff")
+.on_click(cx.listener(move |_, _, _, cx| {
                             cx.emit(ViewerEvent::ShowDiff(diff_path.clone()))
-                        }),
-                    )
-                    .tooltip(|_, cx| tooltip("This file's changes, in Review".into(), cx)),
+                        }))
+                    .tooltip(|_, cx| tooltip_view("This file's changes, in Review", cx)),
                 )
             })
     }
@@ -772,13 +738,8 @@ impl Viewer {
         let Some(active) = self.active.clone() else {
             return center(t)
                 .child("Pick a file on the left")
-                .child(small_btn(
-                    t,
-                    "ex-empty-goto",
-                    "Go to file",
-                    Some(keys("⌘P", "Ctrl+Shift+P")),
-                    cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen)),
-                ))
+                .child(small_btn("ex-empty-goto", "Go to file", t).child(kbd(&keys("⌘P", false), t))
+.on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen))))
                 .into_any_element();
         };
         let doc = self.docs.get(&active);
@@ -795,13 +756,8 @@ impl Viewer {
                     "Couldn't read {active}: {}",
                     e.lines().next().unwrap_or_default()
                 ))
-                .child(small_btn(
-                    t,
-                    "ex-retry",
-                    "Retry",
-                    None,
-                    cx.listener(move |this, _, _, cx| this.read(&path, false, false, cx)),
-                ))
+                .child(small_btn("ex-retry", "Retry", t)
+.on_click(cx.listener(move |this, _, _, cx| this.read(&path, false, false, cx))))
                 .into_any_element();
         }
         let Some(v) = doc.and_then(|d| d.view.clone()) else {
@@ -822,13 +778,8 @@ impl Viewer {
                 center(t)
                     .child(format!("Large file · {} · not opened", size_label(v.size)))
                     .child(if v.size <= LARGE_CAP {
-                        small_btn(
-                            t,
-                            "ex-load-anyway",
-                            if loading { "Reading…" } else { "Load anyway" },
-                            None,
-                            cx.listener(move |this, _, _, cx| this.load_anyway(&path, cx)),
-                        )
+                        small_btn("ex-load-anyway", if loading { "Reading…" } else { "Load anyway" }, t)
+.on_click(cx.listener(move |this, _, _, cx| this.load_anyway(&path, cx)))
                         .into_any_element()
                     } else {
                         div()
@@ -899,13 +850,8 @@ impl Render for Viewer {
                                         .text_size(px(12.))
                                         .text_color(t.text_2)
                                         .child("Changed on disk since it was opened.")
-                                        .child(small_btn(
-                                            &t,
-                                            "ex-reload",
-                                            "Reload",
-                                            None,
-                                            cx.listener(|this, _, _, cx| this.reload(cx)),
-                                        )),
+                                        .child(small_btn("ex-reload", "Reload", &t)
+.on_click(cx.listener(|this, _, _, cx| this.reload(cx)))),
                                 )
                             })
                             .child(div().flex_1().min_h_0().flex().flex_col().child(body)),

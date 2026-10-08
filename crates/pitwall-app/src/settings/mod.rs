@@ -4,15 +4,14 @@
 //! Reduce motion, density).
 //!
 //! Wiring (kept to a few lines in shared files):
-//! - `lib.rs` calls [`init`] once the engine is up, and routes [`About`];
+//! - `lib.rs` calls [`init`] once the engine is up, and opens About
+//!   (`crate::menu::About`) where the OS has no About panel;
 //! - `MainView` holds one [`Layer`] (the overlays), calls [`attach_window`]
 //!   when a window opens and [`appearance::os_changed`] when the OS
 //!   appearance changes.
 
 pub mod about;
-pub mod appearance;
 pub mod cli_install;
-pub mod native;
 pub mod onboarding;
 pub mod permissions;
 pub mod prefs;
@@ -23,8 +22,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    actions, canvas, div, prelude::*, px, AnimationExt, AnyElement, App, Bounds, Context, Entity,
-    EventEmitter, FocusHandle, Global, Pixels, Subscription, Task, Window,
+    div, prelude::*, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Global,
+    Subscription, Task, Window,
 };
 
 use pitwall_core::Shared;
@@ -33,18 +32,10 @@ use pitwall_proto::AgentView;
 use crate::agents::AgentStore;
 use crate::menu::Dismiss;
 
-use self::appearance::{appearance, modal_backdrop, Motion};
+use crate::theme::{self as appearance, appearance};
 use self::onboarding::{Mode as OnbMode, Onboarding, OnboardingEvent};
 use self::prefs::UiPrefs;
 use self::view::{SettingsEvent, SettingsView};
-
-actions!(
-    pitwall,
-    [
-        /// The About box (macOS app menu "About Pitwall").
-        About,
-    ]
-);
 
 /// What Settings needs from the app: the hosted engine (none when the data
 /// folder was refused) and the data folder.
@@ -137,73 +128,13 @@ pub fn attach_window<V: 'static>(window: &mut Window, cx: &mut Context<V>) -> Su
     cx.observe_window_activation(window, |_, window, cx| {
         if window.is_window_active() {
             let before = appearance(cx).os;
-            if native::os_prefs() != before {
+            if crate::platform::glass::os_prefs() != before {
                 appearance::os_changed(cx);
                 appearance::apply_window(window, cx);
             }
         }
     })
 }
-
-/// A chrome region that gets its own native glass piece under Liquid Glass
-/// (sidebar, top bar, right panel). Wrap the region's element: the piece
-/// follows its bounds every frame; GPUI must paint the region translucent
-/// (`appearance::chrome`). Elsewhere it is just the child.
-pub fn glass_region(id: &'static str, radius: f32, child: impl IntoElement) -> impl IntoElement {
-    div()
-        .relative()
-        .size_full()
-        .child(
-            canvas(
-                move |bounds: Bounds<Pixels>, window, cx| {
-                    if appearance(cx).glass == Some(appearance::GlassTier::Liquid) {
-                        native::sync_region(window, id, bounds, radius);
-                    }
-                },
-                |_, _, _, _| {},
-            )
-            .absolute()
-            .size_full(),
-        )
-        .child(child)
-}
-
-/// Chrome regions get their own Liquid Glass pieces (macOS 26+, Glass on).
-/// `PITWALL_GLASS_REGIONS=0` keeps window-level glass only.
-pub fn glass_regions(cx: &App) -> bool {
-    appearance(cx).glass == Some(appearance::GlassTier::Liquid)
-        && std::env::var("PITWALL_GLASS_REGIONS").as_deref() != Ok("0")
-}
-
-/// A chrome panel (the sidebar, the right panel): under Liquid Glass with
-/// regions, a floating rounded glass slab inset from the window edges, like
-/// a macOS 26 source list; otherwise just `child`. Draw `child` with
-/// [`appearance::panel`]'s theme so its own background stays clear.
-pub fn chrome_panel(id: &'static str, child: impl IntoElement, cx: &App) -> AnyElement {
-    if !glass_regions(cx) {
-        return child.into_any_element();
-    }
-    let line = appearance(cx).glass_tokens.line_strong;
-    div()
-        .h_full()
-        .flex_none()
-        .p(px(8.))
-        .child(glass_region(
-            id,
-            PANEL_RADIUS,
-            div()
-                .h_full()
-                .rounded(px(PANEL_RADIUS))
-                .border_1()
-                .border_color(line)
-                .overflow_hidden()
-                .child(child),
-        ))
-        .into_any_element()
-}
-
-/// Corner radius of floating glass panels (macOS 26 source lists).
-pub const PANEL_RADIUS: f32 = 14.;
 
 /// What the overlay layer tells its window.
 #[derive(Debug, Clone)]
@@ -361,46 +292,13 @@ impl Layer {
         child: AnyElement,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let ap = appearance(cx);
-        let t = appearance::float(&ap.theme(), cx);
-        let motion = !ap.reduce_motion;
-        let panel = div()
-            .id(id)
-            .occlude()
-            .w(px(width))
-            .max_h_full()
-            .flex()
-            .flex_col()
-            .rounded(px(12.))
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .shadow(appearance::shadow(cx))
-            .overflow_hidden()
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(child);
-        let panel: AnyElement = if motion {
-            panel
-                .with_animation(id, Motion::open(), |el, d| {
-                    let rise = Motion::spring()(d);
-                    el.opacity(d).mt(px((1. - rise) * Motion::RISE))
-                })
-                .into_any_element()
-        } else {
-            panel.into_any_element()
-        };
-        div()
-            .id("settings-backdrop")
-            .absolute()
-            .inset_0()
-            .p(px(24.))
-            .bg(modal_backdrop(cx))
-            .flex()
-            .items_center()
-            .justify_center()
-            .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
-            .child(panel)
-            .into_any_element()
+        let t = crate::theme::theme(cx).clone();
+        let this = cx.entity().downgrade();
+        crate::kit::Modal::new(id, width, move |_, cx| {
+            let _ = this.update(cx, |l, cx| l.close(cx));
+        })
+        .motion(crate::theme::motion_on(cx))
+        .render(&t, child)
     }
 }
 
@@ -411,12 +309,7 @@ impl Render for Layer {
         }
         // Drops the native glass pieces no region placed this frame (painted
         // after the rest of the window: the layer is MainView's last child).
-        let sweeper = canvas(
-            |_, _, _| {},
-            |_, _, window, _| native::sweep_regions(window),
-        )
-        .absolute()
-        .size_0();
+        let sweeper = crate::kit::region_sweeper();
         let root = div()
             .id("settings-layer")
             .track_focus(&self.focus)

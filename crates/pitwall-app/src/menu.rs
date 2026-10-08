@@ -133,15 +133,6 @@ pub fn register(cx: &mut App) {
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-    // macOS: the standard About panel, like the Tauri app's default menu.
-    // Elsewhere: the in-app About box (settings::about).
-    cx.on_action(|_: &About, cx| {
-        if cfg!(target_os = "macos") {
-            crate::platform::about(cx);
-        } else {
-            cx.dispatch_action(&crate::settings::About);
-        }
-    });
     cx.on_action(|_: &Minimize, cx| {
         if let Some(w) = cx.active_window() {
             let _ = w.update(cx, |_, window, _| window.minimize_window());

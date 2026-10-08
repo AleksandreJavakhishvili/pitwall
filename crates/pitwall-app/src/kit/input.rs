@@ -1,9 +1,14 @@
-//! A single-line text input (built in-house; GPUI's own `examples/input.rs`,
-//! Apache-2.0, is the reference): IME through `EntityInputHandler`,
-//! selection with mouse and shift-arrows, clipboard, select all. Enter and
-//! Esc are reported as events so the owner decides (submit, cancel).
+//! The single-line text input (built in-house; GPUI's own
+//! `examples/input.rs`, Apache-2.0, is the reference): IME through
+//! `EntityInputHandler` (marked text underlined, the candidate window at the
+//! caret), selection with mouse and shift-arrows, word moves and word
+//! delete, clipboard, select all. Enter and Esc are reported as events so
+//! the owner decides (submit, cancel).
 //!
-//! Promote to the shared kit (`kit/text_input.rs`) once there is one.
+//! Two looks: boxed (`.input`: 34 px, hairline, the focus border), and
+//! [`TextInput::bare`] for fields drawn inside another box (search bars,
+//! quick open); a bare input lets Enter, Esc and the arrows through to its
+//! owner's key bindings too.
 
 use std::ops::Range;
 
@@ -16,6 +21,8 @@ use gpui::{
 };
 
 use crate::theme;
+
+use super::fonts::MONO_FONT;
 
 actions!(
     pw_text_input,
@@ -36,12 +43,13 @@ actions!(
         Escape,
         WordLeft,
         WordRight,
+        WordBackspace,
     ]
 );
 
 const CONTEXT: &str = "PwTextInput";
 
-/// Key bindings of every input (registered once by `main_screen::init`).
+/// Key bindings of every input (registered once by `kit::init`).
 pub fn bindings() -> Vec<KeyBinding> {
     let c = Some(CONTEXT);
     let mut b = vec![
@@ -55,6 +63,15 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("end", End, c),
         KeyBinding::new("enter", Enter, c),
         KeyBinding::new("escape", Escape, c),
+        KeyBinding::new(
+            if cfg!(target_os = "macos") {
+                "alt-backspace"
+            } else {
+                "ctrl-backspace"
+            },
+            WordBackspace,
+            c,
+        ),
     ];
     if cfg!(target_os = "macos") {
         b.extend([
@@ -99,6 +116,7 @@ pub struct TextInput {
     last_bounds: Option<Bounds<Pixels>>,
     selecting: bool,
     mono: bool,
+    bare: bool,
     max_len: Option<usize>,
     was_focused: bool,
 }
@@ -118,6 +136,7 @@ impl TextInput {
             last_bounds: None,
             selecting: false,
             mono: false,
+            bare: false,
             max_len: None,
             was_focused: false,
         }
@@ -126,6 +145,29 @@ impl TextInput {
     pub fn mono(mut self) -> Self {
         self.mono = true;
         self
+    }
+
+    /// No box of its own (the owner draws one); Enter, Esc and the arrows
+    /// also reach the owner's bindings.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
+    pub fn set_placeholder(&mut self, text: impl Into<SharedString>) {
+        self.placeholder = text.into();
+    }
+
+    /// Replace the text and report it ([`InputEvent::Changed`]).
+    pub fn replace_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.set_text(text, cx);
+        cx.emit(InputEvent::Changed);
+    }
+
+    /// Focus it with everything selected (typing replaces the old text).
+    pub fn focus_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_all_text(cx);
+        window.focus(&self.focus);
     }
 
     pub fn max_len(mut self, n: usize) -> Self {
@@ -281,6 +323,14 @@ impl TextInput {
         self.edit(self.selected.clone(), "", cx);
     }
 
+    fn on_word_backspace(&mut self, _: &WordBackspace, _: &mut Window, cx: &mut Context<Self>) {
+        if self.selected.is_empty() {
+            let at = self.cursor();
+            self.selected = self.word_left(at)..at;
+        }
+        self.edit(self.selected.clone(), "", cx);
+    }
+
     fn on_delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
         if self.selected.is_empty() {
             let at = self.cursor();
@@ -314,10 +364,16 @@ impl TextInput {
 
     fn on_enter(&mut self, _: &Enter, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(InputEvent::Submit);
+        if self.bare {
+            cx.propagate();
+        }
     }
 
     fn on_escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(InputEvent::Cancel);
+        if self.bare {
+            cx.propagate();
+        }
     }
 
     fn index_for(&self, pos: Point<Pixels>) -> usize {
@@ -669,12 +725,13 @@ impl Render for TextInput {
             cx.emit(InputEvent::Blur);
         }
         self.was_focused = focused;
-        div()
+        let d = div()
             .id("text-input")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::on_backspace))
+            .on_action(cx.listener(Self::on_word_backspace))
             .on_action(cx.listener(Self::on_delete))
             .on_action(cx.listener(Self::on_left))
             .on_action(cx.listener(Self::on_right))
@@ -694,9 +751,19 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .w_full()
+            .when(self.mono, |d| d.font_family(MONO_FONT));
+        if self.bare {
+            return d
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .overflow_hidden()
+                .child(TextLine { input: cx.entity() });
+        }
+        d.w_full()
             .h(px(34.))
-            .px_2()
+            .px(px(9.))
             .flex()
             .items_center()
             .overflow_hidden()
@@ -707,14 +774,8 @@ impl Render for TextInput {
             .text_size(px(13.))
             .line_height(px(18.))
             .text_color(t.text)
-            .when(self.mono, |d| d.font_family(mono_font()))
             .child(TextLine { input: cx.entity() })
     }
-}
-
-/// The monospace family (JetBrains Mono once fonts are bundled).
-pub fn mono_font() -> &'static str {
-    super::assets::MONO_FONT
 }
 
 #[cfg(test)]

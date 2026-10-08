@@ -13,11 +13,11 @@ use gpui::{
 
 use pitwall_core::explorer::FileIndex;
 
-use super::icons::file_icon;
-use super::input::{Changed, TextInput};
+use crate::kit::file_icons::file_icon;
+use crate::kit::{InputEvent, TextInput};
 use super::logic::{char_positions_to_byte_ranges, quick_open, split_path, QuickHit};
 use super::source::{Res, Source};
-use super::widgets::kbd;
+use crate::kit::kbd;
 use crate::theme::{self, RADIUS, RADIUS_LG};
 
 actions!(explorer_quick_open, [Prev, Next, Pick, Close]);
@@ -72,8 +72,11 @@ impl QuickOpen {
         cx: &mut Context<Self>,
     ) -> QuickOpen {
         let placeholder = format!("Go to a file in {agent_name}");
-        let input = cx.new(|cx| TextInput::new(placeholder, cx));
-        let subs = vec![cx.subscribe(&input, |this, _, _: &Changed, cx| {
+        let input = cx.new(|cx| TextInput::new(cx, "", &placeholder).bare());
+        let subs = vec![cx.subscribe(&input, |this, _, e: &InputEvent, cx| {
+            if *e != InputEvent::Changed {
+                return;
+            }
             this.active = 0;
             this.filter(cx);
         })];
@@ -104,7 +107,7 @@ impl QuickOpen {
 
     pub fn set_query(&mut self, text: &str, cx: &mut Context<Self>) {
         self.input
-            .update(cx, |i, cx| i.set_text(text.to_string(), cx));
+            .update(cx, |i, cx| i.replace_text(text, cx));
     }
 
     fn filter(&mut self, cx: &mut Context<Self>) {
@@ -333,7 +336,7 @@ impl Render for QuickOpen {
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .child("Read-only ·")
-                            .child(kbd(&t, "↵"))
+                            .child(kbd("↵", &t))
                             .child(
                                 div()
                                     .min_w_0()

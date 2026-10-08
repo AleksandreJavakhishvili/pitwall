@@ -14,7 +14,7 @@ use gpui::{
     UniformListScrollHandle, Window,
 };
 
-use super::widgets::mono;
+use crate::kit::MONO_FONT;
 use crate::theme;
 
 /// Where to bring the reader: a line (1-based) and, for a search hit, the
@@ -198,7 +198,7 @@ pub fn code_view(
         .size_full()
         .min_h_0()
         .bg(t.term_bg)
-        .font_family(mono())
+        .font_family(MONO_FONT)
         .text_size(px(12.5))
         .line_height(px(ROW_H))
         .pt(px(4.))

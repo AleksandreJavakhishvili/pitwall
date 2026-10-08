@@ -117,6 +117,7 @@ fn attention_becomes_a_toast_and_the_strip_leads_with_blocked(cx: &mut TestAppCo
             agent_id: "ops".into(),
             name: "ops".into(),
             reason: "blocked",
+            detail: None,
         })
     });
     cx.run_until_parked();

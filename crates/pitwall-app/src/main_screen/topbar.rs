@@ -9,9 +9,9 @@ use gpui::{
 
 use pitwall_proto::{AgentView, Status};
 
-use super::assets::icon;
-use super::text_input::{InputEvent, TextInput};
-use super::widgets::{icon_btn, icon_btn_state, kbd, label_t, tooltip, tracked};
+use crate::kit::icon;
+use crate::kit::{InputEvent, TextInput};
+use crate::kit::{icon_btn, icon_btn_state, kbd, label_t, tooltip, tracked};
 use super::workspace::SpaceKind;
 use super::{Breakpoint, MainScreen, Route, ScreenEvent};
 use crate::menu::OpenSettings;
@@ -72,7 +72,7 @@ impl MainScreen {
         // Review on are lit (`.wall-btn[data-on]`).
         let aria = |on: bool| if on { None } else { Some(false) };
         let lit = |on: bool| Some(on);
-        let keys = super::model::keys;
+        let keys = crate::kit::keys;
 
         let left = div()
             .flex()
@@ -108,7 +108,7 @@ impl MainScreen {
                     .when(!compact, |d| {
                         d.child(
                             tracked("PITWALL", 17., 0.22)
-                                .font_family(super::assets::LABEL_FONT)
+                                .font_family(crate::kit::LABEL_FONT)
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(t.text),
                         )
@@ -121,7 +121,7 @@ impl MainScreen {
             .gap(px(4.))
             .mx(px(4.))
             .text_size(px(11.5))
-            .font_family(super::text_input::mono_font())
+            .font_family(crate::kit::MONO_FONT)
             .when(!agents.is_empty(), |d| {
                 d.child(count_pill(
                     "◐",
@@ -182,9 +182,9 @@ impl MainScreen {
                     .text_color(t.text_3)
                     .cursor_pointer()
                     .hover(|s| s.text_color(t.text_2).border_color(t.line_strong))
-                    .tooltip(tooltip(keys("Command palette (⌘K)", false).into()))
+                    .tooltip(tooltip(keys("Command palette (⌘K)", false)))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(ScreenEvent::OpenPalette)))
-                    .child(super::assets::icon("search", 14., t.text_3))
+                    .child(crate::kit::icon("search", 14., t.text_3))
                     .when(!compact, |d| d.child("Search"))
                     .child(kbd("⌘K", t)),
             )
@@ -373,7 +373,7 @@ impl MainScreen {
                                 tab_btn(
                                     &format!("tab-mv-{}", s.id),
                                     "window",
-                                    super::model::keys("Move to new window (⌘⇧N)", false),
+                                    crate::kit::keys("Move to new window (⌘⇧N)", false),
                                     t,
                                 )
                                 .on_click(cx.listener(
@@ -415,7 +415,7 @@ impl MainScreen {
                     let id = this.active.clone();
                     this.drop_on_space(&id, &d.id, window, cx);
                 }))
-                .tooltip(tooltip("New space (or drop an agent here)".into()))
+                .tooltip(tooltip("New space (or drop an agent here)"))
                 .on_click(cx.listener(|this, _, _, cx| this.new_space(cx)))
                 .child(icon("plus", 14., t.text_3))
                 .into_any_element(),
@@ -536,7 +536,7 @@ fn tab_btn(id: &str, name: &str, tip: String, t: &Theme) -> gpui::Stateful<gpui:
         .justify_center()
         .rounded(px(4.))
         .hover(|s| s.bg(t.surface_3))
-        .tooltip(tooltip(tip.into()))
+        .tooltip(tooltip(tip))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(icon(name, 12., t.text_4).group_hover("tab-btn", |s| s.text_color(t.text)))
 }
@@ -565,10 +565,10 @@ fn count_pill(
             d.bg(t.amber_soft)
                 .border_1()
                 .border_color(t.amber.opacity(0.35))
-                .shadow(super::widgets::amber_glow(t, 14., 0.))
+                .shadow(t.amber_glow(14., 0.))
                 .font_weight(FontWeight::SEMIBOLD)
         })
-        .tooltip(tooltip(tip.into()))
+        .tooltip(tooltip(tip))
         .child(div().text_size(px(11.)).text_color(color).child(g))
         .child(if compact {
             format!("{n}")

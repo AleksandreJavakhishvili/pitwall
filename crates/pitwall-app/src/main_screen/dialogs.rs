@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use gpui::{
-    actions, anchored, deferred, div, prelude::*, px, uniform_list, AnyElement, App, Context,
-    Entity, EventEmitter, FocusHandle, Focusable, FontWeight, IntoElement, KeyBinding, MouseButton,
+    anchored, deferred, div, prelude::*, px, uniform_list, AnyElement, App, Context,
+    Entity, EventEmitter, FocusHandle, Focusable, FontWeight, IntoElement,
     PathPromptOptions, SharedString, Subscription, Task, Window,
 };
 
@@ -17,32 +17,20 @@ use pitwall_core::vcs::git::FileChange;
 use pitwall_core::Shared;
 use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines};
 
-use super::assets::{icon, MONO_FONT};
+use crate::kit::{icon, MONO_FONT};
 use super::diff::{self, Kind};
 use super::model::{name_problem, split_path, suggest_name};
-use super::text_input::{InputEvent, TextInput};
-use super::widgets::{
-    backdrop, button, check, chip_subtle, diff_bg, diffstat, icon_btn, kbd_on_primary, label,
-    small_btn, BtnKind,
+use crate::kit::{InputEvent, TextInput};
+use crate::kit::{
+    button, check, chip_subtle, diffstat, icon_btn, kbd_on_primary, label, small_btn, BtnKind,
 };
 use super::MainScreen;
 use crate::theme::{self, Theme, RADIUS};
-
-actions!(pw_dialog, [NextField, PrevField]);
 
 /// A choice action in a select.
 type Run = Box<dyn Fn(&mut Window, &mut App)>;
 /// A select option: label, chosen, action.
 type Choice = (SharedString, bool, Run);
-
-const CONTEXT: &str = "PwDialog";
-
-pub fn bindings() -> Vec<KeyBinding> {
-    vec![
-        KeyBinding::new("tab", NextField, Some(CONTEXT)),
-        KeyBinding::new("shift-tab", PrevField, Some(CONTEXT)),
-    ]
-}
 
 #[derive(Debug, Clone)]
 pub enum DialogEvent {
@@ -56,59 +44,16 @@ fn frame(
     title: Option<&str>,
     width: f32,
     t: &Theme,
+    motion: bool,
     on_close: impl Fn(&mut Window, &mut App) + 'static,
     body: impl IntoElement,
-) -> impl IntoElement {
-    let on_close = std::rc::Rc::new(on_close);
-    let close_bg = on_close.clone();
-    div()
-        .id("backdrop")
-        .absolute()
-        .inset_0()
-        .bg(backdrop(t))
-        .flex()
-        .items_center()
-        .justify_center()
-        .p(px(24.))
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| close_bg(window, cx))
-        .child(
-            div()
-                .id("modal")
-                .key_context(CONTEXT)
-                .on_action(|_: &NextField, window, _| window.focus_next())
-                .on_action(|_: &PrevField, window, _| window.focus_prev())
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .w(px(width))
-                .max_w_full()
-                .max_h_full()
-                .flex()
-                .flex_col()
-                .rounded(px(12.))
-                .bg(t.raised)
-                .border_1()
-                .border_color(t.line_strong)
-                .shadow_2xl()
-                .overflow_hidden()
-                .when_some(title, |d, title| {
-                    let close = on_close.clone();
-                    d.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .pt(px(14.))
-                            .pr(px(12.))
-                            .pb(px(6.))
-                            .pl(px(18.))
-                            .child(label(title.to_string(), t.text, 15.))
-                            .child(
-                                icon_btn("modal-close", "x", "Close (esc)", false, t)
-                                    .on_click(move |_, window, cx| close(window, cx)),
-                            ),
-                    )
-                })
-                .child(body),
-        )
+) -> AnyElement {
+    let m = crate::kit::Modal::new("modal", width, on_close).motion(motion);
+    match title {
+        Some(title) => m.title(title.to_string()),
+        None => m,
+    }
+    .render(t, body)
 }
 
 fn field_label(text: &str, t: &Theme) -> impl IntoElement {
@@ -462,7 +407,7 @@ impl NewAgentDialog {
             .when(installed, |d| {
                 d.cursor_pointer().hover(|s| s.bg(t.surface_2))
             })
-            .tooltip(super::widgets::tooltip(tip))
+            .tooltip(crate::kit::tooltip(tip))
             .on_click(cx.listener(move |d, _, _, cx| {
                 if installed {
                     d.kind = id.clone();
@@ -1108,6 +1053,7 @@ impl Render for NewAgentDialog {
             Some("New agent"),
             520.,
             &t,
+            crate::theme::motion_on(cx),
             move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
             div()
                 .track_focus(&self.focus)
@@ -1211,6 +1157,7 @@ impl Render for TerminalDialog {
             Some("New terminal"),
             480.,
             &t,
+            crate::theme::motion_on(cx),
             move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
             div()
                 .flex()
@@ -1450,6 +1397,7 @@ impl MainScreen {
                 Some(&format!("Remove {}", a.name)),
                 440.,
                 t,
+                crate::theme::motion_on(cx),
                 move |window, cx| close.update(cx, |s, cx| s.close_modal(window, cx)),
                 div().flex().flex_col().child(body).child(
                     foot(t)
@@ -1649,6 +1597,7 @@ impl Render for DiffDialog {
             None,
             1080.,
             &t,
+            crate::theme::motion_on(cx),
             move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
             div().h(px(height)).flex().flex_col().child(head).child(
                 div()
@@ -1667,15 +1616,15 @@ fn diff_row(l: &diff::Line, t: &Theme) -> AnyElement {
     let n = |v: Option<u32>| v.map(|v| v.to_string()).unwrap_or_default();
     let (row_bg, ln_bg, ln_color, sign, sign_color) = match l.kind {
         Kind::Add => (
-            Some(diff_bg(t, true, false)),
-            Some(diff_bg(t, true, true)),
+            Some(t.diff_bg(true, false)),
+            Some(t.diff_bg(true, true)),
             t.green.blend(t.text_3.opacity(0.3)),
             "+",
             t.green,
         ),
         Kind::Del => (
-            Some(diff_bg(t, false, false)),
-            Some(diff_bg(t, false, true)),
+            Some(t.diff_bg(false, false)),
+            Some(t.diff_bg(false, true)),
             t.red.blend(t.text_3.opacity(0.3)),
             "−",
             t.red,

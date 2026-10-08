@@ -18,7 +18,7 @@ use gpui::WindowBackgroundAppearance;
 #[cfg(not(target_os = "macos"))]
 use gpui::{Bounds, Pixels};
 
-use super::appearance::{GlassOffer, GlassTier, OsPrefs};
+use crate::theme::{GlassOffer, GlassTier, OsPrefs};
 use crate::theme::Mode;
 
 /// The best this OS offers without an override.
