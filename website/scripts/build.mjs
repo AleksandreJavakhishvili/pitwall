@@ -3,7 +3,7 @@
 //
 //   pnpm build                      # served from the domain root
 //   pnpm build --base /pitwall/     # served from a sub-path (GitHub Pages project site)
-//   pnpm build --skip-demo          # pages only; "Try it live" stays hidden
+//   pnpm build --skip-demo          # pages only; the demo frame says the demo is missing
 //
 // SITE_BASE=/pitwall/ works too, instead of --base.
 import { spawnSync } from "node:child_process";

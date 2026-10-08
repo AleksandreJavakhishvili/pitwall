@@ -7,20 +7,22 @@
   <meta name="description" content="How Pitwall detects when an agent needs you, plus the Wall, Next up, Review, terminals that survive quitting, supported agents and detection rules." />
   <meta name="color-scheme" content="dark light" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <script>
     try { var t = localStorage.getItem("pitwall-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
   <script type="module" src="/src/main.js"></script>
 </head>
-<body>
+<body data-progress>
   <div class="sky" aria-hidden="true"><i class="sky-base"></i><i class="sky-glow"></i><i class="sky-trails"></i></div>
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="site-head">
     <div class="wrap">
       <a class="brand" href="/" aria-label="Pitwall home">
-        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <svg class="mark" viewBox="7 7 50 50" width="28" height="28" aria-hidden="true"><defs><mask id="mk-h" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-h)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
         <span>PITWALL</span>
       </a>
       <nav class="site-nav" aria-label="Main">
@@ -176,7 +178,7 @@ pitwall session add agw &lt;vm&gt; &lt;session&gt; --start</code></pre>
   <footer class="site-foot">
     <div class="wrap">
       <div class="foot-row">
-        <a class="brand" href="/"><img src="/favicon.svg" alt="" width="22" height="22" /><span>PITWALL</span></a>
+        <a class="brand" href="/"><svg class="mark" viewBox="7 7 50 50" width="24" height="24" aria-hidden="true"><defs><mask id="mk-f" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-f)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg><span>PITWALL</span></a>
         <nav aria-label="Footer">
           <a href="/">Home</a>
           <a href="/docs/quick-start/">Quick start</a>

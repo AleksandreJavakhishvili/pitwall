@@ -1,4 +1,4 @@
-// Minimal Chrome DevTools Protocol helper for scripts/record-demo.mjs.
+// Minimal Chrome DevTools Protocol helper for scripts/record-demo.mjs and og-image.mjs.
 export async function open(port, { W, H, DPR, theme }) {
   const ver = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
   const ws = new WebSocket(ver.webSocketDebuggerUrl);

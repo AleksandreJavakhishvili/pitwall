@@ -5,7 +5,7 @@
 // enable the tab bridge in src/lib/demoBridge.ts).
 //
 //   node scripts/build-demo.mjs [--base /pitwall/]   # base = where the SITE is served
-//   node scripts/build-demo.mjs --serve [port]       # dev server of the same thing (re-recording the video)
+//   node scripts/build-demo.mjs --serve [port]       # dev server of the same thing (recording the README animation)
 //
 // It uses the app's own Vite and vite.config.ts from the repo root, so the root
 // dependencies must be installed (`pnpm install` at the root).
