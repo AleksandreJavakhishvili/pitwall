@@ -637,7 +637,7 @@ export default function App() {
     if ("agentId" in f) return [f.agentId];
     return worktrees.find((p) => p.id === f.projectId)?.agentIds ?? [];
   }, [reviewFocus, worktrees]);
-  const reviewList = useMemo(() => reviewScope(agents, activeSpace, reviewAll, focusExtra), [agents, activeSpace, reviewAll, focusExtra]);
+  const reviewList = useMemo(() => reviewScope(agents, activeSpace, reviewAll, focusExtra, selected), [agents, activeSpace, reviewAll, focusExtra, selected]);
   // Not before onboarding: reading other agents' folders could make macOS ask
   // about Desktop/Documents before the welcome screen's "Folder access" step.
   const elsewhereRows = useElsewhere(ready && !ui.hideElsewhere && onboarded === true);
@@ -706,7 +706,7 @@ export default function App() {
                   agents={reviewList.agents}
                   focus={reviewFocus}
                   onExit={() => setReviewOn(false)}
-                  scope={reviewList.canWiden ? { all: reviewAll, space: activeSpace?.name ?? "", onAll: setReviewAll } : null}
+                  scope={reviewList.canWiden ? { all: reviewAll, space: reviewList.label, onAll: setReviewAll } : null}
                 />
               </Suspense>
             </ErrorBoundary>

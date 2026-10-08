@@ -4,9 +4,10 @@ Full-window mode (⌘R, top-bar button, ⌘K) for reviewing what agents changed.
 
 ## Which agents
 Review lists the agents of the **active space**: a project space → that
-project's agents, a custom space → its members, the "All" space → everyone
-(`lib/reviewScope.ts`, using `spaceMembers`). In a project or custom space the
-header shows the space's name and an **All projects** checkbox that widens the
+project's agents, a custom space → its members, the "All" space → the focused
+agent's project (everyone only when no agent is focused) (`lib/reviewScope.ts`,
+using `spaceMembers`). When narrowed, the header shows the space's (or the
+focused agent's project) name and an **All projects** checkbox that widens the
 list to every agent; it is remembered for the session (not persisted).
 Opened for a specific agent — ⌘R / the top-bar button with an agent focused,
 the Changes panel's Review button, or "Show diff" in the file viewer
