@@ -8,9 +8,11 @@
 //! read-only; nothing changes until the user ticks a box and confirms.
 
 pub mod plan;
+pub mod source;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     div, linear_color_stop, linear_gradient, prelude::*, px, relative, Animation, AnimationExt,
@@ -20,7 +22,7 @@ use gpui::{
 
 use pitwall_core::engine::lifecycle;
 use pitwall_core::model::{AdoptSessionRequest, CreateAgentRequest};
-use pitwall_core::onboarding::scan::{Conversation, RunningAgent, ScanResult};
+use pitwall_core::onboarding::scan::{Conversation, RunningAgent, ScanProgress, ScanResult};
 use pitwall_core::onboarding::{self as core_onb, ContinueRequest};
 use pitwall_core::permissions::PermissionsStatus;
 use pitwall_core::Shared;
@@ -30,7 +32,7 @@ use crate::agents::{AgentStore, StoreEvent};
 use crate::theme::{Theme, RADIUS, RADIUS_LG};
 
 use crate::theme::{appearance, chrome};
-use super::permissions::{self, AccessEvent, AccessPhase, POLL};
+use super::permissions::{AccessEvent, AccessPhase, POLL};
 use super::widgets::Ui;
 use crate::kit::{tooltip, BtnKind, InputEvent, TextInput};
 use super::SettingsHost;
@@ -103,6 +105,8 @@ pub struct Onboarding {
     mode: Mode,
     store: Entity<AgentStore>,
     engine: Option<Shared>,
+    /// The scan and folder access (the engine, or a fixture).
+    source: Arc<dyn source::OnboardingSource>,
     access: AccessPhase,
     access_error: Option<String>,
     steps: HashMap<String, (&'static str, Option<String>)>,
@@ -127,6 +131,10 @@ pub struct Onboarding {
     show_hook_changes: bool,
     finishing: bool,
     finish_error: Option<String>,
+    scroll: gpui::ScrollHandle,
+    /// The checklist's column (top in the scrolled content, height) and the
+    /// card's height, measured each frame for `position: sticky`.
+    sticky: Rc<std::cell::Cell<(f32, f32, f32)>>,
     _subs: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -138,17 +146,12 @@ impl Onboarding {
         let engine = cx
             .try_global::<SettingsHost>()
             .and_then(|h| h.engine.clone());
+        let source = source::get(cx, engine.clone());
         let add_input = cx.new(|cx| TextInput::new(cx, "", "/Users/you/code/project").mono());
         let subs = vec![
             cx.subscribe(&store, |this, _, e: &StoreEvent, cx| {
                 if let StoreEvent::ScanProgress(p) = e {
-                    let summary = if demo() && p.step == "running" && p.summary.is_some() {
-                        Some("see below".into())
-                    } else {
-                        p.summary.clone()
-                    };
-                    this.steps.insert(p.step.to_string(), (p.status, summary));
-                    cx.notify();
+                    this.progress(p.clone(), cx);
                 }
             }),
             cx.subscribe(&add_input, |this, input, e: &InputEvent, cx| match e {
@@ -167,6 +170,7 @@ impl Onboarding {
             mode,
             store,
             engine,
+            source,
             access: if mode == Mode::Welcome {
                 AccessPhase::Checking
             } else {
@@ -194,6 +198,8 @@ impl Onboarding {
             show_hook_changes: false,
             finishing: false,
             finish_error: None,
+            scroll: gpui::ScrollHandle::new(),
+            sticky: Rc::default(),
             _subs: subs,
             _tasks: Vec::new(),
         };
@@ -214,10 +220,12 @@ impl Onboarding {
     /// Read the status now, then every 2 s while the step waits for the
     /// switch (`usePermissions`).
     fn watch_access(&mut self, cx: &mut Context<Self>) {
+        let source = self.source.clone();
         let task = cx.spawn(async move |this, cx| loop {
+            let src = source.clone();
             let s: PermissionsStatus = cx
                 .background_executor()
-                .spawn(async { pitwall_core::permissions::status() })
+                .spawn(async move { src.permissions() })
                 .await;
             let polls = this.update(cx, |v, cx| {
                 v.access_event(AccessEvent::Status(s), cx);
@@ -246,7 +254,7 @@ impl Onboarding {
     fn open_privacy(&mut self, cx: &mut Context<Self>) {
         self.access_error = None;
         self.access_event(AccessEvent::Open, cx);
-        if let Err(e) = permissions::open_full_disk_access() {
+        if let Err(e) = self.source.open_privacy() {
             self.access_error = Some(e);
         }
     }
@@ -258,18 +266,54 @@ impl Onboarding {
             return;
         }
         self.scan_started = true;
-        let Some(engine) = self.engine.clone() else {
+        if self.engine.is_none() && !self.source.is_fixture() {
             self.scan_error = Some("Pitwall's engine isn't running".into());
             return;
-        };
-        let scan = cx
-            .background_executor()
-            .spawn(async move { core_onb::scan_environment(&engine) });
+        }
+        // Steps a source reports itself (the engine's come through the store).
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<ScanProgress>();
+        let source = self.source.clone();
+        let scan = cx.background_executor().spawn(async move {
+            let tx = std::sync::Mutex::new(tx);
+            source.scan(&move |p| {
+                let _ = tx.lock().map(|t| t.unbounded_send(p));
+            })
+        });
+        self._tasks.push(cx.spawn(async move |this, cx| {
+            use futures::StreamExt;
+            while let Some(p) = rx.next().await {
+                if this.update(cx, |v, cx| v.progress(p, cx)).is_err() {
+                    break;
+                }
+            }
+        }));
         let task = cx.spawn(async move |this, cx| {
             let r = scan.await;
-            let _ = this.update(cx, |v, cx| v.scanned(r, cx));
+            let _ = this.update(cx, |v, cx| match r {
+                Ok(r) => v.scanned(r, cx),
+                Err(e) => {
+                    v.scan_error = Some(e);
+                    cx.notify();
+                }
+            });
         });
         self._tasks.push(task);
+    }
+
+    /// One checklist step's progress.
+    fn progress(&mut self, p: ScanProgress, cx: &mut Context<Self>) {
+        let summary = if self.demo() && p.step == "running" && p.summary.is_some() {
+            Some("see below".into())
+        } else {
+            p.summary
+        };
+        self.steps.insert(p.step.to_string(), (p.status, summary));
+        cx.notify();
+    }
+
+    /// The debug-only `$HOME` filter (`PITWALL_SCAN_DEMO`); never on a fixture.
+    fn demo(&self) -> bool {
+        demo() && !self.source.is_fixture()
     }
 
     fn agents(&self, cx: &App) -> Vec<AgentView> {
@@ -277,7 +321,7 @@ impl Onboarding {
     }
 
     fn scanned(&mut self, mut r: ScanResult, cx: &mut Context<Self>) {
-        if demo() {
+        if self.demo() {
             // Screenshots: only what lives under the (made-up) $HOME.
             let home = pitwall_core::paths::home();
             r.running.retain(|a| {
@@ -699,6 +743,13 @@ impl Onboarding {
     }
 }
 
+/// How far a `position: sticky; top: 20px` box moves down: `scrolled` px
+/// scrolled, its column `top` in the content and `col_h` tall, the box
+/// `card_h` tall.
+pub fn sticky_shift(scrolled: f32, top: f32, col_h: f32, card_h: f32) -> f32 {
+    (scrolled + 20. - top).clamp(0., (col_h - card_h).max(0.))
+}
+
 /// `PITWALL_SCAN_DEMO=1` (debug builds only): the scan shows only agents
 /// running under `$HOME` and no other places, so screenshots taken with a
 /// made-up `$HOME` never show the machine's real sessions.
@@ -789,10 +840,13 @@ impl Paint {
                         .justify_center()
                         .rounded(px(3.))
                         .bg(t.bg)
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::BOLD)
                         .text_color(color)
-                        .child(text);
+                        // Barlow Condensed 700, 15 px, 0.1em.
+                        .child(
+                            crate::kit::tracked(&text, 15., 0.1)
+                                .font_family(crate::kit::LABEL_FONT)
+                                .font_weight(FontWeight::BOLD),
+                        );
                     if live && self.motion {
                         // `onb-blink`: steps(2) at 1.1 s.
                         cell.with_animation(
@@ -809,13 +863,14 @@ impl Paint {
     }
 
     fn title(&self, text: &str) -> Div {
-        div()
-            .mt(px(6.))
-            .text_size(px(34.))
-            .line_height(relative(1.05))
-            .font_weight(FontWeight::BOLD)
-            .text_color(self.t.text)
-            .child(text.to_uppercase())
+        // `.onb-title`: Barlow Condensed 700, 34 px, 0.06em.
+        div().mt(px(6.)).child(
+            crate::kit::tracked(&text.to_uppercase(), 34., 0.06)
+                .line_height(relative(1.05))
+                .font_family(crate::kit::LABEL_FONT)
+                .font_weight(FontWeight::BOLD)
+                .text_color(self.t.text),
+        )
     }
 
     fn lede(&self, text: impl Into<SharedString>) -> Div {
@@ -835,7 +890,7 @@ impl Paint {
             .when_some(count, |d, n| {
                 d.child(
                     div()
-                        .font_family("Menlo")
+                        .font_family(crate::kit::MONO_FONT)
                         .text_size(px(11.))
                         .text_color(self.t.text_3)
                         .child(n.to_string()),
@@ -959,14 +1014,18 @@ impl Onboarding {
                             .gap(px(2.))
                             .min_w_0()
                             .child(
-                                crate::kit::label(label.to_string(), p.ui.t.text_3, 12.)
-                                    .text_size(px(12.))
-                                    .text_color(if lit { t.text } else { t.text_3 }),
+                                // `.onb-step-label`: 12.5 px, 0.08em.
+                                crate::kit::label_t(
+                                    label.to_string(),
+                                    if lit { t.text } else { t.text_3 },
+                                    12.5,
+                                    0.08,
+                                ),
                             )
                             .when_some(st.and_then(|s| s.1.clone()), |d, s| {
                                 d.child(
                                     div()
-                                        .font_family("Menlo")
+                                        .font_family(crate::kit::MONO_FONT)
                                         .text_size(px(11.))
                                         .text_color(t.text_2)
                                         .child(s),
@@ -1214,10 +1273,10 @@ impl Onboarding {
                         .gap(px(3.))
                         .child(
                             div()
-                                .font_family("Menlo")
+                                .font_family(crate::kit::MONO_FONT)
                                 .text_size(px(12.5))
                                 .overflow_hidden()
-                                .whitespace_nowrap()
+                                .line_clamp(1)
                                 .text_ellipsis()
                                 .text_color(if checked { t.text } else { t.text_2 })
                                 .child(pr.display.clone()),
@@ -1252,6 +1311,7 @@ impl Onboarding {
                         .flex_wrap()
                         .items_center()
                         .gap(px(10.))
+                        .mt(px(-4.))
                         .pl(px(35.))
                         .pr(px(12.))
                         .pb(px(8.))
@@ -1338,7 +1398,9 @@ impl Onboarding {
                     .child(div().flex_1())
                     .when(self.adding != Some(AddFor::List), |d| {
                         d.child(
-                            crate::kit::text_button("add-folder", "Add folder…", BtnKind::Small, false, &p.ui.t)
+                            crate::kit::button("add-folder", BtnKind::Small, false, &p.ui.t)
+                                .child(crate::kit::icon("folder", 14., p.ui.t.text))
+                                .child("Add folder…")
                                 .on_click(cx.listener(|v, _, window, cx| {
                                     v.open_add(AddFor::List, window, cx)
                                 })),
@@ -1389,17 +1451,17 @@ impl Onboarding {
                     .child(
                         div()
                             .overflow_hidden()
-                            .whitespace_nowrap()
+                            .line_clamp(1)
                             .text_ellipsis()
                             .child(c.title.clone()),
                     )
                     .child(
                         div()
-                            .font_family("Menlo")
+                            .font_family(crate::kit::MONO_FONT)
                             .text_size(px(11.5))
                             .text_color(t.text_3)
                             .overflow_hidden()
-                            .whitespace_nowrap()
+                            .line_clamp(1)
                             .text_ellipsis()
                             .child(format!(
                                 "{} · {}",
@@ -1576,7 +1638,7 @@ impl Onboarding {
                         .gap(px(3.))
                         .child(
                             div()
-                                .font_family("Menlo")
+                                .font_family(crate::kit::MONO_FONT)
                                 .text_size(px(12.5))
                                 .child(s.name.clone()),
                         )
@@ -1603,11 +1665,14 @@ impl Onboarding {
                     .flex()
                     .items_baseline()
                     .gap(px(8.))
+                    .mt(px(4.))
                     .child(
+                        // `.onb-machine-name.mono`: text-2, 600, 12 px × 0.94.
                         div()
-                            .font_family("Menlo")
-                            .text_size(px(12.5))
-                            .text_color(t.text)
+                            .font_family(crate::kit::MONO_FONT)
+                            .text_size(px(11.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text_2)
                             .child(m.label.clone()),
                     )
                     .child(
@@ -1676,7 +1741,7 @@ impl Onboarding {
                             .gap(px(3.))
                             .when(!can, |d| d.opacity(0.6))
                             .child(
-                                div().font_family("Menlo").text_size(px(12.5)).child(
+                                div().font_family(crate::kit::MONO_FONT).text_size(px(12.5)).child(
                                     ra.cwd_display
                                         .clone()
                                         .unwrap_or_else(|| "unknown folder".into()),
@@ -1687,7 +1752,7 @@ impl Onboarding {
                                     .text_size(px(11.5))
                                     .text_color(t.text_3)
                                     .overflow_hidden()
-                                    .whitespace_nowrap()
+                                    .line_clamp(1)
                                     .text_ellipsis()
                                     .child(sub),
                             ),
@@ -1731,10 +1796,12 @@ impl Onboarding {
                         .flex()
                         .items_baseline()
                         .gap(px(8.))
+                        .mt(px(4.))
                         .child(
                             div()
-                                .text_size(px(12.5))
-                                .text_color(t.text)
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_2)
                                 .child(pitwall_core::host::machine_label()),
                         )
                         .child(crate::kit::hint("running outside Pitwall", &p.ui.t)),
@@ -1976,7 +2043,7 @@ impl Onboarding {
                 div()
                     .flex()
                     .gap(px(4.))
-                    .child(div().w(px(16.)).text_color(t.text).child(format!("{}.", i + 1)))
+                    .child(div().flex_none().text_color(t.text).child(format!("{}.", i + 1)))
                     .child(div().font_weight(FontWeight::BOLD).text_color(t.text).child(b))
                     .child(div().text_color(t.text_2).child(format!("— {rest}")))
             })))
@@ -2050,6 +2117,57 @@ impl Onboarding {
             .child(body)
             .into_any_element();
         (content, footer)
+    }
+
+    /// `.onb-checklist { position: sticky; top: 20px }`: the card moves down
+    /// with the scroll, inside its column.
+    fn sticky_checklist(&self, p: &Paint, view: gpui::EntityId) -> Div {
+        let (top, col_h, card_h) = self.sticky.get();
+        let scrolled = -f32::from(self.scroll.offset().y);
+        let shift = sticky_shift(scrolled, top, col_h, card_h);
+        let (s1, s2, h) = (self.sticky.clone(), self.sticky.clone(), self.scroll.clone());
+        div()
+            .flex_none()
+            .relative()
+            .child(
+                gpui::canvas(
+                    move |b, _, cx| {
+                        let scrolled = -f32::from(h.offset().y);
+                        let top = f32::from(b.origin.y - h.bounds().origin.y) + scrolled;
+                        let (old_top, old_h, card) = s1.get();
+                        let now = (top, f32::from(b.size.height), card);
+                        s1.set(now);
+                        // Moved since this frame was laid out: once more.
+                        if (old_top - now.0).abs() > 0.5 || (old_h - now.1).abs() > 0.5 {
+                            cx.notify(view);
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(
+                div()
+                    .relative()
+                    .top(px(shift))
+                    .child(self.checklist(p))
+                    .child(
+                        gpui::canvas(
+                            move |b, _, cx| {
+                                let (top, col, old) = s2.get();
+                                let card = f32::from(b.size.height);
+                                s2.set((top, col, card));
+                                if (old - card).abs() > 0.5 {
+                                    cx.notify(view);
+                                }
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .inset_0(),
+                    ),
+            )
     }
 
     fn scan_screen(&self, p: &Paint, cx: &mut Context<Self>) -> (AnyElement, Div) {
@@ -2126,8 +2244,13 @@ impl Onboarding {
             div().flex().gap(px(32.))
         }
         .flex_1()
-        // A plain wrapper takes the row's stretch; the card keeps its height.
-        .child(div().flex_none().child(self.checklist(p)))
+        // A plain wrapper takes the row's stretch; the card keeps its height
+        // and sticks 20 px under the top while the results scroll.
+        .child(if p.narrow {
+            div().flex_none().child(self.checklist(p))
+        } else {
+            self.sticky_checklist(p, cx.entity_id())
+        })
         .child(results);
         let content = div()
             .flex()
@@ -2183,6 +2306,16 @@ impl Render for Onboarding {
         // The footer stays at the bottom (`.onb-foot` is sticky), over a
         // fade into the background.
         let page_bg = base.bg;
+        // Debug builds: `PITWALL_DEBUG_ONB_SCROLL=<px>` scrolls the results
+        // once they are in (screenshots of the lower sections).
+        if cfg!(debug_assertions) && self.result.is_some() {
+            if let Some(y) = std::env::var("PITWALL_DEBUG_ONB_SCROLL")
+                .ok()
+                .and_then(|v| v.parse::<f32>().ok())
+            {
+                self.scroll.set_offset(gpui::point(px(0.), px(-y)));
+            }
+        }
         div()
             .id("onboarding")
             .absolute()
@@ -2196,6 +2329,9 @@ impl Render for Onboarding {
             .child(
                 div()
                     .id("onb-scroll")
+                    .track_scroll(&self.scroll)
+                    // The sticky checklist follows the scroll.
+                    .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
