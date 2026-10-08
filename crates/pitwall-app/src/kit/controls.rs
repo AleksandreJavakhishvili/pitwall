@@ -162,10 +162,16 @@ pub fn seg(id: &'static str, items: Vec<SegItem>, t: &Theme, on_pick: OnPick) ->
         .flex()
         .flex_none()
         .gap(px(1.))
-        .p(px(2.))
         .rounded(RADIUS)
         .bg(bg)
-        .when(t.is_glass(), |d| d.border_1().border_color(t.g.line))
+        // Glass: `inset 0 0 0 1px` as a border inside the 2 px padding.
+        .map(|d| {
+            if t.is_glass() {
+                d.p(px(1.)).border_1().border_color(t.g.line)
+            } else {
+                d.p(px(2.))
+            }
+        })
         .children(items.into_iter().enumerate().map(move |(i, item)| {
             let pick = on_pick.clone();
             let eid = ElementId::from((id, i));

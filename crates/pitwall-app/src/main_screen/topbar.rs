@@ -161,7 +161,6 @@ impl MainScreen {
             });
 
         let right = div()
-            .ml_auto()
             .flex()
             .items_center()
             .gap(px(6.))
@@ -175,7 +174,7 @@ impl MainScreen {
                     .h(px(28.))
                     .pl(px(9.))
                     .pr(px(6.))
-                    .rounded(RADIUS)
+                    .rounded(if t.is_glass() { px(999.) } else { RADIUS })
                     .border_1()
                     .border_color(t.line)
                     .bg(t.bg)
@@ -253,6 +252,8 @@ impl MainScreen {
             .window_control_area(gpui::WindowControlArea::Drag)
             .child(left)
             .child(self.render_tabs(agents, t, window, cx))
+            // `.topbar-right { margin-left: auto }`
+            .child(div().flex_1())
             .child(right)
     }
 
@@ -310,15 +311,16 @@ impl MainScreen {
                 .rounded_t(px(7.))
                 .border_1()
                 .border_b_0()
-                .border_color(if is_active {
-                    t.line
-                } else {
-                    gpui::transparent_black()
+                // Glass: the selected tab is a lighter pane of glass.
+                .border_color(match (is_active, t.is_glass()) {
+                    (true, true) => t.g.line_strong,
+                    (true, false) => t.line,
+                    _ => gpui::transparent_black(),
                 })
-                .bg(if is_active {
-                    t.bg
-                } else {
-                    gpui::transparent_black()
+                .bg(match (is_active, t.is_glass()) {
+                    (true, true) => t.g.surface_3,
+                    (true, false) => t.bg,
+                    _ => gpui::transparent_black(),
                 })
                 .text_size(px(12.))
                 .font_weight(FontWeight::SEMIBOLD)
@@ -591,10 +593,11 @@ fn count_pill(
         })
         .tooltip(tooltip(tip))
         .child(div().text_size(px(11.)).text_color(color).child(g))
+        // React writes `<glyph/> {n} working`: the text starts with a space.
         .child(if compact {
-            format!("{n}")
+            format!(" {n}")
         } else {
-            format!("{n} {word}")
+            format!(" {n} {word}")
         });
     // `.count-loud` bounces twice when it shows.
     if loud {

@@ -165,7 +165,7 @@ impl MainScreen {
             .pl(px(12.))
             .pr(px(8.))
             .border_b_1()
-            .border_color(t.line)
+            .border_color(if t.is_glass() { t.g.line } else { t.line })
             .child(label(space.name.clone(), t.text_3, 12.))
             .child(
                 div()
@@ -194,12 +194,19 @@ impl MainScreen {
             })
             .child(self.density_button(space, t, cx))
             .child(
+                // `.presets` (Glass: glass surface-2 in a hairline ring).
                 div()
                     .flex()
                     .gap(px(1.))
-                    .p(px(2.))
                     .rounded(RADIUS)
-                    .bg(t.surface_2)
+                    .map(|d| {
+                        if t.is_glass() {
+                            // The inset ring as a border, inside the 2 px.
+                            d.p(px(1.)).bg(t.g.surface_2).border_1().border_color(t.g.line)
+                        } else {
+                            d.p(px(2.)).bg(t.surface_2)
+                        }
+                    })
                     .children(presets.into_iter().map(|p| {
                         let tip = if p == Preset::Auto {
                             "Auto grid: fit all agents evenly, the rest as chips".to_string()
@@ -525,6 +532,8 @@ impl MainScreen {
             Some(Status::Blocked) => t.amber.opacity(0.55),
             Some(Status::Done) => t.finish.opacity(0.65),
             _ if focused => t.text_4,
+            // Glass: the centre's hairlines are glass line-strong.
+            _ if t.is_glass() => t.g.line_strong,
             _ => t.line,
         };
         let body: AnyElement = match &agent {
@@ -971,9 +980,9 @@ impl MainScreen {
                     .pl(px(9.))
                     .pr(px(11.))
                     .rounded(px(14.))
-                    .bg(t.surface_2)
+                    .bg(if t.is_glass() { t.g.surface_2 } else { t.surface_2 })
                     .border_1()
-                    .border_color(t.line)
+                    .border_color(if t.is_glass() { t.g.line_strong } else { t.line })
                     .text_size(px(12.))
                     .font_weight(crate::kit::WEIGHT_550)
                     .text_color(t.text_2)
