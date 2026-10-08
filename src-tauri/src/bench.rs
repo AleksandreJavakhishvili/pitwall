@@ -40,8 +40,13 @@ pub fn start(app: &AppHandle, started: Instant) {
     if !enabled() {
         return;
     }
+    // `PITWALL_BENCH_VISIBLE=1` (bench.py --visible): stay where the config
+    // put the window, on screen and above other windows (never occluded, so
+    // WebKit keeps its GPU tiles), so the compositor and WebKit's GPU process
+    // work as for a window you look at (window material included).
+    let visible = std::env::var_os("PITWALL_BENCH_VISIBLE").is_some_and(|v| v == "1");
     for w in app.webview_windows().values() {
-        let _ = w.set_position(OFF_SCREEN);
+        let _ = if visible { w.set_always_on_top(true) } else { w.set_position(OFF_SCREEN) };
     }
     let root: PathBuf = Paths::default_root();
     let ready_file = root.join("bench-ready");

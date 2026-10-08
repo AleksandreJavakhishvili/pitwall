@@ -351,4 +351,13 @@ export interface HostInfo {
   badge: "dock" | "taskbar";
   /** Local sockets: Unix socket files, or per-user named pipes. */
   localSockets: "unix" | "namedPipe";
+  /** The Glass look's native window material: macOS vibrancy, Windows 11 Mica, or none ("Glass lite", drawn by the UI). */
+  glass: WindowGlass;
+}
+export type WindowGlass = "vibrancy" | "mica" | "none";
+/** `set_window_glass`: whether the native material is on, and the OS's accessibility display options. */
+export interface GlassState {
+  native: boolean;
+  reduceTransparency: boolean;
+  increaseContrast: boolean;
 }

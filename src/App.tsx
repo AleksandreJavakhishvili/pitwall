@@ -11,6 +11,8 @@ import { useBreakpoint } from "./lib/useBreakpoint";
 import { usePersistentFlag } from "./lib/usePersistentFlag";
 import { useUiState } from "./state/useUiState";
 import { applyTheme } from "./lib/theme";
+import { applyLook, applyMotion } from "./lib/look";
+import { host } from "./lib/host";
 import { isPaneHidden } from "./state/hidden";
 import * as W from "./state/workspace";
 import { clampFont, stepTileFont } from "./layout/density";
@@ -191,6 +193,13 @@ export default function App() {
   useEffect(() => {
     if (ready) applyTheme(ui.theme);
   }, [ready, ui.theme]);
+  // Look (Flat / Glass): each window asks for its own native material.
+  useEffect(() => {
+    if (ready) applyLook(ui.look, host().glass, (on) => api.setWindowGlass(on));
+  }, [ready, ui.look]);
+  useEffect(() => {
+    if (ready) applyMotion(ui.reduceMotion);
+  }, [ready, ui.reduceMotion]);
 
   // Terminals: drop instances of removed agents or agents now shown in another window;
   // re-attach after a restart (not running → running).
@@ -427,6 +436,10 @@ export default function App() {
     setHideElsewhere: (hide) => update((s) => W.setHideElsewhere(s, hide)),
     theme: ui.theme,
     setTheme: (theme) => update((s) => W.setTheme(s, theme)),
+    look: ui.look,
+    setLook: (look) => update((s) => W.setLook(s, look)),
+    reduceMotion: ui.reduceMotion,
+    setReduceMotion: (reduce) => update((s) => W.setReduceMotion(s, reduce)),
     openDiff: (agentId, file) => setModal({ type: "diff", agentId, file }),
     openRemove: (agentId) => setModal({ type: "remove", agentId }),
     openRemoveWorktree: (projectId, path) => setModal({ type: "removeWorktree", projectId, path }),
@@ -480,7 +493,7 @@ export default function App() {
           : v;
     }
     return out as unknown as Actions;
-  }, [ui.hideElsewhere, ui.theme, ui.density, ui.fontSize]);
+  }, [ui.hideElsewhere, ui.theme, ui.look, ui.reduceMotion, ui.density, ui.fontSize]);
 
   const toggleSidebar = () => {
     if (resp.sidebar === "full") setSidebarCollapsed((v) => !v);
@@ -535,6 +548,7 @@ export default function App() {
       }
       actions.applyPreset("auto");
     },
+    modal: (which) => setModal(which ? { type: which } : null),
   };
   const benchOn = loaded && ready && !isMock && me === W.MAIN;
   useEffect(() => {

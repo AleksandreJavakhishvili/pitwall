@@ -78,6 +78,20 @@ pub enum LocalSockets {
     NamedPipe,
 }
 
+/// The window material the desktop can draw behind the app (Settings →
+/// Appearance → Look: Glass). The compositor draws it, so it costs the app
+/// almost nothing; without one the UI paints its own backdrop (CSS).
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowGlass {
+    /// macOS: an `NSVisualEffectView` behind the webview (vibrancy).
+    Vibrancy,
+    /// Windows 11: the Mica backdrop.
+    Mica,
+    /// Nothing native (Linux, Windows 10): the UI's own backdrop.
+    None,
+}
+
 /// What this desktop offers, as capabilities: the UI (and the app shell)
 /// decide by these, never by which OS it is (architecture.md §3).
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
@@ -96,6 +110,19 @@ pub struct HostInfo {
     pub menu: MenuBar,
     pub badge: Badge,
     pub local_sockets: LocalSockets,
+    pub glass: WindowGlass,
+}
+
+/// `PITWALL_GLASS=vibrancy|mica|lite` forces a Glass tier (development:
+/// seeing "Glass lite" on a Mac). A tier the OS can't draw just shows the
+/// webview's own backdrop.
+fn glass_override(v: Option<&str>) -> Option<WindowGlass> {
+    match v? {
+        "vibrancy" => Some(WindowGlass::Vibrancy),
+        "mica" => Some(WindowGlass::Mica),
+        "lite" | "none" => Some(WindowGlass::None),
+        _ => None,
+    }
 }
 
 impl HostInfo {
@@ -109,6 +136,7 @@ impl HostInfo {
             menu: platform::MENU_BAR,
             badge: platform::BADGE,
             local_sockets: platform::LOCAL_SOCKETS,
+            glass: glass_override(std::env::var("PITWALL_GLASS").ok().as_deref()).unwrap_or_else(platform::window_glass),
         }
     }
 
@@ -135,6 +163,7 @@ mod tests {
             menu: MenuBar::File,
             badge: Badge::Taskbar,
             local_sockets: LocalSockets::NamedPipe,
+            glass: WindowGlass::Mica,
         };
         let v = serde_json::to_value(&info).unwrap();
         assert_eq!(v["machineLabel"], "This Mac");
@@ -145,10 +174,20 @@ mod tests {
         assert_eq!(v["menu"], "file");
         assert_eq!(v["badge"], "taskbar");
         assert_eq!(v["localSockets"], "namedPipe");
+        assert_eq!(v["glass"], "mica");
         assert!(info.hides_on_close());
         assert!(!HostInfo { dock: false, ..info }.hides_on_close());
         let here = HostInfo::current(&Paths::new(crate::paths::home().join("pw")));
         assert!(here.data_dir.starts_with('~') && here.data_dir.ends_with("pw"), "{}", here.data_dir);
         assert!(!here.machine_label.is_empty());
+    }
+
+    #[test]
+    fn glass_can_be_forced_for_development() {
+        assert_eq!(glass_override(Some("lite")), Some(WindowGlass::None));
+        assert_eq!(glass_override(Some("mica")), Some(WindowGlass::Mica));
+        assert_eq!(glass_override(Some("vibrancy")), Some(WindowGlass::Vibrancy));
+        assert_eq!(glass_override(Some("frosted")), None);
+        assert_eq!(glass_override(None), None);
     }
 }

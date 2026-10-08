@@ -974,6 +974,8 @@ export function createMockApi(): Api {
     ...createOnboardingMock((req) => mock.createAgent(req), update),
     ...createPermissionsMock(),
     hostInfo: async () => DEFAULT_HOST,
+    // A browser has no window material: Glass shows its "lite" tier.
+    setWindowGlass: async () => ({ native: false, reduceTransparency: false, increaseContrast: false }),
     quitApp: async () => {},
   };
   return mock;

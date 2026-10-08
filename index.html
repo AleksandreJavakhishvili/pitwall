@@ -7,11 +7,19 @@
     <meta name="color-scheme" content="dark light" />
     <title>Pitwall</title>
     <script>
-      // Appearance before first paint (no flash). Mirror of the shared UI state's
-      // `theme`, written by src/lib/theme.ts; absent/"system" follows macOS.
+      // Appearance before first paint (no flash). Mirrors of the shared UI state's
+      // `theme` (src/lib/theme.ts; absent/"system" follows macOS), `look` and
+      // `reduceMotion` (src/lib/look.ts).
       try {
         var t = localStorage.getItem("pitwall.theme");
         if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+        // Look and motion (src/lib/look.ts). Glass starts on its "lite" tier
+        // (opaque backdrop) until the window's native material is confirmed.
+        if (localStorage.getItem("pitwall.look") === "glass" && !matchMedia("(prefers-reduced-transparency: reduce)").matches) {
+          document.documentElement.setAttribute("data-look", "glass");
+          document.documentElement.setAttribute("data-glass", "lite");
+        }
+        if (localStorage.getItem("pitwall.motion") === "reduce") document.documentElement.setAttribute("data-motion", "reduce");
       } catch (e) {}
     </script>
   </head>

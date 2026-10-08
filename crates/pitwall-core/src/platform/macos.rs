@@ -21,6 +21,11 @@ pub const HAS_TRAY: bool = false;
 pub const MENU_BAR: crate::host::MenuBar = crate::host::MenuBar::App;
 pub const BADGE: crate::host::Badge = crate::host::Badge::Dock;
 
+/// Window vibrancy (`NSVisualEffectView`) on every supported macOS.
+pub fn window_glass() -> crate::host::WindowGlass {
+    crate::host::WindowGlass::Vibrancy
+}
+
 /// Everything Pitwall owns lives under ~/.pitwall, or under `$PITWALL_HOME`
 /// when set.
 pub fn data_dir() -> PathBuf {

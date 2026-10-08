@@ -160,12 +160,30 @@ def webkit_names(groups) -> dict[int, str]:
     return {pid: os.path.basename(rows.get(pid, "?").split(" ")[0]).replace("com.apple.WebKit.", "") for pid in groups["webkit"]}
 
 
+def windowserver_cpu_s() -> float | None:
+    """WindowServer's CPU time (compositing, window materials), via ps: it
+    is not ours, so libproc may not read it. Shared with every app on screen,
+    so only a difference between runs means anything."""
+    try:
+        pid = subprocess.run(["pgrep", "-x", "WindowServer"], capture_output=True, text=True).stdout.split()[0]
+        t = subprocess.run(["ps", "-o", "cputime=", "-p", pid], capture_output=True, text=True).stdout.strip()
+        parts = [float(x) for x in t.replace("-", ":").split(":")]
+        secs = 0.0
+        for p in parts:
+            secs = secs * 60 + p
+        return secs
+    except (IndexError, ValueError, OSError):
+        return None
+
+
 def measure(app_pid: int, home: str, secs: float) -> dict:
     groups = classify(app_pid, home)
     a = snapshot(groups)
+    ws0 = windowserver_cpu_s()
     t0 = time.monotonic()
     time.sleep(secs)
     dt = time.monotonic() - t0
+    ws1 = windowserver_cpu_s()
     groups = classify(app_pid, home)
     b = snapshot(groups)
     names = webkit_names(groups)
@@ -186,6 +204,8 @@ def measure(app_pid: int, home: str, secs: float) -> dict:
     res["tree_footprint_mb"] = sum(e.get("footprint_mb", 0) for e in tree)
     res["tree_rss_mb"] = sum(e.get("rss_mb", 0) for e in tree)
     res["tree_cpu_pct"] = sum(e.get("cpu_pct", 0) for e in tree)
+    if ws0 is not None and ws1 is not None:
+        res["windowserver_cpu_pct"] = (ws1 - ws0) / dt * 100
     return res
 
 
@@ -221,6 +241,7 @@ hooks = "none"
 class Instance:
     def __init__(self, app: Path, cli: Path, home: Path, project: Path):
         self.app, self.cli, self.home, self.project = app, cli, home, project
+        self.visible = False
         self.proc: subprocess.Popen | None = None
         self.n_cmd = 0
         self.agents = 0
@@ -230,6 +251,8 @@ class Instance:
         e = dict(os.environ)
         e["PITWALL_HOME"] = str(self.home)
         e["PITWALL_BENCH"] = "1"
+        if self.visible:
+            e["PITWALL_BENCH_VISIBLE"] = "1"
         e.pop("PITWALL_CLI_SOCKET", None)
         return e
 
@@ -366,6 +389,8 @@ def main():
     ap.add_argument("--quick", action="store_true", help="one cold start, no Wall/Review scenarios")
     ap.add_argument("--then", action="append", default=[], help="after the last count: send this bench command and sample again (repeatable)")
     ap.add_argument("--profile", help="also run macOS `sample` on the app process for 5 s per scenario, writing <dir>/<scenario>.txt")
+    ap.add_argument("--ui", help='JSON merged into the instance\'s UI state before launch, e.g. \'{"look": "glass", "reduceMotion": true}\'')
+    ap.add_argument("--visible", action="store_true", help="keep the window on screen (PITWALL_BENCH_VISIBLE=1; build with a config that places it on screen): GPU numbers as for a window you look at")
     ap.add_argument("--agent", choices=["bench", "tui"], default="bench", help="bench: a shell loop (~3 KB/s); tui: scripts/tui-agent.py, a Claude/Codex-like redrawing TUI (~12 KB/s, 10 frames/s)")
     args = ap.parse_args()
 
@@ -381,6 +406,8 @@ def main():
     home = root / "home"
     (home / "agents").mkdir(parents=True)
     (home / "projects.json").write_text(json.dumps({"version": 1, "onboarded": True, "projects": []}))
+    if args.ui:
+        (home / "ui.json").write_text(json.dumps({"v": 1, "spaces": [], **json.loads(args.ui)}))
     gen = root / "gen.sh"
     if args.agent == "tui":
         tui = Path(__file__).resolve().parent / "tui-agent.py"
@@ -391,7 +418,8 @@ def main():
     (home / "agents" / "bench.toml").write_text(KIND.format(gen=gen))
     project = make_project(root)
     inst = Instance(app, cli, home, project)
-    results: dict = {"label": args.label, "app": str(app), "scenarios": {}}
+    inst.visible = args.visible
+    results: dict = {"label": args.label, "app": str(app), "ui": args.ui, "visible": args.visible, "scenarios": {}}
 
     def record(name: str, extra: dict | None = None):
         assert inst.proc
@@ -410,7 +438,8 @@ def main():
             f"{name:<16} tree {m['tree_footprint_mb']:7.1f} MB footprint ({m['tree_rss_mb']:7.1f} RSS)  "
             f"cpu {m['tree_cpu_pct']:5.1f}%  | app {g.get('app', {}).get('footprint_mb', 0):6.1f} MB "
             f"{g.get('app', {}).get('cpu_pct', 0):4.1f}%  webkit [{wk}] {g.get('webkit', {}).get('cpu_pct', 0):4.1f}%  "
-            f"| holders {m['holders']['n']} × {m['holders']['footprint_mb'] / max(1, m['holders']['n']):.1f} MB",
+            f"| holders {m['holders']['n']} × {m['holders']['footprint_mb'] / max(1, m['holders']['n']):.1f} MB"
+            + (f"  | WindowServer {m['windowserver_cpu_pct']:.1f}%" if "windowserver_cpu_pct" in m else ""),
             flush=True,
         )
 

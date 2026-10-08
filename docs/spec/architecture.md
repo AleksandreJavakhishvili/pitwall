@@ -1006,9 +1006,10 @@ Where today's modules end up:
    platform data-dir helper (`~/.pitwall` / `$XDG_DATA_HOME/pitwall` on Linux /
    `%APPDATA%\Pitwall`); desktop differences the UI sees are capabilities
    (`host::HostInfo`: shortcut modifier, Dock, tray, menu bar, badge, local
-   sockets, machine label, data folder — one mechanism for UI and app shell);
+   sockets, machine label, data folder, the Glass look's window material —
+   one mechanism for UI and app shell);
    shell launch behind a `LoginShell` abstraction (zsh/bash login on Unix,
-   PowerShell/cmd on Windows); the tray and badge OS calls behind the app's
+   PowerShell/cmd on Windows); the tray, badge and window-material OS calls behind the app's
    platform layer (`src-tauri/src/platform/`). Hosts' hook relay: an sh script
    on macOS/Linux (curl), the `pitwall-hook` binary on Windows.
 8. **Migration order (user choice, option A):** Step 2 → 3 → 4 → **8 (agw

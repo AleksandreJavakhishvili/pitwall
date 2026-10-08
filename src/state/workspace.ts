@@ -3,6 +3,7 @@
 import type { AgentView } from "../types";
 import { DEFAULT_DENSITY, DEFAULT_FONT, isDensity, type Density } from "../layout/density";
 import { isThemePref, type ThemePref } from "../lib/theme";
+import { isLook, type Look } from "../lib/look";
 import {
   agentsIn,
   buildGrid,
@@ -66,6 +67,10 @@ export interface UiState {
   hideElsewhere: boolean;
   /** Settings → Appearance: System (follow macOS), Dark or Light. */
   theme: ThemePref;
+  /** Settings → Appearance: Flat, or Glass (translucent chrome over the window material). */
+  look: Look;
+  /** Settings → Appearance: Reduce motion (prefers-reduced-motion applies regardless). */
+  reduceMotion: boolean;
 }
 
 const emptyPane = (): LayoutNode => ({ type: "pane", id: defaultIdGen("pane"), agentId: null });
@@ -87,6 +92,8 @@ export function defaultUiState(): UiState {
     focusRequest: null,
     hideElsewhere: false,
     theme: "system",
+    look: "flat",
+    reduceMotion: false,
   };
 }
 
@@ -119,6 +126,8 @@ export function sanitize(raw: unknown): UiState {
     focusRequest: r.focusRequest ?? null,
     hideElsewhere: r.hideElsewhere === true,
     theme: isThemePref(r.theme) ? r.theme : "system",
+    look: isLook(r.look) ? r.look : "flat",
+    reduceMotion: r.reduceMotion === true,
   };
 }
 
@@ -568,6 +577,16 @@ export function setHideElsewhere(s: UiState, hide: boolean): UiState {
 /** Settings → Appearance. */
 export function setTheme(s: UiState, theme: ThemePref): UiState {
   return s.theme === theme ? s : { ...s, theme };
+}
+
+/** Settings → Appearance → Look. */
+export function setLook(s: UiState, look: Look): UiState {
+  return s.look === look ? s : { ...s, look };
+}
+
+/** Settings → Appearance → Reduce motion. */
+export function setReduceMotion(s: UiState, reduceMotion: boolean): UiState {
+  return s.reduceMotion === reduceMotion ? s : { ...s, reduceMotion };
 }
 
 export function toggleIn(list: string[], v: string): string[] {
