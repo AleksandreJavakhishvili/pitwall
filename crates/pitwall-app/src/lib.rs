@@ -10,6 +10,7 @@ pub mod bridge;
 pub mod home;
 pub mod host;
 pub mod menu;
+pub mod packaging;
 pub mod theme;
 pub mod ui;
 pub mod window_state;
