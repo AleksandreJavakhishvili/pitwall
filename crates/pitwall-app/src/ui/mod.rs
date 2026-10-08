@@ -34,6 +34,8 @@ pub struct MainView {
     /// Where the window's bounds are saved (`None`: refused, nothing saved).
     root: Option<std::path::PathBuf>,
     save_bounds: Option<Task<()>>,
+    /// The main screen (`crate::main_screen`) when the engine is hosted.
+    pub screen: Option<Entity<crate::main_screen::MainScreen>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -57,6 +59,13 @@ impl MainView {
         }
         let focus = cx.focus_handle();
         window.focus(&focus);
+        let screen = match &content {
+            Content::Live { store, .. } => {
+                let (store, root) = (store.clone(), root.clone());
+                Some(cx.new(|cx| crate::main_screen::MainScreen::new(store, root, window, cx)))
+            }
+            Content::Refused(_) => None,
+        };
         MainView {
             content,
             selected: None,
@@ -64,6 +73,7 @@ impl MainView {
             focus,
             root,
             save_bounds: None,
+            screen,
             _subscriptions: subs,
         }
     }
@@ -265,6 +275,7 @@ impl Render for MainView {
             .text_color(t.text);
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
+            Content::Live { .. } if self.screen.is_some() => root.children(self.screen.clone()),
             Content::Live { store, data_dir } => {
                 let sidebar =
                     sidebar::render(store.read(cx), self.selected.as_deref(), data_dir, &t, cx);

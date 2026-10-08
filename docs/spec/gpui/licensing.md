@@ -134,3 +134,5 @@ good follow-up once the Tauri app is gone.
 | MPL-2.0 | 1 | cbindgen 0.28.0 |
 | CC0-1.0 OR Apache-2.0 | 1 | imgref 1.12.3 |
 | Apache-2.0 OR GPL-2.0-only | 1 | self_cell 1.3.0 |
+
+Main screen (`crates/pitwall-app/src/main_screen`): `regex` 1 (MIT OR Apache-2.0, already in the tree via pitwall-core) for New-agent name rules; embedded fonts `crates/pitwall-app/assets/fonts/` (Inter, Barlow Condensed, JetBrains Mono: OFL-1.1, `LICENSES/`), static TTF instances of the `@fontsource` files the web UI ships; icons are the paths of `src/components/Icon.tsx` (Pitwall's own).

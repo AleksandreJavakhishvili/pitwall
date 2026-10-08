@@ -9,6 +9,7 @@ pub mod agents;
 pub mod bridge;
 pub mod home;
 pub mod host;
+pub mod main_screen;
 pub mod menu;
 pub mod theme;
 pub mod ui;
@@ -49,7 +50,7 @@ pub fn run() {
     let _probe =
         pitwall_core::shell::adopt_login_path(chosen.as_ref().ok().map(Paths::login_path_file));
 
-    let app = Application::new();
+    let app = Application::new().with_assets(main_screen::assets::Assets);
     // macOS: closing the window keeps the app (and the Dock icon); the Dock
     // brings the window back. Elsewhere the last window quits (the Windows
     // tray arrives in phase 7).
@@ -61,12 +62,14 @@ pub fn run() {
             cx.window_appearance(),
         )));
         menu::register(cx);
+        main_screen::init(cx);
 
         let state = match chosen {
             Ok(paths) => {
                 let (bridge, rx) = Bridge::new();
                 let host = Host::start(paths.clone(), bridge);
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
+                cx.set_global(main_screen::EngineHandle(host.engine.clone()));
                 AgentStore::listen(&store, rx, cx);
                 let data_dir = SharedString::from(tildify(&paths.root().to_string_lossy()));
                 AppState {
