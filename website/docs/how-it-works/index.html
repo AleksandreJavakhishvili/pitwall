@@ -57,6 +57,7 @@
           <li><a href="#agw">agw machines</a></li>
           <li><a href="#cli">CLI and approvals</a></li>
           <li><a href="#first-launch">First launch</a></li>
+          <li><a href="#performance">Performance</a></li>
           <li><a href="#roadmap">Roadmap</a></li>
         </ul>
 
@@ -168,6 +169,10 @@ pitwall session add agw &lt;vm&gt; &lt;session&gt; --start</code></pre>
 
         <h2 id="first-launch">First launch</h2>
         <p>A read-only scan: agent CLIs on your PATH, recent projects from Claude and Codex transcripts, VS Code and Cursor history and one level deep in <code>~/projects ~/code ~/Developer ~/src ~/dev ~/work</code>, and conversations you can continue. Desktop, Documents and Downloads aren't enumerated; use Add folder…. Nothing changes until you tick a box. Details are in the <a href="/docs/quick-start/#first-launch">quick start</a>.</p>
+
+        <h2 id="performance">Performance</h2>
+        <p>Pitwall is a native Rust app. The UI is drawn on the GPU with <a href="https://www.gpui.rs">GPUI</a>, Zed's UI framework, in the same process as the engine: there is no web view, and terminal output never crosses a bridge to be drawn. Terminals are parsed with <code>alacritty_terminal</code>, Wall tiles are drawn from those same screens, and git for local agents refreshes when files change instead of on a timer.</p>
+        <p>Glass uses the system's own material: Liquid Glass on macOS 26, vibrancy on older macOS, Mica on Windows 11. Terminals stay opaque. Measurements, against the 0.1 releases that ran in a web view, are in the <a href="%REPO_URL%#performance">README</a>.</p>
 
         <h2 id="roadmap">Roadmap</h2>
         <p>What's being worked on now, what comes next and what comes later is on the <a href="/roadmap/">roadmap</a>. No dates.</p>
