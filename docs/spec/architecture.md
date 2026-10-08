@@ -273,7 +273,10 @@ impl Git<'_> {
 ```
 
 - `LocalExec` runs `std::process::Command` with `GIT_OPTIONAL_LOCKS=0`, as
-  today.
+  today. It also implements `Exec::watch(WatchSpec, on_change)` (file-change
+  notifications for one checkout, `notify` crate, `exec/watch.rs`); the
+  default answers `Unsupported`, so remote machines keep polling. The engine
+  uses it only where `ProviderCaps.fs_events` (perf.md "Git refresh").
 - `SshExec` runs `ssh -o BatchMode=yes -o ControlMaster=auto
   -o ControlPath=~/.pitwall/run/ssh-%C -o ControlPersist=120 <dest> -- 'cd <q>
   && exec <argv…>'`. A persistent master connection keeps the 3-second git
@@ -384,6 +387,8 @@ pub struct ProviderCaps {
     pub hooks: HookTransport,  // None | LocalSocket | Forwarded
     pub rules: bool,
     pub custom_command: bool,
+    pub git_poll_ms: u32,      // slow exec: poll git rarely (agw)
+    pub fs_events: bool,       // exec().watch() works: refresh git on file changes (local)
 }
 ```
 

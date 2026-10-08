@@ -61,6 +61,10 @@ agents plug in without touching the rest. Design first, review, then build.
   - Visual check that 20 agents + Wall shows no blank tiles and scrolls smoothly.
   - Keep cold start < 1 s with the login-PATH probe (now non-blocking).
   - Per-window cost (each window is its own WebKit process) and agw polling cost.
+  - DONE: git refresh on file changes instead of polling for local agents
+    (`ProviderCaps.fs_events`, `notify` watch per checkout, 30–60 s safety
+    poll; agw still polls) → [perf.md](perf.md) "Git refresh". `gix` instead
+    of spawning git: measured, not worth it (see there).
 - Plain SSH machines provider; drag a space tab out to create a window.
 
 ## Website — DONE
