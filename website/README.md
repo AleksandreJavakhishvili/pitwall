@@ -57,7 +57,7 @@ roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Nex
 404.html
 site.config.js                OWNER / REPO and the URLs derived from them
 src/site.css                  all styles; tokens mirror the app's src/styles/tokens.css
-src/main.js                   theme toggle, demo tabs, live demo, download links
+src/main.js                   theme toggle, demo tabs, live demo, download links, header progress car
 scripts/build.mjs             full build (demo + pages)
 scripts/pages.mjs             renders CHANGELOG.md / ROADMAP.md into the two pages
 scripts/markdown.mjs          minimal Markdown → HTML
@@ -65,7 +65,9 @@ scripts/og-image.mjs          renders public/og.png (link-preview card) with hea
 scripts/build-demo.mjs        builds the app's browser mock into public/demo/ (or serves it)
 public/video/                 demo recording, dark + light, with poster frames
 public/og.png                 1200×630 link-preview image
-public/favicon.svg            copy of docs/brand/pitwall-mark.svg
+public/favicon.svg            16 px cut of the Apex P (32 px cut from 24 px up); docs/brand/pitwall-small-*.svg
+public/favicon-{16,32}.png    the same cuts as PNG
+public/apple-touch-icon.png   the chequered Apex P, full bleed (180 px)
 ```
 
 ## Downloads

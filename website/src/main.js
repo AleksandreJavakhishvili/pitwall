@@ -59,6 +59,98 @@ if (!reduceMotion.matches && "IntersectionObserver" in window) {
   }
 }
 
+// Headlight sweep (site.css: .cta.sweep): once as the hero settles after the intro, and on
+// touch screens, which have no hover, once as each other call to action comes into view.
+function sweep(cta, delay) {
+  setTimeout(() => {
+    cta.classList.add("sweep");
+    setTimeout(() => cta.classList.remove("sweep"), 1100);
+  }, delay);
+}
+if (!reduceMotion.matches) {
+  const heroCta = document.querySelector(".hero .cta");
+  if (heroCta && !root.classList.contains("intro-seen")) sweep(heroCta, 1900);
+  if (matchMedia("(hover: none)").matches && "IntersectionObserver" in window) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          io.unobserve(e.target);
+          sweep(e.target, 150);
+        }
+      },
+      { threshold: 0.6 },
+    );
+    for (const el of document.querySelectorAll(".cta")) if (!el.closest(".hero")) io.observe(el);
+  }
+}
+
+// Reading progress: a car on the header bar (site.css: .pbar), on <body data-progress> pages.
+if (document.body.hasAttribute("data-progress") && !reduceMotion.matches) setupProgress();
+
+function setupProgress() {
+  const head = document.querySelector(".site-head .wrap");
+  if (!head) return;
+  const bar = document.createElement("div");
+  bar.className = "pbar";
+  bar.setAttribute("aria-hidden", "true");
+  bar.innerHTML =
+    '<span class="pb-lane"></span><span class="pb-fill"></span><span class="pb-pits"></span>' +
+    '<span class="pb-track"><span class="pb-rider"><svg class="pb-car" viewBox="0 0 22 16">' +
+    '<path class="s" d="M1 5.5h3M0 8h4M1 10.5h3" fill="none" stroke-width="1.2" stroke-linecap="round"/>' +
+    '<path class="w" d="M5.8 2h1.9q.8 0 .8.8v1.4q0 .8-.8.8H5.8q-.8 0-.8-.8V2.8q0-.8.8-.8zm0 9h1.9q.8 0 .8.8v1.4q0 .8-.8.8H5.8q-.8 0-.8-.8v-1.4q0-.8.8-.8zm10-9h1.9q.8 0 .8.8v1.4q0 .8-.8.8h-1.9q-.8 0-.8-.8V2.8q0-.8.8-.8zm0 9h1.9q.8 0 .8.8v1.4q0 .8-.8.8h-1.9q-.8 0-.8-.8v-1.4q0-.8.8-.8z"/>' +
+    '<path class="b" d="M6 6.2Q6 4.6 8 4.6H17Q21 4.6 21.5 8 21 11.4 17 11.4H8Q6 11.4 6 9.8Z"/>' +
+    '<rect class="c" x="12" y="6.6" width="3.4" height="2.8" rx="1.2"/></svg></span></span>' +
+    '<span class="pb-flag"></span>';
+  head.append(bar);
+  const pits = bar.querySelector(".pb-pits");
+
+  // Measured on load and on resize only; the scroll path below never reads layout.
+  let max = 1;
+  function measure() {
+    max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
+    const starts = [...document.querySelectorAll("main > section:not(.hero), main.page h2")]
+      .map((el) => (el.getBoundingClientRect().top + scrollY - 88) / max)
+      .filter((p) => p > 0.02 && p < 0.98)
+      .slice(0, 12);
+    pits.replaceChildren(
+      ...starts.map((p) => {
+        const m = document.createElement("i");
+        m.className = "pb-pit";
+        m.style.left = `${(p * 100).toFixed(2)}%`;
+        return m;
+      }),
+    );
+    paint();
+  }
+
+  // Without scroll timelines, a rAF-throttled handler sets --p (one style write per frame).
+  const timeline = CSS.supports("animation-timeline: scroll()");
+  let queued = false;
+  function paint() {
+    queued = false;
+    if (!timeline) bar.style.setProperty("--p", Math.min(1, Math.max(0, scrollY / max)).toFixed(4));
+  }
+  if (!timeline)
+    addEventListener("scroll", () => {
+      if (!queued) {
+        queued = true;
+        requestAnimationFrame(paint);
+      }
+    }, { passive: true });
+  let resizeQueued = false;
+  const remeasure = () => {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(() => {
+      resizeQueued = false;
+      measure();
+    });
+  };
+  new ResizeObserver(remeasure).observe(document.body);
+  addEventListener("resize", remeasure, { passive: true });
+}
+
 function currentTheme() {
   const set = root.dataset.theme;
   if (set === "light" || set === "dark") return set;
