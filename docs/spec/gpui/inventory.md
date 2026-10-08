@@ -13,17 +13,17 @@ marks terminal items. Section 36 lists each component once.
 
 ## 1. App shell and window layout
 
-- [ ] One window = CSS grid: top bar row, main row (sidebar · center · right panel), fixed-height status strip row (`src/styles/layout.css`, `src/App.tsx`)
-- [ ] Status strip height is fixed (28 px, `--statusbar-h`) so it never resizes terminals (`src/styles/layout.css`, `docs/spec/layout.md`)
-- [ ] Responsive breakpoints per window width: xl ≥ 2200, lg ≥ 1500, md ≥ 1100, sm ≥ 700, xs < 700 (`src/lib/useBreakpoint.ts`)
-- [ ] Sidebar mode by breakpoint: full (xl/lg/md, collapsible), icon rail (sm), hidden with overlay (xs) (`src/lib/useBreakpoint.ts`, `src/App.tsx`)
-- [ ] Right panel docked on xl/lg, slide-in drawer with scrim on md and below (`src/App.tsx`) [in-house: drawer/overlay]
+- [x] One window = CSS grid: top bar row, main row (sidebar · center · right panel), fixed-height status strip row (`src/styles/layout.css`, `src/App.tsx`)
+- [x] Status strip height is fixed (28 px, `--statusbar-h`) so it never resizes terminals (`src/styles/layout.css`, `docs/spec/layout.md`)
+- [x] Responsive breakpoints per window width: xl ≥ 2200, lg ≥ 1500, md ≥ 1100, sm ≥ 700, xs < 700 (`src/lib/useBreakpoint.ts`)
+- [x] Sidebar mode by breakpoint: full (xl/lg/md, collapsible), icon rail (sm), hidden with overlay (xs) (`src/lib/useBreakpoint.ts`, `src/App.tsx`)
+- [x] Right panel docked on xl/lg, slide-in drawer with scrim on md and below (`src/App.tsx`) [in-house: drawer/overlay]
 - [ ] Max panes per row per breakpoint (4/3/2/1/1) seeds Auto grid only, not a cap (`src/lib/useBreakpoint.ts`, `src/lib/tiling.ts`)
-- [ ] Drawers close automatically when the window grows past their breakpoint (`src/App.tsx`)
-- [ ] Overlay sidebar / drawer close on scrim click (`src/App.tsx`) [in-house: drawer/overlay]
-- [ ] Right panel hidden while Wall, Review or the file viewer is shown, or when no agent is focused (`src/App.tsx`)
-- [ ] Center area shows, in priority: empty state (no agents) → Wall → Review → file viewer → active space → "No spaces in this window" with "New space" button (`src/App.tsx`)
-- [ ] Empty state: "The pit wall is quiet" board, text, "New agent ⌘N" primary button, "⌘K opens the command palette" hint (`src/components/EmptyState.tsx`)
+- [x] Drawers close automatically when the window grows past their breakpoint (`src/App.tsx`)
+- [x] Overlay sidebar / drawer close on scrim click (`src/App.tsx`) [in-house: drawer/overlay]
+- [x] Right panel hidden while Wall, Review or the file viewer is shown, or when no agent is focused (`src/App.tsx`)
+- [x] Center area shows, in priority: empty state (no agents) → Wall → Review → file viewer → active space → "No spaces in this window" with "New space" button (`src/App.tsx`)
+- [x] Empty state: "The pit wall is quiet" board, text, "New agent ⌘N" primary button, "⌘K opens the command palette" hint (`src/components/EmptyState.tsx`)
 - [ ] `data-attention` on the app root when any agent is blocked (styling hook) (`src/App.tsx`)
 - [ ] Heavy screens load lazily: Review, file viewer, onboarding, Settings (`src/App.tsx`)
 - [ ] Error boundaries: root ("Reload"), per screen (Wall, Review, Files: "Reload"/"Close"), per modal (Settings, onboarding), per pane (Close closes the pane) with collapsible stack details (`src/components/ErrorBoundary.tsx`, `src/components/LayoutView.tsx`)
@@ -32,116 +32,116 @@ marks terminal items. Section 36 lists each component once.
 
 ## 2. Top bar
 
-- [ ] Whole top bar is a window drag region (`data-tauri-drag-region`) (`src/components/TopBar.tsx`) [in-house: title bar]
-- [ ] Sidebar toggle button, title "Show/Hide agents (⌘B)", pressed state (`src/components/TopBar.tsx`) [in-house: tooltip]
-- [ ] Wordmark "PITWALL" (hidden in compact xs/sm) with mark glyph (`src/components/TopBar.tsx`)
+- [x] Whole top bar is a window drag region (`data-tauri-drag-region`) (`src/components/TopBar.tsx`) [in-house: title bar]
+- [x] Sidebar toggle button, title "Show/Hide agents (⌘B)", pressed state (`src/components/TopBar.tsx`) [in-house: tooltip]
+- [x] Wordmark "PITWALL" (hidden in compact xs/sm) with mark glyph (`src/components/TopBar.tsx`)
 - [ ] "MOCK" chip in the browser mock (hidden with `?shots=1`) (`src/components/TopBar.tsx`)
-- [ ] Space tabs in the middle (section 3) (`src/components/SpaceTabs.tsx`) [in-house: tabs]
-- [ ] "Search ⌘K" button opens the command palette (label hidden when compact) (`src/components/TopBar.tsx`)
-- [ ] Live counts: "◐ N working" (when any agents), "⚑ N done", "▲ N needs you" (loud), words hidden when compact (`src/components/TopBar.tsx`) [in-house: tooltip]
-- [ ] Review toggle button (pressed while Review is on), title "Review: what agents changed (⌘R)" (`src/components/TopBar.tsx`) [in-house: tooltip]
-- [ ] Wall toggle button, title "Wall: every agent at once (⌘E)" (`src/components/TopBar.tsx`) [in-house: tooltip]
-- [ ] Settings gear button (`src/components/TopBar.tsx`)
-- [ ] Right panel toggle, title "Show/Hide details (⌘.)" (`src/components/TopBar.tsx`) [in-house: tooltip]
-- [ ] Shortcut hints in titles rendered for this desktop via `keys()` (`src/lib/host.ts`) [in-house: tooltip] [in-house: keybinding label]
+- [x] Space tabs in the middle (section 3) (`src/components/SpaceTabs.tsx`) [in-house: tabs]
+- [x] "Search ⌘K" button opens the command palette (label hidden when compact) (`src/components/TopBar.tsx`)
+- [x] Live counts: "◐ N working" (when any agents), "⚑ N done", "▲ N needs you" (loud), words hidden when compact (`src/components/TopBar.tsx`) [in-house: tooltip]
+- [x] Review toggle button (pressed while Review is on), title "Review: what agents changed (⌘R)" (`src/components/TopBar.tsx`) [in-house: tooltip]
+- [x] Wall toggle button, title "Wall: every agent at once (⌘E)" (`src/components/TopBar.tsx`) [in-house: tooltip]
+- [x] Settings gear button (`src/components/TopBar.tsx`)
+- [x] Right panel toggle, title "Show/Hide details (⌘.)" (`src/components/TopBar.tsx`) [in-house: tooltip]
+- [x] Shortcut hints in titles rendered for this desktop via `keys()` (`src/lib/host.ts`) [in-house: tooltip] [in-house: keybinding label]
 
 ## 3. Spaces and space tabs
 
-- [ ] Space kinds: "All" (every agent, cannot close/rename/move), project space, custom space (`src/state/workspace.ts`)
-- [ ] Tabs list only this window's spaces (`spacesOf`) (`src/state/workspace.ts`) [in-house: tabs]
-- [ ] Clicking a tab selects the space and leaves Wall (`src/App.tsx`) [in-house: tabs]
-- [ ] Tab shows ▲ when an agent it shows/holds is blocked, else ⚑ when one is done (`src/components/SpaceTabs.tsx`) [in-house: tabs]
-- [ ] Tab tooltip: project path / "Every agent" / "Custom space — drag agents here" (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: tooltip]
-- [ ] Double-click a non-All tab to rename inline; Enter or blur commits, Esc cancels; empty name keeps the old one (`src/components/SpaceTabs.tsx`, `src/state/workspace.ts`) [in-house: tabs] [in-house: text input]
+- [x] Space kinds: "All" (every agent, cannot close/rename/move), project space, custom space (`src/state/workspace.ts`)
+- [x] Tabs list only this window's spaces (`spacesOf`) (`src/state/workspace.ts`) [in-house: tabs]
+- [x] Clicking a tab selects the space and leaves Wall (`src/App.tsx`) [in-house: tabs]
+- [x] Tab shows ▲ when an agent it shows/holds is blocked, else ⚑ when one is done (`src/components/SpaceTabs.tsx`) [in-house: tabs]
+- [x] Tab tooltip: project path / "Every agent" / "Custom space — drag agents here" (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: tooltip]
+- [x] Double-click a non-All tab to rename inline; Enter or blur commits, Esc cancels; empty name keeps the old one (`src/components/SpaceTabs.tsx`, `src/state/workspace.ts`) [in-house: tabs] [in-house: text input]
 - [ ] Per-tab "Move to new window (⌘⇧N)" button (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: tooltip]
-- [ ] Per-tab "Close space" button (agents just stop being shown there) (`src/components/SpaceTabs.tsx`) [in-house: tabs]
-- [ ] "+" tab creates "Space N" (custom) in this window; also a drop target (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: drag and drop]
-- [ ] Tab drop highlight while an agent is dragged over it (`src/components/SpaceTabs.tsx`, `src/lib/dnd.ts`) [in-house: tabs] [in-house: drag and drop]
-- [ ] "Open as space" from a sidebar project creates or reuses a project space tiling that project's agents (preset by count) and focuses it (or its window) (`src/state/workspace.ts`, `src/App.tsx`)
-- [ ] Closing a space removes its window ownership (`src/state/workspace.ts`)
-- [ ] Moving "All" to a new window is refused with an info toast (`src/App.tsx`) [in-house: toast]
-- [ ] First run: the first agent is placed in the All space so the screen is not empty (main window only) (`src/App.tsx`)
+- [x] Per-tab "Close space" button (agents just stop being shown there) (`src/components/SpaceTabs.tsx`) [in-house: tabs]
+- [x] "+" tab creates "Space N" (custom) in this window; also a drop target (`src/components/SpaceTabs.tsx`) [in-house: tabs] [in-house: drag and drop]
+- [x] Tab drop highlight while an agent is dragged over it (`src/components/SpaceTabs.tsx`, `src/lib/dnd.ts`) [in-house: tabs] [in-house: drag and drop]
+- [x] "Open as space" from a sidebar project creates or reuses a project space tiling that project's agents (preset by count) and focuses it (or its window) (`src/state/workspace.ts`, `src/App.tsx`)
+- [x] Closing a space removes its window ownership (`src/state/workspace.ts`)
+- [x] Moving "All" to a new window is refused with an info toast (`src/App.tsx`) [in-house: toast]
+- [x] First run: the first agent is placed in the All space so the screen is not empty (main window only) (`src/App.tsx`)
 
 ## 4. Sidebar
 
-- [ ] Agents grouped by machine + project; creatable machines first, then other machines by label, then display name (`src/lib/groups.ts`) [in-house: list/virtual list] [in-house: scroll view]
-- [ ] Listed projects without agents also appear as groups (`src/components/onboarding/projects.ts`)
-- [ ] Machine heading above a machine's first group when agents run on 2+ machines (`src/lib/groups.ts`)
-- [ ] Agents within a group sorted blocked → done → working → idle → unknown → exited → stopped, then by creation time (`src/lib/status.ts`)
-- [ ] Project header: chevron collapse toggle (persisted in `ui.collapsed`), display name, "▲ N" blocked count, agent count (`src/components/Sidebar.tsx`) [in-house: list/virtual list]
-- [ ] Collapsed group shows a one-line summary ("1 needs you · 2 idle") (`src/lib/groups.ts`)
-- [ ] Project header "+" button (creatable machines only) opens menu: "New terminal here", "New agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
-- [ ] Right-click project header opens the same menu (`src/components/Sidebar.tsx`) [in-house: popover/menu]
-- [ ] Project header "Open as space" grid button (when it has agents) (`src/components/Sidebar.tsx`) [in-house: tooltip]
-- [ ] Project header "x" button "Remove from Pitwall (files are not touched)" when it has no agents (`src/components/Sidebar.tsx`) [in-house: tooltip]
-- [ ] Empty project body: "No agents yet" and "+ Agent" button (preselects that project) (`src/components/Sidebar.tsx`)
-- [ ] Agent row: status glyph, name, status word, location chip, kind name, "· in terminal" marker, +/− diffstat (`src/components/AgentRow.tsx`) [in-house: list/virtual list]
-- [ ] Agent row shows blocked detail line when blocked (`src/components/AgentRow.tsx`)
-- [ ] Agent row index hint ⌘1–⌘9 for the first nine agents (sidebar order across groups) (`src/components/AgentRow.tsx`)
-- [ ] Agent row tooltip: name, "— in <space>" or "— in other window", status detail (`src/components/Sidebar.tsx`, `src/components/AgentRow.tsx`) [in-house: tooltip]
-- [ ] Agent row selected highlight for the focused agent (`src/components/AgentRow.tsx`) [in-house: list/virtual list]
-- [ ] Click agent row → show agent (section 6 "Show agent") (`src/components/Sidebar.tsx`)
-- [ ] Agent row is a drag source (`src/components/AgentRow.tsx`) [in-house: drag and drop]
-- [ ] Agent row context menu: "Open terminal here" (creatable machines), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
+- [x] Agents grouped by machine + project; creatable machines first, then other machines by label, then display name (`src/lib/groups.ts`) [in-house: list/virtual list] [in-house: scroll view]
+- [x] Listed projects without agents also appear as groups (`src/components/onboarding/projects.ts`)
+- [x] Machine heading above a machine's first group when agents run on 2+ machines (`src/lib/groups.ts`)
+- [x] Agents within a group sorted blocked → done → working → idle → unknown → exited → stopped, then by creation time (`src/lib/status.ts`)
+- [x] Project header: chevron collapse toggle (persisted in `ui.collapsed`), display name, "▲ N" blocked count, agent count (`src/components/Sidebar.tsx`) [in-house: list/virtual list]
+- [x] Collapsed group shows a one-line summary ("1 needs you · 2 idle") (`src/lib/groups.ts`)
+- [x] Project header "+" button (creatable machines only) opens menu: "New terminal here", "New agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
+- [x] Right-click project header opens the same menu (`src/components/Sidebar.tsx`) [in-house: popover/menu]
+- [x] Project header "Open as space" grid button (when it has agents) (`src/components/Sidebar.tsx`) [in-house: tooltip]
+- [x] Project header "x" button "Remove from Pitwall (files are not touched)" when it has no agents (`src/components/Sidebar.tsx`) [in-house: tooltip]
+- [x] Empty project body: "No agents yet" and "+ Agent" button (preselects that project) (`src/components/Sidebar.tsx`)
+- [x] Agent row: status glyph, name, status word, location chip, kind name, "· in terminal" marker, +/− diffstat (`src/components/AgentRow.tsx`) [in-house: list/virtual list]
+- [x] Agent row shows blocked detail line when blocked (`src/components/AgentRow.tsx`)
+- [x] Agent row index hint ⌘1–⌘9 for the first nine agents (sidebar order across groups) (`src/components/AgentRow.tsx`)
+- [x] Agent row tooltip: name, "— in <space>" or "— in other window", status detail (`src/components/Sidebar.tsx`, `src/components/AgentRow.tsx`) [in-house: tooltip]
+- [x] Agent row selected highlight for the focused agent (`src/components/AgentRow.tsx`) [in-house: list/virtual list]
+- [x] Click agent row → show agent (section 6 "Show agent") (`src/components/Sidebar.tsx`)
+- [x] Agent row is a drag source (`src/components/AgentRow.tsx`) [in-house: drag and drop]
+- [x] Agent row context menu: "Open terminal here" (creatable machines), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
 - [ ] Agent row worktree chip "N worktrees" toggles its worktree list; expanding forces a worktree refresh (`src/components/AgentRow.tsx`, `src/components/Sidebar.tsx`)
 - [ ] Per-project "N other worktrees" chip listing worktrees no agent works in (`src/components/Sidebar.tsx`)
 - [ ] "Elsewhere" group: agents running in other terminal apps, collapsible, count (section 22) (`src/components/ElsewhereGroup.tsx`) [in-house: list/virtual list]
-- [ ] Footer: "New agent ⌘N" button and terminal icon button "New terminal here (⌘T) · ⌘⇧T to choose a folder" (`src/components/Sidebar.tsx`) [in-house: tooltip]
-- [ ] Icon rail mode: per-group column of initials + status dot; click shows agent; drag source; "+" new agent (`src/components/Sidebar.tsx`, `src/components/RailItem.tsx`) [in-house: drag and drop] [in-house: tooltip]
-- [ ] Rail initials: first letters of the first two `-`/`_` parts, else first two letters (`src/components/RailItem.tsx`)
-- [ ] Overlay sidebar mode over a scrim (xs/sm when toggled) (`src/App.tsx`) [in-house: drawer/overlay]
+- [x] Footer: "New agent ⌘N" button and terminal icon button "New terminal here (⌘T) · ⌘⇧T to choose a folder" (`src/components/Sidebar.tsx`) [in-house: tooltip]
+- [x] Icon rail mode: per-group column of initials + status dot; click shows agent; drag source; "+" new agent (`src/components/Sidebar.tsx`, `src/components/RailItem.tsx`) [in-house: drag and drop] [in-house: tooltip]
+- [x] Rail initials: first letters of the first two `-`/`_` parts, else first two letters (`src/components/RailItem.tsx`)
+- [x] Overlay sidebar mode over a scrim (xs/sm when toggled) (`src/App.tsx`) [in-house: drawer/overlay]
 - [ ] Popup menu component: positioned at click/anchor, kept on screen, ↑/↓ moves focus, Esc/outside click/window blur closes (`src/components/Menu.tsx`) [in-house: popover/menu]
 
 ## 5. Space view, tiling and panes
 
-- [ ] Space bar: space name, "N shown", "· N folded (too small at this density)" (`src/components/SpaceView.tsx`)
-- [ ] Space bar "Restore layout" button while a pane is maximised (`src/components/SpaceView.tsx`)
-- [ ] Space bar per-space density select: "Default (<global>)", Comfortable 80×20, Compact 60×12, Dense 40×8 (`src/components/SpaceView.tsx`, `src/layout/density.ts`) [in-house: select/dropdown]
-- [ ] Space bar preset buttons with mini layout icons, only presets that fit (`availablePresets`) (`src/components/SpaceView.tsx`, `src/layout/tree.ts`) [in-house: tooltip]
-- [ ] Presets: 1, 2, 3 ("1 big + 2"), 2×2, 3×2, 3×3, 4×3, 4×4, Auto grid (`src/layout/tree.ts`)
-- [ ] Applying a preset keeps shown agents first (focused first) then fills with members not shown elsewhere; rest become chips (`src/state/workspace.ts`)
-- [ ] Auto grid: tile all candidates evenly in rows sized to the area/density (`src/layout/tree.ts`, `src/lib/tiling.ts`)
+- [x] Space bar: space name, "N shown", "· N folded (too small at this density)" (`src/components/SpaceView.tsx`)
+- [x] Space bar "Restore layout" button while a pane is maximised (`src/components/SpaceView.tsx`)
+- [x] Space bar per-space density select: "Default (<global>)", Comfortable 80×20, Compact 60×12, Dense 40×8 (`src/components/SpaceView.tsx`, `src/layout/density.ts`) [in-house: select/dropdown]
+- [x] Space bar preset buttons with mini layout icons, only presets that fit (`availablePresets`) (`src/components/SpaceView.tsx`, `src/layout/tree.ts`) [in-house: tooltip]
+- [x] Presets: 1, 2, 3 ("1 big + 2"), 2×2, 3×2, 3×3, 4×3, 4×4, Auto grid (`src/layout/tree.ts`)
+- [x] Applying a preset keeps shown agents first (focused first) then fills with members not shown elsewhere; rest become chips (`src/state/workspace.ts`)
+- [x] Auto grid: tile all candidates evenly in rows sized to the area/density (`src/layout/tree.ts`, `src/lib/tiling.ts`)
 - [ ] Space bar "Move to new window" button (not on All) (`src/components/SpaceView.tsx`) [in-house: tooltip]
-- [ ] Layout is a tree of panes and row/col splits with fractional sizes (`src/layout/tree.ts`) [in-house: pane/split layout]
-- [ ] Drag split dividers to resize (min 8 % per side), live preview, persisted on release (`src/components/LayoutView.tsx`) [in-house: pane/split layout]
-- [ ] Render-time fit: panes below the density minimum fold away (focused pane kept) and become chips (`src/components/SpaceView.tsx`, `src/state/hidden.ts`) [in-house: pane/split layout]
-- [ ] Showing a folded agent swaps it into the focused pane (`src/App.tsx`)
-- [ ] Maximise one pane within the space (⌘⏎, double-click header, header button); only with 2+ panes (`src/state/workspace.ts`) [in-house: pane/split layout]
-- [ ] Pane focus on mouse down; focused pane styling (`src/components/PaneView.tsx`) [in-house: pane/split layout]
-- [ ] Pane header: status glyph, name, status word, blocked detail, machine chip (tooltip label + provider), project display (tooltip cwd), kind, branch with worktree tooltip, diffstat (`src/components/PaneHeader.tsx`) [in-house: tooltip]
+- [x] Layout is a tree of panes and row/col splits with fractional sizes (`src/layout/tree.ts`) [in-house: pane/split layout]
+- [x] Drag split dividers to resize (min 8 % per side), live preview, persisted on release (`src/components/LayoutView.tsx`) [in-house: pane/split layout]
+- [x] Render-time fit: panes below the density minimum fold away (focused pane kept) and become chips (`src/components/SpaceView.tsx`, `src/state/hidden.ts`) [in-house: pane/split layout]
+- [x] Showing a folded agent swaps it into the focused pane (`src/App.tsx`)
+- [x] Maximise one pane within the space (⌘⏎, double-click header, header button); only with 2+ panes (`src/state/workspace.ts`) [in-house: pane/split layout]
+- [x] Pane focus on mouse down; focused pane styling (`src/components/PaneView.tsx`) [in-house: pane/split layout]
+- [x] Pane header: status glyph, name, status word, blocked detail, machine chip (tooltip label + provider), project display (tooltip cwd), kind, branch with worktree tooltip, diffstat (`src/components/PaneHeader.tsx`) [in-house: tooltip]
 - [ ] Pane header "Re-apply rules & restart" button when rules are stale or failed (`src/components/rules/RulesStaleButton.tsx`)
-- [ ] Pane header actions: Stop process (when `caps.stop`), Remove agent, Maximise/Restore, Close pane (agent keeps running) (`src/components/PaneHeader.tsx`) [in-house: tooltip]
-- [ ] Pane header double-click maximises; header is a drag source (`src/components/PaneHeader.tsx`) [in-house: pane/split layout] [in-house: drag and drop]
-- [ ] Empty pane: "Empty pane", hint, up to 8 member chips to pick (drops into that pane) (`src/components/PaneView.tsx`)
-- [ ] Close button hidden on the only pane when it is empty (`src/components/LayoutView.tsx`)
-- [ ] Chip strip below the space: members not visible; click shows; drag source; "↗ <space>" / "↗ other window" when shown elsewhere (`src/components/ChipStrip.tsx`) [in-house: drag and drop] [in-house: tooltip]
-- [ ] Stopped/exited overlay on the pane: "<name> is stopped / has exited", reason text, Restart/Resume button (label from caps and `restartAs`), Remove button (`src/components/StoppedOverlay.tsx`, `src/lib/terminals.ts`)
-- [ ] Restart sends the terminal's current fitted size (`src/App.tsx`)
-- [ ] An agent is shown in at most one pane across all spaces/windows (`src/state/workspace.ts`)
-- [ ] `placeAgent`: split, or first empty pane, else focused pane; moving within a space swaps (`src/state/workspace.ts`)
+- [x] Pane header actions: Stop process (when `caps.stop`), Remove agent, Maximise/Restore, Close pane (agent keeps running) (`src/components/PaneHeader.tsx`) [in-house: tooltip]
+- [x] Pane header double-click maximises; header is a drag source (`src/components/PaneHeader.tsx`) [in-house: pane/split layout] [in-house: drag and drop]
+- [x] Empty pane: "Empty pane", hint, up to 8 member chips to pick (drops into that pane) (`src/components/PaneView.tsx`)
+- [x] Close button hidden on the only pane when it is empty (`src/components/LayoutView.tsx`)
+- [x] Chip strip below the space: members not visible; click shows; drag source; "↗ <space>" / "↗ other window" when shown elsewhere (`src/components/ChipStrip.tsx`) [in-house: drag and drop] [in-house: tooltip]
+- [x] Stopped/exited overlay on the pane: "<name> is stopped / has exited", reason text, Restart/Resume button (label from caps and `restartAs`), Remove button (`src/components/StoppedOverlay.tsx`, `src/lib/terminals.ts`)
+- [x] Restart sends the terminal's current fitted size (`src/App.tsx`)
+- [x] An agent is shown in at most one pane across all spaces/windows (`src/state/workspace.ts`)
+- [x] `placeAgent`: split, or first empty pane, else focused pane; moving within a space swaps (`src/state/workspace.ts`)
 
 ## 6. Navigation and focus
 
 - [ ] Show agent: leave Wall/Review/viewer, close overlay sidebar; focus its pane in this window; or ask the owning window (via `focusRequest` in the blob + `focus_window`); or place it in the active space (`src/App.tsx`)
 - [ ] Focus moves keyboard focus into the agent's terminal on the next frame (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
 - [ ] Cross-window focus request handled once per nonce by the owning window (`src/App.tsx`)
-- [ ] Jump to next blocked (⌘J) cycles through blocked agents in sidebar order (`src/App.tsx`)
-- [ ] Select agent by index ⌘1–⌘9 (`src/App.tsx`)
-- [ ] "Done" means unseen: selecting a done agent calls `mark_seen` at once; finishing while focused is seen after a 1.5 s glance if the window has focus (`src/App.tsx`)
-- [ ] Window focus marks the selected done agent seen (not in Wall) (`src/App.tsx`)
+- [x] Jump to next blocked (⌘J) cycles through blocked agents in sidebar order (`src/App.tsx`)
+- [x] Select agent by index ⌘1–⌘9 (`src/App.tsx`)
+- [x] "Done" means unseen: selecting a done agent calls `mark_seen` at once; finishing while focused is seen after a 1.5 s glance if the window has focus (`src/App.tsx`)
+- [x] Window focus marks the selected done agent seen (not in Wall) (`src/App.tsx`)
 
 ## 7. Drag and drop (agents)
 
 - [ ] Pointer-driven DnD (not HTML5), 5 px threshold, floating ghost label, Esc cancels, window blur cancels (`src/lib/dnd.ts`) [in-house: drag and drop]
-- [ ] Drag sources: sidebar rows, rail items, pane headers, chips, Wall tiles (`src/lib/dnd.ts`) [in-house: drag and drop]
-- [ ] Drop targets: pane (left/right/top/bottom split zone or centre, edge 28 %), space area (auto-place), space tab, "+" tab (new space) (`src/lib/dnd.ts`, `src/layout/tree.ts`) [in-house: drag and drop]
+- [x] Drag sources: sidebar rows, rail items, pane headers, chips, Wall tiles (`src/lib/dnd.ts`) [in-house: drag and drop]
+- [x] Drop targets: pane (left/right/top/bottom split zone or centre, edge 28 %), space area (auto-place), space tab, "+" tab (new space) (`src/lib/dnd.ts`, `src/layout/tree.ts`) [in-house: drag and drop]
 - [ ] Drop preview overlay on the pane: "Split <side>", "Swap", "Show here", "No room · adds as a chip" (`src/components/PaneView.tsx`) [in-house: drag and drop]
-- [ ] Centre drop swaps with the target's agent (displaced takes the old pane) or replaces it when the dragged agent was not shown (`src/state/workspace.ts`) [in-house: drag and drop]
-- [ ] Side drop moves (old pane closes, tree collapses, never duplicates) (`src/state/workspace.ts`) [in-house: drag and drop]
-- [ ] Drop on own pane is a no-op (`src/state/workspace.ts`) [in-house: drag and drop]
-- [ ] Drop that would go below the density minimum becomes a chip with an info toast (`src/state/workspace.ts`, `src/App.tsx`) [in-house: drag and drop] [in-house: toast]
-- [ ] Drop on a space tab auto-places (empty pane, else roomiest split) and switches to that space (`src/state/workspace.ts`, `src/App.tsx`) [in-house: drag and drop]
-- [ ] Drop on "+" creates a custom space containing the agent (`src/App.tsx`) [in-house: drag and drop]
+- [x] Centre drop swaps with the target's agent (displaced takes the old pane) or replaces it when the dragged agent was not shown (`src/state/workspace.ts`) [in-house: drag and drop]
+- [x] Side drop moves (old pane closes, tree collapses, never duplicates) (`src/state/workspace.ts`) [in-house: drag and drop]
+- [x] Drop on own pane is a no-op (`src/state/workspace.ts`) [in-house: drag and drop]
+- [x] Drop that would go below the density minimum becomes a chip with an info toast (`src/state/workspace.ts`, `src/App.tsx`) [in-house: drag and drop] [in-house: toast]
+- [x] Drop on a space tab auto-places (empty pane, else roomiest split) and switches to that space (`src/state/workspace.ts`, `src/App.tsx`) [in-house: drag and drop]
+- [x] Drop on "+" creates a custom space containing the agent (`src/App.tsx`) [in-house: drag and drop]
 - [ ] A click following a drag is swallowed (`src/lib/dnd.ts`) [in-house: drag and drop]
 - [ ] Buttons inside a drag source keep their own clicks (`src/lib/dnd.ts`) [in-house: drag and drop]
 - [ ] Native file drop handler disabled on all windows (`src-tauri/tauri.conf.json`, `src-tauri/src/windows.rs`)
@@ -192,27 +192,27 @@ marks terminal items. Section 36 lists each component once.
 
 ## 10. Right panel (details for the focused agent)
 
-- [ ] Header: status glyph, name; close button in drawer mode (`src/components/RightPanel.tsx`)
+- [x] Header: status glyph, name; close button in drawer mode (`src/components/RightPanel.tsx`)
 - [ ] Next up section: queue count, Auto-send toggle ("Send the next item when the agent is idle or done and you're not typing") (`src/components/NextUp.tsx`) [in-house: checkbox/toggle] [in-house: tooltip]
 - [ ] Queue list: numbered items, "Send now" (disabled when not running), "Remove from queue" (`src/components/NextUp.tsx`) [in-house: list/virtual list] [in-house: tooltip]
 - [ ] Compose textarea "queue a prompt…", ⌘↵ / Ctrl+↵ queues, "Queue" button; text sent verbatim; restored on failure (`src/components/NextUp.tsx`) [in-house: text input]
 - [ ] Unsent drafts kept per agent for the window session (`src/components/NextUp.tsx`)
 - [ ] Hint: "Sends when the agent is free" / "Auto-send off — send items manually" (`src/components/NextUp.tsx`)
 - [ ] Changes / Files tabs (Files only with `caps.explorer`), selected tab persisted (`pitwall.right.files`) (`src/components/RightPanel.tsx`) [in-house: tabs]
-- [ ] Changes: count, refresh control ("refreshing…"/"updated N s ago" + ↻), "Open in Review" button (with `caps.review`), diffstat (`src/components/Changes.tsx`, `src/components/Freshness.tsx`) [in-house: tooltip]
-- [ ] Where line: branch (or "detached HEAD") with "worktree" tag; folder path, click copies the absolute path ("Copied") (`src/components/Changes.tsx`) [in-house: tooltip]
-- [ ] Changes list: file icon, dir + base name, +/− or "bin", status letter (M/A/D/R/U); click opens the diff dialog (`src/components/Changes.tsx`, `src/components/FileIcon.tsx`) [in-house: list/virtual list] [in-house: scroll view]
-- [ ] Changes states: "Reading git…", "No changes since the agent started.", "Not a git repository…", error with Retry (`src/components/Changes.tsx`)
-- [ ] Changes refresh: forced on open, on totals change, every 5 s while visible, ↻ and ⌘⇧R (`src/components/Changes.tsx`, `src/lib/freshness.ts`)
+- [x] Changes: count, refresh control ("refreshing…"/"updated N s ago" + ↻), "Open in Review" button (with `caps.review`), diffstat (`src/components/Changes.tsx`, `src/components/Freshness.tsx`) [in-house: tooltip]
+- [x] Where line: branch (or "detached HEAD") with "worktree" tag; folder path, click copies the absolute path ("Copied") (`src/components/Changes.tsx`) [in-house: tooltip]
+- [x] Changes list: file icon, dir + base name, +/− or "bin", status letter (M/A/D/R/U); click opens the diff dialog (`src/components/Changes.tsx`, `src/components/FileIcon.tsx`) [in-house: list/virtual list] [in-house: scroll view]
+- [x] Changes states: "Reading git…", "No changes since the agent started.", "Not a git repository…", error with Retry (`src/components/Changes.tsx`)
+- [x] Changes refresh: forced on open, on totals change, every 5 s while visible, ↻ and ⌘⇧R (`src/components/Changes.tsx`, `src/lib/freshness.ts`)
 - [ ] Agent's worktrees sub-list (collapsed chip; expanding forces refresh; refresh control; error with Retry) (`src/components/Changes.tsx`) [in-house: list/virtual list]
 - [ ] Last sent: relative time (tooltip absolute), quoted text, or "Nothing sent through Pitwall yet…" (`src/components/LastSent.tsx`) [in-house: tooltip]
 - [ ] Files tab (section 14) (`src/components/explorer/FilesPanel.tsx`) [in-house: file tree]
 
 ## 11. Diff dialog (single file from Changes)
 
-- [ ] Sheet modal 1080 px: file icon, base + dir, status letter, diffstat or "bin", agent name, "esc to close", close button (`src/components/DiffView.tsx`) [in-house: modal/dialog]
-- [ ] Unified diff table with old/new line numbers, hunk and meta rows, +/− signs (`src/components/DiffView.tsx`, `src/lib/diff.ts`) [in-house: code/diff viewer] [in-house: scroll view]
-- [ ] States: "Loading diff…", "No textual changes.", "Couldn't load diff: …" (`src/components/DiffView.tsx`)
+- [x] Sheet modal 1080 px: file icon, base + dir, status letter, diffstat or "bin", agent name, "esc to close", close button (`src/components/DiffView.tsx`) [in-house: modal/dialog]
+- [x] Unified diff table with old/new line numbers, hunk and meta rows, +/− signs (`src/components/DiffView.tsx`, `src/lib/diff.ts`) [in-house: code/diff viewer] [in-house: scroll view]
+- [x] States: "Loading diff…", "No textual changes.", "Couldn't load diff: …" (`src/components/DiffView.tsx`)
 
 ## 12. Review screen
 
@@ -300,13 +300,13 @@ marks terminal items. Section 36 lists each component once.
 
 ## 16. Status strip, toasts, notifications in-app
 
-- [ ] Status strip calm: "No agents yet" or "◐ N working · Nothing needs you" and "⌘K commands" (`src/components/StatusStrip.tsx`)
-- [ ] Status strip amber: "▲ <name> needs you: <detail> · +N more", "Jump ⌘J" (`src/components/StatusStrip.tsx`, `src/lib/statusStrip.ts`)
-- [ ] Status strip mint: "⚑ <name> finished · +N more · ◐ N working", "Show" (`src/components/StatusStrip.tsx`)
-- [ ] Toasts: tones blocked ▲ / done ⚑ / error ✕ / info ●; title + detail; click jumps to agent or runs action; ✕ dismiss (`src/components/Toasts.tsx`) [in-house: toast]
-- [ ] Toasts: max 4, one per agent, auto-dismiss blocked 9 s, error 8 s, others 5 s (`src/lib/useToasts.ts`) [in-house: toast]
-- [ ] `attention` events become toasts ("<name> needs you" / "<name> is done"), except done for the focused agent while the window has focus (`src/App.tsx`) [in-house: toast]
-- [ ] Every failing backend call becomes a red "Couldn't <what>" toast (`src/App.tsx`) [in-house: toast]
+- [x] Status strip calm: "No agents yet" or "◐ N working · Nothing needs you" and "⌘K commands" (`src/components/StatusStrip.tsx`)
+- [x] Status strip amber: "▲ <name> needs you: <detail> · +N more", "Jump ⌘J" (`src/components/StatusStrip.tsx`, `src/lib/statusStrip.ts`)
+- [x] Status strip mint: "⚑ <name> finished · +N more · ◐ N working", "Show" (`src/components/StatusStrip.tsx`)
+- [x] Toasts: tones blocked ▲ / done ⚑ / error ✕ / info ●; title + detail; click jumps to agent or runs action; ✕ dismiss (`src/components/Toasts.tsx`) [in-house: toast]
+- [x] Toasts: max 4, one per agent, auto-dismiss blocked 9 s, error 8 s, others 5 s (`src/lib/useToasts.ts`) [in-house: toast]
+- [x] `attention` events become toasts ("<name> needs you" / "<name> is done"), except done for the focused agent while the window has focus (`src/App.tsx`) [in-house: toast]
+- [x] Every failing backend call becomes a red "Couldn't <what>" toast (`src/App.tsx`) [in-house: toast]
 - [ ] One-time "macOS blocked a folder" toast pointing to Settings → Permissions on a privacy error (`src/App.tsx`, `src/lib/permissions.ts`) [in-house: toast]
 - [ ] Status glyphs: working pulse dot, blocked ▲, done ⚑, idle ●, unknown ?, exited/stopped ■; status words (`src/lib/status.ts`, `src/components/StatusGlyph.tsx`)
 
@@ -329,20 +329,20 @@ marks terminal items. Section 36 lists each component once.
 
 ## 18. Dialogs
 
-- [ ] Modal base: backdrop click closes, Esc closes (capture), autofocus first `[data-autofocus]`/field, focus restored on close, title + ✕ header; variants dialog / palette / sheet (`src/components/Modal.tsx`) [in-house: modal/dialog]
-- [ ] New agent: "Runs on" select (only when 2+ machines can create), "Reading what <machine> has…", form error, partial-choices hint (`src/components/NewAgentDialog.tsx`) [in-house: modal/dialog] [in-house: select/dropdown]
-- [ ] New agent: Agent kind radio cards ("installed" / "not installed" / "any CLI"), disabled when not installed; first installed preselected (`src/components/NewAgentDialog.tsx`) [in-house: radio group] [in-house: tooltip]
-- [ ] New agent: custom command input for "any CLI" kinds (`src/components/NewAgentDialog.tsx`) [in-house: text input]
-- [ ] New agent: Project select (recent conversations then project list) + "Choose folder…" (native picker, typed path, "Browse…"); absolute path validation (`src/components/NewAgentDialog.tsx`) [in-house: select/dropdown] [in-house: text input]
-- [ ] New agent: Name (auto-suggested slug from folder, unique, rule `^[a-z][a-z0-9_-]{0,31}$` or the machine's rule) with inline errors (`src/components/NewAgentDialog.tsx`, `src/lib/status.ts`) [in-house: text input]
-- [ ] New agent: platform form fields (selects / text with rules, conditional `when`), summary "Also creates …" for non-folder machines (`src/components/CreateFormFields.tsx`, `src/lib/createForm.ts`) [in-house: select/dropdown] [in-house: text input]
-- [ ] New agent: "Separate worktree" checkbox (kinds with worktree support) (`src/components/NewAgentDialog.tsx`) [in-house: checkbox/toggle]
+- [x] Modal base: backdrop click closes, Esc closes (capture), autofocus first `[data-autofocus]`/field, focus restored on close, title + ✕ header; variants dialog / palette / sheet (`src/components/Modal.tsx`) [in-house: modal/dialog]
+- [x] New agent: "Runs on" select (only when 2+ machines can create), "Reading what <machine> has…", form error, partial-choices hint (`src/components/NewAgentDialog.tsx`) [in-house: modal/dialog] [in-house: select/dropdown]
+- [x] New agent: Agent kind radio cards ("installed" / "not installed" / "any CLI"), disabled when not installed; first installed preselected (`src/components/NewAgentDialog.tsx`) [in-house: radio group] [in-house: tooltip]
+- [x] New agent: custom command input for "any CLI" kinds (`src/components/NewAgentDialog.tsx`) [in-house: text input]
+- [x] New agent: Project select (recent conversations then project list) + "Choose folder…" (native picker, typed path, "Browse…"); absolute path validation (`src/components/NewAgentDialog.tsx`) [in-house: select/dropdown] [in-house: text input]
+- [x] New agent: Name (auto-suggested slug from folder, unique, rule `^[a-z][a-z0-9_-]{0,31}$` or the machine's rule) with inline errors (`src/components/NewAgentDialog.tsx`, `src/lib/status.ts`) [in-house: text input]
+- [x] New agent: platform form fields (selects / text with rules, conditional `when`), summary "Also creates …" for non-folder machines (`src/components/CreateFormFields.tsx`, `src/lib/createForm.ts`) [in-house: select/dropdown] [in-house: text input]
+- [x] New agent: "Separate worktree" checkbox (kinds with worktree support) (`src/components/NewAgentDialog.tsx`) [in-house: checkbox/toggle]
 - [ ] New agent: Rules field (section 21) (`src/components/rules/RulesField.tsx`) [in-house: select/dropdown]
-- [ ] New agent: submit "Start"/form's label ↵, "Starting…"/"Creating…", "Creating on <machine>… can take a few minutes", submit error; preselect project from caller (`src/components/NewAgentDialog.tsx`) [in-house: modal/dialog]
-- [ ] After create: patch agent, show it, report rules errors as a toast (`src/App.tsx`, `src/components/rules/RulesField.tsx`) [in-house: toast]
-- [ ] New terminal (⌘⇧T): Folder input (prefilled), "Browse…", up to 8 filtered recent/listed folders, "Open terminal ↵" (needs `/` or `~` path) (`src/components/TerminalDialog.tsx`) [in-house: modal/dialog] [in-house: text input] [in-house: list/virtual list]
+- [x] New agent: submit "Start"/form's label ↵, "Starting…"/"Creating…", "Creating on <machine>… can take a few minutes", submit error; preselect project from caller (`src/components/NewAgentDialog.tsx`) [in-house: modal/dialog]
+- [x] After create: patch agent, show it, report rules errors as a toast (`src/App.tsx`, `src/components/rules/RulesField.tsx`) [in-house: toast]
+- [x] New terminal (⌘⇧T): Folder input (prefilled), "Browse…", up to 8 filtered recent/listed folders, "Open terminal ↵" (needs `/` or `~` path) (`src/components/TerminalDialog.tsx`) [in-house: modal/dialog] [in-house: text input] [in-house: list/virtual list]
 - [ ] Bring into Pitwall: explains resume in a new agent, title quote, "Close the original first (pid N)", "I closed it, resume here" (`src/components/BringInDialog.tsx`) [in-house: modal/dialog]
-- [ ] Remove agent: text differs for adopted sessions (keeps running) vs local; "Also remove worktree" checkbox with path, git note and branch kept; red warning; "Remove" / "Remove agent & worktree" (`src/components/RemoveDialog.tsx`) [in-house: modal/dialog] [in-house: checkbox/toggle]
+- [x] Remove agent: text differs for adopted sessions (keeps running) vs local; "Also remove worktree" checkbox with path, git note and branch kept; red warning; "Remove" / "Remove agent & worktree" (`src/components/RemoveDialog.tsx`) [in-house: modal/dialog] [in-house: checkbox/toggle]
 - [ ] Remove worktree: path, explanation (no --force, branch kept or detached warning), red warning; refusal text for locked / agent-owned; "Remove worktree" (`src/components/RemoveWorktreeDialog.tsx`) [in-house: modal/dialog]
 - [ ] Approval dialog (section 26) (`src/components/ApprovalDialog.tsx`) [in-house: modal/dialog]
 - [ ] Prompt dialog (Send comments / Merge conflict): editable textarea sent verbatim; "Send now" / "Add to Next up" / "Send now anyway" by agent state; ⌘↵ sends default (`src/components/review/ReviewDialogs.tsx`) [in-house: modal/dialog] [in-house: text input]
@@ -421,32 +421,32 @@ Windows/Linux use Ctrl+Shift (shift variant Ctrl+Shift+Alt), matched by physical
 key code.
 
 - [ ] Command palette (toggle): ⌘K · Ctrl+Shift+K
-- [ ] New agent: ⌘N · Ctrl+Shift+N
+- [x] New agent: ⌘N · Ctrl+Shift+N
 - [ ] Move active space to new window: ⌘⇧N · Ctrl+Shift+Alt+N
-- [ ] New terminal here: ⌘T · Ctrl+Shift+T
-- [ ] New terminal in folder…: ⌘⇧T · Ctrl+Shift+Alt+T
-- [ ] Jump to next blocked: ⌘J · Ctrl+Shift+J
-- [ ] Toggle sidebar: ⌘B · Ctrl+Shift+B
-- [ ] Toggle details panel: ⌘. · Ctrl+Shift+.
-- [ ] Toggle Wall: ⌘E · Ctrl+Shift+E
-- [ ] Toggle Review: ⌘R · Ctrl+Shift+R (also blocks webview reload)
-- [ ] Refresh source-control views: ⌘⇧R · Ctrl+Shift+Alt+R (`src/lib/freshness.ts`)
+- [x] New terminal here: ⌘T · Ctrl+Shift+T
+- [x] New terminal in folder…: ⌘⇧T · Ctrl+Shift+Alt+T
+- [x] Jump to next blocked: ⌘J · Ctrl+Shift+J
+- [x] Toggle sidebar: ⌘B · Ctrl+Shift+B
+- [x] Toggle details panel: ⌘. · Ctrl+Shift+.
+- [x] Toggle Wall: ⌘E · Ctrl+Shift+E
+- [x] Toggle Review: ⌘R · Ctrl+Shift+R (also blocks webview reload)
+- [x] Refresh source-control views: ⌘⇧R · Ctrl+Shift+Alt+R (`src/lib/freshness.ts`)
 - [ ] Quick open file: ⌘P · Ctrl+Shift+P
 - [ ] Search in files: ⌘⇧F · Ctrl+Shift+Alt+F
-- [ ] Maximise / restore focused pane: ⌘⏎ · Ctrl+Shift+Enter
+- [x] Maximise / restore focused pane: ⌘⏎ · Ctrl+Shift+Enter
 - [ ] Settings: ⌘, · Ctrl+Shift+, (Windows File menu accelerator Ctrl+Shift+Comma) (`src-tauri/src/menu.rs`)
 - [ ] Focused tile font +1: ⌘= or ⌘+ · Ctrl+Shift+= or Numpad + (base font when in Wall or nothing focused)
 - [ ] Focused tile font −1: ⌘− · Ctrl+Shift+− (incl. Numpad −)
 - [ ] Focused tile font reset: ⌘0 · Ctrl+Shift+0
-- [ ] Select agent 1–9: ⌘1–⌘9 · Ctrl+Shift+1–9 (incl. numpad)
+- [x] Select agent 1–9: ⌘1–⌘9 · Ctrl+Shift+1–9 (incl. numpad)
 - [ ] Terminal copy / paste: ⌘C / ⌘V via Edit menu · Ctrl+Shift+C / Ctrl+Shift+V (`src/terminal/registry.ts`) [pitwall-term-view]
 - [ ] Form submit (Next up queue, prompt dialog, comment): ⌘↵ · Ctrl+↵ (either works everywhere) (`src/components/NextUp.tsx`, `src/components/review/ReviewDialogs.tsx`, `src/components/review/ReviewDiff.tsx`) [in-house: text input]
-- [ ] Esc: close modal/palette/menu; leave Wall, Review, viewer; cancel drag; cancel tab rename; close rescan; cancel comment; close find
+- [x] Esc: close modal/palette/menu; leave Wall, Review, viewer; cancel drag; cancel tab rename; close rescan; cancel comment; close find
 - [ ] Enter: run palette/quick-open item; submit dialogs; commit tab rename; open tree file; re-run search
 - [ ] Arrows: palette/quick-open/menu ↑/↓; explorer tree ↑/↓/←/→; Review file list ↑/↓; diff menu ↑/↓ [in-house: list/virtual list] [in-house: file tree]
 - [ ] Editor: Mod-F find, Enter/Shift+Enter next/prev in find, F3/Shift+F3, Mod-G/Shift+Mod-G, Esc closes find, default CodeMirror navigation keys (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
 - [ ] Mouse: double-click tab renames; double-click pane header maximises; middle-click viewer tab closes; right-click project/agent/worktree opens menus [in-house: tabs] [in-house: pane/split layout] [in-house: popover/menu]
-- [ ] Shortcut labels everywhere rendered per desktop (`keys()`, compact "⌃⇧" form in rows) (`src/lib/host.ts`, `src/components/Kbd.tsx`) [in-house: keybinding label]
+- [x] Shortcut labels everywhere rendered per desktop (`keys()`, compact "⌃⇧" form in rows) (`src/lib/host.ts`, `src/components/Kbd.tsx`) [in-house: keybinding label]
 - [ ] macOS native menu shortcuts: ⌘Q quit, ⌘W close window, ⌘H hide, ⌥⌘H hide others, ⌘M minimise, ⌃⌘F full screen, Edit ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (Tauri default menu) (`src-tauri/src/menu.rs`)
 
 ## 24. Appearance
@@ -520,10 +520,10 @@ key code.
 Data folder: `~/.pitwall` (macOS), XDG data dir `pitwall` (Linux), per-user app
 data `Pitwall` (Windows); `$PITWALL_HOME` overrides.
 
-- [ ] `ui.json`: UI-owned blob written by `set_ui_state` (atomic), read by `get_ui_state`; UI debounces writes 150 ms; sanitized on load (`src-tauri/src/windows.rs`, `src/state/useUiState.ts`, `src/state/workspace.ts`)
-- [ ] `ui.json` fields: `v` (1), `spaces[]` (`id`, `name`, `kind`, `project?`, `members[]`, `layout` tree of `{type:"pane",id,agentId}` / `{type:"split",id,dir,children,sizes}`, `focusedPaneId`, `maximizedPaneId`, `density?`) (`src/state/workspace.ts`, `src/layout/tree.ts`)
+- [x] `ui.json`: UI-owned blob written by `set_ui_state` (atomic), read by `get_ui_state`; UI debounces writes 150 ms; sanitized on load (`src-tauri/src/windows.rs`, `src/state/useUiState.ts`, `src/state/workspace.ts`)
+- [x] `ui.json` fields: `v` (1), `spaces[]` (`id`, `name`, `kind`, `project?`, `members[]`, `layout` tree of `{type:"pane",id,agentId}` / `{type:"split",id,dir,children,sizes}`, `focusedPaneId`, `maximizedPaneId`, `density?`) (`src/state/workspace.ts`, `src/layout/tree.ts`)
 - [ ] `ui.json` fields: `windowOf` (spaceId → window label), `wall` (labels in Wall mode), `fontSize`, `density`, `tileFont` (agentId → px), `collapsed`, `wallCollapsed`, `focusRequest`, `hideElsewhere`, `theme`, `look`, `reduceMotion` (`src/state/workspace.ts`)
-- [ ] `ui.json` pruned of removed agents (panes, members, tile fonts) (`src/App.tsx`, `src/state/workspace.ts`)
+- [x] `ui.json` pruned of removed agents (panes, members, tile fonts) (`src/App.tsx`, `src/state/workspace.ts`)
 - [ ] `windows.json`: backend-owned `{windows:[{label, spaceId, bounds{x,y,width,height}}]}`, saved 500 ms after the last move/resize and on quit (`src-tauri/src/windows.rs`)
 - [ ] `state.json` (v2): agent records (id, locator, name, kind, kindName, customCommand, cwd, project, worktree, worktreePending, baseCommit, sessionId, hasConversation, queue, autoSend, lastSent, lastSentAt, createdAt, tasks, cols, rows, adopted, inner agent); v1 backup and `.corrupt` handling (`crates/pitwall-core/src/store.rs`, `crates/pitwall-core/src/model.rs`)
 - [ ] `projects.json`: `onboarded`, `projects[]` (path, display, isGit, addedAt), `conversationProjects` ("Show under" choices) (`crates/pitwall-core/src/onboarding/project_list.rs`)
