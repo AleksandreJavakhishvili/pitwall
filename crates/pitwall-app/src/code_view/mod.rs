@@ -20,7 +20,11 @@
 pub mod diff;
 pub mod find;
 pub mod highlight;
-pub mod input;
+/// The text field moved to the kit ([`crate::kit::input`]); these names
+/// stay for code written against Review's own.
+pub mod input {
+    pub use crate::kit::input::{InputEvent, TextFieldEvent, TextInput as TextField};
+}
 mod paint;
 pub mod rows;
 pub mod style;
@@ -40,7 +44,7 @@ pub use rows::{Layout, Side};
 use diff::FileDiff;
 use find::{Found, Query};
 use highlight::{Lang, LineSpans};
-use input::{TextField, TextFieldEvent};
+use crate::kit::{InputEvent, TextInput};
 use rows::Rows;
 use text::{Document, Pos};
 
@@ -91,7 +95,6 @@ const CONTEXT: &str = "CodeView";
 /// Key bindings of the view and its text fields (call once at start).
 pub fn register(cx: &mut App) {
     cx.bind_keys(bindings());
-    cx.bind_keys(input::bindings());
 }
 
 pub fn bindings() -> Vec<KeyBinding> {
@@ -242,7 +245,7 @@ impl Content {
 }
 
 struct FindState {
-    field: Entity<TextField>,
+    field: Entity<TextInput>,
     query: Query,
     found: Found,
     /// Index of the match that is selected.
@@ -298,6 +301,8 @@ pub struct CodeView {
     pending_reveal: Option<(Side, usize, Option<Range<usize>>)>,
     loading: bool,
     generation: u64,
+    /// Esc with nothing to close propagates ([`CodeView::set_escape_passes`]).
+    escape_passes: bool,
     _load: Option<Task<()>>,
 }
 
@@ -335,6 +340,7 @@ impl CodeView {
             pending_reveal: None,
             loading: false,
             generation: 0,
+            escape_passes: false,
             _load: None,
         }
     }
@@ -821,30 +827,26 @@ impl CodeView {
             let field = f.field.clone();
             field.update(cx, |t, cx| {
                 if let Some(s) = seed {
-                    t.set_text(s, cx);
+                    t.replace_text(&s, cx);
                 }
                 t.select_all_text(cx);
                 t.focus(window);
             });
             return;
         }
-        let field = cx.new(|cx| TextField::single("Find", cx));
+        let field = cx.new(|cx| TextInput::new(cx, "", "Find").plain());
         let sub = cx.subscribe_in(
             &field,
             window,
-            |this, field, e: &TextFieldEvent, window, cx| match e {
-                TextFieldEvent::Changed => {
+            |this, field, e: &InputEvent, window, cx| match e {
+                InputEvent::Changed => {
                     let text = field.read(cx).text().to_string();
                     this.set_query(|q| q.text = text, true, cx);
                 }
-                TextFieldEvent::Enter { shift } => {
-                    if *shift {
-                        this.find_previous(&FindPrevious, window, cx);
-                    } else {
-                        this.find_next(&FindNext, window, cx);
-                    }
-                }
-                TextFieldEvent::Submit => {}
+                InputEvent::Submit => this.find_next(&FindNext, window, cx),
+                InputEvent::SubmitShift => this.find_previous(&FindPrevious, window, cx),
+                InputEvent::Cancel => this.close_find(window, cx),
+                InputEvent::Blur => {}
             },
         );
         let seed_text = seed.clone().unwrap_or_default();
@@ -866,7 +868,7 @@ impl CodeView {
             self.scroll_y += px(paint::FIND_ZONE);
         }
         field.update(cx, |t, cx| {
-            t.set_text(seed_text, cx);
+            t.replace_text(&seed_text, cx);
             t.select_all_text(cx);
             t.focus(window);
         });
@@ -975,9 +977,18 @@ impl CodeView {
         }
         if self.find.is_some() {
             self.close_find(window, cx);
+            return;
         }
         // Esc stays in the editor (Review: the editor has it), as in the
-        // React app.
+        // React app; a view in a dialog lets it close the dialog.
+        if self.escape_passes {
+            cx.propagate();
+        }
+    }
+
+    /// Esc with nothing to close goes on to the view's owner (a dialog).
+    pub fn set_escape_passes(&mut self, on: bool) {
+        self.escape_passes = on;
     }
 
     fn sel_or_start(&self) -> Selection {
@@ -1208,7 +1219,6 @@ impl CodeView {
 impl Render for CodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_pending_reveal();
-        style::families(cx);
         let t = crate::theme::theme(cx).clone();
         let colors = style::Colors::for_theme(&t);
         let this = cx.entity();
@@ -1220,7 +1230,7 @@ impl Render for CodeView {
             .size_full()
             .overflow_hidden()
             .bg(colors.bg)
-            .font_family(style::mono_family())
+            .font_family(crate::kit::MONO_FONT)
             .text_size(style::FONT_SIZE)
             .line_height(style::LINE_HEIGHT)
             .on_hover(cx.listener(|this, h: &bool, _, cx| {
@@ -1366,7 +1376,7 @@ impl Render for CodeView {
                     .top(px(8.))
                     .left(px(12.))
                     .text_color(t.text_3)
-                    .font_family(style::ui_family())
+                    .font_family(crate::kit::UI_FONT)
                     .text_size(px(12.))
                     .child("Loading…"),
             );
@@ -1374,11 +1384,6 @@ impl Render for CodeView {
         root = root.children(paint::overlays(self, &colors, &t, window, cx));
         root
     }
-}
-
-/// A small text tooltip (until the kit has one).
-pub fn tooltip_view(text: &str, cx: &mut App) -> gpui::AnyView {
-    paint::tooltip_string(text.to_string(), cx)
 }
 
 #[cfg(test)]

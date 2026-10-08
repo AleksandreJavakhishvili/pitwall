@@ -176,10 +176,10 @@ marks terminal items. Section 36 lists each component once.
 
 ## 9. Wall
 
-- [ ] Wall mode per window (persisted in `ui.wall`), toggled by ⌘E, top bar, palette; any space tab or showing an agent leaves it (`src/App.tsx`, `src/components/Wall.tsx`)
+- [x] Wall mode per window (persisted in `ui.wall`), toggled by ⌘E, top bar, palette; any space tab or showing an agent leaves it (`src/App.tsx`, `src/components/Wall.tsx`)
 - [x] Bar: "Wall", "every agent, live · view only · click a tile to take over", "Back esc" (`src/components/Wall.tsx`)
 - [x] Esc leaves Wall (unless a dialog is open) (`src/components/Wall.tsx`)
-- [ ] Sections per project with machine headings, chevron collapse (persisted in `ui.wallCollapsed`), ▲ blocked count, summary when collapsed (`src/components/Wall.tsx`) [in-house: scroll view] [in-house: list/virtual list]
+- [x] Sections per project with machine headings, chevron collapse (persisted in `ui.wallCollapsed`), ▲ blocked count, summary when collapsed (`src/components/Wall.tsx`) [in-house: scroll view] [in-house: list/virtual list]
 - [x] Tile: status glyph, name, status word, blocked detail, diffstat; body shows the screen (`src/components/Wall.tsx`)
 - [x] Running tiles drawn from backend screen frames (`watch_screen`), not a terminal emulator; ≤ ~10 fps; only while the tile is within 200 px of view (`src/components/Wall.tsx`, `src/terminal/screenView.ts`) [pitwall-term-view]
 - [ ] Screen view reproduces xterm DOM rendering: cell metrics, letter-spacing per glyph, 256-colour cube, truecolour, bold-as-bright, dim, inverse, italic, underline styles, strikethrough, hidden, wide/cluster cells, outline cursor (`src/terminal/screenView.ts`, `src/terminal/screenStyle.ts`) [pitwall-term-view]
@@ -274,7 +274,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Viewer side pane switch "Explorer" / "Search" (`src/components/explorer/Viewer.tsx`) [in-house: segmented control]
 - [ ] Viewer tabs of open files (icon, name, status colour, close button, middle-click closes, Enter/Space selects); kept per agent for the window session (`src/components/explorer/Viewer.tsx`) [in-house: tabs]
 - [x] File header: icon, base + dir, status letter, size, "Copy path" (absolute), "Show diff" (opens Review on the file) (`src/components/explorer/Viewer.tsx`) [in-house: tooltip]
-- [ ] Read-only editor (same setup as Review: highlighting, find, gutter) with reveal of a line/selection (`src/components/explorer/FileEditor.tsx`) [in-house: code/diff viewer]
+- [x] Read-only editor (same setup as Review: highlighting, find, gutter) with reveal of a line/selection (`src/components/explorer/FileEditor.tsx`) [in-house: code/diff viewer]
 - [x] Binary file: "Binary file · size · not shown"; over 2 MiB: "Large file · size · not opened" + "Load anyway" (≤ 10 MiB) (`src/components/explorer/Viewer.tsx`, `src/explorerApi.ts`)
 - [x] Quiet re-read on refresh/totals change; "Changed on disk since it was opened. Reload" banner (`src/components/explorer/Viewer.tsx`)
 - [x] Empty viewer: "Pick a file on the left" + "Go to file ⌘P" (`src/components/explorer/Viewer.tsx`)

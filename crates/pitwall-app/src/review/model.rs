@@ -102,15 +102,7 @@ pub fn file_status(f: &FileChange) -> FileStatus {
     })
 }
 
-pub fn status_letter(s: FileStatus) -> &'static str {
-    match s {
-        FileStatus::M => "M",
-        FileStatus::A => "A",
-        FileStatus::D => "D",
-        FileStatus::R => "R",
-        FileStatus::U => "U",
-    }
-}
+pub use crate::kit::status_letter_text as status_letter;
 
 pub fn status_title(s: FileStatus) -> &'static str {
     match s {

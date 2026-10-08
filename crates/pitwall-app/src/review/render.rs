@@ -11,14 +11,21 @@ use pitwall_proto::{AgentView, FileStatus};
 
 use super::comments::Comments;
 use super::model::{self, TreeRow, WtRef};
-use super::widgets::{self as w, Btn, ChipKind};
 use super::{
     Back, CancelComment, DiffState, NextFile, OpenFile, PreviousFile, RefreshChanges, ReviewView,
     Sel,
 };
+use crate::kit::{self, BtnKind, MONO_FONT};
 use crate::theme::{theme, Theme, RADIUS, RADIUS_LG, RADIUS_SM};
 
 const LIST_W: f32 = 300.;
+
+/// ⌘↵ / Ctrl+↵ (the text input's submit keys).
+pub(super) const SUBMIT_KEYS: &str = if cfg!(target_os = "macos") {
+    "⌘↵"
+} else {
+    "Ctrl+↵"
+};
 
 /// Every file row the list shows, in order: (owner key, path).
 pub(super) fn list_file_rows(v: &ReviewView, cx: &App) -> Vec<(String, String)> {
@@ -61,10 +68,11 @@ pub(super) fn list_file_rows(v: &ReviewView, cx: &App) -> Vec<(String, String)> 
 }
 
 fn hint(text: impl Into<SharedString>, t: &Theme) -> Div {
-    w::ui()
-        .text_size(px(12.))
-        .text_color(t.text_3)
-        .child(text.into())
+    kit::hint(text, t)
+}
+
+fn mono() -> Div {
+    div().font_family(MONO_FONT)
 }
 
 fn spacer() -> Div {
@@ -92,12 +100,7 @@ impl ReviewView {
                 .cursor_pointer()
                 .when(!first, |d| d.border_l_1().border_color(t.line_strong))
                 .when(on, |d| d.bg(t.surface_3))
-                .child(w::label_text(
-                    label,
-                    11.,
-                    FontWeight::SEMIBOLD,
-                    if on { t.text } else { t.text_3 },
-                ))
+                .child(kit::label_t(label, if on { t.text } else { t.text_3 }, 11., 0.08))
         };
         div()
             .h(px(32.))
@@ -109,7 +112,7 @@ impl ReviewView {
             .pr(px(8.))
             .border_b_1()
             .border_color(t.line)
-            .child(w::label("Review", t))
+            .child(kit::label("Review", t.text_3, 12.))
             .when(self.can_widen, |d| {
                 d.child(
                     div()
@@ -121,15 +124,12 @@ impl ReviewView {
                         .pb(px(2.))
                         .rounded(px(3.))
                         .bg(t.surface_3)
-                        .child(
-                            w::label_text(
-                                if all { "all projects" } else { &self.label },
-                                11.,
-                                FontWeight::SEMIBOLD,
-                                t.text_2,
-                            )
-                            .truncate(),
-                        ),
+                        .child(kit::label_fit(
+                            if all { "all projects".to_string() } else { kit::project_name(&self.label).to_string() },
+                            t.text_2,
+                            11.,
+                            26,
+                        )),
                 )
             })
             .child(
@@ -143,7 +143,7 @@ impl ReviewView {
             .child(spacer())
             .when(self.can_widen, |d| {
                 d.child(
-                    w::ui()
+                    div()
                         .id("rv-all")
                         .flex()
                         .flex_none()
@@ -152,7 +152,7 @@ impl ReviewView {
                         .text_size(px(12.))
                         .text_color(t.text_2)
                         .cursor_pointer()
-                        .child(w::checkbox(all, t.text_2, t))
+                        .child(kit::checkbox_box(all, false, 12., t))
                         .child("All projects")
                         .on_click(cx.listener(move |v, _, _, cx| v.set_all_projects(!all, cx))),
                 )
@@ -182,9 +182,9 @@ impl ReviewView {
                     ),
             )
             .child(
-                w::button("rv-back", Btn::Small, true, t)
+                kit::button("rv-back", BtnKind::Small, false, t)
                     .child("Back")
-                    .child(w::kbd("esc", t))
+                    .child(kit::kbd("esc", t))
                     .on_click(cx.listener(|v, _, _, cx| v.exit(cx))),
             )
     }
@@ -198,7 +198,6 @@ impl ReviewView {
         t: &Theme,
         on: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Div {
-        let group: &'static str = id;
         div()
             .flex()
             .flex_none()
@@ -207,7 +206,7 @@ impl ReviewView {
             .min_w_0()
             .when(show_note, |d| {
                 d.child(
-                    w::ui()
+                    div()
                         .text_size(px(11.))
                         .text_color(t.text_3)
                         .whitespace_nowrap()
@@ -215,14 +214,15 @@ impl ReviewView {
                 )
             })
             .child(
-                w::icon_button(id, true, t)
-                    .group(group)
-                    .when(self.refreshing, |d| d.opacity(0.6))
-                    .child(w::icon_hover("refresh", 13., t.text_3, t.text, group))
-                    .tooltip(move |_, cx| {
-                        crate::code_view::tooltip_view(&format!("Refresh ({})", w::keys("⌘⇧R")), cx)
-                    })
-                    .on_click(on),
+                kit::icon_btn(
+                    id,
+                    "refresh",
+                    format!("Refresh ({})", kit::keys("⌘⇧R", false)),
+                    true,
+                    t,
+                )
+                .when(self.refreshing, |d| d.opacity(0.6))
+                .on_click(on),
             )
     }
 
@@ -270,7 +270,11 @@ impl ReviewView {
                             .pr(px(10.))
                             .pb(px(2.))
                             .pl(px(12.))
-                            .child(w::label(&format!("Other worktrees · {}", g.display), t)),
+                            .child(kit::label(
+                                format!("Other worktrees · {}", kit::project_name(&g.display)),
+                                t.text_3,
+                                12.,
+                            )),
                     );
                 for r in &others {
                     o = o.child(self.worktree_section(r, list_focused, t, cx));
@@ -330,11 +334,7 @@ impl ReviewView {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .child(w::icon(
-                if open { "chevron-down" } else { "chevron" },
-                size,
-                t.text_4,
-            ))
+            .child(kit::chevron(open, size, t.text_4))
     }
 
     fn agent_section(
@@ -392,25 +392,20 @@ impl ReviewView {
                     .hover(|s| s.bg(t.surface_3))
                     .tooltip({
                         let tip = format!("{} · {}", a.name, a.cwd_display);
-                        move |_, cx| crate::code_view::tooltip_view(&tip, cx)
+                        move |_, cx| kit::tooltip_view(tip.clone(), cx)
                     })
                     .on_click(cx.listener({
                         let id = id.clone();
                         move |v, _, _, cx| v.show_agent(&id, cx)
                     }))
-                    .child(w::glyph_sm(a.status, t))
+                    .child(kit::glyph(a.status, t, true))
                     .child(
-                        w::label_text(
-                            &a.name,
-                            13.,
-                            FontWeight::BOLD,
-                            if current { t.text } else { t.text_2 },
-                        )
-                        .flex_none(),
+                        kit::label_t(a.name.clone(), if current { t.text } else { t.text_2 }, 13., 0.1)
+                            .font_weight(FontWeight::BOLD),
                     )
                     .when_some(a.branch.clone(), |d, b| {
                         d.child(
-                            w::mono()
+                            mono()
                                 .min_w_0()
                                 .truncate()
                                 .text_size(px(10.5))
@@ -420,17 +415,17 @@ impl ReviewView {
                     }),
             )
             .when(list.is_some_and(|l| !l.is_empty()), |d| {
-                d.child(w::diffstat(added, removed, t))
+                d.child(kit::diffstat(added, removed, t))
             });
         let mut body = div().flex().flex_col();
         if open {
             if scoped {
-                body = body.child(div().ml(px(34.)).mb(px(2.)).child(w::label_text(
-                    "this task only",
-                    10.5,
-                    FontWeight::SEMIBOLD,
-                    t.text_3,
-                )));
+                body = body.child(
+                    div()
+                        .ml(px(34.))
+                        .mb(px(2.))
+                        .child(kit::label_t("this task only", t.text_3, 10.5, 0.1)),
+                );
             }
             if let Some(e) = err {
                 let id = id.clone();
@@ -524,18 +519,18 @@ impl ReviewView {
                                     .cursor_pointer()
                                     .hover(|s| s.bg(t.surface_3))
                                     .tooltip(|_, cx| {
-                                        crate::code_view::tooltip_view("Show in diff", cx)
+                                        kit::tooltip_view("Show in diff".to_string(), cx)
                                     })
                                     .on_click(cx.listener(move |v, _, window, cx| {
                                         v.reveal_comment(&agent, &c2, window, cx)
                                     }))
                                     .child(
-                                        w::mono().text_size(px(10.5)).text_color(t.text_3).child(
+                                        mono().text_size(px(10.5)).text_color(t.text_3).child(
                                             format!("{}:{}", model::split_path(&c.path).1, c.line),
                                         ),
                                     )
                                     .child(
-                                        w::ui()
+                                        div()
                                             .text_size(px(12.))
                                             .text_color(t.text_2)
                                             .truncate()
@@ -543,15 +538,13 @@ impl ReviewView {
                                     ),
                             )
                             .child(
-                                w::icon_button(
+                                kit::icon_btn(
                                     SharedString::from(format!("rv-cx-{}", c.id)),
+                                    "x",
+                                    "Delete comment",
                                     true,
                                     t,
                                 )
-                                .child("✕")
-                                .tooltip(|_, cx| {
-                                    crate::code_view::tooltip_view("Delete comment", cx)
-                                })
                                 .on_click(cx.listener(
                                     move |_, _, _, cx| Comments::remove(cx, &agent2, cid),
                                 )),
@@ -591,7 +584,7 @@ impl ReviewView {
         retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Div {
         let first: String = e.lines().next().unwrap_or("").chars().take(160).collect();
-        w::ui()
+        div()
             .flex()
             .items_center()
             .gap(px(8.))
@@ -640,7 +633,7 @@ impl ReviewView {
                 } => {
                     let key = format!("{owner}\u{1}{path}");
                     out = out.child(
-                        w::mono()
+                        mono()
                             .id(SharedString::from(format!("rv-d-{key}")))
                             .flex()
                             .items_center()
@@ -656,7 +649,7 @@ impl ReviewView {
                             .hover(|s| s.bg(t.surface_3))
                             .tooltip({
                                 let p = path.clone();
-                                move |_, cx| crate::code_view::tooltip_view(&p, cx)
+                                move |_, cx| kit::tooltip_view(p.clone(), cx)
                             })
                             .on_click(cx.listener(move |v, _, _, cx| {
                                 if !v.closed_dirs.remove(&key) {
@@ -664,12 +657,13 @@ impl ReviewView {
                                 }
                                 cx.notify();
                             }))
-                            .child(div().w(px(10.)).flex_none().child(w::icon(
-                                if open { "chevron-down" } else { "chevron" },
-                                10.,
-                                t.text_4,
-                            )))
-                            .child(w::folder_icon(&path, open))
+                            .child(
+                                div()
+                                    .w(px(10.))
+                                    .flex_none()
+                                    .child(kit::chevron(open, 10., t.text_4)),
+                            )
+                            .child(kit::folder_icon(&path, open, 16.))
                             .child(
                                 div()
                                     .flex_1()
@@ -696,7 +690,7 @@ impl ReviewView {
                     let n = counts.get(&path).copied().unwrap_or(0);
                     let (o, p) = (owner.to_string(), path.clone());
                     out = out.child(
-                        w::mono()
+                        mono()
                             .id(SharedString::from(format!("rv-f-{owner}\u{1}{path}")))
                             .relative()
                             .flex()
@@ -715,7 +709,7 @@ impl ReviewView {
                             .when(is_cursor, |d| d.border_1().border_color(t.focus))
                             .tooltip({
                                 let p = path.clone();
-                                move |_, cx| crate::code_view::tooltip_view(&p, cx)
+                                move |_, cx| kit::tooltip_view(p.clone(), cx)
                             })
                             .on_click(cx.listener(move |v, _, window, cx| {
                                 v.select_file(&o, &p, window, cx)
@@ -732,7 +726,7 @@ impl ReviewView {
                                 )
                             })
                             .child(div().w(px(10.)).flex_none())
-                            .child(w::file_icon(&path).mr(px(-2.)))
+                            .child(kit::file_icon(&path, 16.).mr(px(-2.)))
                             .child(
                                 div()
                                     .flex_1()
@@ -743,7 +737,7 @@ impl ReviewView {
                                     .when(status == FileStatus::D, |d| d.line_through())
                                     .child(name),
                             )
-                            .when(n > 0, |d| d.child(ccount(n, t)))
+                            .when(n > 0, |d| d.child(kit::count_badge(n, t)))
                             .child(
                                 div()
                                     .flex()
@@ -752,11 +746,11 @@ impl ReviewView {
                                     .gap(px(8.))
                                     .ml_auto()
                                     .child(if file.binary {
-                                        w::chip("bin", ChipKind::Subtle, t)
+                                        kit::chip_subtle("bin", t)
                                     } else {
-                                        w::diffstat_inline(file.added, file.removed, t)
+                                        kit::diffstat_inline(file.added, file.removed, t)
                                     })
-                                    .child(w::status_letter(status, t)),
+                                    .child(kit::status_letter(status, t)),
                             ),
                     );
                 }
@@ -818,23 +812,18 @@ impl ReviewView {
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
                     .hover(|s| s.bg(t.surface_3))
-                    .tooltip(move |_, cx| crate::code_view::tooltip_view(&tip, cx))
+                    .tooltip(move |_, cx| kit::tooltip_view(tip.clone(), cx))
                     .on_click(cx.listener({
                         let key = key.clone();
                         move |v, _, _, cx| v.show_worktree(&key, cx)
                     }))
-                    .child(w::icon("branch", 12., t.text_3))
+                    .child(kit::icon("branch", 12., t.text_3))
                     .child(
-                        w::label_text(
-                            &wt.name,
-                            13.,
-                            FontWeight::BOLD,
-                            if current { t.text } else { t.text_2 },
-                        )
-                        .flex_none(),
+                        kit::label_t(wt.name.clone(), if current { t.text } else { t.text_2 }, 13., 0.1)
+                            .font_weight(FontWeight::BOLD),
                     )
                     .child(
-                        w::mono()
+                        mono()
                             .min_w_0()
                             .truncate()
                             .text_size(px(10.5))
@@ -842,11 +831,11 @@ impl ReviewView {
                             .child(wt.branch.clone().unwrap_or_else(|| "detached".into())),
                     )
                     .when(wt.locked, |d| {
-                        d.child(w::chip("locked", ChipKind::Warn, t).ml(px(4.)))
+                        d.child(kit::chip_tone("locked", kit::Tone::Warn, t).ml(px(4.)))
                     }),
             )
             .when(ok.is_some_and(|l| !l.is_empty()), |d| {
-                d.child(w::diffstat(added, removed, t))
+                d.child(kit::diffstat(added, removed, t))
             })
             .when(open, |d| {
                 let key = key.clone();
@@ -929,9 +918,9 @@ impl ReviewView {
             .items_center()
             .gap(px(10.))
             .min_w_0()
-            .child(w::file_icon(&f.path))
+            .child(kit::file_icon(&f.path, 16.))
             .child(
-                w::mono()
+                mono()
                     .min_w_0()
                     .truncate()
                     .text_size(px(12.))
@@ -945,11 +934,11 @@ impl ReviewView {
                     )
                     .child(div().text_color(t.text_3).truncate().child(dir)),
             )
-            .child(w::status_letter(model::file_status(f), t))
+            .child(kit::status_letter(model::file_status(f), t))
             .child(if f.binary {
-                w::chip("bin", ChipKind::Subtle, t)
+                kit::chip_subtle("bin", t)
             } else {
-                w::diffstat(f.added, f.removed, t)
+                kit::diffstat(f.added, f.removed, t)
             })
     }
 
@@ -971,7 +960,7 @@ impl ReviewView {
             .flex()
             .items_center()
             .justify_center()
-            .child(w::label_text(text, 13., FontWeight::NORMAL, t.text_4))
+            .child(kit::label_t(text.to_string(), t.text_4, 13., 0.12).font_weight(FontWeight::NORMAL))
     }
 
     fn diff_area(
@@ -979,7 +968,6 @@ impl ReviewView {
         empty_text: &str,
         has_file: bool,
         t: &Theme,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let colors_bg = t.term_bg;
@@ -995,7 +983,7 @@ impl ReviewView {
         }
         area = match &self.diff {
             DiffState::Error(e) => area.child(
-                w::ui()
+                div()
                     .p(px(16.))
                     .text_size(px(12.))
                     .text_color(t.red)
@@ -1010,7 +998,6 @@ impl ReviewView {
         };
         if let Some(c) = self.composer.as_ref() {
             let field = c.field.clone();
-            let focused = c.field.read(cx).is_focused(window);
             area = area.child(
                 div()
                     .absolute()
@@ -1021,7 +1008,7 @@ impl ReviewView {
                     .justify_center()
                     .px(px(14.))
                     .child(
-                        w::ui()
+                        div()
                             .id("rv-composer")
                             .key_context("RvComposer")
                             .on_action(cx.listener(|v, _: &CancelComment, window, cx| {
@@ -1048,9 +1035,9 @@ impl ReviewView {
                                     .flex()
                                     .items_center()
                                     .gap(px(8.))
-                                    .child(w::label("Comment", t))
+                                    .child(kit::label("Comment", t.text_3, 12.))
                                     .child(
-                                        w::mono()
+                                        mono()
                                             .min_w_0()
                                             .truncate()
                                             .text_size(px(11.5))
@@ -1059,38 +1046,25 @@ impl ReviewView {
                                     )
                                     .child(spacer())
                                     .child(
-                                        w::icon_button("rv-comp-x", true, t).child("✕").on_click(
-                                            cx.listener(|v, _, _, cx| {
+                                        kit::icon_btn("rv-comp-x", "x", "Close (esc)", true, t)
+                                            .on_click(cx.listener(|v, _, _, cx| {
                                                 v.composer = None;
                                                 cx.notify();
-                                            }),
-                                        ),
+                                            })),
                                     ),
                             )
-                            .child(
-                                div()
-                                    .w_full()
-                                    .bg(t.bg)
-                                    .border_1()
-                                    .border_color(if focused { t.text_3 } else { t.line_strong })
-                                    .rounded(RADIUS)
-                                    .px(px(9.))
-                                    .py(px(7.))
-                                    .text_size(px(13.))
-                                    .line_height(px(19.))
-                                    .child(field),
-                            )
+                            .child(field)
                             .child(
                                 div()
                                     .flex()
                                     .items_center()
                                     .gap(px(8.))
                                     .child(hint("Collected, not sent.", t))
-                                    .child(w::kbd(&w::keys("⌘↵"), t))
+                                    .child(kit::kbd(SUBMIT_KEYS, t))
                                     .child(hint("to add", t))
                                     .child(spacer())
                                     .child(
-                                        w::button("rv-comp-cancel", Btn::Ghost, true, t)
+                                        kit::button("rv-comp-cancel", BtnKind::Ghost, false, t)
                                             .child("Cancel")
                                             .on_click(cx.listener(|v, _, _, cx| {
                                                 v.composer = None;
@@ -1099,7 +1073,7 @@ impl ReviewView {
                                     )
                                     .child({
                                         let can = !c.field.read(cx).text().trim().is_empty();
-                                        w::button("rv-comp-add", Btn::Primary, can, t)
+                                        kit::button("rv-comp-add", BtnKind::Primary, !can, t)
                                             .child("Add comment")
                                             .when(can, |d| {
                                                 d.on_click(cx.listener(|v, _, window, cx| {
@@ -1136,7 +1110,7 @@ impl ReviewView {
                 .unwrap_or_default(),
         };
         let open = self.task_menu;
-        let mut sel = w::ui()
+        let mut sel = div()
             .id("rv-scope")
             .relative()
             .flex()
@@ -1155,20 +1129,17 @@ impl ReviewView {
             .text_size(px(12.))
             .cursor_pointer()
             .tooltip(|_, cx| {
-                crate::code_view::tooltip_view(
-                    "Everything since the agent started (committed or not), or one task (prompt). The Changes panel shows only uncommitted work, like git status.",
-                    cx,
-                )
+                kit::tooltip_view("Everything since the agent started (committed or not), or one task (prompt). The Changes panel shows only uncommitted work, like git status.".to_string(), cx)
             })
             .on_click(cx.listener(|v, _, _, cx| {
                 v.task_menu = !v.task_menu;
                 cx.notify();
             }))
             .child(div().flex_1().min_w_0().truncate().child(current))
-            .child(w::icon("chevron-down", 12., t.text_3));
+            .child(kit::icon("chevron-down", 12., t.text_3));
         if open {
             let id = a.id.clone();
-            let mut menu = w::ui()
+            let mut menu = div()
                 .id("rv-scope-menu")
                 .occlude()
                 .min_w(px(260.))
@@ -1251,7 +1222,6 @@ impl ReviewView {
         &self,
         a: &AgentView,
         t: &Theme,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (_, file, task) = self.agent_sel().expect("agent selected");
@@ -1286,7 +1256,7 @@ impl ReviewView {
             )
             .when_some(prompt, |d, p| {
                 d.child(
-                    w::ui()
+                    div()
                         .id("rv-task-prompt")
                         .flex_none()
                         .max_h(px(64.))
@@ -1300,12 +1270,12 @@ impl ReviewView {
                         .text_size(px(12.))
                         .text_color(t.text_2)
                         .tooltip(|_, cx| {
-                            crate::code_view::tooltip_view("The prompt of this task, as sent", cx)
+                            kit::tooltip_view("The prompt of this task, as sent".to_string(), cx)
                         })
                         .child(p),
                 )
             })
-            .child(self.diff_area(empty, file.is_some(), t, window, cx))
+            .child(self.diff_area(empty, file.is_some(), t, cx))
             .child(self.footer_agent(a, file.is_some(), comments.len(), t, cx))
     }
 
@@ -1325,7 +1295,7 @@ impl ReviewView {
 
     fn notice(&self, t: &Theme) -> Option<Div> {
         self.notice.as_ref().map(|n| {
-            w::ui()
+            div()
                 .min_w_0()
                 .truncate()
                 .text_size(px(12.))
@@ -1343,35 +1313,32 @@ impl ReviewView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         self.footer_base(t)
-            .child(w::glyph_sm(a.status, t))
-            .child(w::label_text(&a.name, 13., FontWeight::BOLD, t.text))
+            .child(kit::glyph(a.status, t, true))
+            .child(kit::label_t(a.name.clone(), t.text, 13., 0.1).font_weight(FontWeight::BOLD))
             .children(self.notice(t))
             .child(spacer())
             .child(
-                w::button("rv-discard", Btn::Ghost, has_file, t)
+                kit::button("rv-discard", BtnKind::Ghost, !has_file, t)
                     .child("Discard file")
                     .tooltip(|_, cx| {
-                        crate::code_view::tooltip_view(
-                            "Restore this file from where the agent started",
-                            cx,
-                        )
+                        kit::tooltip_view("Restore this file from where the agent started".to_string(), cx)
                     })
                     .when(has_file, |d| {
                         d.on_click(cx.listener(|v, _, window, cx| v.open_discard(window, cx)))
                     }),
             )
             .child(
-                w::button("rv-send", Btn::Ghost, n_comments > 0, t)
+                kit::button("rv-send", BtnKind::Ghost, n_comments == 0, t)
                     .child("Send comments")
                     .when(n_comments > 0, |d| {
-                        d.child(ccount(n_comments, t).ml(px(2.)))
+                        d.child(kit::count_badge(n_comments, t).ml(px(2.)))
                     })
                     .when(n_comments > 0, |d| {
                         d.on_click(cx.listener(|v, _, window, cx| v.open_send(window, cx)))
                     }),
             )
             .child(
-                w::button("rv-commit", Btn::Primary, true, t)
+                kit::button("rv-commit", BtnKind::Primary, false, t)
                     .child(if a.worktree {
                         "Commit & merge"
                     } else {
@@ -1385,7 +1352,6 @@ impl ReviewView {
         &self,
         r: &WtRef,
         t: &Theme,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (_, file) = self.wt_sel().expect("worktree selected");
@@ -1410,7 +1376,7 @@ impl ReviewView {
                     .border_b_1()
                     .border_color(t.line)
                     .child(
-                        w::ui()
+                        div()
                             .id("rv-wt-scope")
                             .flex()
                             .flex_none()
@@ -1421,9 +1387,9 @@ impl ReviewView {
                             .whitespace_nowrap()
                             .text_size(px(12.))
                             .text_color(t.text_2)
-                            .tooltip(move |_, cx| crate::code_view::tooltip_view(&tip, cx))
+                            .tooltip(move |_, cx| kit::tooltip_view(tip.clone(), cx))
                             .child("Worktree")
-                            .child(w::mono().child(wt.name.clone()))
+                            .child(mono().child(wt.name.clone()))
                             .child(format!(
                                 "· {} · against {}",
                                 wt.branch.clone().unwrap_or_else(|| "detached".into()),
@@ -1432,19 +1398,19 @@ impl ReviewView {
                     )
                     .when_some(file.as_ref(), |d, f| d.child(Self::file_head(f, t))),
             )
-            .child(self.diff_area(empty, file.is_some(), t, window, cx))
+            .child(self.diff_area(empty, file.is_some(), t, cx))
             .child(
                 self.footer_base(t)
-                    .child(w::icon("branch", 12., t.text_2))
-                    .child(w::label_text(&wt.name, 13., FontWeight::BOLD, t.text))
+                    .child(kit::icon("branch", 12., t.text_2))
+                    .child(kit::label_t(wt.name.clone(), t.text, 13., 0.1).font_weight(FontWeight::BOLD))
                     .when(wt.locked, |d| {
                         let why = wt.lock_reason.clone().unwrap_or_default();
                         d.child(
                             div()
                                 .id("rv-wt-locked")
-                                .child(w::chip("locked", ChipKind::Warn, t))
+                                .child(kit::chip_tone("locked", kit::Tone::Warn, t))
                                 .when(!why.is_empty(), |d| {
-                                    d.tooltip(move |_, cx| crate::code_view::tooltip_view(&why, cx))
+                                    d.tooltip(move |_, cx| kit::tooltip_view(why.clone(), cx))
                                 }),
                         )
                     })
@@ -1452,10 +1418,10 @@ impl ReviewView {
                     .child(spacer())
                     .when(wt.caps.terminal, |d| {
                         d.child(
-                            w::button("rv-wt-term", Btn::Ghost, true, t)
+                            kit::button("rv-wt-term", BtnKind::Ghost, false, t)
                                 .child("Open terminal")
                                 .tooltip(|_, cx| {
-                                    crate::code_view::tooltip_view("A shell in this worktree", cx)
+                                    kit::tooltip_view("A shell in this worktree".to_string(), cx)
                                 })
                                 .on_click(cx.listener(move |_, _, _, cx| {
                                     cx.emit(super::ReviewEvent::OpenTerminal(path.clone()))
@@ -1464,13 +1430,10 @@ impl ReviewView {
                     })
                     .when(wt.caps.remove, |d| {
                         d.child(
-                            w::button("rv-wt-remove", Btn::Ghost, true, t)
+                            kit::button("rv-wt-remove", BtnKind::Ghost, false, t)
                                 .child("Remove worktree…")
                                 .tooltip(|_, cx| {
-                                    crate::code_view::tooltip_view(
-                                        "git worktree remove (asks first)",
-                                        cx,
-                                    )
+                                    kit::tooltip_view("git worktree remove (asks first)".to_string(), cx)
                                 })
                                 .on_click(
                                     cx.listener(|v, _, window, cx| v.open_remove(window, cx)),
@@ -1479,7 +1442,7 @@ impl ReviewView {
                     })
                     .when(wt.caps.commit, |d| {
                         d.child(
-                            w::button("rv-wt-commit", Btn::Primary, true, t)
+                            kit::button("rv-wt-commit", BtnKind::Primary, false, t)
                                 .child(if wt.caps.merge {
                                     "Commit & merge"
                                 } else {
@@ -1494,35 +1457,15 @@ impl ReviewView {
     }
 }
 
-/// `.rv-ccount`: a small count badge.
-fn ccount(n: usize, t: &Theme) -> Div {
-    w::mono()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .min_w(px(16.))
-        .h(px(16.))
-        .px(px(4.))
-        .rounded(px(8.))
-        .text_size(px(10.))
-        .text_color(t.text)
-        .bg(t.surface_3)
-        .border_1()
-        .border_color(t.line_strong)
-        .child(n.to_string())
-}
-
 impl Render for ReviewView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        crate::code_view::style::families(cx);
         self.take_pending_conflict(window, cx);
         let t = theme(cx).clone();
         let main: AnyElement = if let Some((r, _)) = self.wt_sel() {
-            self.worktree_main(&r, &t, window, cx).into_any_element()
+            self.worktree_main(&r, &t, cx).into_any_element()
         } else if let Some((a, _, _)) = self.agent_sel() {
             let a = a.clone();
-            self.agent_main(&a, &t, window, cx).into_any_element()
+            self.agent_main(&a, &t, cx).into_any_element()
         } else {
             Self::empty(
                 if self.ordered.is_empty() {
@@ -1538,9 +1481,10 @@ impl Render for ReviewView {
             .dialog
             .is_some()
             .then(|| self.render_dialog(&t, window, cx));
-        w::ui()
+        div()
             .id("review")
             .key_context("Review")
+            .font_family(kit::UI_FONT)
             .track_focus(&self.focus)
             .on_action(cx.listener(|v, _: &Back, _, cx| {
                 if v.dialog.is_none() && v.composer.is_none() && !v.task_menu {

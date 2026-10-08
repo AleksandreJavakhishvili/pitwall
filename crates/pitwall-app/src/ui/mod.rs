@@ -32,6 +32,8 @@ pub struct MainView {
     save_bounds: Option<Task<()>>,
     /// The main screen (`crate::main_screen`) when the engine is hosted.
     pub screen: Option<Entity<crate::main_screen::MainScreen>>,
+    /// Its Review route (opened on a file or worktree from elsewhere).
+    pub review: Option<Entity<crate::review::ReviewRoute>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -84,8 +86,12 @@ impl MainView {
             }
             Content::Refused(_) => None,
         };
-        if let (Some(screen), Some(e)) = (&screen, &explorer) {
-            subs.extend(explorer_seams(screen, e, window, cx));
+        let review = screen.as_ref().map(|s| crate::review::mount(s, window, cx));
+        if let Some(s) = &screen {
+            crate::wall::mount(s, cx);
+        }
+        if let (Some(screen), Some(e), Some(r)) = (&screen, &explorer, &review) {
+            subs.extend(explorer_seams(screen, e, r, window, cx));
         }
         MainView {
             content,
@@ -95,6 +101,7 @@ impl MainView {
             root,
             save_bounds: None,
             screen,
+            review,
             _subscriptions: subs,
         }
     }
@@ -194,6 +201,7 @@ impl Render for ExplorerRoute {
 fn explorer_seams(
     screen: &Entity<crate::main_screen::MainScreen>,
     explorer: &Entity<crate::explorer::Explorer>,
+    review: &Entity<crate::review::ReviewRoute>,
     window: &mut Window,
     cx: &mut Context<MainView>,
 ) -> Vec<Subscription> {
@@ -220,13 +228,14 @@ fn explorer_seams(
     });
     let (s1, s2) = (screen.clone(), screen.clone());
     let e1 = explorer.clone();
+    let review = review.clone();
     vec![
         // The focused pane's agent is the explorer's.
         cx.observe(screen, move |_, screen, cx| {
             let id = screen.read(cx).focused_agent_id();
             e1.update(cx, |e, cx| e.set_agent(id, cx));
         }),
-        cx.subscribe_in(explorer, window, move |_, e, ev: &ExplorerEvent, _, cx| {
+        cx.subscribe_in(explorer, window, move |_, e, ev: &ExplorerEvent, window, cx| {
             let open = e.read(cx).viewer_open();
             match ev {
                 ExplorerEvent::ViewerToggled => s1.update(cx, |s, cx| {
@@ -236,9 +245,13 @@ fn explorer_seams(
                         s.set_route(Route::Space, cx);
                     }
                 }),
-                // Review's seam: it opens on the agent (the diff of `path`
-                // once Review is merged).
-                ExplorerEvent::ShowDiff { .. } => {
+                // Review on that file's diff.
+                ExplorerEvent::ShowDiff { agent_id, path } => {
+                    let focus = crate::review::Focus::Agent {
+                        id: agent_id.clone(),
+                        path: Some(path.clone()),
+                    };
+                    review.update(cx, |r, cx| r.open_at(Some(focus), window, cx));
                     s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
                 }
             }

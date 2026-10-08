@@ -19,6 +19,8 @@
 pub mod button;
 pub mod chip;
 pub mod controls;
+pub mod dialog;
+pub mod edit;
 pub mod file_icons;
 pub mod fonts;
 pub mod glass;
@@ -27,6 +29,7 @@ pub mod icons;
 pub mod input;
 pub mod menu;
 pub mod modal;
+pub mod scm;
 pub mod status;
 pub mod text;
 pub mod tooltip;
@@ -45,9 +48,10 @@ pub use fonts::{LABEL_FONT, MONO_FONT, UI_FONT};
 pub use hover::HoverText;
 pub use glass::{chrome_panel, glass_region, region_sweeper, PANEL_RADIUS};
 pub use icons::{chevron, icon, Assets};
-pub use input::{InputEvent, TextInput};
+pub use input::{InputEvent, TextFieldEvent, TextInput};
 pub use menu::{menu_item, menu_panel};
 pub use modal::Modal;
+pub use scm::{count_badge, diffstat_inline, status_letter, status_letter_text};
 pub use status::{diffstat, glyph, status_glyph_el, status_label, word_color, GlyphSize};
 pub use text::{
     error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,

@@ -1,21 +1,12 @@
-//! The seam where a file's text is drawn: [`code_view`]. A minimal
-//! read-only plain-text viewer (line numbers, the target line marked and
-//! scrolled into view, the match on it highlighted, horizontal scroll). The
-//! Review screen's viewer (`src/code_view/` on its branch: highlighting,
-//! find, …) replaces the body of this one function at merge time; the
-//! explorer calls nothing else.
+//! The seam where a file's text is drawn: [`code_view`], Review's
+//! read-only [`CodeView`] (`crate::code_view`): syntax highlighting, bracket
+//! colours, indent guides, selection and copy, Find (⌘F), the target line
+//! revealed with a search hit selected. One view per open file, so each tab
+//! keeps its scroll position and selection.
 
-use std::ops::Range;
-use std::sync::Arc;
+use gpui::{div, prelude::*, AnyElement, App, AppContext, ElementId, Entity, SharedString, Window};
 
-use gpui::{
-    div, prelude::*, px, uniform_list, AnyElement, App, ElementId, HighlightStyle,
-    ListHorizontalSizingBehavior, ScrollStrategy, SharedString, StyledText,
-    UniformListScrollHandle, Window,
-};
-
-use crate::kit::MONO_FONT;
-use crate::theme;
+use crate::code_view::{CodeView, Side};
 
 /// Where to bring the reader: a line (1-based) and, for a search hit, the
 /// match's `char` columns on it (0-based, end exclusive). A new `nonce`
@@ -27,79 +18,26 @@ pub struct Target {
     pub nonce: u64,
 }
 
-const ROW_H: f32 = 19.;
-const TAB: &str = "    ";
-/// Longest part of a line drawn (a minified file's one line can be MBs).
-const MAX_COLS: usize = 4_000;
-
 /// What the viewer keeps for one file between frames.
 struct ViewState {
+    code: Entity<CodeView>,
+    /// The text shown (by identity: the viewer shares one `SharedString`
+    /// per read).
     text_id: (usize, usize),
-    lines: Arc<Vec<Range<usize>>>,
-    longest: usize,
-    scroll: UniformListScrollHandle,
     shown_nonce: Option<u64>,
 }
 
-/// Line ranges (without `\n`/`\r\n`) and the longest line's index.
-pub fn index_lines(text: &str) -> (Vec<Range<usize>>, usize) {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    for (i, b) in text.bytes().enumerate() {
-        if b == b'\n' {
-            let end = if i > start && text.as_bytes()[i - 1] == b'\r' {
-                i - 1
-            } else {
-                i
-            };
-            lines.push(start..end);
-            start = i + 1;
-        }
-    }
-    lines.push(start..text.len());
-    let longest = lines
-        .iter()
-        .enumerate()
-        .max_by_key(|(_, r)| text[r.start..r.end].chars().count())
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    (lines, longest)
+/// The byte range of `char` columns `cols` on `line` (1-based) of `text`.
+pub fn byte_cols(text: &str, line: u32, cols: (usize, usize)) -> Option<std::ops::Range<usize>> {
+    let l = text.split('\n').nth(line.max(1) as usize - 1)?;
+    let l = l.strip_suffix('\r').unwrap_or(l);
+    let at = |c: usize| l.char_indices().nth(c).map_or(l.len(), |(i, _)| i);
+    let (a, b) = (at(cols.0), at(cols.1));
+    (a < b).then_some(a..b)
 }
 
-/// A line as drawn (tabs as spaces, cut when very long) and the byte range
-/// in it of `char` columns `cols`.
-pub fn display_line(line: &str, cols: Option<(usize, usize)>) -> (String, Option<Range<usize>>) {
-    let mut out = String::with_capacity(line.len());
-    let (mut from, mut to) = (None, None);
-    for (ci, c) in line.chars().enumerate() {
-        if ci >= MAX_COLS {
-            out.push('…');
-            break;
-        }
-        if let Some((a, b)) = cols {
-            if ci == a {
-                from = Some(out.len());
-            }
-            if ci == b {
-                to = Some(out.len());
-            }
-        }
-        if c == '\t' {
-            out.push_str(TAB);
-        } else {
-            out.push(c);
-        }
-    }
-    let to = to.or(from.map(|_| out.len()));
-    let hit = match (from, to) {
-        (Some(f), Some(t)) if f < t => Some(f..t),
-        _ => None,
-    };
-    (out, hit)
-}
-
-/// One file's text, read-only: `path` names it (and keys its scroll
-/// position), `text` is the whole file, `target` the line to show.
+/// One file's text, read-only: `path` names it (and keys its view),
+/// `text` is the whole file, `target` the line to show.
 pub fn code_view(
     path: &str,
     text: &SharedString,
@@ -107,102 +45,44 @@ pub fn code_view(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let t = theme::theme(cx).clone();
     let id = (text.as_ptr() as usize, text.len());
     let state = window.use_keyed_state(
         ElementId::Name(format!("ex-code:{path}").into()),
         cx,
-        |_, _| ViewState {
+        |_, cx| ViewState {
+            code: cx.new(CodeView::new),
             text_id: (0, usize::MAX),
-            lines: Arc::default(),
-            longest: 0,
-            scroll: UniformListScrollHandle::new(),
             shown_nonce: None,
         },
     );
-    let (lines, longest, scroll) = state.update(cx, |s, _| {
-        if s.text_id != id {
-            let (lines, longest) = index_lines(text);
-            s.lines = Arc::new(lines);
-            s.longest = longest;
-            s.text_id = id;
+    let (code, load, reveal) = state.update(cx, |s, _| {
+        let load = s.text_id != id;
+        s.text_id = id;
+        let reveal = target.filter(|tg| s.shown_nonce != Some(tg.nonce)).cloned();
+        if let Some(tg) = &reveal {
+            s.shown_nonce = Some(tg.nonce);
         }
-        if let Some(tg) = target {
-            if s.shown_nonce != Some(tg.nonce) {
-                s.shown_nonce = Some(tg.nonce);
-                let ix = (tg.line.max(1) as usize - 1).min(s.lines.len().saturating_sub(1));
-                s.scroll.scroll_to_item(ix, ScrollStrategy::Center);
-            }
-        }
-        (s.lines.clone(), s.longest, s.scroll.clone())
+        (s.code.clone(), load, reveal)
     });
-    let digits = lines.len().to_string().len().max(3);
-    let gutter = px(digits as f32 * 7.4 + 22.);
-    let text = text.clone();
-    let target = target.cloned();
-    let count = lines.len();
-    let list = uniform_list("ex-code-lines", count, move |range, _, cx| {
-        let t = theme::theme(cx);
-        range
-            .map(|ix| {
-                let line_no = ix + 1;
-                let is_target = target
-                    .as_ref()
-                    .is_some_and(|tg| tg.line as usize == line_no);
-                let cols = target.as_ref().filter(|_| is_target).and_then(|tg| tg.cols);
-                let (shown, hit) = display_line(&text[lines[ix].clone()], cols);
-                let styled = StyledText::new(shown).with_highlights(hit.map(|h| {
-                    (
-                        h,
-                        HighlightStyle {
-                            background_color: Some(t.amber_soft),
-                            color: Some(t.text),
-                            ..Default::default()
-                        },
-                    )
-                }));
-                div()
-                    .id(ix)
-                    .w_full()
-                    .h(px(ROW_H))
-                    .flex()
-                    .items_center()
-                    .when(is_target, |d| d.bg(t.surface_3))
-                    .child(
-                        div()
-                            .w(gutter)
-                            .flex_none()
-                            .pr(px(14.))
-                            .flex()
-                            .justify_end()
-                            .text_color(if is_target { t.text_2 } else { t.text_4 })
-                            .child(SharedString::from(line_no.to_string())),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .pr(px(24.))
-                            .whitespace_nowrap()
-                            .text_color(t.text)
-                            .child(styled),
-                    )
-            })
-            .collect()
-    })
-    .track_scroll(scroll)
-    .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
-    .with_width_from_item(Some(longest))
-    .size_full();
+    if load || reveal.is_some() {
+        let (path, text) = (path.to_string(), text.clone());
+        code.update(cx, |c, cx| {
+            if load {
+                c.set_file(&path, text.to_string(), cx);
+            }
+            if let Some(tg) = reveal {
+                let cols = tg.cols.and_then(|cols| byte_cols(&text, tg.line, cols));
+                c.reveal(Side::New, tg.line.max(1) as usize - 1, cols, cx);
+            }
+        });
+    }
     div()
         .id("ex-code")
         .size_full()
         .min_h_0()
-        .bg(t.term_bg)
-        .font_family(MONO_FONT)
-        .text_size(px(12.5))
-        .line_height(px(ROW_H))
-        .pt(px(4.))
-        .child(list)
+        .flex()
+        .flex_col()
+        .child(code)
         .into_any_element()
 }
 
@@ -211,35 +91,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lines_keep_crlf_out_and_find_the_longest() {
-        let (lines, longest) = index_lines("a\r\nbbb\n\ncc");
-        let text = "a\r\nbbb\n\ncc";
-        let got: Vec<&str> = lines.iter().map(|r| &text[r.clone()]).collect();
-        assert_eq!(got, ["a", "bbb", "", "cc"]);
-        assert_eq!(longest, 1);
-        assert_eq!(index_lines("").0.len(), 1);
-        assert_eq!(index_lines("x\n").0.len(), 2);
-    }
-
-    #[test]
-    fn display_lines_expand_tabs_and_mark_char_columns() {
-        let (s, hit) = display_line("\tfoo(bar)", Some((5, 8)));
-        assert_eq!(s, "    foo(bar)");
-        assert_eq!(&s[hit.unwrap()], "bar");
+    fn search_hits_become_byte_ranges() {
+        let text = "a\r\n\tfoo(bar)\nlet სახელი = 1;\nx = ბოლო";
+        assert_eq!(byte_cols(text, 2, (5, 8)), Some(5..8));
         // Georgian: 3 bytes a letter; columns are chars.
-        let (s, hit) = display_line("let სახელი = 1;", Some((4, 10)));
-        assert_eq!(&s[hit.unwrap()], "სახელი");
+        let r = byte_cols(text, 3, (4, 10)).unwrap();
+        assert_eq!(&"let სახელი = 1;"[r], "სახელი");
         // A match running to the end of the line.
-        let (s, hit) = display_line("x = ბოლო", Some((4, 8)));
-        assert_eq!(&s[hit.unwrap()], "ბოლო");
-        assert_eq!(display_line("abc", None).1, None);
-    }
-
-    #[test]
-    fn very_long_lines_are_cut() {
-        let long = "x".repeat(MAX_COLS + 50);
-        let (s, _) = display_line(&long, None);
-        assert_eq!(s.chars().count(), MAX_COLS + 1);
-        assert!(s.ends_with('…'));
+        let r = byte_cols(text, 4, (4, 8)).unwrap();
+        assert_eq!(&"x = ბოლო"[r], "ბოლო");
+        assert_eq!(byte_cols(text, 9, (0, 1)), None);
+        assert_eq!(byte_cols(text, 1, (3, 3)), None);
     }
 }

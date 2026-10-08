@@ -1561,30 +1561,7 @@ pub(super) fn overlays(
     out
 }
 
-/// A small tooltip view (the kit's tooltip, phase 1, replaces it).
+/// A tooltip (the kit's).
 pub(crate) fn tooltip(text: &'static str, cx: &mut App) -> gpui::AnyView {
-    tooltip_string(text.to_string(), cx)
-}
-
-pub(crate) fn tooltip_string(text: String, cx: &mut App) -> gpui::AnyView {
-    cx.new(|_| Tip(text.into())).into()
-}
-
-struct Tip(SharedString);
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = crate::theme::theme(cx);
-        ui_text()
-            .px(px(8.))
-            .py(px(4.))
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .rounded(px(4.))
-            .text_size(px(12.))
-            .text_color(t.text_2)
-            .max_w(px(420.))
-            .child(self.0.clone())
-    }
+    crate::kit::tooltip_view(text, cx)
 }

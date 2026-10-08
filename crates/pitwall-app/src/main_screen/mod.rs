@@ -21,7 +21,6 @@
 pub mod demo;
 mod dialogs;
 mod elsewhere;
-pub mod diff;
 mod menu;
 pub mod model;
 mod panel;
@@ -56,6 +55,7 @@ use self::panel::ChangesState;
 use self::strip::Toast;
 use crate::kit::TextInput;
 use self::tree::Preset;
+pub use self::topbar::AgentDrag;
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 
 actions!(
@@ -473,6 +473,11 @@ impl MainScreen {
         self.route
     }
 
+    /// The view another module registered for `route`, once shown.
+    pub fn route_view_of(&self, route: Route) -> Option<AnyView> {
+        self.route_views.get(&route).cloned()
+    }
+
     pub fn store(&self) -> &Entity<AgentStore> {
         &self.store
     }
@@ -495,6 +500,11 @@ impl MainScreen {
             .find(|s| s.id == self.active)
             .or(mine.first())
             .copied()
+    }
+
+    /// The active space (Review scopes to it).
+    pub fn current_space(&self) -> Option<workspace::Space> {
+        self.active_space().cloned()
     }
 
     /// The agent in the active space's focused pane.
@@ -904,7 +914,7 @@ impl MainScreen {
     }
 
     /// Start a plain terminal in `path` and show it.
-    fn open_terminal(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_terminal(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
         };

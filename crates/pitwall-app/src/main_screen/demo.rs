@@ -149,6 +149,24 @@ pub fn kinds() -> Vec<KindView> {
     ]
 }
 
+/// The two sides of a one-file diff's hunks.
+fn sides(diff: &str) -> (String, String) {
+    let (mut old, mut new) = (String::new(), String::new());
+    let body = diff.lines().skip_while(|l| !l.starts_with("@@"));
+    for l in body.filter(|l| !l.starts_with("@@")) {
+        let (mark, text) = l.split_at(l.len().min(1));
+        if mark != "+" {
+            old.push_str(text);
+            old.push('\n');
+        }
+        if mark != "-" {
+            new.push_str(text);
+            new.push('\n');
+        }
+    }
+    (old, new)
+}
+
 const DIFF: &str = "diff --git a/src/cart/cart.spec.ts b/src/cart/cart.spec.ts
 --- a/src/cart/cart.spec.ts
 +++ b/src/cart/cart.spec.ts
@@ -217,7 +235,10 @@ impl MainScreen {
                     if let Some(f) = changes(&a.name).into_iter().next() {
                         self.open_diff(a, f, window, cx);
                         if let Some(super::Modal::Diff(d)) = &self.modal {
-                            d.update(cx, |d, cx| d.set_text(DIFF, cx));
+                            d.update(cx, |d, cx| {
+                                let (old, new) = sides(DIFF);
+                                d.set_versions(Some(old), Some(new), cx)
+                            });
                         }
                     }
                 }

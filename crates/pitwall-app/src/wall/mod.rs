@@ -13,10 +13,10 @@
 //! - Rows outside the viewport are empty boxes of the right height.
 
 pub mod layout;
+mod mount;
 pub mod paint;
 pub mod screen;
 pub mod source;
-pub mod style;
 pub mod tile;
 
 use std::cell::Cell;
@@ -36,18 +36,18 @@ use gpui::{
 use pitwall_core::Shared;
 
 use crate::agents::{AgentStore, ProjectGroup};
+use crate::kit;
 use crate::theme::{self, Theme, RADIUS};
 use layout::{Move, WallRow};
 use source::{FrameMsg, ScreenSource, Screens};
 use tile::WallTile;
 
+pub use mount::{mount, WallRoute};
 pub use paint::screen_view;
 
 actions!(
     wall,
     [
-        /// Show or leave the Wall (⌘E / Ctrl+Shift+E).
-        ToggleWall,
         SelectLeft,
         SelectRight,
         SelectUp,
@@ -84,17 +84,11 @@ pub enum WallEvent {
     Collapsed(BTreeSet<String>),
 }
 
-/// Bindings: ⌘E toggles everywhere; arrows, Home/End, Tab and Enter/Space
-/// inside the Wall.
+/// Bindings inside the Wall: arrows, Home/End, Tab and Enter/Space (⌘E,
+/// which shows and leaves it, is the main screen's).
 pub fn bindings() -> Vec<KeyBinding> {
-    let toggle = if cfg!(target_os = "macos") {
-        "cmd-e"
-    } else {
-        "ctrl-shift-e"
-    };
     let w = Some("Wall");
     vec![
-        KeyBinding::new(toggle, ToggleWall, None),
         KeyBinding::new("left", SelectLeft, w),
         KeyBinding::new("right", SelectRight, w),
         KeyBinding::new("up", SelectUp, w),
@@ -170,7 +164,6 @@ impl Focusable for WallView {
 
 impl WallView {
     pub fn new(store: Entity<AgentStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        style::ensure_fonts(cx);
         let source = Screens::get(cx);
         let (tx, rx) = unbounded();
         let drain = cx.spawn(async move |this, cx| drain(this, rx, cx).await);
@@ -217,6 +210,18 @@ impl WallView {
         cx.notify();
     }
 
+    pub fn collapsed(&self) -> &BTreeSet<String> {
+        &self.collapsed
+    }
+
+    pub fn look(&self) -> Look {
+        self.look
+    }
+
+    pub fn font_size(&self) -> f32 {
+        self.font_size
+    }
+
     /// Size tiles for an app window this wide (previews; the app uses its
     /// own window).
     pub fn set_app_width(&mut self, width: Option<f32>, cx: &mut Context<Self>) {
@@ -238,6 +243,16 @@ impl WallView {
                 cx.notify();
             });
         }
+    }
+
+    /// Stop every watch while the Wall is not shown (it watches the tiles
+    /// in view again when it is drawn next).
+    pub fn stop_watching(&mut self) {
+        let ids: Vec<String> = self.watches.keys().cloned().collect();
+        for id in ids {
+            self.stop_watch(&id);
+        }
+        self.watches.clear();
     }
 
     /// Agents being watched now (tests, diagnostics).
@@ -472,7 +487,7 @@ impl WallView {
         }
     }
 
-    fn bar(&self, t: &Theme, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn bar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let line = match self.look {
             Look::Flat => t.line,
             Look::Glass => t.line.opacity(0.6),
@@ -487,15 +502,7 @@ impl WallView {
             .pr(px(8.))
             .border_b_1()
             .border_color(line)
-            .child(style::tracked_label(
-                window,
-                "Wall",
-                style::LABEL,
-                12.,
-                FontWeight::SEMIBOLD,
-                0.12,
-                t.text_3,
-            ))
+            .child(kit::label("Wall", t.text_3, 12.))
             .child(
                 div()
                     .text_size(px(12.))
@@ -523,7 +530,7 @@ impl WallView {
                     .text_color(t.text)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(WallEvent::Exit)))
                     .child("Back")
-                    .child(kbd("esc", t)),
+                    .child(kit::kbd("esc", t)),
             )
     }
 
@@ -531,7 +538,6 @@ impl WallView {
         &self,
         g: &ProjectGroup,
         t: &Theme,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let collapsed = self.collapsed.contains(&g.key);
@@ -553,26 +559,25 @@ impl WallView {
             .gap_2()
             .cursor_pointer()
             .on_click(cx.listener(move |w, _, _, cx| w.toggle_section(&key, cx)))
-            .child(chevron(!collapsed, t.text_4))
+            .child(kit::chevron(!collapsed, 12., t.text_4))
             .child(
                 div()
                     .min_w_0()
                     .overflow_hidden()
-                    .child(style::tracked_label(
-                        window,
-                        style::project_name(&g.display),
-                        style::LABEL,
-                        14.,
-                        FontWeight::BOLD,
-                        0.12,
-                        if g.blocked > 0 { t.text } else { t.text_2 },
-                    )),
+                    .child(
+                        kit::label(
+                            kit::project_name(&g.display).to_string(),
+                            if g.blocked > 0 { t.text } else { t.text_2 },
+                            14.,
+                        )
+                        .font_weight(FontWeight::BOLD),
+                    ),
             )
             .when(g.blocked > 0, |d| {
                 d.child(
                     div()
                         .flex_none()
-                        .font_family(style::MONO)
+                        .font_family(kit::MONO_FONT)
                         .text_size(px(10.5))
                         .text_color(t.amber)
                         .child(format!("▲ {}", g.blocked)),
@@ -636,46 +641,6 @@ impl WallView {
                     .child("Their screens show up here, live, once they start."),
             )
     }
-}
-
-/// The `chevron` icon (`src/components/Icon.tsx`, 20-unit box, 1.5 stroke)
-/// at 12 px, pointing down when `open`.
-fn chevron(open: bool, color: gpui::Hsla) -> impl IntoElement {
-    canvas(
-        |_, _, _| {},
-        move |b, _, window, _| {
-            let k = f32::from(b.size.width) / 20.;
-            let at = |x: f32, y: f32| {
-                // Rotated a quarter turn around the centre when open.
-                let (x, y) = if open { (20. - y, x) } else { (x, y) };
-                point(b.left() + px(x * k), b.top() + px(y * k))
-            };
-            let mut p = gpui::PathBuilder::stroke(px(1.5 * k.max(0.8)));
-            p.move_to(at(8., 5.));
-            p.line_to(at(13., 10.));
-            p.line_to(at(8., 15.));
-            if let Ok(path) = p.build() {
-                window.paint_path(path, color);
-            }
-        },
-    )
-    .size(px(12.))
-    .flex_none()
-}
-
-/// A small key cap (`.kbd`).
-fn kbd(text: &'static str, t: &Theme) -> impl IntoElement {
-    div()
-        .px(px(5.))
-        .py(px(1.))
-        .rounded(px(4.))
-        .border_1()
-        .border_color(t.line_strong)
-        .bg(t.surface_2)
-        .font_family(style::MONO)
-        .text_size(px(10.5))
-        .text_color(t.text_3)
-        .child(text)
 }
 
 /// Move frames from the engine's threads to the tiles, in batches.
@@ -763,17 +728,14 @@ impl Render for WallView {
                     .pb(px(4.))
                     .px(px(2.))
                     .flex()
-                    .child(style::tracked_label(
-                        window,
-                        label,
-                        style::UI,
-                        10.5,
-                        FontWeight::SEMIBOLD,
-                        0.06,
-                        t.text_4,
-                    ))
+                    .child(
+                        kit::tracked(&label.to_uppercase(), 10.5, 0.06)
+                            .font_family(kit::UI_FONT)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text_4),
+                    )
                     .into_any_element(),
-                WallRow::Head(gi) => self.section_head(&groups[*gi], &t, window, cx),
+                WallRow::Head(gi) => self.section_head(&groups[*gi], &t, cx),
                 WallRow::Tiles {
                     group,
                     start,
@@ -829,11 +791,11 @@ impl Render for WallView {
             .min_w_0()
             .flex()
             .flex_col()
-            .font_family(style::UI)
+            .font_family(kit::UI_FONT)
             .text_size(px(13.))
             .bg(t.bg)
             .text_color(t.text)
-            .child(self.bar(&t, window, cx))
+            .child(self.bar(&t, cx))
             .when(empty, |d| d.child(Self::empty(&t)))
             .when(!empty, |d| {
                 d.child(

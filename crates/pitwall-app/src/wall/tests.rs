@@ -249,3 +249,71 @@ fn keys_select_tiles_and_open_them(cx: &mut TestAppContext) {
         matches!(events.lock().unwrap().last(), Some(WallEvent::Collapsed(k)) if k.contains(&key))
     );
 }
+
+/// The main screen with the Wall mounted.
+struct Mounted(Entity<crate::main_screen::MainScreen>);
+
+impl gpui::Render for Mounted {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{div, ParentElement, Styled};
+        div().size_full().child(self.0.clone())
+    }
+}
+
+#[gpui::test]
+fn the_main_screen_shows_the_wall_and_keeps_its_folds(cx: &mut TestAppContext) {
+    use crate::main_screen::{MainScreen, Route};
+    let fake = Arc::new(Fake::default());
+    let f = fake.clone();
+    cx.update(|cx| {
+        cx.set_global(Theme::dark());
+        cx.set_global(Screens(f));
+        crate::kit::init(cx);
+        crate::main_screen::init(cx);
+        cx.bind_keys(super::bindings());
+    });
+    let store = cx.new(|_| {
+        AgentStore::new(vec![
+            agent("api", "/work/alpha", "idle", 1, true),
+            agent("docs", "/work/beta", "done", 3, true),
+        ])
+    });
+    let s2 = store.clone();
+    let (host, cx) = cx.add_window_view(|window, cx| {
+        let screen = cx.new(|cx| MainScreen::new(s2, window, cx));
+        super::mount(&screen, cx);
+        Mounted(screen)
+    });
+    let screen = host.read_with(cx, |h, _| h.0.clone());
+
+    // ⌘E: the Wall, remembered as on (`ui.wall`).
+    cx.dispatch_action(crate::main_screen::ToggleWall);
+    cx.run_until_parked();
+    assert_eq!(screen.read_with(cx, |s, _| s.route()), Route::Wall);
+    assert!(cx.update(|_, cx| crate::ui_state::get(cx).wall.contains(&"main".to_string())));
+    let route = screen
+        .read_with(cx, |s, _| s.route_view_of(Route::Wall))
+        .and_then(|v| v.downcast::<super::WallRoute>().ok())
+        .expect("the Wall route");
+    let wall = route.read_with(cx, |r, _| r.wall().clone());
+    assert!(!wall.read_with(cx, |w, _| w.watching().is_empty()), "live tiles");
+
+    // Folding a section is `ui.wallCollapsed`, and back.
+    let key = store.read_with(cx, |s, _| s.groups()[0].key.clone());
+    wall.update(cx, |w, cx| w.toggle_section(&key, cx));
+    cx.run_until_parked();
+    assert_eq!(cx.update(|_, cx| crate::ui_state::get(cx).wall_collapsed), vec![key.clone()]);
+    cx.update(|_, cx| crate::ui_state::update(cx, |s| s.wall_collapsed.clear()));
+    cx.run_until_parked();
+    assert!(wall.read_with(cx, |w, _| w.collapsed().is_empty()));
+
+    // A tile shows its agent in the main screen; the Wall stops watching.
+    wall.update(cx, |_, cx| cx.emit(WallEvent::Open("docs".into())));
+    cx.run_until_parked();
+    screen.read_with(cx, |s, _| {
+        assert_eq!(s.route(), Route::Space);
+        assert_eq!(s.focused_agent_id().as_deref(), Some("docs"));
+    });
+    assert!(wall.read_with(cx, |w, _| w.watching().is_empty()));
+    assert!(!cx.update(|_, cx| crate::ui_state::get(cx).wall.contains(&"main".to_string())));
+}

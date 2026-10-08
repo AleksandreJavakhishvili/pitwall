@@ -29,7 +29,7 @@ const LINE_HEIGHT: f32 = 1.15;
 /// The terminals' font size by default (`DEFAULT_FONT`, src/layout/density.ts).
 pub const DEFAULT_FONT: f32 = 13.;
 
-pub use super::style::MONO;
+pub use crate::kit::MONO_FONT as MONO;
 
 /// The terminal colours of a theme mode (built once).
 pub fn term_colors(mode: Mode) -> Arc<TermColors> {

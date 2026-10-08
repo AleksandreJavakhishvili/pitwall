@@ -276,3 +276,133 @@ fn outside_git_agents_are_counted_not_listed(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     assert!(exited.get());
 }
+
+/// The main screen with Review mounted, as `MainView` has them.
+struct Mounted {
+    screen: Entity<crate::main_screen::MainScreen>,
+    review: Entity<super::ReviewRoute>,
+}
+
+impl gpui::Render for Mounted {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{div, ParentElement, Styled};
+        div().size_full().child(self.screen.clone())
+    }
+}
+
+#[gpui::test]
+fn the_main_screen_opens_review_scoped_and_esc_leaves(cx: &mut TestAppContext) {
+    use crate::main_screen::Route;
+    let (a, b) = (Repo::new(), Repo::new());
+    for r in [&a, &b] {
+        r.write("x.txt", "1\n2\n3\n");
+        r.git(&["add", "-A"]);
+        r.git(&["commit", "-q", "-m", "init"]);
+    }
+    let rec = |id: &str, r: &Repo| {
+        let mut rec = record(id, r.path());
+        rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]));
+        rec
+    };
+    let h = Harness::new(vec![rec("a1", &a), rec("a2", &a), rec("b1", &b)]);
+    a.write("x.txt", "1\ntwo\n3\n");
+    b.write("y.txt", "new\n");
+    let engine = h.engine.clone();
+    cx.update(|cx| {
+        cx.set_global(Theme::dark());
+        crate::kit::init(cx);
+        crate::main_screen::init(cx);
+        cx.set_global(ReviewEngine {
+            engine: engine.clone(),
+            root: None,
+        });
+        register(cx);
+    });
+    let store = cx.new(|_| AgentStore::new(engine.views()));
+    let (host, cx) = cx.add_window_view(|window, cx| {
+        let screen = cx.new(|cx| crate::main_screen::MainScreen::new(store, window, cx));
+        let review = super::mount(&screen, window, cx);
+        Mounted { screen, review }
+    });
+    let (screen, review) = host.read_with(cx, |h, _| (h.screen.clone(), h.review.clone()));
+    screen.update_in(cx, |s, window, cx| s.show_agent("a1", window, cx));
+    cx.run_until_parked();
+
+    // ⌘R: Review on the focused agent, scoped to its project.
+    cx.dispatch_action(crate::main_screen::ToggleReview);
+    cx.run_until_parked();
+    assert_eq!(screen.read_with(cx, |s, _| s.route()), Route::Review);
+    let view = review.read_with(cx, |r, _| r.view().cloned()).expect("open");
+    view.read_with(cx, |v, _| {
+        let ids: Vec<&str> = v.ordered.iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, ["a1", "a2"], "the focused agent's project");
+        assert!(v.can_widen);
+        assert!(matches!(&v.sel, Sel::Agent { id, .. } if id == "a1"));
+    });
+    // "All projects" widens it.
+    view.update(cx, |v, cx| v.set_all_projects(true, cx));
+    view.read_with(cx, |v, _| assert_eq!(v.ordered.len(), 3));
+    view.update(cx, |v, cx| v.set_all_projects(false, cx));
+
+    // A comment typed into the composer (the kit's multi-line input).
+    view.update_in(cx, |v, window, cx| v.start_comment(2, window, cx));
+    cx.run_until_parked();
+    cx.simulate_input("say twoo");
+    cx.simulate_keystrokes("backspace");
+    view.read_with(cx, |v, cx| {
+        let c = v.composer.as_ref().expect("the composer");
+        assert_eq!(c.field.read(cx).text(), "say two");
+    });
+    // ⌘↵ (the test platform doesn't match ⌘-chords to bindings: the
+    // binding's action itself).
+    cx.dispatch_action(crate::kit::input::Submit);
+    view.read_with(cx, |v, cx| {
+        assert!(v.composer.is_none());
+        let list = Comments::for_agent(cx, "a1");
+        assert_eq!(list.len(), 1);
+        assert_eq!((list[0].line, list[0].text.as_str()), (2, "say two"));
+    });
+
+    // Esc in the list leaves Review: back to the space, Review closed.
+    view.update_in(cx, |v, window, _| window.focus(&v.list_focus));
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(screen.read_with(cx, |s, _| s.route()), Route::Space);
+    assert!(!review.read_with(cx, |r, _| r.is_open()));
+
+    // The explorer's "Show diff": Review on that file, even outside scope.
+    review.update_in(cx, |r, window, cx| {
+        let focus = Focus::Agent {
+            id: "b1".into(),
+            path: Some("y.txt".into()),
+        };
+        r.open_at(Some(focus), window, cx)
+    });
+    screen.update(cx, |s, cx| s.set_route(Route::Review, cx));
+    cx.run_until_parked();
+    let view = review.read_with(cx, |r, _| r.view().cloned()).expect("open");
+    view.read_with(cx, |v, _| {
+        assert_eq!(
+            v.sel,
+            Sel::Agent {
+                id: "b1".into(),
+                path: Some("y.txt".into())
+            }
+        );
+        assert!(v.ordered.iter().any(|a| a.id == "b1"));
+    });
+}
+
+#[test]
+fn spaces_scope_review_with_their_members_and_panes() {
+    use crate::main_screen::workspace::UiState;
+    assert_eq!(super::review_space(None), Space::All);
+    let ui = UiState::default();
+    assert_eq!(super::review_space(ui.spaces.first()), Space::All);
+    let (ui, id) = ui.create_custom_space("main");
+    let ui = ui.place_agent(&id, "x", None, None);
+    match super::review_space(ui.space(&id)) {
+        Space::Custom { members, .. } => assert_eq!(members, ["x"]),
+        other => panic!("{other:?}"),
+    }
+}

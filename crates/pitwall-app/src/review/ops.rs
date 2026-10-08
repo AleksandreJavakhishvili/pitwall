@@ -235,30 +235,66 @@ pub fn commit_and_merge(
 
 // ── the one preference: side by side or inline ─────────────────────────────
 
-/// `pitwall.review.sideBySide` (default side by side), kept in
-/// `<data>/review.json` until the shared `UiState`/prefs exist.
-pub fn load_side_by_side(cx: &App) -> bool {
-    let Some(root) = cx.try_global::<ReviewEngine>().and_then(|e| e.root.clone()) else {
-        return true;
-    };
+/// What the old `<data>/review.json` (`{"sideBySide": bool}`, written by
+/// earlier builds) says, if anything.
+pub fn read_review_json(root: &std::path::Path) -> Option<bool> {
     std::fs::read_to_string(root.join("review.json"))
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("sideBySide").and_then(|b| b.as_bool()))
-        .unwrap_or(true)
 }
 
-pub fn save_side_by_side(cx: &App, on: bool) {
-    let Some(root) = cx.try_global::<ReviewEngine>().and_then(|e| e.root.clone()) else {
-        return;
-    };
-    cx.background_executor()
-        .spawn(async move {
-            let tmp = root.join("review.json.tmp");
-            let body = serde_json::json!({ "sideBySide": on }).to_string();
-            if std::fs::write(&tmp, body).is_ok() {
-                let _ = std::fs::rename(&tmp, root.join("review.json"));
-            }
-        })
-        .detach();
+/// The preference from `ui.reviewSideBySide`, else the old `review.json`
+/// in `root`, else side by side; and what to store in `ui.json` (the old
+/// file's choice, moved over).
+pub fn side_by_side_from(ui: Option<bool>, root: Option<&std::path::Path>) -> (bool, Option<bool>) {
+    if let Some(on) = ui {
+        return (on, None);
+    }
+    let old = root.and_then(read_review_json);
+    (old.unwrap_or(true), old)
+}
+
+/// `pitwall.review.sideBySide` (default side by side): `ui.reviewSideBySide`.
+/// Unset, `review.json` is read once and moved into `ui.json` (the old file
+/// is left as it was, for older builds).
+pub fn load_side_by_side(cx: &mut App) -> bool {
+    let root = cx.try_global::<ReviewEngine>().and_then(|e| e.root.clone());
+    let (on, store) = side_by_side_from(crate::ui_state::get(cx).review_side_by_side, root.as_deref());
+    if let Some(v) = store {
+        crate::ui_state::update(cx, |s| s.review_side_by_side = Some(v));
+    }
+    on
+}
+
+pub fn save_side_by_side(cx: &mut App, on: bool) {
+    crate::ui_state::update(cx, |s| s.review_side_by_side = Some(on));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    fn the_preference_moves_from_review_json_into_ui_json(cx: &mut gpui::TestAppContext) {
+        let dir = std::env::temp_dir().join(format!("pw-rv-sbs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(side_by_side_from(None, Some(&dir)), (true, None), "default");
+        std::fs::write(dir.join("review.json"), r#"{"sideBySide":false}"#).unwrap();
+        assert_eq!(side_by_side_from(None, Some(&dir)), (false, Some(false)));
+        assert_eq!(side_by_side_from(Some(true), Some(&dir)), (true, None), "ui.json wins");
+        let root = dir.clone();
+        cx.update(|cx| {
+            crate::ui_state::init(Some(root), cx);
+            save_side_by_side(cx, false);
+            assert!(!load_side_by_side(cx));
+        });
+        cx.executor().advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+        let ui: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("ui.json")).unwrap()).unwrap();
+        assert_eq!(ui["reviewSideBySide"], false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
