@@ -155,6 +155,16 @@ fn lenient_font<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error>
 }
 
 /// `true` only for a JSON `true` (`r.reduceMotion === true`).
+fn yes() -> bool {
+    true
+}
+
+/// `true` unless the value is `false` (`usePersistentFlag` with a `true`
+/// default).
+fn not_false<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Value::deserialize(d)? != Value::Bool(false))
+}
+
 fn strict_true<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     Ok(Value::deserialize(d)? == Value::Bool(true))
 }
@@ -216,6 +226,14 @@ pub struct UiState {
     /// localStorage `pitwall.right.files`).
     #[serde(default, deserialize_with = "strict_true")]
     pub right_files: bool,
+    /// The sidebar is collapsed (`pitwall.sidebarCollapsed`), read when a
+    /// window opens.
+    #[serde(default, deserialize_with = "strict_true")]
+    pub sidebar_collapsed: bool,
+    /// The docked right panel is shown (`pitwall.rightOpen`), read when a
+    /// window opens.
+    #[serde(default = "yes", deserialize_with = "not_false")]
+    pub right_open: bool,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -265,6 +283,8 @@ impl Default for UiState {
             explorer_show_ignored: false,
             review_side_by_side: None,
             right_files: false,
+            sidebar_collapsed: false,
+            right_open: true,
             rest: serde_json::Map::new(),
         }
     }

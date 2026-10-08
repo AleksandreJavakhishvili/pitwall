@@ -212,7 +212,7 @@ impl Render for WallTile {
                 let id = id.clone();
                 let _ = wall.update(cx, |w, cx| w.open(id, window, cx));
             })
-            .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
+            .on_drag(drag, |d, grab, w, cx| d.ghost(grab, w, cx))
             .tooltip(kit::tooltip(tip))
             .child(head)
             .child(body);

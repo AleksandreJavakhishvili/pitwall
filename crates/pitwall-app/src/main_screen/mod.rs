@@ -282,6 +282,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(&p("8"), SelectAgent8, None),
         KeyBinding::new(&p("9"), SelectAgent9, None),
     ];
+    if !mac {
+        b.extend(shifted_symbols());
+    }
     for ctx in ["PwSidebar", "PwMenu"] {
         b.extend([
             KeyBinding::new("up", SelectPrev, Some(ctx)),
@@ -290,6 +293,32 @@ pub fn bindings() -> Vec<KeyBinding> {
         ]);
     }
     b
+}
+
+/// Windows and Linux: gpui 0.2.2 reports Shift with a symbol or digit as the
+/// shifted character without Shift (Ctrl+Shift+1 arrives as `ctrl-!`), so
+/// the Ctrl+Shift shortcuts on those keys are bound by what they type too
+/// (US layout), plus the numpad's + and −.
+fn shifted_symbols() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("ctrl->", ToggleDetails, None),
+        KeyBinding::new("ctrl-+", FontBigger, None),
+        KeyBinding::new("ctrl-shift-add", FontBigger, None),
+        KeyBinding::new("ctrl-add", FontBigger, None),
+        KeyBinding::new("ctrl-_", FontSmaller, None),
+        KeyBinding::new("ctrl-shift-subtract", FontSmaller, None),
+        KeyBinding::new("ctrl-subtract", FontSmaller, None),
+        KeyBinding::new("ctrl-)", FontReset, None),
+        KeyBinding::new("ctrl-!", SelectAgent1, None),
+        KeyBinding::new("ctrl-@", SelectAgent2, None),
+        KeyBinding::new("ctrl-#", SelectAgent3, None),
+        KeyBinding::new("ctrl-$", SelectAgent4, None),
+        KeyBinding::new("ctrl-%", SelectAgent5, None),
+        KeyBinding::new("ctrl-^", SelectAgent6, None),
+        KeyBinding::new("ctrl-&", SelectAgent7, None),
+        KeyBinding::new("ctrl-*", SelectAgent8, None),
+        KeyBinding::new("ctrl-(", SelectAgent9, None),
+    ]
 }
 
 /// Register the key bindings (call once at start, after `kit::init`).
@@ -438,6 +467,18 @@ impl MainScreen {
                 this.attention(e, cx)
             }),
             cx.observe_window_activation(window, |this, window, cx| {
+                // Leaving the window cancels a drag and closes a popup menu
+                // (`dnd.ts` and `Menu.tsx` listen for `blur`).
+                if !window.is_window_active() {
+                    if cx.has_active_drag() {
+                        cx.stop_active_drag(window);
+                        this.drop_hint = None;
+                    }
+                    if this.menu.take().is_some() {
+                        window.focus(&this.focus);
+                    }
+                    cx.notify();
+                }
                 // Coming back counts as looking at the agent you left selected.
                 if window.is_window_active() && this.route == Route::Space {
                     if let Some(a) = this.selected(cx).filter(|a| a.status == Status::Done) {
@@ -446,6 +487,7 @@ impl MainScreen {
                 }
             }),
         ];
+        let (sidebar_collapsed, right_pinned) = (ui.sidebar_collapsed, ui.right_open);
         let mut screen = MainScreen {
             store,
             engine,
@@ -453,8 +495,8 @@ impl MainScreen {
             active: ALL_SPACE.into(),
             ui,
             route: Route::Space,
-            sidebar_collapsed: false,
-            right_pinned: true,
+            sidebar_collapsed,
+            right_pinned,
             overlay_sidebar: false,
             drawer_open: false,
             modal: None,
@@ -877,6 +919,14 @@ impl MainScreen {
     fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if Self::breakpoint(window).full_sidebar() {
             self.sidebar_collapsed = !self.sidebar_collapsed;
+            let v = self.sidebar_collapsed;
+            self.update_ui(
+                |mut s| {
+                    s.sidebar_collapsed = v;
+                    s
+                },
+                cx,
+            );
         } else {
             self.overlay_sidebar = !self.overlay_sidebar;
         }
@@ -886,6 +936,14 @@ impl MainScreen {
     fn toggle_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if Self::breakpoint(window).right_docked() {
             self.right_pinned = !self.right_pinned;
+            let v = self.right_pinned;
+            self.update_ui(
+                |mut s| {
+                    s.right_open = v;
+                    s
+                },
+                cx,
+            );
         } else {
             self.drawer_open = !self.drawer_open;
         }
@@ -1383,6 +1441,16 @@ impl Render for MainScreen {
             .id("main-screen")
             .key_context("MainScreen")
             .track_focus(&self.focus)
+            // Esc cancels an agent drag (`dnd.ts`), before anything else
+            // (a terminal, Dismiss) sees the key.
+            .capture_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                if e.keystroke.key == "escape" && cx.has_active_drag() {
+                    cx.stop_active_drag(window);
+                    this.drop_hint = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .on_action(cx.listener(Self::on_dismiss))
             .on_action(cx.listener(|_, _: &OpenPalette, _, cx| cx.emit(ScreenEvent::OpenPalette)))
             .on_action(

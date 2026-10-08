@@ -528,6 +528,7 @@ impl MainScreen {
             pane_id.to_string(),
         );
         let has_agent = agent.is_some();
+        let own_id = agent.as_ref().map(|a| a.id.clone());
         let border = match status {
             Some(Status::Blocked) => t.amber.opacity(0.55),
             Some(Status::Done) => t.finish.opacity(0.65),
@@ -608,7 +609,9 @@ impl MainScreen {
             .on_drag_move::<AgentDrag>(cx.listener(
                 move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {
                     let b = e.bounds;
-                    let inside = b.contains(&e.event.position);
+                    // No preview over the dragged agent's own pane (`self`).
+                    let own = own_id.as_deref() == Some(e.drag(cx).id.as_str());
+                    let inside = b.contains(&e.event.position) && !own;
                     let was = this.drop_hint.as_ref().is_some_and(|(p, _)| *p == move_id);
                     if inside {
                         let fx = f32::from(e.event.position.x - b.left())
@@ -723,7 +726,7 @@ impl MainScreen {
                     id: a.id.clone(),
                     name: a.name.clone().into(),
                 },
-                |d, _, _, cx| cx.new(|_| d.clone()),
+                |d, grab, w, cx| d.ghost(grab, w, cx),
             )
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                 if e.click_count() == 2 {
@@ -1017,7 +1020,7 @@ impl MainScreen {
                             id: a.id.clone(),
                             name: a.name.clone().into(),
                         },
-                        |d, _, _, cx| cx.new(|_| d.clone()),
+                        |d, grab, w, cx| d.ghost(grab, w, cx),
                     )
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.show_agent(&id, window, cx)),

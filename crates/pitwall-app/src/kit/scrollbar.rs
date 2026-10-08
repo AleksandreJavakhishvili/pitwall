@@ -277,8 +277,10 @@ impl Element for Scrollbar {
         // after this; a change re-lays out at once, see prepaint).
         let shown = self.overflows();
         state.shown.set(shown);
-        let mut style = Style::default();
-        style.flex_shrink = 0.;
+        let mut style = Style {
+            flex_shrink: 0.,
+            ..Default::default()
+        };
         let w = if shown { px(GUTTER) } else { px(0.) };
         match self.axis {
             Axis::Vertical => style.size.width = w.into(),

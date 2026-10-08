@@ -524,7 +524,7 @@ impl MainScreen {
             })
             .when(cursor, |d| d.border_1().border_color(t.focus))
             .tooltip(tooltip(tip))
-            .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
+            .on_drag(drag, |d, grab, w, cx| d.ghost(grab, w, cx))
             .on_click(
                 cx.listener(move |this, _, window, cx| this.show_agent(&id_click, window, cx)),
             )
@@ -753,7 +753,7 @@ impl MainScreen {
                                     id: a.id.clone(),
                                     name: a.name.clone().into(),
                                 },
-                                |d, _, _, cx| cx.new(|_| d.clone()),
+                                |d, grab, w, cx| d.ghost(grab, w, cx),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.show_agent(&id, window, cx)
