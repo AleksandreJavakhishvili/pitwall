@@ -1403,6 +1403,7 @@ impl Render for MainScreen {
             .flex()
             .flex_col()
             .bg(crate::theme::backdrop(cx))
+            .map(|d| crate::platform::decorations::round_top(d, window))
             .text_color(t.text)
             .font_family(crate::kit::UI_FONT)
             .text_size(px(13.))

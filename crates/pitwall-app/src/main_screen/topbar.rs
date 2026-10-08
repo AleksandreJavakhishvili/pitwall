@@ -16,6 +16,7 @@ use crate::kit::{icon_btn, icon_btn_state, kbd, label_t, tooltip, tracked};
 use super::workspace::SpaceKind;
 use super::{Breakpoint, MainScreen, Route, ScreenEvent};
 use crate::menu::OpenSettings;
+use crate::platform::decorations::{self, no_drag};
 use crate::theme::{Theme, RADIUS, TOPBAR_H};
 
 /// A dragged agent (sidebar row, pane header, chip).
@@ -97,7 +98,8 @@ impl MainScreen {
                     aria(sidebar_open),
                     t,
                 )
-                .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx))),
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx)))
+                .map(no_drag),
             )
             .child(
                 div()
@@ -160,7 +162,7 @@ impl MainScreen {
                 ))
             });
 
-        let right = div()
+        let right = no_drag(div().id("topbar-right"))
             .ml_auto()
             .flex()
             .items_center()
@@ -238,7 +240,7 @@ impl MainScreen {
                 .on_click(cx.listener(|this, _, window, cx| this.toggle_details(window, cx))),
             );
 
-        div()
+        let bar = div()
             .id("topbar")
             .h(TOPBAR_H)
             .flex_none()
@@ -250,10 +252,10 @@ impl MainScreen {
             .border_b_1()
             .border_color(t.line)
             .bg(t.surface)
-            .window_control_area(gpui::WindowControlArea::Drag)
             .child(left)
             .child(self.render_tabs(agents, t, window, cx))
-            .child(right)
+            .child(right);
+        decorations::title_bar(bar, window, t)
     }
 
     fn render_tabs(
@@ -421,8 +423,7 @@ impl MainScreen {
                 .child(icon("plus", 14., t.text_3))
                 .into_any_element(),
         );
-        div()
-            .id("tabs")
+        no_drag(div().id("tabs"))
             .flex()
             .items_end()
             .gap(px(2.))

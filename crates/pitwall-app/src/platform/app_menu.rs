@@ -74,7 +74,7 @@ impl Render for AppMenu {
         let t = theme::theme(cx).clone();
         let button = div()
             .id("app-menu-file")
-            .h(px(26.))
+            .h(px(22.))
             .px_2()
             .flex()
             .items_center()
@@ -133,7 +133,7 @@ impl Render for AppMenu {
             root = root.child(deferred(
                 anchored()
                     .anchor(Corner::TopLeft)
-                    .offset(gpui::point(px(0.), px(28.)))
+                    .offset(gpui::point(px(0.), px(24.)))
                     .child(list),
             ));
         }

@@ -5464,6 +5464,7 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-yaml",
  "unicode-segmentation",
+ "wayland-client",
  "windows 0.61.3",
  "windows-sys 0.61.2",
  "zbus",

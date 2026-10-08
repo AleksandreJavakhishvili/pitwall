@@ -232,6 +232,7 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
             ..Default::default()
         }),
         window_min_size: Some(size(px(min_w), px(min_h))),
+        window_decorations: platform::decorations::request(),
         app_id: Some(platform::WINDOW_APP_ID.into()),
         ..Default::default()
     };

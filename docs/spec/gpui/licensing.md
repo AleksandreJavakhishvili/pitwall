@@ -173,6 +173,7 @@ licence.
 | unicode-segmentation 1 | MIT OR Apache-2.0 | grapheme and word motion (already in the tree) |
 | chrono 0.4 (`clock` only) | MIT OR Apache-2.0 | task times "HH:MM" (already in the tree) |
 | libc 0.2 (`< 0.2.190`, Linux only) | MIT OR Apache-2.0 | not used directly: a version cap so gpui keeps compiling on Linux (already in the tree) |
+| wayland-client 0.31 (Linux only) | MIT | asking the Wayland compositor whether it draws window decorations (already in the tree via gpui) |
 
 The Material Icon Theme subset (MIT) is embedded from `src/assets/file-icons/`
 for Review's file rows (the explorer embeds the same set; one copy should move

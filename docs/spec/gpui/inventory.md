@@ -494,7 +494,7 @@ key code.
 ## 27. OS integration
 
 - [x] macOS app menu: Tauri default menu + "Settings… ⌘," after About + "Quit and Stop Agents" at the end of the app menu (`src-tauri/src/menu.rs`)
-- [ ] Windows File menu: "Settings… Ctrl+Shift+,", Close Window, Quit Pitwall, Quit and Stop Agents; no Edit menu (`src-tauri/src/menu.rs`)
+- [x] Windows File menu: "Settings… Ctrl+Shift+,", Close Window, Quit Pitwall, Quit and Stop Agents; no Edit menu (`src-tauri/src/menu.rs`)
 - [x] Linux: no native menu (Settings and Quit live in the palette) (`src-tauri/src/menu.rs`, `crates/pitwall-core/src/host.rs`)
 - [ ] Windows tray icon: tooltip, left click shows main, menu Open Pitwall / Settings… / Quit Pitwall / Quit and Stop Agents (`src-tauri/src/platform/windows.rs`)
 - [ ] Badge: Dock badge count of blocked agents (macOS, Linux launchers); Windows taskbar overlay icon (red disc with count, "9+" past 99) + tray tooltip "Pitwall — N agents need you" (`src-tauri/src/platform/unix.rs`, `src-tauri/src/platform/windows.rs`, `src-tauri/src/platform/badge.rs`)
@@ -673,7 +673,7 @@ item. Terminal items are tagged `[pitwall-term-view]` instead.
 - [ ] `tabs`: tab strip (space tabs, panel tabs, viewer tabs) (§2, §3, §10, §14, §23)
 - [ ] `text input`: single and multi-line text input with selection, IME, clipboard (§3, §10, §13, §14, §17, §18, §20, §21, §23)
 - [ ] `theme`: theme tokens, dark/light, Flat/Glass tiers (§13, §19, §24)
-- [ ] `title bar`: custom title bar / window drag region (§2)
+- [x] `title bar`: custom title bar / window drag region (§2)
 - [ ] `toast`: toast stack with auto-dismiss (§3, §7, §14, §16, §18, §20)
 - [ ] `tooltip`: hover tooltips (titles today) (§2, §3, §4, §5, §10, §12, §13, §14, §15, §18, §19, §21, §22)
 - [ ] `pitwall-term-view`: interactive terminal view and the Wall's view-only screen view (§6, §8, §9, §23)

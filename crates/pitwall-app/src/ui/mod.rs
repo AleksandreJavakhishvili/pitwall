@@ -305,9 +305,11 @@ impl Render for MainView {
                 .children(self.screen.clone())
                 .children(self.explorer.clone()),
         };
-        root.child(self.layer.clone())
+        let root = root
+            .child(self.layer.clone())
             .child(self.palette.clone())
             .children(crate::approvals::overlay(window, cx))
-            .children(crate::frame_stats::probe())
+            .children(crate::frame_stats::probe());
+        crate::platform::decorations::frame(root, window, cx)
     }
 }
