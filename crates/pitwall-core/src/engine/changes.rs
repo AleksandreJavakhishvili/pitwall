@@ -86,17 +86,17 @@ mod tests {
         r.write("a.txt", "1\n");
         r.commit_all("init");
         let h = Harness::new(vec![record("a", r.path())]);
-        r.write("ბენე.xlsx", "x\n");
+        r.write("ფაილი.xlsx", "x\n");
         r.write("a.txt", "1\n2\n");
         r.commit_all("tracked");
-        r.write("კაიროსი 2.txt", "y\n");
+        r.write("ანგარიში 2.txt", "y\n");
         let files = changes(&h.engine, "a").unwrap();
         let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["კაიროსი 2.txt"]);
+        assert_eq!(paths, ["ანგარიში 2.txt"]);
         assert_eq!((files[0].added, files[0].binary), (1, false));
-        r.write("ბენე.xlsx", "x\nz\n");
+        r.write("ფაილი.xlsx", "x\nz\n");
         let files = changes(&h.engine, "a").unwrap();
-        assert!(files.iter().any(|f| f.path == "ბენე.xlsx" && !f.untracked));
+        assert!(files.iter().any(|f| f.path == "ფაილი.xlsx" && !f.untracked));
     }
 
     #[test]
