@@ -250,7 +250,7 @@ impl NextUp {
             .pt(px(12.))
             .px(px(14.))
             .pb(px(6.))
-            .line_height(px(17.4))
+            .line_height(px(17.))
             .child(label("Next up", t.text_3, 12.))
             .when(!a.queue.is_empty(), |d| {
                 d.child(
@@ -320,7 +320,7 @@ impl NextUp {
                             .flex_1()
                             .min_w_0()
                             .text_size(px(12.5))
-                            .line_height(px(18.125))
+                            .line_height(px(18.))
                             .text_color(t.text)
                             .line_clamp(4)
                             .child(q.text.clone()),
@@ -434,7 +434,7 @@ impl NextUp {
                         )
                         .flex_1()
                         .min_w_0()
-                        .line_height(px(17.4)),
+                        .line_height(px(17.)),
                     )
                     .child(
                         button("queue-add", BtnKind::Small, empty, t)

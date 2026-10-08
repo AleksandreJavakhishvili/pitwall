@@ -679,7 +679,7 @@ impl Render for SettingsView {
             .flex_col()
             .gap(px(14.))
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
             .when_some(self.error.clone(), |b, e| {
                 b.child(

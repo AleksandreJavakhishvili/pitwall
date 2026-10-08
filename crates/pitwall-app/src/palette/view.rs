@@ -381,7 +381,7 @@ impl Render for Palette {
             .overflow_hidden()
             .font_family(kit::UI_FONT)
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
             .child(
                 div()
@@ -392,7 +392,7 @@ impl Render for Palette {
                     .border_color(t.line)
                     .text_size(px(15.))
                     // 15 px × the body's 1.45.
-                    .line_height(px(21.75))
+                    .line_height(px(21.))
                     .child(self.input.clone()),
             )
             .child(

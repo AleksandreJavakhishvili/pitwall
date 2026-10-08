@@ -869,7 +869,7 @@ impl Paint {
         // `.onb-title`: Barlow Condensed 700, 34 px, 0.06em.
         div().mt(px(6.)).child(
             crate::kit::tracked(&text.to_uppercase(), 34., 0.06)
-                .line_height(relative(1.05))
+                .line_height(px(35.))
                 .font_family(crate::kit::LABEL_FONT)
                 .font_weight(FontWeight::BOLD)
                 .text_color(self.t.text),
@@ -879,7 +879,7 @@ impl Paint {
     fn lede(&self, text: impl Into<SharedString>) -> Div {
         div()
             .max_w(px(560.))
-            .line_height(relative(1.55))
+            .line_height(px(20.))
             .text_color(self.t.text_2)
             .child(text.into())
     }
@@ -2052,7 +2052,7 @@ impl Onboarding {
                     crate::kit::chip_tone("not yet", crate::kit::Tone::Subtle, &p.ui.t)
                 }),
             )
-            .child(crate::kit::muted("One switch instead of a prompt per folder. Pitwall reads your projects to show what your agents changed, and the agents you start work in those folders.", &p.ui.t).line_height(relative(1.55)))
+            .child(crate::kit::muted("One switch instead of a prompt per folder. Pitwall reads your projects to show what your agents changed, and the agents you start work in those folders.", &p.ui.t).line_height(px(20.)))
             .child(div().flex().flex_col().gap(px(6.)).pl(px(8.)).children(steps.into_iter().enumerate().map(|(i, (b, rest))| {
                 div()
                     .flex()

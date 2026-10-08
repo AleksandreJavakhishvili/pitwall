@@ -426,7 +426,7 @@ impl MainScreen {
                     .py(px(2.))
                     .rounded(RADIUS_SM)
                     .text_size(px(11.))
-                    .line_height(px(15.95))
+                    .line_height(px(15.))
                     .text_color(t.text_3)
                     .whitespace_nowrap()
                     .cursor_pointer()
@@ -589,7 +589,7 @@ impl MainScreen {
             .py(px(3.))
             .rounded(RADIUS_SM)
             .text_size(px(11.5))
-            .line_height(px(16.675))
+            .line_height(px(16.))
             .text_color(t.text_2)
             .cursor_pointer()
             .hover(move |s| s.bg(bg))
@@ -692,7 +692,7 @@ impl MainScreen {
         let ft = t.float();
         let mono = |s: String| div().font_family(MONO_FONT).child(s);
         let body = crate::kit::dialog::body()
-            .line_height(px(18.85))
+            .line_height(px(18.))
             .child(mono(w.path_display.clone()))
             .map(|d| {
                 if w.caps.remove {

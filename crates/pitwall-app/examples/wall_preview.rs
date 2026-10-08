@@ -53,7 +53,7 @@ impl gpui::Render for Root {
             .size_full()
             .font_family(pitwall_app::kit::UI_FONT)
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(pitwall_app::kit::BODY_LINE_HEIGHT))
             .child(self.0.clone())
     }
 }

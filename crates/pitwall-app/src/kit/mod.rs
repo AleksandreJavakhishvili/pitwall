@@ -50,7 +50,7 @@ pub use controls::{
 };
 pub use file_icons::{file_icon, folder_icon, svg_image};
 pub use fresh::{fresh_note, refresh_control, updated_label};
-pub use fonts::{LABEL_FONT, MONO_FONT, UI_FONT, WEIGHT_550, WEIGHT_650};
+pub use fonts::{BODY_LINE_HEIGHT, LABEL_FONT, MONO_FONT, UI_FONT, WEIGHT_550, WEIGHT_650};
 pub use hover::HoverText;
 pub use glass::{chrome_panel, glass_region, region_sweeper, PANEL_RADIUS};
 pub use icons::{chevron, chevron_at, icon, Assets};

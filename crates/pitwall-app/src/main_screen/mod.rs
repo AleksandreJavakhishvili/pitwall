@@ -1450,7 +1450,7 @@ impl Render for MainScreen {
             .text_color(t.text)
             .font_family(crate::kit::UI_FONT)
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .child(topbar)
             .child(main_row)
             .child(self.render_strip(&chrome, bp, cx))

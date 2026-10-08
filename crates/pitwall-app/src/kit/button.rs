@@ -47,7 +47,7 @@ pub fn kbd(label: &str, t: &Theme) -> Div {
         .bg(t.surface_2)
         .font_family(MONO_FONT)
         .text_size(px(10.5))
-        .line_height(px(10.5))
+        .line_height(px(10.))
         .text_color(t.text_3)
         .whitespace_nowrap()
         .child(keys(label, false))

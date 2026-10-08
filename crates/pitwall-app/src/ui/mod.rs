@@ -356,7 +356,7 @@ impl Render for MainView {
             // `body`: Inter 13 px, line height 1.45, for every overlay too.
             .font_family(crate::kit::UI_FONT)
             .text_size(px(13.))
-            .line_height(gpui::relative(1.45))
+            .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text);
         let root = match &self.explorer {
             Some(e) => crate::explorer::on_actions(root, e),
