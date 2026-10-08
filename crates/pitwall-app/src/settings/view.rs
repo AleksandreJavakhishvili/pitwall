@@ -6,7 +6,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Context, EventEmitter, FontWeight, ScrollHandle,
+    div, prelude::*, px, AnyElement, App, Context, EventEmitter, ScrollHandle,
     SharedString, Task, Window,
 };
 
@@ -417,9 +417,13 @@ impl SettingsView {
                     .child(Self::status_chip(ui, s.map(|s| s.installed.is_some()))),
             )
             .child(
-                div()
-                    .text_color(ui.t.text_2)
-                    .child("pitwall lets you and your agents add agents and agw sessions to Pitwall from a terminal. Anything that changes another machine waits for your OK here."),
+                div().child(crate::kit::rich(
+                    &[
+                        ("pitwall", crate::kit::Span::Mono),
+                        (" lets you and your agents add agents and agw sessions to Pitwall from a terminal. Anything that changes another machine waits for your OK here.", crate::kit::Span::Text),
+                    ],
+                    ui.t.text_2,
+                )),
             );
         let Some(s) = s else {
             return sec;
@@ -655,13 +659,8 @@ impl Render for SettingsView {
             .pr(px(12.))
             .pt(px(14.))
             .pb(px(6.))
-            .child(
-                div()
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.text)
-                    .child("SETTINGS"),
-            )
+            // `.label-lg`: Barlow Condensed 600, 15 px, 0.08em.
+            .child(crate::kit::label_t("Settings", t.text, 15., 0.08))
             .child(
                 crate::kit::glyph_btn("settings-close", "✕", &ui.t)
                     .tooltip(tooltip("Close (esc)"))

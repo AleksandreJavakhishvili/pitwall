@@ -13,7 +13,7 @@ use crate::theme::Theme;
 use super::motion::{enter, Fx};
 
 use super::button::icon_btn;
-use super::text::label;
+use super::text::label_t;
 
 actions!(pw_dialog, [NextField, PrevField]);
 
@@ -95,7 +95,7 @@ impl Modal {
                         .pr(px(12.))
                         .pb(px(6.))
                         .pl(px(18.))
-                        .child(label(title, t.text, 15.).line_height(px(19.)))
+                        .child(label_t(title, t.text, 15., 0.08).line_height(px(19.)))
                         .child(
                             icon_btn("modal-close", "x", "Close (esc)", false, &t)
                                 .on_click(move |_, window, cx| close(window, cx)),
