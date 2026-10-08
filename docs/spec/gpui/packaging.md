@@ -134,6 +134,32 @@ Unchanged in substance from release.yml:
   `GPUI_FXC_PATH` to the newest SDK's `fxc.exe`. In phase 9 its jobs
   replace release.yml's build jobs and release.yml's `publish` job takes
   their artifacts unchanged.
+- Cross-platform check before the first push (round 2, local only): an
+  Ubuntu 22.04 container with ci.yml's Linux packages (arm64; the runner is
+  x86_64) ran `cargo clippy --workspace --all-targets -D warnings` and
+  `cargo test --workspace` green, and `cargo xwin clippy --target
+  x86_64-pc-windows-msvc --workspace --all-targets -D warnings` (with
+  `PITWALL_SIDECAR_STUBS=1`) plus a debug link of pitwall-app, -hold, -cli
+  and -hook for Windows passed (ring builds with clang-cl; no libgit2 in
+  the tree). Found and fixed on the way: libc 0.2.190 removed Linux's
+  `ENOATTR`, which xattr 0.2.3 (gpui → gpui_http_client → zed-async-tar)
+  names, so gpui no longer compiled on Linux: the lockfile pins 0.2.189 and
+  pitwall-app caps `libc < 0.2.190` until gpui drops xattr 0.2. Tests that
+  commit through the app set a repo-local git identity (runners have none).
+  The Windows tests were not run (no Windows host). Cross-checking Windows
+  needs no `fxc.exe`: gpui compiles HLSL only in release builds on a
+  Windows host.
+- Running the app headless: gpui draws nothing under Xvfb with Mesa's
+  lavapipe (black window; X11 software presentation), so the Linux smoke
+  run uses Weston (13+, `xdg_wm_base` v2+; with a seat, so not the
+  headless backend) nested in Xvfb, gpui on Wayland. Ubuntu 22.04's Weston
+  9 is too old for gpui.
+- The Linux packages name the launcher `pitwall-app.desktop` (after the
+  binary); the window's app id and the badge's desktop id follow it
+  (`platform::WINDOW_APP_ID`, `linux::DESKTOP_ID`). The channel's bundle id
+  is baked in by `scripts/package-app.sh` (`PITWALL_BUNDLE_ID` →
+  `platform::BUNDLE_ID`), so preview builds' Windows toasts name the
+  AppUserModelID the installers set (`dev.pitwall.app.preview`).
 
 ## Tests
 

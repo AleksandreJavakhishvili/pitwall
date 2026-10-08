@@ -46,6 +46,8 @@ env:
 jobs:
   macos:
     runs-on: macos-latest
+    # Release builds (two architectures, fat LTO) from a cold cache; a hang fails here.
+    timeout-minutes: 120
     env:
       SECRET_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       SECRET_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -147,6 +149,8 @@ jobs:
   # Built on the oldest supported Ubuntu so the AppImage's glibc floor stays low.
   linux:
     runs-on: ubuntu-22.04
+    # Release builds (fat LTO) from a cold cache; a hang fails here.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -201,6 +205,8 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    # Release builds (fat LTO, two installers) from a cold cache; a hang fails here.
+    timeout-minutes: 120
     env:
       SECRET_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       SECRET_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
