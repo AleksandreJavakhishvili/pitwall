@@ -365,6 +365,8 @@ def main():
     ap.add_argument("--keep", action="store_true", help="keep the temp PITWALL_HOME")
     ap.add_argument("--quick", action="store_true", help="one cold start, no Wall/Review scenarios")
     ap.add_argument("--then", action="append", default=[], help="after the last count: send this bench command and sample again (repeatable)")
+    ap.add_argument("--profile", help="also run macOS `sample` on the app process for 5 s per scenario, writing <dir>/<scenario>.txt")
+    ap.add_argument("--agent", choices=["bench", "tui"], default="bench", help="bench: a shell loop (~3 KB/s); tui: scripts/tui-agent.py, a Claude/Codex-like redrawing TUI (~12 KB/s, 10 frames/s)")
     args = ap.parse_args()
 
     app = Path(args.app).resolve()
@@ -380,7 +382,11 @@ def main():
     (home / "agents").mkdir(parents=True)
     (home / "projects.json").write_text(json.dumps({"version": 1, "onboarded": True, "projects": []}))
     gen = root / "gen.sh"
-    gen.write_text(GEN)
+    if args.agent == "tui":
+        tui = Path(__file__).resolve().parent / "tui-agent.py"
+        gen.write_text(f"#!/bin/sh\nexec python3 '{tui}'\n")
+    else:
+        gen.write_text(GEN)
     gen.chmod(0o755)
     (home / "agents" / "bench.toml").write_text(KIND.format(gen=gen))
     project = make_project(root)
@@ -393,6 +399,10 @@ def main():
         m = measure(inst.proc.pid, str(home), args.sample)
         m["holders"] = holder_stats(home)
         m.update(extra or {})
+        if args.profile:
+            Path(args.profile).mkdir(parents=True, exist_ok=True)
+            out = Path(args.profile) / (name.replace(" ", "_").replace("+", "_") + ".txt")
+            subprocess.run(["sample", str(inst.proc.pid), "5", "-f", str(out)], capture_output=True, timeout=60)
         results["scenarios"][name] = m
         g = m["groups"]
         wk = ", ".join(f"{k[3:]} {v['footprint_mb']:.0f}" for k, v in m.items() if k.startswith("wk_"))

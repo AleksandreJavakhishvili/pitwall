@@ -30,7 +30,7 @@ in easily, with few ties to specific things. In concrete terms:
             │                   │                         │
 ┌───────────▼─────────┐ ┌───────▼───────────┐   ┌─────────▼─────────┐
 │   pitwall-detect    │ │   pitwall-core    │   │  pitwall-client   │
-│ Screen (vt100) +    │◄┤ domain, traits,   │   │ UDS connect,      │
+│ Screen (alacritty)+ │◄┤ domain, traits,   │   │ UDS connect,      │
 │ TOML screen rules   │ │ Engine, status,   │   │ handshake, calls, │
 │ (pure)              │ │ queue, tasks, git │   │ events, term      │
 └─────────────────────┘ │ over Exec, kinds  │   │ streams           │
@@ -57,7 +57,7 @@ in easily, with few ties to specific things. In concrete terms:
 | Crate | Owns | Why it is its own crate |
 |---|---|---|
 | `pitwall-proto` | Request/response/event types, `AgentView`, `KindView`, `Caps`, `PROTOCOL_VERSION`. Depends only on serde. | The one contract that the daemon, the client, the CLI and the TS types share. Clients must not have to pull in the engine to talk to it. |
-| `pitwall-detect` | `screen.rs`, `detect.rs`, `detect/*.toml` and their fixtures. | Pure, has heavy dependencies (vt100, regex), and is maintained on its own. Today's boundary, now enforced by the compiler. |
+| `pitwall-detect` | `screen.rs`, `detect.rs`, `detect/*.toml` and their fixtures. | Pure, has heavy dependencies (alacritty_terminal, regex), and is maintained on its own. Today's boundary, now enforced by the compiler. |
 | `pitwall-hold` (bin + lib) | The per-agent terminal holder (§9 decision 1): owns one PTY + child, serves a frozen, versioned protocol (documented in its `lib.rs`) on `run/hold/<agentId>.sock`; the lib has the protocol and the client. OS code only in `platform/` (unix today). Deps: `interprocess`, `libc`. | Must outlive every other Pitwall process and almost never change, so it is tiny and has no Pitwall dependencies. |
 | `pitwall-core` | Domain model, the traits in §2, the `Engine` (today's registry, ticker policy, auto-send, status folding, tasks), kinds and launch planning, git operations written against `Exec`, the `Store` trait. Also `testing::{FakeProvider, MemStore, contract}` behind the `testing` feature. | All the logic, runnable and testable without sockets, Tauri, real processes or `$HOME`. It has no knowledge of macOS, PTYs, ssh or agw. |
 | `pitwall-providers` | `local` (portable-pty, lsof, login shell), `agw` (agw CLI + ssh), `ssh` (wave 3). Each is a cargo feature. | It is the only crate that knows about specific places to run. Every provider runs the same contract test suite. |
