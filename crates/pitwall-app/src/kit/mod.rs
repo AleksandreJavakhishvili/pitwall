@@ -10,12 +10,14 @@
 //!
 //! - [`fonts`]: the bundled faces, registered once ([`init`]).
 //! - [`icons`]: the app's one `AssetSource` and its stroke icons;
+//!   [`brand`]: the Pitwall mark;
 //!   [`file_icons`]: the coloured Material file and folder icons.
 //! - [`text`]: letter-spaced labels; [`status`]: status glyphs and words.
 //! - [`button`], [`chip`], [`controls`] (checkbox, toggle, radio, seg,
 //!   select, spinner), [`tooltip`], [`menu`], [`modal`], [`input`] (the
 //!   text field, IME included), [`glass`] (Liquid Glass regions).
 
+pub mod brand;
 pub mod button;
 pub mod chip;
 pub mod controls;
@@ -36,6 +38,7 @@ pub mod status;
 pub mod text;
 pub mod tooltip;
 
+pub use brand::brand_mark;
 pub use button::{
     accent_button, btn_radius, button, glyph_btn, icon_btn, icon_btn_state, kbd, kbd_on_primary,
     keys, keys_for, on_primary, small_btn, text_button, BtnKind,

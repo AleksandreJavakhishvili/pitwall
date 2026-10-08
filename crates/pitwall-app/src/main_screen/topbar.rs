@@ -105,7 +105,7 @@ impl MainScreen {
                     .items_center()
                     .gap(px(8.))
                     .px(px(4.))
-                    .child(wordmark_mark())
+                    .child(crate::kit::brand_mark(t))
                     .when(!compact, |d| {
                         d.child(
                             tracked("PITWALL", 17., 0.22)
@@ -607,44 +607,3 @@ fn count_pill(
     }
 }
 
-/// The brand mark (`public/pitwall.svg`, a 64-unit pit board), drawn from
-/// its rectangles at 20 px so it stays crisp.
-fn wordmark_mark() -> impl IntoElement {
-    const S: f32 = 20. / 64.;
-    // x, y, w, h, radius, colour
-    const RECTS: [(f32, f32, f32, f32, f32, u32); 14] = [
-        (0., 0., 64., 64., 14., 0x111418),
-        (8.3, 11.3, 47.4, 13.4, 1.6, 0xe8ebef),
-        (20.5, 12., 11.5, 6., 0., 0x111418),
-        (43.5, 12., 11.5, 6., 0., 0x111418),
-        (9., 18., 11.5, 6., 0., 0x111418),
-        (32., 18., 11.5, 6., 0., 0x111418),
-        (10.5, 24., 2.6, 18.5, 0., 0xe8ebef),
-        (50.9, 24., 2.6, 18.5, 0., 0xe8ebef),
-        (15.5, 29., 10., 9., 1.6, 0x4b5563),
-        (27., 29., 10., 9., 1.6, 0xffb020),
-        (38.5, 29., 10., 9., 1.6, 0x4b5563),
-        (8., 42.5, 48., 4., 1., 0xe8ebef),
-        (10., 48.5, 44., 5.5, 1., 0x2b323b),
-        (0., 0., 0., 0., 0., 0),
-    ];
-    div()
-        .relative()
-        .size(px(20.))
-        .flex_none()
-        .children(
-            RECTS
-                .iter()
-                .filter(|r| r.2 > 0.)
-                .map(|&(x, y, w, h, r, c)| {
-                    div()
-                        .absolute()
-                        .left(px(x * S))
-                        .top(px(y * S))
-                        .w(px(w * S))
-                        .h(px(h * S))
-                        .rounded(px(r * S))
-                        .bg(gpui::rgb(c))
-                }),
-        )
-}

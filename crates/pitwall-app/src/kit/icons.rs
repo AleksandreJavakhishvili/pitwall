@@ -62,6 +62,9 @@ pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if path.starts_with("brand/") {
+            return Ok(super::brand::layer(path).map(|s| Cow::Owned(s.into_bytes())));
+        }
         let Some(name) = path
             .strip_prefix("icons/")
             .and_then(|p| p.strip_suffix(".svg"))
