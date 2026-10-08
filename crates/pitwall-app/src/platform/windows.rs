@@ -27,7 +27,7 @@ use super::badge;
 use crate::menu::{OpenSettings, Quit, QuitAndStopAgents, ShowMain};
 
 /// The app icon in the notification area.
-const ICON_PNG: &[u8] = include_bytes!("../../../../src-tauri/icons/32x32.png");
+const ICON_PNG: &[u8] = include_bytes!("../../packaging/icons/32x32.png");
 
 thread_local! {
     /// The tray icon lives as long as the app (dropping it removes it).

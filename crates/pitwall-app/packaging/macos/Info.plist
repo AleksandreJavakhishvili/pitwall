@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Info.plist of the GPUI app bundle. scripts/package-app.sh fills in the
+<!-- Info.plist of Pitwall.app. scripts/package-app.sh fills in the
      @NAME@ placeholders (product name, bundle id, version, executable).
-     The usage strings are the ones src-tauri/Info.plist gives the Tauri app:
-     they appear in macOS's "would like to access…" prompts, so they say why.
+     The usage strings are the ones the Tauri app (up to v0.1.x) had: they
+     appear in macOS's "would like to access…" prompts, so they say why.
      No URL schemes, document types or other permissions are used today. -->
 <plist version="1.0">
 <dict>

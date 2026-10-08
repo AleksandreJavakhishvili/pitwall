@@ -12,9 +12,9 @@ use zbus::zvariant::Value;
 
 /// The desktop entry the badge belongs to: the .deb/AppImage launcher,
 /// which cargo-packager names after the main binary
-/// (`usr/share/applications/pitwall-app.desktop`). Keep in step with
+/// (`usr/share/applications/pitwall.desktop`). Keep in step with
 /// packaging and with [`super::WINDOW_APP_ID`].
-pub const DESKTOP_ID: &str = "application://pitwall-app.desktop";
+pub const DESKTOP_ID: &str = "application://pitwall.desktop";
 
 /// The badge's properties for a count.
 fn props(count: usize) -> HashMap<&'static str, Value<'static>> {

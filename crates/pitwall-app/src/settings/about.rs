@@ -15,6 +15,16 @@ use crate::kit::BtnKind;
 use super::SettingsHost;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The version as Settings and About show it; preview-channel bundles
+/// (`PITWALL_CHANNEL=preview`, `dev.pitwall.app.preview`) say so.
+pub fn version_label() -> String {
+    if crate::platform::BUNDLE_ID.ends_with(".preview") {
+        format!("{VERSION} (preview)")
+    } else {
+        VERSION.to_string()
+    }
+}
 /// The GPUI release this build pins (Cargo.toml `gpui = "=0.2.2"`).
 pub const GPUI_VERSION: &str = "0.2.2";
 
@@ -41,7 +51,7 @@ pub fn facts(cx: &App) -> Vec<(&'static str, String)> {
         .map(|r| tildify(&r.to_string_lossy()))
         .unwrap_or_else(|| "none (not started)".into());
     vec![
-        ("Version", format!("{VERSION} (GPUI preview)")),
+        ("Version", version_label()),
         (
             "Build",
             format!(
@@ -179,12 +189,12 @@ mod tests {
     #[test]
     fn the_text_has_every_fact() {
         let f = vec![
-            ("Version", "1.2.3 (GPUI preview)".to_string()),
+            ("Version", "1.2.3".to_string()),
             ("Look", "Flat".into()),
         ];
         let s = as_text(&f);
         assert!(s.starts_with("Pitwall\n"));
-        assert!(s.contains("Version: 1.2.3 (GPUI preview)\n") && s.contains("Look: Flat\n"));
+        assert!(s.contains("Version: 1.2.3\n") && s.contains("Look: Flat\n"));
         assert_eq!(VERSION, env!("CARGO_PKG_VERSION"));
         let toml = include_str!("../../Cargo.toml");
         assert!(

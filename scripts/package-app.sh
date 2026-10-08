@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Packages pitwall-app (the GPUI app) without Tauri: builds the app and its
-# sidecars (pitwall-hold, pitwall-cli, and pitwall-hook on Windows) in
-# release mode and bundles them (docs/spec/gpui/packaging.md).
+# Packages Pitwall (crates/pitwall-app, the GPUI app; binary `pitwall`):
+# builds the app and its sidecars (pitwall-hold, pitwall-cli, and
+# pitwall-hook on Windows) in release mode and bundles them
+# (docs/spec/gpui/packaging.md). .github/workflows/release.yml runs it.
 #
 #   scripts/package-app.sh                       # this OS's default formats
 #   scripts/package-app.sh --universal           # macOS: arm64 + x86_64 (CI)
@@ -15,10 +16,16 @@
 # Output: target/package/ (or --out DIR): the bundles plus bin/ with the
 # staged binaries. Nothing is installed anywhere.
 #
-# Channel (PITWALL_CHANNEL): "preview" (default) builds "Pitwall Preview",
-# bundle id dev.pitwall.app.preview, so it installs next to the Tauri app
-# without sharing its install folder, permissions or notification settings;
-# "stable" builds "Pitwall" / dev.pitwall.app (the switch-over, phase 9).
+# Channel (PITWALL_CHANNEL): "stable" (default) builds "Pitwall", bundle id
+# dev.pitwall.app, package name pitwall: the released app (the same identity
+# the Tauri app had up to v0.1.x, so macOS privacy grants, the Dock entry
+# and the install folder carry over). "preview" builds "Pitwall Preview" /
+# dev.pitwall.app.preview / pitwall-preview, a dev bundle that installs next
+# to the released one without sharing its permissions or notification
+# settings (run it with PITWALL_HOME set to its own folder).
+#
+# The .dmg is named like the release asset: Pitwall_<version>_<arch>.dmg
+# ("Pitwall_Preview_…" for the preview channel).
 #
 # macOS signing (all optional; ad-hoc without them):
 #   APPLE_SIGNING_IDENTITY   "Developer ID Application: Name (TEAMID)" (in a keychain)
@@ -66,7 +73,7 @@ if [ -z "$formats" ]; then
 fi
 $universal && [ $os != macos ] && die "--universal is macOS only"
 
-case "${PITWALL_CHANNEL:-preview}" in
+case "${PITWALL_CHANNEL:-stable}" in
   preview) product="Pitwall Preview"; bundle_id=dev.pitwall.app.preview; pkg_name=pitwall-preview ;;
   stable) product="Pitwall"; bundle_id=dev.pitwall.app; pkg_name=pitwall ;;
   *) die "PITWALL_CHANNEL must be preview or stable" ;;
@@ -74,8 +81,7 @@ esac
 # The first `version = ` of [package] (scripts/release.sh bumps it).
 version=$(awk '/^\[/ { pkg = ($0 == "[package]") } pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' crates/pitwall-app/Cargo.toml)
 [ -n "$version" ] || die "no version in crates/pitwall-app/Cargo.toml"
-# Icons stay in src-tauri/icons until the Tauri app goes (phase 9).
-icons="$root/src-tauri/icons"
+icons="$root/crates/pitwall-app/packaging/icons"
 exe=""
 [ $os = windows ] && exe=.exe
 sidecars="pitwall-hold pitwall-cli"
@@ -105,14 +111,14 @@ for t in $targets; do
   # shellcheck disable=SC2086
   cargo build --release --locked --target "$t" $sidecar_args
   # shellcheck disable=SC2086
-  cargo build --release --locked --target "$t" -p pitwall-app --bin pitwall-app $app_features
+  cargo build --release --locked --target "$t" -p pitwall-app --bin pitwall $app_features
 done
 
 # --- stage the binaries --------------------------------------------------------
 bin="$out/bin"
 rm -rf "$bin"
 mkdir -p "$bin"
-for b in pitwall-app $sidecars; do
+for b in pitwall $sidecars; do
   if $universal; then
     lipo -create -output "$bin/$b" "$target_dir/aarch64-apple-darwin/release/$b" "$target_dir/x86_64-apple-darwin/release/$b"
     lipo -info "$bin/$b"
@@ -151,9 +157,9 @@ if [ $os = macos ]; then
   case ",$formats," in *,app,*|*,dmg,*) ;; *) die "macOS formats: app, dmg" ;; esac
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-  for b in pitwall-app $sidecars; do cp "$bin/$b" "$app/Contents/MacOS/$b"; done
+  for b in pitwall $sidecars; do cp "$bin/$b" "$app/Contents/MacOS/$b"; done
   sed -e "s|@PRODUCT_NAME@|$product|g" -e "s|@BUNDLE_ID@|$bundle_id|g" \
-      -e "s|@VERSION@|$version|g" -e "s|@EXECUTABLE@|pitwall-app|g" \
+      -e "s|@VERSION@|$version|g" -e "s|@EXECUTABLE@|pitwall|g" \
       crates/pitwall-app/packaging/macos/Info.plist > "$app/Contents/Info.plist"
   plutil -lint "$app/Contents/Info.plist" >/dev/null
   printf 'APPL????' > "$app/Contents/PkgInfo"
@@ -166,7 +172,7 @@ if [ $os = macos ]; then
   echo "package-app: $app"
 
   case ",$formats," in *,dmg,*)
-    dmg="$out/${pkg_name}_${version}_${arch_label}.dmg"
+    dmg="$out/${product// /_}_${version}_${arch_label}.dmg"
     stage="$out/dmg-root"
     rm -rf "$stage" "$dmg"
     mkdir -p "$stage"
@@ -202,7 +208,7 @@ if [ $os = windows ] && [ -n "${WINDOWS_CERTIFICATE_THUMBPRINT:-}" ]; then
   windows_cfg="\"windows\": { \"certificateThumbprint\": \"$WINDOWS_CERTIFICATE_THUMBPRINT\", \"digestAlgorithm\": \"sha256\", \"timestampUrl\": \"$timestamp_url\" },"
 fi
 
-binaries='{ "path": "pitwall-app", "main": true }'
+binaries='{ "path": "pitwall", "main": true }'
 for s in $sidecars; do binaries="$binaries, { \"path\": \"$s\" }"; done
 cfg="$out/packager.json"
 # GPUI's runtime libraries instead of WebKitGTK; curl as the Tauri .deb had
@@ -211,7 +217,7 @@ cfg="$out/packager.json"
 # changing into the config *file* path, which fails.
 cat > "$cfg" <<EOF
 {
-  "name": "pitwall-app",
+  "name": "pitwall",
   "productName": "$product",
   "version": "$version",
   "identifier": "$bundle_id",

@@ -621,7 +621,7 @@ impl SettingsView {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(crate::kit::hint(format!("Pitwall {} · GPUI preview", super::about::VERSION), &ui.t))
+            .child(crate::kit::hint(format!("Pitwall {}", super::about::version_label()), &ui.t))
             .child(div().flex_1())
             .child(
                 crate::kit::text_button("about", "About Pitwall", BtnKind::Link, false, &ui.t)
