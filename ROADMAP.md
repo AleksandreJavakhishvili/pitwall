@@ -9,11 +9,10 @@ thumbs-up to an existing one.
 
 Being worked on.
 
-- **The first release, 0.1.0.** Downloads for macOS, Linux and Windows, with signed builds so macOS stops asking for folder access again after every update.
+- **Signed builds.** Apple and Windows code signing, so macOS and Windows stop warning on first launch and macOS stops asking for folder access again after every update.
 - **Windows, tested on a real machine.** The Windows build exists; next is running it day to day on real hardware and fixing what turns up.
-- **Lighter with terminals on screen.** Use less memory as soon as a terminal is visible, however many agents you run.
-- **Review in its own window.** Open Review in a lightweight window that gives its memory back when you close it.
-- **Calmer with many busy agents.** Lower CPU when twenty agents are all printing at once, with no blank tiles and smooth scrolling on the Wall.
+- **Lighter with terminals on screen.** WebKit keeps about 220 MB for drawing as soon as anything on screen repaints; try repainting the Wall less often to bring that down.
+- **Calmer with many busy agents.** Lower CPU when twenty agents are all printing at once.
 
 ## Next
 
@@ -22,7 +21,6 @@ Designed, starting after the current work.
 - **Agents that don't depend on the app.** A small background service owns the agents, so they keep running, with their status and Next up queues, while the app is closed or being updated. With a menu-bar item and Start at login.
 - **Rules and hooks on agw machines.** The same rules and status hooks for agw sessions as for local agents.
 - **Race Engineer.** An optional assistant: an ordinary agent, on your own subscription, that knows Pitwall's command line and can set things up or rearrange agents when you ask. Anything risky still waits for your approval in the app, and Pitwall works fully without it.
-- **Browse an agent's code.** A read-only file tree, viewer, quick open and search for the folder an agent works in, on your computer or an agw machine, plus "Open in editor" to hand a file to your own editor.
 - **Plain SSH machines.** Run and watch agents on any machine you can reach over SSH, not only agw sessions.
 
 ## Later
@@ -35,6 +33,7 @@ Ideas we want, not scheduled yet.
 
 ## Recently shipped
 
-Linux builds (AppImage and .deb), a first performance pass (less memory and CPU with
-many agents), terminals you can open anywhere, and a source control view that
-refreshes when you open it. Everything is in the [changelog](CHANGELOG.md).
+The first release, 0.1.0, for macOS, Linux and Windows: a read-only code explorer
+(file tree, quick open, search), a Changes panel that matches `git status`, Review
+scoped to the current project, git refreshes when files change, and a lighter
+Review and Wall. Everything is in the [changelog](CHANGELOG.md).
