@@ -76,6 +76,16 @@ agents plug in without touching the rest. Design first, review, then build.
     of spawning git: measured, not worth it (see there).
 - Plain SSH machines provider; drag a space tab out to create a window.
 
+## GPUI port (in progress)
+The UI moves from Tauri + React to GPUI (`crates/pitwall-app`); the Tauri app
+is frozen (fixes only) until the GPUI app reaches parity, then replaced in one
+release → [gpui/README.md](gpui/README.md), checklist [gpui/inventory.md](gpui/inventory.md).
+- Phase 0 — DONE: shell (window, menu, theme tokens, engine hosted in-process,
+  live sidebar, coexistence guard, CI on three OSes).
+- Next: foundation (in-house components) → terminal + main screen → Wall →
+  Review → explorer → settings and onboarding → agw/CLI/approvals and OS
+  integration → packaging → switch the release over.
+
 ## Website — DONE
 - `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo
   is built with it; video re-recorded at 1120×700 (legible text), tabs follow the

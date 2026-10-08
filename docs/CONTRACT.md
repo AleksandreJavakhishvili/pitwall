@@ -15,7 +15,7 @@ how Pitwall behaves and why; the code is organised as:
 | Core, providers, daemon, CLI | `crates/` (`pitwall-core`, `pitwall-providers`, `pitwall-daemon`, `pitwall-cli`, …) |
 | Terminal holder | `crates/pitwall-hold/` |
 | Screen detection | `crates/pitwall-detect/` (`src/screen.rs`, `src/detect.rs`, `detect/*.toml`, fixtures) |
-| Desktop app | `src-tauri/` |
+| Desktop app | `src-tauri/` (frozen; being replaced by `crates/pitwall-app`, GPUI: [spec/gpui/](spec/gpui/README.md)) |
 | UI | `src/`, `index.html`, `public/` |
 
 | File | Contents | Area |
@@ -36,4 +36,5 @@ how Pitwall behaves and why; the code is organised as:
 | [spec/architecture.md](spec/architecture.md) | Wave 2 design: crates, Provider/TermIo/Exec traits, capabilities, daemon protocol, migration steps | all |
 | [spec/worktrees-view.md](spec/worktrees-view.md) | All git worktrees per project/agent in source control | Backend, UI |
 | [spec/explorer.md](spec/explorer.md) | Read-only code explorer: file tree, viewer, quick open, search, open in editor | Backend, UI |
+| [spec/gpui/README.md](spec/gpui/README.md) | GPUI port: plan, engine hosting, phases; [inventory](spec/gpui/inventory.md), [in-house components](spec/gpui/in-house.md), [platform](spec/gpui/platform.md), [packaging](spec/gpui/packaging.md), [licensing](spec/gpui/licensing.md) | all |
 | [spec/roadmap.md](spec/roadmap.md) | Waves and what comes later | – |
