@@ -34,6 +34,7 @@ pub mod menu;
 pub mod modal;
 pub mod motion;
 pub mod scm;
+pub mod scrollbar;
 pub mod status;
 pub mod text;
 pub mod tooltip;
@@ -67,6 +68,7 @@ pub use status::{
 pub use text::{
     one_line, para, rich, Ellipsis, Para, Span, error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,
 };
+pub use scrollbar::{hscroll, scroll_area, vscroll, vscroll_list, ScrollArea, Scrollbar};
 pub use tooltip::{tooltip, tooltip_view, Tooltip};
 
 use gpui::App;

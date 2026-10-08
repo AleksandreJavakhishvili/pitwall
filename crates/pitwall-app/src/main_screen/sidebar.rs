@@ -169,14 +169,20 @@ impl MainScreen {
             .border_r_1()
             .border_color(t.line)
             .child(
-                div()
-                    .id("sidebar-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .pt(px(6.))
-                    .pb(px(8.))
-                    .children(list),
+                crate::kit::scroll_area("sidebar-scroll-area", t, move |h| {
+                    div()
+                        .id("sidebar-scroll")
+                        .track_scroll(h)
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .pt(px(6.))
+                        .pb(px(8.))
+                        .children(list)
+                        .into_any_element()
+                })
+                .flex_1()
+                .min_h_0(),
             )
             .child(
                 div()
@@ -680,20 +686,17 @@ impl MainScreen {
     ) -> impl IntoElement {
         let groups = group_by_project(agents);
         let focused = self.focused_agent_id();
-        div()
+        let rail = div()
             .id("rail")
-            .w(px(56.))
-            .h_full()
-            .flex_none()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
             .flex()
             .flex_col()
             .items_center()
             .py(px(8.))
             .gap(px(2.))
             .overflow_y_scroll()
-            .bg(t.surface)
-            .border_r_1()
-            .border_color(t.line)
             .children(groups.iter().enumerate().map(|(gi, g)| {
                 let title: SharedString = match (&g.machine, g.can_create) {
                     (Some(m), false) => format!("{} · {}", g.display, m.label).into(),
@@ -800,7 +803,14 @@ impl MainScreen {
                         cx.listener(|this, _, window, cx| this.open_new_agent(None, window, cx)),
                     )
                     .child(icon("plus", 16., t.text_3)),
-            )
+            );
+        crate::kit::scroll_area("rail-area", t, move |h| rail.track_scroll(h).into_any_element())
+            .w(px(56.))
+            .h_full()
+            .flex_none()
+            .bg(t.surface)
+            .border_r_1()
+            .border_color(t.line)
     }
 }
 

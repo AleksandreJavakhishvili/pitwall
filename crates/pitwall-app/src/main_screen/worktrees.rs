@@ -751,7 +751,7 @@ impl MainScreen {
             })
             .title(format!("Remove worktree {}", w.name))
             .motion(crate::theme::motion_on(cx))
-            .render(t, div().flex().flex_col().child(body).child(foot)),
+            .render(t, div().flex().flex_col().min_h_0().child(crate::kit::dialog::scrolling("rmwt-body", body, t)).child(foot)),
         )
     }
 }

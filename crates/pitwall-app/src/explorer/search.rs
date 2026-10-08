@@ -82,6 +82,7 @@ pub struct SearchPane {
     regex: bool,
     default_excludes: bool,
     details: bool,
+    scroll: gpui::UniformListScrollHandle,
     result: Option<SearchResult>,
     groups: Rc<Vec<MatchGroup>>,
     rows: Rc<Vec<Row>>,
@@ -131,6 +132,7 @@ impl SearchPane {
             regex: false,
             default_excludes: true,
             details: false,
+            scroll: gpui::UniformListScrollHandle::new(),
             result: None,
             groups: Rc::default(),
             rows: Rc::default(),
@@ -507,7 +509,10 @@ impl Render for SearchPane {
                 range.map(|ix| this.render_row(ix, cx)).collect::<Vec<_>>()
             }),
         )
-        .size_full();
+        .track_scroll(self.scroll.clone())
+        .size_full()
+        .px(px(4.))
+        .pb(px(12.));
         let details = self.details;
         div()
             .id("ex-search")
@@ -639,14 +644,11 @@ impl Render for SearchPane {
                 )
             })
             .child(
-                div()
+                crate::kit::vscroll_list("ex-results-bar", &self.scroll, &t, list)
                     .flex_1()
                     .min_h_0()
-                    .px(px(4.))
-                    .pb(px(12.))
                     .font_family(MONO_FONT)
-                    .text_size(px(12.))
-                    .child(list),
+                    .text_size(px(12.)),
             )
     }
 }

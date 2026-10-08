@@ -355,7 +355,10 @@ impl Render for TreeView {
             }),
         )
         .track_scroll(self.scroll.clone())
-        .size_full();
+        .size_full()
+        .px(px(4.))
+        .pb(px(12.));
+        let t = crate::theme::theme(cx).chrome();
         div()
             .id("ex-tree-box")
             .key_context(CONTEXT)
@@ -367,10 +370,10 @@ impl Render for TreeView {
             .on_action(cx.listener(Self::confirm))
             .flex_1()
             .min_h_0()
-            .px(px(4.))
-            .pb(px(12.))
+            .flex()
+            .flex_col()
             .font_family(MONO_FONT)
             .text_size(px(12.))
-            .child(list)
+            .child(crate::kit::vscroll_list("ex-tree-bar", &self.scroll, &t, list).flex_1())
     }
 }

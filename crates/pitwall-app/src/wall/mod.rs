@@ -799,18 +799,26 @@ impl Render for WallView {
             .child(self.bar(&t, cx))
             .when(empty, |d| d.child(Self::empty(&t)))
             .when(!empty, |d| {
+                // The scrollbar's gutter is outside what `measure` sees,
+                // as `clientWidth` is in the browser.
                 d.child(
-                    div().relative().flex_1().min_h_0().child(measure).child(
-                        div()
-                            .id("wall-scroll")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.scroll)
-                            .pt(px(layout::PAD_TOP))
-                            .px(px(layout::PAD_X))
-                            .pb(px(layout::PAD_BOTTOM))
-                            .children(children),
-                    ),
+                    kit::vscroll(
+                        "wall-bar",
+                        &self.scroll,
+                        &t,
+                        div().relative().flex_1().min_h_0().child(measure).child(
+                            div()
+                                .id("wall-scroll")
+                                .size_full()
+                                .overflow_y_scroll()
+                                .track_scroll(&self.scroll)
+                                .pt(px(layout::PAD_TOP))
+                                .px(px(layout::PAD_X))
+                                .pb(px(layout::PAD_BOTTOM))
+                                .children(children),
+                        ),
+                    )
+                    .flex_1(),
                 )
             })
     }

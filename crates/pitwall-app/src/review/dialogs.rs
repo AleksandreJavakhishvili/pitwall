@@ -808,7 +808,7 @@ impl ReviewView {
         })
         .title(title)
         .motion(crate::theme::motion_on(cx))
-        .render(t, div().flex().flex_col().min_h_0().child(body).child(foot));
+        .render(t, div().flex().flex_col().min_h_0().child(kit::dialog::scrolling("rv-modal-body", body, t)).child(foot));
         // Over the whole window, not only Review's area.
         let size = window.viewport_size();
         deferred(

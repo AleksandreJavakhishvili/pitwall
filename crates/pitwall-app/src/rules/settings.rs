@@ -729,23 +729,25 @@ impl RulesSection {
             )
             .child(kit::hint(self.kind.hint(&self.data_dir), t))
             .when_some(self.import_msg.clone(), |d, (ok, text)| {
+                let lines: Vec<_> = text.lines().map(|l| div().child(l.to_string())).collect();
                 d.child(
-                    div()
-                        .id("rules-log")
-                        .max_h(px(140.))
-                        .overflow_y_scroll()
-                        .px(px(10.))
-                        .py(px(8.))
-                        .rounded(RADIUS_SM)
-                        .bg(if ok { t.surface_3 } else { t.red_soft })
-                        .text_color(if ok { t.text_2 } else { t.red })
-                        .font_family(kit::MONO_FONT)
-                        .text_size(px(11.5))
-                        .children(
-                            text.lines()
-                                .map(|l| div().child(l.to_string()))
-                                .collect::<Vec<_>>(),
-                        ),
+                    kit::scroll_area("rules-log-area", t, move |h| {
+                        div()
+                            .id("rules-log")
+                            .track_scroll(h)
+                            .max_h(px(140.))
+                            .overflow_y_scroll()
+                            .px(px(10.))
+                            .py(px(8.))
+                            .children(lines)
+                            .into_any_element()
+                    })
+                    .max_h(px(140.))
+                    .rounded(RADIUS_SM)
+                    .bg(if ok { t.surface_3 } else { t.red_soft })
+                    .text_color(if ok { t.text_2 } else { t.red })
+                    .font_family(kit::MONO_FONT)
+                    .text_size(px(11.5)),
                 )
             })
     }
@@ -879,21 +881,26 @@ impl RulesSection {
             .gap(px(8.))
             .child(self.set_name.clone())
             .child(
-                div()
-                    .id("rules-pick")
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .px(px(10.))
-                    .py(px(8.))
-                    .max_h(px(240.))
-                    .overflow_y_scroll()
-                    .rounded(crate::theme::RADIUS)
-                    .border_1()
-                    .border_color(t.line)
-                    .bg(t.surface_2)
-                    .text_size(px(12.5))
-                    .children(picks),
+                kit::scroll_area("rules-pick-area", t, move |h| {
+                    div()
+                        .id("rules-pick")
+                        .track_scroll(h)
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .px(px(10.))
+                        .py(px(8.))
+                        .max_h(px(238.))
+                        .overflow_y_scroll()
+                        .children(picks)
+                        .into_any_element()
+                })
+                .max_h(px(240.))
+                .rounded(crate::theme::RADIUS)
+                .border_1()
+                .border_color(t.line)
+                .bg(t.surface_2)
+                .text_size(px(12.5)),
             )
             .child(
                 div()

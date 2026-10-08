@@ -274,8 +274,9 @@ impl ReviewView {
                 .into_any_element(),
             );
         }
-        div()
+        let list = div()
             .id("rv-list")
+            .track_scroll(&self.list_scroll)
             .key_context("ReviewList")
             .track_focus(&self.list_focus)
             .on_action(cx.listener(|v, _: &PreviousFile, _, cx| v.move_cursor(-1, cx)))
@@ -285,19 +286,21 @@ impl ReviewView {
                     v.select_file(&owner, &path, window, cx);
                 }
             }))
-            .w(px(LIST_W))
-            .min_w(px(220.))
-            .flex_none()
-            .h_full()
+            .size_full()
             .overflow_y_scroll()
-            .border_r_1()
-            .border_color(t.line)
-            .bg(t.surface)
             .pt(px(4.))
             .pb(px(16.))
             .flex()
             .flex_col()
-            .children(col)
+            .children(col);
+        kit::vscroll("rv-list-bar", &self.list_scroll, t, list)
+            .w(px(LIST_W))
+            .min_w(px(220.))
+            .flex_none()
+            .h_full()
+            .border_r_1()
+            .border_color(t.line)
+            .bg(t.surface)
     }
 
     fn chevron_toggle(id: SharedString, open: bool, size: f32, t: &Theme) -> gpui::Stateful<Div> {
@@ -1256,23 +1259,30 @@ impl ReviewView {
             )
             .when_some(prompt, |d, p| {
                 d.child(
-                    div()
-                        .id("rv-task-prompt")
-                        .flex_none()
-                        .max_h(px(64.))
-                        .overflow_y_scroll()
-                        .pt(px(6.))
-                        .px(px(12.))
-                        .pb(px(7.))
-                        .border_b_1()
-                        .border_color(t.line)
-                        .bg(t.surface)
-                        .text_size(px(12.))
-                        .text_color(t.text_2)
-                        .tooltip(|_, cx| {
-                            kit::tooltip_view("The prompt of this task, as sent".to_string(), cx)
-                        })
-                        .child(p),
+                    kit::vscroll(
+                        "rv-task-prompt-bar",
+                        &self.prompt_scroll,
+                        t,
+                        div()
+                            .id("rv-task-prompt")
+                            .track_scroll(&self.prompt_scroll)
+                            .max_h(px(64.))
+                            .overflow_y_scroll()
+                            .pt(px(6.))
+                            .px(px(12.))
+                            .pb(px(7.))
+                            .text_size(px(12.))
+                            .text_color(t.text_2)
+                            .tooltip(|_, cx| {
+                                kit::tooltip_view("The prompt of this task, as sent".to_string(), cx)
+                            })
+                            .child(p),
+                    )
+                    .flex_none()
+                    .max_h(px(64.))
+                    .border_b_1()
+                    .border_color(t.line)
+                    .bg(t.surface),
                 )
             })
             .child(self.diff_area(empty, file.is_some(), t, cx))
