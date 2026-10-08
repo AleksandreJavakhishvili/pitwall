@@ -89,14 +89,30 @@ function useAgentFiles(agents: AgentView[], scope: Record<string, string | null>
   return { files, errors };
 }
 
-/** What Review shows first when opened from a worktree. */
-export interface ReviewFocus {
-  projectId: string;
-  path: string;
-  nonce: number;
+/** What Review shows first: a worktree, or an agent (and one of its files). */
+export type ReviewFocus = ({ projectId: string; path: string } | { agentId: string; path?: string }) & { nonce: number };
+
+/** The active space Review is scoped to (docs/spec/review.md), with the "All projects" toggle. */
+export interface ReviewSpaceScope {
+  all: boolean;
+  /** The space's name ("orders-api", "Space 2"). */
+  space: string;
+  onAll(all: boolean): void;
 }
 
-export default function Review({ agents, focus = null, onExit }: { agents: AgentView[]; focus?: ReviewFocus | null; onExit(): void }) {
+export default function Review({
+  agents,
+  focus = null,
+  onExit,
+  scope: spaceScope = null,
+}: {
+  /** The agents to list: the active space's, or everyone. */
+  agents: AgentView[];
+  focus?: ReviewFocus | null;
+  onExit(): void;
+  /** Absent: the "All" space (everyone is listed, no toggle). */
+  scope?: ReviewSpaceScope | null;
+}) {
   // Only agents whose changes can be read (not outside a git repository).
   const reviewable = useMemo(() => agents.filter((a) => a.caps.review), [agents]);
   const hidden = agents.length - reviewable.length;
@@ -125,6 +141,8 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
   const { files, errors } = useAgentFiles(ordered, scope, nonce);
   const [sel, setSel] = useState<Sel | null>(null);
   const [selAgentId, setSelAgentId] = useState<string | null>(null);
+  /** Opened for this agent: select its first file once its changes are read. */
+  const pendingPick = useRef<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [closedDirs, setClosedDirs] = useState<Record<string, boolean>>({});
   const listRef = useRef<HTMLElement>(null);
@@ -167,12 +185,21 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
   const taskId = agent ? (scope[agent.id] ?? null) : null;
   const agentComments = agent ? sortComments(comments[agent.id] ?? []) : [];
 
-  // Default selection: the first agent with changes, its first file.
+  // Default selection: the agent Review was opened for (its first file once read), else the
+  // first agent with changes.
   useEffect(() => {
-    if (sel || selAgentId || wtSel) return;
+    if (sel || wtSel) return;
+    if (selAgentId) {
+      const list = files[selAgentId];
+      if (list?.length && pendingPick.current === selAgentId) {
+        pendingPick.current = null;
+        setSel({ agentId: selAgentId, path: treeOrder(list)[0].path });
+      }
+      return;
+    }
     const first = ordered.find((a) => (files[a.id]?.length ?? 0) > 0);
     if (first) setSel({ agentId: first.id, path: treeOrder(files[first.id])[0].path });
-  }, [files, ordered, sel, selAgentId]);
+  }, [files, ordered, sel, selAgentId, wtSel]);
 
   // The selected file went away (discarded, merged, scope changed): pick a neighbour.
   useEffect(() => {
@@ -182,9 +209,20 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
     setSelAgentId(sel.agentId);
   }, [sel, agentFiles, file]);
 
-  // Opened from a worktree: show it.
+  // Opened for a worktree: show it. For an agent: that agent (and file) first.
   useEffect(() => {
     if (!focus) return;
+    if ("agentId" in focus) {
+      setWtSel(null);
+      setCollapsed((c) => ({ ...c, [focus.agentId]: false }));
+      setSelAgentId(focus.agentId);
+      if (focus.path) setSel({ agentId: focus.agentId, path: focus.path });
+      else {
+        pendingPick.current = focus.agentId;
+        setSel(null);
+      }
+      return;
+    }
     const key = refKey(focus);
     setWtSel({ key, path: null });
     setWtOpen((o) => ({ ...o, [key]: true }));
@@ -205,10 +243,11 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
     }
   }, [wtSel, wt, wtList, projects.length]);
 
-  // Removed agent.
+  // Removed agent, or no longer listed (the "All projects" toggle turned off).
   useEffect(() => {
-    if (sel && !agents.some((a) => a.id === sel.agentId)) setSel(null);
-  }, [agents, sel]);
+    if (sel && !ordered.some((a) => a.id === sel.agentId)) setSel(null);
+    if (selAgentId && !ordered.some((a) => a.id === selAgentId)) setSelAgentId(null);
+  }, [ordered, sel, selAgentId]);
 
   // Tasks of the selected agent (for the scope picker).
   const agentId = agent?.id ?? null;
@@ -340,8 +379,19 @@ export default function Review({ agents, focus = null, onExit }: { agents: Agent
     <div className="review">
       <div className="review-bar">
         <span className="label">Review</span>
-        <span className="muted-sm">what your agents changed · click a line number to comment</span>
+        {spaceScope && (
+          <span className="rv-space" title={spaceScope.all ? "Every project's agents" : `Agents of the space ${spaceScope.space}`}>
+            {spaceScope.all ? "all projects" : spaceScope.space}
+          </span>
+        )}
+        <span className="muted-sm rv-bar-hint">what your agents changed · click a line number to comment</span>
         <span className="spacer" />
+        {spaceScope && (
+          <label className="rv-all" title="List the agents of every project, not just this space's">
+            <input type="checkbox" checked={spaceScope.all} onChange={(e) => spaceScope.onAll(e.target.checked)} />
+            All projects
+          </label>
+        )}
         <RefreshControl refreshing={fresh.refreshing} updatedAt={fresh.updatedAt} onRefresh={() => void fresh.refresh()} label="Refresh changes" />
         <div className="rv-seg" role="group" aria-label="Diff layout">
           <button aria-pressed={sideBySide} onClick={() => setSideBySide(true)}>
