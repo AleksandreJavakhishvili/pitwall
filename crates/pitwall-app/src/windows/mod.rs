@@ -343,6 +343,7 @@ fn build(
             ..Default::default()
         }),
         window_min_size: Some(size(px(min_w), px(min_h))),
+        window_decorations: crate::platform::decorations::request(),
         app_id: Some("dev.pitwall.app".into()),
         ..Default::default()
     };

@@ -16,6 +16,7 @@
 pub mod app_menu;
 pub mod badge;
 pub mod cli_install;
+pub mod decorations;
 pub mod files;
 pub mod glass;
 pub mod notify;

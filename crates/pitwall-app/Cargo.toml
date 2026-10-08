@@ -82,11 +82,14 @@ tray-icon = { version = "0.25", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Taskbar overlay badge, FlashWindowEx, hiding to the tray (MIT OR
 # Apache-2.0; the version gpui uses).
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The launcher badge over D-Bus (MIT; already in the tree via notify-rust).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# Asking the Wayland compositor whether it draws window decorations
+# (platform/decorations.rs). MIT; already in the tree via gpui.
+wayland-client = "0.31"
 # Not used directly: a cap for `cargo update`. libc 0.2.190 dropped Linux's
 # deprecated `ENOATTR`, which xattr 0.2.3 (gpui -> gpui_http_client ->
 # zed-async-tar) still names, so gpui stops compiling on Linux. Lift the
