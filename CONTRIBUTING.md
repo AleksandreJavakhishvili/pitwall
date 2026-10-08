@@ -65,8 +65,10 @@ read.
 | `revert`   | reverting an earlier commit                       | Chores            |
 
 **Scopes** (optional, one per commit): `core`, `providers`, `agw`, `hold`,
-`cli`, `daemon`, `detect`, `ui`, `app`, `website`, `release`, `deps`. Leave the
-scope out when a change spans several areas.
+`cli`, `daemon`, `detect`, `ui`, `app`, `gpui`, `website`, `release`, `deps`.
+`gpui` is the GPUI app and its crates (`crates/pitwall-app`,
+`crates/pitwall-term-view`, docs/spec/gpui/); `ui` and `app` stay the React UI
+and the Tauri app. Leave the scope out when a change spans several areas.
 
 **Rules**
 

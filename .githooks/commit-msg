@@ -18,7 +18,7 @@ if [ -z "$file" ] || [ ! -r "$file" ]; then
 fi
 
 TYPES='feat|fix|perf|refactor|docs|test|ci|build|chore|revert'
-SCOPES='core|providers|agw|hold|cli|daemon|detect|ui|app|website|release|deps'
+SCOPES='core|providers|agw|hold|cli|daemon|detect|ui|app|gpui|website|release|deps'
 
 # Drop the comment lines git adds and everything below a scissors line,
 # then trailing whitespace and leading blank lines.
