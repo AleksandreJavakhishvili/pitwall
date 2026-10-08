@@ -148,3 +148,9 @@ All already in the tree (via gpui or the Tauri app); now direct dependencies of 
 | windows-sys 0.61 (Windows) | MIT OR Apache-2.0 | Mica (`DwmSetWindowAttribute`), Reduce motion (`SystemParametersInfoW`) |
 
 OS integration (phase 7, `src/platform/`): notify-rust 4.18 (MIT OR Apache-2.0), raw-window-handle 0.6 (MIT OR Apache-2.0 OR Zlib), objc2 0.6 / objc2-foundation 0.3 / objc2-app-kit 0.3 (MIT; macOS), tray-icon 0.25 (MIT OR Apache-2.0; Windows), windows 0.61 (MIT OR Apache-2.0; Windows), image 0.25 png-only (MIT OR Apache-2.0; Windows), zbus 5 (MIT; Linux). All were already in Cargo.lock (Tauri app, gpui): no new crates in the tree.
+
+Packaging tools (phase 8; build-time only, nothing linked into Pitwall):
+cargo-packager 0.11.8 (MIT OR Apache-2.0) for the Linux and Windows bundles,
+and what it downloads while packaging: linuxdeploy and the AppImage runtime
+(MIT), NSIS (zlib/libpng), WiX 3.11 (MS-RL, covers the toolset, not the .msi it
+builds). macOS bundles use Apple's own tools (codesign, hdiutil, lipo).

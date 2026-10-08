@@ -16,6 +16,7 @@ pub mod menu;
 pub mod settings;
 pub mod platform;
 pub mod remote;
+pub mod packaging;
 pub mod theme;
 pub mod ui;
 pub mod window_state;

@@ -33,7 +33,8 @@ impl Host {
     /// Open the engine on `paths` and start its background work and the CLI
     /// socket. Call only after `home::choose` said the folder is ours.
     pub fn start(paths: Paths, bridge: Bridge) -> Host {
-        let holder = holder_bin();
+        let holder = holder_bin()
+            .map(|b| crate::packaging::stable_sidecar(b, &paths.root().join("bin")));
         let local = LocalProvider::new(LocalConfig {
             hold_dir: paths.hold_dir(),
             holder_bin: holder.clone(),
