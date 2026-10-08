@@ -62,6 +62,15 @@ pub struct Palette {
 
 impl EventEmitter<PaletteEvent> for Palette {}
 
+/// What the palette's host tells its window.
+#[derive(Debug, Clone)]
+pub enum PaletteHostEvent {
+    /// The palette opened (the window shows one modal at a time).
+    Opened,
+}
+
+impl EventEmitter<PaletteHostEvent> for PaletteHost {}
+
 impl Focusable for Palette {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.input.focus_handle(cx)
@@ -511,6 +520,7 @@ impl PaletteHost {
             },
         ));
         self.palette = Some(palette);
+        cx.emit(PaletteHostEvent::Opened);
         cx.notify();
     }
 

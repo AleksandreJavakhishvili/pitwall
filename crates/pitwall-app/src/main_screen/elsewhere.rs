@@ -232,6 +232,7 @@ impl MainScreen {
                     .when(can, |d| {
                         d.on_click(cx.listener(move |this, _, _, cx| {
                             this.elsewhere.bring = Some(row.clone());
+                            cx.emit(super::ScreenEvent::ModalOpened);
                             cx.notify();
                         }))
                     }),

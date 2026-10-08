@@ -239,6 +239,7 @@ impl MainScreen {
             .flat_map(|p| p.worktrees.iter().map(move |w| (p, w)))
             .find(|(_, w)| w.caps.remove);
         if let Some((p, w)) = first {
+            cx.emit(super::ScreenEvent::ModalOpened);
             self.modal = Some(Modal::RemoveWorktree(RemoveWt {
                 project_id: p.id.clone(),
                 path: w.path.clone(),
@@ -384,6 +385,7 @@ impl MainScreen {
                 "trash",
                 "Remove worktree…",
                 move |this, _, cx| {
+                    cx.emit(super::ScreenEvent::ModalOpened);
                     this.modal = Some(Modal::RemoveWorktree(RemoveWt {
                         project_id: p.clone(),
                         path: w.clone(),

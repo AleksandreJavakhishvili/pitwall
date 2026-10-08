@@ -100,6 +100,9 @@ pub fn attach_window<V: 'static>(window: &mut Window, cx: &mut Context<V>) -> Su
 /// What the overlay layer tells its window.
 #[derive(Debug, Clone)]
 pub enum LayerEvent {
+    /// Settings, About or "Scan again" opened (the window shows one modal
+    /// at a time).
+    Opened,
     /// Onboarding started these agents: tile them, focus the first;
     /// `failures` are for toasts (the rest still started).
     HandOver {
@@ -188,6 +191,7 @@ impl Layer {
             self.settings = Some(view);
         }
         self.focus_next_render = true;
+        cx.emit(LayerEvent::Opened);
         cx.notify();
     }
 
@@ -198,6 +202,7 @@ impl Layer {
         self.settings = None;
         self.about = true;
         self.focus_next_render = true;
+        cx.emit(LayerEvent::Opened);
         cx.notify();
     }
 
@@ -222,7 +227,22 @@ impl Layer {
         self._subs.push(sub);
         self.onboarding = Some(view);
         self.focus_next_render = true;
+        if mode == OnbMode::Rescan {
+            cx.emit(LayerEvent::Opened);
+        }
         cx.notify();
+    }
+
+    /// Close Settings, About or "Scan again" (another modal opened); the
+    /// first-launch welcome stays.
+    pub fn close_dialog(&mut self, cx: &mut Context<Self>) {
+        let welcome = self
+            .onboarding
+            .as_ref()
+            .is_some_and(|o| o.read(cx).mode() == OnbMode::Welcome);
+        if self.is_open() && !welcome {
+            self.close(cx);
+        }
     }
 
     pub fn close(&mut self, cx: &mut Context<Self>) {

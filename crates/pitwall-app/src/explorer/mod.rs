@@ -121,6 +121,8 @@ pub enum ExplorerEvent {
     ShowDiff { agent_id: String, path: String },
     /// The viewer opened or closed (the right panel hides while it shows).
     ViewerToggled,
+    /// Quick open (⌘P) opened: the window shows one modal at a time.
+    QuickOpened,
 }
 
 pub struct Explorer {
@@ -534,7 +536,15 @@ impl Explorer {
         );
         sub.detach();
         self.quick = Some(quick);
+        cx.emit(ExplorerEvent::QuickOpened);
         cx.notify();
+    }
+
+    /// Close quick open (another modal opened over the window).
+    pub fn close_quick(&mut self, cx: &mut Context<Self>) {
+        if self.quick.take().is_some() {
+            cx.notify();
+        }
     }
 
     /// A short notice at the bottom of the window (the kit's toast later).

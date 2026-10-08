@@ -236,6 +236,9 @@ pub enum ScreenEvent {
     /// Open Review on one worktree (a sidebar worktree row; the route is
     /// already Review).
     ReviewWorktree { project_id: String, path: String },
+    /// One of its dialogs opened (New agent, Remove, …): the window shows
+    /// one modal at a time, as the React app's single `modal` state does.
+    ModalOpened,
 }
 
 impl EventEmitter<ScreenEvent> for MainScreen {}
@@ -1012,6 +1015,7 @@ impl MainScreen {
         ));
         self.modal = Some(Modal::NewAgent(dialog));
         self.menu = None;
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
@@ -1037,12 +1041,14 @@ impl MainScreen {
             },
         ));
         self.modal = Some(Modal::Terminal(dialog));
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
     fn open_remove(&mut self, id: &str, cx: &mut Context<Self>) {
         self.modal = Some(Modal::Remove(RemoveState::new(id)));
         self.menu = None;
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
@@ -1063,6 +1069,7 @@ impl MainScreen {
             },
         ));
         self.modal = Some(Modal::Diff(dialog));
+        cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
 
@@ -1089,6 +1096,20 @@ impl MainScreen {
         self.modal = None;
         window.focus(&self.focus);
         cx.notify();
+    }
+
+    /// Whether one of its dialogs shows.
+    pub fn has_dialog(&self) -> bool {
+        self.modal.is_some() || self.elsewhere.bring.is_some()
+    }
+
+    /// Close its dialogs (another modal opened over the window).
+    pub fn close_dialogs(&mut self, cx: &mut Context<Self>) {
+        if self.has_dialog() {
+            self.modal = None;
+            self.elsewhere.bring = None;
+            cx.notify();
+        }
     }
 
     fn new_space(&mut self, cx: &mut Context<Self>) {

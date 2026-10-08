@@ -71,11 +71,13 @@ impl MainView {
         subs.push(cx.subscribe_in(
             &layer,
             window,
-            |this, _, e: &crate::settings::LayerEvent, window, cx| {
-                let crate::settings::LayerEvent::HandOver { agents, .. } = e;
-                if let (Some(first), Some(screen)) = (agents.first(), this.screen.clone()) {
-                    let id = first.id.clone();
-                    screen.update(cx, |s, cx| s.show_agent(&id, window, cx));
+            |this, _, e: &crate::settings::LayerEvent, window, cx| match e {
+                crate::settings::LayerEvent::Opened => this.one_modal(Owner::Layer, window, cx),
+                crate::settings::LayerEvent::HandOver { agents, .. } => {
+                    if let (Some(first), Some(screen)) = (agents.first(), this.screen.clone()) {
+                        let id = first.id.clone();
+                        screen.update(cx, |s, cx| s.show_agent(&id, window, cx));
+                    }
                 }
             },
         ));
@@ -98,6 +100,29 @@ impl MainView {
         let palette =
             cx.new(|cx| crate::palette::PaletteHost::new(screen.clone(), explorer.as_ref(), window, cx));
         subs.extend(crate::windows::attach(screen.as_ref(), window, cx));
+        // One modal at a time (React keeps a single `modal` state): whichever
+        // opens closes the others.
+        subs.push(cx.subscribe_in(
+            &palette,
+            window,
+            |this, _, _: &crate::palette::PaletteHostEvent, window, cx| {
+                this.one_modal(Owner::Palette, window, cx)
+            },
+        ));
+        if let Some(s) = &screen {
+            subs.push(cx.subscribe_in(s, window, |this, _, e: &crate::main_screen::ScreenEvent, window, cx| {
+                if matches!(e, crate::main_screen::ScreenEvent::ModalOpened) {
+                    this.one_modal(Owner::Screen, window, cx);
+                }
+            }));
+        }
+        if let Some(e) = &explorer {
+            subs.push(cx.subscribe_in(e, window, |this, _, e: &crate::explorer::ExplorerEvent, window, cx| {
+                if matches!(e, crate::explorer::ExplorerEvent::QuickOpened) {
+                    this.one_modal(Owner::QuickOpen, window, cx);
+                }
+            }));
+        }
         // Onboarding is the main window's (a moved-out space's window skips it).
         let main = crate::windows::label_of(window, cx) == crate::windows::MAIN;
         if !main {
@@ -115,6 +140,26 @@ impl MainView {
             screen,
             review,
             _subscriptions: subs,
+        }
+    }
+
+    /// `owner`'s modal opened: close every other one.
+    fn one_modal(&mut self, owner: Owner, window: &mut Window, cx: &mut Context<Self>) {
+        if owner != Owner::Palette {
+            self.palette.update(cx, |p, cx| p.close(window, cx));
+        }
+        if owner != Owner::Layer {
+            self.layer.update(cx, |l, cx| l.close_dialog(cx));
+        }
+        if owner != Owner::Screen {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.close_dialogs(cx));
+            }
+        }
+        if owner != Owner::QuickOpen {
+            if let Some(e) = &self.explorer {
+                e.update(cx, |e, cx| e.close_quick(cx));
+            }
         }
     }
 
@@ -182,6 +227,19 @@ impl MainView {
                     ),
             )
     }
+}
+
+/// Who owns a modal in the window (see [`MainView::one_modal`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    /// The command palette.
+    Palette,
+    /// Settings, About, "Scan again".
+    Layer,
+    /// The main screen's dialogs (New agent, Remove, Bring in, …).
+    Screen,
+    /// The explorer's quick open.
+    QuickOpen,
 }
 
 /// An empty view (a Files tab for an agent whose files can't be read).
@@ -266,6 +324,8 @@ fn explorer_seams(
                     review.update(cx, |r, cx| r.open_at(Some(focus), window, cx));
                     s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
                 }
+                // `MainView::one_modal` answers it.
+                ExplorerEvent::QuickOpened => {}
             }
         }),
         cx.subscribe(&s2, {
@@ -313,5 +373,45 @@ impl Render for MainView {
             .child(self.palette.clone())
             .children(crate::approvals::overlay(window, cx))
             .children(crate::frame_stats::probe())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{TestAppContext, VisualTestContext};
+
+    #[gpui::test]
+    fn one_modal_at_a_time(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            crate::kit::init(cx);
+            crate::settings::init(cx, None, None);
+            crate::palette::init(cx);
+        });
+        let refused = Content::Refused(Refusal::NoSeparateHome {
+            default_root: "/nowhere".into(),
+        });
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| MainView::new(refused, None, window, cx));
+        let vcx: &mut VisualTestContext = vcx;
+        view.update_in(vcx, |v, _, cx| v.open_settings(cx));
+        vcx.run_until_parked();
+        assert!(view.read_with(vcx, |v, cx| v.layer.read(cx).is_open()));
+        // ⌘K over Settings: the palette replaces it.
+        view.update_in(vcx, |v, window, cx| {
+            v.palette.update(cx, |p, cx| p.open(window, cx))
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.palette.read(cx).is_open());
+            assert!(!v.layer.read(cx).is_open(), "Settings closed");
+        });
+        // And Settings from the palette replaces the palette.
+        view.update_in(vcx, |v, _, cx| v.open_settings(cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert!(v.layer.read(cx).is_open());
+            assert!(!v.palette.read(cx).is_open(), "the palette closed");
+        });
     }
 }
