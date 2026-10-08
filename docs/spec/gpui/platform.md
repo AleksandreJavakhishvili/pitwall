@@ -39,8 +39,9 @@ Inventory: §25 (multi-window), §27 (OS integration), §24 (appearance).
 Notes:
 
 - macOS bundle identity (`dev.pitwall.app`) matters for notifications, TCC
-  and the Dock: during the port the GPUI build should use a different
-  bundle id (for example `dev.pitwall.app.preview`) so its permissions and
-  notification settings don't mix with the installed Tauri app's.
+  and the Dock: released builds keep the Tauri app's id, so they take its
+  place; dev bundles built with `PITWALL_CHANNEL=preview` use
+  `dev.pitwall.app.preview` so their permissions and notification settings
+  don't mix with the installed app's.
 - gpui ships an unused macOS `status_item.rs`; it is not public API, so the
   tray (Windows only) does not rely on it.

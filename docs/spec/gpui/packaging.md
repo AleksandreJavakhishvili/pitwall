@@ -1,16 +1,17 @@
 # GPUI port: packaging, signing, CI and tests
 
-Today `pnpm tauri build` (`.github/workflows/release.yml`) makes the macOS
-universal `.app`/`.dmg`, the Linux AppImage and `.deb`, and the Windows NSIS
-`.exe` and `.msi`, with three sidecars from `src-tauri/build.rs`:
-`pitwall-hold` (terminal holder), `pitwall-cli` (linked as `pitwall`) and,
-on Windows, `pitwall-hook` (the hook relay; Unix uses an sh script). Without
-Tauri the same artifacts come from `cargo` plus a packager.
+Up to v0.1.x `pnpm tauri build` made the macOS universal `.app`/`.dmg`,
+the Linux AppImage and `.deb`, and the Windows NSIS `.exe` and `.msi`, with
+three sidecars: `pitwall-hold` (terminal holder), `pitwall-cli` (linked as
+`pitwall`) and, on Windows, `pitwall-hook` (the hook relay; Unix uses an sh
+script). Since v0.2.0 (the switch-over) the same artifacts, under the same
+release asset names, come from `cargo` plus a packager:
+`scripts/package-app.sh`, run by `.github/workflows/release.yml`.
 
 ## Running during development
 
 ```sh
-cargo build -p pitwall-app -p pitwall-hold -p pitwall-cli   # holder + CLI next to the app
+cargo build -p pitwall-app -p pitwall-hold -p pitwall-cli   # app (`pitwall`), holder and CLI side by side
 PITWALL_HOME=/tmp/pw-preview cargo run -p pitwall-app       # its own data folder
 target/debug/pitwall-cli --socket /tmp/pw-preview/run/pitwalld.sock agent new --kind shell --name demo
 ```
@@ -18,14 +19,14 @@ target/debug/pitwall-cli --socket /tmp/pw-preview/run/pitwalld.sock agent new --
 Keep `PITWALL_HOME` short on macOS: socket paths under it (holders,
 `run/hold/<uuid>.sock`) must stay under the 104-byte Unix socket limit.
 
-`pitwall-app` finds the holder like `src-tauri` does: `$PITWALL_HOLD_BIN`,
+The app finds the holder as the Tauri app did: `$PITWALL_HOLD_BIN`,
 next to its executable, one level up. That covers every bundle, since the
 sidecars sit next to the app binary in all of them; only an AppImage needs
 more, so `packaging::stable_sidecar` copies the holder out of the AppImage
 mount into `<data folder>/bin/` first (ported from
 `src-tauri/src/platform/mod.rs`). It has no `build.rs` building the
-sidecars (the Tauri crate's nested cargo build would run twice per
-workspace build): `scripts/package-app.sh` builds them.
+sidecars (a nested cargo build would run twice per workspace build):
+`scripts/package-app.sh` builds them.
 
 ## Shaders
 
@@ -35,7 +36,7 @@ MetalToolchain`). `pitwall-app` turns on gpui's `runtime_shaders` by default
 (feature `runtime-shaders`), so `cargo build`, tests and clippy need no Metal
 toolchain; shaders compile when the first window opens (a few ms). Release
 builds use `--no-default-features` (precompiled shaders) with the toolchain
-installed on the CI runner: `release-gpui.yml` checks `xcrun -sdk macosx metal
+installed on the CI runner: `release.yml` checks `xcrun -sdk macosx metal
 -v` and runs `xcodebuild -downloadComponent MetalToolchain` when it fails
 (Xcode 16 includes it, Xcode 26 doesn't), and afterwards checks the binary
 holds no Metal source (`using namespace metal;` is only embedded with
@@ -73,32 +74,38 @@ overrides). Linux uses WGSL through blade/Vulkan, checked at build time.
   covers WiX itself, not the `.msi` it builds), the same ones Tauri's
   bundler uses today.
 
-Channel (`PITWALL_CHANNEL`): until the switch-over, bundles are **preview**
-builds, "Pitwall Preview" with bundle id `dev.pitwall.app.preview` and
-package name `pitwall-preview`, so they install next to the Tauri app
-without sharing its install folder (Windows), TCC permissions, notification
-settings or Dock identity (macOS). `stable` gives "Pitwall" /
-`dev.pitwall.app` / `pitwall`. The preview `.deb` still can't be installed
-next to the Tauri `.deb`: both own `/usr/bin/pitwall-hold` and
-`/usr/bin/pitwall-cli` (cargo-packager has no `Conflicts:` for debs); use
-the AppImage side by side.
+Channel (`PITWALL_CHANNEL`): **stable** (the default, and what
+release.yml ships) is "Pitwall" with bundle id `dev.pitwall.app`, package
+name `pitwall` and executable `pitwall`: the Tauri app's identity, so an
+upgrade replaces it in /Applications and the Dock, the `.deb` upgrades the
+`pitwall` package, and the Windows installers use the same product name and
+install folder. macOS privacy grants follow the code signature's designated
+requirement: they carry over with the same Developer ID (or the local
+signing identity of `scripts/install-local.sh`), while ad-hoc signed builds
+are tied to their own hash, as Tauri releases were. **preview** ("Pitwall
+Preview", `dev.pitwall.app.preview`, `pitwall-preview`) is for dev bundles
+that install next to the released app without sharing its TCC permissions,
+notification settings or Dock identity; run them with their own
+`PITWALL_HOME` (they share the default data folder otherwise). Both
+channels' `.deb`s own `/usr/bin/pitwall*`, so only one installs at a time;
+use the AppImage side by side.
 
 | OS | Artifacts | Sidecars at | Notes |
 |---|---|---|---|
-| macOS | `Pitwall.app`, `.dmg`, universal (`lipo` of aarch64 + x86_64, as today) | `Contents/MacOS/` next to the app binary | `Info.plist` with the usage strings of `src-tauri/Info.plist` (TCC); no URL schemes or document types (none today); `LSMinimumSystemVersion` 10.15.7 (GPUI's shaders); bundle id `dev.pitwall.app` (preview builds: `.preview`) |
+| macOS | `Pitwall.app`, `.dmg`, universal (`lipo` of aarch64 + x86_64, as today) | `Contents/MacOS/` next to the app binary | `Info.plist` with the usage strings the Tauri app had (TCC); no URL schemes or document types (none today); `LSMinimumSystemVersion` 10.15.7 (GPUI's shaders); bundle id `dev.pitwall.app` (preview builds: `.preview`) |
 | Linux | AppImage, `.deb` (Ubuntu 22.04 runner for the glibc floor) | `usr/bin/`; AppImage copies the holder out of the mount (`packaging::stable_sidecar`) | `.desktop` file, icons, `Depends:` curl (hook script), libxkbcommon0, libxkbcommon-x11-0, libxcb1, libx11-xcb1, libwayland-client0, libvulkan1, libfontconfig1, libfreetype6, libzstd1 instead of WebKitGTK (CI prints `ldd` of the app to check the list) |
 | Windows | NSIS `.exe`, `.msi` | install dir next to `pitwall.exe` (incl. `pitwall-hook.exe`) | sets the AppUserModelID (notifications, taskbar overlay); no WebView2 bootstrapper any more |
 
-The app binary is renamed `pitwall` at the switch (phase 9); until then it
-is `pitwall-app` and is not shipped (bundles are workflow artifacts only).
+The app binary is `pitwall` (the package is still `pitwall-app`:
+`cargo run -p pitwall-app`).
 
 ## Signing
 
-Unchanged in substance from release.yml:
+Unchanged in substance from the Tauri release workflow:
 
 - macOS: ad-hoc without secrets; with them, Developer ID `codesign
   --options runtime --timestamp` on the sidecars first, then the app, with
-  the hardened-runtime entitlements Tauri adds today (made explicit in an
+  the hardened-runtime entitlements Tauri added (made explicit in an
   `entitlements.plist`); `notarytool submit --wait`, `stapler staple` for the
   app and the `.dmg`. Runtime shaders need no JIT entitlement (Metal compiles
   from source through the driver), but release builds precompile anyway.
@@ -109,11 +116,12 @@ Unchanged in substance from release.yml:
 
 ## CI
 
-- `ci.yml` (done in phase 0): the macOS, Linux and Windows Rust jobs build
-  and clippy the whole workspace, so `pitwall-app` is covered on all three.
-  The Linux job installs GPUI's system libraries (X11/xcb, xkbcommon,
-  Wayland, fontconfig/freetype, Vulkan loader, zstd, ALSA, GLib) next to
-  WebKitGTK's. macOS needs no Metal toolchain (runtime shaders). Windows runs
+- `ci.yml`: the macOS, Linux and Windows Rust jobs build and clippy the
+  whole workspace, so `pitwall-app` is covered on all three. The Linux job
+  installs GPUI's system libraries (X11/xcb, xkbcommon, Wayland,
+  fontconfig/freetype, Vulkan loader, zstd, ALSA, GLib); WebKitGTK went
+  with the Tauri jobs. The web job type-checks, builds and unit-tests the
+  React web demo and builds the website. macOS needs no Metal toolchain (runtime shaders). Windows runs
   `cargo test -p pitwall-app` as an informational step until its first green
   run, then it becomes required.
 - Workspace builds get heavier: gpui adds about 400 crates. On a warm cache
@@ -121,19 +129,26 @@ Unchanged in substance from release.yml:
   --workspace` 75 s on an M-series Mac; a cold build of gpui is a few
   minutes. If this hurts, the GPUI crates can move to their own CI job with
   their own cache key; not needed yet.
-- `release-gpui.yml` (phase 8): macOS (universal), Linux and Windows jobs
-  run `scripts/package-app.sh` and upload the bundles plus a
-  `SHA256SUMS.txt` as workflow artifacts. It runs on demand and on pushes to
-  `gpui/**` that touch the packaging files. It **never publishes**: no
-  release job, and its token is `contents: read`. Signing uses the
+- `release.yml` (since the switch; it absorbed phase 8's
+  `release-gpui.yml`): macOS (universal), Linux and Windows (gated by the
+  `RELEASE_WINDOWS` variable, shipped as a preview) jobs run
+  `scripts/package-app.sh` with `PITWALL_CHANNEL=stable`, check the bundles
+  (universal slices, signature, no runtime shaders, sidecars in the `.deb`
+  and AppImage), rename them to the v0.1.x asset names
+  (`Pitwall_<version>_universal.dmg`, `…_universal.app.tar.gz`,
+  `…_amd64.AppImage`, `…_amd64.deb`, `…_x64-setup.exe`, `…_x64.msi`; the
+  website's download page matches on these suffixes) and upload them with a
+  `SHA256SUMS.txt`. A tag (or a manual run with a tag) adds the `publish`
+  job, the only one with `contents: write`, which makes the GitHub release;
+  pull requests that touch the packaging files and manual runs without a
+  tag build only. One workflow means the bundles a pull request tests are
+  exactly what a release ships. Signing uses the
   release.yml secrets when present (macOS: certificate imported into a
   temporary keychain, `APPLE_SIGNING_IDENTITY` and the notarization
   variables handed to the script; Windows: certificate imported, its
   thumbprint passed as `WINDOWS_CERTIFICATE_THUMBPRINT`; signtool signs the
   sidecars, cargo-packager the app and installers). Windows sets
-  `GPUI_FXC_PATH` to the newest SDK's `fxc.exe`. In phase 9 its jobs
-  replace release.yml's build jobs and release.yml's `publish` job takes
-  their artifacts unchanged.
+  `GPUI_FXC_PATH` to the newest SDK's `fxc.exe`.
 - Cross-platform check before the first push (round 2, local only): an
   Ubuntu 22.04 container with ci.yml's Linux packages (arm64; the runner is
   x86_64) ran `cargo clippy --workspace --all-targets -D warnings` and
@@ -154,12 +169,12 @@ Unchanged in substance from release.yml:
   run uses Weston (13+, `xdg_wm_base` v2+; with a seat, so not the
   headless backend) nested in Xvfb, gpui on Wayland. Ubuntu 22.04's Weston
   9 is too old for gpui.
-- The Linux packages name the launcher `pitwall-app.desktop` (after the
+- The Linux packages name the launcher `pitwall.desktop` (after the
   binary); the window's app id and the badge's desktop id follow it
   (`platform::WINDOW_APP_ID`, `linux::DESKTOP_ID`). The channel's bundle id
   is baked in by `scripts/package-app.sh` (`PITWALL_BUNDLE_ID` →
-  `platform::BUNDLE_ID`), so preview builds' Windows toasts name the
-  AppUserModelID the installers set (`dev.pitwall.app.preview`).
+  `platform::BUNDLE_ID`; `dev.pitwall.app` when unset), so Windows toasts
+  name the AppUserModelID the installers set.
 
 ## Tests
 
@@ -182,10 +197,10 @@ Unchanged in substance from release.yml:
 
 ## Updates
 
-The Tauri app has no updater and no version check (no `tauri-plugin-updater`);
-users update by downloading a release, or with the Homebrew cask
-(`packaging/homebrew/pitwall.rb`, `livecheck` on GitHub releases). The GPUI
-app keeps that until the switch-over; the plan after it, in two steps:
+Pitwall has no updater and no version check (the Tauri app had none
+either); users update by downloading a release, or with the Homebrew cask
+(`packaging/homebrew/pitwall.rb`, `livecheck` on GitHub releases). The plan,
+in two steps:
 
 1. **Version check** (small, no new trust): at most once a day, and from
    Settings → "Check now", `GET

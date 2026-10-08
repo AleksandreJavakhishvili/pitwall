@@ -1,6 +1,9 @@
 # Architecture: providers + daemon (Wave 2 design)
 
 Status: **approved design, migration in progress** (see §6 "Progress").
+Since v0.2.0 the desktop shell is the GPUI app (`crates/pitwall-app`,
+docs/spec/gpui/); where this document says `src-tauri`, read the app crate
+(the Tauri shell was removed; its role is unchanged: a thin host).
 Written against the code as of wave 1.5, with worktrees done the new way
 (worktrees.md: the agent's own flag, then discovery).
 

@@ -1,5 +1,11 @@
 # Performance pass
 
+> **History.** The measurements below are of the Tauri app (up to v0.1.x):
+> a Rust process plus WebKit content and GPU processes. Since v0.2.0 Pitwall
+> is the GPUI app (`crates/pitwall-app`): one process, no WebKit. The budgets
+> still apply; the numbers need a new pass, and `scripts/bench.py` needs the
+> GPUI app's bench hook first (open item, docs/spec/gpui/packaging.md "Tests").
+
 Measure first, then fix against budgets. Add a repeatable benchmark script
 (`scripts/bench.sh` or similar) that reports RSS/CPU of the Pitwall process
 tree (Rust process + WebKit content/GPU processes, excluding agent processes).

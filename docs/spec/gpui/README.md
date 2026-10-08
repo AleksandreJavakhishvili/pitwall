@@ -4,9 +4,12 @@ Pitwall's UI moves from Tauri 2 + React (a web view) to
 [GPUI](https://www.gpui.rs), Zed's GPU-accelerated Rust UI framework, for
 speed, memory use and a native feel on macOS, Windows and Linux.
 
-The Tauri app (`src-tauri/`, `src/`) is **frozen**: it gets fixes, no new
-features. The GPUI app (`crates/pitwall-app`) grows next to it until it does
-everything in the [inventory](inventory.md), then replaces it in one release.
+**Switched in v0.2.0**: the GPUI app (`crates/pitwall-app`, binary
+`pitwall`) is the released Pitwall. The Tauri shell (`src-tauri/`) is gone;
+the React UI (`src/`) stays only as the website's live demo
+([src/README.md](../../../src/README.md)). The [inventory](inventory.md) is
+the parity checklist the port was built against; the sections below keep
+the port's design notes.
 
 Files in this folder:
 
@@ -49,7 +52,7 @@ Files in this folder:
 ## Architecture
 
 ```
-crates/pitwall-app            (bin "pitwall-app"; renamed "pitwall" at the switch)
+crates/pitwall-app            (bin "pitwall")
 ├─ lib.rs        run(): choose the data folder, start the host, open windows
 ├─ home.rs       data folder choice and the coexistence guard
 ├─ host.rs       Engine + providers + CLI socket server + approvals (= src-tauri setup)
@@ -96,27 +99,34 @@ phase 1 decides per component ([in-house.md](in-house.md), [licensing.md](licens
 
 Agents keep running in their holders when the app quits, exactly as now.
 
-### Coexistence with the Tauri app
+### Data folder
 
 Everything Pitwall owns sits under one data folder (`~/.pitwall` on macOS,
 `$XDG_DATA_HOME/pitwall` on Linux, `%APPDATA%\Pitwall` on Windows;
-`$PITWALL_HOME` overrides). Two apps on one folder would fight: binding the
-hook socket replaces the other app's (`LocalListener::bind` removes the old
-file), both would attach to the same holders, and both would write
-`state.json`. So, until the switch-over (`home.rs`):
+`$PITWALL_HOME` overrides): the same folder the Tauri app used up to v0.1.x,
+so an upgrade keeps the agents, spaces, windows and settings (`home.rs`):
 
-1. With `PITWALL_HOME` set, the GPUI app uses that folder: its own state,
-   sockets and holders. This is how it runs during the port.
-2. Without it, the app **refuses** and shows why in its window; no engine
-   starts and nothing is written. `PITWALL_APP_SHARE_HOME=1` opts in to the
-   default folder (for the switch-over, phase 9).
-3. Either way it refuses when another Pitwall answers on that folder's CLI
-   socket (a connect to `run/pitwalld.sock` or its named pipe). A second
-   GPUI instance on the same folder is refused the same way.
-
-Its own files use new names where the formats differ: `app-windows.json`
-(logical pixels) next to Tauri's `windows.json` (physical pixels per webview
-label). Phase 9 migrates or merges them.
+1. Without `PITWALL_HOME` the app runs on the platform default. With it,
+   on that folder: its own state, sockets and holders (development, tests,
+   a second copy next to the installed one).
+2. Two apps on one folder would fight: binding the hook socket replaces
+   the other app's (`LocalListener::bind` removes the old file), both would
+   attach to the same holders, and both would write `state.json`. So the
+   app **refuses** when another Pitwall answers on that folder's CLI socket
+   (a connect to `run/pitwalld.sock` or its named pipe): a second copy of
+   this app first asks the running one to come forward
+   (`platform::single_instance`) and exits; an older Pitwall (the Tauri
+   app) still running gets a window that says to quit it. No engine starts
+   and nothing is written.
+3. What carries over from the Tauri app: `state.json`, `projects.json`,
+   `rules.json` (engine-owned, unchanged); `ui.json` (the same JSON shape,
+   typed in `ui_state.rs`); `windows.json` (the same format, physical
+   pixels per window label; `windows/file.rs`); `review.json` (moved into
+   `ui.json` once, `review/ops.rs`). The main window's own bounds are in
+   `app-windows.json` (logical pixels); until that exists the main entry of
+   `windows.json` is used. Running agents: the holders (`run/hold/`) are
+   re-attached, as after any restart (`host.rs` test
+   `a_second_app_reattaches_the_first_apps_agents`).
 
 The `pitwall` CLI connects to `~/.pitwall/run/pitwalld.sock` by default: when
 testing the GPUI app, always pass `--socket <PITWALL_HOME>/run/pitwalld.sock`
@@ -211,9 +221,9 @@ Narrator and Orca see an empty window. Plan:
 
 The website (`website/`) embeds the React UI built against the browser mock
 (`src/mock*.ts`, `src/lib/demoBridge.ts`, `?demo=1`). GPUI has no web
-target, so the demo keeps that React build. After the switch the React code
-becomes demo-only (no Tauri imports), frozen except to follow visible changes;
-the screenshots and video come from the GPUI app.
+target, so the demo keeps that React build. Since the switch the React code
+is demo-only (no Tauri imports; [src/README.md](../../../src/README.md)),
+frozen except to follow visible changes; screenshots come from the GPUI app.
 
 ## Phases and parity milestones
 
@@ -231,7 +241,7 @@ OSes and the app usable for that slice in a separate `PITWALL_HOME`.
 | 6 | **Settings, onboarding, rules, appearance** (Glass/Flat, density, theme, Reduce motion) | §19–§21, §24 | first launch on a clean folder works |
 | 7 | **agw, CLI approvals, OS integration**: approvals dialog, badge, tray, notifications, permissions onboarding, CLI install, Elsewhere | §22, §26, §27 | parity on all three OSes |
 | 8 | **Packaging**: bundles, sidecars, signing, release workflow, accessibility bridge, perf pass | §33, packaging.md | signed builds from CI |
-| 9 | **Switch**: GPUI app becomes `pitwall`, shares the default data folder, migrates `windows.json`; Tauri app and `src-tauri/` removed; React kept for the website only | all | one release ships the GPUI app |
+| 9 | **Switch** (done, v0.2.0): GPUI app becomes `pitwall` (`dev.pitwall.app`), runs on the default data folder, reads `windows.json`; Tauri app and `src-tauri/` removed; React kept for the website only | all | one release ships the GPUI app |
 
 ## Risks
 
@@ -241,10 +251,9 @@ OSes and the app usable for that slice in a separate `PITWALL_HOME`.
 | GPUI releases on crates.io stall | Fall back to a pinned Zed git rev (gpui crate only), or the `gpui-pre` snapshots; [licensing.md](licensing.md) |
 | **Licensing**: accidental GPL code or dependency | Only `gpui` from Zed; licence of every new dependency recorded in licensing.md and reviewed on lockfile changes; clean-room rule for in-house components |
 | Accessibility regression | Plan above; decision before phase 9 |
-| Shared `Cargo.lock` with the Tauri app | gpui pins `core-foundation =0.10.0` (Tauri had 0.10.1); watch for conflicts on dependency bumps until `src-tauri` is gone |
 | Platform gaps in GPUI (badge, tray, notifications, vibrancy) | Small in-house platform modules ([platform.md](platform.md)) |
-| Build cost: GPUI adds ~400 crates; Linux needs X11/Wayland/Vulkan dev packages | CI caches; the Tauri jobs already pay for WebKitGTK |
-| Two apps on one data folder | `home.rs` guard; separate `PITWALL_HOME` until phase 9 |
+| Build cost: GPUI adds ~400 crates; Linux needs X11/Wayland/Vulkan dev packages | CI caches (WebKitGTK and Tauri's ~180 crates went with the switch) |
+| Two apps on one data folder | `home.rs` guard: refuses while another Pitwall answers on the folder's CLI socket |
 | Text input, IME, selection quality | Built and tested in phase 1 before any screen depends on it |
 
 ## Post-migration ideas
