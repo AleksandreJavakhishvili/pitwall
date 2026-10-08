@@ -76,6 +76,12 @@ agents plug in without touching the rest. Design first, review, then build.
     of spawning git: measured, not worth it (see there).
 - Plain SSH machines provider; drag a space tab out to create a window.
 
+## After the GPUI switch
+- Pitwall peers over Tailscale (planned, not started): one Pitwall sees and
+  drives another Pitwall's agents on the same tailnet: list and status,
+  terminal take-over, Review and explorer, notifications, start agents
+  there, per-peer permissions; off by default → [tailnet-peers.md](tailnet-peers.md)
+
 ## Website — DONE
 - `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo
   is built with it; video re-recorded at 1120×700 (legible text), tabs follow the
