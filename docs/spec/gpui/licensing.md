@@ -134,3 +134,13 @@ good follow-up once the Tauri app is gone.
 | MPL-2.0 | 1 | cbindgen 0.28.0 |
 | CC0-1.0 OR Apache-2.0 | 1 | imgref 1.12.3 |
 | Apache-2.0 OR GPL-2.0-only | 1 | self_cell 1.3.0 |
+
+## Added by Settings / appearance (phase 6)
+
+All already in the tree (via gpui or the Tauri app); now direct dependencies of `pitwall-app`:
+
+| Crate | Licence | For |
+|---|---|---|
+| raw-window-handle 0.6 | MIT OR Apache-2.0 OR Zlib | the window's native handle (Glass material) |
+| objc2 0.6, objc2-foundation 0.3 (MIT); objc2-app-kit 0.3 (Zlib OR Apache-2.0 OR MIT) (macOS) | as listed | Liquid Glass (`NSGlassEffectView`), window appearance, accessibility options |
+| windows-sys 0.61 (Windows) | MIT OR Apache-2.0 | Mica (`DwmSetWindowAttribute`), Reduce motion (`SystemParametersInfoW`) |
