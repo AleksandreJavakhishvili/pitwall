@@ -6,7 +6,7 @@
 //
 // `<html data-theme>`: "dark" | "light", absent for System (CSS falls back to
 // prefers-color-scheme — see styles/tokens.css). Non-CSS consumers (xterm,
-// Monaco) read `currentScheme()` and subscribe with `onSchemeChange()`.
+// the Review diff) read `currentScheme()` and subscribe with `onSchemeChange()`.
 
 export type ThemePref = "system" | "dark" | "light";
 export type Scheme = "dark" | "light";

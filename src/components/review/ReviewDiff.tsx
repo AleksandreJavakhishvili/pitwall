@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
-import type { editor as MonacoEditor } from "monaco-editor/editor/editor.api";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { EditorView } from "@codemirror/view";
 import { errorText } from "../../api";
 import type { FileVersions } from "../../reviewTypes";
 import type { FileChange } from "../../types";
 import type { ReviewComment } from "./comments";
-import { defineThemes, languageFor, monaco } from "./monaco";
+import { languageFor, type Lang } from "./editorSetup";
+import { DiffView, type MenuRequest } from "./diffView";
 import { Kbd } from "../Kbd";
-import { onSchemeChange } from "../../lib/theme";
+import { currentScheme, onSchemeChange, type Scheme } from "../../lib/theme";
 
 interface Props {
   /** What the file belongs to (an agent, or a worktree): a new one starts fresh. */
@@ -27,54 +27,48 @@ interface Props {
   reveal: { line: number; nonce: number } | null;
 }
 
-const GUTTER = new Set<number>([
-  monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN,
-  monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS,
-  monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS,
-]);
+interface Loaded {
+  v: FileVersions;
+  lang: Lang | null;
+}
 
-function useTheme(): string {
-  const [theme, setTheme] = useState(defineThemes);
-  useEffect(() => {
-    // Settings → Appearance, or macOS while on System. Redefine from the (now switched) CSS tokens.
-    return onSchemeChange(() => {
-      const t = defineThemes();
-      monaco.editor.setTheme(t);
-      setTheme(t);
-    });
-  }, []);
-  return theme;
+/** Settings → Appearance, or macOS while on System: the editor colours (review.css) follow it. */
+function useScheme(): Scheme {
+  const [scheme, setScheme] = useState(currentScheme);
+  useEffect(() => onSchemeChange(setScheme), []);
+  return scheme;
 }
 
 export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version, comments, onAddComment, reveal }: Props) {
-  const [v, setV] = useState<FileVersions | null>(null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ line: number } | null>(null);
   const [draft, setDraft] = useState("");
-  const theme = useTheme();
-  const editorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
-  const commentDeco = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
-  const hoverDeco = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null);
+  const [menu, setMenu] = useState<MenuRequest | null>(null);
+  const scheme = useScheme();
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const diffRef = useRef<DiffView | null>(null);
   const pendingReveal = useRef<number | null>(null);
 
   const loadRef = useRef(load);
   loadRef.current = load;
   const commentRef = useRef(onAddComment);
   commentRef.current = onAddComment;
+  const commentsRef = useRef(comments);
+  commentsRef.current = comments;
 
   useEffect(() => {
-    setV(null);
+    setLoaded(null);
     setError(null);
     setComposer(null);
   }, [sourceKey, file.path, taskId]);
 
   useEffect(() => {
     let alive = true;
-    loadRef
-      .current(file.path)
-      .then((x) => {
+    Promise.all([loadRef.current(file.path), languageFor(file.path)])
+      .then(([v, lang]) => {
         if (!alive) return;
-        setV(x);
+        setLoaded({ v, lang });
         setError(null);
       })
       .catch((e) => alive && setError(errorText(e)));
@@ -83,23 +77,44 @@ export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version,
     };
   }, [sourceKey, file.path, taskId, version]);
 
-  const language = useMemo(() => languageFor(file.path), [file.path]);
-
-  // Fonts load after Monaco measures; remeasure once they're in.
-  useEffect(() => {
-    document.fonts?.ready.then(() => monaco.editor.remeasureFonts()).catch(() => {});
-  }, []);
-
   const revealNow = (line: number) => {
-    const ed = editorRef.current?.getModifiedEditor();
-    if (!ed || !ed.getModel() || line > ed.getModel()!.getLineCount()) {
-      pendingReveal.current = line;
-      return;
-    }
-    pendingReveal.current = null;
-    ed.revealLineInCenter(line);
-    ed.setPosition({ lineNumber: line, column: 1 });
+    if (!diffRef.current?.reveal(line)) pendingReveal.current = line;
+    else pendingReveal.current = null;
   };
+
+  const startComment = (line: number) => {
+    if (!commentRef.current) return;
+    setComposer({ line });
+    setDraft("");
+  };
+
+  const v = loaded?.v;
+  const showable = !!v && !v.binary && !(v.original === null && v.modified === null);
+
+  // The editors: rebuilt for new content or layout, destroyed on unmount (nothing stays behind).
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box || !loaded || !showable) return;
+    const diff = new DiffView({
+      parent: box,
+      original: loaded.v.original ?? "",
+      modified: loaded.v.modified ?? "",
+      lang: loaded.lang,
+      sideBySide,
+      commentable: !!onAddComment,
+      readOnlyText: onAddComment ? "Read-only: click a line number to comment" : "Read-only",
+      onComment: startComment,
+      onMenu: setMenu,
+    });
+    diffRef.current = diff;
+    diff.setComments(commentsRef.current);
+    if (pendingReveal.current) revealNow(pendingReveal.current);
+    return () => {
+      diffRef.current = null;
+      setMenu(null);
+      diff.destroy();
+    };
+  }, [loaded, sideBySide, !!onAddComment]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (reveal) revealNow(reveal.line);
@@ -107,59 +122,9 @@ export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version,
 
   // Commented lines: a marker in the glyph margin + a soft line tint; hover shows the text.
   useEffect(() => {
-    const coll = commentDeco.current;
-    if (!coll) return;
-    coll.set(
-      comments.map((c) => ({
-        range: new monaco.Range(c.line, 1, c.line, 1),
-        options: {
-          isWholeLine: true,
-          className: "rv-line-commented",
-          glyphMarginClassName: "rv-glyph-comment",
-          glyphMarginHoverMessage: { value: c.text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, "\\$&") },
-        },
-      })),
-    );
+    diffRef.current?.setComments(comments);
     if (pendingReveal.current) revealNow(pendingReveal.current);
-  }, [comments, v]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onMount: DiffOnMount = (editor) => {
-    editorRef.current = editor;
-    const mod = editor.getModifiedEditor();
-    commentDeco.current = mod.createDecorationsCollection();
-    hoverDeco.current = mod.createDecorationsCollection();
-    mod.onMouseDown((e) => {
-      if (commentRef.current && GUTTER.has(e.target.type) && e.target.position) {
-        setComposer({ line: e.target.position.lineNumber });
-        setDraft("");
-      }
-    });
-    mod.onMouseMove((e) => {
-      const line = commentRef.current ? e.target.position?.lineNumber : undefined;
-      hoverDeco.current?.set(
-        line ? [{ range: new monaco.Range(line, 1, line, 1), options: { glyphMarginClassName: "rv-glyph-add" } }] : [],
-      );
-    });
-    mod.onMouseLeave(() => hoverDeco.current?.clear());
-    mod.addAction({
-      id: "pitwall.review.comment",
-      label: "Add review comment",
-      contextMenuGroupId: "navigation",
-      contextMenuOrder: 0,
-      run: (ed) => {
-        const p = ed.getPosition();
-        if (p && commentRef.current) {
-          setComposer({ line: p.lineNumber });
-          setDraft("");
-        }
-      },
-    });
-    editor.onDidUpdateDiff(() => {
-      if (pendingReveal.current) revealNow(pendingReveal.current);
-    });
-    // Re-apply decorations now that the collection exists.
-    setV((x) => (x ? { ...x } : x));
-  };
+  }, [comments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const add = () => {
     if (!composer || !draft.trim() || !onAddComment) return;
@@ -175,38 +140,14 @@ export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version,
   else if (v.original === null && v.modified === null) body = <p className="rv-empty">No content on either side</p>;
 
   return (
-    <div className="rv-diff">
+    <div className="rv-diff" data-scheme={scheme}>
       {body}
-      {!body && v && (
-        <DiffEditor
-          height="100%"
-          theme={theme}
-          language={language}
-          original={v.original ?? ""}
-          modified={v.modified ?? ""}
-          onMount={onMount}
-          loading={<p className="hint pad">Loading editor…</p>}
-          options={{
-            readOnly: true,
-            originalEditable: false,
-            renderSideBySide: sideBySide,
-            useInlineViewWhenSpaceIsLimited: false,
-            hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 4, revealLineCount: 20 },
-            glyphMargin: true,
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            renderLineHighlight: "none",
-            stickyScroll: { enabled: false },
-            fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace',
-            fontSize: 12.5,
-            lineHeight: 19,
-            ignoreTrimWhitespace: false,
-            renderOverviewRuler: true,
-            fixedOverflowWidgets: true,
-            automaticLayout: true,
-            contextmenu: true,
-            readOnlyMessage: { value: onAddComment ? "Read-only: click a line number to comment" : "Read-only" },
-          }}
+      {!body && <div className="rv-diffbox" ref={boxRef} />}
+      {menu && (
+        <DiffMenu
+          req={menu}
+          onComment={menu.line !== null && onAddComment ? () => startComment(menu.line!) : null}
+          onClose={() => setMenu(null)}
         />
       )}
       {composer && (
@@ -252,6 +193,99 @@ export function ReviewDiff({ sourceKey, load, file, taskId, sideBySide, version,
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The editor's context menu (Monaco's): Add review comment · Copy. */
+function DiffMenu({ req, onComment, onClose }: { req: MenuRequest; onComment: (() => void) | null; onClose(): void }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState({ left: req.x, top: req.y });
+  const [active, setActive] = useState(-1);
+  const copy = (view: EditorView) => {
+    // The editor's own copy handler: the selection, or the whole line when it is empty.
+    view.focus();
+    document.execCommand("copy");
+  };
+  const items = [
+    ...(onComment ? [{ label: "Add review comment", run: onComment }, null] : []),
+    { label: "Copy", run: () => copy(req.view) },
+  ];
+  const actions = items.filter((i) => i !== null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({
+      left: Math.max(0, Math.min(req.x, window.innerWidth - r.width)),
+      top: req.y + r.height > window.innerHeight ? Math.max(0, req.y - r.height) : req.y,
+    });
+    el.focus();
+  }, [req]);
+
+  useEffect(() => {
+    const away = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const blur = () => onClose();
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("blur", blur);
+    window.addEventListener("resize", blur);
+    return () => {
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("blur", blur);
+      window.removeEventListener("resize", blur);
+    };
+  }, [onClose]);
+
+  const run = (i: number) => {
+    onClose();
+    actions[i]?.run();
+  };
+
+  let n = -1;
+  return (
+    <div
+      ref={ref}
+      className="rv-menu"
+      role="menu"
+      tabIndex={-1}
+      style={pos}
+      onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+          req.view.focus();
+        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const d = e.key === "ArrowDown" ? 1 : -1;
+          setActive((a) => (a < 0 ? (d > 0 ? 0 : actions.length - 1) : (a + d + actions.length) % actions.length));
+        } else if ((e.key === "Enter" || e.key === " ") && active >= 0) {
+          e.preventDefault();
+          run(active);
+        }
+      }}
+    >
+      {items.map((item, i) => {
+        if (!item) return <div key={`sep${i}`} className="rv-menu-sep" role="separator" />;
+        const k = ++n;
+        return (
+          <div
+            key={item.label}
+            role="menuitem"
+            className={`rv-menu-item${k === active ? " active" : ""}`}
+            onMouseEnter={() => setActive(k)}
+            onMouseLeave={() => setActive(-1)}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => run(k)}
+          >
+            {item.label}
+          </div>
+        );
+      })}
     </div>
   );
 }
