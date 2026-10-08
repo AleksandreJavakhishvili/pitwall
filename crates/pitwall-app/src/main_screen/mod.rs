@@ -20,6 +20,7 @@
 #[doc(hidden)]
 pub mod demo;
 mod dialogs;
+mod elsewhere;
 pub mod diff;
 mod menu;
 pub mod model;
@@ -384,6 +385,8 @@ pub struct MainScreen {
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
     agent_ids: Vec<String>,
+    elsewhere: elsewhere::ElsewhereState,
+    _poll_elsewhere: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
 
@@ -452,8 +455,11 @@ impl MainScreen {
             seen_task: None,
             last_selected: None,
             agent_ids: vec![],
+            elsewhere: Default::default(),
+            _poll_elsewhere: None,
             _subs: subs,
         };
+        screen.start_elsewhere(cx);
         if screen.ui.wall.iter().any(|w| w == &screen.label) {
             screen.route = Route::Wall;
         }
@@ -1158,6 +1164,8 @@ impl MainScreen {
     fn on_dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
         if self.menu.is_some() {
             self.menu = None;
+        } else if self.elsewhere.bring.is_some() {
+            self.elsewhere.bring = None;
         } else if self.modal.is_some() {
             self.close_modal(window, cx);
         } else if self.rename.is_some() {
@@ -1347,6 +1355,7 @@ impl Render for MainScreen {
             .child(self.render_strip(&chrome, bp, cx))
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
+            .children(self.render_bring_in(&t, cx))
             .children(self.render_menu(&float, cx))
     }
 }

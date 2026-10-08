@@ -132,6 +132,7 @@ impl MainScreen {
                 }
             }
         }
+        list.extend(self.render_elsewhere(t, cx));
 
         div()
             .id("sidebar")
