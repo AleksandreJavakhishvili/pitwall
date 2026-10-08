@@ -7,15 +7,12 @@ hook on (PITWALL_BENCH=1), and harmless output-generator agents. It never
 touches ~/.pitwall, a running /Applications/Pitwall.app or its holders, and
 only ever stops processes it started, by exact PID.
 
-Build the instance first, with its own bundle id so WebKit storage is
-separate too, e.g.:
-
-  CARGO_TARGET_DIR=/tmp/pw-bench pnpm tauri build --no-bundle --config "$(cat scripts/bench-tauri.json)"
-  scripts/bench.sh /tmp/pw-bench/release/pitwall
-
-(bench-tauri.json also opens the window off-screen and unfocused from the
-first frame; with PITWALL_BENCH=1 the app itself never activates, moves its
-windows off-screen and sends no notifications.)
+NOTE: written for the Tauri app (up to v0.1.x), whose UI answered the
+`bench-cmd` commands (`bench` events) and whose web view ran in WebKit
+processes. The GPUI app (v0.2.0+) has neither yet: it reads PITWALL_BENCH=1
+only to send no notifications. Porting the hook (a module dispatching the
+same actions, docs/spec/gpui/packaging.md "Tests") is an open item; until
+then the scenarios that need it don't run against the GPUI app.
 
 What is measured (per scenario, after a settle period):
 - app:      the app process (Rust) + transient children it reaped (git, …)

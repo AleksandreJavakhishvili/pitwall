@@ -5,24 +5,29 @@
 # that certificate, not a per-build hash.
 #
 # Usage: scripts/install-local.sh [path/to/Pitwall.app]
-# Default source: target/release/bundle/macos/Pitwall.app (pnpm tauri build --bundles app)
+# Default source: target/package/Pitwall.app, as scripts/package-app.sh builds
+# it (stable channel; `scripts/package-app.sh --formats app`, or add
+# `--runtime-shaders` without Xcode's Metal toolchain).
 #
 # Agents keep running: Pitwall is quit gracefully (like ⌘Q), their terminals
 # live in pitwall-hold processes, and the new app re-attaches on launch.
 set -eu
 
 IDENTITY="${PITWALL_SIGN_IDENTITY:-Pitwall Local Signing}"
-SRC="${1:-$(cd "$(dirname "$0")/.." && pwd)/target/release/bundle/macos/Pitwall.app}"
+SRC="${1:-${CARGO_TARGET_DIR:-$(cd "$(dirname "$0")/.." && pwd)/target}/package/Pitwall.app}"
 DEST=/Applications/Pitwall.app
 
-[ -d "$SRC" ] || { echo "no app bundle at $SRC (build with: pnpm tauri build --bundles app)" >&2; exit 1; }
+[ -d "$SRC" ] || { echo "no app bundle at $SRC (build with: scripts/package-app.sh --formats app)" >&2; exit 1; }
+# Only the stable channel replaces /Applications/Pitwall.app.
+id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$SRC/Contents/Info.plist")
+[ "$id" = dev.pitwall.app ] || { echo "$SRC is $id, not dev.pitwall.app (build with PITWALL_CHANNEL=stable)" >&2; exit 1; }
 security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || {
   echo "signing identity \"$IDENTITY\" not found in the keychain" >&2
   exit 1
 }
 
 # Quit the running app gracefully and wait for it to exit.
-pid=$(pgrep -f "Pitwall.app/Contents/MacOS/pitwall\$" | head -1 || true)
+pid=$(pgrep -f "^$DEST/Contents/MacOS/pitwall\$" | head -1 || true)
 if [ -n "$pid" ]; then
   osascript -e 'tell application id "dev.pitwall.app" to quit'
   i=0
