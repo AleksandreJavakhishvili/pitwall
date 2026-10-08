@@ -12,6 +12,7 @@ pub mod home;
 pub mod host;
 pub mod menu;
 pub mod platform;
+pub mod remote;
 pub mod theme;
 pub mod ui;
 pub mod window_state;
