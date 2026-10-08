@@ -21,8 +21,8 @@ pub const SQUARES_PATH: &str = "brand/mark-squares.svg";
 const LINE_SVG: &str = include_str!("../../assets/brand/mark-line.svg");
 const SQUARES_SVG: &str = include_str!("../../assets/brand/mark-squares.svg");
 
-/// `.wordmark-mark`: 22 x 22 px.
-const SIZE: f32 = 22.;
+/// `.wordmark-mark`: 20 x 20 px.
+const SIZE: f32 = 20.;
 
 /// The asset at `path`, if it is one of the mark's layers.
 pub fn layer(path: &str) -> Option<&'static str> {

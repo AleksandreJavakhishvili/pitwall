@@ -103,12 +103,15 @@ impl MainScreen {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    // The mark is the P, so the word goes on from it: the
+                    // 8 px gap less `.wordmark-rest`'s -4px margin (a
+                    // negative margin upsets GPUI's flex sizing).
+                    .gap(px(4.))
                     .px(px(4.))
                     .child(crate::kit::brand_mark(t))
                     .when(!compact, |d| {
                         d.child(
-                            tracked("PITWALL", 17., 0.22)
+                            tracked("ITWALL", 17., 0.22)
                                 .font_family(crate::kit::LABEL_FONT)
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(t.text),
