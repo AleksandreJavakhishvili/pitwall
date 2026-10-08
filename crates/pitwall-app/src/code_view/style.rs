@@ -2,82 +2,19 @@
 //! with Pitwall's surfaces, as `src/components/review/review.css` sets them
 //! (`--rv-*`), for the dark and light schemes; and its font metrics.
 
-use std::sync::OnceLock;
-
-use gpui::{px, rgba, App, Font, FontFeatures, FontWeight, Hsla, Pixels, SharedString};
+use gpui::{px, rgba, Font, FontFeatures, FontWeight, Hsla, Pixels};
 
 use super::highlight::Token;
+use crate::kit::MONO_FONT;
 use crate::theme::{Mode, Theme};
 
 /// Editor text size and row height (review.css: `12.5px/19px`).
 pub const FONT_SIZE: Pixels = px(12.5);
 pub const LINE_HEIGHT: Pixels = px(19.);
 
-/// The font families the app's look uses (tokens.css `--font-mono`,
-/// `--font-ui`, `--font-label`), or what each desktop has when the app has
-/// not registered them (the shared font set comes with phase 1, README
-/// "Fonts"). Missing glyphs (Georgian in a Latin-only face) fall back to a
-/// system font.
-#[derive(Debug, Clone)]
-pub struct Families {
-    pub mono: SharedString,
-    pub ui: SharedString,
-    pub label: SharedString,
-}
-
-static FAMILIES: OnceLock<Families> = OnceLock::new();
-
-fn fallback_mono() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "Menlo"
-    } else if cfg!(target_os = "windows") {
-        "Consolas"
-    } else {
-        "DejaVu Sans Mono"
-    }
-}
-
-/// Resolve the families once (after the app registered its fonts).
-pub fn families(cx: &App) -> &'static Families {
-    FAMILIES.get_or_init(|| {
-        let names = cx.text_system().all_font_names();
-        let has = |n: &str| names.iter().any(|x| x == n);
-        let pick = |want: &str, other: &str| -> SharedString {
-            if has(want) {
-                want.to_string().into()
-            } else {
-                other.to_string().into()
-            }
-        };
-        Families {
-            mono: pick("JetBrains Mono", fallback_mono()),
-            ui: pick("Inter", ".SystemUIFont"),
-            label: pick("Barlow Condensed", ".SystemUIFont"),
-        }
-    })
-}
-
-pub fn mono_family() -> SharedString {
-    FAMILIES
-        .get()
-        .map_or_else(|| fallback_mono().into(), |f| f.mono.clone())
-}
-
-pub fn ui_family() -> SharedString {
-    FAMILIES
-        .get()
-        .map_or_else(|| ".SystemUIFont".into(), |f| f.ui.clone())
-}
-
-pub fn label_family() -> SharedString {
-    FAMILIES
-        .get()
-        .map_or_else(|| ".SystemUIFont".into(), |f| f.label.clone())
-}
-
 pub fn mono_font() -> Font {
     Font {
-        family: mono_family(),
+        family: MONO_FONT.into(),
         // No ligatures (review.css: "liga" 0, "calt" 0).
         features: FontFeatures::disable_ligatures(),
         fallbacks: None,

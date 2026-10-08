@@ -182,50 +182,28 @@ pub struct TermColors {
     pub ansi: Vec<Hsla>,
 }
 
-/// The xterm themes of `src/terminal/registry.ts` (`DARK`, `LIGHT`): 16
-/// colours, background, foreground, cursor.
-const DARK: [u32; 19] = [
-    0x1b1f25, 0xff6b6b, 0x5fd38d, 0xf2c35b, 0x6aa6ff, 0xc792ea, 0x5fc9d3, 0xd9dde3, //
-    0x5b636f, 0xff8787, 0x7fe0a5, 0xffd479, 0x8cbcff, 0xd7aefb, 0x7fdde5, 0xf4f6f8, //
-    0x0d0f12, 0xd9dde3, 0xe8ebef,
-];
-const LIGHT: [u32; 19] = [
-    0x1d2128, 0xc92a2a, 0x2b8a3e, 0xa96800, 0x1c64d6, 0x8b3fc4, 0x0b7f8a, 0xd5d9de, //
-    0x6b7280, 0xe03131, 0x37a24f, 0xc27c00, 0x3b7ee8, 0xa35ad8, 0x1898a4, 0xffffff, //
-    0xfbfbfc, 0x1d2128, 0x1d2128,
-];
-
-/// xterm's 256 colours as `0xRRGGBB`: the theme's 16, the 6×6×6 cube, 24 greys.
-pub fn palette(base16: &[u32]) -> Vec<u32> {
-    let mut out: Vec<u32> = base16.iter().take(16).copied().collect();
-    let v = [0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
-    for i in 0..216 {
-        out.push(v[(i / 36) % 6] << 16 | v[(i / 6) % 6] << 8 | v[i % 6]);
-    }
-    for i in 0..24u32 {
-        let g = 8 + i * 10;
-        out.push(g << 16 | g << 8 | g);
-    }
-    out
+/// One colour of a terminal theme.
+fn color(c: pitwall_term_view::alacritty_terminal::vte::ansi::Rgb) -> Hsla {
+    rgb((c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32).into()
 }
 
 impl TermColors {
-    fn from(t: &[u32; 19]) -> TermColors {
+    /// The colours of the panes' terminal theme (`pitwall-term-view`'s
+    /// [`TermTheme`](pitwall_term_view::TermTheme), the web UI's xterm
+    /// themes): one palette for panes and tiles.
+    pub fn from_theme(t: &pitwall_term_view::TermTheme) -> TermColors {
         TermColors {
-            ansi: palette(&t[..16])
-                .into_iter()
-                .map(|c| rgb(c).into())
-                .collect(),
-            bg: rgb(t[16]).into(),
-            fg: rgb(t[17]).into(),
-            cursor: rgb(t[18]).into(),
+            ansi: t.palette().into_iter().map(color).collect(),
+            bg: color(t.background),
+            fg: color(t.foreground),
+            cursor: color(t.cursor),
         }
     }
     pub fn dark() -> TermColors {
-        TermColors::from(&DARK)
+        TermColors::from_theme(&pitwall_term_view::TermTheme::pitwall_dark())
     }
     pub fn light() -> TermColors {
-        TermColors::from(&LIGHT)
+        TermColors::from_theme(&pitwall_term_view::TermTheme::pitwall_light())
     }
 }
 
@@ -319,14 +297,14 @@ mod tests {
 
     #[test]
     fn the_palette_is_xterms() {
-        let p = palette(&DARK[..16]);
+        let p = TermColors::dark().ansi;
         assert_eq!(p.len(), 256);
-        assert_eq!(p[16], 0x000000);
-        assert_eq!(p[21], 0x0000ff);
-        assert_eq!(p[196], 0xff0000);
-        assert_eq!(p[231], 0xffffff);
-        assert_eq!(p[232], 0x080808);
-        assert_eq!(p[255], 0xeeeeee);
+        assert_eq!(p[16], rgb(0x000000).into());
+        assert_eq!(p[21], rgb(0x0000ff).into());
+        assert_eq!(p[196], rgb(0xff0000).into());
+        assert_eq!(p[231], rgb(0xffffff).into());
+        assert_eq!(p[232], rgb(0x080808).into());
+        assert_eq!(p[255], rgb(0xeeeeee).into());
     }
 
     #[test]

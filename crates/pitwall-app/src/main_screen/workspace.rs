@@ -207,6 +207,11 @@ pub struct UiState {
     /// the file, so it costs it nothing.
     #[serde(default, deserialize_with = "strict_true")]
     pub explorer_show_ignored: bool,
+    /// Review: diffs side by side (`true`) or inline; unset until chosen
+    /// (`crate::review::ops` then reads the old `review.json`). The Tauri
+    /// app keeps it in localStorage (`pitwall.review.sideBySide`).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub review_side_by_side: Option<bool>,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -254,6 +259,7 @@ impl Default for UiState {
             look: Default::default(),
             reduce_motion: false,
             explorer_show_ignored: false,
+            review_side_by_side: None,
             rest: serde_json::Map::new(),
         }
     }

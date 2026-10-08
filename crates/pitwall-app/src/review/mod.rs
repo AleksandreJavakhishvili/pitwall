@@ -11,11 +11,10 @@
 
 pub mod comments;
 mod dialogs;
-mod file_icons;
+mod mount;
 pub mod model;
 pub mod ops;
 mod render;
-pub mod widgets;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -30,19 +29,18 @@ use pitwall_core::vcs::git::FileChange;
 use pitwall_proto::{AgentView, ProjectWorktrees};
 
 use crate::agents::{group_by_project, AgentStore, ProjectGroup};
-use crate::code_view::input::{TextField, TextFieldEvent};
+use crate::kit::{InputEvent, TextInput};
 use crate::code_view::{CodeView, CodeViewEvent, Layout, Side};
 use comments::Comments;
 use dialogs::Dialog;
 use model::{Space, WtRef};
 
+pub use mount::{mount, review_space, ReviewRoute};
 pub use ops::ReviewEngine;
 
 actions!(
     review,
     [
-        /// ⌘R: open Review on the focused agent, or close it.
-        ToggleReview,
         /// Esc: leave Review.
         Back,
         /// ⌘⇧R: read every agent's changes and worktrees again now.
@@ -60,16 +58,12 @@ actions!(
     ]
 );
 
-/// Key bindings (Review's own, the code view's and its text fields').
+/// Key bindings (Review's own and the code view's; ⌘R, which opens and
+/// closes Review, is the main screen's).
 pub fn register(cx: &mut App) {
     crate::code_view::register(cx);
     let mac = cfg!(target_os = "macos");
     cx.bind_keys([
-        KeyBinding::new(
-            if mac { "cmd-r" } else { "ctrl-shift-r" },
-            ToggleReview,
-            None,
-        ),
         KeyBinding::new(
             if mac {
                 "cmd-shift-r"
@@ -139,7 +133,7 @@ struct Composer {
     /// 1-based line of the modified file.
     line: usize,
     path: String,
-    field: Entity<TextField>,
+    field: Entity<TextInput>,
     _sub: Subscription,
 }
 
@@ -971,11 +965,11 @@ impl ReviewView {
             return;
         };
         let path = f.path.clone();
-        let field = cx.new(|cx| TextField::multi("What should change here?", 3, cx));
-        let sub = cx.subscribe_in(&field, window, |this, _, e: &TextFieldEvent, window, cx| {
-            if *e == TextFieldEvent::Submit {
-                this.add_comment(window, cx);
-            }
+        let field = cx.new(|cx| TextInput::new(cx, "", "What should change here?").multiline(3));
+        let sub = cx.subscribe_in(&field, window, |this, _, e: &InputEvent, window, cx| match e {
+            InputEvent::Submit => this.add_comment(window, cx),
+            InputEvent::Cancel => this.cancel_comment(window, cx),
+            _ => cx.notify(),
         });
         field.update(cx, |f, _| f.focus(window));
         self.composer = Some(Composer {
@@ -1000,6 +994,12 @@ impl ReviewView {
         };
         let id = a.id.clone();
         Comments::add(cx, &id, c.path.clone(), c.line, text);
+        self.composer = None;
+        window.focus(&self.code.focus_handle(cx));
+        cx.notify();
+    }
+
+    fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer = None;
         window.focus(&self.code.focus_handle(cx));
         cx.notify();
@@ -1134,18 +1134,30 @@ impl ReviewSlot {
                     let s = slot(this);
                     s.view = None;
                     s._sub = None;
-                    window.focus_next();
+                    // Its focus went with it: the host's view takes the
+                    // keyboard back when it draws.
+                    let _ = window;
                     cx.notify();
                 }
-                ReviewEvent::OpenTerminal(path) => {
-                    // The terminal seam: new terminals come with the main screen
-                    // (phase 2); until then, say where it would open.
-                    eprintln!("pitwall: open a terminal in {path}");
-                }
+                // The host starts it (`mount`).
+                ReviewEvent::OpenTerminal(_) => {}
             },
         ));
         self.view = Some(view);
         cx.notify();
+    }
+
+    /// Close Review (its draft comments stay for the session).
+    pub fn close(&mut self) {
+        self.view = None;
+        self._sub = None;
+    }
+
+    /// The window's space or focused agent changed.
+    pub fn set_context(&self, space: Space, focused: Option<String>, cx: &mut App) {
+        if let Some(v) = &self.view {
+            v.update(cx, |v, cx| v.set_context(space, focused, cx));
+        }
     }
 
     /// The window's focused agent changed (the sidebar).

@@ -5,9 +5,8 @@
 //! ```
 //!
 //! It hosts the engine on `PITWALL_HOME` (never the default folder), opens
-//! the main window and toggles Review after `PW_REVIEW_DELAY` seconds
-//! (default 3). `PW_FONTS_DIR` registers the `.ttf` files of a folder
-//! first (the app's own font set arrives with phase 1).
+//! the main window and toggles Review (⌘R) after `PW_REVIEW_DELAY` seconds
+//! (default 3).
 
 use std::time::Duration;
 
@@ -19,7 +18,8 @@ use gpui::{
 use pitwall_app::agents::AgentStore;
 use pitwall_app::bridge::Bridge;
 use pitwall_app::host::Host;
-use pitwall_app::review::{self, ReviewEngine, ToggleReview};
+use pitwall_app::main_screen::{self, EngineHandle, ToggleReview};
+use pitwall_app::review::{self, ReviewEngine};
 use pitwall_app::theme::{Mode, Theme};
 use pitwall_app::ui::{Content, MainView};
 use pitwall_core::paths::Paths;
@@ -33,23 +33,14 @@ fn main() {
         .unwrap_or(3);
     let paths = Paths::new(&home);
     Application::new().run(move |cx: &mut App| {
-        if let Ok(dir) = std::env::var("PW_FONTS_DIR") {
-            let fonts: Vec<_> = std::fs::read_dir(dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|e| e.path().extension().is_some_and(|x| x == "ttf"))
-                .filter_map(|e| std::fs::read(e.path()).ok())
-                .map(std::borrow::Cow::Owned)
-                .collect();
-            let _ = cx.text_system().add_fonts(fonts);
-        }
         cx.set_global(Theme::for_mode(if light {
             Mode::Light
         } else {
             Mode::Dark
         }));
+        pitwall_app::kit::init(cx);
         pitwall_app::menu::register(cx);
+        main_screen::init(cx);
         review::register(cx);
         let (bridge, rx) = Bridge::new();
         let host = Host::start(paths.clone(), bridge);
@@ -57,6 +48,8 @@ fn main() {
             engine: host.engine.clone(),
             root: Some(paths.root().into()),
         });
+        cx.set_global(EngineHandle(host.engine.clone()));
+        pitwall_app::ui_state::init(Some(paths.root().into()), cx);
         let store = cx.new(|_| AgentStore::new(host.engine.views()));
         AgentStore::listen(&store, rx, cx);
         let host = Box::leak(Box::new(host));

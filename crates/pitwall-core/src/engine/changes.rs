@@ -57,6 +57,16 @@ pub fn file_diff(engine: &Engine, agent_id: &str, path: &str, untracked: bool) -
     Git::new(&*engine.exec_for(agent_id), &cwd).file_diff(None, path, untracked)
 }
 
+/// HEAD's and the working tree's text of `path` (relative to the
+/// repository's top, as [`changes`] lists it): the Changes panel's diff of
+/// one file. Blocking (git).
+pub fn file_versions(engine: &Engine, agent_id: &str, path: &str) -> Res<crate::vcs::review::FileVersions> {
+    let exec = engine.exec_for(agent_id);
+    let cwd = engine.with(agent_id, |a| a.rec.cwd.clone())?;
+    let top = crate::vcs::review::toplevel(&Git::new(&*exec, &cwd))?;
+    crate::vcs::review::file_versions(&top, path, None, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,6 +87,10 @@ mod tests {
         assert_eq!((v.added, v.removed, v.files_changed), (2, 0, 2));
         assert!(file_diff(&h.engine, "a", "a.txt", false).unwrap().contains("+2"));
         assert_eq!(file_diff(&h.engine, "a", "../x", false).unwrap_err(), "invalid path");
+        let v = file_versions(&h.engine, "a", "a.txt").unwrap();
+        assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n"), Some("1\n2\n")));
+        let v = file_versions(&h.engine, "a", "new.txt").unwrap();
+        assert_eq!((v.original, v.modified.as_deref()), (None, Some("x\n")));
     }
 
     #[test]

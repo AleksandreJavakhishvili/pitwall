@@ -12,10 +12,10 @@ use pitwall_proto::{AgentView, Status};
 
 use super::paint::{screen_view, term_colors, ScreenOpts};
 use super::screen::Screen;
-use super::style::{self, MONO};
 use super::WallView;
-use crate::agents::status_word;
-use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
+use crate::kit;
+pub use crate::main_screen::AgentDrag;
+use crate::theme::{self, Theme};
 
 pub struct WallTile {
     pub agent: AgentView,
@@ -61,31 +61,6 @@ impl WallTile {
     }
 }
 
-/// The diffstat: `+12 −3`, or a dim `±0`.
-pub fn diffstat(added: u32, removed: u32, t: &Theme) -> impl IntoElement {
-    let d = div()
-        .flex()
-        .gap(px(6.))
-        .font_family(MONO)
-        .text_size(px(11.));
-    if added == 0 && removed == 0 {
-        return d.text_color(t.text_4).child("±0");
-    }
-    d.child(div().text_color(t.green).child(format!("+{added}")))
-        .child(div().text_color(t.red).child(format!("−{removed}")))
-}
-
-/// `.status-word[data-status]`.
-pub fn status_word_color(s: Status, t: &Theme) -> Hsla {
-    match s {
-        Status::Working => t.green,
-        Status::Blocked => t.amber,
-        Status::Done => t.finish,
-        Status::Idle => t.text_3,
-        Status::Exited | Status::Stopped | Status::Unknown => t.text_4,
-    }
-}
-
 /// `--amber-glow`.
 fn amber_glow(t: &Theme) -> Hsla {
     t.amber.opacity(if t.mode == theme::Mode::Dark {
@@ -116,51 +91,8 @@ fn ring_shadows(ring: Hsla, glow: Option<Hsla>) -> Vec<BoxShadow> {
     v
 }
 
-/// What a dragged tile carries (a drop onto a space tab moves the agent
-/// there, phase 2), drawn as a small chip under the pointer.
-#[derive(Clone)]
-pub struct AgentDrag {
-    pub id: String,
-    pub name: SharedString,
-}
-
-impl Render for AgentDrag {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx);
-        div()
-            .px_2()
-            .py_1()
-            .rounded(RADIUS)
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .text_size(px(12.))
-            .text_color(t.text)
-            .child(self.name.clone())
-    }
-}
-
-/// A plain text tooltip (until the in-house tooltip lands).
-pub struct Tip(pub SharedString);
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx);
-        div()
-            .px_2()
-            .py_1()
-            .rounded(RADIUS_SM)
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .text_size(px(11.5))
-            .text_color(t.text_2)
-            .child(self.0.clone())
-    }
-}
-
 impl Render for WallTile {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let a = &self.agent;
         let blocked = a.status == Status::Blocked;
@@ -197,7 +129,7 @@ impl Render for WallTile {
             .border_b_1()
             .border_color(t.line)
             .bg(head_bg)
-            .child(style::glyph(a.status, &t))
+            .child(kit::glyph(a.status, &t, false))
             .child(
                 div()
                     .flex_none()
@@ -208,29 +140,21 @@ impl Render for WallTile {
                     .text_color(t.text)
                     .child(a.name.clone()),
             )
-            .child(style::tracked_label(
-                window,
-                status_word(a.status),
-                style::LABEL,
-                11.,
-                FontWeight::SEMIBOLD,
-                0.09,
-                status_word_color(a.status, &t),
-            ))
+            .child(kit::status_label(a.status, &t))
             .when_some(a.status_detail.clone().filter(|_| blocked), |d, detail| {
                 d.child(
                     div()
                         .min_w_0()
                         .flex_shrink()
                         .truncate()
-                        .font_family(MONO)
+                        .font_family(kit::MONO_FONT)
                         .text_size(px(11.5))
                         .text_color(t.amber)
                         .child(detail),
                 )
             })
             .child(div().flex_1())
-            .child(diffstat(a.added, a.removed, &t));
+            .child(kit::diffstat(a.added, a.removed, &t));
 
         let colors = term_colors(t.mode);
         let body = div()
@@ -256,15 +180,7 @@ impl Render for WallTile {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(style::tracked_label(
-                            window,
-                            label,
-                            style::LABEL,
-                            13.,
-                            FontWeight::SEMIBOLD,
-                            0.12,
-                            t.text_4,
-                        )),
+                        .child(kit::label(label, t.text_4, 13.)),
                 )
             });
 
@@ -288,7 +204,7 @@ impl Render for WallTile {
                 let _ = wall.update(cx, |w, cx| w.open(id, window, cx));
             })
             .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
-            .tooltip(move |_, cx| cx.new(|_| Tip(tip.clone())).into())
+            .tooltip(kit::tooltip(tip))
             .child(head)
             .child(body)
     }
@@ -327,8 +243,8 @@ mod tests {
     #[test]
     fn status_words_take_their_colours() {
         let t = Theme::dark();
-        assert_eq!(status_word_color(Status::Blocked, &t), t.amber);
-        assert_eq!(status_word_color(Status::Done, &t), t.finish);
-        assert_eq!(status_word_color(Status::Stopped, &t), t.text_4);
+        assert_eq!(kit::word_color(Status::Blocked, &t), t.amber);
+        assert_eq!(kit::word_color(Status::Done, &t), t.finish);
+        assert_eq!(kit::word_color(Status::Stopped, &t), t.text_4);
     }
 }

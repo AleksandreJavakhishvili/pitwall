@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crate::kit::HoverText;
 use gpui::{
-    anchored, deferred, div, prelude::*, px, uniform_list, AnyElement, App, Context,
+    anchored, deferred, div, prelude::*, px, AnyElement, App, Context,
     Entity, EventEmitter, FocusHandle, Focusable, FontWeight, IntoElement,
     PathPromptOptions, SharedString, Subscription, Task, Window,
 };
@@ -19,7 +19,6 @@ use pitwall_core::Shared;
 use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines};
 
 use crate::kit::{icon, MONO_FONT};
-use super::diff::{self, Kind};
 use super::model::{name_problem, split_path, suggest_name};
 use crate::kit::{InputEvent, TextInput};
 use crate::kit::{
@@ -75,39 +74,7 @@ fn field_error(text: impl Into<SharedString>, t: &Theme) -> impl IntoElement {
         .child(text.into())
 }
 
-fn form_error(text: impl Into<SharedString>, t: &Theme) -> impl IntoElement {
-    div()
-        .px(px(10.))
-        .py(px(8.))
-        .rounded(RADIUS)
-        .bg(t.red_soft)
-        .text_size(px(12.))
-        .text_color(t.red)
-        .child(text.into())
-}
-
-fn foot(t: &Theme) -> gpui::Div {
-    div()
-        .flex()
-        .justify_end()
-        .gap(px(8.))
-        .px(px(18.))
-        .py(px(12.))
-        .border_t_1()
-        .border_color(t.line)
-        .bg(t.surface)
-}
-
-fn body(t: &Theme) -> gpui::Div {
-    let _ = t;
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(14.))
-        .px(px(18.))
-        .pt(px(8.))
-        .pb(px(16.))
-}
+use crate::kit::dialog::{body, foot, form_error};
 
 /// A select (`select.input`): the current choice, a list below on click.
 fn select_box(
@@ -482,7 +449,7 @@ impl NewAgentDialog {
         cx: &mut Context<Self>,
     ) {
         match e {
-            InputEvent::Submit => self.submit(window, cx),
+            InputEvent::Submit | InputEvent::SubmitShift => self.submit(window, cx),
             InputEvent::Cancel => cx.emit(DialogEvent::Close),
             InputEvent::Changed => {
                 if *input == self.name {
@@ -704,7 +671,7 @@ impl Render for NewAgentDialog {
             }
         };
 
-        let mut b = body(&t);
+        let mut b = body();
         // Runs on (only with 2+ machines).
         if self.targets.len() > 1 {
             let current: SharedString = self
@@ -1164,7 +1131,7 @@ impl Render for TerminalDialog {
                 .flex()
                 .flex_col()
                 .child(
-                    body(&t)
+                    body()
                         .child(
                             div()
                                 .flex()
@@ -1337,7 +1304,7 @@ impl MainScreen {
             )
         };
         let entity = cx.entity();
-        let body = body(t)
+        let body = body()
             .child(div().line_height(px(19.)).child(text))
             .when(a.caps.remove_worktree, |d| {
                 d.child(
@@ -1458,9 +1425,20 @@ impl MainScreen {
 pub struct DiffDialog {
     agent: AgentView,
     file: FileChange,
-    lines: Option<Vec<diff::Line>>,
-    error: Option<String>,
+    /// Review's code view, inline (`Layout::Unified`): highlighting, find,
+    /// selection.
+    code: Entity<crate::code_view::CodeView>,
+    state: DiffState,
     _load: Task<()>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DiffState {
+    Loading,
+    Shown,
+    Binary,
+    Empty,
+    Error(String),
 }
 
 impl EventEmitter<DialogEvent> for DiffDialog {}
@@ -1473,36 +1451,59 @@ impl DiffDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> DiffDialog {
-        let (id, path, untracked) = (agent.id.clone(), file.path.clone(), file.untracked);
+        let code = cx.new(|cx| {
+            let mut c = crate::code_view::CodeView::new(cx);
+            c.set_layout(crate::code_view::Layout::Unified, cx);
+            c.set_escape_passes(true);
+            c
+        });
+        let (id, path) = (agent.id.clone(), file.path.clone());
         let task = cx.background_executor().spawn(async move {
             match engine {
-                Some(e) => pitwall_core::engine::changes::file_diff(&e, &id, &path, untracked),
+                Some(e) => pitwall_core::engine::changes::file_versions(&e, &id, &path),
                 None => Err("no engine".into()),
             }
         });
         let load = cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
-            let _ = this.update(cx, |d, cx| {
-                match res {
-                    Ok(text) => d.lines = Some(diff::parse(&text)),
-                    Err(e) => d.error = Some(e),
+            let _ = this.update(cx, |d, cx| match res {
+                Ok(v) if v.binary => {
+                    d.state = DiffState::Binary;
+                    cx.notify();
                 }
-                cx.notify();
+                Ok(v) => d.set_versions(v.original, v.modified, cx),
+                Err(e) => {
+                    d.state = DiffState::Error(e);
+                    cx.notify();
+                }
             });
         });
+        window.focus(&code.focus_handle(cx));
         DiffDialog {
             agent,
             file,
-            lines: None,
-            error: None,
+            code,
+            state: DiffState::Loading,
             _load: load,
         }
     }
 
-    /// Show this diff text (demo; tests).
-    pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.lines = Some(diff::parse(text));
-        self.error = None;
+    /// Show these two versions of the file (`None`: it isn't there).
+    pub fn set_versions(
+        &mut self,
+        old: Option<String>,
+        new: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if old.is_none() && new.is_none() {
+            self.state = DiffState::Empty;
+        } else {
+            self.state = DiffState::Shown;
+            let path = self.file.path.clone();
+            self.code.update(cx, |c, cx| {
+                c.set_diff(&path, old.unwrap_or_default(), new.unwrap_or_default(), cx)
+            });
+        }
         self._load = Task::ready(());
         cx.notify();
     }
@@ -1568,30 +1569,32 @@ impl Render for DiffDialog {
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Close))),
             );
 
-        let content: AnyElement = match (&self.error, &self.lines) {
-            (Some(e), _) => div()
+        let content: AnyElement = match &self.state {
+            DiffState::Error(e) => div()
                 .p(px(16.))
                 .text_size(px(12.))
                 .text_color(t.red)
                 .child(format!("Couldn't load diff: {e}"))
                 .into_any_element(),
-            (None, None) => div()
+            DiffState::Loading => div()
                 .p(px(16.))
                 .child(hint("Loading diff…", &t))
                 .into_any_element(),
-            (None, Some(l)) if l.is_empty() => div()
+            DiffState::Binary => div()
+                .p(px(16.))
+                .child(hint("Binary or very large file — not shown", &t))
+                .into_any_element(),
+            DiffState::Empty => div()
                 .p(px(16.))
                 .child(hint("No textual changes.", &t))
                 .into_any_element(),
-            (None, Some(lines)) => {
-                let lines = lines.clone();
-                let t2 = t.clone();
-                uniform_list("diff-lines", lines.len(), move |range, _, _| {
-                    range.map(|i| diff_row(&lines[i], &t2)).collect()
-                })
+            DiffState::Shown => div()
                 .flex_1()
-                .into_any_element()
-            }
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(self.code.clone())
+                .into_any_element(),
         };
         let close = cx.entity();
         frame(
@@ -1611,72 +1614,4 @@ impl Render for DiffDialog {
             ),
         )
     }
-}
-
-fn diff_row(l: &diff::Line, t: &Theme) -> AnyElement {
-    let n = |v: Option<u32>| v.map(|v| v.to_string()).unwrap_or_default();
-    let (row_bg, ln_bg, ln_color, sign, sign_color) = match l.kind {
-        Kind::Add => (
-            Some(t.diff_bg(true, false)),
-            Some(t.diff_bg(true, true)),
-            t.green.blend(t.text_3.opacity(0.3)),
-            "+",
-            t.green,
-        ),
-        Kind::Del => (
-            Some(t.diff_bg(false, false)),
-            Some(t.diff_bg(false, true)),
-            t.red.blend(t.text_3.opacity(0.3)),
-            "−",
-            t.red,
-        ),
-        Kind::Hunk => (Some(t.surface_2), Some(t.surface_2), t.text_4, "", t.text_4),
-        _ => (None, None, t.text_4, " ", t.text_4),
-    };
-    let ln = |v: String| {
-        div()
-            .w(px(44.))
-            .flex_none()
-            .px(px(8.))
-            .flex()
-            .justify_end()
-            .text_color(ln_color)
-            .when_some(ln_bg, |d, b| d.bg(b))
-            .child(v)
-    };
-    let code_color = match l.kind {
-        Kind::Hunk | Kind::Meta => t.text_3,
-        _ => t.text,
-    };
-    div()
-        .w_full()
-        .h(px(20.))
-        .flex()
-        .font_family(MONO_FONT)
-        .text_size(px(12.5))
-        .line_height(px(20.))
-        .when_some(row_bg, |d, b| d.bg(b))
-        .child(ln(n(l.old)))
-        .child(ln(n(l.new)))
-        .child(
-            div()
-                .flex_1()
-                .flex()
-                .pl(px(8.))
-                .pr(px(16.))
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_color(code_color)
-                .when(matches!(l.kind, Kind::Add | Kind::Del | Kind::Ctx), |d| {
-                    d.child(
-                        div()
-                            .w(px(14.))
-                            .flex_none()
-                            .text_color(sign_color)
-                            .child(sign),
-                    )
-                })
-                .child(l.text.replace('\t', "    ")),
-        )
-        .into_any_element()
 }

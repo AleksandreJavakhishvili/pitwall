@@ -446,7 +446,7 @@ impl MainScreen {
             &input,
             window,
             move |this, input, e: &InputEvent, window, cx| match e {
-                InputEvent::Submit | InputEvent::Blur => {
+                InputEvent::Submit | InputEvent::SubmitShift | InputEvent::Blur => {
                     let name = input.read(cx).text().to_string();
                     if this.rename.as_ref().is_some_and(|(s, _)| *s == sid) {
                         this.rename = None;
