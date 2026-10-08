@@ -828,6 +828,7 @@ impl MainScreen {
             agent_id,
             name,
             reason,
+            ..
         } = e
         else {
             return;

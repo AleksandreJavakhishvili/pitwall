@@ -33,21 +33,37 @@ pitwall-providers = { path = "../pitwall-providers" }
 pitwall-daemon = { path = "../pitwall-daemon" }
 pitwall-proto = { path = "../pitwall-proto" }
 pitwall-client = { path = "../pitwall-client" }
-# The native window handle for the Glass look (settings/native.rs); already in
-# the tree via gpui. MIT OR Apache-2.0 OR Zlib.
+# The native window handle: Glass material (settings/native.rs) and Win32
+# calls on gpui's windows (src/platform/). MIT OR Apache-2.0 OR Zlib; already
+# in the tree via gpui.
 raw-window-handle = "0.6"
+# System notifications, as tauri-plugin-notification sends them
+# (MIT OR Apache-2.0; already in the tree via the Tauri app).
+notify-rust = "4.11"
 
-# Settings → Appearance on macOS: Liquid Glass (NSGlassEffectView), the
-# window appearance and the accessibility options. MIT (objc2-app-kit: Zlib
-# OR Apache-2.0 OR MIT); already in the tree.
+# macOS: Liquid Glass (NSGlassEffectView), the window appearance and the
+# accessibility options (Settings → Appearance); Dock badge, attention bounce
+# and About panel (platform). MIT (objc2-app-kit: Zlib OR Apache-2.0 OR MIT);
+# already in the tree.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSGeometry", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSApplication", "NSDockTile", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
 
-# Settings → Appearance on Windows: Mica and Reduce motion. MIT OR Apache-2.0.
 [target.'cfg(windows)'.dependencies]
+# Settings → Appearance: Mica and Reduce motion. MIT OR Apache-2.0.
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
+# Tray icon and its menu (MIT OR Apache-2.0; already in the tree via Tauri).
+tray-icon = { version = "0.25", default-features = false }
+# Decoding the tray's PNG icon (MIT OR Apache-2.0; already in the tree via gpui).
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Taskbar overlay badge, FlashWindowEx, hiding to the tray (MIT OR
+# Apache-2.0; the version gpui uses).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The launcher badge over D-Bus (MIT; already in the tree via notify-rust).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }

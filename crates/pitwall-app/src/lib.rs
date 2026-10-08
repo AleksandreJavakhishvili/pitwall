@@ -6,12 +6,15 @@
 //! sidebar of agents; terminals come from `pitwall-term-view`.
 
 pub mod agents;
+pub mod approvals;
 pub mod bridge;
 pub mod home;
 pub mod host;
 pub mod main_screen;
 pub mod menu;
 pub mod settings;
+pub mod platform;
+pub mod remote;
 pub mod theme;
 pub mod ui;
 pub mod window_state;
@@ -28,7 +31,7 @@ use pitwall_core::paths::{tildify, Paths};
 use crate::agents::AgentStore;
 use crate::bridge::Bridge;
 use crate::host::Host;
-use crate::menu::{OpenSettings, Quit, QuitAndStopAgents};
+use crate::menu::{OpenSettings, Quit, QuitAndStopAgents, ShowMain};
 use crate::theme::{Mode, Theme};
 use crate::ui::{Content, MainView};
 
@@ -46,6 +49,12 @@ impl Global for AppState {}
 
 pub fn run() {
     let chosen = home::choose(&home::Env::current(), Paths::default_root(), home::answers);
+    // A second launch on the same folder brings the running app forward.
+    if let Err(home::Refusal::InUse { root }) = &chosen {
+        if platform::single_instance::focus_running(root) {
+            return;
+        }
+    }
     // PATH as the user's terminal has it, for everything agents start (an app
     // opened from the Dock gets a minimal one). Tauri: platform::prepare_env.
     let _probe =
@@ -64,6 +73,7 @@ pub fn run() {
         )));
         menu::register(cx);
         main_screen::init(cx);
+        platform::init(cx);
 
         let state = match chosen {
             Ok(paths) => {
@@ -72,6 +82,9 @@ pub fn run() {
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 cx.set_global(main_screen::EngineHandle(host.engine.clone()));
                 AgentStore::listen(&store, rx, cx);
+                platform::follow(&store, cx);
+                platform::single_instance::serve(paths.root(), cx);
+                approvals::init(&store, host.approvals.clone(), cx);
                 let data_dir = SharedString::from(tildify(&paths.root().to_string_lossy()));
                 AppState {
                     host: Some(host),
@@ -100,6 +113,9 @@ pub fn run() {
 
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(quit_and_stop_agents);
+        cx.on_action(|_: &ShowMain, cx| {
+            show_main(cx);
+        });
         cx.on_action(|_: &OpenSettings, cx| {
             let main = show_main(cx);
             let _ = main.update(cx, |view, _, cx| view.open_settings(cx));
@@ -133,7 +149,10 @@ pub fn run() {
 fn show_main(cx: &mut App) -> WindowHandle<MainView> {
     if let Some(main) = cx.global::<AppState>().main {
         if main
-            .update(cx, |_, window, _| window.activate_window())
+            .update(cx, |_, window, _| {
+                platform::unhide(window);
+                window.activate_window()
+            })
             .is_ok()
         {
             return main;
@@ -164,6 +183,7 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
     };
     let main = cx
         .open_window(options, |window, cx| {
+            platform::keep_on_close(window, cx);
             cx.new(|cx| MainView::new(content, root, window, cx))
         })
         .expect("open the main window");

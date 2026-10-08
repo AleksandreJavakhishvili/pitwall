@@ -146,3 +146,5 @@ All already in the tree (via gpui or the Tauri app); now direct dependencies of 
 | raw-window-handle 0.6 | MIT OR Apache-2.0 OR Zlib | the window's native handle (Glass material) |
 | objc2 0.6, objc2-foundation 0.3 (MIT); objc2-app-kit 0.3 (Zlib OR Apache-2.0 OR MIT) (macOS) | as listed | Liquid Glass (`NSGlassEffectView`), window appearance, accessibility options |
 | windows-sys 0.61 (Windows) | MIT OR Apache-2.0 | Mica (`DwmSetWindowAttribute`), Reduce motion (`SystemParametersInfoW`) |
+
+OS integration (phase 7, `src/platform/`): notify-rust 4.18 (MIT OR Apache-2.0), raw-window-handle 0.6 (MIT OR Apache-2.0 OR Zlib), objc2 0.6 / objc2-foundation 0.3 / objc2-app-kit 0.3 (MIT; macOS), tray-icon 0.25 (MIT OR Apache-2.0; Windows), windows 0.61 (MIT OR Apache-2.0; Windows), image 0.25 png-only (MIT OR Apache-2.0; Windows), zbus 5 (MIT; Linux). All were already in Cargo.lock (Tauri app, gpui): no new crates in the tree.

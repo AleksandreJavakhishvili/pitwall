@@ -447,7 +447,7 @@ key code.
 - [ ] Editor: Mod-F find, Enter/Shift+Enter next/prev in find, F3/Shift+F3, Mod-G/Shift+Mod-G, Esc closes find, default CodeMirror navigation keys (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
 - [ ] Mouse: double-click tab renames; double-click pane header maximises; middle-click viewer tab closes; right-click project/agent/worktree opens menus [in-house: tabs] [in-house: pane/split layout] [in-house: popover/menu]
 - [x] Shortcut labels everywhere rendered per desktop (`keys()`, compact "⌃⇧" form in rows) (`src/lib/host.ts`, `src/components/Kbd.tsx`) [in-house: keybinding label]
-- [ ] macOS native menu shortcuts: ⌘Q quit, ⌘W close window, ⌘H hide, ⌥⌘H hide others, ⌘M minimise, ⌃⌘F full screen, Edit ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (Tauri default menu) (`src-tauri/src/menu.rs`)
+- [x] macOS native menu shortcuts: ⌘Q quit, ⌘W close window, ⌘H hide, ⌥⌘H hide others, ⌘M minimise, ⌃⌘F full screen, Edit ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (Tauri default menu) (`src-tauri/src/menu.rs`)
 
 ## 24. Appearance
 
@@ -484,18 +484,18 @@ key code.
 
 ## 26. Approvals (requests from the `pitwall` CLI)
 
-- [ ] CLI socket served inside the app process; requests that change something wait for the user (`src-tauri/src/server.rs`)
-- [ ] Approval dialog in every window for the first pending request: "<requester> wants to <summary>.", details list, "Asked by …" line (`src/components/ApprovalDialog.tsx`) [in-house: modal/dialog]
-- [ ] "Allow … to do this again without asking (until Pitwall quits)" checkbox when rememberable (`src/components/ApprovalDialog.tsx`) [in-house: checkbox/toggle]
-- [ ] Countdown "Denied in m:ss" (120 s timeout) and "· N more waiting"; Deny / Allow; closing denies; error text (`src/components/ApprovalDialog.tsx`, `src-tauri/src/server.rs`)
-- [ ] New request bounces the Dock / flashes taskbar (critical user attention) (`src-tauri/src/server.rs`)
-- [ ] Only this app's own UI can answer (not socket clients) (`src-tauri/src/commands/cli.rs`)
+- [x] CLI socket served inside the app process; requests that change something wait for the user (`src-tauri/src/server.rs`)
+- [x] Approval dialog in every window for the first pending request: "<requester> wants to <summary>.", details list, "Asked by …" line (`src/components/ApprovalDialog.tsx`) [in-house: modal/dialog]
+- [x] "Allow … to do this again without asking (until Pitwall quits)" checkbox when rememberable (`src/components/ApprovalDialog.tsx`) [in-house: checkbox/toggle]
+- [x] Countdown "Denied in m:ss" (120 s timeout) and "· N more waiting"; Deny / Allow; closing denies; error text (`src/components/ApprovalDialog.tsx`, `src-tauri/src/server.rs`)
+- [x] New request bounces the Dock / flashes taskbar (critical user attention) (`src-tauri/src/server.rs`)
+- [x] Only this app's own UI can answer (not socket clients) (`src-tauri/src/commands/cli.rs`)
 
 ## 27. OS integration
 
-- [ ] macOS app menu: Tauri default menu + "Settings… ⌘," after About + "Quit and Stop Agents" at the end of the app menu (`src-tauri/src/menu.rs`)
+- [x] macOS app menu: Tauri default menu + "Settings… ⌘," after About + "Quit and Stop Agents" at the end of the app menu (`src-tauri/src/menu.rs`)
 - [ ] Windows File menu: "Settings… Ctrl+Shift+,", Close Window, Quit Pitwall, Quit and Stop Agents; no Edit menu (`src-tauri/src/menu.rs`)
-- [ ] Linux: no native menu (Settings and Quit live in the palette) (`src-tauri/src/menu.rs`, `crates/pitwall-core/src/host.rs`)
+- [x] Linux: no native menu (Settings and Quit live in the palette) (`src-tauri/src/menu.rs`, `crates/pitwall-core/src/host.rs`)
 - [ ] Windows tray icon: tooltip, left click shows main, menu Open Pitwall / Settings… / Quit Pitwall / Quit and Stop Agents (`src-tauri/src/platform/windows.rs`)
 - [ ] Badge: Dock badge count of blocked agents (macOS, Linux launchers); Windows taskbar overlay icon (red disc with count, "9+" past 99) + tray tooltip "Pitwall — N agents need you" (`src-tauri/src/platform/unix.rs`, `src-tauri/src/platform/windows.rs`, `src-tauri/src/platform/badge.rs`)
 - [ ] System notifications on attention ("Needs you — <detail>", "Done — <detail>", "Finished its turn"), suppressed when the main window is visible and focused, and in bench mode (`src-tauri/src/attention.rs`)

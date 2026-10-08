@@ -32,6 +32,8 @@ pub enum StoreEvent {
         agent_id: String,
         name: String,
         reason: &'static str,
+        /// What it waits for or did ("Permission: Edit"), when known.
+        detail: Option<String>,
     },
     /// A scan step started or finished (onboarding's checklist).
     ScanProgress(pitwall_core::onboarding::scan::ScanProgress),
@@ -66,6 +68,7 @@ impl AgentStore {
                     agent_id: a.agent_id,
                     name: a.name,
                     reason: a.reason,
+                    detail: a.detail,
                 });
                 return false;
             }
