@@ -30,6 +30,11 @@
   --chip: rgba(255, 255, 255, 0.06);
   --chip-on: rgba(255, 255, 255, 0.14);
   --inset: rgba(0, 0, 0, 0.28);
+  /* The demo shows the app as it is: its own background (src/styles/tokens.css --bg) and a
+     neutral bezel, never sky-tinted glass right against the app. */
+  --app-bg: #0a0b0d;
+  --app-line: #15181c;
+  --bezel: rgba(13, 14, 17, 0.95);
 
   --primary: #ffffff;
   --primary-ink: #0a0e1a;
@@ -88,6 +93,9 @@
     --chip: rgba(255, 255, 255, 0.55);
     --chip-on: #ffffff;
     --inset: rgba(255, 255, 255, 0.6);
+    --app-bg: #eef0f2;
+    --app-line: #e1e4e8;
+    --bezel: rgba(249, 249, 250, 0.94);
     --primary: #0d1322;
     --primary-ink: #ffffff;
     --hero-shadow: none;
@@ -135,6 +143,9 @@
   --chip: rgba(255, 255, 255, 0.55);
   --chip-on: #ffffff;
   --inset: rgba(255, 255, 255, 0.6);
+  --app-bg: #eef0f2;
+  --app-line: #e1e4e8;
+  --bezel: rgba(249, 249, 250, 0.94);
   --primary: #0d1322;
   --primary-ink: #ffffff;
   --hero-shadow: none;
@@ -404,7 +415,9 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .copy p { margin: 0; color: var(--text-2); font-size: 1rem; }
 
 .frame { border-radius: calc(var(--radius) + 4px); overflow: hidden; padding: 0 6px 6px; }
-.frame { box-shadow: var(--glass-edge), 0 40px 120px -40px var(--glow), var(--glass-shadow); }
+.frame { background: var(--bezel); box-shadow: var(--glass-edge), 0 40px 120px -40px var(--glow), var(--glass-shadow); }
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) { .frame { background: var(--app-bg); } }
+@media (prefers-reduced-transparency: reduce) { .frame { background: var(--app-bg); } }
 .frame-bar { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 4px 0 12px; }
 .frame-title { display: inline-flex; align-items: center; gap: 8px; font: 600 0.78rem var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); margin-right: auto; }
 .frame-title::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); animation: live-ring 2.4s ease-out infinite; }
@@ -414,16 +427,16 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   color: var(--text); font: 600 0.8rem var(--font-ui); cursor: pointer;
 }
 .frame-btn:hover { background: var(--chip-on); }
-.frame-body { position: relative; aspect-ratio: 16 / 10; background: var(--bg); border-radius: var(--radius); overflow: hidden; }
+.frame-body { position: relative; aspect-ratio: 16 / 10; background: var(--app-bg); border-radius: var(--radius); overflow: hidden; }
 .frame-body video, .frame-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
 .frame-body video { object-fit: cover; object-position: left top; }
 /* Phones: crop to the sidebar and first tile instead of shrinking the whole window. */
 @media (max-width: 600px) { .frame-body { aspect-ratio: 4 / 5; } .frame { padding: 0 4px 4px; } }
 
 /* Placeholder while the live app loads: an empty timing tower, not an image. */
-.skeleton { position: absolute; inset: 0; display: grid; align-content: start; gap: 10px; padding: 24px; background: var(--bg); width: min(100%, 300px); }
+.skeleton { position: absolute; inset: 0; display: grid; align-content: start; gap: 10px; padding: 24px; background: var(--app-bg); width: min(100%, 300px); }
 .skeleton[hidden] { display: none; }
-.skeleton span { height: 34px; border-radius: 6px; background: var(--chip); animation: wait 1.4s ease-in-out infinite; }
+.skeleton span { height: 34px; border-radius: 6px; background: var(--app-line); animation: wait 1.4s ease-in-out infinite; }
 .skeleton span.amber { background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); }
 .skeleton span:nth-child(2) { animation-delay: 0.1s; } .skeleton span:nth-child(3) { animation-delay: 0.2s; }
 .skeleton span:nth-child(4) { animation-delay: 0.3s; } .skeleton span:nth-child(5) { animation-delay: 0.4s; }
