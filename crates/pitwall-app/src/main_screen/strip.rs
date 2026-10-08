@@ -244,12 +244,18 @@ impl MainScreen {
                 .when(!bp.compact(), |d| {
                     d.child(
                         div()
+                            .id("strip-keys")
                             .flex()
                             .items_center()
                             .gap(px(5.))
                             .pr(px(8.))
                             .text_size(px(11.5))
                             .text_color(t.text_4)
+                            .cursor_pointer()
+                            .hover_text(t.text_3, |s| s)
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(super::ScreenEvent::OpenPalette)
+                            }))
                             .child(kbd("⌘K", t))
                             .child("commands"),
                     )
