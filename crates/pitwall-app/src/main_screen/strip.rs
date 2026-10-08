@@ -145,7 +145,11 @@ impl MainScreen {
         };
         let el = match (s.tone, s.lead) {
             (Tone::Blocked, Some(lead)) => base
-                .child(div().w(px(12.)).text_color(t.amber).child("▲"))
+                .child(
+                    crate::kit::text_glow(div().text_color(t.amber).child("▲"), t.amber_glow, 10.)
+                        .w(px(12.))
+                        .justify_center(),
+                )
                 .child(
                     div()
                         .flex_1()

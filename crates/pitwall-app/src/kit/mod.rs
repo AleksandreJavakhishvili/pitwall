@@ -62,7 +62,7 @@ pub use scm::{
 };
 pub use status::{
     diffstat, glyph, glyph_play, glyph_still, status_glyph, status_glyph_el, status_label,
-    word_color, GlyphMotion, GlyphSize,
+    text_glow, word_color, GlyphMotion, GlyphSize,
 };
 pub use text::{
     one_line, para, rich, Ellipsis, Para, Span, error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,

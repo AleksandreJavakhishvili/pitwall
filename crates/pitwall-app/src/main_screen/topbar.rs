@@ -349,7 +349,11 @@ impl MainScreen {
                 .when(blocked, |d| {
                     d.child(crate::kit::motion::bounce_in(
                         SharedString::from(format!("tab-b-{}", s.id)),
-                        div().text_size(px(10.)).text_color(t.amber).child("▲"),
+                        crate::kit::text_glow(
+                            div().text_size(px(10.)).text_color(t.amber).child("▲"),
+                            t.amber_glow,
+                            8.,
+                        ),
                     ))
                 })
                 .when(done, |d| {

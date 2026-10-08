@@ -315,12 +315,16 @@ impl MainScreen {
                     )
                     .when(g.blocked > 0, |d| {
                         d.child(
-                            div()
-                                .flex_none()
-                                .font_family(MONO_FONT)
-                                .text_size(px(10.5))
-                                .text_color(t.amber)
-                                .child(format!("▲ {}", g.blocked)),
+                            crate::kit::text_glow(
+                                div()
+                                    .font_family(MONO_FONT)
+                                    .text_size(px(10.5))
+                                    .text_color(t.amber)
+                                    .child(format!("▲ {}", g.blocked)),
+                                t.amber_glow,
+                                8.,
+                            )
+                            .flex_none(),
                         )
                     })
                     .child(

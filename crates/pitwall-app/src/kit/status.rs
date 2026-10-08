@@ -235,3 +235,29 @@ pub fn diffstat(added: u32, removed: u32, t: &Theme) -> Div {
     d.child(div().text_color(t.green).child(format!("+{added}")))
         .child(div().text_color(t.red).child(format!("−{removed}")))
 }
+
+/// `text-shadow: 0 0 <blur> var(--amber-glow)` behind a small amber mark
+/// (`▲ 2` in a project head, the tab's and the strip's ▲): GPUI has no text
+/// shadow, so a blurred box sits behind the middle of the text.
+pub fn text_glow(child: impl IntoElement, glow: Hsla, blur: f32) -> Div {
+    div()
+        .relative()
+        .flex()
+        .items_center()
+        .child(
+            div()
+                .absolute()
+                .top(gpui::relative(0.3))
+                .bottom(gpui::relative(0.3))
+                .left(gpui::relative(0.15))
+                .right(gpui::relative(0.15))
+                .shadow(vec![gpui::BoxShadow {
+                    color: glow,
+                    offset: point(px(0.), px(0.)),
+                    blur_radius: px(blur),
+                    spread_radius: px(0.),
+                }]),
+        )
+        .child(child)
+}
+
