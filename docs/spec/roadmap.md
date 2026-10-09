@@ -30,7 +30,8 @@ agents plug in without touching the rest. Design first, review, then build.
 3. agw provider: agw sessions as real agents (terminal, status, Next up), then
    create on VM, diffs/Review over ssh, rules via agw artifact bundles.
 4. Pitwall CLI + API with approval prompts for risky actions → [engineer.md](engineer.md)
-5. Race Engineer preset (optional assistant) → [engineer.md](engineer.md)
+5. Race Engineer preset (optional assistant) → [engineer.md](engineer.md):
+   built in the GPUI app (top bar + ⌘K, any agent kind, `engineer.*` settings)
 
 ## Wave 3
 - macOS permissions for other users: welcome-screen step explaining Full Disk
@@ -75,6 +76,22 @@ agents plug in without touching the rest. Design first, review, then build.
     poll; agw still polls) → [perf.md](perf.md) "Git refresh". `gix` instead
     of spawning git: measured, not worth it (see there).
 - Plain SSH machines provider; drag a space tab out to create a window.
+
+## GPUI port (in progress)
+The UI moves from Tauri + React to GPUI (`crates/pitwall-app`); the Tauri app
+is frozen (fixes only) until the GPUI app reaches parity, then replaced in one
+release → [gpui/README.md](gpui/README.md), checklist [gpui/inventory.md](gpui/inventory.md).
+- Phase 0 — DONE: shell (window, menu, theme tokens, engine hosted in-process,
+  live sidebar, coexistence guard, CI on three OSes).
+- Next: foundation (in-house components) → terminal + main screen → Wall →
+  Review → explorer → settings and onboarding → agw/CLI/approvals and OS
+  integration → packaging → switch the release over.
+
+## After the GPUI switch
+- Pitwall peers over Tailscale (planned, not started): one Pitwall sees and
+  drives another Pitwall's agents on the same tailnet: list and status,
+  terminal take-over, Review and explorer, notifications, start agents
+  there, per-peer permissions; off by default → [tailnet-peers.md](tailnet-peers.md)
 
 ## Website — DONE
 - `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo

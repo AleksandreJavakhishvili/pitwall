@@ -6,23 +6,30 @@ under.
 
 ## Build and test
 
+The app is native Rust ([GPUI](https://www.gpui.rs), `crates/pitwall-app`).
 You need Rust (`rustup`; the version is pinned in `rust-toolchain.toml` and
-installed automatically), Node.js 20.19+ and `pnpm`, plus the
-[Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) for your OS
-(Xcode Command Line Tools on macOS, WebKitGTK on Linux, MSVC build tools and
-WebView2 on Windows).
+installed automatically) and your OS's build tools: Xcode Command Line Tools
+on macOS, MSVC build tools on Windows, and on Linux the X11/Wayland, Vulkan
+and fontconfig development packages that `.github/workflows/ci.yml` installs.
+Node.js 20.19+ and `pnpm` are only needed for the web demo and the website.
 
 ```bash
-pnpm install
-pnpm tauri dev            # the app with hot reload
-pnpm dev                  # UI only, in a browser, with mock agents (no Rust needed)
-cargo test --workspace    # Rust: core, detection, holder, providers, CLI
+# The app, on its own data folder (never your real ~/.pitwall while developing).
+# Keep the path short: holder sockets live under it.
+cargo build -p pitwall-app -p pitwall-hold -p pitwall-cli
+PITWALL_HOME=/tmp/pw-dev cargo run -p pitwall-app
+cargo test --workspace    # Rust: app, core, detection, holder, providers, CLI
 cargo clippy --workspace --all-targets -- -D warnings
-pnpm test                 # UI tests (vitest)
-pnpm build                # type-check + UI build
+scripts/package-app.sh    # release bundles for this OS (docs/spec/gpui/packaging.md)
+
+# The web demo (the React UI in src/, mock agents only; see src/README.md)
+pnpm install
+pnpm dev                  # in a browser
+pnpm test                 # its unit tests (vitest)
+pnpm build                # type-check + build
 ```
 
-The website (plain HTML + Vite, embedding the app's mock build as a demo):
+The website (plain HTML + Vite, embedding the web demo):
 
 ```bash
 cd website
@@ -65,8 +72,10 @@ read.
 | `revert`   | reverting an earlier commit                       | Chores            |
 
 **Scopes** (optional, one per commit): `core`, `providers`, `agw`, `hold`,
-`cli`, `daemon`, `detect`, `ui`, `app`, `website`, `release`, `deps`. Leave the
-scope out when a change spans several areas.
+`cli`, `daemon`, `detect`, `ui`, `app`, `gpui`, `website`, `release`, `deps`.
+`app` (or `gpui`) is the desktop app and its crates (`crates/pitwall-app`,
+`crates/pitwall-term-view`, docs/spec/gpui/); `ui` is the React web demo
+(`src/`). Leave the scope out when a change spans several areas.
 
 **Rules**
 
@@ -90,7 +99,7 @@ refactor(providers): split the agw transport from the session model
 docs: describe agw machines in the README
 test(hold): cover a restart while ~/code/my-app is checked out
 ci: run the Windows suites in separate steps
-build(deps): bump tauri to 2.9
+build(deps): bump tree-sitter to 0.26
 chore(release): v0.2.0
 ```
 

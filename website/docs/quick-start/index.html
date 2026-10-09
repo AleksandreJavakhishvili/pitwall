@@ -41,7 +41,7 @@
   <main id="main" class="page">
     <div class="wrap">
       <article class="prose">
-        <p class="label">Docs · v0.1</p>
+        <p class="label">Docs</p>
         <h1>Quick start</h1>
         <p>Pitwall is a desktop app for macOS, Linux and Windows (preview) that hosts terminal coding agents and shows which one needs you. It is not an agent itself: it never rewrites prompts or decides what agents do. Download a build from GitHub Releases, or build it from source.</p>
 
@@ -70,14 +70,13 @@
         <p>A Homebrew cask is coming; it isn't published yet.</p>
 
         <h2 id="build-from-source">Build from source</h2>
-        <p>You need macOS with the Xcode Command Line Tools, a Rust toolchain (<code>rustup</code>), Node.js and <code>pnpm</code>: the usual <a href="https://tauri.app/start/prerequisites/">Tauri 2 prerequisites</a>. Plus at least one agent CLI you're already logged in to.</p>
+        <p>You need a Rust toolchain (<code>rustup</code>; the version is pinned in the repository) and, on macOS, Xcode. Plus at least one agent CLI you're already logged in to.</p>
         <pre><code>git clone %REPO_URL%.git
 cd pitwall
-pnpm install
-pnpm tauri dev                      <span class="c"># run the app with hot reload</span>
-pnpm tauri build --bundles app      <span class="c"># → target/release/bundle/macos/Pitwall.app</span></code></pre>
-        <p>The build also compiles <code>pitwall-hold</code> (the per-agent terminal holder) and the <code>pitwall</code> CLI, and ships both inside the app bundle. To install the build into <code>/Applications</code>, see the <a href="%REPO_URL%#build-from-source">README</a>.</p>
-        <div class="callout">Running only <code>pnpm dev</code> opens the UI in a browser with mock agents and a simulated scan, which is handy for UI work. The demo on the home page is that mode.</div>
+cargo run -p pitwall-app            <span class="c"># run the app (debug build)</span>
+scripts/package-app.sh              <span class="c"># release bundles → target/package/</span></code></pre>
+        <p>The build also compiles <code>pitwall-hold</code> (the per-agent terminal holder) and the <code>pitwall</code> CLI, and ships both inside the app bundle. Release builds need Xcode's Metal toolchain on macOS, and Linux needs GPUI's libraries; the packages for each OS, and how to install a build into <code>/Applications</code>, are in the <a href="%REPO_URL%#install">README</a>.</p>
+        <div class="callout">The demo on the home page is the web demo of the UI: <code>pnpm install</code> and <code>pnpm dev</code> open it in a browser with mock agents and a simulated scan.</div>
 
         <h2 id="first-launch">First launch</h2>
         <p>Pitwall opens with a read-only scan. Nothing on your Mac changes unless you tick a box.</p>

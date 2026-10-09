@@ -1,6 +1,9 @@
 # Architecture: providers + daemon (Wave 2 design)
 
 Status: **approved design, migration in progress** (see §6 "Progress").
+Since v0.2.0 the desktop shell is the GPUI app (`crates/pitwall-app`,
+docs/spec/gpui/); where this document says `src-tauri`, read the app crate
+(the Tauri shell was removed; its role is unchanged: a thin host).
 Written against the code as of wave 1.5, with worktrees done the new way
 (worktrees.md: the agent's own flag, then discovery).
 
@@ -719,6 +722,19 @@ the UI build green.
   streams, the single-instance lock, cancelling an approval when its client
   disconnects, and every other CLI command (stop/remove/prompt/queue/space/…;
   the table and client are ready for them).
+
+- CLI coverage for the Race Engineer (docs/spec/engineer.md) done: caps
+  `manage` and `spaces`; `agent.stop|restart|remove|rename|status|wait`,
+  `queue.add|list|remove|send`, `project.list|add|remove`,
+  `rules.list|sets|apply|default`, `review.changes` (pitwall-daemon
+  `manage.rs`, the same core calls the UI makes), and `space.list|create|
+  rename|move` + `agent.move` through the host's `WorkspaceBackend` (the
+  app applies them on its main thread to the one `ui.json` store and its
+  windows, `cli_spaces`). Stop/restart (Low here, High on other machines),
+  remove (High) and `rules.apply` into a main checkout (High) ask unless
+  Pitwall's own window asked. `agent.status` explains the status from the
+  hook, screen-rule and activity signals (`engine::diagnose`). The CLI
+  names agents and spaces by id or name; usage errors are JSON, exit 2.
 
 - Step 8b done (agw diffs and Review): `providers::agw::AgwExec` implements
   `Exec` through agw's own `vm exec` / `agent exec` (options before the

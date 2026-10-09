@@ -2,6 +2,16 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Pitwall is now a native app. The web-view (Tauri) app is replaced by one drawn with GPUI in Rust: faster, lighter on memory, with native menus and keyboard handling on macOS, Windows and Linux.
+- Same design and same data: it opens your existing agents, spaces, windows and settings from `~/.pitwall`, and agents left running by the previous version are picked up where they are. Install it over the old one: it keeps the name Pitwall and the same app identity.
+- The Glass look uses the system material: Liquid Glass on recent macOS, vibrancy on older macOS, Mica on Windows 11 and a lighter painted glass elsewhere; Flat stays one click away.
+- A new logo and app icon: the Apex P.
+- A fraction of the CPU and about half the memory of the web-view app with the same agents; a window you can't see (minimised, in the tray, on another Space) gives its GPU memory back until you look at it again.
+
 ## [0.1.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.1) - 2026-10-08
 
 ### Highlights

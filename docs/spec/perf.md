@@ -1,5 +1,11 @@
 # Performance pass
 
+> **History.** The measurements below are of the Tauri app (up to v0.1.x):
+> a Rust process plus WebKit content and GPU processes. Since v0.2.0 Pitwall
+> is the GPUI app (`crates/pitwall-app`): one process, no WebKit. The budgets
+> still apply; the numbers need a new pass, and `scripts/bench.py` needs the
+> GPUI app's bench hook first (open item, docs/spec/gpui/packaging.md "Tests").
+
 Measure first, then fix against budgets. Add a repeatable benchmark script
 (`scripts/bench.sh` or similar) that reports RSS/CPU of the Pitwall process
 tree (Rust process + WebKit content/GPU processes, excluding agent processes).
@@ -367,3 +373,68 @@ Mac, release builds). Footprint MB / CPU % of a core; "base" = 0ce352b
   separately (it is Flat plus a static background).
 - Not measured here: Windows (Mica is drawn by DWM like vibrancy by
   WindowServer) and Linux.
+
+## GPUI port: re-baseline (2026-10-09)
+
+The bench hook is ported (`crates/pitwall-app/src/bench.rs`): the same
+`PITWALL_BENCH=1` / `PITWALL_BENCH_VISIBLE=1`, `bench-cmd` commands and
+`bench-ready` file, so `scripts/bench.sh target/release/pitwall-app` runs
+against the native app (the WebKit group stays empty: one process draws).
+Use `--visible`: GPUI draws on the display link, which macOS stops for an
+off-screen or covered window, so off-screen numbers are an idle app.
+`PITWALL_FRAME_STATS=1` logs frame timing every 2 s.
+
+First numbers (release, M-series Mac, 20 made-up working agents, each
+printing a line every 0.5 s, window on screen, app process only):
+
+| | Motion on | Reduce motion |
+|---|---|---|
+| CPU % of a core | 6.9 · 6.1 | 3.0 · 3.4 |
+| Frames | ~32/s (working-dot rings at 30 fps) | on output only |
+
+- The working dots' rings come from one 30 fps clock drawn by a small layer
+  over the main screen; the screen is a cached view, so a ring frame replays
+  its last paint (render → paint p50 0.6 ms). The ring costs ~3–4 points at
+  20 agents, against ~10 for the React app's (above).
+- Covered, minimised or on another Space, the app draws nothing and its
+  polls pause: 0.4–0.5 % with the same 20 agents.
+- To do: a full `--counts 1,5,15,20` run on a quiet machine to fill the
+  budgets table for GPUI (memory, cold start, Wall, Review).
+
+## GPUI port: memory pass (2026-10-09)
+
+Standard load: 15 made-up TUI agents (`scripts/tui-agent.py`: claude,
+codex and full-screen styles, 600 KB of history each), one space with 2×2
+panes and the rest folded into chips (bench command `visit-all-4`),
+release build, 60 s after a 30 s settle. Footprint of the app process
+(`footprint`, Activity Monitor's "Memory"); per component from
+`MallocStackLogging=lite` + `malloc_history -allBySize` on a profiling
+build.
+
+| Component | Before | After |
+|---|---|---|
+| Pane terminals: grids + scrollback (alacritty rows) | 228 MB | 45 MB |
+| Frozen scrollback (text + style runs) | – | 11 MB |
+| Engine's headless parsers (grids) | ~9 MB | 0 (shared) |
+| Parsers (vte, 2 MiB sync buffer each, mostly untouched) | 30 | 15 |
+| Engine output rings (1 MiB each) | 20 MB | 16 MB |
+| GPUI scene, layout, text shaping | 23 MB | 23 MB |
+| Metal driver memory while drawing ("unmapped graphics") | 184 MB | 184 MB |
+| Drawables (3 IOSurfaces at the window's size) | 59 MB | 59 MB |
+| **Total footprint (off-screen / on screen)** | **589 / 588 MB** | **364 / 364 MB** |
+
+- Scrollback (5 000 lines, as xterm.js kept) costs 24 bytes a cell in
+  alacritty, twice xterm.js's 12. A terminal no view has locked for 15 s
+  (folded into a chip, another space) moves its scrollback out of the
+  grid into text plus style runs, in batches of 1 000 rows, and gets it
+  back on the next view lock (~3 ms for 5 000 rows), before any read;
+  the main screen's scrollback also freezes while a program runs on the
+  alternate screen (`pitwall-term-view/src/frozen.rs`).
+- One parser per agent: the pane's terminal is the engine's screen
+  (`TermHost::share_screen`, `ScreenSource`); the status rules and the
+  Wall's frames read its grid. Before, each agent was parsed twice.
+- The ~180 MB of Metal driver memory is the platform's: a 30-line Swift
+  app that only clears a `CAMetalLayer` holds the same while it draws,
+  at any window size and frame rate, and gives it back ~2 s after the
+  last frame. The drawables scale with the window.
+- Holders (`pitwall-hold`, separate processes) are ~2.5 MB each.

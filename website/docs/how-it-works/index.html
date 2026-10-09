@@ -57,6 +57,7 @@
           <li><a href="#agw">agw machines</a></li>
           <li><a href="#cli">CLI and approvals</a></li>
           <li><a href="#first-launch">First launch</a></li>
+          <li><a href="#performance">Performance</a></li>
           <li><a href="#roadmap">Roadmap</a></li>
         </ul>
 
@@ -163,11 +164,21 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
         <pre><code>pitwall agent list
 pitwall agent new --kind claude --project ~/code/api --name api
 pitwall session list --provider agw
-pitwall session add agw &lt;vm&gt; &lt;session&gt; --start</code></pre>
-        <p>Today it lists and adds; it can't stop, remove or prompt agents. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request.</p>
+pitwall session add agw &lt;vm&gt; &lt;session&gt; --start
+pitwall settings list
+pitwall settings set appearance.theme dark
+pitwall queue add api "run the tests"
+pitwall space move "API" --to-window new
+pitwall wait api --for done --fresh</code></pre>
+        <p>It does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review and settings, plus <code>wait</code> so agents can coordinate. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON in <code>~/.pitwall/ui.json</code> (with a <a href="%REPO_URL%/blob/main/docs/settings.schema.json">JSON Schema</a> for editors): edits apply live, and a value that isn't allowed is reported while the last good one stays. Settings that change something outside Pitwall, like installing Codex hooks, ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request.</p>
+        <p>The optional <strong>Race Engineer</strong> (the headset in the top bar, or ⌘K) is an agent that already knows all this: it runs on the agent you pick in Settings → Agents, in its own folder in Pitwall's data folder, with Pitwall's instructions and this CLI reference written there as <code>AGENTS.md</code>, <code>CLAUDE.md</code> and <code>GEMINI.md</code>, and <code>pitwall</code> on its PATH. Your <code>~/.claude</code> and <code>~/.codex</code> are not touched.</p>
 
         <h2 id="first-launch">First launch</h2>
         <p>A read-only scan: agent CLIs on your PATH, recent projects from Claude and Codex transcripts, VS Code and Cursor history and one level deep in <code>~/projects ~/code ~/Developer ~/src ~/dev ~/work</code>, and conversations you can continue. Desktop, Documents and Downloads aren't enumerated; use Add folder…. Nothing changes until you tick a box. Details are in the <a href="/docs/quick-start/#first-launch">quick start</a>.</p>
+
+        <h2 id="performance">Performance</h2>
+        <p>Pitwall is a native Rust app. The UI is drawn on the GPU with <a href="https://www.gpui.rs">GPUI</a>, Zed's UI framework, in the same process as the engine: there is no web view, and terminal output never crosses a bridge to be drawn. Terminals are parsed with <code>alacritty_terminal</code>, Wall tiles are drawn from those same screens, and git for local agents refreshes when files change instead of on a timer.</p>
+        <p>Glass uses the system's own material: Liquid Glass on macOS 26, vibrancy on older macOS, Mica on Windows 11. Terminals stay opaque. Measurements, against the 0.1 releases that ran in a web view, are in the <a href="%REPO_URL%#performance">README</a>.</p>
 
         <h2 id="roadmap">Roadmap</h2>
         <p>What's being worked on now, what comes next and what comes later is on the <a href="/roadmap/">roadmap</a>. No dates.</p>

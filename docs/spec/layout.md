@@ -128,8 +128,8 @@ chequered flag; status colours are identical in both looks.
 - **Tiers**, decided in one place: the desktop offers a window material
   (`HostInfo.glass`, `pitwall_core::host`: `vibrancy` on macOS, `mica` on
   Windows 11 ≥ build 22000, `none` on Linux and Windows 10), and each
-  window asks for it itself (`set_window_glass`, `src-tauri/src/platform/
-  glass.rs`), so spaces moved to their own windows get it too. Settings
+  window asks for it itself (`crates/pitwall-app/src/platform/glass.rs`;
+  the Tauri shell had `set_window_glass`), so spaces moved to their own windows get it too. Settings
   names the tier:
   - **Glass · native** (macOS): an `NSVisualEffectView`
     (under-window-background material, kept active so unfocused windows

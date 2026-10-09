@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "The settings in Pitwall's ui.json (~/.pitwall/ui.json; $PITWALL_HOME/ui.json). Pitwall applies edits live; an invalid value is reported and the last good one kept. The file also holds spaces and layouts, which are not described here. `pitwall settings list` shows every setting, including the ones kept outside this file.",
+  "properties": {
+    "density": {
+      "default": "compact",
+      "description": "`appearance.density`: Smallest tile before extra agents fold into chips (spaces may override it).",
+      "enum": [
+        "comfortable",
+        "compact",
+        "dense"
+      ],
+      "type": "string"
+    },
+    "engineerAgent": {
+      "default": "auto",
+      "description": "`engineer.agent`: What the Race Engineer (Pitwall's optional assistant) runs on: auto (Claude Code if installed, else the first installed agent), an agent id from New agent (claude, codex, gemini, opencode, aider, …) or custom (engineer.command). Applies the next time it starts.",
+      "maxLength": 64,
+      "type": "string"
+    },
+    "engineerCommand": {
+      "default": "",
+      "description": "`engineer.command`: The command the Race Engineer runs when engineer.agent is custom (a command line, run by your login shell).",
+      "maxLength": 500,
+      "type": "string"
+    },
+    "engineerGreeting": {
+      "default": "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, tune settings.",
+      "description": "`engineer.greeting`: The prompt queued for a new Race Engineer when it first opens (empty: none).",
+      "maxLength": 1000,
+      "type": "string"
+    },
+    "fontSize": {
+      "default": 13,
+      "description": "`appearance.terminalFontSize`: Base terminal font size in px; tiles may shrink below it to fit.",
+      "maximum": 22,
+      "minimum": 9,
+      "type": "number"
+    },
+    "hideElsewhere": {
+      "default": false,
+      "description": "The inverse of `general.showElsewhere`: Show agents running in other terminal apps as a sidebar group (read-only, checked every ~10 s).",
+      "type": "boolean"
+    },
+    "look": {
+      "default": "flat",
+      "description": "`appearance.look`: Flat, or Glass: translucent chrome over the window material (Liquid Glass where the OS has it). Terminals stay solid.",
+      "enum": [
+        "flat",
+        "glass"
+      ],
+      "type": "string"
+    },
+    "reduceMotion": {
+      "default": false,
+      "description": "`appearance.reduceMotion`: Fewer animations (the OS setting also applies).",
+      "type": "boolean"
+    },
+    "settingsPage": {
+      "description": "The Settings page shown last.",
+      "enum": [
+        "general",
+        "agents",
+        "rules",
+        "appearance",
+        "folderAccess",
+        "about"
+      ],
+      "type": "string"
+    },
+    "theme": {
+      "default": "system",
+      "description": "`appearance.theme`: Light or dark; system follows the OS.",
+      "enum": [
+        "system",
+        "dark",
+        "light"
+      ],
+      "type": "string"
+    },
+    "v": {
+      "const": 1,
+      "description": "The file's version (always 1)."
+    }
+  },
+  "required": [
+    "v"
+  ],
+  "title": "Pitwall settings (ui.json)",
+  "type": "object"
+}
