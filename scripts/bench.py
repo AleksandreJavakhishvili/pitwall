@@ -7,15 +7,12 @@ hook on (PITWALL_BENCH=1), and harmless output-generator agents. It never
 touches ~/.pitwall, a running /Applications/Pitwall.app or its holders, and
 only ever stops processes it started, by exact PID.
 
-Build the instance first, with its own bundle id so WebKit storage is
-separate too, e.g.:
-
-  CARGO_TARGET_DIR=/tmp/pw-bench pnpm tauri build --no-bundle --config "$(cat scripts/bench-tauri.json)"
-  scripts/bench.sh /tmp/pw-bench/release/pitwall
-
-(bench-tauri.json also opens the window off-screen and unfocused from the
-first frame; with PITWALL_BENCH=1 the app itself never activates, moves its
-windows off-screen and sends no notifications.)
+NOTE: written for the Tauri app (up to v0.1.x), whose UI answered the
+`bench-cmd` commands (`bench` events) and whose web view ran in WebKit
+processes. The GPUI app (v0.2.0+) has neither yet: it reads PITWALL_BENCH=1
+only to send no notifications. Porting the hook (a module dispatching the
+same actions, docs/spec/gpui/packaging.md "Tests") is an open item; until
+then the scenarios that need it don't run against the GPUI app.
 
 What is measured (per scenario, after a settle period):
 - app:      the app process (Rust) + transient children it reaped (git, …)
@@ -33,6 +30,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import re
 import os
 import shutil
 import signal
@@ -228,6 +226,15 @@ while :; do
 done
 """
 
+# Bench agent for `--agent tui-mix`: a mix of the TUI styles a real
+# session shows (Claude Code-like, Codex-like, full-screen), each starting
+# with a long session's scrollback, spinners at 10-12 frames/s.
+MIX = r"""#!/bin/sh
+n=$(( $(cat '{count}' 2>/dev/null || echo 0) + 1 )); echo $n > '{count}'
+case $((n % 3)) in 1) s=claude;; 2) s=codex;; *) s=fullscreen;; esac
+exec python3 '{tui}' --style $s --fps $((10 + n % 3)) --history 600 --seed $n
+"""
+
 KIND = """id = "bench"
 name = "Bench"
 command = "{gen}"
@@ -332,6 +339,21 @@ class Instance:
         return ours
 
 
+GRAPHICS = {"Owned physical footprint (unmapped) (graphics)": "gpu-only", "IOSurface": "surfaces", "IOAccelerator (graphics)": "gpu-shared"}
+
+
+def graphics_mb(pid: int) -> dict:
+    """The app's GPU memory by kind, from macOS `footprint` (dirty MB)."""
+    out = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+    units = {"B": 1 / 2**20, "KB": 1 / 1024, "MB": 1, "GB": 1024}
+    res = {}
+    for line in out.splitlines():
+        m = re.match(r"\s*([\d.]+) (B|KB|MB|GB)\s+\S+ \S+\s+\S+ \S+\s+\d+\s+(.+?)\s*$", line)
+        if m and m.group(3) in GRAPHICS:
+            res[GRAPHICS[m.group(3)]] = float(m.group(1)) * units[m.group(2)]
+    return res
+
+
 def holders_of(home: Path) -> list[int]:
     hold_dir = str(home / "run" / "hold")
     out = []
@@ -391,7 +413,9 @@ def main():
     ap.add_argument("--profile", help="also run macOS `sample` on the app process for 5 s per scenario, writing <dir>/<scenario>.txt")
     ap.add_argument("--ui", help='JSON merged into the instance\'s UI state before launch, e.g. \'{"look": "glass", "reduceMotion": true}\'')
     ap.add_argument("--visible", action="store_true", help="keep the window on screen (PITWALL_BENCH_VISIBLE=1; build with a config that places it on screen): GPU numbers as for a window you look at")
-    ap.add_argument("--agent", choices=["bench", "tui"], default="bench", help="bench: a shell loop (~3 KB/s); tui: scripts/tui-agent.py, a Claude/Codex-like redrawing TUI (~12 KB/s, 10 frames/s)")
+    ap.add_argument("--agent", choices=["bench", "tui", "tui-mix"], default="bench", help="bench: a shell loop (~3 KB/s); tui: scripts/tui-agent.py, a Claude/Codex-like redrawing TUI (~12 KB/s, 10 frames/s); tui-mix: tui-agent.py's three styles in turn, each with ~600 KB of scrollback first")
+    ap.add_argument("--window", help="main window size in points, e.g. 1728x1021 (GPU memory grows with it)")
+    ap.add_argument("--footprint", action="store_true", help="also report the app's graphics memory by kind (macOS `footprint`)")
     args = ap.parse_args()
 
     app = Path(args.app).resolve()
@@ -406,12 +430,18 @@ def main():
     home = root / "home"
     (home / "agents").mkdir(parents=True)
     (home / "projects.json").write_text(json.dumps({"version": 1, "onboarded": True, "projects": []}))
+    if args.window:
+        w, h = (float(v) for v in args.window.lower().split("x"))
+        (home / "app-windows.json").write_text(json.dumps({"main": {"state": "windowed", "x": 0.0, "y": 33.0, "width": w, "height": h}}))
     if args.ui:
         (home / "ui.json").write_text(json.dumps({"v": 1, "spaces": [], **json.loads(args.ui)}))
     gen = root / "gen.sh"
     if args.agent == "tui":
         tui = Path(__file__).resolve().parent / "tui-agent.py"
         gen.write_text(f"#!/bin/sh\nexec python3 '{tui}'\n")
+    elif args.agent == "tui-mix":
+        tui = Path(__file__).resolve().parent / "tui-agent.py"
+        gen.write_text(MIX.format(tui=tui, count=root / "agents-started"))
     else:
         gen.write_text(GEN)
     gen.chmod(0o755)
@@ -426,6 +456,9 @@ def main():
         time.sleep(args.settle)
         m = measure(inst.proc.pid, str(home), args.sample)
         m["holders"] = holder_stats(home)
+        if args.footprint:
+            m["graphics_mb"] = graphics_mb(inst.proc.pid)
+            print(f"{name:<16} graphics " + "  ".join(f"{k} {v:.0f} MB" for k, v in m["graphics_mb"].items()), flush=True)
         m.update(extra or {})
         if args.profile:
             Path(args.profile).mkdir(parents=True, exist_ok=True)

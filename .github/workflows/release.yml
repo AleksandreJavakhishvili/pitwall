@@ -1,15 +1,31 @@
-# Builds Pitwall.app as a universal macOS binary (Apple silicon + Intel), packs a
-# .dmg and an .app.tar.gz; builds a Linux x86_64 AppImage and .deb and the
-# Windows x64 installers (NSIS .exe and .msi); publishes them all in one
-# release with one SHA256SUMS.txt (job `publish`).
+# Builds Pitwall (crates/pitwall-app, the native GPUI app) with
+# scripts/package-app.sh: a universal macOS .app (Apple silicon + Intel) packed
+# as a .dmg and an .app.tar.gz, a Linux x86_64 AppImage and .deb, and the
+# Windows x64 installers (NSIS .exe and .msi); publishes them all in one release
+# with one SHA256SUMS.txt (job `publish`).
 #
-#   git tag v0.1.0 && git push origin v0.1.0     → GitHub Release, notes from git-cliff (cliff.toml)
+#   git tag v0.2.0 && git push origin v0.2.0     → GitHub Release, notes from CHANGELOG.md
+#                                                   (scripts/release.sh) or git-cliff
 #   Actions → Release → Run workflow              → build only (artifacts on the run),
 #                                                   or a release if you give a tag
+#   a pull request that touches the packaging     → build only (artifacts on the run)
 #
-# Signing: without secrets the app is ad-hoc signed (users open it with
+# Only `publish` can write (contents: write) and it runs only for a tag; the
+# build jobs read. This workflow replaces release-gpui.yml (the GPUI app's
+# artifact-only builds before the switch-over): one place builds the bundles,
+# and pull requests that change packaging get the same build as a release.
+#
+# Release asset names (the website's download page matches on the suffixes):
+#   Pitwall_<version>_universal.dmg        Pitwall_<version>_universal.app.tar.gz
+#   Pitwall_<version>_amd64.AppImage       Pitwall_<version>_amd64.deb
+#   Pitwall_<version>_x64-setup.exe        Pitwall_<version>_x64.msi    (Windows)
+#   SHA256SUMS.txt
+#
+# macOS signing: without secrets the app is ad-hoc signed (users open it with
 # right-click → Open the first time; see README "Install"). Add these repository
-# secrets to switch to Developer ID signing + notarization + stapling:
+# secrets to switch to Developer ID signing + notarization + stapling (the
+# script signs the sidecars, then the app, notarizes and staples the app and
+# the .dmg):
 #   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
 #   APPLE_CERTIFICATE_PASSWORD  password of that .p12
 #   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
@@ -17,7 +33,7 @@
 #
 # Windows builds only when the repository variable RELEASE_WINDOWS is "true"
 # (Settings → Secrets and variables → Actions → Variables); until the Windows
-# port is verified, releases ship macOS and Linux only.
+# port is verified on real machines, the release notes call it a preview.
 #
 # Windows: unsigned by default (SmartScreen warns on first run; see README
 # "Windows"). For Authenticode signing add:
@@ -28,34 +44,43 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/package-app.sh
+      - crates/pitwall-app/packaging/**
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v0.1.0). Empty = build only, no release."
+        description: "Tag to release (e.g. v0.2.0). Empty = build only, no release."
         required: false
         default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer push to a pull request replaces its build; releases always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
-  TARGET: universal-apple-darwin
+  # The released identity: "Pitwall", dev.pitwall.app, package `pitwall`.
+  PITWALL_CHANNEL: stable
+  # The packager pinned for Linux and Windows (MIT OR Apache-2.0).
+  CARGO_PACKAGER_VERSION: 0.11.8
 
 jobs:
   macos:
     runs-on: macos-latest
+    # Release builds (two architectures, fat LTO) from a cold cache; a hang fails here.
+    timeout-minutes: 120
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       mode: ${{ steps.signing.outputs.mode }}
     env:
-      # Secrets can't be tested in `if:` directly; empty when not configured. They
-      # get their real names (which Tauri reads) only in "Signing mode", and only
-      # when set, so an empty APPLE_CERTIFICATE never reaches the bundler.
+      # Secrets can't be tested in `if:` directly; empty when not configured.
       SECRET_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       SECRET_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       SECRET_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -65,68 +90,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
+      # Installs the version pinned in rust-toolchain.toml (+ both macOS targets).
       - run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-universal
 
-      - run: pnpm install --frozen-lockfile
-
       - name: Version
         id: version
         env:
           INPUT_TAG: ${{ inputs.tag }}
         run: |
-          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          app_version=$(awk '/^\[/ { pkg = ($0 == "[package]") } pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' crates/pitwall-app/Cargo.toml)
           if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="${INPUT_TAG}"; fi
           if [ -n "$tag" ] && [ "${tag#v}" != "$app_version" ]; then
-            echo "::warning::tag $tag doesn't match tauri.conf.json version $app_version"
+            echo "::warning::tag $tag doesn't match crates/pitwall-app/Cargo.toml version $app_version"
           fi
           echo "app=$app_version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      # Tauri bundles each externalBin as binaries/<name>-<target triple>. For a
-      # universal build that's <name>-universal-apple-darwin, which src-tauri/build.rs
-      # doesn't make (it builds per architecture). Build both architectures into the
-      # same target dir build.rs uses (so it finds them up to date) and lipo them.
-      - name: Universal sidecars (pitwall-hold, pitwall-cli)
+      # Release bundles precompile GPUI's Metal shaders (gpui's build.rs runs
+      # `xcrun metal` / `metallib`; no runtime-shaders feature). Xcode 16
+      # includes the Metal toolchain; Xcode 26 ships it as a separate component.
+      - name: Metal toolchain
         run: |
-          for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --target "$t" --target-dir target/hold \
-              -p pitwall-hold --bin pitwall-hold -p pitwall-cli --bin pitwall-cli
-          done
-          # binaries/ is git-ignored (build.rs fills it), so a fresh checkout lacks it.
-          mkdir -p src-tauri/binaries
-          for b in pitwall-hold pitwall-cli; do
-            lipo -create -output "src-tauri/binaries/$b-universal-apple-darwin" \
-              "target/hold/aarch64-apple-darwin/release/$b" "target/hold/x86_64-apple-darwin/release/$b"
-            lipo -info "src-tauri/binaries/$b-universal-apple-darwin"
-          done
+          xcodebuild -version
+          if ! xcrun -sdk macosx metal -v >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -sdk macosx metal -v
 
-      # Ad-hoc ("-") unless a Developer ID certificate is configured. Tauri reads
-      # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD (imports them into a temporary
-      # keychain), APPLE_SIGNING_IDENTITY, and notarizes + staples the app when
-      # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID are set.
+      # Developer ID only with the certificate secrets: import it into a
+      # temporary keychain; the script signs (and notarizes with the Apple ID
+      # secrets). Otherwise the script signs ad-hoc.
       - name: Signing mode
         id: signing
         run: |
           if [ -n "$SECRET_CERTIFICATE" ] && [ -n "$SECRET_SIGNING_IDENTITY" ]; then
-            {
-              echo "APPLE_CERTIFICATE=$SECRET_CERTIFICATE"
-              echo "APPLE_CERTIFICATE_PASSWORD=$SECRET_CERTIFICATE_PASSWORD"
-              echo "APPLE_SIGNING_IDENTITY=$SECRET_SIGNING_IDENTITY"
-            } >> "$GITHUB_ENV"
+            kc="$RUNNER_TEMP/pitwall.keychain-db"
+            pw=$(uuidgen)
+            security create-keychain -p "$pw" "$kc"
+            security set-keychain-settings -lut 21600 "$kc"
+            security unlock-keychain -p "$pw" "$kc"
+            printf '%s' "$SECRET_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -P "$SECRET_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$kc"
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc" >/dev/null
+            # shellcheck disable=SC2046 # the existing keychains, one word each
+            security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            echo "APPLE_SIGNING_IDENTITY=$SECRET_SIGNING_IDENTITY" >> "$GITHUB_ENV"
             echo "mode=developer-id" >> "$GITHUB_OUTPUT"
             if [ -n "$SECRET_APPLE_ID" ] && [ -n "$SECRET_APPLE_PASSWORD" ] && [ -n "$SECRET_APPLE_TEAM_ID" ]; then
               {
@@ -134,40 +147,39 @@ jobs:
                 echo "APPLE_PASSWORD=$SECRET_APPLE_PASSWORD"
                 echo "APPLE_TEAM_ID=$SECRET_APPLE_TEAM_ID"
               } >> "$GITHUB_ENV"
-              echo "notarize=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "notarize=false" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
             echo "mode=ad-hoc" >> "$GITHUB_OUTPUT"
-            echo "notarize=false" >> "$GITHUB_OUTPUT"
           fi
-          grep '^mode=\|^notarize=' "$GITHUB_OUTPUT"
+          grep '^mode=' "$GITHUB_OUTPUT"
 
-      - name: Build Pitwall.app and .dmg
-        run: pnpm tauri build --target "$TARGET" --bundles app,dmg
+      - name: Build Pitwall.app and the .dmg (universal)
+        run: scripts/package-app.sh --universal
 
-      # Tauri notarizes the .app; the .dmg around it is notarized and stapled here.
-      - name: Notarize and staple the .dmg (only with Apple secrets)
-        if: steps.signing.outputs.notarize == 'true'
+      - name: Check the bundle
         run: |
-          dmg=$(find "target/$TARGET/release/bundle/dmg" -name "*.dmg" | head -1)
-          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$dmg"
-          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "$dmg"
+          app=target/package/Pitwall.app
+          plutil -p "$app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = dev.pitwall.app
+          for b in pitwall pitwall-hold pitwall-cli; do
+            lipo -info "$app/Contents/MacOS/$b"
+            lipo "$app/Contents/MacOS/$b" -verify_arch arm64 x86_64
+          done
+          codesign --verify --deep --strict --verbose=2 "$app"
+          # Precompiled shaders: no Metal source embedded for runtime compiling.
+          if grep -aq "using namespace metal;" "$app/Contents/MacOS/pitwall"; then
+            echo "::error::pitwall was built with runtime shaders"; exit 1
+          fi
 
       - name: Package and checksum
         id: pkg
         env:
           VERSION: ${{ steps.version.outputs.app }}
         run: |
-          bundle="target/$TARGET/release/bundle"
           out=release-assets
           mkdir -p "$out"
-          codesign --verify --deep --strict --verbose=2 "$bundle/macos/Pitwall.app"
-          cp "$(find "$bundle/dmg" -name "*.dmg" | head -1)" "$out/Pitwall_${VERSION}_universal.dmg"
-          tar -C "$bundle/macos" -czf "$out/Pitwall_${VERSION}_universal.app.tar.gz" Pitwall.app
+          cp "target/package/Pitwall_${VERSION}_universal.dmg" "$out/"
+          tar -C target/package -czf "$out/Pitwall_${VERSION}_universal.app.tar.gz" Pitwall.app
           (cd "$out" && shasum -a 256 -- *.dmg *.tar.gz > SHA256SUMS.txt && cat SHA256SUMS.txt)
           echo "dir=$out" >> "$GITHUB_OUTPUT"
 
@@ -177,74 +189,68 @@ jobs:
           path: ${{ steps.pkg.outputs.dir }}/*
           if-no-files-found: error
 
-  # Linux x86_64: an AppImage (runs on most distributions) and a .deb. Built on
-  # the oldest supported Ubuntu so the AppImage's glibc floor stays low.
-  # src-tauri/build.rs builds the pitwall-hold / pitwall-cli sidecars for the
-  # same target triple; Tauri puts them next to the app (/usr/bin in the .deb,
-  # usr/bin inside the AppImage; the app copies them out of an AppImage's
-  # mount before agents use them).
+      - name: Remove the keychain
+        if: always() && steps.signing.outputs.mode == 'developer-id'
+        run: security delete-keychain "$RUNNER_TEMP/pitwall.keychain-db" || true
+
+  # Linux x86_64: an AppImage (runs on most distributions) and a .deb (package
+  # `pitwall`, as before, so it upgrades the v0.1.x install). Built on the
+  # oldest supported Ubuntu so the AppImage's glibc floor stays low.
   linux:
     runs-on: ubuntu-22.04
-    env:
-      TARGET: x86_64-unknown-linux-gnu
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
+    # Release builds (fat LTO) from a cold cache; a hang fails here.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
+      # GPUI's build and runtime libraries, plus what cargo-packager's
+      # AppImage step (linuxdeploy) needs.
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential curl wget file pkg-config patchelf libfuse2 \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev libxdo-dev
+            clang libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
+            libvulkan1 libvulkan-dev libzstd-dev libasound2-dev libglib2.0-dev libssl-dev
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
       - run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-linux
 
-      - run: pnpm install --frozen-lockfile
-
       - name: Version
         id: version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          if [ "${GITHUB_REF_TYPE}" = tag ]; then tag="${GITHUB_REF_NAME}"; else tag="${INPUT_TAG}"; fi
+          app_version=$(awk '/^\[/ { pkg = ($0 == "[package]") } pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' crates/pitwall-app/Cargo.toml)
           echo "app=$app_version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: cargo-packager
+        run: cargo packager --version 2>/dev/null || cargo install cargo-packager --locked --version "$CARGO_PACKAGER_VERSION"
 
       - name: Build the AppImage and .deb
-        run: pnpm tauri build --target "$TARGET" --bundles appimage,deb
+        run: scripts/package-app.sh
 
-      - name: Package and checksum
+      - name: Check, package and checksum
         id: pkg
         env:
           VERSION: ${{ steps.version.outputs.app }}
         run: |
-          bundle="target/$TARGET/release/bundle"
           out=release-assets
           mkdir -p "$out"
-          appimage=$(find "$bundle/appimage" -name "*.AppImage" | head -1)
-          deb=$(find "$bundle/deb" -name "*.deb" | head -1)
-          # The sidecars must ship in both.
-          dpkg-deb -c "$deb" | grep -E 'usr/bin/pitwall-hold$'
-          dpkg-deb -c "$deb" | grep -E 'usr/bin/pitwall-cli$'
-          (cd "$(mktemp -d)" && "$OLDPWD/$appimage" --appimage-extract >/dev/null && test -x squashfs-root/usr/bin/pitwall-hold && test -x squashfs-root/usr/bin/pitwall-cli)
+          appimage=$(find target/package -maxdepth 1 -name "*.AppImage" | head -1)
+          deb=$(find target/package -maxdepth 1 -name "*.deb" | head -1)
+          dpkg-deb -I "$deb"
+          test "$(dpkg-deb -f "$deb" Package)" = pitwall
+          # The app and its sidecars ship in both.
+          for b in pitwall pitwall-hold pitwall-cli; do
+            dpkg-deb -c "$deb" | grep -E "usr/bin/$b\$"
+          done
+          (cd "$(mktemp -d)" && "$OLDPWD/$appimage" --appimage-extract >/dev/null \
+            && for b in pitwall pitwall-hold pitwall-cli; do test -x "squashfs-root/usr/bin/$b"; done)
+          # What the app links at run time (the .deb's Depends: should cover it).
+          ldd target/package/bin/pitwall
           cp "$appimage" "$out/Pitwall_${VERSION}_amd64.AppImage"
           cp "$deb" "$out/Pitwall_${VERSION}_amd64.deb"
           chmod +x "$out"/*.AppImage
@@ -257,12 +263,13 @@ jobs:
           path: ${{ steps.pkg.outputs.dir }}/*
           if-no-files-found: error
 
-  # Windows x64: the NSIS installer (per user, no admin rights) and an .msi.
-  # src-tauri/build.rs builds the pitwall-hold / pitwall-cli / pitwall-hook
-  # sidecars (tauri.windows.conf.json ships all three next to the app).
+  # Windows x64 (preview): the NSIS installer (per user, no admin rights) and
+  # an .msi, with pitwall-hold / pitwall-cli / pitwall-hook next to the app.
   windows:
     if: vars.RELEASE_WINDOWS == 'true'
     runs-on: windows-latest
+    # Release builds (fat LTO, two installers) from a cold cache; a hang fails here.
+    timeout-minutes: 120
     outputs:
       mode: ${{ steps.signing.outputs.mode }}
     env:
@@ -274,32 +281,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      # Installs the version pinned in rust-toolchain.toml (+ its components/targets).
       - run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-windows
 
-      - run: pnpm install --frozen-lockfile
-
       - name: Version
         id: version
         run: |
-          app_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          app_version=$(awk '/^\[/ { pkg = ($0 == "[package]") } pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' crates/pitwall-app/Cargo.toml)
           echo "app=$app_version" >> "$GITHUB_OUTPUT"
 
+      # gpui's build.rs compiles its HLSL shaders with fxc.exe from the
+      # Windows SDK (release builds); point it at the newest one installed.
+      - name: fxc.exe (Windows SDK)
+        run: |
+          fxc=$(ls -d "/c/Program Files (x86)/Windows Kits/10/bin/"10.*/x64/fxc.exe | sort -V | tail -1)
+          test -n "$fxc"
+          echo "GPUI_FXC_PATH=$(cygpath -w "$fxc")" >> "$GITHUB_ENV"
+
+      - name: cargo-packager
+        run: cargo packager --version 2>/dev/null || cargo install cargo-packager --locked --version "$CARGO_PACKAGER_VERSION"
+
       # Authenticode only when a certificate is configured: import it and
-      # hand its thumbprint to Tauri, which signs the app and the installers.
+      # hand its thumbprint to the script (signtool for the sidecars,
+      # cargo-packager for the app and the installers).
       - name: Signing mode
         id: signing
         shell: pwsh
@@ -310,31 +317,25 @@ jobs:
             $pw = ConvertTo-SecureString $env:SECRET_WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
             $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
             Remove-Item $pfx
-            $config = @{ bundle = @{ windows = @{ certificateThumbprint = $cert.Thumbprint; digestAlgorithm = "sha256"; timestampUrl = "http://timestamp.digicert.com" } } } | ConvertTo-Json -Compress -Depth 5
-            Set-Content -Path (Join-Path $env:RUNNER_TEMP "sign.json") -Value $config
+            "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
             "mode=authenticode" >> $env:GITHUB_OUTPUT
           } else {
             "mode=unsigned" >> $env:GITHUB_OUTPUT
           }
 
       - name: Build the installers (NSIS + MSI)
-        env:
-          MODE: ${{ steps.signing.outputs.mode }}
-        run: |
-          flags=(--bundles "nsis,msi")
-          if [ "$MODE" = authenticode ]; then flags+=(--config "$RUNNER_TEMP/sign.json"); fi
-          pnpm tauri build "${flags[@]}"
+        run: scripts/package-app.sh
 
-      - name: Package and checksum
+      - name: Check, package and checksum
         id: pkg
         env:
           VERSION: ${{ steps.version.outputs.app }}
         run: |
-          bundle=target/release/bundle
           out=release-assets
           mkdir -p "$out"
-          cp "$(find "$bundle/nsis" -name "*.exe" | head -1)" "$out/Pitwall_${VERSION}_x64-setup.exe"
-          cp "$(find "$bundle/msi" -name "*.msi" | head -1)" "$out/Pitwall_${VERSION}_x64.msi"
+          for b in pitwall pitwall-hold pitwall-cli pitwall-hook; do test -f "target/package/bin/$b.exe"; done
+          cp "$(find target/package -maxdepth 1 -name "*-setup.exe" | head -1)" "$out/Pitwall_${VERSION}_x64-setup.exe"
+          cp "$(find target/package -maxdepth 1 -name "*.msi" | head -1)" "$out/Pitwall_${VERSION}_x64.msi"
           (cd "$out" && sha256sum -- *.exe *.msi > SHA256SUMS.txt && cat SHA256SUMS.txt)
           echo "dir=$out" >> "$GITHUB_OUTPUT"
 
@@ -348,12 +349,16 @@ jobs:
   # build's own checksums are verified, then one file covers every asset.
   publish:
     needs: [macos, linux, windows]
-    # Windows may be skipped (RELEASE_WINDOWS); macOS and Linux must succeed.
+    # Only for a tag. Windows may be skipped (RELEASE_WINDOWS); macOS and
+    # Linux must succeed.
     if: >-
-      !cancelled() && needs.macos.outputs.tag != '' &&
+      !cancelled() && github.event_name != 'pull_request' &&
+      needs.macos.outputs.tag != '' &&
       needs.macos.result == 'success' && needs.linux.result == 'success' &&
       (needs.windows.result == 'success' || needs.windows.result == 'skipped')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       # Full history and tags: the release notes cover the commits since the
       # previous tag.
@@ -425,7 +430,7 @@ jobs:
           cat assets/SHA256SUMS.txt
           note="macOS: Apple silicon and Intel (universal). Linux: x86_64 AppImage and .deb."
           if [ -n "$WINDOWS_MODE" ]; then
-            note="$note Windows: x64 installer (.exe, per user) and .msi."
+            note="$note Windows (preview): x64 installer (.exe, per user) and .msi."
           else
             note="$note Windows builds come in a later release."
           fi

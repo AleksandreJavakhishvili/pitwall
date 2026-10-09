@@ -3,8 +3,10 @@
 #
 #   scripts/release.sh 0.1.0
 #
-# 1. Sets the version in package.json, src-tauri/tauri.conf.json and every
-#    workspace crate's Cargo.toml (and Cargo.lock), if it differs.
+# 1. Sets the version in every workspace crate's Cargo.toml (the app's is
+#    crates/pitwall-app/Cargo.toml, which scripts/package-app.sh and
+#    release.yml read), Cargo.lock and package.json (the web demo), if it
+#    differs.
 # 2. Prepends the new version's section to CHANGELOG.md with git-cliff
 #    (`--prepend`, so older sections and hand-written text are kept), and moves
 #    the hand-written text under "## Unreleased" (the Highlights) into it.
@@ -40,17 +42,18 @@ fi
 if command -v git-cliff >/dev/null; then cliff=(git-cliff); else cliff=(npx -y git-cliff@2); fi
 
 # --- 1. version -------------------------------------------------------------
-current=$(node -p "require('./src-tauri/tauri.conf.json').version")
+# The first `version = ` of [package] in the app's manifest.
+current=$(awk '/^\[/ { pkg = ($0 == "[package]") } pkg && /^version = / { gsub(/"/, "", $3); print $3; exit }' crates/pitwall-app/Cargo.toml)
 if [ "$current" != "$version" ]; then
   echo "release: version $current → $version"
   node -e '
     const fs = require("fs"), v = process.argv[1];
-    for (const f of ["package.json", "src-tauri/tauri.conf.json"]) {
+    for (const f of ["package.json"]) {
       const s = fs.readFileSync(f, "utf8");
       fs.writeFileSync(f, s.replace(/("version":\s*")[^"]*(")/, `$1${v}$2`));
     }' "$version"
   # The first `version = ` line of each member's [package] table.
-  for toml in src-tauri/Cargo.toml crates/*/Cargo.toml; do
+  for toml in crates/*/Cargo.toml; do
     awk -v v="$version" '
       /^\[/ { pkg = ($0 == "[package]") }
       pkg && !done && /^version = / { print "version = \"" v "\""; done = 1; next }
@@ -90,7 +93,7 @@ awk '/^[[:space:]]*$/ { blank++; next } { while (blank) { print ""; blank-- } pr
 cp "$rest" CHANGELOG.md
 
 # --- 3. commit --------------------------------------------------------------
-git add -A package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml crates/*/Cargo.toml Cargo.lock CHANGELOG.md
+git add -A package.json crates/*/Cargo.toml Cargo.lock CHANGELOG.md
 git commit -q -m "chore(release): $tag"
 echo
 git --no-pager show --stat --format='%h %s' HEAD
