@@ -51,6 +51,16 @@ pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
 /// Nothing to hide: Unix programs get no window of their own.
 pub fn hide_console(_cmd: &mut std::process::Command) {}
 
+/// `link` runs `target` (a program): a symlink, replaced when it points
+/// elsewhere. The Race Engineer's `pitwall` (crate::engineer).
+pub fn link_program(target: &Path, link: &Path) -> io::Result<()> {
+    if std::fs::read_link(link).ok().as_deref() == Some(target) {
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(link);
+    std::os::unix::fs::symlink(target, link)
+}
+
 /// A symlink at `link` to `target` (tests).
 #[cfg(test)]
 pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {

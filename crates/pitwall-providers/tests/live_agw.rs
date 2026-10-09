@@ -96,7 +96,7 @@ fn live_agw_session() {
 
     // 2. Start through the provider.
     let kind = custom_kind("unused");
-    let launch = LaunchSpec { agent: "live", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size, hooks: None };
+    let launch = LaunchSpec { agent: "live", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size, hooks: None, env: &[] };
     let mut guard = StopGuard(&p, &loc, false);
     let started = p.start(&loc, &launch).expect("agw session start");
     guard.2 = true;

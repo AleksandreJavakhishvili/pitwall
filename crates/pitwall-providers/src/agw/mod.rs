@@ -597,6 +597,7 @@ mod tests {
             worktree: None,
             size: TermSize::DEFAULT,
             hooks: None,
+            env: &[],
         };
         let s = p.start(&loc("my-vm", "api-session"), &spec).unwrap();
         assert!(s.term.is_none() && !s.resumed && s.conversation_id.is_none());
@@ -654,7 +655,7 @@ mod tests {
         let described = || x.ran(&["/opt/agw", "--non-interactive", "session", "describe", "work", ".."]);
         assert_eq!(described(), 1);
         let kind = pitwall_core::kind::custom_kind("x");
-        let spec = LaunchSpec { agent: "a", kind: &kind, cwd: "/w", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None };
+        let spec = LaunchSpec { agent: "a", kind: &kind, cwd: "/w", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None, env: &[] };
         p.start(&loc("my-vm", "work"), &spec).unwrap();
         p.exec_at(&loc("my-vm", "work")).unwrap();
         assert_eq!(described(), 2);
@@ -726,7 +727,7 @@ mod tests {
             machine: &MachineId::new("my-vm"),
             name: "api-fix",
             options: &options,
-            launch: LaunchSpec { agent: "a", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None },
+            launch: LaunchSpec { agent: "a", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size: TermSize::DEFAULT, hooks: None, env: &[] },
         };
         let s = p.create(&spec).unwrap();
         assert_eq!(s.locator.to_string(), "agw:my-vm/api-fix");

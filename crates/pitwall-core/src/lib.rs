@@ -12,6 +12,7 @@
 
 pub mod clock;
 pub mod engine;
+pub mod engineer;
 pub mod error;
 pub mod events;
 pub mod exec;

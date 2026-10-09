@@ -324,6 +324,8 @@ pub struct Launched {
     pub command_line: String,
     pub resumed: bool,
     pub size: TermSize,
+    /// [`LaunchSpec::env`].
+    pub env: Vec<(String, String)>,
 }
 
 struct Session {
@@ -349,6 +351,11 @@ pub struct FakeProvider {
     /// its options.
     form: Mutex<Option<CreateForm>>,
     created: Mutex<Vec<(String, BTreeMap<String, String>)>>,
+    /// `attach`, `exec` and `machines` take this long (a slow or asleep
+    /// machine).
+    slow: Mutex<std::time::Duration>,
+    /// `attach` fails with this (e.g. unreachable) while set.
+    attach_error: Mutex<Option<PwError>>,
 }
 
 impl FakeProvider {
@@ -368,6 +375,8 @@ impl FakeProvider {
             fail_next: Mutex::default(),
             form: Mutex::default(),
             created: Mutex::default(),
+            slow: Mutex::default(),
+            attach_error: Mutex::default(),
         })
     }
 
@@ -401,6 +410,23 @@ impl FakeProvider {
     /// tmux-like: terminals come from `attach`, EOF is only a dropped link.
     pub fn set_remote(&self, remote: bool) {
         *lock(&self.eof_is_exit) = !remote;
+    }
+
+    /// Its machine answers `attach`, `exec` and `machines` only after `d`.
+    pub fn set_slow(&self, d: std::time::Duration) {
+        *lock(&self.slow) = d;
+    }
+
+    /// `attach` fails with `e` (until set to `None`).
+    pub fn set_attach_error(&self, e: Option<PwError>) {
+        *lock(&self.attach_error) = e;
+    }
+
+    fn wait_slow(&self) {
+        let d = *lock(&self.slow);
+        if !d.is_zero() {
+            std::thread::sleep(d);
+        }
     }
 
     /// The next create/start fails with `e`.
@@ -492,6 +518,7 @@ impl FakeProvider {
             command_line: plan.command_line,
             resumed: plan.resumed,
             size: spec.size,
+            env: spec.env.to_vec(),
         });
         let eof_is_exit = *lock(&self.eof_is_exit);
         Ok(Started {
@@ -527,6 +554,7 @@ impl Provider for FakeProvider {
     }
 
     fn machines(&self) -> Result<Vec<Machine>> {
+        self.wait_slow();
         Ok(vec![self.machine.clone()])
     }
 
@@ -587,6 +615,10 @@ impl Provider for FakeProvider {
 
     fn attach(&self, loc: &Locator, _size: TermSize) -> Result<Box<dyn TermIo>> {
         self.mine(loc)?;
+        self.wait_slow();
+        if let Some(e) = lock(&self.attach_error).clone() {
+            return Err(e);
+        }
         let caps = self.caps();
         self.check(caps.survives_detach || caps.attach_existing, "attach")?;
         let proc = self.session(loc, |s| s.proc.clone()).ok_or_else(PwError::not_running)?;
@@ -630,6 +662,7 @@ impl Provider for FakeProvider {
 
     fn exec(&self, m: &MachineId) -> Result<Arc<dyn Exec>> {
         self.check(self.caps().exec, "run commands")?;
+        self.wait_slow();
         if *m != self.machine.id {
             return Err(PwError::new(ErrorCode::NotFound, format!("no machine {m}")));
         }

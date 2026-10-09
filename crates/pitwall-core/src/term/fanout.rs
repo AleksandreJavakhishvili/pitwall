@@ -4,6 +4,8 @@
 
 use std::collections::VecDeque;
 
+use super::modes::Modes;
+
 /// Receives output bytes. Returning `false` unsubscribes it (its consumer is
 /// gone).
 pub type OutputSink = Box<dyn FnMut(&[u8]) -> bool + Send>;
@@ -36,25 +38,31 @@ pub fn coalesce(mut sink: OutputSink, gap: std::time::Duration) -> OutputSink {
 pub(crate) struct Fanout {
     ring: VecDeque<u8>,
     ring_cap: usize,
+    /// Terminal modes set by output that has left the ring (bracketed
+    /// paste…): replayed first, so a late subscriber pastes and reports
+    /// keys as the program asked.
+    modes: Modes,
     subscribers: Vec<(u64, OutputSink)>,
     max_subscribers: usize,
 }
 
 impl Fanout {
     pub fn new(ring_cap: usize, max_subscribers: usize) -> Fanout {
-        Fanout { ring: VecDeque::new(), ring_cap, subscribers: Vec::new(), max_subscribers }
+        Fanout { ring: VecDeque::new(), ring_cap, modes: Modes::new(), subscribers: Vec::new(), max_subscribers }
     }
 
     /// Remember `chunk` and hand it to every subscriber.
     pub fn push(&mut self, chunk: &[u8]) {
-        push_ring(&mut self.ring, chunk, self.ring_cap);
+        push_ring(&mut self.ring, chunk, self.ring_cap, &mut self.modes);
         self.subscribers.retain_mut(|(_, sink)| sink(chunk));
     }
 
-    /// Everything still in the ring, oldest first.
+    /// Everything still in the ring, oldest first, after the modes set
+    /// before it.
     pub fn history(&self) -> Vec<u8> {
         let (a, b) = self.ring.as_slices();
-        let mut out = Vec::with_capacity(a.len() + b.len());
+        let mut out = self.modes.preamble();
+        out.reserve(a.len() + b.len());
         out.extend_from_slice(a);
         out.extend_from_slice(b);
         out
@@ -80,20 +88,37 @@ impl Fanout {
     }
 }
 
-fn push_ring(ring: &mut VecDeque<u8>, chunk: &[u8], cap: usize) {
+/// Append `chunk`, keeping the newest `cap` bytes; what leaves the ring goes
+/// through `left` (as the holder's ring does).
+fn push_ring(ring: &mut VecDeque<u8>, chunk: &[u8], cap: usize, left: &mut Modes) {
     if chunk.len() >= cap {
+        let (a, b) = ring.as_slices();
+        left.feed(a);
+        left.feed(b);
         ring.clear();
+        left.feed(&chunk[..chunk.len() - cap]);
+        ring.reserve_exact(cap);
         ring.extend(&chunk[chunk.len() - cap..]);
         return;
     }
     let overflow = (ring.len() + chunk.len()).saturating_sub(cap);
+    let (a, b) = ring.as_slices();
+    let n = overflow.min(a.len());
+    left.feed(&a[..n]);
+    left.feed(&b[..overflow - n]);
     ring.drain(..overflow);
+    // Grow by doubling, but never past `cap` (`VecDeque` growth would).
+    let need = ring.len() + chunk.len();
+    if need > ring.capacity() {
+        ring.reserve_exact(need.next_power_of_two().min(cap) - ring.len());
+    }
     ring.extend(chunk);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
 
     /// A sink that collects into a shared Vec; `alive` = false makes it refuse.
@@ -111,12 +136,50 @@ mod tests {
 
     #[test]
     fn ring_keeps_newest_bytes() {
-        let mut ring = VecDeque::new();
-        push_ring(&mut ring, b"abcdef", 8);
-        push_ring(&mut ring, b"ghij", 8);
-        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), b"cdefghij");
-        push_ring(&mut ring, b"0123456789", 8);
-        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), b"23456789");
+        let mut f = Fanout::new(8, 4);
+        f.push(b"abcdef");
+        f.push(b"ghij");
+        assert_eq!(f.history(), b"cdefghij");
+        f.push(b"0123456789");
+        assert_eq!(f.history(), b"23456789");
+    }
+
+    #[test]
+    fn ring_never_holds_more_than_its_size() {
+        let cap = 1000;
+        let mut f = Fanout::new(cap, 4);
+        for n in [1, 7, 300, 999, 64, 1001, 3, 500, 2500, 17] {
+            for _ in 0..5 {
+                f.push(&vec![b'x'; n]);
+                assert!(f.ring.capacity() <= cap, "{}", f.ring.capacity());
+            }
+        }
+        assert_eq!(f.ring.len(), cap);
+    }
+
+    #[test]
+    fn modes_is_the_holders_twin() {
+        let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let core = std::fs::read_to_string(here.join("src/term/modes.rs")).unwrap();
+        let hold = std::fs::read_to_string(here.join("../pitwall-hold/src/modes.rs")).unwrap();
+        assert!(core == hold, "pitwall-core/src/term/modes.rs and pitwall-hold/src/modes.rs differ");
+    }
+
+    #[test]
+    fn modes_outlive_the_ring() {
+        // A program turns on bracketed paste once, then prints more than
+        // the ring holds: a late subscriber still learns about the mode.
+        let mut f = Fanout::new(16, 4);
+        f.push(b"\x1b[?2004h\x1b[?25l");
+        f.push(b"0123456789abcdef");
+        assert_eq!(f.history(), b"\x1b[?25l\x1b[?2004h0123456789abcdef");
+        let (sink, got) = collector(true);
+        assert!(f.subscribe(1, sink));
+        assert!(got.lock().unwrap().starts_with(b"\x1b[?25l\x1b[?2004h0123"));
+        // Turned off later (and that too left the ring): nothing to restore.
+        f.push(b"\x1b[?2004l\x1b[?25h");
+        f.push(b"ABCDEFGHIJKLMNOP");
+        assert_eq!(f.history(), b"ABCDEFGHIJKLMNOP");
     }
 
     #[test]

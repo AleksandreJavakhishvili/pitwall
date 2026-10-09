@@ -37,6 +37,68 @@ pub mod method {
     /// [`ApprovalAnswer`](super::ApprovalAnswer) → `null` (verified UI
     /// clients only).
     pub const APPROVAL_ANSWER: &str = "approval.answer";
+    /// → [`SettingView`](crate::SettingView)`[]`: every setting with its
+    /// current value, allowed values and description.
+    pub const SETTINGS_LIST: &str = "settings.list";
+    /// [`SettingKey`](crate::SettingKey) → `SettingView`
+    pub const SETTINGS_GET: &str = "settings.get";
+    /// [`SettingSet`](crate::SettingSet) → `SettingView` (applied live;
+    /// `approval` settings wait for the user's OK when an agent asks).
+    pub const SETTINGS_SET: &str = "settings.set";
+    /// [`SettingKey`](crate::SettingKey) → `SettingView`: back to the default.
+    pub const SETTINGS_RESET: &str = "settings.reset";
+
+    // Managing what Pitwall has (`caps::MANAGE`; crate::manage).
+    /// [`AgentRef`](super::AgentRef) → `AgentView` (asks the user).
+    pub const AGENT_STOP: &str = "agent.stop";
+    /// [`AgentRef`](super::AgentRef) → `AgentView` (asks the user).
+    pub const AGENT_RESTART: &str = "agent.restart";
+    /// [`AgentRemove`](crate::AgentRemove) → `null` (asks the user).
+    pub const AGENT_REMOVE: &str = "agent.remove";
+    /// [`AgentRename`](crate::AgentRename) → `AgentView`
+    pub const AGENT_RENAME: &str = "agent.rename";
+    /// [`AgentRef`](super::AgentRef) → [`AgentDiagnosis`](crate::AgentDiagnosis)
+    pub const AGENT_STATUS: &str = "agent.status";
+    /// [`AgentWait`](crate::AgentWait) → [`WaitResult`](crate::WaitResult);
+    /// error `timeout` when it didn't get there in time.
+    pub const AGENT_WAIT: &str = "agent.wait";
+    /// [`QueueAdd`](crate::QueueAdd) → `AgentView`
+    pub const QUEUE_ADD: &str = "queue.add";
+    /// [`QueueFilter`](crate::QueueFilter) → [`AgentQueue`](crate::AgentQueue)`[]`
+    pub const QUEUE_LIST: &str = "queue.list";
+    /// [`QueueItemRef`](crate::QueueItemRef) → `AgentView`
+    pub const QUEUE_REMOVE: &str = "queue.remove";
+    /// [`QueueItemRef`](crate::QueueItemRef) → `AgentView`: send it now.
+    pub const QUEUE_SEND: &str = "queue.send";
+    /// → [`ProjectView`](crate::ProjectView)`[]`
+    pub const PROJECT_LIST: &str = "project.list";
+    /// [`ProjectPath`](crate::ProjectPath) → `ProjectView[]`
+    pub const PROJECT_ADD: &str = "project.add";
+    /// [`ProjectPath`](crate::ProjectPath) → `ProjectView[]` (never deletes files).
+    pub const PROJECT_REMOVE: &str = "project.remove";
+    /// → [`RulesOverview`](crate::RulesOverview)
+    pub const RULES_LIST: &str = "rules.list";
+    /// → [`RuleSets`](crate::RuleSets)
+    pub const RULES_SETS: &str = "rules.sets";
+    /// [`RulesApply`](crate::RulesApply) → [`RulesApplied`](crate::RulesApplied)
+    /// (asks the user before writing into a main checkout).
+    pub const RULES_APPLY: &str = "rules.apply";
+    /// [`RulesDefault`](crate::RulesDefault) → `RuleSets`
+    pub const RULES_DEFAULT: &str = "rules.default";
+    /// [`ReviewRequest`](crate::ReviewRequest) → [`ReviewChanges`](crate::ReviewChanges)
+    pub const REVIEW_CHANGES: &str = "review.changes";
+
+    // Spaces and windows (`caps::SPACES`: the app's UI state).
+    /// → [`SpaceView`](crate::SpaceView)`[]`
+    pub const SPACE_LIST: &str = "space.list";
+    /// [`SpaceCreate`](crate::SpaceCreate) → `SpaceView`
+    pub const SPACE_CREATE: &str = "space.create";
+    /// [`SpaceRename`](crate::SpaceRename) → `SpaceView`
+    pub const SPACE_RENAME: &str = "space.rename";
+    /// [`SpaceMove`](crate::SpaceMove) → `SpaceView`
+    pub const SPACE_MOVE: &str = "space.move";
+    /// [`AgentMove`](crate::AgentMove) → `SpaceView` (the space it is in now)
+    pub const AGENT_MOVE: &str = "agent.move";
 }
 
 /// Feature flags in `welcome.caps`.
@@ -44,6 +106,13 @@ pub mod caps {
     pub const AGENTS: &str = "agents";
     pub const SESSIONS: &str = "sessions";
     pub const APPROVALS: &str = "approvals";
+    /// `settings.*` (a Pitwall that hosts the settings: the app).
+    pub const SETTINGS: &str = "settings";
+    /// Agents stop/restart/remove/rename/status/wait, `queue.*`,
+    /// `project.*`, `rules.*`, `review.changes`.
+    pub const MANAGE: &str = "manage";
+    /// `space.*` and `agent.move` (a Pitwall with windows: the app).
+    pub const SPACES: &str = "spaces";
 }
 
 pub mod event {

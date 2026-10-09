@@ -145,6 +145,10 @@ mod tests {
         assert_eq!((v.machine.provider.as_str(), v.machine.label.as_str()), ("vmhost", "Fake box"));
         // Input goes through the attached stream.
         crate::engine::input::write_input(&engine, &v.id, "hi\r").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while ctl.input() != b"hi\r" && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         assert_eq!(ctl.input(), b"hi\r");
         assert_eq!(lifecycle::adopt(&engine, req("work")).unwrap().id, v.id, "adopting twice is one agent");
         let idle = lifecycle::adopt(&engine, req("idle")).unwrap();

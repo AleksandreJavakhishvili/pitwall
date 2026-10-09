@@ -112,6 +112,10 @@ pub struct AgentView {
     /// A terminal that restarts as the agent last started in it (its kind
     /// name): the shell starts and continues that agent inside it.
     pub restart_as: Option<String>,
+    /// Pitwall's Race Engineer (docs/spec/engineer.md): an ordinary agent
+    /// launched with Pitwall's own know-how; marked "ENGINEER".
+    #[serde(default)]
+    pub engineer: bool,
     pub status: Status,
     pub status_source: Source,
     pub status_detail: Option<String>,

@@ -124,7 +124,8 @@ pub fn record(id: &str, cwd: &str) -> AgentRecord {
 }
 
 /// An engine wired to fakes, with Pitwall's files in a temp dir. No
-/// background threads run; tests call the pieces they exercise.
+/// background threads run (saved agents are re-attached before `new`
+/// returns); tests call the pieces they exercise.
 pub struct Harness {
     pub engine: Shared,
     /// Where the agents run: `local:this-mac` (what records without a
@@ -154,6 +155,8 @@ impl Harness {
             store: store.clone(),
             providers: vec![provider.clone()],
         });
+        // Saved agents are re-attached in the background: settle first.
+        assert!(engine.wait_connected(std::time::Duration::from_secs(10)), "saved agents settle");
         Harness { engine, provider, events, clock, store, dir }
     }
 }

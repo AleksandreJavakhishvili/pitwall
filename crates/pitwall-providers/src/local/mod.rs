@@ -100,6 +100,7 @@ impl LocalProvider {
             holder,
             hook_socket: &self.cfg.hook_socket,
             cli_socket: &self.cfg.cli_socket,
+            env: spec.env,
         })?;
         Ok(Started {
             locator: loc,
@@ -280,6 +281,7 @@ mod tests {
                 worktree: None,
                 size: TermSize::DEFAULT,
                 hooks: None,
+                env: &[],
             },
         };
         let e = p.create(&spec).err().unwrap();

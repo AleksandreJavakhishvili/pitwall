@@ -2,10 +2,11 @@
 
 use std::fmt::Write;
 
-use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines, ScannedPlace, SessionAdded};
+use pitwall_proto::settings::Sensitivity;
+use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines, ScannedPlace, SessionAdded, SettingView};
 
 /// Columns padded to their widest cell (the last one isn't padded).
-fn table(rows: &[Vec<String>]) -> String {
+pub fn table(rows: &[Vec<String>]) -> String {
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let widths: Vec<usize> = (0..cols).map(|c| rows.iter().filter_map(|r| r.get(c)).map(|s| s.chars().count()).max().unwrap_or(0)).collect();
     let mut out = String::new();
@@ -140,4 +141,54 @@ pub fn form(f: &CreateForm) -> String {
         }
     }
     out
+}
+
+fn value_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "?".into(),
+        // Long text (a prompt) cut short so the table stays readable; `get` shows it whole.
+        serde_json::Value::String(s) if s.chars().count() > 40 => format!("{}…", s.chars().take(39).collect::<String>()),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// `settings list`: one row per setting, its description under it.
+/// `live`: read from the running Pitwall (else from ui.json).
+pub fn settings(list: &[SettingView], live: bool) -> String {
+    let mut rows = vec![vec!["KEY".into(), "VALUE".into(), "ALLOWED".into(), "DEFAULT".into()]];
+    for s in list {
+        let mut allowed = match (&s.choices, s.min, s.max) {
+            (Some(c), _, _) => c.join("|"),
+            (_, _, Some(hi)) if s.kind == "text" => format!("text (≤{hi})"),
+            (_, Some(lo), Some(hi)) => format!("{lo}–{hi}"),
+            _ if s.only_on => "true".into(),
+            _ => "true|false".into(),
+        };
+        if s.sensitivity == Sensitivity::Approval {
+            allowed.push_str("  (approval)");
+        }
+        rows.push(vec![s.key.clone(), value_text(&s.value), allowed, value_text(&s.default)]);
+    }
+    let table = table(&rows);
+    let mut out = String::new();
+    for (i, line) in table.lines().enumerate() {
+        let _ = writeln!(out, "{line}");
+        if i > 0 {
+            let _ = writeln!(out, "    {}", list[i - 1].description);
+        }
+    }
+    if !live {
+        out.push_str("Pitwall isn't running: values are from ui.json; \"?\" ones need Pitwall.\n");
+    }
+    out
+}
+
+/// `settings get|set|reset`.
+pub fn setting(s: &SettingView) -> String {
+    let value = match &s.value {
+        serde_json::Value::String(t) => t.clone(),
+        v => value_text(v),
+    };
+    format!("{} = {value}\n", s.key)
 }

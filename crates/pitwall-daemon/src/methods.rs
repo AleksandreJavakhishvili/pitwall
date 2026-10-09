@@ -13,6 +13,7 @@ use pitwall_proto::{code, method, AgentCreate, AgentRef, ApprovalAnswer, CreateF
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
+use crate::{manage, workspace};
 use crate::server::Server;
 
 /// Who may call a method.
@@ -44,6 +45,39 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::SESSION_ADD, Access::AskWhen("`start`: starts a stopped session on its machine", Risk::Low)),
     (method::APPROVAL_LIST, Access::Ui),
     (method::APPROVAL_ANSWER, Access::Ui),
+    (method::SETTINGS_LIST, Access::Open),
+    (method::SETTINGS_GET, Access::Open),
+    // `safe` settings (Pitwall's own look) apply directly.
+    (method::SETTINGS_SET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High)),
+    (method::SETTINGS_RESET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High)),
+    // Managing agents (manage.rs). Stop/restart: Low on this Mac, High
+    // (asked every time) on another machine.
+    (method::AGENT_STOP, Access::AskWhen("always: ends the agent's process", Risk::Low)),
+    (method::AGENT_RESTART, Access::AskWhen("always: ends and starts the agent's process", Risk::Low)),
+    (method::AGENT_REMOVE, Access::AskWhen("always; `deleteWorktree` also deletes its worktree", Risk::High)),
+    (method::AGENT_RENAME, Access::Open),
+    (method::AGENT_STATUS, Access::Open),
+    (method::AGENT_WAIT, Access::Open),
+    // Queued prompts go to agents already in Pitwall, as the UI's queue.
+    (method::QUEUE_ADD, Access::Open),
+    (method::QUEUE_LIST, Access::Open),
+    (method::QUEUE_REMOVE, Access::Open),
+    (method::QUEUE_SEND, Access::Open),
+    // Pitwall's project list; never touches the folders.
+    (method::PROJECT_LIST, Access::Open),
+    (method::PROJECT_ADD, Access::Open),
+    (method::PROJECT_REMOVE, Access::Open),
+    (method::RULES_LIST, Access::Open),
+    (method::RULES_SETS, Access::Open),
+    (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
+    (method::RULES_DEFAULT, Access::Open),
+    (method::REVIEW_CHANGES, Access::Open),
+    // Pitwall's own windows (workspace.rs).
+    (method::SPACE_LIST, Access::Open),
+    (method::SPACE_CREATE, Access::Open),
+    (method::SPACE_RENAME, Access::Open),
+    (method::SPACE_MOVE, Access::Open),
+    (method::AGENT_MOVE, Access::Open),
 ];
 
 pub fn access(name: &str) -> Option<Access> {
@@ -105,6 +139,33 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
             s.approvals.answer(&a).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
             Ok(Value::Null)
         }
+        method::SETTINGS_LIST => crate::settings::list(s),
+        method::SETTINGS_GET => crate::settings::get(s, required(p)?),
+        method::SETTINGS_SET => crate::settings::set(s, caller, required(p)?),
+        method::SETTINGS_RESET => crate::settings::reset(s, caller, required(p)?),
+        method::AGENT_STOP => manage::stop(s, caller, required(p)?),
+        method::AGENT_RESTART => manage::restart(s, caller, required(p)?),
+        method::AGENT_REMOVE => manage::remove(s, caller, required(p)?),
+        method::AGENT_RENAME => manage::rename(s, required(p)?),
+        method::AGENT_STATUS => manage::status(s, required(p)?),
+        method::AGENT_WAIT => manage::wait(s, required(p)?),
+        method::QUEUE_ADD => manage::queue_add(s, required(p)?),
+        method::QUEUE_LIST => manage::queue_list(s, params(p)?),
+        method::QUEUE_REMOVE => manage::queue_remove(s, required(p)?),
+        method::QUEUE_SEND => manage::queue_send(s, required(p)?),
+        method::PROJECT_LIST => manage::project_list(s),
+        method::PROJECT_ADD => manage::project_add(s, required(p)?),
+        method::PROJECT_REMOVE => manage::project_remove(s, required(p)?),
+        method::RULES_LIST => manage::rules_list(s),
+        method::RULES_SETS => manage::rules_sets(s),
+        method::RULES_APPLY => manage::rules_apply(s, caller, required(p)?),
+        method::RULES_DEFAULT => manage::rules_default(s, required(p)?),
+        method::REVIEW_CHANGES => manage::review_changes(s, required(p)?),
+        method::SPACE_LIST => workspace::list(s),
+        method::SPACE_CREATE => workspace::create(s, required(p)?),
+        method::SPACE_RENAME => workspace::rename(s, required(p)?),
+        method::SPACE_MOVE => workspace::move_to_window(s, required(p)?),
+        method::AGENT_MOVE => workspace::move_agent(s, required(p)?),
         _ => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
     }
 }
@@ -255,6 +316,17 @@ mod tests {
         assert!(matches!(access(method::AGENT_CREATE), Some(Access::AskWhen(_, Risk::Low))));
         assert!(matches!(access(method::SESSION_ADD), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::APPROVAL_ANSWER), Some(Access::Ui));
-        assert_eq!(access("agent.remove"), None);
+        assert_eq!(access(method::SETTINGS_LIST), Some(Access::Open));
+        assert!(matches!(access(method::SETTINGS_SET), Some(Access::AskWhen(_, Risk::High))));
+        assert!(matches!(access(method::SETTINGS_RESET), Some(Access::AskWhen(_, Risk::High))));
+        assert!(matches!(access(method::AGENT_REMOVE), Some(Access::AskWhen(_, Risk::High))));
+        assert!(matches!(access(method::AGENT_STOP), Some(Access::AskWhen(..))));
+        assert!(matches!(access(method::AGENT_RESTART), Some(Access::AskWhen(..))));
+        assert!(matches!(access(method::RULES_APPLY), Some(Access::AskWhen(_, Risk::High))));
+        // Read-only methods never ask.
+        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::REVIEW_CHANGES, method::SPACE_LIST] {
+            assert_eq!(access(m), Some(Access::Open), "{m}");
+        }
+        assert_eq!(access("agent.prompt"), None);
     }
 }

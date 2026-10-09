@@ -314,6 +314,11 @@ pub struct LaunchSpec<'a> {
     pub worktree: Option<&'a str>,
     pub size: TermSize,
     pub hooks: Option<HookWiring>,
+    /// Added to the program's environment, over Pitwall's own (the Race
+    /// Engineer's PATH with the `pitwall` CLI first). Providers that launch
+    /// a process themselves (local) pass it on; platforms that own the
+    /// launch ignore it.
+    pub env: &'a [(String, String)],
 }
 
 #[derive(Debug, Clone)]

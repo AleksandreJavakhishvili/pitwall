@@ -94,6 +94,10 @@ pub struct CreateAgentRequest {
     pub cols: Option<u16>,
     #[serde(default)]
     pub rows: Option<u16>,
+    /// Start it as the Race Engineer (docs/spec/engineer.md): launched with
+    /// Pitwall's own know-how ([`crate::engineer`]); Claude Code or Codex only.
+    #[serde(default)]
+    pub engineer: bool,
 }
 
 /// (cols, rows) when both are given.
@@ -172,6 +176,10 @@ pub struct AgentRecord {
     /// (docs/spec/terminals.md §3). Missing in older state files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inner_agent: Option<InnerAgent>,
+    /// The Race Engineer: every launch (and restart) adds Pitwall's own
+    /// know-how and the `pitwall` CLI ([`crate::engineer`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub engineer: bool,
 }
 
 /// An agent started by hand in a terminal, as remembered on its record.

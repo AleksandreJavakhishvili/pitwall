@@ -63,6 +63,12 @@ impl From<std::io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Pitwall's data folder: `$PITWALL_HOME`, else the platform default
+/// (`~/.pitwall` on macOS). `ui.json` (the settings) lives here.
+pub fn data_dir() -> PathBuf {
+    platform::data_dir()
+}
+
 /// Where Pitwall listens: `$PITWALL_CLI_SOCKET` (set in every agent and
 /// terminal Pitwall starts), else `~/.pitwall/run/pitwalld.sock`.
 pub fn socket_path() -> PathBuf {
@@ -170,9 +176,39 @@ impl Client {
         self.call_as(method::APPROVAL_LIST, Value::Null)
     }
 
+    /// Every setting with its value (`settings.list`).
+    pub fn settings(&mut self) -> Result<Vec<pitwall_proto::SettingView>> {
+        self.call_as(method::SETTINGS_LIST, Value::Null)
+    }
+
+    pub fn setting(&mut self, key: &str) -> Result<pitwall_proto::SettingView> {
+        self.call_as(method::SETTINGS_GET, pitwall_proto::SettingKey { key: key.into() })
+    }
+
+    /// Change a setting (waits for the user's approval for `approval` ones).
+    pub fn set_setting(&mut self, key: &str, value: Value) -> Result<pitwall_proto::SettingView> {
+        self.call_as(method::SETTINGS_SET, pitwall_proto::SettingSet { key: key.into(), value })
+    }
+
+    pub fn reset_setting(&mut self, key: &str) -> Result<pitwall_proto::SettingView> {
+        self.call_as(method::SETTINGS_RESET, pitwall_proto::SettingKey { key: key.into() })
+    }
+
     /// Answer an approval (verified UI clients only).
     pub fn answer_approval(&mut self, answer: &ApprovalAnswer) -> Result<()> {
         self.call(method::APPROVAL_ANSWER, answer).map(|_| ())
+    }
+
+    /// A call this server may not offer (`welcome.caps`): an older Pitwall
+    /// answers `unsupported` instead of `unknown_method`.
+    pub fn call_cap<R: DeserializeOwned>(&mut self, cap: &str, method: &str, params: impl Serialize) -> Result<R> {
+        if !self.has(cap) {
+            return Err(Error::Server(ErrorBody::new(
+                pitwall_proto::code::UNSUPPORTED,
+                format!("this Pitwall ({}) doesn't offer {method}: update Pitwall", self.welcome.daemon),
+            )));
+        }
+        self.call_as(method, params)
     }
 }
 

@@ -46,7 +46,7 @@
 //! | type | name     | body                    | effect |
 //! |------|----------|-------------------------|--------|
 //! | 0x01 | HELLO    | version:u16be           | must be first; answered by WELCOME |
-//! | 0x02 | ATTACH   | replay:u8               | stream output to this connection: REPLAY frames with the ring (≤ 1 MiB) if `replay` = 1, then OUTPUT; EXIT if the child is gone |
+//! | 0x02 | ATTACH   | replay:u8               | stream output to this connection: REPLAY frames with the ring (≤ 1 MiB, after the terminal modes set before it) if `replay` = 1, then OUTPUT; EXIT if the child is gone |
 //! | 0x03 | INPUT    | bytes                   | written to the PTY verbatim |
 //! | 0x04 | RESIZE   | cols:u16be rows:u16be   | `TIOCSWINSZ` (the child gets SIGWINCH); Windows: resizes the ConPTY |
 //! | 0x05 | STATUS   | —                       | answered by INFO |
@@ -78,6 +78,7 @@
 //! OS-neutral.
 
 pub mod client;
+pub mod modes;
 mod platform;
 pub mod proto;
 pub mod server;

@@ -33,6 +33,20 @@ fn kind_for(engine: &Engine, rec_kind: &str, custom: Option<&str>) -> Result<Age
     engine.kinds().find(rec_kind).ok_or_else(|| format!("unknown agent kind \"{rec_kind}\""))
 }
 
+/// The Race Engineer's launch: its kind with its per-launch flags, the
+/// environment it needs and its own folder (crate::engineer); other agents
+/// as they are.
+type EngineerLaunch = (AgentKind, Vec<(String, String)>, Option<String>);
+
+fn engineer_launch(engine: &Engine, engineer: bool, kind: AgentKind) -> Result<EngineerLaunch, String> {
+    if !engineer {
+        return Ok((kind, vec![], None));
+    }
+    let kit = engine.engineer_kit().ok_or("this Pitwall can't start the Race Engineer: its files aren't installed")?;
+    let l = kit.launch(engine.paths(), &kind, crate::shell::spawn_path())?;
+    Ok((l.kind, l.env, Some(l.cwd.to_string_lossy().into_owned())))
+}
+
 /// Before a launch with the kind's worktree flag: the name to pass, and what
 /// to compare against to spot the worktree the agent makes.
 fn watch_for(exec: &dyn Exec, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
@@ -72,6 +86,7 @@ fn display_project(exec: &dyn Exec, p: Option<&str>) -> Result<Option<String>, S
 /// machine whose form has no folder (a platform such as agw) makes it its
 /// own way: [`create_on_platform`]. Blocking.
 pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, String> {
+    crate::exec::assert_off_ui("lifecycle::create");
     let (provider, machine) = core.providers().target(req.provider.as_deref(), req.machine.as_deref())?;
     if !provider.caps().create {
         return Err(format!("new agents can't be started on {}", machine.label));
@@ -86,12 +101,15 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     let exec: Option<Arc<dyn Exec>> = if provider.caps().exec { Some(provider.exec(&machine.id)?) } else { None };
     let exec = exec.as_deref();
     let home = exec.and_then(|x| x.home().ok());
-    let project_path = expand_tilde_in(home.as_deref(), req.project_path.trim());
+    let kind = kind_for(core, &req.kind, req.custom_command.as_deref())?;
+    // The Race Engineer works in its own folder, which its launch prepares.
+    let (kind, env, engineer_cwd) = engineer_launch(core, req.engineer, kind)?;
+    let project_path = engineer_cwd.unwrap_or_else(|| expand_tilde_in(home.as_deref(), req.project_path.trim()));
     if exec.is_some_and(|x| !exec::is_dir(x, &project_path)) {
         return Err(format!("{project_path} is not a folder"));
     }
-    let kind = kind_for(core, &req.kind, req.custom_command.as_deref())?;
     let name = match req.name.trim() {
+        "" if req.engineer => crate::engineer::NAME.to_string(),
         "" => kind.name.clone(),
         n => n.to_string(),
     };
@@ -100,7 +118,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     let resume = req.resume_session_id.as_deref().filter(|s| !s.is_empty());
     // A separate worktree is the agent's own feature: Pitwall only passes its
     // flag and finds out afterwards where it works (worktree.rs).
-    let wants_worktree = req.worktree && resume.is_none();
+    let wants_worktree = req.worktree && resume.is_none() && !req.engineer;
     let project = if wants_worktree {
         if !KindCaps::of(&kind, &provider.caps()).worktree {
             return Err(format!("{} can't make its own worktree.", kind.name));
@@ -142,14 +160,16 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         rows: None,
         adopted: false,
         inner_agent: None,
+        engineer: req.engineer,
     };
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
         rec.set_term_size(size);
     }
     // Rules go in before the first launch (never fails creation; see rules).
+    // Not into the Race Engineer's folder: its instruction files are Pitwall's.
     let dirs = rules::Dirs::of(core.paths());
-    if let Some(x) = exec {
+    if let Some(x) = exec.filter(|_| !rec.engineer) {
         rules::on_create(&dirs, core.kinds(), x, &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
     }
     let wt = match exec {
@@ -173,6 +193,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
             worktree: wt.as_ref().map(|(n, _)| n.as_str()),
             size,
             hooks: hook_wiring(core, &*provider),
+            env: &env,
         },
     })?;
     rec.locator = Some(started.locator.clone());
@@ -237,6 +258,7 @@ fn create_on_platform(
             worktree: None,
             size: term_size,
             hooks: hook_wiring(core, &*provider),
+            env: &[],
         },
     })?;
     let program = started.kind.clone().unwrap_or_else(|| kind.id.clone());
@@ -292,6 +314,7 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
         rows: None,
         adopted: true,
         inner_agent: None,
+        engineer: false,
     }
 }
 
@@ -373,6 +396,23 @@ pub fn stop(core: &Shared, id: &str) -> Result<(), String> {
 /// Stop (if running) and start again, resuming the session when possible.
 /// `size` (cols, rows) is what the UI will show; else the last known size.
 pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<AgentView, String> {
+    crate::exec::assert_off_ui("lifecycle::restart");
+    // It may still attach to the session it has: not two of them. A pending
+    // retry (machine unreachable) is called off, and taken up again if this
+    // fails.
+    let cancelled = core.with(id, |a| match &a.connect {
+        Some(c) if c.busy() => Err("still connecting to its session; try again in a moment".to_string()),
+        Some(_) => Ok(a.connect.take().is_some()),
+        None => Ok(false),
+    })??;
+    let res = restart_now(core, id, size);
+    if res.is_err() && cancelled {
+        super::connect::retry_later(core, id);
+    }
+    res
+}
+
+fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<AgentView, String> {
     let (loc, old) = core.with(id, |a| {
         if let Some(size) = size {
             a.rec.set_term_size(size);
@@ -387,6 +427,7 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let rec = core.with(id, |a| a.rec.clone())?;
     let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
+    let (kind, env, _) = engineer_launch(core, rec.engineer, kind)?;
     let caps = provider.caps();
     let exec = if caps.exec { Some(provider.exec_at(&loc)?) } else { None };
     if exec.as_deref().is_some_and(|x| !exec::is_dir(x, &rec.cwd)) {
@@ -423,6 +464,7 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         worktree: wt.as_ref().map(|(n, _)| n.as_str()),
         size,
         hooks,
+        env: &env,
     };
     let mut started = provider.start(&loc, &launch)?;
     let host = host_of(core, &*provider, &mut started, size)?;
@@ -459,6 +501,7 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
 }
 
 pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), String> {
+    crate::exec::assert_off_ui("lifecycle::remove");
     let exec = core.exec_for(id);
     let agent = {
         let mut agents = core.agents();
@@ -521,26 +564,28 @@ pub fn stop_all(core: &Shared) {
     });
 }
 
-/// Engine start: the terminal of an agent whose session outlived the last
-/// run of Pitwall (local: its holder), at its last known size.
-pub(crate) fn reattach(core: &Engine, loc: &Locator, rec: &AgentRecord) -> Option<Arc<TermHost>> {
-    let p = core.providers().for_locator(loc).ok()?;
-    let size = TermSize::from_pair(rec.term_size());
-    let io = p.attach(loc, size).ok()?;
-    let host = core.host_for(io, size);
-    if let Some((cols, rows)) = rec.term_size() {
-        host.resize(cols, rows);
-    }
-    Some(host)
-}
-
 /// A dropped attachment (`eof_is_exit` false): attach again while the
 /// provider says the session runs; else the agent has ended. Blocking.
+/// When its machine can't be asked, it is tried again later (connect.rs).
 pub(crate) fn relink(core: &Shared, id: &str) {
+    crate::exec::assert_off_ui("lifecycle::relink");
     let Ok((loc, p)) = core.provider_of(id) else { return };
     let size = core.with(id, |a| TermSize::from_pair(a.rec.term_size())).unwrap_or(TermSize::DEFAULT);
-    let running = matches!(p.state(&loc), Ok(crate::provider::NativeState::Running));
-    let host = if running { p.attach(&loc, size).ok().map(|io| core.host_for(io, size)) } else { None };
+    let unreachable = |e: &crate::error::PwError| matches!(e.code, crate::error::ErrorCode::Unreachable | crate::error::ErrorCode::Other);
+    let attached = match p.state(&loc) {
+        Ok(crate::provider::NativeState::Running) => p.attach(&loc, size).map(Some),
+        Ok(_) => Ok(None),
+        Err(e) => Err(e),
+    };
+    let host = match attached {
+        Ok(io) => io.map(|io| core.host_for(io, size)),
+        Err(e) if unreachable(&e) => {
+            let _ = core.with(id, |a| a.relinking = false);
+            super::connect::retry_later(core, id);
+            return;
+        }
+        Err(_) => None,
+    };
     let _ = core.with(id, |a| {
         a.relinking = false;
         match host {
@@ -641,7 +686,7 @@ mod tests {
         // Input reaches the agent's terminal.
         crate::engine::input::write_input(&h.engine, &v.id, "echo hi\r").unwrap();
         let ctl = h.provider.ctl(&v.id).unwrap();
-        assert_eq!(ctl.input(), b"echo hi\r");
+        assert!(wait_until(|| ctl.input() == b"echo hi\r"), "input is written in order, off the caller's thread");
         assert!(h.engine.views()[0].caps.resume, "after a prompt it can resume");
 
         stop(&h.engine, &v.id).unwrap();
@@ -659,6 +704,52 @@ mod tests {
         remove(&h.engine, &v.id, false).unwrap();
         assert_eq!(h.provider.state(&loc).unwrap(), NativeState::Gone);
         assert!(h.engine.views().is_empty());
+    }
+
+    /// The Race Engineer: its own folder, its know-how and the CLI on PATH
+    /// on every launch; nothing without the app's files.
+    #[test]
+    fn the_race_engineer_is_launched_with_its_kit() {
+        let h = Harness::new(vec![]);
+        let project = h.dir.path().to_string_lossy().into_owned();
+        let mut r = req("claude", &project, false);
+        r.engineer = true;
+        assert!(create(&h.engine, r.clone()).unwrap_err().contains("files aren't installed"));
+        assert!(h.provider.launched().is_empty());
+
+        let skills = h.dir.path().join("skills");
+        std::fs::create_dir_all(skills.join("pitwall")).unwrap();
+        std::fs::create_dir_all(skills.join("race-engineer")).unwrap();
+        std::fs::write(skills.join(crate::engineer::SKILL), "# skill\n").unwrap();
+        std::fs::write(skills.join(crate::engineer::PERSONA), "# persona\n").unwrap();
+        let cli = h.dir.path().join("pitwall-cli");
+        std::fs::write(&cli, "").unwrap();
+        h.engine.set_engineer_kit(Some(crate::engineer::Kit { skills, cli: Some(cli) }));
+
+        r.display_project = Some(project.clone());
+        let v = create(&h.engine, r).unwrap();
+        assert!(v.engineer);
+        assert_eq!(v.name, "Race Engineer");
+        let workdir = crate::engineer::workdir(h.engine.paths());
+        assert_eq!(v.cwd, workdir.to_string_lossy());
+        assert!(workdir.join("CLAUDE.md").is_file() && workdir.join("AGENTS.md").is_file());
+        let l = h.provider.launched().remove(0);
+        assert_eq!(l.cwd, workdir.to_string_lossy());
+        assert!(l.command_line.starts_with("claude --session-id ") && l.command_line.contains(" --append-system-prompt "), "{}", l.command_line);
+        let bin = crate::engineer::cli_dir(h.engine.paths()).to_string_lossy().into_owned();
+        assert!(l.env.iter().any(|(k, v)| k == "PATH" && std::env::split_paths(v).next().is_some_and(|p| p.to_string_lossy() == bin)), "{:?}", l.env);
+        let rec = h.engine.records().remove(0);
+        assert!(rec.engineer);
+
+        // A restart launches it the same way again.
+        restart(&h.engine, &v.id, None).unwrap();
+        let again = h.provider.launched().pop().unwrap();
+        assert!(again.command_line.contains(" --append-system-prompt ") && again.env == l.env, "{}", again.command_line);
+
+        // Other agents get none of it.
+        create(&h.engine, req("claude", &project, false)).unwrap();
+        let plain = h.provider.launched().pop().unwrap();
+        assert!(!plain.command_line.contains("--append-system-prompt") && plain.env.is_empty());
     }
 
     #[test]
@@ -711,6 +802,7 @@ mod tests {
             store: h.store.clone(),
             providers: vec![h.provider.clone()],
         });
+        assert!(again.wait_connected(Duration::from_secs(5)), "re-attached in the background");
         let views = again.views();
         let find = |id: &str| views.iter().find(|x| x.id == id).unwrap();
         assert!(find(&v.id).running, "re-attached, no restart");
@@ -780,7 +872,7 @@ mod tests {
         assert_eq!(rec.term_size(), Some((90, 30)));
         let ctl = vm.ctl("api-fix").unwrap();
         crate::engine::input::write_input(&engine, &v.id, "hi\r").unwrap();
-        assert_eq!(ctl.input(), b"hi\r", "attached: input reaches the session");
+        assert!(wait_until(|| ctl.input() == b"hi\r"), "attached: input reaches the session");
 
         // The same name again: Pitwall already has it.
         assert!(create(&engine, req("api-fix", &[])).unwrap_err().contains("already has a session \"api-fix\""));

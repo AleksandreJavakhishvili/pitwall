@@ -80,7 +80,7 @@ fn world(approval_timeout: Duration) -> World {
     let approvals = Approvals::new(approval_timeout);
     let callers = Arc::new(Callers::default());
     let socket = short_socket();
-    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into() })
+    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None })
         .expect("listen on a temp socket");
     World { engine, vm, approvals, callers, server: Some(server), socket, _dir: dir }
 }
@@ -132,7 +132,7 @@ fn handshake_versions_and_unknown_methods() {
     let mut c = w.client();
     assert_eq!(c.welcome().protocol, pitwall_proto::PROTOCOL);
     assert!(c.has("sessions") && c.has("approvals"));
-    assert_eq!(server_error(c.call("agent.remove", json!({})).unwrap_err()).code, code::UNKNOWN_METHOD);
+    assert_eq!(server_error(c.call("agent.prompt", json!({})).unwrap_err()).code, code::UNKNOWN_METHOD);
     assert_eq!(server_error(c.call("agent.create", json!({"kind": 3})).unwrap_err()).code, code::BAD_PARAMS);
 
     // A client that only speaks a future version is rejected, not served.
@@ -161,7 +161,7 @@ fn the_socket_is_private_and_removed_on_stop() {
         assert_eq!(mode, 0o600);
     }
     // A second server on the same socket refuses to start.
-    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into() });
+    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
     w.server.take().unwrap().stop();
     assert!(!w.socket.exists());
@@ -403,4 +403,185 @@ fn process_identity_of_a_local_peer() {
         assert!(!parent.ui, "another process is not the UI");
     }
     assert_eq!(ProcessIdentity::new(w.engine.clone()).identify(None), Caller::outside());
+}
+
+// ------------------------------------------------------------ managing agents
+
+/// A shell agent in a temp folder (this Mac), started over the socket.
+fn local_agent(c: &mut Client, name: &str, dir: &TempDir) -> pitwall_proto::AgentView {
+    c.create_agent(&AgentCreate { kind: "shell".into(), project: dir.path().to_string_lossy().into(), name: Some(name.into()), ..Default::default() }).unwrap()
+}
+
+fn agent_ref(id: &str) -> Value {
+    json!({ "agentId": id })
+}
+
+#[test]
+fn the_server_offers_managing_but_not_spaces_without_windows() {
+    let w = world(Duration::from_secs(5));
+    let mut c = w.client();
+    assert!(c.has("manage") && !c.has("spaces"));
+    assert_eq!(server_error(c.call("space.list", Value::Null).unwrap_err()).code, code::UNSUPPORTED);
+    let e = server_error(c.call_cap::<Value>("spaces", "space.list", Value::Null).unwrap_err());
+    assert!(e.code == code::UNSUPPORTED && e.message.contains("update Pitwall"), "{e}");
+}
+
+#[test]
+fn stopping_restarting_and_removing_ask_the_user() {
+    let w = world(Duration::from_secs(10));
+    let dir = TempDir::new("proj");
+    let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
+    let a = local_agent(&mut c, "worker", &dir);
+
+    // Denied: still running, the dialog named who asked.
+    let asked = w.answer_when_asked(false);
+    let e = server_error(c.call("agent.stop", agent_ref(&a.id)).unwrap_err());
+    let view = asked.join().unwrap();
+    assert_eq!((e.code.as_str(), view.action.as_str(), view.summary.as_str()), (code::DENIED, "agent.stop", "stop \"worker\""));
+    assert_eq!((view.requester.kind, view.requester.name.as_str(), view.risk), (RequesterKind::Agent, "Race Engineer", Risk::Low));
+    assert!(e.message.contains("still running"), "{e}");
+    assert!(c.agents().unwrap()[0].running);
+
+    // Allowed: stopped.
+    let asked = w.answer_when_asked(true);
+    let v: pitwall_proto::AgentView = serde_json::from_value(c.call("agent.stop", agent_ref(&a.id)).unwrap()).unwrap();
+    asked.join().unwrap();
+    assert!(!v.running);
+    // Stopping what isn't running asks nothing.
+    assert_eq!(server_error(c.call("agent.stop", agent_ref(&a.id)).unwrap_err()).code, code::NOT_RUNNING);
+    assert!(w.approvals.pending().is_empty());
+
+    let asked = w.answer_when_asked(true);
+    let v: pitwall_proto::AgentView = serde_json::from_value(c.call("agent.restart", agent_ref(&a.id)).unwrap()).unwrap();
+    assert_eq!(asked.join().unwrap().summary, "restart \"worker\"");
+    assert!(v.running);
+
+    // Remove: asked every time (high risk); a worktree it doesn't have is refused first.
+    let e = server_error(c.call("agent.remove", json!({"agentId": a.id, "deleteWorktree": true})).unwrap_err());
+    assert_eq!(e.code, code::BAD_PARAMS);
+    assert!(w.approvals.pending().is_empty());
+    let asked = w.answer_when_asked(false);
+    assert_eq!(server_error(c.call("agent.remove", agent_ref(&a.id)).unwrap_err()).code, code::DENIED);
+    let view = asked.join().unwrap();
+    assert_eq!((view.risk, view.rememberable, view.summary.as_str()), (Risk::High, false, "remove \"worker\" from Pitwall"));
+    assert_eq!(c.agents().unwrap().len(), 1);
+    let asked = w.answer_when_asked(true);
+    assert_eq!(c.call("agent.remove", agent_ref(&a.id)).unwrap(), Value::Null);
+    asked.join().unwrap();
+    assert!(c.agents().unwrap().is_empty());
+    assert_eq!(server_error(c.call("agent.remove", agent_ref(&a.id)).unwrap_err()).code, code::NOT_FOUND);
+}
+
+#[test]
+fn an_unanswered_remove_times_out_and_the_ui_is_never_asked() {
+    let w = world(Duration::from_millis(150));
+    let dir = TempDir::new("proj");
+    let mut c = w.client();
+    let a = local_agent(&mut c, "worker", &dir);
+    let e = server_error(c.call("agent.remove", agent_ref(&a.id)).unwrap_err());
+    assert_eq!(e.code, code::APPROVAL_TIMEOUT);
+    assert!(w.approvals.pending().is_empty() && c.agents().unwrap().len() == 1);
+    // Pitwall's own window acts directly (its button is the approval).
+    let mut ui = w.client_as(ui_caller());
+    ui.call("agent.stop", agent_ref(&a.id)).unwrap();
+    ui.call("agent.remove", agent_ref(&a.id)).unwrap();
+    assert!(ui.agents().unwrap().is_empty());
+}
+
+#[test]
+fn renaming_queueing_and_reading_never_ask() {
+    let w = world(Duration::from_millis(100));
+    let dir = TempDir::new("proj");
+    let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
+    let a = local_agent(&mut c, "worker", &dir);
+
+    let v = c.call("agent.rename", json!({"agentId": a.id, "name": "api"})).unwrap();
+    assert_eq!(v["name"], "api");
+    assert_eq!(server_error(c.call("agent.rename", json!({"agentId": a.id, "name": " "})).unwrap_err()).code, code::BAD_PARAMS);
+
+    c.call("queue.add", json!({"agentId": a.id, "text": "run the tests"})).unwrap();
+    let v = c.call("queue.add", json!({"agentId": a.id, "text": "then lint"})).unwrap();
+    let items = v["queue"].as_array().unwrap().clone();
+    assert_eq!(items.len(), 2);
+    assert_eq!(server_error(c.call("queue.add", json!({"agentId": a.id, "text": "  "})).unwrap_err()).code, code::BAD_PARAMS);
+    let all = c.call("queue.list", json!({})).unwrap();
+    assert_eq!((all[0]["name"].as_str(), all[0]["items"][1]["text"].as_str()), (Some("api"), Some("then lint")));
+    let v = c.call("queue.remove", json!({"agentId": a.id, "itemId": items[1]["id"]})).unwrap();
+    assert_eq!(v["queue"].as_array().unwrap().len(), 1);
+    assert_eq!(server_error(c.call("queue.remove", json!({"agentId": a.id, "itemId": "nope"})).unwrap_err()).code, code::NOT_FOUND);
+    // Send now: the first item goes to the agent's terminal.
+    let v = c.call("queue.send", json!({"agentId": a.id})).unwrap();
+    assert!(v["queue"].as_array().unwrap().is_empty());
+    assert_eq!(v["lastSent"], "run the tests");
+    assert_eq!(server_error(c.call("queue.send", json!({"agentId": a.id})).unwrap_err()).code, code::NOT_FOUND, "nothing queued");
+
+    let d = c.call("agent.status", agent_ref(&a.id)).unwrap();
+    assert_eq!((d["status"].as_str(), d["source"].as_str(), d["running"].as_bool()), (Some("unknown"), Some("activity"), Some(true)));
+    assert!(!d["explanation"].as_array().unwrap().is_empty());
+
+    // Projects: the list only.
+    let p = dir.path().to_string_lossy().into_owned();
+    let list = c.call("project.add", json!({"path": p})).unwrap();
+    assert!(list.as_array().unwrap().iter().any(|x| x["path"].as_str() == Some(std::fs::canonicalize(&p).unwrap().to_str().unwrap()) || x["path"].as_str() == Some(p.as_str())));
+    assert_eq!(server_error(c.call("project.add", json!({"path": "/no/such/folder"})).unwrap_err()).code, code::NOT_FOUND);
+    c.call("project.remove", json!({"path": p})).unwrap();
+    assert!(dir.path().is_dir(), "never deletes the folder");
+    assert_eq!(server_error(c.call("project.remove", json!({"path": p})).unwrap_err()).code, code::NOT_FOUND);
+
+    // Rules: no sets yet; a set that doesn't exist is refused.
+    let sets = c.call("rules.sets", Value::Null).unwrap();
+    assert_eq!(sets["sets"], json!([]));
+    assert_eq!(server_error(c.call("rules.default", json!({"project": p, "set": "strict"})).unwrap_err()).code, code::NOT_FOUND);
+    c.call("rules.default", json!({"project": p, "set": null})).unwrap();
+    let r = c.call("rules.list", Value::Null).unwrap();
+    assert_eq!(r["agents"][0]["agentId"], a.id.as_str());
+    // A terminal has no rules.
+    assert_eq!(server_error(c.call("rules.apply", agent_ref(&a.id)).unwrap_err()).code, code::UNSUPPORTED);
+    // Writing into the main checkout needs --main-checkout, and then the user.
+    let claude = c
+        .create_agent(&AgentCreate { kind: "claude".into(), project: dir.path().to_string_lossy().into(), name: Some("writer".into()), ..Default::default() })
+        .unwrap();
+    assert!(claude.caps.rules, "{:?}", claude.caps);
+    let a = claude;
+    let e = server_error(c.call("rules.apply", agent_ref(&a.id)).unwrap_err());
+    assert!(e.code == code::CONFLICT && e.message.contains("--main-checkout"), "{e}");
+    let asked = w.answer_when_asked(false);
+    let e = server_error(c.call("rules.apply", json!({"agentId": a.id, "mainCheckout": true})).unwrap_err());
+    let view = asked.join().unwrap();
+    assert_eq!((e.code.as_str(), view.action.as_str(), view.risk), (code::DENIED, "rules.apply", Risk::High));
+    assert!(e.message.contains("Nothing was written"), "{e}");
+
+    // Review: read-only, outside a repository it says so.
+    let e = server_error(c.call("review.changes", agent_ref(&a.id)).unwrap_err());
+    assert!(e.code == code::OTHER || e.code == code::UNSUPPORTED, "{e}");
+    assert!(w.approvals.pending().is_empty());
+}
+
+#[test]
+fn waiting_for_a_status() {
+    let w = world(Duration::from_secs(5));
+    let dir = TempDir::new("proj");
+    let mut c = w.client();
+    let a = local_agent(&mut c, "worker", &dir);
+    // Already there: at once.
+    let r = c.call("agent.wait", json!({"agentId": a.id, "until": ["unknown"]})).unwrap();
+    assert_eq!(r["agent"]["status"], "unknown");
+    // Never there: times out.
+    let started = std::time::Instant::now();
+    let e = server_error(c.call("agent.wait", json!({"agentId": a.id, "until": ["idle"], "timeoutMs": 300})).unwrap_err());
+    assert!(e.code == code::TIMEOUT && e.message.contains("still unknown"), "{e}");
+    assert!(started.elapsed() >= Duration::from_millis(300));
+    assert_eq!(server_error(c.call("agent.wait", json!({"agentId": a.id, "until": []})).unwrap_err()).code, code::BAD_PARAMS);
+    // --fresh: the current status doesn't count; it ends when it changes to one wanted.
+    let socket = w.socket.clone();
+    let id = a.id.clone();
+    let waiting = std::thread::spawn(move || Client::connect(&socket).unwrap().call("agent.wait", json!({"agentId": id, "until": ["unknown", "stopped"], "fresh": true})));
+    std::thread::sleep(Duration::from_millis(250));
+    assert!(!waiting.is_finished(), "unknown now doesn't count");
+    w.client_as(ui_caller()).call("agent.stop", agent_ref(&a.id)).unwrap();
+    let r = waiting.join().unwrap().unwrap();
+    assert_eq!(r["agent"]["running"], false, "not running counts as stopped");
+    // A stopped agent won't become idle.
+    let e = server_error(c.call("agent.wait", json!({"agentId": a.id, "until": ["idle"]})).unwrap_err());
+    assert_eq!(e.code, code::NOT_RUNNING);
 }

@@ -107,7 +107,7 @@ fn live_agw_create_attach_and_clean_up() {
         machine: &vm,
         name: SESSION,
         options: &options,
-        launch: LaunchSpec { agent: "live-create", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size, hooks: None },
+        launch: LaunchSpec { agent: "live-create", kind: &kind, cwd: "", intent: LaunchIntent::Fresh, worktree: None, size, hooks: None, env: &[] },
     };
     let mut guard = DeleteGuard(true);
     let started = p.create(&spec).expect("agw session create");

@@ -1,13 +1,17 @@
-//! `pitwall`: add agents and sessions to Pitwall from a terminal.
+//! `pitwall`: set up and manage Pitwall from a terminal — agents, sessions,
+//! queues, spaces, projects, rules, review and settings.
 //!
 //! Output is JSON on stdout (the call's result); `--human` prints text.
 //! Errors are `{"error":{"code","message"}}` on stderr. Exit status: 0 ok,
-//! 1 error, 2 usage, 3 the user denied (or didn't answer) an approval.
+//! 1 error, 2 bad arguments (usage, or `bad_params`), 3 the user denied (or
+//! didn't answer) an approval.
 
 #![recursion_limit = "256"]
 
 mod args;
+mod manage;
 mod render;
+mod settings;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -99,6 +103,10 @@ fn provider_of(list: &[ProviderMachines], machine: &str) -> Result<String, Strin
 
 /// Run `cmd` against the Pitwall listening at `socket`.
 pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
+    if let Command::Settings(s) = cmd {
+        // Works without Pitwall running too (edits ui.json).
+        return settings::run(s, socket, &pitwall_client::data_dir());
+    }
     let mut c = Client::connect_as(socket, &format!("pitwall-cli/{}", env!("CARGO_PKG_VERSION")), pitwall_proto::Role::Cli)?;
     Ok(match cmd {
         Command::Agent(AgentCmd::List) => {
@@ -137,6 +145,14 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             let list = c.sessions(&SessionFilter { provider: provider.clone(), machine: machine.clone() })?;
             out(&list, render::sessions(&list))
         }
+        Command::Settings(_) => unreachable!("handled above"),
+        Command::Agent(a) => manage::agent_cmd(a, &mut c)?,
+        Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
+        Command::Space(sp) => manage::space_cmd(sp, &mut c)?,
+        Command::Project(p) => manage::project_cmd(p, &mut c)?,
+        Command::Rules(r) => manage::rules_cmd(r, &mut c)?,
+        Command::Review(r) => manage::review_cmd(r, &mut c)?,
+        Command::Wait(w) => manage::wait_cmd(w, &mut c)?,
         Command::Session(SessionCmd::Add { provider, machine, name, start }) => {
             let added = c.add_session(&SessionAdd {
                 provider: provider.clone(),
@@ -159,12 +175,54 @@ pub fn failure(e: &Error) -> (Value, u8) {
         Error::Rejected(_) => ErrorBody::new(code::INCOMPATIBLE, e.to_string()),
         Error::Io(_) | Error::Protocol(_) => ErrorBody::new("connection", e.to_string()),
     };
-    let status = if body.code == code::DENIED || body.code == code::APPROVAL_TIMEOUT { 3 } else { 1 };
-    (json!({ "error": body }), status)
+    (json!({ "error": body }), exit_status(&body.code))
+}
+
+/// 3: not approved; 2: bad arguments; 1: anything else.
+pub fn exit_status(code: &str) -> u8 {
+    match code {
+        code::DENIED | code::APPROVAL_TIMEOUT => 3,
+        code::BAD_PARAMS | BAD_ARGS => 2,
+        _ => 1,
+    }
+}
+
+/// Error code of a command line that doesn't parse.
+pub const BAD_ARGS: &str = "bad_args";
+
+/// Parse the command line; a usage error is JSON on stderr (text with
+/// `--human`) and exit 2, help and version print as usual.
+fn parse() -> Result<Cli, ExitCode> {
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    match Cli::try_parse_from(&raw) {
+        Ok(cli) => Ok(cli),
+        Err(e) if !e.use_stderr() => {
+            let _ = e.print();
+            Err(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            if raw.iter().any(|a| a == "--human" || a == "-H") {
+                let _ = e.print();
+            } else {
+                eprintln!("{}", usage_error(&e.render().to_string()));
+            }
+            Err(ExitCode::from(2))
+        }
+    }
+}
+
+/// Clap's message as the CLI's error JSON (first line, without "error: ").
+pub fn usage_error(rendered: &str) -> Value {
+    let first = rendered.lines().next().unwrap_or("bad arguments").trim();
+    let message = first.strip_prefix("error: ").unwrap_or(first);
+    json!({ "error": { "code": BAD_ARGS, "message": format!("{message} (see `pitwall --help`)") } })
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match parse() {
+        Ok(cli) => cli,
+        Err(status) => return status,
+    };
     let socket = cli.socket.clone().unwrap_or_else(pitwall_client::socket_path);
     match run(&cli.command, &socket) {
         Ok(o) if cli.human => {

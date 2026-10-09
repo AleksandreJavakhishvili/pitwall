@@ -19,14 +19,19 @@ use crate::{methods, platform};
 
 /// How long a client may take to say hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
-/// What this server offers (`welcome.caps`).
-pub const CAPS: &[&str] = &[caps::AGENTS, caps::SESSIONS, caps::APPROVALS];
+/// What this server offers (`welcome.caps`; plus `settings` with a
+/// settings backend and `spaces` with a workspace backend).
+pub const CAPS: &[&str] = &[caps::AGENTS, caps::SESSIONS, caps::APPROVALS, caps::MANAGE];
 
 pub struct Config {
     /// Where to listen (`~/.pitwall/run/pitwalld.sock`).
     pub socket: PathBuf,
     /// Shown to clients (`welcome.daemon`).
     pub version: String,
+    /// Where `settings.*` read and apply settings (`None`: not offered).
+    pub settings: Option<Arc<dyn crate::SettingsBackend>>,
+    /// Where `space.*` and `agent.move` arrange spaces (`None`: not offered).
+    pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
 }
 
 /// What every connection shares.
@@ -34,6 +39,9 @@ pub struct Server {
     pub engine: Shared,
     pub approvals: Arc<Approvals>,
     pub identify: Arc<dyn Identify>,
+    pub settings: Option<Arc<dyn crate::SettingsBackend>>,
+    pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
+    caps: Vec<&'static str>,
     instance: String,
     version: String,
 }
@@ -78,7 +86,23 @@ impl Drop for Handle {
 /// `identify` says who each connection is.
 pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identify>, cfg: Config) -> io::Result<Handle> {
     let listener = platform::bind(&cfg.socket)?;
-    let server = Arc::new(Server { engine, approvals, identify, instance: uuid::Uuid::new_v4().to_string(), version: cfg.version });
+    let mut offered = CAPS.to_vec();
+    if cfg.settings.is_some() {
+        offered.push(caps::SETTINGS);
+    }
+    if cfg.workspace.is_some() {
+        offered.push(caps::SPACES);
+    }
+    let server = Arc::new(Server {
+        engine,
+        approvals,
+        identify,
+        settings: cfg.settings,
+        workspace: cfg.workspace,
+        caps: offered,
+        instance: uuid::Uuid::new_v4().to_string(),
+        version: cfg.version,
+    });
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
     let thread = std::thread::Builder::new().name("pitwall-server".into()).spawn(move || {
@@ -117,7 +141,7 @@ fn handle(server: &Server, conn: platform::Stream) -> io::Result<()> {
             return frame::write_json(&mut writer, &reject);
         }
     };
-    let answer = answer_hello(&hello, Range::ours(), &server.version, CAPS, &server.instance);
+    let answer = answer_hello(&hello, Range::ours(), &server.version, &server.caps, &server.instance);
     let welcomed = matches!(answer, ServerHello::Welcome(_));
     frame::write_json(&mut writer, &answer)?;
     if !welcomed {

@@ -110,6 +110,7 @@ pub fn continue_conversation(engine: &Shared, req: ContinueRequest) -> Result<Ag
             provider: None,
             machine: None,
             options: Default::default(),
+            engineer: false,
         },
     )?;
     // "Scan again" keeps the user's choice of project for this conversation.

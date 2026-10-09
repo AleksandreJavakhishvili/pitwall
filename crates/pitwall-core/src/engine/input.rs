@@ -2,7 +2,7 @@
 
 use super::{tasks, Engine, Shared};
 use crate::model::AgentView;
-use crate::term::{FrameSink, OutputSink};
+use crate::term::{FrameSink, OutputSink, ScreenSource};
 
 type Res<T> = Result<T, String>;
 
@@ -17,6 +17,20 @@ pub fn detach_output(engine: &Engine, agent_id: &str, subscription_id: u64) {
     if let Ok(Some(host)) = engine.with(agent_id, |a| a.host.clone()) {
         host.detach(subscription_id);
     }
+}
+
+/// Make `source` (a UI's terminal emulator for the agent) the agent's
+/// screen: it gets the buffered output, then all output as it comes, and
+/// status rules and the Wall read it (`TermHost::share_screen`). Instead of
+/// [`attach_output`] for a UI that parses the output anyway.
+pub fn share_screen(engine: &Engine, agent_id: &str, source: Box<dyn ScreenSource>) -> Res<()> {
+    engine.host(agent_id)?.share_screen(source);
+    Ok(())
+}
+
+/// Whether a UI's terminal is the agent's screen ([`share_screen`]).
+pub fn screen_shared(engine: &Engine, agent_id: &str) -> bool {
+    engine.host(agent_id).is_ok_and(|h| h.screen_shared())
 }
 
 /// Styled frames of the agent's screen (the Wall), at most one per `gap`.
@@ -53,6 +67,21 @@ pub fn write_input(engine: &Shared, agent_id: &str, data: &str) -> Res<()> {
         tasks::begin_for(engine, agent_id, None, false);
     }
     Ok(())
+}
+
+/// Raw bytes typed in the agent's terminal (a native terminal view): text
+/// goes through [`write_input`]; bytes that aren't UTF-8 (legacy mouse
+/// reports, 8-bit meta) are written as they are.
+pub fn write_input_bytes(engine: &Shared, agent_id: &str, data: &[u8]) -> Res<()> {
+    match std::str::from_utf8(data) {
+        Ok(text) => write_input(engine, agent_id, text),
+        Err(_) => {
+            let host = engine.host(agent_id)?;
+            host.touch_input();
+            host.write(data)?;
+            Ok(())
+        }
+    }
 }
 
 /// The size the UI shows the agent at. Recorded even with no process
@@ -112,6 +141,8 @@ mod tests {
         let h = Harness::new(vec![record("a", "/tmp")]);
         let e = &h.engine;
         assert_eq!(write_input(e, "a", "x").unwrap_err(), "agent is not running");
+        assert_eq!(write_input_bytes(e, "a", b"x").unwrap_err(), "agent is not running");
+        assert_eq!(write_input_bytes(e, "a", &[0x1b, 0xff]).unwrap_err(), "agent is not running");
         assert_eq!(send_prompt(e, "a", "hi".into()).unwrap_err(), "agent is not running");
         assert!(attach_output(e, "a", Box::new(|_: &[u8]| true)).is_err());
         detach_output(e, "a", 7);

@@ -44,18 +44,22 @@ pub struct Spawn<'a> {
     /// Passed to the agent as `PITWALL_CLI_SOCKET` (where the `pitwall`
     /// CLI run inside it connects).
     pub cli_socket: &'a Path,
+    /// More environment for this agent ([`LaunchSpec::env`](pitwall_core::provider::LaunchSpec)),
+    /// over everything else (PATH included).
+    pub env: &'a [(String, String)],
 }
 
 /// Start the agent in a new holder (through the user's login shell) and
 /// connect to it.
 pub fn spawn(spec: Spawn) -> Result<HoldTerm> {
     let (program, args) = pitwall_core::shell::launch_invocation(spec.command_line);
-    let env = [
+    let mut env = vec![
         ("PITWALL_ENV", OsStr::new("1")),
         ("PITWALL_AGENT_ID", OsStr::new(spec.agent_id)),
         ("PITWALL_SOCKET", spec.hook_socket.as_os_str()),
         ("PITWALL_CLI_SOCKET", spec.cli_socket.as_os_str()),
     ];
+    env.extend(spec.env.iter().map(|(k, v)| (k.as_str(), OsStr::new(v.as_str()))));
     let program = Program { program: &program, args: &args, cwd: Some(Path::new(spec.cwd)), env: &env };
     run(spec.holder, spec.socket, spec.size, program).map_err(|e| PwError::other(format!("could not start agent: {e}")))?;
     // Even if it already exited: its output and exit still come through.

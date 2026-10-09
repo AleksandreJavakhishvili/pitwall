@@ -34,6 +34,12 @@ pub struct Agent {
     pub git_repo: Option<bool>,
     /// A dropped attachment (`!eof_is_exit`) is being re-attached.
     pub relinking: bool,
+    /// Waiting to be attached to its session again (saved agents at
+    /// startup, unreachable machines; connect.rs). No terminal meanwhile.
+    pub connect: Option<super::connect::Connect>,
+    /// `facts` are only what was known without asking the machine; the
+    /// rest is being looked up (connect.rs).
+    pub facts_pending: bool,
     pub status: Status,
     pub source: Source,
     pub detail: Option<String>,
@@ -87,6 +93,8 @@ impl Agent {
             facts: Facts::default(),
             git_repo: None,
             relinking: false,
+            connect: None,
+            facts_pending: false,
             status,
             source: Source::Activity,
             detail: None,
@@ -137,6 +145,7 @@ impl Agent {
         self.git_every = 0;
         self.git_repo = None;
         self.relinking = false;
+        self.connect = None;
         self.inner = None;
         self.fg = Default::default();
         self.hook_session = None;
@@ -177,7 +186,8 @@ impl Agent {
         let diff = p.exec && self.git_repo != Some(false);
         AgentCaps {
             input: running,
-            restart: p.start,
+            // Not while it may still attach to the session it has.
+            restart: p.start && !self.connect.as_ref().is_some_and(|c| c.busy()),
             resume: match self.restart_inner() {
                 Some((inner, caps)) => caps.resume && inner.session_id.is_some(),
                 None => k.resume && r.has_conversation && r.session_id.is_some(),
@@ -232,6 +242,7 @@ impl Agent {
             },
             agent_in_terminal: self.is_terminal() && self.inner.is_some(),
             restart_as: self.restart_inner().map(|(i, _)| i.kind_name.clone()),
+            engineer: r.engineer,
             status: self.status,
             status_source: self.source,
             status_detail: self.detail.clone(),

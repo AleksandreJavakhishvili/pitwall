@@ -134,6 +134,18 @@ pub fn hide_console(cmd: &mut std::process::Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
+/// `link` runs `target` (a program): a copy (symlinks need privileges
+/// here), rewritten when it differs. The Race Engineer's `pitwall.exe`
+/// (crate::engineer).
+pub fn link_program(target: &Path, link: &Path) -> io::Result<()> {
+    if std::fs::read(link).ok() == std::fs::read(target).ok() {
+        return Ok(());
+    }
+    let tmp = link.with_extension("tmp");
+    std::fs::copy(target, &tmp)?;
+    std::fs::rename(&tmp, link)
+}
+
 /// A symlink at `link` to `target` (tests; needs Developer Mode or admin).
 #[cfg(test)]
 pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {

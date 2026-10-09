@@ -19,6 +19,30 @@ pub use local::LocalExec;
 pub use watch::{MAX_DIRS, NOISE_DIRS};
 pub use crate::error::{PwError, Result};
 
+thread_local! {
+    static UI_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The calling thread draws the UI: nothing that waits on programs,
+/// machines or the network may run on it (see [`assert_off_ui`]). The app
+/// calls this once, on its main thread.
+pub fn mark_ui_thread() {
+    UI_THREAD.with(|t| t.set(true));
+}
+
+/// Whether the calling thread is the one [`mark_ui_thread`] marked.
+pub fn on_ui_thread() -> bool {
+    UI_THREAD.with(|t| t.get())
+}
+
+/// Debug builds: fail loudly when blocking work (`what`) runs on the UI
+/// thread, where it would freeze the window. Free in release builds.
+#[track_caller]
+pub fn assert_off_ui(what: &str) {
+    debug_assert!(!on_ui_thread(), "{what} on the UI thread: run it in the background");
+    let _ = what;
+}
+
 /// Generous bound for commands that had none before (git, rulesync, login
 /// shells): only a hung program ever hits it.
 pub const LONG: Duration = Duration::from_secs(600);
