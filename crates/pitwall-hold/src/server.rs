@@ -12,6 +12,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use crate::modes::Modes;
 use crate::platform::{self, Conn as _, Listener, PtyControl, PtySpec, Role, Stream};
 use crate::proto::{self, Info};
 
@@ -168,6 +169,8 @@ impl Out {
 
 struct State {
     ring: VecDeque<u8>,
+    /// Terminal modes set by output that has left the ring.
+    modes: Modes,
     clients: Vec<Client>,
     cols: u16,
     rows: u16,
@@ -181,15 +184,27 @@ struct Hub {
     st: Mutex<State>,
     cv: Condvar,
     control: PtyControl,
-    input: Mutex<Box<dyn Write + Send>>,
+    /// INPUT bodies, in order, for the PTY writer thread.
+    input: Sender<Vec<u8>>,
     holder_pid: u32,
     child_pid: u32,
     grace: Duration,
     socket: PathBuf,
     token: Option<u64>,
     // Taken by `serve`.
-    pending: Mutex<Option<(Listener, Box<dyn io::Read + Send>)>>,
+    pending: Mutex<Option<Pending>>,
 }
+
+struct Pending {
+    listener: Listener,
+    reader: Box<dyn io::Read + Send>,
+    writer: Box<dyn Write + Send>,
+    input: mpsc::Receiver<Vec<u8>>,
+}
+
+/// Largest single write to the PTY: a long paste goes in pieces, as a
+/// terminal writes it.
+const PTY_WRITE_CHUNK: usize = 1024;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -211,9 +226,11 @@ impl Hub {
                 return Err(io::Error::new(e.kind(), format!("could not start the terminal: {e}")));
             }
         };
+        let (input, input_rx) = mpsc::channel();
         Ok(Arc::new(Hub {
             st: Mutex::new(State {
                 ring: VecDeque::new(),
+                modes: Modes::new(),
                 clients: Vec::new(),
                 cols: cfg.cols,
                 rows: cfg.rows,
@@ -224,13 +241,13 @@ impl Hub {
             }),
             cv: Condvar::new(),
             control: pty.control,
-            input: Mutex::new(pty.writer),
+            input,
             holder_pid: std::process::id(),
             child_pid: pty.pid,
             grace: cfg.grace,
             socket: cfg.socket.clone(),
             token,
-            pending: Mutex::new(Some((listener, pty.reader))),
+            pending: Mutex::new(Some(Pending { listener, reader: pty.reader, writer: pty.writer, input: input_rx })),
         }))
     }
 
@@ -244,9 +261,12 @@ impl Hub {
     }
 
     fn serve(self: &Arc<Self>) {
-        let (listener, reader) = lock(&self.pending).take().expect("serve once");
+        let Pending { listener, reader, writer, input } = lock(&self.pending).take().expect("serve once");
         let h = self.clone();
         std::thread::spawn(move || h.pump_output(reader));
+        // Input has its own thread: a long paste into a program that reads
+        // slowly blocks only this one, never a client's RESIZE or SHUTDOWN.
+        std::thread::spawn(move || write_input(writer, input));
         let h = self.clone();
         std::thread::spawn(move || h.wait_child());
         let h = self.clone();
@@ -274,9 +294,10 @@ impl Hub {
                 Ok(0) => break,
                 Ok(n) => {
                     let mut st = lock(&self.st);
-                    push_ring(&mut st.ring, &buf[..n], RING_CAP);
+                    let st = &mut *st;
+                    push_ring(&mut st.ring, &buf[..n], RING_CAP, &mut st.modes);
                     let frame = proto::encode(proto::OUTPUT, &buf[..n]);
-                    Self::broadcast(&mut st, &frame);
+                    Self::broadcast(st, &frame);
                 }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 // EIO: every process holding the terminal has closed it.
@@ -364,6 +385,11 @@ impl Hub {
                     return true;
                 }
                 if body.first() == Some(&1) {
+                    // Modes set before the ring's start (bracketed paste…).
+                    let preamble = st.modes.preamble();
+                    if !preamble.is_empty() && !out.push(proto::encode(proto::REPLAY, &preamble)) {
+                        return false;
+                    }
                     let (a, b) = st.ring.as_slices();
                     let ring = [a, b].concat();
                     for chunk in ring.chunks(REPLAY_CHUNK) {
@@ -379,8 +405,7 @@ impl Hub {
             }
             proto::INPUT => {
                 if lock(&self.st).exit.is_none() {
-                    let mut input = lock(&self.input);
-                    let _ = input.write_all(body).and_then(|_| input.flush());
+                    let _ = self.input.send(body.to_vec());
                 }
             }
             proto::RESIZE => {
@@ -425,13 +450,50 @@ impl Hub {
     }
 }
 
-pub fn push_ring(ring: &mut VecDeque<u8>, chunk: &[u8], cap: usize) {
+/// The PTY writer thread: INPUT bodies in arrival order, in pieces of at
+/// most [`PTY_WRITE_CHUNK`]. A full input queue blocks the write (the program
+/// reads slowly); a non-blocking descriptor's `WouldBlock` waits a moment and
+/// retries. Ends when the PTY is gone.
+fn write_input(mut pty: Box<dyn Write + Send>, input: mpsc::Receiver<Vec<u8>>) {
+    for body in input {
+        for piece in body.chunks(PTY_WRITE_CHUNK) {
+            if write_retrying(&mut pty, piece).is_err() {
+                return;
+            }
+        }
+    }
+}
+
+fn write_retrying(w: &mut dyn Write, mut buf: &[u8]) -> io::Result<()> {
+    while !buf.is_empty() {
+        match w.write(buf) {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(n) => buf = &buf[n..],
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(2)),
+            Err(e) => return Err(e),
+        }
+    }
+    w.flush()
+}
+
+/// Append `chunk`, keeping the newest `cap` bytes; what leaves the ring goes
+/// through `left` (the modes it set stay known).
+pub fn push_ring(ring: &mut VecDeque<u8>, chunk: &[u8], cap: usize, left: &mut Modes) {
     if chunk.len() >= cap {
+        let (a, b) = ring.as_slices();
+        left.feed(a);
+        left.feed(b);
         ring.clear();
+        left.feed(&chunk[..chunk.len() - cap]);
         ring.extend(&chunk[chunk.len() - cap..]);
         return;
     }
     let overflow = (ring.len() + chunk.len()).saturating_sub(cap);
+    let (a, b) = ring.as_slices();
+    let n = overflow.min(a.len());
+    left.feed(&a[..n]);
+    left.feed(&b[..overflow - n]);
     ring.drain(..overflow);
     ring.extend(chunk);
 }
@@ -467,10 +529,26 @@ mod tests {
     #[test]
     fn ring_keeps_newest_bytes() {
         let mut ring = VecDeque::new();
-        push_ring(&mut ring, b"abcdef", 8);
-        push_ring(&mut ring, b"ghij", 8);
+        let mut modes = Modes::new();
+        push_ring(&mut ring, b"abcdef", 8, &mut modes);
+        push_ring(&mut ring, b"ghij", 8, &mut modes);
         assert_eq!(ring.iter().copied().collect::<Vec<_>>(), b"cdefghij");
-        push_ring(&mut ring, b"0123456789", 8);
+        push_ring(&mut ring, b"0123456789", 8, &mut modes);
         assert_eq!(ring.iter().copied().collect::<Vec<_>>(), b"23456789");
+    }
+
+    #[test]
+    fn modes_that_leave_the_ring_are_kept() {
+        let mut ring = VecDeque::new();
+        let mut modes = Modes::new();
+        push_ring(&mut ring, b"\x1b[?2004h", 16, &mut modes);
+        assert!(modes.preamble().is_empty(), "still in the ring");
+        push_ring(&mut ring, b"0123456789", 16, &mut modes);
+        push_ring(&mut ring, b"abcdef", 16, &mut modes);
+        assert_eq!(ring.iter().copied().collect::<Vec<_>>(), b"0123456789abcdef");
+        assert_eq!(modes.preamble(), b"\x1b[?2004h");
+        // A chunk larger than the ring: its own head leaves at once.
+        push_ring(&mut ring, b"\x1b[?2004l0123456789ABCDEF", 16, &mut modes);
+        assert!(modes.preamble().is_empty());
     }
 }
