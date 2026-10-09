@@ -6,6 +6,7 @@
 //! all live here; changing the appearance fields re-applies the appearance.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{App, AppContext, Context, Entity, Global, Task};
@@ -18,9 +19,17 @@ pub struct UiStore {
     pub state: UiState,
     root: Option<PathBuf>,
     save: Option<Task<()>>,
+    /// The text this app wrote to `ui.json` last (the settings watcher
+    /// ignores the app's own writes).
+    pub written: Arc<Mutex<Option<String>>>,
 }
 
 impl UiStore {
+    /// The data folder `ui.json` is in (`None`: never written).
+    pub fn root(&self) -> Option<&PathBuf> {
+        self.root.as_ref()
+    }
+
     /// Replace the state; save it and re-apply the appearance if it changed.
     pub fn set(&mut self, next: UiState, cx: &mut Context<Self>) {
         if next == self.state {
@@ -36,13 +45,17 @@ impl UiStore {
             return;
         };
         let state = self.state.clone();
+        let written = self.written.clone();
         self.save = Some(cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(150))
                 .await;
-            let write = cx
-                .background_executor()
-                .spawn(async move { workspace::save(&root, &state) });
+            let write = cx.background_executor().spawn(async move {
+                if let Ok(text) = serde_json::to_string_pretty(&state) {
+                    *written.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
+                }
+                workspace::save(&root, &state)
+            });
             if let Err(e) = write.await {
                 eprintln!("pitwall: could not save ui.json: {e}");
             }
@@ -65,6 +78,7 @@ pub fn init(root: Option<PathBuf>, cx: &mut App) -> Entity<UiStore> {
         state,
         root,
         save: None,
+        written: Arc::default(),
     });
     cx.set_global(UiHandle(store.clone()));
     store
@@ -80,6 +94,7 @@ pub fn store(cx: &mut App) -> Entity<UiStore> {
         state: UiState::default(),
         root: None,
         save: None,
+        written: Arc::default(),
     });
     cx.set_global(UiHandle(store.clone()));
     store

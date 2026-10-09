@@ -321,10 +321,11 @@ impl Setting {
     pub fn read_file(&self, ui: &Value) -> Option<Result<Value, String>> {
         let Stored::Ui { key, invert } = self.stored else { return None };
         let Some(raw) = ui.get(key) else { return Some(Ok(self.default_value())) };
-        let raw = match (invert, raw) {
-            (true, Value::Bool(b)) => Value::Bool(!b),
-            (true, other) => other.clone(),
-            (false, other) => other.clone(),
+        let raw = match (invert, raw, self.kind) {
+            (true, Value::Bool(b), _) => Value::Bool(!b),
+            // The app keeps a fractional font it was given (v0.1 files).
+            (_, Value::Number(n), Kind::Int { .. }) if n.as_i64().is_none() => n.as_f64().map_or(Value::Null, |f| Value::from(f.round() as i64)),
+            (_, other, _) => other.clone(),
         };
         Some(self.validate(&raw).map_err(|e| format!("ui.json \"{key}\": {e}")))
     }
@@ -506,7 +507,7 @@ mod tests {
 
     #[test]
     fn reads_and_writes_the_v01_file_keys() {
-        let ui = json!({"v": 1, "theme": "light", "hideElsewhere": true, "fontSize": 13.0, "look": 3, "spaces": []});
+        let ui = json!({"v": 1, "theme": "light", "hideElsewhere": true, "fontSize": 13.4, "look": 3, "spaces": []});
         let get = |k: &str| find(k).unwrap().read_file(&ui).unwrap();
         assert_eq!(get("appearance.theme").unwrap(), json!("light"));
         assert_eq!(get("general.showElsewhere").unwrap(), json!(false), "inverted");

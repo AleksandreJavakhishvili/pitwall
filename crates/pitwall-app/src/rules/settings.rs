@@ -1009,9 +1009,6 @@ impl Render for RulesSection {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .pb(px(14.))
-            .border_b_1()
-            .border_color(t.line)
             .child(self.head(&t))
             .child(kit::muted(
                 "Keep instructions in one library and give agents rule sets. Pitwall calls rulesync to generate each agent's files (CLAUDE.local.md, .claude/rules, AGENTS.md…) when it starts; they stay out of git.",

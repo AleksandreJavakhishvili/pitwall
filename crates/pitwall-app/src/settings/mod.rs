@@ -1,7 +1,11 @@
 //! Settings, appearance and onboarding (phase 6–7; inventory §19, §20, §24,
-//! parts of §27): the Settings dialog, About, the first-run welcome screen
-//! and "Scan again", and the appearance every window follows (theme, Glass,
-//! Reduce motion, density).
+//! parts of §27): the Settings dialog (pages: [`view`], [`pages`]), About,
+//! the first-run welcome screen and "Scan again", and the appearance every
+//! window follows (theme, Glass, Reduce motion, density).
+//!
+//! Settings are also data: the registry in `pitwall_proto::settings` is
+//! applied to `ui.json` by [`data`], changed by `pitwall settings` through
+//! [`backend`], and by editing `ui.json` by hand through [`watch`].
 //!
 //! Wiring (kept to a few lines in shared files):
 //! - `lib.rs` calls [`init`] once the engine is up, and opens About
@@ -11,11 +15,15 @@
 //!   appearance changes.
 
 pub mod about;
+pub mod backend;
 pub mod cli_install;
+pub mod data;
 pub mod onboarding;
+pub mod pages;
 pub mod permissions;
 pub mod prefs;
 pub mod view;
+pub mod watch;
 pub mod widgets;
 
 use std::path::PathBuf;
@@ -45,7 +53,7 @@ pub struct SettingsHost {
 
 impl Global for SettingsHost {}
 
-/// Settings sections other modules add (Rules, §21): drawn after Tiles.
+/// Settings sections other modules add (Rules, §21): the Rules page.
 #[derive(Default)]
 pub struct ExtraSections(pub Vec<fn(&mut Window, &mut App) -> AnyElement>);
 
@@ -58,6 +66,51 @@ pub fn init(cx: &mut App, engine: Option<Shared>, root: Option<PathBuf>) {
     cx.set_global(SettingsHost { engine, root });
     if !cx.has_global::<ExtraSections>() {
         cx.set_global(ExtraSections::default());
+    }
+    cx.bind_keys(view::bindings());
+    backend::outside(cx);
+    watch::start(cx);
+    crate::palette::registry::register(cx, |_, _| page_commands());
+}
+
+/// `pitwall settings` for this app: give the socket server's backend the
+/// app's state. Once, after [`init`].
+pub fn attach_backend(backend: std::sync::Arc<backend::AppSettings>, cx: &mut App) {
+    backend::attach(backend, cx);
+}
+
+/// "Settings: Appearance" and the like in the palette.
+fn page_commands() -> Vec<crate::palette::registry::Command> {
+    use crate::palette::registry::{rank, Command};
+    pitwall_proto::settings::Page::ALL
+        .into_iter()
+        .map(|p| {
+            Command::new(
+                format!("settings-{}", p.id()),
+                format!("Settings: {}", p.label()),
+                format!("settings preferences {} {}", p.label().to_lowercase(), page_words(p)),
+                move |w, cx| {
+                    data::set_page(cx, p);
+                    w.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                },
+            )
+            .glyph("⚙")
+            .query_only()
+            .rank(rank::SETTINGS)
+        })
+        .collect()
+}
+
+/// More words each page is found by.
+fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
+    use pitwall_proto::settings::Page;
+    match p {
+        Page::General => "scan again elsewhere command line cli tool",
+        Page::Agents => "claude codex hooks",
+        Page::Rules => "rulesync rule sets",
+        Page::Appearance => "theme dark light glass flat liquid motion density font",
+        Page::FolderAccess => "full disk access permissions privacy folders",
+        Page::About => "version licence license",
     }
 }
 
@@ -181,11 +234,6 @@ impl Layer {
                     this.settings = None;
                     this.open_onboarding(OnbMode::Rescan, cx);
                 }
-                SettingsEvent::About => {
-                    this.settings = None;
-                    this.about = true;
-                    cx.notify();
-                }
             });
             self._subs.push(sub);
             self.settings = Some(view);
@@ -286,7 +334,11 @@ impl Layer {
 impl Render for Layer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if std::mem::take(&mut self.focus_next_render) {
-            window.focus(&self.focus);
+            // Settings: its page list, for ↑/↓.
+            match &self.settings {
+                Some(s) => window.focus(&s.read(cx).focus),
+                None => window.focus(&self.focus),
+            }
         }
         // Drops the native glass pieces no region placed this frame (painted
         // after the rest of the window: the layer is MainView's last child).
@@ -304,7 +356,7 @@ impl Render for Layer {
             return root.child(onb.clone());
         }
         if let Some(s) = self.settings.clone() {
-            let modal = self.modal("settings", 520., s.into_any_element(), cx);
+            let modal = self.modal("settings", view::WIDTH, s.into_any_element(), cx);
             return root.child(modal);
         }
         if self.about {

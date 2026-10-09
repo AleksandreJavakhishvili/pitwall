@@ -133,6 +133,9 @@ pub fn run() {
         ui_state::init(root.clone(), cx);
         windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine.clone(), root);
+        if let Some(b) = cx.global::<AppState>().host.as_ref().map(|h| h.settings.clone()) {
+            settings::attach_backend(b, cx);
+        }
         rules::init(cx, engine);
 
         cx.on_action(|_: &Quit, cx| cx.quit());
