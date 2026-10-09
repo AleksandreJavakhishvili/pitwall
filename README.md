@@ -259,14 +259,12 @@ Since v0.2, Pitwall is a native app: the same engine, with the UI drawn on the G
 | Pitwall's own processes (never the agents) | v0.2 (native) ¹ | v0.1 (web view) ² |
 |---|---|---|
 | 15 busy agents (Claude/Codex-like TUIs redrawing ~10×/s), 4 on screen ³ | ~11 % of one core, ~330 MB | ~65 % of one core, ~620 MB |
-| A day's setup: 15 real agents, 3 full-screen windows ⁴ | ~490 MB | ~630 MB |
-| Window hidden (minimised, in the tray, another Space) | ~100 MB: its GPU memory is given back | unchanged |
 | Idle window, no agents | ~0 % CPU, ~70–75 MB | ~0.2 % CPU, ~100 MB |
 | Scrolling | 120 fps | not measured |
 | Web view processes | none | WebContent + a GPU process that keeps ~220 MB once a terminal paints |
 | Window material (Glass) | Liquid Glass on macOS 26, Mica on Windows 11 | none (Flat only) |
 
-<sub>¹ Preview measurements from development builds, to be re-measured on the v0.2.0 release build. ² Release build, from [`docs/spec/perf.md`](docs/spec/perf.md). ³ The same simulated load on both, `scripts/bench.py --agent tui`. ⁴ One user's machine, both apps settled; memory as Activity Monitor counts it. All on an M-series Mac.</sub>
+<sub>¹ Preview measurements from development builds, to be re-measured on the v0.2.0 release build. ² Release build, from [`docs/spec/perf.md`](docs/spec/perf.md). ³ The same simulated load on both, `scripts/bench.py --agent tui`. All on an M-series Mac.</sub>
 
 Carried over from v0.1: terminals are parsed in Rust (`alacritty_terminal`), and git for local agents refreshes on file-system events instead of polling, which cut the git processes for 20 working agents to a third.
 
