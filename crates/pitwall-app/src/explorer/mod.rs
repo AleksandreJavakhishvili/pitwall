@@ -14,6 +14,7 @@
 //! open, notices); [`on_actions`] wires the shortcuts on its root.
 
 pub mod code_view;
+pub mod file_link;
 pub mod files_panel;
 
 
@@ -90,7 +91,8 @@ pub fn register(cx: &mut App) {
 
 /// The explorer's shortcuts handled on the window's root element.
 pub fn on_actions<E: InteractiveElement>(el: E, explorer: &Entity<Explorer>) -> E {
-    let (a, b, c, d) = (
+    let (a, b, c, d, f) = (
+        explorer.clone(),
         explorer.clone(),
         explorer.clone(),
         explorer.clone(),
@@ -102,6 +104,10 @@ pub fn on_actions<E: InteractiveElement>(el: E, explorer: &Entity<Explorer>) -> 
         })
         .on_action(move |_: &BrowseFiles, window, cx| {
             c.update(cx, |e, cx| e.browse_files(window, cx))
+        })
+        // ⌘-click on a file reference in a terminal.
+        .on_action(move |l: &file_link::OpenFileLink, window, cx| {
+            f.update(cx, |e, cx| e.open_file_link(l, window, cx))
         })
         // ⌘⇧R refreshes every source-control view: the main screen's
         // Changes and worktrees first, then the explorer here.

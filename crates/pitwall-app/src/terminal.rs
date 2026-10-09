@@ -27,10 +27,12 @@ use gpui::{
 use pitwall_core::engine::input;
 use pitwall_core::Shared;
 use pitwall_term_view::{
-    Copy, Feed, Paste, ScrollLineDown, ScrollLineUp, ScrollPageDown, ScrollPageUp, ScrollToBottom,
-    ScrollToTop, SearchNext, SearchPrevious, SelectAll, TermFont, TermSize, TermStream, TermTheme,
-    Terminal, TerminalConfig, TerminalView, ToggleSearch, ViewMode, ViewSettings, KEY_CONTEXT,
+    Copy, Feed, FileLinks, OpenFile, Paste, ScrollLineDown, ScrollLineUp, ScrollPageDown,
+    ScrollPageUp, ScrollToBottom, ScrollToTop, SearchNext, SearchPrevious, SelectAll, TermFont,
+    TermSize, TermStream, TermTheme, Terminal, TerminalConfig, TerminalView, ToggleSearch,
+    ViewMode, ViewSettings, KEY_CONTEXT,
 };
+use pitwall_proto::AgentView;
 
 use crate::agents::AgentStore;
 use crate::main_screen::{EngineHandle, TerminalArgs};
@@ -115,6 +117,8 @@ struct Entry {
     mode: Mode,
     /// The window the view was made in (its focus and activation hooks).
     window: gpui::WindowId,
+    /// ⌘-click on a file reference opens the explorer (this view's).
+    _open_file: Subscription,
     /// xterm's `isCursorInitialized`: the cursor shows once the terminal
     /// was focused (or typed into, which needs focus) or the program
     /// switched screens. The Wall's tiles follow it.
@@ -290,6 +294,7 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
                 cx,
             )
         });
+        let open_file = file_links(&view, a, window, cx);
         cx.default_global::<Terminals>().entries.insert(
             a.id.clone(),
             Entry {
@@ -298,6 +303,7 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
                 live,
                 mode,
                 window: window.window_handle().window_id(),
+                _open_file: open_file,
                 cursor_init: false,
             },
         );
@@ -314,9 +320,11 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
         let view = cx.new(|cx| {
             TerminalView::new(terminal, ViewMode::Interactive, settings(font), window, cx)
         });
+        let open_file = file_links(&view, a, window, cx);
         if let Some(e) = cx.global_mut::<Terminals>().entries.get_mut(&a.id) {
             e.view = view;
             e.window = here;
+            e._open_file = open_file;
         }
     }
     let t = cx.global_mut::<Terminals>();
@@ -332,6 +340,15 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
         entry.terminal.set_theme(term_theme(mode));
     }
     let view = entry.view.clone();
+    // The agent moved to another folder (a worktree made later).
+    let stale = match view.read(cx).file_links() {
+        Some(l) => l.cwd.as_os_str() != std::ffi::OsStr::new(&a.cwd),
+        None => links_for(a).is_some(),
+    };
+    if stale {
+        let links = links_for(a);
+        view.update(cx, |v, _| v.set_file_links(links));
+    }
     if view.read(cx).settings().font.size != font {
         view.update(cx, |v, cx| {
             let mut s = v.settings().clone();
@@ -367,6 +384,43 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
         })
         .child(gpui::AnyView::from(view).cached(style))
         .into_any_element()
+}
+
+/// Where an agent's file references resolve: its folder. Only for agents
+/// on this machine (the terminal checks files on this disk).
+fn links_for(a: &AgentView) -> Option<FileLinks> {
+    if a.machine.provider != "local" || a.cwd.is_empty() {
+        return None;
+    }
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .filter(|h| !h.is_empty())
+        .map(std::path::PathBuf::from);
+    Some(FileLinks {
+        cwd: a.cwd.clone().into(),
+        home,
+    })
+}
+
+/// The view's file references made links: ⌘-click opens the window's
+/// explorer on the file (`explorer::file_link`).
+fn file_links(
+    view: &Entity<TerminalView>,
+    a: &AgentView,
+    window: &mut Window,
+    cx: &mut App,
+) -> Subscription {
+    let links = links_for(a);
+    view.update(cx, |v, _| v.set_file_links(links));
+    let agent_id = a.id.clone();
+    window.subscribe(view, cx, move |_, e: &OpenFile, window, cx| {
+        let link = crate::explorer::file_link::OpenFileLink {
+            agent_id: agent_id.clone(),
+            path: e.path.clone(),
+            line: e.line,
+            column: e.column,
+        };
+        window.dispatch_action(Box::new(link), cx);
+    })
 }
 
 #[cfg(test)]
