@@ -251,6 +251,23 @@ pub fn init(store: &Entity<AgentStore>, cx: &mut App) {
         _subs: vec![sub],
         ..Default::default()
     });
+    // Terminals no view looks at (folded, in a space not shown) keep their
+    // scrollback compact; busy ones do it as output comes, this is for the
+    // quiet ones.
+    cx.spawn(async move |cx: &mut gpui::AsyncApp| loop {
+        cx.background_executor()
+            .timer(pitwall_term_view::terminal::FREEZE_AFTER)
+            .await;
+        let alive = cx.update(|cx| {
+            if let Some(t) = cx.try_global::<Terminals>() {
+                t.entries.values().for_each(|e| e.terminal.freeze_if_unseen());
+            }
+        });
+        if alive.is_err() {
+            break;
+        }
+    })
+    .detach();
     crate::main_screen::set_terminal_slot(cx, element);
 }
 
