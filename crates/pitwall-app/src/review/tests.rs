@@ -411,3 +411,23 @@ fn spaces_scope_review_with_their_members_and_panes() {
         other => panic!("{other:?}"),
     }
 }
+
+/// The hover pass over Review: the file rows, the scope and task heads,
+/// the footer buttons; nothing moves while the pointer is over one.
+#[gpui::test]
+fn hovering_review_moves_nothing(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("src/a.rs", "fn a() {}\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let mut rec = record("agent-1", r.path());
+    rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]));
+    let h = Harness::new(vec![rec]);
+    r.write("src/a.rs", "fn a() { b(); }\n");
+    r.write("notes/new.md", "new\n");
+    let (_view, cx) = open(cx, &h);
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(900.)));
+    cx.run_until_parked();
+    let n = crate::kit::hover::probe::assert_hover_keeps_layout(cx, "review");
+    assert!(n >= 3, "only {n} hoverable elements in Review");
+}

@@ -105,6 +105,7 @@ impl ReviewView {
         });
         let sub = cx.subscribe_in(&field, window, |this, field, e: &InputEvent, window, cx| match e {
             InputEvent::Submit => {
+                this.follow_prompt_agent(cx);
                 let queue_first = matches!(&this.dialog, Some(Dialog::Prompt { running, busy_status, .. }) if !*running || *busy_status);
                 if !field.read(cx).text().trim().is_empty() {
                     this.send_prompt(!queue_first, cx);
@@ -247,6 +248,18 @@ impl ReviewView {
         cx.notify();
     }
 
+    /// The prompt dialog's buttons follow the agent as it is now
+    /// (`ReviewDialogs.tsx` reads the live agent on every render).
+    fn follow_prompt_agent(&mut self, cx: &mut Context<Self>) {
+        let Some(Dialog::Prompt { agent, running, busy_status, .. }) = self.dialog.as_mut() else {
+            return;
+        };
+        if let Some(a) = self.store.read(cx).agent(agent) {
+            *running = a.running;
+            *busy_status = matches!(a.status, Status::Working | Status::Blocked);
+        }
+    }
+
     pub(super) fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dialog = None;
         window.focus(&self.list_focus);
@@ -302,13 +315,17 @@ impl ReviewView {
             cx,
             move |e| {
                 if now {
-                    ops::send_prompt(e, &id, text)
+                    ops::send_prompt(e, &id, text).map(|()| None)
                 } else {
-                    ops::queue_add(e, &id, text)
+                    ops::queue_add(e, &id, text).map(Some)
                 }
             },
             |this: &mut Self, res, cx| match res {
-                Ok(()) => {
+                Ok(view) => {
+                    // The queue shows at once (React patches the agent).
+                    if let Some(view) = view {
+                        crate::agents::patch(view, cx);
+                    }
                     if let Some(Dialog::Prompt {
                         clears_comments,
                         agent,
@@ -447,6 +464,7 @@ impl ReviewView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.follow_prompt_agent(cx);
         let (title, width, body, foot): (String, f32, Div, Div) = match self
             .dialog
             .as_ref()
@@ -808,7 +826,7 @@ impl ReviewView {
         })
         .title(title)
         .motion(crate::theme::motion_on(cx))
-        .render(t, div().flex().flex_col().min_h_0().child(body).child(foot));
+        .render(t, div().flex().flex_col().min_h_0().child(kit::dialog::scrolling("rv-modal-body", body, t)).child(foot));
         // Over the whole window, not only Review's area.
         let size = window.viewport_size();
         deferred(

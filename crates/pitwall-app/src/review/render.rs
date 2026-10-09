@@ -3,6 +3,7 @@
 //! (header, diff, comment composer, footer actions) and the empty states.
 
 use crate::kit::Ellipsis as _;
+use crate::kit::HoverText as _;
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, relative, AnyElement, App, ClickEvent, Context,
     Corner, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
@@ -274,8 +275,9 @@ impl ReviewView {
                 .into_any_element(),
             );
         }
-        div()
+        let list = div()
             .id("rv-list")
+            .track_scroll(&self.list_scroll)
             .key_context("ReviewList")
             .track_focus(&self.list_focus)
             .on_action(cx.listener(|v, _: &PreviousFile, _, cx| v.move_cursor(-1, cx)))
@@ -285,19 +287,21 @@ impl ReviewView {
                     v.select_file(&owner, &path, window, cx);
                 }
             }))
-            .w(px(LIST_W))
-            .min_w(px(220.))
-            .flex_none()
-            .h_full()
+            .size_full()
             .overflow_y_scroll()
-            .border_r_1()
-            .border_color(t.line)
-            .bg(t.surface)
             .pt(px(4.))
             .pb(px(16.))
             .flex()
             .flex_col()
-            .children(col)
+            .children(col);
+        kit::vscroll_fill("rv-list-bar", &self.list_scroll, t, list)
+            .w(px(LIST_W))
+            .min_w(px(220.))
+            .flex_none()
+            .h_full()
+            .border_r_1()
+            .border_color(t.line)
+            .bg(t.surface)
     }
 
     fn chevron_toggle(id: SharedString, open: bool, size: f32, t: &Theme) -> gpui::Stateful<Div> {
@@ -365,7 +369,7 @@ impl ReviewView {
                     .py(px(2.))
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
-                    .hover(|s| s.bg(t.surface_3))
+                    .hover_probed(|s| s.bg(t.surface_3))
                     .tooltip({
                         let tip = format!("{} · {}", a.name, a.cwd_display);
                         move |_, cx| kit::tooltip_view(tip.clone(), cx)
@@ -493,7 +497,7 @@ impl ReviewView {
                                     .py(px(4.))
                                     .rounded(RADIUS_SM)
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(t.surface_3))
+                                    .hover_probed(|s| s.bg(t.surface_3))
                                     .tooltip(|_, cx| {
                                         kit::tooltip_view("Show in diff".to_string(), cx)
                                     })
@@ -578,7 +582,7 @@ impl ReviewView {
                     .flex_none()
                     .text_color(t.text_2)
                     .cursor_pointer()
-                    .hover(|s| s.text_color(t.text))
+                    .hover_text(t.text, |s| s)
                     .child("Retry")
                     .on_click(retry),
             )
@@ -622,7 +626,7 @@ impl ReviewView {
                             .text_size(px(12.))
                             .line_height(px(17.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3))
+                            .hover_probed(|s| s.bg(t.surface_3))
                             .tooltip({
                                 let p = path.clone();
                                 move |_, cx| kit::tooltip_view(p.clone(), cx)
@@ -681,7 +685,7 @@ impl ReviewView {
                             .line_height(px(17.))
                             .cursor_pointer()
                             .when(is_sel, |d| d.bg(t.surface_3))
-                            .when(!is_sel, |d| d.hover(|s| s.bg(t.surface_3)))
+                            .when(!is_sel, |d| d.hover_probed(|s| s.bg(t.surface_3)))
                             .when(is_cursor, |d| d.border_1().border_color(t.focus))
                             .tooltip({
                                 let p = path.clone();
@@ -787,7 +791,7 @@ impl ReviewView {
                     .py(px(2.))
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
-                    .hover(|s| s.bg(t.surface_3))
+                    .hover_probed(|s| s.bg(t.surface_3))
                     .tooltip(move |_, cx| kit::tooltip_view(tip.clone(), cx))
                     .on_click(cx.listener({
                         let key = key.clone();
@@ -1168,7 +1172,7 @@ impl ReviewView {
                     .rounded(RADIUS_SM)
                     .text_color(if enabled { t.text } else { t.text_4 })
                     .when(chosen, |d| d.bg(t.surface_3))
-                    .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(t.surface_3)))
+                    .when(enabled, |d| d.cursor_pointer().hover_probed(|s| s.bg(t.surface_3)))
                     .child(div().ellipsis().child(crate::kit::one_line(label)))
             };
             {
@@ -1256,23 +1260,30 @@ impl ReviewView {
             )
             .when_some(prompt, |d, p| {
                 d.child(
-                    div()
-                        .id("rv-task-prompt")
-                        .flex_none()
-                        .max_h(px(64.))
-                        .overflow_y_scroll()
-                        .pt(px(6.))
-                        .px(px(12.))
-                        .pb(px(7.))
-                        .border_b_1()
-                        .border_color(t.line)
-                        .bg(t.surface)
-                        .text_size(px(12.))
-                        .text_color(t.text_2)
-                        .tooltip(|_, cx| {
-                            kit::tooltip_view("The prompt of this task, as sent".to_string(), cx)
-                        })
-                        .child(p),
+                    kit::vscroll(
+                        "rv-task-prompt-bar",
+                        &self.prompt_scroll,
+                        t,
+                        div()
+                            .id("rv-task-prompt")
+                            .track_scroll(&self.prompt_scroll)
+                            .max_h(px(64.))
+                            .overflow_y_scroll()
+                            .pt(px(6.))
+                            .px(px(12.))
+                            .pb(px(7.))
+                            .text_size(px(12.))
+                            .text_color(t.text_2)
+                            .tooltip(|_, cx| {
+                                kit::tooltip_view("The prompt of this task, as sent".to_string(), cx)
+                            })
+                            .child(p),
+                    )
+                    .flex_none()
+                    .max_h(px(64.))
+                    .border_b_1()
+                    .border_color(t.line)
+                    .bg(t.surface),
                 )
             })
             .child(self.diff_area(empty, file.is_some(), t, cx))
@@ -1486,8 +1497,12 @@ impl Render for ReviewView {
             .key_context("Review")
             .font_family(kit::UI_FONT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|v, _: &Back, _, cx| {
-                if v.dialog.is_none() && v.composer.is_none() && !v.task_menu {
+            .on_action(cx.listener(|v, _: &Back, window, cx| {
+                if v.dialog.is_some() {
+                    // A dialog without a field has no focus of its own: Esc
+                    // closes it from here (React: the modal's Esc).
+                    v.close_dialog(window, cx);
+                } else if v.composer.is_none() && !v.task_menu {
                     v.exit(cx)
                 } else if v.task_menu {
                     v.task_menu = false;

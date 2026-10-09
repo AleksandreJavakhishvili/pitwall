@@ -131,7 +131,7 @@ fn select_box(
                                 .rounded(px(4.))
                                 .text_size(px(13.))
                                 .when(on, |d| d.bg(t.surface_3))
-                                .hover(|s| s.bg(t.surface_3))
+                                .hover_probed(|s| s.bg(t.surface_3))
                                 .cursor_pointer()
                                 .on_click(move |_, window, cx| run(window, cx))
                                 .child(text)
@@ -379,7 +379,7 @@ impl NewAgentDialog {
             })
             .when(!installed, |d| d.opacity(0.45))
             .when(installed, |d| {
-                d.cursor_pointer().hover(|s| s.bg(t.surface_2))
+                d.cursor_pointer().hover_probed(|s| s.bg(t.surface_2))
             })
             .tooltip(crate::kit::tooltip(tip))
             .on_click(cx.listener(move |d, _, _, cx| {
@@ -1044,7 +1044,19 @@ impl Render for NewAgentDialog {
                 .flex()
                 .flex_col()
                 .min_h_0()
-                .child(div().id("na-body").overflow_y_scroll().child(b))
+                .child(
+                    crate::kit::scroll_area("na-body-area", &t, move |h| {
+                        div()
+                            .id("na-body")
+                            .track_scroll(h)
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .child(b)
+                            .into_any_element()
+                    })
+                    .min_h_0()
+                    .flex_shrink(),
+                )
                 .child(
                     foot(&t)
                         .child(
@@ -1145,7 +1157,9 @@ impl Render for TerminalDialog {
             div()
                 .flex()
                 .flex_col()
-                .child(
+                .min_h_0()
+                .child(crate::kit::dialog::scrolling(
+                    "td-body",
                     body()
                         .child(
                             div()
@@ -1220,7 +1234,8 @@ impl Render for TerminalDialog {
                                 }),
                             ))
                         }),
-                )
+                    &t,
+                ))
                 .child(
                     foot(&t)
                         .child(
@@ -1396,7 +1411,7 @@ impl MainScreen {
                 t,
                 crate::theme::motion_on(cx),
                 move |window, cx| close.update(cx, |s, cx| s.close_modal(window, cx)),
-                div().flex().flex_col().child(body).child(
+                div().flex().flex_col().min_h_0().child(crate::kit::dialog::scrolling("rm-body", body, t)).child(
                     foot(t)
                         .child(
                             button("rm-cancel", BtnKind::Ghost, false, t)

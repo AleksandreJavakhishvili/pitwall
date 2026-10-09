@@ -182,3 +182,44 @@ fn every_shortcut_has_a_binding() {
             .all(|s| !s.modifiers().control || s.modifiers().shift)));
     }
 }
+
+/// The hover pass (main screen): the pointer visits every hoverable
+/// element (sidebar rows, the empty-project row, project heads, tabs, top
+/// bar, pane headers and their buttons, chips, the right panel, the strip)
+/// and nothing moves or changes size while it is over one; then the same
+/// with the agent menu open.
+#[gpui::test]
+fn hovering_never_moves_anything(cx: &mut TestAppContext) {
+    use crate::kit::hover::probe;
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::kit::init(cx);
+        init(cx);
+    });
+    let store = cx.new(|_| AgentStore::new(demo::agents()));
+    let s = store.clone();
+    let (view, cx) =
+        cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), window, cx));
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(900.)));
+    view.update_in(cx, |s, window, cx| {
+        s.projects.push(pitwall_core::onboarding::project_list::Project {
+            path: "/work/empty".into(),
+            display: "empty-proj".into(),
+            is_git: true,
+            added_at: 0,
+        });
+        s.apply_preset(tree::Preset::G2x2, window, cx);
+        let first = s.agents(cx)[0].id.clone();
+        s.show_agent(&first, window, cx);
+    });
+    cx.run_until_parked();
+    let n = probe::assert_hover_keeps_layout(cx, "main screen");
+    assert!(n > 30, "only {n} hoverable elements drawn");
+
+    view.update_in(cx, |s, window, cx| {
+        let a = s.agents(cx)[0].clone();
+        s.demo_agent_menu(&a, window, cx);
+    });
+    cx.run_until_parked();
+    probe::assert_hover_keeps_layout(cx, "agent menu");
+}

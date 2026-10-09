@@ -3,6 +3,7 @@
 //! owner keeps the open state and keyboard cursor (see
 //! `main_screen::menu`); these draw it.
 
+use crate::kit::HoverText as _;
 use gpui::{div, prelude::*, px, Div, ElementId, SharedString, Stateful};
 
 use crate::theme::{Theme, RADIUS, RADIUS_SM};
@@ -46,7 +47,7 @@ pub fn menu_item(
         .line_height(px(18.))
         .text_color(t.text)
         .when(selected, |d| d.bg(hover))
-        .hover(move |s| s.bg(hover))
+        .hover_probed(move |s| s.bg(hover))
         .cursor_pointer()
         .child(div().w(px(16.)).flex().when(!icon_name.is_empty(), |d| {
             d.child(icon(icon_name, 14., t.text_3))

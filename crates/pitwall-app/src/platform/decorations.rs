@@ -460,7 +460,7 @@ pub fn controls(window: &Window, t: &Theme) -> Option<AnyElement> {
                                     .h(px(1.25))
                                     .rounded(px(1.))
                                     .bg(glyph_color)
-                                    .group_hover("wc-min", |s| s.bg(t.text)),
+                                    .group_hover_probed("wc-min", |s| s.bg(t.text)),
                             )
                             .on_click(|_, window, _| window.minimize_window()),
                     )
@@ -512,7 +512,7 @@ fn control_btn(id: &'static str, tip: &'static str, t: &Theme, danger: bool) -> 
         .justify_center()
         .rounded(RADIUS)
         .cursor_pointer()
-        .hover(move |s| s.bg(hover_bg))
+        .hover_probed(move |s| s.bg(hover_bg))
         .tooltip(tooltip(tip))
 }
 

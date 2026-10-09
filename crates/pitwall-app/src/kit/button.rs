@@ -143,7 +143,7 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
                         spread_radius: px(-8.),
                     }])
                 })
-                .when(hover_ok, |d| d.hover(move |s| s.bg(hover)));
+                .when(hover_ok, |d| d.hover_probed(move |s| s.bg(hover)));
             (el, Some(motion::Skin::new(Some(hover), None, radius)))
         }
         BtnKind::Ghost | BtnKind::GhostSm => {
@@ -179,7 +179,7 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
                 .border_1()
                 .border_color(t.line_strong)
                 .text_color(t.text)
-                .when(hover_ok, |d| d.hover(move |s| s.border_color(text4)));
+                .when(hover_ok, |d| d.hover_probed(move |s| s.border_color(text4)));
             (el, Some(motion::Skin::new(Some(t.surface_3), Some(text4), radius)))
         }
         BtnKind::Link => (
@@ -220,7 +220,7 @@ pub fn accent_button(id: impl Into<ElementId>, bg: Hsla, fg: Hsla, t: &Theme) ->
         .bg(bg)
         .text_color(fg)
         .cursor_pointer()
-        .hover(move |s| s.bg(hover))
+        .hover_probed(move |s| s.bg(hover))
 }
 
 /// A button with a text label (`button(…).child(text)`).
@@ -289,7 +289,7 @@ pub fn icon_btn_state(
         .rounded(RADIUS)
         .when_some(bg, |d, bg| d.bg(bg))
         .cursor_pointer()
-        .when(!pressing, |d| d.hover(move |s| s.bg(hover_bg)));
+        .when(!pressing, |d| d.hover_probed(move |s| s.bg(hover_bg)));
     motion::pressable(el, &id, false, motion::Skin::new(Some(hover_bg), None, RADIUS))
         .child(icon(icon_name, size, color).group_hover_text(group, hover_fg, move |s| s))
         .when(!tip.is_empty(), |d| d.tooltip(tooltip(tip)))

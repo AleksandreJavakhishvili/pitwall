@@ -97,6 +97,8 @@ impl WorktreeList {
         if self.poll.is_none() {
             self.poll = Some(cx.spawn(async move |this, cx| loop {
                 cx.background_executor().timer(LIST_EVERY).await;
+                // Paused while no window shows (`document.hidden`).
+                crate::platform::visible::until_any_visible(cx).await;
                 if this.update(cx, |l, cx| l.list(cx)).is_err() {
                     break;
                 }

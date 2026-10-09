@@ -141,6 +141,8 @@ pub struct ReviewView {
     store: Entity<AgentStore>,
     focus: FocusHandle,
     list_focus: FocusHandle,
+    list_scroll: gpui::ScrollHandle,
+    prompt_scroll: gpui::ScrollHandle,
     space: Space,
     focused_agent: Option<String>,
     extra: Vec<String>,
@@ -253,6 +255,8 @@ impl ReviewView {
             store,
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
+            list_scroll: gpui::ScrollHandle::new(),
+            prompt_scroll: gpui::ScrollHandle::new(),
             space,
             focused_agent,
             extra: Vec::new(),
@@ -617,6 +621,8 @@ impl ReviewView {
             let mut tick: u64 = 0;
             loop {
                 cx.background_executor().timer(Duration::from_secs(5)).await;
+                // Paused while no window shows (`document.hidden`).
+                crate::platform::visible::until_any_visible(cx).await;
                 tick += 1;
                 let alive = this.update(cx, |v, cx| {
                     let ids: Vec<String> = v.ordered.iter().map(|a| a.id.clone()).collect();

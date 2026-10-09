@@ -95,22 +95,40 @@ impl MainScreen {
             if g.agents.is_empty() {
                 if !collapsed {
                     let project = g.project.clone();
+                    // `.project-empty`: one quiet dashed row where an agent
+                    // row would be; the whole row opens New agent.
+                    let group = SharedString::from(format!("project-empty-{}", g.key));
                     list.push(
                         div()
+                            .id(SharedString::from(format!("empty-{}", g.key)))
+                            .group(group.clone())
+                            .mx(px(6.))
+                            .mb(px(4.))
+                            .h(px(32.))
+                            .px(px(9.))
                             .flex()
                             .items_center()
-                            .gap_2()
-                            .pl(px(32.))
-                            .pr(px(14.))
-                            .pb(px(6.))
-                            .text_size(px(12.))
+                            .gap(px(7.))
+                            .rounded(RADIUS)
+                            .border_1()
+                            .border_dashed()
+                            .border_color(t.line_strong)
+                            .text_size(px(12.5))
                             .text_color(t.text_3)
-                            .child("No agents yet")
+                            .cursor_pointer()
+                            .hover_text(t.text, |s| s.border_color(t.text_4).bg(t.surface_2))
+                            .tooltip(tooltip("New agent in this project"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_new_agent(Some(project.clone()), window, cx)
+                            }))
+                            .child(icon("plus", 12., t.text_3).group_hover_text(group, t.text, |s| s))
+                            .child("New agent")
                             .child(
-                                crate::kit::small_btn(SharedString::from(format!("empty-{}", g.key)), "+ Agent", t)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.open_new_agent(Some(project.clone()), window, cx)
-                                    })),
+                                div()
+                                    .ml_auto()
+                                    .text_size(px(11.5))
+                                    .text_color(t.text_4)
+                                    .child("No agents yet"),
                             )
                             .into_any_element(),
                     );
@@ -169,14 +187,21 @@ impl MainScreen {
             .border_r_1()
             .border_color(t.line)
             .child(
-                div()
-                    .id("sidebar-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .pt(px(6.))
-                    .pb(px(8.))
-                    .children(list),
+                crate::kit::scroll_area("sidebar-scroll-area", t, move |h| {
+                    div()
+                        .id("sidebar-scroll")
+                        .track_scroll(h)
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .pt(px(6.))
+                        .pb(px(8.))
+                        .children(list)
+                        .into_any_element()
+                })
+                .fill()
+                .flex_1()
+                .min_h_0(),
             )
             .child(
                 div()
@@ -226,7 +251,7 @@ impl MainScreen {
                             .border_dashed()
                             .border_color(t.line_strong)
                             .cursor_pointer()
-                            .hover(move |s| s.bg(bg).border_color(edge))
+                            .hover_probed(move |s| s.bg(bg).border_color(edge))
                             .tooltip(tooltip(keys(
                                 "New terminal here (⌘T) · ⌘⇧T to choose a folder",
                                 false,
@@ -340,7 +365,7 @@ impl MainScreen {
                 d.child(
                     div()
                         .invisible()
-                        .group_hover("project-head", |s| s.visible())
+                        .group_hover_probed("project-head", |s| s.visible())
                         .child(
                             icon_btn(
                                 format!("add-{}", g.key),
@@ -381,7 +406,7 @@ impl MainScreen {
                     d.child(
                         div()
                             .invisible()
-                            .group_hover("project-head", |s| s.visible())
+                            .group_hover_probed("project-head", |s| s.visible())
                             .child(
                                 icon_btn(
                                     format!("space-{}", g.key),
@@ -513,12 +538,12 @@ impl MainScreen {
                 } else if selected {
                     d.bg(t.surface_3)
                 } else {
-                    d.hover(|s| s.bg(t.surface_2))
+                    d.hover_probed(|s| s.bg(t.surface_2))
                 }
             })
             .when(cursor, |d| d.border_1().border_color(t.focus))
             .tooltip(tooltip(tip))
-            .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
+            .on_drag(drag, |d, grab, w, cx| d.ghost(grab, w, cx))
             .on_click(
                 cx.listener(move |this, _, window, cx| this.show_agent(&id_click, window, cx)),
             )
@@ -642,7 +667,7 @@ impl MainScreen {
                             )))
                             .child(
                                 div()
-                                    .group_hover("agent-row", |s| s.invisible())
+                                    .group_hover_probed("agent-row", |s| s.invisible())
                                     .child(diffstat(a.added, a.removed, t)),
                             ),
                     )
@@ -666,7 +691,7 @@ impl MainScreen {
                         .text_size(px(10.))
                         .text_color(t.text_4)
                         .invisible()
-                        .group_hover("agent-row", |s| s.visible())
+                        .group_hover_probed("agent-row", |s| s.visible())
                         .child(keys(&format!("⌘{}", index + 1), true)),
                 )
             })
@@ -680,20 +705,17 @@ impl MainScreen {
     ) -> impl IntoElement {
         let groups = group_by_project(agents);
         let focused = self.focused_agent_id();
-        div()
+        let rail = div()
             .id("rail")
-            .w(px(56.))
-            .h_full()
-            .flex_none()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
             .flex()
             .flex_col()
             .items_center()
             .py(px(8.))
             .gap(px(2.))
             .overflow_y_scroll()
-            .bg(t.surface)
-            .border_r_1()
-            .border_color(t.line)
             .children(groups.iter().enumerate().map(|(gi, g)| {
                 let title: SharedString = match (&g.machine, g.can_create) {
                     (Some(m), false) => format!("{} · {}", g.display, m.label).into(),
@@ -750,7 +772,7 @@ impl MainScreen {
                                     id: a.id.clone(),
                                     name: a.name.clone().into(),
                                 },
-                                |d, _, _, cx| cx.new(|_| d.clone()),
+                                |d, grab, w, cx| d.ghost(grab, w, cx),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.show_agent(&id, window, cx)
@@ -800,7 +822,15 @@ impl MainScreen {
                         cx.listener(|this, _, window, cx| this.open_new_agent(None, window, cx)),
                     )
                     .child(icon("plus", 16., t.text_3)),
-            )
+            );
+        crate::kit::scroll_area("rail-area", t, move |h| rail.track_scroll(h).into_any_element())
+            .fill()
+            .w(px(56.))
+            .h_full()
+            .flex_none()
+            .bg(t.surface)
+            .border_r_1()
+            .border_color(t.line)
     }
 }
 

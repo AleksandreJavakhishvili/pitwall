@@ -26,21 +26,54 @@ pub struct AgentDrag {
     pub name: SharedString,
 }
 
-impl Render for AgentDrag {
+impl AgentDrag {
+    /// The floating label that follows the pointer (`.drag-ghost`): 12 px
+    /// right of and 10 px under the cursor, wherever the drag was grabbed.
+    pub fn ghost(
+        &self,
+        grab: gpui::Point<gpui::Pixels>,
+        _: &mut Window,
+        cx: &mut gpui::App,
+    ) -> gpui::Entity<AgentGhost> {
+        let name = self.name.clone();
+        cx.new(|_| AgentGhost { name, grab })
+    }
+}
+
+/// The dragged agent's ghost (gpui draws it at the pointer minus `grab`).
+pub struct AgentGhost {
+    name: SharedString,
+    grab: gpui::Point<gpui::Pixels>,
+}
+
+impl Render for AgentGhost {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme::theme(cx);
         div()
-            .px(px(10.))
-            .py(px(4.))
-            .rounded(RADIUS)
-            .bg(t.surface_3)
-            .border_1()
-            .border_color(t.line_strong)
-            .shadow_lg()
-            .text_size(px(12.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(t.text)
-            .child(self.name.clone())
+            .pl(self.grab.x + px(12.))
+            .pt(self.grab.y + px(10.))
+            .child(
+                div()
+                    .px(px(10.))
+                    .py(px(4.))
+                    .rounded(RADIUS)
+                    .bg(t.surface_3)
+                    // inset 0 0 0 1px color-mix(text 25%)
+                    .border_1()
+                    .border_color(t.text.opacity(0.25))
+                    .shadow(vec![gpui::BoxShadow {
+                        color: gpui::hsla(0., 0., 0., 0.35),
+                        offset: gpui::point(px(0.), px(6.)),
+                        blur_radius: px(20.),
+                        spread_radius: px(0.),
+                    }])
+                    .opacity(0.95)
+                    .whitespace_nowrap()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t.text)
+                    .child(self.name.clone()),
+            )
     }
 }
 
@@ -399,7 +432,7 @@ impl MainScreen {
                             .gap(px(1.))
                             .mr(px(-4.))
                             .when(!is_active, |d| {
-                                d.invisible().group_hover("tab", |s| s.visible())
+                                d.invisible().group_hover_probed("tab", |s| s.visible())
                             })
                             .child(
                                 tab_btn(
@@ -566,7 +599,7 @@ fn tab_btn(id: &str, name: &str, tip: String, t: &Theme) -> gpui::Stateful<gpui:
         .items_center()
         .justify_center()
         .rounded(px(4.))
-        .hover(|s| s.bg(t.surface_3))
+        .hover_probed(|s| s.bg(t.surface_3))
         .tooltip(tooltip(tip))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(icon(name, 12., t.text_4).group_hover_text("tab-btn", t.text, |s| s))

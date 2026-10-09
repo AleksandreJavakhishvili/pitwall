@@ -295,3 +295,17 @@ fn wall_row_switches_the_route(cx: &mut TestAppContext) {
         assert_eq!(r.screen.read(cx).route(), Route::Wall)
     });
 }
+
+/// The hover pass over the open palette: moving over rows selects them and
+/// nothing moves.
+#[gpui::test]
+fn hovering_rows_moves_nothing(cx: &mut TestAppContext) {
+    let (_root, cx) = window(cx);
+    cx.run_until_parked();
+    // No opening animation under the pointer.
+    crate::kit::motion::set_on(false);
+    cx.dispatch_action(OpenPalette);
+    cx.run_until_parked();
+    let n = crate::kit::hover::probe::assert_hover_keeps_layout(cx, "palette");
+    assert!(n >= 10, "only {n} rows hovered");
+}

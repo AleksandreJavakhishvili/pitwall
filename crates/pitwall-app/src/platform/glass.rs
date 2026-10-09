@@ -179,12 +179,12 @@ mod mac {
                 NSAppearance::appearanceNamed(name)
             });
             ns_window.setAppearance(appearance.as_deref());
-            // Debug builds: `PITWALL_DEBUG_ALL_SPACES=1` shows the window on
-            // every Space, so screenshot scripts find it on screen.
-            if cfg!(debug_assertions) && std::env::var_os("PITWALL_DEBUG_ALL_SPACES").is_some() {
-                ns_window.setCollectionBehavior(
-                    objc2_app_kit::NSWindowCollectionBehavior::CanJoinAllSpaces,
-                );
+            // Test scripts: `PITWALL_DEBUG_ALL_SPACES=1` shows the window on
+            // every Space (full-screen ones too), so screenshots and smoke
+            // runs find it on screen.
+            if std::env::var_os("PITWALL_DEBUG_ALL_SPACES").is_some() {
+                use objc2_app_kit::NSWindowCollectionBehavior as B;
+                ns_window.setCollectionBehavior(B::CanJoinAllSpaces | B::FullScreenAuxiliary);
             }
         }
         let id = Window::window_handle(window).window_id();

@@ -67,7 +67,9 @@ impl MainScreen {
         let scanner = Arc::new(Elsewhere::new());
         self._poll_elsewhere = Some(cx.spawn(async move |this, cx| loop {
             let hidden = this.update(cx, |s, _| s.ui.hide_elsewhere).unwrap_or(true);
-            if !hidden {
+            // Not before onboarding is done: the scan reads other apps'
+            // folders, which can raise macOS folder prompts (App.tsx).
+            if !hidden && engine.projects().onboarded() {
                 let (e, s) = (engine.clone(), scanner.clone());
                 let rows = cx
                     .background_executor()
@@ -86,6 +88,8 @@ impl MainScreen {
                 }
             }
             cx.background_executor().timer(POLL).await;
+            // Paused while no window shows (`document.hidden`).
+            crate::platform::visible::until_any_visible(cx).await;
         }));
     }
 
@@ -184,7 +188,7 @@ impl MainScreen {
             .py(px(6.))
             .rounded(RADIUS)
             .text_color(t.text_2)
-            .hover(move |s| s.bg(hover))
+            .hover_probed(move |s| s.bg(hover))
             .tooltip(tooltip(tip))
             .child(
                 div()
@@ -358,7 +362,7 @@ impl MainScreen {
         self.elsewhere.busy = true;
         let taken: Vec<String> = self.agents(cx).iter().map(|a| a.name.clone()).collect();
         let name = super::model::suggest_name(r.display_project.as_deref().unwrap_or(&cwd), &taken);
-        let (cols, rows) = self.new_agent_size();
+        let (cols, rows) = self.new_agent_size(cx);
         let req = ContinueRequest {
             kind: r.kind.clone(),
             session_id,

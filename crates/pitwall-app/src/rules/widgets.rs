@@ -28,25 +28,32 @@ pub fn mini(
 }
 
 /// `.rules-list`: hairline box on surface-2, at most 220 px tall.
-pub fn list(id: impl Into<ElementId>, rows: Vec<AnyElement>, t: &Theme) -> Stateful<Div> {
+pub fn list(id: impl Into<ElementId>, rows: Vec<AnyElement>, t: &Theme) -> kit::ScrollArea {
     let n = rows.len();
     let line = t.line;
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .max_h(px(220.))
-        .overflow_y_scroll()
-        .rounded(RADIUS)
-        .border_1()
-        .border_color(t.line)
-        .bg(t.surface_2)
-        .children(rows.into_iter().enumerate().map(move |(i, r)| {
-            div()
-                .flex_none()
-                .when(i + 1 < n, |d| d.border_b_1().border_color(line))
-                .child(r)
-        }))
+    let id: ElementId = id.into();
+    let inner = id.clone();
+    kit::scroll_area(id, t, move |h| {
+        div()
+            .id(inner)
+            .track_scroll(h)
+            .flex()
+            .flex_col()
+            .max_h(px(218.))
+            .overflow_y_scroll()
+            .children(rows.into_iter().enumerate().map(move |(i, r)| {
+                div()
+                    .flex_none()
+                    .when(i + 1 < n, |d| d.border_b_1().border_color(line))
+                    .child(r)
+            }))
+            .into_any_element()
+    })
+    .max_h(px(220.))
+    .rounded(RADIUS)
+    .border_1()
+    .border_color(t.line)
+    .bg(t.surface_2)
 }
 
 /// `.rules-list li`: 32 px tall, 12.5 px.

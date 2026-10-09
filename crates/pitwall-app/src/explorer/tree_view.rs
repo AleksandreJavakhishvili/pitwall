@@ -4,6 +4,7 @@
 //! and close folders (or go to the parent), ↵ opens a file. One view per
 //! place it is shown; the [`TreeModel`] behind it is shared.
 
+use crate::kit::HoverText as _;
 use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
@@ -283,7 +284,7 @@ impl TreeView {
             .gap(px(6.))
             .rounded(theme::RADIUS_SM)
             .cursor_pointer()
-            .hover(move |s| s.bg(hover))
+            .hover_probed(move |s| s.bg(hover))
             .when(current, |d| d.bg(t.surface_3))
             .when(at_cursor && !current, |d| {
                 d.border_1().border_color(t.focus)
@@ -355,7 +356,10 @@ impl Render for TreeView {
             }),
         )
         .track_scroll(self.scroll.clone())
-        .size_full();
+        .size_full()
+        .px(px(4.))
+        .pb(px(12.));
+        let t = crate::theme::theme(cx).chrome();
         div()
             .id("ex-tree-box")
             .key_context(CONTEXT)
@@ -367,10 +371,10 @@ impl Render for TreeView {
             .on_action(cx.listener(Self::confirm))
             .flex_1()
             .min_h_0()
-            .px(px(4.))
-            .pb(px(12.))
+            .flex()
+            .flex_col()
             .font_family(MONO_FONT)
             .text_size(px(12.))
-            .child(list)
+            .child(crate::kit::vscroll_list_fill("ex-tree-bar", &self.scroll, &t, list).flex_1())
     }
 }

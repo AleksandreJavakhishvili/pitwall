@@ -6,6 +6,7 @@
 //! button, when a window comes to the front, and after rules change. Views
 //! that drew a button are told when the state changes.
 
+use crate::kit::HoverText as _;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -98,6 +99,8 @@ pub fn start(cx: &mut App) {
             break;
         }
         cx.background_executor().timer(POLL).await;
+        // Paused while no window shows (`document.hidden`).
+        crate::platform::visible::until_any_visible(cx).await;
     })
     .detach();
     poll.update(cx, |p, cx| p.refresh(cx));
@@ -170,7 +173,7 @@ pub fn button<V: 'static>(
             .when(busy, |d| d.opacity(0.6))
             .when(!busy, |d| {
                 let hover = bg.blend(gpui::white().opacity(0.06));
-                d.cursor_pointer().hover(move |s| s.bg(hover))
+                d.cursor_pointer().hover_probed(move |s| s.bg(hover))
             })
             .tooltip(kit::tooltip(title(&info)))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())

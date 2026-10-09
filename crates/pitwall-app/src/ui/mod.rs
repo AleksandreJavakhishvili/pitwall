@@ -36,6 +36,8 @@ pub struct MainView {
     pub review: Option<Entity<crate::review::ReviewRoute>>,
     /// The command palette (⌘K).
     palette: Entity<crate::palette::PaletteHost>,
+    /// The working dots' rings over the screen (`kit::motion::PulseLayer`).
+    pulses: Entity<crate::kit::motion::PulseLayer>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -73,11 +75,21 @@ impl MainView {
             window,
             |this, _, e: &crate::settings::LayerEvent, window, cx| match e {
                 crate::settings::LayerEvent::Opened => this.one_modal(Owner::Layer, window, cx),
-                crate::settings::LayerEvent::HandOver { agents, .. } => {
-                    if let (Some(first), Some(screen)) = (agents.first(), this.screen.clone()) {
-                        let id = first.id.clone();
-                        screen.update(cx, |s, cx| s.show_agent(&id, window, cx));
-                    }
+                crate::settings::LayerEvent::HandOver { agents, failures } => {
+                    let Some(screen) = this.screen.clone() else { return };
+                    let ids: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+                    let failures = failures.clone();
+                    screen.update(cx, |s, cx| {
+                        // React toasts each failure ("Couldn't start <name>").
+                        for f in failures {
+                            let (title, detail) = match f.split_once(": ") {
+                                Some((t, d)) => (t.to_string(), d.to_string()),
+                                None => (f.clone(), String::new()),
+                            };
+                            s.toast_error(title, detail, cx);
+                        }
+                        s.hand_over(&ids, window, cx);
+                    });
                 }
             },
         ));
@@ -130,6 +142,7 @@ impl MainView {
         }
         MainView {
             palette,
+            pulses: cx.new(|_| crate::kit::motion::PulseLayer),
             content,
             explorer,
             layer,
@@ -167,6 +180,36 @@ impl MainView {
         self.layer.update(cx, |l, cx| l.open_settings(cx));
     }
 
+    /// A bench command (`crate::bench`, `src/lib/bench.ts`).
+    pub fn bench(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let mut words = cmd.split_whitespace();
+        let (Some(what), on) = (words.next(), words.next() != Some("off")) else {
+            return;
+        };
+        match what {
+            "wall" | "review" | "visit-all" => {
+                if let Some(s) = &self.screen {
+                    s.update(cx, |s, cx| s.bench(what, on, window, cx));
+                }
+            }
+            "palette" => self.palette.update(cx, |p, cx| {
+                if on {
+                    p.open(window, cx)
+                } else {
+                    p.close(window, cx)
+                }
+            }),
+            "settings" => self.layer.update(cx, |l, cx| {
+                if on {
+                    l.open_settings(cx)
+                } else {
+                    l.close(cx)
+                }
+            }),
+            _ => {}
+        }
+    }
+
     pub fn open_about(&mut self, cx: &mut Context<Self>) {
         self.layer.update(cx, |l, cx| l.open_about(cx));
     }
@@ -185,13 +228,12 @@ impl MainView {
             let content = window.viewport_size();
             (saved.width, saved.height) = (content.width.into(), content.height.into());
         }
+        window_state::pend(&root, saved);
         self.save_bounds = Some(cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(500))
                 .await;
-            if let Err(e) = window_state::save(&root, saved) {
-                eprintln!("pitwall: could not save the window's bounds: {e}");
-            }
+            window_state::flush();
         }));
     }
 
@@ -365,8 +407,13 @@ impl Render for MainView {
         let root = crate::palette::on_actions(root, &self.palette);
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
+            // The screen is a cached view: a frame drawn only for the
+            // working dots' rings (the pulse layer) replays its last paint.
             Content::Live { .. } => root
-                .children(self.screen.clone())
+                .children(self.screen.clone().map(|s| {
+                    gpui::AnyView::from(s).cached(gpui::StyleRefinement::default().size_full())
+                }))
+                .child(self.pulses.clone())
                 .children(self.explorer.clone()),
         };
         let root = root

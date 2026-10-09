@@ -228,7 +228,7 @@ impl MainScreen {
                             .justify_center()
                             .rounded(px(4.))
                             .cursor_pointer()
-                            .when(!pressing, |d| d.hover(|s| s.bg(t.surface_3)));
+                            .when(!pressing, |d| d.hover_probed(|s| s.bg(t.surface_3)));
                         crate::kit::motion::pressable(
                             el,
                             &eid,
@@ -400,7 +400,7 @@ impl MainScreen {
                                         .rounded(px(2.))
                                         .when(row, |d| d.w(px(2.)).h(gpui::relative(0.4)))
                                         .when(!row, |d| d.h(px(2.)).w(gpui::relative(0.4)))
-                                        .group_hover("divider", |s| s.bg(t.text_4)),
+                                        .group_hover_probed("divider", |s| s.bg(t.text_4)),
                                 )
                                 .on_mouse_down(
                                     MouseButton::Left,
@@ -528,6 +528,7 @@ impl MainScreen {
             pane_id.to_string(),
         );
         let has_agent = agent.is_some();
+        let own_id = agent.as_ref().map(|a| a.id.clone());
         let border = match status {
             Some(Status::Blocked) => t.amber.opacity(0.55),
             Some(Status::Done) => t.finish.opacity(0.65),
@@ -608,7 +609,9 @@ impl MainScreen {
             .on_drag_move::<AgentDrag>(cx.listener(
                 move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {
                     let b = e.bounds;
-                    let inside = b.contains(&e.event.position);
+                    // No preview over the dragged agent's own pane (`self`).
+                    let own = own_id.as_deref() == Some(e.drag(cx).id.as_str());
+                    let inside = b.contains(&e.event.position) && !own;
                     let was = this.drop_hint.as_ref().is_some_and(|(p, _)| *p == move_id);
                     if inside {
                         let fx = f32::from(e.event.position.x - b.left())
@@ -723,7 +726,7 @@ impl MainScreen {
                     id: a.id.clone(),
                     name: a.name.clone().into(),
                 },
-                |d, _, _, cx| cx.new(|_| d.clone()),
+                |d, grab, w, cx| d.ghost(grab, w, cx),
             )
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, cx| {
                 if e.click_count() == 2 {
@@ -927,7 +930,7 @@ impl MainScreen {
                             .border_color(t.line_strong)
                             .text_size(px(12.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3))
+                            .hover_probed(|s| s.bg(t.surface_3))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.drop_on_pane(&pane, &agent, None, window, cx)
                             }))
@@ -1017,7 +1020,7 @@ impl MainScreen {
                             id: a.id.clone(),
                             name: a.name.clone().into(),
                         },
-                        |d, _, _, cx| cx.new(|_| d.clone()),
+                        |d, grab, w, cx| d.ghost(grab, w, cx),
                     )
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.show_agent(&id, window, cx)),
@@ -1043,7 +1046,10 @@ fn pane_btn(
     tip: impl Into<SharedString>,
     t: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
+    // Buttons in the header keep their own clicks: no drag, no
+    // double-click maximise from them (`dnd.ts`, `PaneHeader.tsx`).
     crate::kit::icon_btn_state(id, name, tip, true, 13., None, t)
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 struct PaneCtx {
@@ -1353,7 +1359,7 @@ fn preset_icon(p: Preset, ink: Hsla, hover: Hsla, group: SharedString) -> impl I
                 .h(px(r.h as f32))
                 .rounded(px(0.8))
                 .bg(ink)
-                .group_hover(group.clone(), |s| s.bg(hover))
+                .group_hover_probed(group.clone(), |s| s.bg(hover))
                 .when(p == Preset::Auto && i == 6, |d| d.opacity(0.45))
         }))
 }
