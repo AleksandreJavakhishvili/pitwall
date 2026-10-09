@@ -16,6 +16,7 @@ mod element;
 pub mod holder;
 pub mod keys;
 pub mod mouse;
+pub mod paths;
 #[cfg(feature = "pty")]
 pub mod pty;
 pub mod runs;
@@ -29,7 +30,7 @@ pub use theme::TermTheme;
 pub use view::{
     default_key_bindings, Clear, Copy, DecreaseFontSize, IncreaseFontSize, Paste, ResetFontSize, ScrollLineDown,
     ScrollLineUp, ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop, SearchNext, SearchPrevious, SelectAll,
-    TerminalView, ToggleSearch, ViewMode, ViewSettings, KEY_CONTEXT,
+    FileLinks, OpenFile, TerminalView, ToggleSearch, ViewMode, ViewSettings, KEY_CONTEXT,
 };
 
 pub use alacritty_terminal;
