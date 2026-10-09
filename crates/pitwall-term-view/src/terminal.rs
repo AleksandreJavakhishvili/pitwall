@@ -336,6 +336,15 @@ impl Feed {
             let mut st = shared.state.lock_unfair();
             let st = &mut *st;
             let cleared = st.frozen.len() > 0 && st.clears.saw_clear(slice);
+            let mut slice = slice;
+            if let Some(at) = alt_screen_at(slice).filter(|_| !st.term.mode().contains(TermMode::ALT_SCREEN)) {
+                // The main screen's scrollback goes out of reach (and is
+                // resized with the screen, rows and all) while a program
+                // runs on the alternate screen: frozen until it is back.
+                st.parser.advance(&mut st.term, &slice[..at]);
+                st.frozen.freeze(&mut st.term, 0, st.scrollback);
+                slice = &slice[at..];
+            }
             st.parser.advance(&mut st.term, slice);
             if cleared {
                 // The program cleared the scrollback: the frozen part too.
@@ -544,6 +553,20 @@ impl Terminal {
     }
 }
 
+/// Where `bytes` switch to the alternate screen (DECSET 1049, 1047, 47).
+fn alt_screen_at(bytes: &[u8]) -> Option<usize> {
+    let mut from = 0;
+    while let Some(i) = bytes[from..].windows(3).position(|w| w == b"\x1b[?") {
+        let at = from + i;
+        let rest = &bytes[at + 3..];
+        if [&b"1049h"[..], b"1047h", b"47h"].iter().any(|p| rest.starts_with(p)) {
+            return Some(at);
+        }
+        from = at + 3;
+    }
+    None
+}
+
 /// The width changed: alacritty keeps each row's allocation when it splits
 /// cells off (narrower) and grows rows with `Vec` growth, which doubles
 /// (wider), so a terminal resized a few times holds up to twice its width
@@ -686,6 +709,24 @@ mod tests {
         // Only what came after the clear: "after" scrolled off since.
         assert_eq!(t.lock().term().history_size(), 1);
         assert_eq!(t.screen_text(), "line 100\nline 101\n\n");
+    }
+
+    #[test]
+    fn the_main_screen_scrollback_freezes_under_a_full_screen_program() {
+        // Seen all along: only the switch to the alternate screen freezes.
+        let t = Terminal::new(NullStream, TermSize::new(20, 3), TerminalConfig { scrollback: 100, ..TerminalConfig::default() });
+        lines(&t, 0, 30);
+        t.feed().push(b"\x1b[?1049h\x1b[Hfull screen");
+        assert_eq!(t.frozen_rows(), 28);
+        assert_eq!(t.lock().term().history_size(), 0);
+        // Still frozen while the program runs, even with a view looking.
+        t.resize(TermSize::new(30, 3));
+        assert_eq!(t.frozen_rows(), 28);
+        t.feed().push(b"\x1b[?1049l");
+        assert_eq!(t.lock().term().history_size(), 28);
+        assert_eq!(t.frozen_rows(), 0);
+        assert_eq!(alt_screen_at(b"ab\x1b[?25l\x1b[?47h"), Some(8));
+        assert_eq!(alt_screen_at(b"\x1b[?1049l\x1b[?2004h"), None);
     }
 
     #[test]
