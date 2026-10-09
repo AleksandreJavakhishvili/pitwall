@@ -51,6 +51,11 @@ overrides). Linux uses WGSL through blade/Vulkan, checked at build time.
 `scripts/package-app.sh` builds and bundles on each OS (release profile,
 `--locked`, sidecars in the same target dir, staged in `target/package/bin/`):
 
+Every bundle also carries the Race Engineer's skills (`skills/pitwall`,
+`skills/race-engineer`; docs/spec/engineer.md): `Contents/Resources/skills`
+on macOS, cargo-packager `resources` (target `skills/…`) on Linux and
+Windows. `crates/pitwall-app/src/engineer` finds them at run time.
+
 - **macOS: own steps, no packager.** The `.app` is a folder, a filled-in
   `crates/pitwall-app/packaging/macos/Info.plist`, `PkgInfo` and the icon;
   universal binaries are `lipo`s of the aarch64 and x86_64 builds; `codesign`
