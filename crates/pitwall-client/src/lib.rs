@@ -198,6 +198,18 @@ impl Client {
     pub fn answer_approval(&mut self, answer: &ApprovalAnswer) -> Result<()> {
         self.call(method::APPROVAL_ANSWER, answer).map(|_| ())
     }
+
+    /// A call this server may not offer (`welcome.caps`): an older Pitwall
+    /// answers `unsupported` instead of `unknown_method`.
+    pub fn call_cap<R: DeserializeOwned>(&mut self, cap: &str, method: &str, params: impl Serialize) -> Result<R> {
+        if !self.has(cap) {
+            return Err(Error::Server(ErrorBody::new(
+                pitwall_proto::code::UNSUPPORTED,
+                format!("this Pitwall ({}) doesn't offer {method}: update Pitwall", self.welcome.daemon),
+            )));
+        }
+        self.call_as(method, params)
+    }
 }
 
 /// The next JSON message (terminal and unknown frames are skipped).

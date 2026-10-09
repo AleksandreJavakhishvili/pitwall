@@ -6,7 +6,7 @@ use pitwall_proto::settings::Sensitivity;
 use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines, ScannedPlace, SessionAdded, SettingView};
 
 /// Columns padded to their widest cell (the last one isn't padded).
-fn table(rows: &[Vec<String>]) -> String {
+pub fn table(rows: &[Vec<String>]) -> String {
     let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
     let widths: Vec<usize> = (0..cols).map(|c| rows.iter().filter_map(|r| r.get(c)).map(|s| s.chars().count()).max().unwrap_or(0)).collect();
     let mut out = String::new();

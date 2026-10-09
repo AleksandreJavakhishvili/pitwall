@@ -7,6 +7,7 @@
 //! - [`api`]: method names, their parameters and results, approvals.
 //! - [`create`]: the form a provider describes for new agents on a machine.
 //! - [`explorer`]: the read-only code explorer (tree, file, search).
+//! - [`manage`]: managing agents, queues, spaces, projects, rules, review.
 //! - [`views`]: what clients are shown (`AgentView`, sessions, …).
 //! - [`pipe`]: the Windows named pipe for a socket path.
 //! - [`settings`]: the settings registry (keys, types, defaults, schema).
@@ -17,6 +18,7 @@ pub mod api;
 pub mod create;
 pub mod explorer;
 pub mod frame;
+pub mod manage;
 pub mod msg;
 pub mod pipe;
 pub mod settings;
@@ -25,6 +27,7 @@ pub mod views;
 pub use api::*;
 pub use create::*;
 pub use explorer::*;
+pub use manage::*;
 pub use msg::*;
 pub use settings::{SettingKey, SettingSet, SettingView};
 pub use views::*;

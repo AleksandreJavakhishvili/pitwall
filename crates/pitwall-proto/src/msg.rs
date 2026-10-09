@@ -146,6 +146,8 @@ pub mod code {
     pub const DENIED: &str = "denied";
     /// Nobody answered the approval dialog in time (a denial).
     pub const APPROVAL_TIMEOUT: &str = "approval_timeout";
+    /// `agent.wait` gave up before the agent got there.
+    pub const TIMEOUT: &str = "timeout";
     pub const OTHER: &str = "other";
 }
 

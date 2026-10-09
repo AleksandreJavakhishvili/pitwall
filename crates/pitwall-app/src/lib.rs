@@ -9,6 +9,7 @@ pub mod agents;
 pub mod bench;
 pub mod approvals;
 pub mod bridge;
+pub mod cli_spaces;
 pub mod explorer;
 pub mod frame_stats;
 pub mod code_view;
@@ -138,6 +139,9 @@ pub fn run() {
         settings::init(cx, engine.clone(), root);
         if let Some(b) = cx.global::<AppState>().host.as_ref().map(|h| h.settings.clone()) {
             settings::attach_backend(b, cx);
+        }
+        if let Some(w) = cx.global::<AppState>().host.as_ref().map(|h| h.workspace.clone()) {
+            cli_spaces::attach(w, cx);
         }
         rules::init(cx, engine);
 

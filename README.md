@@ -111,9 +111,13 @@ pitwall session add agw <vm> <session> --start
 pitwall machine form <vm>      # what a new session on that VM can be
 pitwall settings list          # every setting: value, allowed values, description
 pitwall settings set appearance.theme dark
+pitwall queue add api "run the tests"      # or --status idle for every idle agent
+pitwall space move "API" --to-window new   # spaces, windows, projects, rules
+pitwall wait api --for done --fresh        # agents can coordinate each other
+pitwall agent stop api                     # stop, restart, remove: you approve in Pitwall
 ```
 
-Today the CLI lists, adds and changes settings; it can't stop, remove or prompt agents. Settings are also plain JSON: `~/.pitwall/ui.json` (schema: [`docs/settings.schema.json`](docs/settings.schema.json)) applies live when edited, and a value that isn't allowed is reported and the last good one kept. Settings that change something outside Pitwall (installing Codex hooks or the CLI link) ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer; a denial exits with status 3. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request. There's an agent skill for it in [`skills/pitwall/SKILL.md`](skills/pitwall/SKILL.md).
+The CLI does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review (`review changes`) and settings, plus `wait`. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON: `~/.pitwall/ui.json` (schema: [`docs/settings.schema.json`](docs/settings.schema.json)) applies live when edited, and a value that isn't allowed is reported and the last good one kept. Settings that change something outside Pitwall (installing Codex hooks or the CLI link) ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer; a denial exits with status 3. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request. There's an agent skill for it in [`skills/pitwall/SKILL.md`](skills/pitwall/SKILL.md).
 
 </details>
 
