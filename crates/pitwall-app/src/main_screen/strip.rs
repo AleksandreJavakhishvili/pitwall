@@ -31,6 +31,8 @@ pub struct Toast {
     pub title: SharedString,
     pub detail: Option<SharedString>,
     pub agent: Option<String>,
+    /// A click opens Settings (the Full Disk Access hint).
+    pub opens_settings: bool,
     _timer: Option<Task<()>>,
 }
 
@@ -42,6 +44,7 @@ impl Toast {
             title: title.into(),
             detail: detail.map(Into::into),
             agent,
+            opens_settings: false,
             _timer: None,
         }
     }
@@ -310,6 +313,7 @@ impl MainScreen {
                 };
                 let id = toast.id;
                 let agent = toast.agent.clone();
+                let opens_settings = toast.opens_settings;
                 let blocked = toast.tone == ToastTone::Blocked;
                 let mut shadow = t.drop_shadow();
                 if blocked {
@@ -365,6 +369,9 @@ impl MainScreen {
                                 if let Some(a) = &agent {
                                     this.show_agent(a, window, cx);
                                 }
+                                if opens_settings {
+                                    window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                                }
                                 cx.notify();
                             }))
                             .child(
@@ -385,5 +392,36 @@ impl MainScreen {
                     );
                 crate::kit::motion::enter(("toast-in", id as usize), crate::kit::motion::Fx::TOAST, el)
             }))
+    }
+}
+
+/// A macOS privacy refusal in an error's text (`isAccessError`:
+/// /operation not permitted|\bEPERM\b|os error 1\b/i).
+pub fn is_access_error(text: &str) -> bool {
+    let low = text.to_lowercase();
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    // `needle` with a word boundary after it (and before it when it starts
+    // with a letter).
+    let bounded = |needle: &str, before: bool| {
+        low.match_indices(needle).any(|(i, m)| {
+            (!before || !word(low[..i].chars().next_back()))
+                && !word(low[i + m.len()..].chars().next())
+        })
+    };
+    low.contains("operation not permitted") || bounded("eperm", true) || bounded("os error 1", false)
+}
+
+#[cfg(test)]
+mod access_tests {
+    use super::is_access_error;
+
+    #[test]
+    fn privacy_refusals_are_recognised() {
+        assert!(is_access_error("git: Operation not permitted"));
+        assert!(is_access_error("read failed: EPERM"));
+        assert!(is_access_error("Permission denied (os error 1)"));
+        assert!(!is_access_error("No such file (os error 13)"));
+        assert!(!is_access_error("EPERMISSIVE"));
+        assert!(!is_access_error("network down"));
     }
 }

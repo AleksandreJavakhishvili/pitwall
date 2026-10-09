@@ -128,7 +128,10 @@ impl MainScreen {
                         s.changes.error = None;
                         s.changes.updated = Some(Instant::now());
                     }
-                    Err(e) => s.changes.error = Some(e),
+                    Err(e) => {
+                        s.note_access_error(&e, cx);
+                        s.changes.error = Some(e);
+                    }
                 }
                 cx.notify();
             });

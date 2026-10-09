@@ -230,6 +230,10 @@ pub struct UiState {
     /// window opens.
     #[serde(default, deserialize_with = "strict_true")]
     pub sidebar_collapsed: bool,
+    /// The one-time Full Disk Access hint was shown
+    /// (`pitwall.accessHintShown`).
+    #[serde(default, deserialize_with = "strict_true")]
+    pub access_hint_shown: bool,
     /// The docked right panel is shown (`pitwall.rightOpen`), read when a
     /// window opens.
     #[serde(default = "yes", deserialize_with = "not_false")]
@@ -284,6 +288,7 @@ impl Default for UiState {
             review_side_by_side: None,
             right_files: false,
             sidebar_collapsed: false,
+            access_hint_shown: false,
             right_open: true,
             rest: serde_json::Map::new(),
         }

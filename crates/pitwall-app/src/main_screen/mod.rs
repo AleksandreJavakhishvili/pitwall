@@ -972,7 +972,45 @@ impl MainScreen {
 
     /// A failed engine call (React: `run(…, what)` → "Couldn't <what>").
     pub fn failed(&mut self, what: &str, err: String, cx: &mut Context<Self>) {
+        self.note_access_error(&err, cx);
         self.toast(Toast::error(format!("Couldn't {what}"), err), cx);
+    }
+
+    /// macOS refused a folder (privacy): once ever, point at Full Disk
+    /// Access (App.tsx `accessHint`; the flag is `pitwall.accessHintShown`).
+    pub(super) fn note_access_error(&mut self, err: &str, cx: &mut Context<Self>) {
+        if !strip::is_access_error(err) || self.ui.access_hint_shown {
+            return;
+        }
+        let task = cx.background_executor().spawn(async { pitwall_core::permissions::status() });
+        cx.spawn(async move |this, cx| {
+            let s = task.await;
+            if !s.applies || s.full_disk_access == pitwall_core::permissions::Access::Granted {
+                return;
+            }
+            let _ = this.update(cx, |this, cx| {
+                if this.ui.access_hint_shown {
+                    return;
+                }
+                this.update_ui(
+                    |mut s| {
+                        s.access_hint_shown = true;
+                        s
+                    },
+                    cx,
+                );
+                let mut t = Toast::info(
+                    "macOS blocked a folder",
+                    Some(
+                        "Give Pitwall Full Disk Access and macOS stops asking. Click for Settings → Permissions."
+                            .into(),
+                    ),
+                );
+                t.opens_settings = true;
+                this.toast(t, cx);
+            });
+        })
+        .detach();
     }
 
     fn attention(&mut self, e: &crate::agents::StoreEvent, cx: &mut Context<Self>) {
