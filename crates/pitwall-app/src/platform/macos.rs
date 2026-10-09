@@ -57,6 +57,7 @@ pub fn hide(window: &gpui::Window) {
 /// one on screen, one being drawn. The app draws at most at the display's
 /// rate and mostly on a 30 fps grid, so a third buffer only holds memory
 /// (a full window of pixels: ~16 MB at 1280×800 on a Retina display).
+#[cfg_attr(test, allow(dead_code))]
 pub fn two_drawables(window: &gpui::Window) {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;

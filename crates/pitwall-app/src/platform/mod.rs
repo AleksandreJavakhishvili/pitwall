@@ -187,8 +187,11 @@ pub fn keep_on_close(window: &mut Window, cx: &mut App) {
 /// Settings for a new window's renderer (macOS: two drawables, see
 /// `macos::two_drawables`). Call once per window, as it opens.
 pub fn lean_renderer(window: &Window) {
-    #[cfg(target_os = "macos")]
+    // Test windows have no native view (their handle panics).
+    #[cfg(all(target_os = "macos", not(test)))]
     macos::two_drawables(window);
+    #[cfg(all(target_os = "macos", test))]
+    let _ = window;
     #[cfg(not(target_os = "macos"))]
     let _ = window;
 }
