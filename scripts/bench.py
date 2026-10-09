@@ -225,6 +225,15 @@ while :; do
 done
 """
 
+# Bench agent for `--agent tui-mix`: a mix of the TUI styles a real
+# session shows (Claude Code-like, Codex-like, full-screen), each starting
+# with a long session's scrollback, spinners at 10-12 frames/s.
+MIX = r"""#!/bin/sh
+n=$(( $(cat '{count}' 2>/dev/null || echo 0) + 1 )); echo $n > '{count}'
+case $((n % 3)) in 1) s=claude;; 2) s=codex;; *) s=fullscreen;; esac
+exec python3 '{tui}' --style $s --fps $((10 + n % 3)) --history 600 --seed $n
+"""
+
 KIND = """id = "bench"
 name = "Bench"
 command = "{gen}"
@@ -388,7 +397,7 @@ def main():
     ap.add_argument("--profile", help="also run macOS `sample` on the app process for 5 s per scenario, writing <dir>/<scenario>.txt")
     ap.add_argument("--ui", help='JSON merged into the instance\'s UI state before launch, e.g. \'{"look": "glass", "reduceMotion": true}\'')
     ap.add_argument("--visible", action="store_true", help="keep the window on screen (PITWALL_BENCH_VISIBLE=1; build with a config that places it on screen): GPU numbers as for a window you look at")
-    ap.add_argument("--agent", choices=["bench", "tui"], default="bench", help="bench: a shell loop (~3 KB/s); tui: scripts/tui-agent.py, a Claude/Codex-like redrawing TUI (~12 KB/s, 10 frames/s)")
+    ap.add_argument("--agent", choices=["bench", "tui", "tui-mix"], default="bench", help="bench: a shell loop (~3 KB/s); tui: scripts/tui-agent.py, a Claude/Codex-like redrawing TUI (~12 KB/s, 10 frames/s); tui-mix: tui-agent.py's three styles in turn, each with ~600 KB of scrollback first")
     args = ap.parse_args()
 
     app = Path(args.app).resolve()
@@ -409,6 +418,9 @@ def main():
     if args.agent == "tui":
         tui = Path(__file__).resolve().parent / "tui-agent.py"
         gen.write_text(f"#!/bin/sh\nexec python3 '{tui}'\n")
+    elif args.agent == "tui-mix":
+        tui = Path(__file__).resolve().parent / "tui-agent.py"
+        gen.write_text(MIX.format(tui=tui, count=root / "agents-started"))
     else:
         gen.write_text(GEN)
     gen.chmod(0o755)
