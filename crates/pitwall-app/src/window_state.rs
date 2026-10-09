@@ -99,6 +99,27 @@ pub fn save(root: &Path, saved: Saved) -> Result<(), String> {
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
+/// Bounds waiting for their debounced save, written at once on quit
+/// (Tauri saves `windows.json` on exit too).
+static PENDING: std::sync::Mutex<Option<(std::path::PathBuf, Saved)>> = std::sync::Mutex::new(None);
+
+/// Remember `saved` as the next write for `root`.
+pub fn pend(root: &Path, saved: Saved) {
+    if let Ok(mut p) = PENDING.lock() {
+        *p = Some((root.to_path_buf(), saved));
+    }
+}
+
+/// Write the pending bounds now, if any (the debounce or quitting).
+pub fn flush() {
+    let next = PENDING.lock().ok().and_then(|mut p| p.take());
+    if let Some((root, saved)) = next {
+        if let Err(e) = save(&root, saved) {
+            eprintln!("pitwall: could not save the window's bounds: {e}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,26 +174,5 @@ mod tests {
         let off = Saved { x: 5000., ..on };
         assert!(on.visible_on(&displays));
         assert!(!off.visible_on(&displays));
-    }
-}
-
-/// Bounds waiting for their debounced save, written at once on quit
-/// (Tauri saves `windows.json` on exit too).
-static PENDING: std::sync::Mutex<Option<(std::path::PathBuf, Saved)>> = std::sync::Mutex::new(None);
-
-/// Remember `saved` as the next write for `root`.
-pub fn pend(root: &Path, saved: Saved) {
-    if let Ok(mut p) = PENDING.lock() {
-        *p = Some((root.to_path_buf(), saved));
-    }
-}
-
-/// Write the pending bounds now, if any (the debounce or quitting).
-pub fn flush() {
-    let next = PENDING.lock().ok().and_then(|mut p| p.take());
-    if let Some((root, saved)) = next {
-        if let Err(e) = save(&root, saved) {
-            eprintln!("pitwall: could not save the window's bounds: {e}");
-        }
     }
 }

@@ -332,8 +332,7 @@ impl Render for Palette {
                 range
                     .map(|ix| {
                         let row = &rows[ix];
-                        div()
-                            .id(ix)
+                        crate::kit::hover::probed(div().id(ix))
                             .w_full()
                             .h(px(ROW_H))
                             .px(px(10.))

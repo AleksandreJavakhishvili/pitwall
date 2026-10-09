@@ -319,3 +319,30 @@ fn the_main_screen_shows_the_wall_and_keeps_its_folds(cx: &mut TestAppContext) {
     assert!(wall.read_with(cx, |w, _| w.watching().is_empty()));
     assert!(!cx.update(|_, cx| crate::ui_state::get(cx).wall.contains(&"main".to_string())));
 }
+
+/// The hover pass over the Wall: tiles, their heads and the bar.
+#[gpui::test]
+fn hovering_the_wall_moves_nothing(cx: &mut TestAppContext) {
+    use crate::main_screen::MainScreen;
+    let fake = Arc::new(Fake::default());
+    let f = fake.clone();
+    cx.update(|cx| {
+        cx.set_global(Theme::dark());
+        cx.set_global(Screens(f));
+        crate::kit::init(cx);
+        crate::main_screen::init(cx);
+        cx.bind_keys(super::bindings());
+    });
+    let store = cx.new(|_| AgentStore::new(crate::main_screen::demo::agents()));
+    let s2 = store.clone();
+    let (_host, cx) = cx.add_window_view(|window, cx| {
+        let screen = cx.new(|cx| MainScreen::new(s2, window, cx));
+        super::mount(&screen, cx);
+        Mounted(screen)
+    });
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(900.)));
+    cx.dispatch_action(crate::main_screen::ToggleWall);
+    cx.run_until_parked();
+    let n = crate::kit::hover::probe::assert_hover_keeps_layout(cx, "wall");
+    assert!(n >= 3, "only {n} hoverable elements on the Wall");
+}

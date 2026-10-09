@@ -188,7 +188,7 @@ impl MainScreen {
             .py(px(6.))
             .rounded(RADIUS)
             .text_color(t.text_2)
-            .hover(move |s| s.bg(hover))
+            .hover_probed(move |s| s.bg(hover))
             .tooltip(tooltip(tip))
             .child(
                 div()

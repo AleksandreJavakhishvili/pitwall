@@ -15,6 +15,7 @@ mod last_sent;
 #[cfg(test)]
 mod tests;
 
+use crate::kit::HoverText as _;
 use std::collections::HashMap;
 
 use gpui::{
@@ -335,7 +336,7 @@ impl NextUp {
                             .flex()
                             .gap(px(1.))
                             .opacity(0.45)
-                            .group_hover(group, |s| s.opacity(1.))
+                            .group_hover_probed(group, |s| s.opacity(1.))
                             .child(
                                 icon_btn_state(
                                     format!("queue-send-{i}"),

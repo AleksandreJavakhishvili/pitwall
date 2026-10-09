@@ -3,6 +3,7 @@
 //! (header, diff, comment composer, footer actions) and the empty states.
 
 use crate::kit::Ellipsis as _;
+use crate::kit::HoverText as _;
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, relative, AnyElement, App, ClickEvent, Context,
     Corner, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
@@ -368,7 +369,7 @@ impl ReviewView {
                     .py(px(2.))
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
-                    .hover(|s| s.bg(t.surface_3))
+                    .hover_probed(|s| s.bg(t.surface_3))
                     .tooltip({
                         let tip = format!("{} · {}", a.name, a.cwd_display);
                         move |_, cx| kit::tooltip_view(tip.clone(), cx)
@@ -496,7 +497,7 @@ impl ReviewView {
                                     .py(px(4.))
                                     .rounded(RADIUS_SM)
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(t.surface_3))
+                                    .hover_probed(|s| s.bg(t.surface_3))
                                     .tooltip(|_, cx| {
                                         kit::tooltip_view("Show in diff".to_string(), cx)
                                     })
@@ -581,7 +582,7 @@ impl ReviewView {
                     .flex_none()
                     .text_color(t.text_2)
                     .cursor_pointer()
-                    .hover(|s| s.text_color(t.text))
+                    .hover_text(t.text, |s| s)
                     .child("Retry")
                     .on_click(retry),
             )
@@ -625,7 +626,7 @@ impl ReviewView {
                             .text_size(px(12.))
                             .line_height(px(17.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3))
+                            .hover_probed(|s| s.bg(t.surface_3))
                             .tooltip({
                                 let p = path.clone();
                                 move |_, cx| kit::tooltip_view(p.clone(), cx)
@@ -684,7 +685,7 @@ impl ReviewView {
                             .line_height(px(17.))
                             .cursor_pointer()
                             .when(is_sel, |d| d.bg(t.surface_3))
-                            .when(!is_sel, |d| d.hover(|s| s.bg(t.surface_3)))
+                            .when(!is_sel, |d| d.hover_probed(|s| s.bg(t.surface_3)))
                             .when(is_cursor, |d| d.border_1().border_color(t.focus))
                             .tooltip({
                                 let p = path.clone();
@@ -790,7 +791,7 @@ impl ReviewView {
                     .py(px(2.))
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
-                    .hover(|s| s.bg(t.surface_3))
+                    .hover_probed(|s| s.bg(t.surface_3))
                     .tooltip(move |_, cx| kit::tooltip_view(tip.clone(), cx))
                     .on_click(cx.listener({
                         let key = key.clone();
@@ -1171,7 +1172,7 @@ impl ReviewView {
                     .rounded(RADIUS_SM)
                     .text_color(if enabled { t.text } else { t.text_4 })
                     .when(chosen, |d| d.bg(t.surface_3))
-                    .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(t.surface_3)))
+                    .when(enabled, |d| d.cursor_pointer().hover_probed(|s| s.bg(t.surface_3)))
                     .child(div().ellipsis().child(crate::kit::one_line(label)))
             };
             {

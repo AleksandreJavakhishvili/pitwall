@@ -4,6 +4,7 @@
 //! and close folders (or go to the parent), ↵ opens a file. One view per
 //! place it is shown; the [`TreeModel`] behind it is shared.
 
+use crate::kit::HoverText as _;
 use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
@@ -283,7 +284,7 @@ impl TreeView {
             .gap(px(6.))
             .rounded(theme::RADIUS_SM)
             .cursor_pointer()
-            .hover(move |s| s.bg(hover))
+            .hover_probed(move |s| s.bg(hover))
             .when(current, |d| d.bg(t.surface_3))
             .when(at_cursor && !current, |d| {
                 d.border_1().border_color(t.focus)

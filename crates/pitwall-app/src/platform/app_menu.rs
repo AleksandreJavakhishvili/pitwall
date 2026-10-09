@@ -121,7 +121,7 @@ impl Render for AppMenu {
                             .rounded(RADIUS_SM)
                             .text_xs()
                             .text_color(t.text)
-                            .hover(|s| s.bg(t.surface_3))
+                            .hover_probed(|s| s.bg(t.surface_3))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.run(action.boxed_clone(), window, cx)
                             }))

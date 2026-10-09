@@ -19,6 +19,7 @@ pub mod screen;
 pub mod source;
 pub mod tile;
 
+use crate::kit::HoverText as _;
 use crate::kit::Ellipsis as _;
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -529,7 +530,7 @@ impl WallView {
                     .bg(t.surface_3)
                     .border_1()
                     .border_color(t.line_strong)
-                    .hover(|s| s.border_color(t.text_4))
+                    .hover_probed(|s| s.border_color(t.text_4))
                     .cursor_pointer()
                     .text_size(px(12.))
                     .font_weight(FontWeight(550.))

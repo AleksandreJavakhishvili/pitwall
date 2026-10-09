@@ -3,6 +3,7 @@
 //! visible rows only, hit testing, and the overlays (Find, the context
 //! menu, the comment hover and the read-only hint).
 
+use crate::kit::HoverText as _;
 use std::ops::Range;
 
 use gpui::{
@@ -1378,7 +1379,7 @@ pub(super) fn overlays(
                     gpui::transparent_black()
                 })
                 .when(on, |d| d.bg(c.opt_bg))
-                .hover(|s| s.bg(c.slider_hover))
+                .hover_probed(|s| s.bg(c.slider_hover))
                 .child(label)
                 .tooltip(move |_, cx| tooltip(tip, cx))
         };
@@ -1398,7 +1399,7 @@ pub(super) fn overlays(
                 .text_size(px(14.))
                 .when(!enabled, |d| d.opacity(0.4))
                 .when(enabled, |d| {
-                    d.cursor_pointer().hover(|s| s.bg(c.slider_hover))
+                    d.cursor_pointer().hover_probed(|s| s.bg(c.slider_hover))
                 })
                 .child(label)
                 .tooltip(move |_, cx| tooltip(tip, cx))

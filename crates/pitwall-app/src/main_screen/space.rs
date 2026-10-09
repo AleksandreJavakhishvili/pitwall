@@ -228,7 +228,7 @@ impl MainScreen {
                             .justify_center()
                             .rounded(px(4.))
                             .cursor_pointer()
-                            .when(!pressing, |d| d.hover(|s| s.bg(t.surface_3)));
+                            .when(!pressing, |d| d.hover_probed(|s| s.bg(t.surface_3)));
                         crate::kit::motion::pressable(
                             el,
                             &eid,
@@ -400,7 +400,7 @@ impl MainScreen {
                                         .rounded(px(2.))
                                         .when(row, |d| d.w(px(2.)).h(gpui::relative(0.4)))
                                         .when(!row, |d| d.h(px(2.)).w(gpui::relative(0.4)))
-                                        .group_hover("divider", |s| s.bg(t.text_4)),
+                                        .group_hover_probed("divider", |s| s.bg(t.text_4)),
                                 )
                                 .on_mouse_down(
                                     MouseButton::Left,
@@ -930,7 +930,7 @@ impl MainScreen {
                             .border_color(t.line_strong)
                             .text_size(px(12.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(t.surface_3))
+                            .hover_probed(|s| s.bg(t.surface_3))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.drop_on_pane(&pane, &agent, None, window, cx)
                             }))
@@ -1359,7 +1359,7 @@ fn preset_icon(p: Preset, ink: Hsla, hover: Hsla, group: SharedString) -> impl I
                 .h(px(r.h as f32))
                 .rounded(px(0.8))
                 .bg(ink)
-                .group_hover(group.clone(), |s| s.bg(hover))
+                .group_hover_probed(group.clone(), |s| s.bg(hover))
                 .when(p == Preset::Auto && i == 6, |d| d.opacity(0.45))
         }))
 }

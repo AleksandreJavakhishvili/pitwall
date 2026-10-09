@@ -92,7 +92,7 @@ pub fn refresh_control(
                 .justify_center()
                 .rounded(RADIUS)
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover_bg))
+                .hover_probed(move |s| s.bg(hover_bg))
                 .tooltip(tooltip(format!("Refresh ({})", keys("⌘⇧R", false))))
                 .on_click(on_click)
                 .child(glyph),

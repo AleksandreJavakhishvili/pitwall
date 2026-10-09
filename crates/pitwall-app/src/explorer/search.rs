@@ -345,7 +345,7 @@ impl SearchPane {
                     .gap(px(6.))
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
-                    .hover(move |s| s.bg(hover))
+                    .hover_probed(move |s| s.bg(hover))
                     .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(&path, cx)))
                     .child(crate::kit::chevron("chev", open, 10., t.text_4))
@@ -434,7 +434,7 @@ impl SearchPane {
                     .gap(px(6.))
                     .rounded(RADIUS_SM)
                     .cursor_pointer()
-                    .hover(move |s| s.bg(hover))
+                    .hover_probed(move |s| s.bg(hover))
                     .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.emit(OpenHit {
@@ -626,7 +626,7 @@ impl Render for SearchPane {
                                 .id("ex-search-stop")
                                 .text_color(t.text_2)
                                 .cursor_pointer()
-                                .hover(|s| s.underline())
+                                .hover_underline()
                                 .child("Stop")
                                 .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
                         )

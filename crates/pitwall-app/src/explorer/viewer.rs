@@ -604,7 +604,7 @@ impl Viewer {
                             .justify_center()
                             .rounded(RADIUS_SM)
                             .when(!selected, |d| {
-                                d.invisible().group_hover("ex-tab", |s| s.visible())
+                                d.invisible().group_hover_probed("ex-tab", |s| s.visible())
                             })
                             .hover_text(close_text, move |s| s.bg(close_hover))
                             .tooltip(|_, cx| tooltip_view("Close", cx))

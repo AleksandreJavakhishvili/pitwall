@@ -524,7 +524,7 @@ impl MainScreen {
             .text_size(px(12.))
             .line_height(px(17.))
             .cursor_pointer()
-            .hover(|s| s.bg(t.surface_3))
+            .hover_probed(|s| s.bg(t.surface_3))
             .tooltip(tooltip(f.path.clone()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.open_diff(agent.clone(), file.clone(), window, cx)

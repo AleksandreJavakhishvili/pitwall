@@ -131,7 +131,7 @@ fn select_box(
                                 .rounded(px(4.))
                                 .text_size(px(13.))
                                 .when(on, |d| d.bg(t.surface_3))
-                                .hover(|s| s.bg(t.surface_3))
+                                .hover_probed(|s| s.bg(t.surface_3))
                                 .cursor_pointer()
                                 .on_click(move |_, window, cx| run(window, cx))
                                 .child(text)
@@ -379,7 +379,7 @@ impl NewAgentDialog {
             })
             .when(!installed, |d| d.opacity(0.45))
             .when(installed, |d| {
-                d.cursor_pointer().hover(|s| s.bg(t.surface_2))
+                d.cursor_pointer().hover_probed(|s| s.bg(t.surface_2))
             })
             .tooltip(crate::kit::tooltip(tip))
             .on_click(cx.listener(move |d, _, _, cx| {

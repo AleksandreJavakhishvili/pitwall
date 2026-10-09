@@ -598,7 +598,7 @@ impl MainScreen {
             .line_height(px(16.))
             .text_color(t.text_2)
             .cursor_pointer()
-            .hover(move |s| s.bg(bg))
+            .hover_probed(move |s| s.bg(bg))
             .tooltip(tooltip(row_tip(r, error)))
             .on_click(cx.listener(move |this, _, _, cx| this.wt_review(p.clone(), w.clone(), cx)))
             .on_mouse_down(

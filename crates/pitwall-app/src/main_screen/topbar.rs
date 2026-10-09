@@ -432,7 +432,7 @@ impl MainScreen {
                             .gap(px(1.))
                             .mr(px(-4.))
                             .when(!is_active, |d| {
-                                d.invisible().group_hover("tab", |s| s.visible())
+                                d.invisible().group_hover_probed("tab", |s| s.visible())
                             })
                             .child(
                                 tab_btn(
@@ -599,7 +599,7 @@ fn tab_btn(id: &str, name: &str, tip: String, t: &Theme) -> gpui::Stateful<gpui:
         .items_center()
         .justify_center()
         .rounded(px(4.))
-        .hover(|s| s.bg(t.surface_3))
+        .hover_probed(|s| s.bg(t.surface_3))
         .tooltip(tooltip(tip))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(icon(name, 12., t.text_4).group_hover_text("tab-btn", t.text, |s| s))
