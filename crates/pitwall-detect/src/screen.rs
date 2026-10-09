@@ -16,7 +16,7 @@
 //! ([`TitleScanner`]) so they keep exactly the bytes the program sent
 //! (alacritty trims them).
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::{EventListener, VoidListener};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Flags;
@@ -27,6 +27,28 @@ use alacritty_terminal::vte::ansi::{Color as AColor, NamedColor, Processor, Time
 const MAX_TITLE_CHARS: usize = 512;
 /// Longest OSC payload the title scanner buffers.
 const MAX_OSC_BYTES: usize = 4096;
+
+/// What the engine reads an agent's screen from: its own headless
+/// [`Screen`], or a UI's terminal emulator that parses the same output
+/// (`TermHost::share_screen` in pitwall-core: one parser per agent, not
+/// one in the engine and another in the view).
+pub trait ScreenSource: Send {
+    /// The agent's output, in order.
+    fn feed(&mut self, bytes: &[u8]);
+    /// The agent's terminal was resized.
+    fn resize(&mut self, rows: u16, cols: u16);
+    /// See [`Screen::text`].
+    fn text(&self) -> String;
+    /// See [`Screen::title`].
+    fn title(&self) -> Option<String>;
+    /// See [`Screen::snapshot`].
+    fn snapshot(&self) -> Snapshot;
+    /// `false` once whatever parses the output is gone (the engine then goes
+    /// back to a screen of its own).
+    fn alive(&self) -> bool {
+        true
+    }
+}
 
 pub struct Screen {
     term: Term<VoidListener>,
@@ -90,29 +112,7 @@ impl Screen {
 
     /// Visible screen as plain text, one line per row, trailing spaces trimmed.
     pub fn text(&self) -> String {
-        let grid = self.term.grid();
-        let (rows, cols) = (grid.screen_lines(), grid.columns());
-        let mut out = String::with_capacity(rows * (cols + 1));
-        for r in 0..rows {
-            if r > 0 {
-                out.push('\n');
-            }
-            let start = out.len();
-            let row = &grid[Line(r as i32)];
-            for c in 0..cols {
-                let cell = &row[Column(c)];
-                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
-                    continue;
-                }
-                out.push(printable(cell.c));
-                if let Some(zw) = cell.zerowidth() {
-                    out.extend(zw);
-                }
-            }
-            let trimmed = out[start..].trim_end_matches(' ').len();
-            out.truncate(start + trimmed);
-        }
-        out
+        text(&self.term)
     }
 
     /// Last window title set via OSC 0/2, if any.
@@ -123,51 +123,103 @@ impl Screen {
     /// The visible screen as rows of styled runs (what a terminal would draw),
     /// plus the cursor when the program shows it.
     pub fn snapshot(&self) -> Snapshot {
-        let grid = self.term.grid();
-        let (rows, cols) = (grid.screen_lines(), grid.columns());
-        let mut lines = Vec::with_capacity(rows);
-        for r in 0..rows {
-            let row = &grid[Line(r as i32)];
-            // Like xterm: trailing blank default-background cells draw nothing.
-            let mut end = cols;
-            while end > 0 && is_blank(&row[Column(end - 1)]) {
-                end -= 1;
-            }
-            let mut runs: Vec<Run> = Vec::new();
-            let mut c = 0;
-            while c < end {
-                let cell = &row[Column(c)];
-                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
-                    c += 1;
-                    continue;
-                }
-                let wide = cell.flags.contains(Flags::WIDE_CHAR);
-                let style = Style::of(cell.fg, cell.bg, cell.flags);
-                let zw = cell.zerowidth().filter(|z| !z.is_empty());
-                // A wide character (or one carrying combining marks) is a run
-                // of its own, so the UI knows how many cells it spans.
-                let alone = wide || zw.is_some();
-                match runs.last_mut() {
-                    Some(last) if !alone && !last.alone() && last.style == style => last.text.push(printable(cell.c)),
-                    _ => {
-                        let mut text = String::new();
-                        text.push(printable(cell.c));
-                        if let Some(zw) = zw {
-                            text.extend(zw);
-                        }
-                        runs.push(Run { text, style, cells: if wide { 2 } else { 1 }, single: alone });
-                    }
-                }
-                c += if wide { 2 } else { 1 };
-            }
-            lines.push(runs);
-        }
-        let cursor = (self.term.mode().contains(TermMode::SHOW_CURSOR) && grid.display_offset() == 0).then(|| {
-            let p = grid.cursor.point;
-            ((p.column.0).min(cols.saturating_sub(1)) as u16, p.line.0.max(0) as u16)
-        });
-        Snapshot { rows: rows as u16, cols: cols as u16, cursor, lines }
+        snapshot(&self.term)
     }
+}
+
+impl ScreenSource for Screen {
+    fn feed(&mut self, bytes: &[u8]) {
+        Screen::feed(self, bytes)
+    }
+    fn resize(&mut self, rows: u16, cols: u16) {
+        Screen::resize(self, rows, cols)
+    }
+    fn text(&self) -> String {
+        Screen::text(self)
+    }
+    fn title(&self) -> Option<String> {
+        Screen::title(self)
+    }
+    fn snapshot(&self) -> Snapshot {
+        Screen::snapshot(self)
+    }
+}
+
+/// [`Screen::text`] of any alacritty terminal (its active screen, wherever
+/// its view is scrolled).
+pub fn text<L: EventListener>(term: &Term<L>) -> String {
+    let grid = term.grid();
+    let (rows, cols) = (grid.screen_lines(), grid.columns());
+    let mut out = String::with_capacity(rows * (cols + 1));
+    for r in 0..rows {
+        if r > 0 {
+            out.push('\n');
+        }
+        let start = out.len();
+        let row = &grid[Line(r as i32)];
+        for c in 0..cols {
+            let cell = &row[Column(c)];
+            if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                continue;
+            }
+            out.push(printable(cell.c));
+            if let Some(zw) = cell.zerowidth() {
+                out.extend(zw);
+            }
+        }
+        let trimmed = out[start..].trim_end_matches(' ').len();
+        out.truncate(start + trimmed);
+    }
+    out
+}
+
+/// [`Screen::snapshot`] of any alacritty terminal (its active screen,
+/// wherever its view is scrolled).
+pub fn snapshot<L: EventListener>(term: &Term<L>) -> Snapshot {
+    let grid = term.grid();
+    let (rows, cols) = (grid.screen_lines(), grid.columns());
+    let mut lines = Vec::with_capacity(rows);
+    for r in 0..rows {
+        let row = &grid[Line(r as i32)];
+        // Like xterm: trailing blank default-background cells draw nothing.
+        let mut end = cols;
+        while end > 0 && is_blank(&row[Column(end - 1)]) {
+            end -= 1;
+        }
+        let mut runs: Vec<Run> = Vec::new();
+        let mut c = 0;
+        while c < end {
+            let cell = &row[Column(c)];
+            if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                c += 1;
+                continue;
+            }
+            let wide = cell.flags.contains(Flags::WIDE_CHAR);
+            let style = Style::of(cell.fg, cell.bg, cell.flags);
+            let zw = cell.zerowidth().filter(|z| !z.is_empty());
+            // A wide character (or one carrying combining marks) is a run
+            // of its own, so the UI knows how many cells it spans.
+            let alone = wide || zw.is_some();
+            match runs.last_mut() {
+                Some(last) if !alone && !last.alone() && last.style == style => last.text.push(printable(cell.c)),
+                _ => {
+                    let mut text = String::new();
+                    text.push(printable(cell.c));
+                    if let Some(zw) = zw {
+                        text.extend(zw);
+                    }
+                    runs.push(Run { text, style, cells: if wide { 2 } else { 1 }, single: alone });
+                }
+            }
+            c += if wide { 2 } else { 1 };
+        }
+        lines.push(runs);
+    }
+    let cursor = term.mode().contains(TermMode::SHOW_CURSOR).then(|| {
+        let p = grid.cursor.point;
+        ((p.column.0).min(cols.saturating_sub(1)) as u16, p.line.0.max(0) as u16)
+    });
+    Snapshot { rows: rows as u16, cols: cols as u16, cursor, lines }
 }
 
 /// What a cell shows as text: blanks and tabs (alacritty marks tab stops it
@@ -304,7 +356,7 @@ pub struct Snapshot {
 /// ESC (ESC \ is the usual ST), CAN/SUB abort it, other C0 bytes inside are
 /// ignored. Ordinary text is skipped with a byte search.
 #[derive(Default)]
-struct TitleScanner {
+pub struct TitleScanner {
     state: Osc,
     buf: Vec<u8>,
     title: Option<String>,
@@ -321,7 +373,12 @@ enum Osc {
 }
 
 impl TitleScanner {
-    fn scan(&mut self, bytes: &[u8]) {
+    /// The last title set via OSC 0/2 in what was scanned, if any.
+    pub fn title(&self) -> Option<String> {
+        self.title.clone()
+    }
+
+    pub fn scan(&mut self, bytes: &[u8]) {
         let mut i = 0;
         while i < bytes.len() {
             match self.state {
