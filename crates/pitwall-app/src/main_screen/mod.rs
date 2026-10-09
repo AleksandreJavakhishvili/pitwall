@@ -453,7 +453,12 @@ impl MainScreen {
         window.focus(&focus);
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let subs = vec![
-            cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
+            // The screen draws from the store: it re-renders itself (it is
+            // a cached view; its window doesn't redraw it for a model).
+            cx.observe(&store, |this, _, cx| {
+                this.agents_changed(cx);
+                cx.notify();
+            }),
             cx.observe(&wt_list, |this, _, cx| this.wt_taken(cx)),
             // Settings, the explorer and other windows change it too.
             cx.observe(&ui_store, |this, s, cx| {
