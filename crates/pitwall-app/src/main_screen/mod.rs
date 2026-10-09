@@ -435,6 +435,11 @@ impl MainScreen {
                 }
             }),
             cx.subscribe(&store, |this, _, e: &crate::agents::StoreEvent, cx| {
+                // Projects added or removed elsewhere (`pitwall project`).
+                if let crate::agents::StoreEvent::ProjectsChanged(list) = e {
+                    this.projects = list.clone();
+                    cx.notify();
+                }
                 this.attention(e, cx)
             }),
             cx.observe_window_activation(window, |this, window, cx| {
