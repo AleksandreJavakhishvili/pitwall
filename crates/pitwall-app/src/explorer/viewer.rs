@@ -31,7 +31,7 @@ use super::widgets::{refresh_control, status_mark};
 use crate::kit::{
     button, checkbox, icon, kbd, keys, small_btn, tooltip_view, BtnKind, MONO_FONT,
 };
-use crate::agents::{status_glyph, AgentStore};
+use crate::agents::AgentStore;
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
 
 actions!(explorer_viewer, [Back]);
@@ -406,12 +406,8 @@ impl Viewer {
                         .flex_none()
                         .items_center()
                         .gap(px(7.))
-                        .child(
-                            div()
-                                .text_size(px(10.))
-                                .text_color(t.status_color(a.status))
-                                .child(status_glyph(a.status)),
-                        )
+                        // `<StatusGlyph size="sm">`.
+                        .child(crate::kit::glyph(a.status, t, true))
                         .child(crate::kit::label(a.name.clone(), t.text_3, 12.).text_color(t.text)),
                 )
                 .child(

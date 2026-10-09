@@ -1046,7 +1046,10 @@ fn pane_btn(
     tip: impl Into<SharedString>,
     t: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
+    // Buttons in the header keep their own clicks: no drag, no
+    // double-click maximise from them (`dnd.ts`, `PaneHeader.tsx`).
     crate::kit::icon_btn_state(id, name, tip, true, 13., None, t)
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 struct PaneCtx {

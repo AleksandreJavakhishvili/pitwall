@@ -1496,8 +1496,12 @@ impl Render for ReviewView {
             .key_context("Review")
             .font_family(kit::UI_FONT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|v, _: &Back, _, cx| {
-                if v.dialog.is_none() && v.composer.is_none() && !v.task_menu {
+            .on_action(cx.listener(|v, _: &Back, window, cx| {
+                if v.dialog.is_some() {
+                    // A dialog without a field has no focus of its own: Esc
+                    // closes it from here (React: the modal's Esc).
+                    v.close_dialog(window, cx);
+                } else if v.composer.is_none() && !v.task_menu {
                     v.exit(cx)
                 } else if v.task_menu {
                     v.task_menu = false;
