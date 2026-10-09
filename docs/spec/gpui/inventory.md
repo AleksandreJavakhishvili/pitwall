@@ -166,7 +166,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Re-attach and reset the screen after a restart (not running → running) (`src/App.tsx`, `src/terminal/registry.ts`) [pitwall-term-view]
 - [x] Dispose terminals of removed agents or agents now shown in another window (`src/App.tsx`) [pitwall-term-view]
 - [x] New agents start at the size they will be shown at (empty pane, focused pane, or last fitted) (`src/terminal/registry.ts`, `src/terminal/spawnSize.ts`) [pitwall-term-view]
-- [ ] Onboarding hand-over size estimate per tile (`src/terminal/registry.ts`) [pitwall-term-view] (see the settings redesign)
+- [x] Onboarding hand-over size estimate per tile (`src/terminal/registry.ts`) [pitwall-term-view] (done in the settings redesign)
 - [x] Scrollbar gutter accounted (14 px) in tile font fit (`src/components/PaneView.tsx`) [pitwall-term-view]
 - [x] ~~Optional WebGL renderer path exists but is disabled (`MAX_WEBGL = 0`) (decide) (`src/terminal/registry.ts`) [pitwall-term-view]~~ n/a: xterm.js WebGL choice; GPUI renders on the GPU
 - [x] ~~No terminal search, link detection or right-click menu exists today (xterm has no search/web-links addon loaded) (decide) (`package.json`, `src/terminal/registry.ts`) [pitwall-term-view]~~ n/a: xterm.js add-on decision; GPUI terminal has its own search and links
@@ -353,7 +353,7 @@ marks terminal items. Section 36 lists each component once.
 
 ## 19. Settings dialog (each field)
 
-- [ ] Opened by ⌘, (Ctrl+Shift+,), gear button, palette, native menu "Settings…", tray "Settings…", access-hint toast (`src/App.tsx`, `src-tauri/src/menu.rs`) [in-house: modal/dialog] [in-house: scroll view] (see the settings redesign)
+- [x] Opened by ⌘, (Ctrl+Shift+,), gear button, palette, native menu "Settings…", tray "Settings…", access-hint toast (`src/App.tsx`, `src-tauri/src/menu.rs`) [in-house: modal/dialog] [in-house: scroll view] (done in the settings redesign)
 - [x] Projects & agents: "Scan again" button opens the rescan screen (`src/components/SettingsDialog.tsx`)
 - [x] Exact Codex status (hooks): installed / not installed chip, hooks file path, "Install hooks…" → confirm box (backup, append, no-op outside Pitwall) → Install/Cancel (`src/components/SettingsDialog.tsx`)
 - [x] Claude Code: "automatic" chip, "Your ~/.claude settings are never edited." (`src/components/SettingsDialog.tsx`)
@@ -385,8 +385,8 @@ marks terminal items. Section 36 lists each component once.
 - [x] Running now (other places, e.g. agw VMs): machine groups with sessions (kind, name, workspace, user, status chip, "Add to Pitwall"); "could not be listed" note; tracking-only hint (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle]
 - [x] Codex status: "hooks installed" or "Exact Codex status (install hooks)" checkbox with "Show changes" confirm text (`src/components/onboarding/Onboarding.tsx`) [in-house: checkbox/toggle]
 - [x] Footer: errors, "Starting N agents… i/N", "No agents will start…", Skip/Cancel, primary "Start Pitwall · N agents →" / "Add N projects · start N agents" / "Done" (`src/components/onboarding/Onboarding.tsx`)
-- [ ] Finish: `complete_onboarding` (partial failure "Projects were saved…" becomes a toast), then start agents one by one (continue / create / adopt) at hand-over sizes; failures toast, rest continue (`src/components/onboarding/Onboarding.tsx`, `src/components/onboarding/projects.ts`) [in-house: toast] (see the settings redesign)
-- [ ] Hand-over: new agents tiled in the All space (cap by breakpoint), first focused, Wall/Review off (`src/App.tsx`) (see the settings redesign)
+- [x] Finish: `complete_onboarding` (partial failure "Projects were saved…" becomes a toast), then start agents one by one (continue / create / adopt) at hand-over sizes; failures toast, rest continue (`src/components/onboarding/Onboarding.tsx`, `src/components/onboarding/projects.ts`) [in-house: toast] (done in the settings redesign)
+- [x] Hand-over: new agents tiled in the All space (cap by breakpoint), first focused, Wall/Review off (`src/App.tsx`) (done in the settings redesign)
 - [x] Skip on welcome still marks onboarded (`src/components/onboarding/Onboarding.tsx`)
 - [x] "Elsewhere" polling waits until onboarding is done (avoids macOS folder prompts) (`src/App.tsx`)
 
@@ -568,7 +568,7 @@ Agents (`src-tauri/src/commands/agents.rs`, wrapper `src/api.ts`):
 - [x] ~~`mark_seen(agentId)`~~ n/a: direct call: engine mark_seen
 - [x] ~~`get_changes(agentId)`, `refresh_changes(agentId)` → `FileChange[]`; `get_file_diff(agentId, path, untracked)` → unified diff~~ n/a: direct calls: changes refresh/file_versions
 - [x] ~~`stop_agent`, `restart_agent(agentId, cols?, rows?)` → `AgentView`, `remove_agent(agentId, deleteWorktree)`~~ n/a: direct calls: lifecycle stop/restart/remove
-- [ ] `codex_hooks_status`, `install_codex_hooks` → `{installed, path}` (see the settings redesign)
+- [x] `codex_hooks_status`, `install_codex_hooks` → `{installed, path}` (done in the settings redesign)
 
 CLI and approvals (`src-tauri/src/commands/cli.rs`):
 - [x] ~~`list_approvals`, `answer_approval(id, allow, remember)`, `cli_status` → `CliStatus`, `install_cli(dir)`~~ n/a: approvals answered directly; CLI install lives in Settings
@@ -595,10 +595,10 @@ Worktrees (`src-tauri/src/commands/worktrees.rs`, wrapper `src/worktreesApi.ts`)
 - [x] `commit_worktree`, `merge_worktree`, `remove_worktree` (never --force)
 
 Onboarding, terminals, permissions, host:
-- [ ] `scan_environment` → `ScanResult`, `get_onboarded`, `list_projects`, `add_project`, `remove_project`, `complete_onboarding(projects, installCodexHooks)` (`src-tauri/src/commands/onboarding.rs`) (see the settings redesign)
+- [x] `scan_environment` → `ScanResult`, `get_onboarded`, `list_projects`, `add_project`, `remove_project`, `complete_onboarding(projects, installCodexHooks)` (`src-tauri/src/commands/onboarding.rs`) (done in the settings redesign)
 - [x] ~~`continue_conversation(kind, sessionId, projectPath, name, displayProject?, cols?, rows?)`, `adopt_session(req)` (`src-tauri/src/commands/onboarding.rs`)~~ n/a: direct calls: continue_conversation, lifecycle::adopt
 - [x] ~~`list_elsewhere` (`src-tauri/src/commands/terminals.rs`)~~ n/a: direct call: the onboarding Elsewhere scanner
-- [ ] `permissions_status`, `open_privacy_settings(kind)` (`src-tauri/src/commands/permissions.rs`) (see the settings redesign)
+- [x] `permissions_status`, `open_privacy_settings(kind)` (`src-tauri/src/commands/permissions.rs`) (done in the settings redesign)
 - [x] ~~`host_info`, `set_window_glass(on)` → `GlassState`, `quit_app(stopAgents)` (`src-tauri/src/commands/host.rs`)~~ n/a: host info, glass and quit are direct calls and actions
 - [x] ~~Plugin calls from the UI: dialog `open` (folder picker), window `setTheme` (`src/lib/pickFolder.ts`, `src/lib/theme.ts`, `src-tauri/capabilities/`)~~ n/a: folder picker via cx.prompt_for_paths; theme from the window appearance
 
