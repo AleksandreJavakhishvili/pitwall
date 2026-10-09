@@ -359,6 +359,12 @@ impl Feed {
         shared.io.wake();
     }
 
+    /// This terminal as its agent's screen for the engine
+    /// ([`TerminalScreen`]).
+    pub fn screen_source(&self) -> TerminalScreen {
+        TerminalScreen { feed: self.clone(), title: pitwall_detect::screen::TitleScanner::default() }
+    }
+
     /// The stream ended (the program exited or the connection closed).
     pub fn close(&self) {
         let Some(shared) = self.shared.upgrade() else { return };
@@ -366,6 +372,60 @@ impl Feed {
             shared.io.request(UiRequest::Event(TermEvent::Exited));
             shared.io.wake();
         }
+    }
+}
+
+/// A terminal as its agent's screen for the engine
+/// (`pitwall_core::TermHost::share_screen`): the engine pushes the agent's
+/// output through it and reads the status rules' text and the Wall's
+/// styled rows from this terminal's grid, so an agent shown in a pane has
+/// one parser, not one in the engine and another here. Reading never
+/// counts as a view looking (nothing thaws, `frozen.rs`). Holds the
+/// terminal weakly: once it is dropped, the engine goes back to a screen
+/// of its own.
+pub struct TerminalScreen {
+    feed: Feed,
+    /// OSC 0/2 titles exactly as sent (what the status rules match).
+    title: pitwall_detect::screen::TitleScanner,
+}
+
+impl TerminalScreen {
+    fn read<R>(&self, f: impl FnOnce(&Term<Listener>) -> R) -> Option<R> {
+        let shared = self.feed.shared.upgrade()?;
+        let mut st = shared.state.lock();
+        st.expire_sync();
+        Some(f(&st.term))
+    }
+}
+
+impl pitwall_detect::ScreenSource for TerminalScreen {
+    fn feed(&mut self, bytes: &[u8]) {
+        self.title.scan(bytes);
+        self.feed.push(bytes);
+    }
+
+    /// The view sizes its terminal (and, through its stream, the agent's).
+    fn resize(&mut self, _rows: u16, _cols: u16) {}
+
+    fn text(&self) -> String {
+        self.read(pitwall_detect::screen::text).unwrap_or_default()
+    }
+
+    fn title(&self) -> Option<String> {
+        self.title.title()
+    }
+
+    fn snapshot(&self) -> pitwall_detect::screen::Snapshot {
+        self.read(pitwall_detect::screen::snapshot).unwrap_or(pitwall_detect::screen::Snapshot {
+            rows: 0,
+            cols: 0,
+            cursor: None,
+            lines: Vec::new(),
+        })
+    }
+
+    fn alive(&self) -> bool {
+        self.feed.shared.strong_count() > 0
     }
 }
 
@@ -739,6 +799,26 @@ mod tests {
         assert_eq!(t.frozen_rows(), 0);
         // "line NN" fits in 10 columns: nothing reflowed away.
         assert_eq!(t.lock().term().history_size(), 28);
+    }
+
+    #[test]
+    fn as_the_engines_screen_it_parses_once_and_reads_without_thawing() {
+        use pitwall_detect::{Screen, ScreenSource};
+        let t = freezing(20);
+        let mut source = t.feed().screen_source();
+        let mut engines = Screen::new(3, 20);
+        let out = b"\x1b]0;made-up title\x07\x1b[1mbold\x1b[0m plain\r\nline 1\r\nline 2\r\nline 3";
+        source.feed(out);
+        engines.feed(out);
+        t.freeze_if_unseen();
+        assert_eq!(source.text(), engines.text());
+        assert_eq!(source.title(), engines.title());
+        assert_eq!(source.snapshot(), engines.snapshot());
+        assert_eq!(t.frozen_rows(), 1, "reading is not a view looking");
+        assert!(source.alive());
+        drop(t);
+        assert!(!source.alive());
+        assert_eq!(source.text(), "");
     }
 
     #[test]
