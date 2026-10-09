@@ -61,6 +61,8 @@ pub struct SettingsView {
     pub(super) cli_dir: Option<String>,
     pub(super) cli_busy: bool,
     pub(super) error: Option<String>,
+    /// Agents → Race Engineer.
+    pub(super) engineer: super::engineer::Section,
     pub(super) focus: FocusHandle,
     scroll: ScrollHandle,
     _tasks: Vec<Task<()>>,
@@ -140,6 +142,7 @@ impl SettingsView {
             cli_dir: None,
             cli_busy: false,
             error: None,
+            engineer: Default::default(),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             _tasks: tasks,

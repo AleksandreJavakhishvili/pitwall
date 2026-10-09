@@ -11,6 +11,7 @@ pub mod bridge;
 pub mod explorer;
 pub mod frame_stats;
 pub mod code_view;
+pub mod engineer;
 pub mod home;
 pub mod kit;
 pub mod host;
@@ -136,6 +137,7 @@ pub fn run() {
         if let Some(b) = cx.global::<AppState>().host.as_ref().map(|h| h.settings.clone()) {
             settings::attach_backend(b, cx);
         }
+        engineer::register(cx, engine.as_ref());
         rules::init(cx, engine);
 
         cx.on_action(|_: &Quit, cx| cx.quit());

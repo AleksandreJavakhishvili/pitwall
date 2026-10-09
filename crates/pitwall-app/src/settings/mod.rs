@@ -18,6 +18,7 @@ pub mod about;
 pub mod backend;
 pub mod cli_install;
 pub mod data;
+mod engineer;
 pub mod onboarding;
 pub mod pages;
 pub mod permissions;
@@ -106,7 +107,7 @@ fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
     use pitwall_proto::settings::Page;
     match p {
         Page::General => "scan again elsewhere command line cli tool",
-        Page::Agents => "claude codex hooks",
+        Page::Agents => "claude codex hooks race engineer assistant",
         Page::Rules => "rulesync rule sets",
         Page::Appearance => "theme dark light glass flat liquid motion density font",
         Page::FolderAccess => "full disk access permissions privacy folders",

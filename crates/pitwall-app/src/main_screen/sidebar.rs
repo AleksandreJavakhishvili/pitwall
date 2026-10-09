@@ -622,6 +622,7 @@ impl MainScreen {
                                     .text_color(t.text)
                                     .child(crate::kit::one_line(a.name.clone())),
                             )
+                            .when(a.engineer, |d| d.child(chip("engineer", t)))
                             .child(status_label(a.status, t)),
                     )
                     .child(
