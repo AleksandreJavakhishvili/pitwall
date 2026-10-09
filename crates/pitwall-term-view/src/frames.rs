@@ -111,7 +111,10 @@ mod tests {
         let a = next_tick(Instant::now());
         let b = next_tick(a + Duration::from_millis(1));
         let gap = b - a;
-        assert!((gap.as_secs_f32() - 1.0 / OUTPUT_FPS).abs() < 0.001, "{gap:?}");
+        assert!(
+            (gap.as_secs_f32() - 1.0 / OUTPUT_FPS).abs() < 0.001,
+            "{gap:?}"
+        );
         // A tick is its own next tick.
         assert_eq!(next_tick(a), a);
         assert!(is_due(a - Duration::from_millis(2), a));
