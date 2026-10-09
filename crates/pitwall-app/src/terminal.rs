@@ -84,6 +84,9 @@ impl TermStream for EngineStream {
     }
 
     fn resize(&self, size: TermSize) {
+        if size.cols >= 2 && size.rows >= 1 {
+            *LAST_FITTED.lock().unwrap_or_else(|e| e.into_inner()) = Some((size.cols, size.rows));
+        }
         let _ = input::resize(&self.engine, &self.agent, size.cols, size.rows);
     }
 }
@@ -129,6 +132,15 @@ impl Entry {
 }
 
 /// The grid an agent's terminal shows now, if this app has it (`sizeInPane`).
+/// The size a terminal was last fitted to (`lastFitted` in registry.ts).
+static LAST_FITTED: Mutex<Option<(u16, u16)>> = Mutex::new(None);
+
+/// The last fitted terminal size: a new agent's size when nothing better
+/// is known.
+pub fn last_fitted() -> Option<(u16, u16)> {
+    *LAST_FITTED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub fn size_of(agent_id: &str, cx: &App) -> Option<(u16, u16)> {
     let e = cx.try_global::<Terminals>()?.entries.get(agent_id)?;
     let s = e.terminal.size();
@@ -346,6 +358,13 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
         .min_w_0()
         .min_h_0()
         .flex()
+        // Edit ▸ Copy / Paste / Select All (the menu's actions) reach the
+        // focused terminal as its own (its keys are bound in its context).
+        .on_action(|_: &crate::menu::Copy, window, cx| window.dispatch_action(Box::new(Copy), cx))
+        .on_action(|_: &crate::menu::Paste, window, cx| window.dispatch_action(Box::new(Paste), cx))
+        .on_action(|_: &crate::menu::SelectAll, window, cx| {
+            window.dispatch_action(Box::new(SelectAll), cx)
+        })
         .child(gpui::AnyView::from(view).cached(style))
         .into_any_element()
 }

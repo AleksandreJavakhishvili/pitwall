@@ -415,6 +415,9 @@ pub struct MainScreen {
     sidebar_focus: FocusHandle,
     /// The space area's size, measured each frame.
     area: Option<Size<Pixels>>,
+    /// The center's size less its space bar, estimated each frame (a first
+    /// agent's size while no space is shown: `tiledAgentSize(0, 1)`).
+    main_est: Option<Size<Pixels>>,
     divider: Option<DividerDrag>,
     /// The pane and zone an agent is dragged over (`None` zone: centre).
     drop_hint: Option<(String, Option<tree::Side>)>,
@@ -508,6 +511,7 @@ impl MainScreen {
             ui,
             route: Route::Space,
             sidebar_collapsed,
+            main_est: None,
             right_pinned,
             overlay_sidebar: false,
             drawer_open: false,
@@ -869,8 +873,12 @@ impl MainScreen {
     /// focused one) shows, else that pane's box fitted in cells, else the
     /// focused pane's terminal; the backend default otherwise.
     fn new_agent_size(&self, cx: &App) -> (Option<u16>, Option<u16>) {
-        let Some(sp) = self.active_space() else {
-            return (None, None);
+        let Some(sp) = self.active_space().filter(|_| self.area.is_some()) else {
+            // No space shown yet (the first agent): it gets the whole space.
+            return match self.main_fit().or_else(crate::terminal::last_fitted) {
+                Some((c, r)) => (Some(c), Some(r)),
+                None => (None, None),
+            };
         };
         let leaves = sp.layout.leaves();
         let focused = sp
@@ -903,10 +911,24 @@ impl MainScreen {
             let rows = ((r.h - ph) / (font * ch)).floor();
             (cols >= 2. && rows >= 1.).then_some((cols as u16, rows as u16))
         });
-        match fit.or_else(|| in_pane(focused)) {
+        let fit = fit
+            .or_else(|| in_pane(focused))
+            .or_else(crate::terminal::last_fitted);
+        match fit {
             Some((c, r)) => (Some(c), Some(r)),
             None => (None, None),
         }
+    }
+
+    /// Cells for one pane filling the center (no space area measured yet).
+    fn main_fit(&self) -> Option<(u16, u16)> {
+        let area = self.main_est?;
+        let font = self.ui.font_size;
+        let (cw, ch) = crate::theme::CELL_PER_PX;
+        let (pw, ph) = crate::theme::PANE_CHROME;
+        let cols = ((f32::from(area.width) as f64 - pw) / (font * cw)).floor();
+        let rows = ((f32::from(area.height) as f64 - ph) / (font * ch)).floor();
+        (cols >= 2. && rows >= 1.).then_some((cols as u16, rows as u16))
     }
 
     /// The font an agent's tile shows: its own (⌘+ / ⌘−), else the Settings
@@ -926,7 +948,9 @@ impl MainScreen {
         let clamp = |f: f64| crate::theme::clamp_font(f.round() as i32) as f64;
         let id = self
             .focused_agent_id()
-            .filter(|_| self.route == Route::Space);
+            // Review and the explorer still size the focused tile (React
+            // only skips it on the Wall).
+            .filter(|_| self.route != Route::Wall);
         let current = id.as_ref().map(|id| self.tile_font(id));
         self.update_ui(
             |mut s| {
@@ -984,6 +1008,37 @@ impl MainScreen {
             self.drawer_open = !self.drawer_open;
         }
         cx.notify();
+    }
+
+    /// Bench commands (`crate::bench`): `wall`/`review` on or off;
+    /// `visit-all` shows each agent once (so each gets its terminal), then
+    /// tiles them with Auto grid.
+    pub fn bench(&mut self, what: &str, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match what {
+            "wall" | "review" => {
+                let route = if what == "wall" { Route::Wall } else { Route::Review };
+                if (self.route == route) != on {
+                    self.toggle_route(route, cx);
+                }
+            }
+            "visit-all" => {
+                let ids: Vec<String> = self.ordered(cx).into_iter().map(|a| a.id).collect();
+                let win = window.window_handle();
+                cx.spawn(async move |this, cx| {
+                    for id in ids {
+                        let _ = win.update(cx, |_, window, cx| {
+                            let _ = this.update(cx, |s, cx| s.show_agent(&id, window, cx));
+                        });
+                        cx.background_executor().timer(std::time::Duration::from_millis(120)).await;
+                    }
+                    let _ = win.update(cx, |_, window, cx| {
+                        let _ = this.update(cx, |s, cx| s.apply_preset(Preset::Auto, window, cx));
+                    });
+                })
+                .detach();
+            }
+            _ => {}
+        }
     }
 
     fn toggle_route(&mut self, route: Route, cx: &mut Context<Self>) {
@@ -1422,6 +1477,21 @@ impl Render for MainScreen {
         let agents = self.agents(cx).to_vec();
         let selected = self.selected(cx);
         let sidebar_mode = self.sidebar_mode(bp);
+        {
+            let vp = window.viewport_size();
+            let side = match sidebar_mode {
+                SidebarMode::Full => f32::from(crate::theme::SIDEBAR_W),
+                SidebarMode::Rail => 56.,
+                SidebarMode::Hidden => 0.,
+            };
+            // A docked right panel appears with the first agent.
+            let right = if bp.right_docked() { f32::from(crate::theme::RIGHT_W) } else { 0. };
+            let top = f32::from(crate::theme::TOPBAR_H) + strip::STRIP_H + 32.;
+            self.main_est = Some(gpui::size(
+                px((f32::from(vp.width) - side - right).max(0.)),
+                px((f32::from(vp.height) - top).max(0.)),
+            ));
+        }
         let right = match (&selected, self.route) {
             (Some(_), Route::Space) if bp.right_docked() && self.right_pinned => Some(false),
             (Some(_), Route::Space) if !bp.right_docked() && self.drawer_open => Some(true),

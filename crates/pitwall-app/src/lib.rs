@@ -6,6 +6,7 @@
 //! sidebar of agents; terminals come from `pitwall-term-view`.
 
 pub mod agents;
+pub mod bench;
 pub mod approvals;
 pub mod bridge;
 pub mod explorer;
@@ -61,6 +62,7 @@ struct AppState {
 impl Global for AppState {}
 
 pub fn run() {
+    let started = std::time::Instant::now();
     let chosen = home::choose(&home::Env::current(), Paths::default_root(), home::answers);
     // A second launch on the same folder brings the running app forward.
     if let Err(home::Refusal::InUse { root }) = &chosen {
@@ -191,10 +193,18 @@ pub fn run() {
         })
         .detach();
 
-        show_main(cx);
+        bench::prepare();
+        let main = show_main(cx);
         windows::restore(cx);
         windows::debug_hook(cx);
-        cx.activate(true);
+        if bench::enabled() {
+            // Bench: never take the user's focus (`bench.rs`).
+            if let Some(root) = cx.global::<AppState>().root.clone() {
+                bench::start(main, root, started, cx);
+            }
+        } else {
+            cx.activate(true);
+        }
     });
 }
 
@@ -241,7 +251,17 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
     // Debug builds and benches: `PITWALL_DEBUG_FLOAT=1` floats the window
     // above the others without taking focus, so animations keep running
     // (they pause while the window is covered) during a CPU measurement.
-    let options = if std::env::var_os("PITWALL_DEBUG_FLOAT").is_some() {
+    let options = if bench::enabled() && !bench::visible() {
+        // Bench: shown and drawn, but off-screen (`bench.rs`).
+        let (x, y) = bench::OFF_SCREEN;
+        let mut b = options.window_bounds.map(|b| b.get_bounds()).unwrap_or_default();
+        b.origin = gpui::point(px(x), px(y));
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(b)),
+            focus: false,
+            ..options
+        }
+    } else if std::env::var_os("PITWALL_DEBUG_FLOAT").is_some() || bench::visible() {
         WindowOptions {
             kind: gpui::WindowKind::PopUp,
             focus: false,

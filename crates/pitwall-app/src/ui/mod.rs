@@ -180,6 +180,36 @@ impl MainView {
         self.layer.update(cx, |l, cx| l.open_settings(cx));
     }
 
+    /// A bench command (`crate::bench`, `src/lib/bench.ts`).
+    pub fn bench(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let mut words = cmd.split_whitespace();
+        let (Some(what), on) = (words.next(), words.next() != Some("off")) else {
+            return;
+        };
+        match what {
+            "wall" | "review" | "visit-all" => {
+                if let Some(s) = &self.screen {
+                    s.update(cx, |s, cx| s.bench(what, on, window, cx));
+                }
+            }
+            "palette" => self.palette.update(cx, |p, cx| {
+                if on {
+                    p.open(window, cx)
+                } else {
+                    p.close(window, cx)
+                }
+            }),
+            "settings" => self.layer.update(cx, |l, cx| {
+                if on {
+                    l.open_settings(cx)
+                } else {
+                    l.close(cx)
+                }
+            }),
+            _ => {}
+        }
+    }
+
     pub fn open_about(&mut self, cx: &mut Context<Self>) {
         self.layer.update(cx, |l, cx| l.open_about(cx));
     }
