@@ -859,41 +859,49 @@ impl MainScreen {
         })
     }
 
-    /// The size a new agent starts at: the pane it will show in.
-    fn new_agent_size(&self) -> (Option<u16>, Option<u16>) {
-        let (Some(sp), Some(area)) = (self.active_space(), self.area) else {
+    /// The size a new agent starts at (`newAgentSize`): the size the
+    /// terminal already in the target pane (the first empty one, else the
+    /// focused one) shows, else that pane's box fitted in cells, else the
+    /// focused pane's terminal; the backend default otherwise.
+    fn new_agent_size(&self, cx: &App) -> (Option<u16>, Option<u16>) {
+        let Some(sp) = self.active_space() else {
             return (None, None);
         };
-        let rects = tree::pane_rects(
-            &sp.layout,
-            tree::Rect {
-                x: 0.,
-                y: 0.,
-                w: f32::from(area.width) as f64,
-                h: f32::from(area.height) as f64,
-            },
-        );
-        let target = sp
-            .layout
-            .leaves()
-            .into_iter()
-            .find(|p| p.agent_id.is_none())
-            .map(|p| p.id)
-            .or(sp.focused_pane_id.clone());
-        let Some(r) = rects
-            .into_iter()
-            .find(|(id, _)| Some(id) == target.as_ref())
-            .map(|x| x.1)
-        else {
-            return (None, None);
+        let leaves = sp.layout.leaves();
+        let focused = sp
+            .focused_pane_id
+            .as_ref()
+            .and_then(|f| leaves.iter().find(|p| &p.id == f));
+        let target = leaves.iter().find(|p| p.agent_id.is_none()).or(focused);
+        let in_pane = |p: Option<&tree::Pane>| {
+            p.and_then(|p| p.agent_id.as_deref())
+                .and_then(|id| crate::terminal::size_of(id, cx))
         };
-        let font = self.ui.font_size;
-        let cols = ((r.w - 28.) / (font * 0.6)).floor();
-        let rows = ((r.h - 44.) / (font * 1.32)).floor();
-        if cols < 20. || rows < 5. {
-            return (None, None);
+        if let Some((c, r)) = in_pane(target) {
+            return (Some(c), Some(r));
         }
-        (Some(cols as u16), Some(rows as u16))
+        let fit = self.area.and_then(|area| {
+            let rects = tree::pane_rects(
+                &sp.layout,
+                tree::Rect {
+                    x: 0.,
+                    y: 0.,
+                    w: f32::from(area.width) as f64,
+                    h: f32::from(area.height) as f64,
+                },
+            );
+            let r = rects.into_iter().find(|(id, _)| Some(id) == target.map(|t| &t.id))?.1;
+            let font = self.ui.font_size;
+            let (cw, ch) = crate::theme::CELL_PER_PX;
+            let (pw, ph) = crate::theme::PANE_CHROME;
+            let cols = ((r.w - pw) / (font * cw)).floor();
+            let rows = ((r.h - ph) / (font * ch)).floor();
+            (cols >= 2. && rows >= 1.).then_some((cols as u16, rows as u16))
+        });
+        match fit.or_else(|| in_pane(focused)) {
+            Some((c, r)) => (Some(c), Some(r)),
+            None => (None, None),
+        }
     }
 
     /// The font an agent's tile shows: its own (⌘+ / ⌘−), else the Settings
@@ -1078,7 +1086,7 @@ impl MainScreen {
             return;
         };
         let taken: Vec<String> = self.agents(cx).iter().map(|a| a.name.clone()).collect();
-        let (cols, rows) = self.new_agent_size();
+        let (cols, rows) = self.new_agent_size(cx);
         let req = pitwall_core::model::CreateAgentRequest {
             name: model::terminal_name(&path, &taken),
             kind: "shell".into(),
@@ -1134,7 +1142,7 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) {
         let existing = self.agents(cx).to_vec();
-        let size = self.new_agent_size();
+        let size = self.new_agent_size(cx);
         let engine = self.engine.clone();
         let dialog = cx.new(|cx| NewAgentDialog::new(engine, existing, project, size, window, cx));
         self._subs.push(cx.subscribe_in(
@@ -1310,7 +1318,7 @@ impl MainScreen {
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        let size = self.new_agent_size();
+        let size = self.new_agent_size(cx);
         let size = size.0.zip(size.1);
         let task = cx
             .background_executor()

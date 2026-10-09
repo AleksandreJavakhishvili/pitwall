@@ -362,7 +362,7 @@ impl MainScreen {
         self.elsewhere.busy = true;
         let taken: Vec<String> = self.agents(cx).iter().map(|a| a.name.clone()).collect();
         let name = super::model::suggest_name(r.display_project.as_deref().unwrap_or(&cwd), &taken);
-        let (cols, rows) = self.new_agent_size();
+        let (cols, rows) = self.new_agent_size(cx);
         let req = ContinueRequest {
             kind: r.kind.clone(),
             session_id,

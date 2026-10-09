@@ -128,6 +128,13 @@ impl Entry {
     }
 }
 
+/// The grid an agent's terminal shows now, if this app has it (`sizeInPane`).
+pub fn size_of(agent_id: &str, cx: &App) -> Option<(u16, u16)> {
+    let e = cx.try_global::<Terminals>()?.entries.get(agent_id)?;
+    let s = e.terminal.size();
+    (s.cols >= 2 && s.rows >= 1).then_some((s.cols, s.rows))
+}
+
 /// Whether the agent's own terminal would draw its cursor (`cursorShown`
 /// in registry.ts): Wall tiles draw the cursor only then.
 pub fn cursor_shown(agent_id: &str, cx: &mut App) -> bool {
@@ -331,12 +338,15 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
             e.cursor_init = true;
         }
     }
+    // Cached: a frame drawn for something else (a working dot's pulse)
+    // replays the terminal's last paint instead of laying it out again.
+    let style = gpui::StyleRefinement::default().flex_1().min_w_0().min_h_0();
     div()
         .flex_1()
         .min_w_0()
         .min_h_0()
         .flex()
-        .child(view)
+        .child(gpui::AnyView::from(view).cached(style))
         .into_any_element()
 }
 
