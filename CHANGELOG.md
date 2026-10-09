@@ -11,6 +11,11 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - The Glass look uses the system material: Liquid Glass on recent macOS, vibrancy on older macOS, Mica on Windows 11 and a lighter painted glass elsewhere; Flat stays one click away.
 - A new logo and app icon: the Apex P.
 - A fraction of the CPU and less memory than the web-view app with the same agents.
+- The Race Engineer: an optional agent of your choice (Claude Code, Codex, Gemini CLI, …) that knows Pitwall's CLI and agw, one click from the top bar or ⌘K. Anything risky waits for your approval.
+- Settings is a sidebar of pages, and every setting can also be read and changed with `pitwall settings` or in `ui.json` (schema in `docs/settings.schema.json`).
+- Opening never waits for a slow or unreachable machine: its agents connect in the background and retry.
+- Full Disk Access is optional: per-folder access is the default.
+- ⌘-click a file path in a terminal to open it; long pastes arrive whole, also after the app restarts.
 
 ## [0.1.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.1) - 2026-10-08
 

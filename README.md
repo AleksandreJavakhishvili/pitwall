@@ -253,7 +253,7 @@ The [quick start on the website](https://aleksandrejavakhishvili.github.io/pitwa
 
 ## Performance
 
-<!-- Keep every performance number in this table only, and re-measure the v0.2 column on the release build. -->
+<!-- Keep every performance number in this table only. -->
 Since v0.2, Pitwall is a native app: the same engine, with the UI drawn on the GPU by GPUI in the same process instead of in a web view.
 
 | Pitwall's own processes (never the agents) | v0.2 (native) ¹ | v0.1 (web view) ² |
@@ -264,13 +264,13 @@ Since v0.2, Pitwall is a native app: the same engine, with the UI drawn on the G
 | Web view processes | none | WebContent + a GPU process that keeps ~220 MB once a terminal paints |
 | Window material (Glass) | Liquid Glass on macOS 26, Mica on Windows 11 | none (Flat only) |
 
-<sub>¹ Preview measurements from development builds, to be re-measured on the v0.2.0 release build. ² Release build, from [`docs/spec/perf.md`](docs/spec/perf.md). ³ The same simulated load on both, `scripts/bench.py --agent tui`. All on an M-series Mac.</sub>
+<sub>¹ Release builds of the native app. ² Release build, from [`docs/spec/perf.md`](docs/spec/perf.md). ³ The same simulated load on both, `scripts/bench.py --agent tui`. All on an M-series Mac.</sub>
 
 Carried over from v0.1: terminals are parsed in Rust (`alacritty_terminal`), and git for local agents refreshes on file-system events instead of polling, which cut the git processes for 20 working agents to a third.
 
 ## Roadmap
 
-[ROADMAP.md](ROADMAP.md) (also [on the website](https://aleksandrejavakhishvili.github.io/pitwall/roadmap/)) says what's being worked on now, what's next and what comes later: the native UI in v0.2.0, signed builds, Windows out of preview, agents that keep running while the app is closed, and plain SSH machines.
+[ROADMAP.md](ROADMAP.md) (also [on the website](https://aleksandrejavakhishvili.github.io/pitwall/roadmap/)) says what's being worked on now, what's next and what comes later: signed builds, Windows out of preview, agents that keep running while the app is closed, and plain SSH machines.
 
 ## Contributing
 

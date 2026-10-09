@@ -11,8 +11,6 @@ Being worked on.
 
 - **Signed builds.** Apple and Windows code signing, so macOS and Windows stop warning on first launch and macOS stops asking for folder access again after every update.
 - **Windows out of preview.** Windows builds ship since 0.1.1 and pass CI; next is running them day to day on real PCs and fixing what turns up.
-- **Race Engineer.** An optional assistant, one click from the top bar or ⌘K: an ordinary agent (Claude Code, Codex, Gemini CLI, … on your own subscription) that knows Pitwall's command line and agw and sets things up or rearranges agents when you ask. Anything risky still waits for your approval in the app, and Pitwall works fully without it. Built; shipping with the native app.
-- **Native UI (GPUI).** Shipping in the next release, v0.2.0: Pitwall rebuilt as a native Rust app on GPUI, Zed's GPU-accelerated UI framework, with no web view. The same design, shortcuts and agents, with much lower CPU and memory, especially with many busy agents on screen, and native glass: Liquid Glass on macOS 26 and Mica on Windows 11. Preview measurements are in the [README](README.md#performance).
 
 ## Next
 
@@ -30,6 +28,12 @@ Ideas we want, not scheduled yet.
 - **A clearer first launch on macOS.** A welcome step that explains folder access and shows whether it's granted.
 
 ## Recently shipped
+
+0.2.0 rebuilt Pitwall as a native Rust app on GPUI, Zed's GPU-accelerated UI
+framework, with no web view: the same design, shortcuts and agents with a
+fraction of the CPU and less memory, native glass (Liquid Glass on macOS 26,
+Mica on Windows 11), and the Race Engineer, an optional agent that knows
+Pitwall's command line and agw and sets things up when you ask.
 
 The first release, 0.1.0, for macOS and Linux: a read-only code explorer
 (file tree, quick open, search), a Changes panel that matches `git status`, Review
