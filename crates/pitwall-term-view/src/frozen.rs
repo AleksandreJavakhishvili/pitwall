@@ -167,8 +167,10 @@ impl Frozen {
         let grid = term.grid_mut();
         let (lines, cols) = (grid.screen_lines(), grid.columns());
         let history = grid.history_size();
+        // Each row taken leaves a blank one: alacritty clears the rows it
+        // scrolls in and can't clear an empty one.
         let take = |grid: &mut alacritty_terminal::Grid<Cell>, line: i32| {
-            std::mem::replace(&mut grid[Line(line)], Row::from_vec(Vec::new(), 0))
+            std::mem::replace(&mut grid[Line(line)], Row::new(cols))
         };
         let newer: Vec<Row<Cell>> = (1..=history as i32).rev().map(|i| take(grid, -i)).collect();
         let screen: Vec<Row<Cell>> = (0..lines as i32).map(|i| take(grid, i)).collect();
@@ -245,8 +247,11 @@ mod tests {
 
     impl T {
         fn new() -> T {
+            T::with_history(40)
+        }
+        fn with_history(scrolling_history: usize) -> T {
             let config = Config {
-                scrolling_history: 40,
+                scrolling_history,
                 ..Config::default()
             };
             T(
@@ -331,6 +336,43 @@ mod tests {
         a.feed(b"\r\nmore");
         b.feed(b"\r\nmore");
         same(&a.rows(), &b.rows());
+    }
+
+    #[test]
+    fn thaws_after_much_output_while_frozen() {
+        // A hidden agent that keeps printing: frozen, then more output than
+        // the screen scrolls by, then seen again (the grid then holds
+        // rows it made while frozen; a thaw used to leave empty ones that
+        // panicked the next scroll).
+        for (late, history, min) in [3, 5, 39, 40, 41, 120, 1500]
+            .into_iter()
+            .flat_map(|l| [(l, 40, 0), (l, 1000, 0), (l, 1000, 16)])
+        {
+            let (mut a, mut b) = (T::with_history(history), T::with_history(history));
+            let mut f = Frozen::default();
+            for k in 0..60 {
+                let line = format!("early {k}\r\n");
+                a.feed(line.as_bytes());
+                b.feed(line.as_bytes());
+                if k % 7 == 0 {
+                    f.freeze(&mut a.0, min, history);
+                }
+            }
+            f.freeze(&mut a.0, 0, history);
+            for k in 0..late {
+                let line = format!("late {k}\r\n");
+                a.feed(line.as_bytes());
+                b.feed(line.as_bytes());
+            }
+            f.thaw(&mut a.0);
+            same(&a.rows(), &b.rows());
+            for k in 0..50 {
+                let line = format!("after {k}\r\n");
+                a.feed(line.as_bytes());
+                b.feed(line.as_bytes());
+            }
+            same(&a.rows(), &b.rows());
+        }
     }
 
     #[test]
