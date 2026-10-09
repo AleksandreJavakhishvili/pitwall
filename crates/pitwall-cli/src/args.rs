@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-/// Add agents and sessions to Pitwall from a terminal. Prints JSON (use
-/// --human for text). Requests that change another machine wait for your
+/// Add agents and sessions to Pitwall and change its settings from a
+/// terminal. Prints JSON (use --human for text). Requests that change
+/// another machine, or settings outside Pitwall's own look, wait for your
 /// approval in Pitwall.
 #[derive(Debug, Parser, PartialEq)]
 #[command(name = "pitwall", bin_name = "pitwall", version)]
@@ -14,8 +15,11 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
     pub socket: Option<PathBuf>,
     /// Readable text instead of JSON.
-    #[arg(long, short = 'H', global = true)]
+    #[arg(long, short = 'H', global = true, conflicts_with = "json")]
     pub human: bool,
+    /// JSON output (the default; for scripts and agents that want to say so).
+    #[arg(long, global = true)]
+    pub json: bool,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -31,6 +35,37 @@ pub enum Command {
     /// Sessions on other machines (agw) that can be added to Pitwall.
     #[command(subcommand)]
     Session(SessionCmd),
+    /// Pitwall's settings (theme, look, density, hooks, …): list, get, set,
+    /// reset. Applied live when Pitwall runs; otherwise `ui.json` is edited
+    /// (safe settings only).
+    #[command(subcommand)]
+    Settings(SettingsCmd),
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum SettingsCmd {
+    /// Every setting: key, current value, allowed values, default, whether
+    /// it needs approval, and what it does.
+    List,
+    /// One setting (e.g. `settings get appearance.theme`).
+    Get {
+        /// A key from `settings list` (e.g. appearance.theme).
+        key: String,
+    },
+    /// Change a setting (e.g. `settings set appearance.theme dark`).
+    /// Settings marked `approval` wait for your OK in Pitwall.
+    Set {
+        /// A key from `settings list`.
+        key: String,
+        /// The new value: true/false for switches, one of the listed
+        /// choices, or a number.
+        value: String,
+    },
+    /// Put a setting back to its default.
+    Reset {
+        /// A key from `settings list`.
+        key: String,
+    },
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -188,6 +223,14 @@ mod tests {
             Command::Session(SessionCmd::Add { provider: "agw".into(), machine: "vm-1".into(), name: "work".into(), start: true })
         );
         assert!(!parse(&["session", "add", "agw", "vm-1", "work"]).unwrap().human);
+        assert_eq!(parse(&["settings", "list", "--json"]).unwrap().command, Command::Settings(SettingsCmd::List));
+        assert!(parse(&["settings", "list", "--json"]).unwrap().json);
+        assert_eq!(
+            parse(&["settings", "set", "appearance.theme", "dark"]).unwrap().command,
+            Command::Settings(SettingsCmd::Set { key: "appearance.theme".into(), value: "dark".into() })
+        );
+        assert_eq!(parse(&["settings", "reset", "appearance.look"]).unwrap().command, Command::Settings(SettingsCmd::Reset { key: "appearance.look".into() }));
+        assert_eq!(parse(&["settings", "get", "x"]).unwrap().command, Command::Settings(SettingsCmd::Get { key: "x".into() }));
     }
 
     #[test]
@@ -204,6 +247,9 @@ mod tests {
             &["agent", "new", "--machine", "vm", "--name", "s", "--project", "/p"],
             &["agent", "new", "--machine", "vm", "--name", "s", "--workspace", "w", "--new-workspace"],
             &["agent", "new", "--machine", "vm", "--name", "s", "--workspace-template", "t"],
+            &["settings", "set", "appearance.theme"],
+            &["settings", "get"],
+            &["settings", "list", "--json", "--human"],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }

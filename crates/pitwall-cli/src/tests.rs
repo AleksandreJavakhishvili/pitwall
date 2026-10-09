@@ -162,7 +162,7 @@ fn commands_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwc-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("c.sock");
-    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into() }).unwrap();
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None }).unwrap();
     let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command;
 
     let o = run(&parse(&["agent", "list"]), &socket).unwrap();
@@ -228,4 +228,141 @@ fn commands_end_to_end() {
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
     assert_eq!(failure(&run(&parse(&["agent", "list"]), &socket).err().unwrap()).0["error"]["code"], "not_connected");
+}
+
+/// The app's side of `settings.*`, in memory.
+#[derive(Default)]
+struct MemSettings(std::sync::Mutex<BTreeMap<String, serde_json::Value>>);
+
+impl pitwall_daemon::SettingsBackend for MemSettings {
+    fn get(&self, s: &'static pitwall_proto::settings::Setting) -> Result<serde_json::Value, String> {
+        Ok(self.0.lock().unwrap().get(s.key).cloned().unwrap_or_else(|| s.default_value()))
+    }
+    fn set(&self, s: &'static pitwall_proto::settings::Setting, v: serde_json::Value) -> Result<serde_json::Value, String> {
+        self.0.lock().unwrap().insert(s.key.into(), v.clone());
+        Ok(v)
+    }
+}
+
+fn settings_cmd(args: &[&str]) -> args::SettingsCmd {
+    match Cli::try_parse_from(["pitwall", "settings"].iter().chain(args)).unwrap().command {
+        Command::Settings(s) => s,
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn settings_against_a_running_pitwall() {
+    let dir = TempDir::new("cli-settings");
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let approvals = Approvals::new(Duration::from_secs(10));
+    let backend = Arc::new(MemSettings::default());
+    let sock_dir = std::env::temp_dir().join(format!("pwcs-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("s.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()) };
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
+    // The file is never touched while Pitwall answers.
+    let root = dir.path().join("home");
+    let run = |args: &[&str]| settings::run(&settings_cmd(args), &socket, &root);
+
+    let o = run(&["list"]).unwrap();
+    let list = o.json.as_array().unwrap();
+    assert_eq!(list.len(), pitwall_proto::settings::SETTINGS.len());
+    let theme = list.iter().find(|s| s["key"] == "appearance.theme").unwrap();
+    assert_eq!((theme["value"].as_str(), theme["sensitivity"].as_str()), (Some("system"), Some("safe")));
+    assert_eq!(theme["choices"], json!(["system", "dark", "light"]));
+    assert!(o.human.contains("appearance.theme") && o.human.contains("system|dark|light"), "{}", o.human);
+    assert!(o.human.contains("(approval)"));
+
+    // Safe: applied directly, no approval.
+    let o = run(&["set", "appearance.theme", "dark"]).unwrap();
+    assert_eq!(o.json["value"], "dark");
+    assert_eq!(o.human, "appearance.theme = dark\n");
+    assert_eq!(run(&["get", "appearance.theme"]).unwrap().json["value"], "dark");
+    assert_eq!(run(&["reset", "appearance.theme"]).unwrap().json["value"], "system");
+    assert_eq!(run(&["set", "appearance.terminalFontSize", "15"]).unwrap().json["value"], 15);
+
+    // Validation: clear errors, exit 1, nothing changed.
+    let e = run(&["set", "appearance.theme", "purple"]).err().unwrap();
+    let (body, status) = failure(&e);
+    assert_eq!((body["error"]["code"].as_str(), status), (Some("bad_params"), 1));
+    assert!(body["error"]["message"].as_str().unwrap().contains("one of system, dark, light"));
+    let e = run(&["get", "appearance.nope"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "not_found");
+    assert!(run(&["set", "agents.codexHooks", "false"]).is_err(), "can't be turned off");
+
+    // Approval: denied → exit 3, unchanged; allowed → applied.
+    let answer = |allow: bool| {
+        let a = approvals.clone();
+        std::thread::spawn(move || loop {
+            if let Some(p) = a.pending().first() {
+                assert!(p.summary.contains("agents.codexHooks"), "{}", p.summary);
+                a.answer(&ApprovalAnswer { id: p.id.clone(), allow, remember: false }).unwrap();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        })
+    };
+    let t = answer(false);
+    let e = run(&["set", "agents.codexHooks", "true"]).err().unwrap();
+    t.join().unwrap();
+    assert_eq!(failure(&e).1, 3);
+    assert_eq!(run(&["get", "agents.codexHooks"]).unwrap().json["value"], false);
+    let t = answer(true);
+    assert_eq!(run(&["set", "agents.codexHooks", "on"]).unwrap().json["value"], true);
+    t.join().unwrap();
+    // Already that value: nothing to approve.
+    assert_eq!(run(&["set", "agents.codexHooks", "true"]).unwrap().json["value"], true);
+    assert!(approvals.pending().is_empty());
+
+    server.stop();
+    assert!(!root.join("ui.json").exists());
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
+#[test]
+fn settings_without_pitwall_edit_ui_json() {
+    let dir = TempDir::new("cli-settings-off");
+    let root = dir.path().to_path_buf();
+    let socket = root.join("nobody.sock");
+    let run = |args: &[&str]| settings::run(&settings_cmd(args), &socket, &root);
+    let file = || serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(root.join("ui.json")).unwrap()).unwrap();
+
+    // No file yet: defaults; Pitwall-only settings read as unknown.
+    let o = run(&["list"]).unwrap();
+    assert_eq!(o.json.as_array().unwrap().iter().find(|s| s["key"] == "agents.codexHooks").unwrap()["value"], json!(null));
+    assert!(o.human.contains("Pitwall isn't running"));
+    assert_eq!(run(&["set", "appearance.density", "dense"]).unwrap().json["value"], "dense");
+    assert_eq!(file(), json!({"v": 1, "density": "dense"}));
+
+    // A v0.1 file keeps everything else, and its keys.
+    std::fs::write(root.join("ui.json"), r#"{"v":1,"spaces":[{"id":"all"}],"hideElsewhere":true,"theme":"light","later":7}"#).unwrap();
+    assert_eq!(run(&["get", "general.showElsewhere"]).unwrap().json["value"], false);
+    run(&["set", "general.showElsewhere", "true"]).unwrap();
+    run(&["reset", "appearance.theme"]).unwrap();
+    let f = file();
+    assert_eq!((f["hideElsewhere"].clone(), f["theme"].clone(), f["later"].clone()), (json!(false), json!("system"), json!(7)));
+    assert_eq!(f["spaces"], json!([{"id": "all"}]));
+    assert!(!root.join("ui.json.lock").exists(), "the lock is released");
+
+    // Approval settings need the app.
+    let e = run(&["set", "rules.allowNpx", "true"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "not_running");
+    // A broken file is reported, never overwritten.
+    std::fs::write(root.join("ui.json"), "{oops").unwrap();
+    let e = run(&["set", "appearance.theme", "dark"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "conflict");
+    assert_eq!(std::fs::read_to_string(root.join("ui.json")).unwrap(), "{oops");
+    // Another writer holds the lock: wait, then give up.
+    std::fs::write(root.join("ui.json"), r#"{"v":1}"#).unwrap();
+    std::fs::write(root.join("ui.json.lock"), "1").unwrap();
+    let e = run(&["set", "appearance.theme", "dark"]).err().unwrap();
+    assert!(failure(&e).0["error"]["message"].as_str().unwrap().contains("locked"));
 }
