@@ -315,13 +315,17 @@ impl ReviewView {
             cx,
             move |e| {
                 if now {
-                    ops::send_prompt(e, &id, text)
+                    ops::send_prompt(e, &id, text).map(|()| None)
                 } else {
-                    ops::queue_add(e, &id, text)
+                    ops::queue_add(e, &id, text).map(Some)
                 }
             },
             |this: &mut Self, res, cx| match res {
-                Ok(()) => {
+                Ok(view) => {
+                    // The queue shows at once (React patches the agent).
+                    if let Some(view) = view {
+                        crate::agents::patch(view, cx);
+                    }
                     if let Some(Dialog::Prompt {
                         clears_comments,
                         agent,

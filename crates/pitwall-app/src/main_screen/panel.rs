@@ -105,7 +105,10 @@ impl MainScreen {
         let (Some(engine), Some(id)) = (self.engine.clone(), self.changes.agent.clone()) else {
             return;
         };
-        self.changes.refreshing = true;
+        // Polls are silent: only a forced read shows "refreshing…".
+        if force {
+            self.changes.refreshing = true;
+        }
         let agent = id.clone();
         let task = cx.background_executor().spawn(async move {
             if force {
