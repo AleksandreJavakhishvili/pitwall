@@ -86,6 +86,8 @@ impl MainScreen {
     fn start_poll(&mut self, cx: &mut Context<Self>) {
         self.changes.poll = Some(cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(CHANGES_POLL).await;
+            // Paused while no window shows (`document.hidden`).
+            crate::platform::visible::until_any_visible(cx).await;
             let alive = this.update(cx, |s, cx| {
                 // Only while the panel shows them (and the window is up).
                 if s.route == Route::Space && s.changes.load.is_none() {

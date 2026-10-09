@@ -67,7 +67,9 @@ impl MainScreen {
         let scanner = Arc::new(Elsewhere::new());
         self._poll_elsewhere = Some(cx.spawn(async move |this, cx| loop {
             let hidden = this.update(cx, |s, _| s.ui.hide_elsewhere).unwrap_or(true);
-            if !hidden {
+            // Not before onboarding is done: the scan reads other apps'
+            // folders, which can raise macOS folder prompts (App.tsx).
+            if !hidden && engine.projects().onboarded() {
                 let (e, s) = (engine.clone(), scanner.clone());
                 let rows = cx
                     .background_executor()
@@ -86,6 +88,8 @@ impl MainScreen {
                 }
             }
             cx.background_executor().timer(POLL).await;
+            // Paused while no window shows (`document.hidden`).
+            crate::platform::visible::until_any_visible(cx).await;
         }));
     }
 

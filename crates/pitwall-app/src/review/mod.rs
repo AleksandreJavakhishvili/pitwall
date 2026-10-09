@@ -621,6 +621,8 @@ impl ReviewView {
             let mut tick: u64 = 0;
             loop {
                 cx.background_executor().timer(Duration::from_secs(5)).await;
+                // Paused while no window shows (`document.hidden`).
+                crate::platform::visible::until_any_visible(cx).await;
                 tick += 1;
                 let alive = this.update(cx, |v, cx| {
                     let ids: Vec<String> = v.ordered.iter().map(|a| a.id.clone()).collect();

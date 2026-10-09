@@ -173,6 +173,8 @@ impl Explorer {
         ];
         let poll = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(TREE_POLL).await;
+            // Paused while no window shows (`document.hidden`).
+            crate::platform::visible::until_any_visible(cx).await;
             if this.update(cx, |this, cx| this.poll(cx)).is_err() {
                 break;
             }

@@ -22,6 +22,7 @@ pub mod glass;
 pub mod notify;
 pub mod sidecar;
 pub mod single_instance;
+pub mod visible;
 
 #[cfg(target_os = "linux")]
 mod linux;

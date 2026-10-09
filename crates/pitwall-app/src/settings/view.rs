@@ -102,6 +102,8 @@ impl SettingsView {
                 break;
             }
             cx.background_executor().timer(POLL).await;
+            // Paused while no window shows (`document.hidden`).
+            crate::platform::visible::until_any_visible(cx).await;
         }));
         SettingsView {
             live,

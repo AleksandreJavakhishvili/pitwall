@@ -294,6 +294,8 @@ impl MainScreen {
         if self.wt.files_poll.is_none() {
             self.wt.files_poll = Some(cx.spawn(async move |this, cx| loop {
                 cx.background_executor().timer(FILES_EVERY).await;
+                // Paused while no window shows (`document.hidden`).
+                crate::platform::visible::until_any_visible(cx).await;
                 if this.update(cx, |s, cx| s.wt_load_files(true, cx)).is_err() {
                     break;
                 }
