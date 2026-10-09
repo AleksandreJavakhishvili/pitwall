@@ -80,7 +80,7 @@ fn world(approval_timeout: Duration) -> World {
     let approvals = Approvals::new(approval_timeout);
     let callers = Arc::new(Callers::default());
     let socket = short_socket();
-    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into() })
+    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None })
         .expect("listen on a temp socket");
     World { engine, vm, approvals, callers, server: Some(server), socket, _dir: dir }
 }
@@ -161,7 +161,7 @@ fn the_socket_is_private_and_removed_on_stop() {
         assert_eq!(mode, 0o600);
     }
     // A second server on the same socket refuses to start.
-    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into() });
+    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
     w.server.take().unwrap().stop();
     assert!(!w.socket.exists());

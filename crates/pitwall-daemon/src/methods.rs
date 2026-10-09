@@ -44,6 +44,11 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::SESSION_ADD, Access::AskWhen("`start`: starts a stopped session on its machine", Risk::Low)),
     (method::APPROVAL_LIST, Access::Ui),
     (method::APPROVAL_ANSWER, Access::Ui),
+    (method::SETTINGS_LIST, Access::Open),
+    (method::SETTINGS_GET, Access::Open),
+    // `safe` settings (Pitwall's own look) apply directly.
+    (method::SETTINGS_SET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High)),
+    (method::SETTINGS_RESET, Access::AskWhen("the setting is `approval` (changes something outside Pitwall)", Risk::High)),
 ];
 
 pub fn access(name: &str) -> Option<Access> {
@@ -105,6 +110,10 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
             s.approvals.answer(&a).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
             Ok(Value::Null)
         }
+        method::SETTINGS_LIST => crate::settings::list(s),
+        method::SETTINGS_GET => crate::settings::get(s, required(p)?),
+        method::SETTINGS_SET => crate::settings::set(s, caller, required(p)?),
+        method::SETTINGS_RESET => crate::settings::reset(s, caller, required(p)?),
         _ => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
     }
 }
@@ -255,6 +264,9 @@ mod tests {
         assert!(matches!(access(method::AGENT_CREATE), Some(Access::AskWhen(_, Risk::Low))));
         assert!(matches!(access(method::SESSION_ADD), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::APPROVAL_ANSWER), Some(Access::Ui));
+        assert_eq!(access(method::SETTINGS_LIST), Some(Access::Open));
+        assert!(matches!(access(method::SETTINGS_SET), Some(Access::AskWhen(_, Risk::High))));
+        assert!(matches!(access(method::SETTINGS_RESET), Some(Access::AskWhen(_, Risk::High))));
         assert_eq!(access("agent.remove"), None);
     }
 }

@@ -7,14 +7,17 @@
 //!   each method does in `pitwall-core`.
 //! - [`approvals`]: risky requests wait for the user's answer in Pitwall.
 //! - [`identity`]: who is calling (peer pid → the agent it runs in).
+//! - [`settings`]: `settings.*` over the host's [`SettingsBackend`].
 
 pub mod approvals;
 pub mod identity;
 pub mod methods;
 mod platform;
 pub mod server;
+pub mod settings;
 
 pub use approvals::{Approvals, Decision};
 pub use identity::{Caller, Identify, ProcessIdentity};
 pub use server::{serve, Config, Handle};
+pub use settings::SettingsBackend;
 
