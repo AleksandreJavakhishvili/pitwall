@@ -7,13 +7,16 @@
 //! repaints at most 10 times a second).
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Boundary, Column, Direction, Point as GridPoint, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 use alacritty_terminal::term::{Term, TermMode};
 use gpui::{
@@ -25,6 +28,7 @@ use gpui::{
 use crate::element::{GridLayout, RenderCache, RenderStats, TermElement, TermFont, SCROLLBAR_W};
 use crate::keys::{self, KeyModes, KeyPress, Mods};
 use crate::mouse::{self, Button, MouseAction, MouseModes, MouseMods};
+use crate::paths;
 use crate::terminal::{TermEvent, Terminal, UiRequest};
 
 actions!(
@@ -185,6 +189,46 @@ impl TileClock {
     }
 }
 
+/// Where file references in the text resolve: relative paths under `cwd`,
+/// `~/…` under `home`. Without it, only URLs are links.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileLinks {
+    pub cwd: PathBuf,
+    pub home: Option<PathBuf>,
+}
+
+/// ⌘-click (Ctrl-click off macOS) on a file reference: the file (absolute,
+/// links resolved; it existed when hovered) and where in it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenFile {
+    pub path: PathBuf,
+    /// 1-based.
+    pub line: Option<u32>,
+    /// 1-based.
+    pub column: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Link {
+    Url(String),
+    File(OpenFile),
+}
+
+/// A line's file references once checked on disk; read again after this.
+const FILE_CHECK_TTL: Duration = Duration::from_secs(5);
+/// Lines kept checked (then the cache starts over).
+const FILE_CACHE_LINES: usize = 256;
+
+type CheckedLine = Vec<(Range<usize>, Option<OpenFile>)>;
+
+/// File references found per line of text (keyed by the line's text), and
+/// the lines being checked now.
+#[derive(Default)]
+struct FileCache {
+    lines: HashMap<String, (Instant, CheckedLine)>,
+    checking: HashSet<String>,
+}
+
 /// What a press of the left button is doing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Drag {
@@ -219,7 +263,13 @@ pub struct TerminalView {
     blink_on: bool,
     last_input: Instant,
     blink_task: Option<Task<()>>,
-    link: Option<(Match, String)>,
+    link: Option<(Match, Link)>,
+    file_links: Option<FileLinks>,
+    files: FileCache,
+    /// Where the pointer was when links were last looked for.
+    hover_pos: Option<Point<Pixels>>,
+    /// A ⌘-click on a file reference still being checked: open it then.
+    click_pending: Option<Point<Pixels>>,
     cmd_held: bool,
     hovered: bool,
     search: Option<SearchState>,
@@ -230,6 +280,7 @@ pub struct TerminalView {
 }
 
 impl EventEmitter<TermEvent> for TerminalView {}
+impl EventEmitter<OpenFile> for TerminalView {}
 
 impl Focusable for TerminalView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
@@ -301,6 +352,10 @@ impl TerminalView {
             last_input: Instant::now(),
             blink_task: None,
             link: None,
+            file_links: None,
+            files: FileCache::default(),
+            hover_pos: None,
+            click_pending: None,
             cmd_held: false,
             hovered: false,
             search: None,
@@ -352,6 +407,19 @@ impl TerminalView {
         self.font_size = settings.font.size;
         self.settings = settings;
         cx.notify();
+    }
+
+    /// Make file references links, resolved as `links` says (`None`: only
+    /// URLs).
+    pub fn set_file_links(&mut self, links: Option<FileLinks>) {
+        if self.file_links != links {
+            self.file_links = links;
+            self.files = FileCache::default();
+        }
+    }
+
+    pub fn file_links(&self) -> Option<&FileLinks> {
+        self.file_links.as_ref()
     }
 
     pub(crate) fn focus_ref(&self) -> &FocusHandle {
@@ -496,7 +564,7 @@ impl TerminalView {
     }
 
     fn on_modifiers_changed(&mut self, ev: &ModifiersChangedEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let held = ev.modifiers.platform;
+        let held = ev.modifiers.secondary();
         if held != self.cmd_held {
             self.cmd_held = held;
             if !held && self.link.take().is_some() {
@@ -662,12 +730,17 @@ impl TerminalView {
                 }
             }
         }
-        // ⌘-click opens a link.
-        if button == MouseButton::Left && ev.modifiers.platform {
-            self.update_link(ev.position, cx);
-            if let Some((_, uri)) = &self.link {
-                cx.open_url(uri);
-                return;
+        // ⌘-click (Ctrl-click off macOS) opens a link.
+        if button == MouseButton::Left && ev.modifiers.secondary() {
+            let checking = self.update_link(ev.position, cx);
+            match self.link.as_ref().map(|(_, l)| l.clone()) {
+                Some(Link::Url(uri)) => return cx.open_url(&uri),
+                Some(Link::File(f)) => return cx.emit(f),
+                None if checking => {
+                    self.click_pending = Some(ev.position);
+                    return;
+                }
+                None => {}
             }
         }
         let mode = self.terminal.mode();
@@ -778,7 +851,8 @@ impl TerminalView {
                 }
             }
         }
-        if ev.modifiers.platform {
+        self.cmd_held = ev.modifiers.secondary();
+        if self.cmd_held {
             self.update_link(ev.position, cx);
         } else if self.link.take().is_some() {
             cx.notify();
@@ -821,19 +895,101 @@ impl TerminalView {
 
     // ── links ───────────────────────────────────────────────────────────────
 
-    fn update_link(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
+    /// Look for a link under `pos` (on hover with ⌘ held and on ⌘-click
+    /// only). `true`: a file reference there is still being checked.
+    fn update_link(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        self.hover_pos = Some(pos);
         let layout = *self.layout.borrow();
+        let mut checking = false;
         let new = if layout.bounds.contains(&pos) && layout.cols > 0 {
             let (col, row, _) = layout.cell_at(pos);
             let point = layout.grid_point(col, row);
-            let st = self.terminal.lock();
-            link_at(st.term(), point)
+            let terminal = self.terminal.clone();
+            let st = terminal.lock();
+            match link_at(st.term(), point) {
+                Some((m, uri)) => Some((m, Link::Url(uri))),
+                None => match self.file_link_at(st.term(), point, cx) {
+                    FileLookup::Found(m, f) => Some((m, Link::File(f))),
+                    FileLookup::Checking => {
+                        checking = true;
+                        None
+                    }
+                    FileLookup::None => None,
+                },
+            }
         } else {
             None
         };
-        if new.as_ref().map(|l| l.0.clone()) != self.link.as_ref().map(|l| l.0.clone()) {
+        if new != self.link {
             self.link = new;
             cx.notify();
+        }
+        checking
+    }
+
+    /// The file reference under `point`, from the cache; a line not checked
+    /// yet is checked on the background executor (the hover then looks
+    /// again).
+    fn file_link_at<T>(&mut self, term: &Term<T>, point: GridPoint, cx: &mut Context<Self>) -> FileLookup {
+        let Some(cfg) = self.file_links.clone() else { return FileLookup::None };
+        let (chars, points) = line_cells(term, point);
+        let Some(idx) = points.iter().rposition(|p| *p <= point) else { return FileLookup::None };
+        let refs = paths::find_paths(&chars);
+        if !refs.iter().any(|r| r.range.contains(&idx)) {
+            return FileLookup::None;
+        }
+        let text: String = chars.iter().collect();
+        if let Some((at, found)) = self.files.lines.get(&text) {
+            if at.elapsed() < FILE_CHECK_TTL {
+                return found
+                    .iter()
+                    .find(|(r, _)| r.contains(&idx))
+                    .and_then(|(r, f)| {
+                        let f = f.clone()?;
+                        let mut end = points[r.end - 1];
+                        if term.grid()[end].flags.contains(Flags::WIDE_CHAR) {
+                            end.column += 1;
+                        }
+                        Some(FileLookup::Found(points[r.start]..=end, f))
+                    })
+                    .unwrap_or(FileLookup::None);
+            }
+        }
+        if self.files.checking.insert(text.clone()) {
+            let check = cx.background_executor().spawn(async move {
+                refs.into_iter()
+                    .map(|r| {
+                        let file = paths::resolve(&r.path, &cfg.cwd, cfg.home.as_deref())
+                            .and_then(|p| paths::existing_file(&p))
+                            .map(|path| OpenFile { path, line: r.line, column: r.column });
+                        (r.range, file)
+                    })
+                    .collect::<CheckedLine>()
+            });
+            cx.spawn(async move |this, cx| {
+                let found = check.await;
+                let _ = this.update(cx, |this, cx| this.line_checked(text, found, cx));
+            })
+            .detach();
+        }
+        FileLookup::Checking
+    }
+
+    fn line_checked(&mut self, text: String, found: CheckedLine, cx: &mut Context<Self>) {
+        self.files.checking.remove(&text);
+        if self.files.lines.len() >= FILE_CACHE_LINES {
+            self.files.lines.clear();
+        }
+        self.files.lines.insert(text, (Instant::now(), found));
+        if let Some(pos) = self.click_pending.take() {
+            self.update_link(pos, cx);
+            if let Some((_, Link::File(f))) = &self.link {
+                cx.emit(f.clone());
+            }
+        } else if self.cmd_held {
+            if let Some(pos) = self.hover_pos {
+                self.update_link(pos, cx);
+            }
         }
     }
 
@@ -987,6 +1143,44 @@ pub(crate) fn link_at<T>(term: &Term<T>, point: GridPoint) -> Option<(Match, Str
     let m = RegexIter::new(start, end, Direction::Right, term, &mut regex).find(|m| m.contains(&point))?;
     let text = term.bounds_to_string(*m.start(), *m.end());
     Some((m, text.replace('\n', "")))
+}
+
+enum FileLookup {
+    Found(Match, OpenFile),
+    Checking,
+    None,
+}
+
+/// Longest line (in cells) searched for file references.
+const MAX_LINE_CELLS: usize = 8192;
+
+/// The text of the (wrapped) line through `point`, one `char` per entry,
+/// with the cell each comes from (wide-char spacers skipped).
+pub(crate) fn line_cells<T>(term: &Term<T>, point: GridPoint) -> (Vec<char>, Vec<GridPoint>) {
+    let (mut chars, mut points) = (Vec::new(), Vec::new());
+    if point.line < term.topmost_line() || point.line > term.bottommost_line() {
+        return (chars, points);
+    }
+    let grid = term.grid();
+    let (start, end) = (term.line_search_left(point), term.line_search_right(point));
+    let last = term.last_column();
+    let mut p = start;
+    for _ in 0..MAX_LINE_CELLS {
+        let cell = &grid[p];
+        if !cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+            chars.push(cell.c);
+            points.push(p);
+            for &z in cell.zerowidth().unwrap_or(&[]) {
+                chars.push(z);
+                points.push(p);
+            }
+        }
+        if p >= end {
+            break;
+        }
+        p = if p.column < last { GridPoint::new(p.line, p.column + 1) } else { GridPoint::new(p.line + 1, Column(0)) };
+    }
+    (chars, points)
 }
 
 /// The view's text input handler (keyboard text, IME composition).
@@ -1181,7 +1375,73 @@ impl Render for TerminalView {
                     .child(div().opacity(0.7).child(status)),
             );
         }
+        if let Some((m, link)) = &self.link {
+            root = root.child(self.link_tooltip(m, link, &theme));
+        }
         root
+    }
+}
+
+impl TerminalView {
+    /// The hovered link's target and how to open it, next to the link.
+    fn link_tooltip(&self, m: &Match, link: &Link, theme: &crate::theme::TermTheme) -> gpui::Div {
+        let layout = *self.layout.borrow();
+        let fg = crate::element::hsla_rgb(theme.foreground);
+        let bg = crate::element::hsla_rgb(theme.background);
+        let mut line = fg;
+        line.a = 0.18;
+        let target = match link {
+            Link::Url(u) => u.clone(),
+            Link::File(f) => file_label(f, self.file_links.as_ref().and_then(|l| l.home.as_deref())),
+        };
+        let hint = if cfg!(target_os = "macos") { "⌘-click to open" } else { "Ctrl-click to open" };
+        let start = m.start();
+        let row = (start.line.0 + layout.display_offset as i32 - layout.first_row as i32).max(0) as f32;
+        let x = f32::from(layout.origin.x - layout.bounds.origin.x) + start.column.0 as f32 * layout.cell_w;
+        let top = f32::from(layout.origin.y - layout.bounds.origin.y) + row * layout.cell_h;
+        let height = f32::from(layout.bounds.size.height);
+        let width = f32::from(layout.bounds.size.width);
+        let mut tip = div()
+            .absolute()
+            .max_w(px((width - 16.0).max(80.0)))
+            .px(px(8.0))
+            .py(px(3.0))
+            .rounded(px(4.0))
+            .bg(bg)
+            .border_1()
+            .border_color(line)
+            .shadow_md()
+            .text_color(fg)
+            .text_size(px(12.0))
+            .flex()
+            .gap(px(10.0))
+            .child(div().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(target))
+            .child(div().flex_none().opacity(0.6).child(hint));
+        // Below the link, or above it near the bottom; from its left edge,
+        // or from the right on the right half.
+        tip = if top + layout.cell_h * 2.0 + 28.0 > height {
+            tip.bottom(px(height - top + 4.0))
+        } else {
+            tip.top(px(top + layout.cell_h + 4.0))
+        };
+        if x > width / 2.0 {
+            tip.right(px(8.0))
+        } else {
+            tip.left(px(x.max(4.0)))
+        }
+    }
+}
+
+/// `~/proj/src/a.rs:12:3`.
+fn file_label(f: &OpenFile, home: Option<&std::path::Path>) -> String {
+    let shown = match home.and_then(|h| f.path.strip_prefix(h).ok()) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => f.path.display().to_string(),
+    };
+    match (f.line, f.column) {
+        (Some(l), Some(c)) => format!("{shown}:{l}:{c}"),
+        (Some(l), None) => format!("{shown}:{l}"),
+        _ => shown,
     }
 }
 
@@ -1240,6 +1500,90 @@ mod tests {
             assert_eq!(h.marked_text_range(window, cx), None);
         });
         assert_eq!(String::from_utf8(rec.0.lock().unwrap().clone()).unwrap(), "日本");
+    }
+
+    #[gpui::test]
+    fn cmd_click_on_a_file_reference_opens_it(cx: &mut gpui::TestAppContext) {
+        use gpui::Modifiers;
+        let dir = std::env::temp_dir().join(format!("pw-filelink-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("src/cart")).unwrap();
+        std::fs::write(dir.join("src/cart/cart.ts"), "export {}\n").unwrap();
+        let t = Terminal::new(NullStream, TermSize::new(60, 4), TerminalConfig::default());
+        t.feed().push(b"see src/cart/cart.ts:42:7 and src/nope.ts:1\r\n");
+        let (view, cx) =
+            cx.add_window_view(|w, cx| TerminalView::new(t, ViewMode::Interactive, ViewSettings::default(), w, cx));
+        view.update(cx, |v, _| v.set_file_links(Some(FileLinks { cwd: dir.clone(), home: None })));
+        let opened: Rc<RefCell<Vec<OpenFile>>> = Rc::default();
+        let sink = opened.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&view, move |_, e: &OpenFile, _| sink.borrow_mut().push(e.clone())).detach();
+        });
+        cx.run_until_parked();
+        let layout = view.read_with(cx, |v, _| *v.layout.borrow());
+        assert!(layout.cols > 0, "the view was drawn");
+        let at = |col: usize| {
+            gpui::point(
+                layout.origin.x + px((col as f32 + 0.5) * layout.cell_w),
+                layout.origin.y + px(0.5 * layout.cell_h),
+            )
+        };
+        let cmd = Modifiers::secondary_key();
+        // Hover with ⌘ held: checked off the main thread, then underlined.
+        cx.simulate_mouse_move(at(8), None, cmd);
+        cx.run_until_parked();
+        let link = view.read_with(cx, |v, _| v.link.clone());
+        let (m, l) = link.expect("a link under the pointer");
+        assert_eq!((m.start().column.0, m.end().column.0), (4, 24));
+        assert!(matches!(l, Link::File(_)));
+        cx.simulate_click(at(8), cmd);
+        cx.run_until_parked();
+        // A reference to a file that isn't there is no link.
+        cx.simulate_mouse_move(at(32), None, cmd);
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |v, _| v.link.is_none()));
+        cx.simulate_click(at(32), cmd);
+        cx.run_until_parked();
+        let opened = opened.borrow().clone();
+        assert_eq!(opened.len(), 1, "{opened:?}");
+        assert_eq!(opened[0].path, std::fs::canonicalize(dir.join("src/cart/cart.ts")).unwrap());
+        assert_eq!((opened[0].line, opened[0].column), (Some(42), Some(7)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[gpui::test]
+    fn cmd_click_before_the_check_finishes_still_opens(cx: &mut gpui::TestAppContext) {
+        use gpui::Modifiers;
+        let dir = std::env::temp_dir().join(format!("pw-filelink2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ჩემი.md"), "# x\n").unwrap();
+        let t = Terminal::new(NullStream, TermSize::new(60, 4), TerminalConfig::default());
+        t.feed().push("ok \"ჩემი.md\":3\r\n".as_bytes());
+        let (view, cx) =
+            cx.add_window_view(|w, cx| TerminalView::new(t, ViewMode::Interactive, ViewSettings::default(), w, cx));
+        view.update(cx, |v, _| v.set_file_links(Some(FileLinks { cwd: dir.clone(), home: None })));
+        let opened: Rc<RefCell<Vec<OpenFile>>> = Rc::default();
+        let sink = opened.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&view, move |_, e: &OpenFile, _| sink.borrow_mut().push(e.clone())).detach();
+        });
+        cx.run_until_parked();
+        let layout = view.read_with(cx, |v, _| *v.layout.borrow());
+        let pos = gpui::point(layout.origin.x + px(5.5 * layout.cell_w), layout.origin.y + px(0.5 * layout.cell_h));
+        cx.simulate_click(pos, Modifiers::secondary_key());
+        cx.run_until_parked();
+        let opened = opened.borrow().clone();
+        assert_eq!(opened.len(), 1);
+        assert!(opened[0].path.ends_with("ჩემი.md"));
+        assert_eq!(opened[0].line, Some(3));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn file_labels_shorten_home() {
+        let f = OpenFile { path: PathBuf::from("/home/demo/proj/a.rs"), line: Some(3), column: Some(2) };
+        assert_eq!(file_label(&f, Some(std::path::Path::new("/home/demo"))), "~/proj/a.rs:3:2");
+        let f = OpenFile { line: None, column: None, ..f };
+        assert_eq!(file_label(&f, None), "/home/demo/proj/a.rs");
     }
 
     #[test]
