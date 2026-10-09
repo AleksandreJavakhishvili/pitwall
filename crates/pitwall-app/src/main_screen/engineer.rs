@@ -6,6 +6,8 @@
 //! project (else home). A new one gets the first prompt queued
 //! (`engineer.greeting`).
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use gpui::{Context, Window};
 use pitwall_core::engine::lifecycle;
 use pitwall_core::engineer;
@@ -14,6 +16,19 @@ use pitwall_proto::settings::find;
 use pitwall_proto::AgentView;
 
 use super::{workspace, MainScreen};
+
+/// An open is under way (any window): more clicks meanwhile do nothing,
+/// or each would make an engineer before the first one is listed.
+static OPENING: AtomicBool = AtomicBool::new(false);
+
+/// Ends the open however it ends (done, failed, its window closed).
+struct Opening;
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        OPENING.store(false, Ordering::SeqCst);
+    }
+}
 
 /// What opening found to do.
 enum Opened {
@@ -62,13 +77,18 @@ impl MainScreen {
             command: text(&state, "engineer.command"),
             greeting: text(&state, "engineer.greeting"),
         };
-        let existing = self.agents(cx).iter().find(|a| a.engineer).cloned();
+        if OPENING.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let opening = Opening;
         let project = self.engineer_project(cx);
         let (cols, rows) = self.new_agent_size(cx);
         let task = cx.background_executor().spawn(async move {
             let kinds = engine.list_kinds()?;
             let (kind, custom_command) = engineer::choose(&kinds, &set.agent, &set.command)?;
-            if let Some(a) = existing {
+            // The engine's list, not the window's: it has one made a
+            // moment ago that the window hasn't shown yet.
+            if let Some(a) = engine.views().into_iter().find(|a| a.engineer) {
                 if a.running {
                     return Ok(Opened::Show(a.id));
                 }
@@ -97,6 +117,7 @@ impl MainScreen {
         });
         cx.spawn_in(window, async move |this, cx| {
             let res = task.await;
+            drop(opening);
             let _ = this.update_in(cx, |s, window, cx| match res {
                 Ok(Opened::Show(id)) => s.show_agent(&id, window, cx),
                 Ok(Opened::Created(view)) => s.created(*view, window, cx),
