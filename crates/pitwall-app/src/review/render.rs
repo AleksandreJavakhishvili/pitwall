@@ -294,7 +294,7 @@ impl ReviewView {
             .flex()
             .flex_col()
             .children(col);
-        kit::vscroll("rv-list-bar", &self.list_scroll, t, list)
+        kit::vscroll_fill("rv-list-bar", &self.list_scroll, t, list)
             .w(px(LIST_W))
             .min_w(px(220.))
             .flex_none()

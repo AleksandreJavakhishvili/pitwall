@@ -30,7 +30,7 @@ use gpui::{
     point, prelude::*, px, quad, size, transparent_black, AnyElement, App, Background,
     BorderStyle, Bounds, BoxShadow, Corners, Edges, Element, ElementId, EntityId,
     GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, Pixels, Rgba,
-    Style, Styled, Window, WindowId,
+    Context, Render, Style, Styled, Window, WindowId,
 };
 
 use crate::theme::cubic_bezier;
@@ -636,34 +636,206 @@ impl Element for PulseDot {
         let c = bounds.center();
         let (dot, color) = (self.dot, self.color);
         let moving = !self.still && motion(cx);
-        if self.glass {
-            // A 1.5 px ring just outside the dot, scaled with it.
-            let (s, a) = if moving {
-                let p = phase(Duration::from_millis(2000));
-                if p < 0.7 {
-                    let v = Ease::OutSoft.at(p / 0.7);
-                    (1. + 1.5 * v, 0.9 * (1. - v))
-                } else {
-                    (2.5, 0.)
-                }
-            } else {
-                (1., 1.)
-            };
-            if a > 0.001 {
-                let d = (dot + 3.) * s;
-                circle(c, d, transparent_black(), Some((1.5 * s, color.opacity(a))), window);
-            }
-        } else if moving {
-            let v = Ease::EaseOut.at(phase(Duration::from_millis(1800)));
-            let a = 0.55 * (1. - v);
-            if a > 0.001 {
-                circle(c, dot * (1. + 1.6 * v), color.opacity(a), None, window);
-            }
+        // Inside a pulse scope (the main screen) the moving ring is drawn
+        // by the window's pulse layer, so its frames don't redraw the
+        // screen: here only the still dot.
+        if moving && rings::record(window, Ring { center: c, dot, color, glass: self.glass }) {
+            circle(c, dot, color, None, window);
+            return;
         }
-        circle(c, dot, color, None, window);
+        paint_pulse(c, dot, color, self.glass, moving, window);
         if moving {
             loop_frame(window);
         }
+    }
+}
+
+/// The working dot at `c`: Glass a ring going out, Flat a disc; still
+/// (Glass keeps its ring standing).
+fn paint_pulse(c: Point, dot: f32, color: Hsla, glass: bool, moving: bool, window: &mut Window) {
+    if glass {
+        // A 1.5 px ring just outside the dot, scaled with it.
+        let (s, a) = if moving {
+            let p = phase(Duration::from_millis(2000));
+            if p < 0.7 {
+                let v = Ease::OutSoft.at(p / 0.7);
+                (1. + 1.5 * v, 0.9 * (1. - v))
+            } else {
+                (2.5, 0.)
+            }
+        } else {
+            (1., 1.)
+        };
+        if a > 0.001 {
+            let d = (dot + 3.) * s;
+            circle(c, d, transparent_black(), Some((1.5 * s, color.opacity(a))), window);
+        }
+    } else if moving {
+        let v = Ease::EaseOut.at(phase(Duration::from_millis(1800)));
+        let a = 0.55 * (1. - v);
+        if a > 0.001 {
+            circle(c, dot * (1. + 1.6 * v), color.opacity(a), None, window);
+        }
+    }
+    circle(c, dot, color, None, window);
+}
+
+/// A working dot's moving ring, drawn by the window's [`PulseLayer`].
+#[derive(Clone, Copy)]
+struct Ring {
+    center: Point,
+    dot: f32,
+    color: Hsla,
+    glass: bool,
+}
+
+/// The one shared clock for the working dots. The main screen paints
+/// inside a [`pulse_scope`]: its dots only record where they are (with
+/// the clip they are painted in), and a small layer over the screen draws
+/// every ring at [`LOOP_FPS`]. A ring frame then redraws that layer and
+/// replays the screen's last paint (the screen is a cached view) instead
+/// of laying the whole window out again.
+mod rings {
+    use super::*;
+    use std::collections::HashMap;
+
+    pub(super) struct Recorded {
+        pub ring: Ring,
+        pub clip: Bounds<Pixels>,
+    }
+
+    thread_local! {
+        /// The window whose scope is painting now.
+        static SCOPE: Cell<Option<WindowId>> = const { Cell::new(None) };
+        pub(super) static RINGS: RefCell<HashMap<WindowId, Vec<Recorded>>> = RefCell::new(HashMap::new());
+    }
+
+    /// Note a ring while a scope paints; false outside one (the dot then
+    /// animates itself).
+    pub(super) fn record(window: &mut Window, ring: Ring) -> bool {
+        let id = window.window_handle().window_id();
+        if SCOPE.with(|s| s.get()) != Some(id) {
+            return false;
+        }
+        let clip = window.content_mask().bounds;
+        RINGS.with(|r| r.borrow_mut().entry(id).or_default().push(Recorded { ring, clip }));
+        true
+    }
+
+    pub(super) fn begin(id: WindowId) {
+        SCOPE.with(|s| s.set(Some(id)));
+        RINGS.with(|r| r.borrow_mut().insert(id, Vec::new()));
+    }
+
+    pub(super) fn end() {
+        SCOPE.with(|s| s.set(None));
+    }
+}
+
+/// Paint `child` as a pulse scope (see the `rings` module). `off`: a modal over
+/// the screen; its dots animate themselves under it.
+pub fn pulse_scope(child: impl IntoElement, off: bool) -> PulseScope {
+    PulseScope { child: Some(child.into_any_element()), off }
+}
+
+pub struct PulseScope {
+    child: Option<AnyElement>,
+    off: bool,
+}
+
+impl IntoElement for PulseScope {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for PulseScope {
+    type RequestLayoutState = AnyElement;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, AnyElement) {
+        let mut child = self.child.take().expect("laid out once");
+        (child.request_layout(window, cx), child)
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        child: &mut AnyElement,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        child: &mut AnyElement,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let id = window.window_handle().window_id();
+        if self.off {
+            rings::RINGS.with(|r| r.borrow_mut().remove(&id));
+            child.paint(window, cx);
+            return;
+        }
+        rings::begin(id);
+        child.paint(window, cx);
+        rings::end();
+    }
+}
+
+/// The layer that draws the main screen's working-dot rings (put it right
+/// over the screen, under the window's overlays).
+pub struct PulseLayer;
+
+impl Render for PulseLayer {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        gpui::canvas(
+            |_, _, _| {},
+            |_, _, window, cx| {
+                let id = window.window_handle().window_id();
+                let rings: Vec<(Ring, Bounds<Pixels>)> = rings::RINGS.with(|r| {
+                    r.borrow()
+                        .get(&id)
+                        .map(|v| v.iter().map(|x| (x.ring, x.clip)).collect())
+                        .unwrap_or_default()
+                });
+                if rings.is_empty() || !motion(cx) {
+                    return;
+                }
+                for (r, clip) in rings {
+                    window.with_content_mask(Some(gpui::ContentMask { bounds: clip }), |window| {
+                        paint_pulse(r.center, r.dot, r.color, r.glass, true, window)
+                    });
+                }
+                loop_frame(window);
+            },
+        )
+        .absolute()
+        .inset_0()
     }
 }
 

@@ -808,7 +808,7 @@ impl Render for WallView {
                 // The scrollbar's gutter is outside what `measure` sees,
                 // as `clientWidth` is in the browser.
                 d.child(
-                    kit::vscroll(
+                    kit::vscroll_fill(
                         "wall-bar",
                         &self.scroll,
                         &t,

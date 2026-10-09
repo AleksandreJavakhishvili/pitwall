@@ -644,7 +644,7 @@ impl Render for SearchPane {
                 )
             })
             .child(
-                crate::kit::vscroll_list("ex-results-bar", &self.scroll, &t, list)
+                crate::kit::vscroll_list_fill("ex-results-bar", &self.scroll, &t, list)
                     .flex_1()
                     .min_h_0()
                     .font_family(MONO_FONT)

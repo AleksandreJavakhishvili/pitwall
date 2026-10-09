@@ -68,7 +68,7 @@ pub use status::{
 pub use text::{
     one_line, para, rich, Ellipsis, Para, Span, error_text, hint, label, label_fit, label_t, mono_text, muted, project_name, tracked, Tracked,
 };
-pub use scrollbar::{hscroll, scroll_area, vscroll, vscroll_list, ScrollArea, Scrollbar};
+pub use scrollbar::{hscroll, scroll_area, vscroll, vscroll_fill, vscroll_list, vscroll_list_fill, ScrollArea, Scrollbar};
 pub use tooltip::{tooltip, tooltip_view, Tooltip};
 
 use gpui::App;

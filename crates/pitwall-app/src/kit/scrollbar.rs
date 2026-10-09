@@ -30,6 +30,68 @@ const INSET: f32 = 3.;
 /// The shortest thumb (WebKit keeps it grabbable).
 const MIN_THUMB: f32 = 18.;
 
+/// Lay out `content` and its vertical `bar`. `fill`: the area's size comes
+/// from its parent (a sidebar, a panel), so the content is placed in it
+/// absolutely and laid out once, not measured for its natural height first
+/// (that measuring doubled the main screen's layout time). Otherwise the
+/// area grows with the content up to its `max_h`.
+fn frame(fill: bool, content: gpui::AnyElement, mut bar: Scrollbar) -> gpui::Div {
+    if !fill {
+        return div()
+            .flex()
+            .flex_row()
+            .min_h_0()
+            .min_w_0()
+            .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(content))
+            .child(bar);
+    }
+    let gutter = if bar.overflows() { px(GUTTER) } else { px(0.) };
+    bar.fill = true;
+    div()
+        .relative()
+        .min_h_0()
+        .min_w_0()
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .bottom_0()
+                .right(gutter)
+                .flex()
+                .flex_col()
+                .child(content),
+        )
+        .child(div().absolute().top_0().bottom_0().right_0().child(bar))
+}
+
+/// [`vscroll`] whose size comes from its parent (see [`frame`]).
+pub fn vscroll_fill(
+    id: impl Into<ElementId>,
+    handle: &ScrollHandle,
+    t: &Theme,
+    content: impl IntoElement,
+) -> gpui::Div {
+    frame(
+        true,
+        content.into_any_element(),
+        Scrollbar::new(id, handle.clone(), Axis::Vertical, t.line_strong),
+    )
+}
+
+/// [`vscroll_list`] whose size comes from its parent.
+pub fn vscroll_list_fill(
+    id: impl Into<ElementId>,
+    handle: &gpui::UniformListScrollHandle,
+    t: &Theme,
+    content: impl IntoElement,
+) -> gpui::Div {
+    let base = handle.0.borrow().base_handle.clone();
+    let mut bar = Scrollbar::new(id, base, Axis::Vertical, t.line_strong);
+    bar.list = true;
+    frame(true, content.into_any_element(), bar)
+}
+
 /// A vertical scroll area: `content` (the scroll container tracking
 /// `handle`) with the 10 px scrollbar gutter on its right.
 pub fn vscroll(
@@ -95,6 +157,7 @@ pub fn scroll_area(
         color: t.line_strong,
         style: gpui::StyleRefinement::default(),
         build: Some(Box::new(build)),
+        fill: false,
     }
 }
 
@@ -105,6 +168,15 @@ pub struct ScrollArea {
     color: Hsla,
     style: gpui::StyleRefinement,
     build: Option<Build>,
+    fill: bool,
+}
+
+impl ScrollArea {
+    /// Its size comes from its parent (see [`frame`]).
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
 }
 
 impl Styled for ScrollArea {
@@ -144,13 +216,11 @@ impl Element for ScrollArea {
             (s.clone(), s)
         });
         let content = (self.build.take().expect("laid out once"))(&handle);
-        let mut area = div()
-            .flex()
-            .flex_row()
-            .min_h_0()
-            .min_w_0()
-            .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(content))
-            .child(Scrollbar::new("bar", handle, Axis::Vertical, self.color));
+        let mut area = frame(
+            self.fill,
+            content,
+            Scrollbar::new("bar", handle, Axis::Vertical, self.color),
+        );
         area.style().refine(&self.style);
         let mut el = area.into_any_element();
         (el.request_layout(window, cx), el)
@@ -209,11 +279,13 @@ pub struct Scrollbar {
     color: Hsla,
     /// The handle is a `uniform_list`'s (it records no children).
     list: bool,
+    /// In a [`frame`] that fills its parent: as tall as it.
+    fill: bool,
 }
 
 impl Scrollbar {
     pub fn new(id: impl Into<ElementId>, handle: ScrollHandle, axis: Axis, color: Hsla) -> Self {
-        Scrollbar { id: id.into(), handle, axis, color, list: false }
+        Scrollbar { id: id.into(), handle, axis, color, list: false, fill: false }
     }
 
     fn overflows(&self) -> bool {
@@ -285,6 +357,9 @@ impl Element for Scrollbar {
         match self.axis {
             Axis::Vertical => style.size.width = w.into(),
             Axis::Horizontal => style.size.height = w.into(),
+        }
+        if self.fill {
+            style.size.height = gpui::relative(1.).into();
         }
         (window.request_layout(style, [], cx), state)
     }

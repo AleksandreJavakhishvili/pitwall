@@ -36,6 +36,8 @@ pub struct MainView {
     pub review: Option<Entity<crate::review::ReviewRoute>>,
     /// The command palette (⌘K).
     palette: Entity<crate::palette::PaletteHost>,
+    /// The working dots' rings over the screen (`kit::motion::PulseLayer`).
+    pulses: Entity<crate::kit::motion::PulseLayer>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -140,6 +142,7 @@ impl MainView {
         }
         MainView {
             palette,
+            pulses: cx.new(|_| crate::kit::motion::PulseLayer),
             content,
             explorer,
             layer,
@@ -374,8 +377,13 @@ impl Render for MainView {
         let root = crate::palette::on_actions(root, &self.palette);
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
+            // The screen is a cached view: a frame drawn only for the
+            // working dots' rings (the pulse layer) replays its last paint.
             Content::Live { .. } => root
-                .children(self.screen.clone())
+                .children(self.screen.clone().map(|s| {
+                    gpui::AnyView::from(s).cached(gpui::StyleRefinement::default().size_full())
+                }))
+                .child(self.pulses.clone())
                 .children(self.explorer.clone()),
         };
         let root = root

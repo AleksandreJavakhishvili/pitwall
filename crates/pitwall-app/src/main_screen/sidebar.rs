@@ -199,6 +199,7 @@ impl MainScreen {
                         .children(list)
                         .into_any_element()
                 })
+                .fill()
                 .flex_1()
                 .min_h_0(),
             )
@@ -823,6 +824,7 @@ impl MainScreen {
                     .child(icon("plus", 16., t.text_3)),
             );
         crate::kit::scroll_area("rail-area", t, move |h| rail.track_scroll(h).into_any_element())
+            .fill()
             .w(px(56.))
             .h_full()
             .flex_none()

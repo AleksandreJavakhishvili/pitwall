@@ -1515,7 +1515,8 @@ impl Render for MainScreen {
             topbar.into_any_element()
         };
 
-        div()
+        let modal = self.modal.is_some() || self.elsewhere.bring.is_some();
+        let screen = div()
             .id("main-screen")
             .key_context("MainScreen")
             .track_focus(&self.focus)
@@ -1607,7 +1608,10 @@ impl Render for MainScreen {
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
             .children(self.render_bring_in(&t, cx))
-            .children(self.render_menu(&float, cx))
+            .children(self.render_menu(&float, cx));
+        // Its working dots hand their rings to the window's pulse layer,
+        // unless a modal is over them (then they animate under it).
+        crate::kit::motion::pulse_scope(screen, modal)
     }
 }
 

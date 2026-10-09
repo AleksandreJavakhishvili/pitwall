@@ -113,6 +113,8 @@ pub mod probe {
         crate::kit::motion::set_on(false);
         let away = point(px(1.), px(1.));
         cx.simulate_mouse_move(away, None, Modifiers::none());
+        // Opening animations (real time) finish first.
+        std::thread::sleep(std::time::Duration::from_millis(450));
         let base = layout(cx);
         assert!(!base.is_empty(), "{what}: nothing hoverable was drawn");
         let mut hovered = 0;
@@ -127,17 +129,31 @@ pub mod probe {
             // there, at the same place and size).
             let after = layout(cx);
             let now: Vec<Bounds<Pixels>> = after.values().copied().collect();
-            for (n, nb) in &base {
-                if !now.contains(nb) {
-                    let near: Vec<_> = after
-                        .iter()
-                        .filter(|(_, x)| (x.origin.y - nb.origin.y).abs() < px(12.))
-                        .collect();
-                    panic!(
-                        "{what}: hovering {name} {b:?} moved or resized {n} {nb:?}; \
-                         now on that line: {near:?}"
-                    );
-                }
+            let moved: Vec<(&String, &Bounds<Pixels>)> =
+                base.iter().filter(|(_, nb)| !now.contains(nb)).collect();
+            // A list that scrolls the hovered row into view (the palette,
+            // as `scrollIntoView` does) shifts its rows together: allowed.
+            let shift = moved.first().and_then(|(_, f)| {
+                now.iter()
+                    .find(|x| x.size == f.size && x.origin.x == f.origin.x)
+                    .map(|x| x.origin.y - f.origin.y)
+            });
+            let scrolled = shift.is_some_and(|dy| {
+                moved.iter().all(|(_, m)| {
+                    now.iter().any(|x| {
+                        x.size == m.size && x.origin.x == m.origin.x && x.origin.y - m.origin.y == dy
+                    })
+                })
+            });
+            if let (Some((n, nb)), false) = (moved.first(), scrolled) {
+                let near: Vec<_> = after
+                    .iter()
+                    .filter(|(_, x)| (x.origin.y - nb.origin.y).abs() < px(12.))
+                    .collect();
+                panic!(
+                    "{what}: hovering {name} {b:?} moved or resized {n} {nb:?}; \
+                     now on that line: {near:?}"
+                );
             }
             hovered += 1;
             reset();

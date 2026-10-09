@@ -375,6 +375,6 @@ impl Render for TreeView {
             .flex_col()
             .font_family(MONO_FONT)
             .text_size(px(12.))
-            .child(crate::kit::vscroll_list("ex-tree-bar", &self.scroll, &t, list).flex_1())
+            .child(crate::kit::vscroll_list_fill("ex-tree-bar", &self.scroll, &t, list).flex_1())
     }
 }

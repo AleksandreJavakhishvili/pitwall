@@ -190,6 +190,7 @@ impl MainScreen {
                 .children(bottom)
                 .into_any_element()
         })
+        .fill()
         .w(RIGHT_W)
         .h_full()
         .flex_none()
