@@ -349,6 +349,7 @@ fn build(
     };
     let label = label.to_string();
     let handle = cx.open_window(options, move |window, cx| {
+        crate::platform::lean_renderer(window);
         let id = window.window_handle().window_id();
         state(cx).labels.insert(id, label);
         if let Some((saved, assumed)) = restored {

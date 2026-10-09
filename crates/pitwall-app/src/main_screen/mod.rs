@@ -26,6 +26,7 @@ mod engineer;
 mod menu;
 pub mod model;
 mod panel;
+mod part;
 mod sidebar;
 mod space;
 mod strip;
@@ -63,6 +64,7 @@ use self::tree::Preset;
 pub use self::topbar::AgentDrag;
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
+pub use self::part::cached as parts_cached;
 
 actions!(
     main_screen,
@@ -437,6 +439,8 @@ pub struct MainScreen {
     agent_ids: Vec<String>,
     elsewhere: elsewhere::ElsewhereState,
     _poll_elsewhere: Option<Task<()>>,
+    /// The big, rarely changing pieces as cached views (part.rs).
+    parts: Option<part::Parts>,
     _subs: Vec<Subscription>,
 }
 
@@ -537,6 +541,7 @@ impl MainScreen {
             agent_ids: vec![],
             elsewhere: Default::default(),
             _poll_elsewhere: None,
+            parts: None,
             _subs: subs,
         };
         screen.start_elsewhere(cx);
@@ -1014,7 +1019,8 @@ impl MainScreen {
 
     /// Bench commands (`crate::bench`): `wall`/`review` on or off;
     /// `visit-all` shows each agent once (so each gets its terminal), then
-    /// tiles them with Auto grid.
+    /// tiles them with Auto grid (`visit-all-4`: 2×2, the rest folded, the
+    /// perf brief's standard load).
     pub fn bench(&mut self, what: &str, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         match what {
             "wall" | "review" => {
@@ -1023,7 +1029,8 @@ impl MainScreen {
                     self.toggle_route(route, cx);
                 }
             }
-            "visit-all" => {
+            "visit-all" | "visit-all-4" => {
+                let preset = if what == "visit-all" { Preset::Auto } else { Preset::G2x2 };
                 let ids: Vec<String> = self.ordered(cx).into_iter().map(|a| a.id).collect();
                 let win = window.window_handle();
                 cx.spawn(async move |this, cx| {
@@ -1034,7 +1041,7 @@ impl MainScreen {
                         cx.background_executor().timer(std::time::Duration::from_millis(120)).await;
                     }
                     let _ = win.update(cx, |_, window, cx| {
-                        let _ = this.update(cx, |s, cx| s.apply_preset(Preset::Auto, window, cx));
+                        let _ = this.update(cx, |s, cx| s.apply_preset(preset, window, cx));
                     });
                 })
                 .detach();
@@ -1505,21 +1512,62 @@ impl Render for MainScreen {
         let chrome = t.chrome();
         let slab = crate::theme::panel(&t, cx);
         let float = t.float();
+        // The big, rarely changing pieces are cached views (part.rs).
+        let parts = part::cached(cx).then(|| {
+            let me = cx.entity();
+            &*self.parts.get_or_insert_with(|| part::Parts::new(&me, cx))
+        });
+        let mut drawn = Vec::new();
+        let sidebar_part = parts.filter(|_| sidebar_mode == SidebarMode::Full).map(|p| {
+            drawn.push(part::PartKind::Sidebar);
+            p.sidebar.clone()
+        });
+        let strip_part = parts.map(|p| {
+            drawn.push(part::PartKind::Strip);
+            p.strip.clone()
+        });
+        let topbar_part = parts.map(|p| {
+            drawn.push(part::PartKind::Topbar);
+            p.topbar.clone()
+        });
+        let panel_part = parts.filter(|_| right == Some(false)).map(|p| {
+            drawn.push(part::PartKind::Panel);
+            p.panel.clone()
+        });
+        if parts.is_some() && self.route != Route::Space {
+            drawn.push(part::PartKind::Route);
+        }
+        if parts.is_some() && self.route == Route::Space {
+            drawn.extend([part::PartKind::Bar, part::PartKind::Chips]);
+        }
+        if let Some(p) = &self.parts {
+            p.forget_unused(&drawn, window);
+        }
         let main_row = div()
             .flex_1()
             .min_h_0()
             .flex()
             .relative()
-            .when(sidebar_mode != SidebarMode::Hidden, |d| {
-                let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
-                d.child(crate::kit::chrome_panel("sidebar", bar, cx))
+            .when(sidebar_mode != SidebarMode::Hidden, |d| match &sidebar_part {
+                Some(p) => d.child(part::slot(
+                    p,
+                    gpui::StyleRefinement::default().w(crate::theme::SIDEBAR_W).h_full().flex_none(),
+                )),
+                None => {
+                    let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
+                    d.child(crate::kit::chrome_panel("sidebar", bar, cx))
+                }
             })
             .child(self.render_center(&agents, bp, &t, window, cx))
-            .when(right == Some(false), |d| {
-                d.children(selected.clone().map(|a| {
+            .when(right == Some(false), |d| match &panel_part {
+                Some(p) => d.child(part::slot(
+                    p,
+                    gpui::StyleRefinement::default().w(crate::theme::RIGHT_W).h_full().flex_none(),
+                )),
+                None => d.children(selected.clone().map(|a| {
                     let panel = self.render_panel(&a, false, &slab, window, cx);
                     crate::kit::chrome_panel("right-panel", panel, cx)
-                }))
+                })),
             })
             .when(
                 self.overlay_sidebar && sidebar_mode != SidebarMode::Full,
@@ -1582,14 +1630,16 @@ impl Render for MainScreen {
                     )
                 }))
             });
-        let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);
-        let topbar = if crate::theme::glass_regions(cx) {
+        let topbar = if let Some(p) = &topbar_part {
+            part::slot(p, gpui::StyleRefinement::default().w_full().h(TOPBAR_H).flex_none())
+        } else if crate::theme::glass_regions(cx) {
+            let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);
             crate::kit::glass_region("topbar", 0., topbar)
                 .w_full()
                 .flex_none()
                 .into_any_element()
         } else {
-            topbar.into_any_element()
+            self.render_topbar(&agents, bp, &chrome, window, cx).into_any_element()
         };
 
         let modal = self.modal.is_some() || self.elsewhere.bring.is_some();
@@ -1681,7 +1731,13 @@ impl Render for MainScreen {
             .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .child(topbar)
             .child(main_row)
-            .child(self.render_strip(&chrome, bp, cx))
+            .child(match &strip_part {
+                Some(p) => part::slot(
+                    p,
+                    gpui::StyleRefinement::default().w_full().h(px(strip::STRIP_H)).flex_none(),
+                ),
+                None => self.render_strip(&chrome, bp, cx).into_any_element(),
+            })
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
             .children(self.render_bring_in(&t, cx))

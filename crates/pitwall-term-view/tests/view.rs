@@ -224,3 +224,20 @@ fn focus_reports_when_asked(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(rec.take(), "\x1b[I");
 }
+
+#[gpui::test]
+fn a_changed_run_is_the_only_one_shaped_again(cx: &mut TestAppContext) {
+    let (view, t, _rec, cx) = open(cx, ViewSettings { cursor_blink: false, ..Default::default() });
+    // A spinner line: the spinner in its own colour, then the same text.
+    let frame = |spin: char| format!("\x1b[2K\r\x1b[33m{spin}\x1b[0m Thinking about the plan (esc to interrupt)");
+    t.feed().push(frame('·').as_bytes());
+    cx.run_until_parked();
+    t.feed().push(frame('✢').as_bytes());
+    cx.run_until_parked();
+    let before = view.read_with(cx, |v, _| v.render_stats());
+    t.feed().push(frame('✳').as_bytes());
+    cx.run_until_parked();
+    let after = view.read_with(cx, |v, _| v.render_stats());
+    assert_eq!(after.rows_shaped - before.rows_shaped, 1, "{before:?} → {after:?}");
+    assert_eq!(after.runs_shaped - before.runs_shaped, 1, "only the spinner: {before:?} → {after:?}");
+}

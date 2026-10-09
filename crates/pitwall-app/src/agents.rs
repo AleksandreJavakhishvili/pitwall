@@ -61,6 +61,9 @@ impl AgentStore {
     pub fn apply(&mut self, event: AppEvent, cx: &mut Context<Self>) -> bool {
         self.updates += 1;
         match event {
+            // The same list again (only something not shown changed):
+            // nothing to redraw.
+            AppEvent::Engine(Event::AgentsChanged(views)) if views == self.agents => return false,
             AppEvent::Engine(Event::AgentsChanged(views)) => self.agents = views,
             AppEvent::Engine(Event::BlockedCount(n)) => self.blocked = n,
             AppEvent::Engine(Event::Attention(a)) => {
@@ -340,5 +343,22 @@ pub(crate) mod tests {
         bridge.send(AppEvent::Engine(Event::AgentsChanged(vec![])));
         cx.run_until_parked();
         store.read_with(cx, |s, _| assert!(s.agents.is_empty()));
+    }
+
+    #[gpui::test]
+    fn the_same_list_again_redraws_nothing(cx: &mut gpui::TestAppContext) {
+        let one = || vec![agent("a1", "/work/alpha", "working", 0, true)];
+        let store = cx.new(|_| AgentStore::new(one()));
+        let notified = std::rc::Rc::new(std::cell::Cell::new(0));
+        let n = notified.clone();
+        let _sub = cx.update(|cx| cx.observe(&store, move |_, _| n.set(n.get() + 1)));
+        let (bridge, rx) = crate::bridge::Bridge::new();
+        cx.update(|cx| AgentStore::listen(&store, rx, cx));
+        bridge.send(AppEvent::Engine(Event::AgentsChanged(one())));
+        cx.run_until_parked();
+        assert_eq!(notified.get(), 0);
+        bridge.send(AppEvent::Engine(Event::AgentsChanged(vec![])));
+        cx.run_until_parked();
+        assert_eq!(notified.get(), 1);
     }
 }

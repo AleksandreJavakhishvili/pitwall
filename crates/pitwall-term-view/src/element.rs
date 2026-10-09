@@ -182,7 +182,7 @@ struct PlacedGlyph {
 #[derive(Clone, Debug)]
 struct GlyphRun {
     color: Hsla,
-    glyphs: Vec<PlacedGlyph>,
+    glyphs: Rc<[PlacedGlyph]>,
 }
 
 /// A row ready to paint.
@@ -206,6 +206,8 @@ pub struct RenderStats {
     pub rows_reused: u64,
     /// Rows not damaged at all.
     pub rows_clean: u64,
+    /// Text runs shaped (a changed row reuses its unchanged runs).
+    pub runs_shaped: u64,
 }
 
 /// Per-view render state kept across frames.
@@ -219,6 +221,9 @@ pub(crate) struct RenderCache {
     /// Viewport row → (generation, content key).
     rows: Vec<Option<(u64, u64)>>,
     by_key: HashMap<u64, CacheEntry>,
+    /// Shaped text runs by content (text, style, cells), so a row that
+    /// changed in one run (a spinner, a timer) shapes only that run again.
+    runs: HashMap<u64, (Rc<[PlacedGlyph]>, u64)>,
     frame: u64,
     pub stats: RenderStats,
 }
@@ -249,6 +254,7 @@ impl RenderCache {
     pub(crate) fn clear_rows(&mut self) {
         self.rows.clear();
         self.by_key.clear();
+        self.runs.clear();
     }
 }
 
@@ -496,10 +502,11 @@ impl Element for TermElement {
                 _ => {
                     let cells = &term.grid()[line][..];
                     let k = runs::row_key(cells);
-                    if let std::collections::hash_map::Entry::Vacant(slot) = cache.by_key.entry(k) {
+                    if !cache.by_key.contains_key(&k) {
                         let built = runs::build_row(cells, &pal);
-                        let glyphs = shape_row(&built, &metrics, window);
-                        slot.insert(CacheEntry { row: Rc::new(ShapedRow { runs: built, glyphs }), used: frame });
+                        let cache = &mut *cache;
+                        let glyphs = shape_row(&built, &metrics, &mut cache.runs, &mut cache.stats, frame, window);
+                        cache.by_key.insert(k, CacheEntry { row: Rc::new(ShapedRow { runs: built, glyphs }), used: frame });
                         cache.stats.rows_shaped += 1;
                     } else {
                         cache.stats.rows_reused += 1;
@@ -514,6 +521,10 @@ impl Element for TermElement {
         }
         // Keep what the last two frames used.
         cache.by_key.retain(|_, e| e.used + 1 >= frame);
+        // Runs a little longer: a spinner's frames come round again.
+        if cache.runs.len() > 4 * rows.max(16) {
+            cache.runs.retain(|_, e| e.1 + 8 >= frame);
+        }
 
         // Cursor.
         let mode = *term.mode();
@@ -682,7 +693,7 @@ impl Element for TermElement {
                 for r in visible.clone() {
                     let baseline = row_y(r) + m.baseline;
                     for run in &p.rows[r].glyphs {
-                        for g in &run.glyphs {
+                        for g in run.glyphs.iter() {
                             let color = match block_cursor {
                                 Some(c) if c.row == r && c.col == g.col as usize => c.accent,
                                 _ => run.color,
@@ -791,10 +802,48 @@ impl Element for TermElement {
     }
 }
 
-/// Shape a row's text runs and place every glyph on its cell.
-fn shape_row(row: &RowRuns, m: &Metrics, window: &mut Window) -> Vec<GlyphRun> {
+/// A text run's identity for shaping: its text, font style and cells
+/// (colour is not part of it: glyphs don't depend on it).
+fn run_key(run: &runs::TextRun) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    run.text.hash(&mut h);
+    run.style.hash(&mut h);
+    run.cells.hash(&mut h);
+    h.finish()
+}
+
+/// Shape a row's text runs and place every glyph on its cell. Runs shaped
+/// before (in `shaped`, stamped with the frame that last used them) are
+/// reused.
+fn shape_row(
+    row: &RowRuns,
+    m: &Metrics,
+    shaped: &mut HashMap<u64, (Rc<[PlacedGlyph]>, u64)>,
+    stats: &mut RenderStats,
+    frame: u64,
+    window: &mut Window,
+) -> Vec<GlyphRun> {
     let mut out = Vec::with_capacity(row.texts.len());
     for run in &row.texts {
+        let color = hsla(run.color);
+        let key = run_key(run);
+        if let Some((glyphs, used)) = shaped.get_mut(&key) {
+            *used = frame;
+            out.push(GlyphRun { color, glyphs: glyphs.clone() });
+            continue;
+        }
+        let glyphs: Rc<[PlacedGlyph]> = shape_run(run, m, window).into();
+        stats.runs_shaped += 1;
+        shaped.insert(key, (glyphs.clone(), frame));
+        out.push(GlyphRun { color, glyphs });
+    }
+    out
+}
+
+/// Shape one text run, every glyph on its cell.
+fn shape_run(run: &runs::TextRun, m: &Metrics, window: &mut Window) -> Vec<PlacedGlyph> {
+    {
         let color = hsla(run.color);
         let font = m.font(run.style).clone();
         let truns = [gpui::TextRun {
@@ -839,9 +888,8 @@ fn shape_row(row: &RowRuns, m: &Metrics, window: &mut Window) -> Vec<GlyphRun> {
             }
             i = j;
         }
-        out.push(GlyphRun { color, glyphs });
+        glyphs
     }
-    out
 }
 
 #[allow(clippy::too_many_arguments)]

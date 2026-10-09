@@ -187,7 +187,7 @@ impl MainView {
             return;
         };
         match what {
-            "wall" | "review" | "visit-all" => {
+            "wall" | "review" | "visit-all" | "visit-all-4" => {
                 if let Some(s) = &self.screen {
                     s.update(cx, |s, cx| s.bench(what, on, window, cx));
                 }
@@ -407,11 +407,22 @@ impl Render for MainView {
         let root = crate::palette::on_actions(root, &self.palette);
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
-            // The screen is a cached view: a frame drawn only for the
-            // working dots' rings (the pulse layer) replays its last paint.
+            // The screen draws itself every frame, but its big pieces
+            // (sidebar, top bar, right panel, Wall / Review) and its
+            // terminals are cached views: a frame for one terminal or for
+            // the working dots' rings (the pulse layer) replays the rest
+            // (main_screen/part.rs).
+            // Without parts (Liquid Glass regions) the screen itself is
+            // the cached view, as before.
             Content::Live { .. } => root
                 .children(self.screen.clone().map(|s| {
-                    gpui::AnyView::from(s).cached(gpui::StyleRefinement::default().size_full())
+                    if crate::main_screen::parts_cached(cx) {
+                        s.into_any_element()
+                    } else {
+                        gpui::AnyView::from(s)
+                            .cached(gpui::StyleRefinement::default().size_full())
+                            .into_any_element()
+                    }
                 }))
                 .child(self.pulses.clone())
                 .children(self.explorer.clone()),

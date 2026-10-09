@@ -400,3 +400,41 @@ printing a line every 0.5 s, window on screen, app process only):
   polls pause: 0.4–0.5 % with the same 20 agents.
 - To do: a full `--counts 1,5,15,20` run on a quiet machine to fill the
   budgets table for GPUI (memory, cold start, Wall, Review).
+
+## GPUI port: memory pass (2026-10-09)
+
+Standard load: 15 made-up TUI agents (`scripts/tui-agent.py`: claude,
+codex and full-screen styles, 600 KB of history each), one space with 2×2
+panes and the rest folded into chips (bench command `visit-all-4`),
+release build, 60 s after a 30 s settle. Footprint of the app process
+(`footprint`, Activity Monitor's "Memory"); per component from
+`MallocStackLogging=lite` + `malloc_history -allBySize` on a profiling
+build.
+
+| Component | Before | After |
+|---|---|---|
+| Pane terminals: grids + scrollback (alacritty rows) | 228 MB | 45 MB |
+| Frozen scrollback (text + style runs) | – | 11 MB |
+| Engine's headless parsers (grids) | ~9 MB | 0 (shared) |
+| Parsers (vte, 2 MiB sync buffer each, mostly untouched) | 30 | 15 |
+| Engine output rings (1 MiB each) | 20 MB | 16 MB |
+| GPUI scene, layout, text shaping | 23 MB | 23 MB |
+| Metal driver memory while drawing ("unmapped graphics") | 184 MB | 184 MB |
+| Drawables (3 IOSurfaces at the window's size) | 59 MB | 59 MB |
+| **Total footprint (off-screen / on screen)** | **589 / 588 MB** | **364 / 364 MB** |
+
+- Scrollback (5 000 lines, as xterm.js kept) costs 24 bytes a cell in
+  alacritty, twice xterm.js's 12. A terminal no view has locked for 15 s
+  (folded into a chip, another space) moves its scrollback out of the
+  grid into text plus style runs, in batches of 1 000 rows, and gets it
+  back on the next view lock (~3 ms for 5 000 rows), before any read;
+  the main screen's scrollback also freezes while a program runs on the
+  alternate screen (`pitwall-term-view/src/frozen.rs`).
+- One parser per agent: the pane's terminal is the engine's screen
+  (`TermHost::share_screen`, `ScreenSource`); the status rules and the
+  Wall's frames read its grid. Before, each agent was parsed twice.
+- The ~180 MB of Metal driver memory is the platform's: a 30-line Swift
+  app that only clears a `CAMetalLayer` holds the same while it draws,
+  at any window size and frame rate, and gives it back ~2 s after the
+  last frame. The drawables scale with the window.
+- Holders (`pitwall-hold`, separate processes) are ~2.5 MB each.

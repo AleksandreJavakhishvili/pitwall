@@ -52,3 +52,34 @@ pub fn hide(window: &gpui::Window) {
         w.orderOut(None);
     }
 }
+
+/// Two drawables for the window's Metal layer instead of GPUI's three:
+/// one on screen, one being drawn. The app draws at most at the display's
+/// rate and mostly on a 30 fps grid, so a third buffer only holds memory
+/// (a full window of pixels: ~16 MB at 1280×800 on a Retina display).
+#[cfg_attr(test, allow(dead_code))]
+pub fn two_drawables(window: &gpui::Window) {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{msg_send, sel};
+    use objc2_app_kit::NSView;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
+    let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+    // SAFETY: GPUI hands out its live NSView; we only retain it.
+    let Some(view): Option<Retained<NSView>> = (unsafe { Retained::retain(h.ns_view.as_ptr().cast()) }) else {
+        return;
+    };
+    // SAFETY: `layer` is an NSView method; the layer is GPUI's
+    // CAMetalLayer, checked to answer the setter before it is called.
+    unsafe {
+        let layer: *mut AnyObject = msg_send![&*view, layer];
+        if layer.is_null() {
+            return;
+        }
+        let ok: bool = msg_send![layer, respondsToSelector: sel!(setMaximumDrawableCount:)];
+        if ok {
+            let _: () = msg_send![layer, setMaximumDrawableCount: 2usize];
+        }
+    }
+}
