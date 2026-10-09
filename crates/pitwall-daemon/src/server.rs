@@ -20,8 +20,8 @@ use crate::{methods, platform};
 /// How long a client may take to say hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// What this server offers (`welcome.caps`; plus `settings` with a
-/// settings backend).
-pub const CAPS: &[&str] = &[caps::AGENTS, caps::SESSIONS, caps::APPROVALS];
+/// settings backend and `spaces` with a workspace backend).
+pub const CAPS: &[&str] = &[caps::AGENTS, caps::SESSIONS, caps::APPROVALS, caps::MANAGE];
 
 pub struct Config {
     /// Where to listen (`~/.pitwall/run/pitwalld.sock`).
@@ -30,6 +30,8 @@ pub struct Config {
     pub version: String,
     /// Where `settings.*` read and apply settings (`None`: not offered).
     pub settings: Option<Arc<dyn crate::SettingsBackend>>,
+    /// Where `space.*` and `agent.move` arrange spaces (`None`: not offered).
+    pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
 }
 
 /// What every connection shares.
@@ -38,6 +40,7 @@ pub struct Server {
     pub approvals: Arc<Approvals>,
     pub identify: Arc<dyn Identify>,
     pub settings: Option<Arc<dyn crate::SettingsBackend>>,
+    pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
     caps: Vec<&'static str>,
     instance: String,
     version: String,
@@ -87,11 +90,15 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
     if cfg.settings.is_some() {
         offered.push(caps::SETTINGS);
     }
+    if cfg.workspace.is_some() {
+        offered.push(caps::SPACES);
+    }
     let server = Arc::new(Server {
         engine,
         approvals,
         identify,
         settings: cfg.settings,
+        workspace: cfg.workspace,
         caps: offered,
         instance: uuid::Uuid::new_v4().to_string(),
         version: cfg.version,

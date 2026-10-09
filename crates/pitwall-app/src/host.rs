@@ -65,6 +65,7 @@ impl Host {
             socket: paths.cli_socket(),
             version: env!("CARGO_PKG_VERSION").into(),
             settings: Some(settings.clone()),
+            workspace: None,
         };
         let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {
             Ok(h) => Some(h),
