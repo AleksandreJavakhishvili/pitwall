@@ -200,6 +200,11 @@ pub struct TermState {
     /// Per viewport line: bumped whenever the line is damaged.
     gens: Vec<u64>,
     next_gen: u64,
+    /// When to give the rows' spare capacity back (after a width change).
+    compact_at: Option<Instant>,
+    /// The main screen still has rows to compact (it was behind the
+    /// alternate screen when the active one was compacted).
+    compact_main: bool,
 }
 
 impl TermState {
@@ -231,6 +236,20 @@ impl TermState {
         }
         self.term.reset_damage();
         &self.gens
+    }
+
+    /// Compact the rows if a width change has settled. A program on the
+    /// alternate screen keeps the main screen (and its scrollback) out of
+    /// reach: that one is compacted once the program leaves it.
+    fn maybe_compact(&mut self) {
+        if self.compact_at.is_some_and(|at| Instant::now() >= at) {
+            self.compact_at = None;
+            compact_rows(&mut self.term);
+            self.compact_main = self.term.mode().contains(TermMode::ALT_SCREEN);
+        } else if self.compact_main && !self.term.mode().contains(TermMode::ALT_SCREEN) {
+            self.compact_main = false;
+            compact_rows(&mut self.term);
+        }
     }
 
     /// Apply a synchronized update (DEC 2026) that timed out.
@@ -265,6 +284,9 @@ pub struct Feed {
 /// flood of output can't stall a frame.
 const PARSE_SLICE: usize = 32 * 1024;
 
+/// How long the width must stay the same before the rows are compacted.
+const COMPACT_SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+
 impl Feed {
     pub fn push(&self, bytes: &[u8]) {
         let Some(shared) = self.shared.upgrade() else { return };
@@ -273,6 +295,8 @@ impl Feed {
             let st = &mut *st;
             st.parser.advance(&mut st.term, slice);
         }
+        // A terminal no view draws (folded into a chip) compacts here.
+        shared.state.lock_unfair().maybe_compact();
         shared.io.wake();
     }
 
@@ -317,7 +341,14 @@ impl Terminal {
         let tconf = Config { scrolling_history: config.scrollback, osc52: config.osc52, ..Config::default() };
         let dims = Dims { rows: size.rows.max(1) as usize, cols: size.cols.max(1) as usize };
         let term = Term::new(tconf, &dims, Listener(io.clone()));
-        let state = TermState { term, parser: Processor::new(), gens: Vec::new(), next_gen: 0 };
+        let state = TermState {
+            term,
+            parser: Processor::new(),
+            gens: Vec::new(),
+            next_gen: 0,
+            compact_at: None,
+            compact_main: false,
+        };
         let shared = Arc::new(Shared { state: FairMutex::new(state), io });
         let t = Terminal { shared };
         t.shared.io.stream.attach(t.feed());
@@ -333,6 +364,7 @@ impl Terminal {
     pub fn lock(&self) -> impl std::ops::DerefMut<Target = TermState> + '_ {
         let mut st = self.shared.state.lock();
         st.expire_sync();
+        st.maybe_compact();
         st
     }
 
@@ -380,6 +412,12 @@ impl Terminal {
         {
             let mut st = self.shared.state.lock();
             st.term.resize(Dims { rows: size.rows as usize, cols: size.cols as usize });
+            // Rows keep the allocation they had: narrower, the cells split
+            // off; wider, Vec growth that doubles. Compact once the size
+            // settles (not at every step of a drag).
+            if size.cols != old.cols {
+                st.compact_at = Some(Instant::now() + COMPACT_SETTLE);
+            }
         }
         self.shared.io.stream.resize(size);
         self.shared.io.wake();
@@ -437,6 +475,25 @@ impl Terminal {
     }
 }
 
+/// The width changed: alacritty keeps each row's allocation when it splits
+/// cells off (narrower) and grows rows with `Vec` growth, which doubles
+/// (wider), so a terminal resized a few times holds up to twice its width
+/// in every row of its scrollback. Copy every row of the active screen
+/// into an allocation of exactly its width (xterm.js also gives a line's
+/// memory back when it shrinks).
+fn compact_rows(term: &mut Term<Listener>) {
+    use alacritty_terminal::grid::Row;
+    use alacritty_terminal::index::Line;
+    let grid = term.grid_mut();
+    for line in grid.topmost_line().0..=grid.bottommost_line().0 {
+        let row = &mut grid[Line(line)];
+        let cells = row[..].to_vec();
+        let n = cells.len();
+        // Every cell counted as occupied: a reuse of the row clears it all.
+        *row = Row::from_vec(cells, n);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,6 +544,28 @@ mod tests {
         t.resize(TermSize::new(12, 3));
         assert_eq!(sink.1.lock().unwrap().len(), 1);
         assert_eq!(t.lock().term.columns(), 12);
+    }
+
+    #[test]
+    fn narrowing_keeps_the_text_and_the_scrollback() {
+        let t = Terminal::new(NullStream, TermSize::new(40, 3), TerminalConfig::default());
+        for i in 0..20 {
+            t.feed().push(format!("line {i:02} {}\r\n", "x".repeat(20)).as_bytes());
+        }
+        t.resize(TermSize::new(20, 3));
+        // Compacted once the width has settled.
+        t.shared.state.lock().compact_at = Some(Instant::now());
+        let st = t.lock();
+        let term = st.term();
+        assert_eq!(term.columns(), 20);
+        // Reflowed (each line wraps once), still all there.
+        assert!(term.history_size() >= 20, "{}", term.history_size());
+        let top = &term.grid()[term.grid().topmost_line()];
+        assert_eq!(top.len(), 20);
+        drop(st);
+        // Rows that were compacted are still cleared and reused correctly.
+        t.feed().push(b"\x1b[2J\x1b[Hfresh");
+        assert_eq!(t.screen_text(), "fresh\n\n\n");
     }
 
     #[test]

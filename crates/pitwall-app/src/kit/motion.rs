@@ -503,7 +503,7 @@ type Point = gpui::Point<Pixels>;
 /// How often looping animations redraw (frames per second). The working
 /// dot's ring is small and slow: 30 fps reads as smooth and costs a
 /// quarter of a 120 Hz display's frames.
-pub const LOOP_FPS: f32 = 30.;
+pub const LOOP_FPS: f32 = pitwall_term_view::frames::OUTPUT_FPS;
 
 thread_local! {
     static WAITING: RefCell<HashSet<(WindowId, EntityId)>> = RefCell::new(HashSet::new());
@@ -517,14 +517,16 @@ pub fn loop_frame(window: &mut Window) {
     if !WAITING.with(|w| w.borrow_mut().insert(key)) {
         return;
     }
-    let due = Instant::now() + Duration::from_secs_f32(1. / LOOP_FPS);
+    // On the terminals' output grid (pitwall_term_view::frames), so a ring
+    // frame and the panes' repaints are one frame, not two.
+    let due = pitwall_term_view::frames::next_tick(Instant::now() + Duration::from_millis(4));
     wait_for(window, key, due);
 }
 
 fn wait_for(window: &Window, key: (WindowId, EntityId), due: Instant) {
     window.on_next_frame(move |window, cx| {
         // A vsync early counts as on time (60 Hz: every other frame).
-        if Instant::now() + Duration::from_millis(4) >= due {
+        if pitwall_term_view::frames::is_due(Instant::now(), due) {
             WAITING.with(|w| w.borrow_mut().remove(&key));
             cx.notify(key.1);
         } else {
@@ -695,6 +697,10 @@ struct Ring {
 /// every ring at [`LOOP_FPS`]. A ring frame then redraws that layer and
 /// replays the screen's last paint (the screen is a cached view) instead
 /// of laying the whole window out again.
+///
+/// Rings are kept per scope owner (the view painting the scope): a cached
+/// view inside the screen with a scope of its own keeps its rings while
+/// the screen around it paints again, and the other way round.
 mod rings {
     use super::*;
     use std::collections::HashMap;
@@ -704,31 +710,48 @@ mod rings {
         pub clip: Bounds<Pixels>,
     }
 
+    type Owner = (WindowId, EntityId);
+
     thread_local! {
-        /// The window whose scope is painting now.
-        static SCOPE: Cell<Option<WindowId>> = const { Cell::new(None) };
-        pub(super) static RINGS: RefCell<HashMap<WindowId, Vec<Recorded>>> = RefCell::new(HashMap::new());
+        /// The scopes painting now, innermost last.
+        static SCOPES: RefCell<Vec<Owner>> = const { RefCell::new(Vec::new()) };
+        pub(super) static RINGS: RefCell<HashMap<Owner, Vec<Recorded>>> = RefCell::new(HashMap::new());
     }
 
     /// Note a ring while a scope paints; false outside one (the dot then
     /// animates itself).
     pub(super) fn record(window: &mut Window, ring: Ring) -> bool {
         let id = window.window_handle().window_id();
-        if SCOPE.with(|s| s.get()) != Some(id) {
+        let Some(owner) = SCOPES.with(|s| s.borrow().last().copied()).filter(|o| o.0 == id) else {
             return false;
-        }
+        };
         let clip = window.content_mask().bounds;
-        RINGS.with(|r| r.borrow_mut().entry(id).or_default().push(Recorded { ring, clip }));
+        RINGS.with(|r| r.borrow_mut().entry(owner).or_default().push(Recorded { ring, clip }));
         true
     }
 
-    pub(super) fn begin(id: WindowId) {
-        SCOPE.with(|s| s.set(Some(id)));
-        RINGS.with(|r| r.borrow_mut().insert(id, Vec::new()));
+    pub(super) fn begin(owner: Owner) {
+        SCOPES.with(|s| s.borrow_mut().push(owner));
+        RINGS.with(|r| r.borrow_mut().insert(owner, Vec::new()));
     }
 
     pub(super) fn end() {
-        SCOPE.with(|s| s.set(None));
+        SCOPES.with(|s| s.borrow_mut().pop());
+    }
+
+    pub(super) fn forget(owner: Owner) {
+        RINGS.with(|r| r.borrow_mut().remove(&owner));
+    }
+
+    /// Every ring recorded in `window`.
+    pub(super) fn of(window: WindowId) -> Vec<(Ring, Bounds<Pixels>)> {
+        RINGS.with(|r| {
+            r.borrow()
+                .iter()
+                .filter(|(o, _)| o.0 == window)
+                .flat_map(|(_, v)| v.iter().map(|x| (x.ring, x.clip)))
+                .collect()
+        })
     }
 }
 
@@ -736,6 +759,12 @@ mod rings {
 /// the screen; its dots animate themselves under it.
 pub fn pulse_scope(child: impl IntoElement, off: bool) -> PulseScope {
     PulseScope { child: Some(child.into_any_element()), off }
+}
+
+/// Drop the rings of `view`'s pulse scope (a cached view that is not drawn
+/// any more).
+pub fn pulse_forget(window: &Window, view: EntityId) {
+    rings::forget((window.window_handle().window_id(), view));
 }
 
 pub struct PulseScope {
@@ -795,13 +824,13 @@ impl Element for PulseScope {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let id = window.window_handle().window_id();
+        let owner = (window.window_handle().window_id(), window.current_view());
         if self.off {
-            rings::RINGS.with(|r| r.borrow_mut().remove(&id));
+            rings::forget(owner);
             child.paint(window, cx);
             return;
         }
-        rings::begin(id);
+        rings::begin(owner);
         child.paint(window, cx);
         rings::end();
     }
@@ -816,13 +845,7 @@ impl Render for PulseLayer {
         gpui::canvas(
             |_, _, _| {},
             |_, _, window, cx| {
-                let id = window.window_handle().window_id();
-                let rings: Vec<(Ring, Bounds<Pixels>)> = rings::RINGS.with(|r| {
-                    r.borrow()
-                        .get(&id)
-                        .map(|v| v.iter().map(|x| (x.ring, x.clip)).collect())
-                        .unwrap_or_default()
-                });
+                let rings = rings::of(window.window_handle().window_id());
                 if rings.is_empty() || !motion(cx) {
                     return;
                 }

@@ -55,9 +55,12 @@ impl MainScreen {
         let body: AnyElement = if agents.is_empty() && self.engine.is_some() {
             empty_state(t, cx).into_any_element()
         } else if self.route != Route::Space {
-            match self.route_view(window, cx) {
-                Some(v) => v.into_any_element(),
-                None => route_placeholder(self.route, t, cx).into_any_element(),
+            match self.parts.as_ref().filter(|_| super::part::cached(cx)) {
+                Some(p) => super::part::slot(
+                    &p.route,
+                    gpui::StyleRefinement::default().flex_1().min_h_0().w_full(),
+                ),
+                None => self.render_route_body(t, window, cx),
             }
         } else if let Some(space) = self.active_space().cloned() {
             self.render_space(&space, agents, bp, t, window, cx)
@@ -96,6 +99,14 @@ impl MainScreen {
             })
     }
 
+    /// The centre on the Wall, Review or Explorer route.
+    pub(super) fn render_route_body(&mut self, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        match self.route_view(window, cx) {
+            Some(v) => v.into_any_element(),
+            None => route_placeholder(self.route, t, cx).into_any_element(),
+        }
+    }
+
     fn render_space(
         &mut self,
         space: &Space,
@@ -108,39 +119,20 @@ impl MainScreen {
         if !cx.has_active_drag() {
             self.drop_hint = None;
         }
-        let density = self.ui.density_of(space);
-        let min = super::workspace::fold_min(density, self.ui.font_size);
-        let area = self
-            .area
-            .map(|a| (f32::from(a.width) as f64, f32::from(a.height) as f64));
-        let maximized = space
-            .maximized_pane_id
-            .as_deref()
-            .and_then(|m| space.layout.find_node(m).cloned());
-        let base = maximized.clone().unwrap_or(space.layout.clone());
-        let (tree, hidden) = match area {
-            Some(a) => tree::fit_layout(&base, a, min, space.focused_pane_id.as_deref()),
-            None => (base, vec![]),
+        let f = self.fitted(space, agents);
+        let bar = match self.parts.as_ref().filter(|_| super::part::cached(cx)) {
+            // The bar is a cached view of its own (part.rs).
+            Some(p) => super::part::slot(
+                &p.bar,
+                gpui::StyleRefinement::default().h(px(32.)).w_full().flex_none(),
+            ),
+            None => self.space_bar(space, &f, t, cx).into_any_element(),
         };
-        // A divider being dragged shows its live sizes.
-        let tree = match &self.divider {
-            Some(d) => tree::set_split_sizes(&tree, &d.split, &d.live),
-            None => tree,
-        };
+        let Fitted { tree, chips, pane_count, maximized, area, min, density, .. } = f;
         if let Some(a) = area {
             self.auto_font = super::tile_font::auto_fonts(&tree, a, density, self.ui.font_size);
         }
-        let visible = tree.agents();
-        let chips: Vec<AgentView> = space
-            .members_of(agents)
-            .into_iter()
-            .filter(|a| !visible.contains(&a.id))
-            .cloned()
-            .collect();
-        let pane_count = space.layout.agents().len();
-        let presets = tree::available_presets(area, min);
 
-        let space_id = space.id.clone();
         let me = cx.entity().downgrade();
         let measure = canvas(
             move |bounds: Bounds<Pixels>, _, cx: &mut App| {
@@ -156,7 +148,75 @@ impl MainScreen {
         .absolute()
         .size_full();
 
-        let bar = div()
+        let sizes = area
+            .map(|(w, h)| {
+                tree::pane_rects(&tree, tree::Rect { x: 0., y: 0., w, h })
+                    .into_iter()
+                    .map(|(id, r)| (id, (r.w, r.h)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let ctx = PaneCtx {
+            focused: space.focused_pane_id.clone(),
+            maximized: maximized.is_some(),
+            pane_count,
+            members: chips.clone(),
+            sizes,
+            min,
+        };
+        if let Some(p) = self.parts.as_mut() {
+            let shown: Vec<String> = tree.leaves().into_iter().map(|p| p.id).collect();
+            p.keep_headers(&shown, window);
+        }
+        let area_el = div()
+            .id("space-area")
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .p(px(6.))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .child(measure)
+                    .child(self.render_node(&tree, &ctx, agents, t, window, cx)),
+            );
+
+        let _ = bp;
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(bar)
+            .child(area_el)
+            .when(!chips.is_empty(), |d| match self.parts.as_ref().filter(|_| super::part::cached(cx)) {
+                // A cached view of its own (part.rs): 28 px chips + 8 px below.
+                Some(p) => d.child(super::part::slot(
+                    &p.chips,
+                    gpui::StyleRefinement::default().h(px(36.)).w_full().flex_none(),
+                )),
+                None => d.child(self.chip_strip(&chips, &space.id, t, cx)),
+            })
+    }
+
+    /// The chip strip of the active space (the chips part, part.rs).
+    pub(super) fn chips_now(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let Some(space) = self.active_space().cloned() else {
+            return div().into_any_element();
+        };
+        let agents = self.agents(cx).to_vec();
+        let f = self.fitted(&space, &agents);
+        self.chip_strip(&f.chips, &space.id, t, cx).into_any_element()
+    }
+
+    /// The space's bar: name, shown / folded, density, presets, move.
+    pub(super) fn space_bar(&self, space: &Space, f: &Fitted, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let space_id = space.id.clone();
+        div()
             .h(px(32.))
             .flex_none()
             .flex()
@@ -171,17 +231,18 @@ impl MainScreen {
                 div()
                     .text_size(px(11.5))
                     .text_color(t.text_3)
-                    .child(if hidden.is_empty() {
-                        format!("{pane_count} shown")
+                    .child(if f.hidden.is_empty() {
+                        format!("{} shown", f.pane_count)
                     } else {
                         format!(
-                            "{pane_count} shown · {} folded (too small at this density)",
-                            hidden.len()
+                            "{} shown · {} folded (too small at this density)",
+                            f.pane_count,
+                            f.hidden.len()
                         )
                     }),
             )
             .child(div().flex_1())
-            .when(maximized.is_some(), |d| {
+            .when(f.maximized.is_some(), |d| {
                 d.child(
                     small_btn("restore-layout", "Restore layout", t)
                         .child(icon("restore", 12., t.text))
@@ -207,7 +268,7 @@ impl MainScreen {
                             d.p(px(2.)).bg(t.surface_2)
                         }
                     })
-                    .children(presets.into_iter().map(|p| {
+                    .children(f.presets.clone().into_iter().map(|p| {
                         let tip = if p == Preset::Auto {
                             "Auto grid: fit all agents evenly, the rest as chips".to_string()
                         } else {
@@ -255,52 +316,73 @@ impl MainScreen {
                         cx.listener(move |this, _, _, cx| this.move_space(space_id.clone(), cx)),
                     ),
                 )
-            });
-
-        let sizes = area
-            .map(|(w, h)| {
-                tree::pane_rects(&tree, tree::Rect { x: 0., y: 0., w, h })
-                    .into_iter()
-                    .map(|(id, r)| (id, (r.w, r.h)))
-                    .collect()
             })
-            .unwrap_or_default();
+    }
+
+    /// What `space` shows at the current area: the fitted pane tree, what
+    /// folded into chips, and the presets that fit.
+    pub(super) fn fitted(&self, space: &Space, agents: &[AgentView]) -> Fitted {
+        let density = self.ui.density_of(space);
+        let min = super::workspace::fold_min(density, self.ui.font_size);
+        let area = self
+            .area
+            .map(|a| (f32::from(a.width) as f64, f32::from(a.height) as f64));
+        let maximized = space
+            .maximized_pane_id
+            .as_deref()
+            .and_then(|m| space.layout.find_node(m).cloned());
+        let base = maximized.clone().unwrap_or(space.layout.clone());
+        let (tree, hidden) = match area {
+            Some(a) => tree::fit_layout(&base, a, min, space.focused_pane_id.as_deref()),
+            None => (base, vec![]),
+        };
+        // A divider being dragged shows its live sizes.
+        let tree = match &self.divider {
+            Some(d) => tree::set_split_sizes(&tree, &d.split, &d.live),
+            None => tree,
+        };
+        let visible = tree.agents();
+        let chips: Vec<AgentView> = space
+            .members_of(agents)
+            .into_iter()
+            .filter(|a| !visible.contains(&a.id))
+            .cloned()
+            .collect();
+        Fitted {
+            pane_count: space.layout.agents().len(),
+            presets: tree::available_presets(area, min),
+            tree,
+            hidden,
+            chips,
+            maximized,
+            area,
+            min,
+            density,
+        }
+    }
+
+    /// A pane's header (the pane header part, part.rs): its agent in the
+    /// active space now.
+    pub(super) fn header_of(&self, pane_id: &str, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let Some(space) = self.active_space().cloned() else {
+            return div().into_any_element();
+        };
+        let agent = match space.layout.find_node(pane_id) {
+            Some(Node::Pane { agent_id: Some(a), .. }) => self.agents(cx).iter().find(|x| x.id == *a).cloned(),
+            _ => None,
+        };
+        let Some(a) = agent else {
+            return div().into_any_element();
+        };
         let ctx = PaneCtx {
             focused: space.focused_pane_id.clone(),
-            maximized: maximized.is_some(),
-            pane_count,
-            members: chips.clone(),
-            sizes,
-            min,
+            maximized: space.maximized_pane_id.is_some(),
+            pane_count: 0,
+            members: vec![],
+            sizes: HashMap::new(),
+            min: super::workspace::fold_min(self.ui.density_of(&space), self.ui.font_size),
         };
-        let area_el = div()
-            .id("space-area")
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .p(px(6.))
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .flex()
-                    .child(measure)
-                    .child(self.render_node(&tree, &ctx, agents, t, window, cx)),
-            );
-
-        let _ = bp;
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(bar)
-            .child(area_el)
-            .when(!chips.is_empty(), |d| {
-                d.child(self.chip_strip(&chips, &space.id, t, cx))
-            })
+        self.pane_header(&a, pane_id, &ctx, t, cx).into_any_element()
     }
 
     fn density_button(&self, space: &Space, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -543,7 +625,15 @@ impl MainScreen {
                 .flex_1()
                 .min_h_0()
                 .flex()
-                .child(self.pane_header(a, pane_id, ctx, t, cx))
+                .child(match self.parts.as_mut().filter(|_| super::part::cached(cx)) {
+                    // The header is a cached view of its own (part.rs).
+                    Some(p) => {
+                        let me = cx.entity();
+                        let h = p.header(pane_id, &me, cx);
+                        super::part::slot(&h, gpui::StyleRefinement::default().h(px(34.)).w_full().flex_none())
+                    }
+                    None => self.pane_header(a, pane_id, ctx, t, cx).into_any_element(),
+                })
                 .flex_col()
                 .child(
                     div()
@@ -1051,6 +1141,19 @@ fn pane_btn(
     // double-click maximise from them (`dnd.ts`, `PaneHeader.tsx`).
     crate::kit::icon_btn_state(id, name, tip, true, 13., None, t)
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
+/// See [`MainScreen::fitted`].
+pub(super) struct Fitted {
+    pub tree: Node,
+    pub hidden: Vec<tree::Pane>,
+    pub chips: Vec<AgentView>,
+    pub pane_count: usize,
+    pub presets: Vec<Preset>,
+    pub maximized: Option<Node>,
+    pub area: Option<(f64, f64)>,
+    pub min: tree::MinSize,
+    pub density: crate::theme::Density,
 }
 
 struct PaneCtx {

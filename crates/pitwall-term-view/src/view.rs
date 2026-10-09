@@ -261,6 +261,8 @@ pub struct TerminalView {
     last_report_cell: Option<(usize, usize)>,
     preedit: Option<String>,
     blink_on: bool,
+    /// Has keyboard focus (in the active window): the cursor blinks.
+    focused: bool,
     last_input: Instant,
     blink_task: Option<Task<()>>,
     link: Option<(Match, Link)>,
@@ -314,13 +316,19 @@ impl TerminalView {
         } else {
             let mut changes = terminal.changes();
             let watched = terminal.clone();
-            tasks.push(cx.spawn(async move |this, cx| {
+            tasks.push(cx.spawn_in(window, async move |this, cx| {
                 while changes.next().await {
                     let ok = this
-                        .update(cx, |this, cx| {
+                        .update_in(cx, |this, window, cx| {
                             this.handle_requests(cx);
                             this.blink_on = true;
-                            cx.notify();
+                            // Echo of typing at once; other output on the
+                            // window's shared frame grid (frames.rs).
+                            if this.last_input.elapsed() < crate::frames::ECHO_WINDOW {
+                                cx.notify();
+                            } else {
+                                crate::frames::request(cx.entity_id(), window);
+                            }
                         })
                         .is_ok();
                     if !ok {
@@ -349,6 +357,7 @@ impl TerminalView {
             last_report_cell: None,
             preedit: None,
             blink_on: true,
+            focused: false,
             last_input: Instant::now(),
             blink_task: None,
             link: None,
@@ -459,6 +468,7 @@ impl TerminalView {
     }
 
     fn focus_changed(&mut self, focused: bool, _window: &mut Window, cx: &mut Context<Self>) {
+        self.focused = focused;
         let mode = self.terminal.mode();
         {
             let mut st = self.terminal.lock();
@@ -476,7 +486,9 @@ impl TerminalView {
 
     fn restart_blink(&mut self, cx: &mut Context<Self>) {
         self.blink_on = true;
-        if !self.interactive() || !self.settings.cursor_blink {
+        // Only a focused terminal blinks (an unfocused one draws a still,
+        // hollow cursor), so only it needs the clock.
+        if !self.interactive() || !self.settings.cursor_blink || !self.focused {
             self.blink_task = None;
             return;
         }
@@ -484,13 +496,17 @@ impl TerminalView {
             cx.background_executor().timer(BLINK).await;
             let go_on = this
                 .update(cx, |this, cx| {
-                    if this.last_input.elapsed() > BLINK_IDLE {
+                    if this.last_input.elapsed() > BLINK_IDLE || !this.focused {
                         this.blink_on = true;
                         cx.notify();
                         return false;
                     }
                     this.blink_on = !this.blink_on;
-                    cx.notify();
+                    // A hidden cursor (TUIs hide it while they draw) has
+                    // nothing to blink: no frame for it.
+                    if this.terminal.mode().contains(TermMode::SHOW_CURSOR) {
+                        cx.notify();
+                    }
                     true
                 })
                 .unwrap_or(false);
