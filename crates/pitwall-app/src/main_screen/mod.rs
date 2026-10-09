@@ -464,6 +464,13 @@ impl MainScreen {
                 }
             }),
             cx.subscribe(&store, |this, _, e: &crate::agents::StoreEvent, cx| {
+                // `projects-changed`: the sidebar's projects follow at once.
+                if let crate::agents::StoreEvent::ProjectsChanged(list) = e {
+                    if *list != this.projects {
+                        this.projects = list.clone();
+                        cx.notify();
+                    }
+                }
                 this.attention(e, cx)
             }),
             cx.observe_window_activation(window, |this, window, cx| {
@@ -1248,8 +1255,11 @@ impl MainScreen {
         let task = cx
             .background_executor()
             .spawn(async move { pitwall_core::engine::lifecycle::restart(&engine, &id, size) });
-        cx.spawn(async move |this, cx| {
-            if let Err(e) = task.await {
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(view) => {
+                let _ = cx.update(|cx| crate::agents::patch(view, cx));
+            }
+            Err(e) => {
                 let _ = this.update(cx, |s, cx| s.failed("restart", e, cx));
             }
         })
@@ -1489,7 +1499,10 @@ impl Render for MainScreen {
                     .is_some_and(|a| this.wt.is_open(&worktrees::panel_key(&a.id)));
                 if open {
                     this.wt_list(true, cx);
+                    this.wt_load_files(true, cx);
                 }
+                // The explorer (on the window root) refreshes too.
+                cx.propagate();
             }))
             .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))

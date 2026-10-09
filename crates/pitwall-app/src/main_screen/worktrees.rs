@@ -239,9 +239,10 @@ impl MainScreen {
             return;
         }
         self.wt.open.insert(key);
-        // Expanding lists them again now.
+        // Expanding lists them again now, and their rows read their files
+        // anew (React mounts them fresh).
         self.wt_list(true, cx);
-        self.wt_load_files(false, cx);
+        self.wt_load_files(true, cx);
         cx.notify();
     }
 
@@ -282,7 +283,7 @@ impl MainScreen {
 
     /// Read the changes of the rows shown: new ones, ones whose HEAD moved,
     /// or all of them (`all`, the 15 s poll).
-    fn wt_load_files(&mut self, all: bool, cx: &mut Context<Self>) {
+    pub(super) fn wt_load_files(&mut self, all: bool, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -549,7 +550,10 @@ impl MainScreen {
                                 busy,
                                 Some(crate::kit::fresh_note(busy, age)),
                                 t,
-                                cx.listener(|this, _, _, cx| this.wt_list(true, cx)),
+                                cx.listener(|this, _, _, cx| {
+                                    this.wt_list(true, cx);
+                                    this.wt_load_files(true, cx);
+                                }),
                             ))
                         }),
                 )

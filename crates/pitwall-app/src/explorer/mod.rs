@@ -53,8 +53,6 @@ actions!(
         SearchInFiles,
         /// Open the file viewer on the focused agent.
         BrowseFiles,
-        /// ⌘⇧R: read the shown files and folders again.
-        RefreshFiles,
     ]
 );
 
@@ -70,13 +68,11 @@ pub fn bindings() -> Vec<KeyBinding> {
         vec![
             KeyBinding::new("cmd-p", GoToFile, None),
             KeyBinding::new("cmd-shift-f", SearchInFiles, None),
-            KeyBinding::new("cmd-shift-r", RefreshFiles, None),
         ]
     } else {
         vec![
             KeyBinding::new("ctrl-shift-p", GoToFile, None),
             KeyBinding::new("ctrl-shift-alt-f", SearchInFiles, None),
-            KeyBinding::new("ctrl-shift-alt-r", RefreshFiles, None),
         ]
     };
 
@@ -107,9 +103,10 @@ pub fn on_actions<E: InteractiveElement>(el: E, explorer: &Entity<Explorer>) -> 
         .on_action(move |_: &BrowseFiles, window, cx| {
             c.update(cx, |e, cx| e.browse_files(window, cx))
         })
-        .on_action(move |_: &RefreshFiles, _, cx| {
+        // ⌘⇧R refreshes every source-control view: the main screen's
+        // Changes and worktrees first, then the explorer here.
+        .on_action(move |_: &crate::main_screen::RefreshChanges, _, cx| {
             d.update(cx, |e, cx| e.refresh_files(cx));
-            // ⌘⇧R refreshes every source-control view: Changes too.
             cx.propagate();
         })
 }

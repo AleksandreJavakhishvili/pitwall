@@ -225,8 +225,13 @@ impl NextUp {
             .background_executor()
             .spawn(async move { call.run(&engine, &id) });
         cx.spawn_in(window, async move |this, cx| {
-            // A success shows through the engine's agents-changed event.
-            let Err(err) = task.await else { return };
+            let err = match task.await {
+                Ok(view) => {
+                    let _ = cx.update(|_, cx| crate::agents::patch(view, cx));
+                    return;
+                }
+                Err(err) => err,
+            };
             let _ = this.update_in(cx, |this, window, cx| {
                 if let Op::Add(text) = &op {
                     this.drafts.insert(agent.clone(), text.clone());

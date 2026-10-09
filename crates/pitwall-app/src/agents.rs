@@ -321,3 +321,24 @@ pub(crate) mod tests {
         store.read_with(cx, |s, _| assert!(s.agents.is_empty()));
     }
 }
+
+/// The app's one store, for code that has no handle to it.
+pub struct StoreHandle(pub Entity<AgentStore>);
+
+impl gpui::Global for StoreHandle {}
+
+/// An `AgentView` a command returned goes in at once (the engine's
+/// `agents-changed` may lag; React `useAgents` patches it in).
+pub fn patch(view: AgentView, cx: &mut gpui::App) {
+    let Some(store) = cx.try_global::<StoreHandle>().map(|h| h.0.clone()) else {
+        return;
+    };
+    store.update(cx, |s, cx| {
+        if let Some(a) = s.agents.iter_mut().find(|a| a.id == view.id) {
+            if *a != view {
+                *a = view;
+                cx.notify();
+            }
+        }
+    });
+}
