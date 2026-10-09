@@ -281,6 +281,7 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
     };
     let main = cx
         .open_window(options, |window, cx| {
+            platform::lean_renderer(window);
             platform::keep_on_close(window, cx);
             cx.new(|cx| MainView::new(content, root, window, cx))
         })

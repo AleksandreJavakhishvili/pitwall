@@ -184,6 +184,15 @@ pub fn keep_on_close(window: &mut Window, cx: &mut App) {
     });
 }
 
+/// Settings for a new window's renderer (macOS: two drawables, see
+/// `macos::two_drawables`). Call once per window, as it opens.
+pub fn lean_renderer(window: &Window) {
+    #[cfg(target_os = "macos")]
+    macos::two_drawables(window);
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
 /// Close (or, for a window kept by [`keep_on_close`], hide) a window.
 pub fn close_window(handle: AnyWindowHandle, cx: &mut App) {
     let hides = state(cx).hide_on_close.contains(&handle);
