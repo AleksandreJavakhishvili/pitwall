@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-proto"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "The Pitwall wire contract (architecture.md §1, §4): framing, the versioned handshake, request/response/event messages, method names, and the shapes that cross it (AgentView, sessions, approvals). Serde only, no sockets; TypeScript types for the UI are generated from it (src/gen)."
 

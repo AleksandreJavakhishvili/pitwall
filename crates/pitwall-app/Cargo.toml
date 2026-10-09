@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-app"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Pitwall's desktop app (GPUI): hosts pitwall-core's Engine in-process and draws the UI with GPUI (docs/spec/gpui/README.md)."
