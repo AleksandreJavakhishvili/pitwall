@@ -24,6 +24,9 @@ interface Props {
   onToggleWall(): void;
   reviewOn?: boolean;
   onToggleReview?(): void;
+  /** The Race Engineer (docs/spec/engineer.md): open it, or show the one there is. */
+  onEngineer?(): void;
+  engineerOn?: boolean;
   onPalette(): void;
   onSettings(): void;
 }
@@ -110,6 +113,16 @@ export function TopBar(p: Props) {
             </span>
           )}
         </div>
+        {p.onEngineer && (
+          <button
+            className="icon-btn wall-btn"
+            onClick={p.onEngineer}
+            data-on={!!p.engineerOn}
+            title="Race Engineer: Pitwall's assistant (setup, agw, spaces, settings)"
+          >
+            <Icon name="headset" />
+          </button>
+        )}
         {p.onToggleReview && (
           <button
             className="icon-btn wall-btn"

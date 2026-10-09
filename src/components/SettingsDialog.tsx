@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import type { HooksStatus } from "../types";
+import type { HooksStatus, KindView } from "../types";
+import { ENGINEER_AUTO, ENGINEER_GREETING } from "../lib/engineer";
 import { api } from "../api";
 import { useActions } from "../lib/actions";
 import { Modal } from "./Modal";
@@ -209,7 +210,52 @@ function AgentsPage() {
           </div>
         )}
       </div>
+      <EngineerSetting />
     </>
+  );
+}
+
+/** Agents → Race Engineer (`engineer.agent`, `engineer.greeting`; docs/spec/engineer.md). */
+function EngineerSetting() {
+  const { run } = useActions();
+  const [kinds, setKinds] = useState<KindView[]>([]);
+  const [agent, setAgent] = useState(ENGINEER_AUTO);
+  const [greeting, setGreeting] = useState(ENGINEER_GREETING);
+  useEffect(() => {
+    run(api.listKinds(), "list agents").then((k) => k && setKinds(k.filter((x) => x.id !== "shell")));
+  }, [run]);
+  const auto = kinds.find((k) => k.id === "claude" && k.installed) ?? kinds.find((k) => k.installed && k.id !== "custom");
+  return (
+    <div className="setting">
+      <div className="setting-head">
+        <span className="setting-title">Race Engineer</span>
+        <span className="spacer" />
+        <span className="chip chip-subtle">optional</span>
+      </div>
+      <p className="muted">
+        An assistant agent for Pitwall itself: agw setup, spaces, agents per project, rules and settings, through the
+        pitwall CLI. Risky steps still wait for your OK here. It opens from the top bar or ⌘K; nothing runs until you open
+        it.
+      </p>
+      <div className="setting-row">
+        <span className="muted">Runs on</span>
+        <span className="spacer" />
+        <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>
+          <option value={ENGINEER_AUTO}>{auto ? `Automatic (${auto.name})` : "Automatic"}</option>
+          {kinds.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.installed || k.id === "custom" ? k.name : `${k.name} (not installed)`}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="setting-row">
+        <span className="muted">First prompt</span>
+        <span className="spacer" />
+        <input className="input" style={{ width: 380 }} value={greeting} onChange={(e) => setGreeting(e.target.value)} />
+      </div>
+      <p className="hint">Changes apply the next time it starts. It works in its own folder in Pitwall's data folder.</p>
+    </div>
   );
 }
 
