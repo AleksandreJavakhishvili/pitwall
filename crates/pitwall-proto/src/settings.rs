@@ -551,8 +551,10 @@ mod tests {
         if std::env::var_os("PITWALL_WRITE_SCHEMA").is_some() {
             std::fs::write(&path, &want).unwrap();
         }
-        let got = std::fs::read_to_string(&path).unwrap_or_default();
-        assert!(got == want, "docs/settings.schema.json is stale: run PITWALL_WRITE_SCHEMA=1 cargo test -p pitwall-proto");
+        // Compared as JSON: key order depends on serde_json's features in
+        // the build (`preserve_order` in the workspace).
+        let got: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_default()).unwrap_or(Value::Null);
+        assert!(got == json_schema(), "docs/settings.schema.json is stale: run PITWALL_WRITE_SCHEMA=1 cargo test -p pitwall-proto");
         let schema = json_schema();
         assert_eq!(schema["properties"]["hideElsewhere"]["default"], json!(false));
         assert_eq!(schema["properties"]["fontSize"]["maximum"], json!(22));
