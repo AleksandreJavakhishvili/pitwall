@@ -34,12 +34,24 @@ use crate::kit::{
 use crate::agents::AgentStore;
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
 
-actions!(explorer_viewer, [Back]);
+actions!(explorer_viewer, [Back, NextTab, PrevTab, PickTab]);
 
 pub const CONTEXT: &str = "ExplorerViewer";
+/// A focused file tab (`.ex-tab`, `tabIndex=0`).
+const TAB_CONTEXT: &str = "ExplorerTab";
 
 pub fn bindings() -> Vec<KeyBinding> {
-    vec![KeyBinding::new("escape", Back, Some(CONTEXT))]
+    let tab = Some(TAB_CONTEXT);
+    vec![
+        KeyBinding::new("escape", Back, Some(CONTEXT)),
+        KeyBinding::new("tab", NextTab, Some(CONTEXT)),
+        KeyBinding::new("shift-tab", PrevTab, Some(CONTEXT)),
+        // Tab / Shift-Tab walk the file tabs; Enter or Space shows one.
+        KeyBinding::new("tab", NextTab, tab),
+        KeyBinding::new("shift-tab", PrevTab, tab),
+        KeyBinding::new("enter", PickTab, tab),
+        KeyBinding::new("space", PickTab, tab),
+    ]
 }
 
 pub enum ViewerEvent {
@@ -100,6 +112,8 @@ pub struct Viewer {
     copied: bool,
     copied_task: Option<Task<()>>,
     focus: FocusHandle,
+    /// Each file tab's keyboard focus (by path).
+    tab_focus: HashMap<String, FocusHandle>,
     _subs: Vec<Subscription>,
 }
 
@@ -155,6 +169,7 @@ impl Viewer {
             copied: false,
             copied_task: None,
             focus: cx.focus_handle(),
+            tab_focus: HashMap::new(),
             _subs: subs,
         }
     }
@@ -536,7 +551,7 @@ impl Viewer {
             })
     }
 
-    fn tabs_row(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn tabs_row(&self, t: &Theme, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tree = self.tree.read(cx).state();
         let tabs: Vec<AnyElement> = self
             .tabs
@@ -549,6 +564,9 @@ impl Viewer {
                 let (p1, p2, p3) = (p.clone(), p.clone(), p.clone());
                 let title: SharedString = p.clone().into();
                 let hover = t.text_2;
+                let focus = self.tab_focus.get(p).cloned().unwrap_or_else(|| cx.focus_handle());
+                let ring = focus.is_focused(window);
+                let p4 = p.clone();
                 let close_hover = t.surface_3;
                 let close_text = t.text;
                 div()
@@ -581,6 +599,15 @@ impl Viewer {
                         )
                     })
                     .when(!selected, |d| d.hover_text(hover, move |s| s))
+                    // Keyboard focus: a 1 px ring inside (`.ex-tab:focus-visible`);
+                    // a click shows the file without taking the keys.
+                    .key_context(TAB_CONTEXT)
+                    .track_focus(&focus)
+                    .when(ring, |d| d.child(div().absolute().inset_0().border_1().border_color(t.focus)))
+                    .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+                    .on_action(|_: &NextTab, window, _| window.focus_next())
+                    .on_action(|_: &PrevTab, window, _| window.focus_prev())
+                    .on_action(cx.listener(move |this, _: &PickTab, _, cx| this.select(p4.clone(), cx)))
                     .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(p1.clone(), cx)))
                     .on_mouse_down(
@@ -803,11 +830,18 @@ impl Render for Viewer {
         let stale = self.is_stale();
         let active = self.active.clone();
         let body = self.body(&t, window, cx);
+        let tabs = self.tabs.clone();
+        self.tab_focus.retain(|p, _| tabs.contains(p));
+        for p in tabs {
+            self.tab_focus.entry(p).or_insert_with(|| cx.focus_handle().tab_stop(true));
+        }
         div()
             .id("ex-viewer")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::back))
+            .on_action(|_: &NextTab, window, _| window.focus_next())
+            .on_action(|_: &PrevTab, window, _| window.focus_prev())
             .flex_1()
             .min_w_0()
             .h_full()
@@ -828,7 +862,7 @@ impl Render for Viewer {
                             .flex()
                             .flex_col()
                             .bg(t.term_bg)
-                            .when(!self.tabs.is_empty(), |d| d.child(self.tabs_row(&t, cx)))
+                            .when(!self.tabs.is_empty(), |d| d.child(self.tabs_row(&t, window, cx)))
                             .when_some(active, |d, p| d.child(self.head(&t, a.as_ref(), &p, cx)))
                             .when(stale, |d| {
                                 d.child(
