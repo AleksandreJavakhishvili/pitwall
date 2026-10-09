@@ -71,11 +71,27 @@ pub enum Lang {
     Java,
     Ruby,
     Yaml,
+    Php,
+    CSharp,
+    Lua,
+    Swift,
+    Kotlin,
+    Scala,
+    Sql,
+    Xml,
+    Haskell,
+    Elixir,
+    Zig,
+    R,
+    PowerShell,
+    Scss,
+    OCaml,
+    Nix,
     /// Markers only, as Monaco: see [`super::markdown`].
     Markdown,
 }
 
-const ALL: [Lang; 14] = [
+const ALL: [Lang; 30] = [
     Lang::Rust,
     Lang::JavaScript,
     Lang::TypeScript,
@@ -90,6 +106,22 @@ const ALL: [Lang; 14] = [
     Lang::Java,
     Lang::Ruby,
     Lang::Yaml,
+    Lang::Php,
+    Lang::CSharp,
+    Lang::Lua,
+    Lang::Swift,
+    Lang::Kotlin,
+    Lang::Scala,
+    Lang::Sql,
+    Lang::Xml,
+    Lang::Haskell,
+    Lang::Elixir,
+    Lang::Zig,
+    Lang::R,
+    Lang::PowerShell,
+    Lang::Scss,
+    Lang::OCaml,
+    Lang::Nix,
 ];
 
 impl Lang {
@@ -102,6 +134,7 @@ impl Lang {
                 return Some(Lang::Bash)
             }
             "gemfile" | "rakefile" | "podfile" | "vagrantfile" => return Some(Lang::Ruby),
+            "build.sbt" => return Some(Lang::Scala),
             _ => {}
         }
         let ext = lower.rsplit_once('.').map(|(_, e)| e)?;
@@ -120,6 +153,23 @@ impl Lang {
             "java" => Lang::Java,
             "rb" | "gemspec" | "rake" => Lang::Ruby,
             "yml" | "yaml" => Lang::Yaml,
+            "php" | "phtml" | "php3" | "php4" | "php5" | "php7" | "phps" => Lang::Php,
+            "cs" | "csx" => Lang::CSharp,
+            "lua" => Lang::Lua,
+            "swift" => Lang::Swift,
+            "kt" | "kts" => Lang::Kotlin,
+            "scala" | "sc" | "sbt" => Lang::Scala,
+            "sql" => Lang::Sql,
+            "xml" | "xsl" | "xsd" | "xslt" | "svg" | "plist" | "csproj" | "fsproj" | "vbproj"
+            | "props" | "targets" | "rss" | "atom" | "wsdl" | "xaml" => Lang::Xml,
+            "hs" | "lhs" => Lang::Haskell,
+            "ex" | "exs" => Lang::Elixir,
+            "zig" => Lang::Zig,
+            "r" => Lang::R,
+            "ps1" | "psm1" | "psd1" => Lang::PowerShell,
+            "scss" | "less" => Lang::Scss,
+            "ml" | "mli" => Lang::OCaml,
+            "nix" => Lang::Nix,
             "md" | "markdown" | "mkd" => Lang::Markdown,
             _ => return None,
         })
@@ -202,6 +252,70 @@ impl Lang {
                 tree_sitter_yaml::LANGUAGE.into(),
                 tree_sitter_yaml::HIGHLIGHTS_QUERY.into(),
             ),
+            Lang::Php => (
+                tree_sitter_php::LANGUAGE_PHP.into(),
+                tree_sitter_php::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::CSharp => (
+                tree_sitter_c_sharp::LANGUAGE.into(),
+                tree_sitter_c_sharp::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Lua => (
+                tree_sitter_lua::LANGUAGE.into(),
+                tree_sitter_lua::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Swift => (
+                tree_sitter_swift::LANGUAGE.into(),
+                tree_sitter_swift::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Kotlin => (
+                tree_sitter_kotlin_ng::LANGUAGE.into(),
+                include_str!("kotlin_highlights.scm").into(),
+            ),
+            Lang::Scala => (
+                tree_sitter_scala::LANGUAGE.into(),
+                tree_sitter_scala::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Sql => (
+                tree_sitter_sequel::LANGUAGE.into(),
+                tree_sitter_sequel::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Xml => (
+                tree_sitter_xml::LANGUAGE_XML.into(),
+                tree_sitter_xml::XML_HIGHLIGHT_QUERY.into(),
+            ),
+            Lang::Haskell => (
+                tree_sitter_haskell::LANGUAGE.into(),
+                tree_sitter_haskell::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Elixir => (
+                tree_sitter_elixir::LANGUAGE.into(),
+                tree_sitter_elixir::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Zig => (
+                tree_sitter_zig::LANGUAGE.into(),
+                tree_sitter_zig::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::R => (
+                tree_sitter_r::LANGUAGE.into(),
+                tree_sitter_r::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::PowerShell => (
+                tree_sitter_powershell::LANGUAGE.into(),
+                tree_sitter_powershell::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Scss => (
+                tree_sitter_scss::language(),
+                tree_sitter_scss::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::OCaml => (
+                tree_sitter_ocaml::LANGUAGE_OCAML.into(),
+                tree_sitter_ocaml::HIGHLIGHTS_QUERY.into(),
+            ),
+            Lang::Nix => (
+                tree_sitter_nix::LANGUAGE.into(),
+                tree_sitter_nix::HIGHLIGHTS_QUERY.into(),
+            ),
             Lang::Markdown => unreachable!("Markdown is walked, not queried"),
         };
         (lang, q)
@@ -234,8 +348,8 @@ const NAMES: [(&str, Token); 20] = [
 ];
 
 fn config(lang: Lang) -> Option<&'static HighlightConfiguration> {
-    static CONFIGS: [OnceLock<Option<HighlightConfiguration>>; 14] =
-        [const { OnceLock::new() }; 14];
+    static CONFIGS: [OnceLock<Option<HighlightConfiguration>>; ALL.len()] =
+        [const { OnceLock::new() }; ALL.len()];
     CONFIGS[lang.index()]
         .get_or_init(|| {
             let (language, query) = lang.grammar();
@@ -434,13 +548,32 @@ mod tests {
         assert_eq!(Lang::for_path("data.json"), None, "JSON stays plain");
         assert_eq!(Lang::for_path("Cargo.toml"), None);
         assert_eq!(Lang::for_path("README"), None);
+        assert_eq!(Lang::for_path("Main.kt"), Some(Lang::Kotlin));
+        assert_eq!(Lang::for_path("icon.svg"), Some(Lang::Xml));
+        assert_eq!(Lang::for_path("theme.less"), Some(Lang::Scss));
+        assert_eq!(Lang::for_path("analysis.R"), Some(Lang::R));
+    }
+
+    #[test]
+    fn kotlin_query_colours_keywords_and_strings() {
+        let src = "fun main() { val s = \"hi\" }\n";
+        let out = highlight(src, Some(Lang::Kotlin));
+        let l0 = tokens(src.trim_end(), &out[0]);
+        assert!(l0.contains(&("fun".into(), Token::Keyword)), "{l0:?}");
+        assert!(l0.iter().any(|(_, t)| *t == Token::String), "{l0:?}");
     }
 
     #[test]
     fn every_grammar_loads() {
+        let mut bad = Vec::new();
         for l in ALL {
-            assert!(config(l).is_some(), "{l:?}");
+            if config(l).is_none() {
+                let (language, query) = l.grammar();
+                let e = HighlightConfiguration::new(language, "x", &query, "", "").err();
+                bad.push(format!("{l:?}: {e:?}"));
+            }
         }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 
     #[test]
