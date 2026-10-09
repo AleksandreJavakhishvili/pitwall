@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-hook"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Pitwall's hook relay as a tiny binary (architecture.md §9 decision 7): forwards an agent's hook payload (stdin) to Pitwall's hook socket. Silent, always exits 0, a no-op outside Pitwall. Used on Windows instead of the sh + curl script."
 

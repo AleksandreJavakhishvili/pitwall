@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-hold"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Per-agent terminal holder: owns one PTY + child process and serves it on a local socket (Unix socket / named pipe), so terminals outlive the Pitwall app (architecture.md §9, decision 1)."
 

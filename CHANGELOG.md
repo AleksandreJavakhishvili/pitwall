@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.2.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.0) - 2026-10-09
 
 ### Highlights
 
@@ -16,6 +16,40 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - Opening never waits for a slow or unreachable machine: its agents connect in the background and retry.
 - Full Disk Access is optional: per-folder access is the default.
 - ⌘-click a file path in a terminal to open it; long pastes arrive whole, also after the app restarts.
+
+### Features
+
+- **website:** Glass look with a night-race sky ([`1ae34b4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/1ae34b41b250b621d6d4bfd9044566162315a946))
+- **ui:** A Glass appearance with native window vibrancy ([`da2195c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/da2195cfe97b3e06bcabc527495892335b777dc0))
+- **app:** Apex p app icon with a chequered finish ([`50a191d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/50a191d2da0abe1abcd900924f98834397049b72))
+- **ui:** Apex p in the top bar wordmark ([`ecfbff1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ecfbff11296c1ca27d6192bc4f6c5332b6126003))
+- **website:** Apex p logo and racing motion ([`ff19566`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ff19566adddfe50a6d3d473b3f5f114f1ffe404f))
+- **ui:** Demo bridge follows the site's theme ([`2786559`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2786559732862b72e8ce0e11905b7ec1ded6a155))
+- **website:** The live app is the landing page's only demo ([`43e51f2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/43e51f2d8a3929e1374a8b3dc9716e2d253e5f36))
+- **core:** Engine for the native app ([`2f5d1b6`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2f5d1b67d49e3188cda316d652650b4a9d334385))
+- **app:** Native GPUI app replaces the Tauri shell ([`101f2ce`](https://github.com/AleksandreJavakhishvili/pitwall/commit/101f2ce979960a23a61f41db4b9e09d59d6882ea))
+- **ui:** Web demo keeps the native app's look ([`367e04b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/367e04b5ce9d60ac14efafe28ad2aebcbe6955cf))
+
+### Fixes
+
+- **website:** Keep text from showing through the header bar ([`7998616`](https://github.com/AleksandreJavakhishvili/pitwall/commit/799861685124026f5f765fc0935df7bc9b54da0e))
+- **website:** Neutral bezel around the app demo ([`8e57749`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8e577491ad296c6a8e0d6ee9b482c912662ff4f9))
+- **ui:** Readable layout preset icons in Glass ([`339cf37`](https://github.com/AleksandreJavakhishvili/pitwall/commit/339cf3756e1a355a0418f117d949331bd6793e8c))
+
+### Performance
+
+- **app:** Keep GPU memory of windows out of sight ([`baafe33`](https://github.com/AleksandreJavakhishvili/pitwall/commit/baafe335532668f8ee8ce404287a915972fb0e9a))
+
+### Documentation
+
+- The native app in the readme, roadmap and specs ([`60b3597`](https://github.com/AleksandreJavakhishvili/pitwall/commit/60b3597dd5289fb1b9bf9cf940f2217401b418bf))
+- Highlights and roadmap for 0.2.0 ([`68ce8cb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/68ce8cbf2301844157974fff3c3c9c1ffb23d1dd))
+
+### CI/Build
+
+- **deps:** Vendor gpui 0.2.2 with a Metal memory patch ([`9f95234`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9f95234d1f70d14b55745763d3adec1c9dfa8450))
+- **release:** Package and release the native app ([`89114ab`](https://github.com/AleksandreJavakhishvili/pitwall/commit/89114ab9555324c4a904d2f4ad1d24cf6223665b))
+
 
 ## [0.1.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.1.1) - 2026-10-08
 

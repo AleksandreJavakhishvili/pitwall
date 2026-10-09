@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-detect"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "Headless terminal screen + data-driven (TOML) screen status rules. Pure: no IO besides reading rule overrides."
 
