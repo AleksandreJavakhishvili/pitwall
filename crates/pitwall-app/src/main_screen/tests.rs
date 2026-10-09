@@ -223,3 +223,37 @@ fn hovering_never_moves_anything(cx: &mut TestAppContext) {
     cx.run_until_parked();
     probe::assert_hover_keeps_layout(cx, "agent menu");
 }
+
+#[gpui::test]
+fn big_pieces_are_cached_parts_that_follow_the_layout(cx: &mut TestAppContext) {
+    let (view, store, cx) = screen(cx);
+    cx.run_until_parked();
+    let shown = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |s, _| {
+            let mut ids: Vec<String> = s
+                .active_space()
+                .unwrap()
+                .layout
+                .leaves()
+                .into_iter()
+                .map(|p| p.id)
+                .collect();
+            ids.sort();
+            (ids, s.parts.as_ref().map(|p| p.header_ids()))
+        })
+    };
+    let (panes, headers) = shown(&view, cx);
+    assert_eq!(headers, Some(panes), "one header part per shown pane");
+    // Another agent shown: its pane gets a header, a closed pane loses it.
+    view.update_in(cx, |s, window, cx| s.show_agent("docs", window, cx));
+    cx.run_until_parked();
+    let (panes, headers) = shown(&view, cx);
+    assert_eq!(headers, Some(panes));
+    // A store change re-renders the parts with the screen (no stale rows).
+    store.update(cx, |s, cx| {
+        s.agents[0].status = pitwall_proto::Status::Working;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |s, cx| assert_eq!(s.agents(cx)[0].status, pitwall_proto::Status::Working));
+}

@@ -25,6 +25,7 @@ mod elsewhere;
 mod menu;
 pub mod model;
 mod panel;
+mod part;
 mod sidebar;
 mod space;
 mod strip;
@@ -436,6 +437,8 @@ pub struct MainScreen {
     agent_ids: Vec<String>,
     elsewhere: elsewhere::ElsewhereState,
     _poll_elsewhere: Option<Task<()>>,
+    /// The big, rarely changing pieces as cached views (part.rs).
+    parts: Option<part::Parts>,
     _subs: Vec<Subscription>,
 }
 
@@ -536,6 +539,7 @@ impl MainScreen {
             agent_ids: vec![],
             elsewhere: Default::default(),
             _poll_elsewhere: None,
+            parts: None,
             _subs: subs,
         };
         screen.start_elsewhere(cx);
@@ -1503,21 +1507,58 @@ impl Render for MainScreen {
         let chrome = t.chrome();
         let slab = crate::theme::panel(&t, cx);
         let float = t.float();
+        // The big, rarely changing pieces are cached views (part.rs).
+        let parts = part::cached(cx).then(|| {
+            let me = cx.entity();
+            &*self.parts.get_or_insert_with(|| part::Parts::new(&me, cx))
+        });
+        let mut drawn = Vec::new();
+        let sidebar_part = parts.filter(|_| sidebar_mode == SidebarMode::Full).map(|p| {
+            drawn.push(part::PartKind::Sidebar);
+            p.sidebar.clone()
+        });
+        let topbar_part = parts.map(|p| {
+            drawn.push(part::PartKind::Topbar);
+            p.topbar.clone()
+        });
+        let panel_part = parts.filter(|_| right == Some(false)).map(|p| {
+            drawn.push(part::PartKind::Panel);
+            p.panel.clone()
+        });
+        if parts.is_some() && self.route != Route::Space {
+            drawn.push(part::PartKind::Route);
+        }
+        if parts.is_some() && self.route == Route::Space {
+            drawn.extend([part::PartKind::Bar, part::PartKind::Chips]);
+        }
+        if let Some(p) = &self.parts {
+            p.forget_unused(&drawn, window);
+        }
         let main_row = div()
             .flex_1()
             .min_h_0()
             .flex()
             .relative()
-            .when(sidebar_mode != SidebarMode::Hidden, |d| {
-                let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
-                d.child(crate::kit::chrome_panel("sidebar", bar, cx))
+            .when(sidebar_mode != SidebarMode::Hidden, |d| match &sidebar_part {
+                Some(p) => d.child(part::slot(
+                    p,
+                    gpui::StyleRefinement::default().w(crate::theme::SIDEBAR_W).h_full().flex_none(),
+                )),
+                None => {
+                    let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
+                    d.child(crate::kit::chrome_panel("sidebar", bar, cx))
+                }
             })
             .child(self.render_center(&agents, bp, &t, window, cx))
-            .when(right == Some(false), |d| {
-                d.children(selected.clone().map(|a| {
+            .when(right == Some(false), |d| match &panel_part {
+                Some(p) => d.child(part::slot(
+                    p,
+                    gpui::StyleRefinement::default().w(crate::theme::RIGHT_W).h_full().flex_none(),
+                )),
+                None => d.children(selected.clone().map(|a| {
                     let panel = self.render_panel(&a, false, &slab, window, cx);
                     crate::kit::chrome_panel("right-panel", panel, cx)
-                }))
+                })),
             })
             .when(
                 self.overlay_sidebar && sidebar_mode != SidebarMode::Full,
@@ -1580,14 +1621,16 @@ impl Render for MainScreen {
                     )
                 }))
             });
-        let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);
-        let topbar = if crate::theme::glass_regions(cx) {
+        let topbar = if let Some(p) = &topbar_part {
+            part::slot(p, gpui::StyleRefinement::default().w_full().h(TOPBAR_H).flex_none())
+        } else if crate::theme::glass_regions(cx) {
+            let topbar = self.render_topbar(&agents, bp, &chrome, window, cx);
             crate::kit::glass_region("topbar", 0., topbar)
                 .w_full()
                 .flex_none()
                 .into_any_element()
         } else {
-            topbar.into_any_element()
+            self.render_topbar(&agents, bp, &chrome, window, cx).into_any_element()
         };
 
         let modal = self.modal.is_some() || self.elsewhere.bring.is_some();
