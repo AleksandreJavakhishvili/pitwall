@@ -4398,6 +4398,7 @@ dependencies = [
  "futures",
  "gpui",
  "libc",
+ "pitwall-detect",
  "pitwall-hold",
  "portable-pty",
 ]

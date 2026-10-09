@@ -1019,7 +1019,8 @@ impl MainScreen {
 
     /// Bench commands (`crate::bench`): `wall`/`review` on or off;
     /// `visit-all` shows each agent once (so each gets its terminal), then
-    /// tiles them with Auto grid.
+    /// tiles them with Auto grid (`visit-all-4`: 2×2, the rest folded, the
+    /// perf brief's standard load).
     pub fn bench(&mut self, what: &str, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         match what {
             "wall" | "review" => {
@@ -1028,7 +1029,8 @@ impl MainScreen {
                     self.toggle_route(route, cx);
                 }
             }
-            "visit-all" => {
+            "visit-all" | "visit-all-4" => {
+                let preset = if what == "visit-all" { Preset::Auto } else { Preset::G2x2 };
                 let ids: Vec<String> = self.ordered(cx).into_iter().map(|a| a.id).collect();
                 let win = window.window_handle();
                 cx.spawn(async move |this, cx| {
@@ -1039,13 +1041,11 @@ impl MainScreen {
                         cx.background_executor().timer(std::time::Duration::from_millis(120)).await;
                     }
                     let _ = win.update(cx, |_, window, cx| {
-                        let _ = this.update(cx, |s, cx| s.apply_preset(Preset::Auto, window, cx));
+                        let _ = this.update(cx, |s, cx| s.apply_preset(preset, window, cx));
                     });
                 })
                 .detach();
             }
-            // The standard perf load: four panes, the rest as chips.
-            "grid2x2" => self.apply_preset(Preset::G2x2, window, cx),
             _ => {}
         }
     }

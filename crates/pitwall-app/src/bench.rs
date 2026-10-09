@@ -5,7 +5,7 @@
 //!
 //! - Commands: the script writes `<n> <command>` to `$PITWALL_HOME/bench-cmd`;
 //!   each new line goes to the main window: `wall on|off`, `review on|off`,
-//!   `visit-all`, `grid2x2`, `palette on|off`, `settings on|off`.
+//!   `visit-all`, `palette on|off`, `settings on|off`.
 //! - Readiness: once the main window has drawn with its agents loaded, the
 //!   time since start goes to `$PITWALL_HOME/bench-ready` (cold start).
 //! - Unobtrusive: the app never activates (macOS: accessory, no Dock icon)

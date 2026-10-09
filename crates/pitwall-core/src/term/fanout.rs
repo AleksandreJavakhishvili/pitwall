@@ -97,6 +97,7 @@ fn push_ring(ring: &mut VecDeque<u8>, chunk: &[u8], cap: usize, left: &mut Modes
         left.feed(b);
         ring.clear();
         left.feed(&chunk[..chunk.len() - cap]);
+        ring.reserve_exact(cap);
         ring.extend(&chunk[chunk.len() - cap..]);
         return;
     }
@@ -106,6 +107,11 @@ fn push_ring(ring: &mut VecDeque<u8>, chunk: &[u8], cap: usize, left: &mut Modes
     left.feed(&a[..n]);
     left.feed(&b[..overflow - n]);
     ring.drain(..overflow);
+    // Grow by doubling, but never past `cap` (`VecDeque` growth would).
+    let need = ring.len() + chunk.len();
+    if need > ring.capacity() {
+        ring.reserve_exact(need.next_power_of_two().min(cap) - ring.len());
+    }
     ring.extend(chunk);
 }
 
@@ -136,6 +142,19 @@ mod tests {
         assert_eq!(f.history(), b"cdefghij");
         f.push(b"0123456789");
         assert_eq!(f.history(), b"23456789");
+    }
+
+    #[test]
+    fn ring_never_holds_more_than_its_size() {
+        let cap = 1000;
+        let mut f = Fanout::new(cap, 4);
+        for n in [1, 7, 300, 999, 64, 1001, 3, 500, 2500, 17] {
+            for _ in 0..5 {
+                f.push(&vec![b'x'; n]);
+                assert!(f.ring.capacity() <= cap, "{}", f.ring.capacity());
+            }
+        }
+        assert_eq!(f.ring.len(), cap);
     }
 
     #[test]
