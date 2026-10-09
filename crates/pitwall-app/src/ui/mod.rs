@@ -73,11 +73,21 @@ impl MainView {
             window,
             |this, _, e: &crate::settings::LayerEvent, window, cx| match e {
                 crate::settings::LayerEvent::Opened => this.one_modal(Owner::Layer, window, cx),
-                crate::settings::LayerEvent::HandOver { agents, .. } => {
-                    if let (Some(first), Some(screen)) = (agents.first(), this.screen.clone()) {
-                        let id = first.id.clone();
-                        screen.update(cx, |s, cx| s.show_agent(&id, window, cx));
-                    }
+                crate::settings::LayerEvent::HandOver { agents, failures } => {
+                    let Some(screen) = this.screen.clone() else { return };
+                    let ids: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
+                    let failures = failures.clone();
+                    screen.update(cx, |s, cx| {
+                        // React toasts each failure ("Couldn't start <name>").
+                        for f in failures {
+                            let (title, detail) = match f.split_once(": ") {
+                                Some((t, d)) => (t.to_string(), d.to_string()),
+                                None => (f.clone(), String::new()),
+                            };
+                            s.toast_error(title, detail, cx);
+                        }
+                        s.hand_over(&ids, window, cx);
+                    });
                 }
             },
         ));

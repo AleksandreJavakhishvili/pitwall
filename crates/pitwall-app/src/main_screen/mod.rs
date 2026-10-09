@@ -710,6 +710,22 @@ impl MainScreen {
 
     /// Show agent: leave Wall/Review/viewer, close the overlay sidebar,
     /// focus its pane here, or place it in the active space.
+    /// Onboarding's hand-over: the new agents tiled in the All space
+    /// (overflow as chips), Wall and Review off, the first one focused.
+    pub fn hand_over(&mut self, ids: &[String], window: &mut Window, cx: &mut Context<Self>) {
+        if ids.is_empty() {
+            return;
+        }
+        self.set_route(Route::Space, cx);
+        self.overlay_sidebar = false;
+        self.active = ALL_SPACE.into();
+        let max = (Self::breakpoint(window).max_per_row() * 2).max(2);
+        let ids = ids.to_vec();
+        self.update_ui(|s| s.tile_agents(ALL_SPACE, &ids, max), cx);
+        self.cursor = Some(ids[0].clone());
+        cx.notify();
+    }
+
     pub fn show_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.set_route(Route::Space, cx);
         self.overlay_sidebar = false;
@@ -971,6 +987,12 @@ impl MainScreen {
     }
 
     /// A failed engine call (React: `run(…, what)` → "Couldn't <what>").
+    /// An error toast with its own title.
+    pub fn toast_error(&mut self, title: String, detail: String, cx: &mut Context<Self>) {
+        self.note_access_error(&detail, cx);
+        self.toast(Toast::error(title, detail), cx);
+    }
+
     pub fn failed(&mut self, what: &str, err: String, cx: &mut Context<Self>) {
         self.note_access_error(&err, cx);
         self.toast(Toast::error(format!("Couldn't {what}"), err), cx);

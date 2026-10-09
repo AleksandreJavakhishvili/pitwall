@@ -604,6 +604,38 @@ impl UiState {
         (next, id)
     }
 
+    /// Tile `agents` (then what the space shows already) into `space_id`,
+    /// at most `max` of them (`tileAgents`: the onboarding hand-over).
+    pub fn tile_agents(self, space_id: &str, agents: &[String], max: usize) -> UiState {
+        let Some(sp) = self.space(space_id) else {
+            return self;
+        };
+        if agents.is_empty() {
+            return self;
+        }
+        let cap = max.clamp(1, tree::Preset::G3x2.count());
+        let shown: Vec<String> =
+            sp.layout.agents().into_iter().filter(|a| !agents.contains(a)).collect();
+        let mut chosen: Vec<String> = Vec::new();
+        for id in agents.iter().chain(shown.iter()) {
+            if !chosen.contains(id) {
+                chosen.push(id.clone());
+            }
+        }
+        chosen.truncate(cap);
+        let mut next = self;
+        for id in &chosen {
+            next = next.unplace(id, Some(space_id));
+        }
+        let layout = build_preset(preset_for(chosen.len()), &chosen);
+        next.map_space(space_id, |mut x| {
+            x.focused_pane_id = Some(layout.leaves()[0].id.clone());
+            x.layout = layout;
+            x.maximized_pane_id = None;
+            x
+        })
+    }
+
     /// "Space N" (custom), owned by `label`.
     pub fn create_custom_space(mut self, label: &str) -> (UiState, String) {
         let n = self
@@ -947,6 +979,24 @@ mod tests {
             agent("b", "/work/alpha", "working", 2, true),
             agent("c", "/work/beta", "blocked", 3, true),
         ]
+    }
+
+    #[test]
+    fn hand_over_tiles_new_agents_first() {
+        let s = UiState::default().place_agent(ALL_SPACE, "old", None, None);
+        let ids: Vec<String> = ["n1", "n2", "n3"].iter().map(|s| s.to_string()).collect();
+        let s = s.tile_agents(ALL_SPACE, &ids, 2);
+        let sp = s.space(ALL_SPACE).unwrap();
+        assert_eq!(sp.layout.agents(), vec!["n1".to_string(), "n2".to_string()], "capped");
+        assert_eq!(sp.focused_agent().as_deref(), Some("n1"));
+        let s = UiState::default()
+            .place_agent(ALL_SPACE, "old", None, None)
+            .tile_agents(ALL_SPACE, &ids[..1], 6);
+        assert_eq!(
+            s.space(ALL_SPACE).unwrap().layout.agents(),
+            vec!["n1".to_string(), "old".to_string()],
+            "what was shown follows"
+        );
     }
 
     #[test]
