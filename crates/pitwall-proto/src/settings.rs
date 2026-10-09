@@ -83,6 +83,8 @@ pub enum Kind {
     Choice(&'static [&'static str]),
     /// A whole number in `min..=max`.
     Int { min: i64, max: i64 },
+    /// One line of text, up to `max` characters.
+    Text { max: usize },
 }
 
 /// A default value (const-friendly).
@@ -132,6 +134,9 @@ pub struct Setting {
 pub const THEMES: &[&str] = &["system", "dark", "light"];
 pub const LOOKS: &[&str] = &["flat", "glass"];
 pub const DENSITIES: &[&str] = &["comfortable", "compact", "dense"];
+/// The Race Engineer's first prompt, by default (`engineer.greeting`).
+pub const ENGINEER_GREETING: &str =
+    "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, tune settings.";
 pub const FONT_MIN: i64 = 9;
 pub const FONT_MAX: i64 = 22;
 pub const FONT_DEFAULT: i64 = 13;
@@ -171,6 +176,36 @@ pub const SETTINGS: &[Setting] = &[
         sensitivity: Sensitivity::Approval,
         stored: Stored::Pitwall,
         only_on: true,
+    },
+    Setting {
+        key: "engineer.agent",
+        kind: Kind::Text { max: 64 },
+        default: DefaultValue::Str("auto"),
+        description: "What the Race Engineer (Pitwall's optional assistant) runs on: auto (Claude Code if installed, else the first installed agent), an agent id from New agent (claude, codex, gemini, opencode, aider, …) or custom (engineer.command). Applies the next time it starts.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "engineerAgent", invert: false },
+        only_on: false,
+    },
+    Setting {
+        key: "engineer.command",
+        kind: Kind::Text { max: 500 },
+        default: DefaultValue::Str(""),
+        description: "The command the Race Engineer runs when engineer.agent is custom (a command line, run by your login shell).",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Approval,
+        stored: Stored::Ui { key: "engineerCommand", invert: false },
+        only_on: false,
+    },
+    Setting {
+        key: "engineer.greeting",
+        kind: Kind::Text { max: 1000 },
+        default: DefaultValue::Str(ENGINEER_GREETING),
+        description: "The prompt queued for a new Race Engineer when it first opens (empty: none).",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "engineerGreeting", invert: false },
+        only_on: false,
     },
     Setting {
         key: "rules.allowNpx",
@@ -267,6 +302,7 @@ impl Setting {
             Kind::Bool => "true or false".into(),
             Kind::Choice(c) => format!("one of {}", c.join(", ")),
             Kind::Int { min, max } => format!("a whole number {min}–{max}"),
+            Kind::Text { max } => format!("one line of text, up to {max} characters"),
         }
     }
 
@@ -286,6 +322,10 @@ impl Setting {
                     _ => Err(bad()),
                 }
             }
+            Kind::Text { max } => match v.as_str() {
+                Some(s) if s.chars().count() <= max && !s.contains(['\n', '\r']) => Ok(Value::String(s.into())),
+                _ => Err(bad()),
+            },
         }
     }
 
@@ -311,6 +351,8 @@ impl Setting {
             },
             Kind::Choice(_) => Value::String(t.trim_matches('"').to_ascii_lowercase()),
             Kind::Int { .. } => serde_json::from_str::<Value>(t.trim_end_matches("px")).unwrap_or_else(|_| Value::String(t.into())),
+            // As typed (surrounding spaces dropped).
+            Kind::Text { .. } => Value::String(t.into()),
         };
         self.validate(&v)
     }
@@ -346,6 +388,7 @@ impl Setting {
             Kind::Bool => ("bool", None, None, None),
             Kind::Choice(c) => ("choice", Some(c.iter().map(|s| s.to_string()).collect()), None, None),
             Kind::Int { min, max } => ("int", None, Some(min), Some(max)),
+            Kind::Text { max } => ("text", None, None, Some(max as i64)),
         };
         SettingView {
             key: self.key.into(),
@@ -370,6 +413,7 @@ impl Setting {
             Kind::Bool => json!({ "type": "boolean" }),
             Kind::Choice(c) => json!({ "type": "string", "enum": c }),
             Kind::Int { min, max } => json!({ "type": "number", "minimum": min, "maximum": max }),
+            Kind::Text { max } => json!({ "type": "string", "maxLength": max }),
         };
         let mut default = self.default_value();
         if let (Stored::Ui { invert: true, .. }, Value::Bool(b)) = (self.stored, &default) {
@@ -396,7 +440,7 @@ pub struct SettingView {
     pub value: Value,
     #[ts(type = "boolean | string | number")]
     pub default: Value,
-    /// "bool", "choice" or "int".
+    /// "bool", "choice", "int" or "text" (`max`: its length).
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub choices: Option<Vec<String>>,
@@ -474,13 +518,34 @@ mod tests {
             assert!(SETTINGS[i + 1..].iter().all(|o| o.key != s.key), "{} twice", s.key);
             let (page, name) = s.key.split_once('.').expect("dotted");
             assert!(!name.is_empty() && !name.contains('.'));
-            assert_eq!(page, s.page.id(), "{} is named after its page", s.key);
+            // A feature with its own settings on a page keeps its name
+            // (`engineer.*` on Agents); everything else is named after its page.
+            let named_for = match page {
+                "engineer" => Page::Agents.id(),
+                other => other,
+            };
+            assert_eq!(named_for, s.page.id(), "{} is named after its page", s.key);
             assert_eq!(s.validate(&s.default_value()).unwrap(), s.default_value(), "{}: the default is allowed", s.key);
             assert!(!s.description.is_empty() && !s.description.contains('\n'));
         }
         for p in Page::ALL {
             assert_eq!(Page::parse(p.id()), Some(p));
         }
+    }
+
+    #[test]
+    fn text_settings() {
+        let agent = find("engineer.agent").unwrap();
+        assert_eq!(agent.parse_text(" codex ").unwrap(), json!("codex"));
+        assert_eq!(agent.default_value(), json!("auto"));
+        assert!(agent.validate(&json!("a\nb")).is_err());
+        assert!(agent.validate(&json!("x".repeat(65))).is_err());
+        assert!(agent.validate(&json!(3)).is_err());
+        assert_eq!(find("engineer.command").unwrap().sensitivity, Sensitivity::Approval, "it runs a command");
+        let v = agent.view(json!("gemini"));
+        assert_eq!((v.kind.as_str(), v.max), ("text", Some(64)));
+        assert_eq!(json_schema()["properties"]["engineerAgent"]["maxLength"], json!(64));
+        assert_eq!(find("engineer.greeting").unwrap().default_value(), json!(ENGINEER_GREETING));
     }
 
     #[test]

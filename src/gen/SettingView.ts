@@ -12,7 +12,7 @@ export type SettingView = { key: string,
  */
 value: boolean | string | number | null, default: boolean | string | number, 
 /**
- * "bool", "choice" or "int".
+ * "bool", "choice", "int" or "text" (`max`: its length).
  */
 kind: string, choices?: Array<string> | null, min?: number | undefined, max?: number | undefined, 
 /**

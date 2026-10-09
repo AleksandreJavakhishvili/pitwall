@@ -146,6 +146,8 @@ pub fn form(f: &CreateForm) -> String {
 fn value_text(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::Null => "?".into(),
+        // Long text (a prompt) cut short so the table stays readable; `get` shows it whole.
+        serde_json::Value::String(s) if s.chars().count() > 40 => format!("{}…", s.chars().take(39).collect::<String>()),
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
     }
@@ -158,6 +160,7 @@ pub fn settings(list: &[SettingView], live: bool) -> String {
     for s in list {
         let mut allowed = match (&s.choices, s.min, s.max) {
             (Some(c), _, _) => c.join("|"),
+            (_, _, Some(hi)) if s.kind == "text" => format!("text (≤{hi})"),
             (_, Some(lo), Some(hi)) => format!("{lo}–{hi}"),
             _ if s.only_on => "true".into(),
             _ => "true|false".into(),
@@ -183,5 +186,9 @@ pub fn settings(list: &[SettingView], live: bool) -> String {
 
 /// `settings get|set|reset`.
 pub fn setting(s: &SettingView) -> String {
-    format!("{} = {}\n", s.key, value_text(&s.value))
+    let value = match &s.value {
+        serde_json::Value::String(t) => t.clone(),
+        v => value_text(v),
+    };
+    format!("{} = {value}\n", s.key)
 }
