@@ -95,8 +95,17 @@ pub fn badge(s: Option<&PermissionsStatus>) -> (&'static str, Tone) {
 }
 
 /// Open System Settings at Privacy → Full Disk Access (shows the pane only).
+/// `open` runs in the background: never a program on the UI thread.
 pub fn open_full_disk_access() -> Result<(), String> {
-    pitwall_core::permissions::open_settings("fullDiskAccess")
+    if !cfg!(target_os = "macos") {
+        return Err("privacy settings are a macOS feature".into());
+    }
+    std::thread::spawn(|| {
+        if let Err(e) = pitwall_core::permissions::open_settings("fullDiskAccess") {
+            eprintln!("pitwall: {e}");
+        }
+    });
+    Ok(())
 }
 
 #[cfg(test)]

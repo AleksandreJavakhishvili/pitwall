@@ -86,6 +86,7 @@ fn display_project(exec: &dyn Exec, p: Option<&str>) -> Result<Option<String>, S
 /// machine whose form has no folder (a platform such as agw) makes it its
 /// own way: [`create_on_platform`]. Blocking.
 pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, String> {
+    crate::exec::assert_off_ui("lifecycle::create");
     let (provider, machine) = core.providers().target(req.provider.as_deref(), req.machine.as_deref())?;
     if !provider.caps().create {
         return Err(format!("new agents can't be started on {}", machine.label));
@@ -395,6 +396,23 @@ pub fn stop(core: &Shared, id: &str) -> Result<(), String> {
 /// Stop (if running) and start again, resuming the session when possible.
 /// `size` (cols, rows) is what the UI will show; else the last known size.
 pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<AgentView, String> {
+    crate::exec::assert_off_ui("lifecycle::restart");
+    // It may still attach to the session it has: not two of them. A pending
+    // retry (machine unreachable) is called off, and taken up again if this
+    // fails.
+    let cancelled = core.with(id, |a| match &a.connect {
+        Some(c) if c.busy() => Err("still connecting to its session; try again in a moment".to_string()),
+        Some(_) => Ok(a.connect.take().is_some()),
+        None => Ok(false),
+    })??;
+    let res = restart_now(core, id, size);
+    if res.is_err() && cancelled {
+        super::connect::retry_later(core, id);
+    }
+    res
+}
+
+fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<AgentView, String> {
     let (loc, old) = core.with(id, |a| {
         if let Some(size) = size {
             a.rec.set_term_size(size);
@@ -483,6 +501,7 @@ pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
 }
 
 pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), String> {
+    crate::exec::assert_off_ui("lifecycle::remove");
     let exec = core.exec_for(id);
     let agent = {
         let mut agents = core.agents();
@@ -545,26 +564,28 @@ pub fn stop_all(core: &Shared) {
     });
 }
 
-/// Engine start: the terminal of an agent whose session outlived the last
-/// run of Pitwall (local: its holder), at its last known size.
-pub(crate) fn reattach(core: &Engine, loc: &Locator, rec: &AgentRecord) -> Option<Arc<TermHost>> {
-    let p = core.providers().for_locator(loc).ok()?;
-    let size = TermSize::from_pair(rec.term_size());
-    let io = p.attach(loc, size).ok()?;
-    let host = core.host_for(io, size);
-    if let Some((cols, rows)) = rec.term_size() {
-        host.resize(cols, rows);
-    }
-    Some(host)
-}
-
 /// A dropped attachment (`eof_is_exit` false): attach again while the
 /// provider says the session runs; else the agent has ended. Blocking.
+/// When its machine can't be asked, it is tried again later (connect.rs).
 pub(crate) fn relink(core: &Shared, id: &str) {
+    crate::exec::assert_off_ui("lifecycle::relink");
     let Ok((loc, p)) = core.provider_of(id) else { return };
     let size = core.with(id, |a| TermSize::from_pair(a.rec.term_size())).unwrap_or(TermSize::DEFAULT);
-    let running = matches!(p.state(&loc), Ok(crate::provider::NativeState::Running));
-    let host = if running { p.attach(&loc, size).ok().map(|io| core.host_for(io, size)) } else { None };
+    let unreachable = |e: &crate::error::PwError| matches!(e.code, crate::error::ErrorCode::Unreachable | crate::error::ErrorCode::Other);
+    let attached = match p.state(&loc) {
+        Ok(crate::provider::NativeState::Running) => p.attach(&loc, size).map(Some),
+        Ok(_) => Ok(None),
+        Err(e) => Err(e),
+    };
+    let host = match attached {
+        Ok(io) => io.map(|io| core.host_for(io, size)),
+        Err(e) if unreachable(&e) => {
+            let _ = core.with(id, |a| a.relinking = false);
+            super::connect::retry_later(core, id);
+            return;
+        }
+        Err(_) => None,
+    };
     let _ = core.with(id, |a| {
         a.relinking = false;
         match host {
@@ -781,6 +802,7 @@ mod tests {
             store: h.store.clone(),
             providers: vec![h.provider.clone()],
         });
+        assert!(again.wait_connected(Duration::from_secs(5)), "re-attached in the background");
         let views = again.views();
         let find = |id: &str| views.iter().find(|x| x.id == id).unwrap();
         assert!(find(&v.id).running, "re-attached, no restart");

@@ -8,6 +8,7 @@
 
 pub(crate) mod agent;
 pub mod changes;
+pub mod connect;
 pub mod diagnose;
 pub(crate) mod gitwatch;
 pub mod input;
@@ -78,6 +79,10 @@ pub struct Engine {
     /// What the Race Engineer is launched with (the app sets it; `None`:
     /// this host can't start one).
     engineer: std::sync::RwLock<Option<crate::engineer::Kit>>,
+    /// Re-attaching saved agents in the background (connect.rs).
+    pub(crate) connector: connect::Connector,
+    /// Home folders by machine (`provider:machine`), once asked.
+    homes: Mutex<std::collections::HashMap<String, String>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -87,10 +92,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Engine {
-    /// Load the saved agents. Agents whose session survived the last run
-    /// (their provider can attach to it) are running again, without a
-    /// restart; the rest are stopped. Starts no background work (see
-    /// [`start`](Self::start)).
+    /// Load the saved agents, without waiting on any provider: they come
+    /// back "connecting…" and are re-attached in the background
+    /// (connect.rs). Agents whose session survived the last run (their
+    /// provider can attach to it) are running again, without a restart; the
+    /// rest are stopped; those whose machine can't be reached keep being
+    /// tried. Starts no other background work (see [`start`](Self::start)).
     pub fn open(deps: Deps) -> Shared {
         let Deps { paths, events, clock, store, providers } = deps;
         let engine = Arc::new(Engine {
@@ -105,13 +112,16 @@ impl Engine {
             trees: Default::default(),
             explorer: Default::default(),
             engineer: Default::default(),
+            connector: Default::default(),
+            homes: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,
             clock,
             store,
         });
-        let agents = engine
+        let now = engine.now();
+        let agents: Vec<Agent> = engine
             .store
             .load()
             .agents
@@ -119,14 +129,48 @@ impl Engine {
             .map(|mut rec| {
                 // v1 records: every agent ran on this Mac.
                 let loc = rec.locator.get_or_insert_with(|| Locator::local(&rec.id)).clone();
-                let host = lifecycle::reattach(&engine, &loc, &rec);
-                let mut agent = Agent::new(rec, host, engine.now());
-                agent.facts = engine.facts(&loc, &agent.rec);
+                let facts = engine.known_facts(&loc, &rec);
+                let mut agent = Agent::new(rec, None, now);
+                agent.facts = facts;
+                agent.connect = Some(connect::Connect::now());
+                agent.facts_pending = true;
+                agent.status = crate::model::Status::Unknown;
+                agent.detail = Some(connect::CONNECTING.into());
                 agent
             })
             .collect();
+        let waiting = !agents.is_empty();
         *engine.agents() = agents;
+        if waiting {
+            connect::kick(&engine);
+        }
         engine
+    }
+
+    /// How many saved agents are still being (re)connected to their sessions.
+    pub fn connecting(&self) -> usize {
+        self.agents().iter().filter(|a| a.connect.is_some()).count()
+    }
+
+    /// Wait (up to `timeout`) until no saved agent is in its first
+    /// connection attempt or still having its machine looked up; true when
+    /// none is. Agents whose machine is unreachable keep being retried and
+    /// don't count. Blocking: tests and tools only.
+    pub fn wait_connected(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let first = self.agents().iter().any(|a| match &a.connect {
+                Some(_) => a.detail.as_deref() == Some(connect::CONNECTING),
+                None => a.facts_pending,
+            });
+            if !first {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
     /// Background work: resolve installed kinds, install the hook relay and
@@ -209,23 +253,45 @@ impl Engine {
     }
 
     /// What the engine needs to know about `loc`'s provider and `rec`'s kind
-    /// there (capabilities, machine label, home folder).
+    /// there (capabilities, machine label, home folder). Blocking: may ask
+    /// the machine (cached per machine afterwards).
     pub(crate) fn facts(&self, loc: &Locator, rec: &AgentRecord) -> Facts {
+        crate::exec::assert_off_ui("looking up an agent's machine");
+        let mut f = self.known_facts(loc, rec);
+        let Ok(p) = self.providers.for_locator(loc) else { return f };
+        f.machine_label = self.providers.machine_label(loc);
+        if f.home.is_none() {
+            f.home = p.exec(&loc.machine).and_then(|x| x.home()).ok();
+            if let Some(h) = &f.home {
+                lock(&self.homes).insert(Self::machine_key(loc), h.clone());
+            }
+        }
+        f
+    }
+
+    /// [`facts`](Self::facts) from what is known without asking anyone:
+    /// the machine's label and home only when already looked up. Never blocks.
+    pub(crate) fn known_facts(&self, loc: &Locator, rec: &AgentRecord) -> Facts {
         let Ok(p) = self.providers.for_locator(loc) else { return Facts::default() };
         let caps = p.caps();
         let kind = self.kinds.for_record(&rec.kind, rec.custom_command.as_deref());
         Facts {
             provider: caps,
             kind: kind.map(|k| KindCaps::of(&k, &caps)).unwrap_or_default(),
-            machine_label: self.providers.machine_label(loc),
-            home: p.exec(&loc.machine).and_then(|x| x.home()).ok(),
+            machine_label: self.providers.known_machine_label(loc),
+            home: lock(&self.homes).get(&Self::machine_key(loc)).cloned(),
             inner: rec.inner_agent.as_ref().and_then(|i| self.kinds.find(&i.kind)).map(|k| KindCaps::of(&k, &caps)),
         }
+    }
+
+    fn machine_key(loc: &Locator) -> String {
+        format!("{}:{}", loc.provider, loc.machine)
     }
 
     /// Kinds for the New-agent dialog, on the machine new agents go to, with
     /// what each can do there. Blocking (the provider may resolve programs).
     pub fn list_kinds(&self) -> Result<Vec<KindView>, String> {
+        crate::exec::assert_off_ui("list_kinds");
         let (p, m) = self.providers.default_target()?;
         let caps = p.caps();
         let mut views: Vec<KindView> = p
@@ -248,6 +314,7 @@ impl Engine {
     /// new agents go): the New-agent dialog's fields and `machine.form`.
     /// Blocking (a platform lists its choices; cached briefly there).
     pub fn create_form(&self, provider: Option<&str>, machine: Option<&str>) -> Result<CreateForm, String> {
+        crate::exec::assert_off_ui("create_form");
         let (p, m) = self.providers.target(provider, machine)?;
         if !p.caps().create {
             return Err(format!("new agents can't be started on {}", m.label));
@@ -262,6 +329,7 @@ impl Engine {
     /// Every provider with its machines and what can be done there
     /// (`machine.list`, the New-agent dialog's "Runs on"). Blocking.
     pub fn machine_list(&self) -> Vec<ProviderMachines> {
+        crate::exec::assert_off_ui("machine_list");
         self.providers
             .all()
             .iter()

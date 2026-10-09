@@ -29,6 +29,7 @@ fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Ve
 impl Exec for LocalExec {
     fn run(&self, cmd: &Cmd) -> Result<Out> {
         let (program, args) = cmd.argv.split_first().ok_or("empty command")?;
+        super::assert_off_ui(program);
         let mut c = Command::new(program);
         platform::hide_console(&mut c);
         c.args(args)
@@ -175,6 +176,22 @@ mod tests {
     use super::super::{exists, is_dir, join};
     use super::*;
     use crate::testing::TempDir;
+
+    /// Debug builds refuse to start programs on the UI thread (it would
+    /// freeze the window); other threads are unaffected.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn programs_never_run_on_the_ui_thread() {
+        let off = std::thread::spawn(|| LocalExec.run(&Cmd::new(&["true"])).is_ok()).join().unwrap();
+        assert!(off);
+        let on = std::thread::spawn(|| {
+            super::super::mark_ui_thread();
+            std::panic::catch_unwind(|| LocalExec.run(&Cmd::new(&["true"]))).is_err()
+        })
+        .join()
+        .unwrap();
+        assert!(on, "running a program on the UI thread panics in debug builds");
+    }
 
     #[test]
     fn runs_with_args_cwd_env_and_stdin() {
