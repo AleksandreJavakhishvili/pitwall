@@ -208,7 +208,7 @@ pub fn close_window(handle: AnyWindowHandle, cx: &mut App) {
     });
 }
 
-fn hide(window: &mut Window) {
+pub(crate) fn hide(window: &mut Window) {
     #[cfg(windows)]
     windows::hide(window);
     #[cfg(target_os = "macos")]

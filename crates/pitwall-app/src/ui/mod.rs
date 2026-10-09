@@ -206,6 +206,14 @@ impl MainView {
                     l.close(cx)
                 }
             }),
+            // The window off screen and back (its GPU memory is released).
+            "hidden" => {
+                if on {
+                    crate::platform::hide(window)
+                } else {
+                    window.activate_window()
+                }
+            }
             _ => {}
         }
     }

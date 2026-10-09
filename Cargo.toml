@@ -22,3 +22,8 @@ opt-level = 2
 inherits = "release"
 debug = "line-tables-only"
 strip = false
+
+# GPUI 0.2.2 with a small memory patch to its macOS Metal renderer
+# (third_party/gpui/PATCHES.md).
+[patch.crates-io]
+gpui = { path = "third_party/gpui" }
