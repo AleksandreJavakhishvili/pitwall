@@ -665,7 +665,7 @@ mod tests {
         // Input reaches the agent's terminal.
         crate::engine::input::write_input(&h.engine, &v.id, "echo hi\r").unwrap();
         let ctl = h.provider.ctl(&v.id).unwrap();
-        assert_eq!(ctl.input(), b"echo hi\r");
+        assert!(wait_until(|| ctl.input() == b"echo hi\r"), "input is written in order, off the caller's thread");
         assert!(h.engine.views()[0].caps.resume, "after a prompt it can resume");
 
         stop(&h.engine, &v.id).unwrap();
@@ -850,7 +850,7 @@ mod tests {
         assert_eq!(rec.term_size(), Some((90, 30)));
         let ctl = vm.ctl("api-fix").unwrap();
         crate::engine::input::write_input(&engine, &v.id, "hi\r").unwrap();
-        assert_eq!(ctl.input(), b"hi\r", "attached: input reaches the session");
+        assert!(wait_until(|| ctl.input() == b"hi\r"), "attached: input reaches the session");
 
         // The same name again: Pitwall already has it.
         assert!(create(&engine, req("api-fix", &[])).unwrap_err().contains("already has a session \"api-fix\""));

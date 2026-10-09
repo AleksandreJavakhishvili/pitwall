@@ -460,6 +460,47 @@ mod tests {
         });
     }
 
+    /// ⌘V is bound twice (the terminal's Paste, Edit ▸ Paste of the app):
+    /// a paste reaches the program once.
+    #[cfg(target_os = "macos")]
+    #[gpui::test]
+    fn cmd_v_pastes_once(cx: &mut gpui::TestAppContext) {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone, Default)]
+        struct Rec(Arc<Mutex<Vec<u8>>>);
+        impl TermStream for Rec {
+            fn attach(&self, _feed: Feed) {}
+            fn write(&self, bytes: &[u8]) {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+            }
+            fn resize(&self, _size: TermSize) {}
+        }
+        struct Pane(Entity<TerminalView>);
+        impl Render for Pane {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div()
+                    .size_full()
+                    .on_action(|_: &crate::menu::Paste, window, cx| window.dispatch_action(Box::new(Paste), cx))
+                    .child(self.0.clone())
+            }
+        }
+
+        cx.update(|cx| {
+            cx.bind_keys(crate::menu::bindings());
+            cx.bind_keys(bindings());
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string("one\ntwo".into()));
+        });
+        let rec = Rec::default();
+        let terminal = Terminal::new(rec.clone(), TermSize::new(80, 24), TerminalConfig::default());
+        let (pane, cx) = cx.add_window_view(|window, cx| {
+            Pane(cx.new(|cx| TerminalView::new(terminal, ViewMode::Interactive, settings(13.), window, cx)))
+        });
+        cx.update(|window, cx| window.focus(&pane.read(cx).0.focus_handle(cx)));
+        cx.simulate_keystrokes("cmd-v");
+        assert_eq!(&*rec.0.lock().unwrap(), b"one\rtwo");
+    }
+
     #[test]
     fn themes_follow_the_mode() {
         assert_eq!(term_theme(Mode::Dark), TermTheme::pitwall_dark());
