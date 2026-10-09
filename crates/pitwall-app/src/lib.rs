@@ -165,6 +165,7 @@ pub fn run() {
         });
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
         cx.on_app_quit(|cx| {
+            window_state::flush();
             if let Some(host) = cx.global_mut::<AppState>().host.as_mut() {
                 host.shutdown();
             }

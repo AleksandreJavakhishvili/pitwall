@@ -115,9 +115,14 @@ pub fn follow(store: &Entity<AgentStore>, cx: &mut App) {
     .detach();
 }
 
-/// The user is looking at Pitwall: one of its windows is the active one.
+/// The user is looking at Pitwall: its main window is the active one
+/// (Tauri `attention.rs`: main visible and focused).
 fn pitwall_in_front(cx: &App) -> bool {
-    cx.active_window().is_some()
+    let main = cx.try_global::<crate::AppState>().and_then(|s| s.main);
+    match (cx.active_window(), main) {
+        (Some(active), Some(main)) => active.window_id() == main.window_id(),
+        _ => false,
+    }
 }
 
 /// Show `count` agents needing the user on the Dock / taskbar / launcher.
@@ -159,16 +164,16 @@ pub fn about(_cx: &mut App) {
     macos::about();
 }
 
-/// The main window: on Windows with a tray, closing it hides it (agents keep
-/// running; the tray brings it back), as the Tauri app does. macOS keeps the
-/// app on close and the Dock reopens it (`on_reopen`); Linux quits.
+/// The main window: closing it hides it (agents keep running) on macOS,
+/// where the Dock brings it back (`on_reopen`), and on Windows with a tray,
+/// as the Tauri app does (`hidesOnClose`); Linux quits.
 pub fn keep_on_close(window: &mut Window, cx: &mut App) {
     let handle = window.window_handle();
     let blocked = state(cx).blocked;
     #[cfg(windows)]
     windows::set_overlay(window, blocked);
     let _ = blocked;
-    if !state(cx).tray {
+    if !cfg!(target_os = "macos") && !state(cx).tray {
         return;
     }
     state(cx).hide_on_close.push(handle);
@@ -193,7 +198,9 @@ pub fn close_window(handle: AnyWindowHandle, cx: &mut App) {
 fn hide(window: &mut Window) {
     #[cfg(windows)]
     windows::hide(window);
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    macos::hide(window);
+    #[cfg(not(any(windows, target_os = "macos")))]
     window.minimize_window();
 }
 

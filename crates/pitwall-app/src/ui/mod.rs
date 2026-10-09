@@ -195,13 +195,12 @@ impl MainView {
             let content = window.viewport_size();
             (saved.width, saved.height) = (content.width.into(), content.height.into());
         }
+        window_state::pend(&root, saved);
         self.save_bounds = Some(cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(500))
                 .await;
-            if let Err(e) = window_state::save(&root, saved) {
-                eprintln!("pitwall: could not save the window's bounds: {e}");
-            }
+            window_state::flush();
         }));
     }
 
