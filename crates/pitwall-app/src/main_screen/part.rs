@@ -41,6 +41,8 @@ pub(super) enum PartKind {
     Header,
     /// The space's chips (agents folded out of the layout).
     Chips,
+    /// The status strip at the bottom.
+    Strip,
 }
 
 pub(super) struct Part {
@@ -49,6 +51,9 @@ pub(super) struct Part {
     /// Which one, for kinds there are several of (a pane id).
     key: SharedString,
     _observe: Subscription,
+    /// How often it rendered (tests).
+    #[cfg(test)]
+    pub(super) renders: usize,
 }
 
 /// The screen's parts, made on its first render.
@@ -59,6 +64,7 @@ pub(super) struct Parts {
     pub route: Entity<Part>,
     pub bar: Entity<Part>,
     pub chips: Entity<Part>,
+    pub strip: Entity<Part>,
     /// Pane headers by pane id.
     headers: HashMap<String, Entity<Part>>,
 }
@@ -72,6 +78,7 @@ impl Parts {
             route: Part::new(screen, PartKind::Route, cx),
             bar: Part::new(screen, PartKind::Bar, cx),
             chips: Part::new(screen, PartKind::Chips, cx),
+            strip: Part::new(screen, PartKind::Strip, cx),
             headers: HashMap::new(),
         }
     }
@@ -119,6 +126,7 @@ impl Parts {
             (&self.route, PartKind::Route),
             (&self.bar, PartKind::Bar),
             (&self.chips, PartKind::Chips),
+            (&self.strip, PartKind::Strip),
         ];
         for (p, kind) in all {
             if !drawn.contains(&kind) {
@@ -145,6 +153,8 @@ impl Part {
             key,
             // Whatever re-renders the screen re-renders its parts.
             _observe: cx.observe(screen, |_, _, cx| cx.notify()),
+            #[cfg(test)]
+            renders: 0,
         })
     }
 }
@@ -166,6 +176,10 @@ pub(super) fn slot(part: &Entity<Part>, style: StyleRefinement) -> AnyElement {
 
 impl Render for Part {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(test)]
+        {
+            self.renders += 1;
+        }
         let kind = self.kind;
         let key = self.key.clone();
         let drawn = self.screen.update(cx, |s, cx| {
@@ -203,6 +217,10 @@ impl Render for Part {
                 },
                 PartKind::Header => s.header_of(&key, &t, cx),
                 PartKind::Chips => s.chips_now(&t, cx),
+                PartKind::Strip => {
+                    let bp = MainScreen::breakpoint(window);
+                    s.render_strip(&t.chrome(), bp, cx).into_any_element()
+                }
             };
             (el, off)
         });

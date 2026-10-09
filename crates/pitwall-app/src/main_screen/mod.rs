@@ -1522,6 +1522,10 @@ impl Render for MainScreen {
             drawn.push(part::PartKind::Sidebar);
             p.sidebar.clone()
         });
+        let strip_part = parts.map(|p| {
+            drawn.push(part::PartKind::Strip);
+            p.strip.clone()
+        });
         let topbar_part = parts.map(|p| {
             drawn.push(part::PartKind::Topbar);
             p.topbar.clone()
@@ -1727,7 +1731,13 @@ impl Render for MainScreen {
             .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .child(topbar)
             .child(main_row)
-            .child(self.render_strip(&chrome, bp, cx))
+            .child(match &strip_part {
+                Some(p) => part::slot(
+                    p,
+                    gpui::StyleRefinement::default().w_full().h(px(strip::STRIP_H)).flex_none(),
+                ),
+                None => self.render_strip(&chrome, bp, cx).into_any_element(),
+            })
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
             .children(self.render_bring_in(&t, cx))

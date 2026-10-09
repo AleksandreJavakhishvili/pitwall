@@ -257,3 +257,50 @@ fn big_pieces_are_cached_parts_that_follow_the_layout(cx: &mut TestAppContext) {
     cx.run_until_parked();
     view.read_with(cx, |s, cx| assert_eq!(s.agents(cx)[0].status, pitwall_proto::Status::Working));
 }
+
+/// A view that stands in for a terminal in the pane body.
+struct FakeTerm;
+
+impl Render for FakeTerm {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        gpui::div().size_full()
+    }
+}
+
+#[gpui::test]
+fn a_terminal_frame_replays_the_parts_a_change_redraws_them(cx: &mut TestAppContext) {
+    let (view, store, cx) = screen(cx);
+    let term = cx.update(|_, cx| cx.new(|_| FakeTerm));
+    let t = term.clone();
+    cx.update(|_, cx| {
+        set_terminal_slot(cx, move |_, _, _| {
+            gpui::AnyView::from(t.clone())
+                .cached(gpui::StyleRefinement::default().flex_1())
+                .into_any_element()
+        })
+    });
+    view.update_in(cx, |s, window, cx| s.show_agent("api", window, cx));
+    cx.run_until_parked();
+    let renders = |cx: &mut VisualTestContext| {
+        view.read_with(cx, |s, cx| {
+            let p = s.parts.as_ref().expect("parts");
+            (p.sidebar.read(cx).renders, p.topbar.read(cx).renders)
+        })
+    };
+    let before = renders(cx);
+    assert!(before.0 > 0 && before.1 > 0, "parts drawn: {before:?}");
+    // Output in a pane: the sidebar and the top bar replay their last paint.
+    for _ in 0..3 {
+        term.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+    }
+    assert_eq!(renders(cx), before, "a terminal frame re-rendered a part");
+    // An agent's status changes: the parts show it.
+    store.update(cx, |s, cx| {
+        s.agents[0].status = pitwall_proto::Status::Working;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let after = renders(cx);
+    assert!(after.0 > before.0 && after.1 > before.1, "{before:?} -> {after:?}");
+}
