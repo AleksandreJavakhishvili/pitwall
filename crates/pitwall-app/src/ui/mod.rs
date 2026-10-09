@@ -187,7 +187,7 @@ impl MainView {
             return;
         };
         match what {
-            "wall" | "review" | "visit-all" => {
+            "wall" | "review" | "visit-all" | "visit-all-4" => {
                 if let Some(s) = &self.screen {
                     s.update(cx, |s, cx| s.bench(what, on, window, cx));
                 }

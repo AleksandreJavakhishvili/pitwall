@@ -2,7 +2,7 @@
 
 use super::{tasks, Engine, Shared};
 use crate::model::AgentView;
-use crate::term::{FrameSink, OutputSink};
+use crate::term::{FrameSink, OutputSink, ScreenSource};
 
 type Res<T> = Result<T, String>;
 
@@ -17,6 +17,20 @@ pub fn detach_output(engine: &Engine, agent_id: &str, subscription_id: u64) {
     if let Ok(Some(host)) = engine.with(agent_id, |a| a.host.clone()) {
         host.detach(subscription_id);
     }
+}
+
+/// Make `source` (a UI's terminal emulator for the agent) the agent's
+/// screen: it gets the buffered output, then all output as it comes, and
+/// status rules and the Wall read it (`TermHost::share_screen`). Instead of
+/// [`attach_output`] for a UI that parses the output anyway.
+pub fn share_screen(engine: &Engine, agent_id: &str, source: Box<dyn ScreenSource>) -> Res<()> {
+    engine.host(agent_id)?.share_screen(source);
+    Ok(())
+}
+
+/// Whether a UI's terminal is the agent's screen ([`share_screen`]).
+pub fn screen_shared(engine: &Engine, agent_id: &str) -> bool {
+    engine.host(agent_id).is_ok_and(|h| h.screen_shared())
 }
 
 /// Styled frames of the agent's screen (the Wall), at most one per `gap`.

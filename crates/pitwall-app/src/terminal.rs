@@ -8,7 +8,9 @@
 //! holder connection (local agents and agw sessions alike), replays what it
 //! buffered, and tracks input (tasks, "has a conversation"). No JSON, no
 //! base64, no IPC: bytes go from the engine's reader straight into the
-//! terminal's parser.
+//! terminal's parser, and that parser is the agent's only one: the
+//! engine's status rules and the Wall read this terminal's grid
+//! (`input::share_screen`) instead of a headless screen of their own.
 //!
 //! One terminal and one view per agent, kept while the agent exists (so
 //! its scrollback survives switching spaces); a new one when a stopped agent
@@ -42,7 +44,6 @@ use crate::theme::Mode;
 pub struct EngineStream {
     engine: Shared,
     agent: String,
-    sub: Mutex<Option<u64>>,
     /// The engine is replaying buffered output (synchronously, inside
     /// `attach`): what the parser answers now (cursor reports, colour
     /// queries of a program that ran earlier) must not reach the agent as
@@ -55,7 +56,6 @@ impl EngineStream {
         EngineStream {
             engine,
             agent: agent.into(),
-            sub: Mutex::new(None),
             replaying: AtomicBool::new(false),
         }
     }
@@ -63,18 +63,15 @@ impl EngineStream {
 
 impl TermStream for EngineStream {
     fn attach(&self, feed: Feed) {
-        let to = feed.clone();
-        // The engine replays what it buffered, then streams live output.
-        let sink = Box::new(move |bytes: &[u8]| {
-            to.push(bytes);
-            true
-        });
+        // The engine replays what it buffered, then pushes live output; it
+        // reads the agent's screen from this terminal from now on (and
+        // goes back to its own once the terminal is dropped).
         self.replaying.store(true, Ordering::SeqCst);
-        let attached = input::attach_output(&self.engine, &self.agent, sink);
+        let shared =
+            input::share_screen(&self.engine, &self.agent, Box::new(feed.screen_source()));
         self.replaying.store(false, Ordering::SeqCst);
-        match attached {
-            Ok(id) => *self.sub.lock().unwrap_or_else(|e| e.into_inner()) = Some(id),
-            Err(_) => feed.close(),
+        if shared.is_err() {
+            feed.close();
         }
     }
 
@@ -90,14 +87,6 @@ impl TermStream for EngineStream {
             *LAST_FITTED.lock().unwrap_or_else(|e| e.into_inner()) = Some((size.cols, size.rows));
         }
         let _ = input::resize(&self.engine, &self.agent, size.cols, size.rows);
-    }
-}
-
-impl Drop for EngineStream {
-    fn drop(&mut self) {
-        if let Some(id) = self.sub.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            input::detach_output(&self.engine, &self.agent, id);
-        }
     }
 }
 
@@ -251,6 +240,23 @@ pub fn init(store: &Entity<AgentStore>, cx: &mut App) {
         _subs: vec![sub],
         ..Default::default()
     });
+    // Terminals no view looks at (folded, in a space not shown) keep their
+    // scrollback compact; busy ones do it as output comes, this is for the
+    // quiet ones.
+    cx.spawn(async move |cx: &mut gpui::AsyncApp| loop {
+        cx.background_executor()
+            .timer(pitwall_term_view::terminal::FREEZE_AFTER)
+            .await;
+        let alive = cx.update(|cx| {
+            if let Some(t) = cx.try_global::<Terminals>() {
+                t.entries.values().for_each(|e| e.terminal.freeze_if_unseen());
+            }
+        });
+        if alive.is_err() {
+            break;
+        }
+    })
+    .detach();
     crate::main_screen::set_terminal_slot(cx, element);
 }
 
@@ -499,6 +505,60 @@ mod tests {
         cx.update(|window, cx| window.focus(&pane.read(cx).0.focus_handle(cx)));
         cx.simulate_keystrokes("cmd-v");
         assert_eq!(&*rec.0.lock().unwrap(), b"one\rtwo");
+    }
+
+    /// The pane's terminal is the agent's only parser: it gets the
+    /// engine's buffered and live output, and the Wall's frames and the
+    /// status rules read its grid.
+    #[test]
+    fn the_pane_terminal_is_the_engines_screen() {
+        use pitwall_core::model::CreateAgentRequest;
+        use pitwall_core::testing::Harness;
+        use std::time::{Duration, Instant};
+        let wait = |f: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !f() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            f()
+        };
+        let h = Harness::new(vec![]);
+        let req = CreateAgentRequest {
+            kind: "shell".into(),
+            project_path: h.dir.path().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let id = pitwall_core::engine::lifecycle::create(&h.engine, req).unwrap().id;
+        let ctl = h.provider.ctl(&id).unwrap();
+        // The Wall's frames: from the engine's own screen first.
+        let frames = std::sync::Arc::new(Mutex::new(Vec::<pitwall_proto::ScreenFrame>::new()));
+        let f = frames.clone();
+        let sink = Box::new(move |frame: &pitwall_proto::ScreenFrame| {
+            f.lock().unwrap().push(frame.clone());
+            true
+        });
+        input::watch_screen(&h.engine, &id, sink, Duration::from_millis(5)).unwrap();
+        let has = |text: &str| {
+            frames.lock().unwrap().iter().any(|fr| fr.lines.iter().any(|l| l.1.iter().any(|r| r.0.contains(text))))
+        };
+        ctl.output(b"earlier output\r\n");
+        assert!(wait(&|| has("earlier")));
+        assert!(!input::screen_shared(&h.engine, &id));
+
+        let stream = EngineStream::new(h.engine.clone(), id.clone());
+        let terminal = Terminal::new(stream, TermSize::new(40, 5), TerminalConfig::default());
+        assert!(terminal.screen_text().contains("earlier output"), "replayed");
+        assert!(input::screen_shared(&h.engine, &id));
+        ctl.output(b"\x1b[1mlive\x1b[0m output");
+        assert!(wait(&|| terminal.screen_text().contains("live output")));
+        // Now from this terminal.
+        assert!(wait(&|| has("live")));
+
+        // Dropped (the agent left Pitwall's panes): the engine parses again.
+        drop(terminal);
+        ctl.output(b"\r\nlater");
+        assert!(wait(&|| !input::screen_shared(&h.engine, &id)));
+        assert!(wait(&|| has("later")), "the Wall keeps getting frames");
     }
 
     #[test]

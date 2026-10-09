@@ -13,6 +13,7 @@
 pub mod boxdraw;
 mod element;
 pub mod frames;
+mod frozen;
 #[cfg(feature = "holder")]
 pub mod holder;
 pub mod keys;

@@ -10,7 +10,7 @@ use std::time::Duration;
 use pitwall_detect::screen::{Color, Run, Snapshot};
 use pitwall_proto::{screen_attr, ScreenFrame, ScreenLine, ScreenRun};
 
-use super::{lock, TermHost};
+use super::TermHost;
 
 /// Receives frames. Returning `false` ends the watch (its consumer is gone).
 pub type FrameSink = Box<dyn FnMut(&ScreenFrame) -> bool + Send>;
@@ -39,7 +39,7 @@ fn run(rx: Receiver<()>, host: Weak<TermHost>, mut sink: FrameSink, gap: Duratio
     // Ends when the watch is dropped (unwatch, or the host is gone).
     while rx.recv().is_ok() {
         let Some(h) = host.upgrade() else { return };
-        let snap = lock(&h.screen).snapshot();
+        let snap = h.snapshot();
         drop(h);
         if let Some(frame) = last.next(&snap) {
             if !sink(&frame) {

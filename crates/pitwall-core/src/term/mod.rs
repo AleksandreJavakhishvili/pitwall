@@ -23,6 +23,7 @@ use crate::provider::{ExitInfo, TermIo, TermSize};
 use fanout::Fanout;
 pub use fanout::{coalesce, OutputSink};
 pub use frames::{full_frame, FrameSink};
+pub use pitwall_detect::ScreenSource;
 
 const RING_CAP: usize = 1024 * 1024;
 pub const DEFAULT_ROWS: u16 = TermSize::DEFAULT.rows;
@@ -51,7 +52,10 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct TermHost {
     io: Box<dyn TermIo>,
     output: Mutex<Fanout>,
-    pub screen: Mutex<Screen>,
+    /// What the status rules and the Wall read: a headless [`Screen`], or a
+    /// UI's terminal parsing the same output ([`TermHost::share_screen`]).
+    /// Locked after `output` when both are.
+    screen: Mutex<HostScreen>,
     /// Input for the writer thread, in order: keystrokes, pastes and sent
     /// prompts queue behind each other and never block the caller.
     input: Mutex<Sender<Input>>,
@@ -91,7 +95,7 @@ impl TermHost {
         let host = Arc::new(TermHost {
             io,
             output: Mutex::new(Fanout::new(RING_CAP, MAX_SUBSCRIBERS)),
-            screen: Mutex::new(Screen::new(size.rows, size.cols)),
+            screen: Mutex::new(HostScreen::own(Screen::new(size.rows, size.cols))),
             input: Mutex::new(input),
             input_failed,
             size: Mutex::new(size),
@@ -128,14 +132,55 @@ impl TermHost {
     }
 
     fn on_output(&self, chunk: &[u8], live: bool) {
-        lock(&self.output).push(chunk);
-        lock(&self.screen).feed(chunk);
+        // The screen is taken before the ring lets go: a chunk is either in
+        // the history a new screen source replays or fed to it, never both.
+        let mut out = lock(&self.output);
+        out.push(chunk);
+        let mut screen = lock(&self.screen);
+        drop(out);
+        screen.source.feed(chunk);
+        let gone = !screen.source.alive();
+        drop(screen);
+        if gone {
+            self.own_screen();
+        }
         self.screen_changed();
         let now = self.clock.mono_ms();
         self.output_seq.fetch_add(1, Ordering::Relaxed);
         if live && now.saturating_sub(self.last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
             self.last_activity.store(now, Ordering::Relaxed);
         }
+    }
+
+    /// Let `source` (a UI's terminal emulator) be this agent's screen: it
+    /// gets the buffered output, then every chunk as it comes, and the
+    /// status rules and the Wall read it instead of a headless screen of
+    /// the engine's own (one parser for the agent, not two). The engine
+    /// goes back to a screen of its own once `source` is no longer
+    /// [`alive`](ScreenSource::alive).
+    pub fn share_screen(self: &Arc<Self>, mut source: Box<dyn ScreenSource>) {
+        {
+            let out = lock(&self.output);
+            let mut screen = lock(&self.screen);
+            source.feed(&out.history());
+            *screen = HostScreen { source, shared: true };
+        }
+        self.screen_changed();
+        self.nudge_redraw();
+    }
+
+    /// The shared screen is gone: back to a headless screen of the
+    /// engine's own, rebuilt from the buffered output.
+    fn own_screen(&self) {
+        let out = lock(&self.output);
+        let mut screen = lock(&self.screen);
+        if !screen.shared || screen.source.alive() {
+            return;
+        }
+        let size = *lock(&self.size);
+        let mut own = Screen::new(size.rows, size.cols);
+        own.feed(&out.history());
+        *screen = HostScreen::own(own);
     }
 
     /// Replay buffered output, then stream live output to `sink`.
@@ -147,7 +192,12 @@ impl TermHost {
         if !lock(&self.output).subscribe(sub_id, sink) {
             return sub_id;
         }
-        // Nudge full-screen TUIs into repainting so the replay ends clean.
+        self.nudge_redraw();
+        sub_id
+    }
+
+    /// Nudge full-screen TUIs into repainting so a replay ends clean.
+    fn nudge_redraw(self: &Arc<Self>) {
         let s = self.clone();
         std::thread::spawn(move || {
             let size = *lock(&s.size);
@@ -164,7 +214,6 @@ impl TermHost {
             let now = *lock(&s.size);
             let _ = s.io.resize(now);
         });
-        sub_id
     }
 
     pub fn detach(&self, sub_id: u64) {
@@ -179,7 +228,17 @@ impl TermHost {
     /// The screen as text, and its title (status rules read these).
     pub fn screen_text(&self) -> (String, Option<String>) {
         let screen = lock(&self.screen);
-        (screen.text(), screen.title())
+        (screen.source.text(), screen.source.title())
+    }
+
+    /// The screen as styled rows (what the Wall draws).
+    pub fn snapshot(&self) -> pitwall_detect::screen::Snapshot {
+        lock(&self.screen).source.snapshot()
+    }
+
+    /// Whether a UI's terminal is the screen ([`share_screen`](Self::share_screen)).
+    pub fn screen_shared(&self) -> bool {
+        lock(&self.screen).shared
     }
 
     /// Current size as (cols, rows). The attach redraw nudge is not reflected.
@@ -199,7 +258,7 @@ impl TermHost {
         }
         self.touch_input();
         let _ = self.io.resize(size);
-        lock(&self.screen).resize(size.rows, size.cols);
+        lock(&self.screen).source.resize(size.rows, size.cols);
         self.screen_changed();
         true
     }
@@ -286,6 +345,18 @@ impl TermHost {
             self.io.close(grace);
         }
         self.ended.store(true, Ordering::Relaxed);
+    }
+}
+
+/// The agent's screen, and whether it is a UI's (shared) or the engine's.
+struct HostScreen {
+    source: Box<dyn ScreenSource>,
+    shared: bool,
+}
+
+impl HostScreen {
+    fn own(screen: Screen) -> HostScreen {
+        HostScreen { source: Box::new(screen), shared: false }
     }
 }
 
@@ -409,6 +480,75 @@ mod tests {
         assert_eq!(host.last_activity.load(Ordering::Relaxed), 10_000);
         assert!(host.screen_text().0.contains("before live"));
         assert_eq!(host.pid(), Some(7));
+    }
+
+    /// A UI's terminal standing in as the screen: records what it is fed.
+    struct UiScreen {
+        fed: Arc<Mutex<Vec<u8>>>,
+        screen: Screen,
+        alive: Arc<AtomicBool>,
+    }
+
+    impl ScreenSource for UiScreen {
+        fn feed(&mut self, bytes: &[u8]) {
+            self.fed.lock().unwrap().extend_from_slice(bytes);
+            self.screen.feed(bytes);
+        }
+        fn resize(&mut self, _rows: u16, _cols: u16) {}
+        fn text(&self) -> String {
+            format!("ui: {}", self.screen.text())
+        }
+        fn title(&self) -> Option<String> {
+            Some("ui".into())
+        }
+        fn snapshot(&self) -> pitwall_detect::screen::Snapshot {
+            self.screen.snapshot()
+        }
+        fn alive(&self) -> bool {
+            self.alive.load(Ordering::SeqCst)
+        }
+    }
+
+    fn ui_screen() -> (Box<UiScreen>, Arc<Mutex<Vec<u8>>>, Arc<AtomicBool>) {
+        let fed = Arc::new(Mutex::new(Vec::new()));
+        let alive = Arc::new(AtomicBool::new(true));
+        (Box::new(UiScreen { fed: fed.clone(), screen: Screen::new(3, 20), alive: alive.clone() }), fed, alive)
+    }
+
+    #[test]
+    fn a_shared_screen_gets_every_byte_once_and_is_what_rules_read() {
+        let clock = crate::testing::ManualClock::new(1);
+        let (term, ctl) = FakeTerm::new(TermSize::new(20, 3), None);
+        ctl.set_history(b"before ");
+        let host = TermHost::new(Box::new(term), TermSize::new(20, 3), clock);
+        // Output keeps coming while the screen is handed over.
+        let writer = {
+            let ctl = ctl.clone();
+            std::thread::spawn(move || {
+                for i in 0..200 {
+                    ctl.output(format!("{i} ").as_bytes());
+                }
+            })
+        };
+        let (ui, fed, alive) = ui_screen();
+        std::thread::sleep(Duration::from_millis(1));
+        host.share_screen(ui);
+        writer.join().unwrap();
+        ctl.output(b"end");
+        assert!(wait_until(|| host.history().ends_with(b"end")));
+        assert!(wait_until(|| fed.lock().unwrap().ends_with(b"end")));
+        assert_eq!(*fed.lock().unwrap(), host.history(), "the replay, then each chunk once");
+        assert!(host.screen_shared());
+        let (text, title) = host.screen_text();
+        assert!(text.starts_with("ui: ") && text.ends_with("end"), "{text:?}");
+        assert_eq!(title.as_deref(), Some("ui"));
+        assert_eq!(full_frame(&host.snapshot()).lines.last().map(|l| l.0), Some(2), "the Wall reads it too");
+
+        // The UI's terminal is gone: the engine's own screen, with everything.
+        alive.store(false, Ordering::SeqCst);
+        ctl.output(b" after");
+        assert!(wait_until(|| !host.screen_shared()));
+        assert!(wait_until(|| host.screen_text().0.replace('\n', "").ends_with("end after")));
     }
 
     #[test]

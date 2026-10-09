@@ -17,6 +17,7 @@ use alacritty_terminal::term::{Config, Osc52, Term, TermDamage, TermMode};
 use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 use futures::channel::mpsc;
 
+use crate::frozen::{ClearScan, Frozen};
 use crate::theme::TermTheme;
 
 /// A terminal's size in cells, plus the cell size in logical pixels (for
@@ -90,11 +91,19 @@ pub struct TerminalConfig {
     pub theme: TermTheme,
     /// OSC 52: whether programs may copy to (and read) the clipboard.
     pub osc52: Osc52,
+    /// Freeze the scrollback once no view has locked the terminal for this
+    /// long (`frozen.rs`).
+    pub freeze_after: std::time::Duration,
 }
 
 impl Default for TerminalConfig {
     fn default() -> Self {
-        TerminalConfig { scrollback: 5_000, theme: TermTheme::default(), osc52: Osc52::OnlyCopy }
+        TerminalConfig {
+            scrollback: 5_000,
+            theme: TermTheme::default(),
+            osc52: Osc52::OnlyCopy,
+            freeze_after: FREEZE_AFTER,
+        }
     }
 }
 
@@ -205,6 +214,13 @@ pub struct TermState {
     /// The main screen still has rows to compact (it was behind the
     /// alternate screen when the active one was compacted).
     compact_main: bool,
+    /// When a view last locked the terminal (drew, scrolled, selected…).
+    seen_at: Instant,
+    /// The scrollback while no view looks (`frozen.rs`).
+    frozen: Frozen,
+    clears: ClearScan,
+    scrollback: usize,
+    freeze_after: std::time::Duration,
 }
 
 impl TermState {
@@ -252,6 +268,23 @@ impl TermState {
         }
     }
 
+    /// Freeze the scrollback if no view has looked for a while: once it
+    /// has [`FREEZE_BATCH`] rows, or all of it when `now`.
+    fn maybe_freeze(&mut self, now: bool) {
+        if self.seen_at.elapsed() >= self.freeze_after {
+            let min = if now { 0 } else { FREEZE_BATCH };
+            self.frozen.freeze(&mut self.term, min, self.scrollback);
+        }
+    }
+
+    /// A view is looking: the whole scrollback back in the grid.
+    fn seen(&mut self) {
+        self.seen_at = Instant::now();
+        if self.frozen.len() > 0 {
+            self.frozen.thaw(&mut self.term);
+        }
+    }
+
     /// Apply a synchronized update (DEC 2026) that timed out.
     fn expire_sync(&mut self) {
         if let Some(deadline) = self.parser.sync_timeout().sync_timeout() {
@@ -287,17 +320,49 @@ const PARSE_SLICE: usize = 32 * 1024;
 /// How long the width must stay the same before the rows are compacted.
 const COMPACT_SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// By default, a terminal no view has locked for this long (folded into a
+/// chip, in a space not shown) keeps its scrollback compact (`frozen.rs`).
+pub const FREEZE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// While output comes, the scrollback is frozen in batches this big:
+/// alacritty makes spare rows 1 000 at a time, and they are given back
+/// with each batch.
+const FREEZE_BATCH: usize = 1_000;
+
 impl Feed {
     pub fn push(&self, bytes: &[u8]) {
         let Some(shared) = self.shared.upgrade() else { return };
         for slice in bytes.chunks(PARSE_SLICE) {
             let mut st = shared.state.lock_unfair();
             let st = &mut *st;
+            let cleared = st.frozen.len() > 0 && st.clears.saw_clear(slice);
+            let mut slice = slice;
+            if let Some(at) = alt_screen_at(slice).filter(|_| !st.term.mode().contains(TermMode::ALT_SCREEN)) {
+                // The main screen's scrollback goes out of reach (and is
+                // resized with the screen, rows and all) while a program
+                // runs on the alternate screen: frozen until it is back.
+                st.parser.advance(&mut st.term, &slice[..at]);
+                st.frozen.freeze(&mut st.term, 0, st.scrollback);
+                slice = &slice[at..];
+            }
             st.parser.advance(&mut st.term, slice);
+            if cleared {
+                // The program cleared the scrollback: the frozen part too.
+                st.frozen.clear();
+            }
         }
         // A terminal no view draws (folded into a chip) compacts here.
-        shared.state.lock_unfair().maybe_compact();
+        let mut st = shared.state.lock_unfair();
+        st.maybe_compact();
+        st.maybe_freeze(false);
+        drop(st);
         shared.io.wake();
+    }
+
+    /// This terminal as its agent's screen for the engine
+    /// ([`TerminalScreen`]).
+    pub fn screen_source(&self) -> TerminalScreen {
+        TerminalScreen { feed: self.clone(), title: pitwall_detect::screen::TitleScanner::default() }
     }
 
     /// The stream ended (the program exited or the connection closed).
@@ -307,6 +372,60 @@ impl Feed {
             shared.io.request(UiRequest::Event(TermEvent::Exited));
             shared.io.wake();
         }
+    }
+}
+
+/// A terminal as its agent's screen for the engine
+/// (`pitwall_core::TermHost::share_screen`): the engine pushes the agent's
+/// output through it and reads the status rules' text and the Wall's
+/// styled rows from this terminal's grid, so an agent shown in a pane has
+/// one parser, not one in the engine and another here. Reading never
+/// counts as a view looking (nothing thaws, `frozen.rs`). Holds the
+/// terminal weakly: once it is dropped, the engine goes back to a screen
+/// of its own.
+pub struct TerminalScreen {
+    feed: Feed,
+    /// OSC 0/2 titles exactly as sent (what the status rules match).
+    title: pitwall_detect::screen::TitleScanner,
+}
+
+impl TerminalScreen {
+    fn read<R>(&self, f: impl FnOnce(&Term<Listener>) -> R) -> Option<R> {
+        let shared = self.feed.shared.upgrade()?;
+        let mut st = shared.state.lock();
+        st.expire_sync();
+        Some(f(&st.term))
+    }
+}
+
+impl pitwall_detect::ScreenSource for TerminalScreen {
+    fn feed(&mut self, bytes: &[u8]) {
+        self.title.scan(bytes);
+        self.feed.push(bytes);
+    }
+
+    /// The view sizes its terminal (and, through its stream, the agent's).
+    fn resize(&mut self, _rows: u16, _cols: u16) {}
+
+    fn text(&self) -> String {
+        self.read(pitwall_detect::screen::text).unwrap_or_default()
+    }
+
+    fn title(&self) -> Option<String> {
+        self.title.title()
+    }
+
+    fn snapshot(&self) -> pitwall_detect::screen::Snapshot {
+        self.read(pitwall_detect::screen::snapshot).unwrap_or(pitwall_detect::screen::Snapshot {
+            rows: 0,
+            cols: 0,
+            cursor: None,
+            lines: Vec::new(),
+        })
+    }
+
+    fn alive(&self) -> bool {
+        self.feed.shared.strong_count() > 0
     }
 }
 
@@ -348,6 +467,11 @@ impl Terminal {
             next_gen: 0,
             compact_at: None,
             compact_main: false,
+            seen_at: Instant::now(),
+            frozen: Frozen::default(),
+            clears: ClearScan::default(),
+            scrollback: config.scrollback,
+            freeze_after: config.freeze_after,
         };
         let shared = Arc::new(Shared { state: FairMutex::new(state), io });
         let t = Terminal { shared };
@@ -361,8 +485,10 @@ impl Terminal {
     }
 
     /// Lock the parser state (briefly: the feeding thread waits meanwhile).
+    /// For views: the whole scrollback is in the grid while locked.
     pub fn lock(&self) -> impl std::ops::DerefMut<Target = TermState> + '_ {
         let mut st = self.shared.state.lock();
+        st.seen();
         st.expire_sync();
         st.maybe_compact();
         st
@@ -411,6 +537,7 @@ impl Terminal {
         }
         {
             let mut st = self.shared.state.lock();
+            st.seen(); // frozen rows have the old width
             st.term.resize(Dims { rows: size.rows as usize, cols: size.cols as usize });
             // Rows keep the allocation they had: narrower, the cells split
             // off; wider, Vec growth that doubles. Compact once the size
@@ -421,6 +548,17 @@ impl Terminal {
         }
         self.shared.io.stream.resize(size);
         self.shared.io.wake();
+    }
+
+    /// Freeze the scrollback now if no view has locked the terminal for
+    /// a while (output does it too; this is for a quiet one).
+    pub fn freeze_if_unseen(&self) {
+        self.shared.state.lock().maybe_freeze(true);
+    }
+
+    /// Rows of scrollback kept compact (frozen) now.
+    pub fn frozen_rows(&self) -> usize {
+        self.shared.state.lock().frozen.len()
     }
 
     /// Mode flags the input side needs.
@@ -439,7 +577,7 @@ impl Terminal {
 
     /// Scroll the viewport through the scrollback.
     pub fn scroll(&self, scroll: Scroll) {
-        self.shared.state.lock().term.scroll_display(scroll);
+        self.lock().term.scroll_display(scroll);
         self.shared.io.wake();
     }
 
@@ -473,6 +611,20 @@ impl Terminal {
         }
         out
     }
+}
+
+/// Where `bytes` switch to the alternate screen (DECSET 1049, 1047, 47).
+fn alt_screen_at(bytes: &[u8]) -> Option<usize> {
+    let mut from = 0;
+    while let Some(i) = bytes[from..].windows(3).position(|w| w == b"\x1b[?") {
+        let at = from + i;
+        let rest = &bytes[at + 3..];
+        if [&b"1049h"[..], b"1047h", b"47h"].iter().any(|p| rest.starts_with(p)) {
+            return Some(at);
+        }
+        from = at + 3;
+    }
+    None
 }
 
 /// The width changed: alacritty keeps each row's allocation when it splits
@@ -566,6 +718,107 @@ mod tests {
         // Rows that were compacted are still cleared and reused correctly.
         t.feed().push(b"\x1b[2J\x1b[Hfresh");
         assert_eq!(t.screen_text(), "fresh\n\n\n");
+    }
+
+    fn lines(t: &Terminal, from: usize, n: usize) {
+        for i in from..from + n {
+            t.feed().push(format!("line {i}\r\n").as_bytes());
+        }
+    }
+
+    /// A terminal that freezes as soon as no view looks.
+    fn freezing(cols: u16) -> Terminal {
+        let config = TerminalConfig { scrollback: 100, freeze_after: std::time::Duration::ZERO, ..TerminalConfig::default() };
+        Terminal::new(NullStream, TermSize::new(cols, 3), config)
+    }
+
+    #[test]
+    fn unseen_scrollback_freezes_and_comes_back_for_a_view() {
+        let t = freezing(20);
+        let other = Terminal::new(NullStream, TermSize::new(20, 3), TerminalConfig { scrollback: 100, ..TerminalConfig::default() });
+        lines(&t, 0, 50);
+        lines(&other, 0, 50);
+        t.freeze_if_unseen();
+        assert_eq!(t.frozen_rows(), 48);
+        assert_eq!(t.shared.state.lock().term.history_size(), 0);
+        // A view locks it: all back, as if nothing happened.
+        let st = t.lock();
+        assert_eq!(st.term().history_size(), 48);
+        let top = |s: &TermState| s.term().grid()[s.term().grid().topmost_line()][..].iter().map(|c| c.c).collect::<String>();
+        assert_eq!(top(&st), top(&other.lock()));
+        assert_eq!(top(&st).trim_end(), "line 0");
+        drop(st);
+        assert_eq!(t.frozen_rows(), 0);
+        assert_eq!(t.screen_text(), other.screen_text());
+        // Kept to the scrollback limit.
+        lines(&t, 50, 200);
+        t.freeze_if_unseen();
+        assert_eq!(t.frozen_rows(), 100);
+        assert_eq!(t.lock().term().history_size(), 100);
+    }
+
+    #[test]
+    fn clearing_the_scrollback_clears_the_frozen_part() {
+        let t = freezing(20);
+        lines(&t, 0, 30);
+        t.freeze_if_unseen();
+        assert!(t.frozen_rows() > 0);
+        t.feed().push(b"\x1b[H\x1b[2J\x1b[");
+        t.feed().push(b"3Jafter\r\n");
+        lines(&t, 100, 2);
+        // Only what came after the clear: "after" scrolled off since.
+        assert_eq!(t.lock().term().history_size(), 1);
+        assert_eq!(t.screen_text(), "line 100\nline 101\n\n");
+    }
+
+    #[test]
+    fn the_main_screen_scrollback_freezes_under_a_full_screen_program() {
+        // Seen all along: only the switch to the alternate screen freezes.
+        let t = Terminal::new(NullStream, TermSize::new(20, 3), TerminalConfig { scrollback: 100, ..TerminalConfig::default() });
+        lines(&t, 0, 30);
+        t.feed().push(b"\x1b[?1049h\x1b[Hfull screen");
+        assert_eq!(t.frozen_rows(), 28);
+        assert_eq!(t.lock().term().history_size(), 0);
+        // Still frozen while the program runs, even with a view looking.
+        t.resize(TermSize::new(30, 3));
+        assert_eq!(t.frozen_rows(), 28);
+        t.feed().push(b"\x1b[?1049l");
+        assert_eq!(t.lock().term().history_size(), 28);
+        assert_eq!(t.frozen_rows(), 0);
+        assert_eq!(alt_screen_at(b"ab\x1b[?25l\x1b[?47h"), Some(8));
+        assert_eq!(alt_screen_at(b"\x1b[?1049l\x1b[?2004h"), None);
+    }
+
+    #[test]
+    fn a_resize_thaws_first() {
+        let t = freezing(20);
+        lines(&t, 0, 30);
+        t.freeze_if_unseen();
+        assert!(t.frozen_rows() > 0);
+        t.resize(TermSize::new(10, 3));
+        assert_eq!(t.frozen_rows(), 0);
+        // "line NN" fits in 10 columns: nothing reflowed away.
+        assert_eq!(t.lock().term().history_size(), 28);
+    }
+
+    #[test]
+    fn as_the_engines_screen_it_parses_once_and_reads_without_thawing() {
+        use pitwall_detect::{Screen, ScreenSource};
+        let t = freezing(20);
+        let mut source = t.feed().screen_source();
+        let mut engines = Screen::new(3, 20);
+        let out = b"\x1b]0;made-up title\x07\x1b[1mbold\x1b[0m plain\r\nline 1\r\nline 2\r\nline 3";
+        source.feed(out);
+        engines.feed(out);
+        t.freeze_if_unseen();
+        assert_eq!(source.text(), engines.text());
+        assert_eq!(source.title(), engines.title());
+        assert_eq!(source.snapshot(), engines.snapshot());
+        assert_eq!(t.frozen_rows(), 1, "reading is not a view looking");
+        assert!(source.alive());
+        drop(t);
+        assert!(!source.alive());
+        assert_eq!(source.text(), "");
     }
 
     #[test]
