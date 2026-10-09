@@ -332,8 +332,7 @@ impl Render for Palette {
                 range
                     .map(|ix| {
                         let row = &rows[ix];
-                        div()
-                            .id(ix)
+                        crate::kit::hover::probed(div().id(ix))
                             .w_full()
                             .h(px(ROW_H))
                             .px(px(10.))
@@ -410,7 +409,14 @@ impl Render for Palette {
                                 .child("No matches. Try “name: your prompt” to queue."),
                         )
                     })
-                    .when(n > 0, |d| d.child(list)),
+                    .when(n > 0, |d| {
+                        // The bar sits in the list's right padding's place,
+                        // as WebKit puts it outside the padding box.
+                        d.pr_0().child(kit::vscroll_list("palette-bar", &self.scroll,
+                            &t,
+                            list.mr(px(6.)),
+                        ))
+                    }),
             );
         let panel: AnyElement = if motion {
             kit::motion::enter(

@@ -72,6 +72,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         ]);
     } else {
         b.push(KeyBinding::new("ctrl-shift-,", OpenSettings, None));
+        // What Ctrl+Shift+, types on Windows and Linux (gpui 0.2.2 drops the
+        // Shift of a shifted symbol).
+        b.push(KeyBinding::new("ctrl-<", OpenSettings, None));
     }
     b
 }

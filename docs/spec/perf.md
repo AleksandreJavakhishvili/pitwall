@@ -373,3 +373,30 @@ Mac, release builds). Footprint MB / CPU % of a core; "base" = 0ce352b
   separately (it is Flat plus a static background).
 - Not measured here: Windows (Mica is drawn by DWM like vibrancy by
   WindowServer) and Linux.
+
+## GPUI port: re-baseline (2026-10-09)
+
+The bench hook is ported (`crates/pitwall-app/src/bench.rs`): the same
+`PITWALL_BENCH=1` / `PITWALL_BENCH_VISIBLE=1`, `bench-cmd` commands and
+`bench-ready` file, so `scripts/bench.sh target/release/pitwall-app` runs
+against the native app (the WebKit group stays empty: one process draws).
+Use `--visible`: GPUI draws on the display link, which macOS stops for an
+off-screen or covered window, so off-screen numbers are an idle app.
+`PITWALL_FRAME_STATS=1` logs frame timing every 2 s.
+
+First numbers (release, M-series Mac, 20 made-up working agents, each
+printing a line every 0.5 s, window on screen, app process only):
+
+| | Motion on | Reduce motion |
+|---|---|---|
+| CPU % of a core | 6.9 · 6.1 | 3.0 · 3.4 |
+| Frames | ~32/s (working-dot rings at 30 fps) | on output only |
+
+- The working dots' rings come from one 30 fps clock drawn by a small layer
+  over the main screen; the screen is a cached view, so a ring frame replays
+  its last paint (render → paint p50 0.6 ms). The ring costs ~3–4 points at
+  20 agents, against ~10 for the React app's (above).
+- Covered, minimised or on another Space, the app draws nothing and its
+  polls pause: 0.4–0.5 % with the same 20 agents.
+- To do: a full `--counts 1,5,15,20` run on a quiet machine to fill the
+  budgets table for GPUI (memory, cold start, Wall, Review).

@@ -8,6 +8,7 @@
 
 pub(crate) mod agent;
 pub mod changes;
+pub mod diagnose;
 pub(crate) mod gitwatch;
 pub mod input;
 pub mod lifecycle;
@@ -372,6 +373,23 @@ impl Engine {
         Ok(view)
     }
 
+    /// The name Pitwall shows for it (`pitwall agent rename`).
+    pub fn rename(&self, id: &str, name: &str) -> Result<AgentView, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("a name can't be empty".into());
+        }
+        if name.chars().count() > 80 || name.chars().any(char::is_control) {
+            return Err("a name is at most 80 characters, on one line".into());
+        }
+        let view = self.with(id, |a| {
+            a.rec.name = name.to_string();
+            a.view()
+        })?;
+        self.changed(true);
+        Ok(view)
+    }
+
     pub fn set_auto_send(&self, id: &str, enabled: bool) -> Result<AgentView, String> {
         let view = self.with(id, |a| {
             a.rec.auto_send = enabled;
@@ -459,6 +477,17 @@ mod tests {
         assert_eq!(h.engine.wait_dirty(), (true, true), "flags accumulate until taken");
         h.engine.mark_seen("a").unwrap();
         assert_eq!(h.engine.wait_dirty(), (true, false), "seen is view-only");
+    }
+
+    #[test]
+    fn renaming_is_a_persisted_change() {
+        let h = Harness::new(vec![record("a", "/tmp")]);
+        assert_eq!(h.engine.rename("a", "  api  ").unwrap().name, "api");
+        assert_eq!(h.engine.wait_dirty(), (true, true));
+        assert_eq!(h.engine.records()[0].name, "api");
+        assert!(h.engine.rename("a", " ").is_err());
+        assert!(h.engine.rename("a", "two\nlines").is_err());
+        assert!(h.engine.rename("nope", "x").is_err());
     }
 
     #[test]

@@ -19,6 +19,7 @@ pub mod screen;
 pub mod source;
 pub mod tile;
 
+use crate::kit::HoverText as _;
 use crate::kit::Ellipsis as _;
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -426,8 +427,13 @@ impl WallView {
             }
         }
         for id in touched {
+            // The cursor shows when the agent's own terminal would show it.
+            let cursor = crate::terminal::cursor_shown(&id, cx);
             if let Some(tile) = self.tiles.get(&id) {
-                tile.update(cx, |_, cx| cx.notify());
+                tile.update(cx, |t, cx| {
+                    t.show_cursor = cursor;
+                    cx.notify()
+                });
             }
         }
     }
@@ -524,7 +530,7 @@ impl WallView {
                     .bg(t.surface_3)
                     .border_1()
                     .border_color(t.line_strong)
-                    .hover(|s| s.border_color(t.text_4))
+                    .hover_probed(|s| s.border_color(t.text_4))
                     .cursor_pointer()
                     .text_size(px(12.))
                     .font_weight(FontWeight(550.))
@@ -799,18 +805,26 @@ impl Render for WallView {
             .child(self.bar(&t, cx))
             .when(empty, |d| d.child(Self::empty(&t)))
             .when(!empty, |d| {
+                // The scrollbar's gutter is outside what `measure` sees,
+                // as `clientWidth` is in the browser.
                 d.child(
-                    div().relative().flex_1().min_h_0().child(measure).child(
-                        div()
-                            .id("wall-scroll")
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.scroll)
-                            .pt(px(layout::PAD_TOP))
-                            .px(px(layout::PAD_X))
-                            .pb(px(layout::PAD_BOTTOM))
-                            .children(children),
-                    ),
+                    kit::vscroll_fill(
+                        "wall-bar",
+                        &self.scroll,
+                        &t,
+                        div().relative().flex_1().min_h_0().child(measure).child(
+                            div()
+                                .id("wall-scroll")
+                                .size_full()
+                                .overflow_y_scroll()
+                                .track_scroll(&self.scroll)
+                                .pt(px(layout::PAD_TOP))
+                                .px(px(layout::PAD_X))
+                                .pb(px(layout::PAD_BOTTOM))
+                                .children(children),
+                        ),
+                    )
+                    .flex_1(),
                 )
             })
     }

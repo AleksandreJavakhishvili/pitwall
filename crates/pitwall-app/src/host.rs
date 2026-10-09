@@ -28,6 +28,8 @@ pub struct Host {
     pub approvals: Arc<Approvals>,
     /// `pitwall settings` (settings::backend).
     pub settings: Arc<crate::settings::backend::AppSettings>,
+    /// `pitwall space` (cli_spaces).
+    pub workspace: Arc<crate::cli_spaces::AppWorkspace>,
     server: Option<Handle>,
 }
 
@@ -61,10 +63,12 @@ impl Host {
         approvals.on_change(move |list| bridge.send(AppEvent::Approvals(list)));
         let identify = ProcessIdentity::new(engine.clone());
         let settings = crate::settings::backend::AppSettings::new(Some(engine.clone()));
+        let workspace = crate::cli_spaces::AppWorkspace::new();
         let cfg = Config {
             socket: paths.cli_socket(),
             version: env!("CARGO_PKG_VERSION").into(),
             settings: Some(settings.clone()),
+            workspace: Some(workspace.clone()),
         };
         let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {
             Ok(h) => Some(h),
@@ -77,6 +81,7 @@ impl Host {
             engine,
             approvals,
             settings,
+            workspace,
             server,
         }
     }

@@ -6,8 +6,10 @@
 //! sidebar of agents; terminals come from `pitwall-term-view`.
 
 pub mod agents;
+pub mod bench;
 pub mod approvals;
 pub mod bridge;
+pub mod cli_spaces;
 pub mod explorer;
 pub mod frame_stats;
 pub mod code_view;
@@ -62,6 +64,7 @@ struct AppState {
 impl Global for AppState {}
 
 pub fn run() {
+    let started = std::time::Instant::now();
     let chosen = home::choose(&home::Env::current(), Paths::default_root(), home::answers);
     // A second launch on the same folder brings the running app forward.
     if let Err(home::Refusal::InUse { root }) = &chosen {
@@ -102,6 +105,7 @@ pub fn run() {
                 cx.set_global(review::ReviewEngine { engine: host.engine.clone(), root: Some(paths.root().into()) });
                 wall::register(cx, Some(host.engine.clone()));
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
+                cx.set_global(agents::StoreHandle(store.clone()));
                 cx.set_global(main_screen::EngineHandle(host.engine.clone()));
                 AgentStore::listen(&store, rx, cx);
                 platform::follow(&store, cx);
@@ -137,6 +141,9 @@ pub fn run() {
         if let Some(b) = cx.global::<AppState>().host.as_ref().map(|h| h.settings.clone()) {
             settings::attach_backend(b, cx);
         }
+        if let Some(w) = cx.global::<AppState>().host.as_ref().map(|h| h.workspace.clone()) {
+            cli_spaces::attach(w, cx);
+        }
         engineer::register(cx, engine.as_ref());
         rules::init(cx, engine);
 
@@ -169,6 +176,7 @@ pub fn run() {
         });
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
         cx.on_app_quit(|cx| {
+            window_state::flush();
             if let Some(host) = cx.global_mut::<AppState>().host.as_mut() {
                 host.shutdown();
             }
@@ -194,10 +202,18 @@ pub fn run() {
         })
         .detach();
 
-        show_main(cx);
+        bench::prepare();
+        let main = show_main(cx);
         windows::restore(cx);
         windows::debug_hook(cx);
-        cx.activate(true);
+        if bench::enabled() {
+            // Bench: never take the user's focus (`bench.rs`).
+            if let Some(root) = cx.global::<AppState>().root.clone() {
+                bench::start(main, root, started, cx);
+            }
+        } else {
+            cx.activate(true);
+        }
     });
 }
 
@@ -244,7 +260,17 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
     // Debug builds and benches: `PITWALL_DEBUG_FLOAT=1` floats the window
     // above the others without taking focus, so animations keep running
     // (they pause while the window is covered) during a CPU measurement.
-    let options = if std::env::var_os("PITWALL_DEBUG_FLOAT").is_some() {
+    let options = if bench::enabled() && !bench::visible() {
+        // Bench: shown and drawn, but off-screen (`bench.rs`).
+        let (x, y) = bench::OFF_SCREEN;
+        let mut b = options.window_bounds.map(|b| b.get_bounds()).unwrap_or_default();
+        b.origin = gpui::point(px(x), px(y));
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(b)),
+            focus: false,
+            ..options
+        }
+    } else if std::env::var_os("PITWALL_DEBUG_FLOAT").is_some() || bench::visible() {
         WindowOptions {
             kind: gpui::WindowKind::PopUp,
             focus: false,

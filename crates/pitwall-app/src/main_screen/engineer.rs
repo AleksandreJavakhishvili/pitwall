@@ -64,7 +64,7 @@ impl MainScreen {
         };
         let existing = self.agents(cx).iter().find(|a| a.engineer).cloned();
         let project = self.engineer_project(cx);
-        let (cols, rows) = self.new_agent_size();
+        let (cols, rows) = self.new_agent_size(cx);
         let task = cx.background_executor().spawn(async move {
             let kinds = engine.list_kinds()?;
             let (kind, custom_command) = engineer::choose(&kinds, &set.agent, &set.command)?;

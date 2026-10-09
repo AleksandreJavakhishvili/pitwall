@@ -217,7 +217,7 @@ pub fn select_trigger(
         .text_size(px(12.))
         .text_color(t.text)
         .cursor_pointer()
-        .hover(move |s| s.border_color(border))
+        .hover_probed(move |s| s.border_color(border))
         .child(
             div()
                 .max_w(px(260.))
@@ -265,7 +265,7 @@ pub fn select_menu(
                         .text_color(if on { t.text } else { t.text_2 })
                         .when(on, |d| d.font_weight(FontWeight::MEDIUM))
                         .cursor_pointer()
-                        .hover(move |s| s.bg(hover))
+                        .hover_probed(move |s| s.bg(hover))
                         .on_click(move |_, window, cx| pick(i, window, cx))
                         .child(label)
                 })),
@@ -370,7 +370,7 @@ pub fn select(
         .text_size(px(size))
         .text_color(t.text)
         .cursor_pointer()
-        .when(!open, |d| d.hover(move |s| s.border_color(hover)))
+        .when(!open, |d| d.hover_probed(move |s| s.border_color(hover)))
         .when(full, |d| d.w_full())
         // A native select is as wide as its longest option.
         .when(!full, |d| d.min_w(px(widest(&items, size))))

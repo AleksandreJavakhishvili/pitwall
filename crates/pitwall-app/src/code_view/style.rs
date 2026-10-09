@@ -84,6 +84,7 @@ pub struct Colors {
     regexp: Hsla,
     tag: Hsla,
     attr: Hsla,
+    variable: Hsla,
 }
 
 impl Colors {
@@ -149,6 +150,7 @@ impl Colors {
             regexp: pick(0xb46695ff, 0x811f3fff),
             tag: pick(0x569cd6ff, 0x800000ff),
             attr: pick(0x9cdcfeff, 0xe50000ff),
+            variable: pick(0x74b0dfff, 0x001188ff),
         }
     }
 
@@ -165,6 +167,7 @@ impl Colors {
             Token::Attr => self.attr,
             Token::Bracket(l) => self.brackets[(l % 3) as usize],
             Token::StrayBracket => self.stray,
+            Token::Variable => self.variable,
         }
     }
 }
@@ -194,6 +197,8 @@ mod tests {
             "#264f78",
             "#da70d6",
             "#0000ff",
+            "#74b0df",
+            "#001188",
             "#a31515",
         ] {
             assert!(

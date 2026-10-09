@@ -12,9 +12,163 @@ use gpui::{Hsla, InteractiveElement, SharedString, StyleRefinement, Styled, Text
 
 fn keep(mut s: StyleRefinement, base: Option<TextStyleRefinement>, color: Hsla) -> StyleRefinement {
     let mut text = base.unwrap_or_default();
+    // What the hover itself adds to the text (an underline) goes on top.
+    if let Some(extra) = s.text.take() {
+        gpui::Refineable::refine(&mut text, &extra);
+    }
     text.color = Some(color);
     s.text = Some(text);
     s
+}
+
+/// Tests: every hoverable element gets a debug selector (`hover-<n>` in
+/// render order), so the hover pass can compare the layout before and
+/// while it is hovered. Nothing in other builds.
+#[cfg(test)]
+pub mod probe {
+    use std::cell::Cell;
+
+    thread_local! {
+        static NEXT: Cell<usize> = const { Cell::new(0) };
+        static GEN: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Before a frame: names restart at 0, in a new generation (gpui keeps
+    /// the selectors of earlier frames).
+    pub fn reset() {
+        NEXT.with(|n| n.set(0));
+        GEN.with(|g| g.set(g.get() + 1));
+    }
+
+    fn name(i: usize) -> String {
+        format!("hover-{}-{i}", GEN.with(|g| g.get()))
+    }
+
+    pub fn next() -> String {
+        NEXT.with(|n| {
+            let i = n.get();
+            n.set(i + 1);
+            name(i)
+        })
+    }
+
+    use gpui::{point, px, Bounds, Modifiers, Pixels, StyleRefinement, VisualTestContext};
+
+    /// A hover style may change how an element is painted, never its box or
+    /// its text: gpui replaces the whole text style with a hover's (the font
+    /// falls back to the parent's), so text changes must keep it.
+    pub fn paint_only(r: &StyleRefinement) {
+        let d = StyleRefinement::default();
+        assert_eq!(
+            format!("{:?}", r.text),
+            format!("{:?}", d.text),
+            "a hover style changes the text style (use hover_text): {r:?}"
+        );
+        box_only(r);
+    }
+
+    /// The box stays: no padding, margin, size, border width or gap.
+    pub fn box_only(r: &StyleRefinement) {
+        let d = StyleRefinement::default();
+        let same = |a: String, b: String, what: &str| {
+            assert_eq!(a, b, "a hover style changes {what}: {r:?}");
+        };
+        same(format!("{:?}", r.padding), format!("{:?}", d.padding), "padding");
+        same(format!("{:?}", r.margin), format!("{:?}", d.margin), "margin");
+        same(format!("{:?}", r.size), format!("{:?}", d.size), "size");
+        same(format!("{:?}", r.border_widths), format!("{:?}", d.border_widths), "border widths");
+        same(format!("{:?}", r.gap), format!("{:?}", d.gap), "gap");
+    }
+    use std::collections::BTreeMap;
+
+    /// Draw a fresh frame and read every probed element's bounds.
+    pub fn layout(cx: &mut VisualTestContext) -> BTreeMap<String, Bounds<Pixels>> {
+        // Some widgets fit themselves to last frame's measure: let it settle.
+        for _ in 0..3 {
+            reset();
+            cx.update(|window, _| window.refresh());
+            cx.run_until_parked();
+        }
+        // Only this frame's names.
+        read(cx, NEXT.with(|n| n.get()))
+    }
+
+    fn read(cx: &mut VisualTestContext, count: usize) -> BTreeMap<String, Bounds<Pixels>> {
+        let mut out = BTreeMap::new();
+        for i in 0..count {
+            let name = name(i);
+            if let Some(b) = cx.debug_bounds(Box::leak(name.clone().into_boxed_str())) {
+                out.insert(name, b);
+            }
+        }
+        out
+    }
+
+    /// The hover pass: the pointer goes over every probed element that
+    /// has a size and, while it is there, nothing moves or resizes (no
+    /// hover style touches layout or fonts; gpui's text-style reset would
+    /// change sizes). Returns how many elements were hovered.
+    pub fn assert_hover_keeps_layout(cx: &mut VisualTestContext, what: &str) -> usize {
+        // No looping animation: one frame per draw, so the names line up.
+        crate::kit::motion::set_on(false);
+        let away = point(px(1.), px(1.));
+        cx.simulate_mouse_move(away, None, Modifiers::none());
+        // Opening animations (real time) finish first.
+        std::thread::sleep(std::time::Duration::from_millis(450));
+        let base = layout(cx);
+        assert!(!base.is_empty(), "{what}: nothing hoverable was drawn");
+        let mut hovered = 0;
+        for (name, b) in &base {
+            if b.size.width <= px(1.) || b.size.height <= px(1.) {
+                continue;
+            }
+            reset();
+            cx.simulate_mouse_move(b.center(), None, Modifiers::none());
+            // Names follow render order, which a hover-only element can
+            // shift: compare the drawn boxes themselves (each one still
+            // there, at the same place and size).
+            let after = layout(cx);
+            let now: Vec<Bounds<Pixels>> = after.values().copied().collect();
+            let moved: Vec<(&String, &Bounds<Pixels>)> =
+                base.iter().filter(|(_, nb)| !now.contains(nb)).collect();
+            // A list that scrolls the hovered row into view (the palette,
+            // as `scrollIntoView` does) shifts its rows together: allowed.
+            let shift = moved.first().and_then(|(_, f)| {
+                now.iter()
+                    .find(|x| x.size == f.size && x.origin.x == f.origin.x)
+                    .map(|x| x.origin.y - f.origin.y)
+            });
+            let scrolled = shift.is_some_and(|dy| {
+                moved.iter().all(|(_, m)| {
+                    now.iter().any(|x| {
+                        x.size == m.size && x.origin.x == m.origin.x && x.origin.y - m.origin.y == dy
+                    })
+                })
+            });
+            if let (Some((n, nb)), false) = (moved.first(), scrolled) {
+                let near: Vec<_> = after
+                    .iter()
+                    .filter(|(_, x)| (x.origin.y - nb.origin.y).abs() < px(12.))
+                    .collect();
+                panic!(
+                    "{what}: hovering {name} {b:?} moved or resized {n} {nb:?}; \
+                     now on that line: {near:?}"
+                );
+            }
+            hovered += 1;
+            reset();
+            cx.simulate_mouse_move(away, None, Modifiers::none());
+        }
+        hovered
+    }
+}
+
+/// An element that reacts to the pointer some other way (a row the
+/// pointer selects): the hover pass checks it too.
+pub fn probed<E: InteractiveElement>(el: E) -> E {
+    #[cfg(test)]
+    let el = el.debug_selector(probe::next);
+    el
 }
 
 pub trait HoverText: InteractiveElement + Styled + Sized {
@@ -22,10 +176,46 @@ pub trait HoverText: InteractiveElement + Styled + Sized {
     fn hover_text(
         mut self,
         color: Hsla,
-        f: impl FnOnce(StyleRefinement) -> StyleRefinement,
+        f: impl Fn(StyleRefinement) -> StyleRefinement,
     ) -> Self {
+        #[cfg(test)]
+        probe::box_only(&f(StyleRefinement::default()));
         let base = self.style().text.clone();
-        self.hover(move |s| keep(f(s), base, color))
+        probed(self).hover(move |s| keep(f(s), base, color))
+    }
+
+    /// An underline on hover (a link), keeping the text style.
+    fn hover_underline(mut self) -> Self {
+        let base = self.style().text.clone();
+        probed(self).hover(move |mut s| {
+            let mut text = base.clone().unwrap_or_default();
+            text.underline = Some(gpui::UnderlineStyle {
+                thickness: gpui::px(1.),
+                ..Default::default()
+            });
+            s.text = Some(text);
+            s
+        })
+    }
+
+    /// `.hover(f)` for paint-only styles (background, border colour,
+    /// shadow, opacity); text colours go through [`HoverText::hover_text`].
+    /// Tests check both, and the hover pass sees the element.
+    fn hover_probed(self, f: impl Fn(StyleRefinement) -> StyleRefinement) -> Self {
+        #[cfg(test)]
+        probe::paint_only(&f(StyleRefinement::default()));
+        probed(self).hover(f)
+    }
+
+    /// `.group_hover(group, f)` for paint-only styles.
+    fn group_hover_probed(
+        self,
+        group: impl Into<SharedString>,
+        f: impl Fn(StyleRefinement) -> StyleRefinement,
+    ) -> Self {
+        #[cfg(test)]
+        probe::paint_only(&f(StyleRefinement::default()));
+        probed(self).group_hover(group, f)
     }
 
     /// `.group_hover(group, |s| f(s).text_color(color))`, keeping the text
@@ -34,10 +224,12 @@ pub trait HoverText: InteractiveElement + Styled + Sized {
         mut self,
         group: impl Into<SharedString>,
         color: Hsla,
-        f: impl FnOnce(StyleRefinement) -> StyleRefinement,
+        f: impl Fn(StyleRefinement) -> StyleRefinement,
     ) -> Self {
+        #[cfg(test)]
+        probe::box_only(&f(StyleRefinement::default()));
         let base = self.style().text.clone();
-        self.group_hover(group, move |s| keep(f(s), base, color))
+        probed(self).group_hover(group, move |s| keep(f(s), base, color))
     }
 }
 

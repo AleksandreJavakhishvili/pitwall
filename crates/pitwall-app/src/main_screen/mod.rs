@@ -283,6 +283,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(&p("8"), SelectAgent8, None),
         KeyBinding::new(&p("9"), SelectAgent9, None),
     ];
+    if !mac {
+        b.extend(shifted_symbols());
+    }
     for ctx in ["PwSidebar", "PwMenu"] {
         b.extend([
             KeyBinding::new("up", SelectPrev, Some(ctx)),
@@ -291,6 +294,32 @@ pub fn bindings() -> Vec<KeyBinding> {
         ]);
     }
     b
+}
+
+/// Windows and Linux: gpui 0.2.2 reports Shift with a symbol or digit as the
+/// shifted character without Shift (Ctrl+Shift+1 arrives as `ctrl-!`), so
+/// the Ctrl+Shift shortcuts on those keys are bound by what they type too
+/// (US layout), plus the numpad's + and −.
+fn shifted_symbols() -> Vec<KeyBinding> {
+    vec![
+        KeyBinding::new("ctrl->", ToggleDetails, None),
+        KeyBinding::new("ctrl-+", FontBigger, None),
+        KeyBinding::new("ctrl-shift-add", FontBigger, None),
+        KeyBinding::new("ctrl-add", FontBigger, None),
+        KeyBinding::new("ctrl-_", FontSmaller, None),
+        KeyBinding::new("ctrl-shift-subtract", FontSmaller, None),
+        KeyBinding::new("ctrl-subtract", FontSmaller, None),
+        KeyBinding::new("ctrl-)", FontReset, None),
+        KeyBinding::new("ctrl-!", SelectAgent1, None),
+        KeyBinding::new("ctrl-@", SelectAgent2, None),
+        KeyBinding::new("ctrl-#", SelectAgent3, None),
+        KeyBinding::new("ctrl-$", SelectAgent4, None),
+        KeyBinding::new("ctrl-%", SelectAgent5, None),
+        KeyBinding::new("ctrl-^", SelectAgent6, None),
+        KeyBinding::new("ctrl-&", SelectAgent7, None),
+        KeyBinding::new("ctrl-*", SelectAgent8, None),
+        KeyBinding::new("ctrl-(", SelectAgent9, None),
+    ]
 }
 
 /// Register the key bindings (call once at start, after `kit::init`).
@@ -387,6 +416,9 @@ pub struct MainScreen {
     sidebar_focus: FocusHandle,
     /// The space area's size, measured each frame.
     area: Option<Size<Pixels>>,
+    /// The center's size less its space bar, estimated each frame (a first
+    /// agent's size while no space is shown: `tiledAgentSize(0, 1)`).
+    main_est: Option<Size<Pixels>>,
     divider: Option<DividerDrag>,
     /// The pane and zone an agent is dragged over (`None` zone: centre).
     drop_hint: Option<(String, Option<tree::Side>)>,
@@ -425,7 +457,12 @@ impl MainScreen {
         window.focus(&focus);
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let subs = vec![
-            cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
+            // The screen draws from the store: it re-renders itself (it is
+            // a cached view; its window doesn't redraw it for a model).
+            cx.observe(&store, |this, _, cx| {
+                this.agents_changed(cx);
+                cx.notify();
+            }),
             cx.observe(&wt_list, |this, _, cx| this.wt_taken(cx)),
             // Settings, the explorer and other windows change it too.
             cx.observe(&ui_store, |this, s, cx| {
@@ -436,9 +473,28 @@ impl MainScreen {
                 }
             }),
             cx.subscribe(&store, |this, _, e: &crate::agents::StoreEvent, cx| {
+                // `projects-changed`: the sidebar's projects follow at once.
+                if let crate::agents::StoreEvent::ProjectsChanged(list) = e {
+                    if *list != this.projects {
+                        this.projects = list.clone();
+                        cx.notify();
+                    }
+                }
                 this.attention(e, cx)
             }),
             cx.observe_window_activation(window, |this, window, cx| {
+                // Leaving the window cancels a drag and closes a popup menu
+                // (`dnd.ts` and `Menu.tsx` listen for `blur`).
+                if !window.is_window_active() {
+                    if cx.has_active_drag() {
+                        cx.stop_active_drag(window);
+                        this.drop_hint = None;
+                    }
+                    if this.menu.take().is_some() {
+                        window.focus(&this.focus);
+                    }
+                    cx.notify();
+                }
                 // Coming back counts as looking at the agent you left selected.
                 if window.is_window_active() && this.route == Route::Space {
                     if let Some(a) = this.selected(cx).filter(|a| a.status == Status::Done) {
@@ -447,6 +503,7 @@ impl MainScreen {
                 }
             }),
         ];
+        let (sidebar_collapsed, right_pinned) = (ui.sidebar_collapsed, ui.right_open);
         let mut screen = MainScreen {
             store,
             engine,
@@ -454,8 +511,9 @@ impl MainScreen {
             active: ALL_SPACE.into(),
             ui,
             route: Route::Space,
-            sidebar_collapsed: false,
-            right_pinned: true,
+            sidebar_collapsed,
+            main_est: None,
+            right_pinned,
             overlay_sidebar: false,
             drawer_open: false,
             modal: None,
@@ -663,6 +721,22 @@ impl MainScreen {
 
     /// Show agent: leave Wall/Review/viewer, close the overlay sidebar,
     /// focus its pane here, or place it in the active space.
+    /// Onboarding's hand-over: the new agents tiled in the All space
+    /// (overflow as chips), Wall and Review off, the first one focused.
+    pub fn hand_over(&mut self, ids: &[String], window: &mut Window, cx: &mut Context<Self>) {
+        if ids.is_empty() {
+            return;
+        }
+        self.set_route(Route::Space, cx);
+        self.overlay_sidebar = false;
+        self.active = ALL_SPACE.into();
+        let max = (Self::breakpoint(window).max_per_row() * 2).max(2);
+        let ids = ids.to_vec();
+        self.update_ui(|s| s.tile_agents(ALL_SPACE, &ids, max), cx);
+        self.cursor = Some(ids[0].clone());
+        cx.notify();
+    }
+
     pub fn show_agent(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.set_route(Route::Space, cx);
         self.overlay_sidebar = false;
@@ -796,41 +870,67 @@ impl MainScreen {
         })
     }
 
-    /// The size a new agent starts at: the pane it will show in.
-    fn new_agent_size(&self) -> (Option<u16>, Option<u16>) {
-        let (Some(sp), Some(area)) = (self.active_space(), self.area) else {
-            return (None, None);
+    /// The size a new agent starts at (`newAgentSize`): the size the
+    /// terminal already in the target pane (the first empty one, else the
+    /// focused one) shows, else that pane's box fitted in cells, else the
+    /// focused pane's terminal; the backend default otherwise.
+    fn new_agent_size(&self, cx: &App) -> (Option<u16>, Option<u16>) {
+        let Some(sp) = self.active_space().filter(|_| self.area.is_some()) else {
+            // No space shown yet (the first agent): it gets the whole space.
+            return match self.main_fit().or_else(crate::terminal::last_fitted) {
+                Some((c, r)) => (Some(c), Some(r)),
+                None => (None, None),
+            };
         };
-        let rects = tree::pane_rects(
-            &sp.layout,
-            tree::Rect {
-                x: 0.,
-                y: 0.,
-                w: f32::from(area.width) as f64,
-                h: f32::from(area.height) as f64,
-            },
-        );
-        let target = sp
-            .layout
-            .leaves()
-            .into_iter()
-            .find(|p| p.agent_id.is_none())
-            .map(|p| p.id)
-            .or(sp.focused_pane_id.clone());
-        let Some(r) = rects
-            .into_iter()
-            .find(|(id, _)| Some(id) == target.as_ref())
-            .map(|x| x.1)
-        else {
-            return (None, None);
+        let leaves = sp.layout.leaves();
+        let focused = sp
+            .focused_pane_id
+            .as_ref()
+            .and_then(|f| leaves.iter().find(|p| &p.id == f));
+        let target = leaves.iter().find(|p| p.agent_id.is_none()).or(focused);
+        let in_pane = |p: Option<&tree::Pane>| {
+            p.and_then(|p| p.agent_id.as_deref())
+                .and_then(|id| crate::terminal::size_of(id, cx))
         };
-        let font = self.ui.font_size;
-        let cols = ((r.w - 28.) / (font * 0.6)).floor();
-        let rows = ((r.h - 44.) / (font * 1.32)).floor();
-        if cols < 20. || rows < 5. {
-            return (None, None);
+        if let Some((c, r)) = in_pane(target) {
+            return (Some(c), Some(r));
         }
-        (Some(cols as u16), Some(rows as u16))
+        let fit = self.area.and_then(|area| {
+            let rects = tree::pane_rects(
+                &sp.layout,
+                tree::Rect {
+                    x: 0.,
+                    y: 0.,
+                    w: f32::from(area.width) as f64,
+                    h: f32::from(area.height) as f64,
+                },
+            );
+            let r = rects.into_iter().find(|(id, _)| Some(id) == target.map(|t| &t.id))?.1;
+            let font = self.ui.font_size;
+            let (cw, ch) = crate::theme::CELL_PER_PX;
+            let (pw, ph) = crate::theme::PANE_CHROME;
+            let cols = ((r.w - pw) / (font * cw)).floor();
+            let rows = ((r.h - ph) / (font * ch)).floor();
+            (cols >= 2. && rows >= 1.).then_some((cols as u16, rows as u16))
+        });
+        let fit = fit
+            .or_else(|| in_pane(focused))
+            .or_else(crate::terminal::last_fitted);
+        match fit {
+            Some((c, r)) => (Some(c), Some(r)),
+            None => (None, None),
+        }
+    }
+
+    /// Cells for one pane filling the center (no space area measured yet).
+    fn main_fit(&self) -> Option<(u16, u16)> {
+        let area = self.main_est?;
+        let font = self.ui.font_size;
+        let (cw, ch) = crate::theme::CELL_PER_PX;
+        let (pw, ph) = crate::theme::PANE_CHROME;
+        let cols = ((f32::from(area.width) as f64 - pw) / (font * cw)).floor();
+        let rows = ((f32::from(area.height) as f64 - ph) / (font * ch)).floor();
+        (cols >= 2. && rows >= 1.).then_some((cols as u16, rows as u16))
     }
 
     /// The font an agent's tile shows: its own (⌘+ / ⌘−), else the Settings
@@ -850,7 +950,9 @@ impl MainScreen {
         let clamp = |f: f64| crate::theme::clamp_font(f.round() as i32) as f64;
         let id = self
             .focused_agent_id()
-            .filter(|_| self.route == Route::Space);
+            // Review and the explorer still size the focused tile (React
+            // only skips it on the Wall).
+            .filter(|_| self.route != Route::Wall);
         let current = id.as_ref().map(|id| self.tile_font(id));
         self.update_ui(
             |mut s| {
@@ -879,6 +981,14 @@ impl MainScreen {
     fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if Self::breakpoint(window).full_sidebar() {
             self.sidebar_collapsed = !self.sidebar_collapsed;
+            let v = self.sidebar_collapsed;
+            self.update_ui(
+                |mut s| {
+                    s.sidebar_collapsed = v;
+                    s
+                },
+                cx,
+            );
         } else {
             self.overlay_sidebar = !self.overlay_sidebar;
         }
@@ -888,10 +998,49 @@ impl MainScreen {
     fn toggle_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if Self::breakpoint(window).right_docked() {
             self.right_pinned = !self.right_pinned;
+            let v = self.right_pinned;
+            self.update_ui(
+                |mut s| {
+                    s.right_open = v;
+                    s
+                },
+                cx,
+            );
         } else {
             self.drawer_open = !self.drawer_open;
         }
         cx.notify();
+    }
+
+    /// Bench commands (`crate::bench`): `wall`/`review` on or off;
+    /// `visit-all` shows each agent once (so each gets its terminal), then
+    /// tiles them with Auto grid.
+    pub fn bench(&mut self, what: &str, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match what {
+            "wall" | "review" => {
+                let route = if what == "wall" { Route::Wall } else { Route::Review };
+                if (self.route == route) != on {
+                    self.toggle_route(route, cx);
+                }
+            }
+            "visit-all" => {
+                let ids: Vec<String> = self.ordered(cx).into_iter().map(|a| a.id).collect();
+                let win = window.window_handle();
+                cx.spawn(async move |this, cx| {
+                    for id in ids {
+                        let _ = win.update(cx, |_, window, cx| {
+                            let _ = this.update(cx, |s, cx| s.show_agent(&id, window, cx));
+                        });
+                        cx.background_executor().timer(std::time::Duration::from_millis(120)).await;
+                    }
+                    let _ = win.update(cx, |_, window, cx| {
+                        let _ = this.update(cx, |s, cx| s.apply_preset(Preset::Auto, window, cx));
+                    });
+                })
+                .detach();
+            }
+            _ => {}
+        }
     }
 
     fn toggle_route(&mut self, route: Route, cx: &mut Context<Self>) {
@@ -908,8 +1057,52 @@ impl MainScreen {
     }
 
     /// A failed engine call (React: `run(…, what)` → "Couldn't <what>").
+    /// An error toast with its own title.
+    pub fn toast_error(&mut self, title: String, detail: String, cx: &mut Context<Self>) {
+        self.note_access_error(&detail, cx);
+        self.toast(Toast::error(title, detail), cx);
+    }
+
     pub fn failed(&mut self, what: &str, err: String, cx: &mut Context<Self>) {
+        self.note_access_error(&err, cx);
         self.toast(Toast::error(format!("Couldn't {what}"), err), cx);
+    }
+
+    /// macOS refused a folder (privacy): once ever, point at Full Disk
+    /// Access (App.tsx `accessHint`; the flag is `pitwall.accessHintShown`).
+    pub(super) fn note_access_error(&mut self, err: &str, cx: &mut Context<Self>) {
+        if !strip::is_access_error(err) || self.ui.access_hint_shown {
+            return;
+        }
+        let task = cx.background_executor().spawn(async { pitwall_core::permissions::status() });
+        cx.spawn(async move |this, cx| {
+            let s = task.await;
+            if !s.applies || s.full_disk_access == pitwall_core::permissions::Access::Granted {
+                return;
+            }
+            let _ = this.update(cx, |this, cx| {
+                if this.ui.access_hint_shown {
+                    return;
+                }
+                this.update_ui(
+                    |mut s| {
+                        s.access_hint_shown = true;
+                        s
+                    },
+                    cx,
+                );
+                let mut t = Toast::info(
+                    "macOS blocked a folder",
+                    Some(
+                        "Give Pitwall Full Disk Access and macOS stops asking. Click for Settings → Permissions."
+                            .into(),
+                    ),
+                );
+                t.opens_settings = true;
+                this.toast(t, cx);
+            });
+        })
+        .detach();
     }
 
     fn attention(&mut self, e: &crate::agents::StoreEvent, cx: &mut Context<Self>) {
@@ -955,7 +1148,7 @@ impl MainScreen {
             return;
         };
         let taken: Vec<String> = self.agents(cx).iter().map(|a| a.name.clone()).collect();
-        let (cols, rows) = self.new_agent_size();
+        let (cols, rows) = self.new_agent_size(cx);
         let req = pitwall_core::model::CreateAgentRequest {
             name: model::terminal_name(&path, &taken),
             kind: "shell".into(),
@@ -1011,7 +1204,7 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) {
         let existing = self.agents(cx).to_vec();
-        let size = self.new_agent_size();
+        let size = self.new_agent_size(cx);
         let engine = self.engine.clone();
         let dialog = cx.new(|cx| NewAgentDialog::new(engine, existing, project, size, window, cx));
         self._subs.push(cx.subscribe_in(
@@ -1187,13 +1380,16 @@ impl MainScreen {
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        let size = self.new_agent_size();
+        let size = self.new_agent_size(cx);
         let size = size.0.zip(size.1);
         let task = cx
             .background_executor()
             .spawn(async move { pitwall_core::engine::lifecycle::restart(&engine, &id, size) });
-        cx.spawn(async move |this, cx| {
-            if let Err(e) = task.await {
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(view) => {
+                let _ = cx.update(|cx| crate::agents::patch(view, cx));
+            }
+            Err(e) => {
                 let _ = this.update(cx, |s, cx| s.failed("restart", e, cx));
             }
         })
@@ -1283,6 +1479,21 @@ impl Render for MainScreen {
         let agents = self.agents(cx).to_vec();
         let selected = self.selected(cx);
         let sidebar_mode = self.sidebar_mode(bp);
+        {
+            let vp = window.viewport_size();
+            let side = match sidebar_mode {
+                SidebarMode::Full => f32::from(crate::theme::SIDEBAR_W),
+                SidebarMode::Rail => 56.,
+                SidebarMode::Hidden => 0.,
+            };
+            // A docked right panel appears with the first agent.
+            let right = if bp.right_docked() { f32::from(crate::theme::RIGHT_W) } else { 0. };
+            let top = f32::from(crate::theme::TOPBAR_H) + strip::STRIP_H + 32.;
+            self.main_est = Some(gpui::size(
+                px((f32::from(vp.width) - side - right).max(0.)),
+                px((f32::from(vp.height) - top).max(0.)),
+            ));
+        }
         let right = match (&selected, self.route) {
             (Some(_), Route::Space) if bp.right_docked() && self.right_pinned => Some(false),
             (Some(_), Route::Space) if !bp.right_docked() && self.drawer_open => Some(true),
@@ -1381,10 +1592,21 @@ impl Render for MainScreen {
             topbar.into_any_element()
         };
 
-        div()
+        let modal = self.modal.is_some() || self.elsewhere.bring.is_some();
+        let screen = div()
             .id("main-screen")
             .key_context("MainScreen")
             .track_focus(&self.focus)
+            // Esc cancels an agent drag (`dnd.ts`), before anything else
+            // (a terminal, Dismiss) sees the key.
+            .capture_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                if e.keystroke.key == "escape" && cx.has_active_drag() {
+                    cx.stop_active_drag(window);
+                    this.drop_hint = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .on_action(cx.listener(Self::on_dismiss))
             .on_action(cx.listener(|_, _: &OpenPalette, _, cx| cx.emit(ScreenEvent::OpenPalette)))
             .on_action(
@@ -1423,7 +1645,10 @@ impl Render for MainScreen {
                     .is_some_and(|a| this.wt.is_open(&worktrees::panel_key(&a.id)));
                 if open {
                     this.wt_list(true, cx);
+                    this.wt_load_files(true, cx);
                 }
+                // The explorer (on the window root) refreshes too.
+                cx.propagate();
             }))
             .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
@@ -1460,7 +1685,10 @@ impl Render for MainScreen {
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
             .children(self.render_bring_in(&t, cx))
-            .children(self.render_menu(&float, cx))
+            .children(self.render_menu(&float, cx));
+        // Its working dots hand their rings to the window's pulse layer,
+        // unless a modal is over them (then they animate under it).
+        crate::kit::motion::pulse_scope(screen, modal)
     }
 }
 

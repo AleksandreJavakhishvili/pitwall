@@ -3,6 +3,7 @@
 //! visible rows only, hit testing, and the overlays (Find, the context
 //! menu, the comment hover and the read-only hint).
 
+use crate::kit::HoverText as _;
 use std::ops::Range;
 
 use gpui::{
@@ -309,6 +310,26 @@ impl CodeView {
         let char_w = shape_plain(window, &SharedString::from("0000000000")).width / 10.;
         let mut widest = self.max_width;
         let mut zones: Vec<(Bounds<Pixels>, CursorStyle)> = Vec::new();
+        // The caret's bracket pair and indent block (an empty selection).
+        let caret = self.sel.filter(|s| s.is_empty());
+        let plain = super::highlight::Lang::for_path(&content.path).is_none();
+        let bracket_marks: Vec<(Side, super::text::Pos)> = caret
+            .map(|s| {
+                super::brackets::matching(
+                    content.doc(s.side),
+                    |l| content.spans(s.side, l),
+                    plain,
+                    s.head,
+                )
+                .into_iter()
+                .map(|p| (s.side, p))
+                .collect()
+            })
+            .unwrap_or_default();
+        let active_guide = caret.and_then(|s| {
+            super::brackets::active_guide(content.doc(s.side), s.head.line)
+                .map(|(k, lines)| (s.side, k, lines))
+        });
 
         for pane in &geom.panes {
             let tb = pane.text_bounds();
@@ -444,13 +465,33 @@ impl CodeView {
                                 ));
                             }
                         }
-                        // Indent guides.
-                        let levels = indent_levels(doc, line);
+                        // Indent guides (the caret's block in the active colour).
+                        let levels = super::brackets::levels(doc, line);
                         for k in 0..levels {
                             let gx = text_x + char_w * (k * doc.tab_size) as f32;
+                            let active = active_guide.as_ref().is_some_and(|(sd, ak, lines)| {
+                                *sd == side && *ak == k && lines.contains(&line)
+                            });
                             text.under.push(fill(
                                 Bounds::new(point(gx, y), size(px(1.), px(LINE_H))),
-                                c.guide,
+                                if active { c.guide_active } else { c.guide },
+                            ));
+                        }
+                        // Matching brackets: `--rv-bm-bg` with a 1 px
+                        // `--rv-bm-border` outline inside.
+                        for (_, p) in bracket_marks
+                            .iter()
+                            .filter(|(sd, p)| *sd == side && p.line == line)
+                        {
+                            let x0 = text_x + col_x(&shaped, p.col);
+                            let x1 = text_x + col_x(&shaped, p.col + 1);
+                            text.under.push(gpui::quad(
+                                Bounds::new(point(x0, y), size(x1 - x0, px(LINE_H))),
+                                px(0.),
+                                c.bracket_bg,
+                                px(1.),
+                                c.bracket_border,
+                                gpui::BorderStyle::Solid,
                             ));
                         }
                         // Find matches.
@@ -1174,23 +1215,6 @@ enum Hit {
     },
 }
 
-/// How many indent guides a line gets (blank lines take the next line's).
-fn indent_levels(doc: &super::text::Document, line: usize) -> usize {
-    let tab = doc.tab_size.max(1);
-    let lead = |t: &str| t.len() - t.trim_start_matches(' ').len();
-    let l = &doc.lines[line].text;
-    let n = if l.trim().is_empty() {
-        doc.lines[line + 1..]
-            .iter()
-            .take(100)
-            .find(|x| !x.text.trim().is_empty())
-            .map_or(0, |x| lead(&x.text))
-    } else {
-        lead(l)
-    };
-    n / tab
-}
-
 fn shape_number(window: &mut Window, n: usize, color: Hsla) -> ShapedLine {
     let s: SharedString = n.to_string().into();
     window
@@ -1202,7 +1226,7 @@ fn shape_number(window: &mut Window, n: usize, color: Hsla) -> ShapedLine {
 fn shape_colored(
     window: &mut Window,
     l: &super::text::Line,
-    spans: &[(Range<usize>, super::highlight::Token)],
+    spans: &[(Range<usize>, super::highlight::Style)],
     c: &Colors,
 ) -> ShapedLine {
     let len = l.len();
@@ -1217,7 +1241,14 @@ fn shape_colored(
         if a > at {
             runs.push(plain_run(a - at, c.text));
         }
-        runs.push(plain_run(b - a, c.token(*tok)));
+        let mut run = plain_run(b - a, tok.tok.map_or(c.text, |t| c.token(t)));
+        if tok.italic {
+            run.font.style = gpui::FontStyle::Italic;
+        }
+        if tok.bold {
+            run.font.weight = gpui::FontWeight::BOLD;
+        }
+        runs.push(run);
         at = b;
     }
     if at < len || runs.is_empty() {
@@ -1348,7 +1379,7 @@ pub(super) fn overlays(
                     gpui::transparent_black()
                 })
                 .when(on, |d| d.bg(c.opt_bg))
-                .hover(|s| s.bg(c.slider_hover))
+                .hover_probed(|s| s.bg(c.slider_hover))
                 .child(label)
                 .tooltip(move |_, cx| tooltip(tip, cx))
         };
@@ -1368,7 +1399,7 @@ pub(super) fn overlays(
                 .text_size(px(14.))
                 .when(!enabled, |d| d.opacity(0.4))
                 .when(enabled, |d| {
-                    d.cursor_pointer().hover(|s| s.bg(c.slider_hover))
+                    d.cursor_pointer().hover_probed(|s| s.bg(c.slider_hover))
                 })
                 .child(label)
                 .tooltip(move |_, cx| tooltip(tip, cx))

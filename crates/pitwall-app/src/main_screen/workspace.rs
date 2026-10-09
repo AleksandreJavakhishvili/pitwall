@@ -155,6 +155,16 @@ fn lenient_font<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error>
 }
 
 /// `true` only for a JSON `true` (`r.reduceMotion === true`).
+fn yes() -> bool {
+    true
+}
+
+/// `true` unless the value is `false` (`usePersistentFlag` with a `true`
+/// default).
+fn not_false<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Value::deserialize(d)? != Value::Bool(false))
+}
+
 fn strict_true<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     Ok(Value::deserialize(d)? == Value::Bool(true))
 }
@@ -216,6 +226,18 @@ pub struct UiState {
     /// localStorage `pitwall.right.files`).
     #[serde(default, deserialize_with = "strict_true")]
     pub right_files: bool,
+    /// The sidebar is collapsed (`pitwall.sidebarCollapsed`), read when a
+    /// window opens.
+    #[serde(default, deserialize_with = "strict_true")]
+    pub sidebar_collapsed: bool,
+    /// The one-time Full Disk Access hint was shown
+    /// (`pitwall.accessHintShown`).
+    #[serde(default, deserialize_with = "strict_true")]
+    pub access_hint_shown: bool,
+    /// The docked right panel is shown (`pitwall.rightOpen`), read when a
+    /// window opens.
+    #[serde(default = "yes", deserialize_with = "not_false")]
+    pub right_open: bool,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -265,6 +287,9 @@ impl Default for UiState {
             explorer_show_ignored: false,
             review_side_by_side: None,
             right_files: false,
+            sidebar_collapsed: false,
+            access_hint_shown: false,
+            right_open: true,
             rest: serde_json::Map::new(),
         }
     }
@@ -577,6 +602,38 @@ impl UiState {
         });
         next.window_of.insert(id.clone(), label.to_string());
         (next, id)
+    }
+
+    /// Tile `agents` (then what the space shows already) into `space_id`,
+    /// at most `max` of them (`tileAgents`: the onboarding hand-over).
+    pub fn tile_agents(self, space_id: &str, agents: &[String], max: usize) -> UiState {
+        let Some(sp) = self.space(space_id) else {
+            return self;
+        };
+        if agents.is_empty() {
+            return self;
+        }
+        let cap = max.clamp(1, tree::Preset::G3x2.count());
+        let shown: Vec<String> =
+            sp.layout.agents().into_iter().filter(|a| !agents.contains(a)).collect();
+        let mut chosen: Vec<String> = Vec::new();
+        for id in agents.iter().chain(shown.iter()) {
+            if !chosen.contains(id) {
+                chosen.push(id.clone());
+            }
+        }
+        chosen.truncate(cap);
+        let mut next = self;
+        for id in &chosen {
+            next = next.unplace(id, Some(space_id));
+        }
+        let layout = build_preset(preset_for(chosen.len()), &chosen);
+        next.map_space(space_id, |mut x| {
+            x.focused_pane_id = Some(layout.leaves()[0].id.clone());
+            x.layout = layout;
+            x.maximized_pane_id = None;
+            x
+        })
     }
 
     /// "Space N" (custom), owned by `label`.
@@ -922,6 +979,24 @@ mod tests {
             agent("b", "/work/alpha", "working", 2, true),
             agent("c", "/work/beta", "blocked", 3, true),
         ]
+    }
+
+    #[test]
+    fn hand_over_tiles_new_agents_first() {
+        let s = UiState::default().place_agent(ALL_SPACE, "old", None, None);
+        let ids: Vec<String> = ["n1", "n2", "n3"].iter().map(|s| s.to_string()).collect();
+        let s = s.tile_agents(ALL_SPACE, &ids, 2);
+        let sp = s.space(ALL_SPACE).unwrap();
+        assert_eq!(sp.layout.agents(), vec!["n1".to_string(), "n2".to_string()], "capped");
+        assert_eq!(sp.focused_agent().as_deref(), Some("n1"));
+        let s = UiState::default()
+            .place_agent(ALL_SPACE, "old", None, None)
+            .tile_agents(ALL_SPACE, &ids[..1], 6);
+        assert_eq!(
+            s.space(ALL_SPACE).unwrap().layout.agents(),
+            vec!["n1".to_string(), "old".to_string()],
+            "what was shown follows"
+        );
     }
 
     #[test]

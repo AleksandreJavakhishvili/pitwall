@@ -15,6 +15,7 @@ mod last_sent;
 #[cfg(test)]
 mod tests;
 
+use crate::kit::HoverText as _;
 use std::collections::HashMap;
 
 use gpui::{
@@ -225,8 +226,13 @@ impl NextUp {
             .background_executor()
             .spawn(async move { call.run(&engine, &id) });
         cx.spawn_in(window, async move |this, cx| {
-            // A success shows through the engine's agents-changed event.
-            let Err(err) = task.await else { return };
+            let err = match task.await {
+                Ok(view) => {
+                    let _ = cx.update(|_, cx| crate::agents::patch(view, cx));
+                    return;
+                }
+                Err(err) => err,
+            };
             let _ = this.update_in(cx, |this, window, cx| {
                 if let Op::Add(text) = &op {
                     this.drafts.insert(agent.clone(), text.clone());
@@ -330,7 +336,7 @@ impl NextUp {
                             .flex()
                             .gap(px(1.))
                             .opacity(0.45)
-                            .group_hover(group, |s| s.opacity(1.))
+                            .group_hover_probed(group, |s| s.opacity(1.))
                             .child(
                                 icon_btn_state(
                                     format!("queue-send-{i}"),

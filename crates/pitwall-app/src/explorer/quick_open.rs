@@ -311,7 +311,12 @@ impl Render for QuickOpen {
                             .text_color(t.text)
                             .child(self.input.clone()),
                     )
-                    .child(div().p(px(6.)).children(status).child(list))
+                    .child(
+                        div().py(px(6.)).pl(px(6.)).children(status).child(crate::kit::vscroll_list("ex-quick-bar", &self.scroll,
+                            &t,
+                            list.mr(px(6.)),
+                        )),
+                    )
                     .when(truncated, |d| {
                         d.child(foot("Only the first 100 000 files are listed.".into()))
                     })

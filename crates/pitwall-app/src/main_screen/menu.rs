@@ -2,6 +2,7 @@
 //! move, ⏎ runs, Esc or a click outside closes. In-house; a candidate for
 //! the kit's popover/menu.
 
+use crate::kit::HoverText as _;
 use std::rc::Rc;
 
 use gpui::{
@@ -110,7 +111,7 @@ impl MainScreen {
                 .line_height(px(18.))
                 .text_color(t.text)
                 .when(on, |d| d.bg(t.surface_3))
-                .hover(|s| s.bg(t.surface_3))
+                .hover_probed(|s| s.bg(t.surface_3))
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, window, cx| this.run_menu_item(i, window, cx)))
                 .child(div().w(px(16.)).flex().when(!it.icon.is_empty(), |d| {

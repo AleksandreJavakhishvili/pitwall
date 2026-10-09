@@ -206,10 +206,9 @@ fn unique(base: String, taken: &[String]) -> String {
 /// A plain terminal's name: its folder's ("home" for `~`), -2, -3… when taken.
 pub fn terminal_name(path: &str, taken: &[String]) -> String {
     let p = path.trim().trim_end_matches('/');
-    if p == "~" || p.is_empty() {
-        return unique("home".into(), taken);
-    }
-    suggest_name(p, taken)
+    let p = if p == "~" || p.is_empty() { "home" } else { p };
+    // `terminalName` → `agentNameFor` (26 characters).
+    crate::settings::onboarding::plan::agent_name_for(p, taken.iter().map(String::as_str))
 }
 
 /// Why `name` doesn't fit `pattern`/`max_len`, or `None`.

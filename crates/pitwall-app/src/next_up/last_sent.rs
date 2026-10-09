@@ -109,14 +109,22 @@ impl Render for LastSent {
                     .child(rel_time(at, now_ms()))
             }));
         let body = match &a.last_sent {
-            Some(text) => div()
-                .id("last-sent")
+            Some(text) => {
+                let text = text.clone();
+                crate::kit::scroll_area("last-sent-area", &t, move |h| {
+                    div()
+                        .id("last-sent")
+                        .track_scroll(h)
+                        .max_h(px(180.))
+                        .overflow_y_scroll()
+                        .py(px(9.))
+                        .pr(px(11.))
+                        .pl(px(11.))
+                        .child(text)
+                        .into_any_element()
+                })
                 .mx(px(14.))
                 .max_h(px(180.))
-                .overflow_y_scroll()
-                .py(px(9.))
-                .pr(px(11.))
-                .pl(px(11.))
                 .rounded(RADIUS)
                 .bg(t.surface_2)
                 .border_l_2()
@@ -124,8 +132,8 @@ impl Render for LastSent {
                 .text_size(px(12.5))
                 .line_height(px(18.))
                 .text_color(t.text)
-                .child(text.clone())
-                .into_any_element(),
+                .into_any_element()
+            }
             None => hint(
                 "Nothing sent through Pitwall yet. Prompts you type in the terminal aren't tracked.",
                 &t,

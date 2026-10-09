@@ -86,6 +86,8 @@ impl MainScreen {
     fn start_poll(&mut self, cx: &mut Context<Self>) {
         self.changes.poll = Some(cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(CHANGES_POLL).await;
+            // Paused while no window shows (`document.hidden`).
+            crate::platform::visible::until_any_visible(cx).await;
             let alive = this.update(cx, |s, cx| {
                 // Only while the panel shows them (and the window is up).
                 if s.route == Route::Space && s.changes.load.is_none() {
@@ -103,7 +105,10 @@ impl MainScreen {
         let (Some(engine), Some(id)) = (self.engine.clone(), self.changes.agent.clone()) else {
             return;
         };
-        self.changes.refreshing = true;
+        // Polls are silent: only a forced read shows "refreshing…".
+        if force {
+            self.changes.refreshing = true;
+        }
         let agent = id.clone();
         let task = cx.background_executor().spawn(async move {
             if force {
@@ -126,7 +131,10 @@ impl MainScreen {
                         s.changes.error = None;
                         s.changes.updated = Some(Instant::now());
                     }
-                    Err(e) => s.changes.error = Some(e),
+                    Err(e) => {
+                        s.note_access_error(&e, cx);
+                        s.changes.error = Some(e);
+                    }
                 }
                 cx.notify();
             });
@@ -142,18 +150,10 @@ impl MainScreen {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
-            .id("right-panel")
-            .w(RIGHT_W)
-            .h_full()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .bg(t.surface)
-            .border_l_1()
-            .border_color(t.line)
-            .child(
-                div()
+        let top = section(super::PanelSlot::Top, a, window, cx);
+        let changes = self.changes_section(a, t, window, cx).into_any_element();
+        let bottom = section(super::PanelSlot::Bottom, a, window, cx);
+        let head = div()
                     .h(px(32.))
                     .flex_none()
                     .flex()
@@ -176,11 +176,30 @@ impl MainScreen {
                                 }),
                             ),
                         )
-                    }),
-            )
-            .children(section(super::PanelSlot::Top, a, window, cx))
-            .child(self.changes_section(a, t, window, cx))
-            .children(section(super::PanelSlot::Bottom, a, window, cx))
+                    });
+        // `.right { overflow-y: auto }`: the whole panel scrolls.
+        crate::kit::scroll_area("right-panel-area", t, move |h| {
+            div()
+                .id("right-panel")
+                .track_scroll(h)
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .child(head)
+                .children(top)
+                .child(changes)
+                .children(bottom)
+                .into_any_element()
+        })
+        .fill()
+        .w(RIGHT_W)
+        .h_full()
+        .flex_none()
+        .bg(t.surface)
+        .border_l_1()
+        .border_color(t.line)
     }
 
     /// Show Files (or Changes); remembered in `ui.json` for every window.
@@ -268,10 +287,12 @@ impl MainScreen {
             // viewer); the tabs sit at its start, as `FilesPanel`'s `tabs`.
             let build = cx.global::<super::FilesPanel>().0.clone();
             let view = build(a, window, cx);
+            // `.panel-files` (flex: 1 1 0; min-height: 240px): the tree
+            // scrolls inside, so Last sent stays in reach.
             return div()
                 .relative()
                 .flex_1()
-                .min_h_0()
+                .min_h(px(240.))
                 .flex()
                 .flex_col()
                 .child(view)
@@ -288,7 +309,7 @@ impl MainScreen {
                 );
         }
         if !a.caps.diff {
-            return div().flex_1().flex().flex_col().child(head).child(hint(
+            return div().flex_grow().flex_shrink_0().flex().flex_col().child(head).child(hint(
                 "Not a git repository — Pitwall can't track changes in this folder.".into(),
             ));
         }
@@ -357,9 +378,6 @@ impl MainScreen {
             }
             (None, Some(files)) => div()
                 .id("file-list")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
                 .px(px(6.))
                 .children(
                     files
@@ -373,10 +391,6 @@ impl MainScreen {
         let wts = self.panel_worktrees(a, t, cx);
         let body = match wts {
             Some(w) => div()
-                .id("changes-body")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
                 .flex()
                 .flex_col()
                 .child(body)
@@ -384,9 +398,11 @@ impl MainScreen {
                 .into_any_element(),
             None => body,
         };
+        // `.panel-grow` (flex: 1 0 auto): a long list grows the panel,
+        // which scrolls as a whole (`.right { overflow-y: auto }`).
         div()
-            .flex_1()
-            .min_h_0()
+            .flex_grow()
+            .flex_shrink_0()
             .flex()
             .flex_col()
             .child(head)
@@ -512,7 +528,7 @@ impl MainScreen {
             .text_size(px(12.))
             .line_height(px(17.))
             .cursor_pointer()
-            .hover(|s| s.bg(t.surface_3))
+            .hover_probed(|s| s.bg(t.surface_3))
             .tooltip(tooltip(f.path.clone()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.open_diff(agent.clone(), file.clone(), window, cx)

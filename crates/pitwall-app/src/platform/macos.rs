@@ -37,3 +37,18 @@ pub fn about() {
         app.orderFrontStandardAboutPanel(None);
     }
 }
+
+/// Take a window off screen without closing it (`orderOut:`): the main
+/// window on close, as the Tauri app hides it; activating shows it again.
+pub fn hide(window: &gpui::Window) {
+    use objc2::rc::Retained;
+    use objc2_app_kit::NSView;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
+    let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+    // SAFETY: GPUI hands out its live NSView; we only retain it.
+    let view: Option<Retained<NSView>> = unsafe { Retained::retain(h.ns_view.as_ptr().cast()) };
+    if let Some(w) = view.and_then(|v| v.window()) {
+        w.orderOut(None);
+    }
+}

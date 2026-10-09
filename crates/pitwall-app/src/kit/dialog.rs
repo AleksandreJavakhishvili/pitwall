@@ -42,3 +42,19 @@ pub fn form_error(text: impl Into<SharedString>, t: &Theme) -> Div {
         .text_color(t.red)
         .child(text.into())
 }
+
+/// A `.modal-body` that scrolls when the window is too short for it
+/// (`overflow-y: auto`), with the app's scrollbar.
+pub fn scrolling(id: impl Into<gpui::ElementId>, body: Div, t: &Theme) -> super::ScrollArea {
+    let id: gpui::ElementId = id.into();
+    let inner = id.clone();
+    super::scroll_area(id, t, move |h| {
+        body.id(inner)
+            .track_scroll(h)
+            .min_h_0()
+            .overflow_y_scroll()
+            .into_any_element()
+    })
+    .min_h_0()
+    .flex_shrink()
+}

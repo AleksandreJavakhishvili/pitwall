@@ -239,9 +239,10 @@ impl MainScreen {
             return;
         }
         self.wt.open.insert(key);
-        // Expanding lists them again now.
+        // Expanding lists them again now, and their rows read their files
+        // anew (React mounts them fresh).
         self.wt_list(true, cx);
-        self.wt_load_files(false, cx);
+        self.wt_load_files(true, cx);
         cx.notify();
     }
 
@@ -282,7 +283,7 @@ impl MainScreen {
 
     /// Read the changes of the rows shown: new ones, ones whose HEAD moved,
     /// or all of them (`all`, the 15 s poll).
-    fn wt_load_files(&mut self, all: bool, cx: &mut Context<Self>) {
+    pub(super) fn wt_load_files(&mut self, all: bool, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
@@ -294,6 +295,8 @@ impl MainScreen {
         if self.wt.files_poll.is_none() {
             self.wt.files_poll = Some(cx.spawn(async move |this, cx| loop {
                 cx.background_executor().timer(FILES_EVERY).await;
+                // Paused while no window shows (`document.hidden`).
+                crate::platform::visible::until_any_visible(cx).await;
                 if this.update(cx, |s, cx| s.wt_load_files(true, cx)).is_err() {
                     break;
                 }
@@ -547,7 +550,10 @@ impl MainScreen {
                                 busy,
                                 Some(crate::kit::fresh_note(busy, age)),
                                 t,
-                                cx.listener(|this, _, _, cx| this.wt_list(true, cx)),
+                                cx.listener(|this, _, _, cx| {
+                                    this.wt_list(true, cx);
+                                    this.wt_load_files(true, cx);
+                                }),
                             ))
                         }),
                 )
@@ -592,7 +598,7 @@ impl MainScreen {
             .line_height(px(16.))
             .text_color(t.text_2)
             .cursor_pointer()
-            .hover(move |s| s.bg(bg))
+            .hover_probed(move |s| s.bg(bg))
             .tooltip(tooltip(row_tip(r, error)))
             .on_click(cx.listener(move |this, _, _, cx| this.wt_review(p.clone(), w.clone(), cx)))
             .on_mouse_down(
@@ -751,7 +757,7 @@ impl MainScreen {
             })
             .title(format!("Remove worktree {}", w.name))
             .motion(crate::theme::motion_on(cx))
-            .render(t, div().flex().flex_col().child(body).child(foot)),
+            .render(t, div().flex().flex_col().min_h_0().child(crate::kit::dialog::scrolling("rmwt-body", body, t)).child(foot)),
         )
     }
 }

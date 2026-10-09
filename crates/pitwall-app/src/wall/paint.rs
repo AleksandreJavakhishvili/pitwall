@@ -72,6 +72,9 @@ pub fn screen_view(screen: &Screen, opts: ScreenOpts) -> impl IntoElement {
             for (origin, line) in p.lines {
                 let _ = line.paint(origin, p.line_h, window, cx);
             }
+            for (b, c) in p.decorations {
+                window.paint_quad(fill(b, c));
+            }
             if let Some((b, c)) = p.cursor {
                 window.paint_quad(outline(b, c, BorderStyle::Solid));
             }
@@ -85,6 +88,32 @@ struct Prepainted {
     lines: Vec<(Point<Pixels>, ShapedLine)>,
     line_h: Pixels,
     cursor: Option<(Bounds<Pixels>, Hsla)>,
+    /// Underlines GPUI can't draw (double, dotted, dashed).
+    decorations: Vec<(Bounds<Pixels>, Hsla)>,
+}
+
+/// CSS `text-decoration` styles GPUI's text runs lack, as rectangles
+/// (`x`, `width`) along a cell span `w` wide from `x0`, `t` thick:
+/// `double` two lines one thickness apart, `dotted` square dots one
+/// thickness long with equal gaps, `dashed` dashes three long, two apart
+/// (Chrome's proportions). The `dy` of each piece is its offset below the
+/// underline position. Styles 1 (single) and 3 (wavy) are GPUI's own.
+pub fn underline_pieces(style: u8, x0: f32, w: f32, t: f32) -> Vec<(f32, f32, f32)> {
+    let dashes = |on: f32, off: f32| {
+        let mut out = Vec::new();
+        let mut x = x0;
+        while x < x0 + w {
+            out.push((x, on.min(x0 + w - x), 0.));
+            x += on + off;
+        }
+        out
+    };
+    match style {
+        2 => vec![(x0, w, 0.), (x0, w, 2. * t)],
+        4 => dashes(t, t),
+        5 => dashes(3. * t, 2. * t),
+        _ => Vec::new(),
+    }
 }
 
 /// Cell metrics at `font_size`: (cell width, row height) as xterm rounds
@@ -141,7 +170,18 @@ fn prepaint(
         lines: Vec::new(),
         line_h: px(line_h),
         cursor: None,
+        decorations: Vec::new(),
     };
+    // Where GPUI puts an underline: the baseline (the text centred in the
+    // line box) plus 0.618 of the descent.
+    let fid = window.text_system().resolve_font(&base);
+    let (asc, desc) = (
+        f32::from(window.text_system().ascent(fid, font_size)),
+        f32::from(window.text_system().descent(fid, font_size)).abs(),
+    );
+    let under_dy = (line_h - (asc + desc)) / 2. + asc + desc * 0.618;
+    // React scales the whole tile: a 1 px line scales with it.
+    let thick = s.max(0.5);
     let ts = window.text_system().clone();
     for r in (0..rows).rev() {
         let y = bottom - (rows - r) as f32 * line_h;
@@ -200,8 +240,8 @@ fn prepaint(
                 }
                 let mut f = base.clone();
                 if st.bold {
-                    // The heaviest bundled JetBrains Mono face.
-                    f.weight = FontWeight::SEMIBOLD;
+                    // `font-weight: bold` (JetBrains Mono Bold is bundled).
+                    f.weight = FontWeight::BOLD;
                 }
                 if st.italic {
                     f.style = FontStyle::Italic;
@@ -216,7 +256,7 @@ fn prepaint(
                     font: f,
                     color: st.fg,
                     background_color: None,
-                    underline: (st.underline > 0).then_some(UnderlineStyle {
+                    underline: matches!(st.underline, 1 | 3).then_some(UnderlineStyle {
                         thickness: px(1.),
                         color: Some(st.fg),
                         wavy: st.underline == 3,
@@ -226,6 +266,14 @@ fn prepaint(
                         color: Some(st.fg),
                     }),
                 });
+                for (x, w, dy) in
+                    underline_pieces(st.underline, left + col * cell_w, p.cells as f32 * cell_w, thick)
+                {
+                    out.decorations.push((
+                        Bounds::new(point(px(x), px(y + under_dy + dy)), size(px(w), px(thick))),
+                        st.fg,
+                    ));
+                }
                 byte += p.len;
                 col += p.cells as f32;
             }
@@ -249,6 +297,23 @@ mod tests {
             "cropped below the minimum"
         );
         assert_eq!(scale_for(100., 0.), 1.);
+    }
+
+    #[test]
+    fn underline_styles_gpui_lacks_are_drawn() {
+        // Single and wavy are GPUI's.
+        assert!(underline_pieces(1, 0., 20., 1.).is_empty());
+        assert!(underline_pieces(3, 0., 20., 1.).is_empty());
+        // Double: two full lines, one thickness apart.
+        assert_eq!(underline_pieces(2, 5., 20., 1.), vec![(5., 20., 0.), (5., 20., 2.)]);
+        // Dotted: dot, gap, dot… within the span.
+        let d = underline_pieces(4, 0., 5., 1.);
+        assert_eq!(d.iter().map(|p| p.0).collect::<Vec<_>>(), vec![0., 2., 4.]);
+        // Dashed: 3 on, 2 off; the last dash is cut at the span's end.
+        let d = underline_pieces(5, 0., 8., 1.);
+        assert_eq!(d, vec![(0., 3., 0.), (5., 3., 0.)]);
+        let d = underline_pieces(5, 0., 7., 1.);
+        assert_eq!(d[1], (5., 2., 0.));
     }
 
     #[test]

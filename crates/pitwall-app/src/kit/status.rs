@@ -95,6 +95,16 @@ pub fn status_glyph_el(s: Status, t: &Theme, size: GlyphSize, play: Option<Eleme
 
 /// The status glyph with its motion (see [`GlyphMotion`]).
 pub fn status_glyph(s: Status, t: &Theme, size: GlyphSize, m: GlyphMotion) -> Div {
+    // `title` = the status word, as `StatusGlyph` sets it.
+    let word = crate::agents::status_word(s);
+    div().flex_none().child(
+        glyph_body(s, t, size, m)
+            .id(SharedString::from(format!("glyph-{word}")))
+            .tooltip(super::tooltip(word)),
+    )
+}
+
+fn glyph_body(s: Status, t: &Theme, size: GlyphSize, m: GlyphMotion) -> Div {
     let (side, base) = size.metrics();
     let (dot_ink, square_ink, flag_px) = size.ink();
     let color = t.status_color(s);

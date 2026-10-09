@@ -723,6 +723,19 @@ the UI build green.
   disconnects, and every other CLI command (stop/remove/prompt/queue/space/…;
   the table and client are ready for them).
 
+- CLI coverage for the Race Engineer (docs/spec/engineer.md) done: caps
+  `manage` and `spaces`; `agent.stop|restart|remove|rename|status|wait`,
+  `queue.add|list|remove|send`, `project.list|add|remove`,
+  `rules.list|sets|apply|default`, `review.changes` (pitwall-daemon
+  `manage.rs`, the same core calls the UI makes), and `space.list|create|
+  rename|move` + `agent.move` through the host's `WorkspaceBackend` (the
+  app applies them on its main thread to the one `ui.json` store and its
+  windows, `cli_spaces`). Stop/restart (Low here, High on other machines),
+  remove (High) and `rules.apply` into a main checkout (High) ask unless
+  Pitwall's own window asked. `agent.status` explains the status from the
+  hook, screen-rule and activity signals (`engine::diagnose`). The CLI
+  names agents and spaces by id or name; usage errors are JSON, exit 2.
+
 - Step 8b done (agw diffs and Review): `providers::agw::AgwExec` implements
   `Exec` through agw's own `vm exec` / `agent exec` (options before the
   name, `--` before the command), as the session's user (`agent_name` →
