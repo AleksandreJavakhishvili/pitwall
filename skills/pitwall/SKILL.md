@@ -1,14 +1,15 @@
 ---
 name: pitwall
-description: "Add agents and sessions to Pitwall, the desktop app that runs and watches coding agents. Use only when the user asks to add an agent, terminal or an existing agw session to Pitwall, or to see what Pitwall tracks. Requires the `pitwall` CLI and a running Pitwall app."
+description: "Add agents and sessions to Pitwall, the desktop app that runs and watches coding agents, and read or change its settings. Use only when the user asks to add an agent, terminal or an existing agw session to Pitwall, to see what Pitwall tracks, or to change a Pitwall setting (theme, look, density, font, hooks, …). Requires the `pitwall` CLI; most commands need a running Pitwall app."
 ---
 
 # Pitwall
 
 Pitwall is a desktop app that runs coding agents (Claude Code, Codex, …) and
 terminals in panes, and tracks agw sessions on VMs. The `pitwall` CLI talks to
-the running app over a local socket. It can **list** what Pitwall knows and
-**add** things to it; nothing else (no stopping, removing or prompting agents).
+the running app over a local socket. It can **list** what Pitwall knows, **add**
+things to it and **change its settings**; nothing else (no stopping, removing or
+prompting agents).
 
 Check that you can reach it:
 
@@ -72,6 +73,40 @@ pitwall agent new --machine <vm> --name <session> --new-workspace [<name>] [--wo
   (asked every time when it also makes a new workspace or agent user); denied
   → exit 3, nothing created. Removing it from Pitwall later leaves the session
   on the VM (deleting it there is not offered).
+
+## Settings
+
+Every setting has a dotted key. Discover them first; never guess keys or values:
+
+```bash
+pitwall settings list                       # key, value, allowed values (choices/min/max), default,
+                                            # description, page, sensitivity ("safe" or "approval")
+pitwall settings get appearance.theme
+pitwall settings set appearance.theme dark  # switches: true/false (also on/off); choices; numbers
+pitwall settings set appearance.terminalFontSize 15
+pitwall settings reset appearance.theme     # back to the default
+```
+
+`get`/`set`/`reset` print the setting as JSON (`value` is what is now in
+effect). Keys today: `general.showElsewhere`, `general.cliTool`,
+`agents.codexHooks`, `rules.allowNpx`, `appearance.theme`, `appearance.look`,
+`appearance.reduceMotion`, `appearance.density`, `appearance.terminalFontSize`
+— but trust `settings list`, not this line.
+
+- With Pitwall running, a change applies at once in every window.
+- `"sensitivity": "safe"` settings (Pitwall's own look) apply directly.
+- `"sensitivity": "approval"` settings change something outside Pitwall
+  (installing Codex hooks or the `pitwall` link, letting rulesync run through
+  npx): Pitwall shows the user an approval dialog naming you, and the command
+  **waits**. Denied or unanswered → exit 3 (`denied` / `approval_timeout`),
+  nothing changed. Setting a value it already has asks nothing.
+- `onlyOn: true` settings can only be turned on (installing); turning them off
+  is refused (`bad_params`).
+- An unknown key → `not_found`; a value that isn't allowed → `bad_params`
+  with the allowed values in the message (exit 1).
+- Without Pitwall running, `safe` settings are written to `ui.json` in
+  Pitwall's data folder (Pitwall reads them when it starts); `approval` ones
+  fail with `not_running`, and `settings list` shows them as `null`.
 
 ## Approvals
 

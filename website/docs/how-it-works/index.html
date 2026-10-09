@@ -164,8 +164,10 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
         <pre><code>pitwall agent list
 pitwall agent new --kind claude --project ~/code/api --name api
 pitwall session list --provider agw
-pitwall session add agw &lt;vm&gt; &lt;session&gt; --start</code></pre>
-        <p>Today it lists and adds; it can't stop, remove or prompt agents. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request.</p>
+pitwall session add agw &lt;vm&gt; &lt;session&gt; --start
+pitwall settings list
+pitwall settings set appearance.theme dark</code></pre>
+        <p>Today it lists, adds and changes settings; it can't stop, remove or prompt agents. Settings are also plain JSON in <code>~/.pitwall/ui.json</code> (with a <a href="%REPO_URL%/blob/main/docs/settings.schema.json">JSON Schema</a> for editors): edits apply live, and a value that isn't allowed is reported while the last good one stays. Settings that change something outside Pitwall, like installing Codex hooks, ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request.</p>
 
         <h2 id="first-launch">First launch</h2>
         <p>A read-only scan: agent CLIs on your PATH, recent projects from Claude and Codex transcripts, VS Code and Cursor history and one level deep in <code>~/projects ~/code ~/Developer ~/src ~/dev ~/work</code>, and conversations you can continue. Desktop, Documents and Downloads aren't enumerated; use Add folder…. Nothing changes until you tick a box. Details are in the <a href="/docs/quick-start/#first-launch">quick start</a>.</p>
