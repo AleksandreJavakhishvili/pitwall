@@ -1906,7 +1906,7 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
 
 extern "C" fn window_did_change_occlusion_state(this: &Object, _: Sel, _: id) {
     let window_state = unsafe { get_window_state(this) };
-    let mut lock = window_state.lock();
+    let lock = &mut *window_state.lock();
     unsafe {
         if lock
             .native_window
@@ -1914,34 +1914,9 @@ extern "C" fn window_did_change_occlusion_state(this: &Object, _: Sel, _: id) {
             .contains(NSWindowOcclusionState::NSWindowOcclusionStateVisible)
         {
             lock.move_traffic_light();
-            // Pitwall patch: back from off screen — full size again, and
-            // the current scene presented before the window shows.
-            #[cfg(not(feature = "macos-blade"))]
-            {
-                let drawable: NSSize = msg_send![lock.renderer.layer(), drawableSize];
-                if drawable.width <= 1. {
-                    let size = lock.content_size().to_device_pixels(lock.scale_factor());
-                    lock.renderer.update_drawable_size(size);
-                    if let Some(mut callback) = lock.request_frame_callback.take() {
-                        lock.renderer.set_presents_with_transaction(true);
-                        drop(lock);
-                        callback(RequestFrameOptions {
-                            require_presentation: true,
-                            force_render: false,
-                        });
-                        lock = window_state.lock();
-                        lock.request_frame_callback = Some(callback);
-                        lock.renderer.set_presents_with_transaction(false);
-                    }
-                }
-            }
             lock.start_display_link();
         } else {
             lock.stop_display_link();
-            // Pitwall patch: off screen (another Space, minimised, hidden,
-            // covered) — give back its GPU memory until it shows again.
-            #[cfg(not(feature = "macos-blade"))]
-            lock.renderer.release_offscreen();
         }
     }
 }

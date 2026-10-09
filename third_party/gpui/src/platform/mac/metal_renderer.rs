@@ -119,7 +119,7 @@ pub(crate) struct MetalRenderer {
     path_sample_count: u32,
     // Pitwall patch: the size the path textures are made at, on the first
     // frame that draws a path (window-sized textures; none while a window
-    // has drawn no path or is off screen).
+    // has drawn no path).
     path_texture_size: Size<DevicePixels>,
 }
 
@@ -323,20 +323,6 @@ impl MetalRenderer {
         self.path_texture_size = size;
         self.path_intermediate_texture = None;
         self.path_intermediate_msaa_texture = None;
-    }
-
-    /// Pitwall patch: give back the GPU memory a window off screen doesn't
-    /// need — the path textures and the layer's spare drawables. The window
-    /// calls [`Self::update_drawable_size`] before it draws again.
-    pub fn release_offscreen(&mut self) {
-        self.path_intermediate_texture = None;
-        self.path_intermediate_msaa_texture = None;
-        unsafe {
-            let _: () = msg_send![
-                self.layer(),
-                setDrawableSize: NSSize { width: 1., height: 1. }
-            ];
-        }
     }
 
     fn ensure_path_intermediate_textures(&mut self) {
