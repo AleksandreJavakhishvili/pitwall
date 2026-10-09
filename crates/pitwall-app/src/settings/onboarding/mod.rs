@@ -2349,7 +2349,7 @@ impl Render for Onboarding {
             .text_color(t.text)
             .flex()
             .flex_col()
-            .child(crate::kit::vscroll("onb-bar", &self.scroll, &t,
+            .child(
                 div()
                     .id("onb-scroll")
                     .track_scroll(&self.scroll)
@@ -2368,7 +2368,7 @@ impl Render for Onboarding {
                             .pb(px(24.))
                             .child(content),
                     ),
-            ).flex_1())
+            )
             .child(
                 div()
                     .flex_none()
