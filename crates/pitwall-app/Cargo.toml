@@ -53,6 +53,7 @@ tree-sitter-cpp = "0.23"
 tree-sitter-java = "0.23"
 tree-sitter-ruby = "0.23"
 tree-sitter-yaml = "0.7"
+tree-sitter-md = "0.5"
 # The terminal view in panes (Apache-2.0, this repo): fed from the engine,
 # no PTY or holder connection of its own.
 pitwall-term-view = { path = "../pitwall-term-view", default-features = false }

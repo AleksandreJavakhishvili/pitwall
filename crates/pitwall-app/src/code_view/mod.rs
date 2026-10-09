@@ -19,7 +19,9 @@
 
 pub mod diff;
 pub mod find;
+mod brackets;
 pub mod highlight;
+mod markdown;
 /// The text field moved to the kit ([`crate::kit::input`]); these names
 /// stay for code written against Review's own.
 pub mod input {
@@ -235,7 +237,7 @@ impl Content {
         }
     }
 
-    fn spans(&self, side: Side, line: usize) -> &[(Range<usize>, highlight::Token)] {
+    fn spans(&self, side: Side, line: usize) -> &[(Range<usize>, highlight::Style)] {
         let hl = match side {
             Side::Old => &self.old_hl,
             Side::New => &self.new_hl,
@@ -1150,14 +1152,27 @@ impl CodeView {
         cx.notify();
     }
 
+    /// Move the open context menu's highlight by `delta` (wrapping); false
+    /// when no menu is open.
+    fn menu_step(&mut self, delta: isize, cx: &mut Context<Self>) -> bool {
+        let commentable = self.commentable;
+        let Some(menu) = self.menu.as_mut() else {
+            return false;
+        };
+        let n = paint::menu_items(menu.line.is_some() && commentable).len();
+        menu.active = Some(step_wrap(menu.active, delta, n));
+        cx.notify();
+        true
+    }
+
     /// Typing into a read-only view says so (as Monaco did).
     fn on_key_down(&mut self, e: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let k = &e.keystroke;
         if let Some(menu) = self.menu.as_mut() {
             let n = paint::menu_items(menu.line.is_some() && self.commentable).len();
             match k.key.as_str() {
-                "down" => menu.active = Some(menu.active.map_or(0, |a| (a + 1) % n)),
-                "up" => menu.active = Some(menu.active.map_or(n - 1, |a| (a + n - 1) % n)),
+                "down" => menu.active = Some(step_wrap(menu.active, 1, n)),
+                "up" => menu.active = Some(step_wrap(menu.active, -1, n)),
                 "enter" | "space" => {
                     if let Some(a) = menu.active {
                         self.run_menu(a, cx);
@@ -1242,8 +1257,18 @@ impl Render for CodeView {
                 cx.notify();
             }))
             .on_key_down(cx.listener(Self::on_key_down))
-            .on_action(cx.listener(|v, _: &MoveUp, w, cx| v.vertical(-1, false, w, cx)))
-            .on_action(cx.listener(|v, _: &MoveDown, w, cx| v.vertical(1, false, w, cx)))
+            // With the context menu open, ↑/↓ move its highlight (the
+            // bindings run before key-down listeners).
+            .on_action(cx.listener(|v, _: &MoveUp, w, cx| {
+                if !v.menu_step(-1, cx) {
+                    v.vertical(-1, false, w, cx)
+                }
+            }))
+            .on_action(cx.listener(|v, _: &MoveDown, w, cx| {
+                if !v.menu_step(1, cx) {
+                    v.vertical(1, false, w, cx)
+                }
+            }))
             .on_action(cx.listener(|v, _: &SelectUp, w, cx| v.vertical(-1, true, w, cx)))
             .on_action(cx.listener(|v, _: &SelectDown, w, cx| v.vertical(1, true, w, cx)))
             .on_action(cx.listener(|v, _: &PageUp, w, cx| v.page(false, false, w, cx)))
@@ -1383,6 +1408,19 @@ impl Render for CodeView {
         }
         root = root.children(paint::overlays(self, &colors, &t, window, cx));
         root
+    }
+}
+
+/// A menu highlight moved by `delta` over `n` items, wrapping; from none,
+/// ↓ takes the first and ↑ the last.
+fn step_wrap(active: Option<usize>, delta: isize, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    match active {
+        None if delta >= 0 => 0,
+        None => n - 1,
+        Some(a) => (a as isize + delta).rem_euclid(n as isize) as usize,
     }
 }
 

@@ -31,6 +31,27 @@ pub enum Token {
     Bracket(u8),
     /// A closing bracket without its opener.
     StrayBracket,
+    /// `--rv-tk-variable`: Markdown's inline and fenced code (`t.monospace`).
+    Variable,
+}
+
+/// How a span is drawn: a token colour (none: the text colour), italic
+/// (`t.emphasis`) and bold (`t.strong`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Style {
+    pub tok: Option<Token>,
+    pub italic: bool,
+    pub bold: bool,
+}
+
+impl From<Token> for Style {
+    fn from(tok: Token) -> Style {
+        Style {
+            tok: Some(tok),
+            italic: false,
+            bold: false,
+        }
+    }
 }
 
 /// The languages Pitwall highlights.
@@ -50,6 +71,8 @@ pub enum Lang {
     Java,
     Ruby,
     Yaml,
+    /// Markers only, as Monaco: see [`super::markdown`].
+    Markdown,
 }
 
 const ALL: [Lang; 14] = [
@@ -97,6 +120,7 @@ impl Lang {
             "java" => Lang::Java,
             "rb" | "gemspec" | "rake" => Lang::Ruby,
             "yml" | "yaml" => Lang::Yaml,
+            "md" | "markdown" | "mkd" => Lang::Markdown,
             _ => return None,
         })
     }
@@ -106,6 +130,7 @@ impl Lang {
     }
 
     fn index(self) -> usize {
+        // Markdown has its own walker and no config.
         ALL.iter().position(|l| *l == self).unwrap_or(0)
     }
 
@@ -177,6 +202,7 @@ impl Lang {
                 tree_sitter_yaml::LANGUAGE.into(),
                 tree_sitter_yaml::HIGHLIGHTS_QUERY.into(),
             ),
+            Lang::Markdown => unreachable!("Markdown is walked, not queried"),
         };
         (lang, q)
     }
@@ -224,7 +250,7 @@ fn config(lang: Lang) -> Option<&'static HighlightConfiguration> {
 
 /// Highlighted spans of one line: source byte ranges, in order, not
 /// overlapping.
-pub type LineSpans = Vec<(Range<usize>, Token)>;
+pub type LineSpans = Vec<(Range<usize>, Style)>;
 
 /// Per-line spans of a whole text (empty when the language is unknown, the
 /// file too large or the parse failed).
@@ -235,20 +261,38 @@ pub fn highlight(text: &str, lang: Option<Lang>) -> Vec<LineSpans> {
     if text.len() > MAX_HIGHLIGHT_BYTES {
         return out;
     }
-    let Some(cfg) = config(lang) else { return out };
-    let mut hl = Highlighter::new();
-    let Ok(events) = hl.highlight(cfg, text.as_bytes(), None, |_| None) else {
+    if lang == Lang::Markdown {
+        let Some(md) = super::markdown::styles(text) else { return out };
+        for (r, st) in md.spans {
+            push_span(&mut out, &line_starts, text, r, st);
+        }
+        brackets(text, &line_starts, &md.quiet, &mut out);
+        return out;
+    }
+    let Some((spans, quiet)) = token_spans(text, lang) else {
         return out;
     };
+    for (r, tok) in spans {
+        push_span(&mut out, &line_starts, text, r, tok.into());
+    }
+    brackets(text, &line_starts, &quiet, &mut out);
+    out
+}
+
+/// Token spans, and the ranges where brackets don't count.
+pub(super) type Spans = (Vec<(Range<usize>, Token)>, Vec<Range<usize>>);
+
+/// Whole-text token spans of a queried language, and the ranges where
+/// brackets don't count (strings, comments, regexps). `None`: no parse.
+pub(super) fn token_spans(text: &str, lang: Lang) -> Option<Spans> {
+    let cfg = config(lang)?;
+    let mut hl = Highlighter::new();
+    let events = hl.highlight(cfg, text.as_bytes(), None, |_| None).ok()?;
     let mut stack: Vec<Option<Token>> = Vec::new();
-    // Byte ranges of the whole text that are strings/comments/regexps:
-    // brackets there are not brackets.
+    let mut spans = Vec::new();
     let mut quiet: Vec<Range<usize>> = Vec::new();
     for ev in events {
-        let Ok(ev) = ev else {
-            return vec![Vec::new(); line_starts.len()];
-        };
-        match ev {
+        match ev.ok()? {
             HighlightEvent::HighlightStart(h) => stack.push(NAMES.get(h.0).map(|(_, t)| *t)),
             HighlightEvent::HighlightEnd => {
                 stack.pop();
@@ -264,12 +308,11 @@ pub fn highlight(text: &str, lang: Option<Lang>) -> Vec<LineSpans> {
                 if matches!(tok, Token::String | Token::Comment | Token::Regexp) {
                     quiet.push(start..end);
                 }
-                push_span(&mut out, &line_starts, text, start..end, tok);
+                spans.push((start..end, tok));
             }
         }
     }
-    brackets(text, &line_starts, &quiet, &mut out);
-    out
+    Some((spans, quiet))
 }
 
 fn line_starts(text: &str) -> Vec<usize> {
@@ -279,7 +322,7 @@ fn line_starts(text: &str) -> Vec<usize> {
 }
 
 /// Split a whole-text span over the lines it covers.
-fn push_span(out: &mut [LineSpans], starts: &[usize], text: &str, r: Range<usize>, tok: Token) {
+fn push_span(out: &mut [LineSpans], starts: &[usize], text: &str, r: Range<usize>, tok: Style) {
     let mut line = starts.partition_point(|s| *s <= r.start).saturating_sub(1);
     let mut from = r.start;
     while from < r.end && line < starts.len() {
@@ -332,10 +375,20 @@ fn brackets(text: &str, starts: &[usize], quiet: &[Range<usize>], out: &mut [Lin
     }
 }
 
-/// Put `tok` over `r` in a line's spans, splitting what was there.
+/// Put bracket colour `tok` over `r` in a line's spans, splitting what was
+/// there (italic and bold stay, as a CSS colour class over them would).
 fn overlay(spans: &mut LineSpans, r: Range<usize>, tok: Token) {
     let mut next: LineSpans = Vec::with_capacity(spans.len() + 2);
     let mut placed = false;
+    let under = spans
+        .iter()
+        .find(|(s, _)| s.start < r.end && s.end > r.start)
+        .map(|(_, st)| *st)
+        .unwrap_or_default();
+    let tok = Style {
+        tok: Some(tok),
+        ..under
+    };
     for (s, t) in spans.drain(..) {
         if s.end <= r.start || s.start >= r.end {
             if !placed && s.start >= r.end {
@@ -369,7 +422,7 @@ mod tests {
     fn tokens(line: &str, spans: &LineSpans) -> Vec<(String, Token)> {
         spans
             .iter()
-            .map(|(r, t)| (line[r.clone()].to_string(), *t))
+            .filter_map(|(r, t)| Some((line[r.clone()].to_string(), t.tok?)))
             .collect()
     }
 
@@ -416,8 +469,8 @@ mod tests {
         let out = highlight("a([{x}]) )", Some(Lang::JavaScript));
         let toks: Vec<Token> = out[0]
             .iter()
-            .filter(|(_, t)| matches!(t, Token::Bracket(_) | Token::StrayBracket))
-            .map(|(_, t)| *t)
+            .filter_map(|(_, t)| t.tok)
+            .filter(|t| matches!(t, Token::Bracket(_) | Token::StrayBracket))
             .collect();
         assert_eq!(
             toks,
@@ -437,8 +490,8 @@ mod tests {
     fn multi_line_comments_split_per_line_and_unicode_offsets_hold() {
         let src = "/* გამარჯობა\n   end */ x";
         let out = highlight(src, Some(Lang::C));
-        assert_eq!(out[0], vec![(0.."/* გამარჯობა".len(), Token::Comment)]);
-        assert_eq!(out[1][0], (0..9, Token::Comment));
+        assert_eq!(out[0], vec![(0.."/* გამარჯობა".len(), Token::Comment.into())]);
+        assert_eq!(out[1][0], (0..9, Token::Comment.into()));
     }
 
     #[test]
