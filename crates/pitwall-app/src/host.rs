@@ -42,6 +42,13 @@ impl Host {
 
     /// [`Host::start`] with a given holder binary (tests).
     fn start_with_holder(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>) -> Host {
+        Host::start_with(paths, bridge, holder, None)
+    }
+
+    /// [`Host::start`] with a given holder and `agw` program (tests).
+    /// Never waits on a provider: saved agents reconnect in the background
+    /// (`pitwall_core::engine::connect`).
+    fn start_with(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>, agw: Option<PathBuf>) -> Host {
         let holder = holder.map(|b| crate::packaging::stable_sidecar(b, &paths.root().join("bin")));
         let local = LocalProvider::new(LocalConfig {
             hold_dir: paths.hold_dir(),
@@ -49,7 +56,11 @@ impl Host {
             hook_socket: paths.hook_socket(),
             cli_socket: paths.cli_socket(),
         });
-        let agw = AgwProvider::new(AgwConfig::new(paths.hold_dir(), holder));
+        let mut agw_cfg = AgwConfig::new(paths.hold_dir(), holder);
+        if agw.is_some() {
+            agw_cfg.agw = agw;
+        }
+        let agw = AgwProvider::new(agw_cfg);
         let engine = Engine::open(Deps {
             store: Arc::new(FileStore::new(paths.state_file())),
             paths: paths.clone(),
@@ -182,6 +193,57 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Starting never waits on providers: with a saved agent on a VM whose
+    /// `agw` takes a minute to answer, the engine and the CLI socket are up
+    /// at once; the agent shows "connecting…" meanwhile, also to the CLI.
+    #[cfg(unix)]
+    #[test]
+    fn starting_never_waits_on_a_slow_machine() {
+        use pitwall_core::provider::{Locator, MachineId, ProviderId};
+        use std::os::unix::fs::PermissionsExt;
+        let dir = PathBuf::from(format!("/tmp/pwss-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A made-up agw that hangs on every call (an asleep VM).
+        let agw = dir.join("agw");
+        let pids = dir.join("agw-pids");
+        std::fs::write(&agw, format!("#!/bin/sh\necho $$ >> '{}'\nexec sleep 60\n", pids.display())).unwrap();
+        std::fs::set_permissions(&agw, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let paths = Paths::new(&dir);
+        let mut rec: pitwall_core::model::AgentRecord = serde_json::from_value(serde_json::json!({
+            "id": "far", "name": "far", "kind": "shell", "kindName": "Shell",
+            "cwd": "/srv/work", "project": "/srv/work", "createdAt": 1
+        }))
+        .unwrap();
+        rec.locator = Some(Locator::new(&ProviderId::new("agw"), &MachineId::new("box"), "far"));
+        pitwall_core::store::Store::save(&pitwall_core::store::FileStore::new(paths.state_file()), &pitwall_core::store::Snapshot { agents: vec![rec] })
+            .unwrap();
+
+        let t = std::time::Instant::now();
+        let (bridge, _rx) = Bridge::new();
+        let mut host = Host::start_with(paths.clone(), bridge, Err("no holder in this test".into()), Some(agw));
+        let took = t.elapsed();
+        let view = host.engine.views().remove(0);
+        let mut cli = pitwall_client::Client::connect(&paths.cli_socket());
+        let listed = cli.as_mut().ok().and_then(|c| c.agents().ok());
+        host.shutdown();
+        // End the made-up agw (only the processes it recorded) and its folder.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !pids.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for pid in std::fs::read_to_string(&pids).unwrap_or_default().split_whitespace() {
+            let _ = std::process::Command::new("kill").arg(pid).status();
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(took < Duration::from_millis(500), "Host::start took {took:?}");
+        assert_eq!(view.status_detail.as_deref(), Some(pitwall_core::engine::connect::CONNECTING));
+        assert!(!view.running);
+        let listed = listed.expect("the CLI answers while agents connect");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].status_detail.as_deref(), Some("connecting…"));
+    }
+
     /// The holder binary for the tests below: `PITWALL_HOLD_BIN`, else built
     /// once into its own target dir (as pitwall-providers' contract tests do).
     #[cfg(unix)]
@@ -297,6 +359,8 @@ mod tests {
 
         let (bridge, _rx) = Bridge::new();
         let mut host = Host::start_with_holder(Paths::new(&dir), bridge, Ok(holder));
+        // Saved agents re-attach in the background, at once for this Mac's.
+        host.engine.wait_connected(Duration::from_secs(10));
         let view = host.engine.views().into_iter().find(|v| v.id == id);
         let running = view.as_ref().is_some_and(|v| v.running);
         let mut out = String::new();

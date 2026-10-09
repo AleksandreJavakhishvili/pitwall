@@ -65,6 +65,9 @@ impl Global for AppState {}
 
 pub fn run() {
     let started = std::time::Instant::now();
+    // This thread draws the UI: debug builds fail loudly when a program is
+    // started on it (pitwall_core::exec::assert_off_ui).
+    pitwall_core::exec::mark_ui_thread();
     let chosen = home::choose(&home::Env::current(), Paths::default_root(), home::answers);
     // A second launch on the same folder brings the running app forward.
     if let Err(home::Refusal::InUse { root }) = &chosen {

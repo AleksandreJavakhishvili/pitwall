@@ -99,6 +99,17 @@ impl Providers {
             .map_or_else(|| loc.machine.to_string(), |m| m.label)
     }
 
+    /// [`machine_label`](Self::machine_label) without asking the provider:
+    /// from machines already listed, else the machine's id. Never blocks.
+    pub fn known_machine_label(&self, loc: &Locator) -> String {
+        self.machines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&loc.provider)
+            .and_then(|ms| ms.iter().find(|m| m.id == loc.machine))
+            .map_or_else(|| loc.machine.to_string(), |m| m.label.clone())
+    }
+
     /// Commands and files where the agent at `loc` works.
     pub fn exec(&self, loc: &Locator) -> Result<Arc<dyn Exec>> {
         self.for_locator(loc)?.exec_at(loc)
