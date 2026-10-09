@@ -2,8 +2,9 @@
 //! (`src/components/onboarding/Onboarding.tsx`, `FolderAccess.tsx`;
 //! docs/spec/onboarding.md). Full window.
 //!
-//! The welcome screen starts with folder access (macOS Full Disk Access) and
-//! only then scans: the scan reads project folders, and the first read of
+//! The welcome screen starts with folder access (macOS asks once per
+//! protected folder; Full Disk Access is the alternative) and only then
+//! scans: the scan reads project folders, and the first read of
 //! Desktop/Documents/Downloads is what makes macOS ask. The scan is
 //! read-only; nothing changes until the user ticks a box and confirms.
 
@@ -2020,25 +2021,91 @@ impl Onboarding {
             )
     }
 
+    /// Folder access: macOS's per-folder prompts are the normal path
+    /// ("Continue"); Full Disk Access is offered as a secondary choice with
+    /// what it means. Granting it is still noticed by itself.
     fn access_screen(&self, p: &Paint, cx: &mut Context<Self>) -> (AnyElement, Div) {
         let t = &p.t;
         let granted = self.access == AccessPhase::Granted;
         let waiting = self.access == AccessPhase::Waiting;
-        let steps = vec![
-            (
-                "Open Settings",
-                "Privacy & Security → Full Disk Access opens.",
-            ),
-            (
-                "Turn on Pitwall",
-                "if it isn't listed, click + and choose Pitwall in Applications.",
-            ),
-            ("Come back here", "this page notices by itself."),
-        ];
+        let folders = ["Desktop", "Documents", "Downloads"];
+        let prompts = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(p.section_head("macOS asks once per folder", None).child(if granted {
+                crate::kit::chip_tone("not needed now", crate::kit::Tone::Subtle, &p.ui.t)
+            } else {
+                crate::kit::chip_tone("recommended", crate::kit::Tone::Ok, &p.ui.t)
+            }))
+            .child(crate::kit::muted("When Pitwall first reads a project in one of these folders, macOS asks “Pitwall would like to access…”. Allow it and it won't ask about that folder again.", &p.ui.t).line_height(px(20.)))
+            .child(div().flex().gap(px(8.)).children(folders.into_iter().map(|f| {
+                div()
+                    .px(px(10.))
+                    .py(px(3.))
+                    .rounded(RADIUS)
+                    .bg(t.surface_2)
+                    .border_1()
+                    .border_color(t.line)
+                    .text_size(px(12.5))
+                    .text_color(t.text)
+                    .child(f)
+            })))
+            .child(crate::kit::hint("At most three prompts, once each. Projects anywhere else never prompt.", &p.ui.t));
+        let mut fda = div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .pt(px(12.))
+            .border_t_1()
+            .border_color(t.line);
+        if granted {
+            fda = fda.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(p.glyph_in("fda-done".into(), "done"))
+                    .child(div().text_color(t.green).child("Full Disk Access is on. macOS won't ask about your folders.")),
+            );
+        } else if waiting {
+            fda = fda
+                .child(div().font_weight(FontWeight::SEMIBOLD).text_color(t.text).child("Full Disk Access"))
+                .child(crate::kit::hint("In Privacy & Security → Full Disk Access, turn on Pitwall (if it isn't listed, click + and choose it in Applications), then come back: this page notices by itself.", &p.ui.t))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(crate::kit::spinner_ms("fda-spin", 14., 900, p.motion, &p.ui.t))
+                        .child(div().text_color(t.text_2).child("Waiting for the switch…"))
+                        .child(div().flex_1())
+                        .child(
+                            crate::kit::text_button("fda-open", "Open Settings again", BtnKind::Link, false, &p.ui.t)
+                                .on_click(cx.listener(|v, _, _, cx| v.open_privacy(cx))),
+                        ),
+                )
+                .child(crate::kit::hint("If macOS offers “Quit & Reopen”, either choice is fine — Pitwall picks up where you left off.", &p.ui.t));
+        } else {
+            fda = fda.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().flex_none().text_size(px(12.)).text_color(t.text_3).child("Rather not see prompts?"))
+                    .child(
+                        crate::kit::text_button("fda-open", "Use Full Disk Access instead…", BtnKind::Link, false, &p.ui.t)
+                            .on_click(cx.listener(|v, _, _, cx| v.open_privacy(cx))),
+                    ),
+            );
+        }
+        if !granted {
+            fda = fda.child(crate::kit::hint("Full Disk Access lets Pitwall and every agent it starts read everything on this Mac, not just your projects.", &p.ui.t));
+        }
         let body = div()
             .flex()
             .flex_col()
-            .gap(px(12.))
+            .gap(px(14.))
             .max_w(px(640.))
             .px(px(20.))
             .py(px(18.))
@@ -2046,71 +2113,21 @@ impl Onboarding {
             .bg(t.surface)
             .border_1()
             .border_color(if granted { t.green.opacity(0.4) } else { t.line })
-            .child(
-                p.section_head("Allow Full Disk Access", None).child(if granted {
-                    crate::kit::chip_tone("✓ granted", crate::kit::Tone::Ok, &p.ui.t)
-                } else {
-                    crate::kit::chip_tone("not yet", crate::kit::Tone::Subtle, &p.ui.t)
-                }),
-            )
-            .child(crate::kit::muted("One switch instead of a prompt per folder. Pitwall reads your projects to show what your agents changed, and the agents you start work in those folders.", &p.ui.t).line_height(px(20.)))
-            .child(div().flex().flex_col().gap(px(6.)).pl(px(8.)).children(steps.into_iter().enumerate().map(|(i, (b, rest))| {
-                div()
-                    .flex()
-                    .gap(px(4.))
-                    .child(div().flex_none().text_color(t.text).child(format!("{}.", i + 1)))
-                    .child(div().font_weight(FontWeight::BOLD).text_color(t.text).child(b))
-                    .child(div().text_color(t.text_2).child(format!("— {rest}")))
-            })))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .mt(px(4.))
-                    .gap(px(10.))
-                    .child(if granted {
-                        p.glyph_in("fda-done".into(), "done").into_any_element()
-                    } else {
-                        crate::kit::spinner_ms("fda-spin", 16., 900, p.motion, &p.ui.t).into_any_element()
-                    })
-                    .child(div().text_color(if granted { t.green } else { t.text_2 }).child(if granted {
-                        "Full Disk Access is on. macOS won't ask about your folders again."
-                    } else if waiting {
-                        "Waiting for the switch…"
-                    } else {
-                        "Not granted yet."
-                    })),
-            )
-            .when(waiting, |d| {
-                d.child(crate::kit::hint("If macOS offers “Quit & Reopen”, either choice is fine — Pitwall picks up where you left off.", &p.ui.t))
-            })
-            .when_some(self.access_error.clone(), |d, e| d.child(crate::kit::error_text(e, &p.ui.t)))
-            .child(crate::kit::hint("You can turn it off any time in the same place.", &p.ui.t));
+            .child(prompts)
+            .child(fda)
+            .when_some(self.access_error.clone(), |d, e| d.child(crate::kit::error_text(e, &p.ui.t)));
         let footer = div()
             .flex()
             .items_center()
             .gap(px(10.))
-            .when(!granted, |d| {
-                d.child(crate::kit::hint("Skipping is fine: macOS will ask for each folder instead.", &p.ui.t))
-            })
+            .child(crate::kit::hint("You can change this later in Settings → Folder access.", &p.ui.t))
             .child(div().flex_1())
-            .when(!granted, |d| {
-                d.child(
-                    crate::kit::text_button("fda-skip", "Skip for now", BtnKind::Ghost, false, &p.ui.t)
-                        .on_click(cx.listener(|v, _, _, cx| v.access_event(AccessEvent::Skip, cx))),
-                )
-            })
             .child(if granted {
                 crate::kit::text_button("fda-continue", "Continue →", BtnKind::PrimaryLg, false, &p.ui.t)
                     .on_click(cx.listener(|v, _, _, cx| v.access_event(AccessEvent::Continue, cx)))
             } else {
-                crate::kit::text_button("fda-open", if waiting {
-                        "Open Settings again"
-                    } else {
-                        "Open Settings"
-                    }, BtnKind::PrimaryLg, false, &p.ui.t)
-                .on_click(cx.listener(|v, _, _, cx| v.open_privacy(cx)))
+                crate::kit::text_button("fda-continue", "Continue", BtnKind::PrimaryLg, false, &p.ui.t)
+                    .on_click(cx.listener(|v, _, _, cx| v.access_event(AccessEvent::Skip, cx)))
             });
         let content = div()
             .flex()
@@ -2127,7 +2144,7 @@ impl Onboarding {
                         (if granted { "GO" } else { "ACCESS" }.into(), !granted),
                     ]))
                     .child(p.title("Welcome to Pitwall"))
-                    .child(p.lede("First, folder access. Your agents work inside your projects, and projects often live in Desktop, Documents or Downloads. macOS guards those folders and asks “Pitwall would like to access…” once for each one.")),
+                    .child(p.lede("First, folder access. Your agents work inside your projects, and projects often live in Desktop, Documents or Downloads, which macOS guards.")),
             )
             .child(body)
             .into_any_element();

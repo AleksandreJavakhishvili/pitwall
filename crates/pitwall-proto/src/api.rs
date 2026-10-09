@@ -37,6 +37,16 @@ pub mod method {
     /// [`ApprovalAnswer`](super::ApprovalAnswer) → `null` (verified UI
     /// clients only).
     pub const APPROVAL_ANSWER: &str = "approval.answer";
+    /// → [`SettingView`](crate::SettingView)`[]`: every setting with its
+    /// current value, allowed values and description.
+    pub const SETTINGS_LIST: &str = "settings.list";
+    /// [`SettingKey`](crate::SettingKey) → `SettingView`
+    pub const SETTINGS_GET: &str = "settings.get";
+    /// [`SettingSet`](crate::SettingSet) → `SettingView` (applied live;
+    /// `approval` settings wait for the user's OK when an agent asks).
+    pub const SETTINGS_SET: &str = "settings.set";
+    /// [`SettingKey`](crate::SettingKey) → `SettingView`: back to the default.
+    pub const SETTINGS_RESET: &str = "settings.reset";
 }
 
 /// Feature flags in `welcome.caps`.
@@ -44,6 +54,8 @@ pub mod caps {
     pub const AGENTS: &str = "agents";
     pub const SESSIONS: &str = "sessions";
     pub const APPROVALS: &str = "approvals";
+    /// `settings.*` (a Pitwall that hosts the settings: the app).
+    pub const SETTINGS: &str = "settings";
 }
 
 pub mod event {

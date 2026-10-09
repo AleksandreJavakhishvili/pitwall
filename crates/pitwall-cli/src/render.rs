@@ -2,7 +2,8 @@
 
 use std::fmt::Write;
 
-use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines, ScannedPlace, SessionAdded};
+use pitwall_proto::settings::Sensitivity;
+use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines, ScannedPlace, SessionAdded, SettingView};
 
 /// Columns padded to their widest cell (the last one isn't padded).
 fn table(rows: &[Vec<String>]) -> String {
@@ -140,4 +141,47 @@ pub fn form(f: &CreateForm) -> String {
         }
     }
     out
+}
+
+fn value_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "?".into(),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// `settings list`: one row per setting, its description under it.
+/// `live`: read from the running Pitwall (else from ui.json).
+pub fn settings(list: &[SettingView], live: bool) -> String {
+    let mut rows = vec![vec!["KEY".into(), "VALUE".into(), "ALLOWED".into(), "DEFAULT".into()]];
+    for s in list {
+        let mut allowed = match (&s.choices, s.min, s.max) {
+            (Some(c), _, _) => c.join("|"),
+            (_, Some(lo), Some(hi)) => format!("{lo}–{hi}"),
+            _ if s.only_on => "true".into(),
+            _ => "true|false".into(),
+        };
+        if s.sensitivity == Sensitivity::Approval {
+            allowed.push_str("  (approval)");
+        }
+        rows.push(vec![s.key.clone(), value_text(&s.value), allowed, value_text(&s.default)]);
+    }
+    let table = table(&rows);
+    let mut out = String::new();
+    for (i, line) in table.lines().enumerate() {
+        let _ = writeln!(out, "{line}");
+        if i > 0 {
+            let _ = writeln!(out, "    {}", list[i - 1].description);
+        }
+    }
+    if !live {
+        out.push_str("Pitwall isn't running: values are from ui.json; \"?\" ones need Pitwall.\n");
+    }
+    out
+}
+
+/// `settings get|set|reset`.
+pub fn setting(s: &SettingView) -> String {
+    format!("{} = {}\n", s.key, value_text(&s.value))
 }

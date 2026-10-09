@@ -1,4 +1,5 @@
-//! `pitwall`: add agents and sessions to Pitwall from a terminal.
+//! `pitwall`: add agents and sessions to Pitwall, and change its settings,
+//! from a terminal.
 //!
 //! Output is JSON on stdout (the call's result); `--human` prints text.
 //! Errors are `{"error":{"code","message"}}` on stderr. Exit status: 0 ok,
@@ -8,6 +9,7 @@
 
 mod args;
 mod render;
+mod settings;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -99,6 +101,10 @@ fn provider_of(list: &[ProviderMachines], machine: &str) -> Result<String, Strin
 
 /// Run `cmd` against the Pitwall listening at `socket`.
 pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
+    if let Command::Settings(s) = cmd {
+        // Works without Pitwall running too (edits ui.json).
+        return settings::run(s, socket, &pitwall_client::data_dir());
+    }
     let mut c = Client::connect_as(socket, &format!("pitwall-cli/{}", env!("CARGO_PKG_VERSION")), pitwall_proto::Role::Cli)?;
     Ok(match cmd {
         Command::Agent(AgentCmd::List) => {
@@ -137,6 +143,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             let list = c.sessions(&SessionFilter { provider: provider.clone(), machine: machine.clone() })?;
             out(&list, render::sessions(&list))
         }
+        Command::Settings(_) => unreachable!("handled above"),
         Command::Session(SessionCmd::Add { provider, machine, name, start }) => {
             let added = c.add_session(&SessionAdd {
                 provider: provider.clone(),
