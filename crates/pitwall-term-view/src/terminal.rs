@@ -200,6 +200,8 @@ pub struct TermState {
     /// Per viewport line: bumped whenever the line is damaged.
     gens: Vec<u64>,
     next_gen: u64,
+    /// The widest the rows' allocations may be (columns).
+    alloc_cols: usize,
 }
 
 impl TermState {
@@ -317,7 +319,8 @@ impl Terminal {
         let tconf = Config { scrolling_history: config.scrollback, osc52: config.osc52, ..Config::default() };
         let dims = Dims { rows: size.rows.max(1) as usize, cols: size.cols.max(1) as usize };
         let term = Term::new(tconf, &dims, Listener(io.clone()));
-        let state = TermState { term, parser: Processor::new(), gens: Vec::new(), next_gen: 0 };
+        let state =
+            TermState { term, parser: Processor::new(), gens: Vec::new(), next_gen: 0, alloc_cols: dims.cols };
         let shared = Arc::new(Shared { state: FairMutex::new(state), io });
         let t = Terminal { shared };
         t.shared.io.stream.attach(t.feed());
@@ -380,6 +383,14 @@ impl Terminal {
         {
             let mut st = self.shared.state.lock();
             st.term.resize(Dims { rows: size.rows as usize, cols: size.cols as usize });
+            // Rows keep the width they were allocated at: give memory back
+            // once they are a quarter too wide (not at every step of a drag).
+            let cols = size.cols as usize;
+            st.alloc_cols = st.alloc_cols.max(cols);
+            if cols * 4 <= st.alloc_cols * 3 {
+                compact_rows(&mut st.term);
+                st.alloc_cols = cols;
+            }
         }
         self.shared.io.stream.resize(size);
         self.shared.io.wake();
@@ -437,6 +448,25 @@ impl Terminal {
     }
 }
 
+/// Columns shrank: alacritty splits the extra cells off each row but keeps
+/// the row's allocation, so a terminal made wide (a session's replay at the
+/// size it ran at) and shown in a narrow pane would keep paying for its
+/// old width across the whole scrollback. Copy every row of the active
+/// screen into an allocation of its new size (xterm.js also gives a line's
+/// memory back when it shrinks).
+fn compact_rows(term: &mut Term<Listener>) {
+    use alacritty_terminal::grid::Row;
+    use alacritty_terminal::index::Line;
+    let grid = term.grid_mut();
+    for line in grid.topmost_line().0..=grid.bottommost_line().0 {
+        let row = &mut grid[Line(line)];
+        let cells = row[..].to_vec();
+        let n = cells.len();
+        // Every cell counted as occupied: a reuse of the row clears it all.
+        *row = Row::from_vec(cells, n);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,6 +517,26 @@ mod tests {
         t.resize(TermSize::new(12, 3));
         assert_eq!(sink.1.lock().unwrap().len(), 1);
         assert_eq!(t.lock().term.columns(), 12);
+    }
+
+    #[test]
+    fn narrowing_keeps_the_text_and_the_scrollback() {
+        let t = Terminal::new(NullStream, TermSize::new(40, 3), TerminalConfig::default());
+        for i in 0..20 {
+            t.feed().push(format!("line {i:02} {}\r\n", "x".repeat(20)).as_bytes());
+        }
+        t.resize(TermSize::new(20, 3));
+        let st = t.lock();
+        let term = st.term();
+        assert_eq!(term.columns(), 20);
+        // Reflowed (each line wraps once), still all there.
+        assert!(term.history_size() >= 20, "{}", term.history_size());
+        let top = &term.grid()[term.grid().topmost_line()];
+        assert_eq!(top.len(), 20);
+        drop(st);
+        // Rows that were compacted are still cleared and reused correctly.
+        t.feed().push(b"\x1b[2J\x1b[Hfresh");
+        assert_eq!(t.screen_text(), "fresh\n\n\n");
     }
 
     #[test]
