@@ -1,0 +1,39 @@
+[package]
+name = "pitwall-term-view"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "GPUI terminal view: draws an alacritty_terminal grid and turns input into bytes."
+
+[features]
+default = ["pty", "runtime-shaders"]
+# Compile GPUI's Metal shaders at startup (no Metal toolchain needed to
+# build). The app turns it off for release bundles, like its own feature.
+runtime-shaders = ["gpui/runtime_shaders"]
+# LocalPty (portable-pty): the example, tests and benchmarks.
+pty = ["dep:portable-pty"]
+# HolderStream: feed a terminal from a Pitwall holder (pitwall-hold).
+holder = ["dep:pitwall-hold"]
+
+[dependencies]
+# crates.io release (Apache-2.0).
+gpui = "=0.2.2"
+alacritty_terminal = { version = "0.26", default-features = false }
+futures = "0.3"
+portable-pty = { version = "0.9", optional = true }
+pitwall-hold = { path = "../pitwall-hold", optional = true }
+# The engine's screen interface (`ScreenSource`): a terminal can be its
+# agent's only parser (terminal.rs, `TerminalScreen`).
+pitwall-detect = { path = "../pitwall-detect" }
+
+[dev-dependencies]
+gpui = { version = "=0.2.2", features = ["runtime_shaders", "test-support"] }
+libc = "0.2"
+
+[[example]]
+name = "term"
+required-features = ["pty"]
+
+[[example]]
+name = "wall_bench"
+required-features = ["pty"]

@@ -1,0 +1,69 @@
+{
+  "fda": "granted",
+  "now": 1000000000000,
+  "steps": [
+    { "step": "agents", "status": "done", "summary": "Claude Code 2.1.280 · Codex 0.160.1 · agw 0.19.0 (2 machines)", "ms": 900 },
+    { "step": "projects", "status": "done", "summary": "7 projects", "ms": 900 },
+    { "step": "conversations", "status": "done", "summary": "6 you can continue", "ms": 600 },
+    { "step": "running", "status": "done", "summary": "3 on this Mac · 4 sessions on agw", "ms": 500 },
+    { "step": "rules", "status": "done", "summary": "3 projects with rule files", "ms": 250 },
+    { "step": "hooks", "status": "done", "summary": "Codex hooks not installed", "ms": 200 }
+  ],
+  "result": {
+    "agents": [
+      { "kind": "claude", "name": "Claude Code", "installed": true, "path": "/opt/homebrew/bin/claude", "version": "2.1.280" },
+      { "kind": "codex", "name": "Codex", "installed": true, "path": "/opt/homebrew/bin/codex", "version": "0.160.1" },
+      { "kind": "aider", "name": "Aider", "installed": false, "path": null, "version": null }
+    ],
+    "projects": [
+      { "path": "/Users/dev/code/orders-api", "display": "~/code/orders-api", "isGit": true, "lastUsed": 999999400000, "sources": ["claude", "codex", "vscode"], "agentHistory": true, "rules": { "claudeMd": true, "agentsMd": true } },
+      { "path": "/Users/dev/code/checkout-web", "display": "~/code/checkout-web", "isGit": true, "lastUsed": 999997000000, "sources": ["claude", "folder"], "agentHistory": true, "rules": { "rulesync": true } },
+      { "path": "/Users/dev/code/handbook", "display": "~/code/handbook", "isGit": true, "lastUsed": 999989200000, "sources": ["claude"], "agentHistory": true },
+      { "path": "/Users/dev/code/signup", "display": "~/code/signup", "isGit": true, "lastUsed": 999906400000, "sources": ["codex"], "agentHistory": true, "rules": { "agentsMd": true } },
+      { "path": "/Users/dev/code/infra", "display": "~/code/infra", "isGit": true, "lastUsed": 999222400000, "sources": ["folder"], "agentHistory": false },
+      { "path": "/Users/dev/Desktop/billing-api", "display": "~/Desktop/billing-api", "isGit": true, "lastUsed": null, "sources": ["vscode"], "agentHistory": false },
+      { "path": "/Users/dev/Desktop/billing-web", "display": "~/Desktop/billing-web", "isGit": false, "lastUsed": null, "sources": ["vscode", "cursor"], "agentHistory": false }
+    ],
+    "conversations": [
+      { "kind": "claude", "kindName": "Claude Code", "sessionId": "609ada31-9864-497d-9697-e7985d720175", "projectPath": "/Users/dev/code/orders-api", "projectDisplay": "~/code/orders-api", "title": "Fix the 500 on /v2/orders when the cart is empty. Add a regression test.", "lastUsed": 999999400000 },
+      { "kind": "codex", "kindName": "Codex", "sessionId": "615b8985-7987-4a23-b961-3eb1b48731ec", "projectPath": "/Users/dev/code/orders-api", "projectDisplay": "~/code/orders-api", "title": "Rename createOrder() to placeOrder() everywhere and update the docs", "lastUsed": 999992800000 },
+      { "kind": "claude", "kindName": "Claude Code", "sessionId": "1827ef7b-b4d1-47e6-ac3c-c966030923d1", "projectPath": "/Users/dev/code/checkout-web", "projectDisplay": "~/code/checkout-web", "title": "Run the test suite and fix the flaky cart spec. Don't touch the snapshot files.", "lastUsed": 999997000000 },
+      { "kind": "claude", "kindName": "Claude Code", "sessionId": "19bd83bc-617c-4e41-8e79-ff6d237cff1c", "projectPath": "/Users/dev/code/handbook", "projectDisplay": "~/code/handbook", "title": "Rewrite the onboarding page so a new hire can get a dev env running in 15 minutes.", "lastUsed": 999989200000 },
+      { "kind": "claude", "kindName": "Claude Code", "sessionId": "7d1a5e0c-3f4b-4a8e-9c2d-6b0e1f2a3c4d", "projectPath": "/Users/dev", "projectDisplay": "~", "title": "Add a Settings → Scan again button to Pitwall and keep the project choice per session", "lastUsed": 999997600000, "outsideProject": true, "runningElsewhere": true },
+      { "kind": "codex", "kindName": "Codex", "sessionId": "019f0b2c-aaaa-7bbb-8ccc-1234567890ab", "projectPath": "/Users/dev", "projectDisplay": "~", "title": "Why is my zsh startup slow?", "lastUsed": 999892000000, "outsideProject": true }
+    ],
+    "running": [
+      { "pid": 41207, "kind": "claude", "kindName": "Claude Code", "cwd": "/Users/dev/code/infra", "cwdDisplay": "~/code/infra", "sessionId": "5c0ffee0-2b1e-4c55-9d1a-0d5f3e7a9b21", "title": "Bump the Terraform AWS provider and fix the plan diff" },
+      { "pid": 41022, "kind": "claude", "kindName": "Claude Code", "cwd": "/Users/dev", "cwdDisplay": "~", "sessionId": "7d1a5e0c-3f4b-4a8e-9c2d-6b0e1f2a3c4d", "title": "Add a Settings → Scan again button to Pitwall and keep the project choice per session", "outsideProject": true },
+      { "pid": 36504, "kind": "codex", "kindName": "Codex", "cwd": null, "cwdDisplay": null, "sessionId": null, "title": null }
+    ],
+    "places": [
+      {
+        "provider": "agw",
+        "label": "agw",
+        "version": "0.19.0",
+        "machines": [
+          {
+            "id": "my-vm",
+            "label": "my-vm",
+            "detail": "local-site",
+            "sessions": [
+              { "provider": "agw", "machine": "my-vm", "native": "api-session", "name": "api-session", "kind": "claude", "kindName": "Claude Code", "program": "claude-code", "workspace": "api-session", "user": null, "cwd": "/opt/agentworks/workspaces/api-session", "status": "running", "inPitwall": false },
+              { "provider": "agw", "machine": "my-vm", "native": "orders-fix", "name": "orders-fix", "kind": "codex", "kindName": "Codex", "program": "codex", "workspace": "orders-api", "user": "codex-bot", "cwd": "/opt/agentworks/workspaces/orders-api", "status": "running", "inPitwall": false },
+              { "provider": "agw", "machine": "my-vm", "native": "work", "name": "work", "kind": "claude", "kindName": "Claude Code", "program": "claude-code", "workspace": "work", "user": null, "cwd": "/opt/agentworks/workspaces/work", "status": "stopped", "inPitwall": false }
+            ]
+          },
+          {
+            "id": "gpu-box",
+            "label": "gpu-box",
+            "detail": "aws-us-east",
+            "sessions": [
+              { "provider": "agw", "machine": "gpu-box", "native": "train-eval", "name": "train-eval", "kind": "shell", "kindName": "Shell", "program": "login-shell", "workspace": "ml-evals", "user": "evals", "cwd": "/opt/agentworks/workspaces/ml-evals", "status": "stopped", "inPitwall": false }
+            ]
+          }
+        ]
+      }
+    ],
+    "codexHooks": { "installed": false, "path": "~/.codex/hooks.json" }
+  }
+}

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Info.plist of Pitwall.app. scripts/package-app.sh fills in the
+     @NAME@ placeholders (product name, bundle id, version, executable).
+     The usage strings are the ones the Tauri app (up to v0.1.x) had: they
+     appear in macOS's "would like to access…" prompts, so they say why.
+     No URL schemes, document types or other permissions are used today. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>@PRODUCT_NAME@</string>
+	<key>CFBundleName</key>
+	<string>@PRODUCT_NAME@</string>
+	<key>CFBundleExecutable</key>
+	<string>@EXECUTABLE@</string>
+	<key>CFBundleIconFile</key>
+	<string>icon.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<!-- GPUI's precompiled Metal shaders target 10.15.7. -->
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15.7</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Apache-2.0</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Pitwall reads your projects on the Desktop to show what your agents changed. Agents you start in Pitwall also work in these folders.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Pitwall reads your projects in Documents to show what your agents changed. Agents you start in Pitwall also work in these folders.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Pitwall reads your projects in Downloads to show what your agents changed. Agents you start in Pitwall also work in these folders.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Pitwall reads your projects on external drives to show what your agents changed. Agents you start in Pitwall also work there.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Pitwall reads your projects on network drives to show what your agents changed. Agents you start in Pitwall also work there.</string>
+</dict>
+</plist>

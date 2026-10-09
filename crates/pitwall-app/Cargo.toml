@@ -1,0 +1,119 @@
+[package]
+name = "pitwall-app"
+version = "0.1.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pitwall's desktop app (GPUI): hosts pitwall-core's Engine in-process and draws the UI with GPUI (docs/spec/gpui/README.md)."
+
+# The app's executable, `pitwall` in every bundle (as the Tauri app's was).
+[[bin]]
+name = "pitwall"
+path = "src/main.rs"
+
+[features]
+# Compile GPUI's Metal shaders when the app starts instead of at build time:
+# builds need no Metal toolchain (Xcode 26 ships it as a separate download).
+# Release bundles turn it off (`--no-default-features`) for precompiled
+# shaders (docs/spec/gpui/packaging.md).
+default = ["runtime-shaders"]
+runtime-shaders = ["gpui/runtime_shaders", "pitwall-term-view/runtime-shaders"]
+
+[dependencies]
+# Zed's UI framework, Apache-2.0. Pinned exactly: GPUI's API changes between
+# releases (docs/spec/gpui/README.md "Version and licensing"). Only `gpui`
+# itself: Zed's other crates (terminal, editor, ui, workspace, …) are GPL-3.0.
+gpui = "=0.2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The engine-to-UI event channel (MIT OR Apache-2.0; already in the tree via gpui).
+futures = "0.3"
+# Name rules of the New-agent form (MIT OR Apache-2.0; already in the tree via pitwall-core).
+regex = "1"
+pitwall-core = { path = "../pitwall-core" }
+pitwall-providers = { path = "../pitwall-providers" }
+pitwall-daemon = { path = "../pitwall-daemon" }
+pitwall-proto = { path = "../pitwall-proto" }
+pitwall-client = { path = "../pitwall-client" }
+# Review and the read-only code/diff view (src/code_view, src/review); every
+# crate and grammar below is MIT or Apache-2.0 (docs/spec/gpui/licensing.md).
+similar = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+unicode-segmentation = "1"
+tree-sitter = "0.25"
+tree-sitter-highlight = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-bash = "0.25"
+tree-sitter-css = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-yaml = "0.7"
+tree-sitter-md = "0.5"
+tree-sitter-php = "0.25"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-lua = "0.5"
+tree-sitter-swift = "0.7"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-scala = "0.26"
+tree-sitter-sequel = "0.3"
+tree-sitter-xml = "0.7"
+tree-sitter-haskell = "0.24"
+tree-sitter-elixir = "0.3"
+tree-sitter-zig = "1.1"
+tree-sitter-r = "1.3"
+tree-sitter-powershell = "0.26"
+tree-sitter-scss = "1.0"
+tree-sitter-ocaml = "0.26"
+tree-sitter-nix = "0.3"
+# The terminal view in panes (Apache-2.0, this repo): fed from the engine,
+# no PTY or holder connection of its own.
+pitwall-term-view = { path = "../pitwall-term-view", default-features = false }
+# The native window handle: Glass material (settings/native.rs) and Win32
+# calls on gpui's windows (src/platform/). MIT OR Apache-2.0 OR Zlib; already
+# in the tree via gpui.
+raw-window-handle = "0.6"
+# System notifications, as tauri-plugin-notification sends them
+# (MIT OR Apache-2.0).
+notify-rust = "4.11"
+
+# macOS: Liquid Glass (NSGlassEffectView), the window appearance and the
+# accessibility options (Settings → Appearance); Dock badge, attention bounce
+# and About panel (platform). MIT (objc2-app-kit: Zlib OR Apache-2.0 OR MIT);
+# already in the tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSGeometry", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSApplication", "NSDockTile", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
+
+[target.'cfg(windows)'.dependencies]
+# Settings → Appearance: Mica and Reduce motion. MIT OR Apache-2.0.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
+# Tray icon and its menu (MIT OR Apache-2.0).
+tray-icon = { version = "0.25", default-features = false }
+# Decoding the tray's PNG icon (MIT OR Apache-2.0; already in the tree via gpui).
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Taskbar overlay badge, FlashWindowEx, hiding to the tray (MIT OR
+# Apache-2.0; the version gpui uses).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The launcher badge over D-Bus (MIT; already in the tree via notify-rust).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# Asking the Wayland compositor whether it draws window decorations
+# (platform/decorations.rs). MIT; already in the tree via gpui.
+wayland-client = "0.31"
+# Not used directly: a cap for `cargo update`. libc 0.2.190 dropped Linux's
+# deprecated `ENOATTR`, which xattr 0.2.3 (gpui -> gpui_http_client ->
+# zed-async-tar) still names, so gpui stops compiling on Linux. Lift the
+# cap once gpui no longer pulls xattr 0.2. (MIT OR Apache-2.0.)
+libc = ">=0.2.150, <0.2.190"
+
+[dev-dependencies]
+gpui = { version = "=0.2.2", features = ["test-support"] }
+pitwall-core = { path = "../pitwall-core", features = ["testing"] }
