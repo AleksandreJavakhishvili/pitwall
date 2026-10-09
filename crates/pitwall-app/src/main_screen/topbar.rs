@@ -103,6 +103,10 @@ impl MainScreen {
                 self.drawer_open
             };
 
+        let engineer_focused = self
+            .focused_agent_id()
+            .is_some_and(|id| agents.iter().any(|a| a.id == id && a.engineer));
+
         // aria-pressed: open is the normal colour, closed is dimmer; Wall /
         // Review on are lit (`.wall-btn[data-on]`).
         let aria = |on: bool| if on { None } else { Some(false) };
@@ -227,6 +231,20 @@ impl MainScreen {
                     .child(kbd("⌘K", t)),
             )
             .child(counts)
+            .child(
+                // The Race Engineer (docs/spec/engineer.md): lit while its
+                // pane is the focused one.
+                icon_btn_state(
+                    "tb-engineer",
+                    crate::engineer::ICON,
+                    "Race Engineer: Pitwall's assistant (setup, agw, spaces, settings)",
+                    false,
+                    16.,
+                    lit(engineer_focused),
+                    t,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.open_engineer(window, cx))),
+            )
             .child(
                 icon_btn_state(
                     "tb-review",

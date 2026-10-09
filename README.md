@@ -54,6 +54,7 @@
 | **Worktrees** | Through the agent's own flag (`claude --worktree`, `codex --worktree`). Pitwall creates no branches or folders of its own. |
 | **First launch** | A read-only scan: agent CLIs on your PATH, recent projects and conversations you can continue. Nothing changes until you tick a box. |
 | **agw machines and CLI** | Sessions on agw VMs next to your local agents, and a `pitwall` CLI for you or an agent; anything that changes another machine waits for your approval. |
+| **Race Engineer** (optional) | An assistant agent for Pitwall itself, one click from the top bar or ⌘K: set up agw, arrange spaces, start agents per project, tune settings by asking. It runs on the agent you pick (Claude Code, Codex, Gemini CLI, …, on your own subscription) and works through the `pitwall` CLI; risky steps still wait for your OK. Nothing runs until you open it. |
 
 ### Supported agents
 

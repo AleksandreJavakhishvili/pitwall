@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Packages Pitwall (crates/pitwall-app, the GPUI app; binary `pitwall`):
 # builds the app and its sidecars (pitwall-hold, pitwall-cli, and
-# pitwall-hook on Windows) in release mode and bundles them
-# (docs/spec/gpui/packaging.md). .github/workflows/release.yml runs it.
+# pitwall-hook on Windows) in release mode and bundles them, with the
+# Race Engineer's skills (skills/pitwall, skills/race-engineer;
+# docs/spec/engineer.md) as resources (docs/spec/gpui/packaging.md).
+# .github/workflows/release.yml runs it.
 #
 #   scripts/package-app.sh                       # this OS's default formats
 #   scripts/package-app.sh --universal           # macOS: arm64 + x86_64 (CI)
@@ -86,6 +88,11 @@ exe=""
 [ $os = windows ] && exe=.exe
 sidecars="pitwall-hold pitwall-cli"
 [ $os = windows ] && sidecars="$sidecars pitwall-hook"
+# The Race Engineer's files: found at run time by crates/pitwall-app/src/engineer
+# (macOS: Contents/Resources/skills; Linux: /usr/lib/<package>/skills;
+# Windows: skills/ next to the app).
+skill_dirs="pitwall race-engineer"
+for d in $skill_dirs; do [ -f "skills/$d/SKILL.md" ] || [ -f "skills/$d/ENGINEER.md" ] || die "skills/$d is missing"; done
 
 host=$(rustc -vV | sed -n 's/^host: //p')
 if $universal; then targets="aarch64-apple-darwin x86_64-apple-darwin"; arch_label=universal
@@ -164,6 +171,8 @@ if [ $os = macos ]; then
   plutil -lint "$app/Contents/Info.plist" >/dev/null
   printf 'APPL????' > "$app/Contents/PkgInfo"
   cp "$icons/icon.icns" "$app/Contents/Resources/icon.icns"
+  mkdir -p "$app/Contents/Resources/skills"
+  for d in $skill_dirs; do cp -R "skills/$d" "$app/Contents/Resources/skills/$d"; done
   # Inside out: the sidecars first, then the bundle (which seals the main binary).
   for s in $sidecars; do macos_sign "$app/Contents/MacOS/$s"; done
   macos_sign "$app"
@@ -208,6 +217,10 @@ if [ $os = windows ] && [ -n "${WINDOWS_CERTIFICATE_THUMBPRINT:-}" ]; then
   windows_cfg="\"windows\": { \"certificateThumbprint\": \"$WINDOWS_CERTIFICATE_THUMBPRINT\", \"digestAlgorithm\": \"sha256\", \"timestampUrl\": \"$timestamp_url\" },"
 fi
 
+resources=""
+for d in $skill_dirs; do
+  resources="$resources${resources:+, }{ \"src\": \"$(native "$root/skills/$d")\", \"target\": \"skills/$d\" }"
+done
 binaries='{ "path": "pitwall", "main": true }'
 for s in $sidecars; do binaries="$binaries, { \"path\": \"$s\" }"; done
 cfg="$out/packager.json"
@@ -229,6 +242,7 @@ cat > "$cfg" <<EOF
   "outDir": "$(native "$out")",
   "binariesDir": "$(native "$bin")",
   "binaries": [ $binaries ],
+  "resources": [ $resources ],
   "icons": [
     "$(native "$icons/32x32.png")",
     "$(native "$icons/128x128.png")",

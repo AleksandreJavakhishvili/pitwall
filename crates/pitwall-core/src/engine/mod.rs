@@ -75,6 +75,9 @@ pub struct Engine {
     pub(crate) trees: gitwatch::Trees,
     /// The code explorer's running searches and what it knows per machine.
     pub(crate) explorer: crate::explorer::State,
+    /// What the Race Engineer is launched with (the app sets it; `None`:
+    /// this host can't start one).
+    engineer: std::sync::RwLock<Option<crate::engineer::Kit>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -101,6 +104,7 @@ impl Engine {
             git_flights: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
+            engineer: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,
@@ -157,6 +161,15 @@ impl Engine {
 
     pub fn paths(&self) -> &Paths {
         &self.paths
+    }
+
+    /// Where the Race Engineer's files are (docs/spec/engineer.md).
+    pub fn set_engineer_kit(&self, kit: Option<crate::engineer::Kit>) {
+        *self.engineer.write().unwrap_or_else(|e| e.into_inner()) = kit;
+    }
+
+    pub fn engineer_kit(&self) -> Option<crate::engineer::Kit> {
+        self.engineer.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn kinds(&self) -> &KindCatalog {

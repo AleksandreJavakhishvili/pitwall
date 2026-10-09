@@ -34,6 +34,8 @@ interface Commands {
   /** Set the global density, or the current space's (`null` = follow global). */
   density(d: Density | null, scope: "global" | "space"): void;
   settings(): void;
+  /** The Race Engineer. */
+  engineer?(): void;
   /** Settings → Appearance. */
   theme?(t: ThemePref): void;
 }
@@ -165,6 +167,9 @@ export function CommandPalette({ agents, selectedId, projects = [], commands, on
           ]
         : []),
       { id: "new", icon: <span className="pal-icon">+</span>, label: "New agent", search: "new agent create start", hint: <Kbd>⌘N</Kbd>, run: commands.newAgent },
+      ...(commands.engineer
+        ? [{ id: "race-engineer", icon: <span className="pal-icon"><Icon name="headset" size={14} /></span>, label: "Race Engineer", search: "race engineer assistant preset help setup pitwall agw settings spaces rules", run: commands.engineer }]
+        : []),
       ...terminals,
       ...agents.map<Item>((a) => ({
         id: `q-${a.id}`,

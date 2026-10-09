@@ -146,7 +146,7 @@ fn local_agents_know_how_to_reach_pitwall() {
             machine: &MachineId::new(MachineId::THIS_MAC),
             name: "env",
             options: &Default::default(),
-            launch: LaunchSpec { agent: "env-agent", kind: &kind, cwd: &l.workspace, intent: LaunchIntent::Fresh, worktree: None, size, hooks: None },
+            launch: LaunchSpec { agent: "env-agent", kind: &kind, cwd: &l.workspace, intent: LaunchIntent::Fresh, worktree: None, size, hooks: None, env: &[] },
         })
         .unwrap();
     let loc = started.locator.clone();

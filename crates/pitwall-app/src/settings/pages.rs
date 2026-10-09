@@ -1,7 +1,7 @@
 //! The Settings pages. Each is a list of sections (hairlines between them,
 //! drawn by the dialog); the options and words are the React dialog's,
 //! regrouped: General (scan again, agents elsewhere, the CLI), Agents
-//! (Claude Code, Codex hooks), Rules, Appearance (theme, look, motion,
+//! (Claude Code, Codex hooks, the Race Engineer), Rules, Appearance (theme, look, motion,
 //! density, terminal font), Folder access and About.
 
 use std::rc::Rc;
@@ -74,7 +74,11 @@ impl SettingsView {
                 v.push(self.cli(ui, cx));
                 v
             }
-            Page::Agents => vec![Self::claude(ui), self.codex(ui, cx)],
+            Page::Agents => {
+                let codex = self.codex(ui, cx);
+                let engineer = self.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx);
+                vec![Self::claude(ui), codex, engineer]
+            }
             Page::Rules => {
                 let extra: Vec<AnyElement> = cx
                     .try_global::<ExtraSections>()

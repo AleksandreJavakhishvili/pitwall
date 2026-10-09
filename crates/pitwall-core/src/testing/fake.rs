@@ -324,6 +324,8 @@ pub struct Launched {
     pub command_line: String,
     pub resumed: bool,
     pub size: TermSize,
+    /// [`LaunchSpec::env`].
+    pub env: Vec<(String, String)>,
 }
 
 struct Session {
@@ -492,6 +494,7 @@ impl FakeProvider {
             command_line: plan.command_line,
             resumed: plan.resumed,
             size: spec.size,
+            env: spec.env.to_vec(),
         });
         let eof_is_exit = *lock(&self.eof_is_exit);
         Ok(Started {

@@ -637,7 +637,7 @@ Onboarding, terminals, permissions, host:
 
 ## 35. Spec-only, dead or unused code (decide)
 
-- [x] ~~Race Engineer preset button (top bar + ⌘K) described but not built (`docs/spec/engineer.md`)~~ n/a: spec-only, never built in React
+- [x] Race Engineer preset button (top bar + ⌘K) described but not built (`docs/spec/engineer.md`) — built (`crates/pitwall-app/src/engineer`, `pitwall_core::engineer`)
 - [x] ~~`set_agent_rules` command has no UI caller (`src-tauri/src/commands/rules.rs`, `src/rules/api.ts`)~~ n/a: no UI caller in either app
 - [x] ~~JS deps `@tauri-apps/plugin-opener` and `@tauri-apps/plugin-notification` are unused by the UI (backend uses the plugins) (`package.json`)~~ n/a: JS package.json deps
 - [x] ~~Unused helpers: `radioLine`, `swapPanes`, `useDraggedAgent`, `terminalSize`, `terminalFontsReady` (`src/lib/status.ts`, `src/layout/tree.ts`, `src/lib/dnd.ts`, `src/terminal/registry.ts`)~~ n/a: dead React helpers

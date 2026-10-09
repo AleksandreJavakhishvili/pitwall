@@ -761,12 +761,13 @@ export function createMockApi(): Api {
         terminal: req.kind === "shell",
         sessionId: req.resumeSessionId ?? null,
         createdAt: Date.now(),
+        ...(req.engineer ? { engineer: true } : {}),
         ...(req.cols && req.rows ? { cols: req.cols, rows: req.rows } : {}),
       });
       agents = [...agents, a];
       outBuf.set(a.id, "");
       changes[a.name] = [];
-      if (!proj) recents.unshift({ path: req.projectPath, display: req.projectPath, lastUsed: Date.now() });
+      if (!proj && !req.engineer) recents.unshift({ path: req.projectPath, display: req.projectPath, lastUsed: Date.now() });
       emitAgents();
       setTimeout(() => {
         if (a.terminal) return out(a.id, prompt(a));

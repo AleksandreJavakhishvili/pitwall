@@ -743,6 +743,7 @@ impl MainScreen {
                     .text_size(px(13.))
                     .child(a.name.clone()),
             )
+            .when(a.engineer, |d| d.child(chip("engineer", t)))
             .child(
                 status_label(a.status, t).when(a.status == Status::Done, |d| {
                     d.px(px(6.)).py(px(1.)).rounded(px(4.)).bg(t.finish_soft)

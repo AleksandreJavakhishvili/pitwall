@@ -232,6 +232,7 @@ impl Agent {
             },
             agent_in_terminal: self.is_terminal() && self.inner.is_some(),
             restart_as: self.restart_inner().map(|(i, _)| i.kind_name.clone()),
+            engineer: r.engineer,
             status: self.status,
             status_source: self.source,
             status_detail: self.detail.clone(),

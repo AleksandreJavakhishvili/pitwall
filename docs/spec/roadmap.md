@@ -30,7 +30,8 @@ agents plug in without touching the rest. Design first, review, then build.
 3. agw provider: agw sessions as real agents (terminal, status, Next up), then
    create on VM, diffs/Review over ssh, rules via agw artifact bundles.
 4. Pitwall CLI + API with approval prompts for risky actions → [engineer.md](engineer.md)
-5. Race Engineer preset (optional assistant) → [engineer.md](engineer.md)
+5. Race Engineer preset (optional assistant) → [engineer.md](engineer.md):
+   built in the GPUI app (top bar + ⌘K, any agent kind, `engineer.*` settings)
 
 ## Wave 3
 - macOS permissions for other users: welcome-screen step explaining Full Disk

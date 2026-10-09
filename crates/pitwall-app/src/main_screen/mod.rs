@@ -22,6 +22,7 @@ mod commands;
 pub mod demo;
 mod dialogs;
 mod elsewhere;
+mod engineer;
 mod menu;
 pub mod model;
 mod panel;
@@ -543,6 +544,7 @@ impl MainScreen {
             screen.route = Route::Wall;
         }
         screen.agents_changed(cx);
+        MainScreen::debug_open_engineer(window, cx);
         screen
     }
 
