@@ -34,7 +34,7 @@ export function CliSettings() {
   return (
     <div className="setting">
       <div className="setting-head">
-        <span className="label">Command-line tool</span>
+        <span className="setting-title">Command-line tool</span>
         <span className="spacer" />
         {status === null ? (
           <span className="muted-sm">checking…</span>
@@ -45,8 +45,9 @@ export function CliSettings() {
         )}
       </div>
       <p className="muted">
-        <span className="mono">pitwall</span> lets you and your agents add agents and agw sessions to Pitwall from a
-        terminal. Anything that changes another machine waits for your OK here.
+        <span className="mono">pitwall</span> lets you and your agents add agents and agw sessions to Pitwall and change
+        these settings from a terminal. Anything that changes another machine or something outside Pitwall waits for your
+        OK here.
       </p>
       {status?.installed && <p className="hint mono">{status.installed}</p>}
       {status && !status.bin && <p className="hint">This build doesn't include the tool.</p>}

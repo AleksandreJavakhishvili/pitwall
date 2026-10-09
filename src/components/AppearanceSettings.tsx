@@ -15,9 +15,6 @@ export function AppearanceSettings() {
   const offer = host().glass;
   return (
     <div className="setting">
-      <div className="setting-head">
-        <span className="label">Appearance</span>
-      </div>
       <div className="setting-row">
         <span className="muted">Theme</span>
         <span className="spacer" />
