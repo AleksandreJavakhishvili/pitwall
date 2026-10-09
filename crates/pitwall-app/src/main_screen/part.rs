@@ -152,8 +152,8 @@ impl Part {
 /// Whether the parts are drawn as cached views. Liquid Glass regions place
 /// their native glass piece while they paint (a replayed paint would lose
 /// it), so with them the screen draws everything itself.
-pub(super) fn cached(cx: &App) -> bool {
-    !crate::theme::glass_regions(cx)
+pub fn cached(cx: &App) -> bool {
+    !crate::theme::glass_regions(cx) && std::env::var_os("PITWALL_PERF_NO_PARTS").is_none()
 }
 
 /// `part` as a cached child laid out with `style` (its outer box: the

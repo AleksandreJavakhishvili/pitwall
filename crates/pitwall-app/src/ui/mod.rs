@@ -187,7 +187,7 @@ impl MainView {
             return;
         };
         match what {
-            "wall" | "review" | "visit-all" => {
+            "wall" | "review" | "visit-all" | "grid2x2" => {
                 if let Some(s) = &self.screen {
                     s.update(cx, |s, cx| s.bench(what, on, window, cx));
                 }
@@ -412,8 +412,18 @@ impl Render for MainView {
             // terminals are cached views: a frame for one terminal or for
             // the working dots' rings (the pulse layer) replays the rest
             // (main_screen/part.rs).
+            // Without parts (Liquid Glass regions) the screen itself is
+            // the cached view, as before.
             Content::Live { .. } => root
-                .children(self.screen.clone())
+                .children(self.screen.clone().map(|s| {
+                    if crate::main_screen::parts_cached(cx) {
+                        s.into_any_element()
+                    } else {
+                        gpui::AnyView::from(s)
+                            .cached(gpui::StyleRefinement::default().size_full())
+                            .into_any_element()
+                    }
+                }))
                 .child(self.pulses.clone())
                 .children(self.explorer.clone()),
         };

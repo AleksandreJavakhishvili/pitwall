@@ -64,6 +64,7 @@ use self::tree::Preset;
 pub use self::topbar::AgentDrag;
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
+pub use self::part::cached as parts_cached;
 
 actions!(
     main_screen,
@@ -1043,6 +1044,8 @@ impl MainScreen {
                 })
                 .detach();
             }
+            // The standard perf load: four panes, the rest as chips.
+            "grid2x2" => self.apply_preset(Preset::G2x2, window, cx),
             _ => {}
         }
     }
