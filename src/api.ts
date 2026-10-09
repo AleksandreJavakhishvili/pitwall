@@ -1,5 +1,6 @@
-// Typed wrapper over the Tauri commands/events in docs/CONTRACT.md.
-// Outside Tauri (plain `pnpm dev` in a browser) a mock backend is used instead.
+// The UI's backend interface (docs/CONTRACT.md). This React UI is the
+// website's live demo only (src/README.md): the backend is always the
+// in-browser mock (`./mock`). The desktop app is crates/pitwall-app (GPUI).
 import type {
   UiStateChanged,
   AdoptSessionRequest,
@@ -26,9 +27,9 @@ import type {
 } from "./types";
 
 import type { ScreenFrame } from "./gen/ScreenFrame";
-import { tauriReviewApi, type ReviewApi } from "./reviewTypes";
-import { tauriWorktreesApi, type WorktreesApi } from "./worktreesApi";
-import { tauriExplorerApi, type ExplorerApi } from "./explorerApi";
+import type { ReviewApi } from "./reviewTypes";
+import type { WorktreesApi } from "./worktreesApi";
+import type { ExplorerApi } from "./explorerApi";
 
 export type Unlisten = () => void;
 
@@ -122,22 +123,7 @@ export interface Api extends ReviewApi, WorktreesApi, ExplorerApi {
   quitApp(stopAgents: boolean): Promise<void>;
 }
 
-export const inTauri =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-/** Channel payloads may arrive as ArrayBuffer, Uint8Array or number[]. */
-export function toBytes(data: unknown): Uint8Array {
-  if (data instanceof Uint8Array) return data;
-  if (data instanceof ArrayBuffer) return new Uint8Array(data);
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  }
-  if (Array.isArray(data)) return Uint8Array.from(data as number[]);
-  if (typeof data === "string") return new TextEncoder().encode(data);
-  return new Uint8Array();
-}
-
-/** Turn whatever invoke() rejected with into a readable message. */
+/** Turn whatever a call rejected with into a readable message. */
 export function errorText(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
@@ -149,109 +135,11 @@ export function errorText(e: unknown): string {
   }
 }
 
-async function createTauriApi(): Promise<Api> {
-  const { invoke, Channel } = await import("@tauri-apps/api/core");
-  const { listen } = await import("@tauri-apps/api/event");
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const label = getCurrentWindow().label;
-  return {
-    isMock: false,
-    ...tauriReviewApi(invoke),
-    ...tauriWorktreesApi(invoke),
-    ...tauriExplorerApi(invoke),
-    listKinds: () => invoke("list_kinds"),
-    recentProjects: () => invoke("recent_projects"),
-    listAgents: () => invoke("list_agents"),
-    createAgent: (req) => invoke("create_agent", { req }),
-    listMachines: () => invoke("list_machines"),
-    createForm: (provider, machine) => invoke("create_form", { provider, machine }),
-    async attachOutput(agentId, onData) {
-      let live = true;
-      const channel = new Channel<unknown>((msg) => {
-        if (live) onData(toBytes(msg));
-      });
-      const subscriptionId = await invoke<number | null>("attach_output", { agentId, onData: channel });
-      return () => {
-        live = false;
-        if (typeof subscriptionId === "number") {
-          invoke("detach_output", { agentId, subscriptionId }).catch(() => {});
-        }
-      };
-    },
-    async watchScreen(agentId, onFrame) {
-      let live = true;
-      const channel = new Channel<ScreenFrame>((frame) => {
-        if (live) onFrame(frame);
-      });
-      const watchId = await invoke<number>("watch_screen", { agentId, onFrame: channel });
-      return () => {
-        live = false;
-        invoke("unwatch_screen", { agentId, watchId }).catch(() => {});
-      };
-    },
-    writeInput: (agentId, data) => invoke("write_input", { agentId, data }),
-    resize: (agentId, cols, rows) => invoke("resize", { agentId, cols, rows }),
-    sendPrompt: (agentId, text) => invoke("send_prompt", { agentId, text }),
-    queueAdd: (agentId, text) => invoke("queue_add", { agentId, text }),
-    queueRemove: (agentId, itemId) => invoke("queue_remove", { agentId, itemId }),
-    queueSendNow: (agentId, itemId) => invoke("queue_send_now", { agentId, itemId }),
-    setAutoSend: (agentId, enabled) => invoke("set_auto_send", { agentId, enabled }),
-    markSeen: (agentId) => invoke("mark_seen", { agentId }),
-    getChanges: (agentId) => invoke("get_changes", { agentId }),
-    refreshChanges: (agentId) => invoke("refresh_changes", { agentId }),
-    getFileDiff: (agentId, path, untracked) =>
-      invoke("get_file_diff", { agentId, path, untracked }),
-    stopAgent: (agentId) => invoke("stop_agent", { agentId }),
-    restartAgent: (agentId, size) => invoke("restart_agent", { agentId, cols: size?.cols, rows: size?.rows }),
-    removeAgent: (agentId, deleteWorktree) =>
-      invoke("remove_agent", { agentId, deleteWorktree }),
-    codexHooksStatus: () => invoke("codex_hooks_status"),
-    installCodexHooks: () => invoke("install_codex_hooks"),
-    listApprovals: () => invoke("list_approvals"),
-    answerApproval: (id, allow, remember) => invoke("answer_approval", { id, allow, remember }),
-    onApprovalsChanged: (cb) => listen<ApprovalView[]>("approvals-changed", (e) => cb(e.payload)),
-    cliStatus: () => invoke("cli_status"),
-    installCli: (dir) => invoke("install_cli", { dir }),
-    getUiState: () => invoke("get_ui_state"),
-    setUiState: (state) => invoke("set_ui_state", { state }),
-    openWindow: (spaceId) => invoke("open_window", { spaceId }),
-    focusWindow: (label) => invoke("focus_window", { label }),
-    listWindows: () => invoke("list_windows"),
-    windowLabel: () => label,
-    onUiStateChanged: (cb) => listen<UiStateChanged>("ui-state-changed", (e) => cb(e.payload)),
-    onWindowClosed: (cb) => listen<{ label: string }>("window-closed", (e) => cb(e.payload)),
-    // Window-scoped: the menu targets one window, not every open one.
-    onOpenSettings: (cb) => getCurrentWebviewWindow().listen("open-settings", () => cb()),
-    onAgentsChanged: (cb) => listen<AgentView[]>("agents-changed", (e) => cb(e.payload)),
-    onAttention: (cb) => listen<AttentionEvent>("attention", (e) => cb(e.payload)),
-    scanEnvironment: () => invoke("scan_environment"),
-    getOnboarded: () => invoke("get_onboarded"),
-    listProjects: () => invoke("list_projects"),
-    addProject: (path) => invoke("add_project", { path }),
-    removeProject: (path) => invoke("remove_project", { path }),
-    completeOnboarding: (projects, installCodexHooks) =>
-      invoke("complete_onboarding", { projects, installCodexHooks }),
-    continueConversation: (req) => invoke("continue_conversation", { ...req }),
-    adoptSession: (req) => invoke("adopt_session", { req }),
-    listElsewhere: () => invoke("list_elsewhere"),
-    onScanProgress: (cb) => listen<ScanProgress>("scan-progress", (e) => cb(e.payload)),
-    onProjectsChanged: (cb) => listen<Project[]>("projects-changed", (e) => cb(e.payload)),
-    permissionsStatus: () => invoke("permissions_status"),
-    openPrivacySettings: (kind) => invoke("open_privacy_settings", { kind }),
-    hostInfo: () => invoke("host_info"),
-    setWindowGlass: (on) => invoke("set_window_glass", { on }),
-    quitApp: (stopAgents) => invoke("quit_app", { stopAgents }),
-  };
-}
-
 let apiPromise: Promise<Api> | null = null;
 
 export function getApi(): Promise<Api> {
   if (!apiPromise) {
-    apiPromise = inTauri
-      ? createTauriApi()
-      : import("./mock").then((m) => m.createMockApi());
+    apiPromise = import("./mock").then((m) => m.createMockApi());
   }
   return apiPromise;
 }

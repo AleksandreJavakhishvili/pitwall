@@ -151,12 +151,11 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
               </header>
               {g.agents.length === 0 ? (
                 !collapsed && (
-                  <div className="project-empty">
-                    <span>No agents yet</span>
-                    <button className="small-btn" onClick={() => openNewAgent(g.project)}>
-                      <Icon name="plus" size={12} /> Agent
-                    </button>
-                  </div>
+                  <button className="project-empty" onClick={() => openNewAgent(g.project)} title="New agent in this project">
+                    <Icon name="plus" size={12} />
+                    <span>New agent</span>
+                    <span className="project-empty-hint">No agents yet</span>
+                  </button>
                 )
               ) : collapsed ? (
                 <div className="project-summary">{summarize(g.agents)}</div>

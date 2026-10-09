@@ -82,6 +82,8 @@ export interface AgentView {
    * name): the shell starts and continues it inside. May be missing on older backends.
    */
   restartAs?: string | null;
+  /** Pitwall's Race Engineer (docs/spec/engineer.md): marked "ENGINEER". May be missing on older backends. */
+  engineer?: boolean;
   caps: AgentCaps;
   status: Status;
   statusSource: "hooks" | "screen" | "activity";
@@ -126,6 +128,8 @@ export interface CreateAgentRequest {
   /** Terminal size it will be shown at; the process starts at it (else the backend default). */
   cols?: number;
   rows?: number;
+  /** Start it as the Race Engineer (its own folder, Pitwall's know-how). */
+  engineer?: boolean;
 }
 
 /** Git status letter as in VS Code's SCM view (from `git diff --name-status`). */

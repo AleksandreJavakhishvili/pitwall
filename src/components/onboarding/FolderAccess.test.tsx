@@ -8,14 +8,14 @@ const html = (phase: AccessPhase, openError: string | null = null) =>
   renderToStaticMarkup(<FolderAccessView phase={phase} openError={openError} onOpen={() => {}} onSkip={() => {}} onContinue={() => {}} />);
 
 describe("folder access step", () => {
-  it("explains why, with three steps, Open Settings and Skip for now", () => {
+  it("recommends the per-folder prompts with Continue; Full Disk Access is a secondary link", () => {
     const h = html("ask");
-    expect(h).toContain("Desktop, Documents");
-    expect(h).toContain("Open Settings");
-    expect(h).toContain("Turn on Pitwall");
-    expect(h).toContain("Come back here");
-    expect(h).toContain("Skip for now");
-    expect(h).not.toContain("Continue");
+    expect(h).toContain("Desktop");
+    expect(h).toContain("recommended");
+    expect(h).toContain("At most three prompts");
+    expect(h).toContain("Continue");
+    expect(h).toContain("Use Full Disk Access instead");
+    expect(h).toContain("read everything");
   });
 
   it("waits for the switch after Open Settings", () => {
@@ -27,14 +27,14 @@ describe("folder access step", () => {
 
   it("shows the grant and moves on with Continue", () => {
     const h = html("granted");
-    expect(h).toContain("✓ granted");
     expect(h).toContain("Full Disk Access is on");
-    expect(h).toContain("Continue");
-    expect(h).not.toContain("Skip for now");
+    expect(h).toContain("Continue →");
+    expect(h).not.toContain("Use Full Disk Access instead");
   });
 
   it("renders nothing to read while checking", () => {
     expect(html("checking")).not.toContain("Full Disk Access");
+    expect(html("checking")).not.toContain("Continue");
   });
 
   it("shows why System Settings didn't open", () => {

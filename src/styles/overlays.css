@@ -327,6 +327,132 @@
   color: var(--text-3);
 }
 
+/* settings: a page list and one page (fixed size; Rules scrolls) */
+.settings-modal {
+  height: 540px;
+}
+.settings-modal .modal-head {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.settings-nav {
+  flex: none;
+  width: 164px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-right: 1px solid var(--line);
+}
+.settings-nav-item {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.settings-nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.settings-nav-item[data-on="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 550;
+}
+.settings-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings-page p {
+  margin: 0;
+}
+.setting-title {
+  font-weight: 550;
+  color: var(--text);
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+}
+.settings-sub {
+  font-size: 11.5px;
+}
+.setting-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.setting-check > span {
+  flex: 1;
+  min-width: 0;
+}
+.setting-check input {
+  margin-top: 6px;
+}
+.settings-about-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-about-brand strong {
+  font-size: 18px;
+}
+.about-board {
+  display: inline-flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  font-weight: 700;
+  font-size: 14px;
+}
+.about-board span {
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-2);
+}
+.about-board span + span {
+  color: var(--text);
+}
+.settings-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 3px 10px;
+  font-size: 12.5px;
+}
+.settings-facts dt {
+  color: var(--text-3);
+}
+.settings-facts dd {
+  margin: 0;
+}
+.settings-links {
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.settings-licence {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* settings */
 .setting {
   display: flex;
@@ -344,7 +470,8 @@
   align-items: center;
   gap: 8px;
 }
-.setting .small-btn {
+.setting .small-btn,
+.setting > .retry-btn {
   align-self: flex-start;
 }
 .settings-steps {

@@ -51,13 +51,22 @@
   color: var(--text);
   padding: 0 4px;
 }
-/* The Apex P, 32 px cut: a solid P with a chequer foot. */
+/* The mark stands in for the P: the rest of the word sits right up to it. */
+.wordmark-rest {
+  margin-left: -4px;
+}
+/* The Apex P, as the website header draws it: ink follows the theme. */
 .wordmark-mark {
   width: 20px;
   height: 20px;
   flex: none;
-  /* Brand mark (docs/brand/pitwall-small-32.svg), served from public/. */
-  background: url("/pitwall.svg") center / contain no-repeat;
+  display: block;
+}
+.wordmark-mark-s {
+  stroke: var(--text);
+}
+.wordmark-mark-b {
+  fill: var(--mark-squares);
 }
 
 .palette-hint {

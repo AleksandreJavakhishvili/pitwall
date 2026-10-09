@@ -1,4 +1,4 @@
-// Review screen shapes (docs/spec/review.md). Keep in sync with src-tauri/src/review.rs + tasks.rs.
+// Review screen shapes (docs/spec/review.md). Keep in sync with pitwall-core's review.rs + tasks.rs.
 import type { FileChange } from "./types";
 
 /** One prompt delivered to an agent, until it went done/idle. */
@@ -51,18 +51,4 @@ export interface ReviewApi {
   commitAgent(agentId: string, message: string): Promise<string>;
   mergeAgent(agentId: string): Promise<MergeResult>;
   getMergeStatus(agentId: string): Promise<MergeStatus>;
-}
-
-type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-
-export function tauriReviewApi(invoke: Invoke): ReviewApi {
-  return {
-    listTasks: (agentId) => invoke("list_tasks", { agentId }),
-    getTaskChanges: (agentId, taskId) => invoke("get_task_changes", { agentId, taskId }),
-    getFileVersions: (agentId, path, taskId) => invoke("get_file_versions", { agentId, path, taskId }),
-    discardFile: (agentId, path) => invoke("discard_file", { agentId, path }),
-    commitAgent: (agentId, message) => invoke("commit_agent", { agentId, message }),
-    mergeAgent: (agentId) => invoke("merge_agent", { agentId }),
-    getMergeStatus: (agentId) => invoke("get_merge_status", { agentId }),
-  };
 }

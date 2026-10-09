@@ -21,6 +21,7 @@
   --line: #1e2227;
   --line-strong: #2a2f36;
   --text: #e6e8eb;
+  --mark-squares: #353c46; /* the logo's chequer, as on the website */
   --text-2: #a2a8b1;
   --text-3: #6c737d;
   --text-4: #474d55;
@@ -67,6 +68,7 @@
   --line: #dfe2e6;
   --line-strong: #cdd1d6;
   --text: #15181c;
+  --mark-squares: #c5cbd3;
   --text-2: #4f5661;
   --text-3: #7d848e;
   --text-4: #a9aeb5;
@@ -106,6 +108,7 @@
     --line: #dfe2e6;
     --line-strong: #cdd1d6;
     --text: #15181c;
+    --mark-squares: #c5cbd3;
     --text-2: #4f5661;
     --text-3: #7d848e;
     --text-4: #a9aeb5;

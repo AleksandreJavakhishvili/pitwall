@@ -56,6 +56,7 @@ function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMen
         <span className="agent-row-main">
           <span className="agent-row-top">
             <span className="agent-name">{a.name}</span>
+            {a.engineer && <span className="chip">engineer</span>}
             <span className="status-word" data-status={a.status}>
               {STATUS_WORD[a.status]}
             </span>

@@ -31,6 +31,7 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
     >
       <StatusGlyph status={a.status} />
       <span className="pane-name">{a.name}</span>
+      {a.engineer && <span className="chip">engineer</span>}
       <span className="status-word" data-status={a.status}>
         {STATUS_WORD[a.status]}
       </span>

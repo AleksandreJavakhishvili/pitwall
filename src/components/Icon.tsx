@@ -22,6 +22,8 @@ const PATHS: Record<string, string> = {
   window: "M3 5h11v10H3zM6 5V3h11v10h-3",
   more: "M5 10h.01M10 10h.01M15 10h.01",
   review: "M4 3.5h8l4 4v9H4zM12 3.5v4h4M7 11h6M7 14h4",
+  // The Race Engineer (a headset).
+  headset: "M4 12.5V10a6 6 0 0 1 12 0v2.5M4 11.5h2.5v4H5a1 1 0 0 1-1-1zM16 11.5h-2.5v4H15a1 1 0 0 0 1-1zM14.5 15.5c0 1.2-1.3 2-3.5 2",
   terminal: "M3 4.5h14v11H3zM6 8l2.5 2L6 12M10.5 12.5H14",
   file: "M5 3h6.5L15 6.5V17H5zM11.5 3v3.5H15",
   expand: "M11 4h5v5M16 4l-6 6M9 16H4v-5M4 16l6-6",

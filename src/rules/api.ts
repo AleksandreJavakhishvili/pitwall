@@ -1,7 +1,6 @@
-// Rules (via rulesync): typed wrapper over the rules commands in
-// docs/spec/rules.md, with an in-memory mock for the browser (`pnpm dev`).
+// Rules (via rulesync): the rules interface of docs/spec/rules.md, backed
+// by an in-memory mock (the web demo has no backend; src/README.md).
 // Kept apart from ../api.ts so the rules feature stays self-contained.
-import { inTauri } from "../api";
 
 export interface RulesStatus {
   available: boolean;
@@ -79,32 +78,9 @@ export interface RulesApi {
   agentRules(): Promise<AgentRules[]>;
 }
 
-async function tauriRulesApi(): Promise<RulesApi> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return {
-    status: () => invoke("rules_status"),
-    setNpx: (enabled) => invoke("set_rules_npx", { enabled }),
-    library: () => invoke("list_rule_library"),
-    revealLibrary: () => invoke("reveal_rule_library"),
-    sets: () => invoke("list_rule_sets"),
-    saveSet: (set) => invoke("save_rule_set", { set }),
-    deleteSet: (id) => invoke("delete_rule_set", { id }),
-    importRules: (kind, source) => invoke("import_rules", { req: { kind, source } }),
-    sources: () => invoke("list_rule_sources"),
-    pullSource: (name) => invoke("pull_rule_source", { name }),
-    removeSource: (name) => invoke("remove_rule_source", { name }),
-    setProjectRules: (projectPath, ruleSetId) => invoke("set_project_rules", { projectPath, ruleSetId }),
-    projectRules: () => invoke("list_project_rules"),
-    getProjectRules: (projectPath) => invoke("get_project_rules", { projectPath }),
-    apply: (agentId, confirmMainCheckout) => invoke("apply_rules", { agentId, confirmMainCheckout: confirmMainCheckout ?? null }),
-    setAgentRules: (agentId, ruleSetId) => invoke("set_agent_rules", { agentId, ruleSetId }),
-    agentRules: () => invoke("agent_rules"),
-  };
-}
-
 let promise: Promise<RulesApi> | null = null;
 function get(): Promise<RulesApi> {
-  if (!promise) promise = inTauri ? tauriRulesApi() : import("./mock").then((m) => m.createMockRulesApi());
+  if (!promise) promise = import("./mock").then((m) => m.createMockRulesApi());
   return promise;
 }
 

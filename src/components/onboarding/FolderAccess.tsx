@@ -1,11 +1,12 @@
 // Welcome screen, step before the scan: macOS folder access (roadmap Wave 3).
-// Nothing here touches Desktop/Documents/Downloads; the scan (which may) only
-// starts once the user granted Full Disk Access or chose "Skip for now".
+// Per-folder prompts are the recommended path ("Continue"); Full Disk Access
+// is the alternative. Nothing here touches Desktop/Documents/Downloads; the
+// scan (which may) starts once the user continues.
 import { useEffect, useReducer, useState } from "react";
 import { api, errorText } from "../../api";
 import { accessStep, pollsStatus, usePermissions, type AccessEvent, type AccessPhase } from "../../lib/permissions";
 
-/** Runs the step; calls `onDone` when it's finished (granted, skipped, or nothing to ask). */
+/** Runs the step; calls `onDone` when it's finished (continued, granted, or nothing to ask). */
 export function FolderAccessStep({ onDone }: { onDone(): void }) {
   const [phase, dispatch] = useReducer(accessStep, "checking" as AccessPhase);
   const { status, failed } = usePermissions(pollsStatus(phase));
@@ -63,72 +64,84 @@ export function FolderAccessView({ phase, openError, onOpen, onSkip, onContinue 
           <h1 className="onb-title">Welcome to Pitwall</h1>
           <p className="muted onb-lede">
             First, folder access. Your agents work inside your projects, and projects often live in Desktop, Documents
-            or Downloads. macOS guards those folders and asks “Pitwall would like to access…” once for each one.
+            or Downloads, which macOS guards.
           </p>
         </header>
 
         <section className="onb-access" data-phase={phase}>
           <div className="onb-section-head">
-            <h2 className="label">Allow Full Disk Access</h2>
+            <h2 className="label">macOS asks once per folder</h2>
             <span className="spacer" />
             {granted ? (
-              <span className="chip chip-ok">✓ granted</span>
+              <span className="chip chip-subtle">not needed now</span>
             ) : (
-              <span className="chip chip-subtle">not yet</span>
+              <span className="chip chip-ok">recommended</span>
             )}
           </div>
           <p className="muted">
-            One switch instead of a prompt per folder. Pitwall reads your projects to show what your agents changed, and
-            the agents you start work in those folders.
+            When Pitwall first reads a project in one of these folders, macOS asks “Pitwall would like to access…”. Allow
+            it and it won't ask about that folder again.
           </p>
-          <ol className="onb-access-steps">
-            <li>
-              <b>Open Settings</b> — <span className="muted">Privacy &amp; Security → Full Disk Access opens.</span>
-            </li>
-            <li>
-              <b>Turn on Pitwall</b> —{" "}
-              <span className="muted">
-                if it isn't listed, click <span className="mono">+</span> and choose Pitwall in Applications.
-              </span>
-            </li>
-            <li>
-              <b>Come back here</b> — <span className="muted">this page notices by itself.</span>
-            </li>
-          </ol>
-          <p className="onb-access-live" aria-live="polite" data-on={granted}>
-            <span className="onb-glyph" aria-hidden>
-              {granted ? "✓" : ""}
-            </span>
-            {granted
-              ? "Full Disk Access is on. macOS won't ask about your folders again."
-              : phase === "waiting"
-                ? "Waiting for the switch…"
-                : "Not granted yet."}
-          </p>
-          {phase === "waiting" && (
-            <p className="hint">
-              If macOS offers “Quit &amp; Reopen”, either choice is fine — Pitwall picks up where you left off.
-            </p>
-          )}
+          <div className="onb-access-folders">
+            <span>Desktop</span>
+            <span>Documents</span>
+            <span>Downloads</span>
+          </div>
+          <p className="hint">At most three prompts, once each. Projects anywhere else never prompt.</p>
+          <div className="onb-access-fda">
+            {granted ? (
+              <p className="onb-access-live" aria-live="polite" data-on>
+                <span className="onb-glyph" aria-hidden>
+                  ✓
+                </span>
+                Full Disk Access is on. macOS won't ask about your folders.
+              </p>
+            ) : phase === "waiting" ? (
+              <>
+                <b>Full Disk Access</b>
+                <p className="hint">
+                  In Privacy &amp; Security → Full Disk Access, turn on Pitwall (if it isn't listed, click{" "}
+                  <span className="mono">+</span> and choose it in Applications), then come back: this page notices by
+                  itself.
+                </p>
+                <p className="onb-access-live" aria-live="polite">
+                  Waiting for the switch…{" "}
+                  <button className="retry-btn" onClick={onOpen}>
+                    Open Settings again
+                  </button>
+                </p>
+                <p className="hint">
+                  If macOS offers “Quit &amp; Reopen”, either choice is fine — Pitwall picks up where you left off.
+                </p>
+              </>
+            ) : (
+              <p className="hint">
+                Rather not see prompts?{" "}
+                <button className="retry-btn" onClick={onOpen}>
+                  Use Full Disk Access instead…
+                </button>
+              </p>
+            )}
+            {!granted && (
+              <p className="hint">
+                Full Disk Access lets Pitwall and every agent it starts read everything on this Mac, not just your
+                projects.
+              </p>
+            )}
+          </div>
           {openError && <p className="form-error">{openError}</p>}
-          <p className="hint">You can turn it off any time in the same place.</p>
         </section>
 
         <footer className="onb-foot">
-          {!granted && <span className="muted-sm">Skipping is fine: macOS will ask for each folder instead.</span>}
+          <span className="muted-sm">You can change this later in Settings → Folder access.</span>
           <span className="spacer" />
-          {!granted && (
-            <button className="ghost-btn" onClick={onSkip}>
-              Skip for now
-            </button>
-          )}
           {granted ? (
             <button className="primary-btn primary-lg" onClick={onContinue} autoFocus>
               Continue →
             </button>
           ) : (
-            <button className="primary-btn primary-lg" onClick={onOpen}>
-              {phase === "waiting" ? "Open Settings again" : "Open Settings"}
+            <button className="primary-btn primary-lg" onClick={onSkip}>
+              Continue
             </button>
           )}
         </footer>

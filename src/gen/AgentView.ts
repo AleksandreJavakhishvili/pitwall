@@ -35,7 +35,12 @@ agentInTerminal: boolean,
  * A terminal that restarts as the agent last started in it (its kind
  * name): the shell starts and continues that agent inside it.
  */
-restartAs: string | null, status: Status, statusSource: Source, statusDetail: string | null, running: boolean, 
+restartAs: string | null, 
+/**
+ * Pitwall's Race Engineer (docs/spec/engineer.md): an ordinary agent
+ * launched with Pitwall's own know-how; marked "ENGINEER".
+ */
+engineer: boolean, status: Status, statusSource: Source, statusDetail: string | null, running: boolean, 
 /**
  * Current PTY size.
  */

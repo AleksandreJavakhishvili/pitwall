@@ -29,6 +29,7 @@ import {
   setTerminalFontSize,
   tileFontOf,
 } from "./terminal/registry";
+import { ENGINEER_GREETING } from "./lib/engineer";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { SpaceView } from "./components/SpaceView";
@@ -424,6 +425,31 @@ export default function App() {
     setTimeout(() => showAgent(a.id), 0);
   };
 
+  // The Race Engineer (docs/spec/engineer.md): one agent, in its own folder,
+  // shown under the selected project; a new one gets its first prompt queued.
+  const openEngineer = async () => {
+    const there = agentsRef.current.find((a) => a.engineer);
+    if (there) return showAgent(there.id);
+    const sp = activeRef.current ? W.getSpace(current.current, activeRef.current) : undefined;
+    const focused = agentsRef.current.find((a) => a.id === focusedRef.current && !a.engineer);
+    const spaceProject = sp?.kind === "project" ? sp.project : null;
+    const project = focused?.project || spaceProject || "~";
+    const req = {
+      name: "Race Engineer",
+      kind: "claude",
+      projectPath: "~/.pitwall/engineer",
+      displayProject: project,
+      worktree: false,
+      engineer: true,
+      ...(await newAgentSize()),
+    };
+    const a = await run(api.createAgent(req), "open the Race Engineer");
+    if (!a) return;
+    patch(a);
+    void run(api.queueAdd(a.id, ENGINEER_GREETING), "queue the greeting");
+    setTimeout(() => showAgent(a.id), 0);
+  };
+
   const actions: Actions = {
     showAgent,
     run,
@@ -694,6 +720,8 @@ export default function App() {
           onToggleWall={() => setWall(null)}
           reviewOn={reviewOn && !wallOn}
           onToggleReview={toggleReview}
+          onEngineer={() => void openEngineer()}
+          engineerOn={!!agents.find((a) => a.id === focusedAgentId)?.engineer}
           onPalette={() => setModal({ type: "palette" })}
           onSettings={() => setModal({ type: "settings" })}
         />
@@ -804,6 +832,7 @@ export default function App() {
           onClose={closeModal}
           commands={{
             newAgent: () => setModal({ type: "new" }),
+            engineer: () => void openEngineer(),
             newTerminal: (path) => actions.openTerminal(path),
             newTerminalAt: () => actions.openTerminalAt(),
             nextBlocked,

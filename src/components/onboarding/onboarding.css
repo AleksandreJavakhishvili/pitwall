@@ -510,3 +510,25 @@
   color: var(--green);
   animation: pop 0.22s ease-out;
 }
+
+.onb-access-folders {
+  display: flex;
+  gap: 8px;
+}
+.onb-access-folders span {
+  padding: 3px 10px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.onb-access-fda {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.onb-access-fda p {
+  margin: 0;
+}
