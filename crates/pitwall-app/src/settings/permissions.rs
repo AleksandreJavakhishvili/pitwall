@@ -1,5 +1,6 @@
-//! macOS folder access (Full Disk Access) for the welcome screen's first step
-//! and Settings → Permissions (a port of `src/lib/permissions.ts`). The
+//! macOS folder access for the welcome screen's first step and Settings →
+//! Folder access (a port of `src/lib/permissions.ts`): per-folder prompts by
+//! default, Full Disk Access as the advanced alternative. The
 //! status comes from `pitwall_core::permissions::status`, which is read-only
 //! and never makes macOS ask.
 
@@ -13,7 +14,8 @@ pub const POLL: Duration = Duration::from_secs(2);
 /// The welcome screen's folder-access step:
 /// checking → (already granted / nothing to ask) done
 ///          → ask → waiting (System Settings opened) → granted → done.
-/// "Skip for now" goes to done from anywhere.
+/// "Continue" (macOS's per-folder prompts, the recommended path) is
+/// [`AccessEvent::Skip`]: done from anywhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessPhase {
     Checking,
@@ -79,7 +81,7 @@ impl AccessPhase {
 
 pub use crate::kit::Tone;
 
-/// Settings → Permissions chip (`fdaBadge`).
+/// Settings → Folder access → Full Disk Access chip (`fdaBadge`).
 pub fn badge(s: Option<&PermissionsStatus>) -> (&'static str, Tone) {
     match s {
         None => ("checking…", crate::kit::Tone::Subtle),
