@@ -103,11 +103,8 @@ impl Modal {
                 )
             })
             .child(body);
-        let panel: AnyElement = if self.motion {
-            enter(self.id, Fx::MODAL, panel).into_any_element()
-        } else {
-            panel.into_any_element()
-        };
+        // (Reduce motion: `enter` keeps the fade alone.)
+        let panel: AnyElement = enter(self.id, Fx::MODAL, panel).into_any_element();
         let backdrop = div()
             .id("modal-backdrop")
             .absolute()

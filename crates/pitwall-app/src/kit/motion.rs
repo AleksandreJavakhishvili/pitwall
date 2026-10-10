@@ -193,6 +193,19 @@ pub struct Frame {
     pub origin_y: f32,
 }
 
+impl Frame {
+    /// The fade alone, in place (Reduce motion keeps fades, as macOS
+    /// does, and drops movement).
+    pub fn fade_only(self) -> Frame {
+        Frame {
+            dx: 0.,
+            dy: 0.,
+            scale: 1.,
+            ..self
+        }
+    }
+}
+
 /// An element's surface, drawn scaled while it opens or is pressed.
 #[derive(Clone, Default)]
 pub struct Skin {
@@ -352,14 +365,20 @@ impl<E: IntoElement + Styled + 'static> Element for Enter<E> {
             (s, s)
         });
         let el = self.child.take().expect("laid out once");
-        let t = if motion(cx) {
+        // Reduce motion: an opening that fades still fades (a dialog's
+        // scrim snapping on and off reads as a flash), without moving.
+        let full = motion(cx);
+        let fade = !full && on() && self.fx.opacity < 1.;
+        let t = if full || fade {
             start.elapsed().as_secs_f32() / self.fx.dur.as_secs_f32()
         } else {
             1.
         };
         let mut child = if t < 1. {
             window.request_animation_frame();
-            transformed(el, self.fx.frame(t)).into_any_element()
+            let frame = self.fx.frame(t);
+            let frame = if full { frame } else { frame.fade_only() };
+            transformed(el, frame).into_any_element()
         } else {
             el.into_any_element()
         };
@@ -1585,6 +1604,17 @@ mod tests {
             let start = f.frame(0.);
             assert_eq!(start.opacity, 0.);
             assert_eq!((start.dx, start.dy, start.scale), (f.dx, f.dy, f.scale));
+        }
+    }
+
+    #[test]
+    fn reduce_motion_keeps_the_fade_and_drops_the_movement() {
+        for f in [Fx::MODAL, Fx::SCRIM, Fx::MENU, Fx::TOAST, Fx::SLIDE_LEFT] {
+            for t in [0., 0.3, 0.7, 1.] {
+                let (full, fade) = (f.frame(t), f.frame(t).fade_only());
+                assert_eq!(fade.opacity, full.opacity);
+                assert_eq!((fade.dx, fade.dy, fade.scale), (0., 0., 1.));
+            }
         }
     }
 

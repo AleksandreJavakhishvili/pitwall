@@ -276,7 +276,6 @@ impl Render for ApprovalDialog {
                             .on_click(cx.listener(|this, _, _, cx| this.answer(true, cx))),
                     ),
             );
-        let panel_motion = theme::motion_on(cx);
         let backdrop_el = div()
             .id("approval-backdrop")
             .key_context("ApprovalDialog")
@@ -332,11 +331,8 @@ impl Render for ApprovalDialog {
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .child(Self::head(&t, cx))
                     .child(body);
-        let panel = if panel_motion {
-            kit::motion::enter("approval-in", kit::motion::Fx::MODAL, panel).into_any_element()
-        } else {
-            panel.into_any_element()
-        };
+        // (Reduce motion: `enter` keeps the fade alone.)
+        let panel = kit::motion::enter("approval-in", kit::motion::Fx::MODAL, panel).into_any_element();
         kit::scrim_in("approval-fade", backdrop_el.child(panel))
     }
 }
