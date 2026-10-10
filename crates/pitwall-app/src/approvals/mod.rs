@@ -278,6 +278,8 @@ impl Render for ApprovalDialog {
             );
         let backdrop_el = div()
             .id("approval-backdrop")
+            // Takes the click: nothing under a backdrop is clicked through it.
+            .occlude()
             .key_context("ApprovalDialog")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &Dismiss, _, cx| this.answer(false, cx)))

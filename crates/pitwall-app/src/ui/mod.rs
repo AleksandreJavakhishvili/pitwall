@@ -639,6 +639,38 @@ mod tests {
         assert!(explorer.read_with(vcx, |e, _| e.quick_open_shown()), "⌘P opens quick open");
     }
 
+    /// A diff open over the Changes list: a click on the backdrop, even
+    /// over the same file, only closes it (the click doesn't reach the row
+    /// under it and open the diff again, a flash of closing and opening).
+    #[gpui::test]
+    fn a_click_through_a_dialogs_backdrop_only_closes_it(cx: &mut TestAppContext) {
+        let (first, _second, vcx) = two_windows_with(cx, true, true);
+        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
+        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        let file = |path: &str| pitwall_core::vcs::git::FileChange {
+            path: path.into(),
+            added: 2,
+            removed: 1,
+            untracked: false,
+            binary: false,
+            status: None,
+        };
+        screen.update(vcx, |s, cx| s.set_changes_for_test("a1", vec![file("src/main.rs")], cx));
+        vcx.run_until_parked();
+        let click = |vcx: &mut VisualTestContext| {
+            screen.update(vcx, |_, cx| cx.notify());
+            vcx.run_until_parked();
+            let at = vcx.debug_bounds("file-name-0").expect("the file is listed");
+            vcx.simulate_click(at.center(), gpui::Modifiers::none());
+            vcx.run_until_parked();
+        };
+        click(vcx);
+        assert!(screen.read_with(vcx, |s, _| s.diff_dialog().is_some()), "its diff opened");
+        click(vcx);
+        assert!(screen.read_with(vcx, |s, _| s.diff_dialog().is_none()), "closed, not opened again");
+    }
+
     /// Liquid Glass: the chrome's native glass pieces (top bar, sidebar,
     /// right panel) stay as they are while a change in the right panel's
     /// list opens and closes, and on the frames that only redraw what's
@@ -705,11 +737,16 @@ mod tests {
         // Review: the right panel's piece hides; back: the same one shows.
         screen.update(vcx, |s, cx| s.set_route(Route::Review, cx));
         vcx.run_until_parked();
+        // (The screen drawn on Review whatever frames ran first.)
+        screen.update(vcx, |_, cx| cx.notify());
+        vcx.run_until_parked();
         ring_frame(vcx);
         let (shown, counts) = regions::of(wid);
         assert_eq!(shown, vec!["sidebar", "topbar"]);
         assert_eq!((counts.made, counts.hidden), (made.made, made.hidden + 1));
         screen.update(vcx, |s, cx| s.set_route(Route::Space, cx));
+        vcx.run_until_parked();
+        screen.update(vcx, |_, cx| cx.notify());
         vcx.run_until_parked();
         let (shown, counts) = regions::of(wid);
         assert_eq!(shown, all);

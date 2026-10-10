@@ -428,6 +428,8 @@ impl Render for Palette {
         let scrim = t.scrim();
         let backdrop = div()
             .id("palette-backdrop")
+            // Takes the click: nothing under a backdrop is clicked through it.
+            .occlude()
             .absolute()
             .inset_0()
             .p(px(24.))

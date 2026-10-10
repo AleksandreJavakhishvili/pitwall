@@ -1333,6 +1333,15 @@ impl MainScreen {
     }
 
     /// Whether one of its dialogs shows.
+    /// The open diff (tests).
+    #[cfg(test)]
+    pub(crate) fn diff_dialog(&self) -> Option<Entity<DiffDialog>> {
+        match &self.modal {
+            Some(Modal::Diff(d)) => Some(d.clone()),
+            _ => None,
+        }
+    }
+
     pub fn has_dialog(&self) -> bool {
         self.modal.is_some() || self.elsewhere.bring.is_some()
     }
@@ -1608,6 +1617,8 @@ impl Render for MainScreen {
                         "sidebar-scrim",
                         div()
                             .id("sidebar-scrim")
+                            // Takes the click: nothing under a backdrop is clicked through it.
+                            .occlude()
                             .absolute()
                             .inset_0()
                             .bg(t.scrim())
@@ -1640,6 +1651,8 @@ impl Render for MainScreen {
                     "drawer-scrim",
                     div()
                         .id("drawer-scrim")
+                        // Takes the click: nothing under a backdrop is clicked through it.
+                        .occlude()
                         .absolute()
                         .inset_0()
                         .bg(t.scrim())
