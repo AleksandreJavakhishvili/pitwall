@@ -2,6 +2,16 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Drag a space tab out of the tab bar to open it in its own window, where you let go.
+- With more than one window, ⌘P (quick open) and Review open in the window you're in; before, the file could open in another window and leave this one blank. ⌘P also works again after Esc closes a file.
+- Liquid Glass: no more flicker of the whole window while agents work or a diff opens, and the floating sidebar and right panel have clean rounded corners.
+- With Reduce motion on, dialogs fade in instead of flashing dark, and a click outside a dialog only closes it (it no longer reopens what was under it).
+- The website's favicon is the Apex P, like the app icon.
+
 ## [0.2.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.0) - 2026-10-09
 
 ### Highlights
