@@ -73,13 +73,15 @@ fn ask(path: &Path) -> std::io::Result<()> {
     exchange(s, &format!("{ASK} {token}"))
 }
 
-/// Answer one request: whether it asked to focus.
-fn answer<S: std::io::Read + Write>(s: S, want: &str) -> bool {
+/// Answer one request: `on_focus` runs if it asked to focus, before the
+/// reply, so the asker's answer means the focus was taken.
+fn answer<S: std::io::Read + Write>(s: S, want: &str, on_focus: impl FnOnce()) -> bool {
     let mut line = String::new();
     let mut reader = BufReader::new(s);
     if reader.read_line(&mut line).is_err() || line.trim() != want {
         return false;
     }
+    on_focus();
     let _ = reader.get_mut().write_all(format!("{OK}\n").as_bytes());
     true
 }
@@ -127,9 +129,7 @@ fn listen(path: &Path, on_focus: impl Fn() + Send + 'static) -> std::io::Result<
         .spawn(move || {
             for conn in listener.incoming().flatten() {
                 let _ = conn.set_read_timeout(Some(TIMEOUT));
-                if answer(conn, ASK) {
-                    on_focus();
-                }
+                answer(conn, ASK, &on_focus);
             }
         })?;
     Ok(())
@@ -150,9 +150,7 @@ fn listen(path: &Path, on_focus: impl Fn() + Send + 'static) -> std::io::Result<
         .spawn(move || {
             for conn in listener.incoming().flatten() {
                 let _ = conn.set_read_timeout(Some(TIMEOUT));
-                if answer(conn, &want) {
-                    on_focus();
-                }
+                answer(conn, &want, &on_focus);
             }
         })?;
     Ok(())
@@ -204,7 +202,7 @@ mod tests {
     fn only_the_focus_line_is_answered() {
         let (mut a, b) = socket_pair();
         a.write_all(b"something else\n").unwrap();
-        assert!(!answer(b, ASK));
+        assert!(!answer(b, ASK, || unreachable!()));
     }
 
     #[cfg(unix)]
