@@ -39,6 +39,17 @@ pub fn default_offer() -> GlassOffer {
     }
 }
 
+/// The OS accessibility options now (Reduce transparency, Increase
+/// contrast, Reduce motion). Tests see the defaults, whatever the machine
+/// running them has set.
+pub fn prefs() -> OsPrefs {
+    if cfg!(test) {
+        OsPrefs::default()
+    } else {
+        os_prefs()
+    }
+}
+
 /// The background appearance GPUI should use for a tier.
 pub fn background_for(tier: Option<GlassTier>) -> WindowBackgroundAppearance {
     match tier {
