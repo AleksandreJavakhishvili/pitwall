@@ -837,6 +837,7 @@ impl Render for Viewer {
         }
         div()
             .id("ex-viewer")
+            .debug_selector(|| "ex-viewer".into())
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::back))

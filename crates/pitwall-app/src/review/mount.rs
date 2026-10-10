@@ -226,7 +226,9 @@ pub fn mount<V: 'static>(
     cx: &mut Context<V>,
 ) -> Entity<ReviewRoute> {
     let route = cx.new(|cx| ReviewRoute::new(screen, window, cx));
-    let r = route.clone();
-    crate::main_screen::register_route(cx, Route::Review, move |_, _, _| r.clone().into());
+    // This window's (the hook is app-wide: one builder capturing `route`
+    // would hand every window the last one mounted).
+    let view: gpui::AnyView = route.clone().into();
+    screen.update(cx, |s, _| s.set_route_view(Route::Review, view));
     route
 }

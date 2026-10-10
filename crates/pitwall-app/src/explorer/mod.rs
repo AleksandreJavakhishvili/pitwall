@@ -32,8 +32,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    actions, div, prelude::*, px, AnyView, App, Context, Entity, EventEmitter, InteractiveElement,
-    KeyBinding, SharedString, Subscription, Task, Window,
+    actions, div, prelude::*, px, AnyView, App, Context, Entity, EventEmitter, Focusable,
+    InteractiveElement, KeyBinding, SharedString, Subscription, Task, Window,
 };
 
 use crate::agents::AgentStore;
@@ -451,6 +451,14 @@ impl Explorer {
         cx.notify();
     }
 
+    /// Whether one of its viewers (shown, or closed but still on screen
+    /// until the next frame) has the keyboard.
+    pub fn viewer_has_focus(&self, window: &Window, cx: &App) -> bool {
+        self.viewers
+            .values()
+            .any(|v| v.focus_handle(cx).contains_focused(window, cx))
+    }
+
     /// Back to the agents (Esc, "Back").
     pub fn close_viewer(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.open.take() else { return };
@@ -565,6 +573,12 @@ impl Explorer {
             });
         }));
         cx.notify();
+    }
+
+    /// Quick open shows (tests).
+    #[cfg(test)]
+    pub(crate) fn quick_open_shown(&self) -> bool {
+        self.quick.is_some()
     }
 
     #[cfg(test)]
