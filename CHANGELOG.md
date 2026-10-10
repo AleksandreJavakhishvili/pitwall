@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.2.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.1) - 2026-10-10
 
 ### Highlights
 
@@ -11,6 +11,29 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - Liquid Glass: no more flicker of the whole window while agents work or a diff opens, and the floating sidebar and right panel have clean rounded corners.
 - With Reduce motion on, dialogs fade in instead of flashing dark, and a click outside a dialog only closes it (it no longer reopens what was under it).
 - The website's favicon is the Apex P, like the app icon.
+
+### Features
+
+- **app:** Drag a space tab out to open it in its own window ([`461ce70`](https://github.com/AleksandreJavakhishvili/pitwall/commit/461ce7099cf893c3c711ad794b236bcca47e0bca))
+
+### Fixes
+
+- **website:** The favicon is the Apex P like the app icon ([`7cedd0f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7cedd0f6f9071e937fac02489ced51f95d7ce2b8))
+- **app:** Glass panels' background follows their rounded corners ([`a32087c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a32087cb4d6f3f937beab2a36db28d8b1440fbf5))
+- **app:** Quick open shows the file in its own window ([`c8d7b59`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c8d7b59849ac631477ec35d5ed1cd54999159f6a))
+- **app:** Glass pieces stay put while the screen replays a frame ([`8ad8025`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8ad8025bf8623bf938b688c5f6adeebb144d4234))
+- **app:** Dialogs fade in with Reduce motion instead of snapping ([`dd3512b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/dd3512b766002c07843c23efdb0b0a4d1175792e))
+- **app:** A dialog's backdrop takes the click instead of passing it on ([`257184a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/257184ae7395a0004abdba9ecfb6930850d30c14))
+
+### Documentation
+
+- Highlights for 0.2.1 ([`5ff36cd`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5ff36cdd4205290649d5fbb32823c8cc8fa01046))
+
+### Tests
+
+- **app:** Quick open tests use the shortcut of the OS they run on ([`e6bbbd3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e6bbbd3ca26e22e9ea8c715ac9dcae10db7e271c))
+- **app:** Tests see default OS accessibility options ([`aa16cd9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/aa16cd9ec41c0fff6d1de42e0396b7b0023069f7))
+
 
 ## [0.2.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.0) - 2026-10-09
 
