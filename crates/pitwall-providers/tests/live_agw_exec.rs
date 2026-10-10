@@ -285,6 +285,9 @@ fn read_only_walk_against_the_fake_agw() {
     std::fs::create_dir_all(&ws).unwrap();
     let git = |args: &[&str]| {
         let ok = Command::new("git")
+            // No background gc/maintenance: it would change .git while
+            // the test counts its files.
+            .args(["-c", "gc.auto=0", "-c", "maintenance.auto=false"])
             .args(args)
             .current_dir(&ws)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -340,8 +343,11 @@ fn count_files(dir: &Path) -> Vec<(String, u64)> {
         let p = e.path();
         if p.is_dir() {
             v.extend(count_files(&p));
-        } else {
-            v.push((p.to_string_lossy().into_owned(), e.metadata().unwrap().len()));
+        } else if p.extension().is_some_and(|x| x == "lock") {
+            // A git command's lock, there for a moment: not repository content.
+        } else if let Ok(m) = e.metadata() {
+            // (A file gone since the listing was a moment's lock or temp file.)
+            v.push((p.to_string_lossy().into_owned(), m.len()));
         }
     }
     v.sort();

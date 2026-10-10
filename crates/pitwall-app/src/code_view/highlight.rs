@@ -304,9 +304,16 @@ impl Lang {
                 tree_sitter_powershell::LANGUAGE.into(),
                 tree_sitter_powershell::HIGHLIGHTS_QUERY.into(),
             ),
+            #[cfg(not(windows))]
             Lang::Scss => (
                 tree_sitter_scss::language(),
                 tree_sitter_scss::HIGHLIGHTS_QUERY.into(),
+            ),
+            // No SCSS grammar on Windows (Cargo.toml): highlighted as CSS.
+            #[cfg(windows)]
+            Lang::Scss => (
+                tree_sitter_css::LANGUAGE.into(),
+                tree_sitter_css::HIGHLIGHTS_QUERY.into(),
             ),
             Lang::OCaml => (
                 tree_sitter_ocaml::LANGUAGE_OCAML.into(),

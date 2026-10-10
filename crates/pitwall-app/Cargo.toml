@@ -68,7 +68,6 @@ tree-sitter-elixir = "0.3"
 tree-sitter-zig = "1.1"
 tree-sitter-r = "1.3"
 tree-sitter-powershell = "0.26"
-tree-sitter-scss = "1.0"
 tree-sitter-ocaml = "0.26"
 tree-sitter-nix = "0.3"
 # The terminal view in panes (Apache-2.0, this repo): fed from the engine,
@@ -86,6 +85,11 @@ notify-rust = "4.11"
 # accessibility options (Settings → Appearance); Dock badge, attention bounce
 # and About panel (platform). MIT (objc2-app-kit: Zlib OR Apache-2.0 OR MIT);
 # already in the tree.
+# SCSS: not on Windows, where its build script passes MSVC a GCC flag that
+# Visual Studio 2026's compiler rejects; SCSS files are highlighted as CSS there.
+[target.'cfg(not(windows))'.dependencies]
+tree-sitter-scss = "1.0"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSGeometry", "NSString"] }
