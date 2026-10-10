@@ -139,8 +139,11 @@ pub struct RouteViews(HashMap<Route, RouteBuilder>);
 
 impl Global for RouteViews {}
 
-/// Hook for the Wall, Review and Explorer modules: the view the centre shows
-/// on `route` (built once per window, when first shown).
+/// Hook for the Wall: the view the centre shows on `route` (built once per
+/// window, when first shown). One builder serves every window, so it takes
+/// what belongs to a window from its [`RouteContext`], never from what it
+/// captured; a view made with a window's own entities is given to that
+/// window's screen with [`MainScreen::set_route_view`] instead.
 pub fn register_route(
     cx: &mut App,
     route: Route,
@@ -573,6 +576,12 @@ impl MainScreen {
     /// The view another module registered for `route`, once shown.
     pub fn route_view_of(&self, route: Route) -> Option<AnyView> {
         self.route_views.get(&route).cloned()
+    }
+
+    /// This window's own view for `route` (Review's, the explorer's: made
+    /// with the window's entities, so not an app-wide [`register_route`]).
+    pub fn set_route_view(&mut self, route: Route, view: AnyView) {
+        self.route_views.insert(route, view);
     }
 
     pub fn store(&self) -> &Entity<AgentStore> {

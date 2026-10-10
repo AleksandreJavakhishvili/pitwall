@@ -3,9 +3,11 @@
 //! approval dialog over it. When the app refused to host an engine
 //! (`home::Refusal`), the window says why instead.
 
+use std::collections::HashMap;
+
 use gpui::{
-    div, prelude::*, px, Context, Entity, FocusHandle, IntoElement, Render, Subscription, Task,
-    Window,
+    div, prelude::*, px, Context, Entity, FocusHandle, Global, IntoElement, Render, Subscription,
+    Task, WeakEntity, Window, WindowId,
 };
 
 use crate::agents::AgentStore;
@@ -301,6 +303,12 @@ impl Render for Nothing {
     }
 }
 
+/// Each window's explorer, for the app-wide Files tab hook.
+#[derive(Default)]
+struct WindowExplorers(HashMap<WindowId, WeakEntity<crate::explorer::Explorer>>);
+
+impl Global for WindowExplorers {}
+
 /// The explorer's viewer as the main screen's Explorer route.
 struct ExplorerRoute(Entity<crate::explorer::Explorer>);
 
@@ -327,9 +335,20 @@ fn explorer_seams(
 ) -> Vec<Subscription> {
     use crate::explorer::ExplorerEvent;
     use crate::main_screen::{Route, ScreenEvent};
-    let e = explorer.downgrade();
-    crate::main_screen::register_files_panel(cx, move |agent, window, cx| {
-        let panel = e.upgrade().and_then(|e| {
+    // The Files tab hook is one for the app: it finds the explorer of the
+    // window it draws in (capturing this one would hand every window the
+    // last window's explorer).
+    let windows = cx.default_global::<WindowExplorers>();
+    windows.0.retain(|_, e| e.upgrade().is_some());
+    windows
+        .0
+        .insert(window.window_handle().window_id(), explorer.downgrade());
+    crate::main_screen::register_files_panel(cx, |agent, window, cx| {
+        let explorer = cx
+            .try_global::<WindowExplorers>()
+            .and_then(|w| w.0.get(&window.window_handle().window_id()))
+            .and_then(|e| e.upgrade());
+        let panel = explorer.and_then(|e| {
             e.update(cx, |e, cx| {
                 e.set_agent(Some(agent.id.clone()), cx);
                 e.panel(window, cx)
@@ -337,15 +356,13 @@ fn explorer_seams(
         });
         panel.unwrap_or_else(|| cx.new(|_| Nothing).into())
     });
+    // The Explorer route is this window's viewer.
     let e = explorer.clone();
-    crate::main_screen::register_route(cx, Route::Explorer, move |_, _, cx| {
-        let e = e.clone();
-        cx.new(|cx| {
-            cx.observe(&e, |_, _, cx| cx.notify()).detach();
-            ExplorerRoute(e)
-        })
-        .into()
+    let route = cx.new(|cx| {
+        cx.observe(&e, |_, _, cx| cx.notify()).detach();
+        ExplorerRoute(e)
     });
+    screen.update(cx, |s, _| s.set_route_view(Route::Explorer, route.into()));
     let (s1, s2) = (screen.clone(), screen.clone());
     let e1 = explorer.clone();
     let review = review.clone();
@@ -359,6 +376,13 @@ fn explorer_seams(
             let open = e.read(cx).viewer_open();
             match ev {
                 ExplorerEvent::ViewerToggled => s1.update(cx, |s, cx| {
+                    // Closed with the keyboard in it: let it go, as the
+                    // Wall does, so the screen takes it back when it draws
+                    // (a focus left on a viewer no longer drawn reaches
+                    // nothing: ⌘P and the rest stop working).
+                    if !open && e.read(cx).viewer_has_focus(window, cx) {
+                        window.blur();
+                    }
                     if open {
                         s.set_route(Route::Explorer, cx);
                     } else if s.route() == Route::Explorer {
@@ -481,5 +505,144 @@ mod tests {
             assert!(v.layer.read(cx).is_open());
             assert!(!v.palette.read(cx).is_open(), "the palette closed");
         });
+    }
+
+    /// Two windows over one made-up agent whose files can be read, Flat or
+    /// Liquid Glass (regions on: the screen is drawn without its parts, as
+    /// one cached view). The second opens after the first, as
+    /// `windows::restore` opens saved windows after main.
+    fn two_windows(
+        cx: &mut TestAppContext,
+        glass: bool,
+    ) -> (Entity<MainView>, Entity<MainView>, &mut VisualTestContext) {
+        use crate::explorer::source::fake::FakeSource;
+        use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+        cx.update(|cx| {
+            crate::kit::init(cx);
+            crate::settings::init(cx, None, None);
+            crate::palette::init(cx);
+            crate::main_screen::init(cx);
+            crate::explorer::register(cx);
+            crate::ui_state::init(None, cx);
+            let look = if glass { Look::Glass } else { Look::Flat };
+            let ap = Appearance::resolve(
+                Inputs { look, ..Inputs::default() },
+                gpui::WindowAppearance::Dark,
+                GlassOffer::Liquid,
+                OsPrefs::default(),
+            );
+            cx.set_global(ap.theme());
+            cx.set_global(ap);
+            assert_eq!(crate::theme::glass_regions(cx), glass);
+            let src: std::sync::Arc<dyn crate::explorer::Source> = FakeSource::new(&[
+                ("src/main.rs", "fn main() {\n    println!(\"hi\");\n}\n"),
+                ("notes/todo.md", "one\ntwo\n"),
+            ]);
+            cx.set_global(crate::explorer::ExplorerSource(src));
+        });
+        let mut a = crate::agents::tests::agent("a1", "/work/alpha", "idle", 1, true);
+        a.caps = pitwall_proto::AgentCaps {
+            explorer: true,
+            review: true,
+            ..Default::default()
+        };
+        let store = cx.new(|_| AgentStore::new(vec![a]));
+        let s2 = store.clone();
+        let (first, vcx) = cx.add_window_view(move |window, cx| {
+            MainView::new(Content::Live { store }, None, window, cx)
+        });
+        vcx.run_until_parked();
+        let second = vcx.update(|_, cx| {
+            let h = cx
+                .open_window(Default::default(), move |window, cx| {
+                    cx.new(|cx| MainView::new(Content::Live { store: s2 }, None, window, cx))
+                })
+                .unwrap();
+            h.entity(cx).unwrap()
+        });
+        vcx.run_until_parked();
+        (first, second, vcx)
+    }
+
+    /// ⌘P, a file picked: the first window shows it, though a second
+    /// window opened after it (each window's routes and Files tab are its
+    /// own, not the last window's).
+    fn quick_open_shows_the_file(glass: bool, cx: &mut TestAppContext) {
+        let (first, second, vcx) = two_windows(cx, glass);
+        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("cmd-p");
+        vcx.run_until_parked();
+        vcx.simulate_input("main");
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        assert_eq!(screen.read_with(vcx, |s, _| s.route()), crate::main_screen::Route::Explorer);
+        assert!(vcx.debug_bounds("ex-viewer").is_some(), "the viewer is drawn");
+        let code = vcx.debug_bounds("ex-code").expect("the file's text is drawn");
+        assert!(code.size.width > gpui::px(0.) && code.size.height > gpui::px(0.));
+
+        // The other per-window seams: Review and the Files tab.
+        vcx.update(|window, cx| {
+            let (review, explorer) = {
+                let v = first.read(cx);
+                (v.review.clone().unwrap(), v.explorer.clone().unwrap())
+            };
+            let shown = screen.read(cx).route_view_of(crate::main_screen::Route::Review);
+            assert_eq!(shown.map(|v| v.entity_id()), Some(review.entity_id()));
+            let agent = screen.read(cx).selected(cx).unwrap();
+            let build = cx.global::<crate::main_screen::FilesPanel>().0.clone();
+            let tab = build(&agent, window, cx);
+            let own = explorer.update(cx, |e, cx| e.panel(window, cx)).unwrap();
+            assert_eq!(tab.entity_id(), own.entity_id());
+        });
+        let other = second.read_with(vcx, |v, _| v.explorer.clone().unwrap());
+        assert!(!other.read_with(vcx, |e, _| e.viewer_open()));
+    }
+
+    /// A file opened with ⌘P, Esc back to the agents: the keyboard is the
+    /// screen's again, so ⌘P opens quick open once more.
+    fn esc_gives_the_keyboard_back(glass: bool, cx: &mut TestAppContext) {
+        let (first, _, vcx) = two_windows(cx, glass);
+        let (screen, explorer) = first.read_with(vcx, |v, _| {
+            (v.screen.clone().unwrap(), v.explorer.clone().unwrap())
+        });
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("cmd-p");
+        vcx.run_until_parked();
+        vcx.simulate_input("main");
+        vcx.run_until_parked();
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        assert!(explorer.read_with(vcx, |e, _| e.viewer_open()));
+        vcx.simulate_keystrokes("escape");
+        vcx.run_until_parked();
+        assert!(!explorer.read_with(vcx, |e, _| e.viewer_open()));
+        assert_eq!(screen.read_with(vcx, |s, _| s.route()), crate::main_screen::Route::Space);
+        vcx.simulate_keystrokes("cmd-p");
+        vcx.run_until_parked();
+        assert!(explorer.read_with(vcx, |e, _| e.quick_open_shown()), "⌘P opens quick open");
+    }
+
+    #[gpui::test]
+    fn esc_gives_the_keyboard_back_flat(cx: &mut TestAppContext) {
+        esc_gives_the_keyboard_back(false, cx);
+    }
+
+    #[gpui::test]
+    fn esc_gives_the_keyboard_back_glass(cx: &mut TestAppContext) {
+        esc_gives_the_keyboard_back(true, cx);
+    }
+
+    #[gpui::test]
+    fn quick_open_shows_the_picked_file_flat(cx: &mut TestAppContext) {
+        quick_open_shows_the_file(false, cx);
+    }
+
+    #[gpui::test]
+    fn quick_open_shows_the_picked_file_glass(cx: &mut TestAppContext) {
+        quick_open_shows_the_file(true, cx);
     }
 }

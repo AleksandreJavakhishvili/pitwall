@@ -78,6 +78,7 @@ pub fn code_view(
     }
     div()
         .id("ex-code")
+        .debug_selector(|| "ex-code".into())
         .size_full()
         .min_h_0()
         .flex()
