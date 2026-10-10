@@ -176,10 +176,10 @@ fn every_shortcut_has_a_binding() {
     }
     if !cfg!(target_os = "macos") {
         // Ctrl alone belongs to the terminal.
-        assert!(b.iter().filter(|k| k.predicate().is_none()).all(|k| k
-            .keystrokes()
+        assert!(b
             .iter()
-            .all(|s| !s.modifiers().control || s.modifiers().shift)));
+            .filter(|k| k.predicate().is_none())
+            .all(|k| !k.keystrokes().iter().any(super::terminal_ctrl)));
     }
 }
 

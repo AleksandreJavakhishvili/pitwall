@@ -324,6 +324,17 @@ fn shifted_symbols() -> Vec<KeyBinding> {
     ]
 }
 
+/// A Ctrl key a terminal would get (Windows, Linux): Ctrl without Shift,
+/// unless the key is one `shifted_symbols` binds (Shift was pressed).
+#[cfg(test)]
+pub(crate) fn terminal_ctrl(s: &gpui::KeybindingKeystroke) -> bool {
+    const SHIFTED: &[&str] = &[
+        "~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "{", "}", "|", ":",
+        "\"", "<", ">", "?", "add", "subtract",
+    ];
+    s.modifiers().control && !s.modifiers().shift && !SHIFTED.contains(&s.key())
+}
+
 /// Register the key bindings (call once at start, after `kit::init`).
 pub fn init(cx: &mut App) {
     cx.bind_keys(bindings());
