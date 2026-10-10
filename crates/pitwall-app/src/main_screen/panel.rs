@@ -55,6 +55,18 @@ impl ChangesState {
 
 
 impl MainScreen {
+    /// Tests: show these changes for agent `id` (as if just read).
+    #[cfg(test)]
+    pub(crate) fn set_changes_for_test(
+        &mut self,
+        id: &str,
+        files: Vec<FileChange>,
+        cx: &mut Context<Self>,
+    ) {
+        self.changes.agent_for_demo(id, files);
+        cx.notify();
+    }
+
     /// The focused agent changed, or its totals moved: (re)load its changes.
     pub(super) fn changes_follow(&mut self, cx: &mut Context<Self>) {
         let sel = self.selected(cx);
@@ -538,6 +550,8 @@ impl MainScreen {
             .child(div().mr(px(-2.)).child(crate::kit::file_icon(&f.path, 16.)))
             .child(
                 div()
+                    // (Not on the row: its hover probe names it.)
+                    .debug_selector(move || format!("file-name-{i}"))
                     .flex_1()
                     .min_w_0()
                     .flex()

@@ -61,8 +61,9 @@ pub fn chrome_panel(id: &'static str, child: impl IntoElement, cx: &App) -> AnyE
         .into_any_element()
 }
 
-/// Drops the native glass pieces no region placed this frame. Paint it
-/// last in the window (after every region).
+/// Hides the native glass pieces whose view drew this frame without them
+/// (a cached view replayed keeps its own: `platform::glass::regions`).
+/// Put it in a view that draws every frame (not a cached one).
 pub fn region_sweeper() -> impl IntoElement {
     canvas(
         |_, _, _| {},
