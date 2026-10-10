@@ -518,6 +518,15 @@ mod tests {
         cx: &mut TestAppContext,
         glass: bool,
     ) -> (Entity<MainView>, Entity<MainView>, &mut VisualTestContext) {
+        two_windows_with(cx, glass, false)
+    }
+
+    /// [`two_windows`], the agent in a git repository when `diff`.
+    fn two_windows_with(
+        cx: &mut TestAppContext,
+        glass: bool,
+        diff: bool,
+    ) -> (Entity<MainView>, Entity<MainView>, &mut VisualTestContext) {
         use crate::explorer::source::fake::FakeSource;
         use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
         cx.update(|cx| {
@@ -547,6 +556,7 @@ mod tests {
         a.caps = pitwall_proto::AgentCaps {
             explorer: true,
             review: true,
+            diff,
             ..Default::default()
         };
         let store = cx.new(|_| AgentStore::new(vec![a]));
@@ -627,6 +637,84 @@ mod tests {
         vcx.simulate_keystrokes(GO_TO_FILE);
         vcx.run_until_parked();
         assert!(explorer.read_with(vcx, |e, _| e.quick_open_shown()), "⌘P opens quick open");
+    }
+
+    /// Liquid Glass: the chrome's native glass pieces (top bar, sidebar,
+    /// right panel) stay as they are while a change in the right panel's
+    /// list opens and closes, and on the frames that only redraw what's
+    /// over the screen (a working dot's ring replays the cached screen):
+    /// none is hidden or made again, which flickered the whole window.
+    /// Review hides the right panel's piece and the agents show the same
+    /// one again.
+    #[gpui::test]
+    fn glass_pieces_hold_while_a_change_opens(cx: &mut TestAppContext) {
+        use crate::main_screen::Route;
+        use crate::platform::glass::regions;
+        let (first, _second, vcx) = two_windows_with(cx, true, true);
+        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
+        let (screen, pulses) =
+            first.read_with(vcx, |v, _| (v.screen.clone().unwrap(), v.pulses.clone()));
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        let file = |path: &str| pitwall_core::vcs::git::FileChange {
+            path: path.into(),
+            added: 2,
+            removed: 1,
+            untracked: false,
+            binary: false,
+            status: None,
+        };
+        screen.update(vcx, |s, cx| {
+            s.set_changes_for_test("a1", vec![file("src/main.rs"), file("notes/todo.md")], cx)
+        });
+        vcx.run_until_parked();
+        let wid = vcx.update(|window, _| window.window_handle().window_id());
+        let all = vec!["right-panel", "sidebar", "topbar"];
+        let (shown, made) = regions::of(wid);
+        assert_eq!(shown, all, "the chrome's pieces are placed");
+        let ring_frame = |vcx: &mut VisualTestContext| {
+            pulses.update(vcx, |_, cx| cx.notify());
+            vcx.run_until_parked();
+        };
+        let steady = |when: &str| {
+            assert_eq!(regions::of(wid), (all.clone(), made), "{when}: no piece hidden or made");
+        };
+        ring_frame(vcx);
+        steady("a ring frame");
+
+        // Click through the changed files: each opens its diff.
+        for row in ["file-name-0", "file-name-1"] {
+            // (A replayed frame keeps no debug bounds: draw the screen.)
+            screen.update(vcx, |_, cx| cx.notify());
+            vcx.run_until_parked();
+            steady("the screen drawn again");
+            let name = vcx
+                .debug_bounds(row)
+                .unwrap_or_else(|| panic!("{row} is listed"));
+            vcx.simulate_click(name.center(), gpui::Modifiers::none());
+            vcx.run_until_parked();
+            assert!(screen.read_with(vcx, |s, _| s.has_dialog()), "its diff opened");
+            steady("the diff open");
+            ring_frame(vcx);
+            steady("a ring frame over the diff");
+            screen.update(vcx, |s, cx| s.close_dialogs(cx));
+            vcx.run_until_parked();
+            ring_frame(vcx);
+            steady("the diff closed");
+        }
+
+        // Review: the right panel's piece hides; back: the same one shows.
+        screen.update(vcx, |s, cx| s.set_route(Route::Review, cx));
+        vcx.run_until_parked();
+        ring_frame(vcx);
+        let (shown, counts) = regions::of(wid);
+        assert_eq!(shown, vec!["sidebar", "topbar"]);
+        assert_eq!((counts.made, counts.hidden), (made.made, made.hidden + 1));
+        screen.update(vcx, |s, cx| s.set_route(Route::Space, cx));
+        vcx.run_until_parked();
+        let (shown, counts) = regions::of(wid);
+        assert_eq!(shown, all);
+        assert_eq!(counts.made, made.made, "shown again, not made again");
+        assert_eq!(counts.reshown, made.reshown + 1);
     }
 
     #[gpui::test]

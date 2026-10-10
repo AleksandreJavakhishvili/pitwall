@@ -341,8 +341,8 @@ impl Render for Layer {
                 None => window.focus(&self.focus),
             }
         }
-        // Drops the native glass pieces no region placed this frame (painted
-        // after the rest of the window: the layer is MainView's last child).
+        // Hides the native glass pieces their view drew this frame without
+        // (the layer draws every frame; the screen may be a replayed cache).
         let sweeper = crate::kit::region_sweeper();
         let root = div()
             .id("settings-layer")
