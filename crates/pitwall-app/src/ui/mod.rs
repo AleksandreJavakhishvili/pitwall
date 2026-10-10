@@ -507,6 +507,9 @@ mod tests {
         });
     }
 
+    /// Quick open's shortcut on this OS (`explorer::bindings`).
+    const GO_TO_FILE: &str = if cfg!(target_os = "macos") { "cmd-p" } else { "ctrl-shift-p" };
+
     /// Two windows over one made-up agent whose files can be read, Flat or
     /// Liquid Glass (regions on: the screen is drawn without its parts, as
     /// one cached view). The second opens after the first, as
@@ -572,7 +575,7 @@ mod tests {
         let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
         screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
         vcx.run_until_parked();
-        vcx.simulate_keystrokes("cmd-p");
+        vcx.simulate_keystrokes(GO_TO_FILE);
         vcx.run_until_parked();
         vcx.simulate_input("main");
         vcx.run_until_parked();
@@ -610,7 +613,7 @@ mod tests {
         });
         screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
         vcx.run_until_parked();
-        vcx.simulate_keystrokes("cmd-p");
+        vcx.simulate_keystrokes(GO_TO_FILE);
         vcx.run_until_parked();
         vcx.simulate_input("main");
         vcx.run_until_parked();
@@ -621,7 +624,7 @@ mod tests {
         vcx.run_until_parked();
         assert!(!explorer.read_with(vcx, |e, _| e.viewer_open()));
         assert_eq!(screen.read_with(vcx, |s, _| s.route()), crate::main_screen::Route::Space);
-        vcx.simulate_keystrokes("cmd-p");
+        vcx.simulate_keystrokes(GO_TO_FILE);
         vcx.run_until_parked();
         assert!(explorer.read_with(vcx, |e, _| e.quick_open_shown()), "⌘P opens quick open");
     }
