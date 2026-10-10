@@ -295,6 +295,7 @@ mod tests {
         text()
     }
 
+    #[cfg(unix)]
     const REATTACH_DIR: &str = "PITWALL_APP_TEST_REATTACH_DIR";
 
     /// First half of `a_second_app_reattaches_the_first_apps_agents`, run by

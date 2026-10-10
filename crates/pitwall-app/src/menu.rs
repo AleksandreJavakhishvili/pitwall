@@ -183,10 +183,9 @@ mod tests {
             assert!(b.iter().any(|k| k.action().partial_eq(&Copy)));
         } else {
             // Ctrl alone belongs to terminals there (HostInfo::shortcuts).
-            assert!(!b.iter().any(|k| k
-                .keystrokes()
+            assert!(!b
                 .iter()
-                .any(|s| s.modifiers().control && !s.modifiers().shift)));
+                .any(|k| k.keystrokes().iter().any(crate::main_screen::terminal_ctrl)));
         }
     }
 
