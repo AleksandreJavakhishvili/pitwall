@@ -418,16 +418,13 @@ impl Render for Palette {
                         ))
                     }),
             );
-        let panel: AnyElement = if motion {
-            kit::motion::enter(
-                ElementId::NamedInteger("palette-open".into(), self.serial as u64),
-                kit::motion::Fx::PALETTE,
-                panel,
-            )
-            .into_any_element()
-        } else {
-            panel.into_any_element()
-        };
+        // (Reduce motion: `enter` keeps the fade alone.)
+        let panel: AnyElement = kit::motion::enter(
+            ElementId::NamedInteger("palette-open".into(), self.serial as u64),
+            kit::motion::Fx::PALETTE,
+            panel,
+        )
+        .into_any_element();
         let scrim = t.scrim();
         let backdrop = div()
             .id("palette-backdrop")
@@ -444,14 +441,10 @@ impl Render for Palette {
                 cx.listener(|_, _, _, cx| cx.emit(PaletteEvent::Dismiss)),
             )
             .child(panel);
-        if motion {
-            kit::scrim_in(
-                ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
-                backdrop,
-            )
-        } else {
-            backdrop.into_any_element()
-        }
+        kit::scrim_in(
+            ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
+            backdrop,
+        )
     }
 }
 
