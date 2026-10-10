@@ -1,13 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <style>.b{display:none}@media (min-width:24px){.a{display:none}.b{display:inline}}</style>
-  <g class="a" transform="scale(2)">
-  <rect width="16" height="16" rx="3.5" fill="#111418"/>
-  <path fill-rule="evenodd" fill="#e8ebef" d="M2 1H9A5 5 0 0 1 9 11H6V15H2Z M6 4H9A2 2 0 0 1 9 8H6Z"/>
-  <rect x="4" y="11" width="2" height="2" fill="#353c46"/><rect x="2" y="13" width="2" height="2" fill="#353c46"/>
-  </g>
-  <g class="b">
   <rect width="32" height="32" rx="7" fill="#111418"/>
-  <path fill-rule="evenodd" fill="#e8ebef" d="M7 3H17A8 8 0 0 1 17 19H11V29H7Z M11 7H17A4 4 0 0 1 17 15H11Z"/>
-  <rect x="9" y="23" width="2" height="2" fill="#353c46"/><rect x="7" y="25" width="2" height="2" fill="#353c46"/><rect x="9" y="27" width="2" height="2" fill="#353c46"/>
-  </g>
+  <svg x="2" y="2" width="28" height="28" viewBox="2 5 56 56">
+    <defs><mask id="c" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round" transform="translate(6.5 -.5)"/></mask></defs>
+    <g transform="translate(6.5 -.5)">
+      <path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#e8ebef" stroke-width="9" stroke-linejoin="round"/>
+    </g>
+    <path mask="url(#c)" fill="#353c46" transform="translate(6.5 -.5)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/>
+  </svg>
 </svg>
