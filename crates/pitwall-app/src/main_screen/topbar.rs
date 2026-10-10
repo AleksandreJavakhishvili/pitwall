@@ -88,40 +88,55 @@ fn ghost_chip(t: &Theme) -> gpui::Div {
 /// window of its own (above it, past the native title bar too).
 pub const DETACH_GAP: Pixels = px(48.);
 
-/// A dragged space tab: let go away from the top bar, the space moves to a
-/// new window there (as "Move to new window").
+/// A dragged space tab: let go over another Pitwall window, the space moves
+/// into it; away from the top bar, to a new window there (as "Move to new
+/// window").
 #[derive(Clone, Debug)]
 pub struct SpaceDrag {
     pub id: String,
     pub name: SharedString,
 }
 
-/// The dragged tab's ghost; says "New window" once letting go would
-/// detach it.
+/// What letting a dragged tab go where it is does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpaceRelease {
+    /// Nothing (on or near its own top bar).
+    Stay,
+    /// It opens in a new window there.
+    NewWindow,
+    /// It moves into the other window under it.
+    Into,
+}
+
+/// The dragged tab's ghost; says "New window" or "Move to this window"
+/// once letting go would move it.
 pub struct SpaceGhost {
     name: SharedString,
     grab: Point<Pixels>,
-    detach: bool,
+    release: SpaceRelease,
 }
 
 impl Render for SpaceGhost {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme::theme(cx);
+        let says = match self.release {
+            SpaceRelease::Stay => None,
+            SpaceRelease::NewWindow => Some("New window"),
+            SpaceRelease::Into => Some("Move to this window"),
+        };
         let chip = ghost_chip(t)
             .flex()
             .items_center()
             .gap(px(6.))
-            .when(self.detach, |d| d.child(icon("window", 12., t.text_2)))
+            .when(says.is_some(), |d| d.child(icon("window", 12., t.text_2)))
             .child(self.name.clone())
-            .when(self.detach, |d| {
-                d.child(
-                    div()
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::NORMAL)
-                        .text_color(t.text_3)
-                        .child("New window"),
-                )
-            });
+            .children(says.map(|says| {
+                div()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(t.text_3)
+                    .child(says)
+            }));
         ghost_at(self.grab, chip)
     }
 }
@@ -129,9 +144,12 @@ impl Render for SpaceGhost {
 /// A tab drag in progress (the screen's side of it).
 pub(super) struct SpaceDragState {
     id: String,
+    name: SharedString,
     ghost: gpui::WeakEntity<SpaceGhost>,
     /// The top bar, as last seen by the drag (window coordinates).
     bar: Option<Bounds<Pixels>>,
+    /// The other window it is over (its tab bar shows where it lands).
+    into: Option<String>,
 }
 
 /// Whether a tab let go at `at` (window coordinates) leaves for a window of
@@ -472,12 +490,14 @@ impl MainScreen {
                         let ghost = cx.new(|_| SpaceGhost {
                             name: d.name.clone(),
                             grab,
-                            detach: false,
+                            release: SpaceRelease::Stay,
                         });
                         let state = SpaceDragState {
                             id: d.id.clone(),
+                            name: d.name.clone(),
                             ghost: ghost.downgrade(),
                             bar: None,
+                            into: None,
                         };
                         let _ = screen.update(cx, |s, _| s.space_drag = Some(state));
                         ghost
@@ -570,6 +590,22 @@ impl MainScreen {
                 });
             tabs.push(tab.into_any_element());
         }
+        // A tab dragged in another window lands here: its slot, lit as a
+        // tab an agent is dragged over.
+        if let Some(name) = self.space_incoming.clone() {
+            tabs.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(10.))
+                    .h_full()
+                    .rounded_t(px(7.))
+                    .bg(t.surface_3)
+                    .child(label_t(name, t.text_2, 12.5, 0.1))
+                    .debug_selector(|| "tab-incoming".into())
+                    .into_any_element(),
+            );
+        }
         tabs.push(
             div()
                 .id("tab-new")
@@ -607,7 +643,8 @@ impl MainScreen {
     }
 
     /// A dragged tab moved (`bar`: the top bar): the ghost says whether
-    /// letting go here opens a new window.
+    /// letting go here moves it into the window under it or opens a new
+    /// one, and that window's tab bar shows where it lands.
     fn space_drag_move(
         &mut self,
         e: &DragMoveEvent<SpaceDrag>,
@@ -618,24 +655,67 @@ impl MainScreen {
             return;
         };
         drag.bar = Some(e.bounds);
-        let detach = detaches(e.event.position, e.bounds, window.viewport_size());
+        let at = screen_point(e.event.position, window);
+        let into = crate::windows::drop_target(&self.label, window.bounds(), at, cx);
+        let release = if into.is_some() {
+            SpaceRelease::Into
+        } else if detaches(e.event.position, e.bounds, window.viewport_size()) {
+            SpaceRelease::NewWindow
+        } else {
+            SpaceRelease::Stay
+        };
+        if drag.into != into {
+            let landing = into.as_deref().map(|l| (l, drag.name.clone()));
+            crate::windows::mark_drop_target(&self.label, landing, cx);
+            drag.into = into;
+        }
         let _ = drag.ghost.update(cx, |g, cx| {
-            if g.detach != detach {
-                g.detach = detach;
+            if g.release != release {
+                g.release = release;
                 cx.notify();
             }
         });
     }
 
-    /// The button went up while a tab was dragged. Let go away from the top
-    /// bar (or out of the window), the space opens in a new window there;
-    /// on or near the bar nothing happens.
+    /// The tab drag is over: no other window shows where it would land.
+    pub(super) fn end_space_drag(&mut self, cx: &mut Context<Self>) -> Option<SpaceDragState> {
+        let drag = self.space_drag.take()?;
+        if drag.into.is_some() {
+            crate::windows::mark_drop_target(&self.label, None, cx);
+        }
+        Some(drag)
+    }
+
+    /// A tab dragged in another window would land here (`None`: no more).
+    pub fn set_space_incoming(&mut self, name: Option<SharedString>, cx: &mut Context<Self>) {
+        if self.space_incoming != name {
+            self.space_incoming = name;
+            cx.notify();
+        }
+    }
+
+    /// The name of the tab another window's drag would land here (tests).
+    #[cfg(test)]
+    pub(crate) fn space_incoming(&self) -> Option<&SharedString> {
+        self.space_incoming.as_ref()
+    }
+
+    /// The button went up while a tab was dragged. Let go over another
+    /// Pitwall window, the space moves into it; away from the top bar (or
+    /// out of the window), it opens in a new window there; on or near the
+    /// bar nothing happens.
     fn space_drag_end(&mut self, e: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(drag) = self.space_drag.take() else {
+        let Some(drag) = self.end_space_drag(cx) else {
             return;
         };
         // Over already (Esc, the window lost focus): its ghost is gone.
         if !cx.has_active_drag() || drag.ghost.upgrade().is_none() {
+            return;
+        }
+        let at = screen_point(e.position, window);
+        if let Some(into) = crate::windows::drop_target(&self.label, window.bounds(), at, cx) {
+            cx.stop_active_drag(window);
+            cx.emit(ScreenEvent::MoveSpaceIntoWindow(drag.id, into));
             return;
         }
         let size = window.viewport_size();
@@ -646,15 +726,14 @@ impl MainScreen {
             return;
         }
         cx.stop_active_drag(window);
-        let at = screen_point(e.position, window);
         self.move_space_at(drag.id, Some(at), cx);
     }
 
-    /// Whether the dragged tab's ghost says "New window" (tests).
+    /// What the dragged tab's ghost says letting go does (tests).
     #[cfg(test)]
-    pub(super) fn space_drag_detaches(&self, cx: &gpui::App) -> Option<bool> {
+    pub(crate) fn space_drag_release(&self, cx: &gpui::App) -> Option<SpaceRelease> {
         let ghost = self.space_drag.as_ref()?.ghost.upgrade()?;
-        Some(ghost.read(cx).detach)
+        Some(ghost.read(cx).release)
     }
 
     /// Sees the button go up during a tab drag wherever the pointer is. Let

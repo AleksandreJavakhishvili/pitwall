@@ -363,8 +363,8 @@ fn a_tab_dragged_away_from_the_bar_moves_to_a_new_window_there(cx: &mut TestAppC
     drag(cx, grab, &[grab + gpui::point(px(6.), px(0.)), below]);
     assert!(cx.update(|_, cx| cx.has_active_drag()));
     assert_eq!(
-        view.read_with(cx, |s, cx| s.space_drag_detaches(cx)),
-        Some(true),
+        view.read_with(cx, |s, cx| s.space_drag_release(cx)),
+        Some(SpaceRelease::NewWindow),
         "the ghost says New window"
     );
     let (origin, title) = cx.update(|window, _| {
@@ -401,7 +401,7 @@ fn a_tab_let_go_on_or_near_the_bar_stays(cx: &mut TestAppContext) {
         gpui::point(grab.x, TOPBAR_HEIGHT + px(20.)),
     ] {
         drag(cx, grab, &[grab + gpui::point(px(6.), px(0.)), end]);
-        assert_eq!(view.read_with(cx, |s, cx| s.space_drag_detaches(cx)), Some(false));
+        assert_eq!(view.read_with(cx, |s, cx| s.space_drag_release(cx)), Some(SpaceRelease::Stay));
         release(cx, end);
         assert!(!cx.update(|_, cx| cx.has_active_drag()));
     }

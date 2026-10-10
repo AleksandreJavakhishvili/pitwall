@@ -47,7 +47,7 @@
 | **Next up** `⌘.` | Queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it. |
 | **Review** `⌘R` | What each agent changed, per task. Comment on lines and send them back as one prompt; commit and merge only when you click. |
 | **Files** `⌘P` `⇧⌘F` | A read-only explorer of the agent's folder: file tree, viewer, quick open and search. The Changes panel matches `git status` and shows the branch. |
-| **Spaces and tiles** | From one pane up to 4×4, spaces in their own windows (drag a tab out, or `⌘⇧N`), density settings for big walls. |
+| **Spaces and tiles** | From one pane up to 4×4, spaces in their own windows (drag a tab out or onto another window, or `⌘⇧N`), density settings for big walls. |
 | **Appearance** | Light or dark, Flat or Glass: native Liquid Glass on macOS 26, vibrancy on older macOS, Mica on Windows 11, a painted "Glass lite" elsewhere. Terminals stay opaque; Reduce transparency and Reduce motion are respected. |
 | **Terminals** `⌘T` | A plain terminal in the focused agent's folder. Start `claude` or `codex` in it and the pane becomes that agent; Restart resumes it. |
 | **Rules** | One rule library, written into CLAUDE.md, AGENTS.md and friends through [rulesync](https://github.com/dyoshikawa/rulesync), per project or per agent. Generated files stay out of your diffs. |

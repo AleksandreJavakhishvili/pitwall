@@ -480,7 +480,7 @@ key code.
 - [x] Settings from the native menu opens in the focused window (fallback main) (`src-tauri/src/menu.rs`)
 - [x] Glass material requested per window (`set_window_glass`) (`src-tauri/src/commands/host.rs`)
 - [x] Each window attaches its own terminal output; terminals of agents shown in another window are disposed (`src/App.tsx`)
-- [x] Drag a space tab out to make a window: let go well away from the top bar (or out of the window) and the space opens in a new window there, kept on the display; on or near the bar nothing happens, Esc cancels, "All" stays (GPUI only; `main_screen/topbar.rs`, `windows/mod.rs`)
+- [x] Drag a space tab out to make a window: let go well away from the top bar (or out of the window) and the space opens in a new window there, kept on the display; let go over another Pitwall window (frontmost there) and the space moves into it, its tab bar showing where it lands; on or near the bar nothing happens, Esc cancels, "All" stays (GPUI only; `main_screen/topbar.rs`, `windows/mod.rs`)
 
 ## 26. Approvals (requests from the `pitwall` CLI)
 

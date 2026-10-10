@@ -61,7 +61,7 @@ use self::panel::ChangesState;
 use self::strip::Toast;
 use crate::kit::TextInput;
 use self::tree::Preset;
-pub use self::topbar::{AgentDrag, SpaceDrag};
+pub use self::topbar::{AgentDrag, SpaceDrag, SpaceRelease};
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
 pub use self::part::cached as parts_cached;
@@ -242,6 +242,9 @@ pub enum ScreenEvent {
     /// where on screen the window goes when its tab was dragged out (else
     /// it cascades from this one).
     MoveSpaceToWindow(String, Option<Point<Pixels>>),
+    /// A space's tab was let go over another open window (its label): the
+    /// space moves there.
+    MoveSpaceIntoWindow(String, String),
     /// Open Review on one worktree (a sidebar worktree row; the route is
     /// already Review).
     ReviewWorktree { project_id: String, path: String },
@@ -442,6 +445,8 @@ pub struct MainScreen {
     drop_hint: Option<(String, Option<tree::Side>)>,
     /// A space tab being dragged (out to a new window).
     space_drag: Option<topbar::SpaceDragState>,
+    /// A space tab dragged in another window would land here (its name).
+    space_incoming: Option<SharedString>,
     /// The sidebar's keyboard cursor.
     cursor: Option<String>,
     route_views: HashMap<Route, AnyView>,
@@ -511,7 +516,7 @@ impl MainScreen {
                     if cx.has_active_drag() {
                         cx.stop_active_drag(window);
                         this.drop_hint = None;
-                        this.space_drag = None;
+                        this.end_space_drag(cx);
                     }
                     if this.menu.take().is_some() {
                         window.focus(&this.focus);
@@ -551,6 +556,7 @@ impl MainScreen {
             divider: None,
             drop_hint: None,
             space_drag: None,
+            space_incoming: None,
             cursor: None,
             route_views: HashMap::new(),
             auto_font: HashMap::new(),
@@ -1698,7 +1704,7 @@ impl Render for MainScreen {
                 if e.keystroke.key == "escape" && cx.has_active_drag() {
                     cx.stop_active_drag(window);
                     this.drop_hint = None;
-                    this.space_drag = None;
+                    this.end_space_drag(cx);
                     cx.stop_propagation();
                     cx.notify();
                 }

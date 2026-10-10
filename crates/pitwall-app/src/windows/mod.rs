@@ -3,7 +3,8 @@
 //!
 //! - The first window is `main`; "Move to new window" (⌘⇧N, the tab and
 //!   space-bar buttons, the palette, or a tab dragged out: where it was let
-//!   go) opens `pitwall-N` (the next free number) owning that space. A
+//!   go) opens `pitwall-N` (the next free number) owning that space; a tab
+//!   let go over another Pitwall window moves its space into that one. A
 //!   space goes back to main when its window closes. A window whose spaces are all gone stays open ("No spaces in
 //!   this window"), as in the Tauri app.
 //! - Every window has its own tabs, sidebar, Wall flag, toasts and strip
@@ -29,8 +30,8 @@ use std::time::Duration;
 
 use gpui::{
     point, px, size, AnyWindowHandle, App, AppContext, Bounds, Context, DisplayId, Entity, Global,
-    Pixels, Point, Size, Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowHandle,
-    WindowId, WindowOptions,
+    Pixels, Point, SharedString, Size, Subscription, Task, TitlebarOptions, Window, WindowBounds,
+    WindowHandle, WindowId, WindowOptions,
 };
 
 use crate::main_screen::{MainScreen, ScreenEvent};
@@ -171,6 +172,10 @@ pub fn attach(
                     let (space, from, at) = (space.clone(), label.clone(), *at);
                     cx.defer(move |cx| move_to_new_window_at(&space, &from, at, cx));
                 }
+                ScreenEvent::MoveSpaceIntoWindow(space, to) => {
+                    let (space, from, to) = (space.clone(), label.clone(), to.clone());
+                    cx.defer(move |cx| move_to_window(&space, &from, &to, cx));
+                }
                 ScreenEvent::AgentShown(agent) => route_agent(&label, agent, cx),
                 _ => {}
             }),
@@ -211,6 +216,119 @@ pub fn move_to_new_window_at(space: &str, from: &str, at: Option<Point<Pixels>>,
     };
     schedule_save(cx);
     show_space_in(&label, space, cx);
+}
+
+/// Move `space` out of window `from` into the open window `to` (its tab
+/// let go over it) and show it there. "All" stays in main.
+pub fn move_to_window(space: &str, from: &str, to: &str, cx: &mut App) {
+    if space == crate::main_screen::workspace::ALL_SPACE
+        || from == to
+        || state(cx).handle(to).is_none()
+    {
+        return;
+    }
+    crate::ui_state::update(cx, |ui| *ui = ownership::move_space(ui.clone(), space, to));
+    show_space_in(to, space, cx);
+}
+
+/// The other window a tab dragged in window `from` (whose frame is
+/// `from_frame`: it can't be read while it handles the drag) moves into
+/// when let go at `at` on screen: the frontmost Pitwall window there,
+/// unless that is `from`. Anywhere on that window counts, not only its top
+/// bar: dropped on it, the space is clearly wanted there, and a new window
+/// opened under the pointer would land on top of it.
+pub fn drop_target(
+    from: &str,
+    from_frame: Bounds<Pixels>,
+    at: Point<Pixels>,
+    cx: &mut App,
+) -> Option<String> {
+    let open = cx.try_global::<Windows>()?.open.clone();
+    if open.len() < 2 {
+        return None;
+    }
+    let ids: Vec<(String, WindowId)> = open
+        .iter()
+        .map(|(l, h)| (l.clone(), h.window_id()))
+        .collect();
+    let stack = cx
+        .window_stack()
+        .map(|s| s.iter().map(|w| w.window_id()).collect());
+    let active = cx.active_window().map(|w| w.window_id());
+    let mut frames = vec![];
+    for label in front_to_back(&ids, stack, active) {
+        let frame = if label == from {
+            Some(from_frame)
+        } else {
+            open.iter()
+                .find(|(l, _)| *l == label)
+                // Not one minimised, hidden or on another Space: it can't
+                // take a drop where it was. (Test windows have no native
+                // view to ask.)
+                .and_then(|(_, h)| {
+                    h.update(cx, |_, w, _| {
+                        (cfg!(test) || crate::platform::visible::window_visible(w)).then(|| w.bounds())
+                    })
+                    .ok()
+                    .flatten()
+                })
+        };
+        if let Some(frame) = frame {
+            frames.push((label, frame));
+        }
+    }
+    window_at(at, &frames)
+        .filter(|l| *l != from)
+        .map(str::to_string)
+}
+
+/// Labels of the `open` windows front to back: as the system stacks them,
+/// else (no `stack` from the platform) the active one, then the newest.
+pub(crate) fn front_to_back(
+    open: &[(String, WindowId)],
+    stack: Option<Vec<WindowId>>,
+    active: Option<WindowId>,
+) -> Vec<String> {
+    let ranked = stack.unwrap_or_else(|| active.into_iter().collect());
+    let mut out: Vec<String> = vec![];
+    let ids = ranked.iter().chain(open.iter().rev().map(|(_, id)| id));
+    for id in ids {
+        if let Some((l, _)) = open.iter().find(|(_, w)| w == id) {
+            if !out.contains(l) {
+                out.push(l.clone());
+            }
+        }
+    }
+    out
+}
+
+/// The window under `at`: the first of `frames` (front to back) holding it.
+pub(crate) fn window_at(at: Point<Pixels>, frames: &[(String, Bounds<Pixels>)]) -> Option<&str> {
+    frames
+        .iter()
+        .find(|(_, b)| b.contains(&at))
+        .map(|(l, _)| l.as_str())
+}
+
+/// Show in window `to`'s tab bar where a tab dragged in window `from` (its
+/// name) would land, and in no other; `None` clears it everywhere.
+pub fn mark_drop_target(from: &str, to: Option<(&str, SharedString)>, cx: &mut App) {
+    let Some(w) = cx.try_global::<Windows>() else {
+        return;
+    };
+    let screens: Vec<(String, Entity<MainScreen>)> = w
+        .open
+        .iter()
+        .filter(|(l, _)| l != from)
+        .filter_map(|(l, h)| Some((l.clone(), h.read(cx).ok()?.screen.clone()?)))
+        .collect();
+    for (label, screen) in screens {
+        let name = to
+            .as_ref()
+            .filter(|(t, _)| *t == label)
+            .map(|(_, n)| n.clone());
+        screen.update(cx, |s, cx| s.set_space_incoming(name, cx));
+    }
 }
 
 /// A window of `size` with its top-left at `at`, moved just enough to be

@@ -12,8 +12,9 @@ stays intuitive. Concepts, in the order a user meets them:
    "Open as space" creates a space tiling that project's agents. Users can make
    custom spaces mixing agents from 2–3 projects (drag agents in from the sidebar).
 3. **Windows**: any space can be moved to its own OS window ("Move to new
-   window", ⌘⇧N, or drag a tab out) — for a second monitor. Every window has the
-   same sidebar, its own tabs, and the global "needs you" strip.
+   window", ⌘⇧N, or drag a tab out) — for a second monitor; a tab dropped on
+   another window moves its space there. Every window has the same sidebar, its
+   own tabs, and the global "needs you" strip.
 
 Rules that keep it simple:
 - **An agent is shown in at most one pane at a time.** Clicking an agent that is
