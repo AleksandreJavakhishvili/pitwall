@@ -636,6 +636,7 @@ impl MainScreen {
                     .flex()
                     .flex_col()
                     .gap(px(3.))
+                    .debug_selector(|| format!("row-body-{}", a.id))
                     .child(
                         div()
                             .flex()

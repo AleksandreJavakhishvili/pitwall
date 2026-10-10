@@ -43,8 +43,8 @@ use std::time::Duration;
 
 use gpui::{
     actions, div, prelude::*, px, AnyElement, AnyView, App, Context, Entity, EventEmitter,
-    FocusHandle, Global, IntoElement, KeyBinding, Pixels, Render, SharedString, Size, Subscription,
-    Task, WeakEntity, Window,
+    FocusHandle, Global, IntoElement, KeyBinding, Pixels, Point, Render, SharedString, Size,
+    Subscription, Task, WeakEntity, Window,
 };
 
 use pitwall_core::onboarding::project_list::Project;
@@ -61,7 +61,7 @@ use self::panel::ChangesState;
 use self::strip::Toast;
 use crate::kit::TextInput;
 use self::tree::Preset;
-pub use self::topbar::AgentDrag;
+pub use self::topbar::{AgentDrag, SpaceDrag};
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
 pub use self::part::cached as parts_cached;
@@ -238,8 +238,10 @@ pub enum ScreenEvent {
     RouteChanged(Route),
     /// An agent was shown (sidebar, ⌘1–9, strip, …).
     AgentShown(String),
-    /// "Move to new window" on a space (multi-window answers it).
-    MoveSpaceToWindow(String),
+    /// "Move to new window" on a space (multi-window answers it), with
+    /// where on screen the window goes when its tab was dragged out (else
+    /// it cascades from this one).
+    MoveSpaceToWindow(String, Option<Point<Pixels>>),
     /// Open Review on one worktree (a sidebar worktree row; the route is
     /// already Review).
     ReviewWorktree { project_id: String, path: String },
@@ -438,6 +440,8 @@ pub struct MainScreen {
     divider: Option<DividerDrag>,
     /// The pane and zone an agent is dragged over (`None` zone: centre).
     drop_hint: Option<(String, Option<tree::Side>)>,
+    /// A space tab being dragged (out to a new window).
+    space_drag: Option<topbar::SpaceDragState>,
     /// The sidebar's keyboard cursor.
     cursor: Option<String>,
     route_views: HashMap<Route, AnyView>,
@@ -507,6 +511,7 @@ impl MainScreen {
                     if cx.has_active_drag() {
                         cx.stop_active_drag(window);
                         this.drop_hint = None;
+                        this.space_drag = None;
                     }
                     if this.menu.take().is_some() {
                         window.focus(&this.focus);
@@ -545,6 +550,7 @@ impl MainScreen {
             area: None,
             divider: None,
             drop_hint: None,
+            space_drag: None,
             cursor: None,
             route_views: HashMap::new(),
             auto_font: HashMap::new(),
@@ -1378,6 +1384,12 @@ impl MainScreen {
     }
 
     fn move_space(&mut self, id: String, cx: &mut Context<Self>) {
+        self.move_space_at(id, None, cx);
+    }
+
+    /// Move a space to a new window, at `at` on screen (its tab dragged
+    /// out) or cascaded.
+    fn move_space_at(&mut self, id: String, at: Option<Point<Pixels>>, cx: &mut Context<Self>) {
         if id == ALL_SPACE {
             self.toast(
                 Toast::info("The All space stays in the main window", None),
@@ -1385,7 +1397,7 @@ impl MainScreen {
             );
             return;
         }
-        cx.emit(ScreenEvent::MoveSpaceToWindow(id));
+        cx.emit(ScreenEvent::MoveSpaceToWindow(id, at));
     }
 
     fn stop_agent(&mut self, id: String, cx: &mut Context<Self>) {
@@ -1673,6 +1685,7 @@ impl Render for MainScreen {
                 if e.keystroke.key == "escape" && cx.has_active_drag() {
                     cx.stop_active_drag(window);
                     this.drop_hint = None;
+                    this.space_drag = None;
                     cx.stop_propagation();
                     cx.notify();
                 }
@@ -1761,7 +1774,8 @@ impl Render for MainScreen {
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
             .children(self.render_bring_in(&t, cx))
-            .children(self.render_menu(&float, cx));
+            .children(self.render_menu(&float, cx))
+            .child(self.space_drag_watch(cx));
         // Its working dots hand their rings to the window's pulse layer,
         // unless a modal is over them (then they animate under it).
         crate::kit::motion::pulse_scope(screen, modal)

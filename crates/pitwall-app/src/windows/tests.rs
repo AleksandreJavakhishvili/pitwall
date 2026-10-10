@@ -229,3 +229,56 @@ fn a_restart_reopens_saved_windows_and_reclaims_lost_ones(cx: &mut TestAppContex
     });
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[gpui::test]
+fn a_tab_dragged_out_opens_its_window_where_it_was_let_go(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, VisualTestContext};
+    let space = app(cx, None);
+    let main = cx.update(|cx| state(cx).handle(MAIN).unwrap());
+    let mut vcx = VisualTestContext::from_window(main.into(), cx);
+    vcx.simulate_resize(size(px(1500.), px(900.)));
+    vcx.update(|window, _| window.refresh());
+    vcx.run_until_parked();
+    let selector: &'static str = Box::leak(format!("tab-name-{space}").into_boxed_str());
+    let grab = vcx.debug_bounds(selector).expect("the tab").center();
+    let at = point(grab.x + px(30.), px(400.));
+    vcx.simulate_mouse_down(grab, MouseButton::Left, Modifiers::none());
+    for p in [point(grab.x + px(6.), grab.y), at, at] {
+        vcx.simulate_mouse_move(p, MouseButton::Left, Modifiers::none());
+    }
+    let (b, view) = vcx.update(|window, _| (window.bounds(), window.viewport_size()));
+    vcx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+    vcx.run_until_parked();
+    cx.update(|cx| {
+        assert_eq!(labels(cx), [MAIN, "pitwall-1"]);
+        assert_eq!(crate::ui_state::get(cx).window_of_space(&space), "pitwall-1");
+        // Its top-left where the tab was let go, kept on the display.
+        let released = point(
+            b.origin.x + at.x,
+            b.origin.y + (b.size.height - view.height) + at.y,
+        );
+        let (dw, dh) = window_state::DEFAULT_SIZE;
+        let area = cx.primary_display().unwrap().bounds();
+        let second = state(cx).handle("pitwall-1").unwrap();
+        let opened = second.update(cx, |_, window, _| window.bounds()).unwrap();
+        assert_eq!(opened.origin, fit_on(released, size(px(dw), px(dh)), area));
+        assert_ne!(
+            opened.origin,
+            point(b.origin.x + px(28.), b.origin.y + px(28.)),
+            "not cascaded"
+        );
+    });
+}
+
+#[test]
+fn a_dropped_window_is_kept_on_its_display() {
+    let area = Bounds::new(point(px(0.), px(0.)), size(px(1920.), px(1080.)));
+    let s = size(px(1400.), px(900.));
+    let fit = |x: f32, y: f32| fit_on(point(px(x), px(y)), s, area);
+    assert_eq!(fit(100., 50.), point(px(100.), px(50.)));
+    assert_eq!(fit(1800., 1000.), point(px(520.), px(180.)));
+    assert_eq!(fit(-300., -40.), point(px(0.), px(0.)));
+    // Bigger than the display: its top-left corner.
+    let big = fit_on(point(px(50.), px(50.)), size(px(2400.), px(1400.)), area);
+    assert_eq!(big, point(px(0.), px(0.)));
+}

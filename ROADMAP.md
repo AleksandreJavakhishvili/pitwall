@@ -24,7 +24,6 @@ Designed, starting after the current work.
 
 Ideas we want, not scheduled yet.
 
-- **Drag a space out into its own window.** Pull a space tab off the tab bar to open it in a new window.
 - **A clearer first launch on macOS.** A welcome step that explains folder access and shows whether it's granted.
 
 ## Recently shipped
