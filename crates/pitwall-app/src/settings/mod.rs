@@ -143,7 +143,7 @@ pub fn attach_window<V: 'static>(window: &mut Window, cx: &mut Context<V>) -> Su
         if window.is_window_active() {
             let before = appearance(cx).os;
             crate::rules::stale::refresh(cx);
-            if crate::platform::glass::os_prefs() != before {
+            if crate::platform::glass::prefs() != before {
                 appearance::os_changed(cx);
                 appearance::apply_window(window, cx);
             }

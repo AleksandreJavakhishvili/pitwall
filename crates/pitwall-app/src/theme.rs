@@ -884,7 +884,7 @@ pub fn apply(inputs: Inputs, cx: &mut App) -> bool {
         .try_global::<Appearance>()
         .map(|a| a.offer)
         .unwrap_or_else(GlassOffer::detect);
-    let next = Appearance::resolve(inputs, os_appearance(cx), offer, crate::platform::glass::os_prefs());
+    let next = Appearance::resolve(inputs, os_appearance(cx), offer, crate::platform::glass::prefs());
     let changed = cx
         .try_global::<Appearance>()
         .is_none_or(|cur| !same(cur, &next));
