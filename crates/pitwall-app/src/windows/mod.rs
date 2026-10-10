@@ -2,9 +2,9 @@
 //! `src-tauri/src/windows.rs` and the window logic of `src/App.tsx`).
 //!
 //! - The first window is `main`; "Move to new window" (⌘⇧N, the tab and
-//!   space-bar buttons, the palette) opens `pitwall-N` (the next free
-//!   number) owning that space. A space goes back to main when its window
-//!   closes. A window whose spaces are all gone stays open ("No spaces in
+//!   space-bar buttons, the palette, or a tab dragged out: where it was let
+//!   go) opens `pitwall-N` (the next free number) owning that space. A
+//!   space goes back to main when its window closes. A window whose spaces are all gone stays open ("No spaces in
 //!   this window"), as in the Tauri app.
 //! - Every window has its own tabs, sidebar, Wall flag, toasts and strip
 //!   (`MainScreen` per window) and shares the one `ui.json` store
@@ -28,9 +28,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
-    point, px, size, AnyWindowHandle, App, AppContext, Bounds, Context, Entity, Global,
-    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowId,
-    WindowOptions,
+    point, px, size, AnyWindowHandle, App, AppContext, Bounds, Context, DisplayId, Entity, Global,
+    Pixels, Point, Size, Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowHandle,
+    WindowId, WindowOptions,
 };
 
 use crate::main_screen::{MainScreen, ScreenEvent};
@@ -167,9 +167,9 @@ pub fn attach(
     if let Some(screen) = screen {
         subs.push(
             cx.subscribe(screen, move |_, _, e: &ScreenEvent, cx| match e {
-                ScreenEvent::MoveSpaceToWindow(space) => {
-                    let (space, from) = (space.clone(), label.clone());
-                    cx.defer(move |cx| move_to_new_window(&space, &from, cx));
+                ScreenEvent::MoveSpaceToWindow(space, at) => {
+                    let (space, from, at) = (space.clone(), label.clone(), *at);
+                    cx.defer(move |cx| move_to_new_window_at(&space, &from, at, cx));
                 }
                 ScreenEvent::AgentShown(agent) => route_agent(&label, agent, cx),
                 _ => {}
@@ -196,15 +196,29 @@ pub fn active_or_main(cx: &mut App) -> Option<WindowHandle<MainView>> {
 /// Move `space` out of window `from` into a new window
 /// (`moveSpaceToNewWindow`). "All" stays in main.
 pub fn move_to_new_window(space: &str, from: &str, cx: &mut App) {
+    move_to_new_window_at(space, from, None, cx);
+}
+
+/// [`move_to_new_window`], the new window's top-left at `at` on screen (a
+/// tab dragged out of `from`), kept on `from`'s display; `None` cascades.
+pub fn move_to_new_window_at(space: &str, from: &str, at: Option<Point<Pixels>>, cx: &mut App) {
     if space == crate::main_screen::workspace::ALL_SPACE {
         return;
     }
     // The window opens already owning the space.
-    let Some(label) = open_new(space, from, cx) else {
+    let Some(label) = open_new(space, from, at, cx) else {
         return;
     };
     schedule_save(cx);
     show_space_in(&label, space, cx);
+}
+
+/// A window of `size` with its top-left at `at`, moved just enough to be
+/// whole on `area` (to its top-left corner when it is bigger).
+pub(crate) fn fit_on(at: Point<Pixels>, size: Size<Pixels>, area: Bounds<Pixels>) -> Point<Pixels> {
+    let x = at.x.min(area.right() - size.width).max(area.left());
+    let y = at.y.min(area.bottom() - size.height).max(area.top());
+    point(x, y)
 }
 
 /// Bring the window that owns `space` forward on it (a project space opened
@@ -277,8 +291,14 @@ fn window_for(label: &str, cx: &mut App) -> Option<WindowHandle<MainView>> {
     Some(show(cx))
 }
 
-/// Open a window for `space`, cascaded from window `from`. Its label.
-fn open_new(space: &str, from: &str, cx: &mut App) -> Option<String> {
+/// Open a window for `space`, at `at` on screen or cascaded from window
+/// `from`. Its label.
+fn open_new(
+    space: &str,
+    from: &str,
+    at: Option<Point<Pixels>>,
+    cx: &mut App,
+) -> Option<String> {
     let w = state(cx);
     let label = file::next_label(
         w.open
@@ -287,20 +307,32 @@ fn open_new(space: &str, from: &str, cx: &mut App) -> Option<String> {
             .chain(w.entries.iter().map(|e| e.label.as_str())),
     );
     let source = w.handle(from);
-    let at = source.and_then(|h| {
-        h.update(cx, |_, window, _| {
-            let b = window.bounds();
-            point(b.origin.x + px(28.), b.origin.y + px(28.))
+    let (dw, dh) = window_state::DEFAULT_SIZE;
+    let new_size = size(px(dw), px(dh));
+    // Dropped: there, on the display `from` is on (whole, when it fits).
+    let mut display = None;
+    let origin = source.and_then(|h| {
+        h.update(cx, |_, window, cx| match at {
+            Some(at) => {
+                let d = window.display(cx);
+                display = d.as_ref().map(|d| d.id());
+                let area = d.map(|d| d.bounds());
+                Some(area.map_or(at, |area| fit_on(at, new_size, area)))
+            }
+            None => {
+                let b = window.bounds();
+                Some(point(b.origin.x + px(28.), b.origin.y + px(28.)))
+            }
         })
         .ok()
+        .flatten()
     });
-    let (dw, dh) = window_state::DEFAULT_SIZE;
-    let bounds = match at {
+    let bounds = match origin {
         Some(origin) => Bounds {
             origin,
-            size: size(px(dw), px(dh)),
+            size: new_size,
         },
-        None => Bounds::centered(None, size(px(dw), px(dh)), cx),
+        None => Bounds::centered(None, new_size, cx),
     };
     let w = state(cx);
     w.entries.retain(|e| e.label != label);
@@ -313,7 +345,7 @@ fn open_new(space: &str, from: &str, cx: &mut App) -> Option<String> {
     crate::ui_state::update(cx, |ui| {
         *ui = ownership::move_space(ui.clone(), space, &label)
     });
-    match build(&label, WindowBounds::Windowed(bounds), None, cx) {
+    match build(&label, WindowBounds::Windowed(bounds), None, display, cx) {
         Ok(_) => Some(label),
         Err(e) => {
             crate::ui_state::update(cx, |ui| *ui = before);
@@ -326,10 +358,12 @@ fn open_new(space: &str, from: &str, cx: &mut App) -> Option<String> {
 
 /// Open a secondary window. `restored`: the physical size it was saved at
 /// and the scale `bounds` assumed (corrected when the window's own differs).
+/// `display`: the one `bounds` is on (else the main display).
 fn build(
     label: &str,
     bounds: WindowBounds,
     restored: Option<(file::Bounds, f32)>,
+    display: Option<DisplayId>,
     cx: &mut App,
 ) -> Result<WindowHandle<MainView>, String> {
     let w = state(cx);
@@ -345,6 +379,7 @@ fn build(
         window_min_size: Some(size(px(min_w), px(min_h))),
         window_decorations: crate::platform::decorations::request(),
         app_id: Some("dev.pitwall.app".into()),
+        display_id: display,
         ..Default::default()
     };
     let label = label.to_string();
@@ -382,7 +417,7 @@ pub fn restore(cx: &mut App) {
         }
         let saved = r.entry.bounds.filter(file::Bounds::usable);
         let bounds = to_logical(saved, scale, &displays, cx);
-        if let Err(e) = build(&r.entry.label, bounds, saved.map(|b| (b, scale)), cx) {
+        if let Err(e) = build(&r.entry.label, bounds, saved.map(|b| (b, scale)), None, cx) {
             eprintln!("pitwall: could not reopen a window: {e}");
         }
     }

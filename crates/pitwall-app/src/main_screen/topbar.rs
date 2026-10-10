@@ -4,8 +4,8 @@
 
 use crate::kit::HoverText;
 use gpui::{
-    div, prelude::*, px, AnyElement, Context, Focusable, FontWeight, IntoElement, MouseButton,
-    SharedString, Window,
+    div, prelude::*, px, AnyElement, Bounds, Context, DragMoveEvent, Focusable, FontWeight,
+    IntoElement, MouseButton, MouseUpEvent, Pixels, Point, SharedString, Size, Window,
 };
 
 use pitwall_proto::{AgentView, Status};
@@ -49,32 +49,99 @@ pub struct AgentGhost {
 impl Render for AgentGhost {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme::theme(cx);
-        div()
-            .pl(self.grab.x + px(12.))
-            .pt(self.grab.y + px(10.))
-            .child(
-                div()
-                    .px(px(10.))
-                    .py(px(4.))
-                    .rounded(RADIUS)
-                    .bg(t.surface_3)
-                    // inset 0 0 0 1px color-mix(text 25%)
-                    .border_1()
-                    .border_color(t.text.opacity(0.25))
-                    .shadow(vec![gpui::BoxShadow {
-                        color: gpui::hsla(0., 0., 0., 0.35),
-                        offset: gpui::point(px(0.), px(6.)),
-                        blur_radius: px(20.),
-                        spread_radius: px(0.),
-                    }])
-                    .opacity(0.95)
-                    .whitespace_nowrap()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.text)
-                    .child(self.name.clone()),
-            )
+        ghost_at(self.grab, ghost_chip(t).child(self.name.clone()))
     }
+}
+
+/// A ghost's chip, 12 px right of and 10 px under the cursor.
+fn ghost_at(grab: Point<Pixels>, chip: gpui::Div) -> gpui::Div {
+    div()
+        .pl(grab.x + px(12.))
+        .pt(grab.y + px(10.))
+        .child(chip)
+}
+
+/// `.drag-ghost`: a raised chip with a hairline and a soft drop shadow.
+fn ghost_chip(t: &Theme) -> gpui::Div {
+    div()
+        .px(px(10.))
+        .py(px(4.))
+        .rounded(RADIUS)
+        .bg(t.surface_3)
+        // inset 0 0 0 1px color-mix(text 25%)
+        .border_1()
+        .border_color(t.text.opacity(0.25))
+        .shadow(vec![gpui::BoxShadow {
+            color: gpui::hsla(0., 0., 0., 0.35),
+            offset: gpui::point(px(0.), px(6.)),
+            blur_radius: px(20.),
+            spread_radius: px(0.),
+        }])
+        .opacity(0.95)
+        .whitespace_nowrap()
+        .text_size(px(12.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.text)
+}
+
+/// How far from the top bar a dragged tab has to be let go to leave for a
+/// window of its own (above it, past the native title bar too).
+pub const DETACH_GAP: Pixels = px(48.);
+
+/// A dragged space tab: let go away from the top bar, the space moves to a
+/// new window there (as "Move to new window").
+#[derive(Clone, Debug)]
+pub struct SpaceDrag {
+    pub id: String,
+    pub name: SharedString,
+}
+
+/// The dragged tab's ghost; says "New window" once letting go would
+/// detach it.
+pub struct SpaceGhost {
+    name: SharedString,
+    grab: Point<Pixels>,
+    detach: bool,
+}
+
+impl Render for SpaceGhost {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = crate::theme::theme(cx);
+        let chip = ghost_chip(t)
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .when(self.detach, |d| d.child(icon("window", 12., t.text_2)))
+            .child(self.name.clone())
+            .when(self.detach, |d| {
+                d.child(
+                    div()
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(t.text_3)
+                        .child("New window"),
+                )
+            });
+        ghost_at(self.grab, chip)
+    }
+}
+
+/// A tab drag in progress (the screen's side of it).
+pub(super) struct SpaceDragState {
+    id: String,
+    ghost: gpui::WeakEntity<SpaceGhost>,
+    /// The top bar, as last seen by the drag (window coordinates).
+    bar: Option<Bounds<Pixels>>,
+}
+
+/// Whether a tab let go at `at` (window coordinates) leaves for a window of
+/// its own: well away from the top bar `bar`, or out of the window.
+pub(super) fn detaches(at: Point<Pixels>, bar: Bounds<Pixels>, window: Size<Pixels>) -> bool {
+    let near = at.y >= bar.top() - DETACH_GAP
+        && at.y <= bar.bottom() + DETACH_GAP
+        && at.x >= -DETACH_GAP
+        && at.x <= window.width + DETACH_GAP;
+    !near
 }
 
 impl MainScreen {
@@ -305,6 +372,7 @@ impl MainScreen {
             .border_b_1()
             .border_color(t.line)
             .bg(t.surface)
+            .on_drag_move(cx.listener(Self::space_drag_move))
             .child(left)
             .child(self.render_tabs(agents, t, window, cx))
             // `.topbar-right { margin-left: auto }`
@@ -356,6 +424,8 @@ impl MainScreen {
             let (id_click, id_dbl, id_drop) = (id.clone(), id.clone(), id.clone());
             let name = s.name.clone();
             let can_edit = s.kind != SpaceKind::All;
+            // Dragged out, as the "Move to new window" button ("All" stays).
+            let draggable = can_edit && editing.is_none();
             let tab = div()
                 .id(SharedString::from(format!("tab-{}", s.id)))
                 .group("tab")
@@ -392,6 +462,27 @@ impl MainScreen {
                 .on_drop(cx.listener(move |this, d: &AgentDrag, window, cx| {
                     this.drop_on_space(&id_drop, &d.id, window, cx);
                 }))
+                .when(draggable, |d| {
+                    let screen = cx.entity().downgrade();
+                    let drag = SpaceDrag {
+                        id: s.id.clone(),
+                        name: name.clone().into(),
+                    };
+                    d.on_drag(drag, move |d, grab, _, cx| {
+                        let ghost = cx.new(|_| SpaceGhost {
+                            name: d.name.clone(),
+                            grab,
+                            detach: false,
+                        });
+                        let state = SpaceDragState {
+                            id: d.id.clone(),
+                            ghost: ghost.downgrade(),
+                            bar: None,
+                        };
+                        let _ = screen.update(cx, |s, _| s.space_drag = Some(state));
+                        ghost
+                    })
+                })
                 .tooltip(tooltip(tip))
                 .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                     if e.click_count() >= 2 && can_edit {
@@ -440,6 +531,7 @@ impl MainScreen {
                         12.5,
                         0.1,
                     )
+                    .debug_selector(|| format!("tab-name-{}", s.id))
                     .into_any_element(),
                 })
                 .when(can_edit, |d| {
@@ -512,6 +604,80 @@ impl MainScreen {
             .min_w_0()
             .overflow_x_scroll()
             .children(tabs)
+    }
+
+    /// A dragged tab moved (`bar`: the top bar): the ghost says whether
+    /// letting go here opens a new window.
+    fn space_drag_move(
+        &mut self,
+        e: &DragMoveEvent<SpaceDrag>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(drag) = self.space_drag.as_mut() else {
+            return;
+        };
+        drag.bar = Some(e.bounds);
+        let detach = detaches(e.event.position, e.bounds, window.viewport_size());
+        let _ = drag.ghost.update(cx, |g, cx| {
+            if g.detach != detach {
+                g.detach = detach;
+                cx.notify();
+            }
+        });
+    }
+
+    /// The button went up while a tab was dragged. Let go away from the top
+    /// bar (or out of the window), the space opens in a new window there;
+    /// on or near the bar nothing happens.
+    fn space_drag_end(&mut self, e: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.space_drag.take() else {
+            return;
+        };
+        // Over already (Esc, the window lost focus): its ghost is gone.
+        if !cx.has_active_drag() || drag.ghost.upgrade().is_none() {
+            return;
+        }
+        let size = window.viewport_size();
+        let bar = drag
+            .bar
+            .unwrap_or_else(|| Bounds::new(Point::default(), gpui::size(size.width, TOPBAR_H)));
+        if !detaches(e.position, bar, size) {
+            return;
+        }
+        cx.stop_active_drag(window);
+        let at = screen_point(e.position, window);
+        self.move_space_at(drag.id, Some(at), cx);
+    }
+
+    /// Whether the dragged tab's ghost says "New window" (tests).
+    #[cfg(test)]
+    pub(super) fn space_drag_detaches(&self, cx: &gpui::App) -> Option<bool> {
+        let ghost = self.space_drag.as_ref()?.ghost.upgrade()?;
+        Some(ghost.read(cx).detach)
+    }
+
+    /// Sees the button go up during a tab drag wherever the pointer is. Let
+    /// go out of the window there is no drop target under it: macOS keeps
+    /// sending a drag's events to the window it started in, at positions
+    /// past its edges, and gpui ends the drag after the mouse-up listeners.
+    pub(super) fn space_drag_watch(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let screen = cx.entity().downgrade();
+        gpui::canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                window.on_mouse_event(move |e: &MouseUpEvent, phase, window, cx| {
+                    if phase == gpui::DispatchPhase::Capture
+                        && e.button == MouseButton::Left
+                        && cx.has_active_drag()
+                    {
+                        let _ = screen.update(cx, |s, cx| s.space_drag_end(e, window, cx));
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_0()
     }
 
     fn start_rename(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -606,6 +772,14 @@ impl MainScreen {
         window.focus(&self.focus);
         cx.notify();
     }
+}
+
+/// `at` (in the window's content) on the screen: the window's origin, its
+/// title bar when the system draws one, then `at`.
+fn screen_point(at: Point<Pixels>, window: &Window) -> Point<Pixels> {
+    let b = window.bounds();
+    let title = (b.size.height - window.viewport_size().height).max(px(0.));
+    gpui::point(b.origin.x + at.x, b.origin.y + title + at.y)
 }
 
 fn tab_btn(id: &str, name: &str, tip: String, t: &Theme) -> gpui::Stateful<gpui::Div> {

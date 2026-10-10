@@ -304,3 +304,137 @@ fn a_terminal_frame_replays_the_parts_a_change_redraws_them(cx: &mut TestAppCont
     let after = renders(cx);
     assert!(after.0 > before.0 && after.1 > before.1, "{before:?} -> {after:?}");
 }
+
+/// A custom space holding "api" next to "All", in a window big enough for
+/// the whole top bar; the screen's events are collected.
+fn tab_drag_setup(
+    cx: &mut TestAppContext,
+) -> (
+    Entity<MainScreen>,
+    String,
+    std::rc::Rc<std::cell::RefCell<Vec<ScreenEvent>>>,
+    &mut VisualTestContext,
+) {
+    let (view, _, cx) = screen(cx);
+    cx.simulate_resize(gpui::size(px(1500.), px(900.)));
+    view.update(cx, |s, cx| s.new_space(cx));
+    let space = view.read_with(cx, |s, _| s.active.clone());
+    let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = events.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&view, move |_, e: &ScreenEvent, _| seen.borrow_mut().push(e.clone()))
+            .detach()
+    });
+    (view, space, events, cx)
+}
+
+/// Where `selector` is drawn (a fresh frame: cached parts replay without
+/// their debug bounds).
+fn drawn_at(cx: &mut VisualTestContext, selector: String) -> gpui::Bounds<Pixels> {
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    cx.debug_bounds(Box::leak(selector.clone().into_boxed_str()))
+        .unwrap_or_else(|| panic!("{selector} not drawn"))
+}
+
+/// Press at `from`, drag through `path`, let go at its last point.
+fn drag(cx: &mut VisualTestContext, from: gpui::Point<Pixels>, path: &[gpui::Point<Pixels>]) {
+    use gpui::{Modifiers, MouseButton};
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+    for p in path {
+        cx.simulate_mouse_move(*p, MouseButton::Left, Modifiers::none());
+    }
+    // Twice at the end: the move that starts a drag isn't one it sees.
+    let end = *path.last().unwrap();
+    cx.simulate_mouse_move(end, MouseButton::Left, Modifiers::none());
+}
+
+fn release(cx: &mut VisualTestContext, at: gpui::Point<Pixels>) {
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn a_tab_dragged_away_from_the_bar_moves_to_a_new_window_there(cx: &mut TestAppContext) {
+    let (view, space, events, cx) = tab_drag_setup(cx);
+    let tab = drawn_at(cx, format!("tab-name-{space}"));
+    let grab = tab.center();
+    let below = gpui::point(grab.x + px(40.), px(500.));
+    drag(cx, grab, &[grab + gpui::point(px(6.), px(0.)), below]);
+    assert!(cx.update(|_, cx| cx.has_active_drag()));
+    assert_eq!(
+        view.read_with(cx, |s, cx| s.space_drag_detaches(cx)),
+        Some(true),
+        "the ghost says New window"
+    );
+    let (origin, title) = cx.update(|window, _| {
+        let b = window.bounds();
+        (b.origin, b.size.height - window.viewport_size().height)
+    });
+    release(cx, below);
+    let at = gpui::point(origin.x + below.x, origin.y + title + below.y);
+    assert_eq!(
+        *events.borrow(),
+        vec![ScreenEvent::MoveSpaceToWindow(space.clone(), Some(at))]
+    );
+    assert!(!cx.update(|_, cx| cx.has_active_drag()));
+
+    // Let go out of the window (no drop target there) works the same.
+    events.borrow_mut().clear();
+    let out = gpui::point(px(-300.), grab.y);
+    drag(cx, grab, &[grab + gpui::point(px(6.), px(0.)), out]);
+    release(cx, out);
+    assert!(matches!(
+        events.borrow().as_slice(),
+        [ScreenEvent::MoveSpaceToWindow(id, Some(_))] if *id == space
+    ));
+}
+
+#[gpui::test]
+fn a_tab_let_go_on_or_near_the_bar_stays(cx: &mut TestAppContext) {
+    let (view, space, events, cx) = tab_drag_setup(cx);
+    let tab = drawn_at(cx, format!("tab-name-{space}"));
+    let grab = tab.center();
+    // Along the bar, then just under it.
+    for end in [
+        gpui::point(grab.x + px(300.), grab.y),
+        gpui::point(grab.x, TOPBAR_HEIGHT + px(20.)),
+    ] {
+        drag(cx, grab, &[grab + gpui::point(px(6.), px(0.)), end]);
+        assert_eq!(view.read_with(cx, |s, cx| s.space_drag_detaches(cx)), Some(false));
+        release(cx, end);
+        assert!(!cx.update(|_, cx| cx.has_active_drag()));
+    }
+    // Esc cancels a drag that would have detached.
+    let far = gpui::point(grab.x, px(600.));
+    drag(cx, grab, &[grab + gpui::point(px(6.), px(0.)), far]);
+    cx.simulate_keystrokes("escape");
+    release(cx, far);
+    assert!(events.borrow().is_empty(), "{:?}", events.borrow());
+    // "All" isn't dragged at all (it stays in the main window).
+    let all = drawn_at(cx, format!("tab-name-{ALL_SPACE}"));
+    drag(cx, all.center(), &[all.center() + gpui::point(px(6.), px(0.)), far]);
+    assert!(!cx.update(|_, cx| cx.has_active_drag()));
+    release(cx, far);
+    assert!(events.borrow().is_empty(), "{:?}", events.borrow());
+    view.read_with(cx, |s, _| assert_eq!(s.ui.window_of_space(&space), MAIN));
+}
+
+#[gpui::test]
+fn an_agent_dropped_on_a_tab_still_joins_that_space(cx: &mut TestAppContext) {
+    let (view, space, events, cx) = tab_drag_setup(cx);
+    view.read_with(cx, |s, _| {
+        assert!(!s.ui.space(&space).unwrap().layout.agents().contains(&"docs".to_string()))
+    });
+    let row = drawn_at(cx, "row-body-docs".into());
+    let tab = drawn_at(cx, format!("tab-name-{space}"));
+    drag(cx, row.center(), &[row.center() + gpui::point(px(6.), px(0.)), tab.center()]);
+    release(cx, tab.center());
+    view.read_with(cx, |s, _| {
+        assert!(s.ui.space(&space).unwrap().layout.agents().contains(&"docs".to_string()));
+    });
+    assert!(events
+        .borrow()
+        .iter()
+        .all(|e| !matches!(e, ScreenEvent::MoveSpaceToWindow(..))));
+}
