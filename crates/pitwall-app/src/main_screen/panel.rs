@@ -198,6 +198,8 @@ impl MainScreen {
         .h_full()
         .flex_none()
         .bg(t.surface)
+        // In a floating glass slab: its rounded shape (GPUI clips square).
+        .when(crate::theme::glass_regions(cx), |d| d.rounded(px(crate::kit::PANEL_RADIUS)))
         .border_l_1()
         .border_color(t.line)
     }
