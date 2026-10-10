@@ -272,6 +272,8 @@ impl Render for QuickOpen {
         };
         let backdrop = div()
             .id("ex-quick-backdrop")
+            // Takes the click: nothing under a backdrop is clicked through it.
+            .occlude()
             .absolute()
             .inset_0()
             .bg(backdrop)

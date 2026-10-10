@@ -107,6 +107,8 @@ impl Modal {
         let panel: AnyElement = enter(self.id, Fx::MODAL, panel).into_any_element();
         let backdrop = div()
             .id("modal-backdrop")
+            // Takes the click: nothing under a backdrop is clicked through it.
+            .occlude()
             .absolute()
             .inset_0()
             .p(px(24.))

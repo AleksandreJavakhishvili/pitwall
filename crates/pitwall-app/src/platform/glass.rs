@@ -202,6 +202,7 @@ pub(crate) mod regions {
         }
 
         /// The native pieces were all removed (Liquid Glass went off).
+        #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
         pub fn clear(&mut self) {
             self.regions.clear();
             self.drawn.clear();
