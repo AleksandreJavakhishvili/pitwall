@@ -716,6 +716,9 @@ impl Platform for MacPlatform {
             .spawn(async move {
                 unsafe {
                     let panel = NSOpenPanel::openPanel(nil);
+                    // Pitwall patch: hold the panel until it answers (it is
+                    // autoreleased; let go of early, it closes before showing).
+                    let _: id = msg_send![panel, retain];
                     panel.setCanChooseDirectories_(options.directories.to_objc());
                     panel.setCanChooseFiles_(options.files.to_objc());
                     panel.setAllowsMultipleSelection_(options.multiple.to_objc());
@@ -743,6 +746,7 @@ impl Platform for MacPlatform {
                         if let Some(done_tx) = done_tx.take() {
                             let _ = done_tx.send(Ok(result));
                         }
+                        let _: () = msg_send![panel, autorelease];
                     });
                     let block = block.copy();
 

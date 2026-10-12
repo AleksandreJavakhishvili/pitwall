@@ -10,6 +10,11 @@ are left out. Every change is marked `Pitwall patch` in the source:
   textures are made on the first frame that draws a path instead of with
   the window.
 
+- `src/platform/mac/platform.rs` — the folder/file picker (`NSOpenPanel`)
+  is held until it answers. Autoreleased, it was let go of before it was
+  shown in the app (its connection to the system's picker service cancelled
+  half a second in): "Choose folder…" opened nothing.
+
 Windows out of sight keep their GPU memory on purpose: releasing it made
 coming back to a window (another Space) visibly slow to draw.
 

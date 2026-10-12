@@ -92,6 +92,10 @@ fn select_box(
         .child(
             div()
                 .id(SharedString::from(id.to_string()))
+                .debug_selector({
+                    let id = id.to_string();
+                    move || format!("{id}-sel")
+                })
                 .flex()
                 .items_center()
                 .h(px(34.))
@@ -109,10 +113,15 @@ fn select_box(
                 )),
         )
         .when(open, |d| {
+            let id = id.to_string();
             d.child(deferred(
                 anchored().snap_to_window_with_margin(px(8.)).child(
                     div()
                         .id(SharedString::from(format!("{id}-list")))
+                        // Takes its clicks: one below the dialog's box must
+                        // not reach the backdrop under it (which closes it).
+                        .occlude()
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .mt(px(38.))
                         .min_w(px(300.))
                         .max_h(px(260.))
@@ -124,8 +133,10 @@ fn select_box(
                         .border_color(t.line_strong)
                         .shadow_lg()
                         .children(options.into_iter().enumerate().map(|(i, (text, on, run))| {
+                            let sel = format!("{id}-opt-{i}");
                             div()
                                 .id(("opt", i))
+                                .debug_selector(move || sel.clone())
                                 .px(px(8.))
                                 .py(px(6.))
                                 .rounded(px(4.))
