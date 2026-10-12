@@ -10,16 +10,57 @@ export const ROOT = resolve(import.meta.dirname, "../..");
 export const SOURCES = {
   changelog: resolve(ROOT, "CHANGELOG.md"),
   roadmap: resolve(ROOT, "ROADMAP.md"),
+  cli: resolve(ROOT, "docs/reference/cli.md"),
+  settings: resolve(ROOT, "docs/reference/settings.md"),
+  agents: resolve(ROOT, "docs/reference/agents.md"),
+  detection: resolve(ROOT, "docs/reference/detection.md"),
 };
+
+// Where each Markdown file is shown on the site (links between them stay on it).
+const ON_SITE = {
+  "CHANGELOG.md": "/changelog/",
+  "ROADMAP.md": "/roadmap/",
+  "docs/reference/cli.md": "/docs/cli/",
+  "docs/reference/settings.md": "/docs/settings/",
+  "docs/reference/agents.md": "/docs/agents/",
+  "docs/reference/detection.md": "/docs/detection/",
+};
+
+/** The docs sidebar: sections, then pages (path, label). */
+export const DOCS_NAV = [
+  ["Start", [["/docs/", "Overview"], ["/docs/quick-start/", "Quick start"]]],
+  ["Guide", [["/docs/how-it-works/", "How it works"]]],
+  [
+    "Reference",
+    [
+      ["/docs/cli/", "CLI"],
+      ["/docs/settings/", "Settings"],
+      ["/docs/agents/", "Agent definitions"],
+      ["/docs/detection/", "Detection rules"],
+    ],
+  ],
+];
+
+/** The sidebar with `current` (a page path such as "/docs/cli/index.html") marked. */
+export function docsNavHtml(current) {
+  const here = current.replace(/index\.html$/, "");
+  const groups = DOCS_NAV.map(
+    ([title, pages]) =>
+      `<p class="docs-nav-title">${title}</p>\n<ul>\n${pages
+        .map(([href, label]) => `  <li><a href="${href}"${href === here ? ' aria-current="page"' : ""}>${label}</a></li>`)
+        .join("\n")}\n</ul>`,
+  );
+  return `<nav class="docs-nav" aria-label="Docs">\n${groups.join("\n")}\n</nav>`;
+}
 
 // Links between the two files stay on the site; any other repository path goes to GitHub.
 function linker(repoUrl) {
   return (href) => {
     if (/^([a-z]+:|#|\/)/i.test(href)) return href;
     const [path, hash = ""] = href.replace(/^\.\//, "").split("#");
-    if (path === "CHANGELOG.md") return "/changelog/" + (hash && "#" + hash);
-    if (path === "ROADMAP.md") return "/roadmap/" + (hash && "#" + hash);
-    return `${repoUrl}/blob/main/${path}${hash && "#" + hash}`;
+    const site = ON_SITE[path] ?? ON_SITE[`docs/reference/${path}`];
+    if (site) return site + (hash && "#" + hash);
+    return `${repoUrl}/blob/main/${path.replace(/^(\.\.\/)+/, "")}${hash && "#" + hash}`;
   };
 }
 
@@ -79,7 +120,35 @@ export function roadmapHtml(md, { repoUrl }) {
   ].join("\n");
 }
 
+/**
+ * A reference page (docs/reference/*.md): its "# " title as the page heading,
+ * the intro, "On this page" links to each "## " section, then the sections.
+ */
+export function referenceHtml(md, { repoUrl }) {
+  const link = linker(repoUrl);
+  const doc = sections(md);
+  const ids = new Set();
+  const id = (heading) => {
+    let base = slug(heading) || "section";
+    let out = base;
+    for (let i = 2; ids.has(out); i++) out = `${base}-${i}`;
+    ids.add(out);
+    return out;
+  };
+  const parts = doc.sections.map((s) => ({ ...s, id: id(s.heading) }));
+  const toc = parts.map((s) => `<li><a href="#${s.id}">${inline(s.heading, link)}</a></li>`).join("");
+  return [
+    `<p class="label">Reference</p>`,
+    `<h1>${inline(doc.title, link)}</h1>`,
+    render(doc.intro, { link }),
+    parts.length > 1 ? `<ul class="toc" aria-label="On this page">${toc}</ul>` : "",
+    ...parts.map((s) => `<h2 id="${s.id}">${inline(s.heading, link)}</h2>\n${render(s.body, { link })}`),
+  ].join("\n");
+}
+
 export function renderPage(name, opts) {
   const md = readFileSync(SOURCES[name], "utf8");
-  return name === "changelog" ? changelogHtml(md, opts) : roadmapHtml(md, opts);
+  if (name === "changelog") return changelogHtml(md, opts);
+  if (name === "roadmap") return roadmapHtml(md, opts);
+  return referenceHtml(md, opts);
 }

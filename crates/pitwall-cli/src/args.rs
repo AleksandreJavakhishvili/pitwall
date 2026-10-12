@@ -80,13 +80,16 @@ pub enum QueueCmd {
     },
     /// Take the Nth prompt (1 = first) out of an agent's queue.
     Remove {
+        /// The agent (id or name).
         agent: String,
         /// Its place in `queue list` (1 = first).
         n: usize,
     },
     /// Send the Nth queued prompt (default: the first) to the agent now.
     Send {
+        /// The agent (id or name).
         agent: String,
+        /// Its place in `queue list` (default: 1, the first).
         n: Option<usize>,
     },
 }
@@ -97,15 +100,19 @@ pub enum SpaceCmd {
     List,
     /// A new space (in the main window).
     Create {
+        /// The space's name.
         name: String,
     },
     /// Rename a space (id or name).
     Rename {
+        /// The space (id or name).
         space: String,
+        /// The new name.
         name: String,
     },
     /// Move a space into another window: `new`, `main` or a window's label.
     Move {
+        /// The space (id or name).
         space: String,
         #[arg(long = "to-window", value_name = "new|main|LABEL")]
         to_window: String,
@@ -118,10 +125,12 @@ pub enum ProjectCmd {
     List,
     /// Add a folder to Pitwall's projects.
     Add {
+        /// The folder.
         path: String,
     },
     /// Take a folder off the list (never deletes anything).
     Remove {
+        /// The folder.
         path: String,
     },
 }
@@ -134,6 +143,7 @@ pub enum RulesCmd {
     Sets,
     /// Generate an agent's rule files now (used from its next session).
     Apply {
+        /// The agent (id or name).
         agent: String,
         /// Give the agent this set of its own first (id or name; `none` clears).
         #[arg(long, value_name = "SET")]
@@ -157,6 +167,7 @@ pub enum ReviewCmd {
     /// Files an agent changed since it started (or in one task), with
     /// lines added and removed.
     Changes {
+        /// The agent (id or name).
         agent: String,
         /// One task's changes (ids in the Review screen).
         #[arg(long, value_name = "TASK_ID")]
@@ -221,10 +232,12 @@ pub enum AgentCmd {
     },
     /// Start an agent again (asks you in Pitwall).
     Restart {
+        /// The agent (id or name).
         agent: String,
     },
     /// Remove an agent from Pitwall (asks you in Pitwall).
     Remove {
+        /// The agent (id or name).
         agent: String,
         /// Also delete its own worktree.
         #[arg(long)]
@@ -232,15 +245,19 @@ pub enum AgentCmd {
     },
     /// Rename an agent.
     Rename {
+        /// The agent (id or name).
         agent: String,
+        /// The new name.
         name: String,
     },
     /// Why an agent has its status (hooks, screen rules, activity).
     Status {
+        /// The agent (id or name).
         agent: String,
     },
     /// Show an agent in a space (as dragging it onto the space's tab).
     Move {
+        /// The agent (id or name).
         agent: String,
         /// The space (id or name).
         #[arg(long, value_name = "SPACE")]

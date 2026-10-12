@@ -1,7 +1,7 @@
-// A small Markdown → HTML converter for the subset CHANGELOG.md (git-cliff) and
-// ROADMAP.md use: headings, paragraphs, "-" / "*" / "1." lists (one level, with
-// indented continuation lines), fenced code, inline code, links, **bold**,
-// *emphasis* and <kbd>. Other inline HTML is escaped; HTML comments are dropped.
+// A small Markdown → HTML converter for the subset CHANGELOG.md (git-cliff),
+// ROADMAP.md and docs/reference/*.md use: headings, paragraphs, "-" / "*" / "1."
+// lists (one level, with indented continuation lines), fenced code, pipe tables
+// (`\|` for a pipe inside a cell), inline code, links, **bold**, *emphasis* and <kbd>. Other inline HTML is escaped; HTML comments are dropped.
 // No dependency on purpose; if the files start needing more, swap in `marked`.
 
 const esc = (s) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -24,6 +24,16 @@ export function inline(text, link = (h) => h) {
   s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => held[Number(i)]);
+}
+
+/** A table row's cells: "| a | b \\| c |" → ["a", "b | c"]. */
+function cells(line) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim().replaceAll("\\|", "|"));
 }
 
 /** Block Markdown → HTML. Heading ids get `idPrefix`, so repeated headings stay unique. */
@@ -51,6 +61,18 @@ export function render(md, { link, idPrefix = "" } = {}) {
       const code = [];
       while (++n < lines.length && !/^```/.test(lines[n])) code.push(lines[n]);
       out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+    } else if (/^\|/.test(line) && /^\|[\s:|-]+\|\s*$/.test(lines[n + 1] ?? "")) {
+      flush();
+      const head = cells(line);
+      const rows = [];
+      for (n += 2; n < lines.length && /^\|/.test(lines[n]); n++) rows.push(cells(lines[n]));
+      n--;
+      const tr = (row, tag) => `<tr>${row.map((c) => `<${tag}>${inline(c, link)}</${tag}>`).join("")}</tr>`;
+      out.push(
+        `<div class="table-scroll" tabindex="0" role="region" aria-label="Table (scrolls horizontally)"><table class="ref">`,
+        `<thead>${tr(head, "th")}</thead>`,
+        `<tbody>\n${rows.map((r) => tr(r, "td")).join("\n")}\n</tbody></table></div>`,
+      );
     } else if ((m = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/))) {
       flush();
       const level = m[1].length;

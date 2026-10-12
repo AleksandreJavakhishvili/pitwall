@@ -607,6 +607,60 @@ mod tests {
         assert_eq!(find("rules.allowNpx").unwrap().view(Value::Null).sensitivity, Sensitivity::Approval);
     }
 
+    /// `docs/reference/settings.md`, the settings reference on the website,
+    /// written from the registry. After changing a setting:
+    /// `PITWALL_WRITE_DOCS=1 cargo test -p pitwall-proto`.
+    #[test]
+    fn the_settings_reference_is_in_sync() {
+        use std::fmt::Write;
+        let mut md = String::from(
+            "# Settings reference\n\n\
+             Every setting Pitwall has, by Settings page. Change them in Settings (⌘,), with `pitwall settings set <key> <value>`, or by editing `~/.pitwall/ui.json`. This page is generated from the same list the app and `pitwall settings list` use.\n\n\
+             ## How settings apply\n\n\
+             - **Live.** Pitwall watches `ui.json`: an edit applies at once, and a value that isn't allowed is reported while the last good one stays. The file also holds spaces, layouts and windows; its settings have a [JSON Schema](https://github.com/AleksandreJavakhishvili/pitwall/blob/main/docs/settings.schema.json) for editors.\n\
+             - **From the CLI.** `pitwall settings list` shows every key with its value, allowed values and default; `get`, `set` and `reset` work on one. With Pitwall closed, `settings` edits `ui.json` directly (settings kept there only).\n\
+             - **Approval.** Settings that change something outside Pitwall (installing the CLI link or Codex hooks, running rulesync through npx) ask for your OK in Pitwall when an agent changes them, and need Pitwall running.\n\
+             - **Kept elsewhere.** A few settings are state Pitwall reads from outside `ui.json` (an installed link, hooks in another tool's file); only a running Pitwall changes them.\n",
+        );
+        for page in Page::ALL {
+            let on: Vec<&Setting> = SETTINGS.iter().filter(|s| s.page == page).collect();
+            if on.is_empty() {
+                continue;
+            }
+            let _ = write!(md, "\n## {}\n", page.label());
+            for s in on {
+                let default = match s.default_value() {
+                    Value::String(t) if t.is_empty() => "empty".to_string(),
+                    v => format!("`{}`", v.as_str().map(String::from).unwrap_or_else(|| v.to_string())),
+                };
+                let stored = match s.stored {
+                    Stored::Ui { key, invert: false } => format!("`ui.json` → `{key}`"),
+                    Stored::Ui { key, invert: true } => format!("`ui.json` → `{key}` (the opposite: `true` there means `false` here)"),
+                    Stored::Pitwall => "kept by Pitwall, outside `ui.json`".into(),
+                };
+                let agent = match s.sensitivity {
+                    Sensitivity::Safe => "applies directly",
+                    Sensitivity::Approval => "asks you in Pitwall first",
+                };
+                let _ = write!(
+                    md,
+                    "\n### `{}`\n\n{}\n\n- **Values:** {}\n- **Default:** {default}\n- **Stored in:** {stored}\n- **When an agent changes it:** {agent}\n",
+                    s.key,
+                    s.description,
+                    s.allowed()
+                );
+            }
+        }
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/reference/settings.md");
+        if std::env::var_os("PITWALL_WRITE_DOCS").is_some() {
+            std::fs::write(&path, &md).unwrap();
+        }
+        assert!(
+            std::fs::read_to_string(&path).unwrap_or_default() == md,
+            "docs/reference/settings.md is stale: run PITWALL_WRITE_DOCS=1 cargo test -p pitwall-proto"
+        );
+    }
+
     /// `docs/settings.schema.json` is generated from the registry. After
     /// changing a setting: `PITWALL_WRITE_SCHEMA=1 cargo test -p pitwall-proto`.
     #[test]
