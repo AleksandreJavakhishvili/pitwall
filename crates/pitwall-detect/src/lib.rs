@@ -7,5 +7,5 @@
 pub mod detect;
 pub mod screen;
 
-pub use detect::{builtin_rule_kinds, detect, Detected, Detection};
+pub use detect::{builtin_rule_kinds, detect, set_user_dir, Detected, Detection};
 pub use screen::{Screen, ScreenSource};

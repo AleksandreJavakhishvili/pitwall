@@ -100,6 +100,7 @@ impl Engine {
     /// tried. Starts no other background work (see [`start`](Self::start)).
     pub fn open(deps: Deps) -> Shared {
         let Deps { paths, events, clock, store, providers } = deps;
+        pitwall_detect::set_user_dir(paths.user_detect_dir());
         let engine = Arc::new(Engine {
             agents: Mutex::new(Vec::new()),
             dirty: Mutex::new(Dirty::default()),

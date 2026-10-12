@@ -72,6 +72,11 @@ impl Paths {
         self.root.join("agents")
     }
 
+    /// The user's screen-detection rules (`pitwall-detect`).
+    pub fn user_detect_dir(&self) -> PathBuf {
+        self.root.join("detect")
+    }
+
     /// Where versions before 0.1 made agent worktrees. Pitwall no longer creates
     /// any; agents still working in one keep their stored path.
     pub fn legacy_worktrees_dir(&self) -> PathBuf {

@@ -94,8 +94,20 @@ fn rules_for(kind: &str) -> Option<Arc<RuleSet>> {
     cache().get(kind).cloned()
 }
 
+static USER_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Where the user's rule files are: the `detect` folder in Pitwall's data
+/// folder (next to `agents`). Pitwall's engine sets it when it opens, before
+/// any detection; the first call wins.
+pub fn set_user_dir(dir: PathBuf) {
+    let _ = USER_DIR.set(dir);
+}
+
 fn user_dir() -> Option<PathBuf> {
-    // Pitwall's data folder: `$PITWALL_HOME`, else ~/.pitwall (pitwall-core paths).
+    if let Some(dir) = USER_DIR.get() {
+        return Some(dir.clone());
+    }
+    // Without an engine (tools, tests): `$PITWALL_HOME`, else ~/.pitwall.
     if let Some(root) = std::env::var_os("PITWALL_HOME").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(root).join("detect"));
     }
