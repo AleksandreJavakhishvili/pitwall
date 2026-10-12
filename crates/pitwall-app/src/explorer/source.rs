@@ -27,6 +27,11 @@ pub trait Source: Send + Sync + 'static {
     /// ripgrep or git grep; a newer search for the agent cancels this one.
     fn search(&self, agent_id: &str, query: &SearchQuery) -> Res<SearchResult>;
     fn cancel_search(&self, agent_id: &str);
+    /// A file on this machine outside the agent's folder, by its absolute
+    /// path (a ⌘-clicked link).
+    fn read_outside(&self, path: &str, large: bool) -> Res<FileView> {
+        core::read_local_file(path, large)
+    }
 }
 
 /// The hosted engine.

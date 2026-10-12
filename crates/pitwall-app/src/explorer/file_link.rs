@@ -2,8 +2,8 @@
 //! the viewer opens on that file at that line, as ⌘P and "Show diff" do.
 //! The terminal finds the reference and checks the file exists
 //! (`pitwall_term_view::paths`); here it becomes a path in the agent's
-//! folder, or a notice when it is outside it (the explorer reads only
-//! there).
+//! folder, or, outside it, the file's absolute path: the viewer reads that
+//! one from this disk (links are made for local agents only).
 
 use std::path::{Path, PathBuf};
 
@@ -23,9 +23,6 @@ pub struct OpenFileLink {
     /// 1-based.
     pub column: Option<u32>,
 }
-
-/// The notice for a file outside the agent's folder.
-pub const OUTSIDE: &str = "Outside this agent's folder";
 
 /// `file` relative to `root` (`a/b.rs`), when it is inside it. Both are
 /// resolved already (links followed).
@@ -70,14 +67,16 @@ impl Explorer {
         let file = link.path.clone();
         let at = target(link.line, link.column);
         let root = PathBuf::from(&agent.cwd);
-        let rel = cx
-            .background_executor()
-            .spawn(async move { relative_to(&std::fs::canonicalize(&root).ok()?, &file) });
+        let path = cx.background_executor().spawn(async move {
+            std::fs::canonicalize(&root)
+                .ok()
+                .and_then(|root| relative_to(&root, &file))
+                .unwrap_or_else(|| file.to_string_lossy().into_owned())
+        });
         cx.spawn_in(window, async move |this, cx| {
-            let rel = rel.await;
-            let _ = this.update_in(cx, |this, window, cx| match rel {
-                Some(rel) => this.open_viewer(&id, Some(rel), at, None, window, cx),
-                None => this.notify(OUTSIDE, cx),
+            let path = path.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.open_viewer(&id, Some(path), at, None, window, cx)
             });
         })
         .detach();
@@ -105,7 +104,7 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn opens_files_in_the_agents_folder_only(cx: &mut gpui::TestAppContext) {
+    async fn opens_files_inside_and_outside_the_agents_folder(cx: &mut gpui::TestAppContext) {
         use std::sync::Arc;
 
         use gpui::AppContext;
@@ -151,9 +150,11 @@ mod tests {
         let outside = link(root.join("elsewhere.md"));
         cx.update(|window, cx| explorer.update(cx, |e, cx| e.open_file_link(&outside, window, cx)));
         cx.run_until_parked();
-        explorer.read_with(cx, |e, _| {
-            assert!(!e.viewer_open());
-            assert_eq!(e.notice(), Some(OUTSIDE));
+        let abs = outside.path.to_string_lossy().into_owned();
+        explorer.read_with(cx, |e, _| assert!(e.viewer_open()));
+        viewer.read_with(cx, |v, _| {
+            assert_eq!(v.active(), Some(abs.as_str()));
+            assert!(v.shows_text(&abs, "y\n"), "read from this disk");
         });
         std::fs::remove_dir_all(&dir).unwrap();
     }

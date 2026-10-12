@@ -211,9 +211,18 @@ pub fn split_path(path: &str) -> (&str, &str) {
 
 /// The agent's folder joined with a relative path, with its own separator
 /// (what "Copy path" copies).
+/// A viewer path outside the agent's folder: absolute (a ⌘-clicked link),
+/// where the folder's are relative.
+pub fn outside(path: &str) -> bool {
+    std::path::Path::new(path).is_absolute()
+}
+
 pub fn absolute_path(root: &str, rel: &str) -> String {
     if rel.is_empty() {
         return root.to_string();
+    }
+    if outside(rel) {
+        return rel.to_string();
     }
     let b = root.as_bytes();
     let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\';
