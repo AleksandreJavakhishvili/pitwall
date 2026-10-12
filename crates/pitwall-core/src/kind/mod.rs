@@ -168,6 +168,21 @@ mod tests {
         }
     }
 
+    /// docs/reference/agents.md names every key of an agent definition
+    /// (all of `AgentKind`'s fields, so every key a bundled file uses).
+    #[test]
+    fn reference_doc_names_every_key() {
+        let doc = include_str!("../../../../docs/reference/agents.md");
+        let kind = serde_json::to_value(custom_kind("x")).unwrap();
+        let mut keys: Vec<String> = kind.as_object().unwrap().keys().cloned().collect();
+        for src in BUILTIN {
+            keys.extend(src.parse::<toml::Table>().unwrap().keys().cloned());
+        }
+        for key in keys {
+            assert!(doc.contains(&format!("`{key}`")), "docs/reference/agents.md doesn't describe `{key}`");
+        }
+    }
+
     #[test]
     fn kinds_answer_to_their_aliases() {
         let kinds = super::load_kinds(std::path::Path::new("/nonexistent/pitwall-agents"));

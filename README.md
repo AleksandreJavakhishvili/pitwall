@@ -21,6 +21,7 @@
   <a href="https://aleksandrejavakhishvili.github.io/pitwall/download/">Download</a> ·
   <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/quick-start/">Quick start</a> ·
   <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/how-it-works/">How it works</a> ·
+  <a href="https://aleksandrejavakhishvili.github.io/pitwall/docs/cli/">CLI reference</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="ROADMAP.md">Roadmap</a>
 </p>
@@ -72,7 +73,7 @@
 | Aider | `aider` | screen | no |
 | any other CLI / shell | `$SHELL` | output activity | no |
 
-Agents launch through your login shell (`$SHELL -l -i -c`; PowerShell on Windows), so they see the same PATH, logins and config as in your terminal. A new agent is one TOML file: definitions live in [`crates/pitwall-core/agents/`](crates/pitwall-core/agents/) and detection rules in [`crates/pitwall-detect/detect/`](crates/pitwall-detect/detect/); put your own in `~/.pitwall/agents/` and `~/.pitwall/detect/` (Linux: `~/.local/share/pitwall/…`; Windows: `%APPDATA%\Pitwall\…`).
+Agents launch through your login shell (`$SHELL -l -i -c`; PowerShell on Windows), so they see the same PATH, logins and config as in your terminal. A new agent is one TOML file: definitions live in [`crates/pitwall-core/agents/`](crates/pitwall-core/agents/) and detection rules in [`crates/pitwall-detect/detect/`](crates/pitwall-detect/detect/); put your own in `~/.pitwall/agents/` and `~/.pitwall/detect/` (Linux: `~/.local/share/pitwall/…`; Windows: `%APPDATA%\Pitwall\…`). The formats are in the [agent definitions](docs/reference/agents.md) and [detection rules](docs/reference/detection.md) references.
 
 <details>
 <summary><strong>Terminals that survive restarts</strong></summary>
@@ -119,7 +120,7 @@ pitwall wait api --for done --fresh        # agents can coordinate each other
 pitwall agent stop api                     # stop, restart, remove: you approve in Pitwall
 ```
 
-The CLI does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review (`review changes`) and settings, plus `wait`. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON: `~/.pitwall/ui.json` (schema: [`docs/settings.schema.json`](docs/settings.schema.json)) applies live when edited, and a value that isn't allowed is reported and the last good one kept. Settings that change something outside Pitwall (installing Codex hooks or the CLI link) ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer; a denial exits with status 3. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request. There's an agent skill for it in [`skills/pitwall/SKILL.md`](skills/pitwall/SKILL.md).
+The CLI does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review (`review changes`) and settings, plus `wait`. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON: `~/.pitwall/ui.json` (schema: [`docs/settings.schema.json`](docs/settings.schema.json)) applies live when edited, and a value that isn't allowed is reported and the last good one kept. Settings that change something outside Pitwall (installing Codex hooks or the CLI link) ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer; a denial exits with status 3. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request. There's an agent skill for it in [`skills/pitwall/SKILL.md`](skills/pitwall/SKILL.md). Every command and option is in the [CLI reference](docs/reference/cli.md), and every setting in the [settings reference](docs/reference/settings.md).
 
 </details>
 

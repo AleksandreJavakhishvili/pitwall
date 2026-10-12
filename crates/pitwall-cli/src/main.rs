@@ -11,6 +11,8 @@
 mod args;
 mod manage;
 mod render;
+#[cfg(test)]
+mod reference;
 mod settings;
 
 use std::collections::BTreeMap;

@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL } from "./site.config.js";
-import { renderPage, SOURCES, ROOT } from "./scripts/pages.mjs";
+import { renderPage, docsNavHtml, SOURCES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
@@ -33,10 +33,12 @@ function siteLinks() {
   };
 }
 
-// /changelog/ and /roadmap/ are rendered from the repository's CHANGELOG.md and
-// ROADMAP.md (scripts/pages.mjs): each page has a <!-- markdown:<name> --> marker
-// where the content goes. Runs before pitwall-site-links, so the generated
-// root-absolute links get the base too. In dev, editing either file reloads the page.
+// /changelog/, /roadmap/ and the reference pages under /docs/ are rendered from
+// the repository's CHANGELOG.md, ROADMAP.md and docs/reference/*.md
+// (scripts/pages.mjs): each page has a <!-- markdown:<name> --> marker where the
+// content goes, and docs pages a <!-- docs-nav --> marker for the sidebar. Runs
+// before pitwall-site-links, so the generated root-absolute links get the base
+// too. In dev, editing a source file reloads the page.
 function markdownPages() {
   return {
     name: "pitwall-markdown-pages",
@@ -48,12 +50,14 @@ function markdownPages() {
     },
     transformIndexHtml: {
       order: "pre",
-      handler(html) {
+      handler(html, ctx) {
+        html = html.replace("<!-- docs-nav -->", () => docsNavHtml(ctx.path));
         if (!html.includes("<!-- markdown:")) return html;
         const appVersion = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
-        return html.replace(/<!-- markdown:(changelog|roadmap) -->/g, (_, name) =>
-          renderPage(name, { repoUrl: REPO_URL, appVersion }),
-        );
+        return html.replace(/<!-- markdown:(\w+) -->/g, (_, name) => {
+          if (!SOURCES[name]) throw new Error(`${ctx.path}: no Markdown source "${name}"`);
+          return renderPage(name, { repoUrl: REPO_URL, appVersion });
+        });
       },
     },
   };
@@ -177,7 +181,12 @@ export default defineConfig({
       input: {
         index: resolve(import.meta.dirname, "index.html"),
         download: resolve(import.meta.dirname, "download/index.html"),
+        docs: resolve(import.meta.dirname, "docs/index.html"),
         quickstart: resolve(import.meta.dirname, "docs/quick-start/index.html"),
+        cli: resolve(import.meta.dirname, "docs/cli/index.html"),
+        settings: resolve(import.meta.dirname, "docs/settings/index.html"),
+        agents: resolve(import.meta.dirname, "docs/agents/index.html"),
+        detection: resolve(import.meta.dirname, "docs/detection/index.html"),
         howitworks: resolve(import.meta.dirname, "docs/how-it-works/index.html"),
         changelog: resolve(import.meta.dirname, "changelog/index.html"),
         roadmap: resolve(import.meta.dirname, "roadmap/index.html"),

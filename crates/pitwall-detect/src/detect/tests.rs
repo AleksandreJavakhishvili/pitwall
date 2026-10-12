@@ -464,3 +464,34 @@ fn screen_to_detect_end_to_end() {
     let title = screen.title();
     assert_eq!(builtin("claude", &screen.text(), title.as_deref()).state, Some(Idle));
 }
+
+/// docs/reference/detection.md names every key and region the bundled rule
+/// files use.
+#[test]
+fn reference_doc_names_every_key_and_region() {
+    fn walk(v: &toml::Value, words: &mut Vec<String>) {
+        match v {
+            toml::Value::Table(t) => {
+                for (k, v) in t {
+                    words.push(k.clone());
+                    if k == "region" {
+                        let r = v.as_str().unwrap();
+                        words.push(r.split('(').next().unwrap().to_string());
+                    }
+                    walk(v, words);
+                }
+            }
+            toml::Value::Array(a) => a.iter().for_each(|v| walk(v, words)),
+            _ => {}
+        }
+    }
+    let doc = include_str!("../../../../docs/reference/detection.md");
+    for (kind, src) in BUILTIN {
+        let mut words = Vec::new();
+        walk(&toml::Value::Table(src.parse::<toml::Table>().unwrap()), &mut words);
+        for w in words {
+            let named = doc.contains(&format!("`{w}`")) || doc.contains(&format!("`{w}(N)`"));
+            assert!(named, "docs/reference/detection.md doesn't describe `{w}` (used in {kind}.toml)");
+        }
+    }
+}

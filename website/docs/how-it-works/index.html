@@ -27,7 +27,7 @@
       </a>
       <nav class="site-nav" aria-label="Main">
         <a class="hide-sm" href="/docs/how-it-works/" aria-current="page">How it works</a>
-        <a href="/docs/quick-start/">Docs</a>
+        <a href="/docs/">Docs</a>
         <a class="hide-sm" href="/changelog/">Changelog</a>
         <a class="hide-sm" href="/roadmap/">Roadmap</a>
         <a href="/download/">Download</a>
@@ -38,8 +38,9 @@
     </div>
   </header>
 
-  <main id="main" class="page">
-    <div class="wrap">
+  <main id="main" class="page docs">
+    <div class="wrap docs-wrap">
+      <!-- docs-nav -->
       <article class="prose">
         <p class="label">Docs</p>
         <h1>How it works</h1>
@@ -143,7 +144,7 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
             </tbody>
           </table>
         </div>
-        <p>Claude Code and Codex can start in their own worktree through the CLI's own flag (<code>claude --worktree &lt;name&gt;</code>, <code>codex --worktree</code>); Pitwall creates no branches or folders. Add your own kind with a TOML file in <code>~/.pitwall/agents/</code>; override detection rules in <code>~/.pitwall/detect/</code>.</p>
+        <p>Claude Code and Codex can start in their own worktree through the CLI's own flag (<code>claude --worktree &lt;name&gt;</code>, <code>codex --worktree</code>); Pitwall creates no branches or folders. Add your own kind with a TOML file in <code>~/.pitwall/agents/</code> (<a href="/docs/agents/">agent definitions</a>); override detection rules in <code>~/.pitwall/detect/</code> (<a href="/docs/detection/">detection rules</a>).</p>
 
         <h2 id="accounts">Accounts</h2>
         <p>Claude Code and Codex can run on more than one login, say a work and a personal subscription. Each account is its own login folder (the agent's <code>CLAUDE_CONFIG_DIR</code> or <code>CODEX_HOME</code>); Default is your own <code>~/.claude</code> or <code>~/.codex</code>.</p>
@@ -181,7 +182,7 @@ pitwall settings set appearance.theme dark
 pitwall queue add api "run the tests"
 pitwall space move "API" --to-window new
 pitwall wait api --for done --fresh</code></pre>
-        <p>It does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review and settings, plus <code>wait</code> so agents can coordinate. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON in <code>~/.pitwall/ui.json</code> (with a <a href="%REPO_URL%/blob/main/docs/settings.schema.json">JSON Schema</a> for editors): edits apply live, and a value that isn't allowed is reported while the last good one stays. Settings that change something outside Pitwall, like installing Codex hooks, ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request.</p>
+        <p>It does what the UI does: agents (new, stop, restart, remove, rename, status), queued prompts, spaces and windows, projects, rules, read-only review and settings, plus <code>wait</code> so agents can coordinate. Stopping, restarting or removing an agent asks for your approval when anyone but you asks. Settings are also plain JSON in <code>~/.pitwall/ui.json</code> (with a <a href="%REPO_URL%/blob/main/docs/settings.schema.json">JSON Schema</a> for editors): edits apply live, and a value that isn't allowed is reported while the last good one stays. Settings that change something outside Pitwall, like installing Codex hooks, ask for your approval when an agent changes them. Anything that changes another machine (starting or creating a session on a VM) opens an approval dialog in Pitwall and the command waits for your answer. A denial exits with status 3. The app works out who's asking from the calling process, so an agent can't approve its own request. Every command and option is in the <a href="/docs/cli/">CLI reference</a>, every setting in the <a href="/docs/settings/">settings reference</a>.</p>
         <p>The optional <strong>Race Engineer</strong> (the headset in the top bar, or ⌘K) is an agent that already knows all this: it runs on the agent you pick in Settings → Agents, in its own folder in Pitwall's data folder, with Pitwall's instructions and this CLI reference written there as <code>AGENTS.md</code>, <code>CLAUDE.md</code> and <code>GEMINI.md</code>, and <code>pitwall</code> on its PATH. Your <code>~/.claude</code> and <code>~/.codex</code> are not touched.</p>
 
         <h2 id="first-launch">First launch</h2>
@@ -203,7 +204,7 @@ pitwall wait api --for done --fresh</code></pre>
         <a class="brand" href="/"><svg class="mark" viewBox="7 7 50 50" width="24" height="24" aria-hidden="true"><defs><mask id="mk-f" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-f)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg><span>PITWALL</span></a>
         <nav aria-label="Footer">
           <a href="/">Home</a>
-          <a href="/docs/quick-start/">Quick start</a>
+          <a href="/docs/">Docs</a>
           <a href="/download/">Download</a>
           <a href="/changelog/">Changelog</a>
           <a href="/roadmap/">Roadmap</a>
