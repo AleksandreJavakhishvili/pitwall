@@ -46,11 +46,12 @@
 | **Wall** `⌘E` | Every live terminal at once, grouped by project, the ones that need you first. View-only; click a tile to take over. |
 | **Next up** `⌘.` | Queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it. |
 | **Review** `⌘R` | What each agent changed, per task. Comment on lines and send them back as one prompt; commit and merge only when you click. |
-| **Files** `⌘P` `⇧⌘F` | A read-only explorer of the agent's folder: file tree, viewer, quick open and search. The Changes panel matches `git status` and shows the branch. |
+| **Files** `⌘P` `⇧⌘F` | A read-only explorer of the agent's folder: file tree, viewer, quick open and search. ⌘-click a path in a terminal to open it, even outside the folder. The Changes panel matches `git status`: staged and unstaged apart, each repository inside the folder (or linked into it) in its own collapsible section with its branch. |
 | **Spaces and tiles** | From one pane up to 4×4, spaces in their own windows (drag a tab out or onto another window, or `⌘⇧N`), density settings for big walls. |
 | **Appearance** | Light or dark, Flat or Glass: native Liquid Glass on macOS 26, vibrancy on older macOS, Mica on Windows 11, a painted "Glass lite" elsewhere. Terminals stay opaque; Reduce transparency and Reduce motion are respected. |
 | **Terminals** `⌘T` | A plain terminal in the focused agent's folder. Start `claude` or `codex` in it and the pane becomes that agent; Restart resumes it. |
 | **Rules** | One rule library, written into CLAUDE.md, AGENTS.md and friends through [rulesync](https://github.com/dyoshikawa/rulesync), per project or per agent. Generated files stay out of your diffs. |
+| **Accounts** | Run Claude Code and Codex on more than one login (say work and personal): add accounts in Settings → Agents, pick one in New agent, set one per project from the project's right-click menu, or move a running agent to another account and its conversation comes along. |
 | **Worktrees** | Through the agent's own flag (`claude --worktree`, `codex --worktree`). Pitwall creates no branches or folders of its own. |
 | **First launch** | A read-only scan: agent CLIs on your PATH, recent projects and conversations you can continue. Nothing changes until you tick a box. |
 | **agw machines and CLI** | Sessions on agw VMs next to your local agents, and a `pitwall` CLI for you or an agent; anything that changes another machine waits for your approval. |
@@ -106,7 +107,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` or 
 
 ```bash
 pitwall agent list
-pitwall agent new --kind claude --project ~/code/api --name api
+pitwall agent new --kind claude --project ~/code/api --name api [--account work]
 pitwall session list --provider agw
 pitwall session add agw <vm> <session> --start
 pitwall machine form <vm>      # what a new session on that VM can be

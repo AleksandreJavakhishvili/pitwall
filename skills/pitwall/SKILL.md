@@ -68,7 +68,7 @@ pitwall settings list
 ## Add agents and sessions
 
 ```bash
-pitwall agent new --kind claude --project ~/code/api [--name api] [--resume <session-id>]
+pitwall agent new --kind claude --project ~/code/api [--name api] [--resume <session-id>] [--account <name>]
 pitwall agent new --kind shell --project .            # a terminal
 pitwall session add agw <vm> <session>                # track an existing session (no approval)
 pitwall session add agw <vm> <session> --start        # …and start it if stopped (asks)
@@ -78,6 +78,9 @@ pitwall agent new --machine <vm> --name <session> --new-workspace [<name>] [--wo
 
 - Kind ids: `claude`, `codex`, `shell`, … (Pitwall's New-agent list).
   `--project` defaults to the current folder.
+- `--account` picks the login (an account's name or id from Settings →
+  Agents → Accounts, or `default` for the user's own); without it the
+  project's account is used.
 - `--machine` creates a session on an agw VM (asks the user; asked every time
   when it also creates a workspace or agent user). Read `machine form <vm>`
   first; `--option FIELD=VALUE` sets any field. Names: lowercase letters,
