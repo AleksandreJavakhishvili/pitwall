@@ -390,16 +390,56 @@ impl MainScreen {
             (None, Some(f)) if f.is_empty() => {
                 hint("No changes since the agent started.".into()).into_any_element()
             }
-            (None, Some(files)) => div()
-                .id("file-list")
-                .px(px(6.))
-                .children(
-                    files
-                        .iter()
-                        .enumerate()
-                        .map(|(i, f)| self.file_row(i, a, f, t, cx)),
-                )
-                .into_any_element(),
+            (None, Some(files)) => {
+                // Repositories inside the agent's folder: a header for each,
+                // their files named from it.
+                let groups = change_groups(files);
+                let grouped = groups.iter().any(|(repo, _)| repo.is_some());
+                let mut rows: Vec<gpui::AnyElement> = Vec::new();
+                // (Each child's file, headers none: for the rows' bounds.)
+                let mut slots: Vec<Option<usize>> = Vec::new();
+                for (n, (repo, idx)) in groups.iter().enumerate() {
+                    let key = (a.id.clone(), repo.clone().unwrap_or_default());
+                    let open = !self.folded_repos.contains(&key);
+                    if grouped {
+                        rows.push(self.repo_header(n, repo.as_deref(), a, idx.len(), open, t, cx));
+                        slots.push(None);
+                        if !open {
+                            continue;
+                        }
+                    }
+                    for &i in idx {
+                        let f = &files[i];
+                        let shown = repo
+                            .as_ref()
+                            .and_then(|r| f.path.strip_prefix(r.as_str())?.strip_prefix('/'))
+                            .unwrap_or(&f.path);
+                        let row = self.file_row(i, a, f, shown, t, cx);
+                        // Under a section header: indented, as in VS Code.
+                        rows.push(if grouped {
+                            div().pl(px(14.)).child(row).into_any_element()
+                        } else {
+                            row.into_any_element()
+                        });
+                        slots.push(Some(i));
+                    }
+                }
+                div()
+                    .on_children_prepainted({
+                        let (rows, agent, files) = (self.file_rows.clone(), a.clone(), files.clone());
+                        move |bounds, _, _| {
+                            *rows.borrow_mut() = bounds
+                                .into_iter()
+                                .zip(&slots)
+                                .filter_map(|(b, s)| s.map(|i| (b, agent.clone(), files[i].clone())))
+                                .collect();
+                        }
+                    })
+                    .id("file-list")
+                    .px(px(6.))
+                    .children(rows)
+                    .into_any_element()
+            }
         };
         // The agent's other worktrees follow the files (`AgentWorktrees`).
         let wts = self.panel_worktrees(a, t, cx);
@@ -519,15 +559,107 @@ impl MainScreen {
             )
     }
 
+    /// A repository's section header in the Changes list (VS Code's
+    /// Source Control): chevron, name (the agent's own: its folder's name
+    /// and branch), the count of its changed files; a click folds it.
+    #[allow(clippy::too_many_arguments)]
+    fn repo_header(
+        &self,
+        n: usize,
+        repo: Option<&str>,
+        a: &AgentView,
+        count: usize,
+        open: bool,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let name = match repo {
+            Some(r) => r.to_string(),
+            None => a
+                .cwd_display
+                .trim_end_matches(['/', '\\'])
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+        };
+        let branch = if repo.is_none() { a.branch.clone() } else { None };
+        let key = (a.id.clone(), repo.unwrap_or_default().to_string());
+        div()
+            .id(("repo-section", n))
+            .debug_selector(move || format!("repo-section-{n}"))
+            .when(n > 0, |d| d.mt(px(4.)).border_t_1().border_color(t.line))
+            .pt(px(if n > 0 { 4. } else { 0. }))
+            .child(
+                div()
+                    .id(("repo-header", n))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .h(px(24.))
+                    .px(px(6.))
+                    .rounded(crate::theme::RADIUS_SM)
+                    .cursor_pointer()
+                    .hover_probed(|s| s.bg(t.surface_3))
+                    .tooltip(tooltip(if open { "Collapse" } else { "Expand" }))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.folded_repos.remove(&key) {
+                            this.folded_repos.insert(key.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .child(crate::kit::chevron(("repo-chev", n), open, 12., t.text_3))
+                    .child(icon("branch", 12., t.text_3))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .ellipsis()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text)
+                            .child(crate::kit::one_line(name)),
+                    )
+                    .when_some(branch, |d, b| {
+                        d.child(
+                            div()
+                                .min_w_0()
+                                .flex_shrink()
+                                .ellipsis()
+                                .font_family(MONO_FONT)
+                                .text_size(px(11.))
+                                .text_color(t.text_3)
+                                .child(crate::kit::one_line(b)),
+                        )
+                    })
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .flex_none()
+                            .px(px(6.))
+                            .h(px(16.))
+                            .flex()
+                            .items_center()
+                            .rounded_full()
+                            .bg(t.surface_3)
+                            .font_family(MONO_FONT)
+                            .text_size(px(10.5))
+                            .text_color(t.text_2)
+                            .child(count.to_string()),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn file_row(
         &self,
         i: usize,
         a: &AgentView,
         f: &FileChange,
+        shown: &str,
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (dir, base) = split_path(&f.path);
+        let (dir, base) = split_path(shown);
         let status = crate::kit::file_status(f);
         let (agent, file) = (a.clone(), f.clone());
         div()
@@ -586,6 +718,20 @@ impl MainScreen {
     }
 }
 
+/// The changed files by repository: the agent's own first, then those
+/// inside its folder by name; indexes into `files`.
+fn change_groups(files: &[FileChange]) -> Vec<(Option<String>, Vec<usize>)> {
+    let mut groups: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+    for (i, f) in files.iter().enumerate() {
+        match groups.iter_mut().find(|(r, _)| *r == f.repo) {
+            Some((_, idx)) => idx.push(i),
+            None => groups.push((f.repo.clone(), vec![i])),
+        }
+    }
+    groups.sort_by(|(a, _), (b, _)| a.cmp(b));
+    groups
+}
+
 /// Another module's panel section (Next up, Last sent), if registered.
 fn section(
     slot: super::PanelSlot,
@@ -618,4 +764,32 @@ pub fn file_stats(f: &FileChange, t: &Theme) -> impl IntoElement {
     .when(f.removed > 0, |d| {
         d.child(div().text_color(t.red).child(format!("−{}", f.removed)))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changes_group_by_repository_the_agents_own_first() {
+        let f = |path: &str, repo: Option<&str>| FileChange {
+            path: path.into(),
+            repo: repo.map(String::from),
+            ..FileChange::default()
+        };
+        let files = [
+            f("upstreams/b/x.rs", Some("upstreams/b")),
+            f("a/y.rs", Some("a")),
+            f("main.rs", None),
+            f("upstreams/b/z.rs", Some("upstreams/b")),
+        ];
+        assert_eq!(
+            change_groups(&files),
+            vec![
+                (None, vec![2]),
+                (Some("a".to_string()), vec![1]),
+                (Some("upstreams/b".to_string()), vec![0, 3]),
+            ]
+        );
+    }
 }

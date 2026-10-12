@@ -109,6 +109,7 @@ fn file(path: &str, added: u32, removed: u32, untracked: bool, status: Option<&s
             Some("M") => Some(FileStatus::M),
             _ => None,
         },
+        repo: None,
     }
 }
 

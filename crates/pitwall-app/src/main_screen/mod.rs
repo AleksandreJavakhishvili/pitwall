@@ -154,6 +154,10 @@ pub fn register_route(
         .insert(route, Arc::new(build));
 }
 
+/// Changed files' rows on screen: where, whose, which.
+type FileRows = std::rc::Rc<
+    std::cell::RefCell<Vec<(gpui::Bounds<Pixels>, AgentView, pitwall_core::vcs::git::FileChange)>>,
+>;
 type PanelBuilder = Arc<dyn Fn(&AgentView, &mut Window, &mut App) -> AnyView>;
 
 /// The right panel's Files tab (the explorer module's file tree).
@@ -449,6 +453,11 @@ pub struct MainScreen {
     space_incoming: Option<SharedString>,
     /// The sidebar's keyboard cursor.
     cursor: Option<String>,
+    /// The Changes list's rows where they were last drawn (live over an
+    /// open diff's backdrop: [`Self::diff_row_targets`]).
+    file_rows: FileRows,
+    /// Changes list sections folded: (agent id, repository: "" its own).
+    folded_repos: std::collections::HashSet<(String, String)>,
     route_views: HashMap<Route, AnyView>,
     /// The font each shown tile shrank to (agent id → px), from the last
     /// layout ([`tile_font`]).
@@ -558,6 +567,8 @@ impl MainScreen {
             space_drag: None,
             space_incoming: None,
             cursor: None,
+            file_rows: FileRows::default(),
+            folded_repos: Default::default(),
             route_views: HashMap::new(),
             auto_font: HashMap::new(),
             wt: Default::default(),
@@ -1339,6 +1350,12 @@ impl MainScreen {
     }
 
     /// Whether one of its dialogs shows.
+    /// The Changes list's files drawn last frame (tests).
+    #[cfg(test)]
+    pub(crate) fn drawn_files(&self) -> Vec<String> {
+        self.file_rows.borrow().iter().map(|(_, _, f)| f.path.clone()).collect()
+    }
+
     /// The open diff (tests).
     #[cfg(test)]
     pub(crate) fn diff_dialog(&self) -> Option<Entity<DiffDialog>> {

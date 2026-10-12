@@ -655,6 +655,7 @@ mod tests {
             untracked: false,
             binary: false,
             status: None,
+            repo: None,
         };
         screen.update(vcx, |s, cx| s.set_changes_for_test("a1", vec![file("src/main.rs")], cx));
         vcx.run_until_parked();
@@ -669,6 +670,81 @@ mod tests {
         assert!(screen.read_with(vcx, |s, _| s.diff_dialog().is_some()), "its diff opened");
         click(vcx);
         assert!(screen.read_with(vcx, |s, _| s.diff_dialog().is_none()), "closed, not opened again");
+    }
+
+    /// Repositories inside the agent's folder: a section each, VS Code
+    /// style; a click on its header folds it (its files go), another opens it.
+    #[gpui::test]
+    fn repository_sections_fold(cx: &mut TestAppContext) {
+        let (first, _second, vcx) = two_windows_with(cx, true, true);
+        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
+        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        let file = |path: &str, repo: Option<&str>| pitwall_core::vcs::git::FileChange {
+            path: path.into(),
+            added: 1,
+            repo: repo.map(String::from),
+            ..Default::default()
+        };
+        let files = vec![file("main.rs", None), file("upstreams/lib/a.rs", Some("upstreams/lib"))];
+        screen.update(vcx, |s, cx| s.set_changes_for_test("a1", files, cx));
+        let draw = |vcx: &mut VisualTestContext| {
+            screen.update(vcx, |_, cx| cx.notify());
+            vcx.run_until_parked();
+        };
+        draw(vcx);
+        assert!(vcx.debug_bounds("repo-section-0").is_some(), "the agent's own section");
+        let drawn = |vcx: &mut VisualTestContext| screen.read_with(vcx, |s, _| s.drawn_files());
+        assert_eq!(drawn(vcx), ["main.rs", "upstreams/lib/a.rs"]);
+        let header = vcx.debug_bounds("repo-section-1").expect("the clone's section");
+        vcx.simulate_click(header.center(), gpui::Modifiers::none());
+        draw(vcx);
+        assert_eq!(drawn(vcx), ["main.rs"], "folded; the other section stays open");
+        let header = vcx.debug_bounds("repo-section-1").unwrap();
+        vcx.simulate_click(header.center(), gpui::Modifiers::none());
+        draw(vcx);
+        assert_eq!(drawn(vcx), ["main.rs", "upstreams/lib/a.rs"], "open again");
+    }
+
+    /// A diff open over the Changes list: one click on another file shows
+    /// that file's diff (not a click to close, a second to open).
+    #[gpui::test]
+    fn a_click_on_another_file_switches_the_diff(cx: &mut TestAppContext) {
+        let (first, _second, vcx) = two_windows_with(cx, true, true);
+        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
+        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        let file = |path: &str| pitwall_core::vcs::git::FileChange {
+            path: path.into(),
+            added: 2,
+            removed: 1,
+            untracked: false,
+            binary: false,
+            status: None,
+            repo: None,
+        };
+        let files = vec![file("src/main.rs"), file("src/lib.rs")];
+        screen.update(vcx, |s, cx| s.set_changes_for_test("a1", files, cx));
+        vcx.run_until_parked();
+        let click = |vcx: &mut VisualTestContext, row: usize| {
+            screen.update(vcx, |_, cx| cx.notify());
+            vcx.run_until_parked();
+            let name = ["file-name-0", "file-name-1"][row];
+            let at = vcx.debug_bounds(name).expect("the file is listed");
+            vcx.simulate_click(at.center(), gpui::Modifiers::none());
+            vcx.run_until_parked();
+        };
+        let shown = |vcx: &mut VisualTestContext| {
+            screen.read_with(vcx, |s, cx| {
+                s.diff_dialog().map(|d| d.read(cx).shows().1.to_string())
+            })
+        };
+        click(vcx, 0);
+        assert_eq!(shown(vcx).as_deref(), Some("src/main.rs"));
+        click(vcx, 1);
+        assert_eq!(shown(vcx).as_deref(), Some("src/lib.rs"), "one click switched");
+        click(vcx, 1);
+        assert_eq!(shown(vcx), None, "the same file only closes");
     }
 
     /// Liquid Glass: the chrome's native glass pieces (top bar, sidebar,
@@ -694,6 +770,7 @@ mod tests {
             untracked: false,
             binary: false,
             status: None,
+            repo: None,
         };
         screen.update(vcx, |s, cx| {
             s.set_changes_for_test("a1", vec![file("src/main.rs"), file("notes/todo.md")], cx)

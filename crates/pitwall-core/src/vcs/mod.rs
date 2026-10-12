@@ -3,5 +3,6 @@
 //! same wherever that is.
 
 pub mod git;
+pub mod nested;
 pub(crate) mod review;
 pub mod snapshot;

@@ -122,6 +122,7 @@ pub fn tree_changes(top: &Git, from: &str, to: &str) -> Res<Vec<FileChange>> {
             untracked: status.get(path) == Some(&FileStatus::A),
             binary: a == "-",
             status: Some(status.get(path).copied().unwrap_or(FileStatus::M)),
+            repo: None,
         });
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));

@@ -182,6 +182,8 @@ pub fn adopt(a: &mut Agent, f: Found) -> bool {
     a.watch = None;
     a.git_wanted = true;
     a.git_repo = None;
+    a.nested = Vec::new();
+    a.nested_at = None;
     true
 }
 
