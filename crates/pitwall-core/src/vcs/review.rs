@@ -123,6 +123,8 @@ pub fn tree_changes(top: &Git, from: &str, to: &str) -> Res<Vec<FileChange>> {
             binary: a == "-",
             status: Some(status.get(path).copied().unwrap_or(FileStatus::M)),
             repo: None,
+            branch: None,
+            parts: None,
         });
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -131,6 +133,24 @@ pub fn tree_changes(top: &Git, from: &str, to: &str) -> Res<Vec<FileChange>> {
 
 /// Original/modified text of `path`. With a task: start tree vs end tree (or
 /// the working tree while it's running). Without: `base` vs the working tree.
+/// One part of a file's uncommitted change (`FileChange::parts`): what's
+/// staged (HEAD → index) or what isn't yet (index → the file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    Staged,
+    Unstaged,
+}
+
+/// The two sides of `path`'s `stage` part.
+pub fn stage_versions(top: &Git, path: &str, stage: Stage) -> Res<FileVersions> {
+    valid_path(path)?;
+    // (`:path`: the index's copy.)
+    Ok(match stage {
+        Stage::Staged => versions(blob(top, "HEAD", path), blob(top, "", path)),
+        Stage::Unstaged => versions(blob(top, "", path), disk(top, path)),
+    })
+}
+
 pub fn file_versions(top: &Git, path: &str, base: Option<&str>, task: Option<&Task>) -> Res<FileVersions> {
     valid_path(path)?;
     match task {

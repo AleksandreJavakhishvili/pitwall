@@ -121,6 +121,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
                 project: if a.machine.is_some() { String::new() } else { absolute(a.project.as_deref(), &cwd) },
                 name: a.name.clone(),
                 resume: a.resume.clone(),
+                account: a.account.clone(),
                 provider: a.provider.clone(),
                 machine: a.machine.clone(),
                 options,

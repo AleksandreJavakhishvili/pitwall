@@ -17,13 +17,16 @@ pub struct RecentProject {
     pub last_used: u64,
 }
 
-/// `pitwall`: to leave out worktrees that old Pitwall versions made.
+/// `pitwall`: to leave out worktrees that old Pitwall versions made. Every
+/// Claude Code account's conversations count (`crate::accounts`).
 pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
-    let root = paths::home().join(".claude").join("projects");
-    let Ok(dirs) = std::fs::read_dir(root) else { return vec![] };
+    let mut roots = vec![paths::home().join(".claude").join("projects")];
+    let accounts = crate::accounts::Accounts::load(pitwall);
+    roots.extend(accounts.of_kind("claude").map(|a| std::path::Path::new(&a.dir).join("projects")));
+    let dirs: Vec<std::fs::DirEntry> = roots.iter().filter_map(|r| std::fs::read_dir(r).ok()).flat_map(|d| d.flatten()).collect();
 
     let mut found: Vec<RecentProject> = Vec::new();
-    for dir in dirs.flatten() {
+    for dir in dirs {
         let Ok(files) = std::fs::read_dir(dir.path()) else { continue };
         let newest = files
             .flatten()
@@ -36,7 +39,13 @@ pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
         let Some((modified, file)) = newest else { continue };
         // The directory name encodes the path lossily; the transcript has the real cwd.
         let Some(cwd) = transcript_cwd(&file) else { continue };
-        if !std::path::Path::new(&cwd).is_dir() || found.iter().any(|p| p.path == cwd) {
+        if !std::path::Path::new(&cwd).is_dir() {
+            continue;
+        }
+        let used = modified.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        // The same folder under two accounts: the newer use.
+        if let Some(p) = found.iter_mut().find(|p| p.path == cwd) {
+            p.last_used = p.last_used.max(used);
             continue;
         }
         found.push(RecentProject {

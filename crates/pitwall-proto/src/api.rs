@@ -156,6 +156,10 @@ pub struct AgentCreate {
     /// Continue this conversation (the kind's resume flags).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume: Option<String>,
+    /// The login it runs with: an account's name or id, or `default`
+    /// (default: the project's account, else the user's own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cols: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

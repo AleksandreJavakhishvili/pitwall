@@ -35,4 +35,9 @@ name?: string | null,
 /**
  * Continue this conversation (the kind's resume flags).
  */
-resume?: string | null, cols?: number | null, rows?: number | null, };
+resume?: string | null, 
+/**
+ * The login it runs with: an account's name or id, or `default`
+ * (default: the project's account, else the user's own).
+ */
+account?: string | null, cols?: number | null, rows?: number | null, };

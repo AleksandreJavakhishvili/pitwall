@@ -241,6 +241,9 @@ pub struct UiState {
     /// The agent kind New agent last started (picked first next time).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub new_agent_kind: Option<String>,
+    /// The account New agent last started each kind on (kind → id).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub new_agent_accounts: BTreeMap<String, String>,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -294,6 +297,7 @@ impl Default for UiState {
             access_hint_shown: false,
             right_open: true,
             new_agent_kind: None,
+            new_agent_accounts: BTreeMap::new(),
             rest: serde_json::Map::new(),
         }
     }

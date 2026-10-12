@@ -110,6 +110,8 @@ fn file(path: &str, added: u32, removed: u32, untracked: bool, status: Option<&s
             _ => None,
         },
         repo: None,
+        branch: None,
+        parts: None,
     }
 }
 
@@ -153,6 +155,7 @@ pub fn kinds() -> Vec<KindView> {
             rules: true,
             hooks: true,
             custom_command: custom,
+            accounts: false,
         },
     };
     vec![

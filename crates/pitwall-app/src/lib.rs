@@ -5,6 +5,7 @@
 //! window that remembers its bounds, the app menu, theme tokens and a live
 //! sidebar of agents; terminals come from `pitwall-term-view`.
 
+pub mod accounts;
 pub mod agents;
 pub mod bench;
 pub mod approvals;

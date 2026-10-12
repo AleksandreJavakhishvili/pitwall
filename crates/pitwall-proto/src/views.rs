@@ -116,6 +116,9 @@ pub struct AgentView {
     /// launched with Pitwall's own know-how; marked "ENGINEER".
     #[serde(default)]
     pub engineer: bool,
+    /// The account (login) it runs with, by id; `None`: the user's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     pub status: Status,
     pub status_source: Source,
     pub status_detail: Option<String>,

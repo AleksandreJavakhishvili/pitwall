@@ -783,6 +783,8 @@ impl MainScreen {
             pane_id.to_string(),
         );
         let (stop_id, rm_id) = (a.id.clone(), a.id.clone());
+        // Another login than the user's own: its name (Settings → Accounts).
+        let account = crate::accounts::name_of(cx, a.account.as_deref());
         // An agent's pane can always close (the agent keeps running).
         let can_close = true;
         let tint = match a.status {
@@ -881,6 +883,15 @@ impl MainScreen {
                     )
                     .child(div().text_color(t.text_4).child("·"))
                     .child(div().flex_none().child(a.kind_name.clone()))
+                    .when_some(account, |d, n| {
+                        d.child(
+                            div()
+                                .id(SharedString::from(format!("acct-{pane_id}")))
+                                .flex_none()
+                                .tooltip(tooltip(format!("Runs on the {n} account")))
+                                .child(chip(n, t)),
+                        )
+                    })
                     .when_some(a.branch.clone(), |d, b| {
                         d.child(div().text_color(t.text_4).child("·")).child(
                             div()

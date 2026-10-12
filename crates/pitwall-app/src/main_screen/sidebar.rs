@@ -438,19 +438,22 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) {
         let (p1, p2) = (project.to_string(), project.to_string());
-        self.open_menu(
-            at,
-            vec![
-                MenuItem::new("terminal", "New terminal here", move |this, window, cx| {
-                    this.open_terminal(p1.clone(), window, cx)
-                }),
-                MenuItem::new("plus", "New agent…", move |this, window, cx| {
-                    this.open_new_agent(Some(p2.clone()), window, cx)
-                }),
-            ],
-            window,
-            cx,
-        );
+        let mut items = vec![
+            MenuItem::new("terminal", "New terminal here", move |this, window, cx| {
+                this.open_terminal(p1.clone(), window, cx)
+            }),
+            MenuItem::new("plus", "New agent…", move |this, window, cx| {
+                this.open_new_agent(Some(p2.clone()), window, cx)
+            }),
+        ];
+        // Which login its new agents use (agents with more than one).
+        if !crate::accounts::model(cx).read(cx).kinds().is_empty() {
+            let p = project.to_string();
+            items.push(MenuItem::new("", "Accounts…", move |this, window, cx| {
+                this.open_project_accounts(p.clone(), window, cx)
+            }));
+        }
+        self.open_menu(at, items, window, cx);
     }
 
     fn agent_menu(
@@ -469,6 +472,26 @@ impl MainScreen {
                 "Open terminal here",
                 move |this, window, cx| this.open_terminal(cwd.clone(), window, cx),
             ));
+        }
+        // Which login it runs on (Settings → Agents → Accounts).
+        let local = a.machine.provider == pitwall_core::provider::ProviderId::LOCAL;
+        let list = crate::accounts::model(cx).read(cx).of_kind(&a.kind);
+        if local && !list.is_empty() && !a.engineer {
+            items.push(MenuItem::header("Run on account"));
+            let current = a.account.clone();
+            let mut push = |id: Option<String>, name: String| {
+                let on = current == id;
+                let (agent, pick, label) = (a.id.clone(), id.clone(), name.clone());
+                items.push(MenuItem::new(if on { "check" } else { "" }, &label, move |this, _, cx| {
+                    if !on {
+                        this.switch_account(agent.clone(), pick.clone(), name.clone(), cx)
+                    }
+                }));
+            };
+            push(None, "Default".into());
+            for acc in list {
+                push(Some(acc.id.clone()), acc.name.clone());
+            }
         }
         let id = a.id.clone();
         items.push(MenuItem::new(
@@ -517,6 +540,7 @@ impl MainScreen {
         }
         let blocked = a.status == Status::Blocked;
         let dim = matches!(a.status, Status::Exited | Status::Stopped);
+        let account = crate::accounts::name_of(cx, a.account.as_deref());
         let (id_click, id_menu) = (a.id.clone(), a.clone());
         let drag = AgentDrag {
             id: a.id.clone(),
@@ -653,6 +677,7 @@ impl MainScreen {
                                     .child(crate::kit::one_line(a.name.clone())),
                             )
                             .when(a.engineer, |d| d.child(chip("engineer", t)))
+                            .when_some(account, |d, n| d.child(chip(n, t)))
                             .child(status_label(a.status, t)),
                     )
                     .child(

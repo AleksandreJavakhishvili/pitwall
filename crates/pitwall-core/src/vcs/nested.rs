@@ -20,7 +20,7 @@ pub const RESCAN_MS: u64 = 120_000;
 /// The folders under `dir` (`a/b`, sorted) that hold a repository of their
 /// own (a `.git` folder or file), not looking inside those, hidden folders
 /// or [`NOISE_DIRS`]. A symlink counts when it leads straight to a
-/// repository (`upstreams/x -> ~/code/x`); otherwise it isn't looked into
+/// repository (`vendor/x -> ~/code/x`); otherwise it isn't looked into
 /// (no loops, no trees elsewhere). Empty where the machine can't list
 /// folders. Blocking.
 pub fn find(exec: &dyn Exec, dir: &str) -> Vec<String> {
@@ -126,6 +126,8 @@ mod tests {
         assert_eq!(prefix, "");
         let got: Vec<(&str, Option<&str>, u32, bool)> =
             files.iter().map(|f| (f.path.as_str(), f.repo.as_deref(), f.added, f.untracked)).collect();
+        // Each nested repository's branch comes with its files.
+        assert!(files.iter().all(|f| f.branch.as_deref().is_some_and(|b| !b.is_empty())), "{files:?}");
         assert_eq!(
             got,
             vec![("bar/new.txt", Some("bar"), 1, true), ("upstreams/foo/a.txt", Some("upstreams/foo"), 1, false)]
@@ -137,7 +139,7 @@ mod tests {
         assert!(route(&repos, "upstreamsx/a.txt").is_none());
     }
 
-    /// Repositories linked in (`real-repos/x -> elsewhere`) count; a link to
+    /// Repositories linked in (`linked/x -> elsewhere`) count; a link to
     /// a plain folder isn't looked into, and a loop goes nowhere.
     #[test]
     fn symlinked_repositories_count_and_links_are_not_followed_further() {
@@ -147,20 +149,20 @@ mod tests {
         repo_at(&outside.0.join("lib"));
         repo_at(&outside.0.join("plain/deep"));
         std::fs::write(outside.0.join("lib/a.txt"), "changed\n").unwrap();
-        std::fs::create_dir_all(dir.join("real-repos")).unwrap();
+        std::fs::create_dir_all(dir.join("linked")).unwrap();
         let link = |to: &std::path::Path, at: &str| crate::platform::symlink(to, &dir.join(at)).is_ok();
         // (Windows without the right to make links: nothing to check.)
-        if !(link(&outside.0.join("lib"), "real-repos/lib")
-            && link(&outside.0.join("plain"), "real-repos/plain")
-            && link(&dir, "real-repos/loop"))
+        if !(link(&outside.0.join("lib"), "linked/lib")
+            && link(&outside.0.join("plain"), "linked/plain")
+            && link(&dir, "linked/loop"))
         {
             return;
         }
         let found = find(&LocalExec, root.path());
-        assert_eq!(found, vec!["real-repos/lib".to_string()]);
+        assert_eq!(found, vec!["linked/lib".to_string()]);
         let (files, _, _) = Git::new(&LocalExec, root.path()).changes_nested(&found, false);
         let paths: Vec<String> = files.unwrap().into_iter().map(|f| f.path).collect();
-        assert_eq!(paths, vec!["real-repos/lib/a.txt".to_string()]);
+        assert_eq!(paths, vec!["linked/lib/a.txt".to_string()]);
     }
 
     #[test]

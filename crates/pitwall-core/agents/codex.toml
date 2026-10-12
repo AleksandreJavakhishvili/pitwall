@@ -11,3 +11,6 @@ hooks = "codex-global"
 rulesync_target = "codexcli"
 # `codex --worktree`: a new Codex-managed worktree (the flag takes no name).
 worktree_args = ["--worktree"]
+# Accounts: each login lives in its own folder (Settings → Agents → Accounts).
+account_env = "CODEX_HOME"
+account_home = "~/.codex"

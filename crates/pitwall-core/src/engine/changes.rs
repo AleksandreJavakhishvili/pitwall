@@ -7,6 +7,8 @@ use crate::vcs::git::{FileChange, Git, NOT_A_REPO};
 
 type Res<T> = Result<T, String>;
 
+pub use crate::vcs::review::Stage;
+
 /// Uncommitted changes against HEAD, like `git status`; also refreshes the
 /// agent's +/- counts. Blocking (git).
 ///
@@ -99,14 +101,29 @@ pub fn file_diff(engine: &Engine, agent_id: &str, path: &str, untracked: bool) -
 /// A file of a repository inside the agent's folder (`a/b/x.rs`, as the
 /// list names it) is read from that one.
 pub fn file_versions(engine: &Engine, agent_id: &str, path: &str) -> Res<crate::vcs::review::FileVersions> {
+    file_part_versions(engine, agent_id, path, None)
+}
+
+/// [`file_versions`] of one part: what's staged, or what isn't yet
+/// (`None`: both, against HEAD).
+pub fn file_part_versions(
+    engine: &Engine,
+    agent_id: &str,
+    path: &str,
+    stage: Option<crate::vcs::review::Stage>,
+) -> Res<crate::vcs::review::FileVersions> {
+    use crate::vcs::review;
     let exec = engine.exec_for(agent_id);
     let (cwd, nested) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.nested.clone()))?;
-    if let Some((dir, rest)) = crate::vcs::nested::route(&nested, path) {
-        let top = crate::vcs::review::toplevel(&Git::new(&*exec, &dir))?;
-        return crate::vcs::review::file_versions(&top, rest, None, None);
+    let (dir, path) = match crate::vcs::nested::route(&nested, path) {
+        Some((dir, rest)) => (dir, rest),
+        None => (cwd, path),
+    };
+    let top = review::toplevel(&Git::new(&*exec, &dir))?;
+    match stage {
+        Some(s) => review::stage_versions(&top, path, s),
+        None => review::file_versions(&top, path, None, None),
     }
-    let top = crate::vcs::review::toplevel(&Git::new(&*exec, &cwd))?;
-    crate::vcs::review::file_versions(&top, path, None, None)
 }
 
 #[cfg(test)]
@@ -133,6 +150,46 @@ mod tests {
         assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n"), Some("1\n2\n")));
         let v = file_versions(&h.engine, "a", "new.txt").unwrap();
         assert_eq!((v.original, v.modified.as_deref()), (None, Some("x\n")));
+    }
+
+    /// What's staged and what isn't, as VS Code splits them: a file staged
+    /// and then edited again is in both, each with its own counts and diff.
+    #[test]
+    fn staged_and_unstaged_parts() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.write("b.txt", "b\n");
+        r.commit_all("init");
+        let h = Harness::new(vec![record("a", r.path())]);
+        r.write("a.txt", "1\n2\n");
+        r.git(&["add", "a.txt"]);
+        r.write("a.txt", "1\n2\n3\n4\n");
+        r.write("b.txt", "b\nc\n");
+        r.write("new.txt", "n\n");
+        let files = refresh(&h.engine, "a").unwrap();
+        let part = |p: Option<&crate::vcs::git::Part>| p.map(|p| (p.added, p.removed));
+        type Row<'a> = (&'a str, u32, Option<(u32, u32)>, Option<(u32, u32)>);
+        let got: Vec<Row> = files
+            .iter()
+            .map(|f| {
+                let parts = f.parts.clone().unwrap();
+                (f.path.as_str(), f.added, part(parts.staged.as_ref()), part(parts.unstaged.as_ref()))
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("a.txt", 3, Some((1, 0)), Some((2, 0))),
+                ("b.txt", 1, None, Some((1, 0))),
+                ("new.txt", 1, None, Some((1, 0))),
+            ]
+        );
+        let v = file_part_versions(&h.engine, "a", "a.txt", Some(Stage::Staged)).unwrap();
+        assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n"), Some("1\n2\n")));
+        let v = file_part_versions(&h.engine, "a", "a.txt", Some(Stage::Unstaged)).unwrap();
+        assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n2\n"), Some("1\n2\n3\n4\n")));
+        let v = file_part_versions(&h.engine, "a", "new.txt", Some(Stage::Unstaged)).unwrap();
+        assert_eq!((v.original, v.modified.as_deref()), (None, Some("n\n")));
     }
 
     /// An agent in a plain folder holding a clone: the clone's changes are
@@ -210,7 +267,8 @@ mod tests {
     use crate::exec::{Cmd, Exec, Out, Stat};
     use crate::testing::FakeExec;
 
-    const DIFF: &[&str] = &["git", "-C", "/w", "diff", ".."];
+    /// The diff against HEAD (not the staged and unstaged ones that ride along).
+    const DIFF: &[&str] = &["git", "-C", "/w", "diff", "--raw", "--numstat", "-z", "-M", "HEAD"];
 
     fn scripted(numstat: &str) -> Arc<FakeExec> {
         let x = FakeExec::new();
@@ -345,6 +403,7 @@ mod tests {
         assert_eq!(changes(&h.engine, "a").unwrap().len(), 1);
         let v = &h.engine.views()[0];
         assert_eq!((v.added, v.removed, v.files_changed), (4, 2, 1));
-        assert_eq!(x.ran(&["git", "-C", "/remote/w", ".."]), 2);
+        // The diff, untracked files, and what's staged and what isn't.
+        assert_eq!(x.ran(&["git", "-C", "/remote/w", ".."]), 4);
     }
 }

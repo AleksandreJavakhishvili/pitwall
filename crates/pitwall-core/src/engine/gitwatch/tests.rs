@@ -329,9 +329,10 @@ fn where_the_os_refuses_a_watch_agents_are_polled() {
     x.refuse_watch.store(false, Ordering::SeqCst);
     h.clock.advance(6_000);
     run_due(&h.engine);
+    // (Diff, untracked, staged, unstaged, branch.)
     assert_eq!(
         x.git_runs() - before,
-        3,
+        5,
         "a plain refresh: no new attempt yet"
     );
     h.clock.advance(RETRY_MS);

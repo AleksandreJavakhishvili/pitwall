@@ -663,6 +663,8 @@ mod tests {
             binary: false,
             status: None,
             repo: None,
+            branch: None,
+            parts: None,
         };
         screen.update(vcx, |s, cx| s.set_changes_for_test("a1", vec![file("src/main.rs")], cx));
         vcx.run_until_parked();
@@ -729,6 +731,8 @@ mod tests {
             binary: false,
             status: None,
             repo: None,
+            branch: None,
+            parts: None,
         };
         let files = vec![file("src/main.rs"), file("src/lib.rs")];
         screen.update(vcx, |s, cx| s.set_changes_for_test("a1", files, cx));
@@ -778,6 +782,8 @@ mod tests {
             binary: false,
             status: None,
             repo: None,
+            branch: None,
+            parts: None,
         };
         screen.update(vcx, |s, cx| {
             s.set_changes_for_test("a1", vec![file("src/main.rs"), file("notes/todo.md")], cx)

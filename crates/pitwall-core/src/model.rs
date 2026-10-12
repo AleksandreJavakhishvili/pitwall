@@ -38,6 +38,10 @@ pub struct KindCaps {
     pub hooks: bool,
     /// Runs the command the user types (the "Custom command" kind).
     pub custom_command: bool,
+    /// More than one login (its definition's `account_env`), where the
+    /// agent's process runs on this Mac.
+    #[serde(default)]
+    pub accounts: bool,
 }
 
 impl KindCaps {
@@ -48,6 +52,7 @@ impl KindCaps {
             rules: kind.rulesync_target.is_some() && p.rules,
             hooks: kind.hooks != HookMode::None && p.hooks != HookTransport::None,
             custom_command: kind.id == crate::kind::CUSTOM && p.custom_command,
+            accounts: kind.account_env.is_some() && p.local_process,
         }
     }
 }
@@ -98,6 +103,10 @@ pub struct CreateAgentRequest {
     /// Pitwall's own know-how ([`crate::engineer`]); Claude Code or Codex only.
     #[serde(default)]
     pub engineer: bool,
+    /// The login it runs with (`crate::accounts`; `"default"`: the user's
+    /// own). `None`: the project's, else the user's own. Local agents only.
+    #[serde(default)]
+    pub account: Option<String>,
 }
 
 /// (cols, rows) when both are given.
@@ -180,6 +189,9 @@ pub struct AgentRecord {
     /// know-how and the `pitwall` CLI ([`crate::engineer`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub engineer: bool,
+    /// The account (`crate::accounts`) it runs with; `None`: the user's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 /// An agent started by hand in a terminal, as remembered on its record.

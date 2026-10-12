@@ -43,6 +43,8 @@ pub const NAV_WIDTH: f32 = 164.;
 
 pub enum SettingsEvent {
     Close,
+    /// An agent started from Settings (Accounts → Log in): show it.
+    Started(Box<pitwall_proto::AgentView>),
     /// "Scan again" (opens the rescan screen in place of Settings).
     ScanAgain,
 }
@@ -63,6 +65,8 @@ pub struct SettingsView {
     pub(super) error: Option<String>,
     /// Agents → Race Engineer.
     pub(super) engineer: super::engineer::Section,
+    /// Agents → Accounts.
+    pub(super) accounts: super::accounts::Section,
     pub(super) focus: FocusHandle,
     scroll: ScrollHandle,
     _tasks: Vec<Task<()>>,
@@ -121,6 +125,7 @@ impl SettingsView {
         let outside = super::backend::outside(cx);
         let subs = vec![
             cx.observe(&store, |_, _, cx| cx.notify()),
+            super::accounts::observe(cx),
             // `pitwall settings` installed hooks or the CLI: read again.
             cx.observe(&outside, |v, _, cx| {
                 if let Some(t) = Self::read_hooks(cx) {
@@ -143,6 +148,7 @@ impl SettingsView {
             cli_busy: false,
             error: None,
             engineer: Default::default(),
+            accounts: Default::default(),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             _tasks: tasks,
