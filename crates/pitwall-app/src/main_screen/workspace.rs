@@ -238,6 +238,9 @@ pub struct UiState {
     /// window opens.
     #[serde(default = "yes", deserialize_with = "not_false")]
     pub right_open: bool,
+    /// The agent kind New agent last started (picked first next time).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub new_agent_kind: Option<String>,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -290,6 +293,7 @@ impl Default for UiState {
             sidebar_collapsed: false,
             access_hint_shown: false,
             right_open: true,
+            new_agent_kind: None,
             rest: serde_json::Map::new(),
         }
     }

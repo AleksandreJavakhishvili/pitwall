@@ -197,9 +197,15 @@ pub struct NewAgentDialog {
     recents: Vec<(String, String)>,
     kind: String,
     custom: Entity<TextInput>,
-    /// `None`: "Choose folder…" (the typed path).
+    /// `None`: a folder outside the list (`other`: its path).
     project: Option<String>,
     other: Entity<TextInput>,
+    /// The project picker's search (or a pasted path).
+    query: Entity<TextInput>,
+    /// The picker's keyboard row.
+    pick_active: usize,
+    /// "More options" (worktree, rules) shown.
+    more: bool,
     name: Entity<TextInput>,
     name_touched: bool,
     worktree: bool,
@@ -241,8 +247,9 @@ impl NewAgentDialog {
             .mono()
         });
         let custom = cx.new(|cx| TextInput::new(cx, "", "e.g. aider --model sonnet").mono());
+        let query = cx.new(|cx| TextInput::new(cx, "", "Search projects, or paste a path").bare());
         let mut subs = vec![];
-        for input in [&name, &other, &custom] {
+        for input in [&name, &other, &custom, &query] {
             subs.push(
                 cx.subscribe_in(input, window, |this, input, e: &InputEvent, window, cx| {
                     this.input_event(input, e, window, cx)
@@ -261,6 +268,9 @@ impl NewAgentDialog {
             custom,
             project: None,
             other,
+            query,
+            pick_active: 0,
+            more: false,
             name,
             name_touched: false,
             worktree: false,
@@ -300,9 +310,12 @@ impl NewAgentDialog {
         d._load.push(cx.spawn_in(window, async move |this, cx| {
             let (kinds, recents) = load.await;
             let _ = this.update_in(cx, |d, window, cx| {
+                // The kind started last, else the first installed one.
+                let last = crate::ui_state::get(cx).new_agent_kind;
                 let first = kinds
                     .iter()
-                    .find(|k| k.installed && !k.caps.custom_command)
+                    .find(|k| k.installed && Some(&k.id) == last.as_ref())
+                    .or(kinds.iter().find(|k| k.installed && !k.caps.custom_command))
                     .or(kinds.iter().find(|k| k.installed));
                 d.kind = first.map(|k| k.id.clone()).unwrap_or_default();
                 d.kinds = Some(kinds);
@@ -349,6 +362,12 @@ impl NewAgentDialog {
         self.recents = recents;
         self.suggest(window, cx);
         cx.notify();
+    }
+
+    /// Demo only: the project picker open.
+    pub fn demo_open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = None;
+        self.open_picker(window, cx);
     }
 
     /// One agent kind (`.kind-card`): installed, not installed or any CLI.
@@ -413,7 +432,11 @@ impl NewAgentDialog {
 
     fn choose_target(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
         self.target = key;
-        self.open = None;
+        // (Only its own list: the machines arriving after the dialog opened
+        // must not close the project picker the user just opened.)
+        if self.open == Some(Open::Target) {
+            self.open = None;
+        }
         let (Some(engine), Some(t)) = (self.engine.clone(), self.target().cloned()) else {
             return;
         };
@@ -465,6 +488,22 @@ impl NewAgentDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if *input == self.query {
+            match e {
+                InputEvent::Changed => {
+                    self.pick_active = 0;
+                    cx.notify();
+                }
+                InputEvent::Submit | InputEvent::SubmitShift => {
+                    if let Some(p) = self.picks(cx).into_iter().nth(self.pick_active) {
+                        self.apply_pick(p, window, cx);
+                    }
+                }
+                InputEvent::Cancel => self.close_picker(window, cx),
+                InputEvent::Blur => {}
+            }
+            return;
+        }
         match e {
             InputEvent::Submit | InputEvent::SubmitShift => self.submit(window, cx),
             InputEvent::Cancel => cx.emit(DialogEvent::Close),
@@ -612,6 +651,8 @@ impl NewAgentDialog {
             let custom = self.selected_kind().is_some_and(|k| k.caps.custom_command);
             let worktree = self.selected_kind().is_some_and(|k| k.caps.worktree) && self.worktree;
             req.kind = self.kind.clone();
+            let kind = self.kind.clone();
+            crate::ui_state::update(cx, |s| s.new_agent_kind = Some(kind));
             req.project_path = self.project_path(cx);
             req.worktree = worktree;
             if custom {
@@ -640,6 +681,86 @@ impl NewAgentDialog {
         cx.notify();
     }
 
+    /// The project picker's rows for what's typed: a pasted path to use,
+    /// "Choose folder…", then the listed projects that match (name
+    /// matches first).
+    fn picks(&self, cx: &App) -> Vec<Pick> {
+        let q = self.query.read(cx).text().trim().to_string();
+        let mut out = Vec::new();
+        if q.starts_with('/') || q.starts_with('~') || is_windows_abs(&q) {
+            out.push(Pick::Path(q.clone()));
+        }
+        out.push(Pick::Choose);
+        let needle = q.to_lowercase();
+        let mut hits: Vec<(bool, usize)> = self
+            .recents
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (path, display))| {
+                if needle.is_empty() {
+                    return Some((false, i));
+                }
+                let name = folder_name(path).to_lowercase();
+                if name.contains(&needle) {
+                    Some((!name.starts_with(&needle), i))
+                } else if display.to_lowercase().contains(&needle) || path.to_lowercase().contains(&needle) {
+                    Some((true, i))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        hits.sort_by_key(|(later, _)| *later);
+        out.extend(hits.into_iter().map(|(_, i)| Pick::Recent(i)));
+        out
+    }
+
+    fn apply_pick(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = None;
+        match pick {
+            Pick::Choose => self.browse(window, cx),
+            Pick::Path(p) => self.use_path(p, window, cx),
+            Pick::Recent(i) => {
+                if let Some((path, _)) = self.recents.get(i) {
+                    self.project = Some(path.clone());
+                }
+                self.suggest(window, cx);
+            }
+        }
+        window.focus(&self.name.focus_handle(cx));
+        cx.notify();
+    }
+
+    /// A folder outside the list (picked, pasted or dropped).
+    fn use_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        match self.recents.iter().find(|(p, _)| *p == path) {
+            Some((p, _)) => self.project = Some(p.clone()),
+            None => {
+                self.project = None;
+                self.other.update(cx, |i, cx| i.set_text(&path, cx));
+            }
+        }
+        self.suggest(window, cx);
+        cx.notify();
+    }
+
+    fn open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open == Some(Open::Project) {
+            return self.close_picker(window, cx);
+        }
+        self.open = Some(Open::Project);
+        self.pick_active = 0;
+        self.query.update(cx, |i, cx| i.set_text("", cx));
+        window.focus(&self.query.focus_handle(cx));
+        cx.notify();
+    }
+
+    fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = None;
+        window.focus(&self.name.focus_handle(cx));
+        cx.notify();
+    }
+
     fn browse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -651,16 +772,28 @@ impl NewAgentDialog {
             if let Ok(Ok(Some(paths))) = rx.await {
                 if let Some(p) = paths.into_iter().next() {
                     let _ = this.update_in(cx, |d, window, cx| {
-                        let text = p.to_string_lossy().to_string();
-                        d.project = None;
-                        d.other.update(cx, |i, cx| i.set_text(&text, cx));
-                        d.suggest(window, cx);
-                        cx.notify();
+                        d.use_path(p.to_string_lossy().to_string(), window, cx)
                     });
                 }
             }
         }));
     }
+}
+
+/// A row of New agent's project picker.
+#[derive(Debug, Clone, PartialEq)]
+enum Pick {
+    /// The system's folder picker.
+    Choose,
+    /// A typed or pasted path.
+    Path(String),
+    /// A listed project (index into `recents`).
+    Recent(usize),
+}
+
+/// A path's last folder (`~/code/shop` → `shop`).
+fn folder_name(path: &str) -> &str {
+    path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 fn is_windows_abs(p: &str) -> bool {
@@ -669,7 +802,7 @@ fn is_windows_abs(p: &str) -> bool {
 }
 
 impl Render for NewAgentDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let folder = self.folder();
         let (name_err, project_err, _, _) = self.problems(cx);
@@ -772,79 +905,16 @@ impl Render for NewAgentDialog {
                     .when(custom, |d| d.child(self.custom.clone())),
             );
 
-            // Project.
-            let current: SharedString = match &self.project {
-                Some(p) => self
-                    .recents
-                    .iter()
-                    .find(|r| r.0 == *p)
-                    .map(|r| r.1.clone())
-                    .unwrap_or(p.clone())
-                    .into(),
-                None => "Choose folder…".into(),
-            };
-            let mut options: Vec<Choice> = self
-                .recents
-                .iter()
-                .map(|(path, display)| {
-                    let (e, p) = (entity.clone(), path.clone());
-                    let run: Run = Box::new(move |window, cx| {
-                        e.update(cx, |d, cx| {
-                            d.project = Some(p.clone());
-                            d.open = None;
-                            d.suggest(window, cx);
-                            cx.notify();
-                        })
-                    });
-                    (
-                        SharedString::from(display.clone()),
-                        self.project.as_deref() == Some(path),
-                        run,
-                    )
-                })
-                .collect();
-            let e = entity.clone();
-            options.push((
-                "Choose folder…".into(),
-                self.project.is_none(),
-                Box::new(move |window, cx| {
-                    e.update(cx, |d, cx| {
-                        d.project = None;
-                        d.open = None;
-                        window.focus(&d.other.focus_handle(cx));
-                        d.browse(window, cx);
-                        cx.notify();
-                    })
-                }),
-            ));
-            let typed = self.other.read(cx).text().to_string();
+            // Project: a searchable picker (VS Code's quick pick).
             b = b.child(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(6.))
                     .child(field_label("Project", &t))
-                    .child(select_box(
-                        "na-project",
-                        current,
-                        self.open == Some(Open::Project),
-                        &t,
-                        toggle(Open::Project),
-                        options,
-                    ))
-                    .when(self.project.is_none(), |d| {
-                        d.child(
-                            div()
-                                .flex()
-                                .gap(px(8.))
-                                .child(div().flex_1().child(self.other.clone()))
-                                .child(small_btn("na-browse", "Browse…", &t).h(px(34.)).on_click(
-                                    cx.listener(|d, _, window, cx| d.browse(window, cx)),
-                                )),
-                        )
-                        .when(!typed.is_empty(), |d| {
-                            d.when_some(project_err.clone(), |d, e| d.child(field_error(e, &t)))
-                        })
+                    .child(self.project_field(&t, window, cx))
+                    .when_some(project_err.clone().filter(|_| !self.project_path(cx).is_empty()), |d, e| {
+                        d.child(field_error(e, &t))
                     }),
             );
         }
@@ -978,42 +1048,75 @@ impl Render for NewAgentDialog {
             }
         }
 
-        // Separate worktree.
-        if folder && self.selected_kind().is_some_and(|k| k.caps.worktree) {
-            let on = self.worktree;
-            b = b.child(
-                div()
-                    .id("na-worktree")
-                    .flex()
-                    .items_start()
-                    .gap(px(10.))
-                    .cursor_pointer()
-                    .on_click(cx.listener(|d, _, _, cx| {
-                        d.worktree = !d.worktree;
-                        cx.notify();
-                    }))
-                    .child(check(on, &t))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child("Separate worktree")
-                            .child(hint(
-                                "Separate copy of the repo, so this agent doesn't clash with others in the same project.",
-                                &t,
-                            )),
-                    ),
-            );
-        }
+        // More options: a separate worktree, rules.
         if folder {
             let can = self.selected_kind().is_some_and(|k| k.caps.rules);
-            let wt = self.selected_kind().is_some_and(|k| k.caps.worktree) && self.worktree;
+            let wt_cap = self.selected_kind().is_some_and(|k| k.caps.worktree);
+            let wt = wt_cap && self.worktree;
             let path = self.project_path(cx);
             self.rules.update(cx, |f, cx| f.sync(can, &path, wt, cx));
-            if self.rules.read(cx).visible() {
-                b = b.child(self.rules.clone());
+            let rules = self.rules.read(cx).visible();
+            if wt_cap || rules {
+                let open = self.more;
+                let summary = if wt { "Separate worktree" } else { "" };
+                b = b.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(10.))
+                        .pt(px(10.))
+                        .border_t_1()
+                        .border_color(t.line)
+                        .child(
+                            div()
+                                .id("na-more")
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .cursor_pointer()
+                                .text_size(px(12.5))
+                                .text_color(t.text_2)
+                                .hover_text(t.text, |s| s)
+                                .on_click(cx.listener(|d, _, _, cx| {
+                                    d.more = !d.more;
+                                    cx.notify();
+                                }))
+                                .child(crate::kit::chevron("na-more-chev", open, 12., t.text_3))
+                                .child("More options")
+                                .when(!open && !summary.is_empty(), |d| {
+                                    d.child(div().text_color(t.text_3).child(format!("· {summary}")))
+                                }),
+                        )
+                        .when(open && wt_cap, |d| {
+                            let on = self.worktree;
+                            d.child(
+                                div()
+                                    .id("na-worktree")
+                                    .flex()
+                                    .items_start()
+                                    .gap(px(10.))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|d, _, _, cx| {
+                                        d.worktree = !d.worktree;
+                                        cx.notify();
+                                    }))
+                                    .child(check(on, &t))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_col()
+                                            .child("Separate worktree")
+                                            .child(hint(
+                                                "Its own copy of the repo, so it doesn't clash with other agents in the same project.",
+                                                &t,
+                                            )),
+                                    ),
+                            )
+                        })
+                        .when(open && rules, |d| d.child(self.rules.clone())),
+                );
             }
         }
         if self.busy && !folder {
@@ -1052,6 +1155,18 @@ impl Render for NewAgentDialog {
             move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
             div()
                 .track_focus(&self.focus)
+                // ⌘↵ starts it from anywhere in the dialog (not the window's
+                // maximize).
+                .on_action(cx.listener(|d, _: &super::ToggleMaximize, window, cx| d.submit(window, cx)))
+                // A folder dropped from Finder is the project.
+                .drag_over::<gpui::ExternalPaths>(|s, _, _, _| s.opacity(0.85))
+                .on_drop(cx.listener(|d, paths: &gpui::ExternalPaths, window, cx| {
+                    let dir = paths.paths().iter().find(|p| p.is_dir()).cloned();
+                    if let (Some(dir), true) = (dir, d.folder()) {
+                        d.open = None;
+                        d.use_path(dir.to_string_lossy().to_string(), window, cx);
+                    }
+                }))
                 .flex()
                 .flex_col()
                 .min_h_0()
@@ -1079,10 +1194,211 @@ impl Render for NewAgentDialog {
                             button("na-start", BtnKind::Primary, !valid || self.busy, &t)
                                 .on_click(cx.listener(|d, _, window, cx| d.submit(window, cx)))
                                 .child(submit_label)
-                                .child(kbd_on_primary("↵", &t)),
+                                .child(kbd_on_primary(if cfg!(target_os = "macos") { "⌘↵" } else { "Ctrl↵" }, &t)),
                         ),
                 ),
         )
+    }
+}
+
+impl NewAgentDialog {
+    /// The project field: the chosen folder (name, path), opening the
+    /// picker: search, "Choose folder…", a pasted path, the listed projects.
+    fn project_field(&self, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let _ = window;
+        let open = self.open == Some(Open::Project);
+        let path = self.project_path(cx);
+        let shown = match &self.project {
+            Some(p) => Some((
+                folder_name(p).to_string(),
+                self.recents.iter().find(|r| r.0 == *p).map(|r| r.1.clone()).unwrap_or(p.clone()),
+            )),
+            None if !path.is_empty() => Some((folder_name(&path).to_string(), path.clone())),
+            None => None,
+        };
+        let trigger = div()
+            .id("na-project")
+            .debug_selector(|| "na-project-sel".into())
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .h(px(44.))
+            .px(px(10.))
+            .rounded(RADIUS)
+            .bg(t.bg)
+            .border_1()
+            .border_color(if open { t.text_3 } else { t.line_strong })
+            .cursor_pointer()
+            .hover_probed(|s| s.border_color(t.text_3))
+            .on_click(cx.listener(|d, _, window, cx| d.open_picker(window, cx)))
+            .child(icon("folder", 16., t.text_2))
+            .child(match shown {
+                Some((name, path)) => div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .ellipsis()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(crate::kit::one_line(name)),
+                    )
+                    .child(
+                        div()
+                            .ellipsis()
+                            .font_family(MONO_FONT)
+                            .text_size(px(11.))
+                            .text_color(t.text_3)
+                            .child(crate::kit::one_line(path)),
+                    )
+                    .into_any_element(),
+                None => div()
+                    .flex_1()
+                    .text_color(t.text_3)
+                    .child("Choose a project folder…")
+                    .into_any_element(),
+            })
+            .child(icon("chevron", 12., t.text_3).with_transformation(gpui::Transformation::rotate(
+                gpui::radians(std::f32::consts::FRAC_PI_2),
+            )));
+        div()
+            .flex()
+            .flex_col()
+            .child(trigger)
+            .when(open, |d| d.child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(self.picker(t, cx)))))
+            .into_any_element()
+    }
+
+    fn picker(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let picks = self.picks(cx);
+        let active = self.pick_active.min(picks.len().saturating_sub(1));
+        let count = picks.len();
+        let rows = picks.into_iter().enumerate().map(|(i, p)| {
+            let on = i == active;
+            let current = matches!(&p, Pick::Recent(r) if self.recents.get(*r).map(|x| &x.0) == self.project.as_ref());
+            let row = div()
+                .id(("na-pick", i))
+                .debug_selector(move || format!("na-pick-{i}"))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(t.surface_3))
+                .hover_probed(|s| s.bg(t.surface_3));
+            let row = match &p {
+                Pick::Choose => row
+                    .child(icon("folder", 14., t.text_2))
+                    .child(div().flex_1().child("Choose folder…"))
+                    .child(div().text_size(px(11.5)).text_color(t.text_3).child("Browse")),
+                Pick::Path(path) => row
+                    .child(icon("folder", 14., t.text_2))
+                    .child(div().flex_none().child("Use"))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .ellipsis()
+                            .font_family(MONO_FONT)
+                            .text_size(px(12.))
+                            .child(crate::kit::one_line(path.clone())),
+                    ),
+                Pick::Recent(r) => {
+                    let (path, display) = self.recents[*r].clone();
+                    row.child(div().w(px(14.)).flex_none().when(current, |d| d.child(icon("check", 14., t.text_2))))
+                        .child(
+                            div()
+                                .flex_none()
+                                .max_w(px(180.))
+                                .ellipsis()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(crate::kit::one_line(folder_name(&path).to_string())),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .ellipsis()
+                                .font_family(MONO_FONT)
+                                .text_size(px(11.))
+                                .text_color(t.text_3)
+                                .child(crate::kit::one_line(display)),
+                        )
+                }
+            };
+            row.on_click(cx.listener(move |d, _, window, cx| d.apply_pick(p.clone(), window, cx)))
+                .into_any_element()
+        });
+        let empty = count == 1 && !self.query.read(cx).text().trim().is_empty();
+        div()
+            .id("na-picker")
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .capture_key_down(cx.listener(|d, ev: &gpui::KeyDownEvent, _, cx| {
+                let n = d.picks(cx).len();
+                match ev.keystroke.key.as_str() {
+                    "down" => d.pick_active = (d.pick_active + 1).min(n.saturating_sub(1)),
+                    "up" => d.pick_active = d.pick_active.saturating_sub(1),
+                    _ => return,
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }))
+            // Below the field (an anchored box starts where its parent does).
+            .mt(px(48.))
+            .w(px(484.))
+            .max_h(px(360.))
+            // (Drawn later, outside the dialog: nothing inherited.)
+            .text_color(t.text)
+            .font_family(crate::kit::UI_FONT)
+            .flex()
+            .flex_col()
+            .rounded(RADIUS)
+            .bg(t.raised)
+            .border_1()
+            .border_color(t.line_strong)
+            .shadow_lg()
+            .overflow_hidden()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(12.))
+                    .h(px(40.))
+                    .border_b_1()
+                    .border_color(t.line)
+                    .child(icon("search", 14., t.text_3))
+                    .child(div().flex_1().child(self.query.clone())),
+            )
+            .child(
+                div()
+                    .id("na-pick-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p(px(4.))
+                    .text_size(px(13.))
+                    .children(rows)
+                    .when(empty, |d| {
+                        d.child(div().px(px(10.)).py(px(8.)).text_color(t.text_3).child("No projects match"))
+                    }),
+            )
+            .child(
+                div()
+                    .px(px(12.))
+                    .py(px(6.))
+                    .border_t_1()
+                    .border_color(t.line)
+                    .text_size(px(11.))
+                    .text_color(t.text_3)
+                    .child("↑↓ to move · ↵ to pick · or drop a folder from Finder on this dialog"),
+            )
+            .into_any_element()
     }
 }
 
@@ -1723,5 +2039,83 @@ impl Render for DiffDialog {
                     .child(content),
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod new_agent_tests {
+    use super::*;
+    use gpui::{TestAppContext, VisualTestContext};
+
+    fn dialog(cx: &mut TestAppContext) -> (Entity<NewAgentDialog>, &mut VisualTestContext) {
+        cx.update(|cx| cx.set_global(crate::theme::Theme::dark()));
+        let (d, vcx) = cx.add_window_view(|window, cx| {
+            NewAgentDialog::new(None, vec![], None, (None, None), window, cx)
+        });
+        let recents = vec![
+            ("/work/shop".to_string(), "~/work/shop".to_string()),
+            ("/work/api-gateway".to_string(), "~/work/api-gateway".to_string()),
+            ("/work/notes/shopping-list".to_string(), "~/work/notes/shopping-list".to_string()),
+        ];
+        d.update_in(vcx, |d, window, cx| d.demo_fill(super::super::demo::kinds(), recents, window, cx));
+        vcx.run_until_parked();
+        (d, vcx)
+    }
+
+    fn typed(d: &Entity<NewAgentDialog>, vcx: &mut VisualTestContext, q: &str) -> Vec<Pick> {
+        d.update(vcx, |d, cx| {
+            d.query.update(cx, |i, cx| i.set_text(q, cx));
+            d.picks(cx)
+        })
+    }
+
+    #[gpui::test]
+    fn the_picker_searches_names_first_and_takes_a_pasted_path(cx: &mut TestAppContext) {
+        let (d, vcx) = dialog(cx);
+        assert_eq!(
+            typed(&d, vcx, ""),
+            [Pick::Choose, Pick::Recent(0), Pick::Recent(1), Pick::Recent(2)],
+            "Choose folder… then every project"
+        );
+        assert_eq!(typed(&d, vcx, "shop"), [Pick::Choose, Pick::Recent(0), Pick::Recent(2)]);
+        // A name that only contains it comes after one that starts with it.
+        assert_eq!(typed(&d, vcx, "list"), [Pick::Choose, Pick::Recent(2)]);
+        assert_eq!(typed(&d, vcx, "zzz"), [Pick::Choose]);
+        let picks = typed(&d, vcx, "/srv/app");
+        assert_eq!(picks[0], Pick::Path("/srv/app".into()));
+        d.update_in(vcx, |d, window, cx| d.apply_pick(picks[0].clone(), window, cx));
+        d.read_with(vcx, |d, cx| {
+            assert_eq!(d.project, None);
+            assert_eq!(d.project_path(cx), "/srv/app");
+            assert_eq!(d.name.read(cx).text(), "app", "named from the folder");
+        });
+        // A listed project picked from the search.
+        let picks = typed(&d, vcx, "api");
+        d.update_in(vcx, |d, window, cx| d.apply_pick(picks[1].clone(), window, cx));
+        d.read_with(vcx, |d, cx| assert_eq!(d.project_path(cx), "/work/api-gateway"));
+    }
+
+    /// "Choose folder…" asks the system for a folder (the test platform has
+    /// no picker: it panics there, which is the proof).
+    #[gpui::test]
+    #[should_panic(expected = "not implemented")]
+    fn choose_folder_opens_the_system_picker(cx: &mut TestAppContext) {
+        let (d, vcx) = dialog(cx);
+        d.update_in(vcx, |d, window, cx| {
+            d.open_picker(window, cx);
+            d.apply_pick(Pick::Choose, window, cx)
+        });
+    }
+
+    #[gpui::test]
+    fn a_folder_outside_the_list_and_one_in_it(cx: &mut TestAppContext) {
+        let (d, vcx) = dialog(cx);
+        d.update_in(vcx, |d, window, cx| d.use_path("/work/shop".into(), window, cx));
+        d.read_with(vcx, |d, _| assert_eq!(d.project.as_deref(), Some("/work/shop"), "the listed one"));
+        d.update_in(vcx, |d, window, cx| d.use_path("/tmp/elsewhere".into(), window, cx));
+        d.read_with(vcx, |d, cx| {
+            assert_eq!(d.project, None);
+            assert_eq!(d.project_path(cx), "/tmp/elsewhere");
+        });
     }
 }

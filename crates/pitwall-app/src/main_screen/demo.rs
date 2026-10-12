@@ -267,10 +267,15 @@ impl MainScreen {
         cx: &mut gpui::Context<Self>,
     ) {
         match what {
-            "new-agent" => {
+            "new-agent" | "new-agent-picker" => {
                 self.open_new_agent(None, window, cx);
                 if let Some(super::Modal::NewAgent(d)) = &self.modal {
-                    d.update(cx, |d, cx| d.demo_fill(kinds(), recents(), window, cx));
+                    d.update(cx, |d, cx| {
+                        d.demo_fill(kinds(), recents(), window, cx);
+                        if what == "new-agent-picker" {
+                            d.demo_open_picker(window, cx);
+                        }
+                    });
                 }
             }
             "remove" => {
