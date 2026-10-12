@@ -53,6 +53,7 @@
           <li><a href="#terminals">Terminals</a></li>
           <li><a href="#spaces">Spaces</a></li>
           <li><a href="#agents">Agents</a></li>
+          <li><a href="#accounts">Accounts</a></li>
           <li><a href="#rules">Rules</a></li>
           <li><a href="#agw">agw machines</a></li>
           <li><a href="#cli">CLI and approvals</a></li>
@@ -106,6 +107,7 @@
           <li>Commit &amp; merge runs <code>git merge --no-ff</code> of the worktree's branch, only when you click. It refuses if your main checkout is dirty; on a conflict it runs <code>git merge --abort</code> and offers the agent an editable "rebase and resolve" prompt.</li>
           <li>The diff editor is bundled, so Review works offline.</li>
         </ul>
+        <p>The Changes panel in the right panel matches <code>git status</code>: staged and unstaged changes are listed apart, and each git repository inside the agent's folder, or linked into it, gets its own collapsible section with its branch. A file that is both staged and changed again shows both, and its diff opens on the part you clicked.</p>
 
         <h2 id="terminals">Terminals that outlive the app</h2>
         <p>Each agent's terminal belongs to its own <code>pitwall-hold</code> process, not to the app. <kbd>⌘Q</kbd> closes the UI; dev servers and half-finished turns carry on, and the next launch re-attaches with the scrollback replayed. Only Stop, Restart, Remove or <strong>Quit and Stop Agents</strong> end a terminal. After a reboot, agents come back stopped, and Restart resumes the conversation for CLIs that support it.</p>
@@ -143,6 +145,15 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
         </div>
         <p>Claude Code and Codex can start in their own worktree through the CLI's own flag (<code>claude --worktree &lt;name&gt;</code>, <code>codex --worktree</code>); Pitwall creates no branches or folders. Add your own kind with a TOML file in <code>~/.pitwall/agents/</code>; override detection rules in <code>~/.pitwall/detect/</code>.</p>
 
+        <h2 id="accounts">Accounts</h2>
+        <p>Claude Code and Codex can run on more than one login, say a work and a personal subscription. Each account is its own login folder (the agent's <code>CLAUDE_CONFIG_DIR</code> or <code>CODEX_HOME</code>); Default is your own <code>~/.claude</code> or <code>~/.codex</code>.</p>
+        <ul>
+          <li><strong>Add one</strong> in Settings → Agents → Accounts, or from a project's right-click menu → Accounts…. Log in opens the agent on that account so it asks for its login; Settings shows who each account is logged in as.</li>
+          <li><strong>Per project:</strong> right-click a project → Accounts… sets the account its new agents use, and offers to move the agents already there.</li>
+          <li><strong>Per agent:</strong> New agent has an account choice, and an agent's right-click menu → Run on account moves it. It restarts on the new login with its conversation carried over, so it resumes where it was. An account that isn't logged in yet is refused instead of leaving the agent stuck.</li>
+        </ul>
+        <p>Any agent kind whose definition names a login folder variable (<code>account_env</code>) gets the same support.</p>
+
         <h2 id="rules">Rules</h2>
         <p>Keep rules in <code>~/.pitwall/rules/</code>, group them into named sets, and assign a set per project with optional extras per agent. Pitwall calls the <code>rulesync</code> CLI to write CLAUDE.md, AGENTS.md and the rest; it doesn't reimplement it.</p>
         <ul>
@@ -162,7 +173,7 @@ Stop / Remove → SIGHUP, SIGKILL after 1.5 s</code></pre>
         <h2 id="cli">CLI and approvals</h2>
         <p>Settings → <em>Install command-line tool</em> links <code>pitwall</code> into <code>~/.local/bin</code> or <code>/usr/local/bin</code>. It talks to the running app over a local socket and prints JSON (<code>--human</code> for text).</p>
         <pre><code>pitwall agent list
-pitwall agent new --kind claude --project ~/code/api --name api
+pitwall agent new --kind claude --project ~/code/api --name api [--account work]
 pitwall session list --provider agw
 pitwall session add agw &lt;vm&gt; &lt;session&gt; --start
 pitwall settings list
