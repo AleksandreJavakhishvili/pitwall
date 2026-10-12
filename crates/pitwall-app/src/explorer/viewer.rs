@@ -178,6 +178,16 @@ impl Viewer {
         &self.agent_id
     }
 
+    /// `path`'s document reads `text` (tests).
+    #[cfg(test)]
+    pub(crate) fn shows_text(&self, path: &str, text: &str) -> bool {
+        self.docs
+            .get(path)
+            .and_then(|d| d.view.as_ref())
+            .and_then(|v| v.text.as_ref())
+            .is_some_and(|t| t.as_ref() == text)
+    }
+
     pub fn active(&self) -> Option<&str> {
         self.active.as_deref()
     }
@@ -224,9 +234,13 @@ impl Viewer {
             cols,
             nonce: self.nonce,
         });
-        self.tree.update(cx, |t, cx| t.reveal(&path, cx));
-        self.tree_view
-            .update(cx, |v, cx| v.set_selected(Some(path.clone()), cx));
+        // (Outside the folder: not in the tree.)
+        let in_tree = !super::logic::outside(&path);
+        if in_tree {
+            self.tree.update(cx, |t, cx| t.reveal(&path, cx));
+        }
+        let selected = in_tree.then(|| path.clone());
+        self.tree_view.update(cx, |v, cx| v.set_selected(selected, cx));
         if !self.docs.contains_key(&path) {
             self.read(&path, false, false, cx);
         }
@@ -236,8 +250,8 @@ impl Viewer {
 
     fn select(&mut self, path: String, cx: &mut Context<Self>) {
         self.target = None;
-        self.tree_view
-            .update(cx, |v, cx| v.set_selected(Some(path.clone()), cx));
+        let selected = (!super::logic::outside(&path)).then(|| path.clone());
+        self.tree_view.update(cx, |v, cx| v.set_selected(selected, cx));
         if !self.docs.contains_key(&path) {
             self.read(&path, false, false, cx);
         }
@@ -281,7 +295,13 @@ impl Viewer {
         let (source, agent, p) = (self.source.clone(), self.agent_id.clone(), path.to_string());
         let load = cx
             .background_executor()
-            .spawn(async move { source.read_file(&agent, &p, large) });
+            .spawn(async move {
+                if super::logic::outside(&p) {
+                    source.read_outside(&p, large)
+                } else {
+                    source.read_file(&agent, &p, large)
+                }
+            });
         let path = path.to_string();
         cx.spawn(async move |this, cx| {
             let res: Res<FileView> = load.await;

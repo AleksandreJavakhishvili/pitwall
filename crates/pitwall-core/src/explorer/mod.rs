@@ -190,6 +190,14 @@ pub fn read_file(engine: &Engine, agent_id: &str, path: &str, large: bool) -> Re
     read::read(&*c.exec, &rel, &real, if large { read::MAX_LARGE } else { read::MAX_TEXT })
 }
 
+/// A file anywhere on this machine, by its absolute path: a link ⌘-clicked
+/// in a local agent's terminal that leads outside its folder. The app's
+/// alone; clients' paths stay inside the agent's folder.
+pub fn read_local_file(path: &str, large: bool) -> Res<FileView> {
+    let max = if large { read::MAX_LARGE } else { read::MAX_TEXT };
+    read::read(&crate::exec::LocalExec, path, path, max)
+}
+
 /// Search the agent's folder (ripgrep, else `git grep`). A new search for
 /// the same agent cancels the one still running.
 pub fn search(engine: &Engine, agent_id: &str, query: &SearchQuery) -> Res<SearchResult> {
