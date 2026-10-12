@@ -55,6 +55,14 @@ pub struct AgentKind {
     /// e.g. "claude-code"); matched like `id` when adopting their sessions.
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// The variable naming the folder the tool keeps its login in
+    /// (`CLAUDE_CONFIG_DIR`): set, the kind can run on more than one
+    /// account (`crate::accounts`). Unset: one login only.
+    #[serde(default)]
+    pub account_env: Option<String>,
+    /// That folder when the variable isn't set (`~/.claude`).
+    #[serde(default)]
+    pub account_home: Option<String>,
 }
 
 impl AgentKind {
@@ -123,6 +131,8 @@ pub fn custom_kind(command: &str) -> AgentKind {
         worktree_dirs: vec![],
         process_names: vec![],
         aliases: vec![],
+        account_env: None,
+        account_home: None,
     }
 }
 

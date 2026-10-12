@@ -264,6 +264,10 @@ pub struct AgentNew {
     /// Continue this conversation (session id) instead of starting fresh.
     #[arg(long, value_name = "SESSION_ID", conflicts_with = "machine")]
     pub resume: Option<String>,
+    /// The login it runs with: an account's name or id (Settings → Agents
+    /// → Accounts), or `default` for your own (default: the project's).
+    #[arg(long, value_name = "ACCOUNT", conflicts_with = "machine")]
+    pub account: Option<String>,
     /// Create it on this machine (an agw VM; see `machine list` and
     /// `machine form <machine>`). It changes that machine, so it waits for
     /// your approval in Pitwall.

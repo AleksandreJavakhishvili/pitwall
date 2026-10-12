@@ -19,6 +19,8 @@ pub struct MenuItem {
     icon: &'static str,
     label: SharedString,
     run: Run,
+    /// A section's title: shown, never chosen.
+    header: bool,
 }
 
 impl MenuItem {
@@ -31,7 +33,13 @@ impl MenuItem {
             icon,
             label: label.to_string().into(),
             run: Rc::new(run),
+            header: false,
         }
+    }
+
+    /// A section's title ("RUN ON ACCOUNT").
+    pub fn header(label: &str) -> MenuItem {
+        MenuItem { icon: "", label: label.to_string().into(), run: Rc::new(|_, _, _| {}), header: true }
     }
 }
 
@@ -71,6 +79,7 @@ impl MainScreen {
             .menu
             .as_ref()
             .and_then(|m| m.items.get(i))
+            .filter(|it| !it.header)
             .map(|it| it.run.clone())
         else {
             return;
@@ -84,7 +93,13 @@ impl MainScreen {
     fn step_menu(&mut self, delta: isize, cx: &mut Context<Self>) {
         if let Some(m) = self.menu.as_mut() {
             let n = m.items.len() as isize;
-            m.selected = (m.selected as isize + delta).rem_euclid(n.max(1)) as usize;
+            // (Past section titles.)
+            for _ in 0..n.max(1) {
+                m.selected = (m.selected as isize + delta).rem_euclid(n.max(1)) as usize;
+                if !m.items.get(m.selected).is_some_and(|it| it.header) {
+                    break;
+                }
+            }
             m.keyboard = true;
             cx.notify();
         }
@@ -99,6 +114,18 @@ impl MainScreen {
         let focus = m.focus.clone();
         let rows = m.items.iter().enumerate().map(|(i, it)| {
             let on = m.keyboard && i == m.selected;
+            if it.header {
+                return div()
+                    .id(("menu-item", i))
+                    .px(px(8.))
+                    .pt(px(8.))
+                    .pb(px(2.))
+                    .border_t_1()
+                    .border_color(t.line)
+                    .text_size(px(10.5))
+                    .text_color(t.text_3)
+                    .child(it.label.clone());
+            }
             div()
                 .id(("menu-item", i))
                 .flex()

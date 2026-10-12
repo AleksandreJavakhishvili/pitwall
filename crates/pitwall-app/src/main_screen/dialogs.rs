@@ -39,6 +39,8 @@ pub enum DialogEvent {
     Close,
     Created(Box<AgentView>),
     OpenTerminal(String),
+    /// Move these agents to this account (`None`: the user's own; its name).
+    MoveAgents(Vec<String>, Option<String>, String),
 }
 
 /// The modal frame: backdrop, box, title with ✕ (`Modal.tsx`).
@@ -206,6 +208,11 @@ pub struct NewAgentDialog {
     pick_active: usize,
     /// "More options" (worktree, rules) shown.
     more: bool,
+    /// The account chosen here (`"default"`: the user's own); `None`: the
+    /// project's, else the last used.
+    account: Option<String>,
+    /// Make the chosen account the project's.
+    account_for_project: bool,
     name: Entity<TextInput>,
     name_touched: bool,
     worktree: bool,
@@ -271,6 +278,8 @@ impl NewAgentDialog {
             query,
             pick_active: 0,
             more: false,
+            account: None,
+            account_for_project: false,
             name,
             name_touched: false,
             worktree: false,
@@ -652,6 +661,20 @@ impl NewAgentDialog {
             let worktree = self.selected_kind().is_some_and(|k| k.caps.worktree) && self.worktree;
             req.kind = self.kind.clone();
             let kind = self.kind.clone();
+            // The account: asked for explicitly (the project's default is
+            // the engine's when none is).
+            let account = self.chosen_account(cx);
+            req.account = Some(account.clone().unwrap_or_else(|| pitwall_core::accounts::DEFAULT.into()));
+            if self.account_for_project {
+                let path = self.project_path(cx);
+                let m = crate::accounts::model(cx);
+                let _ = m.update(cx, |m, cx| m.set_project_default(&path, &kind, account.as_deref(), cx));
+            }
+            let remembered = account.clone().unwrap_or_else(|| pitwall_core::accounts::DEFAULT.into());
+            let k = kind.clone();
+            crate::ui_state::update(cx, |s| {
+                s.new_agent_accounts.insert(k, remembered);
+            });
             crate::ui_state::update(cx, |s| s.new_agent_kind = Some(kind));
             req.project_path = self.project_path(cx);
             req.worktree = worktree;
@@ -679,6 +702,123 @@ impl NewAgentDialog {
             });
         }));
         cx.notify();
+    }
+
+    /// The account the agent will run on (`None`: the user's own): the one
+    /// chosen here, else the project's, else the last used for its kind.
+    fn chosen_account(&self, cx: &mut App) -> Option<String> {
+        use pitwall_core::accounts::DEFAULT;
+        let m = crate::accounts::model(cx);
+        let m = m.read(cx);
+        let exists = |id: &str| m.list.get(id).is_some_and(|a| a.kind == self.kind);
+        let pick = match &self.account {
+            Some(a) => Some(a.clone()),
+            None => {
+                let path = self.project_path(cx);
+                m.list
+                    .project_default(&path, &self.kind)
+                    .map(|a| a.id.clone())
+                    .or_else(|| crate::ui_state::get(cx).new_agent_accounts.get(&self.kind).cloned())
+            }
+        };
+        pick.filter(|a| a != DEFAULT && exists(a))
+    }
+
+    /// The account row: Default and the kind's accounts as chips (shown
+    /// once the kind has one), "+ Add", and "use for this project".
+    fn account_field(&self, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let _ = window;
+        if !self.folder() || self.target().is_some_and(|t| t.provider != pitwall_core::provider::ProviderId::LOCAL) {
+            return None;
+        }
+        let list = crate::accounts::model(cx).read(cx).of_kind(&self.kind);
+        if list.is_empty() {
+            return None;
+        }
+        let chosen = self.chosen_account(cx);
+        let path = self.project_path(cx);
+        let project_default = crate::accounts::model(cx).read(cx).list.project_default(&path, &self.kind).map(|a| a.id.clone());
+        let chip = |id: Option<String>, name: String, i: usize, cx: &mut Context<Self>| {
+            let on = chosen == id;
+            let is_project = id.is_some() && id == project_default;
+            let pick = id.clone().unwrap_or_else(|| pitwall_core::accounts::DEFAULT.into());
+            div()
+                .id(("na-acct", i))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(28.))
+                .px(px(10.))
+                .rounded_full()
+                .border_1()
+                .border_color(if on { t.text_2 } else { t.line_strong })
+                .when(on, |d| d.bg(t.surface_2))
+                .cursor_pointer()
+                .hover_probed(|s| s.bg(t.surface_2))
+                .on_click(cx.listener(move |d, _, _, cx| {
+                    d.account = Some(pick.clone());
+                    d.account_for_project = false;
+                    cx.notify();
+                }))
+                .child(div().text_size(px(12.5)).when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                .when(is_project, |d| d.child(div().text_size(px(10.5)).text_color(t.text_3).child("project")))
+                .into_any_element()
+        };
+        let mut chips: Vec<AnyElement> = vec![chip(None, "Default".into(), 0, cx)];
+        for (i, a) in list.iter().enumerate() {
+            chips.push(chip(Some(a.id.clone()), a.name.clone(), i + 1, cx));
+        }
+        chips.push(
+            div()
+                .id("na-acct-add")
+                .flex()
+                .items_center()
+                .h(px(28.))
+                .px(px(10.))
+                .rounded_full()
+                .border_1()
+                .border_dashed()
+                .border_color(t.line_strong)
+                .text_size(px(12.5))
+                .text_color(t.text_3)
+                .cursor_pointer()
+                .hover_text(t.text, |s| s)
+                .tooltip(crate::kit::tooltip("Settings → Agents → Accounts"))
+                .on_click(cx.listener(|_, _, window, cx| {
+                    cx.emit(DialogEvent::Close);
+                    window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                }))
+                .child("+ Add")
+                .into_any_element(),
+        );
+        let can_remember = !path.is_empty() && chosen != project_default;
+        let name = folder_name(&path).to_string();
+        let on = self.account_for_project;
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(field_label("Account", t))
+                .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
+                .when(can_remember, |d| {
+                    d.child(
+                        div()
+                            .id("na-acct-project")
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .cursor_pointer()
+                            .on_click(cx.listener(|d, _, _, cx| {
+                                d.account_for_project = !d.account_for_project;
+                                cx.notify();
+                            }))
+                            .child(check(on, t))
+                            .child(div().text_size(px(12.5)).text_color(t.text_2).child(format!("Use it for new agents in {name}"))),
+                    )
+                })
+                .into_any_element(),
+        )
     }
 
     /// The project picker's rows for what's typed: a pasted path to use,
@@ -917,6 +1057,14 @@ impl Render for NewAgentDialog {
                         d.child(field_error(e, &t))
                     }),
             );
+        }
+
+        // The account (once the kind has more than one), after the project
+        // whose default it may be.
+        if folder {
+            if let Some(acct) = self.account_field(&t, window, cx) {
+                b = b.child(acct);
+            }
         }
 
         // Name.
@@ -1402,6 +1550,281 @@ impl NewAgentDialog {
     }
 }
 
+// ── A project's accounts (its right-click menu) ──────────────────────────
+
+/// "Accounts…" on a project: for each agent that can have more than one
+/// login (its definition names a login folder), which account the
+/// project's new agents use, chosen from chips, or a new one: named here,
+/// it becomes the project's, and an agent starts on it in the project,
+/// where the tool asks for its login.
+pub struct ProjectAccountsDialog {
+    engine: Option<Shared>,
+    project: String,
+    /// The project's agents (to offer moving them along).
+    agents: Vec<AgentView>,
+    /// Just picked for this kind: (kind, account, its name), to offer
+    /// moving the project's agents of that kind too.
+    picked: Option<(String, Option<String>, String)>,
+    /// A new account being named, for this kind.
+    adding: Option<(String, Entity<TextInput>)>,
+    busy: bool,
+    error: Option<String>,
+    _subs: Vec<Subscription>,
+    _task: Option<Task<()>>,
+}
+
+impl EventEmitter<DialogEvent> for ProjectAccountsDialog {}
+
+impl ProjectAccountsDialog {
+    pub fn new(engine: Option<Shared>, project: String, agents: Vec<AgentView>, cx: &mut Context<Self>) -> Self {
+        let m = crate::accounts::model(cx);
+        let subs = vec![cx.observe(&m, |_, _, cx| cx.notify())];
+        ProjectAccountsDialog { engine, project, agents, picked: None, adding: None, busy: false, error: None, _subs: subs, _task: None }
+    }
+
+    fn pick(&mut self, kind: &str, id: Option<&str>, name: String, cx: &mut Context<Self>) {
+        let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        if let Err(e) = m.update(cx, |m, cx| m.set_project_default(&project, kind, id, cx)) {
+            self.error = Some(e);
+        }
+        self.picked = Some((kind.to_string(), id.map(String::from), name));
+        cx.notify();
+    }
+
+    /// The project's agents of `kind` on another account than `account`.
+    fn movers(&self, kind: &str, account: &Option<String>) -> Vec<&AgentView> {
+        self.agents.iter().filter(|a| a.kind == kind && a.account != *account && !a.engineer).collect()
+    }
+
+    fn start_adding(&mut self, kind: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx, "", "Work"));
+        window.focus(&input.focus_handle(cx));
+        self._subs.push(cx.subscribe_in(&input, window, |this, _, e: &InputEvent, _, cx| match e {
+            InputEvent::Submit => this.create(cx),
+            InputEvent::Cancel => {
+                this.adding = None;
+                cx.notify();
+            }
+            _ => {
+                this.error = None;
+                cx.notify()
+            }
+        }));
+        self.adding = Some((kind.to_string(), input));
+        self.error = None;
+        cx.notify();
+    }
+
+    fn create(&mut self, cx: &mut Context<Self>) {
+        let Some((kind, input)) = self.adding.clone() else { return };
+        if self.busy {
+            return;
+        }
+        let name = input.read(cx).text().trim().to_string();
+        let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        let made = m.update(cx, |m, cx| {
+            let a = m.add(&kind, &name, None, cx)?;
+            m.set_project_default(&project, &kind, Some(&a.id), cx)?;
+            Ok::<_, String>(a)
+        });
+        let account = match made {
+            Ok(a) => a,
+            Err(e) => {
+                self.error = Some(e);
+                cx.notify();
+                return;
+            }
+        };
+        let Some(engine) = self.engine.clone() else {
+            return cx.emit(DialogEvent::Close);
+        };
+        self.busy = true;
+        let req = crate::accounts::login_request(&kind, &account.id, &project);
+        let task = cx.background_executor().spawn(async move { pitwall_core::engine::lifecycle::create(&engine, req) });
+        self._task = Some(cx.spawn(async move |this, cx| {
+            let res = task.await;
+            let _ = this.update(cx, |d, cx| match res {
+                Ok(view) => cx.emit(DialogEvent::Created(Box::new(view))),
+                Err(e) => {
+                    d.busy = false;
+                    d.error = Some(e);
+                    cx.notify();
+                }
+            });
+        }));
+        cx.notify();
+    }
+
+    /// One agent's row: its name, then Default and its accounts as chips
+    /// (the project's ticked), "+ New", or the new account's name field.
+    fn kind_row(&self, def: &pitwall_core::kind::AgentKind, n: usize, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let m = crate::accounts::model(cx);
+        let (list, current) = {
+            let m = m.read(cx);
+            (m.of_kind(&def.id), m.list.project_default(&self.project, &def.id).map(|a| a.id.clone()))
+        };
+        let chip = |id: Option<String>, name: String, i: usize, cx: &mut Context<Self>| {
+            let on = current == id;
+            let kind = def.id.clone();
+            div()
+                .id(("pa-chip", n * 100 + i))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(28.))
+                .px(px(10.))
+                .rounded_full()
+                .border_1()
+                .border_color(if on { t.text_2 } else { t.line_strong })
+                .when(on, |d| d.bg(t.surface_2))
+                .cursor_pointer()
+                .hover_probed(|s| s.bg(t.surface_2))
+                .on_click({
+                    let name = name.clone();
+                    cx.listener(move |d, _, _, cx| d.pick(&kind, id.as_deref(), name.clone(), cx))
+                })
+                .when(on, |d| d.child(icon("check", 12., t.text_2)))
+                .child(div().text_size(px(12.5)).when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                .into_any_element()
+        };
+        let mut chips: Vec<AnyElement> = vec![chip(None, "Default".into(), 0, cx)];
+        for (i, a) in list.iter().enumerate() {
+            chips.push(chip(Some(a.id.clone()), a.name.clone(), i + 1, cx));
+        }
+        let adding = self.adding.as_ref().filter(|(k, _)| *k == def.id).map(|(_, i)| i.clone());
+        if adding.is_none() {
+            let kind = def.id.clone();
+            chips.push(
+                div()
+                    .id(("pa-new", n))
+                    .flex()
+                    .items_center()
+                    .h(px(28.))
+                    .px(px(10.))
+                    .rounded_full()
+                    .border_1()
+                    .border_dashed()
+                    .border_color(t.line_strong)
+                    .text_size(px(12.5))
+                    .text_color(t.text_3)
+                    .cursor_pointer()
+                    .hover_text(t.text, |s| s)
+                    .on_click(cx.listener(move |d, _, window, cx| d.start_adding(&kind, window, cx)))
+                    .child("+ New account")
+                    .into_any_element(),
+            );
+        }
+        let busy = self.busy;
+        // Picked just now, with the project's agents of this kind elsewhere:
+        // move them along (conversations go with them).
+        let offer = self.picked.as_ref().filter(|(k, ..)| *k == def.id).and_then(|(_, acc, name)| {
+            let movers = self.movers(&def.id, acc);
+            (!movers.is_empty()).then(|| (movers.iter().map(|a| a.id.clone()).collect::<Vec<_>>(), acc.clone(), name.clone()))
+        });
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(field_label(&def.name, t))
+            .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
+            .when_some(offer, |d, (ids, acc, name)| {
+                let n_ = ids.len();
+                let what = if n_ == 1 { format!("1 {} agent", def.name) } else { format!("{n_} {} agents", def.name) };
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(10.))
+                        .py(px(8.))
+                        .rounded(RADIUS)
+                        .bg(t.surface_2)
+                        .child(div().flex_1().text_size(px(12.5)).text_color(t.text_2).child(format!("Move the project's {what} to {name} too? Their conversations go with them.")))
+                        .child(
+                            button(("pa-move", n), BtnKind::Primary, false, t)
+                                .on_click(cx.listener(move |_, _, _, cx| cx.emit(DialogEvent::MoveAgents(ids.clone(), acc.clone(), name.clone()))))
+                                .child("Move them"),
+                        ),
+                )
+            })
+            .when_some(adding, |d, input| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(div().flex_1().child(input))
+                        .child(
+                            button(("pa-cancel", n), BtnKind::Ghost, false, t)
+                                .on_click(cx.listener(|d, _, _, cx| {
+                                    d.adding = None;
+                                    cx.notify();
+                                }))
+                                .child("Cancel"),
+                        )
+                        .child(
+                            button(("pa-create", n), BtnKind::Primary, busy, t)
+                                .on_click(cx.listener(|d, _, _, cx| d.create(cx)))
+                                .child(if busy { "Starting…" } else { "Create and log in" }),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
+}
+
+impl Render for ProjectAccountsDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::theme(cx).clone();
+        let project = folder_name(&self.project).to_string();
+        let kinds = crate::accounts::model(cx).read(cx).kinds();
+        let rows: Vec<AnyElement> = kinds.iter().enumerate().map(|(n, k)| self.kind_row(k, n, &t, cx)).collect();
+        let close = cx.entity();
+        frame(
+            Some(&format!("Accounts · {project}")),
+            480.,
+            &t,
+            crate::theme::motion_on(cx),
+            move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
+            div()
+                .flex()
+                .flex_col()
+                .child(
+                    body()
+                        .child(hint(
+                            format!("The login new agents in {project} run on. Agents already running keep theirs; right-click one to move it."),
+                            &t,
+                        ))
+                        .children(rows)
+                        .when(kinds.is_empty(), |d| d.child(hint("None of your agents can have more than one login.", &t)))
+                        .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t))),
+                )
+                .child(
+                    foot(&t)
+                        .child(
+                            div()
+                                .id("pa-manage")
+                                .flex_1()
+                                .text_size(px(12.5))
+                                .text_color(t.text_3)
+                                .cursor_pointer()
+                                .hover_text(t.text, |s| s.underline())
+                                .on_click(cx.listener(|_, _, window, cx| {
+                                    cx.emit(DialogEvent::Close);
+                                    window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                                }))
+                                .child("Manage accounts…"),
+                        )
+                        .child(
+                            button("pa-done", BtnKind::Primary, false, &t)
+                                .on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Close)))
+                                .child("Done"),
+                        ),
+                ),
+        )
+    }
+}
+
 // ── New terminal ──────────────────────────────────────────────────────────
 
 pub struct TerminalDialog {
@@ -1781,8 +2204,8 @@ impl MainScreen {
             ),
             Some(super::Modal::Diff(d)) => {
                 let shown = {
-                    let (agent, path) = d.read(cx).shows();
-                    (agent.to_string(), path.to_string())
+                    let (agent, path, stage) = d.read(cx).shows();
+                    (agent.to_string(), path.to_string(), stage)
                 };
                 Some(
                     div()
@@ -1793,6 +2216,7 @@ impl MainScreen {
                         .into_any_element(),
                 )
             }
+            Some(super::Modal::ProjectAccounts(d)) => Some(div().absolute().inset_0().child(d.clone()).into_any_element()),
             Some(super::Modal::Remove(_)) => self.render_remove(t, cx),
             Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, cx),
         }
@@ -1805,7 +2229,7 @@ impl super::MainScreen {
     /// one: closes it).
     fn diff_row_targets(
         &self,
-        shown: (String, String),
+        shown: (String, String, Option<pitwall_core::engine::changes::Stage>),
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
@@ -1820,7 +2244,7 @@ impl super::MainScreen {
             .filter(|_| live)
             .filter(|(_, (_, a, _))| focused.as_deref() == Some(a.id.as_str()))
             .map(|(i, (b, a, f))| {
-                let same = shown == (a.id.clone(), f.path.clone());
+                let same = shown == (a.id.clone(), f.path.clone(), super::panel::stage_of(f));
                 let (agent, file) = (a.clone(), f.clone());
                 anchored()
                     .position_mode(gpui::AnchoredPositionMode::Window)
@@ -1889,9 +2313,11 @@ impl DiffDialog {
             c
         });
         let (id, path) = (agent.id.clone(), file.path.clone());
+        // A staged or not-staged row: that part's diff.
+        let stage = super::panel::stage_of(&file);
         let task = cx.background_executor().spawn(async move {
             match engine {
-                Some(e) => pitwall_core::engine::changes::file_versions(&e, &id, &path),
+                Some(e) => pitwall_core::engine::changes::file_part_versions(&e, &id, &path, stage),
                 None => Err("no engine".into()),
             }
         });
@@ -1919,9 +2345,9 @@ impl DiffDialog {
         }
     }
 
-    /// The agent and file it shows.
-    pub fn shows(&self) -> (&str, &str) {
-        (&self.agent.id, &self.file.path)
+    /// The agent and file it shows, and which part of it.
+    pub fn shows(&self) -> (&str, &str, Option<pitwall_core::engine::changes::Stage>) {
+        (&self.agent.id, &self.file.path, super::panel::stage_of(&self.file))
     }
 
     /// Show these two versions of the file (`None`: it isn't there).
@@ -1982,6 +2408,15 @@ impl Render for DiffDialog {
                     ),
             )
             .child(crate::kit::status_letter(status, &t))
+            .when_some(super::panel::stage_of(&self.file), |d, s| {
+                d.child(chip_subtle(
+                    match s {
+                        pitwall_core::engine::changes::Stage::Staged => "staged",
+                        pitwall_core::engine::changes::Stage::Unstaged => "not staged",
+                    },
+                    &t,
+                ))
+            })
             .child(if self.file.binary {
                 chip_subtle("bin", &t).into_any_element()
             } else {

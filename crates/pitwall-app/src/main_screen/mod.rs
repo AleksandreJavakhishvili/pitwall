@@ -402,6 +402,7 @@ pub enum SidebarMode {
 
 enum Modal {
     NewAgent(Entity<NewAgentDialog>),
+    ProjectAccounts(Entity<dialogs::ProjectAccountsDialog>),
     Terminal(Entity<TerminalDialog>),
     Remove(RemoveState),
     Diff(Entity<DiffDialog>),
@@ -492,6 +493,7 @@ impl MainScreen {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let wt_list = wt_list::WorktreeList::of(window, cx);
+        let accounts = crate::accounts::model(cx);
         let subs = vec![
             // The screen draws from the store: it re-renders itself (it is
             // a cached view; its window doesn't redraw it for a model).
@@ -518,6 +520,8 @@ impl MainScreen {
                 }
                 this.attention(e, cx)
             }),
+            // Accounts renamed, added or removed: the badges and menus.
+            cx.observe(&accounts, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 // Leaving the window cancels a drag and closes a popup menu
                 // (`dnd.ts` and `Menu.tsx` listen for `blur`).
@@ -1296,6 +1300,20 @@ impl MainScreen {
         cx.notify();
     }
 
+    /// The accounts a project's new agents use (its right-click menu).
+    pub(super) fn open_project_accounts(&mut self, project: String, window: &mut Window, cx: &mut Context<Self>) {
+        let engine = self.engine.clone();
+        let agents: Vec<AgentView> = self.agents(cx).iter().filter(|a| a.project == project).cloned().collect();
+        let dialog = cx.new(|cx| dialogs::ProjectAccountsDialog::new(engine, project, agents, cx));
+        self._subs.push(cx.subscribe_in(&dialog, window, |this, _, e: &dialogs::DialogEvent, window, cx| {
+            this.dialog_event(e.clone(), window, cx)
+        }));
+        self.modal = Some(Modal::ProjectAccounts(dialog));
+        self.menu = None;
+        cx.emit(ScreenEvent::ModalOpened);
+        cx.notify();
+    }
+
     fn open_remove(&mut self, id: &str, cx: &mut Context<Self>) {
         self.modal = Some(Modal::Remove(RemoveState::new(id)));
         self.menu = None;
@@ -1335,6 +1353,12 @@ impl MainScreen {
             dialogs::DialogEvent::Created(view) => {
                 self.close_modal(window, cx);
                 self.created(*view, window, cx);
+            }
+            dialogs::DialogEvent::MoveAgents(ids, account, name) => {
+                self.close_modal(window, cx);
+                for id in ids {
+                    self.switch_account(id, account.clone(), name.clone(), cx);
+                }
             }
             dialogs::DialogEvent::OpenTerminal(path) => {
                 self.close_modal(window, cx);
@@ -1462,6 +1486,34 @@ impl MainScreen {
             }
             Err(e) => {
                 let _ = this.update(cx, |s, cx| s.failed("restart", e, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Run agent `id` on another account (`None`: the user's own): its
+    /// conversation goes with it and it restarts there.
+    pub(super) fn switch_account(&mut self, id: String, account: Option<String>, name: String, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let size = self.new_agent_size(cx);
+        let size = size.0.zip(size.1);
+        let task = cx.background_executor().spawn(async move {
+            pitwall_core::engine::lifecycle::switch_account(&engine, &id, account.as_deref(), size)
+        });
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(view) => {
+                let resumed = view.status != pitwall_proto::Status::Stopped;
+                let agent = view.name.clone();
+                let _ = cx.update(|cx| crate::agents::patch(view, cx));
+                let _ = this.update(cx, |s, cx| {
+                    let detail = resumed.then(|| format!("{agent} picked up its conversation there"));
+                    s.toast(Toast::info(&format!("{agent} now runs on {name}"), detail), cx)
+                });
+            }
+            Err(e) => {
+                let _ = this.update(cx, |s, cx| s.failed("switch the account", e, cx));
             }
         })
         .detach();

@@ -16,7 +16,8 @@ use gpui::{
     Window,
 };
 
-use pitwall_core::vcs::git::FileChange;
+use pitwall_core::engine::changes::Stage;
+use pitwall_core::vcs::git::{FileChange, Part, Parts};
 use pitwall_proto::AgentView;
 
 use crate::kit::{icon, MONO_FONT};
@@ -396,42 +397,53 @@ impl MainScreen {
                 let groups = change_groups(files);
                 let grouped = groups.iter().any(|(repo, _)| repo.is_some());
                 let mut rows: Vec<gpui::AnyElement> = Vec::new();
-                // (Each child's file, headers none: for the rows' bounds.)
-                let mut slots: Vec<Option<usize>> = Vec::new();
+                // (Each child's file as its row shows it; headers none: for
+                // the rows' bounds.)
+                let mut slots: Vec<Option<FileChange>> = Vec::new();
+                let mut k = 0;
                 for (n, (repo, idx)) in groups.iter().enumerate() {
                     let key = (a.id.clone(), repo.clone().unwrap_or_default());
                     let open = !self.folded_repos.contains(&key);
                     if grouped {
-                        rows.push(self.repo_header(n, repo.as_deref(), a, idx.len(), open, t, cx));
+                        let branch = idx.first().and_then(|&i| files[i].branch.clone());
+                        rows.push(self.repo_header(n, repo.as_deref(), branch, a, idx.len(), open, t, cx));
                         slots.push(None);
                         if !open {
                             continue;
                         }
                     }
-                    for &i in idx {
-                        let f = &files[i];
-                        let shown = repo
-                            .as_ref()
-                            .and_then(|r| f.path.strip_prefix(r.as_str())?.strip_prefix('/'))
-                            .unwrap_or(&f.path);
-                        let row = self.file_row(i, a, f, shown, t, cx);
-                        // Under a section header: indented, as in VS Code.
-                        rows.push(if grouped {
-                            div().pl(px(14.)).child(row).into_any_element()
-                        } else {
-                            row.into_any_element()
-                        });
-                        slots.push(Some(i));
+                    let mine: Vec<&FileChange> = idx.iter().map(|&i| &files[i]).collect();
+                    for (stage, part) in stage_groups(&mine) {
+                        if let Some(stage) = stage {
+                            rows.push(stage_header(stage, part.len(), grouped, t));
+                            slots.push(None);
+                        }
+                        for f in part {
+                            let shown = repo
+                                .as_ref()
+                                .and_then(|r| f.path.strip_prefix(r.as_str())?.strip_prefix('/'))
+                                .unwrap_or(&f.path)
+                                .to_string();
+                            let row = self.file_row(k, a, &f, &shown, t, cx);
+                            k += 1;
+                            // Under a section header: indented, as in VS Code.
+                            rows.push(if grouped {
+                                div().pl(px(14.)).child(row).into_any_element()
+                            } else {
+                                row.into_any_element()
+                            });
+                            slots.push(Some(f));
+                        }
                     }
                 }
                 div()
                     .on_children_prepainted({
-                        let (rows, agent, files) = (self.file_rows.clone(), a.clone(), files.clone());
+                        let (rows, agent) = (self.file_rows.clone(), a.clone());
                         move |bounds, _, _| {
                             *rows.borrow_mut() = bounds
                                 .into_iter()
                                 .zip(&slots)
-                                .filter_map(|(b, s)| s.map(|i| (b, agent.clone(), files[i].clone())))
+                                .filter_map(|(b, s)| s.clone().map(|f| (b, agent.clone(), f)))
                                 .collect();
                         }
                     })
@@ -560,13 +572,14 @@ impl MainScreen {
     }
 
     /// A repository's section header in the Changes list (VS Code's
-    /// Source Control): chevron, name (the agent's own: its folder's name
-    /// and branch), the count of its changed files; a click folds it.
+    /// Source Control): chevron, name (the agent's own: its folder's name),
+    /// branch, the count of its changed files; a click folds it.
     #[allow(clippy::too_many_arguments)]
     fn repo_header(
         &self,
         n: usize,
         repo: Option<&str>,
+        branch: Option<String>,
         a: &AgentView,
         count: usize,
         open: bool,
@@ -583,7 +596,11 @@ impl MainScreen {
                 .unwrap_or_default()
                 .to_string(),
         };
-        let branch = if repo.is_none() { a.branch.clone() } else { None };
+        // The agent's own: its branch; a nested one's as read with its files.
+        let branch = match repo {
+            None => a.branch.clone(),
+            Some(_) => branch.map(|b| if b == "HEAD" { "detached HEAD".into() } else { b }),
+        };
         let key = (a.id.clone(), repo.unwrap_or_default().to_string());
         div()
             .id(("repo-section", n))
@@ -718,6 +735,77 @@ impl MainScreen {
     }
 }
 
+/// VS Code's "Staged Changes" and "Changes" of one repository's files:
+/// each part as its own row (its counts and letter; `parts` saying which,
+/// for its diff). Nothing staged: the files as they are, no headers.
+fn stage_groups(files: &[&FileChange]) -> Vec<(Option<Stage>, Vec<FileChange>)> {
+    let staged = files.iter().any(|f| f.parts.as_ref().is_some_and(|p| p.staged.is_some()));
+    if !staged {
+        let whole = files.iter().map(|f| FileChange { parts: None, ..(*f).clone() }).collect();
+        return vec![(None, whole)];
+    }
+    let part = |f: &FileChange, stage: Stage| {
+        let parts = f.parts.as_ref();
+        let p = match stage {
+            Stage::Staged => parts.and_then(|p| p.staged.clone()),
+            // (No parts read: all of it counts as not staged.)
+            Stage::Unstaged => match parts {
+                Some(p) => p.unstaged.clone(),
+                None => Some(Part { added: f.added, removed: f.removed, status: f.status }),
+            },
+        }?;
+        let one = match stage {
+            Stage::Staged => Parts { staged: Some(p.clone()), unstaged: None },
+            Stage::Unstaged => Parts { staged: None, unstaged: Some(p.clone()) },
+        };
+        Some(FileChange {
+            added: p.added,
+            removed: p.removed,
+            status: p.status.or(f.status),
+            untracked: f.untracked && stage == Stage::Unstaged,
+            parts: Some(one),
+            ..f.clone()
+        })
+    };
+    [Stage::Staged, Stage::Unstaged]
+        .into_iter()
+        .map(|stage| (Some(stage), files.iter().filter_map(|f| part(f, stage)).collect::<Vec<_>>()))
+        .filter(|(_, rows)| !rows.is_empty())
+        .collect()
+}
+
+/// Which part of a file a row (and its diff) is: staged, not, or both.
+pub(crate) fn stage_of(f: &FileChange) -> Option<Stage> {
+    match f.parts.as_ref()? {
+        Parts { staged: Some(_), unstaged: None } => Some(Stage::Staged),
+        Parts { staged: None, unstaged: Some(_) } => Some(Stage::Unstaged),
+        _ => None,
+    }
+}
+
+/// "STAGED CHANGES 2" / "CHANGES 5" over a repository's two parts.
+fn stage_header(stage: Stage, count: usize, indent: bool, t: &Theme) -> gpui::AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .when(indent, |d| d.pl(px(22.)))
+        .when(!indent, |d| d.pl(px(8.)))
+        .pr(px(8.))
+        .pt(px(6.))
+        .pb(px(2.))
+        .text_size(px(10.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.text_3)
+        .child(match stage {
+            Stage::Staged => "STAGED CHANGES",
+            Stage::Unstaged => "CHANGES",
+        })
+        .child(div().flex_1())
+        .child(div().font_family(MONO_FONT).child(count.to_string()))
+        .into_any_element()
+}
+
 /// The changed files by repository: the agent's own first, then those
 /// inside its folder by name; indexes into `files`.
 fn change_groups(files: &[FileChange]) -> Vec<(Option<String>, Vec<usize>)> {
@@ -769,6 +857,43 @@ pub fn file_stats(f: &FileChange, t: &Theme) -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file staged and edited again is a row in each part, with that
+    /// part's counts; nothing staged anywhere: plain rows, no headers.
+    #[test]
+    fn staged_and_not_staged_rows() {
+        let part = |a: u32, r: u32| Some(Part { added: a, removed: r, status: None });
+        let f = |path: &str, staged, unstaged| FileChange {
+            path: path.into(),
+            added: 9,
+            parts: Some(Parts { staged, unstaged }),
+            ..FileChange::default()
+        };
+        let both = f("a.rs", part(1, 0), part(2, 1));
+        let only = f("b.rs", None, part(3, 0));
+        let groups = stage_groups(&[&both, &only]);
+        type Row<'a> = (&'a str, u32, u32, Option<Stage>);
+        let got: Vec<(Option<Stage>, Vec<Row>)> = groups
+            .iter()
+            .map(|(s, rows)| {
+                (*s, rows.iter().map(|r| (r.path.as_str(), r.added, r.removed, stage_of(r))).collect())
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (Some(Stage::Staged), vec![("a.rs", 1, 0, Some(Stage::Staged))]),
+                (
+                    Some(Stage::Unstaged),
+                    vec![("a.rs", 2, 1, Some(Stage::Unstaged)), ("b.rs", 3, 0, Some(Stage::Unstaged))]
+                ),
+            ]
+        );
+        let plain = stage_groups(&[&only]);
+        assert_eq!(plain.len(), 1);
+        assert_eq!(plain[0].0, None, "no headers");
+        assert_eq!((plain[0].1[0].added, stage_of(&plain[0].1[0])), (9, None), "the whole file");
+    }
 
     #[test]
     fn changes_group_by_repository_the_agents_own_first() {

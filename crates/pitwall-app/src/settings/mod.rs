@@ -15,6 +15,7 @@
 //!   appearance changes.
 
 pub mod about;
+mod accounts;
 pub mod backend;
 pub mod cli_install;
 pub mod data;
@@ -234,6 +235,11 @@ impl Layer {
                 SettingsEvent::ScanAgain => {
                     this.settings = None;
                     this.open_onboarding(OnbMode::Rescan, cx);
+                }
+                // Logging in to an account: its agent, in the window.
+                SettingsEvent::Started(view) => {
+                    this.close(cx);
+                    cx.emit(LayerEvent::HandOver { agents: vec![(**view).clone()], failures: vec![] });
                 }
             });
             self._subs.push(sub);

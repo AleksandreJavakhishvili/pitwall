@@ -89,6 +89,8 @@ pub fn then_shell(
         worktree_dirs: vec![],
         process_names: vec![],
         aliases: vec![],
+        account_env: None,
+        account_home: None,
     };
     (kind, inner)
 }

@@ -10,6 +10,7 @@
 //! `engine::{input, lifecycle, changes}`, `review`, `worktrees`, `explorer`,
 //! `rules`, `onboarding`.
 
+pub mod accounts;
 pub mod clock;
 pub mod engine;
 pub mod engineer;

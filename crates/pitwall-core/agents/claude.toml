@@ -17,3 +17,6 @@ worktree_args = ["--worktree", "{name}"]
 worktree_dirs = [".claude/worktrees"]
 # What other platforms call it (agw's harness integration), for adopting their sessions.
 aliases = ["claude-code"]
+# Accounts: each login lives in its own folder (Settings → Agents → Accounts).
+account_env = "CLAUDE_CONFIG_DIR"
+account_home = "~/.claude"

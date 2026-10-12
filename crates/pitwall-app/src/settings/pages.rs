@@ -77,7 +77,8 @@ impl SettingsView {
             Page::Agents => {
                 let codex = self.codex(ui, cx);
                 let engineer = self.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx);
-                vec![Self::claude(ui), codex, engineer]
+                let accounts = self.accounts_section(ui, cx);
+                vec![accounts, Self::claude(ui), codex, engineer]
             }
             Page::Rules => {
                 let extra: Vec<AnyElement> = cx

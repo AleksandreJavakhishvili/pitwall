@@ -20,9 +20,29 @@ pub(crate) const GIT_ENV: [(&str, &str); 6] = [
 
 /// One repository's changes, or why git couldn't tell.
 type Changes = Result<Vec<FileChange>, String>;
-/// One repository's folder, the folder its paths start with in the list
-/// (`None`: the agent's own), and its `git diff` and `ls-files` outputs.
-type RepoOutput = (String, Option<String>, Result<String, String>, Result<String, String>);
+/// One repository's git output.
+struct RepoOutput {
+    /// Its folder on the machine.
+    dir: String,
+    /// The folder its paths start with in the list (`None`: the agent's own).
+    repo: Option<String>,
+    /// Its branch, for a nested one ("HEAD": detached).
+    branch: Option<String>,
+    /// `git diff HEAD`.
+    diff: Result<String, String>,
+    /// `git ls-files --others`.
+    others: Result<String, String>,
+    /// `git diff --cached` and `git diff`, when asked for.
+    stages: Option<(String, String)>,
+}
+
+/// Each file's counts in one of `git diff`'s outputs.
+fn part_map(out: &str) -> std::collections::HashMap<String, Part> {
+    parse_raw_numstat(out)
+        .into_iter()
+        .map(|f| (f.path, Part { added: f.added, removed: f.removed, status: f.status }))
+        .collect()
+}
 
 /// Untracked files larger than this count as binary in [`Git::changes`].
 const MAX_COUNTED_BYTES: u64 = 1_000_000;
@@ -125,7 +145,7 @@ impl<'a> Git<'a> {
     }
 
     fn changes_with(&self, base: Option<&str>, branch: bool) -> (Result<Vec<FileChange>, String>, Option<String>) {
-        let (mut res, branch, _) = self.changes_in(base, &[], branch);
+        let (mut res, branch, _) = self.changes_in(base, &[], branch, false);
         (res.remove(0), branch)
     }
 
@@ -138,7 +158,7 @@ impl<'a> Git<'a> {
     /// them either: [`NOT_A_REPO`]. A nested one git can't read is left out.
     /// The branch only when asked (`branch`).
     pub fn changes_nested(&self, nested: &[String], branch: bool) -> (Result<Vec<FileChange>, String>, Option<String>, String) {
-        let (mut res, branch, prefix) = self.changes_in(None, nested, branch);
+        let (mut res, branch, prefix) = self.changes_in(None, nested, branch, true);
         // The outer repository sees a clone inside as one untracked folder.
         let inside = |f: &FileChange| {
             nested.iter().any(|n| {
@@ -160,30 +180,42 @@ impl<'a> Git<'a> {
 
     /// Changes here (first) and in each of `nested`; the branch (`branch`)
     /// and where this folder is in its repository (`sub/`, "" at its top
-    /// or outside one).
+    /// or outside one). `stages`: also what's staged and what isn't
+    /// ([`FileChange::parts`]).
     fn changes_in(
         &self,
         base: Option<&str>,
         nested: &[String],
         branch: bool,
+        stages: bool,
     ) -> (Vec<Changes>, Option<String>, String) {
         let base = base.unwrap_or("HEAD");
         let dirs: Vec<String> =
             std::iter::once(self.dir.clone()).chain(nested.iter().map(|n| exec::join(&self.dir, n))).collect();
         // Status letters (`--raw`) and line counts (`--numstat`) in one
         // diff, NUL-separated so odd paths survive; renames detected (`-M`).
-        let argvs: Vec<[Vec<&str>; 2]> = dirs
+        let argvs: Vec<Vec<Vec<&str>>> = dirs
             .iter()
             .map(|d| {
-                [
+                let mut a = vec![
                     git_argv(d, &["diff", "--raw", "--numstat", "-z", "-M", base]),
                     git_argv(d, &["ls-files", "-z", "--others", "--exclude-standard"]),
-                ]
+                ];
+                if stages {
+                    // Staged (index against HEAD) and not (the files against the index).
+                    a.push(git_argv(d, &["diff", "--cached", "--raw", "--numstat", "-z", "-M", "HEAD"]));
+                    a.push(git_argv(d, &["diff", "--raw", "--numstat", "-z", "-M"]));
+                }
+                a
             })
             .collect();
         let head = git_argv(&self.dir, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
         let show_prefix = git_argv(&self.dir, &["rev-parse", "--show-prefix"]);
+        // The nested repositories' branches ("HEAD": detached).
+        let heads: Vec<Vec<&str>> =
+            dirs.iter().skip(1).map(|d| git_argv(d, &["rev-parse", "--abbrev-ref", "HEAD"])).collect();
         let mut cmds: Vec<Cmd> = argvs.iter().flatten().map(|a| Cmd::new(a).env(&GIT_ENV)).collect();
+        cmds.extend(heads.iter().map(|a| Cmd::new(a).env(&GIT_ENV)));
         if !nested.is_empty() {
             cmds.push(Cmd::new(&show_prefix).env(&GIT_ENV));
         }
@@ -199,8 +231,14 @@ impl<'a> Git<'a> {
         for d in &dirs {
             let diff = outs.next().unwrap_or(Err(String::new()));
             let others = outs.next().unwrap_or(Err(String::new()));
-            parts.push((d.clone(), diff, others));
+            let staged = if stages { outs.next().and_then(Result::ok) } else { None };
+            let unstaged = if stages { outs.next().and_then(Result::ok) } else { None };
+            parts.push((d.clone(), diff, others, staged.zip(unstaged)));
         }
+        let branches: Vec<Option<String>> = heads
+            .iter()
+            .map(|_| outs.next().and_then(Result::ok).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+            .collect();
         let prefix = if nested.is_empty() {
             String::new()
         } else {
@@ -210,9 +248,10 @@ impl<'a> Git<'a> {
         let named: Vec<RepoOutput> = parts
             .into_iter()
             .enumerate()
-            .map(|(i, (d, diff, others))| {
+            .map(|(i, (dir, diff, others, stages))| {
                 let repo = (i > 0).then(|| format!("{prefix}{}", nested[i - 1]));
-                (d, repo, diff, others)
+                let branch = if i > 0 { branches[i - 1].clone() } else { None };
+                RepoOutput { dir, repo, branch, diff, others, stages }
             })
             .collect();
         (self.collect_changes(named), branch, prefix)
@@ -227,8 +266,11 @@ impl<'a> Git<'a> {
     ) -> Vec<Changes> {
         let mut out: Vec<Changes> = Vec::new();
         // (Which result, its repository, its shown path, the file on the machine.)
-        let mut untracked: Vec<(usize, Option<String>, String, String)> = Vec::new();
-        for (dir, repo, diff, others) in parts {
+        // (Which result, its repository and branch, its shown path, the file
+        // on the machine, whether parts were read.)
+        #[allow(clippy::type_complexity)]
+        let mut untracked: Vec<(usize, (Option<String>, Option<String>), String, String, bool)> = Vec::new();
+        for RepoOutput { dir, repo, branch, diff, others, stages } in parts {
             let named = |p: &str| match &repo {
                 Some(r) => format!("{r}/{p}"),
                 None => p.to_string(),
@@ -243,21 +285,27 @@ impl<'a> Git<'a> {
             let res = diff.and_then(|diff| {
                 let others = others?;
                 let mut files = parse_raw_numstat(&diff);
+                let split = stages.as_ref().map(|(s, u)| (part_map(s), part_map(u)));
                 for f in &mut files {
+                    if let Some((s, u)) = &split {
+                        f.parts = Some(Parts { staged: s.get(&f.path).cloned(), unstaged: u.get(&f.path).cloned() });
+                    }
                     f.path = named(&f.path);
                     f.repo = repo.clone();
+                    f.branch = branch.clone();
                 }
+                let split = split.is_some();
                 // NUL-separated (`-z`): names with quotes, tabs or newlines survive.
                 for p in others.split('\0').filter(|l| !l.is_empty()) {
-                    untracked.push((out.len(), repo.clone(), named(p), exec::join(&dir, p)));
+                    untracked.push((out.len(), (repo.clone(), branch.clone()), named(p), exec::join(&dir, p), split));
                 }
                 Ok(files)
             });
             out.push(res);
         }
-        let full: Vec<&str> = untracked.iter().map(|(.., f)| f.as_str()).collect();
+        let full: Vec<&str> = untracked.iter().map(|(_, _, _, f, _)| f.as_str()).collect();
         let contents = if full.is_empty() { Vec::new() } else { self.exec.read_files(&full, MAX_COUNTED_BYTES + 1) };
-        for ((i, repo, path, _), read) in untracked.into_iter().zip(contents) {
+        for ((i, (repo, branch), path, _, split), read) in untracked.into_iter().zip(contents) {
             let (added, binary) = match read {
                 Ok(Some(bytes)) if bytes.len() as u64 <= MAX_COUNTED_BYTES && !bytes.contains(&0) => {
                     let lines = bytes.iter().filter(|&&b| b == b'\n').count();
@@ -267,7 +315,22 @@ impl<'a> Git<'a> {
                 _ => (0, true),
             };
             if let Ok(files) = &mut out[i] {
-                files.push(FileChange { path, added, removed: 0, untracked: true, binary, status: Some(FileStatus::U), repo });
+                // Untracked: all of it not staged.
+                let parts = split.then_some(Parts {
+                    staged: None,
+                    unstaged: Some(Part { added, removed: 0, status: Some(FileStatus::U) }),
+                });
+                files.push(FileChange {
+                    path,
+                    added,
+                    removed: 0,
+                    untracked: true,
+                    binary,
+                    status: Some(FileStatus::U),
+                    repo,
+                    branch,
+                    parts,
+                });
             }
         }
         for files in out.iter_mut().flatten() {
@@ -371,6 +434,30 @@ pub struct FileChange {
     /// own repository).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
+    /// That repository's branch ("HEAD": detached); the agent's own is on
+    /// the agent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// What of it is staged and what isn't, where that was read (the
+    /// Changes list; `added`/`removed` are both together, against HEAD).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Parts>,
+}
+
+/// A changed file's staged and not-staged parts (VS Code's "Staged
+/// Changes" and "Changes").
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct Parts {
+    pub staged: Option<Part>,
+    pub unstaged: Option<Part>,
+}
+
+/// One part's counts and git's letter for it.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct Part {
+    pub added: u32,
+    pub removed: u32,
+    pub status: Option<FileStatus>,
 }
 
 /// Modified, Added, Deleted, Renamed, Untracked (shared with the explorer).
@@ -412,6 +499,8 @@ pub fn parse_raw_numstat(out: &str) -> Vec<FileChange> {
             binary: a == "-",
             status: Some(status.get(path).copied().unwrap_or(FileStatus::M)),
             repo: None,
+            branch: None,
+            parts: None,
         });
     }
     files

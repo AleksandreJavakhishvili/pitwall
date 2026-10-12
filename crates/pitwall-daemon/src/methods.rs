@@ -180,6 +180,15 @@ fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
     if req.kind.trim().is_empty() || req.project.trim().is_empty() {
         return Err(ErrorBody::new(code::BAD_PARAMS, "kind and project are required"));
     }
+    // An account by name or id (`--account work`).
+    let account = match req.account.as_deref() {
+        None => None,
+        Some(key) => Some(
+            pitwall_core::accounts::Accounts::load(s.engine.paths())
+                .find(&req.kind, key)
+                .ok_or_else(|| ErrorBody::new(code::BAD_PARAMS, format!("no {} account called {key}", req.kind)))?,
+        ),
+    };
     let view = lifecycle::create(
         &s.engine,
         CreateAgentRequest {
@@ -191,6 +200,7 @@ fn agent_create(s: &Server, caller: &Caller, req: AgentCreate) -> Res {
             cols: req.cols,
             rows: req.rows,
             resume_session_id: req.resume,
+            account,
             ..Default::default()
         },
     )

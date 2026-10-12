@@ -72,6 +72,8 @@ pub fn shell_kind() -> AgentKind {
         worktree_dirs: vec![],
         process_names: vec![],
         aliases: vec![],
+        account_env: None,
+        account_home: None,
     }
 }
 

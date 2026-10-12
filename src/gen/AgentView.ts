@@ -40,7 +40,11 @@ restartAs: string | null,
  * Pitwall's Race Engineer (docs/spec/engineer.md): an ordinary agent
  * launched with Pitwall's own know-how; marked "ENGINEER".
  */
-engineer: boolean, status: Status, statusSource: Source, statusDetail: string | null, running: boolean, 
+engineer: boolean, 
+/**
+ * The account (login) it runs with, by id; `None`: the user's own.
+ */
+account?: string | null, status: Status, statusSource: Source, statusDetail: string | null, running: boolean, 
 /**
  * Current PTY size.
  */

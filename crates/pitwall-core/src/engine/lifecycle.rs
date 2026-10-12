@@ -47,6 +47,26 @@ fn engineer_launch(engine: &Engine, engineer: bool, kind: AgentKind) -> Result<E
     Ok((l.kind, l.env, Some(l.cwd.to_string_lossy().into_owned())))
 }
 
+/// The environment of an agent of `kind` on `account` (`crate::accounts`),
+/// local agents only: its config folder; for Codex, Pitwall's hooks are
+/// put in that folder first (Claude Code takes them per launch).
+fn account_env(engine: &Engine, provider: &dyn Provider, kind: &str, account: Option<&str>) -> Result<Vec<(String, String)>, String> {
+    let Some(id) = account.filter(|a| *a != crate::accounts::DEFAULT) else { return Ok(vec![]) };
+    // A login folder on this Mac: only for agents whose process runs here.
+    if !provider.caps().local_process {
+        return Ok(vec![]);
+    }
+    let def = engine.kinds().find(kind).filter(|k| k.account_env.is_some()).ok_or_else(|| format!("{kind} has one login only"))?;
+    let accounts = crate::accounts::Accounts::load(engine.paths());
+    let acc = accounts.get(id).filter(|a| a.kind == kind).ok_or_else(|| format!("The account it used ({id}) is gone"))?;
+    // Hooks that live in the login folder go into this one too.
+    if def.hooks == kind::HookMode::CodexGlobal && hook_wiring(engine, provider).is_some() {
+        let file = std::path::Path::new(&acc.dir).join("hooks.json");
+        let _ = hooks::install_codex_hooks_at(&file, &hooks::hook_command(engine.paths()));
+    }
+    Ok(crate::accounts::env(&def, Some(acc)))
+}
+
 /// Before a launch with the kind's worktree flag: the name to pass, and what
 /// to compare against to spot the worktree the agent makes.
 fn watch_for(exec: &dyn Exec, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
@@ -135,6 +155,23 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         }
     };
     let cwd = project_path;
+    // The login: the one asked for, else the project's (local only).
+    let account = if provider.caps().local_process {
+        let accounts = crate::accounts::Accounts::load(core.paths());
+        match req.account.as_deref() {
+            Some(crate::accounts::DEFAULT) => None,
+            Some(id) => Some(accounts.get(id).filter(|a| a.kind == kind.id).ok_or("That account is gone")?.id.clone()),
+            // The folder's, else its project's (a repository's top).
+            None => accounts
+                .resolve(&kind.id, &cwd, None)
+                .or_else(|| accounts.resolve(&kind.id, &project, None))
+                .map(|a| a.id.clone()),
+        }
+    } else {
+        None
+    };
+    let mut env = env;
+    env.extend(account_env(core, &*provider, &kind.id, account.as_deref())?);
 
     let mut rec = AgentRecord {
         id: uuid::Uuid::new_v4().to_string(),
@@ -161,6 +198,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         adopted: false,
         inner_agent: None,
         engineer: req.engineer,
+        account,
     };
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
@@ -315,6 +353,7 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
         adopted: true,
         inner_agent: None,
         engineer: false,
+        account: None,
     }
 }
 
@@ -427,7 +466,16 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let rec = core.with(id, |a| a.rec.clone())?;
     let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
-    let (kind, env, _) = engineer_launch(core, rec.engineer, kind)?;
+    let (kind, mut env, _) = engineer_launch(core, rec.engineer, kind)?;
+    env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
+    // On an account, its conversation from wherever it is newest.
+    if let (Some(sid), true, true) = (&rec.session_id, rec.has_conversation, provider.caps().local_process) {
+        if let Some(def) = core.kinds().find(&rec.kind).filter(|k| k.account_env.is_some()) {
+            let list = crate::accounts::Accounts::load(core.paths());
+            let acc = rec.account.as_deref().and_then(|a| list.get(a));
+            crate::accounts::freshen_conversation(&def, &list, acc, &rec.cwd, sid);
+        }
+    }
     let caps = provider.caps();
     let exec = if caps.exec { Some(provider.exec_at(&loc)?) } else { None };
     if exec.as_deref().is_some_and(|x| !exec::is_dir(x, &rec.cwd)) {
@@ -498,6 +546,38 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     }
     core.changed(true);
     view
+}
+
+/// Run agent `id` under another login (`crate::accounts`; `None` or
+/// `"default"`: the user's own): its conversation is copied into that
+/// account's folder, then it restarts there and picks it up. Blocking.
+pub fn switch_account(core: &Shared, id: &str, account: Option<&str>, size: Option<(u16, u16)>) -> Result<AgentView, String> {
+    crate::exec::assert_off_ui("lifecycle::switch_account");
+    use crate::accounts::{self, Accounts, DEFAULT};
+    let account = account.filter(|a| *a != DEFAULT).map(String::from);
+    let rec = core.with(id, |a| a.rec.clone())?;
+    if !core.providers().for_locator(&rec.locator())?.caps().local_process {
+        return Err("Accounts are for agents on this Mac".into());
+    }
+    let def = core.kinds().find(&rec.kind).filter(|k| k.account_env.is_some()).ok_or_else(|| format!("{} has one login only", rec.kind_name))?;
+    let list = Accounts::load(core.paths());
+    let to = match &account {
+        Some(a) => Some(list.get(a).filter(|x| x.kind == rec.kind).ok_or("That account is gone")?),
+        None => None,
+    };
+    // Not into a login it can't start in: it would quit at once.
+    if let Some(a) = to.filter(|a| accounts::logged_in(&def, Some(a)) == Some(false)) {
+        return Err(format!("{} isn't logged in yet: Settings → Agents → Accounts → Log in, then move it.", a.name));
+    }
+    let from = rec.account.as_deref().and_then(|a| list.get(a));
+    if let (Some(sid), true) = (&rec.session_id, rec.has_conversation) {
+        if let (Some(a), Some(b)) = (accounts::dir_of(&def, from), accounts::dir_of(&def, to)) {
+            accounts::carry_conversation(&rec.kind, &a, &b, &rec.cwd, sid)?;
+        }
+    }
+    core.with(id, |a| a.rec.account = account.clone())?;
+    let _ = core.save();
+    restart(core, id, size)
 }
 
 pub fn remove(core: &Shared, id: &str, delete_worktree: bool) -> Result<(), String> {
@@ -624,6 +704,64 @@ mod tests {
             cols: None,
             ..Default::default()
         }
+    }
+
+    /// Accounts: a project's account for its new agents, one asked for,
+    /// the user's own; a switch carries the conversation over and restarts
+    /// the agent with the other folder.
+    #[test]
+    fn agents_run_with_their_account_and_can_switch() {
+        use crate::accounts::Accounts;
+        let h = Harness::new(vec![]);
+        // Agents whose process runs on this Mac (logins live here).
+        h.provider.set_caps(ProviderCaps { local_process: true, ..crate::testing::FakeProvider::local_like() });
+        let dir = TempDir::new("acct-proj");
+        let project = dir.path().to_string_lossy().into_owned();
+        let mut acc = Accounts::default();
+        let claude = h.engine.kinds().find("claude").unwrap();
+        let work = acc.add(h.engine.paths(), &claude, "Work", None).unwrap();
+        let home = acc.add(h.engine.paths(), &claude, "Home", None).unwrap();
+        acc.set_project_default(&project, "claude", Some(&work.id));
+        acc.save(h.engine.paths()).unwrap();
+        let env_of = |n: usize| {
+            h.provider.launched()[n].env.iter().rev().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| v.clone())
+        };
+
+        let a = create(&h.engine, req("claude", &project, false)).unwrap();
+        assert_eq!(a.account.as_deref(), Some("claude-work"), "the project's");
+        assert_eq!(env_of(0).as_deref(), Some(work.dir.as_str()));
+        let b = create(&h.engine, CreateAgentRequest { account: Some("default".into()), ..req("claude", &project, false) }).unwrap();
+        assert_eq!((b.account, env_of(1)), (None, None), "the user's own");
+        let c = create(&h.engine, CreateAgentRequest { account: Some(home.id.clone()), ..req("claude", &project, false) }).unwrap();
+        assert_eq!(env_of(2).as_deref(), Some(home.dir.as_str()));
+        assert!(create(&h.engine, CreateAgentRequest { account: Some("gone".into()), ..req("claude", &project, false) }).is_err());
+        let shell = create(&h.engine, req("shell", &project, false)).unwrap();
+        assert_eq!(shell.account, None, "no logins for a shell");
+
+        // A conversation on Work, carried to Home.
+        let sid = "s-1";
+        h.engine.with(&a.id, |x| {
+            x.rec.session_id = Some(sid.into());
+            x.rec.has_conversation = true;
+        }).unwrap();
+        let rel = std::path::Path::new("projects")
+            .join(crate::onboarding::latest::claude_project_dir(&project_list::normalize(&a.cwd)))
+            .join(format!("{sid}.jsonl"));
+        std::fs::create_dir_all(std::path::Path::new(&work.dir).join(&rel).parent().unwrap()).unwrap();
+        std::fs::write(std::path::Path::new(&work.dir).join(&rel), "{}\n").unwrap();
+        // Not before it's logged in (the agent would quit at once).
+        let e = switch_account(&h.engine, &a.id, Some(&home.id), None).unwrap_err();
+        assert!(e.contains("isn't logged in"), "{e}");
+        std::fs::write(std::path::Path::new(&home.dir).join(".claude.json"), r#"{"oauthAccount":{"emailAddress":"h@example.com"}}"#).unwrap();
+        let v = switch_account(&h.engine, &a.id, Some(&home.id), None).unwrap();
+        assert_eq!(v.account.as_deref(), Some(home.id.as_str()));
+        assert!(std::path::Path::new(&home.dir).join(&rel).exists(), "carried over");
+        let last = h.provider.launched().len() - 1;
+        assert_eq!(env_of(last).as_deref(), Some(home.dir.as_str()), "restarted on Home");
+        let _ = c;
+        // Back to the user's own.
+        let v = switch_account(&h.engine, &a.id, Some("default"), None).unwrap();
+        assert_eq!(v.account, None);
     }
 
     fn wait_until(f: impl Fn() -> bool) -> bool {
