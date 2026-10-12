@@ -774,6 +774,7 @@ pub fn demo_list(agents: &[AgentView]) -> (Vec<ProjectWorktrees>, Vec<(String, V
         untracked,
         binary: false,
         status: None,
+        repo: None,
     };
     #[allow(clippy::type_complexity)]
     let wts: Vec<(

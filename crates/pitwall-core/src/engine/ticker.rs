@@ -384,11 +384,14 @@ pub(super) fn refresh_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>,
 
 fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
     let exec = core.exec_for(&job.id);
+    let nested = super::changes::nested_repos(core, &job.id, &job.cwd, &*exec);
     // Watching starts before git looks, so nothing in between is missed.
-    let tree = gitwatch::ensure(core, &job.id, &*exec, &job.cwd);
+    // (Not with repositories inside: the watch follows the folder's own
+    // repository, and may skip theirs as ignored. Polled instead.)
+    let tree = if nested.is_empty() { gitwatch::ensure(core, &job.id, &*exec, &job.cwd) } else { None };
     let seen = tree.as_ref().map(|t| t.gen());
     let git = Git::new(&*exec, &job.cwd);
-    let (changes, branch) = git.changes_and_branch(None);
+    let (changes, branch, prefix) = git.changes_nested(&nested, true);
     let now = core.now();
     let (differs, woke) = core
         .with(&job.id, |a| {
@@ -396,7 +399,10 @@ fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
             let woke = matches!(&a.fs, FsWatch::On { seen: old, .. } if Some(*old) != seen);
             if let (Some(tree), Some(seen)) = (tree.clone(), seen) {
                 a.fs = FsWatch::On { cwd: job.cwd.clone(), tree, seen };
+            } else if !nested.is_empty() {
+                a.fs = FsWatch::None;
             }
+            a.nested = super::changes::nested_named(&job.cwd, &nested, &prefix);
             a.git_inflight = false;
             a.git_at = now;
             a.git_seq = job.seq;

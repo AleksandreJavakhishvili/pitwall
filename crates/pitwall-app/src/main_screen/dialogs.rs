@@ -1452,16 +1452,75 @@ impl MainScreen {
                     .child(d.clone())
                     .into_any_element(),
             ),
-            Some(super::Modal::Diff(d)) => Some(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .child(d.clone())
-                    .into_any_element(),
-            ),
+            Some(super::Modal::Diff(d)) => {
+                let shown = {
+                    let (agent, path) = d.read(cx).shows();
+                    (agent.to_string(), path.to_string())
+                };
+                Some(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .child(d.clone())
+                        .children(self.diff_row_targets(shown, t, cx))
+                        .into_any_element(),
+                )
+            }
             Some(super::Modal::Remove(_)) => self.render_remove(t, cx),
             Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, cx),
         }
+    }
+}
+
+impl super::MainScreen {
+    /// The Changes list's rows, live over an open diff's backdrop: hover and
+    /// a pointer as on the list, and one click shows that file (the open
+    /// one: closes it).
+    fn diff_row_targets(
+        &self,
+        shown: (String, String),
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        // (Rows last drawn in a panel that has since closed: none.)
+        let live = self.route == super::Route::Space && (self.right_pinned || self.drawer_open);
+        let focused = self.focused_agent_id();
+        let hover = t.text.opacity(0.08);
+        self.file_rows
+            .borrow()
+            .iter()
+            .enumerate()
+            .filter(|_| live)
+            .filter(|(_, (_, a, _))| focused.as_deref() == Some(a.id.as_str()))
+            .map(|(i, (b, a, f))| {
+                let same = shown == (a.id.clone(), f.path.clone());
+                let (agent, file) = (a.clone(), f.clone());
+                anchored()
+                    .position_mode(gpui::AnchoredPositionMode::Window)
+                    .position(b.origin)
+                    .child(
+                        div()
+                            .id(("diff-row-target", i))
+                            .debug_selector(move || format!("diff-row-target-{i}"))
+                            .occlude()
+                            .w(b.size.width)
+                            .h(b.size.height)
+                            .rounded(crate::theme::RADIUS_SM)
+                            .cursor_pointer()
+                            .hover(move |s| s.bg(hover))
+                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation()
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.close_modal(window, cx);
+                                if !same {
+                                    this.open_diff(agent.clone(), file.clone(), window, cx);
+                                }
+                            })),
+                    )
+                    .into_any_element()
+            })
+            .collect()
     }
 }
 
@@ -1531,6 +1590,11 @@ impl DiffDialog {
             state: DiffState::Loading,
             _load: load,
         }
+    }
+
+    /// The agent and file it shows.
+    pub fn shows(&self) -> (&str, &str) {
+        (&self.agent.id, &self.file.path)
     }
 
     /// Show these two versions of the file (`None`: it isn't there).

@@ -65,6 +65,12 @@ pub struct Agent {
     pub git_every: u64,
     /// Its checkout's file watch, where the provider can (gitwatch.rs).
     pub fs: super::gitwatch::FsWatch,
+    /// Repositories inside its folder (`vcs::nested`): (the folder their
+    /// files' paths start with in the Changes list, their folder on the
+    /// machine). Looked for at most every `nested::RESCAN_MS`.
+    pub nested: Vec<(String, String)>,
+    /// mono ms when they were last looked for (`None`: not yet).
+    pub nested_at: Option<u64>,
     pub last_auto_send: u64,
     /// Looking for the worktree the agent makes itself (worktree.rs).
     pub watch: Option<super::worktree::Watch>,
@@ -114,6 +120,8 @@ impl Agent {
             git_wanted: true,
             git_every: 0,
             fs: Default::default(),
+            nested: Vec::new(),
+            nested_at: None,
             last_auto_send: 0,
             watch: None,
             inner: None,
@@ -144,6 +152,7 @@ impl Agent {
         self.git_wanted = true;
         self.git_every = 0;
         self.git_repo = None;
+        self.nested_at = None;
         self.relinking = false;
         self.connect = None;
         self.inner = None;

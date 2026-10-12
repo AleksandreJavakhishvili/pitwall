@@ -9,9 +9,15 @@ type Res<T> = Result<T, String>;
 
 /// Uncommitted changes against HEAD, like `git status`; also refreshes the
 /// agent's +/- counts. Blocking (git).
+///
+/// With the repositories inside its folder (`vcs::nested`).
 pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
     let cwd = engine.with(agent_id, |a| a.rec.cwd.clone())?;
-    let files = match Git::new(&*engine.exec_for(agent_id), &cwd).changes(None) {
+    let exec = engine.exec_for(agent_id);
+    let nested = nested_repos(engine, agent_id, &cwd, &*exec);
+    let (files, _, prefix) = Git::new(&*exec, &cwd).changes_nested(&nested, false);
+    engine.with(agent_id, |a| a.nested = nested_named(&cwd, &nested, &prefix))?;
+    let files = match files {
         Ok(files) => files,
         Err(e) => {
             // Outside a repository: no diffs for it (caps.diff) and no polling.
@@ -38,6 +44,35 @@ pub fn changes(engine: &Engine, agent_id: &str) -> Res<Vec<FileChange>> {
     Ok(files)
 }
 
+/// The repositories inside agent `id`'s folder `cwd` (`vcs::nested`),
+/// relative to it: looked for again when `nested::RESCAN_MS` passed, else
+/// as last found. Blocking (lists folders on the agent's machine).
+pub(super) fn nested_repos(engine: &Engine, id: &str, cwd: &str, exec: &dyn crate::exec::Exec) -> Vec<String> {
+    use crate::vcs::nested;
+    let now = engine.now();
+    let known = engine
+        .with(id, |a| {
+            let fresh = a.nested_at.is_some_and(|t| now.saturating_sub(t) < nested::RESCAN_MS);
+            fresh.then(|| a.nested.iter().map(|(_, dir)| dir.clone()).collect::<Vec<_>>())
+        })
+        .ok()
+        .flatten();
+    if let Some(dirs) = known {
+        // (`exec::join(cwd, rel)`, as they were made.)
+        let base = crate::exec::join(cwd, "");
+        return dirs.iter().filter_map(|d| d.strip_prefix(&base).map(String::from)).collect();
+    }
+    let found = nested::find(exec, cwd);
+    let _ = engine.with(id, |a| a.nested_at = Some(now));
+    found
+}
+
+/// What an agent keeps of them: (the folder their files' paths start with,
+/// their folder on the machine). `prefix`: where `cwd` is in its repository.
+pub(super) fn nested_named(cwd: &str, nested: &[String], prefix: &str) -> Vec<(String, String)> {
+    nested.iter().map(|n| (format!("{prefix}{n}"), crate::exec::join(cwd, n))).collect()
+}
+
 /// Read agent `id`'s changes and branch now, bypassing the ticker's polling
 /// pace (back-off, slow providers, idle agents): the user asked (opened the
 /// Changes panel or Review, pressed refresh). A refresh already running for
@@ -60,9 +95,16 @@ pub fn file_diff(engine: &Engine, agent_id: &str, path: &str, untracked: bool) -
 /// HEAD's and the working tree's text of `path` (relative to the
 /// repository's top, as [`changes`] lists it): the Changes panel's diff of
 /// one file. Blocking (git).
+///
+/// A file of a repository inside the agent's folder (`a/b/x.rs`, as the
+/// list names it) is read from that one.
 pub fn file_versions(engine: &Engine, agent_id: &str, path: &str) -> Res<crate::vcs::review::FileVersions> {
     let exec = engine.exec_for(agent_id);
-    let cwd = engine.with(agent_id, |a| a.rec.cwd.clone())?;
+    let (cwd, nested) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.nested.clone()))?;
+    if let Some((dir, rest)) = crate::vcs::nested::route(&nested, path) {
+        let top = crate::vcs::review::toplevel(&Git::new(&*exec, &dir))?;
+        return crate::vcs::review::file_versions(&top, rest, None, None);
+    }
     let top = crate::vcs::review::toplevel(&Git::new(&*exec, &cwd))?;
     crate::vcs::review::file_versions(&top, path, None, None)
 }
@@ -91,6 +133,34 @@ mod tests {
         assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n"), Some("1\n2\n")));
         let v = file_versions(&h.engine, "a", "new.txt").unwrap();
         assert_eq!((v.original, v.modified.as_deref()), (None, Some("x\n")));
+    }
+
+    /// An agent in a plain folder holding a clone: the clone's changes are
+    /// its changes, and one file's diff is read from the clone.
+    #[test]
+    fn repositories_inside_the_folder_are_listed() {
+        let outer = TempRepo(std::env::temp_dir().join(format!("pitwall-test-{}", uuid::Uuid::new_v4())));
+        let inner = TempRepo::new();
+        let dest = outer.0.join("upstreams/lib");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::rename(&inner.0, &dest).unwrap();
+        let lib = TempRepo(dest);
+        lib.write("a.txt", "1\n");
+        lib.commit_all("init");
+        lib.write("a.txt", "1\n2\n");
+        let h = Harness::new(vec![record("a", outer.path())]);
+        let files = refresh(&h.engine, "a").unwrap();
+        let got: Vec<(&str, Option<&str>)> = files.iter().map(|f| (f.path.as_str(), f.repo.as_deref())).collect();
+        assert_eq!(got, vec![("upstreams/lib/a.txt", Some("upstreams/lib"))]);
+        let v = &h.engine.views()[0];
+        assert_eq!((v.added, v.files_changed), (1, 1));
+        assert!(v.caps.diff, "diffs, though the folder isn't a repository");
+        // The panel's quiet polls read them too.
+        let polled: Vec<String> = changes(&h.engine, "a").unwrap().into_iter().map(|f| f.path).collect();
+        assert_eq!(polled, vec!["upstreams/lib/a.txt".to_string()]);
+        let v = file_versions(&h.engine, "a", "upstreams/lib/a.txt").unwrap();
+        assert_eq!((v.original.as_deref(), v.modified.as_deref()), (Some("1\n"), Some("1\n2\n")));
+        drop(lib);
     }
 
     #[test]
