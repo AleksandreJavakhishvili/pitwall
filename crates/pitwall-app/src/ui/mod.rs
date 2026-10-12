@@ -184,6 +184,13 @@ impl MainView {
 
     /// A bench command (`crate::bench`, `src/lib/bench.ts`).
     pub fn bench(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // `demo <what>`: a dialog opened to look at (`MainScreen::demo_open`).
+        if let Some(what) = cmd.strip_prefix("demo ") {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.demo_open(what.trim(), window, cx));
+            }
+            return;
+        }
         let mut words = cmd.split_whitespace();
         let (Some(what), on) = (words.next(), words.next() != Some("off")) else {
             return;
