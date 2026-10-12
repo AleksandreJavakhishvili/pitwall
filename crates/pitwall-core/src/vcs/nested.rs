@@ -19,12 +19,16 @@ pub const RESCAN_MS: u64 = 120_000;
 
 /// The folders under `dir` (`a/b`, sorted) that hold a repository of their
 /// own (a `.git` folder or file), not looking inside those, hidden folders
-/// or [`NOISE_DIRS`]. Empty where the machine can't list folders. Blocking.
+/// or [`NOISE_DIRS`]. A symlink counts when it leads straight to a
+/// repository (`upstreams/x -> ~/code/x`); otherwise it isn't looked into
+/// (no loops, no trees elsewhere). Empty where the machine can't list
+/// folders. Blocking.
 pub fn find(exec: &dyn Exec, dir: &str) -> Vec<String> {
     let mut found = Vec::new();
-    let mut queue: VecDeque<(String, usize)> = VecDeque::from([(String::new(), 0)]);
+    // (Folder, depth, a symlink: only checked, never looked into.)
+    let mut queue: VecDeque<(String, usize, bool)> = VecDeque::from([(String::new(), 0, false)]);
     let mut listed = 0;
-    while let Some((rel, depth)) = queue.pop_front() {
+    while let Some((rel, depth, link)) = queue.pop_front() {
         if listed >= MAX_DIRS || found.len() >= MAX_REPOS {
             break;
         }
@@ -35,19 +39,19 @@ pub fn find(exec: &dyn Exec, dir: &str) -> Vec<String> {
             found.push(rel);
             continue;
         }
-        if depth >= MAX_DEPTH {
+        if depth >= MAX_DEPTH || link {
             continue;
         }
-        let mut subs: Vec<&str> = entries
+        let mut subs: Vec<(&str, bool)> = entries
             .iter()
-            .filter(|e| e.kind == FileKind::Dir)
-            .map(|e| e.name.as_str())
-            .filter(|n| !n.starts_with('.') && !NOISE_DIRS.contains(n))
+            .filter(|e| matches!(e.kind, FileKind::Dir | FileKind::Symlink))
+            .map(|e| (e.name.as_str(), e.kind == FileKind::Symlink))
+            .filter(|(n, _)| !n.starts_with('.') && !NOISE_DIRS.contains(n))
             .collect();
         subs.sort_unstable();
-        for n in subs {
+        for (n, link) in subs {
             let child = if rel.is_empty() { n.to_string() } else { format!("{rel}/{n}") };
-            queue.push_back((child, depth + 1));
+            queue.push_back((child, depth + 1, link));
         }
     }
     found.sort();
@@ -131,6 +135,32 @@ mod tests {
         let (dir, rest) = route(&repos, "upstreams/foo/a.txt").unwrap();
         assert_eq!((dir.as_str(), rest), (crate::exec::join(top, "upstreams/foo").as_str(), "a.txt"));
         assert!(route(&repos, "upstreamsx/a.txt").is_none());
+    }
+
+    /// Repositories linked in (`real-repos/x -> elsewhere`) count; a link to
+    /// a plain folder isn't looked into, and a loop goes nowhere.
+    #[test]
+    fn symlinked_repositories_count_and_links_are_not_followed_further() {
+        let dir = std::env::temp_dir().join(format!("pitwall-test-{}", uuid::Uuid::new_v4()));
+        let root = TempRepo(dir.clone());
+        let outside = TempRepo(std::env::temp_dir().join(format!("pitwall-test-{}", uuid::Uuid::new_v4())));
+        repo_at(&outside.0.join("lib"));
+        repo_at(&outside.0.join("plain/deep"));
+        std::fs::write(outside.0.join("lib/a.txt"), "changed\n").unwrap();
+        std::fs::create_dir_all(dir.join("real-repos")).unwrap();
+        let link = |to: &std::path::Path, at: &str| crate::platform::symlink(to, &dir.join(at)).is_ok();
+        // (Windows without the right to make links: nothing to check.)
+        if !(link(&outside.0.join("lib"), "real-repos/lib")
+            && link(&outside.0.join("plain"), "real-repos/plain")
+            && link(&dir, "real-repos/loop"))
+        {
+            return;
+        }
+        let found = find(&LocalExec, root.path());
+        assert_eq!(found, vec!["real-repos/lib".to_string()]);
+        let (files, _, _) = Git::new(&LocalExec, root.path()).changes_nested(&found, false);
+        let paths: Vec<String> = files.unwrap().into_iter().map(|f| f.path).collect();
+        assert_eq!(paths, vec!["real-repos/lib/a.txt".to_string()]);
     }
 
     #[test]
