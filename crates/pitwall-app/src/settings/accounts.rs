@@ -321,31 +321,53 @@ impl SettingsView {
                             .flex()
                             .items_center()
                             .gap(px(8.))
+                            .min_w_0()
                             .child(match renaming {
-                                Some(input) => div().w(px(180.)).child(input).into_any_element(),
-                                None => div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child(name).into_any_element(),
+                                Some(input) => div().w(px(180.)).flex_none().child(input).into_any_element(),
+                                None => div().flex_none().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child(name).into_any_element(),
                             })
-                            .child(div().text_size(px(12.)).text_color(if login.is_some() { t.text_2 } else { t.text_3 }).child(match &login {
-                                Some(email) => email.clone(),
-                                None if id.is_none() => "your own login".into(),
-                                None => "not logged in".into(),
-                            })),
+                            .child({
+                                // Long logins end in "…"; the whole one is in the tooltip.
+                                let shown: SharedString = match &login {
+                                    Some(email) => email.clone().into(),
+                                    None if id.is_none() => "your own login".into(),
+                                    None => "not logged in".into(),
+                                };
+                                div()
+                                    .id(gpui::ElementId::Name(format!("acct-email-{key}").into()))
+                                    .min_w_0()
+                                    .ellipsis()
+                                    .text_size(px(12.))
+                                    .text_color(if login.is_some() { t.text_2 } else { t.text_3 })
+                                    .tooltip(crate::kit::tooltip(shown.clone()))
+                                    .child(crate::kit::one_line(shown))
+                            }),
                     )
                     .child(
                         div()
-                            .flex()
-                            .gap(px(8.))
+                            .id(gpui::ElementId::Name(format!("acct-dir-{key}").into()))
+                            .min_w_0()
+                            .ellipsis()
                             .text_size(px(11.5))
                             .text_color(t.text_3)
-                            .child(div().font_family(crate::kit::MONO_FONT).min_w_0().ellipsis().child(crate::kit::one_line(dir)))
-                            .when(!projects.is_empty(), |d| {
-                                let names: Vec<String> = projects
-                                    .iter()
-                                    .map(|p| p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string())
-                                    .collect();
-                                d.child(div().flex_none().child(format!("· new agents in {}", names.join(", "))))
-                            }),
-                    ),
+                            .font_family(crate::kit::MONO_FONT)
+                            .tooltip(crate::kit::tooltip(dir.clone()))
+                            .child(crate::kit::one_line(dir)),
+                    )
+                    .when(!projects.is_empty(), |d| {
+                        let names: Vec<String> = projects
+                            .iter()
+                            .map(|p| p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string())
+                            .collect();
+                        d.child(
+                            div()
+                                .min_w_0()
+                                .ellipsis()
+                                .text_size(px(11.5))
+                                .text_color(t.text_3)
+                                .child(crate::kit::one_line(format!("New agents in {}", names.join(", ")))),
+                        )
+                    }),
             )
             .child(actions)
     }
