@@ -185,6 +185,8 @@ pub(super) struct GitJob {
     id: String,
     cwd: String,
     seq: u64,
+    /// A window shows the agent: its checkout may be watched.
+    watch: bool,
 }
 
 fn tick(core: &Shared, badge: &mut usize) {
@@ -280,7 +282,11 @@ fn tick(core: &Shared, badge: &mut usize) {
     }
 }
 
-/// Git refresh: wanted, or every 3s while active / after new output. Where
+/// Git refresh: wanted (opening the agent, a prompt finishing, Review), or,
+/// only for an agent a window shows (`Agent::shown`), as it works: an agent
+/// nobody looks at runs no git on its own and keeps no watch.
+///
+/// For a shown agent: every 3s while active / after new output. Where
 /// the provider asks for slower polling (`ProviderCaps::git_poll_ms`), only
 /// while the agent works, at most that often. Never for an agent outside a
 /// git repository, or whose machine can't run git. Idle agents (no new
@@ -295,11 +301,15 @@ fn tick(core: &Shared, badge: &mut usize) {
 fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
     let mut jobs = Vec::new();
     for a in agents.iter_mut() {
-        // A stopped agent isn't polled; it keeps no watch either.
-        if a.status == Status::Stopped && !matches!(a.fs, FsWatch::None) {
+        // A stopped agent isn't polled; it keeps no watch either, nor does
+        // one no window shows.
+        if (a.status == Status::Stopped || !a.shown) && !matches!(a.fs, FsWatch::None) {
             a.fs = FsWatch::None;
         }
         if a.git_inflight || a.git_repo == Some(false) || !a.facts.provider.exec {
+            continue;
+        }
+        if !a.shown && !a.git_wanted {
             continue;
         }
         let seq = a
@@ -325,6 +335,7 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
                 id: a.rec.id.clone(),
                 cwd: a.rec.cwd.clone(),
                 seq,
+                watch: a.shown,
             });
         }
     }
@@ -335,6 +346,7 @@ fn git_due(agents: &mut [Agent], now: u64) -> Vec<GitJob> {
 #[cfg(test)]
 pub(super) fn git_due_for_test(core: &Engine) -> Vec<String> {
     let now = core.now();
+    core.agents().iter_mut().for_each(|a| a.shown = true);
     git_due(&mut core.agents(), now).into_iter().map(|j| j.id).collect()
 }
 
@@ -342,6 +354,7 @@ pub(super) fn git_due_for_test(core: &Engine) -> Vec<String> {
 #[cfg(test)]
 pub(super) fn run_git_due_for_test(core: &Engine) -> Vec<String> {
     let now = core.now();
+    core.agents().iter_mut().for_each(|a| a.shown = true);
     let jobs = git_due(&mut core.agents(), now);
     jobs.into_iter()
         .map(|job| {
@@ -388,7 +401,7 @@ fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
     // Watching starts before git looks, so nothing in between is missed.
     // (Not with repositories inside: the watch follows the folder's own
     // repository, and may skip theirs as ignored. Polled instead.)
-    let tree = if nested.is_empty() { gitwatch::ensure(core, &job.id, &*exec, &job.cwd) } else { None };
+    let tree = if nested.is_empty() && job.watch { gitwatch::ensure(core, &job.id, &*exec, &job.cwd) } else { None };
     let seen = tree.as_ref().map(|t| t.gen());
     let git = Git::new(&*exec, &job.cwd);
     let (changes, branch, prefix) = git.changes_nested(&nested, true);
@@ -397,9 +410,9 @@ fn run_git(core: &Engine, job: GitJob) -> Result<Vec<FileChange>, String> {
         .with(&job.id, |a| {
             // The watch saw a change since the last refresh.
             let woke = matches!(&a.fs, FsWatch::On { seen: old, .. } if Some(*old) != seen);
-            if let (Some(tree), Some(seen)) = (tree.clone(), seen) {
+            if let (Some(tree), Some(seen)) = (tree.clone(), seen.filter(|_| a.shown)) {
                 a.fs = FsWatch::On { cwd: job.cwd.clone(), tree, seen };
-            } else if !nested.is_empty() {
+            } else if !nested.is_empty() || !a.shown {
                 a.fs = FsWatch::None;
             }
             a.nested = super::changes::nested_named(&job.cwd, &nested, &prefix);
@@ -445,7 +458,7 @@ pub(super) fn refresh_git_now(core: &Engine, id: &str) -> Result<Vec<FileChange>
         }
         a.git_inflight = true;
         let seq = a.host.as_ref().map(|s| s.output_seq.load(Ordering::Relaxed)).unwrap_or(a.git_seq);
-        Ok(GitJob { id: a.rec.id.clone(), cwd: a.rec.cwd.clone(), seq })
+        Ok(GitJob { id: a.rec.id.clone(), cwd: a.rec.cwd.clone(), seq, watch: a.shown })
     })??;
     refresh_git(core, job)
 }
@@ -464,6 +477,7 @@ mod tests {
         let mut a = Agent::new(record("a", "/tmp"), None, 1);
         a.status = Status::Unknown;
         a.facts.provider.exec = true;
+        a.shown = true;
         a
     }
 
@@ -624,6 +638,24 @@ mod tests {
         agents[0].status = Status::Working;
         assert!(git_due(&mut agents, 1_000 + GIT_EVERY_MS).is_empty());
         assert_eq!(git_due(&mut agents, 1_000 + 12_000).len(), 1);
+    }
+
+    #[test]
+    fn agents_no_window_shows_run_git_only_when_wanted() {
+        let mut agents = vec![agent()];
+        agents[0].shown = false;
+        assert_eq!(git_due(&mut agents, 100).len(), 1, "wanted at start");
+        agents[0].git_inflight = false;
+        agents[0].status = Status::Working;
+        for t in [10_000, 60_000, 600_000] {
+            assert!(git_due(&mut agents, t).is_empty(), "working, but nobody looks: no polling");
+        }
+        agents[0].git_wanted = true;
+        let jobs = git_due(&mut agents, 600_001);
+        assert!(jobs.len() == 1 && !jobs[0].watch, "asked for: once, without a watch");
+        agents[0].git_inflight = false;
+        agents[0].shown = true;
+        assert_eq!(git_due(&mut agents, 600_002 + GIT_EVERY_MS).len(), 1, "shown and working: polled");
     }
 
     #[test]

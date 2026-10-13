@@ -230,9 +230,6 @@ pub fn split_path(p: &str) -> (&str, &str) {
     }
 }
 
-/// Changes polled this often while the panel is shown.
-pub const CHANGES_POLL: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// "updated 12 s ago" (`updatedLabel`).
 pub use crate::kit::updated_label;
 
