@@ -65,6 +65,9 @@ pub struct Agent {
     pub git_every: u64,
     /// Its checkout's file watch, where the provider can (gitwatch.rs).
     pub fs: super::gitwatch::FsWatch,
+    /// A window shows its changes now (`Engine::show_changes`): only then is
+    /// its git watched and refreshed as it works; otherwise only when wanted.
+    pub shown: bool,
     /// Repositories inside its folder (`vcs::nested`): (the folder their
     /// files' paths start with in the Changes list, their folder on the
     /// machine). Looked for at most every `nested::RESCAN_MS`.
@@ -119,6 +122,7 @@ impl Agent {
             git_inflight: false,
             git_wanted: true,
             git_every: 0,
+            shown: false,
             fs: Default::default(),
             nested: Vec::new(),
             nested_at: None,

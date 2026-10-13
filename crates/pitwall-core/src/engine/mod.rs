@@ -83,6 +83,8 @@ pub struct Engine {
     pub(crate) connector: connect::Connector,
     /// Home folders by machine (`provider:machine`), once asked.
     homes: Mutex<std::collections::HashMap<String, String>>,
+    /// The agent whose changes each window shows (`show_changes`).
+    shown: Mutex<std::collections::HashMap<u64, String>>,
 }
 
 pub type Shared = Arc<Engine>;
@@ -110,6 +112,7 @@ impl Engine {
             snapshots: tasks::Worker::default(),
             worktrees: Default::default(),
             git_flights: Default::default(),
+            shown: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
             engineer: Default::default(),
@@ -393,6 +396,29 @@ impl Engine {
 
     pub fn records(&self) -> Vec<AgentRecord> {
         self.agents().iter().map(|a| a.rec.clone()).collect()
+    }
+
+    /// Window `window` now shows agent `agent`'s changes (`None`: none).
+    /// Git runs on its own only for agents some window shows: they are
+    /// watched and refreshed as they work, the rest only when something asks
+    /// (opening one, a prompt finishing, Review). Opening one refreshes it.
+    pub fn show_changes(&self, window: u64, agent: Option<String>) {
+        let ids: std::collections::HashSet<String> = {
+            let mut shown = lock(&self.shown);
+            match agent {
+                Some(id) => shown.insert(window, id),
+                None => shown.remove(&window),
+            };
+            shown.values().cloned().collect()
+        };
+        for a in self.agents().iter_mut() {
+            let now = ids.contains(&a.rec.id);
+            if now && !a.shown {
+                a.git_wanted = true;
+                a.git_every = 0;
+            }
+            a.shown = now;
+        }
     }
 
     /// Something shown changed (`persist`: also something stored).

@@ -424,6 +424,9 @@ struct DividerDrag {
 pub struct MainScreen {
     store: Entity<AgentStore>,
     engine: Option<Shared>,
+    /// What this window last told the engine it shows the changes of
+    /// (`Engine::show_changes`; its key, the agent).
+    changes_shown: (u64, Option<String>),
     label: String,
     pub ui: UiState,
     active: String,
@@ -548,6 +551,7 @@ impl MainScreen {
         let mut screen = MainScreen {
             store,
             engine,
+            changes_shown: (0, None),
             label: crate::windows::label_of(window, cx),
             active: ALL_SPACE.into(),
             ui,
@@ -1622,6 +1626,14 @@ impl Render for MainScreen {
             (Some(_), Route::Space) if !bp.right_docked() && self.drawer_open => Some(true),
             _ => None,
         };
+        // Git runs on its own only for agents whose changes a window shows.
+        let shown = right.and(selected.as_ref()).filter(|a| a.caps.diff).map(|a| a.id.clone());
+        if shown != self.changes_shown.1 {
+            self.changes_shown = (cx.entity_id().as_u64(), shown.clone());
+            if let Some(e) = &self.engine {
+                e.show_changes(self.changes_shown.0, shown);
+            }
+        }
 
         // Glass: chrome is translucent over the window material, floating
         // surfaces solid, panes and code views stay opaque (glass.css).
@@ -1880,3 +1892,12 @@ pub fn window_label() -> SharedString {
 
 #[cfg(test)]
 mod tests;
+
+impl Drop for MainScreen {
+    /// A closed window shows no agent's changes any more.
+    fn drop(&mut self) {
+        if let (Some(e), (key, Some(_))) = (&self.engine, &self.changes_shown) {
+            e.show_changes(*key, None);
+        }
+    }
+}
