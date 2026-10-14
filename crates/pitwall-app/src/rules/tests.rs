@@ -256,6 +256,10 @@ fn the_project_picker_groups_rules_by_set() {
                 ]
             ),
             (
+                "Other skills".to_string(),
+                vec!["library:skills/review".to_string()]
+            ),
+            (
                 "Other rules".to_string(),
                 vec![
                     "library:overview.md".to_string(),
@@ -350,4 +354,32 @@ fn the_project_panel_assigns_updates_and_asks(cx: &mut TestAppContext) {
     panel.update(cx, |p, cx| p.generate(cx));
     cx.run_until_parked();
     assert!(!panel.read_with(cx, |p, _| p.status().unwrap().generated.out_of_date));
+}
+
+#[test]
+fn skills_are_labelled_by_name() {
+    assert_eq!(skill_label("library:skills/review"), "review");
+    assert_eq!(skill_label("team:skills/deploy"), "deploy");
+    assert_eq!(skill_label("library:style.md"), "style.md");
+}
+
+/// A skill is ticked and copied into the project like a rule.
+#[gpui::test]
+fn the_project_panel_assigns_skills(cx: &mut TestAppContext) {
+    use super::project::ProjectPanel;
+    let mock = Arc::new(MockRules::new());
+    cx.update(|cx| install(cx, mock.clone()));
+    let panel = cx.new(|cx| ProjectPanel::new("/q".into(), cx));
+    cx.run_until_parked();
+    panel.update(cx, |p, cx| {
+        p.toggle("library:skills/review", cx);
+        p.apply(cx);
+    });
+    cx.run_until_parked();
+    panel.read_with(cx, |p, _| {
+        let st = p.status().unwrap();
+        assert_eq!(st.rules.len(), 1);
+        assert!(st.rules[0].skill && st.rules[0].name == "review");
+        assert!(st.existing.is_empty());
+    });
 }

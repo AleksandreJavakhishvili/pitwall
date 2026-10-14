@@ -318,6 +318,12 @@ pub fn error_after_create(cx: &mut App, agent_id: String) -> Option<gpui::Task<O
     }))
 }
 
+/// "library:skills/review" → "review"; a rule's label otherwise.
+pub fn skill_label(id: &str) -> &str {
+    let rel = rule_label(id);
+    rel.strip_prefix("skills/").unwrap_or(rel)
+}
+
 /// "library:web/style.md" → "web/style.md" (`ruleLabel`).
 pub fn rule_label(id: &str) -> &str {
     match id.find(':') {

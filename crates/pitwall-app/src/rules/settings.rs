@@ -25,7 +25,7 @@ use crate::kit::{self, BtnKind, InputEvent, TextInput, Tone};
 use crate::theme::{appearance, Theme, RADIUS_SM};
 
 use super::widgets::{self, check_row, list, mini, rich, row, Span};
-use super::{call, rule_label};
+use super::{call, rule_label, skill_label};
 
 /// Where imported rules come from (`ImportKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -674,51 +674,84 @@ impl RulesSection {
                 mini("rules-refresh", "Refresh", false, t)
                     .on_click(cx.listener(|v, _, _, cx| v.changed(cx))),
             );
-        let body = if self.lib.is_empty() {
-            div()
-                .text_size(px(12.))
-                .text_color(t.text_3)
-                .child(rich(
-                    &[
-                        ("Add rulesync rule files to ", Span::Text),
-                        (&format!("{}/rules/rules/", self.data_dir), Span::Mono),
-                        (", or import below.", Span::Text),
-                    ],
-                    t.text_3,
-                ))
-                .into_any_element()
-        } else {
-            list(
-                "rules-lib",
-                self.lib
-                    .iter()
-                    .enumerate()
-                    .map(|(i, r)| {
-                        row(("rules-lib-row", i))
-                            .tooltip(kit::tooltip(r.path.clone()))
-                            .child(widgets::name(rule_label(&r.id).to_string(), true, t))
-                            .when(r.source != "library", |d| {
-                                d.child(kit::chip_subtle(r.source.clone(), t))
-                            })
-                            .when(r.root, |d| {
-                                d.child(
-                                    div()
-                                        .id(("rules-root", i))
-                                        .tooltip(kit::tooltip(
-                                            "root: the agent's main instruction file",
-                                        ))
-                                        .child(kit::chip("root", t)),
-                                )
-                            })
-                            .when(r.local_root, |d| d.child(kit::chip("local", t)))
-                            .child(widgets::desc(r.description.clone().unwrap_or_default(), t))
-                            .into_any_element()
-                    })
-                    .collect(),
-                t,
-            )
-            .into_any_element()
+        let entries = |skills: bool| -> Vec<AnyElement> {
+            self.lib
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.skill == skills)
+                .map(|(i, r)| {
+                    let label = if r.skill {
+                        skill_label(&r.id)
+                    } else {
+                        rule_label(&r.id)
+                    };
+                    row(("rules-lib-row", i))
+                        .tooltip(kit::tooltip(r.path.clone()))
+                        .child(widgets::name(label.to_string(), true, t))
+                        .when(r.source != "library", |d| {
+                            d.child(kit::chip_subtle(r.source.clone(), t))
+                        })
+                        .when(r.root, |d| {
+                            d.child(
+                                div()
+                                    .id(("rules-root", i))
+                                    .tooltip(kit::tooltip(
+                                        "root: the agent's main instruction file",
+                                    ))
+                                    .child(kit::chip("root", t)),
+                            )
+                        })
+                        .when(r.local_root, |d| d.child(kit::chip("local", t)))
+                        .child(widgets::desc(r.description.clone().unwrap_or_default(), t))
+                        .into_any_element()
+                })
+                .collect()
         };
+        let (skills, rules) = (entries(true), entries(false));
+        let mut body = div().flex().flex_col().gap(px(8.));
+        if self.lib.is_empty() {
+            body = body.child(div().text_size(px(12.)).text_color(t.text_3).child(rich(
+                &[
+                    ("Add rulesync skills (", Span::Text),
+                    (
+                        &format!("{}/rules/skills/<name>/SKILL.md", self.data_dir),
+                        Span::Mono,
+                    ),
+                    (") or rules (", Span::Text),
+                    (&format!("{}/rules/rules/", self.data_dir), Span::Mono),
+                    ("), or import below.", Span::Text),
+                ],
+                t.text_3,
+            )));
+        } else {
+            body = body
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(kit::label("Skills", t.text_2, 12.))
+                        .child(kit::hint("loaded only when relevant", t)),
+                )
+                .child(if skills.is_empty() {
+                    kit::hint("No skills yet.", t).into_any_element()
+                } else {
+                    list("rules-lib-skills", skills, t).into_any_element()
+                })
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(kit::label("Rules", t.text_2, 12.))
+                        .child(kit::hint("in every session's context", t)),
+                )
+                .child(if rules.is_empty() {
+                    kit::hint("No rules yet.", t).into_any_element()
+                } else {
+                    list("rules-lib", rules, t).into_any_element()
+                });
+        }
         let mut sec = div()
             .flex()
             .flex_col()
@@ -954,6 +987,9 @@ impl RulesSection {
                 }
                 if r.root {
                     title = title.child(kit::hint("\u{a0}· root", t));
+                }
+                if r.skill {
+                    title = title.child(kit::hint("\u{a0}· skill", t));
                 }
                 check_row(
                     ("rules-pick", i),
