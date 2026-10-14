@@ -71,4 +71,12 @@ ruleSetId, projectRuleSetId, appliedAt, generated, error, stale, mainCheckout,
 mainCheckoutConfirmed, name, kindName, target, effective: [{ id, description,
 from: "project"|"agent"|"folder", missing }] }] }` (socket: `rules.show
 { project | agentId }`).
+
+Socket / CLI (`pitwall rules …`, for the Race Engineer and scripts):
+`rules.set.save { id?, name, ruleIds }` (`rules set create|add|remove|rename`;
+new rule ids must be in the library) applies directly, as sets are
+Pitwall's own data. `rules.set.delete { set }` (`rules set delete`) and
+`rules.import { kind: "file"|"git", source }` (`rules import file|git`) ask
+the user first (High: every time); `rules.import` of a `project` reads its
+`.rulesync/` in place and doesn't ask. Pitwall's own window never asks.
 `CreateAgentRequest` gains `ruleSetId?: string`, `applyToMainCheckout?: boolean`.

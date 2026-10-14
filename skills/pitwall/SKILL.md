@@ -41,9 +41,11 @@ you pass. The command waits (up to ~2 minutes). Denied or unanswered → exit
 to work around it. Read-only commands never ask.
 
 Asks the user: `agent stop`, `agent restart`, `agent remove` (also with
-`--worktree`), `rules apply --main-checkout`, `session add --start`,
-`agent new --machine` (creates on an agw VM), and `settings set|reset` of an
-`approval` setting. Everything else applies directly.
+`--worktree`), `rules apply --main-checkout`, `rules import file|git`,
+`rules set delete`, `session add --start`, `agent new --machine` (creates on
+an agw VM), and `settings set|reset` of an `approval` setting. Everything
+else applies directly (including creating and editing rule sets and
+importing a project's own `.rulesync/`).
 
 ## Discover (read-only)
 
@@ -161,18 +163,34 @@ pitwall project remove ~/code/api          # off the list; never deletes files
 
 ## Rules (rulesync)
 
+Two scopes: a project's default set (every agent in the project) and an
+agent's own set on top. No account- or team-wide rules.
+
 ```bash
+pitwall rules list                                   # library rules (ids) and each agent's state
 pitwall rules sets                                   # ids and names
-pitwall rules default ~/code/api strict              # a project's default set (`none` clears)
+pitwall rules show ~/code/api                        # default set, each agent's own set and effective rules
+pitwall rules set create Web --rule style.md --rule testing.md   # a new set (rule ids or file names)
+pitwall rules set add Web library:terse.md           # more rules
+pitwall rules set remove Web style.md                # fewer
+pitwall rules set rename Web "Web defaults"
+pitwall rules set delete Web                         # asks first
+pitwall rules import project ~/code/api              # a project's own .rulesync/ (read in place)
+pitwall rules import file ~/code/api/CLAUDE.md       # a CLAUDE.md / AGENTS.md / GEMINI.md: asks first
+pitwall rules import git https://github.com/acme/ai-rules.git   # cloned: asks first
+pitwall rules default ~/code/api Web                 # a project's default set (`none` clears)
 pitwall rules apply api [--set strict|none]          # write the agent's rule files now
 pitwall rules apply api --main-checkout              # it works in the main checkout: asks first
 ```
 
 Rule files take effect in the agent's next session (restart it). Without
-`--main-checkout`, an agent in the main checkout gives `conflict`. Making
-rule sets from an existing CLAUDE.md is done in Settings → Rules (import);
-ask the user to do that, then use the set here. `rules list` shows whether
-rulesync is available (`settings set rules.allowNpx true` allows npx; asks).
+`--main-checkout`, an agent in the main checkout gives `conflict`. To turn an
+existing CLAUDE.md into a set: `rules import file <path>`, then
+`rules set create <name> --rule <added id>`. Rules are referred to by id
+(`library:style.md`) or, when only one rule has it, by file name. Gemini CLI
+and Aider get rules too (Pitwall writes their file itself). `rules list`
+shows whether rulesync is available (`settings set rules.allowNpx true`
+allows npx; asks); importing a file needs it.
 
 ## Review (read-only)
 
