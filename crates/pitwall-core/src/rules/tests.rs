@@ -201,10 +201,12 @@ fn e2e_project_rulesync_is_an_input_root() {
     let f = fixture();
     // The project uses rulesync itself (generated files untracked).
     write(&f.wt.join(".rulesync/rules/project.md"), "---\nroot: false\ntargets: [\"*\"]\n---\nProject rule.\n");
-    assign(&f, &["style.md"], &[]);
+    assign(&f, &["style.md"], &["mine.md"]);
     let res = apply_with(&f.dirs, Some(&r), &LocalExec, &ctx(&f, "claudecode"), false).unwrap();
     assert!(res.generated.contains(&".claude/rules/project.md".to_string()), "{res:?}");
-    assert!(res.generated.contains(&".claude/rules/style.md".to_string()));
+    assert!(res.generated.contains(&".claude/rules/mine.md".to_string()), "the agent's own set");
+    // The project has rules of its own: the old default set is only a fallback.
+    assert!(!res.generated.contains(&".claude/rules/style.md".to_string()));
 }
 
 #[test]
@@ -410,4 +412,348 @@ fn stale_agents_are_reapplied_in_bulk() {
     assert!(stale_ids().is_empty());
     assert!(std::fs::read_to_string(format!("{pb}/.aider.pitwall-rules.md")).unwrap().contains("Rule B, changed."));
     assert!(read(&d).agents.get(&unconfirmed).is_none_or(|s| s.files.is_empty()));
+}
+
+// ------------------------------------------------------------------ project rules
+
+/// A stand-in for rulesync: `generate` writes CLAUDE.md from the input
+/// roots' rules (CLAUDE.local.md for `localRoot` ones) into the output root;
+/// `import` turns the CLAUDE.md / AGENTS.md in its folder into
+/// `.rulesync/rules/overview.md`.
+fn fake_rulesync(dir: &Path) -> Option<Runner> {
+    // A shell script: not on Windows.
+    if std::path::MAIN_SEPARATOR == '\\' {
+        return None;
+    }
+    let script = dir.join("fake-rulesync");
+    write(
+        &script,
+        r#"#!/bin/sh
+cmd=""; out=""; ins=""; mode=""
+for a in "$@"; do
+  case "$a" in
+    --json) ;;
+    generate|import) cmd="$a" ;;
+    --output-roots) mode=out ;;
+    --input-roots) mode=in ;;
+    --targets|--features) mode=skip ;;
+    *) case "$mode" in out) out="$a"; mode="" ;; in) ins="$ins $a" ;; skip) mode="" ;; esac ;;
+  esac
+done
+if [ "$cmd" = import ]; then
+  mkdir -p .rulesync/rules
+  for f in CLAUDE.md AGENTS.md; do [ -f "$f" ] && { printf -- '---\nroot: true\n---\n'; cat "$f"; } > .rulesync/rules/overview.md; done
+  echo '{"success":true}'; exit 0
+fi
+: > "$out/CLAUDE.md"; local=""
+for r in $ins; do for f in "$r"/rules/*.md; do [ -f "$f" ] || continue
+  if grep -q 'localRoot: true' "$f"; then cat "$f" >> "$out/CLAUDE.local.md"; local=1; else cat "$f" >> "$out/CLAUDE.md"; fi
+done; done
+ops='{"action":"write","kind":"file","path":"CLAUDE.md"}'
+[ -n "$local" ] && ops="$ops,{\"action\":\"write\",\"kind\":\"file\",\"path\":\"CLAUDE.local.md\"}"
+echo "{\"success\":true,\"data\":{\"plan\":{\"operations\":[$ops]}}}"
+"#,
+    );
+    crate::platform::make_executable(&script).unwrap();
+    Some(Runner { argv: vec![script.to_string_lossy().into_owned()], path_env: std::env::var("PATH").ok(), via: "rulesync" })
+}
+
+/// A git repo (`repo`, one commit) and Pitwall's folder with a library.
+struct Proj {
+    _t: Tmp,
+    dirs: Dirs,
+    repo: PathBuf,
+}
+
+impl Proj {
+    fn new(tag: &str) -> Proj {
+        let t = Tmp::new(tag);
+        let repo = t.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        sh(&repo, &["init", "-q"]);
+        write(&repo.join("README.md"), "# repo\n");
+        sh(&repo, &["add", "-A"]);
+        sh(&repo, &["commit", "-qm", "init"]);
+        let dirs = Dirs { base: t.0.join("pitwall") };
+        write(&dirs.library_rules().join("style.md"), "---\ndescription: Style\n---\nUse tabs.\n");
+        write(&dirs.library_rules().join("testing.md"), "Run the tests.\n");
+        Proj { dirs, repo, _t: t }
+    }
+    fn path(&self) -> String {
+        self.repo.to_string_lossy().into_owned()
+    }
+    fn rule(&self, name: &str) -> PathBuf {
+        self.repo.join(".rulesync/rules").join(name)
+    }
+    fn lib(&self, name: &str) -> PathBuf {
+        self.dirs.library_rules().join(name)
+    }
+    fn status(&self) -> ProjectRulesStatus {
+        project_status(&self.dirs, &self.path()).unwrap()
+    }
+    fn state(&self, name: &str) -> pitwall_proto::ProjectRuleState {
+        self.status().rules.into_iter().find(|r| r.name == name).unwrap().state
+    }
+    fn set(&self, name: &str, rules: &[&str]) -> String {
+        let ids = rules.iter().map(|r| format!("library:{r}")).collect();
+        save_set(&self.dirs, SaveRuleSet { id: None, name: name.into(), rule_ids: ids }).unwrap().id
+    }
+}
+
+/// Assigning copies clean rulesync files into the repo, records where they
+/// came from, and leaves them for the user to commit (not excluded).
+#[test]
+fn assigning_copies_rules_into_the_project() {
+    let p = Proj::new("assign");
+    let web = p.set("Web", &["style.md", "testing.md"]);
+    let r = project_assign(&p.dirs, &p.path(), Some(&web), &[], &[]).unwrap();
+    assert_eq!(r.copied, vec!["style.md", "testing.md"]);
+    assert_eq!(std::fs::read(p.rule("style.md")).unwrap(), std::fs::read(p.lib("style.md")).unwrap());
+    let m = project::load(&p.repo);
+    assert_eq!(m.rules["style.md"].source, "library:style.md");
+    assert_eq!(m.rules["style.md"].hash, apply::content_hash(b"---\ndescription: Style\n---\nUse tabs.\n"));
+    // Shows up as a change to commit, nothing excluded.
+    assert_eq!(sh(&p.repo, &["status", "--porcelain"]), "?? .rulesync/\n");
+    assert!(!std::fs::read_to_string(p.repo.join(".git/info/exclude")).unwrap_or_default().contains(".rulesync"));
+    let s = p.status();
+    assert!(s.rulesync && s.updates == 0);
+    assert_eq!(s.rules.iter().map(|r| (r.name.as_str(), r.state)).collect::<Vec<_>>(), vec![
+        ("style.md", pitwall_proto::ProjectRuleState::Current),
+        ("testing.md", pitwall_proto::ProjectRuleState::Current)
+    ]);
+    assert_eq!(s.rules[0].description.as_deref(), Some("Style"));
+    // Again: nothing to do. A single rule by id works too.
+    let r = project_assign(&p.dirs, &p.path(), None, &["library:style.md".into(), "library:gone.md".into()], &[]).unwrap();
+    assert_eq!((r.copied.len(), r.unchanged.clone(), r.skipped.clone()), (0, vec!["style.md".to_string()], vec!["library:gone.md: not in the library".to_string()]));
+}
+
+/// A file already in `.rulesync/rules/` with other content is never replaced
+/// unless the caller names it.
+#[test]
+fn assigning_never_overwrites_a_different_file_unasked() {
+    let p = Proj::new("no-overwrite");
+    write(&p.rule("style.md"), "Our own style.\n");
+    let r = project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &[]).unwrap();
+    assert_eq!(r.conflicts, vec!["style.md"]);
+    assert_eq!(std::fs::read_to_string(p.rule("style.md")).unwrap(), "Our own style.\n");
+    assert!(project::load(&p.repo).rules.is_empty());
+    assert_eq!(p.state("style.md"), pitwall_proto::ProjectRuleState::Own);
+    let r = project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &["style.md".into()]).unwrap();
+    assert_eq!(r.copied, vec!["style.md"]);
+    assert!(std::fs::read_to_string(p.rule("style.md")).unwrap().contains("Use tabs."));
+}
+
+/// Two sources with a rule of the same name: the second goes under a
+/// folder named for its source.
+#[test]
+fn same_named_rules_from_two_sources_both_fit() {
+    let p = Proj::new("names");
+    let team = p._t.0.join("team.md");
+    std::fs::write(&team, "Team style.\n").unwrap();
+    let mut lib = library::list(&p.dirs, &[]);
+    lib.push(RuleFile { id: "team:style.md".into(), path: team.to_string_lossy().into_owned(), description: None, targets: vec![], root: false, local_root: false, source: "team".into() });
+    let r = project::assign(&p.repo, &lib, &["library:style.md".into(), "team:style.md".into()], &[]).unwrap();
+    assert_eq!(r.copied, vec!["style.md", "team/style.md"]);
+    assert_eq!(std::fs::read_to_string(p.rule("team/style.md")).unwrap(), "Team style.\n");
+}
+
+/// Updates are opt-in: library changes show as updates with a diff, local
+/// changes are never overwritten, and a conflict needs an explicit choice.
+#[test]
+fn updates_modifications_and_conflicts() {
+    use pitwall_proto::ProjectRuleState::*;
+    let p = Proj::new("updates");
+    project_assign(&p.dirs, &p.path(), None, &["library:style.md".into(), "library:testing.md".into()], &[]).unwrap();
+    // The library changes: an update, nothing written yet.
+    write(&p.lib("style.md"), "---\ndescription: Style\n---\nUse spaces.\n");
+    assert_eq!(p.state("style.md"), Update);
+    assert!(std::fs::read_to_string(p.rule("style.md")).unwrap().contains("Use tabs."));
+    // The project's copy changes: modified.
+    write(&p.rule("testing.md"), "Run the tests twice.\n");
+    assert_eq!(p.state("testing.md"), Modified);
+    assert_eq!(p.status().updates, 1);
+    let u = project_updates(&p.dirs, &p.path()).unwrap();
+    assert_eq!(u.iter().map(|x| (x.name.as_str(), x.state)).collect::<Vec<_>>(), vec![("style.md", Update), ("testing.md", Modified)]);
+    assert!(u[0].diff.contains("-Use tabs.") && u[0].diff.contains("+Use spaces."), "{}", u[0].diff);
+    // Both change testing.md: a conflict.
+    write(&p.lib("testing.md"), "Run the tests in CI.\n");
+    assert_eq!(p.state("testing.md"), Conflict);
+    // Updating everything takes style.md, leaves the conflict alone.
+    let r = project_update(&p.dirs, &p.path(), &[], None).unwrap();
+    assert_eq!((r.updated.clone(), r.conflicts.clone()), (vec!["style.md".to_string()], vec!["testing.md".to_string()]));
+    assert!(std::fs::read_to_string(p.rule("style.md")).unwrap().contains("Use spaces."));
+    assert_eq!(std::fs::read_to_string(p.rule("testing.md")).unwrap(), "Run the tests twice.\n");
+    assert_eq!(p.state("style.md"), Current);
+    // Keep the project's: it stays, now just modified.
+    let r = project_update(&p.dirs, &p.path(), &["testing.md".into()], Some("project")).unwrap();
+    assert_eq!(r.kept, vec!["testing.md"]);
+    assert_eq!(p.state("testing.md"), Modified);
+    // The library changes again; take the library's this time.
+    write(&p.lib("testing.md"), "Run the tests in CI, always.\n");
+    assert_eq!(p.state("testing.md"), Conflict);
+    let r = project_update(&p.dirs, &p.path(), &["library:testing.md".into()], Some("library")).unwrap();
+    assert_eq!(r.updated, vec!["testing.md"]);
+    assert_eq!(std::fs::read_to_string(p.rule("testing.md")).unwrap(), "Run the tests in CI, always.\n");
+    assert_eq!(p.state("testing.md"), Current);
+    assert!(project_update(&p.dirs, &p.path(), &[], Some("both")).is_err());
+    assert!(project_update(&p.dirs, &p.path(), &["nope.md".into()], None).is_err());
+}
+
+/// Unassigning removes only what is as copied, unless forced.
+#[test]
+fn unassigning_keeps_local_changes_unless_forced() {
+    let p = Proj::new("unassign");
+    project_assign(&p.dirs, &p.path(), None, &["library:style.md".into(), "library:testing.md".into()], &[]).unwrap();
+    write(&p.rule("testing.md"), "changed here\n");
+    let r = project_unassign(&p.path(), &["library:style.md".into(), "testing.md".into(), "other.md".into()], false).unwrap();
+    assert_eq!((r.removed.clone(), r.modified.clone(), r.unknown.clone()), (vec!["style.md".to_string()], vec!["testing.md".to_string()], vec!["other.md".to_string()]));
+    assert!(!p.rule("style.md").exists() && p.rule("testing.md").exists());
+    let r = project_unassign(&p.path(), &["testing.md".into()], true).unwrap();
+    assert_eq!(r.removed, vec!["testing.md"]);
+    assert!(!p.rule("testing.md").exists());
+    assert!(project::load(&p.repo).rules.is_empty());
+}
+
+/// A repo with a hand-written, tracked CLAUDE.md: it's offered for import
+/// first, generation won't replace it until it's imported, and afterwards
+/// the generated CLAUDE.md carries its text.
+#[test]
+fn existing_instructions_are_imported_before_generating() {
+    let p = Proj::new("import-existing");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    write(&p.repo.join("CLAUDE.md"), "# Ours\n\nAlways test.\n");
+    sh(&p.repo, &["add", "CLAUDE.md"]);
+    sh(&p.repo, &["commit", "-qm", "claude"]);
+    assert_eq!(p.status().existing, vec!["CLAUDE.md"]);
+    project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &[]).unwrap();
+    assert_eq!(p.status().existing, vec!["CLAUDE.md"], "still offered");
+    // Generating now would lose the hand-written text: kept, out of date.
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
+    assert_eq!(g.needs_confirm, vec!["CLAUDE.md"]);
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "# Ours\n\nAlways test.\n");
+    assert!(p.status().generated.out_of_date);
+
+    let stage = p.dirs.run().join("import");
+    let r = project::import_existing(&p.repo, &runner, &stage).unwrap();
+    assert_eq!((r.files.clone(), r.added.clone()), (vec!["CLAUDE.md".to_string()], vec!["claude-overview.md".to_string()]));
+    assert!(std::fs::read_to_string(p.rule("claude-overview.md")).unwrap().contains("Always test."));
+    let s = p.status();
+    assert!(s.existing.is_empty());
+    assert!(s.rules.iter().any(|r| r.name == "claude-overview.md" && r.state == pitwall_proto::ProjectRuleState::Own));
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
+    assert_eq!(g.written, vec!["CLAUDE.md"]);
+    let text = std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap();
+    assert!(text.contains("Always test.") && text.contains("Use tabs."), "{text}");
+    assert!(!p.status().generated.out_of_date);
+}
+
+/// Generated files are tracked against `.rulesync/`: out of date when the
+/// rules change or the outputs are edited; an edited output is never
+/// replaced unasked.
+#[test]
+fn generated_files_go_out_of_date() {
+    let p = Proj::new("generate");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &[]).unwrap();
+    let s = p.status();
+    assert!(!s.generated.generated && s.generated.out_of_date, "copied, never generated");
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &[], &[], || vec!["claudecode".into()]).unwrap();
+    assert_eq!((g.written.clone(), g.targets.clone()), (vec!["CLAUDE.md".to_string()], vec!["claudecode".to_string()]));
+    let s = p.status().generated;
+    assert!(s.generated && !s.out_of_date && s.targets == vec!["claudecode"]);
+    // Committed like any change.
+    assert!(sh(&p.repo, &["status", "--porcelain"]).contains("?? CLAUDE.md"));
+
+    project_assign(&p.dirs, &p.path(), None, &["library:testing.md".into()], &[]).unwrap();
+    assert!(p.status().generated.out_of_date, "rules changed");
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &[], &[], Vec::new).unwrap();
+    assert_eq!(g.written, vec!["CLAUDE.md"], "Pitwall's own output is replaced");
+    assert!(!p.status().generated.out_of_date);
+
+    write(&p.repo.join("CLAUDE.md"), "edited by hand\n");
+    let s = p.status().generated;
+    assert!(s.out_of_date && s.changed == vec!["CLAUDE.md"]);
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &[], &[], Vec::new).unwrap();
+    assert_eq!(g.needs_confirm, vec!["CLAUDE.md"]);
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "edited by hand\n");
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &[], &["CLAUDE.md".into()], Vec::new).unwrap();
+    assert_eq!(g.written, vec!["CLAUDE.md"]);
+    assert!(!p.status().generated.out_of_date);
+}
+
+fn main_ctx(p: &Proj) -> AgentCtx {
+    AgentCtx {
+        id: "agent-1".into(),
+        cwd: p.path(),
+        project: p.path(),
+        worktree: false,
+        kind_name: "Claude Code".into(),
+        target: Some("claudecode".into()),
+        fallback: None,
+    }
+}
+
+/// Agent scope never clobbers shared files: a tracked CLAUDE.md is kept and
+/// not excluded; an agent's own CLAUDE.md that the project then generates
+/// is handed over (no longer excluded, shows in Review).
+#[test]
+fn agent_rules_and_project_files_dont_collide() {
+    let p = Proj::new("collide");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    write(&p.lib("mine.md"), "Personal note.\n");
+    let mine = p.set("Mine", &["mine.md"]);
+    update(&p.dirs, |s| {
+        s.agents.entry("agent-1".into()).or_default().rule_set_id = Some(mine.clone());
+        Ok(())
+    })
+    .unwrap();
+    let c = main_ctx(&p);
+    // Its own rules land in an (untracked, excluded) CLAUDE.md.
+    let res = apply_with(&p.dirs, Some(&runner), &LocalExec, &c, true).unwrap();
+    assert_eq!(res.generated, vec!["CLAUDE.md"]);
+    let exclude = p.repo.join(".git/info/exclude");
+    assert!(std::fs::read_to_string(&exclude).unwrap().contains("/CLAUDE.md"));
+    assert_eq!(sh(&p.repo, &["status", "--porcelain"]), "");
+
+    // The project takes CLAUDE.md over: generated, released from the agent.
+    project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &[]).unwrap();
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
+    assert_eq!(g.written, vec!["CLAUDE.md"]);
+    assert!(!std::fs::read_to_string(&exclude).unwrap().contains("/CLAUDE.md"));
+    assert!(read(&p.dirs).agents["agent-1"].files.is_empty());
+    assert!(sh(&p.repo, &["status", "--porcelain"]).contains("?? CLAUDE.md"));
+    // Once committed (tracked), the agent's apply keeps it and excludes nothing.
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "rules"]);
+    let res = apply_with(&p.dirs, Some(&runner), &LocalExec, &c, true).unwrap();
+    assert!(res.generated.is_empty(), "{res:?}");
+    assert!(res.log.contains("kept the project's CLAUDE.md"), "{}", res.log);
+    assert!(!std::fs::read_to_string(&exclude).unwrap().contains("/CLAUDE.md"));
+    assert_eq!(sh(&p.repo, &["status", "--porcelain"]), "");
+    // The agent cleaning up never deletes the project's file.
+    forget_agent(&p.dirs, &LocalExec, "agent-1");
+    assert!(p.repo.join("CLAUDE.md").exists());
+}
+
+/// The old default set is a fallback while the project has no `.rulesync/`;
+/// "move to project" copies its rules in and drops it.
+#[test]
+fn the_old_default_set_moves_into_the_project() {
+    let p = Proj::new("migrate");
+    let web = p.set("Web", &["style.md"]);
+    // rules.json as an older Pitwall wrote it still loads.
+    let mut store: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p.dirs.base.join("rules.json")).unwrap()).unwrap();
+    store["projectDefaults"] = serde_json::json!({ p.path(): web });
+    std::fs::write(p.dirs.base.join("rules.json"), store.to_string()).unwrap();
+    assert_eq!(p.status().fallback_set.as_deref(), Some(web.as_str()));
+    let c = main_ctx(&p);
+    assert_eq!(project_set(&read(&p.dirs), &c).as_deref(), Some(web.as_str()), "used while there's no .rulesync/");
+
+    let r = project_move_default(&p.dirs, &p.path()).unwrap();
+    assert_eq!(r.copied, vec!["style.md"]);
+    assert!(read(&p.dirs).project_defaults.is_empty());
+    let s = p.status();
+    assert_eq!(s.fallback_set, None);
+    assert_eq!(project_set(&read(&p.dirs), &c), None, "the project's own rules now");
+    assert!(project_move_default(&p.dirs, &p.path()).is_err(), "nothing left to move");
 }

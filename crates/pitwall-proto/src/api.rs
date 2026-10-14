@@ -97,6 +97,24 @@ pub mod method {
     /// [`RulesImport`](crate::RulesImport) → [`RulesImported`](crate::RulesImported)
     /// (asks the user for a file or a git repository).
     pub const RULES_IMPORT: &str = "rules.import";
+    // Project rules: copied into the repo's .rulesync/ and committed.
+    /// [`ProjectRef`](crate::ProjectRef) → [`ProjectRulesStatus`](crate::ProjectRulesStatus)
+    pub const RULES_PROJECT_STATUS: &str = "rules.project.status";
+    /// [`ProjectAssign`](crate::ProjectAssign) → [`ProjectAssigned`](crate::ProjectAssigned) (asks the user)
+    pub const RULES_PROJECT_ASSIGN: &str = "rules.project.assign";
+    /// [`ProjectUnassign`](crate::ProjectUnassign) → [`ProjectUnassigned`](crate::ProjectUnassigned) (asks the user)
+    pub const RULES_PROJECT_UNASSIGN: &str = "rules.project.unassign";
+    /// [`ProjectRef`](crate::ProjectRef) → [`ProjectRuleUpdate`](crate::ProjectRuleUpdate)`[]`
+    pub const RULES_PROJECT_UPDATES: &str = "rules.project.updates";
+    /// [`ProjectUpdate`](crate::ProjectUpdate) → [`ProjectUpdated`](crate::ProjectUpdated) (asks the user)
+    pub const RULES_PROJECT_UPDATE: &str = "rules.project.update";
+    /// [`ProjectRef`](crate::ProjectRef) → [`ProjectImported`](crate::ProjectImported) (asks the user)
+    pub const RULES_PROJECT_IMPORT: &str = "rules.project.import";
+    /// [`ProjectGenerate`](crate::ProjectGenerate) → [`ProjectGenerated`](crate::ProjectGenerated) (asks the user)
+    pub const RULES_PROJECT_GENERATE: &str = "rules.project.generate";
+    /// [`ProjectRef`](crate::ProjectRef) → [`ProjectAssigned`](crate::ProjectAssigned):
+    /// the old default set's rules copied in, the default dropped (asks the user).
+    pub const RULES_PROJECT_MOVE: &str = "rules.project.move";
     /// [`RulesShow`](crate::RulesShow) → [`ProjectRulesView`](crate::ProjectRulesView)
     pub const RULES_SHOW: &str = "rules.show";
     /// [`ReviewRequest`](crate::ReviewRequest) → [`ReviewChanges`](crate::ReviewChanges)
