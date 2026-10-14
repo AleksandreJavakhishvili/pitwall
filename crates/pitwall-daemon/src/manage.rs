@@ -578,7 +578,7 @@ fn project_view(p: rules::ProjectRules) -> ProjectRulesView {
                 effective: a
                     .effective
                     .into_iter()
-                    .map(|r| EffectiveRuleView { id: r.id, description: r.description, from: r.from.into(), missing: r.missing })
+                    .map(|r| EffectiveRuleView { id: r.id, description: r.description, from: r.from.into(), missing: r.missing, skill: r.skill })
                     .collect(),
             })
             .collect(),

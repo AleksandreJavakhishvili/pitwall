@@ -30,8 +30,17 @@ pub struct Staged {
     pub content: Vec<u8>,
 }
 
+/// One skill as handed to rulesync: its library folder, under this name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StagedSkill {
+    pub name: String,
+    pub dir: PathBuf,
+}
+
 pub struct Inputs {
     pub staged: Vec<Staged>,
+    /// The agent's skills (local-only like its rules: excluded from git).
+    pub skills: Vec<StagedSkill>,
     pub missing: Vec<String>,
     pub notes: Vec<String>,
     /// The working directory's own rulesync source tree, if it has one.
@@ -68,17 +77,17 @@ pub fn effective(library: &[RuleFile], shared: &[String], extra: &[String], targ
         }
         match library.iter().find(|f| &f.id == id) {
             Some(f) if applies_to(&f.targets, target) => {
-                out.push(EffectiveRule { id: id.clone(), description: f.description.clone(), from, missing: false });
+                out.push(EffectiveRule { id: id.clone(), description: f.description.clone(), from, missing: false, skill: f.skill });
             }
             Some(_) => {}
-            None => out.push(EffectiveRule { id: id.clone(), description: None, from, missing: true }),
+            None => out.push(EffectiveRule { id: id.clone(), description: None, from, missing: true, skill: library::skill_name(id).is_some() }),
         }
     }
     let root = cwd.join(".rulesync");
     if root.join("rules").is_dir() {
         for f in library::rules_in("folder", &root) {
             if applies_to(&f.targets, target) {
-                out.push(EffectiveRule { id: f.id, description: f.description, from: "folder", missing: false });
+                out.push(EffectiveRule { id: f.id, description: f.description, from: "folder", missing: false, skill: false });
             }
         }
     }
@@ -89,6 +98,7 @@ pub fn effective(library: &[RuleFile], shared: &[String], extra: &[String], targ
 /// and `extra` ids (the agent's own set, written to local-only files).
 pub fn collect(library: &[RuleFile], shared: &[String], extra: &[String], target: &str, cwd: &Path) -> Inputs {
     let mut staged: Vec<Staged> = Vec::new();
+    let mut skills: Vec<StagedSkill> = Vec::new();
     let mut missing = Vec::new();
     let mut notes = Vec::new();
     let project_root = Some(cwd.join(".rulesync")).filter(|r| r.join("rules").is_dir());
@@ -110,6 +120,13 @@ pub fn collect(library: &[RuleFile], shared: &[String], extra: &[String], target
             missing.push(id.clone());
             continue;
         };
+        if file.skill {
+            let name = library::skill_name(&file.id).unwrap_or("skill").to_string();
+            if !skills.iter().any(|s: &StagedSkill| s.name == name) {
+                skills.push(StagedSkill { name, dir: PathBuf::from(&file.path) });
+            }
+            continue;
+        }
         let Ok(mut src) = std::fs::read_to_string(&file.path) else {
             missing.push(id.clone());
             continue;
@@ -141,7 +158,7 @@ pub fn collect(library: &[RuleFile], shared: &[String], extra: &[String], target
         taken.insert(name.to_lowercase());
         staged.push(Staged { name, content: src.into_bytes() });
     }
-    Inputs { staged, missing, notes, project_root }
+    Inputs { staged, skills, missing, notes, project_root }
 }
 
 /// Stable FNV-1a over everything that decides the generated output.
@@ -157,6 +174,13 @@ pub fn fingerprint(inputs: &Inputs, target: &str) -> String {
     for s in &inputs.staged {
         feed(s.name.as_bytes());
         feed(&s.content);
+    }
+    for s in &inputs.skills {
+        feed(s.name.as_bytes());
+        for rel in library::files_under(&s.dir) {
+            feed(rel.as_bytes());
+            feed(&std::fs::read(s.dir.join(&rel)).unwrap_or_default());
+        }
     }
     if let Some(root) = &inputs.project_root {
         for f in library::rules_in("project", root) {
@@ -374,6 +398,9 @@ pub fn fallback_text(inputs: &Inputs, target: &str) -> Option<String> {
 /// files cleaned up, everything listed in info/exclude.
 pub fn fallback(exec: &dyn Exec, agent_id: &str, cwd: &str, fb: &RulesFallback, inputs: &Inputs, previous: &[GenFile]) -> Result<Outcome, String> {
     let mut log: Vec<String> = inputs.missing.iter().map(|id| format!("rule {id} is no longer in the library; skipped")).collect();
+    if !inputs.skills.is_empty() {
+        log.push(format!("{} takes no skills: {} left out", fb.target, inputs.skills.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ")));
+    }
     let mut files = Vec::new();
     let mut launch_args = Vec::new();
     match fallback_text(inputs, &fb.target) {
@@ -446,6 +473,12 @@ pub fn run(
     for s in &inputs.staged {
         std::fs::write(input.join("rules").join(&s.name), &s.content).map_err(|e| e.to_string())?;
     }
+    for s in &inputs.skills {
+        library::copy_dir(&s.dir, &input.join("skills").join(&s.name))?;
+    }
+    // Skills only when the agent has some of its own (the project's are the
+    // project's to generate and commit).
+    let features = if inputs.skills.is_empty() { "rules" } else { "rules,skills" };
     if out.to_string_lossy().contains(',') {
         return Err("Pitwall's folder path contains a comma, which rulesync can't take as an output root".into());
     }
@@ -455,7 +488,7 @@ pub fn run(
         "--targets".into(),
         target.into(),
         "--features".into(),
-        "rules".into(),
+        features.into(),
         "--output-roots".into(),
         out.to_string_lossy().into_owned(),
         "--input-roots".into(),
@@ -576,6 +609,7 @@ mod tests {
                 targets: vec!["*".into()],
                 root,
                 local_root: false,
+                skill: false,
                 source: "library".into(),
             }
         };
@@ -610,6 +644,7 @@ mod tests {
             targets: targets.iter().map(|s| s.to_string()).collect(),
             root: false,
             local_root: false,
+            skill: false,
             source: "library".into(),
         };
         let lib = vec![rule("all.md", &["*"]), rule("claude.md", &["claudecode"]), rule("codex.md", &["codexcli"])];
