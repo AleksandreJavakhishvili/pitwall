@@ -75,6 +75,8 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
     (method::RULES_DEFAULT, Access::Open),
     (method::RULES_SHOW, Access::Open),
+    // New entries only add to Pitwall's library; replacing one asks.
+    (method::RULES_LIBRARY_NEW, Access::AskWhen("`overwrite` and the library has one of that name: replaces it", Risk::Low)),
     // Project rules write into the user's repository (to be committed, shown in Review).
     (method::RULES_PROJECT_STATUS, Access::Open),
     (method::RULES_PROJECT_UPDATES, Access::Open),
@@ -181,6 +183,7 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::RULES_APPLY => manage::rules_apply(s, caller, required(p)?),
         method::RULES_DEFAULT => manage::rules_default(s, required(p)?),
         method::RULES_SHOW => manage::rules_show(s, required(p)?),
+        method::RULES_LIBRARY_NEW => manage::library_new(s, caller, required(p)?),
         method::RULES_PROJECT_STATUS => manage::project_status(s, required(p)?),
         method::RULES_PROJECT_UPDATES => manage::project_updates(s, required(p)?),
         method::RULES_PROJECT_ASSIGN => manage::project_assign(s, caller, required(p)?),
@@ -373,6 +376,7 @@ mod tests {
             assert!(matches!(access(m), Some(Access::AskWhen(_, Risk::Low))), "{m}");
         }
         assert_eq!(access(method::RULES_PROJECT_STATUS), Some(Access::Open));
+        assert!(matches!(access(method::RULES_LIBRARY_NEW), Some(Access::AskWhen(_, Risk::Low))));
         assert_eq!(access(method::RULES_PROJECT_UPDATES), Some(Access::Open));
         // Read-only methods never ask.
         for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST] {

@@ -882,3 +882,75 @@ fn project_status_snapshot() {
          Default set in Pitwall: Web — move it into the project: pitwall rules project move-default\n"
     );
 }
+
+/// Skills from the CLI: new ones go straight into the library, replacing
+/// one asks; a skill is assigned to a project like a rule (asks), and
+/// listed with its type.
+#[test]
+fn skills_end_to_end() {
+    let dir = TempDir::new("cli-skills");
+    let data = dir.path().join("pitwall");
+    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let out = std::process::Command::new("git").args(["-C", repo.to_str().unwrap(), "init", "-q"]).output().unwrap();
+    assert!(out.status.success());
+    let engine = Engine::open(Deps {
+        paths: Paths::new(data.clone()),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let approvals = Approvals::new(Duration::from_secs(10));
+    let sock_dir = std::env::temp_dir().join(format!("pwck-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("k.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None };
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
+    let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let answer = |allow: bool| {
+        let a = approvals.clone();
+        std::thread::spawn(move || loop {
+            if let Some(p) = a.pending().first() {
+                a.answer(&ApprovalAnswer { id: p.id.clone(), allow, remember: false }).unwrap();
+                return p.summary.clone();
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        })
+    };
+
+    let o = go(&["rules", "skill", "new", "review", "--description", "Review a diff"]).unwrap();
+    assert_eq!(o.json["id"], "library:skills/review");
+    assert!(data.join("rules/skills/review/SKILL.md").is_file());
+    let o = go(&["rules", "new", "tabs", "--description", "Tabs"]).unwrap();
+    assert_eq!(o.json["id"], "library:tabs.md");
+    assert!(approvals.pending().is_empty(), "new entries don't ask");
+    let e = go(&["rules", "skill", "new", "review", "--description", "x"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "conflict");
+    let e = go(&["rules", "skill", "new", "tabs2", "--from", "library:tabs.md"]).err().unwrap();
+    assert!(failure(&e).0["error"]["message"].as_str().unwrap().contains("--as-skill"));
+    // Replacing asks.
+    let t = answer(false);
+    let e = go(&["rules", "skill", "new", "review", "--description", "Review harder", "--overwrite"]).err().unwrap();
+    assert!(t.join().unwrap().contains("replace the skill \"review\""));
+    assert_eq!(failure(&e).1, 3);
+    let t = answer(true);
+    go(&["rules", "skill", "new", "review", "--description", "Review harder", "--overwrite"]).unwrap();
+    t.join().unwrap();
+    assert!(std::fs::read_to_string(data.join("rules/skills/review/SKILL.md")).unwrap().contains("Review harder"));
+
+    let o = go(&["rules", "list", "--human"]).unwrap();
+    assert!(o.human.contains("skill  library:skills/review") && o.human.contains("rule   library:tabs.md"), "{}", o.human);
+    let p = repo.to_str().unwrap();
+    let t = answer(true);
+    let o = go(&["rules", "project", "assign", p, "--skill", "review"]).unwrap();
+    assert!(t.join().unwrap().contains("copy rules into"));
+    assert_eq!(o.json["copied"], json!(["skills/review"]));
+    assert!(repo.join(".rulesync/skills/review/SKILL.md").is_file());
+    let o = go(&["rules", "project", "status", p, "--human"]).unwrap();
+    assert!(o.human.contains("skills/review"), "{}", o.human);
+    assert!(o.json["existing"].as_array().unwrap().is_empty());
+
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}

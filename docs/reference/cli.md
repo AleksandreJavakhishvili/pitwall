@@ -515,10 +515,61 @@ Rule sets (rulesync) for agents and projects.
 
 ### rules list
 
-Rule files in the library, and each agent's rules state.
+The library's skills and rules (with their type), and each agent's rules state.
 
 ```bash
 pitwall rules list [OPTIONS]
+```
+
+### rules new
+
+Write a new rule into the library: from scratch, a file, or a library entry. A rule is in every session's context.
+
+```bash
+pitwall rules new [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | The rule's name (its file name in the library, without .md). |
+
+| Option | |
+|---|---|
+| `--from <ID\|PATH>` | Start from a library entry (id), or a file. |
+| `--description <DESCRIPTION>` | What it's about (shown in lists). |
+| `--targets <TARGETS>` | rulesync targets it's for, comma-separated (default: every tool). |
+| `--as-rule` | --from is a skill: make a rule of it (its other files are left out, and it will be in every session's context). |
+| `--overwrite` | Replace a rule of that name (asks you in Pitwall). |
+
+```bash
+pitwall rules new tabs --description "Tabs, not spaces" --from ~/notes/tabs.md
+pitwall rules new deploy-rule --from library:skills/deploy --as-rule   # a skill made a rule: always in context
+```
+
+### rules skill new
+
+Write a new skill into the library (a folder with SKILL.md): from scratch, a skill's folder (its other files come along), a file, or a library entry.
+
+```bash
+pitwall rules skill new [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | The skill's name (its folder in the library). |
+
+| Option | |
+|---|---|
+| `--from <ID\|PATH>` | Start from a library entry (id), a skill's folder, or a file. |
+| `--description <DESCRIPTION>` | When to use it: agents read this to decide (required unless --from has one). |
+| `--targets <TARGETS>` | rulesync targets it's for, comma-separated (default: every tool). |
+| `--as-skill` | --from is a rule: make a skill of it. |
+| `--overwrite` | Replace a skill of that name (asks you in Pitwall). |
+
+```bash
+pitwall rules skill new review --description "Review a diff for bugs and tests"
+pitwall rules skill new deploy --from ./tools/deploy-skill      # a folder with SKILL.md and its files
+pitwall rules skill new deploy --from ./deploy.md --overwrite  # replaces: asks first
 ```
 
 ### rules sets
@@ -696,6 +747,7 @@ pitwall rules project assign [OPTIONS] <PROJECT>
 |---|---|
 | `--set <SET>` | A rule set (id or name): all its rules. |
 | `--rule <RULE>` | A library rule (id, or file name when only one rule has it). Repeatable. |
+| `--skill <SKILL>` | A library skill (its name or id). Repeatable. |
 | `--overwrite <NAME>` | Replace this file in .rulesync/rules/ although it differs. Repeatable. |
 
 ```bash
@@ -803,7 +855,7 @@ pitwall rules project move-default [OPTIONS] [PROJECT]
 
 ### rules import
 
-Add rules to the library: a project's own `.rulesync/` (read in place), a CLAUDE.md / AGENTS.md / GEMINI.md (needs rulesync), or a git repository (cloned). A file or a repository asks you in Pitwall.
+Add rules and skills to the library: a project's own `.rulesync/` (read in place) and its `.claude/skills` (copied), a CLAUDE.md / AGENTS.md / GEMINI.md (needs rulesync), or a git repository (cloned). A file or a repository asks you in Pitwall.
 
 ```bash
 pitwall rules import [OPTIONS] <KIND> <SOURCE>
