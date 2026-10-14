@@ -124,6 +124,8 @@ pub struct RulesSection {
     /// The project opened to its agents, and what they get (once read).
     expanded: Option<String>,
     detail: Option<ProjectRules>,
+    /// The open project's own rules (`super::project`).
+    panel: Option<Entity<super::project::ProjectPanel>>,
     /// "Re-apply & restart all": running, and what it did.
     bulk_busy: bool,
     bulk_msg: Option<(bool, String)>,
@@ -177,6 +179,7 @@ impl RulesSection {
             defaults: BTreeMap::new(),
             expanded: None,
             detail: None,
+            panel: None,
             bulk_busy: false,
             bulk_msg: None,
             select: None,
@@ -285,11 +288,13 @@ impl RulesSection {
         });
     }
 
-    /// Open (or close) a project's agents.
+    /// Open (or close) a project: its own rules and its agents.
     fn toggle_detail(&mut self, path: String, cx: &mut Context<Self>) {
         if self.expanded.as_ref() == Some(&path) {
             self.expanded = None;
+            self.panel = None;
         } else {
+            self.panel = Some(cx.new(|cx| super::project::ProjectPanel::new(path.clone(), cx)));
             self.expanded = Some(path);
         }
         self.detail = None;
@@ -302,6 +307,9 @@ impl RulesSection {
         let Some(path) = self.expanded.clone() else {
             return;
         };
+        if let Some(p) = &self.panel {
+            p.update(cx, |p, cx| p.reload(cx));
+        }
         call(
             cx,
             move |b| b.project_detail(&path),
@@ -1071,7 +1079,7 @@ impl RulesSection {
                     .child(
                         mini(
                             ("rules-proj-agents", i),
-                            if is_open { "Hide agents" } else { "Agents" },
+                            if is_open { "Hide" } else { "Details" },
                             false,
                             t,
                         )
@@ -1107,7 +1115,9 @@ impl RulesSection {
                     .flex()
                     .flex_col()
                     .child(head)
-                    .when(is_open, |d| d.child(self.project_agents(t)))
+                    .when(is_open, |d| {
+                        d.children(self.panel.clone()).child(self.project_agents(t))
+                    })
                     .into_any_element()
             })
             .collect();
@@ -1220,6 +1230,10 @@ impl RulesSection {
                     .map_or_else(|| "a deleted set".into(), |s| s.name.clone()),
             }
         };
+        let body = body.child(kit::hint(
+            "Agents: each one's own set is personal (local files kept out of git).",
+            t,
+        ));
         body.children(d.agents.iter().map(|a| {
             let (state, tone) = agent_state(&a.view);
             let kind = match &a.target {

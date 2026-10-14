@@ -11,6 +11,11 @@ use pitwall_core::rules::{
     Reapplied, RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
 };
 
+use pitwall_proto::{
+    GeneratedFiles, ProjectAssigned, ProjectGenerated, ProjectImported, ProjectRule,
+    ProjectRuleState, ProjectRuleUpdate, ProjectRulesStatus, ProjectUnassigned, ProjectUpdated,
+};
+
 use super::RulesBackend;
 
 type Res<T> = Result<T, String>;
@@ -23,6 +28,12 @@ struct State {
     sources: Vec<RuleSource>,
     projects: BTreeMap<String, String>,
     agents: BTreeMap<String, AgentRulesView>,
+    /// Project path → rules copied into it (name → (source, state)).
+    copied: BTreeMap<String, BTreeMap<String, (String, ProjectRuleState)>>,
+    /// Projects whose generated files are up to date.
+    generated: Vec<String>,
+    /// Projects with a hand-written CLAUDE.md not imported yet.
+    hand_written: Vec<String>,
     next: u32,
 }
 
@@ -95,6 +106,23 @@ impl MockRules {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.s.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A rule of `path` now in `state` (an update arrived, a local edit).
+    pub fn set_project_rule(&self, path: &str, name: &str, state: ProjectRuleState) {
+        if let Some(r) = self
+            .lock()
+            .copied
+            .get_mut(path)
+            .and_then(|m| m.get_mut(name))
+        {
+            r.1 = state;
+        }
+    }
+
+    /// `path` has a hand-written, tracked CLAUDE.md.
+    pub fn hand_written(&self, path: &str) {
+        self.lock().hand_written.push(path.into());
     }
 
     /// Mark an agent's rules as changed (or failed) since its session began.
@@ -338,6 +366,187 @@ impl RulesBackend for MockRules {
     /// The mock runs no agents.
     fn restart(&self, _agent_id: &str) -> Res<Option<pitwall_proto::AgentView>> {
         Ok(None)
+    }
+    fn project_status(&self, path: &str) -> Res<ProjectRulesStatus> {
+        let s = self.lock();
+        let copied = s.copied.get(path).cloned().unwrap_or_default();
+        let rules: Vec<ProjectRule> = copied
+            .iter()
+            .map(|(name, (source, state))| ProjectRule {
+                name: name.clone(),
+                source: Some(source.clone()),
+                state: *state,
+                description: None,
+            })
+            .collect();
+        let updates = rules
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.state,
+                    ProjectRuleState::Update | ProjectRuleState::Conflict
+                )
+            })
+            .count();
+        let generated = s.generated.iter().any(|p| p == path);
+        Ok(ProjectRulesStatus {
+            project: path.into(),
+            rulesync: !copied.is_empty(),
+            updates,
+            generated: GeneratedFiles {
+                generated,
+                out_of_date: !copied.is_empty() && !generated,
+                changed: vec![],
+                targets: vec!["claudecode".into()],
+            },
+            existing: if s.hand_written.iter().any(|p| p == path) {
+                vec!["CLAUDE.md".into()]
+            } else {
+                vec![]
+            },
+            fallback_set: s.projects.get(path).cloned().filter(|_| copied.is_empty()),
+            rules,
+        })
+    }
+    fn project_assign(
+        &self,
+        path: &str,
+        rule_ids: &[String],
+        _overwrite: &[String],
+    ) -> Res<ProjectAssigned> {
+        let mut s = self.lock();
+        let lib: Vec<String> = s.lib.iter().map(|r| r.id.clone()).collect();
+        let mut out = ProjectAssigned::default();
+        for id in rule_ids {
+            if !lib.contains(id) {
+                out.skipped.push(format!("{id}: not in the library"));
+                continue;
+            }
+            let name = super::rule_label(id).to_string();
+            s.copied
+                .entry(path.into())
+                .or_default()
+                .insert(name.clone(), (id.clone(), ProjectRuleState::Current));
+            out.copied.push(name);
+        }
+        s.generated.retain(|p| p != path);
+        Ok(out)
+    }
+    fn project_unassign(
+        &self,
+        path: &str,
+        rules: &[String],
+        force: bool,
+    ) -> Res<ProjectUnassigned> {
+        let mut s = self.lock();
+        let mut out = ProjectUnassigned::default();
+        let m = s.copied.entry(path.into()).or_default();
+        for key in rules {
+            let name = m
+                .iter()
+                .find(|(n, (src, _))| *n == key || src == key)
+                .map(|(n, _)| n.clone());
+            match name {
+                None => out.unknown.push(key.clone()),
+                Some(n) if !force && m[&n].1 == ProjectRuleState::Modified => out.modified.push(n),
+                Some(n) => {
+                    m.remove(&n);
+                    out.removed.push(n);
+                }
+            }
+        }
+        s.generated.retain(|p| p != path);
+        Ok(out)
+    }
+    fn project_updates(&self, path: &str) -> Res<Vec<ProjectRuleUpdate>> {
+        let s = self.lock();
+        Ok(s.copied
+            .get(path)
+            .into_iter()
+            .flatten()
+            .filter(|(_, (_, st))| {
+                matches!(
+                    st,
+                    ProjectRuleState::Update
+                        | ProjectRuleState::Modified
+                        | ProjectRuleState::Conflict
+                )
+            })
+            .map(|(name, (source, state))| ProjectRuleUpdate {
+                name: name.clone(),
+                source: source.clone(),
+                state: *state,
+                library: Some("new\n".into()),
+                project: Some("old\n".into()),
+                diff: "--- project\n+++ library\n@@ -1 +1 @@\n-old\n+new\n".into(),
+            })
+            .collect())
+    }
+    fn project_update(
+        &self,
+        path: &str,
+        rules: &[String],
+        take: Option<&str>,
+    ) -> Res<ProjectUpdated> {
+        let mut s = self.lock();
+        let mut out = ProjectUpdated::default();
+        let m = s.copied.entry(path.into()).or_default();
+        for (name, (source, state)) in m.iter_mut() {
+            if !rules.is_empty() && !rules.iter().any(|r| r == name || r == source) {
+                continue;
+            }
+            match (*state, take) {
+                (ProjectRuleState::Update, _) | (ProjectRuleState::Conflict, Some("library")) => {
+                    *state = ProjectRuleState::Current;
+                    out.updated.push(name.clone());
+                }
+                (ProjectRuleState::Conflict, Some(_)) => {
+                    *state = ProjectRuleState::Modified;
+                    out.kept.push(name.clone());
+                }
+                (ProjectRuleState::Conflict, None) => out.conflicts.push(name.clone()),
+                _ => {}
+            }
+        }
+        if !out.updated.is_empty() {
+            s.generated.retain(|p| p != path);
+        }
+        Ok(out)
+    }
+    fn project_import_existing(&self, path: &str) -> Res<ProjectImported> {
+        let mut s = self.lock();
+        s.hand_written.retain(|p| p != path);
+        s.copied.entry(path.into()).or_default();
+        Ok(ProjectImported {
+            files: vec!["CLAUDE.md".into()],
+            added: vec!["claude-overview.md".into()],
+            log: String::new(),
+        })
+    }
+    fn project_generate(&self, path: &str, _overwrite: &[String]) -> Res<ProjectGenerated> {
+        if !self.status().available {
+            return Err("rulesync isn't available.".into());
+        }
+        self.lock().generated.push(path.into());
+        Ok(ProjectGenerated {
+            written: vec!["CLAUDE.md".into()],
+            targets: vec!["claudecode".into()],
+            ..Default::default()
+        })
+    }
+    fn project_move_default(&self, path: &str) -> Res<ProjectAssigned> {
+        let set = self
+            .lock()
+            .projects
+            .remove(path)
+            .ok_or("this project has no default rule set in Pitwall")?;
+        let ids = self
+            .sets()
+            .into_iter()
+            .find(|x| x.id == set)
+            .map(|x| x.rule_ids)
+            .unwrap_or_default();
+        self.project_assign(path, &ids, &[])
     }
     /// Every mock agent, as Claude Code agents of `project_path`.
     fn project_detail(&self, project_path: &str) -> ProjectRules {

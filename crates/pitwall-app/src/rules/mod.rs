@@ -19,6 +19,7 @@
 pub mod field;
 #[cfg(any(test, debug_assertions))]
 pub mod mock;
+pub mod project;
 pub mod settings;
 pub mod stale;
 mod widgets;
@@ -37,6 +38,10 @@ use pitwall_core::rules::{
     RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
 };
 use pitwall_core::Shared;
+use pitwall_proto::{
+    ProjectAssigned, ProjectGenerated, ProjectImported, ProjectRuleUpdate, ProjectRulesStatus,
+    ProjectUnassigned, ProjectUpdated,
+};
 
 type Res<T> = Result<T, String>;
 
@@ -75,6 +80,28 @@ pub trait RulesBackend: Send + Sync + 'static {
     /// Start a running agent again so new rules take effect; `None` when
     /// it isn't running (it uses them when it next starts).
     fn restart(&self, agent_id: &str) -> Res<Option<pitwall_proto::AgentView>>;
+
+    // Project rules: copied into the repository's `.rulesync/` (the user's
+    // own window asks nobody; the user is the one clicking).
+    fn project_status(&self, path: &str) -> Res<ProjectRulesStatus>;
+    fn project_assign(
+        &self,
+        path: &str,
+        rule_ids: &[String],
+        overwrite: &[String],
+    ) -> Res<ProjectAssigned>;
+    fn project_unassign(&self, path: &str, rules: &[String], force: bool)
+        -> Res<ProjectUnassigned>;
+    fn project_updates(&self, path: &str) -> Res<Vec<ProjectRuleUpdate>>;
+    fn project_update(
+        &self,
+        path: &str,
+        rules: &[String],
+        take: Option<&str>,
+    ) -> Res<ProjectUpdated>;
+    fn project_import_existing(&self, path: &str) -> Res<ProjectImported>;
+    fn project_generate(&self, path: &str, overwrite: &[String]) -> Res<ProjectGenerated>;
+    fn project_move_default(&self, path: &str) -> Res<ProjectAssigned>;
 }
 
 /// The hosted engine (`src-tauri/src/commands/rules.rs`).
@@ -168,6 +195,45 @@ impl RulesBackend for EngineRules {
             return Ok(None);
         }
         pitwall_core::engine::lifecycle::restart(&self.0, agent_id, None).map(Some)
+    }
+    fn project_status(&self, path: &str) -> Res<ProjectRulesStatus> {
+        rules::project_status(&self.dirs(), path)
+    }
+    fn project_assign(
+        &self,
+        path: &str,
+        rule_ids: &[String],
+        overwrite: &[String],
+    ) -> Res<ProjectAssigned> {
+        rules::project_assign(&self.dirs(), path, None, rule_ids, overwrite)
+    }
+    fn project_unassign(
+        &self,
+        path: &str,
+        rules: &[String],
+        force: bool,
+    ) -> Res<ProjectUnassigned> {
+        rules::project_unassign(path, rules, force)
+    }
+    fn project_updates(&self, path: &str) -> Res<Vec<ProjectRuleUpdate>> {
+        rules::project_updates(&self.dirs(), path)
+    }
+    fn project_update(
+        &self,
+        path: &str,
+        rules: &[String],
+        take: Option<&str>,
+    ) -> Res<ProjectUpdated> {
+        rules::project_update(&self.dirs(), path, rules, take)
+    }
+    fn project_import_existing(&self, path: &str) -> Res<ProjectImported> {
+        rules::project_import_existing(&self.dirs(), path)
+    }
+    fn project_generate(&self, path: &str, overwrite: &[String]) -> Res<ProjectGenerated> {
+        rules::project_generate_for(&self.0, path, &[], overwrite)
+    }
+    fn project_move_default(&self, path: &str) -> Res<ProjectAssigned> {
+        rules::project_move_default(&self.dirs(), path)
     }
 }
 
