@@ -22,10 +22,10 @@ use crate::kit::{self, BtnKind, Tone};
 use crate::theme::{appearance, Theme, RADIUS};
 
 use super::widgets::{check_row, mini};
-use super::{call, rule_label};
+use super::{call, rule_label, skill_label};
 
-/// Picker groups: each set with its rules (those still in the library),
-/// then "Other rules" for library rules in no set.
+/// Picker groups: each set with its skills and rules (those still in the
+/// library), then "Other skills" and "Other rules" for those in no set.
 pub fn picker_groups(sets: &[RuleSet], lib: &[RuleFile]) -> Vec<(String, Vec<String>)> {
     let mut groups: Vec<(String, Vec<String>)> = sets
         .iter()
@@ -40,13 +40,15 @@ pub fn picker_groups(sets: &[RuleSet], lib: &[RuleFile]) -> Vec<(String, Vec<Str
         })
         .filter(|(_, ids): &(String, Vec<String>)| !ids.is_empty())
         .collect();
-    let other: Vec<String> = lib
-        .iter()
-        .filter(|r| !sets.iter().any(|s| s.rule_ids.contains(&r.id)))
-        .map(|r| r.id.clone())
-        .collect();
-    if !other.is_empty() {
-        groups.push(("Other rules".into(), other));
+    for (label, skill) in [("Other skills", true), ("Other rules", false)] {
+        let other: Vec<String> = lib
+            .iter()
+            .filter(|r| r.skill == skill && !sets.iter().any(|s| s.rule_ids.contains(&r.id)))
+            .map(|r| r.id.clone())
+            .collect();
+        if !other.is_empty() {
+            groups.push((label.into(), other));
+        }
     }
     groups
 }
@@ -429,21 +431,24 @@ impl ProjectPanel {
                     .iter()
                     .find(|r| r.source.as_deref() == Some(id.as_str()))
                     .map(|r| r.state);
-                let desc = self
-                    .lib
-                    .iter()
-                    .find(|r| r.id == id)
-                    .and_then(|r| r.description.clone());
+                let entry = self.lib.iter().find(|r| r.id == id);
+                let desc = entry.and_then(|r| r.description.clone());
+                let skill = entry.is_some_and(|r| r.skill);
                 let title = div()
                     .flex()
                     .items_center()
                     .gap(px(6.))
                     .child(
-                        div()
-                            .font_family(kit::MONO_FONT)
-                            .text_size(px(12.))
-                            .child(rule_label(&id).to_string()),
+                        div().font_family(kit::MONO_FONT).text_size(px(12.)).child(
+                            if skill {
+                                skill_label(&id)
+                            } else {
+                                rule_label(&id)
+                            }
+                            .to_string(),
+                        ),
                     )
+                    .when(skill, |d| d.child(kit::chip_subtle("skill", t)))
                     .children(
                         state
                             .filter(|s| *s != ProjectRuleState::Current)
@@ -465,14 +470,17 @@ impl ProjectPanel {
             .rules
             .iter()
             .filter(|r| r.state == ProjectRuleState::Own)
-            .map(|r| r.name.clone())
+            .map(|r| {
+                if r.skill {
+                    format!("skills/{}", r.name)
+                } else {
+                    r.name.clone()
+                }
+            })
             .collect();
         if !own.is_empty() {
             col = col.child(kit::hint(
-                format!(
-                    "Also in .rulesync/rules: {} (the project's own).",
-                    own.join(", ")
-                ),
+                format!("Also in .rulesync: {} (the project's own).", own.join(", ")),
                 t,
             ));
         }
@@ -641,9 +649,9 @@ impl Render for ProjectPanel {
                     .text_size(px(12.5))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.text)
-                    .child("Project rules"),
+                    .child("Project skills & rules"),
             )
-            .child(kit::hint(".rulesync/rules, committed with the project", &t))
+            .child(kit::hint(".rulesync, committed with the project", &t))
             .child(div().flex_1());
         if st.updates > 0 {
             head = head.child(kit::chip_tone(
