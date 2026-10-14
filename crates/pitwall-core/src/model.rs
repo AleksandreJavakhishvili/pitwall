@@ -43,6 +43,11 @@ pub struct KindCaps {
     /// agent's process runs on this Mac.
     #[serde(default)]
     pub accounts: bool,
+    /// Its rules are made with rulesync (false with `rules`: Pitwall
+    /// writes its one file itself, `rules_fallback`, so rulesync needn't
+    /// be installed).
+    #[serde(default)]
+    pub rulesync: bool,
 }
 
 impl KindCaps {
@@ -54,6 +59,7 @@ impl KindCaps {
             hooks: kind.hooks != HookMode::None && p.hooks != HookTransport::None,
             custom_command: kind.id == crate::kind::CUSTOM && p.custom_command,
             accounts: kind.account_env.is_some() && p.local_process,
+            rulesync: crate::rules::target_for(kind).is_some() && p.rules,
         }
     }
 }

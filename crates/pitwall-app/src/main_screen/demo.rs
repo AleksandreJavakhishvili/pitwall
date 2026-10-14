@@ -156,6 +156,7 @@ pub fn kinds() -> Vec<KindView> {
             hooks: true,
             custom_command: custom,
             accounts: false,
+            rulesync: id != "gemini" && id != "aider",
         },
     };
     vec![

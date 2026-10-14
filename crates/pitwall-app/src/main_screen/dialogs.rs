@@ -1199,10 +1199,11 @@ impl Render for NewAgentDialog {
         // More options: a separate worktree, rules.
         if folder {
             let can = self.selected_kind().is_some_and(|k| k.caps.rules);
+            let rulesync = self.selected_kind().is_some_and(|k| k.caps.rulesync);
             let wt_cap = self.selected_kind().is_some_and(|k| k.caps.worktree);
             let wt = wt_cap && self.worktree;
             let path = self.project_path(cx);
-            self.rules.update(cx, |f, cx| f.sync(can, &path, wt, cx));
+            self.rules.update(cx, |f, cx| f.sync(can, rulesync, &path, wt, cx));
             let rules = self.rules.read(cx).visible();
             if wt_cap || rules {
                 let open = self.more;
