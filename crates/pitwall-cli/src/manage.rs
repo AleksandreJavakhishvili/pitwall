@@ -19,7 +19,12 @@ use pitwall_proto::{
     RulesOverview, RulesShow, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
 };
 
-use crate::args::{AgentCmd, ProjectCmd, QueueCmd, ReviewCmd, RuleSetCmd, RulesCmd, SpaceCmd, WaitArgs};
+use pitwall_proto::{
+    ProjectAssign, ProjectAssigned, ProjectGenerate, ProjectGenerated, ProjectImported, ProjectRef, ProjectRuleState, ProjectRuleUpdate,
+    ProjectRulesStatus, ProjectUnassign, ProjectUnassigned, ProjectUpdate, ProjectUpdated,
+};
+
+use crate::args::{AgentCmd, ProjectCmd, ProjectRulesCmd, QueueCmd, ReviewCmd, RuleSetCmd, RulesCmd, SpaceCmd, WaitArgs};
 use crate::Output;
 
 fn err(code: &str, message: impl Into<String>) -> Error {
@@ -272,6 +277,7 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             out(&s, rule_sets(&s))
         }
         RulesCmd::Set(cmd) => rule_set_cmd(cmd, c)?,
+        RulesCmd::Project(cmd) => project_rules_cmd(cmd, c)?,
         RulesCmd::Import { kind, source } => {
             let source = if kind == "git" { source.clone() } else { folder(source) };
             let r: RulesImported = manage(c, method::RULES_IMPORT, RulesImport { kind: kind.clone(), source })?;
@@ -318,6 +324,167 @@ pub fn reapplied(r: &RulesReapplied, agents: &[AgentView], restarting: bool) -> 
     }
     if !r.applied.is_empty() && !restarting {
         h.push_str("Rules reach new sessions: restart them (or pass --restart).\n");
+    }
+    h
+}
+
+fn here(p: &Option<String>) -> String {
+    folder(p.as_deref().unwrap_or("."))
+}
+
+pub fn project_rules_cmd(cmd: &ProjectRulesCmd, c: &mut Client) -> Result<Output, Error> {
+    Ok(match cmd {
+        ProjectRulesCmd::Status { project } => {
+            let st: ProjectRulesStatus = manage(c, method::RULES_PROJECT_STATUS, ProjectRef { project: here(project) })?;
+            let sets: RuleSets = manage(c, method::RULES_SETS, Value::Null)?;
+            out(&st, project_status(&st, &sets))
+        }
+        ProjectRulesCmd::Assign { project, set, rules, overwrite } => {
+            let rule_ids = if rules.is_empty() { vec![] } else { library_ids(c, rules)? };
+            let req = ProjectAssign { project: folder(project), set: set.clone(), rule_ids, overwrite: overwrite.clone() };
+            let r: ProjectAssigned = manage(c, method::RULES_PROJECT_ASSIGN, req)?;
+            out(&r, assigned(&r))
+        }
+        ProjectRulesCmd::Unassign { project, rules, force } => {
+            let req = ProjectUnassign { project: folder(project), rules: rules.clone(), force: *force };
+            let r: ProjectUnassigned = manage(c, method::RULES_PROJECT_UNASSIGN, req)?;
+            let mut h = String::new();
+            line(&mut h, "Removed", &r.removed);
+            line(&mut h, "Kept, changed in the project (pass --force)", &r.modified);
+            line(&mut h, "Not copied by Pitwall", &r.unknown);
+            out(&r, h)
+        }
+        ProjectRulesCmd::Updates { project } => {
+            let list: Vec<ProjectRuleUpdate> = manage(c, method::RULES_PROJECT_UPDATES, ProjectRef { project: here(project) })?;
+            out(&list, rule_updates(&list))
+        }
+        ProjectRulesCmd::Update { project, rules, take } => {
+            let req = ProjectUpdate { project: folder(project), rules: rules.clone(), take: take.clone() };
+            let r: ProjectUpdated = manage(c, method::RULES_PROJECT_UPDATE, req)?;
+            let mut h = String::new();
+            line(&mut h, "Updated", &r.updated);
+            line(&mut h, "Kept the project's", &r.kept);
+            line(&mut h, "Changed in both places, left alone (pass --take library|project)", &r.conflicts);
+            if h.is_empty() {
+                h = "Nothing to update.\n".into();
+            }
+            out(&r, h)
+        }
+        ProjectRulesCmd::ImportExisting { project } => {
+            let r: ProjectImported = manage(c, method::RULES_PROJECT_IMPORT, ProjectRef { project: here(project) })?;
+            let mut h = format!("Imported {} into .rulesync/rules/\n", r.files.join(", "));
+            line(&mut h, "New rules", &r.added);
+            if !r.log.trim().is_empty() {
+                let _ = writeln!(h, "{}", r.log.trim_end());
+            }
+            out(&r, h)
+        }
+        ProjectRulesCmd::Generate { project, targets, overwrite } => {
+            let req = ProjectGenerate { project: folder(project), targets: targets.clone(), overwrite: overwrite.clone() };
+            let r: ProjectGenerated = manage(c, method::RULES_PROJECT_GENERATE, req)?;
+            out(&r, generated(&r))
+        }
+        ProjectRulesCmd::MoveDefault { project } => {
+            let r: ProjectAssigned = manage(c, method::RULES_PROJECT_MOVE, ProjectRef { project: here(project) })?;
+            out(&r, assigned(&r))
+        }
+    })
+}
+
+fn line(h: &mut String, what: &str, list: &[String]) {
+    if !list.is_empty() {
+        let _ = writeln!(h, "{what}: {}", list.join(", "));
+    }
+}
+
+fn state_word(s: ProjectRuleState) -> &'static str {
+    match s {
+        ProjectRuleState::Current => "current",
+        ProjectRuleState::Update => "update",
+        ProjectRuleState::Modified => "modified",
+        ProjectRuleState::Conflict => "conflict",
+        ProjectRuleState::SourceGone => "source gone",
+        ProjectRuleState::Deleted => "deleted",
+        ProjectRuleState::Own => "own",
+    }
+}
+
+pub fn project_status(st: &ProjectRulesStatus, sets: &RuleSets) -> String {
+    let mut h = format!("{}\n", st.project);
+    if !st.rulesync {
+        h.push_str("No .rulesync/rules yet.\n");
+    }
+    let rows: Vec<Vec<String>> = st
+        .rules
+        .iter()
+        .map(|r| vec![format!("  {}", state_word(r.state)), r.name.clone(), r.source.clone().unwrap_or_else(|| "(the project's own)".into())])
+        .collect();
+    if !rows.is_empty() {
+        h.push_str(&table(&rows));
+    }
+    if st.updates > 0 {
+        let _ = writeln!(h, "{} rule(s) with library updates: pitwall rules project updates", st.updates);
+    }
+    let g = &st.generated;
+    let targets = if g.targets.is_empty() { String::new() } else { format!(" ({})", g.targets.join(", ")) };
+    if g.out_of_date {
+        let why = if g.changed.is_empty() { String::new() } else { format!(", edited: {}", g.changed.join(", ")) };
+        let _ = writeln!(h, "Generated files{targets}: out of date{why}: pitwall rules project generate");
+    } else if g.generated {
+        let _ = writeln!(h, "Generated files{targets}: up to date");
+    }
+    if !st.existing.is_empty() {
+        let _ = writeln!(h, "Hand-written {}: import first: pitwall rules project import-existing", st.existing.join(", "));
+    }
+    if let Some(id) = &st.fallback_set {
+        let _ = writeln!(h, "Default set in Pitwall: {} — move it into the project: pitwall rules project move-default", set_name(sets, Some(id)));
+    }
+    h
+}
+
+pub fn assigned(r: &ProjectAssigned) -> String {
+    let mut h = String::new();
+    line(&mut h, "Copied into .rulesync/rules", &r.copied);
+    line(&mut h, "Already there", &r.unchanged);
+    line(&mut h, "Not copied, a different file is there (pass --overwrite <name>)", &r.conflicts);
+    for s in &r.skipped {
+        let _ = writeln!(h, "Skipped {s}");
+    }
+    if h.is_empty() {
+        h = "Nothing to copy.\n".into();
+    }
+    h
+}
+
+pub fn rule_updates(list: &[ProjectRuleUpdate]) -> String {
+    if list.is_empty() {
+        return "No updates; nothing changed in the project.\n".into();
+    }
+    let mut h = String::new();
+    for u in list {
+        let what = match u.state {
+            ProjectRuleState::Update => "library changed",
+            ProjectRuleState::Modified => "changed in the project",
+            _ => "changed in both: choose with --take",
+        };
+        let _ = writeln!(h, "{} ({}) — {what}", u.name, u.source);
+        if u.state != ProjectRuleState::Modified {
+            h.push_str(&u.diff);
+            if !u.diff.ends_with('\n') {
+                h.push('\n');
+            }
+        }
+    }
+    h
+}
+
+pub fn generated(r: &ProjectGenerated) -> String {
+    let mut h = format!("Generated for {}\n", r.targets.join(", "));
+    line(&mut h, "Written", &r.written);
+    line(&mut h, "Already up to date", &r.unchanged);
+    line(&mut h, "Kept, not written by Pitwall (pass --overwrite <path>)", &r.needs_confirm);
+    if !r.log.trim().is_empty() {
+        let _ = writeln!(h, "{}", r.log.trim_end());
     }
     h
 }

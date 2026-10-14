@@ -17,6 +17,8 @@ use pitwall_proto::{
     RulesApply, RulesDefault, RulesFailed, RulesImport, RulesImported, RulesOverview, RulesReapplied, RulesReapply, RulesShow, Status, WaitResult,
 };
 
+use pitwall_proto::{ProjectAssign, ProjectGenerate, ProjectRef, ProjectUnassign, ProjectUpdate};
+
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
 use crate::server::Server;
@@ -446,6 +448,119 @@ pub fn rules_import(s: &Server, caller: &Caller, r: RulesImport) -> Res {
     }
     let res = rules::import(&dirs(s), ImportRequest { kind: r.kind, source: source.to_string() }).map_err(other)?;
     ok(RulesImported { added: res.added, log: res.log })
+}
+
+// ------------------------------------------------------------ project rules
+
+fn project_path(p: &str) -> Result<String, ErrorBody> {
+    let p = p.trim();
+    if p.is_empty() {
+        return Err(bad("which project"));
+    }
+    Ok(p.to_string())
+}
+
+/// Project rules write into the user's repository: the user approves first.
+fn approve_project(s: &Server, caller: &Caller, action: &str, summary: String, mut details: Vec<String>) -> Result<(), ErrorBody> {
+    details.push("The files show up in Review like any change, for you to commit.".into());
+    approve(s, caller, action, summary, details, Risk::Low, "Nothing was written.")
+}
+
+fn names(list: &[String]) -> String {
+    list.join(", ")
+}
+
+pub fn project_status(s: &Server, r: ProjectRef) -> Res {
+    ok(rules::project_status(&dirs(s), &project_path(&r.project)?).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?)
+}
+
+pub fn project_updates(s: &Server, r: ProjectRef) -> Res {
+    ok(rules::project_updates(&dirs(s), &project_path(&r.project)?).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?)
+}
+
+pub fn project_assign(s: &Server, caller: &Caller, r: ProjectAssign) -> Res {
+    let project = project_path(&r.project)?;
+    let set = match r.set.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        Some(k) => Some(set_id(s, k)?),
+        None => None,
+    };
+    if set.is_none() && r.rule_ids.is_empty() {
+        return Err(bad("pick a rule set or rules to assign"));
+    }
+    let mut what = vec![];
+    if let Some(id) = &set {
+        let all = sets(s);
+        if let Some(x) = all.sets.iter().find(|x| &x.id == id) {
+            what.push(format!("The rule set \"{}\": {}.", x.name, names(&x.rule_ids)));
+        }
+    }
+    if !r.rule_ids.is_empty() {
+        what.push(format!("Rules: {}.", names(&r.rule_ids)));
+    }
+    what.push("They are copied into .rulesync/rules/ there; files already there with other content are left alone.".into());
+    if !r.overwrite.is_empty() {
+        what.push(format!("Replaces: {}.", names(&r.overwrite)));
+    }
+    approve_project(s, caller, method::RULES_PROJECT_ASSIGN, format!("copy rules into {project}"), what)?;
+    ok(rules::project_assign(&dirs(s), &project, set.as_deref(), &r.rule_ids, &r.overwrite).map_err(other)?)
+}
+
+pub fn project_unassign(s: &Server, caller: &Caller, r: ProjectUnassign) -> Res {
+    let project = project_path(&r.project)?;
+    if r.rules.is_empty() {
+        return Err(bad("which rules"));
+    }
+    let mut details = vec![format!("Removes {} from .rulesync/rules/.", names(&r.rules))];
+    details.push(if r.force { "Even if they were changed there.".into() } else { "Rules changed there are kept.".into() });
+    approve_project(s, caller, method::RULES_PROJECT_UNASSIGN, format!("remove rules from {project}"), details)?;
+    ok(rules::project_unassign(&project, &r.rules, r.force).map_err(other)?)
+}
+
+pub fn project_update(s: &Server, caller: &Caller, r: ProjectUpdate) -> Res {
+    let project = project_path(&r.project)?;
+    let which = if r.rules.is_empty() { "every rule with an update".to_string() } else { names(&r.rules) };
+    let mut details = vec![format!("Writes the library's version of {which} into .rulesync/rules/.")];
+    details.push(match r.take.as_deref() {
+        Some("library") => "Rules changed in both places get the library's version (the project's changes there are replaced).".into(),
+        Some("project") => "Rules changed in both places keep the project's version.".into(),
+        _ => "Rules changed in both places are left alone.".into(),
+    });
+    approve_project(s, caller, method::RULES_PROJECT_UPDATE, format!("update rules in {project}"), details)?;
+    ok(rules::project_update(&dirs(s), &project, &r.rules, r.take.as_deref()).map_err(bad)?)
+}
+
+pub fn project_import(s: &Server, caller: &Caller, r: ProjectRef) -> Res {
+    let project = project_path(&r.project)?;
+    let st = rules::project_status(&dirs(s), &project).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
+    if st.existing.is_empty() {
+        return Err(bad("there are no hand-written instruction files there to import"));
+    }
+    let details = vec![format!(
+        "rulesync imports {} into .rulesync/rules/ (new files only), so generating later keeps their text.",
+        names(&st.existing)
+    )];
+    approve_project(s, caller, method::RULES_PROJECT_IMPORT, format!("import {project}'s instruction files into .rulesync/"), details)?;
+    ok(rules::project_import_existing(&dirs(s), &project).map_err(other)?)
+}
+
+pub fn project_generate(s: &Server, caller: &Caller, r: ProjectGenerate) -> Res {
+    let project = project_path(&r.project)?;
+    let mut details = vec!["rulesync generates the instruction files (CLAUDE.md, AGENTS.md, …) from .rulesync/ there; only files Pitwall generated before are replaced.".to_string()];
+    if !r.targets.is_empty() {
+        details.push(format!("For: {}.", names(&r.targets)));
+    }
+    if !r.overwrite.is_empty() {
+        details.push(format!("Also replaces: {}.", names(&r.overwrite)));
+    }
+    approve_project(s, caller, method::RULES_PROJECT_GENERATE, format!("generate {project}'s instruction files"), details)?;
+    ok(rules::project_generate_for(&s.engine, &project, &r.targets, &r.overwrite).map_err(other)?)
+}
+
+pub fn project_move(s: &Server, caller: &Caller, r: ProjectRef) -> Res {
+    let project = project_path(&r.project)?;
+    let details = vec!["Copies the project's default rule set from Pitwall into .rulesync/rules/ there, then drops the default.".to_string()];
+    approve_project(s, caller, method::RULES_PROJECT_MOVE, format!("move {project}'s default rule set into the project"), details)?;
+    ok(rules::project_move_default(&dirs(s), &project).map_err(other)?)
 }
 
 fn project_view(p: rules::ProjectRules) -> ProjectRulesView {
