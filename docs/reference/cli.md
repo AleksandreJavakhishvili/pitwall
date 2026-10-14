@@ -12,7 +12,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{"error":{"code":"…","message":"…"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
-- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, importing rules from a file or a git repository, deleting a rule set, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
+- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, importing rules from a file or a git repository, deleting a rule set, writing rules into a project's `.rulesync/`, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
 
 ## Exit status
 
@@ -663,6 +663,143 @@ pitwall rules set delete [OPTIONS] <SET>
 | Argument | |
 |---|---|
 | `SET` | The set (id or name). |
+
+### rules project status
+
+The project's rules (copied from the library or its own), updates waiting, whether its generated files are out of date, and what to do first.
+
+```bash
+pitwall rules project status [OPTIONS] [PROJECT]
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` (optional) | The project folder (default: the current folder). |
+
+```bash
+pitwall rules project status ~/code/api --human
+```
+
+### rules project assign
+
+Copy a rule set and/or single library rules into the project (asks). A different file already there is left alone unless named with --overwrite.
+
+```bash
+pitwall rules project assign [OPTIONS] <PROJECT>
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` | The project folder. |
+
+| Option | |
+|---|---|
+| `--set <SET>` | A rule set (id or name): all its rules. |
+| `--rule <RULE>` | A library rule (id, or file name when only one rule has it). Repeatable. |
+| `--overwrite <NAME>` | Replace this file in .rulesync/rules/ although it differs. Repeatable. |
+
+```bash
+pitwall rules project assign ~/code/api --set Web            # asks first
+pitwall rules project assign ~/code/api --rule testing.md
+```
+
+### rules project unassign
+
+Remove copied rules from the project (asks). Rules changed there are kept unless --force.
+
+```bash
+pitwall rules project unassign [OPTIONS] <PROJECT> <RULE>...
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` | The project folder. |
+| `RULE` | Rules: names under .rulesync/rules/ or library ids. |
+
+| Option | |
+|---|---|
+| `--force` | Remove them even if they were changed in the project. |
+
+### rules project updates
+
+Rules whose library version changed since they were copied, or that were changed in the project, with a diff.
+
+```bash
+pitwall rules project updates [OPTIONS] [PROJECT]
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` (optional) | The project folder (default: the current folder). |
+
+### rules project update
+
+Take library updates into the project (asks): the named rules, or every rule with an update. Rules changed in both places need --take.
+
+```bash
+pitwall rules project update [OPTIONS] <PROJECT> [RULE]...
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` | The project folder. |
+| `RULE` (optional) | Rules (names or library ids); none: every rule with an update. |
+
+| Option | |
+|---|---|
+| `--take <TAKE>` | For rules changed in both places: `library` (replace the project's copy) or `project` (keep it). |
+
+```bash
+pitwall rules project updates ~/code/api --human          # what changed, with diffs
+pitwall rules project update ~/code/api                   # every rule with an update
+pitwall rules project update ~/code/api style.md --take library
+```
+
+### rules project import-existing
+
+Import the project's hand-written CLAUDE.md / AGENTS.md / GEMINI.md into .rulesync/rules/ with rulesync (asks), so generating keeps their text. Do this before the first generate.
+
+```bash
+pitwall rules project import-existing [OPTIONS] [PROJECT]
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` (optional) | The project folder (default: the current folder). |
+
+### rules project generate
+
+Generate the project's instruction files (CLAUDE.md, AGENTS.md, …) from its .rulesync/ with rulesync (asks). Only files Pitwall generated before are replaced, unless named with --overwrite.
+
+```bash
+pitwall rules project generate [OPTIONS] <PROJECT>
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` | The project folder. |
+
+| Option | |
+|---|---|
+| `--targets <TARGETS>` | rulesync targets, comma-separated (default: the ones used last, else those of the project's agents). |
+| `--overwrite <PATH>` | Replace this file although Pitwall didn't write it. Repeatable. |
+
+```bash
+pitwall rules project import-existing ~/code/api   # a hand-written CLAUDE.md first
+pitwall rules project generate ~/code/api --targets claudecode,codexcli
+```
+
+### rules project move-default
+
+Copy the project's default rule set (kept in Pitwall) into the project, and drop the default (asks).
+
+```bash
+pitwall rules project move-default [OPTIONS] [PROJECT]
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` (optional) | The project folder (default: the current folder). |
 
 ### rules import
 

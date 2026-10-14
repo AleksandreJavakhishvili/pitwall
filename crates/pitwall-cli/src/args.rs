@@ -188,6 +188,11 @@ pub enum RulesCmd {
     /// Make and change rule sets: create, add, remove, rename, delete.
     #[command(subcommand)]
     Set(RuleSetCmd),
+    /// A project's own rules: library rules copied into its
+    /// `.rulesync/rules/` and the files rulesync generates from them, all
+    /// committed with the project. Writing there asks you in Pitwall.
+    #[command(subcommand)]
+    Project(ProjectRulesCmd),
     /// Add rules to the library: a project's own `.rulesync/` (read in
     /// place), a CLAUDE.md / AGENTS.md / GEMINI.md (needs rulesync), or a git
     /// repository (cloned). A file or a repository asks you in Pitwall.
@@ -197,6 +202,93 @@ pub enum RulesCmd {
         kind: String,
         /// The project folder, the file, or the repository's URL.
         source: String,
+    },
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum ProjectRulesCmd {
+    /// The project's rules (copied from the library or its own), updates
+    /// waiting, whether its generated files are out of date, and what to
+    /// do first.
+    Status {
+        /// The project folder (default: the current folder).
+        project: Option<String>,
+    },
+    /// Copy a rule set and/or single library rules into the project
+    /// (asks). A different file already there is left alone unless named
+    /// with --overwrite.
+    Assign {
+        /// The project folder.
+        project: String,
+        /// A rule set (id or name): all its rules.
+        #[arg(long, value_name = "SET")]
+        set: Option<String>,
+        /// A library rule (id, or file name when only one rule has it).
+        /// Repeatable.
+        #[arg(long = "rule", value_name = "RULE", required_unless_present = "set")]
+        rules: Vec<String>,
+        /// Replace this file in .rulesync/rules/ although it differs.
+        /// Repeatable.
+        #[arg(long, value_name = "NAME")]
+        overwrite: Vec<String>,
+    },
+    /// Remove copied rules from the project (asks). Rules changed there
+    /// are kept unless --force.
+    Unassign {
+        /// The project folder.
+        project: String,
+        /// Rules: names under .rulesync/rules/ or library ids.
+        #[arg(required = true, value_name = "RULE")]
+        rules: Vec<String>,
+        /// Remove them even if they were changed in the project.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Rules whose library version changed since they were copied, or that
+    /// were changed in the project, with a diff.
+    Updates {
+        /// The project folder (default: the current folder).
+        project: Option<String>,
+    },
+    /// Take library updates into the project (asks): the named rules, or
+    /// every rule with an update. Rules changed in both places need --take.
+    Update {
+        /// The project folder.
+        project: String,
+        /// Rules (names or library ids); none: every rule with an update.
+        #[arg(value_name = "RULE")]
+        rules: Vec<String>,
+        /// For rules changed in both places: `library` (replace the
+        /// project's copy) or `project` (keep it).
+        #[arg(long, value_parser = ["library", "project"])]
+        take: Option<String>,
+    },
+    /// Import the project's hand-written CLAUDE.md / AGENTS.md / GEMINI.md
+    /// into .rulesync/rules/ with rulesync (asks), so generating keeps
+    /// their text. Do this before the first generate.
+    ImportExisting {
+        /// The project folder (default: the current folder).
+        project: Option<String>,
+    },
+    /// Generate the project's instruction files (CLAUDE.md, AGENTS.md, …)
+    /// from its .rulesync/ with rulesync (asks). Only files Pitwall
+    /// generated before are replaced, unless named with --overwrite.
+    Generate {
+        /// The project folder.
+        project: String,
+        /// rulesync targets, comma-separated (default: the ones used last,
+        /// else those of the project's agents).
+        #[arg(long, value_name = "TARGETS", value_delimiter = ',')]
+        targets: Vec<String>,
+        /// Replace this file although Pitwall didn't write it. Repeatable.
+        #[arg(long, value_name = "PATH")]
+        overwrite: Vec<String>,
+    },
+    /// Copy the project's default rule set (kept in Pitwall) into the
+    /// project, and drop the default (asks).
+    MoveDefault {
+        /// The project folder (default: the current folder).
+        project: Option<String>,
     },
 }
 
@@ -551,6 +643,28 @@ mod tests {
             parse(&["rules", "import", "git", "https://x/r.git"]).unwrap().command,
             Command::Rules(RulesCmd::Import { kind: "git".into(), source: "https://x/r.git".into() })
         );
+        assert_eq!(
+            parse(&["rules", "project", "assign", "~/p", "--set", "Web", "--rule", "a.md", "--overwrite", "a.md"]).unwrap().command,
+            Command::Rules(RulesCmd::Project(ProjectRulesCmd::Assign {
+                project: "~/p".into(),
+                set: Some("Web".into()),
+                rules: vec!["a.md".into()],
+                overwrite: vec!["a.md".into()]
+            }))
+        );
+        assert_eq!(
+            parse(&["rules", "project", "update", "~/p", "a.md", "--take", "project"]).unwrap().command,
+            Command::Rules(RulesCmd::Project(ProjectRulesCmd::Update { project: "~/p".into(), rules: vec!["a.md".into()], take: Some("project".into()) }))
+        );
+        assert_eq!(
+            parse(&["rules", "project", "generate", "~/p", "--targets", "claudecode,codexcli"]).unwrap().command,
+            Command::Rules(RulesCmd::Project(ProjectRulesCmd::Generate { project: "~/p".into(), targets: vec!["claudecode".into(), "codexcli".into()], overwrite: vec![] }))
+        );
+        assert_eq!(parse(&["rules", "project", "status"]).unwrap().command, Command::Rules(RulesCmd::Project(ProjectRulesCmd::Status { project: None })));
+        assert_eq!(
+            parse(&["rules", "project", "import-existing", "."]).unwrap().command,
+            Command::Rules(RulesCmd::Project(ProjectRulesCmd::ImportExisting { project: Some(".".into()) }))
+        );
         assert_eq!(parse(&["rules", "show", "--agent", "api"]).unwrap().command, Command::Rules(RulesCmd::Show { project: None, agent: Some("api".into()) }));
         assert_eq!(parse(&["review", "changes", "api", "--json"]).unwrap().command, Command::Review(ReviewCmd::Changes { agent: "api".into(), task: None }));
         assert_eq!(
@@ -585,6 +699,9 @@ mod tests {
             &["rules", "show", "/p", "--agent", "api"],
             &["rules", "set", "add", "Web"],
             &["rules", "apply"],
+            &["rules", "project", "assign", "/p"],
+            &["rules", "project", "unassign", "/p"],
+            &["rules", "project", "update", "/p", "--take", "both"],
             &["rules", "apply", "api", "--stale"],
             &["rules", "apply", "api", "--project", "/p"],
             &["rules", "apply", "--project", "/p"],
