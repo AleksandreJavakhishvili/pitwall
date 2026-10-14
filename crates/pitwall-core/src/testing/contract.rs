@@ -68,6 +68,7 @@ pub fn shell_kind() -> AgentKind {
         assign_session_id: false,
         hooks: crate::kind::HookMode::None,
         rulesync_target: None,
+        rules_fallback: None,
         worktree_args: vec![],
         worktree_dirs: vec![],
         process_names: vec![],

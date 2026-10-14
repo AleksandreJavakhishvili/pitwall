@@ -36,6 +36,11 @@ pub struct AgentKind {
     /// rulesync `--targets` id used when applying rules (e.g. "claudecode").
     #[serde(default)]
     pub rulesync_target: Option<String>,
+    /// For an agent rulesync has no target for: Pitwall writes the rules
+    /// into one file itself (docs/spec/rules.md, "Agents rulesync doesn't
+    /// cover"). Ignored when `rulesync_target` is set.
+    #[serde(default)]
+    pub rules_fallback: Option<RulesFallback>,
     /// The agent's own "work in a new git worktree" flag (docs/spec/worktrees.md).
     /// `{name}` is replaced with a name Pitwall picks; empty = not supported.
     #[serde(default)]
@@ -76,6 +81,31 @@ pub struct AgentKind {
     /// while it updates the tool itself.
     #[serde(default)]
     pub update_off_env: std::collections::BTreeMap<String, String>,
+}
+
+/// How Pitwall gives rules to an agent rulesync doesn't cover: the
+/// effective rules' bodies (frontmatter dropped), joined into one file in
+/// its working folder, recorded and kept out of git like rulesync's output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RulesFallback {
+    /// The name rules' `targets` use for this agent (`geminicli`); a rule
+    /// without `targets`, or with `*`, applies too.
+    pub target: String,
+    /// The file to write, relative to the working folder (`GEMINI.md`).
+    /// Never over a file git tracks or one Pitwall didn't write.
+    pub file: String,
+    /// Added to the agent's fresh starts while `file` holds its rules;
+    /// `{file}` is its absolute path (e.g. Aider's `--read {file}`).
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Where the rules go when `file` is the project's own (tracked, or
+    /// not written by Pitwall). Unset: they aren't written.
+    #[serde(default)]
+    pub alt_file: Option<String>,
+    /// Added to fresh starts while `alt_file` holds the rules, to point
+    /// the agent at it (`{file}` as above).
+    #[serde(default)]
+    pub alt_args: Vec<String>,
 }
 
 impl AgentKind {
@@ -140,6 +170,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         assign_session_id: false,
         hooks: HookMode::None,
         rulesync_target: None,
+        rules_fallback: None,
         worktree_args: vec![],
         worktree_dirs: vec![],
         process_names: vec![],

@@ -10,3 +10,10 @@ new_args = []
 resume_args = []
 assign_session_id = false
 hooks = "none"
+# Aider reads no instruction file by itself and isn't a rulesync target:
+# Pitwall writes the rules into a file of its own and passes it with --read
+# on every start (docs/spec/rules.md).
+[rules_fallback]
+target = "aider"
+file = ".aider.pitwall-rules.md"
+args = ["--read", "{file}"]

@@ -1188,7 +1188,7 @@ impl Render for RulesSection {
             .gap(px(8.))
             .child(self.head(&t))
             .child(kit::muted(
-                "Keep instructions in one library and give agents rule sets. Pitwall calls rulesync to generate each agent's files (CLAUDE.local.md, .claude/rules, AGENTS.md…) when it starts; they stay out of git.",
+                "Keep instructions in one library and give agents rule sets. Pitwall calls rulesync to generate each agent's files (CLAUDE.local.md, .claude/rules, AGENTS.md…) when it starts, and writes Gemini CLI's and Aider's file itself; they stay out of git.",
                 &t,
             ))
             .children(self.npx_box(&t, cx))

@@ -7,6 +7,7 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 ### Highlights
 
 - See what rules each agent gets: Settings → Rules → Project defaults → Agents shows a project's default set, each agent's own set, the rules they add up to for that agent's kind, its files, and whether they are applied. `pitwall rules show <project>` (or `--agent <agent>`) prints the same.
+- Gemini CLI and Aider get rules too, though rulesync has no target for them: Pitwall writes the rules into `GEMINI.md` (or a file of its own when the project has one) and `.aider.pitwall-rules.md` (passed with `--read`), kept out of git like the other generated files.
 
 ## [0.2.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.1) - 2026-10-10
 
