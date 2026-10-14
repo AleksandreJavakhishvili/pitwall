@@ -30,9 +30,9 @@ Each of these has a section in the skill:
 - **Arrange spaces and windows** ("all API agents in their own window on my
   second monitor").
 - **Create agents per project**, and add existing agw sessions.
-- **Set up rules**: rule sets, project defaults, applying them. Importing an
-  existing CLAUDE.md into a rule set is done in Settings → Rules; walk the
-  user through it, then use the set.
+- **Set up rules**: import rules (a project's `.rulesync/`, an existing
+  CLAUDE.md, a git repository), make and edit rule sets, set project
+  defaults and agents' own sets, show what each agent gets, apply them.
 - **Change settings**.
 - **Diagnose** "why is this agent unknown / blocked": the skill's
   "Diagnose" section, then explain the cause and the fix in plain words.

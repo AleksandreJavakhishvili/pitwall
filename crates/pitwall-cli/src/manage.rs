@@ -14,11 +14,12 @@ use serde_json::Value;
 use pitwall_client::{Client, Error};
 use pitwall_proto::{
     caps, code, method, AgentDiagnosis, AgentMove, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentView, AgentWait, ErrorBody, ProjectPath,
-    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSets, RulesApplied, RulesApply, RulesDefault,
+    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied, RulesApply, RulesDefault, RulesImport,
+    RulesImported,
     RulesOverview, RulesShow, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
 };
 
-use crate::args::{AgentCmd, ProjectCmd, QueueCmd, ReviewCmd, RulesCmd, SpaceCmd, WaitArgs};
+use crate::args::{AgentCmd, ProjectCmd, QueueCmd, ReviewCmd, RuleSetCmd, RulesCmd, SpaceCmd, WaitArgs};
 use crate::Output;
 
 fn err(code: &str, message: impl Into<String>) -> Error {
@@ -257,6 +258,104 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             let s: RuleSets = manage(c, method::RULES_DEFAULT, RulesDefault { project: folder(project), set: Some(set.clone()) })?;
             out(&s, rule_sets(&s))
         }
+        RulesCmd::Set(cmd) => rule_set_cmd(cmd, c)?,
+        RulesCmd::Import { kind, source } => {
+            let source = if kind == "git" { source.clone() } else { folder(source) };
+            let r: RulesImported = manage(c, method::RULES_IMPORT, RulesImport { kind: kind.clone(), source })?;
+            let mut h = format!("Imported {} rule(s)\n", r.added.len());
+            for id in &r.added {
+                let _ = writeln!(h, "  {id}");
+            }
+            if !r.log.trim().is_empty() {
+                let _ = writeln!(h, "{}", r.log.trim_end());
+            }
+            out(&r, h)
+        }
+    })
+}
+
+/// `library:web/style.md` → `web/style.md`.
+fn rule_label(id: &str) -> &str {
+    id.split_once(':').map_or(id, |(_, rest)| rest)
+}
+
+/// One of `ids` by id, else by its file name (`style.md`) when only one
+/// has it.
+pub fn pick_rule<'a>(ids: impl IntoIterator<Item = &'a String>, key: &str, place: &str) -> Result<String, Error> {
+    let key = key.trim();
+    let ids: Vec<&String> = ids.into_iter().collect();
+    if let Some(id) = ids.iter().find(|i| i.as_str() == key) {
+        return Ok((*id).clone());
+    }
+    let named: Vec<&&String> = ids.iter().filter(|i| rule_label(i) == key).collect();
+    match named.as_slice() {
+        [one] => Ok((**one).clone()),
+        [] => Err(err(code::NOT_FOUND, format!("no rule \"{key}\" {place} (see `pitwall rules list`)"))),
+        more => Err(err(
+            code::CONFLICT,
+            format!("{} rules are called \"{key}\": use an id ({})", more.len(), more.iter().map(|i| i.as_str()).collect::<Vec<_>>().join(", ")),
+        )),
+    }
+}
+
+/// A rule set by id, else by name (ignoring case).
+fn find_set(c: &mut Client, key: &str) -> Result<RuleSetView, Error> {
+    let all: RuleSets = manage(c, method::RULES_SETS, Value::Null)?;
+    let key = key.trim();
+    all.sets
+        .iter()
+        .find(|s| s.id == key)
+        .or_else(|| all.sets.iter().find(|s| s.name.eq_ignore_ascii_case(key)))
+        .cloned()
+        .ok_or_else(|| err(code::NOT_FOUND, format!("no rule set \"{key}\" (see `pitwall rules sets`)")))
+}
+
+fn library_ids(c: &mut Client, keys: &[String]) -> Result<Vec<String>, Error> {
+    let o: RulesOverview = manage(c, method::RULES_LIST, Value::Null)?;
+    let ids: Vec<String> = o.files.into_iter().map(|f| f.id).collect();
+    keys.iter().map(|k| pick_rule(&ids, k, "in the library")).collect()
+}
+
+fn saved(v: &RuleSetView, verb: &str) -> String {
+    let rules = if v.rule_ids.is_empty() { "no rules".to_string() } else { v.rule_ids.join(", ") };
+    format!("{verb} rule set {} — id {}: {rules}\n", v.name, v.id)
+}
+
+pub fn rule_set_cmd(cmd: &RuleSetCmd, c: &mut Client) -> Result<Output, Error> {
+    let save = |c: &mut Client, id: Option<String>, name: String, rule_ids: Vec<String>| -> Result<RuleSetView, Error> {
+        manage(c, method::RULES_SET_SAVE, RuleSetSave { id, name, rule_ids })
+    };
+    Ok(match cmd {
+        RuleSetCmd::Create { name, rules } => {
+            let ids = library_ids(c, rules)?;
+            let v = save(c, None, name.clone(), ids)?;
+            out(&v, saved(&v, "Created"))
+        }
+        RuleSetCmd::Add { set, rules } => {
+            let s = find_set(c, set)?;
+            let mut ids = s.rule_ids.clone();
+            ids.extend(library_ids(c, rules)?);
+            let v = save(c, Some(s.id), s.name, ids)?;
+            out(&v, saved(&v, "Changed"))
+        }
+        RuleSetCmd::Remove { set, rules } => {
+            let s = find_set(c, set)?;
+            let place = format!("in the set {}", s.name);
+            let gone = rules.iter().map(|k| pick_rule(&s.rule_ids, k, &place)).collect::<Result<Vec<_>, _>>()?;
+            let ids: Vec<String> = s.rule_ids.iter().filter(|i| !gone.contains(i)).cloned().collect();
+            let v = save(c, Some(s.id), s.name, ids)?;
+            out(&v, saved(&v, "Changed"))
+        }
+        RuleSetCmd::Rename { set, name } => {
+            let s = find_set(c, set)?;
+            let v = save(c, Some(s.id), name.clone(), s.rule_ids)?;
+            out(&v, saved(&v, "Renamed"))
+        }
+        RuleSetCmd::Delete { set } => {
+            let s = find_set(c, set)?;
+            let all: RuleSets = manage(c, method::RULES_SET_DELETE, RuleSetRef { set: s.id.clone() })?;
+            out(&all, format!("Deleted rule set {}\n", s.name) + &rule_sets(&all))
+        }
     })
 }
 
@@ -355,7 +454,7 @@ pub fn projects(list: &[ProjectView]) -> String {
 pub fn rule_sets(s: &RuleSets) -> String {
     let mut h = String::new();
     if s.sets.is_empty() {
-        h.push_str("No rule sets (make them in Settings → Rules).\n");
+        h.push_str("No rule sets (make one: rules set create <name> --rule <rule>).\n");
     }
     for set in &s.sets {
         let _ = writeln!(h, "{} — id {}: {}", set.name, set.id, set.rule_ids.join(", "));

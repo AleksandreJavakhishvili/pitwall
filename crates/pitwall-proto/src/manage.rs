@@ -309,6 +309,43 @@ pub struct RulesApplied {
     pub log: String,
 }
 
+/// `rules.set.save`: a new rule set (no `id`), or a changed one (its
+/// name or rules). Rule ids are the library's (`rules.list`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleSetSave {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub rule_ids: Vec<String>,
+}
+
+/// `rules.set.delete`: a set by id or name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleSetRef {
+    pub set: String,
+}
+
+/// `rules.import`: rules into the library from a project's `.rulesync/`
+/// (`project`, read in place), a CLAUDE.md / AGENTS.md / GEMINI.md
+/// (`file`, through `rulesync import`) or a git repository (`git`, cloned).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesImport {
+    pub kind: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesImported {
+    /// Ids of rules that are new in the library.
+    pub added: Vec<String>,
+    pub log: String,
+}
+
 /// `rules.show`: one project's rules (`project`), or one agent's
 /// (`agentId`, with its project's default set).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
@@ -434,6 +471,8 @@ mod tests {
         round_trip(&RulesApply { agent_id: "a1".into(), set: Some("s".into()), main_checkout: false }, json!({"agentId":"a1","set":"s","mainCheckout":false}));
         round_trip(&RulesDefault { project: "/p".into(), set: None }, json!({"project":"/p","set":null}));
         round_trip(&RulesShow { project: Some("/p".into()), agent_id: None }, json!({"project":"/p"}));
+        round_trip(&RuleSetSave { id: None, name: "Web".into(), rule_ids: vec!["library:a.md".into()] }, json!({"name":"Web","ruleIds":["library:a.md"]}));
+        round_trip(&RulesImport { kind: "git".into(), source: "https://x/r.git".into() }, json!({"kind":"git","source":"https://x/r.git"}));
         round_trip(&RulesShow { project: None, agent_id: Some("a1".into()) }, json!({"agentId":"a1"}));
         round_trip(&ReviewRequest { agent_id: "a1".into(), task_id: None }, json!({"agentId":"a1"}));
     }

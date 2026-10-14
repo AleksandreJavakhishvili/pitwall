@@ -12,7 +12,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{"error":{"code":"…","message":"…"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
-- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
+- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, importing rules from a file or a git repository, deleting a rule set, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
 
 ## Exit status
 
@@ -545,6 +545,11 @@ pitwall rules show [OPTIONS] [PROJECT]
 |---|---|
 | `--agent <AGENT>` | One agent (id or name) instead of a whole project. |
 
+```bash
+pitwall rules show ~/code/api --human
+pitwall rules show --agent api
+```
+
 ### rules apply
 
 Generate an agent's rule files now (used from its next session).
@@ -578,6 +583,100 @@ pitwall rules default [OPTIONS] <PROJECT> <SET>
 |---|---|
 | `PROJECT` | The project folder. |
 | `SET` | A set id or name, or `none`. |
+
+### rules set create
+
+A new rule set (rules by id from `rules list`, or by file name when only one rule has it).
+
+```bash
+pitwall rules set create [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | The set's name. |
+
+| Option | |
+|---|---|
+| `--rule <RULE>` | A rule to put in it. Repeatable. |
+
+```bash
+pitwall rules set create Web --rule style.md --rule testing.md
+```
+
+### rules set add
+
+Add rules to a set.
+
+```bash
+pitwall rules set add [OPTIONS] <SET> <RULE>...
+```
+
+| Argument | |
+|---|---|
+| `SET` | The set (id or name). |
+| `RULE` | Rules to add. |
+
+```bash
+pitwall rules set add Web library:terse.md
+```
+
+### rules set remove
+
+Take rules out of a set.
+
+```bash
+pitwall rules set remove [OPTIONS] <SET> <RULE>...
+```
+
+| Argument | |
+|---|---|
+| `SET` | The set (id or name). |
+| `RULE` | Rules to take out. |
+
+### rules set rename
+
+Rename a set.
+
+```bash
+pitwall rules set rename [OPTIONS] <SET> <NAME>
+```
+
+| Argument | |
+|---|---|
+| `SET` | The set (id or name). |
+| `NAME` | The new name. |
+
+### rules set delete
+
+Delete a set (asks you in Pitwall). Projects and agents that use it lose it; agents keep their files until rules are re-applied.
+
+```bash
+pitwall rules set delete [OPTIONS] <SET>
+```
+
+| Argument | |
+|---|---|
+| `SET` | The set (id or name). |
+
+### rules import
+
+Add rules to the library: a project's own `.rulesync/` (read in place), a CLAUDE.md / AGENTS.md / GEMINI.md (needs rulesync), or a git repository (cloned). A file or a repository asks you in Pitwall.
+
+```bash
+pitwall rules import [OPTIONS] <KIND> <SOURCE>
+```
+
+| Argument | |
+|---|---|
+| `KIND` | Where from: project, file or git. |
+| `SOURCE` | The project folder, the file, or the repository's URL. |
+
+```bash
+pitwall rules import project ~/code/api          # its own .rulesync/
+pitwall rules import file ~/code/api/CLAUDE.md   # asks first
+pitwall rules import git https://github.com/acme/ai-rules.git   # asks first
+```
 
 
 ## review

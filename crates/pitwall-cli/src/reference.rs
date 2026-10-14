@@ -26,7 +26,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{\"error\":{\"code\":\"…\",\"message\":\"…\"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
-- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
+- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, importing rules from a file or a git repository, deleting a rule set, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
 
 ## Exit status
 
@@ -88,6 +88,10 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("queue add", "pitwall queue add api \"run the tests\"\necho \"summarize the diff\" | pitwall queue add api -\npitwall queue add --status idle \"pull main\""),
     ("space move", "pitwall space move Review --to-window new"),
     ("rules apply", "pitwall rules apply api --set strict"),
+    ("rules show", "pitwall rules show ~/code/api --human\npitwall rules show --agent api"),
+    ("rules set create", "pitwall rules set create Web --rule style.md --rule testing.md"),
+    ("rules set add", "pitwall rules set add Web library:terse.md"),
+    ("rules import", "pitwall rules import project ~/code/api          # its own .rulesync/\npitwall rules import file ~/code/api/CLAUDE.md   # asks first\npitwall rules import git https://github.com/acme/ai-rules.git   # asks first"),
     ("review changes", "pitwall review changes api --human"),
     ("wait", "pitwall queue add api \"run the tests\"\npitwall wait api --for done,blocked --fresh --timeout 900"),
 ];
@@ -108,6 +112,15 @@ pub fn markdown() -> String {
         if group.has_subcommands() {
             let _ = writeln!(md, "{}\n", about(group));
             for c in group.get_subcommands().filter(|c| !hidden(c)) {
+                if c.has_subcommands() {
+                    // A third level (`rules set create`): one heading each.
+                    for sub in c.get_subcommands().filter(|c| !hidden(c)) {
+                        let name = format!("{} {} {}", group.get_name(), c.get_name(), sub.get_name());
+                        let _ = write!(md, "### {name}\n\n");
+                        command(&mut md, &name, sub);
+                    }
+                    continue;
+                }
                 let _ = write!(md, "### {} {}\n\n", group.get_name(), c.get_name());
                 command(&mut md, &format!("{} {}", group.get_name(), c.get_name()), c);
             }
