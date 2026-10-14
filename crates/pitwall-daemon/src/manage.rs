@@ -12,9 +12,9 @@ use serde_json::Value;
 use pitwall_core::engine::{diagnose, input, lifecycle};
 use pitwall_core::rules::{self, Dirs};
 use pitwall_proto::{
-    code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
-    ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetView, RuleSets, RulesApplied,
-    RulesApply, RulesDefault, RulesOverview, Status, WaitResult,
+    code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
+    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetView, RuleSets, RulesApplied,
+    RulesApply, RulesDefault, RulesOverview, RulesShow, Status, WaitResult,
 };
 
 use crate::approvals::{Ask, Decision};
@@ -364,6 +364,39 @@ pub fn rules_apply(s: &Server, caller: &Caller, r: RulesApply) -> Res {
     }
     let res = rules::apply_to_agent(&s.engine, &a.id, main).map_err(other)?;
     ok(RulesApplied { agent_id: a.id, generated: res.generated, log: res.log })
+}
+
+fn project_view(p: rules::ProjectRules) -> ProjectRulesView {
+    ProjectRulesView {
+        project: p.project,
+        rule_set_id: p.rule_set_id,
+        agents: p
+            .agents
+            .into_iter()
+            .map(|a| AgentRulesDetail {
+                name: a.name,
+                kind_name: a.kind_name,
+                target: a.target,
+                rules: info(a.view),
+                effective: a
+                    .effective
+                    .into_iter()
+                    .map(|r| EffectiveRuleView { id: r.id, description: r.description, from: r.from.into(), missing: r.missing })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+pub fn rules_show(s: &Server, r: RulesShow) -> Res {
+    match (r.project.as_deref().map(str::trim), r.agent_id.as_deref()) {
+        (Some(p), None) if !p.is_empty() => ok(project_view(rules::project_detail(&s.engine, p))),
+        (None, Some(id)) => {
+            let a = agent(s, id)?;
+            ok(project_view(rules::agent_detail(&s.engine, &a.id).map_err(other)?))
+        }
+        _ => Err(bad("give a project or an agent")),
+    }
 }
 
 pub fn rules_default(s: &Server, r: RulesDefault) -> Res {

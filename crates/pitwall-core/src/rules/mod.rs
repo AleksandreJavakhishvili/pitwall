@@ -152,6 +152,45 @@ pub struct AgentRulesView {
     pub main_checkout_confirmed: bool,
 }
 
+/// One rule an agent gets, and which scope it comes from.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveRule {
+    pub id: String,
+    pub description: Option<String>,
+    /// "project" (the project's default set), "agent" (the agent's own
+    /// set) or "folder" (the working folder's own `.rulesync/`).
+    pub from: &'static str,
+    /// Picked in a set but no longer in the library (skipped).
+    pub missing: bool,
+}
+
+/// An agent's rules in full: its state, and what it gets.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRulesDetail {
+    #[serde(flatten)]
+    pub view: AgentRulesView,
+    pub name: String,
+    pub kind_name: String,
+    /// What its files are made for: a rulesync target (`claudecode`), or
+    /// null when its kind takes no rules.
+    pub target: Option<String>,
+    /// The project default set plus its own set, for its kind (`targets`).
+    pub effective: Vec<EffectiveRule>,
+}
+
+/// A project's two scopes: its default set, and each agent's own set and
+/// what it adds up to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRules {
+    /// The project (repo root when inside git).
+    pub project: String,
+    pub rule_set_id: Option<String>,
+    pub agents: Vec<AgentRulesDetail>,
+}
+
 // ------------------------------------------------------------------ store
 
 #[derive(Debug, Clone)]
@@ -641,28 +680,77 @@ pub fn set_agent_rules(engine: &Engine, agent_id: &str, rule_set_id: Option<Stri
     })
 }
 
+fn view_of(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> AgentRulesView {
+    let st = store.agents.get(&ctx.id).cloned().unwrap_or_default();
+    AgentRulesView {
+        agent_id: ctx.id.clone(),
+        rule_set_id: st.rule_set_id.clone(),
+        project_rule_set_id: project_set(store, ctx),
+        applied_at: st.applied_at,
+        generated: st.files.iter().map(|f| f.path.clone()).collect(),
+        error: st.error.clone(),
+        stale: stale(dirs, store, ctx),
+        main_checkout: !ctx.worktree,
+        main_checkout_confirmed: st.main_checkout_confirmed,
+    }
+}
+
 /// Rules info for every agent (stale flags drive "Re-apply & restart").
 pub fn agent_rules(engine: &Engine) -> Vec<AgentRulesView> {
     let recs = engine.records();
     let dirs = Dirs::of(engine.paths());
     let store = read(&dirs);
-    recs.iter()
-        .map(|rec| {
-            let ctx = AgentCtx::from_record(rec, engine.kinds());
-            let st = store.agents.get(&rec.id).cloned().unwrap_or_default();
-            AgentRulesView {
-                agent_id: rec.id.clone(),
-                rule_set_id: st.rule_set_id.clone(),
-                project_rule_set_id: project_set(&store, &ctx),
-                applied_at: st.applied_at,
-                generated: st.files.iter().map(|f| f.path.clone()).collect(),
-                error: st.error.clone(),
-                stale: stale(&dirs, &store, &ctx),
-                main_checkout: !ctx.worktree,
-                main_checkout_confirmed: st.main_checkout_confirmed,
-            }
-        })
-        .collect()
+    recs.iter().map(|rec| view_of(&dirs, &store, &AgentCtx::from_record(rec, engine.kinds()))).collect()
+}
+
+/// Agents whose rules are Pitwall's business: not terminals, not the Race
+/// Engineer (its instruction files are Pitwall's own).
+fn ruled(rec: &AgentRecord) -> bool {
+    !rec.engineer && rec.kind != crate::engine::terminals::TERMINAL_KIND
+}
+
+fn detail_of(dirs: &Dirs, store: &Store, lib: &[RuleFile], rec: &AgentRecord, kinds: &KindCatalog) -> AgentRulesDetail {
+    let ctx = AgentCtx::from_record(rec, kinds);
+    let view = view_of(dirs, store, &ctx);
+    let effective = match &ctx.target {
+        Some(target) => {
+            let shared = set_ids(store, view.project_rule_set_id.as_deref());
+            let extra = set_ids(store, view.rule_set_id.as_deref());
+            apply::effective(lib, &shared, &extra, target, Path::new(&ctx.cwd))
+        }
+        None => vec![],
+    };
+    AgentRulesDetail { view, name: rec.name.clone(), kind_name: rec.kind_name.clone(), target: ctx.target.clone(), effective }
+}
+
+/// A project's rules: its default set, and for each of its agents the
+/// agent's own set and the rules it gets (`pitwall rules show <project>`).
+pub fn project_detail(engine: &Engine, project_path: &str) -> ProjectRules {
+    let key = project_key(&expand(project_path));
+    let dirs = Dirs::of(engine.paths());
+    let store = read(&dirs);
+    let lib = library::list(&dirs, &store.sources);
+    let agents = engine
+        .records()
+        .iter()
+        .filter(|r| ruled(r) && r.project == key)
+        .map(|r| detail_of(&dirs, &store, &lib, r, engine.kinds()))
+        .collect();
+    ProjectRules { rule_set_id: store.project_defaults.get(&key).cloned(), project: key, agents }
+}
+
+/// One agent's rules, with its project's default set
+/// (`pitwall rules show --agent <agent>`).
+pub fn agent_detail(engine: &Engine, agent_id: &str) -> Res<ProjectRules> {
+    let rec = engine.with(agent_id, |a| a.rec.clone())?;
+    let dirs = Dirs::of(engine.paths());
+    let store = read(&dirs);
+    let lib = library::list(&dirs, &store.sources);
+    Ok(ProjectRules {
+        project: rec.project.clone(),
+        rule_set_id: store.project_defaults.get(&rec.project).cloned(),
+        agents: vec![detail_of(&dirs, &store, &lib, &rec, engine.kinds())],
+    })
 }
 
 #[cfg(test)]

@@ -58,6 +58,8 @@ pitwall project list
 pitwall queue list [<agent>]
 pitwall rules list                         # rule files, each agent's rules state
 pitwall rules sets                         # rule sets and project defaults
+pitwall rules show ~/code/api              # a project's default set; each agent's own set and effective rules
+pitwall rules show --agent api             # one agent's
 pitwall review changes <agent>             # files +/- since the agent started
 pitwall settings list
 ```

@@ -5,7 +5,7 @@ use gpui::{AppContext, TestAppContext};
 
 use super::field::{RulesChoice, RulesField};
 use super::mock::MockRules;
-use super::settings::{import_message, project_rows, toggle_pick, ImportKind};
+use super::settings::{agent_state, import_message, project_rows, toggle_pick, ImportKind};
 use super::widgets::Span;
 use super::*;
 
@@ -138,4 +138,41 @@ fn the_poller_reads_stale_agents(cx: &mut TestAppContext) {
         assert!(stale::title(&a2).starts_with("Rules not applied: rulesync failed"));
         assert!(stale::get("a3", cx).is_some_and(|r| !r.stale && r.error.is_none()));
     });
+}
+
+#[test]
+fn agent_chips_say_how_rules_stand() {
+    let m = MockRules::new();
+    m.set_agent("a1", false, None);
+    let mut v = m.agent_rules().remove(0);
+    assert_eq!(agent_state(&v).0, "not applied yet");
+    v.applied_at = Some(1);
+    assert_eq!(agent_state(&v).0, "applied");
+    v.main_checkout = true;
+    assert_eq!(agent_state(&v).0, "main checkout: not written");
+    v.stale = true;
+    assert_eq!(agent_state(&v).0, "changed since applied");
+    v.error = Some("x".into());
+    assert_eq!(agent_state(&v).0, "not applied");
+}
+
+#[test]
+fn the_mock_details_a_project_by_scope() {
+    let m = MockRules::new();
+    m.set_agent("a1", false, None);
+    m.set_project_rules("/p", Some("s1".into())).unwrap();
+    let d = m.project_detail("/p");
+    assert_eq!(d.rule_set_id.as_deref(), Some("s1"));
+    let froms: Vec<(&str, &str)> = d.agents[0]
+        .effective
+        .iter()
+        .map(|r| (r.from, r.id.as_str()))
+        .collect();
+    assert_eq!(
+        froms,
+        vec![
+            ("project", "library:typescript.md"),
+            ("project", "library:testing.md")
+        ]
+    );
 }

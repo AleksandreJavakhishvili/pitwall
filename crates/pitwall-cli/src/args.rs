@@ -141,6 +141,17 @@ pub enum RulesCmd {
     List,
     /// Rule sets, and each project's default set.
     Sets,
+    /// What a project's agents get: its default set, each agent's own set,
+    /// and the rules those add up to for the agent's kind (or one agent's,
+    /// with --agent).
+    Show {
+        /// The project folder (default: the current folder).
+        #[arg(conflicts_with = "agent")]
+        project: Option<String>,
+        /// One agent (id or name) instead of a whole project.
+        #[arg(long, value_name = "AGENT")]
+        agent: Option<String>,
+    },
     /// Generate an agent's rule files now (used from its next session).
     Apply {
         /// The agent (id or name).
@@ -449,6 +460,8 @@ mod tests {
             parse(&["rules", "apply", "api", "--set", "strict", "--main-checkout"]).unwrap().command,
             Command::Rules(RulesCmd::Apply { agent: "api".into(), set: Some("strict".into()), main_checkout: true })
         );
+        assert_eq!(parse(&["rules", "show", "~/p"]).unwrap().command, Command::Rules(RulesCmd::Show { project: Some("~/p".into()), agent: None }));
+        assert_eq!(parse(&["rules", "show", "--agent", "api"]).unwrap().command, Command::Rules(RulesCmd::Show { project: None, agent: Some("api".into()) }));
         assert_eq!(parse(&["review", "changes", "api", "--json"]).unwrap().command, Command::Review(ReviewCmd::Changes { agent: "api".into(), task: None }));
         assert_eq!(
             parse(&["wait", "api", "--for", "idle,done", "--timeout", "60", "--fresh"]).unwrap().command,
@@ -479,6 +492,7 @@ mod tests {
             &["settings", "set", "appearance.theme"],
             &["settings", "get"],
             &["settings", "list", "--json", "--human"],
+            &["rules", "show", "/p", "--agent", "api"],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
