@@ -345,6 +345,22 @@
   color: var(--text-3);
   min-width: 0;
 }
+/* The kind's logo (AgentLogo.tsx), 5px from its name. */
+.agent-logo {
+  flex: none;
+  display: inline-flex;
+}
+.agent-row-sub .agent-logo + .agent-kind {
+  margin-left: -2px;
+}
+.agent-logo-letter {
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 700;
+  line-height: 1;
+}
 .agent-kind {
   flex: 1;
   min-width: 0;

@@ -3,6 +3,7 @@ import { locate, type UiState } from "../state/workspace";
 import { useActions } from "../lib/actions";
 import { agentDragSource } from "../lib/dnd";
 import { StatusGlyph } from "./StatusGlyph";
+import { AgentLogo } from "./AgentLogo";
 
 /** Agents of this space that aren't in a visible pane. Click to swap in. */
 export function ChipStrip({ agents, ui, me, spaceId }: { agents: AgentView[]; ui: UiState; me: string; spaceId: string }) {
@@ -22,6 +23,7 @@ export function ChipStrip({ agents, ui, me, spaceId }: { agents: AgentView[]; ui
             title={elsewhere ? `${a.name} is shown in ${elsewhere}` : `Show ${a.name}`}
           >
             <StatusGlyph status={a.status} size="sm" />
+            <AgentLogo kind={a.kind} name={a.kindName} size={11} />
             <span>{a.name}</span>
             {elsewhere && <span className="chip-where">↗ {elsewhere}</span>}
           </button>

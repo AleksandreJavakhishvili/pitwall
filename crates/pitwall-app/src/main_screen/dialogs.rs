@@ -431,10 +431,20 @@ impl NewAgentDialog {
             }))
             .child(
                 div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(k.name.clone()),
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .min_w_0()
+                    .child(crate::kit::agent_logo(&k.id, &k.name, 14., t))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .ellipsis()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(k.name.clone()),
+                    ),
             )
-            .child(div().text_size(px(11.5)).text_color(t.text_3).child(sub))
+            .child(div().pl(px(21.)).text_size(px(11.5)).text_color(t.text_3).child(sub))
     }
 
     fn target(&self) -> Option<&Target> {

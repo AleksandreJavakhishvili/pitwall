@@ -91,6 +91,7 @@ pub fn then_shell(
         aliases: vec![],
         account_env: None,
         account_home: None,
+        icon: None,
     };
     (kind, inner)
 }

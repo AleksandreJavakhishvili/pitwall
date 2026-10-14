@@ -69,6 +69,9 @@ impl AssetSource for Assets {
         if path.starts_with("brand/") {
             return Ok(super::brand::layer(path).map(|s| Cow::Borrowed(s.as_bytes())));
         }
+        if path.starts_with("logos/") {
+            return Ok(super::logos::load(path));
+        }
         let Some(name) = path
             .strip_prefix("icons/")
             .and_then(|p| p.strip_suffix(".svg"))
@@ -79,6 +82,9 @@ impl AssetSource for Assets {
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        if path.starts_with("logos") {
+            return Ok(super::logos::list().collect());
+        }
         Ok(if path.is_empty() || path.starts_with("icons") {
             ICONS
                 .iter()

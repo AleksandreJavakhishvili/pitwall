@@ -320,9 +320,14 @@
   outline-offset: 1px;
 }
 .kind-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   font-weight: 600;
 }
 .kind-sub {
+  padding-left: 21px;
   font-size: 11.5px;
   color: var(--text-3);
 }

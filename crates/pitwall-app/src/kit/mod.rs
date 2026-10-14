@@ -11,7 +11,8 @@
 //! - [`fonts`]: the bundled faces, registered once ([`init`]).
 //! - [`icons`]: the app's one `AssetSource` and its stroke icons;
 //!   [`brand`]: the Pitwall mark;
-//!   [`file_icons`]: the coloured Material file and folder icons.
+//!   [`file_icons`]: the coloured Material file and folder icons;
+//!   [`logos`]: the agent kinds' logos.
 //! - [`text`]: letter-spaced labels; [`status`]: status glyphs and words.
 //! - [`button`], [`chip`], [`controls`] (checkbox, toggle, radio, seg,
 //!   select, spinner), [`tooltip`], [`menu`], [`modal`], [`input`] (the
@@ -30,6 +31,7 @@ pub mod glass;
 pub mod hover;
 pub mod icons;
 pub mod input;
+pub mod logos;
 pub mod menu;
 pub mod modal;
 pub mod motion;
@@ -55,6 +57,7 @@ pub use fonts::{BODY_LINE_HEIGHT, LABEL_FONT, MONO_FONT, UI_FONT, WEIGHT_550, WE
 pub use hover::HoverText;
 pub use glass::{chrome_panel, glass_region, region_sweeper, PANEL_RADIUS};
 pub use icons::{chevron, chevron_at, icon, Assets};
+pub use logos::agent_logo;
 pub use input::{InputEvent, TextFieldEvent, TextInput};
 pub use menu::{menu_item, menu_panel};
 pub use modal::{scrim_in, Modal};

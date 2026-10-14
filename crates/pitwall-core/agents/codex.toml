@@ -14,3 +14,5 @@ worktree_args = ["--worktree"]
 # Accounts: each login lives in its own folder (Settings → Agents → Accounts).
 account_env = "CODEX_HOME"
 account_home = "~/.codex"
+# The logo shown before its name (docs/reference/agents.md).
+icon = "codex"

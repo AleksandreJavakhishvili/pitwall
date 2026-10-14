@@ -74,6 +74,7 @@ pub fn shell_kind() -> AgentKind {
         aliases: vec![],
         account_env: None,
         account_home: None,
+        icon: None,
     }
 }
 

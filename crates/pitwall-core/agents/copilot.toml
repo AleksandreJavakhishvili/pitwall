@@ -12,3 +12,5 @@ resume_args = ["--resume={session_id}"]
 assign_session_id = false
 hooks = "none"
 rulesync_target = "copilotcli"
+# The logo shown before its name (docs/reference/agents.md).
+icon = "copilot"

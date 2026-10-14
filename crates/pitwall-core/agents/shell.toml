@@ -6,3 +6,5 @@ new_args = []
 resume_args = []
 assign_session_id = false
 hooks = "none"
+# The logo shown before its name (docs/reference/agents.md).
+icon = "terminal"

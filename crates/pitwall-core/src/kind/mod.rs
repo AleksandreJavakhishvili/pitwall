@@ -63,6 +63,10 @@ pub struct AgentKind {
     /// That folder when the variable isn't set (`~/.claude`).
     #[serde(default)]
     pub account_home: Option<String>,
+    /// The logo shown for it: a bundled logo's id (`claude`, `codex`, …,
+    /// `terminal`) or an SVG file. None: the kind's own, else a letter.
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 impl AgentKind {
@@ -133,6 +137,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         aliases: vec![],
         account_env: None,
         account_home: None,
+        icon: Some("terminal".into()),
     }
 }
 

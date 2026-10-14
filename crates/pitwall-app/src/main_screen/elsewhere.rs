@@ -223,10 +223,12 @@ impl MainScreen {
                             .min_w_0()
                             .text_size(px(11.5))
                             .text_color(t.text_3)
+                            .child(crate::kit::agent_logo(&r.kind, &r.kind_name, 12., t))
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
+                                    .ml(px(-2.))
                                     .ellipsis()
                                     .child(crate::kit::one_line(r.kind_name.clone())),
                             )

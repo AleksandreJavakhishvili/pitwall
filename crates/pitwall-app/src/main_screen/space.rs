@@ -882,7 +882,15 @@ impl MainScreen {
                             .child(crate::kit::one_line(crate::kit::project_name(&a.project_display).to_string())),
                     )
                     .child(div().text_color(t.text_4).child("·"))
-                    .child(div().flex_none().child(a.kind_name.clone()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(px(5.))
+                            .child(crate::kit::agent_logo(&a.kind, &a.kind_name, 12., t))
+                            .child(a.kind_name.clone()),
+                    )
                     .when_some(account, |d, n| {
                         d.child(
                             div()
@@ -1128,6 +1136,7 @@ impl MainScreen {
                         cx.listener(move |this, _, window, cx| this.show_agent(&id, window, cx)),
                     )
                     .child(crate::kit::glyph_play(format!("chip-{}", a.id), a.status, t, true))
+                    .child(crate::kit::agent_logo(&a.kind, &a.kind_name, 11., t))
                     .child(a.name.clone())
                     .when_some(elsewhere, |d, w| {
                         d.child(

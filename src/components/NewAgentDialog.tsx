@@ -13,6 +13,7 @@ import { canPickFolder, pickFolder } from "../lib/pickFolder";
 import { NO_RULES, RulesField, reportRulesAfterCreate, rulesRequest, type RulesChoice } from "./rules/RulesField";
 import { Icon } from "./Icon";
 import { accountsOfKind, folderName, projectAccount, useAccounts } from "../lib/useAccounts";
+import { AgentLogo } from "./AgentLogo";
 
 const OTHER = "__other__";
 
@@ -272,7 +273,10 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
                       disabled={!k.installed}
                       onChange={() => setKind(k.id)}
                     />
-                    <span className="kind-name">{k.name}</span>
+                    <span className="kind-name">
+                      <AgentLogo kind={k.id} name={k.name} size={14} />
+                      {k.name}
+                    </span>
                     <span className="kind-sub">{k.caps?.customCommand ? "any CLI" : k.installed ? "installed" : "not installed"}</span>
                   </label>
                 ))}

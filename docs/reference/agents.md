@@ -54,6 +54,7 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `aliases` | list of strings | `[]` | Other names for this kind, matched like `id` when adopting sessions from other platforms (agw calls Claude Code `claude-code`). Matching ignores case. |
 | `account_env` | string | none | The environment variable that names the folder the tool keeps its login in (`CLAUDE_CONFIG_DIR`). Set, the kind can run on more than one account (see [Accounts](#accounts)). |
 | `account_home` | string | none | That folder when the variable isn't set (`~/.claude`). It's the Default account. `~/` means your home folder. |
+| `icon` | string | none | The logo shown before the kind's name in the sidebar, tile headers, New agent and the strip of hidden agents: a bundled logo (`claude`, `codex`, `gemini`, `copilot`, `cursor`, `qwen`, or `terminal` for the terminal icon) or the full path of a one-colour SVG file (`~/` means your home folder; it's tinted to the theme). None: the kind's first letter on a badge. |
 
 Unknown keys are ignored.
 

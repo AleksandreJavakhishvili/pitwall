@@ -2,6 +2,7 @@ import type { RunningElsewhere } from "../types";
 import { useActions } from "../lib/actions";
 import { canBringIn } from "../lib/terminals";
 import { Icon } from "./Icon";
+import { AgentLogo } from "./AgentLogo";
 
 /** Sidebar: agents running in other terminal apps (read-only, docs/spec/terminals.md). */
 export function ElsewhereGroup({ rows, collapsed, onToggle }: { rows: RunningElsewhere[]; collapsed: boolean; onToggle(): void }) {
@@ -28,6 +29,7 @@ export function ElsewhereGroup({ rows, collapsed, onToggle }: { rows: RunningEls
                   <span className="agent-name">{r.title ?? r.cwdDisplay ?? r.kindName}</span>
                 </span>
                 <span className="agent-row-sub">
+                  <AgentLogo kind={r.kind} name={r.kindName} />
                   <span className="agent-kind">{r.kindName}</span>
                   {r.title && r.cwdDisplay && <span className="elsewhere-cwd">{r.cwdDisplay}</span>}
                 </span>

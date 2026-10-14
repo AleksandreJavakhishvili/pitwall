@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 import { RulesStaleButton } from "./rules/RulesStaleButton";
 import { keys } from "../lib/host";
 import { accountOf, useAccounts } from "../lib/useAccounts";
+import { AgentLogo } from "./AgentLogo";
 
 interface Props {
   agent: AgentView;
@@ -45,7 +46,10 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
         <span className="meta-item" title={a.cwd}>
           {a.projectDisplay}
         </span>
-        <span className="meta-item">{a.kindName}</span>
+        <span className="meta-item">
+          <AgentLogo kind={a.kind} name={a.kindName} />
+          {a.kindName}
+        </span>
         {account && (
           <span className="chip chip-account" title={`Runs on the ${account.name} account${account.login ? ` (${account.login})` : ""}`}>
             {account.name}

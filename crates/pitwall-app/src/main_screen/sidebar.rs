@@ -842,7 +842,8 @@ impl MainScreen {
                             .text_color(t.text_3)
                             .min_w_0()
                             .child(chip(a.location.clone(), t))
-                            .child(div().flex_1().min_w_0().ellipsis().child(crate::kit::one_line(
+                            .child(crate::kit::agent_logo(&a.kind, &a.kind_name, 12., t))
+                            .child(div().flex_1().min_w_0().ml(px(-2.)).ellipsis().child(crate::kit::one_line(
                                 if a.agent_in_terminal {
                                     format!("{} · in terminal", a.kind_name)
                                 } else {

@@ -7,6 +7,7 @@ import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { countLabel } from "../lib/worktrees";
 import { keys } from "../lib/host";
+import { AgentLogo } from "./AgentLogo";
 
 interface Props {
   agent: AgentView;
@@ -71,6 +72,7 @@ function AgentRowImpl({ agent: a, index, selected, where, account, onSelect, onC
           </span>
           <span className="agent-row-sub">
             <span className="chip">{a.location}</span>
+            <AgentLogo kind={a.kind} name={a.kindName} />
             <span className="agent-kind">
               {a.kindName}
               {a.agentInTerminal && <span className="in-terminal"> · in terminal</span>}

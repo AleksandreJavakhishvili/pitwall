@@ -111,6 +111,9 @@ pub fn run() {
                 let store = cx.new(|_| AgentStore::new(host.engine.views()));
                 cx.set_global(agents::StoreHandle(store.clone()));
                 cx.set_global(main_screen::EngineHandle(host.engine.clone()));
+                let mut kinds = host.engine.kinds().kinds();
+                kinds.push(pitwall_core::kind::custom_kind(""));
+                kit::logos::learn(&kinds);
                 AgentStore::listen(&store, rx, cx);
                 platform::follow(&store, cx);
                 platform::single_instance::serve(paths.root(), cx);

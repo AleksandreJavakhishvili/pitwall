@@ -20,3 +20,5 @@ aliases = ["claude-code"]
 # Accounts: each login lives in its own folder (Settings → Agents → Accounts).
 account_env = "CLAUDE_CONFIG_DIR"
 account_home = "~/.claude"
+# The logo shown before its name (docs/reference/agents.md).
+icon = "claude"
