@@ -309,6 +309,34 @@ pub struct RulesApplied {
     pub log: String,
 }
 
+/// `rules.reapply`: re-apply every agent whose rules changed or failed
+/// since its session started (only worktrees and main checkouts the user
+/// confirmed), optionally one project's or one set's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesReapply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// A set id or name: only agents that use it (own or project default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesFailed {
+    pub agent_id: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesReapplied {
+    /// Re-applied: used from each agent's next session.
+    pub applied: Vec<RulesApplied>,
+    pub failed: Vec<RulesFailed>,
+}
+
 /// `rules.set.save`: a new rule set (no `id`), or a changed one (its
 /// name or rules). Rule ids are the library's (`rules.list`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
@@ -471,6 +499,7 @@ mod tests {
         round_trip(&RulesApply { agent_id: "a1".into(), set: Some("s".into()), main_checkout: false }, json!({"agentId":"a1","set":"s","mainCheckout":false}));
         round_trip(&RulesDefault { project: "/p".into(), set: None }, json!({"project":"/p","set":null}));
         round_trip(&RulesShow { project: Some("/p".into()), agent_id: None }, json!({"project":"/p"}));
+        round_trip(&RulesReapply { project: Some("/p".into()), set: None }, json!({"project":"/p"}));
         round_trip(&RuleSetSave { id: None, name: "Web".into(), rule_ids: vec!["library:a.md".into()] }, json!({"name":"Web","ruleIds":["library:a.md"]}));
         round_trip(&RulesImport { kind: "git".into(), source: "https://x/r.git".into() }, json!({"kind":"git","source":"https://x/r.git"}));
         round_trip(&RulesShow { project: None, agent_id: Some("a1".into()) }, json!({"agentId":"a1"}));

@@ -181,6 +181,7 @@ pitwall rules import git https://github.com/acme/ai-rules.git   # cloned: asks f
 pitwall rules default ~/code/api Web                 # a project's default set (`none` clears)
 pitwall rules apply api [--set strict|none]          # write the agent's rule files now
 pitwall rules apply api --main-checkout              # it works in the main checkout: asks first
+pitwall rules apply --stale [--project ~/code/api] [--restart]   # every agent whose rules changed (restarts ask)
 ```
 
 Rule files take effect in the agent's next session (restart it). Without

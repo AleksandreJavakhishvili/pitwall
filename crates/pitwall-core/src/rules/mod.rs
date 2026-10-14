@@ -197,6 +197,31 @@ pub struct ProjectRules {
     pub agents: Vec<AgentRulesDetail>,
 }
 
+/// One agent's outcome in a bulk re-apply.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Reapplied {
+    pub agent_id: String,
+    pub generated: Vec<String>,
+    pub log: String,
+    /// Set when it failed (it keeps its old files).
+    pub error: Option<String>,
+}
+
+impl AgentRulesView {
+    /// Its rules changed or failed since its session started, and Pitwall
+    /// may write them (a worktree, or a main checkout the user confirmed):
+    /// "Re-apply & restart".
+    pub fn needs_reapply(&self) -> bool {
+        (self.stale || self.error.is_some()) && (!self.main_checkout || self.main_checkout_confirmed)
+    }
+
+    /// It gets `set_id`, as its own set or its project's default.
+    pub fn uses_set(&self, set_id: &str) -> bool {
+        self.rule_set_id.as_deref() == Some(set_id) || self.project_rule_set_id.as_deref() == Some(set_id)
+    }
+}
+
 // ------------------------------------------------------------------ store
 
 #[derive(Debug, Clone)]
@@ -751,6 +776,30 @@ pub fn agent_rules(engine: &Engine) -> Vec<AgentRulesView> {
     let dirs = Dirs::of(engine.paths());
     let store = read(&dirs);
     recs.iter().map(|rec| view_of(&dirs, &store, &AgentCtx::from_record(rec, engine.kinds()))).collect()
+}
+
+/// Re-apply every agent whose rules changed or failed since its session
+/// started ([`AgentRulesView::needs_reapply`]), optionally only one
+/// project's (`project`, a folder) or only those using one set (`set_id`).
+/// Each takes effect on that agent's next session; restarting is the
+/// caller's (it asks the user over the socket). Blocking.
+pub fn reapply_stale(engine: &Engine, project: Option<&str>, set_id: Option<&str>) -> Vec<Reapplied> {
+    let key = project.map(|p| project_key(&expand(p)));
+    let recs = engine.records();
+    let ids: Vec<String> = agent_rules(engine)
+        .into_iter()
+        .filter(|v| v.needs_reapply() && set_id.is_none_or(|s| v.uses_set(s)))
+        .filter(|v| {
+            recs.iter().any(|r| r.id == v.agent_id && ruled(r) && key.as_ref().is_none_or(|k| &r.project == k))
+        })
+        .map(|v| v.agent_id)
+        .collect();
+    ids.into_iter()
+        .map(|id| match apply_to_agent(engine, &id, false) {
+            Ok(r) => Reapplied { agent_id: id, generated: r.generated, log: r.log, error: None },
+            Err(e) => Reapplied { agent_id: id, generated: vec![], log: String::new(), error: Some(e) },
+        })
+        .collect()
 }
 
 /// Agents whose rules are Pitwall's business: not terminals, not the Race

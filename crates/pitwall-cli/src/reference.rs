@@ -87,7 +87,7 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("settings set", "pitwall settings set appearance.theme dark\npitwall settings set appearance.density dense"),
     ("queue add", "pitwall queue add api \"run the tests\"\necho \"summarize the diff\" | pitwall queue add api -\npitwall queue add --status idle \"pull main\""),
     ("space move", "pitwall space move Review --to-window new"),
-    ("rules apply", "pitwall rules apply api --set strict"),
+    ("rules apply", "pitwall rules apply api --set strict\npitwall rules apply --stale --restart            # every agent whose rules changed\npitwall rules apply --stale --project ~/code/api"),
     ("rules show", "pitwall rules show ~/code/api --human\npitwall rules show --agent api"),
     ("rules set create", "pitwall rules set create Web --rule style.md --rule testing.md"),
     ("rules set add", "pitwall rules set add Web library:terse.md"),

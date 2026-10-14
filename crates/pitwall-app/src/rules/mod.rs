@@ -33,8 +33,8 @@ use std::sync::Arc;
 use gpui::{App, AppContext, Context, Global};
 
 use pitwall_core::rules::{
-    self, AgentRulesView, ApplyResult, Dirs, ImportRequest, ImportResult, ProjectRules, RuleFile,
-    RuleSet, RuleSource, RulesStatus, SaveRuleSet,
+    self, AgentRulesView, ApplyResult, Dirs, ImportRequest, ImportResult, ProjectRules, Reapplied,
+    RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
 };
 use pitwall_core::Shared;
 
@@ -69,6 +69,12 @@ pub trait RulesBackend: Send + Sync + 'static {
     /// A project's default set and, for each of its agents, its own set
     /// and the rules it gets.
     fn project_detail(&self, project_path: &str) -> ProjectRules;
+    /// Re-apply every agent whose rules changed or failed since its
+    /// session started (`project`: only that project's).
+    fn reapply_stale(&self, project: Option<&str>) -> Vec<Reapplied>;
+    /// Start a running agent again so new rules take effect; `None` when
+    /// it isn't running (it uses them when it next starts).
+    fn restart(&self, agent_id: &str) -> Res<Option<pitwall_proto::AgentView>>;
 }
 
 /// The hosted engine (`src-tauri/src/commands/rules.rs`).
@@ -152,6 +158,16 @@ impl RulesBackend for EngineRules {
     }
     fn project_detail(&self, project_path: &str) -> ProjectRules {
         rules::project_detail(&self.0, project_path)
+    }
+    fn reapply_stale(&self, project: Option<&str>) -> Vec<Reapplied> {
+        rules::reapply_stale(&self.0, project, None)
+    }
+    fn restart(&self, agent_id: &str) -> Res<Option<pitwall_proto::AgentView>> {
+        let running = self.0.views().iter().any(|v| v.id == agent_id && v.running);
+        if !running {
+            return Ok(None);
+        }
+        pitwall_core::engine::lifecycle::restart(&self.0, agent_id, None).map(Some)
     }
 }
 

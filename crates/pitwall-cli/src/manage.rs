@@ -15,7 +15,7 @@ use pitwall_client::{Client, Error};
 use pitwall_proto::{
     caps, code, method, AgentDiagnosis, AgentMove, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentView, AgentWait, ErrorBody, ProjectPath,
     ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied, RulesApply, RulesDefault, RulesImport,
-    RulesImported,
+    RulesImported, RulesReapplied, RulesReapply,
     RulesOverview, RulesShow, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
 };
 
@@ -242,8 +242,18 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             let s: RuleSets = manage(c, method::RULES_SETS, Value::Null)?;
             out(&p, project_rules(&p, &s))
         }
-        RulesCmd::Apply { agent: key, set, main_checkout } => {
-            let a = agent(c, key)?;
+        RulesCmd::Apply { stale: true, set, project, restart, .. } => {
+            let req = RulesReapply { project: project.as_deref().map(folder), set: set.clone() };
+            let r: RulesReapplied = manage(c, method::RULES_REAPPLY, req)?;
+            let list = c.agents()?;
+            let mut h = reapplied(&r, &list, *restart);
+            if *restart {
+                h += &restart_all(c, r.applied.iter().map(|x| x.agent_id.as_str()), &list)?;
+            }
+            out(&r, h)
+        }
+        RulesCmd::Apply { agent: key, set, main_checkout, restart, .. } => {
+            let a = agent(c, key.as_deref().unwrap_or_default())?;
             let r: RulesApplied = manage(c, method::RULES_APPLY, RulesApply { agent_id: a.id.clone(), set: set.clone(), main_checkout: *main_checkout })?;
             let mut h = format!("Applied rules to {}: {} file(s)\n", a.name, r.generated.len());
             for g in &r.generated {
@@ -251,6 +261,9 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             }
             if !r.log.trim().is_empty() {
                 let _ = writeln!(h, "{}", r.log.trim_end());
+            }
+            if *restart {
+                h += &restart_all(c, std::iter::once(a.id.as_str()), std::slice::from_ref(&a))?;
             }
             out(&r, h)
         }
@@ -272,6 +285,41 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             out(&r, h)
         }
     })
+}
+
+/// Restart the running ones of `ids` (each asks the user in Pitwall).
+fn restart_all<'a>(c: &mut Client, ids: impl Iterator<Item = &'a str>, agents: &[AgentView]) -> Result<String, Error> {
+    let mut h = String::new();
+    for id in ids {
+        match agents.iter().find(|a| a.id == id) {
+            Some(a) if a.running => {
+                let v: AgentView = manage(c, method::AGENT_RESTART, AgentRef { agent_id: id.to_string() })?;
+                let _ = writeln!(h, "Restarted {}", v.name);
+            }
+            Some(a) => {
+                let _ = writeln!(h, "{} isn't running: it uses the rules when it starts", a.name);
+            }
+            None => {}
+        }
+    }
+    Ok(h)
+}
+
+pub fn reapplied(r: &RulesReapplied, agents: &[AgentView], restarting: bool) -> String {
+    if r.applied.is_empty() && r.failed.is_empty() {
+        return "No agent's rules changed since it started.\n".into();
+    }
+    let mut h = String::new();
+    for a in &r.applied {
+        let _ = writeln!(h, "Re-applied {}: {} file(s)", name_of(agents, &a.agent_id), a.generated.len());
+    }
+    for f in &r.failed {
+        let _ = writeln!(h, "Couldn't re-apply {}: {}", name_of(agents, &f.agent_id), f.error);
+    }
+    if !r.applied.is_empty() && !restarting {
+        h.push_str("Rules reach new sessions: restart them (or pass --restart).\n");
+    }
+    h
 }
 
 /// `library:web/style.md` → `web/style.md`.
