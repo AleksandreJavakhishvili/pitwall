@@ -30,7 +30,9 @@ Each of these has a section in the skill:
 - **Arrange spaces and windows** ("all API agents in their own window on my
   second monitor").
 - **Create agents per project**, and add existing agw sessions.
-- **Set up rules**: keep the library (import a project's `.rulesync/`, an
+- **Set up skills and rules** (skills first: rules are always in context, so
+  warn about the context cost before making something always-on): write
+  new skills or rules into the library, keep the library (import a project's `.rulesync/`, an
   existing CLAUDE.md, a git repository; make and edit rule sets), put rules
   into a project (import its hand-written CLAUDE.md first, assign sets or
   rules, generate its files, take library updates when asked), give agents
