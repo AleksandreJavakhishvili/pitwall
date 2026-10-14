@@ -64,6 +64,7 @@ fn main_checkout_needs_confirmation() {
         worktree: false,
         kind_name: "Claude Code".into(),
         target: Some("claudecode".into()),
+        fallback: None,
     };
     let err = apply_with(&dirs, None, &LocalExec, &ctx, false).unwrap_err();
     assert!(err.contains("main checkout"), "{err}");
@@ -112,6 +113,7 @@ fn ctx(f: &Fixture, target: &str) -> AgentCtx {
         worktree: true,
         kind_name: "Claude Code".into(),
         target: Some(target.into()),
+        fallback: None,
     }
 }
 
@@ -252,6 +254,7 @@ fn cleanup_goes_through_the_agents_machine() {
         worktree: true,
         kind_name: "Claude Code".into(),
         target: Some("claudecode".into()),
+        fallback: None,
     };
     let res = apply_with(&dirs, None, &*x, &ctx, false).unwrap();
     assert!(res.generated.is_empty());
@@ -262,4 +265,98 @@ fn cleanup_goes_through_the_agents_machine() {
     // Gone folders are reported, not created.
     let gone = AgentCtx { cwd: "/nowhere".into(), ..ctx };
     assert!(apply_with(&dirs, None, &*x, &gone, false).unwrap_err().contains("no longer exists"));
+}
+
+/// A built-in kind's fallback (so the shipped definitions are what's tested).
+fn builtin_fallback(id: &str) -> crate::kind::RulesFallback {
+    let kinds = crate::kind::load_kinds(Path::new("/nonexistent"));
+    let kind = kinds.iter().find(|k| k.id == id).unwrap();
+    assert!(target_for(kind).is_none(), "{id} has no rulesync target");
+    fallback_for(kind).unwrap()
+}
+
+fn fallback_ctx(f: &Fixture, id: &str, name: &str) -> AgentCtx {
+    AgentCtx { kind_name: name.into(), target: None, fallback: Some(builtin_fallback(id)), ..ctx(f, "unused") }
+}
+
+/// Gemini CLI: no rulesync needed. Its rules go into GEMINI.md, filtered by
+/// `targets`, frontmatter dropped, kept out of git, and refreshed when stale.
+#[test]
+fn gemini_gets_a_gemini_md_written_by_pitwall() {
+    let f = fixture();
+    write(&f.dirs.library_rules().join("claude-only.md"), "---\ntargets: [\"claudecode\"]\n---\nOnly for Claude.\n");
+    write(&f.dirs.library_rules().join("gem.md"), "---\ntargets: [\"geminicli\"]\n---\nFor Gemini.\n");
+    assign(&f, &["style.md", "claude-only.md", "gem.md"], &["mine.md"]);
+    let c = fallback_ctx(&f, "gemini", "Gemini CLI");
+    let res = apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    assert_eq!(res.generated, vec!["GEMINI.md"], "{}", res.log);
+    let text = std::fs::read_to_string(f.wt.join("GEMINI.md")).unwrap();
+    assert!(text.starts_with(apply::FALLBACK_HEADER), "{text}");
+    assert!(text.contains("Use tabs.\n\nFor Gemini.\n\nPersonal note.\n"), "{text}");
+    assert!(!text.contains("Only for Claude") && !text.contains("root: false"), "{text}");
+    assert_eq!(sh(&f.wt, &["status", "--porcelain"]), "");
+    assert!(read(&f.dirs).agents["agent-1"].launch_args.is_empty(), "Gemini reads GEMINI.md by itself");
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c));
+
+    write(&f.dirs.library_rules().join("style.md"), "---\ntargets: [\"*\"]\n---\nUse spaces.\n");
+    assert!(stale(&f.dirs, &read(&f.dirs), &c));
+    apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    assert!(std::fs::read_to_string(f.wt.join("GEMINI.md")).unwrap().contains("Use spaces."));
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c));
+}
+
+/// A project that tracks its own GEMINI.md keeps it: the rules go into
+/// Pitwall's file, and fresh starts ask Gemini to read it.
+#[test]
+fn gemini_with_a_tracked_gemini_md_is_pointed_at_pitwalls_file() {
+    let f = fixture();
+    write(&f.wt.join("GEMINI.md"), "# project gemini\n");
+    sh(&f.wt, &["add", "GEMINI.md"]);
+    sh(&f.wt, &["commit", "-qm", "gemini"]);
+    assign(&f, &["style.md"], &[]);
+    let c = fallback_ctx(&f, "gemini", "Gemini CLI");
+    let res = apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    assert_eq!(res.generated, vec![".gemini/pitwall-rules.md"]);
+    assert!(res.log.contains("kept the project's GEMINI.md"), "{}", res.log);
+    assert_eq!(std::fs::read_to_string(f.wt.join("GEMINI.md")).unwrap(), "# project gemini\n");
+    let file = f.wt.join(".gemini/pitwall-rules.md").to_string_lossy().into_owned();
+    let args = launch_args(&f.dirs, "agent-1");
+    assert_eq!(args[0], "--prompt-interactive");
+    assert!(args[1].starts_with(&format!("Read {file} first")), "{args:?}");
+    assert_eq!(sh(&f.wt, &["status", "--porcelain"]), "");
+}
+
+/// Aider: a file of Pitwall's, passed with --read; unassigning removes it
+/// and the flag.
+#[test]
+fn aider_reads_pitwalls_file_until_rules_are_unassigned() {
+    let f = fixture();
+    assign(&f, &["style.md"], &[]);
+    let c = fallback_ctx(&f, "aider", "Aider");
+    let res = apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    assert_eq!(res.generated, vec![".aider.pitwall-rules.md"]);
+    let file = f.wt.join(".aider.pitwall-rules.md");
+    assert_eq!(launch_args(&f.dirs, "agent-1"), vec!["--read".to_string(), file.to_string_lossy().into_owned()]);
+    assert_eq!(sh(&f.wt, &["status", "--porcelain"]), "");
+
+    update(&f.dirs, |s| {
+        s.project_defaults.clear();
+        s.agents.get_mut("agent-1").unwrap().rule_set_id = None;
+        Ok(())
+    })
+    .unwrap();
+    assert!(stale(&f.dirs, &read(&f.dirs), &c));
+    apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    assert!(!file.exists());
+    assert!(launch_args(&f.dirs, "agent-1").is_empty());
+}
+
+/// The main checkout still needs the user's OK, fallback or not.
+#[test]
+fn fallback_respects_the_main_checkout_confirmation() {
+    let f = fixture();
+    assign(&f, &["style.md"], &[]);
+    let c = AgentCtx { worktree: false, cwd: f.repo.to_string_lossy().into_owned(), ..fallback_ctx(&f, "gemini", "Gemini CLI") };
+    assert!(apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap_err().contains("main checkout"));
+    assert!(!f.repo.join("GEMINI.md").exists());
 }

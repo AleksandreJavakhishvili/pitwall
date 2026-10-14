@@ -226,6 +226,9 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     if let Some(x) = exec.filter(|_| !rec.engineer) {
         rules::on_create(&dirs, core.kinds(), x, &rec, &kind, req.rule_set_id.clone(), req.apply_to_main_checkout);
     }
+    // Pointed at Pitwall's own rules file where its kind needs it (Aider's --read).
+    let mut kind = kind;
+    kind.new_args.extend(rules::launch_args(&dirs, &rec.id));
     let wt = match exec {
         Some(x) if rec.worktree_pending => Some(watch_for(x, &kind, &rec, core.now())),
         _ => None,
@@ -483,7 +486,8 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let rec = core.with(id, |a| a.rec.clone())?;
     let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
-    let (kind, mut env, _) = engineer_launch(core, rec.engineer, kind)?;
+    let (mut kind, mut env, _) = engineer_launch(core, rec.engineer, kind)?;
+    kind.new_args.extend(rules::launch_args(&rules::Dirs::of(core.paths()), &rec.id));
     env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
     env.extend(git_identity_env(core, &*provider, &rec.cwd, &rec.project, rec.git_identity.as_deref()));
     env.extend(core.tool_update_env());
@@ -832,6 +836,28 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         f()
+    }
+
+    /// Aider takes its rules from Pitwall's own file: every start passes
+    /// it with --read (docs/spec/rules.md).
+    #[test]
+    fn aider_starts_with_its_rules_file() {
+        let h = Harness::new(vec![]);
+        let dir = h.dir.path().join("proj");
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().into_owned();
+        let d = rules::Dirs::of(h.engine.paths());
+        std::fs::create_dir_all(d.library_rules()).unwrap();
+        std::fs::write(d.library_rules().join("style.md"), "---\ntargets: [\"*\"]\n---\nUse tabs.\n").unwrap();
+        let set = rules::save_set(&d, rules::SaveRuleSet { id: None, name: "Style".into(), rule_ids: vec!["library:style.md".into()] }).unwrap();
+        rules::set_project_rules(&d, &dir, Some(set.id)).unwrap();
+        let v = create(&h.engine, CreateAgentRequest { apply_to_main_checkout: true, ..req("aider", &dir, false) }).unwrap();
+        let file = format!("{dir}/.aider.pitwall-rules.md");
+        assert!(std::fs::read_to_string(&file).unwrap().contains("Use tabs."));
+        let line = h.provider.launched().remove(0).command_line;
+        assert!(line.ends_with(&format!(" --read {}", crate::shell::quote(&file))), "{line}");
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(h.provider.launched().pop().unwrap().command_line.contains(" --read "), "and on every start");
     }
 
     #[test]

@@ -8,7 +8,8 @@ opencode (`opencode`), Aider (`aider`), Amp (`amp`), Cursor CLI
 - Fields: `command`, `new_args`, `resume_args` (only if the CLI supports
   resuming by id), `assign_session_id`, `hooks = "none"` unless the CLI has a
   per-launch hook mechanism that doesn't modify global config, optional
-  `rulesync_target`.
+  `rulesync_target` (or `rules_fallback` when rulesync has no target for
+  the CLI: Pitwall writes the rules file itself, docs/spec/rules.md).
 - Detection: ported from Herdr's manifests (`src/detect/manifests/` in a
   local clone of Herdr; Apache-2.0, credit in NOTICE + file header), with
   tests built from Herdr's fixtures where available.

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::clock::unix_ms;
 use crate::engine::Engine;
 use crate::exec::{self, Exec, LocalExec};
-use crate::kind::{AgentKind, KindCatalog};
+use crate::kind::{AgentKind, KindCatalog, RulesFallback};
 use crate::model::AgentRecord;
 use crate::paths::{expand_tilde, Paths};
 use crate::vcs::git::Git;
@@ -133,6 +133,10 @@ pub struct AgentRulesState {
     pub exclude_file: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    /// For its fresh starts: what points it at a fallback file (Aider's
+    /// `--read <file>`), as the last apply left it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub launch_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,8 +177,10 @@ pub struct AgentRulesDetail {
     pub view: AgentRulesView,
     pub name: String,
     pub kind_name: String,
-    /// What its files are made for: a rulesync target (`claudecode`), or
-    /// null when its kind takes no rules.
+    /// What its rules are picked for (rules' `targets`): a rulesync target
+    /// (`claudecode`), or for an agent rulesync doesn't cover, the name its
+    /// definition's `rules_fallback` gives (`geminicli`, `aider`). Null
+    /// when its kind takes no rules.
     pub target: Option<String>,
     /// The project default set plus its own set, for its kind (`targets`).
     pub effective: Vec<EffectiveRule>,
@@ -289,6 +295,15 @@ pub fn target_for(kind: &AgentKind) -> Option<String> {
     })
 }
 
+/// Pitwall's own way for a kind rulesync doesn't cover (its definition's
+/// `rules_fallback`); `None` when rulesync has a target for it.
+pub fn fallback_for(kind: &AgentKind) -> Option<RulesFallback> {
+    if target_for(kind).is_some() {
+        return None;
+    }
+    kind.rules_fallback.clone()
+}
+
 /// What `apply` needs to know about an agent.
 #[derive(Debug, Clone)]
 pub struct AgentCtx {
@@ -297,7 +312,10 @@ pub struct AgentCtx {
     pub project: String,
     pub worktree: bool,
     pub kind_name: String,
+    /// rulesync target.
     pub target: Option<String>,
+    /// No rulesync target: Pitwall writes the rules itself this way.
+    pub fallback: Option<RulesFallback>,
 }
 
 impl AgentCtx {
@@ -310,6 +328,22 @@ impl AgentCtx {
             worktree: rec.worktree.is_some(),
             kind_name: rec.kind_name.clone(),
             target: kind.as_ref().and_then(target_for),
+            fallback: kind.as_ref().and_then(fallback_for),
+        }
+    }
+
+    /// The name rules' `targets` are matched against.
+    fn rules_target(&self) -> Option<&str> {
+        self.target.as_deref().or(self.fallback.as_ref().map(|f| f.target.as_str()))
+    }
+
+    /// What the fingerprint is taken for: the rulesync target, or Pitwall's
+    /// own file (so switching between the two counts as a change).
+    fn made_for(&self) -> Option<String> {
+        match (&self.target, &self.fallback) {
+            (Some(t), _) => Some(t.clone()),
+            (None, Some(f)) => Some(format!("pitwall:{}:{}", f.target, f.file)),
+            (None, None) => None,
         }
     }
 }
@@ -352,31 +386,38 @@ pub fn apply_with(
     }
     let any_set = project_set(&store, ctx).is_some() || state.rule_set_id.is_some();
     let mut log = Vec::new();
-    let (files, exclude_file, fingerprint) = if !any_set {
+    let (files, exclude_file, fingerprint, launch_args) = if !any_set {
         // Nothing assigned: just clean up what an earlier apply wrote.
         apply::remove_generated(exec, cwd, &state.files, &mut log);
         if let Some(f) = &state.exclude_file {
             apply::write_exclude(exec, f, &ctx.id, &[])?;
         }
         log.push("No rule set assigned to this agent or its project.".into());
-        (vec![], None, None)
+        (vec![], None, None, vec![])
+    } else if let (None, Some(fb)) = (&ctx.target, &ctx.fallback) {
+        // rulesync has no target for it: Pitwall writes its one file.
+        let inputs = inputs_for(dirs, &store, ctx, &fb.target);
+        let out = apply::fallback(exec, &ctx.id, cwd, fb, &inputs, &state.files)?;
+        log.extend(out.log);
+        let made_for = ctx.made_for().unwrap_or_default();
+        (out.files, out.exclude_file, Some(apply::fingerprint(&inputs, &made_for)), out.launch_args)
     } else {
         let target = ctx
             .target
             .clone()
-            .ok_or_else(|| format!("{} has no rulesync target (set rulesync_target in its agent definition)", ctx.kind_name))?;
+            .ok_or_else(|| format!("{} takes no rules (its agent definition has no rulesync_target or rules_fallback)", ctx.kind_name))?;
         let runner = runner.ok_or("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.")?;
         let inputs = inputs_for(dirs, &store, ctx, &target);
         let stage = dirs.run().join(&ctx.id);
         let out = apply::run(runner, &stage, exec, &ctx.id, cwd, &target, &inputs, &state.files)?;
         let _ = std::fs::remove_dir_all(&stage);
         log.extend(out.log);
-        (out.files, out.exclude_file, Some(apply::fingerprint(&inputs, &target)))
+        if out.files.is_empty() {
+            log.push("rulesync generated nothing that could be placed.".into());
+        }
+        (out.files, out.exclude_file, Some(apply::fingerprint(&inputs, &target)), out.launch_args)
     };
     let generated: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-    if generated.is_empty() && any_set {
-        log.push("rulesync generated nothing that could be placed.".into());
-    }
     update(dirs, |s| {
         let e = s.agents.entry(ctx.id.clone()).or_default();
         e.main_checkout_confirmed |= confirm_main_checkout;
@@ -385,6 +426,7 @@ pub fn apply_with(
         e.cwd = ctx.cwd.clone();
         e.files = files;
         e.exclude_file = exclude_file;
+        e.launch_args = launch_args;
         e.error = None;
         Ok(())
     })?;
@@ -392,7 +434,7 @@ pub fn apply_with(
 }
 
 fn stale(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> bool {
-    let Some(target) = &ctx.target else { return false };
+    let (Some(target), Some(made_for)) = (ctx.rules_target(), ctx.made_for()) else { return false };
     let Some(state) = store.agents.get(&ctx.id) else {
         return project_set(store, ctx).is_some() && ctx.worktree;
     };
@@ -404,7 +446,7 @@ fn stale(dirs: &Dirs, store: &Store, ctx: &AgentCtx) -> bool {
         (None, false) => !state.files.is_empty(),
         (None, true) => true,
         (Some(_), false) => true,
-        (Some(fp), true) => *fp != apply::fingerprint(&inputs_for(dirs, store, ctx, target), target),
+        (Some(fp), true) => *fp != apply::fingerprint(&inputs_for(dirs, store, ctx, target), &made_for),
     }
 }
 
@@ -422,6 +464,7 @@ pub fn on_create(
     let rule_set_id = rule_set_id.filter(|s| !s.is_empty());
     let mut ctx = AgentCtx::from_record(rec, kinds);
     ctx.target = target_for(kind);
+    ctx.fallback = fallback_for(kind);
     let wants = {
         let store = read(dirs);
         rule_set_id.is_some() || project_set(&store, &ctx).is_some()
@@ -468,6 +511,13 @@ pub fn on_worktree_found(dirs: &Dirs, kinds: &KindCatalog, exec: &dyn Exec, rec:
         s.agents.entry(rec.id.clone()).or_default().error = res.err();
         Ok(())
     });
+}
+
+/// Arguments for an agent's fresh starts that its rules need (pointing it
+/// at Pitwall's own rules file, e.g. Aider's `--read <file>`); empty for
+/// most agents.
+pub fn launch_args(dirs: &Dirs, agent_id: &str) -> Vec<String> {
+    read(dirs).agents.get(agent_id).map(|s| s.launch_args.clone()).unwrap_or_default()
 }
 
 /// Called when an agent is removed: delete the files Pitwall generated for it
@@ -712,7 +762,7 @@ fn ruled(rec: &AgentRecord) -> bool {
 fn detail_of(dirs: &Dirs, store: &Store, lib: &[RuleFile], rec: &AgentRecord, kinds: &KindCatalog) -> AgentRulesDetail {
     let ctx = AgentCtx::from_record(rec, kinds);
     let view = view_of(dirs, store, &ctx);
-    let effective = match &ctx.target {
+    let effective = match ctx.rules_target() {
         Some(target) => {
             let shared = set_ids(store, view.project_rule_set_id.as_deref());
             let extra = set_ids(store, view.rule_set_id.as_deref());
@@ -720,7 +770,8 @@ fn detail_of(dirs: &Dirs, store: &Store, lib: &[RuleFile], rec: &AgentRecord, ki
         }
         None => vec![],
     };
-    AgentRulesDetail { view, name: rec.name.clone(), kind_name: rec.kind_name.clone(), target: ctx.target.clone(), effective }
+    let target = ctx.rules_target().map(String::from);
+    AgentRulesDetail { view, name: rec.name.clone(), kind_name: rec.kind_name.clone(), target, effective }
 }
 
 /// A project's rules: its default set, and for each of its agents the
