@@ -62,6 +62,11 @@ pub struct Manifest {
     /// first generation may replace them: their text is in the rules now).
     #[serde(default)]
     pub imported: Vec<String>,
+    /// Rules made by those imports: name under `.rulesync/rules/` → the
+    /// instruction file it came from (`source`) and its hash as Pitwall
+    /// left it (after setting its targets).
+    #[serde(default)]
+    pub imported_rules: BTreeMap<String, Copied>,
     /// The last generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generated: Option<Generated>,
@@ -285,7 +290,8 @@ fn existing_instructions(root: &Path, m: &Manifest) -> Vec<String> {
     if m.rules.is_empty() {
         return vec![];
     }
-    let own = md_under(&rules_dir(root)).iter().any(|r| !m.rules.contains_key(r));
+    // Rules the project wrote itself (not Pitwall's copies or imports).
+    let own = md_under(&rules_dir(root)).iter().any(|r| !m.rules.contains_key(r) && !m.imported_rules.contains_key(r));
     if own {
         return vec![];
     }
@@ -663,7 +669,9 @@ pub fn update(root: &Path, lib: &[RuleFile], keys: &[String], take: Option<&str>
 
 /// Import the hand-written instruction files ([`status`]'s `existing`)
 /// into `.rulesync/rules/` with `rulesync import`, run in a scratch folder
-/// under `stage` holding a copy, so the project only gains new rule files.
+/// under `stage` holding a copy, so the project only gains new rule files
+/// (`claude.md`, `agents.md`, …), each for the tools that read its file
+/// ([`imported_targets`]).
 pub fn import_existing(root: &Path, runner: &Runner, stage: &Path) -> Res<ProjectImported> {
     let mut m = load(root);
     let files = existing_instructions(root, &m);
@@ -686,7 +694,8 @@ pub fn import_existing(root: &Path, runner: &Runner, stage: &Path) -> Res<Projec
             let stem = file.trim_end_matches(".md").to_lowercase();
             let mut added = Vec::new();
             for rel in md_under(&produced) {
-                let base = format!("{stem}-{}", rel.replace('/', "-"));
+                // rulesync names it after the file it came from (CLAUDE.md → claude.md).
+                let base = if rel.eq_ignore_ascii_case(file) { format!("{stem}.md") } else { format!("{stem}-{}", rel.replace('/', "-")) };
                 let name = (1..)
                     .map(|n| if n == 1 { base.clone() } else { format!("{}-{n}.md", base.trim_end_matches(".md")) })
                     .find(|n| !dir.join(n).exists())
@@ -702,13 +711,131 @@ pub fn import_existing(root: &Path, runner: &Runner, stage: &Path) -> Res<Projec
         if added.is_empty() {
             log.push(format!("rulesync found no rules in {file}"));
         }
+        for name in &added {
+            m.imported_rules.insert(name.clone(), Copied { source: file.clone(), hash: String::new() });
+        }
         out.added.extend(added);
         out.files.push(file.clone());
         m.imported.push(file.clone());
     }
+    retarget_imports(root, &mut m, &mut log)?;
     save(root, &m)?;
     out.log = log.join("\n");
     Ok(out)
+}
+
+/// The skill file in `.rulesync/skills/` a generated path comes from
+/// (`.claude/skills/review/run.sh` → `.rulesync/skills/review/run.sh`).
+fn skill_source(root: &Path, rel: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let i = parts.iter().position(|p| *p == "skills")?;
+    let (name, rest) = (parts.get(i + 1)?, parts.get(i + 2..)?);
+    if rest.is_empty() {
+        return None;
+    }
+    let src = skills_dir(root).join(name).join(rest.join("/"));
+    src.is_file().then_some(src)
+}
+
+/// rulesync drops the executable bit of a skill's scripts (checked with
+/// rulesync 33): give a generated copy the bit its source has.
+fn keep_executable(root: &Path, rel: &str, dest: &Path) {
+    let executable = skill_source(root, rel).is_some_and(|s| crate::platform::is_executable(&s));
+    if executable && !crate::platform::is_executable(dest) {
+        let _ = crate::platform::make_executable(dest);
+    }
+}
+
+/// Tools that read AGENTS.md (besides whatever the project targets).
+const AGENTS_READERS: &[&str] = &["agentsmd", "codexcli", "opencode", "amp", "copilot", "copilotcli", "cursor"];
+
+/// The targets an imported instruction file's rule should have, so that
+/// generating reproduces each file as it was: `rulesync import` makes every
+/// one a root rule for all tools, and two of them would be merged into
+/// both CLAUDE.md and AGENTS.md. CLAUDE.md's rule is Claude Code's,
+/// GEMINI.md's Gemini CLI's; AGENTS.md's goes to every tool but Claude Code
+/// when a CLAUDE.md was imported too (else Claude Code still gets it).
+pub fn imported_targets(file: &str, claude_imported: bool, in_use: &[String]) -> Vec<String> {
+    match file {
+        "CLAUDE.md" => vec!["claudecode".into()],
+        "GEMINI.md" => vec!["geminicli".into()],
+        "AGENTS.md" if claude_imported => {
+            let mut out: Vec<String> = Vec::new();
+            for t in in_use.iter().map(String::as_str).chain(AGENTS_READERS.iter().copied()) {
+                if !matches!(t, "claudecode" | "geminicli" | "*") && !out.iter().any(|o| o == t) {
+                    out.push(t.to_string());
+                }
+            }
+            out
+        }
+        _ => vec!["*".into()],
+    }
+}
+
+/// `src` with its frontmatter `targets` set to `targets`; everything else
+/// byte for byte.
+pub fn set_targets(src: &str, targets: &[String]) -> String {
+    let line = format!("targets: [{}]\n", targets.iter().map(|t| format!("\"{t}\"")).collect::<Vec<_>>().join(", "));
+    let Some((block, _)) = library::front_block(src) else {
+        return format!("---\n{line}---\n{src}");
+    };
+    // `block` is a slice of `src`, right after the opening `---` line.
+    let start = block.as_ptr() as usize - src.as_ptr() as usize;
+    let mut out = String::from(&src[..start]);
+    let mut done = false;
+    let mut skipping = false;
+    for l in block.split_inclusive('\n') {
+        let indented = l.starts_with([' ', '\t']);
+        if skipping && indented {
+            continue;
+        }
+        skipping = false;
+        if !indented && l.trim_start().starts_with("targets:") {
+            out.push_str(&line);
+            done = true;
+            skipping = true;
+            continue;
+        }
+        out.push_str(l);
+    }
+    if !done {
+        out.push_str(&line);
+    }
+    out.push_str(&src[start + block.len()..]);
+    out
+}
+
+/// Give every imported rule its [`imported_targets`]: new ones always,
+/// earlier ones only while unchanged since Pitwall last wrote them.
+fn retarget_imports(root: &Path, m: &mut Manifest, log: &mut Vec<String>) -> Res<()> {
+    let dir = rules_dir(root);
+    let claude = m.imported.iter().any(|f| f == "CLAUDE.md");
+    let in_use = if m.targets.is_empty() { DEFAULT_TARGETS.iter().map(|t| t.to_string()).collect() } else { m.targets.clone() };
+    for (name, c) in m.imported_rules.clone() {
+        let path = dir.join(&name);
+        let Some(text) = read_text(&path) else { continue };
+        let want = imported_targets(&c.source, claude, &in_use);
+        let have = library::parse_front(&text).targets;
+        if have == want {
+            if c.hash.is_empty() {
+                m.imported_rules.insert(name, Copied { hash: content_hash(text.as_bytes()), ..c });
+            }
+            continue;
+        }
+        if !c.hash.is_empty() && content_hash(text.as_bytes()) != c.hash {
+            log.push(format!(
+                "kept {name}: changed since it was imported; for {} to come out as it was, set its targets to [{}]",
+                c.source,
+                want.join(", ")
+            ));
+            continue;
+        }
+        let new = set_targets(&text, &want);
+        write(&path, new.as_bytes())?;
+        log.push(format!("{name} ({}) now applies to {}", c.source, want.join(", ")));
+        m.imported_rules.insert(name, Copied { hash: content_hash(new.as_bytes()), ..c });
+    }
+    Ok(())
 }
 
 /// Run rulesync for the project's `.rulesync/` (in a staging folder under
@@ -784,6 +911,7 @@ pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], 
                 continue;
             }
             write(&dest, &bytes)?;
+            keep_executable(root, rel, &dest);
             res.written.push(rel.clone());
             files.insert(rel.clone(), content_hash(&bytes));
         }
