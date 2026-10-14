@@ -6,22 +6,78 @@ Settings; show install hint otherwise — never install automatically).
 Reference docs: the `docs/` folder of a local clone of rulesync.
 
 ## Model
-- **Library**: `~/.pitwall/rules/` is a rulesync-format input root
+- **Library**: a catalog of every rule. `~/.pitwall/rules/` is a rulesync-format input root
   (`rules/*.md`, optionally `skills/`, `subagents/`, `commands/`). Plus
   imported sources: a project's own `.rulesync/`, an existing CLAUDE.md /
   AGENTS.md (via `rulesync import`), or a git repo (clone into
   `~/.pitwall/rules-sources/<name>`, pull on demand).
 - **Rule sets**: named selections of library rules (stored in state).
-- **Assignment**: two scopes only: the project's default set + an optional
-  per-agent extra set (New agent dialog: "Rules" dropdown; Settings → Rules
-  to manage sets). There are no account-wide or team-wide rules.
-- **Effective rules**: what an agent gets is the project default set, then
+- **Assignment**: two scopes only. **Project**: rules copied into the
+  repository and committed (see "Project rules"); the old project default
+  set kept in Pitwall is only a fallback while the working folder has no
+  `.rulesync/rules/`. **Agent**: an optional per-agent extra set, personal
+  and local-only (New agent dialog: "Rules" dropdown). There are no
+  account-wide or team-wide rules.
+- **Effective rules**: what an agent gets is the project default set (only
+  as the fallback above), then
   its own set (a rule in both counts once, as the project's), then the
   working folder's own `.rulesync/` rules, keeping only rules whose
   `targets` include the agent's target (`*` or no `targets`: every agent).
   Rules picked in a set but gone from the library are listed as missing.
   Settings → Rules → Project defaults → "Agents" shows this per project;
   `pitwall rules show <project>` / `--agent <agent>` prints it.
+
+## Project rules (the project scope)
+Rules end up in the project: copied into `<repo>/.rulesync/rules/`, where the
+user commits them (they show up in Review; nothing here goes in
+`.git/info/exclude`). Code: `crates/pitwall-core/src/rules/project.rs`.
+- **Manifest** `<repo>/.rulesync/.pitwall.json`: for each copied file, the
+  library rule it came from and the library content hash at copy time; the
+  targets the project generates for; instruction files imported; the last
+  generation (inputs fingerprint, output path → hash). The rule files stay
+  plain rulesync files.
+- **Assign** a whole set or single rules (Settings → Rules → a project's
+  Details: checkboxes grouped by set; `pitwall rules project assign`).
+  A rule goes to its path in its source (under `<source>/` when another
+  source's rule has the name). A different file already there is never
+  replaced unless the caller names it (`overwrite`). **Unassign** removes a
+  copy only if unchanged since copied, or when forced.
+- **Updates are opt-in** (never synced on their own). Per rule: `current`;
+  `update` (library changed since the copy; shown with a unified diff);
+  `modified` (changed in the project; never overwritten); `conflict` (both:
+  shown with both texts, and the user must take the library's or keep the
+  project's; keeping marks the library version seen). Accept per rule or
+  all (all skips conflicts unless a choice is given).
+- **Existing instructions**: a repo with a hand-written, tracked CLAUDE.md /
+  AGENTS.md / GEMINI.md and no rules of its own in `.rulesync/` is offered
+  "import existing instructions" first: `rulesync import` runs in a scratch
+  copy and only new files are added to `.rulesync/rules/` (named
+  `<file>-<rule>.md`). Generation never replaces such a file before it is
+  imported (or explicitly named).
+- **Generation**: `rulesync generate --targets <in use> --features rules`
+  into a staging folder with `<repo>/.rulesync` as the input root (the
+  project's rulesync.jsonc doesn't apply), then the outputs (CLAUDE.md,
+  AGENTS.md, …) are placed in the repo to be committed. Targets: given, else
+  the ones used last, else those of the project's agents' kinds, else
+  `claudecode,codexcli`. A file is replaced only when it is Pitwall's last
+  output unchanged, an imported instruction file not generated yet, an
+  agent's own local copy (released, below), or named. Outputs no longer
+  generated are removed when unchanged. **Out of date** when `.rulesync/rules/`
+  or the targets changed since, or a generated file was edited or deleted
+  (also when rules were copied but never generated).
+- **Agent scope never clobbers shared files**: agent-scope generation never
+  writes over a git-tracked file or one it didn't write. When the project
+  generates a path an agent wrote for itself (untracked, excluded), the
+  agent's record and `.git/info/exclude` block let go of it, so it shows in
+  Review and the agent's cleanup never deletes it.
+- **Migration**: rules.json keeps loading as before. The project default set
+  is a fallback while the working folder has no `.rulesync/rules/`; "Move
+  into project" (`pitwall rules project move-default`) copies its rules in
+  through Assign, then drops the default (kept when files need a decision).
+- **Approvals**: socket `rules.project.status|updates` read freely;
+  `rules.project.assign|unassign|update|import|generate|move` write into
+  the user's repository and ask first (Low: "remember" allowed, as the
+  result is reviewed before commit). Pitwall's own window asks nobody.
 
 ## Applying (at agent create, and "Re-apply rules & restart")
 - Map kind → rulesync target (claude→`claudecode`, codex→`codexcli`, others
