@@ -8,6 +8,7 @@
 
 mod apply;
 mod library;
+pub mod project;
 mod runner;
 
 use std::collections::BTreeMap;
@@ -379,7 +380,14 @@ fn set_ids(store: &Store, id: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The project's default set (Pitwall's own data), used while the agent's
+/// working folder has no `.rulesync/rules/`: once it does, the project's
+/// rules live in the repository (docs/spec/rules.md, "Project rules") and
+/// the agent's own set is all Pitwall adds.
 fn project_set(store: &Store, ctx: &AgentCtx) -> Option<String> {
+    if Path::new(&ctx.cwd).join(".rulesync").join("rules").is_dir() {
+        return None;
+    }
     store.project_defaults.get(&ctx.project).cloned()
 }
 
@@ -851,6 +859,185 @@ pub fn agent_detail(engine: &Engine, agent_id: &str) -> Res<ProjectRules> {
         rule_set_id: store.project_defaults.get(&rec.project).cloned(),
         agents: vec![detail_of(&dirs, &store, &lib, &rec, engine.kinds())],
     })
+}
+
+// ------------------------------------------------------------------ project rules
+// docs/spec/rules.md, "Project rules": library rules copied into the
+// repository and committed (crate::rules::project).
+
+use pitwall_proto::{ProjectAssigned, ProjectGenerated, ProjectImported, ProjectRuleUpdate, ProjectRulesStatus, ProjectUnassigned, ProjectUpdated};
+
+/// A project's folder (repo root when inside git), which must exist.
+fn project_root(path: &str) -> Res<PathBuf> {
+    let root = PathBuf::from(project_key(&expand(path)));
+    if !root.is_dir() {
+        return Err(format!("{} is not a folder", root.display()));
+    }
+    Ok(root)
+}
+
+fn key_of(root: &Path) -> String {
+    root.to_string_lossy().into_owned()
+}
+
+pub fn project_status(dirs: &Dirs, path: &str) -> Res<ProjectRulesStatus> {
+    let root = project_root(path)?;
+    let store = read(dirs);
+    let lib = library::list(dirs, &store.sources);
+    Ok(project::status(&root, &lib, store.project_defaults.get(&key_of(&root)).cloned()))
+}
+
+/// Copy a set's rules (`set_id`) and single rules into the project's
+/// `.rulesync/rules/`; files there with other content only when
+/// `overwrite` names them.
+pub fn project_assign(dirs: &Dirs, path: &str, set_id: Option<&str>, rule_ids: &[String], overwrite: &[String]) -> Res<ProjectAssigned> {
+    let root = project_root(path)?;
+    let store = read(dirs);
+    let mut ids = match set_id {
+        Some(id) => store.sets.iter().find(|s| s.id == id).ok_or("no such rule set")?.rule_ids.clone(),
+        None => vec![],
+    };
+    ids.extend(rule_ids.iter().cloned());
+    if ids.is_empty() {
+        return Err("pick a rule set or rules to assign".into());
+    }
+    project::assign(&root, &library::list(dirs, &store.sources), &ids, overwrite)
+}
+
+pub fn project_unassign(path: &str, rules: &[String], force: bool) -> Res<ProjectUnassigned> {
+    project::unassign(&project_root(path)?, rules, force)
+}
+
+pub fn project_updates(dirs: &Dirs, path: &str) -> Res<Vec<ProjectRuleUpdate>> {
+    let root = project_root(path)?;
+    Ok(project::updates(&root, &library::list(dirs, &read(dirs).sources)))
+}
+
+pub fn project_update(dirs: &Dirs, path: &str, rules: &[String], take: Option<&str>) -> Res<ProjectUpdated> {
+    let root = project_root(path)?;
+    project::update(&root, &library::list(dirs, &read(dirs).sources), rules, take)
+}
+
+fn need_runner(dirs: &Dirs) -> Res<runner::Runner> {
+    runner::runner(read(dirs).allow_npx).ok_or_else(|| "rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.".to_string())
+}
+
+pub fn project_import_existing(dirs: &Dirs, path: &str) -> Res<ProjectImported> {
+    let root = project_root(path)?;
+    let r = need_runner(dirs)?;
+    project::import_existing(&root, &r, &dirs.run().join(format!("project-{}", uuid::Uuid::new_v4())))
+}
+
+fn same_dir(a: &Path, b: &Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+}
+
+/// Files agents' own rules wrote in `root` and nobody changed since.
+fn agent_owned(store: &Store, root: &Path) -> std::collections::BTreeSet<String> {
+    store
+        .agents
+        .values()
+        .filter(|a| !a.cwd.is_empty() && same_dir(Path::new(&a.cwd), root))
+        .flat_map(|a| {
+            a.files
+                .iter()
+                .filter(|f| std::fs::read(root.join(&f.path)).is_ok_and(|b| apply::content_hash(&b) == f.hash))
+                .map(|f| f.path.clone())
+        })
+        .collect()
+}
+
+/// The project generates `paths` now, to be committed: agents' records and
+/// their `.git/info/exclude` blocks let go of them, so the files show up
+/// in Review and an agent's cleanup never deletes them.
+fn release_agent_paths(dirs: &Dirs, root: &Path, paths: &[String]) -> Res<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    update(dirs, |s| {
+        for (id, a) in s.agents.iter_mut() {
+            if a.cwd.is_empty() || !same_dir(Path::new(&a.cwd), root) || !a.files.iter().any(|f| paths.contains(&f.path)) {
+                continue;
+            }
+            a.files.retain(|f| !paths.contains(&f.path));
+            if let Some(file) = &a.exclude_file {
+                let prefix = apply::exclude_target(&LocalExec, &a.cwd).map(|(_, p)| p).unwrap_or_default();
+                let rel: Vec<String> = a.files.iter().map(|f| format!("{prefix}{}", f.path)).collect();
+                apply::write_exclude(&LocalExec, file, id, &rel)?;
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Generate the project's shared files (CLAUDE.md, AGENTS.md, …) from its
+/// `.rulesync/`, for `targets`, else the ones used last, else `default`'s,
+/// else Claude Code and Codex.
+pub fn project_generate(dirs: &Dirs, path: &str, targets: &[String], overwrite: &[String], default: impl FnOnce() -> Vec<String>) -> Res<ProjectGenerated> {
+    let root = project_root(path)?;
+    let r = need_runner(dirs)?;
+    project_generate_with(dirs, &r, &root, targets, overwrite, default)
+}
+
+fn project_generate_with(
+    dirs: &Dirs,
+    r: &runner::Runner,
+    root: &Path,
+    targets: &[String],
+    overwrite: &[String],
+    default: impl FnOnce() -> Vec<String>,
+) -> Res<ProjectGenerated> {
+    let mut targets: Vec<String> = targets.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+    if targets.is_empty() {
+        targets = project::load(root).targets;
+    }
+    if targets.is_empty() {
+        targets = default();
+    }
+    if targets.is_empty() {
+        targets = project::DEFAULT_TARGETS.iter().map(|t| t.to_string()).collect();
+    }
+    let released = agent_owned(&read(dirs), root);
+    let stage = dirs.run().join(format!("project-{}", uuid::Uuid::new_v4()));
+    let res = project::generate(root, r, &stage, &targets, overwrite, &released)?;
+    let taken: Vec<String> = res.written.iter().filter(|p| released.contains(*p)).cloned().collect();
+    release_agent_paths(dirs, root, &taken)?;
+    Ok(res)
+}
+
+/// [`project_generate`] with the default targets of the project's agents'
+/// kinds.
+pub fn project_generate_for(engine: &Engine, path: &str, targets: &[String], overwrite: &[String]) -> Res<ProjectGenerated> {
+    let key = project_key(&expand(path));
+    let kinds = engine.kinds();
+    let default = || {
+        let mut out: Vec<String> = Vec::new();
+        for r in engine.records().iter().filter(|r| ruled(r) && r.project == key) {
+            if let Some(t) = kinds.for_record(&r.kind, r.custom_command.as_deref()).as_ref().and_then(target_for) {
+                if !out.contains(&t) {
+                    out.push(t);
+                }
+            }
+        }
+        out
+    };
+    project_generate(&Dirs::of(engine.paths()), path, targets, overwrite, default)
+}
+
+/// "Move to project": copy the old project default set's rules into the
+/// project, then drop the default (kept when some files need a decision).
+pub fn project_move_default(dirs: &Dirs, path: &str) -> Res<ProjectAssigned> {
+    let root = project_root(path)?;
+    let key = key_of(&root);
+    let set = read(dirs).project_defaults.get(&key).cloned().ok_or("this project has no default rule set in Pitwall")?;
+    let res = project_assign(dirs, path, Some(&set), &[], &[])?;
+    if res.conflicts.is_empty() {
+        update(dirs, |s| {
+            s.project_defaults.remove(&key);
+            Ok(())
+        })?;
+    }
+    Ok(res)
 }
 
 #[cfg(test)]
