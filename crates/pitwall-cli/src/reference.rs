@@ -93,6 +93,8 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("rules project assign", "pitwall rules project assign ~/code/api --set Web            # asks first\npitwall rules project assign ~/code/api --rule testing.md"),
     ("rules project update", "pitwall rules project updates ~/code/api --human          # what changed, with diffs\npitwall rules project update ~/code/api                   # every rule with an update\npitwall rules project update ~/code/api style.md --take library"),
     ("rules project generate", "pitwall rules project import-existing ~/code/api   # a hand-written CLAUDE.md first\npitwall rules project generate ~/code/api --targets claudecode,codexcli"),
+    ("rules new", "pitwall rules new tabs --description \"Tabs, not spaces\" --from ~/notes/tabs.md\npitwall rules new deploy-rule --from library:skills/deploy --as-rule   # a skill made a rule: always in context"),
+    ("rules skill new", "pitwall rules skill new review --description \"Review a diff for bugs and tests\"\npitwall rules skill new deploy --from ./tools/deploy-skill      # a folder with SKILL.md and its files\npitwall rules skill new deploy --from ./deploy.md --overwrite  # replaces: asks first"),
     ("rules set create", "pitwall rules set create Web --rule style.md --rule testing.md"),
     ("rules set add", "pitwall rules set add Web library:terse.md"),
     ("rules import", "pitwall rules import project ~/code/api          # its own .rulesync/\npitwall rules import file ~/code/api/CLAUDE.md   # asks first\npitwall rules import git https://github.com/acme/ai-rules.git   # asks first"),

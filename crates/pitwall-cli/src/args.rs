@@ -137,8 +137,15 @@ pub enum ProjectCmd {
 
 #[derive(Debug, Subcommand, PartialEq)]
 pub enum RulesCmd {
-    /// Rule files in the library, and each agent's rules state.
+    /// The library's skills and rules (with their type), and each agent's
+    /// rules state.
     List,
+    /// Write a new rule into the library: from scratch, a file, or a
+    /// library entry. A rule is in every session's context.
+    New(NewRule),
+    /// Skills: know-how an agent loads only when it's relevant.
+    #[command(subcommand)]
+    Skill(SkillCmd),
     /// Rule sets, and each project's default set.
     Sets,
     /// What a project's agents get: its default set, each agent's own set,
@@ -193,9 +200,10 @@ pub enum RulesCmd {
     /// committed with the project. Writing there asks you in Pitwall.
     #[command(subcommand)]
     Project(ProjectRulesCmd),
-    /// Add rules to the library: a project's own `.rulesync/` (read in
-    /// place), a CLAUDE.md / AGENTS.md / GEMINI.md (needs rulesync), or a git
-    /// repository (cloned). A file or a repository asks you in Pitwall.
+    /// Add rules and skills to the library: a project's own `.rulesync/`
+    /// (read in place) and its `.claude/skills` (copied), a CLAUDE.md /
+    /// AGENTS.md / GEMINI.md (needs rulesync), or a git repository (cloned).
+    /// A file or a repository asks you in Pitwall.
     Import {
         /// Where from: project, file or git.
         #[arg(value_parser = ["project", "file", "git"])]
@@ -203,6 +211,58 @@ pub enum RulesCmd {
         /// The project folder, the file, or the repository's URL.
         source: String,
     },
+}
+
+#[derive(Debug, Args, PartialEq, Default)]
+pub struct NewRule {
+    /// The rule's name (its file name in the library, without .md).
+    pub name: String,
+    /// Start from a library entry (id), or a file.
+    #[arg(long, value_name = "ID|PATH")]
+    pub from: Option<String>,
+    /// What it's about (shown in lists).
+    #[arg(long)]
+    pub description: Option<String>,
+    /// rulesync targets it's for, comma-separated (default: every tool).
+    #[arg(long, value_name = "TARGETS", value_delimiter = ',')]
+    pub targets: Vec<String>,
+    /// --from is a skill: make a rule of it (its other files are left out,
+    /// and it will be in every session's context).
+    #[arg(long)]
+    pub as_rule: bool,
+    /// Replace a rule of that name (asks you in Pitwall).
+    #[arg(long)]
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum SkillCmd {
+    /// Write a new skill into the library (a folder with SKILL.md): from
+    /// scratch, a skill's folder (its other files come along), a file, or a
+    /// library entry.
+    New(NewSkill),
+}
+
+#[derive(Debug, Args, PartialEq, Default)]
+pub struct NewSkill {
+    /// The skill's name (its folder in the library).
+    pub name: String,
+    /// Start from a library entry (id), a skill's folder, or a file.
+    #[arg(long, value_name = "ID|PATH")]
+    pub from: Option<String>,
+    /// When to use it: agents read this to decide (required unless --from
+    /// has one).
+    #[arg(long)]
+    pub description: Option<String>,
+    /// rulesync targets it's for, comma-separated (default: every tool).
+    #[arg(long, value_name = "TARGETS", value_delimiter = ',')]
+    pub targets: Vec<String>,
+    /// --from is a rule: make a skill of it.
+    #[arg(long)]
+    pub as_skill: bool,
+    /// Replace a skill of that name (asks you in Pitwall).
+    #[arg(long)]
+    pub overwrite: bool,
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -225,8 +285,11 @@ pub enum ProjectRulesCmd {
         set: Option<String>,
         /// A library rule (id, or file name when only one rule has it).
         /// Repeatable.
-        #[arg(long = "rule", value_name = "RULE", required_unless_present = "set")]
+        #[arg(long = "rule", value_name = "RULE", required_unless_present_any = ["set", "skills"])]
         rules: Vec<String>,
+        /// A library skill (its name or id). Repeatable.
+        #[arg(long = "skill", value_name = "SKILL")]
+        skills: Vec<String>,
         /// Replace this file in .rulesync/rules/ although it differs.
         /// Repeatable.
         #[arg(long, value_name = "NAME")]
@@ -649,6 +712,7 @@ mod tests {
                 project: "~/p".into(),
                 set: Some("Web".into()),
                 rules: vec!["a.md".into()],
+                skills: vec![],
                 overwrite: vec!["a.md".into()]
             }))
         );
@@ -659,6 +723,24 @@ mod tests {
         assert_eq!(
             parse(&["rules", "project", "generate", "~/p", "--targets", "claudecode,codexcli"]).unwrap().command,
             Command::Rules(RulesCmd::Project(ProjectRulesCmd::Generate { project: "~/p".into(), targets: vec!["claudecode".into(), "codexcli".into()], overwrite: vec![] }))
+        );
+        assert_eq!(
+            parse(&["rules", "project", "assign", "~/p", "--skill", "review"]).unwrap().command,
+            Command::Rules(RulesCmd::Project(ProjectRulesCmd::Assign { project: "~/p".into(), set: None, rules: vec![], skills: vec!["review".into()], overwrite: vec![] }))
+        );
+        assert_eq!(
+            parse(&["rules", "skill", "new", "review", "--from", "./r", "--description", "Review a diff", "--targets", "claudecode,codexcli"]).unwrap().command,
+            Command::Rules(RulesCmd::Skill(SkillCmd::New(NewSkill {
+                name: "review".into(),
+                from: Some("./r".into()),
+                description: Some("Review a diff".into()),
+                targets: vec!["claudecode".into(), "codexcli".into()],
+                ..Default::default()
+            })))
+        );
+        assert_eq!(
+            parse(&["rules", "new", "tabs", "--from", "library:skills/x", "--as-rule", "--overwrite"]).unwrap().command,
+            Command::Rules(RulesCmd::New(NewRule { name: "tabs".into(), from: Some("library:skills/x".into()), as_rule: true, overwrite: true, ..Default::default() }))
         );
         assert_eq!(parse(&["rules", "project", "status"]).unwrap().command, Command::Rules(RulesCmd::Project(ProjectRulesCmd::Status { project: None })));
         assert_eq!(
@@ -700,6 +782,8 @@ mod tests {
             &["rules", "set", "add", "Web"],
             &["rules", "apply"],
             &["rules", "project", "assign", "/p"],
+            &["rules", "skill", "new"],
+            &["rules", "new"],
             &["rules", "project", "unassign", "/p"],
             &["rules", "project", "update", "/p", "--take", "both"],
             &["rules", "apply", "api", "--stale"],

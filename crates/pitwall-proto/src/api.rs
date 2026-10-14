@@ -97,6 +97,9 @@ pub mod method {
     /// [`RulesImport`](crate::RulesImport) → [`RulesImported`](crate::RulesImported)
     /// (asks the user for a file or a git repository).
     pub const RULES_IMPORT: &str = "rules.import";
+    /// [`LibraryNew`](crate::LibraryNew) → [`LibraryAdded`](crate::LibraryAdded):
+    /// a rule or skill into Pitwall's library (replacing one asks).
+    pub const RULES_LIBRARY_NEW: &str = "rules.library.new";
     // Project rules: copied into the repo's .rulesync/ and committed.
     /// [`ProjectRef`](crate::ProjectRef) → [`ProjectRulesStatus`](crate::ProjectRulesStatus)
     pub const RULES_PROJECT_STATUS: &str = "rules.project.status";

@@ -24,7 +24,9 @@ use pitwall_proto::{
     ProjectRulesStatus, ProjectUnassign, ProjectUnassigned, ProjectUpdate, ProjectUpdated,
 };
 
-use crate::args::{AgentCmd, ProjectCmd, ProjectRulesCmd, QueueCmd, ReviewCmd, RuleSetCmd, RulesCmd, SpaceCmd, WaitArgs};
+use pitwall_proto::{LibraryAdded, LibraryNew};
+
+use crate::args::{AgentCmd, ProjectCmd, ProjectRulesCmd, QueueCmd, ReviewCmd, RuleSetCmd, RulesCmd, SkillCmd, SpaceCmd, WaitArgs};
 use crate::Output;
 
 fn err(code: &str, message: impl Into<String>) -> Error {
@@ -277,6 +279,30 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             out(&s, rule_sets(&s))
         }
         RulesCmd::Set(cmd) => rule_set_cmd(cmd, c)?,
+        RulesCmd::New(n) => library_new(
+            c,
+            LibraryNew {
+                skill: false,
+                name: n.name.clone(),
+                description: n.description.clone(),
+                targets: n.targets.clone(),
+                from: n.from.as_deref().map(source_arg),
+                convert: n.as_rule,
+                overwrite: n.overwrite,
+            },
+        )?,
+        RulesCmd::Skill(SkillCmd::New(n)) => library_new(
+            c,
+            LibraryNew {
+                skill: true,
+                name: n.name.clone(),
+                description: n.description.clone(),
+                targets: n.targets.clone(),
+                from: n.from.as_deref().map(source_arg),
+                convert: n.as_skill,
+                overwrite: n.overwrite,
+            },
+        )?,
         RulesCmd::Project(cmd) => project_rules_cmd(cmd, c)?,
         RulesCmd::Import { kind, source } => {
             let source = if kind == "git" { source.clone() } else { folder(source) };
@@ -328,6 +354,25 @@ pub fn reapplied(r: &RulesReapplied, agents: &[AgentView], restarting: bool) -> 
     h
 }
 
+/// `--from`: a path made absolute when it is one here, else a library id.
+fn source_arg(from: &str) -> String {
+    if Path::new(from).exists() || from.starts_with(['.', '/', '~']) {
+        folder(from)
+    } else {
+        from.to_string()
+    }
+}
+
+fn library_new(c: &mut Client, req: LibraryNew) -> Result<Output, Error> {
+    let what = if req.skill { "skill" } else { "rule" };
+    let r: LibraryAdded = manage(c, method::RULES_LIBRARY_NEW, req)?;
+    let mut h = format!("Added the {what} {} to the library\n", r.id);
+    for n in &r.notes {
+        let _ = writeln!(h, "Note: {n}");
+    }
+    Ok(out(&r, h))
+}
+
 fn here(p: &Option<String>) -> String {
     folder(p.as_deref().unwrap_or("."))
 }
@@ -339,8 +384,10 @@ pub fn project_rules_cmd(cmd: &ProjectRulesCmd, c: &mut Client) -> Result<Output
             let sets: RuleSets = manage(c, method::RULES_SETS, Value::Null)?;
             out(&st, project_status(&st, &sets))
         }
-        ProjectRulesCmd::Assign { project, set, rules, overwrite } => {
-            let rule_ids = if rules.is_empty() { vec![] } else { library_ids(c, rules)? };
+        ProjectRulesCmd::Assign { project, set, rules, skills, overwrite } => {
+            let mut keys = rules.clone();
+            keys.extend(skills.iter().map(|s| if s.contains(':') || s.starts_with("skills/") { s.clone() } else { format!("skills/{s}") }));
+            let rule_ids = if keys.is_empty() { vec![] } else { library_ids(c, &keys)? };
             let req = ProjectAssign { project: folder(project), set: set.clone(), rule_ids, overwrite: overwrite.clone() };
             let r: ProjectAssigned = manage(c, method::RULES_PROJECT_ASSIGN, req)?;
             out(&r, assigned(&r))
@@ -417,7 +464,10 @@ pub fn project_status(st: &ProjectRulesStatus, sets: &RuleSets) -> String {
     let rows: Vec<Vec<String>> = st
         .rules
         .iter()
-        .map(|r| vec![format!("  {}", state_word(r.state)), r.name.clone(), r.source.clone().unwrap_or_else(|| "(the project's own)".into())])
+        .map(|r| {
+            let name = if r.skill { format!("skills/{}", r.name) } else { r.name.clone() };
+            vec![format!("  {}", state_word(r.state)), name, r.source.clone().unwrap_or_else(|| "(the project's own)".into())]
+        })
         .collect();
     if !rows.is_empty() {
         h.push_str(&table(&rows));
@@ -685,8 +735,13 @@ pub fn rules_overview(o: &RulesOverview, agents: &[AgentView]) -> String {
         (Some(v), true) => format!("rulesync: via {v}\n"),
         _ => "rulesync: not available (install it, or allow npx: settings set rules.allowNpx true)\n".into(),
     };
-    for f in &o.files {
-        let _ = writeln!(h, "  {}  {}", f.id, f.description.clone().unwrap_or_default());
+    let rows: Vec<Vec<String>> = o
+        .files
+        .iter()
+        .map(|f| vec![format!("  {}", if f.skill { "skill" } else { "rule" }), f.id.clone(), f.description.clone().unwrap_or_default()])
+        .collect();
+    if !rows.is_empty() {
+        h.push_str(&table(&rows));
     }
     for a in &o.agents {
         let set = a.rule_set_id.clone().or(a.project_rule_set_id.clone()).unwrap_or_else(|| "-".into());
