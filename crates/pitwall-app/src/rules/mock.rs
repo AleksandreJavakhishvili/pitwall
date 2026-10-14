@@ -83,6 +83,16 @@ impl MockRules {
                         &["claudecode", "codexcli"],
                     ),
                     rule("terse.md", "Keep answers short", false, &["*"]),
+                    RuleFile {
+                        id: "library:skills/review".into(),
+                        path: "~/.pitwall/rules/skills/review".into(),
+                        description: Some("Review a diff for bugs and missing tests".into()),
+                        targets: vec!["*".into()],
+                        root: false,
+                        local_root: false,
+                        skill: true,
+                        source: "library".into(),
+                    },
                 ],
                 sets: vec![RuleSet {
                     id: "s1".into(),
@@ -427,7 +437,7 @@ impl RulesBackend for MockRules {
                 out.skipped.push(format!("{id}: not in the library"));
                 continue;
             }
-            let name = super::rule_label(id).to_string();
+            let name = super::skill_label(id).to_string();
             s.copied
                 .entry(path.into())
                 .or_default()
