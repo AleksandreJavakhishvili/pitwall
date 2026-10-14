@@ -13,6 +13,7 @@ import { countLabel, worktreesByAgent } from "../lib/worktrees";
 import { WorktreeRows } from "./WorktreeRows";
 import { Icon } from "./Icon";
 import { keys } from "../lib/host";
+import { changeGroups, shownPath, stageGroups } from "../lib/changes";
 
 /** Changes are polled this often while the panel is shown and the window visible. */
 export const CHANGES_POLL_MS = 5_000;
@@ -151,26 +152,88 @@ export function Changes({ agent: a, tabs }: { agent: AgentView; tabs?: React.Rea
       {error && error !== "not-a-git-repo" && <FreshError error={error} prefix="Couldn't read changes: " onRetry={() => void refresh()} />}
       {!error && files === null && <p className="hint">Reading git…</p>}
       {!error && files?.length === 0 && <p className="hint">No changes since the agent started.</p>}
-      {files && files.length > 0 && (
-        <ul className="file-list">
-          {files.map((f) => {
-            const { dir, base } = splitPath(f.path);
-            return (
-              <li key={f.path}>
-                <button className="file-row" data-status={fileStatus(f)} onClick={() => openDiff(a.id, f)} title={f.path}>
-                  <FileIcon path={f.path} />
-                  <span className="file-path">
-                    <span className="file-dir">{dir}</span>
-                    <span className="file-base">{base}</span>
-                  </span>
-                  <FileStats file={f} />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {files && files.length > 0 && <FileList agent={a} files={files} onOpen={(f) => openDiff(a.id, f)} />}
       <AgentWorktrees agent={a} />
     </section>
+  );
+}
+
+/**
+ * The changed files: per repository (a header for each one inside the agent's folder, which
+ * folds), then "Staged Changes" / "Changes" when anything is staged — as VS Code's Source Control.
+ */
+function FileList({ agent: a, files, onOpen }: { agent: AgentView; files: FileChange[]; onOpen(f: FileChange): void }) {
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const groups = changeGroups(files);
+  const grouped = groups.some((g) => g.repo !== null);
+  const own = a.cwdDisplay.replace(/\/+$/, "").split("/").pop() ?? "";
+  return (
+    <ul className="file-list" data-grouped={grouped}>
+      {groups.map(({ repo, files: mine }) => {
+        const key = `${a.id}|${repo ?? ""}`;
+        const open = !folded.has(key);
+        // The agent's own repository: its branch; one inside: as read with its files.
+        const branch = repo === null ? a.branch : mine[0]?.branch === "HEAD" ? "detached HEAD" : (mine[0]?.branch ?? null);
+        return (
+          <li key={key} className="repo-section">
+            {grouped && (
+              <button
+                className="repo-head"
+                aria-expanded={open}
+                title={open ? "Collapse" : "Expand"}
+                onClick={() =>
+                  setFolded((s) => {
+                    const next = new Set(s);
+                    if (!next.delete(key)) next.add(key);
+                    return next;
+                  })
+                }
+              >
+                <span className="chev" data-open={open}>
+                  <Icon name="chevron" size={12} />
+                </span>
+                <Icon name="branch" size={12} />
+                <span className="repo-name">{repo ?? own}</span>
+                {branch && <span className="repo-branch mono">{branch}</span>}
+                <span className="spacer" />
+                <span className="repo-count mono">{mine.length}</span>
+              </button>
+            )}
+            {open && (
+              <ul className="repo-files">
+                {stageGroups(mine).map(({ stage, files: part }) => (
+                  <li key={stage ?? "all"}>
+                    {stage && (
+                      <div className="stage-head" data-indent={grouped}>
+                        <span>{stage === "staged" ? "Staged Changes" : "Changes"}</span>
+                        <span className="spacer" />
+                        <span className="mono">{part.length}</span>
+                      </div>
+                    )}
+                    <ul>
+                      {part.map((f) => {
+                        const { dir, base } = splitPath(shownPath(f));
+                        return (
+                          <li key={`${stage}:${f.path}`}>
+                            <button className="file-row" data-status={fileStatus(f)} onClick={() => onOpen(f)} title={f.path}>
+                              <FileIcon path={f.path} />
+                              <span className="file-path">
+                                <span className="file-dir">{dir}</span>
+                                <span className="file-base">{base}</span>
+                              </span>
+                              <FileStats file={f} />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

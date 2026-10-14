@@ -84,6 +84,8 @@ export interface AgentView {
   restartAs?: string | null;
   /** Pitwall's Race Engineer (docs/spec/engineer.md): marked "ENGINEER". May be missing on older backends. */
   engineer?: boolean;
+  /** The account (login) it runs with, by id; absent or null: the user's own. */
+  account?: string | null;
   caps: AgentCaps;
   status: Status;
   statusSource: "hooks" | "screen" | "activity";
@@ -130,6 +132,8 @@ export interface CreateAgentRequest {
   rows?: number;
   /** Start it as the Race Engineer (its own folder, Pitwall's know-how). */
   engineer?: boolean;
+  /** The login it runs with (an account id; absent: the project's account, else the user's own). */
+  account?: string | null;
 }
 
 /** Git status letter as in VS Code's SCM view (from `git diff --name-status`). */
@@ -144,6 +148,48 @@ export interface FileChange {
   /** From git (`--raw` / `--name-status`); older backends omit it and the UI
    * falls back to U/M via `fileStatus()` in lib/fileTree.ts. */
   status?: FileStatus;
+  /** A repository inside the agent's folder this file belongs to: its folder,
+   * which `path` starts with (absent: the agent's own repository). */
+  repo?: string;
+  /** That repository's branch ("HEAD": detached). */
+  branch?: string;
+  /** What of it is staged and what isn't (the Changes list's two groups). */
+  parts?: { staged: FilePart | null; unstaged: FilePart | null };
+}
+
+/** One part of a changed file: staged, or not (`FileChange.parts`). */
+export interface FilePart {
+  added: number;
+  removed: number;
+  status?: FileStatus | null;
+}
+
+/** An agent kind that can run on more than one login (its definition names a login folder). */
+export interface AccountKind {
+  id: string;
+  name: string;
+  /** The environment variable naming the login folder (`CLAUDE_CONFIG_DIR`). */
+  env: string;
+  /** Who the user's own login (Default) is, when it can be read. */
+  login: string | null;
+}
+
+/** One extra login (Settings → Agents → Accounts). */
+export interface Account {
+  id: string;
+  kind: string;
+  name: string;
+  /** Its login folder, as shown (`~/.pitwall/accounts/claude-work`). */
+  folder: string;
+  /** Who it is logged in as; null: not logged in yet. */
+  login: string | null;
+}
+
+export interface AccountsView {
+  kinds: AccountKind[];
+  accounts: Account[];
+  /** Project folder → kind → the account its new agents use. */
+  projects: Record<string, Record<string, string>>;
 }
 
 export interface HooksStatus {

@@ -28,6 +28,9 @@ const PATHS: Record<string, string> = {
   file: "M5 3h6.5L15 6.5V17H5zM11.5 3v3.5H15",
   expand: "M11 4h5v5M16 4l-6 6M9 16H4v-5M4 16l6-6",
   copy: "M7.5 7.5h8.5v8.5H7.5zM4.5 12.5V4h8.5",
+  check: "M5 10.5l3.2 3L15 6.5",
+  // An account (a login): the sidebar grouped by account.
+  user: "M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5",
 };
 
 export function Icon({ name, size = 16 }: { name: keyof typeof PATHS | string; size?: number }) {

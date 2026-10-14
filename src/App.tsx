@@ -58,6 +58,8 @@ import { useWorktrees, WorktreesContext } from "./lib/useWorktrees";
 import { RemoveWorktreeDialog } from "./components/RemoveWorktreeDialog";
 import { findWorktree } from "./lib/worktrees";
 import { QuickOpen } from "./components/explorer/QuickOpen";
+import { ProjectAccountsDialog } from "./components/ProjectAccountsDialog";
+import { accountOf, useAccounts } from "./lib/useAccounts";
 import type { ViewerTarget } from "./components/explorer/Viewer";
 
 type ModalState =
@@ -65,7 +67,8 @@ type ModalState =
   | { type: "new"; projectPath?: string }
   | { type: "scan" }
   | { type: "palette" }
-  | { type: "settings" }
+  | { type: "settings"; page?: "general" | "agents" }
+  | { type: "projectAccounts"; project: string }
   | { type: "remove"; agentId: string }
   | { type: "removeWorktree"; projectId: string; path: string }
   | { type: "terminal"; path?: string }
@@ -450,6 +453,46 @@ export default function App() {
     setTimeout(() => showAgent(a.id), 0);
   };
 
+  // ── accounts ─────────────────────────────────────────────────────────────
+  const accountsView = useAccounts();
+  const accountsRef = useRef(accountsView);
+  accountsRef.current = accountsView;
+  /** Moves waiting for their account's login (`moveAgents`). */
+  const pendingMoves = useRef<{ ids: string[]; account: string; name: string }[]>([]);
+  const switchAccount = (agentId: string, account: string | null, name: string) => {
+    void run(api.switchAccount(agentId, account), "switch the account").then((a) => {
+      if (!a) return;
+      patch(a);
+      push({ tone: "info", title: `${a.name} now runs on ${name}`, detail: `${a.name} picked up its conversation there`, agentId: a.id });
+    });
+  };
+  const logIn = async (kind: string, id: string, folder = "/Users/dev") => {
+    const a = await run(api.logIn(kind, id, folder), "start the login");
+    if (!a) return;
+    patch(a);
+    setTimeout(() => showAgent(a.id), 0);
+  };
+  const loggedIn = (account: string | null) => !account || !!accountOf(accountsRef.current, account)?.login;
+  const moveAgents = (ids: string[], account: string | null, name: string, kind: string, project: string, login: boolean) => {
+    if (loggedIn(account)) {
+      ids.forEach((id) => switchAccount(id, account, name));
+      return;
+    }
+    if (ids.length) {
+      const what = ids.length === 1 ? "its agent moves" : `its ${ids.length} agents move`;
+      push({ tone: "info", title: `Log in to ${name} in its terminal`, detail: `Then ${what} there on their own.` });
+      pendingMoves.current.push({ ids, account: account!, name });
+    }
+    if (login) void logIn(kind, account!, project);
+  };
+  // Moves waiting for a login go once it's there.
+  useEffect(() => {
+    if (!pendingMoves.current.length) return;
+    const go = pendingMoves.current.filter((m) => loggedIn(m.account));
+    pendingMoves.current = pendingMoves.current.filter((m) => !loggedIn(m.account));
+    go.forEach((m) => m.ids.forEach((id) => switchAccount(id, m.account, m.name)));
+  }, [accountsView]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const actions: Actions = {
     showAgent,
     run,
@@ -497,6 +540,24 @@ export default function App() {
       else api.focusWindow(owner).catch(() => {});
       setOverlaySidebar(false);
     },
+    openAccountSpace: (account, name) => {
+      const { state, spaceId } = W.openAccountSpace(current.current, account, name, agentsRef.current, me);
+      update(() => W.setWall(state, me, false));
+      const owner = W.windowOfSpace(state, spaceId);
+      if (owner === me) setActiveSpaceId(spaceId);
+      else api.focusWindow(owner).catch(() => {});
+      setOverlaySidebar(false);
+    },
+    sidebarGroup: ui.sidebarGroup,
+    setSidebarGroup: (group) => update((s) => W.setSidebarGroup(s, group)),
+    openProjectAccounts: (project) => setModal({ type: "projectAccounts", project }),
+    openSettings: (page) => setModal({ type: "settings", page }),
+    switchAccount,
+    moveAgents,
+    logIn: (kind, id, folder) => {
+      setModal(null);
+      void logIn(kind, id, folder);
+    },
     toggleCollapsed: (project, where) =>
       update((s) =>
         where === "sidebar"
@@ -519,7 +580,7 @@ export default function App() {
           : v;
     }
     return out as unknown as Actions;
-  }, [ui.hideElsewhere, ui.theme, ui.look, ui.reduceMotion, ui.density, ui.fontSize]);
+  }, [ui.hideElsewhere, ui.theme, ui.look, ui.reduceMotion, ui.density, ui.fontSize, ui.sidebarGroup]);
 
   const toggleSidebar = () => {
     if (resp.sidebar === "full") setSidebarCollapsed((v) => !v);
@@ -857,9 +918,16 @@ export default function App() {
       {modal?.type === "settings" && (
         <ErrorBoundary where="Settings" variant="modal" onClose={closeModal}>
           <Suspense fallback={null}>
-            <SettingsDialog onClose={closeModal} onScanAgain={() => setModal({ type: "scan" })} />
+            <SettingsDialog onClose={closeModal} onScanAgain={() => setModal({ type: "scan" })} initialPage={modal.page} />
           </Suspense>
         </ErrorBoundary>
+      )}
+      {modal?.type === "projectAccounts" && (
+        <ProjectAccountsDialog
+          project={modal.project}
+          agents={agents.filter((a) => a.project === modal.project)}
+          onClose={closeModal}
+        />
       )}
       {modal?.type === "terminal" && (
         <TerminalDialog

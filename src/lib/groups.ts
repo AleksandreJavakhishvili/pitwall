@@ -77,3 +77,40 @@ export function summarize(agents: AgentView[]): string {
     .map(([s, n]) => `${n} ${STATUS_WORD[s]}`)
     .join(" · ");
 }
+
+/** One account in the sidebar grouped by account: its project groups. */
+export interface AccountSection {
+  /** The account of its agents (`default`: the user's own logins). */
+  account: string;
+  /** Its collapse key (`acct:<account>`). */
+  key: string;
+  groups: ProjectGroup[];
+  agents: number;
+  blocked: number;
+}
+
+/**
+ * The sidebar grouped by account, then project: Default first, then the
+ * accounts in `order`, then any other. Projects without agents go under
+ * Default. Group keys are prefixed with the section's, so each folds on its own.
+ */
+export function byAccount(agents: AgentView[], listed: ProjectGroup[], order: string[]): AccountSection[] {
+  const keyOf = (a: AgentView) => a.account || "default";
+  const keys: string[] = [];
+  for (const a of agents) if (!keys.includes(keyOf(a))) keys.push(keyOf(a));
+  const empties = listed.filter((g) => g.agents.length === 0);
+  if (empties.length && !keys.includes("default")) keys.push("default");
+  const rank = (k: string) => (k === "default" ? [0, 0, ""] : order.includes(k) ? [1, order.indexOf(k), ""] : [2, 0, k]) as [number, number, string];
+  keys.sort((a, b) => {
+    const [x, y] = [rank(a), rank(b)];
+    return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+  });
+  return keys.map((account) => {
+    const mine = agents.filter((a) => keyOf(a) === account);
+    let groups = groupByProject(mine);
+    if (account === "default") groups = [...groups, ...empties];
+    const key = `acct:${account}`;
+    groups = groups.map((g) => ({ ...g, key: `${key}|${g.key}` }));
+    return { account, key, groups, agents: mine.length, blocked: groups.reduce((n, g) => n + g.blocked, 0) };
+  });
+}

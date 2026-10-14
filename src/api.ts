@@ -24,6 +24,8 @@ import type {
   ProviderMachines,
   RecentProject,
   RunningElsewhere,
+  Account,
+  AccountsView,
 } from "./types";
 
 import type { ScreenFrame } from "./gen/ScreenFrame";
@@ -121,6 +123,20 @@ export interface Api extends ReviewApi, WorktreesApi, ExplorerApi {
   setWindowGlass(on: boolean): Promise<GlassState>;
   /** Quit Pitwall; agents keep running in their holders unless `stopAgents`. */
   quitApp(stopAgents: boolean): Promise<void>;
+
+  // accounts: more than one Claude Code / Codex login
+  listAccounts(): Promise<AccountsView>;
+  onAccountsChanged(cb: (v: AccountsView) => void): Promise<Unlisten>;
+  /** A new login folder (`dir`: one that already exists, else Pitwall's). */
+  addAccount(kind: string, name: string, dir?: string): Promise<Account>;
+  removeAccount(id: string): Promise<AccountsView>;
+  renameAccount(id: string, name: string): Promise<AccountsView>;
+  /** The account `project`'s new agents of `kind` use (`null`: Default). */
+  setProjectAccount(project: string, kind: string, account: string | null): Promise<AccountsView>;
+  /** Restart an agent on another account; its conversation goes with it. */
+  switchAccount(agentId: string, account: string | null): Promise<AgentView>;
+  /** An agent of `kind` on account `id` in `folder`: the tool asks for its login. */
+  logIn(kind: string, id: string, folder: string): Promise<AgentView>;
 }
 
 /** Turn whatever a call rejected with into a readable message. */

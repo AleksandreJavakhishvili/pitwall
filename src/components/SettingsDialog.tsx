@@ -9,6 +9,7 @@ import { LayoutSettings } from "./LayoutSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { CliSettings } from "./CliSettings";
 import { PermissionsSettings } from "./PermissionsSettings";
+import { AccountsSettings } from "./AccountsSettings";
 
 /** The pages, in the app's order (`pitwall_proto::settings::Page`). */
 export const SETTINGS_PAGES = [
@@ -106,7 +107,7 @@ export function SettingsDialog({
 }
 
 function GeneralPage({ onScanAgain }: { onScanAgain?(): void }) {
-  const { hideElsewhere, setHideElsewhere } = useActions();
+  const { hideElsewhere, setHideElsewhere, sidebarGroup, setSidebarGroup } = useActions();
   return (
     <>
       {onScanAgain && (
@@ -121,6 +122,27 @@ function GeneralPage({ onScanAgain }: { onScanAgain?(): void }) {
           <p className="muted">Look for new projects, conversations you can continue and installed agents. Read-only.</p>
         </div>
       )}
+      <div className="setting">
+        <div className="setting-row">
+          <span className="setting-title">Group agents by</span>
+          <span className="spacer" />
+          <div className="seg" role="radiogroup" aria-label="Group agents by">
+            {(
+              [
+                ["project", "Project", "Projects, then their agents"],
+                ["account", "Account", "The login agents run on, then project, then agents"],
+              ] as const
+            ).map(([g, label, tip]) => (
+              <button key={g} role="radio" aria-checked={sidebarGroup === g} className="seg-btn" data-on={sidebarGroup === g} onClick={() => setSidebarGroup(g)} title={tip}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="hint">
+          Account shows the Claude Code or Codex login each agent runs on (Settings → Agents → Accounts), then its projects.
+        </p>
+      </div>
       <div className="setting">
         <label className="setting-check">
           <span>
@@ -160,6 +182,7 @@ function AgentsPage() {
 
   return (
     <>
+      <AccountsSettings />
       <div className="setting">
         <div className="setting-head">
           <span className="setting-title">Claude Code</span>

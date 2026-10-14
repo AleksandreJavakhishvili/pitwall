@@ -143,3 +143,12 @@
   background: var(--surface-2);
   color: var(--text);
 }
+/* "Run on account": a section label in a menu. */
+.menu-header {
+  padding: 8px 8px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}

@@ -6,6 +6,7 @@ import { Modal } from "./Modal";
 import { DiffStat } from "./DiffStat";
 import { FileIcon, StatusLetter } from "./FileIcon";
 import { splitPath } from "../lib/fileTree";
+import { stageOf } from "../lib/changes";
 
 interface Props {
   agent: AgentView | null;
@@ -41,6 +42,7 @@ export function DiffView({ agent, file, onClose }: Props) {
           <span className="file-dir"> {splitPath(file.path).dir.replace(/\/$/, "")}</span>
         </span>
         <StatusLetter file={file} />
+        {stageOf(file) && <span className="chip chip-subtle">{stageOf(file) === "staged" ? "staged" : "not staged"}</span>}
         {file.binary ? <span className="chip chip-subtle">bin</span> : <DiffStat added={file.added} removed={file.removed} />}
         <span className="spacer" />
         <span className="label">{agent.name}</span>

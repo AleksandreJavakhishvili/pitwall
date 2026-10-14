@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentView, MachineView } from "../types";
-import { groupByProject, machineHeading } from "./groups";
+import { byAccount, groupByProject, machineHeading, type ProjectGroup } from "./groups";
 
 const here: MachineView = { provider: "p1", id: "m1", label: "This Mac", canCreate: true };
 const vm: MachineView = { provider: "p2", id: "vm", label: "my-vm", canCreate: false };
@@ -27,5 +27,28 @@ describe("groupByProject", () => {
   it("shows no machine headings with one machine", () => {
     const g = groupByProject([agent("a", "/x", here), agent("b", "/y", here)]);
     expect(machineHeading(g, 0)).toBeNull();
+  });
+});
+
+describe("byAccount", () => {
+  const on = (a: AgentView, account: string | null) => ({ ...a, account }) as AgentView;
+  it("groups by account then project, Default first, then the given order", () => {
+    const empty: ProjectGroup = { key: "/w/empty", project: "/w/empty", display: "empty", machine: null, canCreate: true, agents: [], blocked: 0 };
+    const s = byAccount(
+      [
+        on(agent("a", "/w/api", here), "claude-work"),
+        on(agent("b", "/w/api", here, "blocked"), null),
+        on(agent("c", "/w/web", here), "claude-work"),
+        on(agent("d", "/w/docs", here), "codex-side"),
+        on(agent("e", "/w/api", here), "claude-home"),
+      ],
+      [empty],
+      ["claude-home", "claude-work"],
+    );
+    expect(s.map((x) => x.account)).toEqual(["default", "claude-home", "claude-work", "codex-side"]);
+    expect(s[0].groups.map((g) => g.project)).toEqual(["/w/api", "/w/empty"]);
+    expect([s[0].agents, s[0].blocked, s[2].agents]).toEqual([1, 1, 2]);
+    expect(s[2].groups[0].key).toBe("acct:claude-work|/w/api");
+    expect(byAccount([], [], [])).toEqual([]);
   });
 });

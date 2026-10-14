@@ -8,6 +8,9 @@ import { createReviewMock } from "./mockReview";
 import { createWorktreesMock } from "./mockWorktrees";
 import { createExplorerMock } from "./mockExplorer";
 import type {
+  Account,
+  AccountKind,
+  AccountsView,
   AgentView,
   ApprovalView,
   AttentionEvent,
@@ -153,14 +156,17 @@ const changes: Record<string, FileChange[]> = {
     { path: "src/cart/useCart.ts", added: 3, removed: 1, untracked: false, binary: false },
     { path: "package.json", added: 1, removed: 1, untracked: false, binary: false, status: "M" },
   ],
+  // Staged and not staged apart (handler.ts is both), and a repository inside
+  // the agent's folder (vendor/sdk) with its own branch.
   "api-fix": [
-    { path: "src/orders/handler.ts", added: 18, removed: 6, untracked: false, binary: false },
-    { path: "src/orders/pricing.ts", added: 4, removed: 2, untracked: false, binary: false },
-    { path: "src/orders/errors.ts", added: 22, removed: 0, untracked: false, binary: false },
-    { path: "test/orders/empty-cart.test.ts", added: 41, removed: 0, untracked: true, binary: false },
-    { path: "src/orders/schema.ts", added: 63, removed: 29, untracked: false, binary: false },
-    { path: "src/orders/legacy-handler.ts", added: 0, removed: 37, untracked: false, binary: false, status: "D" },
-    { path: "src/orders/validation/cart.ts", added: 26, removed: 0, untracked: false, binary: false, status: "A" },
+    { path: "src/orders/handler.ts", added: 18, removed: 6, untracked: false, binary: false, status: "M", parts: { staged: { added: 12, removed: 4, status: "M" }, unstaged: { added: 6, removed: 2, status: "M" } } },
+    { path: "src/orders/errors.ts", added: 22, removed: 0, untracked: false, binary: false, status: "A", parts: { staged: { added: 22, removed: 0, status: "A" }, unstaged: null } },
+    { path: "src/orders/legacy-handler.ts", added: 0, removed: 37, untracked: false, binary: false, status: "D", parts: { staged: { added: 0, removed: 37, status: "D" }, unstaged: null } },
+    { path: "src/orders/pricing.ts", added: 4, removed: 2, untracked: false, binary: false, status: "M", parts: { staged: null, unstaged: { added: 4, removed: 2, status: "M" } } },
+    { path: "src/orders/schema.ts", added: 63, removed: 29, untracked: false, binary: false, status: "M", parts: { staged: null, unstaged: { added: 63, removed: 29, status: "M" } } },
+    { path: "test/orders/empty-cart.test.ts", added: 41, removed: 0, untracked: true, binary: false, status: "U", parts: { staged: null, unstaged: { added: 41, removed: 0, status: "U" } } },
+    { path: "vendor/sdk/client.ts", added: 14, removed: 3, untracked: false, binary: false, status: "M", repo: "vendor/sdk", branch: "feature/sdk", parts: { staged: null, unstaged: { added: 14, removed: 3, status: "M" } } },
+    { path: "vendor/sdk/retry.ts", added: 26, removed: 0, untracked: true, binary: false, status: "U", repo: "vendor/sdk", branch: "feature/sdk", parts: { staged: null, unstaged: { added: 26, removed: 0, status: "U" } } },
   ],
   docs: [
     { path: "docs/onboarding.md", added: 30, removed: 8, untracked: false, binary: false },
@@ -319,6 +325,7 @@ let agents: AgentView[] = [
     projectDisplay: "checkout-web",
     branch: "worktree-tests",
     worktree: true,
+    account: "claude-work",
     lastSent: "Run the test suite and fix the flaky cart spec. Don't touch the snapshot files.",
     lastSentAt: now - 4 * min,
     createdAt: now - 50 * min,
@@ -333,6 +340,7 @@ let agents: AgentView[] = [
     statusSource: "screen",
     branch: "codex/api-fix",
     worktree: true,
+    account: "codex-side",
     cwd: "/Users/dev/.codex/worktrees/a1b2/orders-api",
     cwdDisplay: "~/.codex/worktrees/a1b2/orders-api",
     queue: [
@@ -355,6 +363,7 @@ let agents: AgentView[] = [
     projectDisplay: "handbook",
     branch: "worktree-docs",
     worktree: true,
+    account: "claude-work",
     lastSent: "Rewrite the onboarding page so a new hire can get a dev env running in 15 minutes.",
     lastSentAt: now - 26 * min,
     createdAt: now - 30 * min,
@@ -581,6 +590,11 @@ const kinds: KindView[] = [
   { id: "claude", name: "Claude Code", installed: true, path: "/opt/homebrew/bin/claude", worktree: true, caps: kcaps({ worktree: true, resume: true, rules: true, hooks: true }) },
   { id: "codex", name: "Codex", installed: true, path: "/opt/homebrew/bin/codex", worktree: true, caps: kcaps({ worktree: true, resume: true, rules: true, hooks: true }) },
   { id: "gemini", name: "Gemini CLI", installed: true, path: "/opt/homebrew/bin/gemini", caps: kcaps({ resume: true, rules: true }) },
+  { id: "opencode", name: "opencode", installed: false, caps: kcaps({ resume: true }) },
+  { id: "cursor", name: "Cursor Agent", installed: false, caps: kcaps({ resume: true }) },
+  { id: "copilot", name: "GitHub Copilot CLI", installed: false, caps: kcaps({ resume: true }) },
+  { id: "qwen", name: "Qwen Code", installed: false, caps: kcaps({ resume: true }) },
+  { id: "amp", name: "Amp", installed: false, caps: kcaps({ resume: true }) },
   { id: "aider", name: "Aider", installed: false, caps: kcaps() },
   { id: "shell", name: "Shell", installed: true, path: "/bin/zsh", caps: kcaps() },
   { id: "custom", name: "Custom command", installed: true, caps: kcaps({ customCommand: true }) },
@@ -623,7 +637,7 @@ const approvalSubs = new Set<(list: ApprovalView[]) => void>();
 
 // New agent → Runs on: this Mac, and an agw VM whose form lists its workspaces etc.
 const machines: ProviderMachines[] = [
-  { provider: "local", label: "This Mac", version: null, canCreate: true, canAddSessions: false, machines: [{ id: "this-mac", label: "This Mac", detail: null }], error: null },
+  { provider: "local", label: "local", version: null, canCreate: true, canAddSessions: false, machines: [{ id: "this-mac", label: "This Mac", detail: null }], error: null },
   { provider: "agw", label: "agw", version: "0.19.0", canCreate: true, canAddSessions: true, machines: [{ id: "my-vm", label: "my-vm", detail: "local-site" }], error: null },
 ];
 const mockChoice = (value: string, label: string, detail: string | null, phrase: string, creates: string | null = null) => ({ value, label, detail, phrase, creates });
@@ -698,6 +712,50 @@ function mockForm(provider: string, machine: string): CreateForm {
   };
 }
 
+// ── Accounts (Settings → Agents → Accounts) ────────────────────────────────
+// Kinds whose definition names a login folder; Default is the user's own.
+const accountKinds: AccountKind[] = [
+  { id: "claude", name: "Claude Code", env: "CLAUDE_CONFIG_DIR", login: "me@example.com" },
+  { id: "codex", name: "Codex", env: "CODEX_HOME", login: "me@example.com" },
+];
+let accounts: Account[] = [
+  { id: "claude-work", kind: "claude", name: "Work", folder: "~/.pitwall/accounts/claude-work", login: "work@example.com" },
+  { id: "codex-side", kind: "codex", name: "Side", folder: "~/.pitwall/accounts/codex-side", login: "side@example.com" },
+];
+let accountProjects: Record<string, Record<string, string>> = {
+  "/Users/dev/code/checkout-web": { claude: "claude-work" },
+};
+const accountSubs = new Set<(v: AccountsView) => void>();
+/** Agents started to log in (their first screen is the tool's login prompt). */
+const loggingIn = new Set<string>();
+const accountsView = (): AccountsView => ({
+  kinds: accountKinds,
+  accounts: accounts.map((a) => ({ ...a })),
+  projects: Object.fromEntries(Object.entries(accountProjects).map(([k, v]) => [k, { ...v }])),
+});
+function emitAccounts(): AccountsView {
+  const v = accountsView();
+  accountSubs.forEach((cb) => cb(v));
+  return v;
+}
+const accountSlug = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "account";
+
+/** The login prompt a tool shows on its first run with a new folder. */
+function loginScreen(kind: string, cwd: string): string {
+  if (kind === "codex")
+    return `${bold(">_ codex")} ${grey("· " + cwd)}${NL}${NL}${bold("Sign in with ChatGPT")} to use Codex as part of your plan${NL}${NL}${blue("❯")} ${blue("1. Sign in with ChatGPT")}${NL}  2. Provide your own API key${NL}${NL}${grey("Press Enter to continue")}${NL}`;
+  return (
+    claudeBanner(cwd) +
+    `${bold("Select login method:")}${NL}${NL}` +
+    `${blue("❯")} ${blue("1. Claude account with subscription")} ${grey("· Pro, Max, Team, or Enterprise")}${NL}` +
+    `  2. Anthropic Console account ${grey("· API usage billing")}${NL}${NL}`
+  );
+}
+
 export function createMockApi(): Api {
   const mock: Api = {
     isMock: true,
@@ -762,6 +820,11 @@ export function createMockApi(): Api {
         sessionId: req.resumeSessionId ?? null,
         createdAt: Date.now(),
         ...(req.engineer ? { engineer: true } : {}),
+        // An account picked in New agent, else the project's.
+        ...(() => {
+          const acc = req.account ?? accountProjects[project]?.[req.kind] ?? null;
+          return acc && acc !== "default" ? { account: acc } : {};
+        })(),
         ...(req.cols && req.rows ? { cols: req.cols, rows: req.rows } : {}),
       });
       agents = [...agents, a];
@@ -771,6 +834,7 @@ export function createMockApi(): Api {
       emitAgents();
       setTimeout(() => {
         if (a.terminal) return out(a.id, prompt(a));
+        if (loggingIn.delete(a.name)) return out(a.id, loginScreen(req.kind, a.cwdDisplay));
         out(a.id, req.kind === "claude" ? claudeBanner(a.cwdDisplay) : `${bold(req.customCommand ?? a.kindName)} ${grey("· " + a.cwdDisplay)}${NL}${NL}`);
         out(a.id, `${grey("─".repeat(60))}${NL}${grey(">")} `);
       }, 400);
@@ -974,6 +1038,71 @@ export function createMockApi(): Api {
     },
     ...createOnboardingMock((req) => mock.createAgent(req), update),
     ...createPermissionsMock(),
+    listAccounts: () => delay(accountsView()),
+    async onAccountsChanged(cb): Promise<Unlisten> {
+      accountSubs.add(cb);
+      return () => accountSubs.delete(cb);
+    },
+    async addAccount(kind, name, dir) {
+      await delay(null, 120);
+      const n = name.trim();
+      if (!n) throw "Name the account";
+      if (accounts.some((a) => a.kind === kind && a.name.toLowerCase() === n.toLowerCase())) throw `There's already an account named ${n}`;
+      let id = `${kind}-${accountSlug(n)}`;
+      for (let i = 2; accounts.some((a) => a.id === id); i++) id = `${kind}-${accountSlug(n)}-${i}`;
+      // An existing folder is logged in already; Pitwall's own new one isn't.
+      const a: Account = { id, kind, name: n, folder: dir?.trim() || `~/.pitwall/accounts/${id}`, login: dir?.trim() ? `${accountSlug(n)}@example.com` : null };
+      accounts = [...accounts, a];
+      emitAccounts();
+      return a;
+    },
+    async removeAccount(id) {
+      accounts = accounts.filter((a) => a.id !== id);
+      for (const p of Object.keys(accountProjects)) {
+        accountProjects[p] = Object.fromEntries(Object.entries(accountProjects[p]).filter(([, v]) => v !== id));
+      }
+      return emitAccounts();
+    },
+    async renameAccount(id, name) {
+      const n = name.trim();
+      if (!n) throw "Name the account";
+      accounts = accounts.map((a) => (a.id === id ? { ...a, name: n } : a));
+      return emitAccounts();
+    },
+    async setProjectAccount(project, kind, account) {
+      const cur = { ...(accountProjects[project] ?? {}) };
+      if (account && account !== "default") cur[kind] = account;
+      else delete cur[kind];
+      accountProjects = { ...accountProjects, [project]: cur };
+      return emitAccounts();
+    },
+    async switchAccount(agentId, account) {
+      const a = find(agentId);
+      const acc = account && account !== "default" ? accounts.find((x) => x.id === account) : null;
+      if (account && account !== "default" && !acc) throw `no account ${account}`;
+      if (acc && !acc.login) throw `${acc.name} isn't logged in yet: Settings → Agents → Accounts → Log in, then move it.`;
+      // Restarted on the other login; the conversation is carried over.
+      await delay(null, 500);
+      const name = acc?.name ?? "Default";
+      out(agentId, `${NL}${grey(`[restarted on ${name}; conversation carried over]`)}${NL}`);
+      return update(a.id, { account: acc?.id ?? null, running: true, status: "idle", statusDetail: null });
+    },
+    async logIn(kind, id, folder) {
+      const acc = accounts.find((x) => x.id === id);
+      if (!acc) throw `no account ${id}`;
+      const base = `${kind}-${id.replace(`${kind}-`, "")}`;
+      let name = base;
+      for (let i = 2; agents.some((x) => x.name === name); i++) name = `${base}-${i}`;
+      loggingIn.add(name);
+      const a = await mock.createAgent({ name, kind, projectPath: folder, worktree: false, account: id });
+      // In the demo the login "completes" on its own a few seconds later.
+      setTimeout(() => {
+        accounts = accounts.map((x) => (x.id === id ? { ...x, login: x.login ?? `${accountSlug(x.name)}@example.com` } : x));
+        out(a.id, `${NL}${green("✓")} Logged in as ${bold(accounts.find((x) => x.id === id)?.login ?? "")}${NL}${NL}`);
+        emitAccounts();
+      }, 5000);
+      return find(a.id);
+    },
     hostInfo: async () => DEFAULT_HOST,
     // A browser has no window material: Glass shows its "lite" tier.
     setWindowGlass: async () => ({ native: false, reduceTransparency: false, increaseContrast: false }),

@@ -33,9 +33,11 @@ export { DEFAULT_FONT };
 export interface Space {
   id: string;
   name: string;
-  kind: "all" | "project" | "custom";
+  kind: "all" | "project" | "account" | "custom";
   /** For project spaces: the project path. */
   project?: string;
+  /** For account spaces: the account's id (`default`: the user's own logins). */
+  account?: string;
   /** For custom spaces: agents that belong here (panes or chips). */
   members: string[];
   layout: LayoutNode;
@@ -44,6 +46,8 @@ export interface Space {
   /** Overrides the global density for this space. */
   density?: Density;
 }
+
+export type SidebarGroup = "project" | "account";
 
 export interface UiState {
   v: 1;
@@ -65,6 +69,8 @@ export interface UiState {
   focusRequest: { agentId: string; window: string; nonce: number } | null;
   /** Settings: hide the sidebar's "Elsewhere" group (agents in other terminal apps). */
   hideElsewhere: boolean;
+  /** Settings → General → Group agents by: project, or account then project. */
+  sidebarGroup: SidebarGroup;
   /** Settings → Appearance: System (follow macOS), Dark or Light. */
   theme: ThemePref;
   /** Settings → Appearance: Flat, or Glass (translucent chrome over the window material). */
@@ -91,6 +97,7 @@ export function defaultUiState(): UiState {
     wallCollapsed: [],
     focusRequest: null,
     hideElsewhere: false,
+    sidebarGroup: "project",
     theme: "system",
     look: "flat",
     reduceMotion: false,
@@ -125,6 +132,7 @@ export function sanitize(raw: unknown): UiState {
     wallCollapsed: Array.isArray(r.wallCollapsed) ? r.wallCollapsed : [],
     focusRequest: r.focusRequest ?? null,
     hideElsewhere: r.hideElsewhere === true,
+    sidebarGroup: r.sidebarGroup === "account" ? "account" : "project",
     theme: isThemePref(r.theme) ? r.theme : "system",
     look: isLook(r.look) ? r.look : "flat",
     reduceMotion: r.reduceMotion === true,
@@ -165,6 +173,8 @@ export function spaceMembers(space: Space, agents: AgentView[]): AgentView[] {
       return agents;
     case "project":
       return agents.filter((a) => a.project === space.project || space.members.includes(a.id) || inPanes.has(a.id));
+    case "account":
+      return agents.filter((a) => (a.account || "default") === space.account || space.members.includes(a.id) || inPanes.has(a.id));
     case "custom":
       return agents.filter((a) => space.members.includes(a.id) || inPanes.has(a.id));
   }
@@ -500,6 +510,30 @@ export function openProjectSpace(
   const id = defaultIdGen("space");
   const space: Space = { id, name, kind: "project", project, members: [], layout, focusedPaneId: leaves(layout)[0].id, maximizedPaneId: null };
   return { state: { ...next, spaces: [...next.spaces, space], windowOf: { ...next.windowOf, [id]: label } }, spaceId: id };
+}
+
+/** Create (or reuse) a space tiling the agents on one account (`default`: the user's own), owned by `label`. */
+export function openAccountSpace(
+  s: UiState,
+  account: string,
+  name: string,
+  agents: AgentView[],
+  label: string,
+): { state: UiState; spaceId: string } {
+  const existing = s.spaces.find((sp) => sp.kind === "account" && sp.account === account);
+  if (existing) return { state: s, spaceId: existing.id };
+  const ids = agents.filter((a) => (a.account || "default") === account).map((a) => a.id);
+  const chosen = ids.slice(0, PRESET_COUNT[presetFor(ids.length)]);
+  let next = s;
+  for (const id of chosen) next = unplace(next, id);
+  const layout = buildPreset(presetFor(chosen.length), chosen);
+  const id = defaultIdGen("space");
+  const space: Space = { id, name, kind: "account", account, members: [], layout, focusedPaneId: leaves(layout)[0].id, maximizedPaneId: null };
+  return { state: { ...next, spaces: [...next.spaces, space], windowOf: { ...next.windowOf, [id]: label } }, spaceId: id };
+}
+
+export function setSidebarGroup(s: UiState, group: SidebarGroup): UiState {
+  return s.sidebarGroup === group ? s : { ...s, sidebarGroup: group };
 }
 
 export function createCustomSpace(s: UiState, label: string, agentId?: string): { state: UiState; spaceId: string } {

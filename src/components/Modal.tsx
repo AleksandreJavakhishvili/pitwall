@@ -19,6 +19,8 @@ export function Modal({ title, onClose, children, width = 480, className = "", v
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // A popup inside the dialog (the project picker) closes itself first.
+        if ((e.target as HTMLElement | null)?.closest?.("[data-own-esc]")) return;
         e.preventDefault();
         e.stopPropagation();
         closeRef.current();

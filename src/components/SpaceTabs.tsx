@@ -40,7 +40,7 @@ export function SpaceTabs(p: Props) {
             data-space-id={s.id}
             onClick={() => p.onSelect(s.id)}
             onDoubleClick={() => s.kind !== "all" && setEditing(s.id)}
-            title={s.kind === "project" ? s.project : s.kind === "all" ? "Every agent" : "Custom space — drag agents here"}
+            title={s.kind === "project" ? s.project : s.kind === "all" ? "Every agent" : s.kind === "account" ? `Agents on ${s.name}` : "Custom space — drag agents here"}
           >
             <DropHint spaceId={s.id} />
             {blocked && <span className="tab-blocked">▲</span>}

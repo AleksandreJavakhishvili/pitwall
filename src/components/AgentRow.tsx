@@ -14,6 +14,8 @@ interface Props {
   selected: boolean;
   /** Space name where it's shown, if anywhere. */
   where: string | null;
+  /** The account it runs on, by name (none: its own login, or the sidebar groups by account). */
+  account?: string | null;
   onSelect(): void;
   onContextMenu?(e: MouseEvent): void;
   /** Worktrees it has besides its own folder (docs/spec/worktrees-view.md): a chip that expands `children`. */
@@ -35,12 +37,13 @@ export const AgentRow = memo(
     a.index === b.index &&
     a.selected === b.selected &&
     a.where === b.where &&
+    a.account === b.account &&
     a.worktrees === b.worktrees &&
     a.worktreesOpen === b.worktreesOpen &&
     a.children === b.children,
 );
 
-function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMenu, worktrees = 0, worktreesOpen = false, onToggleWorktrees, children }: Props) {
+function AgentRowImpl({ agent: a, index, selected, where, account, onSelect, onContextMenu, worktrees = 0, worktreesOpen = false, onToggleWorktrees, children }: Props) {
   return (
     <li>
       <button
@@ -57,6 +60,11 @@ function AgentRowImpl({ agent: a, index, selected, where, onSelect, onContextMen
           <span className="agent-row-top">
             <span className="agent-name">{a.name}</span>
             {a.engineer && <span className="chip">engineer</span>}
+            {account && (
+              <span className="chip chip-account" title={`Runs on the ${account} account`}>
+                {account}
+              </span>
+            )}
             <span className="status-word" data-status={a.status}>
               {STATUS_WORD[a.status]}
             </span>

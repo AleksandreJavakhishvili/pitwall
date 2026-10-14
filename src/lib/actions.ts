@@ -6,6 +6,7 @@ import type { Density } from "../layout/density";
 import type { TilingContext } from "./tiling";
 import type { ThemePref } from "./theme";
 import type { Look } from "./look";
+import type { SidebarGroup } from "../state/workspace";
 
 /** What Review shows first: a worktree, or an agent (and one of its files). */
 export type ReviewTarget = { projectId: string; path: string } | { agentId: string; path?: string };
@@ -78,6 +79,22 @@ export interface Actions {
   /** Current global layout preferences (Settings). */
   layoutPrefs: { density: Density; fontSize: number };
   openProjectSpace(project: string, display: string): void;
+  /** A space with the agents on one account (`default`: the user's own logins). */
+  openAccountSpace(account: string, name: string): void;
+  /** Settings → General → Group agents by (shared by all windows). */
+  sidebarGroup: SidebarGroup;
+  setSidebarGroup(group: SidebarGroup): void;
+  /** A project's "Accounts…" dialog (its right-click menu). */
+  openProjectAccounts(project: string): void;
+  /** Settings, on a page. */
+  openSettings(page?: "general" | "agents"): void;
+  /** Restart an agent on another account (`null`: Default), named `name`; its conversation goes with it. */
+  switchAccount(agentId: string, account: string | null, name: string): void;
+  /** Move agents of `kind` in `project` to `account` (`null`: Default): now when it's logged in, else
+   * once it is, with its login terminal started (`login`) and shown. */
+  moveAgents(ids: string[], account: string | null, name: string, kind: string, project: string, login: boolean): void;
+  /** An agent on account `id` that asks for its login, shown and focused. */
+  logIn(kind: string, id: string, folder?: string): void;
   toggleCollapsed(project: string, where: "sidebar" | "wall"): void;
 }
 

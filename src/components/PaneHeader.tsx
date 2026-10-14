@@ -8,6 +8,7 @@ import { DiffStat } from "./DiffStat";
 import { Icon } from "./Icon";
 import { RulesStaleButton } from "./rules/RulesStaleButton";
 import { keys } from "../lib/host";
+import { accountOf, useAccounts } from "../lib/useAccounts";
 
 interface Props {
   agent: AgentView;
@@ -18,6 +19,7 @@ interface Props {
 
 export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
   const { run, openRemove, toggleMaximize, closePane } = useActions();
+  const account = accountOf(useAccounts(), a.account);
   return (
     <header
       className="pane-head"
@@ -44,6 +46,11 @@ export function PaneHeader({ agent: a, paneId, maximized, canClose }: Props) {
           {a.projectDisplay}
         </span>
         <span className="meta-item">{a.kindName}</span>
+        {account && (
+          <span className="chip chip-account" title={`Runs on the ${account.name} account${account.login ? ` (${account.login})` : ""}`}>
+            {account.name}
+          </span>
+        )}
         {a.branch && (
           <span className="meta-item mono" title={a.worktree ? `Separate worktree: ${a.cwdDisplay}` : a.cwdDisplay}>
             <Icon name="branch" size={12} />

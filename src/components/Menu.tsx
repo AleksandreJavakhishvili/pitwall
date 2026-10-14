@@ -6,6 +6,8 @@ export interface MenuItem {
   label: ReactNode;
   icon?: ReactNode;
   hint?: ReactNode;
+  /** A section label, not an action (skipped by the keyboard). */
+  header?: boolean;
   run(): void;
 }
 
@@ -65,7 +67,12 @@ export function Menu({ at, items, label, onClose }: Props) {
 
   return createPortal(
     <div ref={ref} className="menu" role="menu" aria-label={label} style={{ left: pos.x, top: pos.y }}>
-      {items.map((it) => (
+      {items.map((it) =>
+        it.header ? (
+          <div key={it.id} className="menu-header" role="presentation">
+            {it.label}
+          </div>
+        ) : (
         <button
           key={it.id}
           role="menuitem"
@@ -79,7 +86,8 @@ export function Menu({ at, items, label, onClose }: Props) {
           <span className="menu-label">{it.label}</span>
           {it.hint && <span className="menu-hint">{it.hint}</span>}
         </button>
-      ))}
+        ),
+      )}
     </div>,
     document.body,
   );

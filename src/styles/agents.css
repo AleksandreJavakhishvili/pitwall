@@ -601,3 +601,57 @@
   font-family: var(--font-ui, inherit);
   font-size: 10px;
 }
+
+/* ── grouped by account (Settings → General → Group agents by) ── */
+.account-section + .account-section {
+  margin-top: 6px;
+}
+.account-head {
+  display: flex;
+  align-items: center;
+  padding: 8px 6px 2px 8px;
+}
+.account-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--text-3);
+}
+.account-name {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.account-toggle:hover .account-name {
+  color: var(--text);
+}
+.account-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-4);
+}
+.account-head:hover .project-space-btn,
+.account-head .project-space-btn:focus-visible {
+  opacity: 1;
+}
+/* Its projects sit a step in, under the account. */
+.account-groups {
+  padding-left: 10px;
+}
+.chip-account {
+  color: var(--text-2);
+}
+.account-toggle .project-blocked,
+.account-toggle .label-count {
+  flex: none;
+  white-space: nowrap;
+}

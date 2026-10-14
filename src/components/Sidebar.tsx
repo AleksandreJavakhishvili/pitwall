@@ -1,7 +1,8 @@
 import { useMemo, useState, type MouseEvent } from "react";
-import type { ProjectGroup } from "../lib/groups";
-import type { RunningElsewhere } from "../types";
-import { machineHeading, summarize } from "../lib/groups";
+import type { AccountSection, ProjectGroup } from "../lib/groups";
+import type { AgentView, RunningElsewhere } from "../types";
+import { byAccount, machineHeading, summarize } from "../lib/groups";
+import { accountOf, accountsOfKind, useAccounts } from "../lib/useAccounts";
 import type { UiState } from "../state/workspace";
 import { locate } from "../state/workspace";
 import { useActions } from "../lib/actions";
@@ -31,7 +32,22 @@ interface Props {
 }
 
 export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }: Props) {
-  const { showAgent, openNewAgent, openProjectSpace, toggleCollapsed, run, openTerminal, openRemove } = useActions();
+  const {
+    showAgent,
+    openNewAgent,
+    openProjectSpace,
+    openAccountSpace,
+    toggleCollapsed,
+    run,
+    openTerminal,
+    openRemove,
+    sidebarGroup,
+    setSidebarGroup,
+    openProjectAccounts,
+    switchAccount,
+  } = useActions();
+  const accounts = useAccounts();
+  const byAcct = sidebarGroup === "account";
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; label: string; items: MenuItem[] } | null>(null);
   // Worktrees (docs/spec/worktrees-view.md): expanded lists, per agent id / project key.
   const projectsWt = useWorktreeList();
@@ -61,6 +77,50 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
       items: [
         terminalItem(project),
         { id: "agent", icon: <Icon name="plus" size={14} />, label: "New agent…", run: () => openNewAgent(project) },
+        // Which login its new agents use (agents with more than one).
+        ...(accounts?.kinds.length
+          ? [
+              { id: "accounts", label: "Accounts…", run: () => openProjectAccounts(project) },
+              { id: "group", label: "Group by account", run: () => setSidebarGroup("account") },
+            ]
+          : []),
+      ],
+    });
+  /** An agent's right-click menu: a terminal there, which login it runs on, remove. */
+  const agentMenu = (a: AgentView, canCreate: boolean, at: { x: number; y: number }) => {
+    const list = accountsOfKind(accounts, a.kind);
+    // Only where Pitwall starts the process itself (it sets the login folder).
+    const local = a.machine?.canCreate ?? true;
+    const current = a.account ?? null;
+    const run = (id: string | null, name: string): MenuItem => ({
+      id: `acct-${id ?? "default"}`,
+      icon: current === id ? <Icon name="check" size={14} /> : undefined,
+      label: name,
+      run: () => current !== id && switchAccount(a.id, id, name),
+    });
+    setMenu({
+      at,
+      label: a.name,
+      items: [
+        // A terminal only where Pitwall can start one (not on read-only machines).
+        ...(canCreate ? [{ ...terminalItem(a.cwd), label: "Open terminal here" }] : []),
+        ...(local && list.length && !a.engineer
+          ? [{ id: "acct-head", label: "Run on account", header: true, run: () => {} }, run(null, "Default"), ...list.map((x) => run(x.id, x.name))]
+          : []),
+        // Same confirm dialog as the tile's trash button (worktree choice included;
+        // for remote agents it only detaches Pitwall).
+        { id: "remove", icon: <Icon name="trash" size={14} />, label: "Remove agent…", run: () => openRemove(a.id) },
+      ],
+    });
+  };
+  /** An account heading's right-click menu. */
+  const accountMenu = (account: string, name: string, at: { x: number; y: number }) =>
+    setMenu({
+      at,
+      label: name,
+      items: [
+        { id: "space", icon: <Icon name="grid" size={14} />, label: "Open as space", run: () => openAccountSpace(account, name) },
+        { id: "group", label: "Group by project", run: () => setSidebarGroup("project") },
       ],
     });
   const below = (e: MouseEvent) => {
@@ -68,31 +128,12 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
     return { x: r.left, y: r.bottom + 4 };
   };
 
-  if (mode === "rail") {
-    return (
-      <nav className="sidebar sidebar-rail" aria-label="Agents">
-        {groups.map((g) => (
-          <div key={g.key} className="rail-group" title={g.machine && !g.canCreate ? `${g.display} · ${g.machine.label}` : g.display}>
-            {g.agents.map((a) => (
-              <RailItem key={a.id} agent={a} focused={a.id === focusedAgentId} onClick={() => showAgent(a.id)} />
-            ))}
-          </div>
-        ))}
-        <button className="rail-new" onClick={openNewAgent} title={keys("New agent (⌘N)")}>
-          <Icon name="plus" />
-        </button>
-      </nav>
-    );
-  }
-
-  return (
-    <nav className={`sidebar ${mode === "overlay" ? "sidebar-overlay" : ""}`} aria-label="Agents">
-      <div className="sidebar-scroll">
-        {groups.map((g, gi) => {
+  /** One project group and its agent rows (`list`: the groups it is among). */
+  const renderGroup = (g: ProjectGroup, gi: number, list: ProjectGroup[]) => {
           const collapsed = ui.collapsed.includes(g.key);
           const start = index;
           index += g.agents.length;
-          const heading = machineHeading(groups, gi);
+          const heading = machineHeading(list, gi);
           const others = otherWorktrees(
             projectsWt,
             g.agents.map((a) => a.id),
@@ -175,19 +216,10 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
                         worktrees={byAgent.get(a.id)?.length ?? 0}
                         worktreesOpen={openWt.has(a.id)}
                         onToggleWorktrees={() => toggleWt(a.id)}
+                        account={byAcct ? null : (accountOf(accounts, a.account)?.name ?? null)}
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          setMenu({
-                            at: { x: e.clientX, y: e.clientY },
-                            label: a.name,
-                            items: [
-                              // A terminal only where Pitwall can start one (not on read-only machines).
-                              ...(g.canCreate ? [{ ...terminalItem(a.cwd), label: "Open terminal here" }] : []),
-                              // Same confirm dialog as the tile's trash button (worktree choice included;
-                              // for remote agents it only detaches Pitwall).
-                              { id: "remove", icon: <Icon name="trash" size={14} />, label: "Remove agent…", run: () => openRemove(a.id) },
-                            ],
-                          });
+                          agentMenu(a, g.canCreate, { x: e.clientX, y: e.clientY });
                         }}
                       >
                         {openWt.has(a.id) && <WorktreeRows refs={byAgent.get(a.id) ?? []} label={`Worktrees of ${a.name}`} />}
@@ -210,7 +242,49 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
               )}
             </section>
           );
-        })}
+  };
+
+  if (mode === "rail") {
+    return (
+      <nav className="sidebar sidebar-rail" aria-label="Agents">
+        {groups.map((g) => (
+          <div key={g.key} className="rail-group" title={g.machine && !g.canCreate ? `${g.display} · ${g.machine.label}` : g.display}>
+            {g.agents.map((a) => (
+              <RailItem key={a.id} agent={a} focused={a.id === focusedAgentId} onClick={() => showAgent(a.id)} />
+            ))}
+          </div>
+        ))}
+        <button className="rail-new" onClick={openNewAgent} title={keys("New agent (⌘N)")}>
+          <Icon name="plus" />
+        </button>
+      </nav>
+    );
+  }
+
+  return (
+    <nav className={`sidebar ${mode === "overlay" ? "sidebar-overlay" : ""}`} aria-label="Agents">
+      <div className="sidebar-scroll">
+        {byAcct
+          ? byAccount(
+              groups.flatMap((g) => g.agents),
+              groups,
+              accounts?.accounts.map((x) => x.id) ?? [],
+            ).map((sec) => {
+              const collapsed = ui.collapsed.includes(sec.key);
+              return (
+                <section key={sec.key} className="account-section">
+                  <AccountHead
+                    sec={sec}
+                    collapsed={collapsed}
+                    onToggle={() => toggleCollapsed(sec.key, "sidebar")}
+                    onSpace={(name) => openAccountSpace(sec.account, name)}
+                    onMenu={(name, at) => accountMenu(sec.account, name, at)}
+                  />
+                  {!collapsed && <div className="account-groups">{sec.groups.map((g, gi) => renderGroup(g, gi, sec.groups))}</div>}
+                </section>
+              );
+            })
+          : groups.map((g, gi) => renderGroup(g, gi, groups))}
         {!ui.hideElsewhere && (
           <ElsewhereGroup rows={elsewhere} collapsed={ui.collapsed.includes(ELSEWHERE)} onToggle={() => toggleCollapsed(ELSEWHERE, "sidebar")} />
         )}
@@ -227,5 +301,53 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
       </div>
       {menu && <Menu at={menu.at} label={menu.label} items={menu.items} onClose={() => setMenu(null)} />}
     </nav>
+  );
+}
+
+/** An account's heading when the sidebar groups by account: its name and login, needs-you and
+ * agent counts, "Open as space"; folds its projects; right-click for its menu. */
+function AccountHead({
+  sec,
+  collapsed,
+  onToggle,
+  onSpace,
+  onMenu,
+}: {
+  sec: AccountSection;
+  collapsed: boolean;
+  onToggle(): void;
+  onSpace(name: string): void;
+  onMenu(name: string, at: { x: number; y: number }): void;
+}) {
+  const v = useAccounts();
+  const acc = accountOf(v, sec.account);
+  const name = sec.account === "default" ? "Default" : (acc?.name ?? sec.account);
+  const kind = v?.kinds.find((k) => k.id === acc?.kind)?.name ?? acc?.kind ?? "";
+  const sub = sec.account === "default" ? "your own logins" : acc?.login ? `${kind} · ${acc.login}` : kind;
+  return (
+    <header
+      className="account-head"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onMenu(name, { x: e.clientX, y: e.clientY });
+      }}
+    >
+      <button className="account-toggle" onClick={onToggle} aria-expanded={!collapsed} title={`${name} — ${sub}`}>
+        <span className="chev" data-open={!collapsed}>
+          <Icon name="chevron" size={12} />
+        </span>
+        <Icon name="user" size={12} />
+        <span className="account-name">{name}</span>
+        <span className="account-sub">{sub}</span>
+        <span className="spacer" />
+        {sec.blocked > 0 && <span className="project-blocked">▲ {sec.blocked}</span>}
+        <span className="label-count">{sec.agents}</span>
+      </button>
+      {sec.agents > 0 && (
+        <button className="icon-btn icon-btn-sm project-space-btn" onClick={() => onSpace(name)} title="Open as space">
+          <Icon name="grid" size={14} />
+        </button>
+      )}
+    </header>
   );
 }

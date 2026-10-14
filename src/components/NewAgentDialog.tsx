@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AgentView, CreateForm, KindView, NameRule, RecentProject } from "../types";
 import { api, errorText } from "../api";
 import { NAME_RE } from "../lib/status";
@@ -10,6 +11,8 @@ import { Kbd } from "./Kbd";
 import { useActions } from "../lib/actions";
 import { canPickFolder, pickFolder } from "../lib/pickFolder";
 import { NO_RULES, RulesField, reportRulesAfterCreate, rulesRequest, type RulesChoice } from "./rules/RulesField";
+import { Icon } from "./Icon";
+import { accountsOfKind, folderName, projectAccount, useAccounts } from "../lib/useAccounts";
 
 const OTHER = "__other__";
 
@@ -55,7 +58,13 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
   const [nameTouched, setNameTouched] = useState(false);
   const [worktreeChecked, setWorktree] = useState(false);
   const [rules, setRules] = useState<RulesChoice>(NO_RULES);
-  const { run } = useActions();
+  /** "More options" (worktree, rules) shown. */
+  const [more, setMore] = useState(false);
+  /** The account picked here (undefined: the project's, else Default). */
+  const [accountPick, setAccountPick] = useState<string | null | undefined>(undefined);
+  const [accountForProject, setAccountForProject] = useState(false);
+  const accounts = useAccounts();
+  const { run, openSettings } = useActions();
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -135,6 +144,10 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
   const worktreeSupported = !!selected?.caps?.worktree;
   const customCommandKind = !!selected?.caps?.customCommand;
   const worktree = worktreeSupported && worktreeChecked;
+  // The account: shown once the kind has one (where Pitwall starts it in a folder).
+  const kindAccounts = folder ? accountsOfKind(accounts, kind) : [];
+  const projectDefault = projectAccount(accounts, projectPath, kind) ?? null;
+  const chosenAccount = accountPick === undefined ? projectDefault : accountPick;
 
   useEffect(() => {
     if (!nameTouched && folder && projectPath) setName(suggestName(projectPath, taken));
@@ -189,7 +202,11 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
         ...(await newAgentSize()),
         ...(customCommandKind ? { customCommand } : {}),
         ...rulesRequest(rules, worktree),
+        ...(kindAccounts.length ? { account: chosenAccount ?? "default" } : {}),
       });
+      if (kindAccounts.length && accountForProject && chosenAccount !== projectDefault) {
+        await api.setProjectAccount(projectPath, kind, chosenAccount);
+      }
       onCreated(a);
       void reportRulesAfterCreate(a.id, run);
     } catch (e) {
@@ -205,9 +222,16 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
           e.preventDefault();
           submit();
         }}
+        onKeyDown={(e) => {
+          // ⌘↵ starts it from anywhere in the dialog.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
       >
         <div className="modal-body form">
-          {targets.length > 1 && (
+          {targets.length > 0 && (
             <div className="field">
               <label className="field-label" htmlFor="na-target">
                 Runs on
@@ -268,51 +292,57 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
           )}
 
           {folder && (
-          <div className="field">
-            <label className="field-label" htmlFor="na-project">
-              Project
-            </label>
-            <select
-              id="na-project"
-              className="input"
-              value={projectChoice}
-              onChange={(e) => {
-                setProjectChoice(e.target.value);
-                // "Choose folder…": native picker; the typed path below stays as fallback.
-                if (e.target.value === OTHER && canPickFolder) pickFolder().then((p) => p && setOtherPath(p));
-              }}
-            >
-              {recents.map((r) => (
-                <option key={r.path} value={r.path}>
-                  {r.display}
-                </option>
-              ))}
-              <option value={OTHER}>Choose folder…</option>
-            </select>
-            {projectChoice === OTHER && (
-              <div className="row gap">
-                <input
-                  className="input mono"
-                  style={{ flex: 1 }}
-                  placeholder="/Users/you/code/project"
-                  value={otherPath}
-                  onChange={(e) => setOtherPath(e.target.value)}
-                  spellCheck={false}
-                  autoFocus={recents.length > 0}
-                />
-                {canPickFolder && (
+            <div className="field">
+              <span className="field-label">Project</span>
+              <ProjectPicker
+                recents={recents}
+                value={projectPath}
+                onPick={(path) => {
+                  if (recents.some((r) => r.path === path)) setProjectChoice(path);
+                  else {
+                    setProjectChoice(OTHER);
+                    setOtherPath(path);
+                  }
+                  setAccountPick(undefined);
+                }}
+              />
+              {projectPath && projectError && <span className="field-error">{projectError}</span>}
+            </div>
+          )}
+
+          {kindAccounts.length > 0 && (
+            <div className="field">
+              <span className="field-label">Account</span>
+              <div className="acct-chips">
+                {[{ id: null as string | null, name: "Default" }, ...kindAccounts.map((a) => ({ id: a.id as string | null, name: a.name }))].map((c) => (
                   <button
+                    key={c.id ?? "default"}
                     type="button"
-                    className="small-btn"
-                    onClick={() => pickFolder("Choose a project folder", otherPath).then((p) => p && setOtherPath(p))}
+                    className="acct-chip"
+                    data-on={chosenAccount === c.id}
+                    onClick={() => {
+                      setAccountPick(c.id);
+                      setAccountForProject(false);
+                    }}
                   >
-                    Browse…
+                    {c.name}
+                    {c.id !== null && c.id === projectDefault && <span className="acct-chip-tag">project</span>}
                   </button>
-                )}
+                ))}
+                <button type="button" className="acct-chip acct-chip-add" title="Settings → Agents → Accounts" onClick={() => {
+                  onClose();
+                  openSettings("agents");
+                }}>
+                  + Add
+                </button>
               </div>
-            )}
-            {projectChoice === OTHER && otherPath && projectError && <span className="field-error">{projectError}</span>}
-          </div>
+              {projectPath && chosenAccount !== projectDefault && (
+                <label className="check">
+                  <input type="checkbox" checked={accountForProject} onChange={(e) => setAccountForProject(e.target.checked)} />
+                  <span>Use it for new agents in {folderName(projectPath)}</span>
+                </label>
+              )}
+            </div>
           )}
 
           <div className="field">
@@ -367,20 +397,26 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
             </div>
           )}
 
-          {folder && worktreeSupported && (
-            <label className="check">
-              <input type="checkbox" checked={worktreeChecked} onChange={(e) => setWorktree(e.target.checked)} />
-              <span>
-                Separate worktree
-                <span className="hint block">
-                  Separate copy of the repo, so this agent doesn't clash with others in the same project.
+          {folder && (worktreeSupported || !!selected?.caps?.rules) && (
+            <div className="more-options">
+              <button type="button" className="more-toggle" aria-expanded={more} onClick={() => setMore((m) => !m)}>
+                <span className="chev" data-open={more}>
+                  <Icon name="chevron" size={12} />
                 </span>
-              </span>
-            </label>
-          )}
-
-          {folder && (
-            <RulesField canRules={!!selected?.caps?.rules} projectPath={projectPath} worktree={worktree} value={rules} onChange={setRules} />
+                More options
+                {!more && worktree && <span className="more-summary">· Separate worktree</span>}
+              </button>
+              {more && worktreeSupported && (
+                <label className="check">
+                  <input type="checkbox" checked={worktreeChecked} onChange={(e) => setWorktree(e.target.checked)} />
+                  <span>
+                    Separate worktree
+                    <span className="hint block">Its own copy of the repo, so it doesn't clash with other agents in the same project.</span>
+                  </span>
+                </label>
+              )}
+              {more && <RulesField canRules={!!selected?.caps?.rules} projectPath={projectPath} worktree={worktree} value={rules} onChange={setRules} />}
+            </div>
           )}
 
           {busy && !folder && form && (
@@ -395,10 +431,159 @@ export function NewAgentDialog({ existing, initialProject, onClose, onCreated }:
             Cancel
           </button>
           <button type="submit" className="primary-btn" disabled={!valid || busy}>
-            {busy ? (folder ? "Starting…" : "Creating…") : (form?.submit ?? "Start")} <Kbd>↵</Kbd>
+            {busy ? (folder ? "Starting…" : "Creating…") : (form?.submit ?? "Start")} <Kbd>⌘↵</Kbd>
           </button>
         </footer>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * Project: a searchable picker (VS Code's quick pick). The field shows the folder's name and
+ * path; opened, it lists a pasted path to use, "Choose folder…", then the projects that match
+ * (name matches first).
+ */
+function ProjectPicker({ recents, value, onPick }: { recents: RecentProject[]; value: string; onPick(path: string): void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  // Drawn over the dialog (not clipped by its scrolling body), under the field.
+  const [at, setAt] = useState<{ left: number; top: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = ref.current?.getBoundingClientRect();
+      if (r) setAt({ left: r.left, top: r.bottom + 4, width: r.width });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close, true);
+    return () => window.removeEventListener("mousedown", close, true);
+  }, [open]);
+
+  const q = query.trim();
+  type Pick = { kind: "path"; path: string } | { kind: "choose" } | { kind: "recent"; r: RecentProject };
+  const picks: Pick[] = [];
+  if (q.startsWith("/") || q.startsWith("~")) picks.push({ kind: "path", path: q });
+  picks.push({ kind: "choose" });
+  const needle = q.toLowerCase();
+  picks.push(
+    ...recents
+      .map((r) => {
+        const name = folderName(r.path).toLowerCase();
+        if (!needle) return [false, r] as const;
+        if (name.includes(needle)) return [!name.startsWith(needle), r] as const;
+        if (r.display.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle)) return [true, r] as const;
+        return null;
+      })
+      .filter((x): x is readonly [boolean, RecentProject] => !!x)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([, r]) => ({ kind: "recent" as const, r })),
+  );
+  const cur = Math.min(active, picks.length - 1);
+  const apply = (p: Pick) => {
+    setOpen(false);
+    setQuery("");
+    if (p.kind === "path") onPick(p.path);
+    else if (p.kind === "recent") onPick(p.r.path);
+    // In the browser there is no folder dialog: paste a path instead.
+    else if (canPickFolder) void pickFolder("Choose a project folder", value).then((f) => f && onPick(f));
+  };
+  const shown = recents.find((r) => r.path === value);
+  return (
+    <div className="picker" ref={ref}>
+      <button type="button" className="picker-field" data-open={open} onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        <Icon name="folder" size={16} />
+        {value ? (
+          <span className="picker-value">
+            <span className="picker-name">{folderName(value)}</span>
+            <span className="picker-path mono">{shown?.display ?? value}</span>
+          </span>
+        ) : (
+          <span className="picker-value picker-empty">Choose a project folder…</span>
+        )}
+        <span className="picker-chev">
+          <Icon name="chevron" size={12} />
+        </span>
+      </button>
+      {open &&
+        at &&
+        createPortal(
+        <div className="picker-pop" role="listbox" data-own-esc ref={popRef} style={{ left: at.left, top: at.top, width: at.width }}>
+          <div className="picker-search">
+            <Icon name="search" size={14} />
+            <input
+              className="picker-input"
+              placeholder="Search projects, or paste a path"
+              value={query}
+              autoFocus
+              spellCheck={false}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActive(0);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") setActive(Math.min(cur + 1, picks.length - 1));
+                else if (e.key === "ArrowUp") setActive(Math.max(cur - 1, 0));
+                else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) apply(picks[cur]);
+                else if (e.key === "Escape") setOpen(false);
+                else return;
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            />
+          </div>
+          <div className="picker-list">
+            {picks.map((p, i) => (
+              <button
+                type="button"
+                key={p.kind === "recent" ? p.r.path : p.kind}
+                className="picker-row"
+                data-on={i === cur}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => apply(p)}
+                title={p.kind === "choose" && !canPickFolder ? "No folder dialog in the browser demo: paste a path above" : undefined}
+              >
+                {p.kind === "choose" && (
+                  <>
+                    <Icon name="folder" size={14} />
+                    <span className="picker-row-main">Choose folder…</span>
+                    <span className="picker-row-hint">Browse</span>
+                  </>
+                )}
+                {p.kind === "path" && (
+                  <>
+                    <Icon name="folder" size={14} />
+                    <span>Use</span>
+                    <span className="picker-row-path mono">{p.path}</span>
+                  </>
+                )}
+                {p.kind === "recent" && (
+                  <>
+                    <span className="picker-check">{p.r.path === value && <Icon name="check" size={14} />}</span>
+                    <span className="picker-row-name">{folderName(p.r.path)}</span>
+                    <span className="picker-row-path mono">{p.r.display}</span>
+                  </>
+                )}
+              </button>
+            ))}
+            {picks.length === 1 && q && <p className="picker-none">No projects match</p>}
+          </div>
+          <div className="picker-foot">↑↓ to move · ↵ to pick</div>
+        </div>,
+          document.body,
+        )}
+    </div>
   );
 }
