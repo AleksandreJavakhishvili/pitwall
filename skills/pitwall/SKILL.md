@@ -163,8 +163,26 @@ pitwall project remove ~/code/api          # off the list; never deletes files
 
 ## Rules (rulesync)
 
-Two scopes: a project's default set (every agent in the project) and an
-agent's own set on top. No account- or team-wide rules.
+Two scopes. **Project**: library rules (the catalog) copied into the repo's
+`.rulesync/rules/` and committed with it, plus the files rulesync generates
+from them (CLAUDE.md, AGENTS.md, …). **Agent**: an agent's own set on top,
+personal and local-only. No account- or team-wide rules. Writing into a
+project asks the user; the files then show in Review for them to commit.
+
+```bash
+pitwall rules project status ~/code/api              # its rules, updates, generated files out of date?, what to do first
+pitwall rules project import-existing ~/code/api     # hand-written CLAUDE.md/AGENTS.md → .rulesync/ first (asks)
+pitwall rules project assign ~/code/api --set Web [--rule testing.md]   # copy into .rulesync/rules (asks)
+pitwall rules project unassign ~/code/api style.md   # only if unchanged there (--force otherwise; asks)
+pitwall rules project updates ~/code/api             # library changes, with diffs
+pitwall rules project update ~/code/api [style.md] [--take library|project]   # opt-in (asks)
+pitwall rules project generate ~/code/api [--targets claudecode,codexcli]     # CLAUDE.md, AGENTS.md… (asks)
+pitwall rules project move-default ~/code/api        # old default set kept in Pitwall → the project (asks)
+```
+
+Never pass `--overwrite`, `--force` or `--take library` unless the user
+chose to replace their file: those discard their text. The old default
+set (`rules default`) only applies while a project has no `.rulesync/`.
 
 ```bash
 pitwall rules list                                   # library rules (ids) and each agent's state
