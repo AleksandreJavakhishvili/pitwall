@@ -770,3 +770,115 @@ fn reapplied_snapshot() {
     );
     assert!(!manage::reapplied(&r, &list, true).contains("--restart"));
 }
+
+/// `rules project …` against a server: status and updates read freely;
+/// writing into the repository asks; the files show as changes to commit.
+#[test]
+fn project_rules_end_to_end() {
+    let dir = TempDir::new("cli-proj-rules");
+    let data = dir.path().join("pitwall");
+    let lib = data.join("rules").join("rules");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("style.md"), "Use tabs.\n").unwrap();
+    std::fs::write(lib.join("testing.md"), "Run the tests.\n").unwrap();
+    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let mut all = vec!["-C", repo.to_str().unwrap(), "-c", "user.email=t@t", "-c", "user.name=t"];
+        all.extend_from_slice(args);
+        let out = std::process::Command::new("git").args(&all).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    git(&["init", "-q"]);
+    std::fs::write(repo.join("README.md"), "x\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "init"]);
+    let engine = Engine::open(Deps {
+        paths: Paths::new(data.clone()),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let approvals = Approvals::new(Duration::from_secs(10));
+    let sock_dir = std::env::temp_dir().join(format!("pwcp-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("p.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None };
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
+    let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let answer = |allow: bool| {
+        let a = approvals.clone();
+        std::thread::spawn(move || loop {
+            if let Some(p) = a.pending().first() {
+                a.answer(&ApprovalAnswer { id: p.id.clone(), allow, remember: false }).unwrap();
+                return p.summary.clone();
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        })
+    };
+    let p = repo.to_str().unwrap();
+
+    let o = go(&["rules", "project", "status", p]).unwrap();
+    assert_eq!((o.json["rulesync"].as_bool(), o.json["rules"].as_array().map(Vec::len)), (Some(false), Some(0)));
+    // Denied: nothing written.
+    let t = answer(false);
+    let e = go(&["rules", "project", "assign", p, "--rule", "style.md"]).err().unwrap();
+    assert!(t.join().unwrap().contains(&format!("copy rules into {p}")));
+    assert_eq!(failure(&e).1, 3);
+    assert!(!repo.join(".rulesync").exists());
+    // Allowed: copied, and git sees it.
+    let t = answer(true);
+    let o = go(&["rules", "project", "assign", p, "--rule", "style.md", "--rule", "testing.md"]).unwrap();
+    t.join().unwrap();
+    assert_eq!(o.json["copied"], json!(["style.md", "testing.md"]));
+    assert_eq!(git(&["status", "--porcelain"]), "?? .rulesync/\n");
+
+    // The library changes: an update with its diff (reading never asks).
+    std::fs::write(lib.join("style.md"), "Use spaces.\n").unwrap();
+    let o = go(&["rules", "project", "status", p, "--human"]).unwrap();
+    assert!(o.human.contains("update") && o.human.contains("1 rule(s) with library updates"), "{}", o.human);
+    let o = go(&["rules", "project", "updates", p]).unwrap();
+    assert_eq!(o.json[0]["state"], "update");
+    assert!(o.json[0]["diff"].as_str().unwrap().contains("+Use spaces."));
+    let t = answer(true);
+    let o = go(&["rules", "project", "update", p]).unwrap();
+    t.join().unwrap();
+    assert_eq!(o.json["updated"], json!(["style.md"]));
+    assert_eq!(std::fs::read_to_string(repo.join(".rulesync/rules/style.md")).unwrap(), "Use spaces.\n");
+
+    // Unassigning keeps a rule changed in the project.
+    std::fs::write(repo.join(".rulesync/rules/testing.md"), "ours\n").unwrap();
+    let t = answer(true);
+    let o = go(&["rules", "project", "unassign", p, "style.md", "testing.md"]).unwrap();
+    t.join().unwrap();
+    assert_eq!((o.json["removed"].clone(), o.json["modified"].clone()), (json!(["style.md"]), json!(["testing.md"])));
+    assert!(approvals.pending().is_empty());
+
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
+#[test]
+fn project_status_snapshot() {
+    let st: pitwall_proto::ProjectRulesStatus = serde_json::from_value(json!({
+        "project": "/p", "rulesync": true, "updates": 1,
+        "rules": [
+            {"name": "style.md", "source": "library:style.md", "state": "update", "description": null},
+            {"name": "ours.md", "source": null, "state": "own", "description": null}
+        ],
+        "generated": {"generated": true, "outOfDate": true, "changed": ["CLAUDE.md"], "targets": ["claudecode"]},
+        "existing": ["AGENTS.md"], "fallbackSet": "s1"
+    }))
+    .unwrap();
+    let sets: pitwall_proto::RuleSets = serde_json::from_value(json!({"sets": [{"id": "s1", "name": "Web", "ruleIds": []}], "projectDefaults": {}})).unwrap();
+    assert_eq!(
+        manage::project_status(&st, &sets),
+        "/p\n  update  style.md  library:style.md\n  own     ours.md   (the project's own)\n\
+         1 rule(s) with library updates: pitwall rules project updates\n\
+         Generated files (claudecode): out of date, edited: CLAUDE.md: pitwall rules project generate\n\
+         Hand-written AGENTS.md: import first: pitwall rules project import-existing\n\
+         Default set in Pitwall: Web — move it into the project: pitwall rules project move-default\n"
+    );
+}

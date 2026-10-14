@@ -29,6 +29,9 @@ pub enum Access {
     Ui,
 }
 
+/// Why the project-rules methods ask.
+const PROJECT_WRITE: &str = "always: writes rule files into the project's folder (shown in Review, to commit)";
+
 pub const METHODS: &[(&str, Access)] = &[
     (method::AGENT_LIST, Access::Open),
     // Read-only: git reads on the agent's machine.
@@ -72,6 +75,15 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
     (method::RULES_DEFAULT, Access::Open),
     (method::RULES_SHOW, Access::Open),
+    // Project rules write into the user's repository (to be committed, shown in Review).
+    (method::RULES_PROJECT_STATUS, Access::Open),
+    (method::RULES_PROJECT_UPDATES, Access::Open),
+    (method::RULES_PROJECT_ASSIGN, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
+    (method::RULES_PROJECT_UNASSIGN, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
+    (method::RULES_PROJECT_UPDATE, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
+    (method::RULES_PROJECT_IMPORT, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
+    (method::RULES_PROJECT_GENERATE, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
+    (method::RULES_PROJECT_MOVE, Access::AskWhen(PROJECT_WRITE, Risk::Low)),
     // Only where rules.apply wouldn't ask: worktrees and main checkouts the user confirmed.
     (method::RULES_REAPPLY, Access::Open),
     // Sets are Pitwall's own data; deleting one takes it from projects and agents.
@@ -169,6 +181,14 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::RULES_APPLY => manage::rules_apply(s, caller, required(p)?),
         method::RULES_DEFAULT => manage::rules_default(s, required(p)?),
         method::RULES_SHOW => manage::rules_show(s, required(p)?),
+        method::RULES_PROJECT_STATUS => manage::project_status(s, required(p)?),
+        method::RULES_PROJECT_UPDATES => manage::project_updates(s, required(p)?),
+        method::RULES_PROJECT_ASSIGN => manage::project_assign(s, caller, required(p)?),
+        method::RULES_PROJECT_UNASSIGN => manage::project_unassign(s, caller, required(p)?),
+        method::RULES_PROJECT_UPDATE => manage::project_update(s, caller, required(p)?),
+        method::RULES_PROJECT_IMPORT => manage::project_import(s, caller, required(p)?),
+        method::RULES_PROJECT_GENERATE => manage::project_generate(s, caller, required(p)?),
+        method::RULES_PROJECT_MOVE => manage::project_move(s, caller, required(p)?),
         method::RULES_REAPPLY => manage::rules_reapply(s, params(p)?),
         method::RULES_SET_SAVE => manage::rules_set_save(s, required(p)?),
         method::RULES_SET_DELETE => manage::rules_set_delete(s, caller, required(p)?),
@@ -349,6 +369,11 @@ mod tests {
         assert!(matches!(access(method::RULES_SET_DELETE), Some(Access::AskWhen(_, Risk::High))));
         assert!(matches!(access(method::RULES_IMPORT), Some(Access::AskWhen(_, Risk::High))));
         assert_eq!(access(method::RULES_SET_SAVE), Some(Access::Open));
+        for m in [method::RULES_PROJECT_ASSIGN, method::RULES_PROJECT_UNASSIGN, method::RULES_PROJECT_UPDATE, method::RULES_PROJECT_IMPORT, method::RULES_PROJECT_GENERATE, method::RULES_PROJECT_MOVE] {
+            assert!(matches!(access(m), Some(Access::AskWhen(_, Risk::Low))), "{m}");
+        }
+        assert_eq!(access(method::RULES_PROJECT_STATUS), Some(Access::Open));
+        assert_eq!(access(method::RULES_PROJECT_UPDATES), Some(Access::Open));
         // Read-only methods never ask.
         for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST] {
             assert_eq!(access(m), Some(Access::Open), "{m}");

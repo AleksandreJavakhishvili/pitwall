@@ -26,7 +26,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{\"error\":{\"code\":\"…\",\"message\":\"…\"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
-- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, importing rules from a file or a git repository, deleting a rule set, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
+- **Risky requests wait for you.** Stopping, restarting or removing an agent, anything that changes another machine (starting or creating a session on an agw VM), writing rules into a main checkout, importing rules from a file or a git repository, deleting a rule set, writing rules into a project's `.rulesync/`, and settings that change something outside Pitwall open an approval dialog in Pitwall when anyone but you asks; the command waits for your answer. Pitwall identifies the caller from the connecting process, so an agent can't approve its own request.
 
 ## Exit status
 
@@ -89,6 +89,10 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("space move", "pitwall space move Review --to-window new"),
     ("rules apply", "pitwall rules apply api --set strict\npitwall rules apply --stale --restart            # every agent whose rules changed\npitwall rules apply --stale --project ~/code/api"),
     ("rules show", "pitwall rules show ~/code/api --human\npitwall rules show --agent api"),
+    ("rules project status", "pitwall rules project status ~/code/api --human"),
+    ("rules project assign", "pitwall rules project assign ~/code/api --set Web            # asks first\npitwall rules project assign ~/code/api --rule testing.md"),
+    ("rules project update", "pitwall rules project updates ~/code/api --human          # what changed, with diffs\npitwall rules project update ~/code/api                   # every rule with an update\npitwall rules project update ~/code/api style.md --take library"),
+    ("rules project generate", "pitwall rules project import-existing ~/code/api   # a hand-written CLAUDE.md first\npitwall rules project generate ~/code/api --targets claudecode,codexcli"),
     ("rules set create", "pitwall rules set create Web --rule style.md --rule testing.md"),
     ("rules set add", "pitwall rules set add Web library:terse.md"),
     ("rules import", "pitwall rules import project ~/code/api          # its own .rulesync/\npitwall rules import file ~/code/api/CLAUDE.md   # asks first\npitwall rules import git https://github.com/acme/ai-rules.git   # asks first"),
