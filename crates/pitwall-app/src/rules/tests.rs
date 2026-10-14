@@ -239,3 +239,115 @@ fn reapply_all_clears_every_stale_agent(cx: &mut TestAppContext) {
     probe.update(cx, |p, cx| p.affected = stale::affected(cx));
     assert!(probe.read_with(cx, |p, _| p.affected.is_empty()));
 }
+
+#[test]
+fn the_project_picker_groups_rules_by_set() {
+    use super::project::{changes, picker_groups};
+    let m = MockRules::new();
+    let groups = picker_groups(&m.sets(), &m.library());
+    assert_eq!(
+        groups,
+        vec![
+            (
+                "Web defaults".to_string(),
+                vec![
+                    "library:typescript.md".to_string(),
+                    "library:testing.md".to_string()
+                ]
+            ),
+            (
+                "Other rules".to_string(),
+                vec![
+                    "library:overview.md".to_string(),
+                    "library:terse.md".to_string()
+                ]
+            ),
+        ]
+    );
+    let have: std::collections::BTreeSet<String> = ["a".to_string(), "b".to_string()].into();
+    let ticked: std::collections::BTreeSet<String> = ["b".to_string(), "c".to_string()].into();
+    assert_eq!(
+        changes(&have, &ticked),
+        (vec!["c".to_string()], vec!["a".to_string()])
+    );
+}
+
+/// The project panel: tick a set, apply, take an update, and a rule
+/// changed in the project is only removed once the user says so.
+#[gpui::test]
+fn the_project_panel_assigns_updates_and_asks(cx: &mut TestAppContext) {
+    use super::project::{Confirm, ProjectPanel};
+    use pitwall_proto::ProjectRuleState;
+    let mock = Arc::new(MockRules::new());
+    mock.hand_written("/p");
+    mock.set_project_rules("/p", Some("s1".into())).unwrap();
+    cx.update(|cx| install(cx, mock.clone()));
+    let panel = cx.new(|cx| ProjectPanel::new("/p".into(), cx));
+    cx.run_until_parked();
+    panel.read_with(cx, |p, _| {
+        let st = p.status().unwrap();
+        assert_eq!(st.existing, vec!["CLAUDE.md"]);
+        assert_eq!(st.fallback_set.as_deref(), Some("s1"));
+    });
+    panel.update(cx, |p, cx| p.import_existing(cx));
+    cx.run_until_parked();
+    assert!(panel.read_with(cx, |p, _| p.status().unwrap().existing.is_empty()));
+
+    let ids = vec![
+        "library:typescript.md".to_string(),
+        "library:testing.md".to_string(),
+    ];
+    panel.update(cx, |p, cx| {
+        p.toggle_group(&ids, cx);
+        p.apply(cx);
+    });
+    cx.run_until_parked();
+    panel.read_with(cx, |p, _| {
+        let st = p.status().unwrap();
+        assert_eq!(st.rules.len(), 2);
+        assert!(st.generated.out_of_date);
+        assert!(
+            p.message()
+                .unwrap()
+                .1
+                .starts_with("Copied testing.md, typescript.md"),
+            "{:?}",
+            p.message()
+        );
+    });
+
+    mock.set_project_rule("/p", "typescript.md", ProjectRuleState::Update);
+    mock.set_project_rule("/p", "testing.md", ProjectRuleState::Modified);
+    panel.update(cx, |p, cx| p.reload(cx));
+    cx.run_until_parked();
+    assert_eq!(panel.read_with(cx, |p, _| p.status().unwrap().updates), 1);
+    panel.update(cx, |p, cx| p.update(vec![], None, cx));
+    cx.run_until_parked();
+    assert_eq!(panel.read_with(cx, |p, _| p.status().unwrap().updates), 0);
+
+    // Unticking a rule changed in the project asks first.
+    panel.update(cx, |p, cx| {
+        p.toggle("library:testing.md", cx);
+        p.apply(cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        panel.read_with(cx, |p, _| p.confirm().cloned()),
+        Some(Confirm::Force(vec!["testing.md".into()]))
+    );
+    assert_eq!(
+        panel.read_with(cx, |p, _| p.status().unwrap().rules.len()),
+        2
+    );
+    panel.update(cx, |p, cx| p.answer(true, cx));
+    cx.run_until_parked();
+    panel.read_with(cx, |p, _| {
+        assert_eq!(p.status().unwrap().rules.len(), 1);
+        assert!(p.ticked().contains("library:typescript.md"));
+    });
+    // Generating needs rulesync (the mock has none until npx is allowed).
+    mock.set_npx(true).unwrap();
+    panel.update(cx, |p, cx| p.generate(cx));
+    cx.run_until_parked();
+    assert!(!panel.read_with(cx, |p, _| p.status().unwrap().generated.out_of_date));
+}

@@ -5,12 +5,10 @@
 use crate::kit::Ellipsis as _;
 use std::rc::Rc;
 
-use gpui::{
-    div, prelude::*, px, AnyElement, App, Div, ElementId, SharedString, Stateful, Window,
-};
+use gpui::{div, prelude::*, px, AnyElement, App, Div, ElementId, SharedString, Stateful, Window};
 
-pub use crate::kit::{check_row, rich, select, Span};
 use crate::kit::{self, BtnKind, OnClose, OnPick, MONO_FONT};
+pub use crate::kit::{check_row, rich, select, Span};
 use crate::theme::{Theme, RADIUS};
 
 /// `.ghost-btn.rules-mini`: 24 px, 12 px type.
