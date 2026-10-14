@@ -171,6 +171,61 @@ pub enum RulesCmd {
         /// A set id or name, or `none`.
         set: String,
     },
+    /// Make and change rule sets: create, add, remove, rename, delete.
+    #[command(subcommand)]
+    Set(RuleSetCmd),
+    /// Add rules to the library: a project's own `.rulesync/` (read in
+    /// place), a CLAUDE.md / AGENTS.md / GEMINI.md (needs rulesync), or a git
+    /// repository (cloned). A file or a repository asks you in Pitwall.
+    Import {
+        /// Where from: project, file or git.
+        #[arg(value_parser = ["project", "file", "git"])]
+        kind: String,
+        /// The project folder, the file, or the repository's URL.
+        source: String,
+    },
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum RuleSetCmd {
+    /// A new rule set (rules by id from `rules list`, or by file name when
+    /// only one rule has it).
+    Create {
+        /// The set's name.
+        name: String,
+        /// A rule to put in it. Repeatable.
+        #[arg(long = "rule", value_name = "RULE")]
+        rules: Vec<String>,
+    },
+    /// Add rules to a set.
+    Add {
+        /// The set (id or name).
+        set: String,
+        /// Rules to add.
+        #[arg(required = true, value_name = "RULE")]
+        rules: Vec<String>,
+    },
+    /// Take rules out of a set.
+    Remove {
+        /// The set (id or name).
+        set: String,
+        /// Rules to take out.
+        #[arg(required = true, value_name = "RULE")]
+        rules: Vec<String>,
+    },
+    /// Rename a set.
+    Rename {
+        /// The set (id or name).
+        set: String,
+        /// The new name.
+        name: String,
+    },
+    /// Delete a set (asks you in Pitwall). Projects and agents that use it
+    /// lose it; agents keep their files until rules are re-applied.
+    Delete {
+        /// The set (id or name).
+        set: String,
+    },
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -461,6 +516,23 @@ mod tests {
             Command::Rules(RulesCmd::Apply { agent: "api".into(), set: Some("strict".into()), main_checkout: true })
         );
         assert_eq!(parse(&["rules", "show", "~/p"]).unwrap().command, Command::Rules(RulesCmd::Show { project: Some("~/p".into()), agent: None }));
+        assert_eq!(
+            parse(&["rules", "set", "create", "Web", "--rule", "style.md", "--rule", "library:t.md"]).unwrap().command,
+            Command::Rules(RulesCmd::Set(RuleSetCmd::Create { name: "Web".into(), rules: vec!["style.md".into(), "library:t.md".into()] }))
+        );
+        assert_eq!(
+            parse(&["rules", "set", "add", "Web", "a.md", "b.md"]).unwrap().command,
+            Command::Rules(RulesCmd::Set(RuleSetCmd::Add { set: "Web".into(), rules: vec!["a.md".into(), "b.md".into()] }))
+        );
+        assert_eq!(
+            parse(&["rules", "set", "rename", "Web", "Strict"]).unwrap().command,
+            Command::Rules(RulesCmd::Set(RuleSetCmd::Rename { set: "Web".into(), name: "Strict".into() }))
+        );
+        assert_eq!(parse(&["rules", "set", "delete", "Web"]).unwrap().command, Command::Rules(RulesCmd::Set(RuleSetCmd::Delete { set: "Web".into() })));
+        assert_eq!(
+            parse(&["rules", "import", "git", "https://x/r.git"]).unwrap().command,
+            Command::Rules(RulesCmd::Import { kind: "git".into(), source: "https://x/r.git".into() })
+        );
         assert_eq!(parse(&["rules", "show", "--agent", "api"]).unwrap().command, Command::Rules(RulesCmd::Show { project: None, agent: Some("api".into()) }));
         assert_eq!(parse(&["review", "changes", "api", "--json"]).unwrap().command, Command::Review(ReviewCmd::Changes { agent: "api".into(), task: None }));
         assert_eq!(
@@ -493,6 +565,8 @@ mod tests {
             &["settings", "get"],
             &["settings", "list", "--json", "--human"],
             &["rules", "show", "/p", "--agent", "api"],
+            &["rules", "set", "add", "Web"],
+            &["rules", "import", "zip", "x"],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }

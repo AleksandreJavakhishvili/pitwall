@@ -10,11 +10,11 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use pitwall_core::engine::{diagnose, input, lifecycle};
-use pitwall_core::rules::{self, Dirs};
+use pitwall_core::rules::{self, Dirs, ImportRequest, SaveRuleSet};
 use pitwall_proto::{
     code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
-    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetView, RuleSets, RulesApplied,
-    RulesApply, RulesDefault, RulesOverview, RulesShow, Status, WaitResult,
+    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied,
+    RulesApply, RulesDefault, RulesImport, RulesImported, RulesOverview, RulesShow, Status, WaitResult,
 };
 
 use crate::approvals::{Ask, Decision};
@@ -364,6 +364,72 @@ pub fn rules_apply(s: &Server, caller: &Caller, r: RulesApply) -> Res {
     }
     let res = rules::apply_to_agent(&s.engine, &a.id, main).map_err(other)?;
     ok(RulesApplied { agent_id: a.id, generated: res.generated, log: res.log })
+}
+
+/// Make or change a rule set. New rule ids must be in the library; ones the
+/// set already has stay even when they are gone from it.
+pub fn rules_set_save(s: &Server, r: RuleSetSave) -> Res {
+    let d = dirs(s);
+    let existing = match &r.id {
+        Some(id) => Some(
+            rules::sets(&d)
+                .into_iter()
+                .find(|x| &x.id == id)
+                .ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("no rule set \"{id}\" (see `pitwall rules sets`)")))?,
+        ),
+        None => None,
+    };
+    let lib = rules::library_files(&d);
+    for id in &r.rule_ids {
+        let kept = existing.as_ref().is_some_and(|x| x.rule_ids.contains(id));
+        if !kept && !lib.iter().any(|f| &f.id == id) {
+            return Err(bad(format!("no rule \"{id}\" in the library (see `pitwall rules list`)")));
+        }
+    }
+    let set = rules::save_set(&d, SaveRuleSet { id: r.id, name: r.name, rule_ids: r.rule_ids }).map_err(bad)?;
+    ok(RuleSetView { id: set.id, name: set.name, rule_ids: set.rule_ids })
+}
+
+pub fn rules_set_delete(s: &Server, caller: &Caller, r: RuleSetRef) -> Res {
+    let id = set_id(s, &r.set)?;
+    let all = sets(s);
+    let name = all.sets.iter().find(|x| x.id == id).map(|x| x.name.clone()).unwrap_or_default();
+    let projects = all.project_defaults.values().filter(|v| **v == id).count();
+    let mut details = vec!["Agents keep the rule files they have until rules are re-applied.".to_string()];
+    if projects > 0 {
+        details.insert(0, format!("{projects} project(s) have it as their default set and lose it."));
+    }
+    approve(s, caller, method::RULES_SET_DELETE, format!("delete the rule set \"{name}\""), details, Risk::High, "Nothing was deleted.")?;
+    rules::delete_set(&dirs(s), &id).map_err(other)?;
+    ok(sets(s))
+}
+
+pub fn rules_import(s: &Server, caller: &Caller, r: RulesImport) -> Res {
+    let source = r.source.trim();
+    if source.is_empty() {
+        return Err(bad("say where to import from"));
+    }
+    match r.kind.as_str() {
+        "project" => {}
+        "file" | "git" => {
+            let what = if r.kind == "git" { "clones that repository" } else { "reads that file with `rulesync import`" };
+            approve(
+                s,
+                caller,
+                method::RULES_IMPORT,
+                format!("import rules from {source}"),
+                vec![
+                    format!("Pitwall {what} and adds its rules to the library in its own folder; nothing else changes."),
+                    "The rules reach agents only once they are in a rule set that is applied.".into(),
+                ],
+                Risk::High,
+                "Nothing was imported.",
+            )?;
+        }
+        other => return Err(bad(format!("{other}: import from project, file or git"))),
+    }
+    let res = rules::import(&dirs(s), ImportRequest { kind: r.kind, source: source.to_string() }).map_err(other)?;
+    ok(RulesImported { added: res.added, log: res.log })
 }
 
 fn project_view(p: rules::ProjectRules) -> ProjectRulesView {

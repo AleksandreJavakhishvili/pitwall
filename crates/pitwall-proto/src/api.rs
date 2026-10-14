@@ -85,6 +85,14 @@ pub mod method {
     pub const RULES_APPLY: &str = "rules.apply";
     /// [`RulesDefault`](crate::RulesDefault) → `RuleSets`
     pub const RULES_DEFAULT: &str = "rules.default";
+    /// [`RuleSetSave`](crate::RuleSetSave) → [`RuleSetView`](crate::RuleSetView):
+    /// make or change a rule set (Pitwall's own data).
+    pub const RULES_SET_SAVE: &str = "rules.set.save";
+    /// [`RuleSetRef`](crate::RuleSetRef) → `RuleSets` (asks the user).
+    pub const RULES_SET_DELETE: &str = "rules.set.delete";
+    /// [`RulesImport`](crate::RulesImport) → [`RulesImported`](crate::RulesImported)
+    /// (asks the user for a file or a git repository).
+    pub const RULES_IMPORT: &str = "rules.import";
     /// [`RulesShow`](crate::RulesShow) → [`ProjectRulesView`](crate::ProjectRulesView)
     pub const RULES_SHOW: &str = "rules.show";
     /// [`ReviewRequest`](crate::ReviewRequest) → [`ReviewChanges`](crate::ReviewChanges)

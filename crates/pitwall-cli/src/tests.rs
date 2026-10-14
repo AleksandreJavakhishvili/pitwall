@@ -659,3 +659,94 @@ fn rules_show_snapshot() {
          notes (Aider, no rules for this kind) — own set: none, not applied (main checkout, not confirmed)\n"
     );
 }
+
+/// `rules set …` and `rules import` against a server: sets change
+/// directly; deleting a set and importing from a repository ask first.
+#[test]
+fn rule_sets_and_imports_end_to_end() {
+    let dir = TempDir::new("cli-rules");
+    let data = dir.path().join("pitwall");
+    let lib = data.join("rules").join("rules");
+    std::fs::create_dir_all(lib.join("web")).unwrap();
+    std::fs::write(lib.join("style.md"), "---\ndescription: Style\n---\nUse tabs.\n").unwrap();
+    std::fs::write(lib.join("testing.md"), "Run the tests.\n").unwrap();
+    std::fs::write(lib.join("web").join("testing.md"), "Run the web tests.\n").unwrap();
+    let engine = Engine::open(Deps {
+        paths: Paths::new(data.clone()),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let approvals = Approvals::new(Duration::from_secs(10));
+    let sock_dir = std::env::temp_dir().join(format!("pwcr-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("r.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None };
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
+    let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let answer = |allow: bool| {
+        let a = approvals.clone();
+        std::thread::spawn(move || loop {
+            if let Some(p) = a.pending().first() {
+                a.answer(&ApprovalAnswer { id: p.id.clone(), allow, remember: false }).unwrap();
+                return p.summary.clone();
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        })
+    };
+
+    // By file name when only one rule has it; ambiguous and unknown names fail.
+    let o = go(&["rules", "set", "create", "Web", "--rule", "style.md"]).unwrap();
+    assert_eq!(o.json["ruleIds"], json!(["library:style.md"]));
+    assert!(o.human.starts_with("Created rule set Web — id "), "{}", o.human);
+    let e = go(&["rules", "set", "add", "web", "nope.md"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "not_found");
+    let o = go(&["rules", "set", "add", "web", "web/testing.md", "testing.md"]).unwrap();
+    assert_eq!(o.json["ruleIds"], json!(["library:style.md", "library:web/testing.md", "library:testing.md"]));
+    let o = go(&["rules", "set", "remove", "Web", "style.md"]).unwrap();
+    assert_eq!(o.json["ruleIds"], json!(["library:web/testing.md", "library:testing.md"]));
+    let o = go(&["rules", "set", "rename", "Web", "Strict"]).unwrap();
+    assert_eq!(o.json["name"], "Strict");
+    let e = go(&["rules", "set", "create", "strict"]).err().unwrap();
+    assert!(failure(&e).0["error"]["message"].as_str().unwrap().contains("already exists"));
+    assert_eq!(approvals.pending().len(), 0, "sets change without asking");
+
+    // Deleting asks: denied → exit 3, still there; allowed → gone.
+    let t = answer(false);
+    let e = go(&["rules", "set", "delete", "Strict"]).err().unwrap();
+    assert!(t.join().unwrap().contains("delete the rule set \"Strict\""));
+    assert_eq!(failure(&e).1, 3);
+    assert_eq!(go(&["rules", "sets"]).unwrap().json["sets"].as_array().unwrap().len(), 1);
+    let t = answer(true);
+    let o = go(&["rules", "set", "delete", "Strict"]).unwrap();
+    t.join().unwrap();
+    assert_eq!(o.json["sets"], json!([]));
+
+    // A project's own .rulesync/ is read in place, without asking.
+    let proj = dir.path().join("proj");
+    std::fs::create_dir_all(proj.join(".rulesync").join("rules")).unwrap();
+    std::fs::write(proj.join(".rulesync").join("rules").join("own.md"), "Ours.\n").unwrap();
+    let o = go(&["rules", "import", "project", proj.to_str().unwrap()]).unwrap();
+    assert_eq!(o.json["added"], json!(["proj:own.md"]));
+    // A repository asks first; denied → nothing cloned.
+    let t = answer(false);
+    let e = go(&["rules", "import", "git", "https://example.invalid/ai-rules.git"]).err().unwrap();
+    assert!(t.join().unwrap().contains("import rules from https://example.invalid/ai-rules.git"));
+    assert_eq!(failure(&e).1, 3);
+    assert!(!data.join("rules-sources").join("ai-rules").exists());
+
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
+#[test]
+fn rules_are_named_by_id_or_file_name() {
+    let ids: Vec<String> = ["library:style.md", "team:style.md", "library:web/a.md"].map(String::from).into();
+    assert_eq!(manage::pick_rule(&ids, "team:style.md", "here").unwrap(), "team:style.md");
+    assert_eq!(manage::pick_rule(&ids, "web/a.md", "here").unwrap(), "library:web/a.md");
+    let e = manage::pick_rule(&ids, "style.md", "here").unwrap_err();
+    assert_eq!(failure(&e).0["error"]["code"], "conflict");
+    assert!(failure(&e).0["error"]["message"].as_str().unwrap().contains("library:style.md, team:style.md"));
+    assert_eq!(failure(&manage::pick_rule(&ids, "a.md", "here").unwrap_err()).0["error"]["code"], "not_found");
+}

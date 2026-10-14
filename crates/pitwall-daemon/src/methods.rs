@@ -72,6 +72,11 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
     (method::RULES_DEFAULT, Access::Open),
     (method::RULES_SHOW, Access::Open),
+    // Sets are Pitwall's own data; deleting one takes it from projects and agents.
+    (method::RULES_SET_SAVE, Access::Open),
+    (method::RULES_SET_DELETE, Access::AskWhen("always: projects and agents that use the set lose it", Risk::High)),
+    // A project's own .rulesync/ is read in place; a file or a repository is copied in.
+    (method::RULES_IMPORT, Access::AskWhen("`kind` is file or git: copies rules from outside Pitwall into its library", Risk::High)),
     (method::REVIEW_CHANGES, Access::Open),
     // Pitwall's own windows (workspace.rs).
     (method::SPACE_LIST, Access::Open),
@@ -162,6 +167,9 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::RULES_APPLY => manage::rules_apply(s, caller, required(p)?),
         method::RULES_DEFAULT => manage::rules_default(s, required(p)?),
         method::RULES_SHOW => manage::rules_show(s, required(p)?),
+        method::RULES_SET_SAVE => manage::rules_set_save(s, required(p)?),
+        method::RULES_SET_DELETE => manage::rules_set_delete(s, caller, required(p)?),
+        method::RULES_IMPORT => manage::rules_import(s, caller, required(p)?),
         method::REVIEW_CHANGES => manage::review_changes(s, required(p)?),
         method::SPACE_LIST => workspace::list(s),
         method::SPACE_CREATE => workspace::create(s, required(p)?),
@@ -335,6 +343,9 @@ mod tests {
         assert!(matches!(access(method::AGENT_STOP), Some(Access::AskWhen(..))));
         assert!(matches!(access(method::AGENT_RESTART), Some(Access::AskWhen(..))));
         assert!(matches!(access(method::RULES_APPLY), Some(Access::AskWhen(_, Risk::High))));
+        assert!(matches!(access(method::RULES_SET_DELETE), Some(Access::AskWhen(_, Risk::High))));
+        assert!(matches!(access(method::RULES_IMPORT), Some(Access::AskWhen(_, Risk::High))));
+        assert_eq!(access(method::RULES_SET_SAVE), Some(Access::Open));
         // Read-only methods never ask.
         for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST] {
             assert_eq!(access(m), Some(Access::Open), "{m}");
