@@ -71,6 +71,7 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::RULES_SETS, Access::Open),
     (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
     (method::RULES_DEFAULT, Access::Open),
+    (method::RULES_SHOW, Access::Open),
     (method::REVIEW_CHANGES, Access::Open),
     // Pitwall's own windows (workspace.rs).
     (method::SPACE_LIST, Access::Open),
@@ -160,6 +161,7 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::RULES_SETS => manage::rules_sets(s),
         method::RULES_APPLY => manage::rules_apply(s, caller, required(p)?),
         method::RULES_DEFAULT => manage::rules_default(s, required(p)?),
+        method::RULES_SHOW => manage::rules_show(s, required(p)?),
         method::REVIEW_CHANGES => manage::review_changes(s, required(p)?),
         method::SPACE_LIST => workspace::list(s),
         method::SPACE_CREATE => workspace::create(s, required(p)?),
@@ -334,7 +336,7 @@ mod tests {
         assert!(matches!(access(method::AGENT_RESTART), Some(Access::AskWhen(..))));
         assert!(matches!(access(method::RULES_APPLY), Some(Access::AskWhen(_, Risk::High))));
         // Read-only methods never ask.
-        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::REVIEW_CHANGES, method::SPACE_LIST] {
+        for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST] {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
         assert_eq!(access("agent.prompt"), None);

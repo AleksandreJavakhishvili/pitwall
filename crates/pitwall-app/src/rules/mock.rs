@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use pitwall_core::rules::{
-    AgentRulesView, ApplyResult, ImportResult, RuleFile, RuleSet, RuleSource, RulesStatus,
-    SaveRuleSet,
+    AgentRulesDetail, AgentRulesView, ApplyResult, EffectiveRule, ImportResult, ProjectRules,
+    RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
 };
 
 use super::RulesBackend;
@@ -309,5 +309,49 @@ impl RulesBackend for MockRules {
     }
     fn agent_rules(&self) -> Vec<AgentRulesView> {
         self.lock().agents.values().cloned().collect()
+    }
+    /// Every mock agent, as Claude Code agents of `project_path`.
+    fn project_detail(&self, project_path: &str) -> ProjectRules {
+        let s = self.lock();
+        let default = s.projects.get(project_path).cloned();
+        let rules_of = |id: Option<&String>, from: &'static str| -> Vec<EffectiveRule> {
+            let ids = id
+                .and_then(|id| s.sets.iter().find(|x| &x.id == id))
+                .map(|x| x.rule_ids.clone())
+                .unwrap_or_default();
+            ids.into_iter()
+                .map(|id| {
+                    let f = s.lib.iter().find(|r| r.id == id);
+                    EffectiveRule {
+                        description: f.and_then(|f| f.description.clone()),
+                        missing: f.is_none(),
+                        id,
+                        from,
+                    }
+                })
+                .collect()
+        };
+        let agents = s
+            .agents
+            .values()
+            .map(|v| {
+                let mut view = v.clone();
+                view.project_rule_set_id = default.clone();
+                let mut effective = rules_of(default.as_ref(), "project");
+                effective.extend(rules_of(v.rule_set_id.as_ref(), "agent"));
+                AgentRulesDetail {
+                    name: v.agent_id.clone(),
+                    kind_name: "Claude Code".into(),
+                    target: Some("claudecode".into()),
+                    effective,
+                    view,
+                }
+            })
+            .collect();
+        ProjectRules {
+            project: project_path.into(),
+            rule_set_id: default,
+            agents,
+        }
     }
 }

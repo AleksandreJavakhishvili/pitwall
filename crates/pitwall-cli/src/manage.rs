@@ -14,8 +14,8 @@ use serde_json::Value;
 use pitwall_client::{Client, Error};
 use pitwall_proto::{
     caps, code, method, AgentDiagnosis, AgentMove, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentView, AgentWait, ErrorBody, ProjectPath,
-    ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSets, RulesApplied, RulesApply, RulesDefault,
-    RulesOverview, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
+    ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSets, RulesApplied, RulesApply, RulesDefault,
+    RulesOverview, RulesShow, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
 };
 
 use crate::args::{AgentCmd, ProjectCmd, QueueCmd, ReviewCmd, RulesCmd, SpaceCmd, WaitArgs};
@@ -232,6 +232,15 @@ pub fn rules_cmd(cmd: &RulesCmd, c: &mut Client) -> Result<Output, Error> {
             let s: RuleSets = manage(c, method::RULES_SETS, Value::Null)?;
             out(&s, rule_sets(&s))
         }
+        RulesCmd::Show { project, agent: key } => {
+            let req = match key {
+                Some(k) => RulesShow { project: None, agent_id: Some(agent(c, k)?.id) },
+                None => RulesShow { project: Some(folder(project.as_deref().unwrap_or("."))), agent_id: None },
+            };
+            let p: ProjectRulesView = manage(c, method::RULES_SHOW, req)?;
+            let s: RuleSets = manage(c, method::RULES_SETS, Value::Null)?;
+            out(&p, project_rules(&p, &s))
+        }
         RulesCmd::Apply { agent: key, set, main_checkout } => {
             let a = agent(c, key)?;
             let r: RulesApplied = manage(c, method::RULES_APPLY, RulesApply { agent_id: a.id.clone(), set: set.clone(), main_checkout: *main_checkout })?;
@@ -374,6 +383,50 @@ pub fn rules_overview(o: &RulesOverview, agents: &[AgentView]) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         let _ = writeln!(h, "{}: set {set}, {} file(s){}", name_of(agents, &a.agent_id), a.generated.len(), if flags.is_empty() { String::new() } else { format!(" ({flags})") });
+    }
+    h
+}
+
+fn set_name(sets: &RuleSets, id: Option<&str>) -> String {
+    match id {
+        None => "none".into(),
+        Some(id) => sets.sets.iter().find(|s| s.id == id).map_or_else(|| format!("{id} (gone)"), |s| s.name.clone()),
+    }
+}
+
+pub fn project_rules(p: &ProjectRulesView, sets: &RuleSets) -> String {
+    let mut h = format!("{} — default set: {}\n", p.project, set_name(sets, p.rule_set_id.as_deref()));
+    if p.agents.is_empty() {
+        h.push_str("No agents in this project.\n");
+    }
+    for a in &p.agents {
+        let r = &a.rules;
+        let target = a.target.as_deref().unwrap_or("no rules for this kind");
+        let flags = [(r.stale, "stale"), (r.main_checkout, "main checkout, not confirmed"), (r.error.is_some(), "error")]
+            .iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, w)| *w)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let applied = if r.applied_at.is_some() { format!("{} file(s)", r.generated.len()) } else { "not applied".into() };
+        let _ = writeln!(
+            h,
+            "{} ({}, {target}) — own set: {}, {applied}{}",
+            a.name,
+            a.kind_name,
+            set_name(sets, r.rule_set_id.as_deref()),
+            if flags.is_empty() { String::new() } else { format!(" ({flags})") }
+        );
+        for e in &a.effective {
+            let note = if e.missing { "missing from the library".to_string() } else { e.description.clone().unwrap_or_default() };
+            let _ = writeln!(h, "  {:<8} {}  {note}", e.from, e.id);
+        }
+        for g in &r.generated {
+            let _ = writeln!(h, "  file     {g}");
+        }
+        if let Some(e) = &r.error {
+            let _ = writeln!(h, "  error    {e}");
+        }
     }
     h
 }

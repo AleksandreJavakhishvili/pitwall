@@ -2,6 +2,12 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- See what rules each agent gets: Settings → Rules → Project defaults → Agents shows a project's default set, each agent's own set, the rules they add up to for that agent's kind, its files, and whether they are applied. `pitwall rules show <project>` (or `--agent <agent>`) prints the same.
+
 ## [0.2.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.1) - 2026-10-10
 
 ### Highlights
