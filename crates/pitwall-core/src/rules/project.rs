@@ -33,6 +33,9 @@ use crate::exec::LocalExec;
 pub const MANIFEST: &str = ".pitwall.json";
 /// Hand-written instruction files rulesync can import, and its target for each.
 pub const INSTRUCTIONS: &[(&str, &str)] = &[("CLAUDE.md", "claudecode"), ("AGENTS.md", "agentsmd"), ("GEMINI.md", "geminicli")];
+/// A project's main instruction files: never generated for a project
+/// without rules of Pitwall's (skills only).
+pub const MAIN_FILES: &[&str] = &["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.local.md", "GEMINI.md", ".github/copilot-instructions.md"];
 /// Targets when nothing says which: Claude Code and Codex (AGENTS.md).
 pub const DEFAULT_TARGETS: &[&str] = &["claudecode", "codexcli"];
 
@@ -45,6 +48,13 @@ pub struct Manifest {
     /// Name under `.rulesync/rules/` → where it came from.
     #[serde(default)]
     pub rules: BTreeMap<String, Copied>,
+    /// Skill folder name under `.rulesync/skills/` → where it came from
+    /// (the hash covers every file in the folder).
+    #[serde(default)]
+    pub skills: BTreeMap<String, Copied>,
+    /// rulesync features the last generation wrote (`skills`, `rules`).
+    #[serde(default)]
+    pub features: Vec<String>,
     /// rulesync targets the project generates for.
     #[serde(default)]
     pub targets: Vec<String>,
@@ -78,6 +88,26 @@ pub struct Generated {
 
 pub fn rules_dir(root: &Path) -> PathBuf {
     root.join(".rulesync").join("rules")
+}
+
+pub fn skills_dir(root: &Path) -> PathBuf {
+    root.join(".rulesync").join("skills")
+}
+
+/// One hash over a skill folder: every file's path and content (`None`
+/// when it has no SKILL.md).
+pub fn dir_hash(dir: &Path) -> Option<String> {
+    if !dir.join("SKILL.md").is_file() {
+        return None;
+    }
+    let mut all = Vec::new();
+    for rel in library::files_under(dir) {
+        all.extend_from_slice(rel.as_bytes());
+        all.push(0xff);
+        all.extend(std::fs::read(dir.join(&rel)).ok()?);
+        all.push(0xff);
+    }
+    Some(content_hash(&all))
 }
 
 /// The project's manifest (empty when it has none).
@@ -170,13 +200,24 @@ fn name_for(m: &Manifest, id: &str, source: &str) -> String {
     }
 }
 
-fn state_of(root: &Path, lib: &[RuleFile], name: &str, c: &Copied) -> ProjectRuleState {
-    let file = hash_file(&rules_dir(root).join(name));
-    let upstream = lib.iter().find(|f| f.id == c.source).and_then(|f| hash_file(Path::new(&f.path)));
+/// Where a library skill goes: its folder name (what rulesync writes it
+/// as), or `<source>-<name>` when another source's skill has that name.
+fn skill_name_for(m: &Manifest, id: &str, source: &str) -> String {
+    if let Some((n, _)) = m.skills.iter().find(|(_, c)| c.source == id) {
+        return n.clone();
+    }
+    let name = library::skill_name(id).unwrap_or("skill").to_string();
+    match m.skills.get(&name) {
+        Some(c) if c.source != id => format!("{}-{name}", crate::slug::slug(source)),
+        _ => name,
+    }
+}
+
+fn state_from(file: Option<String>, upstream: Option<String>, copied: &str) -> ProjectRuleState {
     match (file, upstream) {
         (None, _) => ProjectRuleState::Deleted,
         (Some(_), None) => ProjectRuleState::SourceGone,
-        (Some(f), Some(l)) => match (f != c.hash, l != c.hash) {
+        (Some(f), Some(l)) => match (f != copied, l != copied) {
             (false, false) => ProjectRuleState::Current,
             (false, true) => ProjectRuleState::Update,
             (true, false) => ProjectRuleState::Modified,
@@ -187,41 +228,63 @@ fn state_of(root: &Path, lib: &[RuleFile], name: &str, c: &Copied) -> ProjectRul
     }
 }
 
-/// Fingerprint of what generation reads: `.rulesync/rules/` and the targets.
-pub fn inputs_fingerprint(root: &Path, targets: &[String]) -> String {
-    let dir = rules_dir(root);
+fn upstream<'a>(lib: &'a [RuleFile], c: &Copied) -> Option<&'a RuleFile> {
+    lib.iter().find(|f| f.id == c.source)
+}
+
+fn state_of(root: &Path, lib: &[RuleFile], name: &str, c: &Copied) -> ProjectRuleState {
+    let up = upstream(lib, c).filter(|f| !f.skill).and_then(|f| hash_file(Path::new(&f.path)));
+    state_from(hash_file(&rules_dir(root).join(name)), up, &c.hash)
+}
+
+fn skill_state(root: &Path, lib: &[RuleFile], name: &str, c: &Copied) -> ProjectRuleState {
+    let up = upstream(lib, c).filter(|f| f.skill).and_then(|f| dir_hash(Path::new(&f.path)));
+    state_from(dir_hash(&skills_dir(root).join(name)), up, &c.hash)
+}
+
+/// Fingerprint of what generation reads: `.rulesync/rules/` and
+/// `.rulesync/skills/`, the targets and the features.
+pub fn inputs_fingerprint(root: &Path, targets: &[String], features: &[String]) -> String {
     let mut all = Vec::new();
-    for t in targets {
+    for t in targets.iter().chain(features) {
         all.extend_from_slice(t.as_bytes());
         all.push(0xff);
     }
-    for rel in md_under(&dir) {
-        all.extend_from_slice(rel.as_bytes());
-        all.push(0xff);
-        all.extend(std::fs::read(dir.join(&rel)).unwrap_or_default());
-        all.push(0xff);
+    for (dir, files) in [(rules_dir(root), md_under(&rules_dir(root))), (skills_dir(root), library::files_under(&skills_dir(root)))] {
+        for rel in files {
+            all.extend_from_slice(rel.as_bytes());
+            all.push(0xff);
+            all.extend(std::fs::read(dir.join(&rel)).unwrap_or_default());
+            all.push(0xff);
+        }
     }
     content_hash(&all)
 }
 
 fn generated_state(root: &Path, m: &Manifest) -> GeneratedFiles {
     let Some(g) = &m.generated else {
-        // Pitwall copied rules but never generated from them.
-        return GeneratedFiles { generated: false, out_of_date: !m.rules.is_empty(), changed: vec![], targets: m.targets.clone() };
+        // Pitwall copied rules or skills but never generated from them.
+        let copied = !m.rules.is_empty() || !m.skills.is_empty();
+        return GeneratedFiles { generated: false, out_of_date: copied, changed: vec![], targets: m.targets.clone(), features: features(root, m) };
     };
     let changed: Vec<String> = g.files.iter().filter(|(p, h)| hash_file(&root.join(p)).as_ref() != Some(*h)).map(|(p, _)| p.clone()).collect();
-    let out_of_date = !changed.is_empty() || g.inputs != inputs_fingerprint(root, &m.targets);
-    GeneratedFiles { generated: true, out_of_date, changed, targets: m.targets.clone() }
+    let out_of_date = !changed.is_empty() || g.inputs != inputs_fingerprint(root, &m.targets, &features(root, m));
+    GeneratedFiles { generated: true, out_of_date, changed, targets: m.targets.clone(), features: m.features.clone() }
 }
 
 fn tracked(root: &Path, names: &[String]) -> BTreeSet<String> {
     apply::tracked(&LocalExec, &root.to_string_lossy(), names)
 }
 
-/// Hand-written instruction files to import before generating: tracked,
-/// not imported or generated by Pitwall, while `.rulesync/rules/` holds
-/// nothing but Pitwall's copies.
+/// Hand-written instruction files to import before generating rules:
+/// only once rules were copied into the project (a skills-only project
+/// never touches its CLAUDE.md / AGENTS.md); tracked, not imported or
+/// generated by Pitwall, while `.rulesync/rules/` holds nothing but
+/// Pitwall's copies.
 fn existing_instructions(root: &Path, m: &Manifest) -> Vec<String> {
+    if m.rules.is_empty() {
+        return vec![];
+    }
     let own = md_under(&rules_dir(root)).iter().any(|r| !m.rules.contains_key(r));
     if own {
         return vec![];
@@ -236,31 +299,82 @@ fn existing_instructions(root: &Path, m: &Manifest) -> Vec<String> {
     candidates.into_iter().filter(|n| tracked.contains(n)).collect()
 }
 
-/// The project's rules, updates, generated files and what to offer.
+/// Skill folders in `.rulesync/skills/` (each with a SKILL.md).
+fn skill_dirs(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(skills_dir(root)) else { return vec![] };
+    let mut out: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().join("SKILL.md").is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    out.sort();
+    out
+}
+
+/// What generating writes: skills when the project has any, rules only
+/// when Pitwall copied rules in or imported its instruction files (the
+/// main instruction file stays the project's own otherwise).
+pub fn features(root: &Path, m: &Manifest) -> Vec<String> {
+    let mut f = Vec::new();
+    if !m.rules.is_empty() || !m.imported.is_empty() {
+        f.push("rules".to_string());
+    }
+    if !skill_dirs(root).is_empty() {
+        f.push("skills".to_string());
+    }
+    f
+}
+
+fn description_of(path: &Path) -> Option<String> {
+    read_text(path).and_then(|s| library::parse_front(&s).description)
+}
+
+/// The project's rules and skills, updates, generated files and what to
+/// offer.
 pub fn status(root: &Path, lib: &[RuleFile], fallback_set: Option<String>) -> ProjectRulesStatus {
     let m = load(root);
     let dir = rules_dir(root);
-    let mut rules: Vec<ProjectRule> = m
+    let sdir = skills_dir(root);
+    let mut rules: Vec<ProjectRule> = Vec::new();
+    for (name, c) in &m.skills {
+        rules.push(ProjectRule {
+            name: name.clone(),
+            skill: true,
+            source: Some(c.source.clone()),
+            state: skill_state(root, lib, name, c),
+            description: description_of(&sdir.join(name).join("SKILL.md")),
+        });
+    }
+    for name in skill_dirs(root) {
+        if !m.skills.contains_key(&name) {
+            let description = description_of(&sdir.join(&name).join("SKILL.md"));
+            rules.push(ProjectRule { name, skill: true, source: None, state: ProjectRuleState::Own, description });
+        }
+    }
+    let mut plain: Vec<ProjectRule> = m
         .rules
         .iter()
         .map(|(name, c)| ProjectRule {
             name: name.clone(),
+            skill: false,
             source: Some(c.source.clone()),
             state: state_of(root, lib, name, c),
-            description: read_text(&dir.join(name)).and_then(|s| library::parse_front(&s).description),
+            description: description_of(&dir.join(name)),
         })
         .collect();
     for rel in md_under(&dir) {
         if !m.rules.contains_key(&rel) {
-            let description = read_text(&dir.join(&rel)).and_then(|s| library::parse_front(&s).description);
-            rules.push(ProjectRule { name: rel, source: None, state: ProjectRuleState::Own, description });
+            let description = description_of(&dir.join(&rel));
+            plain.push(ProjectRule { name: rel, skill: false, source: None, state: ProjectRuleState::Own, description });
         }
     }
     rules.sort_by(|a, b| a.name.cmp(&b.name));
+    plain.sort_by(|a, b| a.name.cmp(&b.name));
+    rules.extend(plain);
     let updates = rules.iter().filter(|r| matches!(r.state, ProjectRuleState::Update | ProjectRuleState::Conflict)).count();
     ProjectRulesStatus {
         project: root.to_string_lossy().into_owned(),
-        rulesync: dir.is_dir(),
+        rulesync: dir.is_dir() || sdir.is_dir(),
         updates,
         generated: generated_state(root, &m),
         existing: existing_instructions(root, &m),
@@ -269,9 +383,10 @@ pub fn status(root: &Path, lib: &[RuleFile], fallback_set: Option<String>) -> Pr
     }
 }
 
-/// Copy library rules (`ids`, in order) into `.rulesync/rules/`. A file
-/// already there with other content is only replaced when `overwrite`
-/// names it (its name or its rule id).
+/// Copy library rules and skills (`ids`, in order) into `.rulesync/rules/`
+/// and `.rulesync/skills/`. A file (or skill folder) already there with
+/// other content is only replaced when `overwrite` names it (its name or
+/// its id).
 pub fn assign(root: &Path, lib: &[RuleFile], ids: &[String], overwrite: &[String]) -> Res<ProjectAssigned> {
     let mut m = load(root);
     let dir = rules_dir(root);
@@ -285,6 +400,25 @@ pub fn assign(root: &Path, lib: &[RuleFile], ids: &[String], overwrite: &[String
             out.skipped.push(format!("{id}: not in the library"));
             continue;
         };
+        if file.skill {
+            let name = skill_name_for(&m, id, &file.source);
+            let label = format!("skills/{name}");
+            let dest = skills_dir(root).join(&name);
+            let hash = dir_hash(Path::new(&file.path)).ok_or_else(|| format!("{id}: its folder has no SKILL.md"))?;
+            match dir_hash(&dest) {
+                Some(cur) if cur == hash => out.unchanged.push(label),
+                _ if dest.exists() && !overwrite.iter().any(|o| *o == label || *o == name || o == id) => {
+                    out.conflicts.push(label);
+                    continue;
+                }
+                _ => {
+                    library::copy_dir(Path::new(&file.path), &dest)?;
+                    out.copied.push(label);
+                }
+            }
+            m.skills.insert(name, Copied { source: id.clone(), hash });
+            continue;
+        }
         let content = std::fs::read(&file.path).map_err(|e| format!("could not read {id}: {e}"))?;
         let name = name_for(&m, id, &file.source);
         if !apply::safe_rel(&name) {
@@ -311,36 +445,71 @@ pub fn assign(root: &Path, lib: &[RuleFile], ids: &[String], overwrite: &[String
     Ok(out)
 }
 
-/// The manifest entry a name or library id means.
-fn entry(m: &Manifest, key: &str) -> Option<String> {
-    let key = key.trim();
-    if m.rules.contains_key(key) {
-        return Some(key.to_string());
-    }
-    m.rules.iter().find(|(_, c)| c.source == key).map(|(n, _)| n.clone())
+/// A copied rule or skill, by name.
+#[derive(Debug, Clone, PartialEq)]
+enum Entry {
+    Rule(String),
+    Skill(String),
 }
 
-/// Remove copied rules from the project: only as copied (or `force`).
+/// The manifest entry a key means: a rule's name, a skill's name (or
+/// `skills/<name>`), or a library id.
+fn entry(m: &Manifest, key: &str) -> Option<Entry> {
+    let key = key.trim();
+    if m.rules.contains_key(key) {
+        return Some(Entry::Rule(key.to_string()));
+    }
+    let bare = key.strip_prefix("skills/").unwrap_or(key);
+    if m.skills.contains_key(bare) {
+        return Some(Entry::Skill(bare.to_string()));
+    }
+    if let Some((n, _)) = m.rules.iter().find(|(_, c)| c.source == key) {
+        return Some(Entry::Rule(n.clone()));
+    }
+    m.skills.iter().find(|(_, c)| c.source == key).map(|(n, _)| Entry::Skill(n.clone()))
+}
+
+/// Remove copied rules and skills from the project: only as copied (or
+/// `force`).
 pub fn unassign(root: &Path, keys: &[String], force: bool) -> Res<ProjectUnassigned> {
     let mut m = load(root);
     let dir = rules_dir(root);
     let mut out = ProjectUnassigned::default();
     for key in keys {
-        let Some(name) = entry(&m, key) else {
-            out.unknown.push(key.clone());
-            continue;
-        };
-        let c = &m.rules[&name];
-        match hash_file(&dir.join(&name)) {
-            Some(h) if h != c.hash && !force => {
-                out.modified.push(name);
-                continue;
+        match entry(&m, key) {
+            None => out.unknown.push(key.clone()),
+            Some(Entry::Rule(name)) => {
+                let c = &m.rules[&name];
+                match hash_file(&dir.join(&name)) {
+                    Some(h) if h != c.hash && !force => {
+                        out.modified.push(name);
+                        continue;
+                    }
+                    Some(_) => remove_tidy(&dir, &name)?,
+                    None => {}
+                }
+                m.rules.remove(&name);
+                out.removed.push(name);
             }
-            Some(_) => remove_tidy(&dir, &name)?,
-            None => {}
+            Some(Entry::Skill(name)) => {
+                let c = &m.skills[&name];
+                let path = skills_dir(root).join(&name);
+                let label = format!("skills/{name}");
+                match dir_hash(&path) {
+                    Some(h) if h != c.hash && !force => {
+                        out.modified.push(label);
+                        continue;
+                    }
+                    _ if path.exists() => {
+                        std::fs::remove_dir_all(&path).map_err(|e| format!("could not remove {label}: {e}"))?;
+                        let _ = std::fs::remove_dir(skills_dir(root));
+                    }
+                    _ => {}
+                }
+                m.skills.remove(&name);
+                out.removed.push(label);
+            }
         }
-        m.rules.remove(&name);
-        out.removed.push(name);
     }
     if !out.removed.is_empty() {
         save(root, &m)?;
@@ -352,60 +521,137 @@ fn diff(project: &str, library: &str) -> String {
     similar::TextDiff::from_lines(project, library).unified_diff().context_radius(3).header("project", "library").to_string()
 }
 
-/// Rules with something to decide: an update, a local change, a conflict.
+/// One diff per file that differs between a project's skill folder and
+/// the library's.
+fn dir_diff(project: &Path, library: &Path) -> String {
+    let mut files: BTreeSet<String> = library::files_under(project).into_iter().collect();
+    files.extend(library::files_under(library));
+    let mut out = String::new();
+    for rel in files {
+        let a = read_text(&project.join(&rel)).unwrap_or_default();
+        let b = read_text(&library.join(&rel)).unwrap_or_default();
+        if a != b {
+            out.push_str(
+                &similar::TextDiff::from_lines(&a, &b)
+                    .unified_diff()
+                    .context_radius(3)
+                    .header(&format!("project/{rel}"), &format!("library/{rel}"))
+                    .to_string(),
+            );
+        }
+    }
+    out
+}
+
+/// Rules and skills with something to decide: an update, a local change,
+/// a conflict.
 pub fn updates(root: &Path, lib: &[RuleFile]) -> Vec<ProjectRuleUpdate> {
     let m = load(root);
     let dir = rules_dir(root);
-    m.rules
+    let pending = |s: ProjectRuleState| matches!(s, ProjectRuleState::Update | ProjectRuleState::Modified | ProjectRuleState::Conflict);
+    let mut out: Vec<ProjectRuleUpdate> = m
+        .skills
         .iter()
         .filter_map(|(name, c)| {
-            let state = state_of(root, lib, name, c);
-            if !matches!(state, ProjectRuleState::Update | ProjectRuleState::Modified | ProjectRuleState::Conflict) {
+            let state = skill_state(root, lib, name, c);
+            if !pending(state) {
                 return None;
             }
-            let library = lib.iter().find(|f| f.id == c.source).and_then(|f| read_text(Path::new(&f.path)));
-            let project = read_text(&dir.join(name));
-            let diff = diff(project.as_deref().unwrap_or(""), library.as_deref().unwrap_or(""));
-            Some(ProjectRuleUpdate { name: name.clone(), source: c.source.clone(), state, library, project, diff })
+            let here = skills_dir(root).join(name);
+            let there = upstream(lib, c).map(|f| PathBuf::from(&f.path));
+            Some(ProjectRuleUpdate {
+                name: name.clone(),
+                skill: true,
+                source: c.source.clone(),
+                state,
+                library: there.as_ref().and_then(|d| read_text(&d.join("SKILL.md"))),
+                project: read_text(&here.join("SKILL.md")),
+                diff: there.map(|d| dir_diff(&here, &d)).unwrap_or_default(),
+            })
         })
-        .collect()
+        .collect();
+    out.extend(m.rules.iter().filter_map(|(name, c)| {
+        let state = state_of(root, lib, name, c);
+        if !pending(state) {
+            return None;
+        }
+        let library = upstream(lib, c).and_then(|f| read_text(Path::new(&f.path)));
+        let project = read_text(&dir.join(name));
+        let diff = diff(project.as_deref().unwrap_or(""), library.as_deref().unwrap_or(""));
+        Some(ProjectRuleUpdate { name: name.clone(), skill: false, source: c.source.clone(), state, library, project, diff })
+    }));
+    out
 }
 
-/// Take library updates (`keys`; empty: every rule with one). Conflicts
-/// need `take`: `library` replaces the project's copy, `project` keeps it.
+/// Take library updates (`keys`; empty: every rule and skill with one).
+/// Conflicts need `take`: `library` replaces the project's copy, `project`
+/// keeps it.
 pub fn update(root: &Path, lib: &[RuleFile], keys: &[String], take: Option<&str>) -> Res<ProjectUpdated> {
     if let Some(t) = take.filter(|t| !matches!(*t, "library" | "project")) {
         return Err(format!("{t}: take library or project"));
     }
     let mut m = load(root);
     let dir = rules_dir(root);
-    let names: Vec<String> = if keys.is_empty() {
-        m.rules.keys().cloned().collect()
+    let names: Vec<Entry> = if keys.is_empty() {
+        m.skills.keys().map(|n| Entry::Skill(n.clone())).chain(m.rules.keys().map(|n| Entry::Rule(n.clone()))).collect()
     } else {
-        keys.iter().map(|k| entry(&m, k).ok_or_else(|| format!("no rule \"{k}\" copied into this project"))).collect::<Res<_>>()?
+        keys.iter().map(|k| entry(&m, k).ok_or_else(|| format!("no rule or skill \"{k}\" copied into this project"))).collect::<Res<_>>()?
     };
     let mut out = ProjectUpdated::default();
-    for name in names {
-        let c = m.rules[&name].clone();
-        let state = state_of(root, lib, &name, &c);
-        let upstream = || -> Res<Vec<u8>> {
-            let f = lib.iter().find(|f| f.id == c.source).ok_or("gone from the library")?;
-            std::fs::read(&f.path).map_err(|e| e.to_string())
+    for e in names {
+        let (c, state, label) = match &e {
+            Entry::Rule(n) => {
+                let c = m.rules[n].clone();
+                let st = state_of(root, lib, n, &c);
+                (c, st, n.clone())
+            }
+            Entry::Skill(n) => {
+                let c = m.skills[n].clone();
+                let st = skill_state(root, lib, n, &c);
+                (c, st, format!("skills/{n}"))
+            }
+        };
+        let from = || -> Res<&RuleFile> { upstream(lib, &c).ok_or_else(|| "gone from the library".to_string()) };
+        // Write the library's version; its hash.
+        let take_library = || -> Res<String> {
+            let f = from()?;
+            match &e {
+                Entry::Rule(n) => {
+                    let bytes = std::fs::read(&f.path).map_err(|e| e.to_string())?;
+                    write(&dir.join(n), &bytes)?;
+                    Ok(content_hash(&bytes))
+                }
+                Entry::Skill(n) => {
+                    library::copy_dir(Path::new(&f.path), &skills_dir(root).join(n))?;
+                    dir_hash(Path::new(&f.path)).ok_or_else(|| "the library's skill has no SKILL.md".to_string())
+                }
+            }
+        };
+        let library_hash = || -> Res<String> {
+            let f = from()?;
+            if f.skill { dir_hash(Path::new(&f.path)) } else { hash_file(Path::new(&f.path)) }.ok_or_else(|| "unreadable in the library".to_string())
+        };
+        let set = |m: &mut Manifest, hash: String| match &e {
+            Entry::Rule(n) => {
+                m.rules.insert(n.clone(), Copied { source: c.source.clone(), hash });
+            }
+            Entry::Skill(n) => {
+                m.skills.insert(n.clone(), Copied { source: c.source.clone(), hash });
+            }
         };
         match (state, take) {
             (ProjectRuleState::Update, _) | (ProjectRuleState::Conflict, Some("library")) => {
-                let bytes = upstream()?;
-                write(&dir.join(&name), &bytes)?;
-                m.rules.insert(name.clone(), Copied { source: c.source, hash: content_hash(&bytes) });
-                out.updated.push(name);
+                let h = take_library()?;
+                set(&mut m, h);
+                out.updated.push(label);
             }
             (ProjectRuleState::Conflict, Some(_)) => {
                 // Keep the project's copy; the library's version counts as seen.
-                let bytes = upstream()?;
-                m.rules.insert(name.clone(), Copied { source: c.source, hash: content_hash(&bytes) });
-                out.kept.push(name);
+                let h = library_hash()?;
+                set(&mut m, h);
+                out.kept.push(label);
             }
-            (ProjectRuleState::Conflict, None) => out.conflicts.push(name),
+            (ProjectRuleState::Conflict, None) => out.conflicts.push(label),
             _ => {}
         }
     }
@@ -475,13 +721,15 @@ pub fn import_existing(root: &Path, runner: &Runner, stage: &Path) -> Res<Projec
 /// did and the paths written.
 pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], overwrite: &[String], released: &BTreeSet<String>) -> Res<ProjectGenerated> {
     let source = root.join(".rulesync");
-    if !source.join("rules").is_dir() {
-        return Err("the project has no .rulesync/rules yet: assign or import rules first".into());
-    }
     if targets.is_empty() {
         return Err("say which rulesync targets to generate for".into());
     }
     let mut m = load(root);
+    let features = features(root, &m);
+    if features.is_empty() {
+        return Err("nothing to generate: assign skills or rules to the project first".into());
+    }
+    let with_rules = features.iter().any(|f| f == "rules");
     let _ = std::fs::remove_dir_all(stage);
     let out_root = stage.join("out");
     std::fs::create_dir_all(&out_root).map_err(|e| e.to_string())?;
@@ -491,7 +739,7 @@ pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], 
         "--targets".into(),
         targets.join(","),
         "--features".into(),
-        "rules".into(),
+        features.join(","),
         "--output-roots".into(),
         out_root.to_string_lossy().into_owned(),
         "--input-roots".into(),
@@ -507,11 +755,16 @@ pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], 
             .filter_map(|o| o["path"].as_str().map(String::from))
             .collect();
         let before = m.generated.clone().map(|g| g.files).unwrap_or_default();
-        let mut res = ProjectGenerated { targets: targets.to_vec(), ..Default::default() };
+        let mut res = ProjectGenerated { targets: targets.to_vec(), features: features.clone(), ..Default::default() };
         let mut files = BTreeMap::new();
         for rel in &outputs {
             if !apply::safe_rel(rel) || rel.starts_with(".rulesync/") {
                 log.push(format!("skipped unexpected path {rel}"));
+                continue;
+            }
+            // Without rules, the project's main instruction file stays its own.
+            if !with_rules && MAIN_FILES.contains(&rel.as_str()) {
+                log.push(format!("left {rel} alone: the project's own (no rules were copied in)"));
                 continue;
             }
             let Ok(bytes) = std::fs::read(out_root.join(rel)) else { continue };
@@ -534,15 +787,16 @@ pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], 
             res.written.push(rel.clone());
             files.insert(rel.clone(), content_hash(&bytes));
         }
-        // Earlier outputs no longer generated (a target dropped), if unchanged.
+        // Earlier outputs no longer generated (a target or feature dropped), if unchanged.
         for (rel, h) in &before {
             if !outputs.contains(rel) && hash_file(&root.join(rel)).as_ref() == Some(h) {
                 remove_tidy(root, rel)?;
                 log.push(format!("removed {rel} (no longer generated)"));
             }
         }
-        let inputs = if res.needs_confirm.is_empty() { inputs_fingerprint(root, targets) } else { String::new() };
+        let inputs = if res.needs_confirm.is_empty() { inputs_fingerprint(root, targets, &features) } else { String::new() };
         m.targets = targets.to_vec();
+        m.features = features.clone();
         m.generated = Some(Generated { inputs, files });
         save(root, &m)?;
         res.log = log.join("\n");

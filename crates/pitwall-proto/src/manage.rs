@@ -396,6 +396,9 @@ pub struct EffectiveRuleView {
     pub from: String,
     /// Picked in a set but no longer in the library (skipped).
     pub missing: bool,
+    /// A skill, not a rule.
+    #[serde(default)]
+    pub skill: bool,
 }
 
 /// An agent's rules in full.
@@ -459,8 +462,12 @@ pub enum ProjectRuleState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRule {
-    /// Its path under `.rulesync/rules/` (`style.md`).
+    /// Its path under `.rulesync/rules/` (`style.md`), or a skill's folder
+    /// name under `.rulesync/skills/` (`review`).
     pub name: String,
+    /// A skill (a folder), not a rule file.
+    #[serde(default)]
+    pub skill: bool,
     /// The library rule it was copied from (`library:style.md`).
     pub source: Option<String>,
     pub state: ProjectRuleState,
@@ -481,6 +488,10 @@ pub struct GeneratedFiles {
     pub changed: Vec<String>,
     /// rulesync targets it generates for.
     pub targets: Vec<String>,
+    /// What it generates: `skills`, and `rules` only once rules were copied
+    /// into the project (else its CLAUDE.md / AGENTS.md stay its own).
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 /// `rules.project.status`.
@@ -567,14 +578,17 @@ pub struct ProjectUnassigned {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRuleUpdate {
     pub name: String,
+    #[serde(default)]
+    pub skill: bool,
     pub source: String,
     /// `update`, `modified` or `conflict`.
     pub state: ProjectRuleState,
-    /// The library's text now (null: gone).
+    /// The library's text now (a skill's SKILL.md; null: gone).
     pub library: Option<String>,
-    /// The project's text now (null: deleted).
+    /// The project's text now (a skill's SKILL.md; null: deleted).
     pub project: Option<String>,
-    /// Unified diff from the project's copy to the library's.
+    /// Unified diff from the project's copy to the library's (a skill's:
+    /// one per file that differs).
     pub diff: String,
 }
 
@@ -636,6 +650,9 @@ pub struct ProjectGenerated {
     /// Not written: someone else's file there (pass them in `overwrite`).
     pub needs_confirm: Vec<String>,
     pub targets: Vec<String>,
+    /// rulesync features generated (`skills`, `rules`).
+    #[serde(default)]
+    pub features: Vec<String>,
     pub log: String,
 }
 

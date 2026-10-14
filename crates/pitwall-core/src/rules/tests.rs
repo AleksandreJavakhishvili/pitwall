@@ -417,9 +417,11 @@ fn stale_agents_are_reapplied_in_bulk() {
 // ------------------------------------------------------------------ project rules
 
 /// A stand-in for rulesync: `generate` writes CLAUDE.md from the input
-/// roots' rules (CLAUDE.local.md for `localRoot` ones) into the output root;
-/// `import` turns the CLAUDE.md / AGENTS.md in its folder into
-/// `.rulesync/rules/overview.md`.
+/// roots' rules (CLAUDE.local.md for `localRoot` ones) into the output root
+/// with the `rules` feature, and copies each input root's
+/// `skills/<name>/` to `.claude/skills/<name>/` with `skills` (as rulesync
+/// does for claudecode); `import` turns the CLAUDE.md / AGENTS.md in its
+/// folder into `.rulesync/rules/overview.md`.
 fn fake_rulesync(dir: &Path) -> Option<Runner> {
     // A shell script: not on Windows.
     if std::path::MAIN_SEPARATOR == '\\' {
@@ -429,15 +431,16 @@ fn fake_rulesync(dir: &Path) -> Option<Runner> {
     write(
         &script,
         r#"#!/bin/sh
-cmd=""; out=""; ins=""; mode=""
+cmd=""; out=""; ins=""; mode=""; feats=""
 for a in "$@"; do
   case "$a" in
     --json) ;;
     generate|import) cmd="$a" ;;
     --output-roots) mode=out ;;
     --input-roots) mode=in ;;
-    --targets|--features) mode=skip ;;
-    *) case "$mode" in out) out="$a"; mode="" ;; in) ins="$ins $a" ;; skip) mode="" ;; esac ;;
+    --features) mode=feat ;;
+    --targets) mode=skip ;;
+    *) case "$mode" in out) out="$a"; mode="" ;; in) ins="$ins $a" ;; feat) feats="$a"; mode="" ;; skip) mode="" ;; esac ;;
   esac
 done
 if [ "$cmd" = import ]; then
@@ -445,12 +448,23 @@ if [ "$cmd" = import ]; then
   for f in CLAUDE.md AGENTS.md; do [ -f "$f" ] && { printf -- '---\nroot: true\n---\n'; cat "$f"; } > .rulesync/rules/overview.md; done
   echo '{"success":true}'; exit 0
 fi
-: > "$out/CLAUDE.md"; local=""
-for r in $ins; do for f in "$r"/rules/*.md; do [ -f "$f" ] || continue
-  if grep -q 'localRoot: true' "$f"; then cat "$f" >> "$out/CLAUDE.local.md"; local=1; else cat "$f" >> "$out/CLAUDE.md"; fi
-done; done
-ops='{"action":"write","kind":"file","path":"CLAUDE.md"}'
-[ -n "$local" ] && ops="$ops,{\"action\":\"write\",\"kind\":\"file\",\"path\":\"CLAUDE.local.md\"}"
+: > "$out/ops"
+case ",$feats," in *,rules,*)
+  : > "$out/CLAUDE.md"; local=""
+  for r in $ins; do for f in "$r"/rules/*.md; do [ -f "$f" ] || continue
+    if grep -q 'localRoot: true' "$f"; then cat "$f" >> "$out/CLAUDE.local.md"; local=1; else cat "$f" >> "$out/CLAUDE.md"; fi
+  done; done
+  printf '{"action":"write","kind":"file","path":"CLAUDE.md"},' >> "$out/ops"
+  [ -n "$local" ] && printf '{"action":"write","kind":"file","path":"CLAUDE.local.md"},' >> "$out/ops"
+;; esac
+case ",$feats," in *,skills,*)
+  for r in $ins; do for d in "$r"/skills/*/; do [ -f "$d/SKILL.md" ] || continue
+    n=$(basename "$d"); mkdir -p "$out/.claude/skills/$n"; cp -R "$d". "$out/.claude/skills/$n/"
+    (cd "$out/.claude/skills/$n" && find . -type f | sed 's|^\./||' | sort) | while read -r f; do
+      printf '{"action":"write","kind":"file","path":".claude/skills/%s/%s"},' "$n" "$f" >> "$out/ops"; done
+  done; done
+;; esac
+ops=$(sed 's/,$//' "$out/ops"); rm "$out/ops"
 echo "{\"success\":true,\"data\":{\"plan\":{\"operations\":[$ops]}}}"
 "#,
     );
@@ -551,7 +565,7 @@ fn same_named_rules_from_two_sources_both_fit() {
     let team = p._t.0.join("team.md");
     std::fs::write(&team, "Team style.\n").unwrap();
     let mut lib = library::list(&p.dirs, &[]);
-    lib.push(RuleFile { id: "team:style.md".into(), path: team.to_string_lossy().into_owned(), description: None, targets: vec![], root: false, local_root: false, source: "team".into() });
+    lib.push(RuleFile { id: "team:style.md".into(), path: team.to_string_lossy().into_owned(), description: None, targets: vec![], root: false, local_root: false, skill: false, source: "team".into() });
     let r = project::assign(&p.repo, &lib, &["library:style.md".into(), "team:style.md".into()], &[]).unwrap();
     assert_eq!(r.copied, vec!["style.md", "team/style.md"]);
     assert_eq!(std::fs::read_to_string(p.rule("team/style.md")).unwrap(), "Team style.\n");
@@ -624,9 +638,9 @@ fn existing_instructions_are_imported_before_generating() {
     write(&p.repo.join("CLAUDE.md"), "# Ours\n\nAlways test.\n");
     sh(&p.repo, &["add", "CLAUDE.md"]);
     sh(&p.repo, &["commit", "-qm", "claude"]);
-    assert_eq!(p.status().existing, vec!["CLAUDE.md"]);
+    assert!(p.status().existing.is_empty(), "not offered before rules are assigned");
     project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &[]).unwrap();
-    assert_eq!(p.status().existing, vec!["CLAUDE.md"], "still offered");
+    assert_eq!(p.status().existing, vec!["CLAUDE.md"], "offered once rules are assigned");
     // Generating now would lose the hand-written text: kept, out of date.
     let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
     assert_eq!(g.needs_confirm, vec!["CLAUDE.md"]);
@@ -756,4 +770,212 @@ fn the_old_default_set_moves_into_the_project() {
     assert_eq!(s.fallback_set, None);
     assert_eq!(project_set(&read(&p.dirs), &c), None, "the project's own rules now");
     assert!(project_move_default(&p.dirs, &p.path()).is_err(), "nothing left to move");
+}
+
+// ------------------------------------------------------------------ skills
+
+fn skill(dirs: &Dirs, name: &str, front: &str, body: &str) -> PathBuf {
+    let dir = dirs.library().join("skills").join(name);
+    write(&dir.join("SKILL.md"), &format!("---\n{front}---\n{body}"));
+    dir
+}
+
+/// The library lists skills (folders with SKILL.md) before rules, with the
+/// name and description from their frontmatter.
+#[test]
+fn the_library_lists_skills_first() {
+    let t = Tmp::new("skills-list");
+    let dirs = Dirs { base: t.0.clone() };
+    write(&dirs.library_rules().join("style.md"), "Use tabs.\n");
+    let review = skill(&dirs, "review", "name: review\ndescription: >-\n  Review a diff\n  carefully\ntargets: [\"claudecode\"]\n", "Look closely.\n");
+    write(&review.join("scripts/check.sh"), "#!/bin/sh\n");
+    std::fs::create_dir_all(dirs.library().join("skills/empty")).unwrap();
+    let lib = library::list(&dirs, &[]);
+    assert_eq!(lib.iter().map(|f| (f.id.as_str(), f.skill)).collect::<Vec<_>>(), vec![("library:skills/review", true), ("library:style.md", false)]);
+    assert_eq!(lib[0].description.as_deref(), Some("Review a diff carefully"));
+    assert_eq!(lib[0].targets, vec!["claudecode"]);
+    assert_eq!(library::skill_name(&lib[0].id), Some("review"));
+    assert_eq!(library::skill_name("library:style.md"), None);
+    assert_eq!(library::files_under(&review), vec!["SKILL.md", "scripts/check.sh"]);
+}
+
+/// `rules new` / `rules skill new`: proper rulesync files, from scratch, a
+/// file, a folder or a library entry; the other kind only when asked.
+#[test]
+fn new_rules_and_skills_in_the_library() {
+    let t = Tmp::new("skills-new");
+    let dirs = Dirs { base: t.0.join("pw") };
+    let new = |e: NewEntry| {
+        let lib = library::list(&dirs, &[]);
+        library::create(&dirs, &lib, &e)
+    };
+    let (id, _) = new(NewEntry { name: "tabs".into(), description: Some("Tabs, not spaces".into()), ..Default::default() }).unwrap();
+    assert_eq!(id, "library:tabs.md");
+    let text = std::fs::read_to_string(dirs.library_rules().join("tabs.md")).unwrap();
+    let f = library::parse_front(&text);
+    assert_eq!((f.description.as_deref(), f.targets.clone(), f.root), (Some("Tabs, not spaces"), vec!["*".to_string()], false));
+    assert!(new(NewEntry { name: "tabs".into(), ..Default::default() }).unwrap_err().contains("already has a rule"));
+    assert!(new(NewEntry { name: "../x".into(), ..Default::default() }).is_err());
+
+    // A skill needs a description; from a folder it keeps its files and other keys.
+    assert!(new(NewEntry { skill: true, name: "bare".into(), ..Default::default() }).unwrap_err().contains("description"));
+    let src = t.0.join("deploy");
+    write(&src.join("SKILL.md"), "---\nname: old\ndescription: Ship it\nclaudecode:\n  model: opus\n---\nRun the deploy.\n");
+    write(&src.join("run.sh"), "#!/bin/sh\necho deploy\n");
+    let (id, _) = new(NewEntry { skill: true, name: "deploy".into(), from: Some(src.to_string_lossy().into()), ..Default::default() }).unwrap();
+    assert_eq!(id, "library:skills/deploy");
+    let dir = dirs.library().join("skills/deploy");
+    let md = std::fs::read_to_string(dir.join("SKILL.md")).unwrap();
+    let f = library::parse_front(&md);
+    assert_eq!((f.name.as_deref(), f.description.as_deref()), (Some("deploy"), Some("Ship it")));
+    assert!(md.contains("claudecode:\n  model: opus\n") && md.ends_with("Run the deploy.\n"), "{md}");
+    assert!(dir.join("run.sh").is_file());
+
+    // Rule ↔ skill only when asked.
+    let e = new(NewEntry { skill: true, name: "tabs-skill".into(), from: Some("library:tabs.md".into()), ..Default::default() }).unwrap_err();
+    assert!(e.contains("--as-skill"), "{e}");
+    let (id, notes) = new(NewEntry { skill: true, name: "tabs-skill".into(), from: Some("library:tabs.md".into()), convert: true, ..Default::default() }).unwrap();
+    assert_eq!(id, "library:skills/tabs-skill");
+    assert!(notes[0].contains("only when an agent decides"));
+    let e = new(NewEntry { name: "deploy-rule".into(), from: Some("library:skills/deploy".into()), ..Default::default() }).unwrap_err();
+    assert!(e.contains("--as-rule"), "{e}");
+    let (_, notes) = new(NewEntry { name: "deploy-rule".into(), from: Some("library:skills/deploy".into()), convert: true, ..Default::default() }).unwrap();
+    assert!(notes.iter().any(|n| n.contains("run.sh")) && notes.iter().any(|n| n.contains("every session")), "{notes:?}");
+    assert!(std::fs::read_to_string(dirs.library_rules().join("deploy-rule.md")).unwrap().contains("Run the deploy."));
+    // Overwriting is allowed when asked for.
+    new(NewEntry { skill: true, name: "deploy".into(), description: Some("Ship it now".into()), overwrite: true, ..Default::default() }).unwrap();
+    assert!(!dir.join("run.sh").exists(), "replaced as a whole");
+}
+
+/// A skill assigned to a project: its whole folder is copied and hashed;
+/// updates, local changes and conflicts as for rules, with a diff per file.
+#[test]
+fn skills_are_copied_into_projects_as_folders() {
+    use pitwall_proto::ProjectRuleState::*;
+    let p = Proj::new("skill-assign");
+    let lib_dir = skill(&p.dirs, "review", "name: review\ndescription: Review\n", "Read it.\n");
+    write(&lib_dir.join("checklist.md"), "- tests\n");
+    let r = project_assign(&p.dirs, &p.path(), None, &["library:skills/review".into()], &[]).unwrap();
+    assert_eq!(r.copied, vec!["skills/review"]);
+    let here = p.repo.join(".rulesync/skills/review");
+    assert_eq!(std::fs::read_to_string(here.join("checklist.md")).unwrap(), "- tests\n");
+    let m = project::load(&p.repo);
+    assert_eq!(m.skills["review"].hash, project::dir_hash(&lib_dir).unwrap());
+    let st = p.status();
+    assert_eq!((st.rules[0].name.as_str(), st.rules[0].skill, st.rules[0].state), ("review", true, Current));
+    assert!(st.existing.is_empty());
+
+    // A different folder already there: kept unless named.
+    let p2 = Proj::new("skill-conflict");
+    let d2 = skill(&p2.dirs, "review", "name: review\ndescription: Review\n", "Read it.\n");
+    let _ = d2;
+    write(&p2.repo.join(".rulesync/skills/review/SKILL.md"), "---\nname: review\ndescription: ours\n---\nOurs.\n");
+    let r = project_assign(&p2.dirs, &p2.path(), None, &["library:skills/review".into()], &[]).unwrap();
+    assert_eq!(r.conflicts, vec!["skills/review"]);
+    assert!(std::fs::read_to_string(p2.repo.join(".rulesync/skills/review/SKILL.md")).unwrap().contains("Ours."));
+
+    // Library change: an update with a per-file diff.
+    write(&lib_dir.join("checklist.md"), "- tests\n- docs\n");
+    let st = p.status();
+    assert_eq!((st.rules[0].state, st.updates), (Update, 1));
+    let u = project_updates(&p.dirs, &p.path()).unwrap();
+    assert!(u[0].skill && u[0].diff.contains("+++ library/checklist.md") && u[0].diff.contains("+- docs"), "{}", u[0].diff);
+    project_update(&p.dirs, &p.path(), &["skills/review".into()], None).unwrap();
+    assert_eq!(std::fs::read_to_string(here.join("checklist.md")).unwrap(), "- tests\n- docs\n");
+    assert_eq!(p.state("review"), Current);
+    // Both change: a conflict until someone chooses.
+    write(&here.join("checklist.md"), "- ours\n");
+    assert_eq!(p.state("review"), Modified);
+    write(&lib_dir.join("checklist.md"), "- theirs\n");
+    assert_eq!(p.state("review"), Conflict);
+    assert_eq!(project_update(&p.dirs, &p.path(), &[], None).unwrap().conflicts, vec!["skills/review"]);
+    project_update(&p.dirs, &p.path(), &["library:skills/review".into()], Some("library")).unwrap();
+    assert_eq!(std::fs::read_to_string(here.join("checklist.md")).unwrap(), "- theirs\n");
+    // Unassign: only unchanged, unless forced.
+    write(&here.join("extra.md"), "mine\n");
+    assert_eq!(project_unassign(&p.path(), &["review".into()], false).unwrap().modified, vec!["skills/review"]);
+    assert_eq!(project_unassign(&p.path(), &["review".into()], true).unwrap().removed, vec!["skills/review"]);
+    assert!(!here.exists());
+}
+
+/// A skills-only project keeps its own CLAUDE.md / AGENTS.md: generation
+/// writes the skills' outputs only, and import isn't offered.
+#[test]
+fn skills_only_generation_leaves_the_main_files_alone() {
+    let p = Proj::new("skills-only");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    write(&p.repo.join("CLAUDE.md"), "# Ours\n");
+    write(&p.repo.join("AGENTS.md"), "# Ours too\n");
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "instructions"]);
+    let lib_dir = skill(&p.dirs, "review", "name: review\ndescription: Review\n", "Read it.\n");
+    write(&lib_dir.join("run.sh"), "#!/bin/sh\n");
+    project_assign(&p.dirs, &p.path(), None, &["library:skills/review".into()], &[]).unwrap();
+    let st = p.status();
+    assert!(st.existing.is_empty(), "no import offer for skills");
+    assert!(st.generated.out_of_date);
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
+    assert_eq!(g.features, vec!["skills"]);
+    assert_eq!(g.written, vec![".claude/skills/review/SKILL.md", ".claude/skills/review/run.sh"], "{}", g.log);
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "# Ours\n");
+    assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), "# Ours too\n");
+    let st = p.status().generated;
+    assert!(!st.out_of_date && st.features == vec!["skills"]);
+    assert_eq!(project::load(&p.repo).features, vec!["skills"]);
+    let status = sh(&p.repo, &["status", "--porcelain"]);
+    assert!(status.contains("?? .claude/") && !status.contains("CLAUDE.md"), "{status}");
+    // Rules assigned too: now rules are generated (and CLAUDE.md asks first).
+    project_assign(&p.dirs, &p.path(), None, &["library:style.md".into()], &[]).unwrap();
+    assert_eq!(p.status().existing, vec!["CLAUDE.md", "AGENTS.md"], "now the hand-written files are offered for import");
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
+    assert_eq!(g.features, vec!["rules", "skills"]);
+    assert_eq!(g.needs_confirm, vec!["CLAUDE.md"]);
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "# Ours\n");
+}
+
+/// An agent's own skills are personal: generated where it works, kept out
+/// of git, never over the project's committed skills.
+#[test]
+fn agents_get_personal_skills_kept_out_of_git() {
+    let p = Proj::new("agent-skills");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    skill(&p.dirs, "mine", "name: mine\ndescription: Mine\n", "Personal.\n");
+    skill(&p.dirs, "shared", "name: shared\ndescription: Shared\n", "Shared, from the library.\n");
+    write(&p.repo.join(".claude/skills/shared/SKILL.md"), "the project's committed skill\n");
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "skill"]);
+    let set = save_set(&p.dirs, SaveRuleSet { id: None, name: "Me".into(), rule_ids: vec!["library:skills/mine".into(), "library:skills/shared".into()] }).unwrap();
+    update(&p.dirs, |s| {
+        s.agents.entry("agent-1".into()).or_default().rule_set_id = Some(set.id.clone());
+        Ok(())
+    })
+    .unwrap();
+    let c = main_ctx(&p);
+    let res = apply_with(&p.dirs, Some(&runner), &LocalExec, &c, true).unwrap();
+    assert!(res.generated.contains(&".claude/skills/mine/SKILL.md".to_string()), "{res:?}");
+    assert!(res.log.contains("kept the project's .claude/skills/shared/SKILL.md"), "{}", res.log);
+    assert_eq!(std::fs::read_to_string(p.repo.join(".claude/skills/shared/SKILL.md")).unwrap(), "the project's committed skill\n");
+    let exclude = std::fs::read_to_string(p.repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("/.claude/skills/mine/SKILL.md") && !exclude.contains("shared"), "{exclude}");
+    assert_eq!(sh(&p.repo, &["status", "--porcelain"]), "");
+    // Gemini CLI / Aider (Pitwall's own file) take no skills.
+    let gem = AgentCtx { target: None, fallback: Some(builtin_fallback("gemini")), ..main_ctx(&p) };
+    let res = apply_with(&p.dirs, None, &LocalExec, &gem, true).unwrap();
+    assert!(res.log.contains("takes no skills"), "{}", res.log);
+}
+
+/// Importing a project brings in Claude Code's own skills too.
+#[test]
+fn importing_a_project_copies_its_claude_skills() {
+    let p = Proj::new("import-skills");
+    write(&p.repo.join(".claude/skills/lint/SKILL.md"), "---\nname: lint\ndescription: Lint it\n---\nRun the linter.\n");
+    write(&p.repo.join(".claude/skills/lint/lint.sh"), "#!/bin/sh\n");
+    let r = import(&p.dirs, ImportRequest { kind: "project".into(), source: p.path() }).unwrap();
+    assert_eq!(r.added, vec!["library:skills/lint"]);
+    assert!(p.dirs.library().join("skills/lint/lint.sh").is_file());
+    let lib = library_files(&p.dirs);
+    assert!(lib.iter().any(|f| f.id == "library:skills/lint" && f.skill && f.description.as_deref() == Some("Lint it")));
+    // Again: the library's own is kept.
+    let r = import(&p.dirs, ImportRequest { kind: "project".into(), source: p.path() }).unwrap();
+    assert!(r.added.is_empty() && r.log.contains("kept the library's own lint"), "{}", r.log);
 }

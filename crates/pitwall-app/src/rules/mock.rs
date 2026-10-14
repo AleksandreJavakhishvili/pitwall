@@ -51,6 +51,7 @@ fn rule(name: &str, description: &str, root: bool, targets: &[&str]) -> RuleFile
         targets: targets.iter().map(|t| t.to_string()).collect(),
         root,
         local_root: false,
+        skill: false,
         source: "library".into(),
     }
 }
@@ -242,6 +243,7 @@ impl RulesBackend for MockRules {
                 targets: vec!["*".into()],
                 root: true,
                 local_root: false,
+                skill: false,
                 source: "library".into(),
             });
             return Ok(ImportResult {
@@ -269,6 +271,7 @@ impl RulesBackend for MockRules {
             targets: vec!["*".into()],
             root: false,
             local_root: false,
+            skill: false,
             source: name.clone(),
         });
         Ok(ImportResult {
@@ -374,6 +377,7 @@ impl RulesBackend for MockRules {
             .iter()
             .map(|(name, (source, state))| ProjectRule {
                 name: name.clone(),
+                skill: source.contains(":skills/"),
                 source: Some(source.clone()),
                 state: *state,
                 description: None,
@@ -398,6 +402,7 @@ impl RulesBackend for MockRules {
                 out_of_date: !copied.is_empty() && !generated,
                 changed: vec![],
                 targets: vec!["claudecode".into()],
+                features: vec!["skills".into()],
             },
             existing: if s.hand_written.iter().any(|p| p == path) {
                 vec!["CLAUDE.md".into()]
@@ -474,6 +479,7 @@ impl RulesBackend for MockRules {
             })
             .map(|(name, (source, state))| ProjectRuleUpdate {
                 name: name.clone(),
+                skill: source.contains(":skills/"),
                 source: source.clone(),
                 state: *state,
                 library: Some("new\n".into()),
@@ -561,6 +567,7 @@ impl RulesBackend for MockRules {
                 .map(|id| {
                     let f = s.lib.iter().find(|r| r.id == id);
                     EffectiveRule {
+                        skill: id.contains(":skills/"),
                         description: f.and_then(|f| f.description.clone()),
                         missing: f.is_none(),
                         id,

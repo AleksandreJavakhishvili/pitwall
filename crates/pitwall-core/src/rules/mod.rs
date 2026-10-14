@@ -52,6 +52,9 @@ pub struct RuleFile {
     /// rulesync `root: true` (the tool's main instruction file).
     pub root: bool,
     pub local_root: bool,
+    /// A skill (a folder with SKILL.md and its files, `path` is the folder;
+    /// id `<source>:skills/<name>`), not a rule file.
+    pub skill: bool,
     /// "library" or an imported source's name.
     pub source: String,
 }
@@ -168,6 +171,8 @@ pub struct EffectiveRule {
     pub from: &'static str,
     /// Picked in a set but no longer in the library (skipped).
     pub missing: bool,
+    /// A skill (used when relevant), not a rule (always in context).
+    pub skill: bool,
 }
 
 /// An agent's rules in full: its state, and what it gets.
@@ -598,6 +603,22 @@ pub fn set_npx(dirs: &Dirs, enabled: bool) -> Res<RulesStatus> {
     Ok(status(dirs))
 }
 
+pub use library::NewEntry;
+
+/// The library has a rule (or skill) of that name: writing one again
+/// replaces it (asks over the socket).
+pub fn library_has(dirs: &Dirs, skill: bool, name: &str) -> Res<bool> {
+    let name = library::entry_name(name, skill)?;
+    Ok(library::entry_path(dirs, skill, &name).exists())
+}
+
+/// Write a new rule or skill into the library (`pitwall rules new`,
+/// `pitwall rules skill new`). Returns its id and notes.
+pub fn new_entry(dirs: &Dirs, e: &NewEntry) -> Res<(String, Vec<String>)> {
+    let store = read(dirs);
+    library::create(dirs, &library::list(dirs, &store.sources), e)
+}
+
 pub fn library_files(dirs: &Dirs) -> Vec<RuleFile> {
     let store = read(dirs);
     library::list(dirs, &store.sources)
@@ -660,15 +681,40 @@ pub fn delete_set(dirs: &Dirs, id: &str) -> Res<()> {
 pub fn import(dirs: &Dirs, req: ImportRequest) -> Res<ImportResult> {
     let source = expand(&req.source);
     match req.kind.as_str() {
-        "project" | "git" => {
-            let current = read(dirs).sources;
-            let src = if req.kind == "project" {
-                library::add_project(&source, &current)?
-            } else {
-                library::add_git(dirs, &req.source, &current)?
-            };
-            let added: Vec<String> = library::rules_in(&src.name, Path::new(&src.root)).into_iter().map(|f| f.id).collect();
-            let log = format!("Added source \"{}\" ({} rules) from {}", src.name, added.len(), src.root);
+        "project" => {
+            // Its own .rulesync/ (in place), and Claude Code's .claude/skills
+            // (copied into the library).
+            let dir = Path::new(&source);
+            let claude = dir.join(".claude").join("skills").is_dir();
+            let mut added = Vec::new();
+            let mut log = Vec::new();
+            match library::add_project(&source, &read(dirs).sources) {
+                Ok(src) => {
+                    added.extend(library::list_root(&src.name, Path::new(&src.root)).into_iter().map(|f| f.id));
+                    log.push(format!("Added source \"{}\" ({} rules and skills) from {}", src.name, added.len(), src.root));
+                    update(dirs, |s| {
+                        s.sources.push(src);
+                        Ok(())
+                    })?;
+                }
+                Err(e) if !claude => return Err(e),
+                Err(e) if e.starts_with("already imported") => log.push(format!(".rulesync/: {e}")),
+                Err(_) => {}
+            }
+            if claude {
+                let (skills, skipped) = library::import_claude_skills(dirs, dir)?;
+                log.push(format!("Copied {} skill(s) from .claude/skills into the library", skills.len()));
+                if !skipped.is_empty() {
+                    log.push(format!("kept the library's own {} (same name)", skipped.join(", ")));
+                }
+                added.extend(skills);
+            }
+            Ok(ImportResult { added, log: log.join("\n") })
+        }
+        "git" => {
+            let src = library::add_git(dirs, &req.source, &read(dirs).sources)?;
+            let added: Vec<String> = library::list_root(&src.name, Path::new(&src.root)).into_iter().map(|f| f.id).collect();
+            let log = format!("Added source \"{}\" ({} rules and skills) from {}", src.name, added.len(), src.root);
             update(dirs, |s| {
                 s.sources.push(src);
                 Ok(())
@@ -823,7 +869,12 @@ fn detail_of(dirs: &Dirs, store: &Store, lib: &[RuleFile], rec: &AgentRecord, ki
         Some(target) => {
             let shared = set_ids(store, view.project_rule_set_id.as_deref());
             let extra = set_ids(store, view.rule_set_id.as_deref());
-            apply::effective(lib, &shared, &extra, target, Path::new(&ctx.cwd))
+            let mut all = apply::effective(lib, &shared, &extra, target, Path::new(&ctx.cwd));
+            // Pitwall's own file for Gemini CLI / Aider holds rules only.
+            if ctx.target.is_none() {
+                all.retain(|r| !r.skill);
+            }
+            all
         }
         None => vec![],
     };
