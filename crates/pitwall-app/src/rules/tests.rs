@@ -176,3 +176,61 @@ fn the_mock_details_a_project_by_scope() {
         ]
     );
 }
+
+#[test]
+fn bulk_messages() {
+    use super::stale::{bulk_message, BulkOutcome};
+    let name = |id: &str| format!("<{id}>");
+    assert_eq!(
+        bulk_message(&BulkOutcome::default(), name),
+        (true, "No agent's rules changed.".to_string())
+    );
+    let o = BulkOutcome {
+        applied: 2,
+        restarted: 1,
+        errors: vec![("a3".into(), "rulesync isn't available".into())],
+    };
+    assert_eq!(
+        bulk_message(&o, name),
+        (
+            false,
+            "Re-applied rules for 2 agents, restarted 1. Stopped agents use them when they start.\n<a3>: rulesync isn't available"
+                .to_string()
+        )
+    );
+}
+
+/// "Re-apply & restart all" takes every agent whose rules changed or
+/// failed, and none is left afterwards.
+#[gpui::test]
+fn reapply_all_clears_every_stale_agent(cx: &mut TestAppContext) {
+    struct Probe {
+        affected: Vec<String>,
+        done: Option<stale::BulkOutcome>,
+    }
+    let mock = Arc::new(MockRules::new());
+    mock.set_npx(true).unwrap();
+    mock.set_agent("a1", true, None);
+    mock.set_agent("a2", false, Some("rulesync failed".into()));
+    mock.set_agent("a3", false, None);
+    cx.update(|cx| install(cx, mock.clone()));
+    cx.run_until_parked();
+    let probe = cx.new(|_| Probe {
+        affected: vec![],
+        done: None,
+    });
+    probe.update(cx, |p, cx| p.affected = stale::affected(cx));
+    assert_eq!(
+        probe.read_with(cx, |p, _| p.affected.clone()),
+        vec!["a1", "a2"]
+    );
+    let weak = probe.downgrade();
+    cx.update(|cx| {
+        stale::reapply_all(weak, cx, |p: &mut Probe, out, _| p.done = Some(out));
+    });
+    cx.run_until_parked();
+    let done = probe.read_with(cx, |p, _| p.done.clone()).unwrap();
+    assert_eq!((done.applied, done.restarted, done.errors.len()), (2, 0, 0));
+    probe.update(cx, |p, cx| p.affected = stale::affected(cx));
+    assert!(probe.read_with(cx, |p, _| p.affected.is_empty()));
+}

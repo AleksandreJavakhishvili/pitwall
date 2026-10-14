@@ -552,23 +552,28 @@ pitwall rules show --agent api
 
 ### rules apply
 
-Generate an agent's rule files now (used from its next session).
+Generate an agent's rule files now (used from its next session), or every agent's whose rules changed (--stale).
 
 ```bash
-pitwall rules apply [OPTIONS] <AGENT>
+pitwall rules apply [OPTIONS] [AGENT]
 ```
 
 | Argument | |
 |---|---|
-| `AGENT` | The agent (id or name). |
+| `AGENT` (optional) | The agent (id or name). |
 
 | Option | |
 |---|---|
-| `--set <SET>` | Give the agent this set of its own first (id or name; `none` clears). |
+| `--set <SET>` | Give the agent this set of its own first (id or name; `none` clears). With --stale: only agents that use this set. |
 | `--main-checkout` | The agent works in the main checkout: write there anyway (asks you in Pitwall). |
+| `--stale` | Every agent whose rules changed or failed since its session started (in its own worktree, or a main checkout you confirmed). |
+| `--project <PATH>` | With --stale: only this project's agents. |
+| `--restart` | Then restart each re-applied agent that is running, so the rules take effect now (each restart asks you in Pitwall). |
 
 ```bash
 pitwall rules apply api --set strict
+pitwall rules apply --stale --restart            # every agent whose rules changed
+pitwall rules apply --stale --project ~/code/api
 ```
 
 ### rules default

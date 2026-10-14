@@ -72,6 +72,8 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::RULES_APPLY, Access::AskWhen("the agent works in the main checkout: rule files are written there", Risk::High)),
     (method::RULES_DEFAULT, Access::Open),
     (method::RULES_SHOW, Access::Open),
+    // Only where rules.apply wouldn't ask: worktrees and main checkouts the user confirmed.
+    (method::RULES_REAPPLY, Access::Open),
     // Sets are Pitwall's own data; deleting one takes it from projects and agents.
     (method::RULES_SET_SAVE, Access::Open),
     (method::RULES_SET_DELETE, Access::AskWhen("always: projects and agents that use the set lose it", Risk::High)),
@@ -167,6 +169,7 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::RULES_APPLY => manage::rules_apply(s, caller, required(p)?),
         method::RULES_DEFAULT => manage::rules_default(s, required(p)?),
         method::RULES_SHOW => manage::rules_show(s, required(p)?),
+        method::RULES_REAPPLY => manage::rules_reapply(s, params(p)?),
         method::RULES_SET_SAVE => manage::rules_set_save(s, required(p)?),
         method::RULES_SET_DELETE => manage::rules_set_delete(s, caller, required(p)?),
         method::RULES_IMPORT => manage::rules_import(s, caller, required(p)?),

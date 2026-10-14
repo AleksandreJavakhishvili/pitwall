@@ -85,6 +85,10 @@ pub mod method {
     pub const RULES_APPLY: &str = "rules.apply";
     /// [`RulesDefault`](crate::RulesDefault) → `RuleSets`
     pub const RULES_DEFAULT: &str = "rules.default";
+    /// [`RulesReapply`](crate::RulesReapply) → [`RulesReapplied`](crate::RulesReapplied):
+    /// every agent whose rules changed (worktrees and confirmed main
+    /// checkouts only); restarting them is `agent.restart`'s.
+    pub const RULES_REAPPLY: &str = "rules.reapply";
     /// [`RuleSetSave`](crate::RuleSetSave) → [`RuleSetView`](crate::RuleSetView):
     /// make or change a rule set (Pitwall's own data).
     pub const RULES_SET_SAVE: &str = "rules.set.save";
