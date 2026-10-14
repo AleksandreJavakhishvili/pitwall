@@ -163,7 +163,25 @@ pitwall project remove ~/code/api          # off the list; never deletes files
 
 ## Rules (rulesync)
 
-Two scopes. **Project**: library rules (the catalog) copied into the repo's
+**Skills first.** Reusable know-how belongs in a **skill** (a folder with
+SKILL.md, loaded only when an agent finds it relevant). A **rule** is in
+every session's context: before making something a rule (or turning a
+skill into one with `--as-rule`), tell the user it costs context in every
+session and prefer a skill unless they need it always on. A project's
+CLAUDE.md / AGENTS.md is the project's own: Pitwall only generates it once
+rules are copied into the project.
+
+```bash
+pitwall rules list                                   # skills and rules, with a type column
+pitwall rules skill new review --description "Review a diff for bugs and missing tests"
+pitwall rules skill new deploy --from ./tools/deploy   # a folder with SKILL.md (+ its files)
+pitwall rules new tabs --description "Tabs, not spaces" [--from <file>] [--targets claudecode]
+pitwall rules new deploy-rule --from library:skills/deploy --as-rule   # only when asked: always-on now
+pitwall rules skill new review --overwrite ...       # replacing one asks
+pitwall rules project assign ~/code/api --skill review   # copy into .rulesync/skills (asks)
+```
+
+Two scopes. **Project**: library skills and rules (the catalog) copied into the repo's
 `.rulesync/rules/` and committed with it, plus the files rulesync generates
 from them (CLAUDE.md, AGENTS.md, …). **Agent**: an agent's own set on top,
 personal and local-only. No account- or team-wide rules. Writing into a

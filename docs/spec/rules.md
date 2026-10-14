@@ -6,7 +6,16 @@ Settings; show install hint otherwise — never install automatically).
 Reference docs: the `docs/` folder of a local clone of rulesync.
 
 ## Model
-- **Library**: a catalog of every rule. `~/.pitwall/rules/` is a rulesync-format input root
+- **Skills first.** Reusable know-how lives as rulesync **skills**
+  (loaded by an agent only when relevant); **rules** (always in context)
+  are supported but secondary. A project's main instruction file
+  (CLAUDE.md / AGENTS.md) is the project's own: Pitwall only generates it
+  once rules were copied into the project (or its instructions imported).
+- **Library**: a catalog of every skill and rule.
+  Skills: `~/.pitwall/rules/skills/<name>/SKILL.md` plus any other files in
+  that folder (scripts, references); listed by folder name with the
+  frontmatter's `description` and `targets`; id `<source>:skills/<name>`.
+  Rules: `~/.pitwall/rules/` is a rulesync-format input root
   (`rules/*.md`, optionally `skills/`, `subagents/`, `commands/`). Plus
   imported sources: a project's own `.rulesync/`, an existing CLAUDE.md /
   AGENTS.md (via `rulesync import`), or a git repo (clone into
@@ -27,13 +36,46 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
   Settings → Rules → Project defaults → "Agents" shows this per project;
   `pitwall rules show <project>` / `--agent <agent>` prints it.
 
+## Skills (rulesync 27 format)
+Checked against rulesync 27.0.0's own source and bundled docs
+(`src/features/skills/*`, `docs/reference/file-formats.md`,
+`docs/reference/cli-commands.md`); not run end to end here:
+- Source: `.rulesync/skills/<dir>/SKILL.md` + other files in the folder.
+  Frontmatter: `name` and `description` required (name is used as a
+  directory name: no separators, not `.`/`..`, no trailing dot/space),
+  `targets` default `["*"]`, optional per-tool sections (`claudecode:`,
+  `codexcli:`, …), `disable-model-invocation`, `user-invocable`, …
+- Output folder is the source folder name: claudecode →
+  `.claude/skills/<dir>/`, codexcli → `.agents/skills/<dir>/` (plus an
+  `agents/openai.yaml` sidecar when its section asks), copilot →
+  `.github/skills/`, cursor → `.cursor/skills/`, agentsmd/agentsskills →
+  `.agents/skills/`, …; Gemini CLI and Aider have no skills support (Pitwall's
+  own file for them holds rules only).
+- `rulesync generate --targets a,b --features skills` generates skills only
+  (no CLAUDE.md / AGENTS.md); the `--json` plan lists every written file of
+  a skill folder as `{action: "write", kind: "file", path}`.
+- rulesync has no local-only skills output (no `localRoot` for skills).
+  Agent scope therefore uses the same mechanism as its other files: an
+  agent's own set may hold skills, generated in its working folder with
+  `--features rules,skills` and listed in `.git/info/exclude`; a tracked
+  (project) skill file is never written over.
+- New entries: `pitwall rules skill new <name> [--from <id|file|folder>]
+  [--description] [--targets]` and `pitwall rules new <name> …` write
+  proper files (a skill gets `name`/`description`/`targets`; a folder's
+  other files and frontmatter keys come along). New: direct; `--overwrite`
+  asks. A skill becomes a rule (or the reverse) only with `--as-rule` /
+  `--as-skill`.
+
 ## Project rules (the project scope)
 Rules end up in the project: copied into `<repo>/.rulesync/rules/`, where the
 user commits them (they show up in Review; nothing here goes in
 `.git/info/exclude`). Code: `crates/pitwall-core/src/rules/project.rs`.
-- **Manifest** `<repo>/.rulesync/.pitwall.json`: for each copied file, the
-  library rule it came from and the library content hash at copy time; the
-  targets the project generates for; instruction files imported; the last
+- **Skills** are assigned the same way: the whole folder is copied to
+  `.rulesync/skills/<name>/` and hashed over every file (path + content);
+  the same states, approvals and no-overwrite guarantees; diffs per file.
+- **Manifest** `<repo>/.rulesync/.pitwall.json`: for each copied file (and
+  skill folder), the library entry it came from and its content hash at
+  copy time; the targets and features the project generates; instruction files imported; the last
   generation (inputs fingerprint, output path → hash). The rule files stay
   plain rulesync files.
 - **Assign** a whole set or single rules (Settings → Rules → a project's
@@ -48,13 +90,18 @@ user commits them (they show up in Review; nothing here goes in
   shown with both texts, and the user must take the library's or keep the
   project's; keeping marks the library version seen). Accept per rule or
   all (all skips conflicts unless a choice is given).
-- **Existing instructions**: a repo with a hand-written, tracked CLAUDE.md /
-  AGENTS.md / GEMINI.md and no rules of its own in `.rulesync/` is offered
+- **Existing instructions**: once rules (not just skills) are assigned, a
+  repo with a hand-written, tracked CLAUDE.md / AGENTS.md / GEMINI.md and no
+  rules of its own in `.rulesync/` is offered
   "import existing instructions" first: `rulesync import` runs in a scratch
   copy and only new files are added to `.rulesync/rules/` (named
   `<file>-<rule>.md`). Generation never replaces such a file before it is
   imported (or explicitly named).
-- **Generation**: `rulesync generate --targets <in use> --features rules`
+- **Features**: `skills` when `.rulesync/skills/` has any; `rules` only when
+  Pitwall copied rules in or imported the instruction files. A skills-only
+  project never gets CLAUDE.md / AGENTS.md / GEMINI.md written (also
+  filtered defensively). The features used are kept in the manifest.
+- **Generation**: `rulesync generate --targets <in use> --features <those>`
   into a staging folder with `<repo>/.rulesync` as the input root (the
   project's rulesync.jsonc doesn't apply), then the outputs (CLAUDE.md,
   AGENTS.md, …) are placed in the repo to be committed. Targets: given, else
