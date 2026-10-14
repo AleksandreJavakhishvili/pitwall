@@ -623,3 +623,39 @@ fn human_snapshots_for_managing() {
     assert_eq!(manage::review("api", &r), "M  +12 -3  src/lib.rs\nU  +4 -0   notes.md\n   +16 -3  2 file(s)\n");
     assert_eq!(manage::review("api", &ReviewChanges { files: vec![], added: 0, removed: 0, ..r }), "api: no changes\n");
 }
+
+#[test]
+fn rules_show_snapshot() {
+    let p: pitwall_proto::ProjectRulesView = serde_json::from_value(json!({
+        "project": "/Users/me/api", "ruleSetId": "s1",
+        "agents": [{
+            "name": "api", "kindName": "Claude Code", "target": "claudecode",
+            "rules": {"agentId": "a-1", "ruleSetId": "s2", "projectRuleSetId": "s1", "appliedAt": 5,
+                      "generated": [".claude/rules/style.md"], "error": null, "stale": true, "mainCheckout": false},
+            "effective": [
+                {"id": "library:style.md", "description": "Style", "from": "project", "missing": false},
+                {"id": "library:gone.md", "description": null, "from": "agent", "missing": true}
+            ]
+        }, {
+            "name": "notes", "kindName": "Aider", "target": null,
+            "rules": {"agentId": "a-2", "ruleSetId": null, "projectRuleSetId": "s1", "appliedAt": null,
+                      "generated": [], "error": null, "stale": false, "mainCheckout": true},
+            "effective": []
+        }]
+    }))
+    .unwrap();
+    let sets: pitwall_proto::RuleSets = serde_json::from_value(json!({
+        "sets": [{"id": "s1", "name": "Web", "ruleIds": []}, {"id": "s2", "name": "Strict", "ruleIds": []}],
+        "projectDefaults": {"/Users/me/api": "s1"}
+    }))
+    .unwrap();
+    assert_eq!(
+        manage::project_rules(&p, &sets),
+        "/Users/me/api — default set: Web\n\
+         api (Claude Code, claudecode) — own set: Strict, 1 file(s) (stale)\n\
+         \x20 project  library:style.md  Style\n\
+         \x20 agent    library:gone.md  missing from the library\n\
+         \x20 file     .claude/rules/style.md\n\
+         notes (Aider, no rules for this kind) — own set: none, not applied (main checkout, not confirmed)\n"
+    );
+}

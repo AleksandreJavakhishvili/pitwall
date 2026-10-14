@@ -12,8 +12,16 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
   AGENTS.md (via `rulesync import`), or a git repo (clone into
   `~/.pitwall/rules-sources/<name>`, pull on demand).
 - **Rule sets**: named selections of library rules (stored in state).
-- **Assignment**: project default set + optional per-agent extra set
-  (New agent dialog: "Rules" dropdown; Settings → Rules to manage sets).
+- **Assignment**: two scopes only: the project's default set + an optional
+  per-agent extra set (New agent dialog: "Rules" dropdown; Settings → Rules
+  to manage sets). There are no account-wide or team-wide rules.
+- **Effective rules**: what an agent gets is the project default set, then
+  its own set (a rule in both counts once, as the project's), then the
+  working folder's own `.rulesync/` rules, keeping only rules whose
+  `targets` include the agent's target (`*` or no `targets`: every agent).
+  Rules picked in a set but gone from the library are listed as missing.
+  Settings → Rules → Project defaults → "Agents" shows this per project;
+  `pitwall rules show <project>` / `--agent <agent>` prints it.
 
 ## Applying (at agent create, and "Re-apply rules & restart")
 - Map kind → rulesync target (claude→`claudecode`, codex→`codexcli`, others
@@ -37,5 +45,10 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
 `list_rule_sets` / `save_rule_set({id?, name, ruleIds})` / `delete_rule_set(id)`,
 `import_rules({ kind: "project"|"file"|"git", source })`,
 `set_project_rules(projectPath, ruleSetId|null)`,
-`apply_rules(agentId)` → `{ generated: string[], log: string }`.
+`apply_rules(agentId)` → `{ generated: string[], log: string }`,
+`project_rules_detail(projectPath)` → `{ project, ruleSetId, agents: [{ agentId,
+ruleSetId, projectRuleSetId, appliedAt, generated, error, stale, mainCheckout,
+mainCheckoutConfirmed, name, kindName, target, effective: [{ id, description,
+from: "project"|"agent"|"folder", missing }] }] }` (socket: `rules.show
+{ project | agentId }`).
 `CreateAgentRequest` gains `ruleSetId?: string`, `applyToMainCheckout?: boolean`.

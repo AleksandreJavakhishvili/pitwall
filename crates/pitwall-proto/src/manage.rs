@@ -309,6 +309,56 @@ pub struct RulesApplied {
     pub log: String,
 }
 
+/// `rules.show`: one project's rules (`project`), or one agent's
+/// (`agentId`, with its project's default set).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RulesShow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+}
+
+/// One rule an agent gets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveRuleView {
+    pub id: String,
+    pub description: Option<String>,
+    /// `project` (the project's default set), `agent` (its own set) or
+    /// `folder` (the working folder's own `.rulesync/`).
+    pub from: String,
+    /// Picked in a set but no longer in the library (skipped).
+    pub missing: bool,
+}
+
+/// An agent's rules in full.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRulesDetail {
+    pub name: String,
+    pub kind_name: String,
+    /// What its files are made for (a rulesync target such as
+    /// `claudecode`); null: its kind takes no rules.
+    pub target: Option<String>,
+    /// Its state: own set, generated files, applied at, stale, error.
+    pub rules: AgentRulesInfo,
+    /// The project's default set plus its own, for its kind (`targets`).
+    pub effective: Vec<EffectiveRuleView>,
+}
+
+/// `rules.show`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRulesView {
+    /// The project (repo root when inside git).
+    pub project: String,
+    /// Its default set (id).
+    pub rule_set_id: Option<String>,
+    pub agents: Vec<AgentRulesDetail>,
+}
+
 /// `rules.default`: a project's default set (`set` null: none).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
 #[serde(rename_all = "camelCase")]
@@ -383,6 +433,8 @@ mod tests {
         round_trip(&ProjectPath { path: "/p".into() }, json!({"path":"/p"}));
         round_trip(&RulesApply { agent_id: "a1".into(), set: Some("s".into()), main_checkout: false }, json!({"agentId":"a1","set":"s","mainCheckout":false}));
         round_trip(&RulesDefault { project: "/p".into(), set: None }, json!({"project":"/p","set":null}));
+        round_trip(&RulesShow { project: Some("/p".into()), agent_id: None }, json!({"project":"/p"}));
+        round_trip(&RulesShow { project: None, agent_id: Some("a1".into()) }, json!({"agentId":"a1"}));
         round_trip(&ReviewRequest { agent_id: "a1".into(), task_id: None }, json!({"agentId":"a1"}));
     }
 

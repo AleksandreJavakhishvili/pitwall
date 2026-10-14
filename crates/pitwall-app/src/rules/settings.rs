@@ -1,6 +1,8 @@
 //! Settings → Rules (`src/components/rules/RulesSettings.tsx`): rulesync's
 //! status and the npx opt-in, then "Manage rules…": the library (with
-//! import and sources), rule sets with their editor, and project defaults.
+//! import and sources), rule sets with their editor, and project defaults
+//! (each project opens to what its agents get: the two scopes, the project's
+//! default set and each agent's own set).
 //!
 //! Drawn through `settings::ExtraSections`: [`section`] keeps one
 //! [`RulesSection`] alive while Settings shows it (a fresh one, collapsed,
@@ -14,7 +16,9 @@ use gpui::{
     Window,
 };
 
-use pitwall_core::rules::{RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet};
+use pitwall_core::rules::{
+    AgentRulesView, ProjectRules, RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
+};
 
 use crate::kit::{self, BtnKind, InputEvent, TextInput, Tone};
 use crate::theme::{appearance, Theme, RADIUS_SM};
@@ -116,6 +120,9 @@ pub struct RulesSection {
     /// Project defaults: (path, display), at most 40 shown.
     projects: Vec<(String, String)>,
     defaults: BTreeMap<String, String>,
+    /// The project opened to its agents, and what they get (once read).
+    expanded: Option<String>,
+    detail: Option<ProjectRules>,
     select: Option<Open>,
     error: Option<String>,
     _subs: Vec<gpui::Subscription>,
@@ -164,6 +171,8 @@ impl RulesSection {
             import_msg: None,
             projects: vec![],
             defaults: BTreeMap::new(),
+            expanded: None,
+            detail: None,
             select: None,
             error: None,
             _subs: subs,
@@ -233,7 +242,38 @@ impl RulesSection {
     /// Something changed: reload, and re-check every agent's rules.
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.reload(cx);
+        self.load_detail(cx);
         super::stale::refresh(cx);
+    }
+
+    /// Open (or close) a project's agents.
+    fn toggle_detail(&mut self, path: String, cx: &mut Context<Self>) {
+        if self.expanded.as_ref() == Some(&path) {
+            self.expanded = None;
+        } else {
+            self.expanded = Some(path);
+        }
+        self.detail = None;
+        self.load_detail(cx);
+        cx.notify();
+    }
+
+    /// Read the open project's rules again.
+    fn load_detail(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.expanded.clone() else {
+            return;
+        };
+        call(
+            cx,
+            move |b| b.project_detail(&path),
+            |v: &mut Self, d, cx| {
+                // Still the open one (`project_detail` answers with its repo root).
+                if v.expanded.is_some() {
+                    v.detail = Some(d);
+                    cx.notify();
+                }
+            },
+        );
     }
 
     fn load_projects(&mut self, cx: &mut Context<Self>) {
@@ -407,6 +447,7 @@ impl RulesSection {
                             v.defaults.remove(&path);
                         }
                     }
+                    v.load_detail(cx);
                     super::stale::refresh(cx);
                     cx.notify();
                 }
@@ -446,6 +487,30 @@ pub fn project_rows(
     }
     out.truncate(40);
     out
+}
+
+/// How an agent's rules stand, for its chip.
+pub fn agent_state(v: &AgentRulesView) -> (&'static str, Tone) {
+    if v.error.is_some() {
+        ("not applied", Tone::Warn)
+    } else if v.stale {
+        ("changed since applied", Tone::Warn)
+    } else if v.main_checkout && !v.main_checkout_confirmed {
+        ("main checkout: not written", Tone::Subtle)
+    } else if v.applied_at.is_some() {
+        ("applied", Tone::Ok)
+    } else {
+        ("not applied yet", Tone::Subtle)
+    }
+}
+
+/// Where an effective rule comes from, in words.
+pub fn scope_label(from: &str) -> &'static str {
+    match from {
+        "project" => "project",
+        "agent" => "agent",
+        _ => "folder",
+    }
 }
 
 /// Tick or untick a rule in the editor (order kept).
@@ -950,7 +1015,9 @@ impl RulesSection {
                 let e2 = e.clone();
                 let e3 = e.clone();
                 let p = path.clone();
-                row(("rules-proj", i))
+                let is_open = self.expanded.as_ref() == Some(path);
+                let toggle = path.clone();
+                let head = row(("rules-proj", i))
                     .tooltip(kit::tooltip(path.clone()))
                     .child(
                         div()
@@ -962,6 +1029,17 @@ impl RulesSection {
                             .child(crate::kit::one_line(display.clone())),
                     )
                     .child(div().flex_1())
+                    .child(
+                        mini(
+                            ("rules-proj-agents", i),
+                            if is_open { "Hide agents" } else { "Agents" },
+                            false,
+                            t,
+                        )
+                        .on_click(
+                            cx.listener(move |v, _, _, cx| v.toggle_detail(toggle.clone(), cx)),
+                        ),
+                    )
                     .child(widgets::select(
                         ("rules-proj-set", i),
                         current_name,
@@ -985,7 +1063,12 @@ impl RulesSection {
                                 cx.notify();
                             });
                         }),
-                    ))
+                    ));
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(head)
+                    .when(is_open, |d| d.child(self.project_agents(t)))
                     .into_any_element()
             })
             .collect();
@@ -1001,11 +1084,98 @@ impl RulesSection {
                         .child(field_label("Project defaults", t)),
                 )
                 .child(kit::hint(
-                    "Every new agent in the project gets this set. Rules reach new sessions only.",
+                    "Every new agent in the project gets this set, plus its own set if it has one (New agent → Rules). Rules reach new sessions only.",
                     t,
                 ))
                 .child(list("rules-defaults", rows, t)),
         )
+    }
+}
+
+impl RulesSection {
+    /// Under an open project: each agent's own set, how its rules stand,
+    /// and the rules it gets from either scope.
+    fn project_agents(&self, t: &Theme) -> gpui::Div {
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .px(px(10.))
+            .pt(px(2.))
+            .pb(px(10.));
+        let Some(d) = &self.detail else {
+            return body.child(kit::hint("Reading…", t));
+        };
+        if d.agents.is_empty() {
+            return body.child(kit::hint("No agents in this project.", t));
+        }
+        let set_name = |id: Option<&String>| -> String {
+            match id {
+                None => "none".into(),
+                Some(id) => self
+                    .sets
+                    .iter()
+                    .find(|s| &s.id == id)
+                    .map_or_else(|| "a deleted set".into(), |s| s.name.clone()),
+            }
+        };
+        body.children(d.agents.iter().map(|a| {
+            let (state, tone) = agent_state(&a.view);
+            let kind = match &a.target {
+                Some(target) => format!("{} · {target}", a.kind_name),
+                None => format!("{} · takes no rules", a.kind_name),
+            };
+            let mono = |text: String, color| {
+                div()
+                    .font_family(kit::MONO_FONT)
+                    .text_size(px(11.5))
+                    .text_color(color)
+                    .ellipsis()
+                    .child(crate::kit::one_line(text))
+            };
+            let mut col = div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(widgets::name(a.name.clone(), false, t))
+                        .child(widgets::desc(kind, t))
+                        .child(kit::chip_tone(state, tone, t)),
+                )
+                .child(kit::hint(
+                    format!("Own set: {}", set_name(a.view.rule_set_id.as_ref())),
+                    t,
+                ));
+            if a.effective.is_empty() && a.target.is_some() {
+                col = col.child(kit::hint("No rules.", t));
+            }
+            for r in &a.effective {
+                let text = format!("{:<8} {}", scope_label(r.from), rule_label(&r.id));
+                let color = if r.missing { t.red } else { t.text_2 };
+                col = col.child(mono(
+                    if r.missing {
+                        format!("{text} (missing)")
+                    } else {
+                        text
+                    },
+                    color,
+                ));
+            }
+            if !a.view.generated.is_empty() {
+                col = col.child(kit::hint(
+                    format!("Files: {}", a.view.generated.join(", ")),
+                    t,
+                ));
+            }
+            if let Some(e) = &a.view.error {
+                col = col.child(kit::error_text(e.clone(), t));
+            }
+            col
+        }))
     }
 }
 

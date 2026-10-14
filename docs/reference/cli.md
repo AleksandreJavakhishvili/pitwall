@@ -529,6 +529,22 @@ Rule sets, and each project's default set.
 pitwall rules sets [OPTIONS]
 ```
 
+### rules show
+
+What a project's agents get: its default set, each agent's own set, and the rules those add up to for the agent's kind (or one agent's, with --agent).
+
+```bash
+pitwall rules show [OPTIONS] [PROJECT]
+```
+
+| Argument | |
+|---|---|
+| `PROJECT` (optional) | The project folder (default: the current folder). |
+
+| Option | |
+|---|---|
+| `--agent <AGENT>` | One agent (id or name) instead of a whole project. |
+
 ### rules apply
 
 Generate an agent's rule files now (used from its next session).

@@ -85,6 +85,8 @@ pub mod method {
     pub const RULES_APPLY: &str = "rules.apply";
     /// [`RulesDefault`](crate::RulesDefault) → `RuleSets`
     pub const RULES_DEFAULT: &str = "rules.default";
+    /// [`RulesShow`](crate::RulesShow) → [`ProjectRulesView`](crate::ProjectRulesView)
+    pub const RULES_SHOW: &str = "rules.show";
     /// [`ReviewRequest`](crate::ReviewRequest) → [`ReviewChanges`](crate::ReviewChanges)
     pub const REVIEW_CHANGES: &str = "review.changes";
 

@@ -20,7 +20,7 @@ use crate::vcs::git::Git;
 
 use super::library::{self, front_block};
 use super::runner::{self, Runner};
-use super::{GenFile, RuleFile};
+use super::{EffectiveRule, GenFile, RuleFile};
 
 /// One rule file as handed to rulesync.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,8 +51,37 @@ fn add_local_root(src: &str) -> String {
     }
 }
 
-fn applies_to(targets: &[String], target: &str) -> bool {
+pub fn applies_to(targets: &[String], target: &str) -> bool {
     targets.is_empty() || targets.iter().any(|t| t == "*" || t == target)
+}
+
+/// The rules an agent gets for `target`, in order: `shared` ids (its
+/// project's default set), `extra` ids (its own set), then the working
+/// folder's own `.rulesync/` rules. Rules whose `targets` leave `target`
+/// out are dropped; ids no longer in the library are kept as missing.
+pub fn effective(library: &[RuleFile], shared: &[String], extra: &[String], target: &str, cwd: &Path) -> Vec<EffectiveRule> {
+    let mut out: Vec<EffectiveRule> = Vec::new();
+    for (id, from) in shared.iter().map(|i| (i, "project")).chain(extra.iter().map(|i| (i, "agent"))) {
+        if out.iter().any(|r| &r.id == id) {
+            continue;
+        }
+        match library.iter().find(|f| &f.id == id) {
+            Some(f) if applies_to(&f.targets, target) => {
+                out.push(EffectiveRule { id: id.clone(), description: f.description.clone(), from, missing: false });
+            }
+            Some(_) => {}
+            None => out.push(EffectiveRule { id: id.clone(), description: None, from, missing: true }),
+        }
+    }
+    let root = cwd.join(".rulesync");
+    if root.join("rules").is_dir() {
+        for f in library::rules_in("folder", &root) {
+            if applies_to(&f.targets, target) {
+                out.push(EffectiveRule { id: f.id, description: f.description, from: "folder", missing: false });
+            }
+        }
+    }
+    out
 }
 
 /// Collect the rule files for an agent: `shared` ids (project default set)
@@ -471,6 +500,44 @@ mod tests {
         let f1 = fingerprint(&i, "claudecode");
         assert_eq!(f1, fingerprint(&i, "claudecode"));
         assert_ne!(f1, fingerprint(&i, "codexcli"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn effective_rules_follow_scopes_and_targets() {
+        let dir = std::env::temp_dir().join(format!("pw-eff-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join(".rulesync/rules")).unwrap();
+        std::fs::write(dir.join(".rulesync/rules/own.md"), "---\ntargets: [\"codexcli\"]\n---\nown").unwrap();
+        let rule = |name: &str, targets: &[&str]| RuleFile {
+            id: format!("library:{name}"),
+            path: String::new(),
+            description: Some(name.to_uppercase()),
+            targets: targets.iter().map(|s| s.to_string()).collect(),
+            root: false,
+            local_root: false,
+            source: "library".into(),
+        };
+        let lib = vec![rule("all.md", &["*"]), rule("claude.md", &["claudecode"]), rule("codex.md", &["codexcli"])];
+        let ids = |v: &[&str]| v.iter().map(|s| format!("library:{s}")).collect::<Vec<_>>();
+        let shared = ids(&["all.md", "claude.md"]);
+        let extra = ids(&["codex.md", "all.md", "gone.md"]);
+        let got = |target: &str| -> Vec<(String, &'static str, bool)> {
+            effective(&lib, &shared, &extra, target, &dir).into_iter().map(|r| (r.id, r.from, r.missing)).collect()
+        };
+        let s = |id: &str, from: &'static str, missing: bool| (id.to_string(), from, missing);
+        assert_eq!(
+            got("claudecode"),
+            vec![s("library:all.md", "project", false), s("library:claude.md", "project", false), s("library:gone.md", "agent", true)]
+        );
+        assert_eq!(
+            got("codexcli"),
+            vec![
+                s("library:all.md", "project", false),
+                s("library:codex.md", "agent", false),
+                s("library:gone.md", "agent", true),
+                s("folder:own.md", "folder", false)
+            ]
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

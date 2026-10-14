@@ -33,8 +33,8 @@ use std::sync::Arc;
 use gpui::{App, AppContext, Context, Global};
 
 use pitwall_core::rules::{
-    self, AgentRulesView, ApplyResult, Dirs, ImportRequest, ImportResult, RuleFile, RuleSet,
-    RuleSource, RulesStatus, SaveRuleSet,
+    self, AgentRulesView, ApplyResult, Dirs, ImportRequest, ImportResult, ProjectRules, RuleFile,
+    RuleSet, RuleSource, RulesStatus, SaveRuleSet,
 };
 use pitwall_core::Shared;
 
@@ -66,6 +66,9 @@ pub trait RulesBackend: Send + Sync + 'static {
     fn projects(&self) -> Vec<(String, String)>;
     fn apply(&self, agent_id: &str, confirm_main_checkout: bool) -> Res<ApplyResult>;
     fn agent_rules(&self) -> Vec<AgentRulesView>;
+    /// A project's default set and, for each of its agents, its own set
+    /// and the rules it gets.
+    fn project_detail(&self, project_path: &str) -> ProjectRules;
 }
 
 /// The hosted engine (`src-tauri/src/commands/rules.rs`).
@@ -146,6 +149,9 @@ impl RulesBackend for EngineRules {
     }
     fn agent_rules(&self) -> Vec<AgentRulesView> {
         rules::agent_rules(&self.0)
+    }
+    fn project_detail(&self, project_path: &str) -> ProjectRules {
+        rules::project_detail(&self.0, project_path)
     }
 }
 
