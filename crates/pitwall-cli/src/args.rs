@@ -152,17 +152,31 @@ pub enum RulesCmd {
         #[arg(long, value_name = "AGENT")]
         agent: Option<String>,
     },
-    /// Generate an agent's rule files now (used from its next session).
+    /// Generate an agent's rule files now (used from its next session), or
+    /// every agent's whose rules changed (--stale).
     Apply {
         /// The agent (id or name).
-        agent: String,
-        /// Give the agent this set of its own first (id or name; `none` clears).
+        #[arg(required_unless_present = "stale", conflicts_with = "stale")]
+        agent: Option<String>,
+        /// Give the agent this set of its own first (id or name; `none`
+        /// clears). With --stale: only agents that use this set.
         #[arg(long, value_name = "SET")]
         set: Option<String>,
         /// The agent works in the main checkout: write there anyway (asks
         /// you in Pitwall).
-        #[arg(long)]
+        #[arg(long, conflicts_with = "stale")]
         main_checkout: bool,
+        /// Every agent whose rules changed or failed since its session
+        /// started (in its own worktree, or a main checkout you confirmed).
+        #[arg(long)]
+        stale: bool,
+        /// With --stale: only this project's agents.
+        #[arg(long, value_name = "PATH", conflicts_with = "agent")]
+        project: Option<String>,
+        /// Then restart each re-applied agent that is running, so the rules
+        /// take effect now (each restart asks you in Pitwall).
+        #[arg(long)]
+        restart: bool,
     },
     /// A project's default rule set (`none` clears it).
     Default {
@@ -513,7 +527,11 @@ mod tests {
         assert_eq!(parse(&["project", "add", "."]).unwrap().command, Command::Project(ProjectCmd::Add { path: ".".into() }));
         assert_eq!(
             parse(&["rules", "apply", "api", "--set", "strict", "--main-checkout"]).unwrap().command,
-            Command::Rules(RulesCmd::Apply { agent: "api".into(), set: Some("strict".into()), main_checkout: true })
+            Command::Rules(RulesCmd::Apply { agent: Some("api".into()), set: Some("strict".into()), main_checkout: true, stale: false, project: None, restart: false })
+        );
+        assert_eq!(
+            parse(&["rules", "apply", "--stale", "--project", "~/p", "--restart"]).unwrap().command,
+            Command::Rules(RulesCmd::Apply { agent: None, set: None, main_checkout: false, stale: true, project: Some("~/p".into()), restart: true })
         );
         assert_eq!(parse(&["rules", "show", "~/p"]).unwrap().command, Command::Rules(RulesCmd::Show { project: Some("~/p".into()), agent: None }));
         assert_eq!(
@@ -566,6 +584,10 @@ mod tests {
             &["settings", "list", "--json", "--human"],
             &["rules", "show", "/p", "--agent", "api"],
             &["rules", "set", "add", "Web"],
+            &["rules", "apply"],
+            &["rules", "apply", "api", "--stale"],
+            &["rules", "apply", "api", "--project", "/p"],
+            &["rules", "apply", "--project", "/p"],
             &["rules", "import", "zip", "x"],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");

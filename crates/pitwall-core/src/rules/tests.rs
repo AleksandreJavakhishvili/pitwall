@@ -360,3 +360,54 @@ fn fallback_respects_the_main_checkout_confirmation() {
     assert!(apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap_err().contains("main checkout"));
     assert!(!f.repo.join("GEMINI.md").exists());
 }
+
+/// Bulk re-apply: only agents whose rules changed, scoped to a project or
+/// a set; a main checkout nobody confirmed is left alone.
+#[test]
+fn stale_agents_are_reapplied_in_bulk() {
+    use crate::engine::lifecycle::create;
+    use crate::model::CreateAgentRequest;
+    let h = crate::testing::Harness::new(vec![]);
+    let d = Dirs::of(h.engine.paths());
+    write(&d.library_rules().join("a.md"), "Rule A.\n");
+    write(&d.library_rules().join("b.md"), "Rule B.\n");
+    let set = |name: &str, rule: &str| save_set(&d, SaveRuleSet { id: None, name: name.into(), rule_ids: vec![format!("library:{rule}")] }).unwrap().id;
+    let (sa, sb) = (set("A", "a.md"), set("B", "b.md"));
+    let proj = |name: &str, set: &str| {
+        let p = h.dir.path().join(name);
+        std::fs::create_dir_all(&p).unwrap();
+        let p = p.to_string_lossy().into_owned();
+        set_project_rules(&d, &p, Some(set.into())).unwrap();
+        p
+    };
+    let (pa, pb) = (proj("pa", &sa), proj("pb", &sb));
+    let new = |p: &str, confirm: bool| {
+        let req = CreateAgentRequest { kind: "aider".into(), project_path: p.into(), apply_to_main_checkout: confirm, ..Default::default() };
+        create(&h.engine, req).unwrap().id
+    };
+    let (a, b, unconfirmed) = (new(&pa, true), new(&pb, true), new(&pb, false));
+    let stale_ids = || {
+        let mut v: Vec<String> = agent_rules(&h.engine).into_iter().filter(|v| v.needs_reapply()).map(|v| v.agent_id).collect();
+        v.sort();
+        v
+    };
+    assert!(stale_ids().is_empty(), "{:?}", agent_rules(&h.engine));
+    assert!(reapply_stale(&h.engine, None, None).is_empty());
+
+    write(&d.library_rules().join("a.md"), "Rule A, changed.\n");
+    write(&d.library_rules().join("b.md"), "Rule B, changed.\n");
+    let mut both = vec![a.clone(), b.clone()];
+    both.sort();
+    assert_eq!(stale_ids(), both, "not the unconfirmed main checkout");
+    let done = reapply_stale(&h.engine, Some(&pa), None);
+    assert_eq!(done.iter().map(|r| r.agent_id.as_str()).collect::<Vec<_>>(), vec![a.as_str()]);
+    assert_eq!(done[0].error, None);
+    assert!(std::fs::read_to_string(format!("{pa}/.aider.pitwall-rules.md")).unwrap().contains("Rule A, changed."));
+    assert_eq!(stale_ids(), vec![b.clone()]);
+    assert!(reapply_stale(&h.engine, None, Some(&sa)).is_empty(), "nothing of set A left");
+    let done = reapply_stale(&h.engine, None, Some(&sb));
+    assert_eq!(done.iter().map(|r| r.agent_id.as_str()).collect::<Vec<_>>(), vec![b.as_str()]);
+    assert!(stale_ids().is_empty());
+    assert!(std::fs::read_to_string(format!("{pb}/.aider.pitwall-rules.md")).unwrap().contains("Rule B, changed."));
+    assert!(read(&d).agents.get(&unconfirmed).is_none_or(|s| s.files.is_empty()));
+}

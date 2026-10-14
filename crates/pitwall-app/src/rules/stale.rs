@@ -1,6 +1,8 @@
 //! Per-agent rules state, polled once for every pane header
-//! (`src/rules/useAgentRules.ts`), and the header's "Re-apply rules &
-//! restart" button (`src/components/rules/RulesStaleButton.tsx`).
+//! (`src/rules/useAgentRules.ts`), the header's "Re-apply rules &
+//! restart" button (`src/components/rules/RulesStaleButton.tsx`), and the
+//! bulk "Re-apply & restart all" ([`affected`], [`reapply_all`]) that
+//! Settings → Rules offers.
 //!
 //! The poller reads `agent_rules` every 20 s while some header shows a
 //! button, when a window comes to the front, and after rules change. Views
@@ -117,6 +119,125 @@ pub fn refresh(cx: &mut App) {
 pub fn get(agent_id: &str, cx: &App) -> Option<AgentRulesView> {
     let p = cx.try_global::<Poller>()?;
     p.0.read(cx).map.get(agent_id).cloned()
+}
+
+/// Agents "Re-apply & restart all" would take (rules changed or failed
+/// since their session started), sorted. The calling view is told when
+/// that changes.
+pub fn affected<V: 'static>(cx: &mut Context<V>) -> Vec<String> {
+    let Some(poll) = cx.try_global::<Poller>().map(|p| p.0.clone()) else {
+        return vec![];
+    };
+    let me = cx.entity_id();
+    poll.update(cx, |p, _| {
+        p.watchers.insert(me);
+        let mut ids: Vec<String> = p
+            .map
+            .values()
+            .filter(|v| v.needs_reapply())
+            .map(|v| v.agent_id.clone())
+            .collect();
+        ids.sort();
+        ids
+    })
+}
+
+/// What "Re-apply & restart all" did.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct BulkOutcome {
+    pub applied: usize,
+    pub restarted: usize,
+    /// (agent id, what went wrong).
+    pub errors: Vec<(String, String)>,
+}
+
+/// "Re-apply & restart all": every affected agent's rules again, then a
+/// restart of each one that is running (stopped ones use the rules when
+/// they start). Their header buttons show "Applying…" meanwhile.
+pub fn reapply_all<V: 'static>(
+    view: gpui::WeakEntity<V>,
+    cx: &mut App,
+    on_done: impl FnOnce(&mut V, BulkOutcome, &mut Context<V>) + 'static,
+) {
+    let (Some(b), Some(poll)) = (
+        super::backend(cx),
+        cx.try_global::<Poller>().map(|p| p.0.clone()),
+    ) else {
+        return;
+    };
+    let ids: Vec<String> = poll.update(cx, |p, cx| {
+        let ids: Vec<String> = p
+            .map
+            .values()
+            .filter(|v| v.needs_reapply())
+            .map(|v| v.agent_id.clone())
+            .collect();
+        p.busy.extend(ids.iter().cloned());
+        p.changed(cx);
+        ids
+    });
+    let task = cx.background_executor().spawn(async move {
+        let mut out = BulkOutcome::default();
+        let mut views = vec![];
+        for r in b.reapply_stale(None) {
+            if let Some(e) = r.error {
+                out.errors.push((r.agent_id, e));
+                continue;
+            }
+            out.applied += 1;
+            match b.restart(&r.agent_id) {
+                Ok(Some(v)) => {
+                    out.restarted += 1;
+                    views.push(v);
+                }
+                Ok(None) => {}
+                Err(e) => out.errors.push((r.agent_id, format!("restart: {e}"))),
+            }
+        }
+        (out, views)
+    });
+    cx.spawn(async move |cx| {
+        let (out, views) = task.await;
+        let _ = cx.update(|cx| {
+            for v in views {
+                crate::agents::patch(v, cx);
+            }
+        });
+        let _ = poll.update(cx, |p, cx| {
+            for id in &ids {
+                p.busy.remove(id);
+            }
+            p.changed(cx);
+            p.refresh(cx);
+        });
+        let _ = view.update(cx, |v, cx| on_done(v, out, cx));
+    })
+    .detach();
+}
+
+/// What to say after "Re-apply & restart all" (`name`: an agent's name
+/// from its id); `false` when something failed.
+pub fn bulk_message(o: &BulkOutcome, name: impl Fn(&str) -> String) -> (bool, String) {
+    if o.applied == 0 && o.errors.is_empty() {
+        return (true, "No agent's rules changed.".into());
+    }
+    let mut lines = vec![];
+    if o.applied > 0 {
+        let agents = if o.applied == 1 {
+            "1 agent".to_string()
+        } else {
+            format!("{} agents", o.applied)
+        };
+        let mut line = format!("Re-applied rules for {agents}, restarted {}.", o.restarted);
+        if o.restarted < o.applied {
+            line.push_str(" Stopped agents use them when they start.");
+        }
+        lines.push(line);
+    }
+    for (id, e) in &o.errors {
+        lines.push(format!("{}: {e}", name(id)));
+    }
+    (o.errors.is_empty(), lines.join("\n"))
 }
 
 /// The button's tooltip.

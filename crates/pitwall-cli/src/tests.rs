@@ -723,6 +723,11 @@ fn rule_sets_and_imports_end_to_end() {
     t.join().unwrap();
     assert_eq!(o.json["sets"], json!([]));
 
+    // Nothing changed for any agent.
+    let o = go(&["rules", "apply", "--stale"]).unwrap();
+    assert_eq!(o.json, json!({"applied": [], "failed": []}));
+    assert_eq!(o.human, "No agent's rules changed since it started.\n");
+
     // A project's own .rulesync/ is read in place, without asking.
     let proj = dir.path().join("proj");
     std::fs::create_dir_all(proj.join(".rulesync").join("rules")).unwrap();
@@ -749,4 +754,19 @@ fn rules_are_named_by_id_or_file_name() {
     assert_eq!(failure(&e).0["error"]["code"], "conflict");
     assert!(failure(&e).0["error"]["message"].as_str().unwrap().contains("library:style.md, team:style.md"));
     assert_eq!(failure(&manage::pick_rule(&ids, "a.md", "here").unwrap_err()).0["error"]["code"], "not_found");
+}
+
+#[test]
+fn reapplied_snapshot() {
+    let r: pitwall_proto::RulesReapplied = serde_json::from_value(json!({
+        "applied": [{"agentId": "a-1", "generated": ["CLAUDE.local.md", ".claude/rules/x.md"], "log": ""}],
+        "failed": [{"agentId": "a-22", "error": "rulesync isn't available"}]
+    }))
+    .unwrap();
+    let list = [agent("a-1", "work", true), agent("a-22", "reviewer", false)];
+    assert_eq!(
+        manage::reapplied(&r, &list, false),
+        "Re-applied work: 2 file(s)\nCouldn't re-apply reviewer: rulesync isn't available\nRules reach new sessions: restart them (or pass --restart).\n"
+    );
+    assert!(!manage::reapplied(&r, &list, true).contains("--restart"));
 }

@@ -38,6 +38,13 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
   apply when the user explicitly confirms (checkbox in the dialog, default off).
 - Rules only affect new sessions; after edits show "Re-apply & restart" on
   affected agents.
+- Bulk: "Re-apply & restart all" (Settings → Rules, shown while any agent's
+  rules changed or failed since its session started) re-applies every such
+  agent, then restarts the running ones (stopped ones use the rules when
+  they start). Only agents Pitwall may write for: own worktree, or a main
+  checkout the user confirmed before. CLI: `pitwall rules apply --stale
+  [--project <p>] [--set <s>] [--restart]` (socket `rules.reapply`, no
+  approval; each restart is `agent.restart`, which asks).
 
 ## Agents rulesync doesn't cover (Gemini CLI, Aider)
 rulesync has no target for them, so Pitwall writes their rules itself, from

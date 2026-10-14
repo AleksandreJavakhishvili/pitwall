@@ -14,7 +14,7 @@ use pitwall_core::rules::{self, Dirs, ImportRequest, SaveRuleSet};
 use pitwall_proto::{
     code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
     ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied,
-    RulesApply, RulesDefault, RulesImport, RulesImported, RulesOverview, RulesShow, Status, WaitResult,
+    RulesApply, RulesDefault, RulesFailed, RulesImport, RulesImported, RulesOverview, RulesReapplied, RulesReapply, RulesShow, Status, WaitResult,
 };
 
 use crate::approvals::{Ask, Decision};
@@ -364,6 +364,22 @@ pub fn rules_apply(s: &Server, caller: &Caller, r: RulesApply) -> Res {
     }
     let res = rules::apply_to_agent(&s.engine, &a.id, main).map_err(other)?;
     ok(RulesApplied { agent_id: a.id, generated: res.generated, log: res.log })
+}
+
+pub fn rules_reapply(s: &Server, r: RulesReapply) -> Res {
+    let set = match r.set.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(k) => Some(set_id(s, k)?),
+    };
+    let project = r.project.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let (mut applied, mut failed) = (vec![], vec![]);
+    for x in rules::reapply_stale(&s.engine, project, set.as_deref()) {
+        match x.error {
+            None => applied.push(RulesApplied { agent_id: x.agent_id, generated: x.generated, log: x.log }),
+            Some(error) => failed.push(RulesFailed { agent_id: x.agent_id, error }),
+        }
+    }
+    ok(RulesReapplied { applied, failed })
 }
 
 /// Make or change a rule set. New rule ids must be in the library; ones the

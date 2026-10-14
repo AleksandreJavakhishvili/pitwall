@@ -2,7 +2,8 @@
 //! status and the npx opt-in, then "Manage rules…": the library (with
 //! import and sources), rule sets with their editor, and project defaults
 //! (each project opens to what its agents get: the two scopes, the project's
-//! default set and each agent's own set).
+//! default set and each agent's own set). When agents' rules changed since
+//! their sessions started, "Re-apply & restart all" sits at the top.
 //!
 //! Drawn through `settings::ExtraSections`: [`section`] keeps one
 //! [`RulesSection`] alive while Settings shows it (a fresh one, collapsed,
@@ -123,6 +124,9 @@ pub struct RulesSection {
     /// The project opened to its agents, and what they get (once read).
     expanded: Option<String>,
     detail: Option<ProjectRules>,
+    /// "Re-apply & restart all": running, and what it did.
+    bulk_busy: bool,
+    bulk_msg: Option<(bool, String)>,
     select: Option<Open>,
     error: Option<String>,
     _subs: Vec<gpui::Subscription>,
@@ -173,6 +177,8 @@ impl RulesSection {
             defaults: BTreeMap::new(),
             expanded: None,
             detail: None,
+            bulk_busy: false,
+            bulk_msg: None,
             select: None,
             error: None,
             _subs: subs,
@@ -244,6 +250,39 @@ impl RulesSection {
         self.reload(cx);
         self.load_detail(cx);
         super::stale::refresh(cx);
+    }
+
+    /// "Re-apply & restart all".
+    fn reapply_all(&mut self, cx: &mut Context<Self>) {
+        if self.bulk_busy {
+            return;
+        }
+        self.bulk_busy = true;
+        self.bulk_msg = None;
+        cx.notify();
+        let weak = cx.entity().downgrade();
+        super::stale::reapply_all(weak, cx, |v: &mut Self, out, cx| {
+            let names: Vec<(String, String)> = cx
+                .try_global::<crate::agents::StoreHandle>()
+                .map(|h| {
+                    h.0.read(cx)
+                        .agents
+                        .iter()
+                        .map(|a| (a.id.clone(), a.name.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let name = |id: &str| {
+                names
+                    .iter()
+                    .find(|(i, _)| i == id)
+                    .map_or_else(|| id.to_string(), |(_, n)| n.clone())
+            };
+            v.bulk_busy = false;
+            v.bulk_msg = Some(super::stale::bulk_message(&out, name));
+            v.load_detail(cx);
+            cx.notify();
+        });
     }
 
     /// Open (or close) a project's agents.
@@ -1093,6 +1132,68 @@ impl RulesSection {
 }
 
 impl RulesSection {
+    /// The bar offering "Re-apply & restart all" while some agents' rules
+    /// changed since their sessions started, then what it did.
+    fn bulk_bar(&self, t: &Theme, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let n = super::stale::affected(cx).len();
+        if n == 0 && !self.bulk_busy && self.bulk_msg.is_none() {
+            return None;
+        }
+        let mut bar = div().flex().flex_col().gap(px(6.));
+        if n > 0 || self.bulk_busy {
+            let text = match n {
+                1 => "Rules changed for 1 agent since its session started.".to_string(),
+                n => format!("Rules changed for {n} agents since their sessions started."),
+            };
+            let busy = self.bulk_busy;
+            bar = bar.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(12.))
+                    .py(px(8.))
+                    .rounded(crate::theme::RADIUS)
+                    .border_1()
+                    .border_color(t.amber_glow)
+                    .bg(t.amber_soft)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(12.5))
+                            .text_color(t.text)
+                            .child(text),
+                    )
+                    .child(
+                        kit::text_button(
+                            "rules-reapply-all",
+                            if busy {
+                                "Applying…"
+                            } else {
+                                "Re-apply & restart all"
+                            },
+                            BtnKind::Small,
+                            busy,
+                            t,
+                        )
+                        .tooltip(kit::tooltip(
+                            "Re-apply their rules, then restart the ones that are running (the conversation resumes when the agent supports it).",
+                        ))
+                        .on_click(cx.listener(|v, _, _, cx| v.reapply_all(cx))),
+                    ),
+            );
+        }
+        if let Some((ok, msg)) = self.bulk_msg.clone() {
+            bar = bar.child(if ok {
+                kit::hint(msg, t)
+            } else {
+                kit::error_text(msg, t)
+            });
+        }
+        Some(bar)
+    }
+
     /// Under an open project: each agent's own set, how its rules stand,
     /// and the rules it gets from either scope.
     fn project_agents(&self, t: &Theme) -> gpui::Div {
@@ -1192,6 +1293,7 @@ impl Render for RulesSection {
                 &t,
             ))
             .children(self.npx_box(&t, cx))
+            .children(self.bulk_bar(&t, cx))
             .child(
                 div().flex().child(
                     kit::text_button(

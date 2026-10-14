@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use pitwall_core::rules::{
     AgentRulesDetail, AgentRulesView, ApplyResult, EffectiveRule, ImportResult, ProjectRules,
-    RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
+    Reapplied, RuleFile, RuleSet, RuleSource, RulesStatus, SaveRuleSet,
 };
 
 use super::RulesBackend;
@@ -309,6 +309,35 @@ impl RulesBackend for MockRules {
     }
     fn agent_rules(&self) -> Vec<AgentRulesView> {
         self.lock().agents.values().cloned().collect()
+    }
+    /// Every agent that needs it (the mock has no projects).
+    fn reapply_stale(&self, _project: Option<&str>) -> Vec<Reapplied> {
+        let ids: Vec<String> = self
+            .agent_rules()
+            .into_iter()
+            .filter(|v| v.needs_reapply())
+            .map(|v| v.agent_id)
+            .collect();
+        ids.into_iter()
+            .map(|id| match self.apply(&id, false) {
+                Ok(r) => Reapplied {
+                    agent_id: id,
+                    generated: r.generated,
+                    log: r.log,
+                    error: None,
+                },
+                Err(e) => Reapplied {
+                    agent_id: id,
+                    generated: vec![],
+                    log: String::new(),
+                    error: Some(e),
+                },
+            })
+            .collect()
+    }
+    /// The mock runs no agents.
+    fn restart(&self, _agent_id: &str) -> Res<Option<pitwall_proto::AgentView>> {
+        Ok(None)
     }
     /// Every mock agent, as Claude Code agents of `project_path`.
     fn project_detail(&self, project_path: &str) -> ProjectRules {
