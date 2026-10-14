@@ -69,6 +69,15 @@
       ],
       "type": "string"
     },
+    "sidebarGroup": {
+      "default": "project",
+      "description": "`general.sidebarGroup`: How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on), then project.",
+      "enum": [
+        "project",
+        "account"
+      ],
+      "type": "string"
+    },
     "theme": {
       "default": "system",
       "description": "`appearance.theme`: Light or dark; system follows the OS.",

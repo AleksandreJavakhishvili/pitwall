@@ -424,6 +424,9 @@ struct DividerDrag {
 pub struct MainScreen {
     store: Entity<AgentStore>,
     engine: Option<Shared>,
+    /// Agents waiting for their new account's login to move there.
+    pending_moves: Vec<Move>,
+    login_watch: Option<Task<()>>,
     /// What this window last told the engine it shows the changes of
     /// (`Engine::show_changes`; its key, the agent).
     changes_shown: (u64, Option<String>),
@@ -552,6 +555,8 @@ impl MainScreen {
             store,
             engine,
             changes_shown: (0, None),
+            pending_moves: Vec::new(),
+            login_watch: None,
             label: crate::windows::label_of(window, cx),
             active: ALL_SPACE.into(),
             ui,
@@ -1235,7 +1240,8 @@ impl MainScreen {
     }
 
     /// A new agent exists: show it as soon as the store has it.
-    fn created(&mut self, view: AgentView, window: &mut Window, cx: &mut Context<Self>) {
+    /// A new agent: in the store at once, shown and focused.
+    pub(crate) fn created(&mut self, view: AgentView, window: &mut Window, cx: &mut Context<Self>) {
         let id = view.id.clone();
         self.store.update(cx, |s, cx| {
             if !s.agents.iter().any(|a| a.id == id) {
@@ -1358,11 +1364,9 @@ impl MainScreen {
                 self.close_modal(window, cx);
                 self.created(*view, window, cx);
             }
-            dialogs::DialogEvent::MoveAgents(ids, account, name) => {
+            dialogs::DialogEvent::MoveAgents { ids, account, name, kind, project, login } => {
                 self.close_modal(window, cx);
-                for id in ids {
-                    self.switch_account(id, account.clone(), name.clone(), cx);
-                }
+                self.move_agents(Move { ids, account, name, kind }, login.then_some(project), window, cx);
             }
             dialogs::DialogEvent::OpenTerminal(path) => {
                 self.close_modal(window, cx);
@@ -1419,6 +1423,35 @@ impl MainScreen {
         );
         self.active = created;
         self.set_route(Route::Space, cx);
+    }
+
+    /// A space with the agents on `account` (`account_key`), named `name`.
+    pub(super) fn open_account_space(&mut self, account: &str, name: &str, cx: &mut Context<Self>) {
+        let agents = self.agents(cx).to_vec();
+        let label = self.label.clone();
+        let mut opened = String::new();
+        self.update_ui(
+            |s| {
+                let (s, id) = s.open_account_space(account, name, &agents, &label);
+                opened = id;
+                s
+            },
+            cx,
+        );
+        if self.ui.window_of_space(&opened) == self.label {
+            self.active = opened;
+        } else {
+            crate::windows::show_space(&opened, cx);
+        }
+        self.overlay_sidebar = false;
+        self.set_route(Route::Space, cx);
+        cx.notify();
+    }
+
+    /// Group the sidebar by project or by account (the setting).
+    pub(super) fn set_sidebar_group(&mut self, group: workspace::SidebarGroup, cx: &mut Context<Self>) {
+        self.update_ui(|mut s| { s.sidebar_group = group; s }, cx);
+        cx.notify();
     }
 
     fn open_project_space(&mut self, project: &str, display: &str, cx: &mut Context<Self>) {
@@ -1497,6 +1530,63 @@ impl MainScreen {
 
     /// Run agent `id` on another account (`None`: the user's own): its
     /// conversation goes with it and it restarts there.
+    /// Move agents to an account: now when it's logged in (or can't tell),
+    /// else once it is, with its login terminal started in `login_in` (a
+    /// project folder) and shown, unless one already runs.
+    fn move_agents(&mut self, mv: Move, login_in: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(account) = mv.account.clone().filter(|_| !mv.ready(cx)) else {
+            for id in mv.ids {
+                self.switch_account(id, mv.account.clone(), mv.name.clone(), cx);
+            }
+            return;
+        };
+        if !mv.ids.is_empty() {
+            let n = mv.ids.len();
+            let what = if n == 1 { "its agent moves".to_string() } else { format!("its {n} agents move") };
+            self.toast(Toast::info(&format!("Log in to {} in its terminal", mv.name), Some(format!("Then {what} there on their own."))), cx);
+            self.pending_moves.push(mv.clone());
+            self.watch_logins(cx);
+        }
+        let (Some(project), Some(engine)) = (login_in, self.engine.clone()) else { return };
+        let req = crate::accounts::login_request(&mv.kind, &account, &project);
+        let task = cx.background_executor().spawn(async move { pitwall_core::engine::lifecycle::create(&engine, req) });
+        cx.spawn_in(window, async move |this, cx| {
+            let res = task.await;
+            let _ = this.update_in(cx, |s, window, cx| match res {
+                Ok(view) => s.created(view, window, cx),
+                Err(e) => s.failed("start the login", e, cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Every couple of seconds while moves wait for a login: those whose
+    /// account is logged in now go.
+    fn watch_logins(&mut self, cx: &mut Context<Self>) {
+        if self.login_watch.is_some() {
+            return;
+        }
+        self.login_watch = Some(cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+            let more = this.update(cx, |s, cx| {
+                let (go, wait): (Vec<Move>, Vec<Move>) = std::mem::take(&mut s.pending_moves).into_iter().partition(|m| m.ready(cx));
+                s.pending_moves = wait;
+                for mv in go {
+                    for id in mv.ids {
+                        s.switch_account(id, mv.account.clone(), mv.name.clone(), cx);
+                    }
+                }
+                if s.pending_moves.is_empty() {
+                    s.login_watch = None;
+                }
+                !s.pending_moves.is_empty()
+            });
+            if !matches!(more, Ok(true)) {
+                break;
+            }
+        }));
+    }
+
     pub(super) fn switch_account(&mut self, id: String, account: Option<String>, name: String, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
@@ -1898,6 +1988,29 @@ impl Drop for MainScreen {
     fn drop(&mut self) {
         if let (Some(e), (key, Some(_))) = (&self.engine, &self.changes_shown) {
             e.show_changes(*key, None);
+        }
+    }
+}
+
+/// Agents of `kind` to move to `account` (`None`: the user's own), `name`.
+#[derive(Clone)]
+struct Move {
+    ids: Vec<String>,
+    account: Option<String>,
+    name: String,
+    kind: String,
+}
+
+impl Move {
+    /// Its account is logged in, or can't say (only Claude Code's and
+    /// Codex's logins can be read): the move can go.
+    fn ready(&self, cx: &mut App) -> bool {
+        let Some(id) = &self.account else { return true };
+        let m = crate::accounts::model(cx);
+        let m = m.read(cx);
+        match (m.kind(&self.kind), m.list.get(id)) {
+            (Some(def), Some(a)) => pitwall_core::accounts::logged_in(&def, Some(a)) != Some(false),
+            _ => true,
         }
     }
 }

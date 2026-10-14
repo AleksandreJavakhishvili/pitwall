@@ -134,6 +134,7 @@ pub struct Setting {
 pub const THEMES: &[&str] = &["system", "dark", "light"];
 pub const LOOKS: &[&str] = &["flat", "glass"];
 pub const DENSITIES: &[&str] = &["comfortable", "compact", "dense"];
+pub const SIDEBAR_GROUPS: &[&str] = &["project", "account"];
 /// The Race Engineer's first prompt, by default (`engineer.greeting`).
 pub const ENGINEER_GREETING: &str =
     "Introduce yourself in two lines and offer: set up agw, arrange spaces, create agents per project, set up rules, tune settings.";
@@ -155,6 +156,16 @@ pub const SETTINGS: &[Setting] = &[
         page: Page::General,
         sensitivity: Sensitivity::Safe,
         stored: Stored::Ui { key: "hideElsewhere", invert: true },
+        only_on: false,
+    },
+    Setting {
+        key: "general.sidebarGroup",
+        kind: Kind::Choice(SIDEBAR_GROUPS),
+        default: DefaultValue::Str("project"),
+        description: "How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on), then project.",
+        page: Page::General,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "sidebarGroup", invert: false },
         only_on: false,
     },
     Setting {

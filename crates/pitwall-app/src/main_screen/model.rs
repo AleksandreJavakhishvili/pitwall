@@ -53,6 +53,62 @@ pub fn with_projects(groups: Vec<ProjectGroup>, projects: &[Project]) -> Vec<Pro
     all
 }
 
+/// One account in the sidebar grouped by account: its project groups.
+#[derive(Debug, Clone)]
+pub struct AccountSection {
+    /// `account_key` of its agents (`default`: the user's own logins).
+    pub account: String,
+    /// Its collapse key (`acct:<account>`).
+    pub key: String,
+    pub groups: Vec<ProjectGroup>,
+    pub agents: usize,
+    pub blocked: usize,
+}
+
+/// The sidebar grouped by account, then project (`with_projects` within
+/// each): Default first, then the accounts in `order`, then any other.
+/// Projects without agents go under Default. Group keys are prefixed with
+/// the section's, so each folds on its own.
+pub fn by_account(agents: &[AgentView], projects: &[Project], order: &[String]) -> Vec<AccountSection> {
+    use super::workspace::account_key;
+    use pitwall_core::accounts::DEFAULT;
+    let mut keys: Vec<String> = vec![];
+    for a in agents {
+        let k = account_key(a).to_string();
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    let empties: Vec<ProjectGroup> = with_projects(crate::agents::group_by_project(agents), projects)
+        .into_iter()
+        .filter(|g| g.agents.is_empty())
+        .collect();
+    if !empties.is_empty() && !keys.iter().any(|k| k == DEFAULT) {
+        keys.push(DEFAULT.into());
+    }
+    let rank = |k: &String| match order.iter().position(|o| o == k) {
+        _ if k == DEFAULT => (0, 0, String::new()),
+        Some(i) => (1, i, String::new()),
+        None => (2, 0, k.clone()),
+    };
+    keys.sort_by_key(rank);
+    keys.into_iter()
+        .map(|account| {
+            let mine: Vec<AgentView> = agents.iter().filter(|a| account_key(a) == account).cloned().collect();
+            let mut groups = crate::agents::group_by_project(&mine);
+            if account == DEFAULT {
+                groups.extend(empties.iter().cloned());
+            }
+            let key = format!("acct:{account}");
+            for g in &mut groups {
+                g.key = format!("{key}|{}", g.key);
+            }
+            let blocked = groups.iter().map(|g| g.blocked).sum();
+            AccountSection { account, key, groups, agents: mine.len(), blocked }
+        })
+        .collect()
+}
+
 fn machine_key(m: &MachineView) -> String {
     format!("{}:{}", m.provider, m.id)
 }
@@ -238,6 +294,34 @@ mod tests {
     use super::*;
     use crate::agents::group_by_project;
     use crate::agents::tests::agent;
+
+    fn on(mut a: AgentView, account: Option<&str>) -> AgentView {
+        a.account = account.map(String::from);
+        a
+    }
+
+    #[test]
+    fn grouped_by_account_then_project() {
+        let agents = vec![
+            on(agent("a", "/work/alpha", "idle", 1, true), Some("claude-work")),
+            on(agent("b", "/work/alpha", "blocked", 2, true), None),
+            on(agent("c", "/work/beta", "idle", 3, true), Some("claude-work")),
+            on(agent("d", "/work/gamma", "idle", 4, true), Some("codex-play")),
+            on(agent("e", "/work/alpha", "idle", 5, true), Some("claude-home")),
+        ];
+        let empty = Project { path: "/work/empty".into(), display: "empty".into(), is_git: true, added_at: 0 };
+        let alpha = Project { path: "/work/alpha".into(), display: "alpha".into(), is_git: true, added_at: 0 };
+        let order = ["claude-home".to_string(), "claude-work".to_string()];
+        let s = by_account(&agents, &[empty, alpha], &order);
+        let accounts: Vec<&str> = s.iter().map(|s| s.account.as_str()).collect();
+        assert_eq!(accounts, ["default", "claude-home", "claude-work", "codex-play"], "Default, the user's order, then the rest");
+        let projects = |i: usize| s[i].groups.iter().map(|g| g.project.clone()).collect::<Vec<_>>();
+        assert_eq!(projects(0), ["/work/alpha", "/work/empty"], "only projects without any agent are added, under Default");
+        assert_eq!(projects(2), ["/work/alpha", "/work/beta"]);
+        assert_eq!((s[0].agents, s[0].blocked, s[2].agents), (1, 1, 2));
+        assert_eq!(s[2].groups[0].key, "acct:claude-work|/work/alpha", "folds apart from the same project elsewhere");
+        assert!(by_account(&[], &[], &order).is_empty());
+    }
 
     #[test]
     fn listed_projects_join_the_groups() {

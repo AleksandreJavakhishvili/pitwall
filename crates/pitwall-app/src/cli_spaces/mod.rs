@@ -78,6 +78,7 @@ pub fn view(ui: &UiState, id: &str) -> Option<SpaceView> {
         kind: match s.kind {
             SpaceKind::All => "all",
             SpaceKind::Project => "project",
+            SpaceKind::Account => "account",
             SpaceKind::Custom => "custom",
         }
         .into(),

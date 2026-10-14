@@ -70,6 +70,7 @@ impl SettingsView {
         match page {
             Page::General => {
                 let mut v: Vec<Div> = self.projects(ui, cx).into_iter().collect();
+                v.push(Self::grouping(ui, cx));
                 v.push(Self::elsewhere(ui, cx));
                 v.push(self.cli(ui, cx));
                 v
@@ -113,6 +114,25 @@ impl SettingsView {
                 )
                 .child(crate::kit::muted("Look for new projects, conversations you can continue and installed agents. Read-only.", &ui.t)),
         )
+    }
+
+    /// Settings → General → Group agents by: Project or Account.
+    fn grouping(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        use crate::main_screen::workspace::SidebarGroup;
+        const ALL: [(SidebarGroup, &str, &str); 2] = [
+            (SidebarGroup::Project, "Project", "Projects, then their agents"),
+            (SidebarGroup::Account, "Account", "The login agents run on, then project, then agents"),
+        ];
+        let now = prefs(cx).sidebar_group;
+        let seg = crate::kit::seg(
+            "sidebar-group",
+            ALL.iter().map(|(g, label, tip)| SegItem { label: (*label).into(), on: now == *g, tooltip: Some((*tip).into()) }).collect(),
+            &ui.t,
+            Rc::new(|i, window, cx| set_prefs(window, cx, |p| p.sidebar_group = ALL[i].0)),
+        );
+        section()
+            .child(row(ui, "Group agents by").child(div().flex_1()).child(seg))
+            .child(crate::kit::hint("Account shows the Claude Code or Codex login each agent runs on (Settings → Agents → Accounts), then its projects.", &ui.t))
     }
 
     fn elsewhere(ui: &Ui, cx: &mut Context<Self>) -> Div {

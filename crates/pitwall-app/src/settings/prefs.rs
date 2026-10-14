@@ -16,6 +16,8 @@ pub struct UiPrefs {
     pub font_size: u8,
     /// Settings → "Show agents running elsewhere" is the inverse.
     pub hide_elsewhere: bool,
+    /// Settings → General → Group agents by.
+    pub sidebar_group: crate::main_screen::workspace::SidebarGroup,
 }
 
 impl Default for UiPrefs {
@@ -34,6 +36,7 @@ impl UiPrefs {
             density: s.density,
             font_size: clamp_font(s.font_size.round() as i32),
             hide_elsewhere: s.hide_elsewhere,
+            sidebar_group: s.sidebar_group,
         }
     }
 
@@ -47,6 +50,7 @@ impl UiPrefs {
             s.font_size = self.font_size as f64;
         }
         s.hide_elsewhere = self.hide_elsewhere;
+        s.sidebar_group = self.sidebar_group;
     }
 }
 

@@ -43,6 +43,8 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("check", "M5 10.5l3.2 3L15 6.5"),
     // The Race Engineer (a headset): the top bar and ⌘K.
     ("headset", "M4 12.5V10a6 6 0 0 1 12 0v2.5M4 11.5h2.5v4H5a1 1 0 0 1-1-1zM16 11.5h-2.5v4H15a1 1 0 0 0 1-1zM14.5 15.5c0 1.2-1.3 2-3.5 2"),
+    // An account (a login): the sidebar grouped by account.
+    ("user", "M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"),
 ];
 
 fn icon_path(name: &str) -> Option<&'static str> {

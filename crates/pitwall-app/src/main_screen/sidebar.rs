@@ -1,5 +1,6 @@
 //! The sidebar (React `Sidebar.tsx`, `AgentRow.tsx`, `RailItem.tsx`):
-//! agents grouped by machine and project, needs-you first; collapsible
+//! agents grouped by machine and project (or by account, then project:
+//! Settings → General → Group agents by), needs-you first; collapsible
 //! groups with a summary; project "+" and right-click menus; agent context
 //! menu; ⌘1–9 hints; drag sources; ↑/↓/⏎ when it has keyboard focus; an
 //! icon rail on narrow windows.
@@ -7,7 +8,7 @@
 use crate::kit::Ellipsis as _;
 use crate::kit::HoverText;
 use gpui::{
-    div, point, prelude::*, px, AnyElement, Context, FontWeight, IntoElement, MouseButton,
+    div, point, prelude::*, px, AnyElement, App, Context, FontWeight, IntoElement, MouseButton,
     MouseDownEvent, SharedString, Window,
 };
 
@@ -15,7 +16,8 @@ use pitwall_proto::{AgentView, Status};
 
 use crate::kit::{icon, MONO_FONT};
 use super::menu::MenuItem;
-use super::model::{initials, machine_heading, summarize, with_projects};
+use super::model::{by_account, initials, machine_heading, summarize, with_projects, AccountSection};
+use super::workspace::SidebarGroup;
 use crate::kit::keys;
 use super::topbar::AgentDrag;
 use crate::kit::{
@@ -30,9 +32,23 @@ impl MainScreen {
         with_projects(group_by_project(agents), &self.projects)
     }
 
+    /// The sidebar grouped by account, in Settings → Agents → Accounts' order.
+    fn account_sections(&self, agents: &[AgentView], cx: &App) -> Vec<AccountSection> {
+        by_account(agents, &self.projects, &crate::accounts::ids(cx))
+    }
+
     /// Agents in sidebar order, skipping collapsed groups (keyboard moves).
-    fn visible_rows(&self, agents: &[AgentView]) -> Vec<String> {
-        self.sidebar_groups(agents)
+    fn visible_rows(&self, agents: &[AgentView], cx: &App) -> Vec<String> {
+        let groups = match self.ui.sidebar_group {
+            SidebarGroup::Project => self.sidebar_groups(agents),
+            SidebarGroup::Account => self
+                .account_sections(agents, cx)
+                .into_iter()
+                .filter(|s| !self.ui.collapsed.contains(&s.key))
+                .flat_map(|s| s.groups)
+                .collect(),
+        };
+        groups
             .into_iter()
             .filter(|g| !self.ui.collapsed.contains(&g.key))
             .flat_map(|g| g.agents.into_iter().map(|a| a.id))
@@ -40,7 +56,7 @@ impl MainScreen {
     }
 
     fn move_cursor(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let rows = self.visible_rows(self.agents(cx));
+        let rows = self.visible_rows(self.agents(cx), cx);
         if rows.is_empty() {
             return;
         }
@@ -65,100 +81,35 @@ impl MainScreen {
         if mode == SidebarMode::Rail {
             return self.render_rail(agents, t, cx).into_any_element();
         }
-        let groups = self.sidebar_groups(agents);
         let focused = self.focused_agent_id();
         let kb = self.sidebar_focus.is_focused(window);
         let mut index = 0usize;
         let mut list: Vec<AnyElement> = Vec::new();
-        for (gi, g) in groups.iter().enumerate() {
-            let collapsed = self.ui.collapsed.contains(&g.key);
-            let start = index;
-            index += g.agents.len();
-            // `.project-group + .project-group { margin-top: 4px }`
-            if gi > 0 {
-                list.push(div().h(px(4.)).flex_none().into_any_element());
+        let any = match self.ui.sidebar_group {
+            SidebarGroup::Project => {
+                let groups = self.sidebar_groups(agents);
+                list.extend(self.render_groups(&groups, &mut index, &focused, kb, t, cx));
+                !groups.is_empty()
             }
-            if let Some(h) = machine_heading(&groups, gi) {
-                list.push(
-                    div()
-                        .px(px(14.))
-                        .pt(px(10.))
-                        .pb(px(2.))
-                        .text_size(px(10.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(t.text_4)
-                        .child(h.to_uppercase())
-                        .into_any_element(),
-                );
-            }
-            list.push(self.project_head(g, collapsed, t, cx).into_any_element());
-            if g.agents.is_empty() {
-                if !collapsed {
-                    let project = g.project.clone();
-                    // `.project-empty`: one quiet dashed row where an agent
-                    // row would be; the whole row opens New agent.
-                    let group = SharedString::from(format!("project-empty-{}", g.key));
-                    list.push(
-                        div()
-                            .id(SharedString::from(format!("empty-{}", g.key)))
-                            .group(group.clone())
-                            .mx(px(6.))
-                            .mb(px(4.))
-                            .h(px(32.))
-                            .px(px(9.))
-                            .flex()
-                            .items_center()
-                            .gap(px(7.))
-                            .rounded(RADIUS)
-                            .border_1()
-                            .border_dashed()
-                            .border_color(t.line_strong)
-                            .text_size(px(12.5))
-                            .text_color(t.text_3)
-                            .cursor_pointer()
-                            .hover_text(t.text, |s| s.border_color(t.text_4).bg(t.surface_2))
-                            .tooltip(tooltip("New agent in this project"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_new_agent(Some(project.clone()), window, cx)
-                            }))
-                            .child(icon("plus", 12., t.text_3).group_hover_text(group, t.text, |s| s))
-                            .child("New agent")
-                            .child(
-                                div()
-                                    .ml_auto()
-                                    .text_size(px(11.5))
-                                    .text_color(t.text_4)
-                                    .child("No agents yet"),
-                            )
-                            .into_any_element(),
-                    );
+            SidebarGroup::Account => {
+                let sections = self.account_sections(agents, cx);
+                for (si, sec) in sections.iter().enumerate() {
+                    let collapsed = self.ui.collapsed.contains(&sec.key);
+                    if si > 0 {
+                        list.push(div().h(px(6.)).flex_none().into_any_element());
+                    }
+                    list.push(self.account_head(sec, collapsed, t, cx).into_any_element());
+                    if !collapsed {
+                        // Its projects sit a step in, under the account.
+                        let rows = self.render_groups(&sec.groups, &mut index, &focused, kb, t, cx);
+                        list.push(div().pl(px(10.)).flex().flex_col().children(rows).into_any_element());
+                    }
                 }
-            } else if collapsed {
-                list.push(
-                    div()
-                        .pl(px(32.))
-                        .pr(px(14.))
-                        .pb(px(6.))
-                        .text_size(px(12.))
-                        .text_color(t.text_3)
-                        .child(summarize(&g.agents))
-                        .into_any_element(),
-                );
-            } else {
-                for (i, a) in g.agents.iter().enumerate() {
-                    let selected = focused.as_deref() == Some(a.id.as_str());
-                    let cursor = kb && self.cursor.as_deref() == Some(a.id.as_str());
-                    list.push(
-                        self.agent_row(a, start + i, selected, cursor, g.can_create, t, cx)
-                            .into_any_element(),
-                    );
-                    list.extend(self.wt_agent(a, t, cx));
-                }
-                list.extend(self.wt_others(&g.key, &g.agents, t, cx));
+                !sections.is_empty()
             }
-        }
+        };
         let elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
-        if !groups.is_empty() && !elsewhere.is_empty() {
+        if any && !elsewhere.is_empty() {
             list.push(div().h(px(4.)).flex_none().into_any_element());
         }
         list.extend(elsewhere);
@@ -274,6 +225,107 @@ impl MainScreen {
                     }),
             )
             .into_any_element()
+    }
+
+    /// Project groups and their agent rows (`index`: rows so far).
+    fn render_groups(
+        &mut self,
+        groups: &[ProjectGroup],
+        index: &mut usize,
+        focused: &Option<String>,
+        kb: bool,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut list: Vec<AnyElement> = Vec::new();
+        for (gi, g) in groups.iter().enumerate() {
+            let collapsed = self.ui.collapsed.contains(&g.key);
+            let start = *index;
+            *index += g.agents.len();
+            // `.project-group + .project-group { margin-top: 4px }`
+            if gi > 0 {
+                list.push(div().h(px(4.)).flex_none().into_any_element());
+            }
+            if let Some(h) = machine_heading(groups, gi) {
+                list.push(
+                    div()
+                        .px(px(14.))
+                        .pt(px(10.))
+                        .pb(px(2.))
+                        .text_size(px(10.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(t.text_4)
+                        .child(h.to_uppercase())
+                        .into_any_element(),
+                );
+            }
+            list.push(self.project_head(g, collapsed, t, cx).into_any_element());
+            if g.agents.is_empty() {
+                if !collapsed {
+                    let project = g.project.clone();
+                    // `.project-empty`: one quiet dashed row where an agent
+                    // row would be; the whole row opens New agent.
+                    let group = SharedString::from(format!("project-empty-{}", g.key));
+                    list.push(
+                        div()
+                            .id(SharedString::from(format!("empty-{}", g.key)))
+                            .group(group.clone())
+                            .mx(px(6.))
+                            .mb(px(4.))
+                            .h(px(32.))
+                            .px(px(9.))
+                            .flex()
+                            .items_center()
+                            .gap(px(7.))
+                            .rounded(RADIUS)
+                            .border_1()
+                            .border_dashed()
+                            .border_color(t.line_strong)
+                            .text_size(px(12.5))
+                            .text_color(t.text_3)
+                            .cursor_pointer()
+                            .hover_text(t.text, |s| s.border_color(t.text_4).bg(t.surface_2))
+                            .tooltip(tooltip("New agent in this project"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_new_agent(Some(project.clone()), window, cx)
+                            }))
+                            .child(icon("plus", 12., t.text_3).group_hover_text(group, t.text, |s| s))
+                            .child("New agent")
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .text_size(px(11.5))
+                                    .text_color(t.text_4)
+                                    .child("No agents yet"),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            } else if collapsed {
+                list.push(
+                    div()
+                        .pl(px(32.))
+                        .pr(px(14.))
+                        .pb(px(6.))
+                        .text_size(px(12.))
+                        .text_color(t.text_3)
+                        .child(summarize(&g.agents))
+                        .into_any_element(),
+                );
+            } else {
+                for (i, a) in g.agents.iter().enumerate() {
+                    let selected = focused.as_deref() == Some(a.id.as_str());
+                    let cursor = kb && self.cursor.as_deref() == Some(a.id.as_str());
+                    list.push(
+                        self.agent_row(a, start + i, selected, cursor, g.can_create, t, cx)
+                            .into_any_element(),
+                    );
+                    list.extend(self.wt_agent(a, t, cx));
+                }
+                list.extend(self.wt_others(&g.key, &g.agents, t, cx));
+            }
+        }
+        list
     }
 
     fn project_head(
@@ -430,6 +482,103 @@ impl MainScreen {
             })
     }
 
+    /// An account's header in the sidebar grouped by account: its name and
+    /// login, needs-you and agent counts, "Open as space"; folds its
+    /// projects; right-click for its menu.
+    fn account_head(&self, sec: &AccountSection, collapsed: bool, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let default = sec.account == pitwall_core::accounts::DEFAULT;
+        let (name, sub) = if default {
+            ("Default".to_string(), "your own logins".to_string())
+        } else {
+            let m = crate::accounts::model(cx);
+            let (name, kind) = {
+                let m = m.read(cx);
+                let a = m.list.get(&sec.account);
+                (a.map(|a| a.name.clone()).unwrap_or_else(|| sec.account.clone()), a.map(|a| a.kind.clone()).unwrap_or_default())
+            };
+            let login = m.update(cx, |m, _| m.login(&kind, Some(&sec.account)));
+            let kind_name = m.read(cx).kind(&kind).map(|k| k.name).unwrap_or(kind);
+            (name, login.map(|l| format!("{kind_name} · {l}")).unwrap_or(kind_name))
+        };
+        let (key, k_menu, k_space) = (sec.key.clone(), sec.account.clone(), sec.account.clone());
+        let (n_menu, n_space) = (name.clone(), name.clone());
+        div()
+            .id(SharedString::from(format!("acct-{}", sec.key)))
+            .group("account-head")
+            .flex()
+            .items_center()
+            .pl(px(8.))
+            .pr(px(6.))
+            .pt(px(8.))
+            .pb(px(2.))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, e: &MouseDownEvent, window, cx| {
+                    this.account_menu(&k_menu, &n_menu, e.position, window, cx);
+                }),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("acct-toggle-{}", sec.key)))
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(4.))
+                    .py(px(3.))
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .tooltip(tooltip(format!("{name} — {sub}")))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let k = key.clone();
+                        this.update_ui(|s| s.toggle_collapsed(&k), cx);
+                    }))
+                    .child(chevron(SharedString::from(format!("acct-chev-{}", sec.key)), !collapsed, 12., t.text_3))
+                    .child(icon("user", 12., t.text_3))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text_2)
+                            .group_hover_text("account-head", t.text, |s| s)
+                            .child(name),
+                    )
+                    .child(div().min_w_0().ellipsis().text_size(px(11.)).text_color(t.text_4).child(crate::kit::one_line(sub)))
+                    .child(div().flex_1())
+                    .when(sec.blocked > 0, |d| {
+                        d.child(
+                            crate::kit::text_glow(
+                                div().font_family(MONO_FONT).text_size(px(10.5)).text_color(t.amber).child(format!("▲ {}", sec.blocked)),
+                                t.amber_glow,
+                                8.,
+                            )
+                            .flex_none(),
+                        )
+                    })
+                    .child(div().flex_none().font_family(MONO_FONT).text_size(px(11.)).text_color(t.text_3).child(sec.agents.to_string())),
+            )
+            .when(sec.agents > 0, |d| {
+                d.child(
+                    div().invisible().group_hover_probed("account-head", |s| s.visible()).child(
+                        icon_btn(format!("acct-space-{}", sec.key), "grid", "Open as space", true, t)
+                            .on_click(cx.listener(move |this, _, _, cx| this.open_account_space(&k_space, &n_space, cx))),
+                    ),
+                )
+            })
+    }
+
+    /// An account header's right-click menu.
+    fn account_menu(&mut self, account: &str, name: &str, at: gpui::Point<gpui::Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let (a, n) = (account.to_string(), name.to_string());
+        let items = vec![
+            MenuItem::new("grid", "Open as space", move |this, _, cx| this.open_account_space(&a, &n, cx)),
+            MenuItem::new("", "Group by project", |this, _, cx| this.set_sidebar_group(SidebarGroup::Project, cx)),
+        ];
+        self.open_menu(at, items, window, cx);
+    }
+
     fn project_menu(
         &mut self,
         project: &str,
@@ -451,6 +600,9 @@ impl MainScreen {
             let p = project.to_string();
             items.push(MenuItem::new("", "Accounts…", move |this, window, cx| {
                 this.open_project_accounts(p.clone(), window, cx)
+            }));
+            items.push(MenuItem::new("", "Group by account", |this, _, cx| {
+                this.set_sidebar_group(SidebarGroup::Account, cx)
             }));
         }
         self.open_menu(at, items, window, cx);
@@ -540,7 +692,8 @@ impl MainScreen {
         }
         let blocked = a.status == Status::Blocked;
         let dim = matches!(a.status, Status::Exited | Status::Stopped);
-        let account = crate::accounts::name_of(cx, a.account.as_deref());
+        // Grouped by account, the heading already says it.
+        let account = crate::accounts::name_of(cx, a.account.as_deref()).filter(|_| self.ui.sidebar_group != SidebarGroup::Account);
         let (id_click, id_menu) = (a.id.clone(), a.clone());
         let drag = AgentDrag {
             id: a.id.clone(),

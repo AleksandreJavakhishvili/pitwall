@@ -164,6 +164,9 @@ pub enum LayerEvent {
         agents: Vec<AgentView>,
         failures: Vec<String>,
     },
+    /// An agent started from Settings (an account's login): show it and
+    /// focus its terminal.
+    Show(Box<AgentView>),
 }
 
 /// The overlays of one window: Settings, About and the full-window
@@ -239,7 +242,7 @@ impl Layer {
                 // Logging in to an account: its agent, in the window.
                 SettingsEvent::Started(view) => {
                     this.close(cx);
-                    cx.emit(LayerEvent::HandOver { agents: vec![(**view).clone()], failures: vec![] });
+                    cx.emit(LayerEvent::Show(view.clone()));
                 }
             });
             self._subs.push(sub);

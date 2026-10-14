@@ -34,7 +34,8 @@ pub fn review_space(sp: Option<&workspace::Space>) -> Space {
             project: sp.project.clone().unwrap_or_default(),
             members,
         },
-        SpaceKind::Custom => Space::Custom {
+        // An account space reviews the agents it holds, like a custom one.
+        SpaceKind::Account | SpaceKind::Custom => Space::Custom {
             name: sp.name.clone(),
             members,
         },

@@ -39,8 +39,10 @@ pub enum DialogEvent {
     Close,
     Created(Box<AgentView>),
     OpenTerminal(String),
-    /// Move these agents to this account (`None`: the user's own; its name).
-    MoveAgents(Vec<String>, Option<String>, String),
+    /// Move these agents of `kind` in `project` to this account (`None`:
+    /// the user's own) named `name`; one not logged in yet logs in first
+    /// (`login`: start its login terminal in the project).
+    MoveAgents { ids: Vec<String>, account: Option<String>, name: String, kind: String, project: String, login: bool },
 }
 
 /// The modal frame: backdrop, box, title with ✕ (`Modal.tsx`).
@@ -1560,11 +1562,8 @@ impl NewAgentDialog {
 pub struct ProjectAccountsDialog {
     engine: Option<Shared>,
     project: String,
-    /// The project's agents (to offer moving them along).
+    /// The project's agents (they move along to its new account).
     agents: Vec<AgentView>,
-    /// Just picked for this kind: (kind, account, its name), to offer
-    /// moving the project's agents of that kind too.
-    picked: Option<(String, Option<String>, String)>,
     /// A new account being named, for this kind.
     adding: Option<(String, Entity<TextInput>)>,
     busy: bool,
@@ -1579,21 +1578,25 @@ impl ProjectAccountsDialog {
     pub fn new(engine: Option<Shared>, project: String, agents: Vec<AgentView>, cx: &mut Context<Self>) -> Self {
         let m = crate::accounts::model(cx);
         let subs = vec![cx.observe(&m, |_, _, cx| cx.notify())];
-        ProjectAccountsDialog { engine, project, agents, picked: None, adding: None, busy: false, error: None, _subs: subs, _task: None }
+        ProjectAccountsDialog { engine, project, agents, adding: None, busy: false, error: None, _subs: subs, _task: None }
     }
 
     fn pick(&mut self, kind: &str, id: Option<&str>, name: String, cx: &mut Context<Self>) {
         let (m, project) = (crate::accounts::model(cx), self.project.clone());
         if let Err(e) = m.update(cx, |m, cx| m.set_project_default(&project, kind, id, cx)) {
             self.error = Some(e);
+            return cx.notify();
         }
-        self.picked = Some((kind.to_string(), id.map(String::from), name));
-        cx.notify();
+        // The project's agents of that kind follow at once (restarted there,
+        // their conversations with them); an account not logged in yet logs
+        // in first.
+        let account = id.map(String::from);
+        cx.emit(DialogEvent::MoveAgents { ids: self.movers(kind, &account), account, name, kind: kind.into(), project, login: true });
     }
 
     /// The project's agents of `kind` on another account than `account`.
-    fn movers(&self, kind: &str, account: &Option<String>) -> Vec<&AgentView> {
-        self.agents.iter().filter(|a| a.kind == kind && a.account != *account && !a.engineer).collect()
+    fn movers(&self, kind: &str, account: &Option<String>) -> Vec<String> {
+        self.agents.iter().filter(|a| a.kind == kind && a.account != *account && !a.engineer).map(|a| a.id.clone()).collect()
     }
 
     fn start_adding(&mut self, kind: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -1641,10 +1644,16 @@ impl ProjectAccountsDialog {
         self.busy = true;
         let req = crate::accounts::login_request(&kind, &account.id, &project);
         let task = cx.background_executor().spawn(async move { pitwall_core::engine::lifecycle::create(&engine, req) });
+        // Once it's logged in, the project's agents of that kind move there.
+        let ids = self.movers(&kind, &Some(account.id.clone()));
+        let then = DialogEvent::MoveAgents { ids, account: Some(account.id.clone()), name: account.name.clone(), kind, project, login: false };
         self._task = Some(cx.spawn(async move |this, cx| {
             let res = task.await;
             let _ = this.update(cx, |d, cx| match res {
-                Ok(view) => cx.emit(DialogEvent::Created(Box::new(view))),
+                Ok(view) => {
+                    cx.emit(then);
+                    cx.emit(DialogEvent::Created(Box::new(view)));
+                }
                 Err(e) => {
                     d.busy = false;
                     d.error = Some(e);
@@ -1715,38 +1724,12 @@ impl ProjectAccountsDialog {
             );
         }
         let busy = self.busy;
-        // Picked just now, with the project's agents of this kind elsewhere:
-        // move them along (conversations go with them).
-        let offer = self.picked.as_ref().filter(|(k, ..)| *k == def.id).and_then(|(_, acc, name)| {
-            let movers = self.movers(&def.id, acc);
-            (!movers.is_empty()).then(|| (movers.iter().map(|a| a.id.clone()).collect::<Vec<_>>(), acc.clone(), name.clone()))
-        });
         div()
             .flex()
             .flex_col()
             .gap(px(8.))
             .child(field_label(&def.name, t))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
-            .when_some(offer, |d, (ids, acc, name)| {
-                let n_ = ids.len();
-                let what = if n_ == 1 { format!("1 {} agent", def.name) } else { format!("{n_} {} agents", def.name) };
-                d.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .px(px(10.))
-                        .py(px(8.))
-                        .rounded(RADIUS)
-                        .bg(t.surface_2)
-                        .child(div().flex_1().text_size(px(12.5)).text_color(t.text_2).child(format!("Move the project's {what} to {name} too? Their conversations go with them.")))
-                        .child(
-                            button(("pa-move", n), BtnKind::Primary, false, t)
-                                .on_click(cx.listener(move |_, _, _, cx| cx.emit(DialogEvent::MoveAgents(ids.clone(), acc.clone(), name.clone()))))
-                                .child("Move them"),
-                        ),
-                )
-            })
             .when_some(adding, |d, input| {
                 d.child(
                     div()
@@ -1792,7 +1775,7 @@ impl Render for ProjectAccountsDialog {
                 .child(
                     body()
                         .child(hint(
-                            format!("The login new agents in {project} run on. Agents already running keep theirs; right-click one to move it."),
+                            format!("The login {project}'s agents run on. Picking one moves its agents there too, conversations included; one not logged in yet opens its login first."),
                             &t,
                         ))
                         .children(rows)

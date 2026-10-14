@@ -40,6 +40,8 @@ pub fn fold_min(density: Density, base_font: f64) -> MinSize {
 pub enum SpaceKind {
     All,
     Project,
+    /// The agents running on one account (`Space::account`).
+    Account,
     Custom,
 }
 
@@ -52,6 +54,9 @@ pub struct Space {
     /// Project spaces: the project path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// Account spaces: the account's id (`default`: the user's own logins).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     /// Custom spaces: agents that belong here (panes or chips).
     #[serde(default)]
     pub members: Vec<String>,
@@ -115,10 +120,32 @@ impl Space {
                         || self.members.contains(&a.id)
                         || shown.contains(&a.id)
                 }
+                SpaceKind::Account => {
+                    Some(account_key(a)) == self.account.as_deref()
+                        || self.members.contains(&a.id)
+                        || shown.contains(&a.id)
+                }
                 SpaceKind::Custom => self.members.contains(&a.id) || shown.contains(&a.id),
             })
             .collect()
     }
+}
+
+/// The account an agent runs on, as spaces and the sidebar key it
+/// (`default`: the user's own login).
+pub fn account_key(a: &AgentView) -> &str {
+    a.account.as_deref().unwrap_or(pitwall_core::accounts::DEFAULT)
+}
+
+/// How the sidebar groups agents (`sidebarGroup` in ui.json).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarGroup {
+    /// Project, then its agents.
+    #[default]
+    Project,
+    /// Account, then project, then agents.
+    Account,
 }
 
 fn empty_layout() -> Node {
@@ -203,6 +230,9 @@ pub struct UiState {
     /// Settings: hide the sidebar's "Elsewhere" group.
     #[serde(default, deserialize_with = "strict_true")]
     pub hide_elsewhere: bool,
+    /// Settings → General → Group agents by.
+    #[serde(default, deserialize_with = "lenient")]
+    pub sidebar_group: SidebarGroup,
     /// Settings → Appearance → Theme.
     #[serde(default, deserialize_with = "lenient")]
     pub theme: crate::theme::ThemePref,
@@ -273,6 +303,7 @@ impl Default for UiState {
                 name: "All".into(),
                 kind: SpaceKind::All,
                 project: None,
+                account: None,
                 members: vec![],
                 focused_pane_id: Some(layout.id().to_string()),
                 layout,
@@ -287,6 +318,7 @@ impl Default for UiState {
             collapsed: vec![],
             wall_collapsed: vec![],
             hide_elsewhere: false,
+            sidebar_group: SidebarGroup::Project,
             theme: Default::default(),
             look: Default::default(),
             reduce_motion: false,
@@ -602,6 +634,39 @@ impl UiState {
             name: name.to_string(),
             kind: SpaceKind::Project,
             project: Some(project.to_string()),
+            account: None,
+            members: vec![],
+            focused_pane_id: Some(layout.leaves()[0].id.clone()),
+            layout,
+            maximized_pane_id: None,
+            density: None,
+        });
+        next.window_of.insert(id.clone(), label.to_string());
+        (next, id)
+    }
+
+    /// A space tiling the agents on one account (`account_key`; reused if it
+    /// exists), owned by `label`.
+    pub fn open_account_space(self, account: &str, name: &str, agents: &[AgentView], label: &str) -> (UiState, String) {
+        if let Some(sp) = self.spaces.iter().find(|s| s.kind == SpaceKind::Account && s.account.as_deref() == Some(account)) {
+            let id = sp.id.clone();
+            return (self, id);
+        }
+        let ids: Vec<String> = agents.iter().filter(|a| account_key(a) == account).map(|a| a.id.clone()).collect();
+        let preset = preset_for(ids.len());
+        let chosen: Vec<String> = ids.into_iter().take(preset.count()).collect();
+        let mut next = self;
+        for id in &chosen {
+            next = next.unplace(id, None);
+        }
+        let layout = build_preset(preset_for(chosen.len()), &chosen);
+        let id = tree::new_id("space");
+        next.spaces.push(Space {
+            id: id.clone(),
+            name: name.to_string(),
+            kind: SpaceKind::Account,
+            project: None,
+            account: Some(account.to_string()),
             members: vec![],
             focused_pane_id: Some(layout.leaves()[0].id.clone()),
             layout,
@@ -659,6 +724,7 @@ impl UiState {
             name: format!("Space {n}"),
             kind: SpaceKind::Custom,
             project: None,
+            account: None,
             members: vec![],
             focused_pane_id: Some(layout.id().to_string()),
             layout,
@@ -1087,6 +1153,26 @@ mod tests {
         let (s5, out, p) = s.drop_on_space(ALL_SPACE, "c", None);
         assert_eq!(out, DropOutcome::Placed);
         assert_eq!(s5.locate("c").unwrap().pane_id, p.unwrap());
+    }
+
+    #[test]
+    fn account_spaces_hold_the_agents_on_that_account() {
+        let mut list = agents();
+        list[0].account = Some("claude-work".into());
+        list[2].account = Some("claude-work".into());
+        let (s, id) = UiState::default().open_account_space("claude-work", "Work", &list, MAIN);
+        let sp = s.space(&id).unwrap();
+        assert_eq!((sp.kind, sp.account.as_deref()), (SpaceKind::Account, Some("claude-work")));
+        assert_eq!(sp.layout.agents(), vec!["a".to_string(), "c".to_string()]);
+        let ids: Vec<&str> = sp.members_of(&list).iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, ["a", "c"]);
+        let (s, again) = s.open_account_space("claude-work", "Work", &list, MAIN);
+        assert_eq!(id, again, "reused");
+        let (s, own) = s.open_account_space("default", "Default", &list, MAIN);
+        assert_eq!(s.space(&own).unwrap().layout.agents(), vec!["b".to_string()]);
+        let json = serde_json::to_value(&s).unwrap();
+        let back: UiState = serde_json::from_value(json).unwrap();
+        assert_eq!(back.space(&id).unwrap().account.as_deref(), Some("claude-work"), "kept in ui.json");
     }
 
     #[test]

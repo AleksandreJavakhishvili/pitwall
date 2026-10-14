@@ -93,6 +93,11 @@ impl MainView {
                         s.hand_over(&ids, window, cx);
                     });
                 }
+                crate::settings::LayerEvent::Show(view) => {
+                    let Some(screen) = this.screen.clone() else { return };
+                    let view = (**view).clone();
+                    screen.update(cx, |s, cx| s.created(view, window, cx));
+                }
             },
         ));
         let focus = cx.focus_handle();

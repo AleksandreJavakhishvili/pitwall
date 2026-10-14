@@ -20,6 +20,15 @@ Show agents running in other terminal apps as a sidebar group (read-only, checke
 - **Stored in:** `ui.json` → `hideElsewhere` (the opposite: `true` there means `false` here)
 - **When an agent changes it:** applies directly
 
+### `general.sidebarGroup`
+
+How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on), then project.
+
+- **Values:** one of project, account
+- **Default:** `project`
+- **Stored in:** `ui.json` → `sidebarGroup`
+- **When an agent changes it:** applies directly
+
 ### `general.cliTool`
 
 The `pitwall` command-line tool is installed (a link in a folder on PATH). true installs it; delete the link to remove it.

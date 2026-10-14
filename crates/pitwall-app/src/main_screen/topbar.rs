@@ -431,6 +431,7 @@ impl MainScreen {
             let tip: SharedString = match s.kind {
                 SpaceKind::Project => s.project.clone().unwrap_or_default().into(),
                 SpaceKind::All => "Every agent".into(),
+                SpaceKind::Account => format!("Agents on {}", s.name).into(),
                 SpaceKind::Custom => "Custom space — drag agents here".into(),
             };
             let id = s.id.clone();

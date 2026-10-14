@@ -52,6 +52,11 @@ pub fn model(cx: &mut App) -> Entity<AccountsModel> {
     m
 }
 
+/// The accounts' ids in their order (empty before the model is made).
+pub fn ids(cx: &App) -> Vec<String> {
+    cx.try_global::<Handle>().map(|h| h.0.read(cx).list.accounts.iter().map(|a| a.id.clone()).collect()).unwrap_or_default()
+}
+
 /// The display name of account `id` (`None`: the user's own).
 pub fn name_of(cx: &mut App, id: Option<&str>) -> Option<String> {
     let id = id?;
