@@ -17,7 +17,7 @@ use pitwall_proto::{
     RulesApply, RulesDefault, RulesFailed, RulesImport, RulesImported, RulesOverview, RulesReapplied, RulesReapply, RulesShow, Status, WaitResult,
 };
 
-use pitwall_proto::{ProjectAssign, ProjectGenerate, ProjectRef, ProjectUnassign, ProjectUpdate};
+use pitwall_proto::{LibraryAdded, LibraryNew, ProjectAssign, ProjectGenerate, ProjectRef, ProjectUnassign, ProjectUpdate};
 
 use crate::approvals::{Ask, Decision};
 use crate::identity::Caller;
@@ -302,7 +302,7 @@ pub fn rules_list(s: &Server) -> Res {
         via: st.via.map(String::from),
         files: rules::library_files(&d)
             .into_iter()
-            .map(|f| RuleFileView { id: f.id, description: f.description, targets: f.targets, source: f.source })
+            .map(|f| RuleFileView { id: f.id, description: f.description, targets: f.targets, source: f.source, skill: f.skill })
             .collect(),
         agents: rules::agent_rules(&s.engine).into_iter().map(info).collect(),
     })
@@ -448,6 +448,41 @@ pub fn rules_import(s: &Server, caller: &Caller, r: RulesImport) -> Res {
     }
     let res = rules::import(&dirs(s), ImportRequest { kind: r.kind, source: source.to_string() }).map_err(other)?;
     ok(RulesImported { added: res.added, log: res.log })
+}
+
+/// A new rule or skill in the library; replacing one asks.
+pub fn library_new(s: &Server, caller: &Caller, r: LibraryNew) -> Res {
+    let d = dirs(s);
+    let what = if r.skill { "skill" } else { "rule" };
+    let exists = rules::library_has(&d, r.skill, &r.name).map_err(bad)?;
+    if exists && !r.overwrite {
+        return Err(ErrorBody::new(code::CONFLICT, format!("the library already has a {what} called {}: pass --overwrite (asks)", r.name)));
+    }
+    if exists {
+        approve(
+            s,
+            caller,
+            method::RULES_LIBRARY_NEW,
+            format!("replace the {what} \"{}\" in Pitwall's library", r.name),
+            vec![
+                format!("The {what} now in the library is replaced{}.", if r.skill { " with all its files" } else { "" }),
+                "Projects that have a copy keep theirs and see an update.".into(),
+            ],
+            Risk::Low,
+            "Nothing was replaced.",
+        )?;
+    }
+    let entry = rules::NewEntry {
+        skill: r.skill,
+        name: r.name,
+        description: r.description,
+        targets: r.targets,
+        from: r.from,
+        convert: r.convert,
+        overwrite: exists,
+    };
+    let (id, notes) = rules::new_entry(&d, &entry).map_err(bad)?;
+    ok(LibraryAdded { id, notes })
 }
 
 // ------------------------------------------------------------ project rules

@@ -239,6 +239,39 @@ pub struct RuleFileView {
     pub description: Option<String>,
     pub targets: Vec<String>,
     pub source: String,
+    /// A skill (`<source>:skills/<name>`), not a rule.
+    #[serde(default)]
+    pub skill: bool,
+}
+
+/// `rules.library.new`: a new rule or skill in the library.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryNew {
+    /// A skill (else a rule).
+    #[serde(default)]
+    pub skill: bool,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub targets: Vec<String>,
+    /// A library id, a file, or a skill's folder to start from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// `from` is the other kind (a skill to make a rule of, or the reverse).
+    #[serde(default)]
+    pub convert: bool,
+    /// Replace one of that name (asks the user).
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryAdded {
+    pub id: String,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -723,6 +756,10 @@ mod tests {
         round_trip(&RulesApply { agent_id: "a1".into(), set: Some("s".into()), main_checkout: false }, json!({"agentId":"a1","set":"s","mainCheckout":false}));
         round_trip(&RulesDefault { project: "/p".into(), set: None }, json!({"project":"/p","set":null}));
         round_trip(&RulesShow { project: Some("/p".into()), agent_id: None }, json!({"project":"/p"}));
+        round_trip(
+            &LibraryNew { skill: true, name: "review".into(), description: None, targets: vec![], from: None, convert: false, overwrite: false },
+            json!({"skill":true,"name":"review","targets":[],"convert":false,"overwrite":false}),
+        );
         round_trip(&RulesReapply { project: Some("/p".into()), set: None }, json!({"project":"/p"}));
         round_trip(&RuleSetSave { id: None, name: "Web".into(), rule_ids: vec!["library:a.md".into()] }, json!({"name":"Web","ruleIds":["library:a.md"]}));
         round_trip(&RulesImport { kind: "git".into(), source: "https://x/r.git".into() }, json!({"kind":"git","source":"https://x/r.git"}));
