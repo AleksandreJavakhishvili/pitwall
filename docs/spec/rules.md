@@ -39,6 +39,26 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
 - Rules only affect new sessions; after edits show "Re-apply & restart" on
   affected agents.
 
+## Agents rulesync doesn't cover (Gemini CLI, Aider)
+rulesync has no target for them, so Pitwall writes their rules itself, from
+the agent definition's `rules_fallback` (`target`, `file`, `args`,
+`alt_file`, `alt_args`; docs/reference/agents.md):
+- The file is the effective rules' bodies (frontmatter stripped; a rule
+  counts when its `targets` include the fallback's `target`, `*`, or it has
+  none), in the same order as above, under a one-line "written by Pitwall"
+  comment. rulesync isn't needed.
+- It goes to `file` unless that is the project's own (tracked by git, or
+  not written by Pitwall), else to `alt_file`; never over a tracked file or
+  someone else's. Gemini CLI: `GEMINI.md`, else `.gemini/pitwall-rules.md`.
+  Aider: `.aider.pitwall-rules.md`.
+- Recorded in the agent's apply record (files, hashes, fingerprint) and
+  listed in `.git/info/exclude` exactly like rulesync's output; removed when
+  rules are unassigned; the main-checkout confirmation applies the same way.
+- Agents that must be pointed at the file get `args` / `alt_args` (`{file}`
+  = its absolute path) on fresh starts: Aider `--read <file>`; Gemini CLI,
+  when the rules went to `alt_file`, `--prompt-interactive "Read <file>
+  first: …"`. A resumed conversation already has them.
+
 ## API
 `rules_status` → `{ available: boolean, via: "rulesync"|"npx"|null, version?: string }`,
 `list_rule_library` → `RuleFile[] {id, path, description, targets, root}`,

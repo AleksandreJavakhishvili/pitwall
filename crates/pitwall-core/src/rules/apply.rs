@@ -21,6 +21,7 @@ use crate::vcs::git::Git;
 use super::library::{self, front_block};
 use super::runner::{self, Runner};
 use super::{EffectiveRule, GenFile, RuleFile};
+use crate::kind::RulesFallback;
 
 /// One rule file as handed to rulesync.
 #[derive(Debug, Clone, PartialEq)]
@@ -299,6 +300,119 @@ pub struct Outcome {
     pub files: Vec<GenFile>,
     pub log: Vec<String>,
     pub exclude_file: Option<String>,
+    /// For the agent's fresh starts (a fallback file it is pointed at).
+    pub launch_args: Vec<String>,
+}
+
+/// Nothing is at `dest`, or only the file Pitwall wrote there (as `rel`)
+/// last time, unchanged since.
+fn free(exec: &dyn Exec, dest: &str, rel: &str, previous: &[GenFile]) -> bool {
+    let Ok(Some(st)) = exec.stat(dest) else { return true };
+    st.kind == FileKind::File
+        && previous.iter().find(|g| g.path == rel).is_some_and(|g| {
+            exec.read_file(dest, u64::MAX).ok().flatten().is_some_and(|b| content_hash(&b) == g.hash)
+        })
+}
+
+/// List `files` in the repo's info/exclude under this agent's block.
+fn exclude(exec: &dyn Exec, cwd: &str, agent_id: &str, files: &[GenFile], log: &mut Vec<String>) -> Result<Option<String>, String> {
+    match exclude_target(exec, cwd) {
+        Some((file, prefix)) => {
+            let rel: Vec<String> = files.iter().map(|f| format!("{prefix}{}", f.path)).collect();
+            write_exclude(exec, &file, agent_id, &rel)?;
+            Ok(Some(file))
+        }
+        None => {
+            if !files.is_empty() {
+                log.push("not a git repository: generated files are not excluded from anything".into());
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// The first line of a fallback file.
+pub const FALLBACK_HEADER: &str =
+    "<!-- Written by Pitwall from your rules (Settings → Rules). Pitwall rewrites this file when rules are applied and keeps it out of git. -->";
+
+fn body(src: &str) -> &str {
+    match front_block(src) {
+        Some((_, end)) => src[end..].trim(),
+        None => src.trim(),
+    }
+}
+
+/// The text of a fallback file: the bodies of the rules that apply to
+/// `target` (staged ones in order, then the working folder's own), without
+/// frontmatter. `None` when no rule applies.
+pub fn fallback_text(inputs: &Inputs, target: &str) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    for s in &inputs.staged {
+        let src = String::from_utf8_lossy(&s.content);
+        if applies_to(&library::parse_front(&src).targets, target) {
+            parts.push(body(&src).to_string());
+        }
+    }
+    if let Some(root) = &inputs.project_root {
+        for f in library::rules_in("project", root) {
+            if applies_to(&f.targets, target) {
+                parts.push(body(&std::fs::read_to_string(&f.path).unwrap_or_default()).to_string());
+            }
+        }
+    }
+    parts.retain(|p| !p.is_empty());
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("{FALLBACK_HEADER}\n\n{}\n", parts.join("\n\n")))
+}
+
+/// For an agent rulesync doesn't cover: Pitwall writes [`fallback_text`]
+/// itself into `fb.file`, or `fb.alt_file` when `fb.file` is the project's
+/// own (tracked, or not written by Pitwall), with the same care as
+/// rulesync's output: never over a tracked file or someone else's, earlier
+/// files cleaned up, everything listed in info/exclude.
+pub fn fallback(exec: &dyn Exec, agent_id: &str, cwd: &str, fb: &RulesFallback, inputs: &Inputs, previous: &[GenFile]) -> Result<Outcome, String> {
+    let mut log: Vec<String> = inputs.missing.iter().map(|id| format!("rule {id} is no longer in the library; skipped")).collect();
+    let mut files = Vec::new();
+    let mut launch_args = Vec::new();
+    match fallback_text(inputs, &fb.target) {
+        None => log.push(format!("No rule applies to {}: nothing to write.", fb.target)),
+        Some(text) => {
+            let mut places = vec![(fb.file.as_str(), &fb.args)];
+            if let Some(alt) = &fb.alt_file {
+                places.push((alt.as_str(), &fb.alt_args));
+            }
+            let rels: Vec<String> = places.iter().map(|(r, _)| r.to_string()).collect();
+            let tracked = tracked(exec, cwd, &rels);
+            for (rel, args) in places {
+                if !safe_rel(rel) {
+                    log.push(format!("skipped unexpected path {rel}"));
+                    continue;
+                }
+                let dest = exec::join(cwd, rel);
+                if tracked.contains(rel) {
+                    log.push(format!("kept the project's {rel} (tracked by git; Pitwall never changes tracked files)"));
+                    continue;
+                }
+                if !free(exec, &dest, rel, previous) {
+                    log.push(format!("kept the existing {rel} (not written by Pitwall)"));
+                    continue;
+                }
+                exec.write_file(&dest, text.as_bytes()).map_err(|e| format!("could not write {rel}: {e}"))?;
+                files.push(GenFile { path: rel.to_string(), hash: content_hash(text.as_bytes()) });
+                launch_args = args.iter().map(|a| a.replace("{file}", &dest)).collect();
+                break;
+            }
+            if files.is_empty() {
+                log.push("The rules were not written: there is no free file for them.".into());
+            }
+        }
+    }
+    let stale: Vec<GenFile> = previous.iter().filter(|g| !files.iter().any(|f| f.path == g.path)).cloned().collect();
+    remove_generated(exec, cwd, &stale, &mut log);
+    let exclude_file = exclude(exec, cwd, agent_id, &files, &mut log)?;
+    Ok(Outcome { files, log, exclude_file, launch_args })
 }
 
 /// Run rulesync (here, in `stage`) and place its output in `cwd` on the
@@ -378,16 +492,9 @@ pub fn run(
             log.push(format!("kept the project's {rel} (tracked by git; Pitwall never changes tracked files)"));
             continue;
         }
-        if let Ok(Some(st)) = exec.stat(&dest) {
-            let ours = previous.iter().find(|g| &g.path == rel);
-            let unchanged = st.kind == FileKind::File
-                && ours.is_some_and(|g| {
-                    exec.read_file(&dest, u64::MAX).ok().flatten().is_some_and(|b| content_hash(&b) == g.hash)
-                });
-            if !unchanged {
-                log.push(format!("kept the existing {rel} (not written by Pitwall)"));
-                continue;
-            }
+        if !free(exec, &dest, rel, previous) {
+            log.push(format!("kept the existing {rel} (not written by Pitwall)"));
+            continue;
         }
         exec.write_file(&dest, &bytes).map_err(|e| format!("could not write {rel}: {e}"))?;
         files.push(GenFile { path: rel.clone(), hash: content_hash(&bytes) });
@@ -408,20 +515,8 @@ pub fn run(
         log.push("note: with a CLAUDE.md / CLAUDE.local.md present, Claude Code no longer falls back to AGENTS.md".into());
     }
 
-    let exclude_file = match exclude_target(exec, cwd) {
-        Some((file, prefix)) => {
-            let rel: Vec<String> = files.iter().map(|f| format!("{prefix}{}", f.path)).collect();
-            write_exclude(exec, &file, agent_id, &rel)?;
-            Some(file)
-        }
-        None => {
-            if !files.is_empty() {
-                log.push("not a git repository: generated files are not excluded from anything".into());
-            }
-            None
-        }
-    };
-    Ok(Outcome { files, log, exclude_file })
+    let exclude_file = exclude(exec, cwd, agent_id, &files, &mut log)?;
+    Ok(Outcome { files, log, exclude_file, launch_args: vec![] })
 }
 
 #[cfg(test)]

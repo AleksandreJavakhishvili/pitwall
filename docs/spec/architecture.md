@@ -328,7 +328,7 @@ transcripts = "claude-jsonl"  # which built-in parser lists its past conversatio
 
 Kind capabilities are derived from the definition and never hard-coded:
 `resume = !resume_args.is_empty()`, `worktree = !worktree_args.is_empty()`,
-`hooks = hooks != none`, `rules = rulesync_target.is_some()`. Conversation
+`hooks = hooks != none`, `rules = rulesync_target.is_some() || rules_fallback.is_some()`. Conversation
 discovery (today `scan::parse_claude_transcript` and
 `parse_codex_session`) becomes a registry of parsers keyed by `transcripts`.
 `scan.rs` then stops branching on "claude" or "codex".

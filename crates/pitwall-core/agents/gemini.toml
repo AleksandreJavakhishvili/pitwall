@@ -13,4 +13,14 @@ resume_args = ["--resume", "{session_id}"]
 assign_session_id = false
 hooks = "none"
 # No rulesync target for Gemini CLI in rulesync 27 (Gemini reads GEMINI.md;
-# rulesync only covers the Antigravity products), so none is set.
+# rulesync only covers the Antigravity products), so none is set, and
+# Pitwall writes the rules itself (docs/spec/rules.md): into GEMINI.md,
+# which Gemini CLI reads from its working folder, unless the project has its
+# own; then into a file of Pitwall's that each fresh start asks Gemini to
+# read first (`--prompt-interactive`: run this prompt, then stay interactive;
+# unverified, like the rest of this file).
+[rules_fallback]
+target = "geminicli"
+file = "GEMINI.md"
+alt_file = ".gemini/pitwall-rules.md"
+alt_args = ["--prompt-interactive", "Read {file} first: it holds the rules for working in this project. Follow them, then wait for my request."]

@@ -47,7 +47,8 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `resume_args` | list of strings | `[]` | Arguments added to continue a conversation. Empty: the kind can't resume, and Restart starts fresh. |
 | `assign_session_id` | boolean | `false` | Pitwall picks a new conversation id (a UUID) for each fresh start and fills it into `{session_id}` in `new_args`. |
 | `hooks` | string | required | How the agent reports its status: `claude-settings`, `codex-global` or `none` (see [Hooks](#hooks)). |
-| `rulesync_target` | string | none | The [rulesync](https://github.com/dyoshikawa/rulesync) target written when rules are applied for this kind (`claudecode`, `codexcli`, `cursor`, …). None: New agent doesn't offer rules for it. |
+| `rulesync_target` | string | none | The [rulesync](https://github.com/dyoshikawa/rulesync) target written when rules are applied for this kind (`claudecode`, `codexcli`, `cursor`, …). None: New agent doesn't offer rules for it, unless `rules_fallback` is set. |
+| `rules_fallback` | table | none | For a tool rulesync has no target for: Pitwall writes the rules into one file itself (see [Rules without rulesync](#rules-without-rulesync)). Ignored when `rulesync_target` is set. |
 | `worktree_args` | list of strings | `[]` | The agent's own "work in a new git worktree" flag, added when New agent's **Separate worktree** is ticked. `{name}` becomes a name Pitwall picks. Empty: no worktree option for this kind. Only for agents on this computer. |
 | `worktree_dirs` | list of strings | `[]` | Folders, relative to the agent's folder, where the tool makes worktrees of its own (`.claude/worktrees`). Worktrees found there are shown under the agent. |
 | `process_names` | list of strings | the program of `command` | Program names the agent runs as in the process table. Used to notice the agent when you start it by hand in a Pitwall terminal. |
@@ -63,6 +64,7 @@ Unknown keys are ignored.
 |---|---|---|
 | `{session_id}` | `new_args`, `resume_args` | The conversation id. In `new_args` it's only filled when `assign_session_id = true`; when there is no id, the argument holding it is left out. |
 | `{name}` | `worktree_args` | The worktree name Pitwall picked for this agent. |
+| `{file}` | `rules_fallback.args`, `rules_fallback.alt_args` | The absolute path of the rules file Pitwall wrote. |
 
 Every argument is shell-quoted before it's added to `command`, so an argument with spaces stays one argument. `command` itself is used as written.
 
@@ -71,13 +73,27 @@ Every argument is shell-quoted before it's added to `command`, so an argument wi
 Pitwall builds one command line and runs it with your login shell (`$SHELL -l -i -c`; PowerShell on Windows), so the agent sees the same PATH, logins and config as your terminal.
 
 1. `command`.
-2. When resuming a known conversation and `resume_args` isn't empty: `resume_args`. Otherwise `new_args` (with a new id when `assign_session_id = true`).
+2. When resuming a known conversation and `resume_args` isn't empty: `resume_args`. Otherwise `new_args` (with a new id when `assign_session_id = true`), then the `rules_fallback` arguments for the file that holds the agent's rules, if any.
 3. On a fresh start with **Separate worktree** ticked: `worktree_args`.
 4. With `hooks = "claude-settings"`: `--settings '<json>'` carrying Pitwall's hooks.
 
 For example, the bundled Claude Code definition starts `claude --session-id <uuid> --settings '…'` and resumes with `claude --resume <uuid> --settings '…'`.
 
 Pitwall knows a conversation's id when it chose it (`assign_session_id`), when a hook reports it (Codex), or when it's on the command line of an agent you started by hand in a Pitwall terminal, read through the kind's own `new_args` and `resume_args` (`--resume <id>`, `--resume=<id>`, `resume <id>`). Without an id, Restart starts a new conversation.
+
+## Rules without rulesync
+
+rulesync has no target for some tools (Gemini CLI, Aider). With `rules_fallback`, Pitwall still gives them rules: it joins the bodies of the rules the agent gets (frontmatter dropped; a rule counts when its `targets` include `target`, `*`, or it has no `targets`) into one file in the agent's folder. Like rulesync's output, the file is recorded for the agent, listed in `.git/info/exclude`, never written over a file git tracks or one Pitwall didn't write, and only written into a main checkout after you confirm.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `target` | string | required | The name rules' `targets` use for this tool (`geminicli`). |
+| `file` | string | required | The file to write, relative to the agent's folder (`GEMINI.md`). |
+| `args` | list of strings | `[]` | Added to fresh starts while `file` holds the rules (Aider: `["--read", "{file}"]`). |
+| `alt_file` | string | none | Where the rules go when `file` is the project's own. None: they aren't written then. |
+| `alt_args` | list of strings | `[]` | Added to fresh starts while `alt_file` holds the rules, to point the tool at it. |
+
+The bundled Gemini CLI definition writes `GEMINI.md` (which Gemini reads by itself); when the project has its own, it writes `.gemini/pitwall-rules.md` and starts Gemini with `--prompt-interactive "Read <file> first: …"`. The bundled Aider definition writes `.aider.pitwall-rules.md` and starts Aider with `--read <file>`.
 
 ## Hooks
 

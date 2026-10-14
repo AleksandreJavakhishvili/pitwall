@@ -32,7 +32,8 @@ pub struct KindCaps {
     pub worktree: bool,
     /// Resume args, and the provider can resume.
     pub resume: bool,
-    /// A rulesync target, and the provider can write rules where it works.
+    /// A rulesync target (or Pitwall's own fallback file), and the provider
+    /// can write rules where it works.
     pub rules: bool,
     /// Hooks, and the provider can deliver them.
     pub hooks: bool,
@@ -49,7 +50,7 @@ impl KindCaps {
         KindCaps {
             worktree: !kind.worktree_args.is_empty() && p.exec && p.process_cwd,
             resume: !kind.resume_args.is_empty() && p.resume,
-            rules: kind.rulesync_target.is_some() && p.rules,
+            rules: (kind.rulesync_target.is_some() || kind.rules_fallback.is_some()) && p.rules,
             hooks: kind.hooks != HookMode::None && p.hooks != HookTransport::None,
             custom_command: kind.id == crate::kind::CUSTOM && p.custom_command,
             accounts: kind.account_env.is_some() && p.local_process,

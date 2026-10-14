@@ -85,6 +85,7 @@ pub fn then_shell(
         assign_session_id: false,
         hooks: HookMode::None,
         rulesync_target: None,
+        rules_fallback: None,
         worktree_args: vec![],
         worktree_dirs: vec![],
         process_names: vec![],
