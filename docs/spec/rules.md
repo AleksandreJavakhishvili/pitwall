@@ -37,9 +37,12 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
   `pitwall rules show <project>` / `--agent <agent>` prints it.
 
 ## Skills (rulesync 27 format)
-Checked against rulesync 27.0.0's own source and bundled docs
+Checked against rulesync 27.0.0's own source and bundled docs, and run
+end to end with rulesync 33.0.0 (`cargo test -p pitwall-core real_rulesync
+-- --ignored`; rulesync drops a skill script's executable bit, which
+Pitwall restores from the source)
 (`src/features/skills/*`, `docs/reference/file-formats.md`,
-`docs/reference/cli-commands.md`); not run end to end here:
+`docs/reference/cli-commands.md`):
 - Source: `.rulesync/skills/<dir>/SKILL.md` + other files in the folder.
   Frontmatter: `name` and `description` required (name is used as a
   directory name: no separators, not `.`/`..`, no trailing dot/space),
@@ -96,7 +99,15 @@ user commits them (they show up in Review; nothing here goes in
   "import existing instructions" first: `rulesync import` runs in a scratch
   copy and only new files are added to `.rulesync/rules/` (named
   `<file>-<rule>.md`). Generation never replaces such a file before it is
-  imported (or explicitly named).
+  imported (or explicitly named). `rulesync import` makes each file a root
+  rule for every tool (`targets: ['*']`), which would merge CLAUDE.md and
+  AGENTS.md into each other on generation, so Pitwall then sets each
+  imported rule's `targets` (rest of the file byte for byte): CLAUDE.md's →
+  `claudecode`; GEMINI.md's → `geminicli`; AGENTS.md's → the targets in use
+  and the tools that read AGENTS.md except Claude Code when a CLAUDE.md was
+  imported too (otherwise `*`, so Claude Code still gets it). An import in
+  a later run adjusts earlier imported rules the same way while they are
+  unchanged since (per the manifest's `importedRules`), else reports them.
 - **Features**: `skills` when `.rulesync/skills/` has any; `rules` only when
   Pitwall copied rules in or imported the instruction files. A skills-only
   project never gets CLAUDE.md / AGENTS.md / GEMINI.md written (also

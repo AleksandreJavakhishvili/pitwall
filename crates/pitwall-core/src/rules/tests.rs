@@ -416,12 +416,15 @@ fn stale_agents_are_reapplied_in_bulk() {
 
 // ------------------------------------------------------------------ project rules
 
-/// A stand-in for rulesync: `generate` writes CLAUDE.md from the input
-/// roots' rules (CLAUDE.local.md for `localRoot` ones) into the output root
-/// with the `rules` feature, and copies each input root's
-/// `skills/<name>/` to `.claude/skills/<name>/` with `skills` (as rulesync
-/// does for claudecode); `import` turns the CLAUDE.md / AGENTS.md in its
-/// folder into `.rulesync/rules/overview.md`.
+/// A stand-in for rulesync, shaped like the real one (checked against
+/// rulesync 33): `generate` writes each target's file from the input
+/// roots' rules that apply to it (`targets` with the target or `*`, or
+/// none) — bodies only, joined by a blank line: claudecode → CLAUDE.md
+/// (`localRoot` rules → CLAUDE.local.md), codexcli → AGENTS.md — with the
+/// `rules` feature, and copies each input root's `skills/<name>/` to
+/// `.claude/skills/<name>/` with `skills`; `import` turns the CLAUDE.md or
+/// AGENTS.md in its folder into `.rulesync/rules/<file>` as a root rule for
+/// every tool, as `rulesync import` does.
 fn fake_rulesync(dir: &Path) -> Option<Runner> {
     // A shell script: not on Windows.
     if std::path::MAIN_SEPARATOR == '\\' {
@@ -431,7 +434,7 @@ fn fake_rulesync(dir: &Path) -> Option<Runner> {
     write(
         &script,
         r#"#!/bin/sh
-cmd=""; out=""; ins=""; mode=""; feats=""
+cmd=""; out=""; ins=""; mode=""; feats=""; tgts=""
 for a in "$@"; do
   case "$a" in
     --json) ;;
@@ -439,23 +442,31 @@ for a in "$@"; do
     --output-roots) mode=out ;;
     --input-roots) mode=in ;;
     --features) mode=feat ;;
-    --targets) mode=skip ;;
-    *) case "$mode" in out) out="$a"; mode="" ;; in) ins="$ins $a" ;; feat) feats="$a"; mode="" ;; skip) mode="" ;; esac ;;
+    --targets) mode=tgt ;;
+    *) case "$mode" in out) out="$a"; mode="" ;; in) ins="$ins $a" ;; feat) feats="$a"; mode="" ;; tgt) tgts="$a"; mode="" ;; esac ;;
   esac
 done
 if [ "$cmd" = import ]; then
   mkdir -p .rulesync/rules
-  for f in CLAUDE.md AGENTS.md; do [ -f "$f" ] && { printf -- '---\nroot: true\n---\n'; cat "$f"; } > .rulesync/rules/overview.md; done
+  for f in CLAUDE.md AGENTS.md; do [ -f "$f" ] && { printf -- "---\nroot: true\ntargets:\n  - '*'\nglobs:\n  - '**/*'\n---\n"; cat "$f"; } > ".rulesync/rules/$f"; done
   echo '{"success":true}'; exit 0
 fi
+targets_of() { awk 'NR==1&&/^---/{fm=1;next} fm&&/^---/{exit} fm&&/^targets:/{t=1; sub(/^targets:[ ]*/,""); print; next} fm&&t&&/^[ \t]/{print; next} fm{t=0}' "$1"; }
+applies() { tl=$(targets_of "$1"); [ -z "$(echo "$tl" | tr -d ' []')" ] && return 0; echo "$tl" | grep -q -e "\*" -e "$2"; }
+body() { awk 'NR==1&&/^---/{fm=1;next} fm&&/^---/{fm=0;next} !fm{print}' "$1"; }
+emit() { # target file local?
+  : > "$out/$2.tmp"; first=1
+  for r in $ins; do for f in "$r"/rules/*.md; do [ -f "$f" ] || continue
+    applies "$f" "$1" || continue
+    if grep -q 'localRoot: true' "$f"; then [ "$3" = local ] || continue; else [ "$3" = local ] && continue; fi
+    [ $first = 1 ] || echo >> "$out/$2.tmp"; first=0; body "$f" >> "$out/$2.tmp"
+  done; done
+  if [ $first = 0 ]; then mv "$out/$2.tmp" "$out/$2"; printf '{"action":"write","kind":"file","path":"%s"},' "$2" >> "$out/ops"; else rm "$out/$2.tmp"; fi
+}
 : > "$out/ops"
 case ",$feats," in *,rules,*)
-  : > "$out/CLAUDE.md"; local=""
-  for r in $ins; do for f in "$r"/rules/*.md; do [ -f "$f" ] || continue
-    if grep -q 'localRoot: true' "$f"; then cat "$f" >> "$out/CLAUDE.local.md"; local=1; else cat "$f" >> "$out/CLAUDE.md"; fi
-  done; done
-  printf '{"action":"write","kind":"file","path":"CLAUDE.md"},' >> "$out/ops"
-  [ -n "$local" ] && printf '{"action":"write","kind":"file","path":"CLAUDE.local.md"},' >> "$out/ops"
+  case ",$tgts," in *,claudecode,*) emit claudecode CLAUDE.md shared; emit claudecode CLAUDE.local.md local ;; esac
+  case ",$tgts," in *,codexcli,*) emit codexcli AGENTS.md shared ;; esac
 ;; esac
 case ",$feats," in *,skills,*)
   for r in $ins; do for d in "$r"/skills/*/; do [ -f "$d/SKILL.md" ] || continue
@@ -649,11 +660,11 @@ fn existing_instructions_are_imported_before_generating() {
 
     let stage = p.dirs.run().join("import");
     let r = project::import_existing(&p.repo, &runner, &stage).unwrap();
-    assert_eq!((r.files.clone(), r.added.clone()), (vec!["CLAUDE.md".to_string()], vec!["claude-overview.md".to_string()]));
-    assert!(std::fs::read_to_string(p.rule("claude-overview.md")).unwrap().contains("Always test."));
+    assert_eq!((r.files.clone(), r.added.clone()), (vec!["CLAUDE.md".to_string()], vec!["claude.md".to_string()]));
+    assert!(std::fs::read_to_string(p.rule("claude.md")).unwrap().contains("Always test."));
     let s = p.status();
     assert!(s.existing.is_empty());
-    assert!(s.rules.iter().any(|r| r.name == "claude-overview.md" && r.state == pitwall_proto::ProjectRuleState::Own));
+    assert!(s.rules.iter().any(|r| r.name == "claude.md" && r.state == pitwall_proto::ProjectRuleState::Own));
     let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
     assert_eq!(g.written, vec!["CLAUDE.md"]);
     let text = std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap();
@@ -978,4 +989,176 @@ fn importing_a_project_copies_its_claude_skills() {
     // Again: the library's own is kept.
     let r = import(&p.dirs, ImportRequest { kind: "project".into(), source: p.path() }).unwrap();
     assert!(r.added.is_empty() && r.log.contains("kept the library's own lint"), "{}", r.log);
+}
+
+/// Both CLAUDE.md and AGENTS.md imported (rulesync makes each a root rule
+/// for every tool): Pitwall gives each its own tools, so generating
+/// reproduces each file as it was instead of merging them.
+#[test]
+fn importing_both_instruction_files_keeps_them_apart() {
+    let p = Proj::new("import-both");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    write(&p.repo.join("CLAUDE.md"), "FROM CLAUDE\n");
+    write(&p.repo.join("AGENTS.md"), "FROM AGENTS\n");
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "both"]);
+    project_assign(&p.dirs, &p.path(), None, &["library:testing.md".into()], &[]).unwrap();
+    let r = project::import_existing(&p.repo, &runner, &p.dirs.run().join("i")).unwrap();
+    assert_eq!(r.added, vec!["claude.md", "agents.md"]);
+    let claude = std::fs::read_to_string(p.rule("claude.md")).unwrap();
+    // Only `targets` changed: rulesync's other lines and the body stay.
+    assert_eq!(claude, "---\nroot: true\ntargets: [\"claudecode\"]\nglobs:\n  - '**/*'\n---\nFROM CLAUDE\n");
+    let agents = library::parse_front(&std::fs::read_to_string(p.rule("agents.md")).unwrap());
+    assert!(agents.root && !agents.targets.contains(&"claudecode".to_string()) && agents.targets.contains(&"codexcli".to_string()), "{:?}", agents.targets);
+    // Without the copied testing.md rule (it applies everywhere), each file comes back as it was.
+    project_unassign(&p.path(), &["testing.md".into()], false).unwrap();
+    let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into(), "codexcli".into()], &[], Vec::new).unwrap();
+    assert_eq!(g.needs_confirm, Vec::<String>::new(), "{}", g.log);
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "FROM CLAUDE\n");
+    assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), "FROM AGENTS\n");
+}
+
+/// Only AGENTS.md: its rule still reaches Claude Code.
+#[test]
+fn an_imported_agents_md_alone_still_reaches_claude() {
+    let p = Proj::new("import-agents");
+    let Some(runner) = fake_rulesync(&p._t.0) else { return };
+    write(&p.repo.join("AGENTS.md"), "FROM AGENTS\n");
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "agents"]);
+    project_assign(&p.dirs, &p.path(), None, &["library:testing.md".into()], &[]).unwrap();
+    project::import_existing(&p.repo, &runner, &p.dirs.run().join("i")).unwrap();
+    assert_eq!(library::parse_front(&std::fs::read_to_string(p.rule("agents.md")).unwrap()).targets, vec!["*"]);
+    project_unassign(&p.path(), &["testing.md".into()], false).unwrap();
+    project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into(), "codexcli".into()], &[], Vec::new).unwrap();
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "FROM AGENTS\n");
+    assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), "FROM AGENTS\n");
+}
+
+/// Imported in two runs (AGENTS.md first, CLAUDE.md later): the earlier
+/// AGENTS.md rule stops going to Claude Code, if it's still as Pitwall
+/// left it; changed since, it is kept and reported.
+#[test]
+fn importing_in_two_runs_narrows_the_earlier_rule() {
+    for edited in [false, true] {
+        let p = Proj::new("import-two-runs");
+        let Some(runner) = fake_rulesync(&p._t.0) else { return };
+        write(&p.repo.join("AGENTS.md"), "FROM AGENTS\n");
+        sh(&p.repo, &["add", "-A"]);
+        sh(&p.repo, &["commit", "-qm", "agents"]);
+        project_assign(&p.dirs, &p.path(), None, &["library:testing.md".into()], &[]).unwrap();
+        project::import_existing(&p.repo, &runner, &p.dirs.run().join("i")).unwrap();
+        if edited {
+            let path = p.rule("agents.md");
+            let text = std::fs::read_to_string(&path).unwrap() + "Edited.\n";
+            write(&path, &text);
+        }
+        write(&p.repo.join("CLAUDE.md"), "FROM CLAUDE\n");
+        sh(&p.repo, &["add", "-A"]);
+        sh(&p.repo, &["commit", "-qm", "claude"]);
+        let r = project::import_existing(&p.repo, &runner, &p.dirs.run().join("j")).unwrap();
+        assert_eq!(r.files, vec!["CLAUDE.md"]);
+        let agents = library::parse_front(&std::fs::read_to_string(p.rule("agents.md")).unwrap()).targets;
+        if edited {
+            assert_eq!(agents, vec!["*"], "changed since the import: left alone");
+            assert!(r.log.contains("kept agents.md: changed since it was imported"), "{}", r.log);
+        } else {
+            assert!(!agents.contains(&"claudecode".to_string()) && !agents.contains(&"*".to_string()), "{agents:?}");
+            project_unassign(&p.path(), &["testing.md".into()], false).unwrap();
+            let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into(), "codexcli".into()], &[], Vec::new).unwrap();
+            assert!(g.needs_confirm.is_empty(), "{}", g.log);
+            assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "FROM CLAUDE\n");
+            assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), "FROM AGENTS\n");
+        }
+    }
+}
+
+#[test]
+fn targets_are_set_without_touching_the_rest() {
+    let s = |t: &[&str]| t.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    assert_eq!(project::set_targets("---\nroot: true\ntargets:\n  - '*'\nglobs: []\n---\nbody\n", &s(&["claudecode"])), "---\nroot: true\ntargets: [\"claudecode\"]\nglobs: []\n---\nbody\n");
+    assert_eq!(project::set_targets("---\nroot: true\n---\nbody", &s(&["a", "b"])), "---\nroot: true\ntargets: [\"a\", \"b\"]\n---\nbody");
+    assert_eq!(project::set_targets("plain\n", &s(&["*"])), "---\ntargets: [\"*\"]\n---\nplain\n");
+    let in_use = s(&["claudecode", "cursor"]);
+    assert_eq!(project::imported_targets("CLAUDE.md", true, &in_use), s(&["claudecode"]));
+    assert_eq!(project::imported_targets("AGENTS.md", false, &in_use), s(&["*"]));
+    let a = project::imported_targets("AGENTS.md", true, &in_use);
+    assert_eq!(a[0], "cursor");
+    assert!(a.contains(&"codexcli".to_string()) && !a.contains(&"claudecode".to_string()));
+    assert_eq!(project::imported_targets("GEMINI.md", true, &in_use), s(&["geminicli"]));
+}
+
+// ------------------------------------------------------------------ real rulesync
+// `cargo test -p pitwall-core real_rulesync -- --ignored`: runs the
+// `rulesync` on your PATH (never installs it) in fresh temp folders.
+
+fn installed_rulesync() -> Runner {
+    super::runner::runner(false).expect("these tests need `rulesync` on your PATH (npm install -g rulesync)")
+}
+
+/// Skills only: rulesync writes each target's skill folders (scripts stay
+/// executable) and leaves the project's CLAUDE.md / AGENTS.md alone.
+#[test]
+#[ignore]
+fn real_rulesync_skills_only() {
+    let r = installed_rulesync();
+    let p = Proj::new("real-skills");
+    write(&p.repo.join("CLAUDE.md"), "# Ours\n");
+    write(&p.repo.join("AGENTS.md"), "# Ours too\n");
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "instructions"]);
+    let dir = skill(&p.dirs, "review", "name: review\ndescription: Review a diff\ntargets: [\"*\"]\n", "Read it.\n");
+    write(&dir.join("run.sh"), "#!/bin/sh\necho ok\n");
+    crate::platform::make_executable(&dir.join("run.sh")).unwrap();
+    project_assign(&p.dirs, &p.path(), None, &["library:skills/review".into()], &[]).unwrap();
+    let g = project_generate_with(&p.dirs, &r, &p.repo, &["claudecode".into(), "codexcli".into()], &[], Vec::new).unwrap();
+    eprintln!("{g:?}");
+    assert_eq!(g.features, vec!["skills"]);
+    for f in [".claude/skills/review/SKILL.md", ".claude/skills/review/run.sh", ".agents/skills/review/SKILL.md", ".agents/skills/review/run.sh"] {
+        assert!(g.written.contains(&f.to_string()), "{f} not in {:?}", g.written);
+    }
+    assert!(crate::platform::is_executable(&p.repo.join(".claude/skills/review/run.sh")), "the script stays executable");
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "# Ours\n");
+    assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), "# Ours too\n");
+    assert!(!p.status().generated.out_of_date);
+}
+
+/// Agent scope: shared rules to .claude/rules, its own to CLAUDE.local.md,
+/// the tracked CLAUDE.md kept, nothing in git status.
+#[test]
+#[ignore]
+fn real_rulesync_agent_local_split() {
+    let r = installed_rulesync();
+    let f = fixture();
+    assign(&f, &["style.md", "base.md"], &["mine.md"]);
+    let res = apply_with(&f.dirs, Some(&r), &LocalExec, &ctx(&f, "claudecode"), false).unwrap();
+    eprintln!("{res:?}");
+    assert_eq!(res.generated, vec![".claude/rules/style.md", "CLAUDE.local.md"]);
+    assert!(std::fs::read_to_string(f.wt.join("CLAUDE.local.md")).unwrap().contains("Personal note."));
+    assert_eq!(std::fs::read_to_string(f.wt.join("CLAUDE.md")).unwrap(), "# project claude\n");
+    assert_eq!(sh(&f.wt, &["status", "--porcelain"]), "");
+}
+
+/// Hand-written CLAUDE.md and AGENTS.md imported, then generated: each
+/// comes back as it was (not merged).
+#[test]
+#[ignore]
+fn real_rulesync_two_file_import_roundtrip() {
+    let r = installed_rulesync();
+    let p = Proj::new("real-import");
+    let claude = "# Claude\n\nFROM CLAUDE\n";
+    let agents = "# Agents\n\nFROM AGENTS\n";
+    write(&p.repo.join("CLAUDE.md"), claude);
+    write(&p.repo.join("AGENTS.md"), agents);
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "both"]);
+    project_assign(&p.dirs, &p.path(), None, &["library:testing.md".into()], &[]).unwrap();
+    let i = project::import_existing(&p.repo, &r, &p.dirs.run().join("i")).unwrap();
+    eprintln!("{i:?}");
+    project_unassign(&p.path(), &["testing.md".into()], false).unwrap();
+    let g = project_generate_with(&p.dirs, &r, &p.repo, &["claudecode".into(), "codexcli".into()], &[], Vec::new).unwrap();
+    eprintln!("{g:?}");
+    assert!(g.needs_confirm.is_empty(), "{}", g.log);
+    assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), claude);
+    assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), agents);
 }
