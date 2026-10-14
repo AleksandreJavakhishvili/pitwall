@@ -21,6 +21,8 @@ toml = "1.1.6"
 notify = "8"
 # Match ranges for git grep results (explorer search); already in the tree via pitwall-detect.
 regex = "1"
+# Unified diffs of library rules against projects' copies (rules::project); already in the tree via the app.
+similar = "2"
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
 

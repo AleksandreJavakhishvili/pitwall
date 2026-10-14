@@ -181,7 +181,7 @@ fn git(exec: &dyn Exec, cwd: &str, args: &[&str]) -> Option<String> {
 }
 
 /// Which of `paths` (relative to `cwd`) git tracks.
-fn tracked(exec: &dyn Exec, cwd: &str, paths: &[String]) -> BTreeSet<String> {
+pub(super) fn tracked(exec: &dyn Exec, cwd: &str, paths: &[String]) -> BTreeSet<String> {
     if paths.is_empty() {
         return BTreeSet::new();
     }
@@ -264,7 +264,7 @@ pub fn write_exclude(exec: &dyn Exec, file: &str, agent_id: &str, paths: &[Strin
     exec.write_file(file, out.as_bytes()).map_err(|e| format!("could not update {file}: {e}"))
 }
 
-fn safe_rel(p: &str) -> bool {
+pub(super) fn safe_rel(p: &str) -> bool {
     !p.is_empty() && !p.starts_with('/') && !p.split('/').any(|c| c == ".." || c.is_empty() || c == ".git")
 }
 

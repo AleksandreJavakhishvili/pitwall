@@ -432,6 +432,213 @@ pub struct RulesDefault {
     pub set: Option<String>,
 }
 
+// ------------------------------------------------------------ project rules
+// The project scope (docs/spec/rules.md, "Project rules"): library rules
+// copied into `<repo>/.rulesync/rules/`, committed by the user.
+
+/// Where a rule in a project's `.rulesync/rules/` stands against the library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectRuleState {
+    /// As copied, and the library's is the same.
+    Current,
+    /// The library's changed since it was copied ("update available").
+    Update,
+    /// Changed in the project; the library's didn't.
+    Modified,
+    /// Changed in both: someone has to choose.
+    Conflict,
+    /// Its library rule is gone.
+    SourceGone,
+    /// Copied, then deleted from the project.
+    Deleted,
+    /// The project's own (not copied by Pitwall).
+    Own,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRule {
+    /// Its path under `.rulesync/rules/` (`style.md`).
+    pub name: String,
+    /// The library rule it was copied from (`library:style.md`).
+    pub source: Option<String>,
+    pub state: ProjectRuleState,
+    pub description: Option<String>,
+}
+
+/// The files rulesync generates from the project's `.rulesync/`
+/// (CLAUDE.md, AGENTS.md, …), which are committed too.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedFiles {
+    /// Pitwall generated them once (otherwise `outOfDate` says nothing).
+    pub generated: bool,
+    /// `.rulesync/` changed, or generated files were edited or deleted,
+    /// since the last generation.
+    pub out_of_date: bool,
+    /// Generated files edited or deleted since.
+    pub changed: Vec<String>,
+    /// rulesync targets it generates for.
+    pub targets: Vec<String>,
+}
+
+/// `rules.project.status`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRulesStatus {
+    /// The project (repo root).
+    pub project: String,
+    /// It has a `.rulesync/rules/` folder.
+    pub rulesync: bool,
+    pub rules: Vec<ProjectRule>,
+    /// Rules with an update or a conflict.
+    pub updates: usize,
+    pub generated: GeneratedFiles,
+    /// Hand-written instruction files git tracks (CLAUDE.md, AGENTS.md,
+    /// GEMINI.md) not imported into `.rulesync/` yet: import them first.
+    pub existing: Vec<String>,
+    /// The old project default set (Pitwall's own data), used while the
+    /// project has no `.rulesync/`: "move to project".
+    pub fallback_set: Option<String>,
+}
+
+/// A project, by folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRef {
+    pub project: String,
+}
+
+/// `rules.project.assign`: copy a set's rules and/or single library rules
+/// into the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAssign {
+    pub project: String,
+    /// A set id or name: all its rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
+    #[serde(default)]
+    pub rule_ids: Vec<String>,
+    /// Files (names under `.rulesync/rules/`) that exist with other
+    /// content and may be replaced.
+    #[serde(default)]
+    pub overwrite: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAssigned {
+    /// Written into `.rulesync/rules/`.
+    pub copied: Vec<String>,
+    /// Already there with the same content (now tracked).
+    pub unchanged: Vec<String>,
+    /// There with other content: not written (pass them in `overwrite`).
+    pub conflicts: Vec<String>,
+    /// Why some weren't copied.
+    pub skipped: Vec<String>,
+}
+
+/// `rules.project.unassign`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUnassign {
+    pub project: String,
+    /// Names under `.rulesync/rules/` or library ids.
+    pub rules: Vec<String>,
+    /// Remove them even if they were changed in the project.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUnassigned {
+    pub removed: Vec<String>,
+    /// Changed in the project, so kept (pass `force`).
+    pub modified: Vec<String>,
+    /// Not rules Pitwall copied there.
+    pub unknown: Vec<String>,
+}
+
+/// One rule with something to decide (`rules.project.updates`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRuleUpdate {
+    pub name: String,
+    pub source: String,
+    /// `update`, `modified` or `conflict`.
+    pub state: ProjectRuleState,
+    /// The library's text now (null: gone).
+    pub library: Option<String>,
+    /// The project's text now (null: deleted).
+    pub project: Option<String>,
+    /// Unified diff from the project's copy to the library's.
+    pub diff: String,
+}
+
+/// `rules.project.update`: take library updates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUpdate {
+    pub project: String,
+    /// Names or library ids; empty: every rule with an update.
+    #[serde(default)]
+    pub rules: Vec<String>,
+    /// For conflicts: `library` (replace the project's copy) or `project`
+    /// (keep it). Unset: conflicts are left alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub take: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUpdated {
+    /// The library's version written into the project.
+    pub updated: Vec<String>,
+    /// Conflicts where the project's copy was kept.
+    pub kept: Vec<String>,
+    /// Conflicts left alone (say `take`).
+    pub conflicts: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectImported {
+    /// The instruction files imported (CLAUDE.md, …).
+    pub files: Vec<String>,
+    /// Rules written into `.rulesync/rules/`.
+    pub added: Vec<String>,
+    pub log: String,
+}
+
+/// `rules.project.generate`: run rulesync for the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGenerate {
+    pub project: String,
+    /// rulesync targets (empty: the ones it used last, else those of its
+    /// agents' kinds).
+    #[serde(default)]
+    pub targets: Vec<String>,
+    /// Files that may be replaced although Pitwall didn't write them
+    /// (a hand-written CLAUDE.md, …).
+    #[serde(default)]
+    pub overwrite: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGenerated {
+    pub written: Vec<String>,
+    pub unchanged: Vec<String>,
+    /// Not written: someone else's file there (pass them in `overwrite`).
+    pub needs_confirm: Vec<String>,
+    pub targets: Vec<String>,
+    pub log: String,
+}
+
 // ------------------------------------------------------------ review
 
 /// `review.changes`: what the agent changed since it started (or in one
