@@ -49,6 +49,9 @@ pub struct RulesField {
     project: String,
     project_set: Option<String>,
     can_rules: bool,
+    /// The kind's rules are made with rulesync (Gemini CLI and Aider:
+    /// Pitwall writes them itself, so rulesync isn't needed).
+    rulesync: bool,
     worktree: bool,
     choice: RulesChoice,
     open: bool,
@@ -72,6 +75,7 @@ impl RulesField {
             project: String::new(),
             project_set: None,
             can_rules: false,
+            rulesync: false,
             worktree: false,
             choice: RulesChoice::default(),
             open: false,
@@ -79,10 +83,19 @@ impl RulesField {
         }
     }
 
-    /// The dialog's current kind, folder and worktree choice.
-    pub fn sync(&mut self, can_rules: bool, project: &str, worktree: bool, cx: &mut Context<Self>) {
-        if can_rules != self.can_rules || worktree != self.worktree {
+    /// The dialog's current kind (takes rules; made with rulesync), folder
+    /// and worktree choice.
+    pub fn sync(
+        &mut self,
+        can_rules: bool,
+        rulesync: bool,
+        project: &str,
+        worktree: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if can_rules != self.can_rules || rulesync != self.rulesync || worktree != self.worktree {
             self.can_rules = can_rules;
+            self.rulesync = rulesync;
             self.worktree = worktree;
             cx.notify();
         }
@@ -119,6 +132,12 @@ impl RulesField {
             return (None, false);
         }
         self.choice.request(worktree)
+    }
+
+    /// "rulesync isn't available" is worth saying: rules are picked, the
+    /// kind needs rulesync, and it can't run.
+    pub fn warns_unavailable(&self, any_rules: bool) -> bool {
+        any_rules && self.rulesync && self.status.as_ref().is_some_and(|s| !s.available)
     }
 
     /// There is something to offer: rule sets exist and the kind takes
@@ -161,7 +180,7 @@ impl Render for RulesField {
             .find(|s| Some(&s.id) == self.project_set.as_ref())
             .map(|s| s.name.clone());
         let any_rules = self.choice.rule_set_id.is_some() || self.project_set.is_some();
-        let unavailable = any_rules && self.status.as_ref().is_some_and(|s| !s.available);
+        let unavailable = self.warns_unavailable(any_rules);
         let offered: Vec<&RuleSet> = sets
             .iter()
             .filter(|s| Some(&s.id) != self.project_set.as_ref())

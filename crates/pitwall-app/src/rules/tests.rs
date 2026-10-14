@@ -118,9 +118,14 @@ fn the_field_shows_once_sets_load_and_the_kind_takes_rules(cx: &mut TestAppConte
     cx.run_until_parked();
     field.update(cx, |f, cx| {
         assert!(!f.visible(), "kind without rules");
-        f.sync(true, "/Users/dev/code/orders-api", false, cx);
+        f.sync(true, true, "/Users/dev/code/orders-api", false, cx);
         assert!(f.visible());
         assert_eq!(f.request(false), (None, false));
+        // The mock's rulesync isn't available: said for a rulesync kind…
+        assert!(f.warns_unavailable(true));
+        // …not for one Pitwall writes rules for itself (Gemini CLI, Aider).
+        f.sync(true, false, "/Users/dev/code/orders-api", false, cx);
+        assert!(!f.warns_unavailable(true));
     });
 }
 
