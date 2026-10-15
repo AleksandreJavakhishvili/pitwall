@@ -25,6 +25,35 @@ pub struct AccountsModel {
     logins_at: Option<Instant>,
 }
 
+/// Project folder → the account its agents run on (its first kind's, in
+/// `accounts.json`), for what doesn't pick a login itself: a terminal in
+/// that project sits under the project's account ([`project_account`]).
+static PROJECTS: std::sync::RwLock<BTreeMap<String, String>> = std::sync::RwLock::new(BTreeMap::new());
+
+fn remember(list: &Accounts) {
+    let map = list
+        .projects
+        .iter()
+        .filter_map(|(project, kinds)| Some((project.clone(), kinds.values().find(|id| list.get(id).is_some())?.clone())))
+        .collect();
+    if let Ok(mut p) = PROJECTS.write() {
+        *p = map;
+    }
+}
+
+/// Tests: projects and their accounts, as `accounts.json` would say.
+#[cfg(test)]
+pub fn set_project_accounts(pairs: &[(&str, &str)]) {
+    if let Ok(mut p) = PROJECTS.write() {
+        p.extend(pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())));
+    }
+}
+
+/// The account `project`'s agents run on, when it has one.
+pub fn project_account(project: &str) -> Option<String> {
+    PROJECTS.read().ok()?.get(project).cloned()
+}
+
 struct Handle(Entity<AccountsModel>);
 
 impl Global for Handle {}
@@ -39,6 +68,7 @@ pub fn model(cx: &mut App) -> Entity<AccountsModel> {
         if m.read(cx).paths.is_none() && paths.is_some() {
             m.update(cx, |m, cx| {
                 m.list = paths.as_ref().map(Accounts::load).unwrap_or_default();
+                remember(&m.list);
                 m.paths = paths;
                 m.engine = engine;
                 cx.notify();
@@ -47,6 +77,7 @@ pub fn model(cx: &mut App) -> Entity<AccountsModel> {
         return m;
     }
     let list = paths.as_ref().map(Accounts::load).unwrap_or_default();
+    remember(&list);
     let m = cx.new(|_| AccountsModel { list, paths, engine, logins: BTreeMap::new(), logins_at: None });
     cx.set_global(Handle(m.clone()));
     m
@@ -90,6 +121,7 @@ impl AccountsModel {
     fn save(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let paths = self.paths.as_ref().ok_or("Pitwall's engine isn't running")?;
         self.list.save(paths)?;
+        remember(&self.list);
         self.logins_at = None;
         cx.notify();
         Ok(())

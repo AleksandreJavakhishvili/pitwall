@@ -51,4 +51,14 @@ describe("byAccount", () => {
     expect(s[2].groups[0].key).toBe("acct:claude-work|/w/api");
     expect(byAccount([], [], [])).toEqual([]);
   });
+  it("puts terminals and empty projects under their project's account", () => {
+    const term = { ...agent("t", "/w/api", here), terminal: true } as AgentView;
+    const quiet: ProjectGroup = { key: "/w/quiet", project: "/w/quiet", display: "quiet", machine: null, canCreate: true, agents: [], blocked: 0 };
+    const of = (p: string) => ({ "/w/api": "claude-work", "/w/quiet": "claude-work" })[p];
+    const s = byAccount([on(agent("a", "/w/api", here), "claude-work"), term, agent("b", "/w/web", here)], [quiet], ["claude-work"], of);
+    expect(s.map((x) => x.account)).toEqual(["default", "claude-work"]);
+    expect(s[0].groups.map((g) => g.project)).toEqual(["/w/web"]);
+    expect(s[1].groups.map((g) => g.project)).toEqual(["/w/api", "/w/quiet"]);
+    expect(s[1].agents).toBe(2);
+  });
 });

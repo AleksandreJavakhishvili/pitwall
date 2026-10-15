@@ -91,15 +91,22 @@ export interface AccountSection {
 
 /**
  * The sidebar grouped by account, then project: Default first, then the
- * accounts in `order`, then any other. Projects without agents go under
- * Default. Group keys are prefixed with the section's, so each folds on its own.
+ * accounts in `order`, then any other. A terminal (no login of its own) and a
+ * project without agents go with the project's account (`projectAccount`),
+ * else Default. Group keys are prefixed with the section's, so each folds on
+ * its own.
  */
-export function byAccount(agents: AgentView[], listed: ProjectGroup[], order: string[]): AccountSection[] {
-  const keyOf = (a: AgentView) => a.account || "default";
+export function byAccount(
+  agents: AgentView[],
+  listed: ProjectGroup[],
+  order: string[],
+  projectAccount: (project: string) => string | undefined = () => undefined,
+): AccountSection[] {
+  const keyOf = (a: AgentView) => a.account || (a.terminal ? projectAccount(a.project) : undefined) || "default";
   const keys: string[] = [];
   for (const a of agents) if (!keys.includes(keyOf(a))) keys.push(keyOf(a));
-  const empties = listed.filter((g) => g.agents.length === 0);
-  if (empties.length && !keys.includes("default")) keys.push("default");
+  const empties = listed.filter((g) => g.agents.length === 0).map((g) => ({ account: projectAccount(g.project) || "default", g }));
+  for (const e of empties) if (!keys.includes(e.account)) keys.push(e.account);
   const rank = (k: string) => (k === "default" ? [0, 0, ""] : order.includes(k) ? [1, order.indexOf(k), ""] : [2, 0, k]) as [number, number, string];
   keys.sort((a, b) => {
     const [x, y] = [rank(a), rank(b)];
@@ -108,7 +115,7 @@ export function byAccount(agents: AgentView[], listed: ProjectGroup[], order: st
   return keys.map((account) => {
     const mine = agents.filter((a) => keyOf(a) === account);
     let groups = groupByProject(mine);
-    if (account === "default") groups = [...groups, ...empties];
+    groups = [...groups, ...empties.filter((e) => e.account === account).map((e) => e.g)];
     const key = `acct:${account}`;
     groups = groups.map((g) => ({ ...g, key: `${key}|${g.key}` }));
     return { account, key, groups, agents: mine.length, blocked: groups.reduce((n, g) => n + g.blocked, 0) };

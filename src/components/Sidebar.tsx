@@ -269,6 +269,7 @@ export function Sidebar({ mode, groups, ui, me, focusedAgentId, elsewhere = [] }
               groups.flatMap((g) => g.agents),
               groups,
               accounts?.accounts.map((x) => x.id) ?? [],
+              (p) => Object.values(accounts?.projects[p] ?? {}).find((id) => accounts?.accounts.some((x) => x.id === id)),
             ).map((sec) => {
               const collapsed = ui.collapsed.includes(sec.key);
               return (

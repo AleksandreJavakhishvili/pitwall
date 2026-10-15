@@ -121,7 +121,7 @@ impl Space {
                         || shown.contains(&a.id)
                 }
                 SpaceKind::Account => {
-                    Some(account_key(a)) == self.account.as_deref()
+                    self.account.as_deref() == Some(account_key(a).as_str())
                         || self.members.contains(&a.id)
                         || shown.contains(&a.id)
                 }
@@ -132,9 +132,13 @@ impl Space {
 }
 
 /// The account an agent runs on, as spaces and the sidebar key it
-/// (`default`: the user's own login).
-pub fn account_key(a: &AgentView) -> &str {
-    a.account.as_deref().unwrap_or(pitwall_core::accounts::DEFAULT)
+/// (`default`: the user's own login). A terminal has no login of its own:
+/// it goes with its project's account, so the project isn't split.
+pub fn account_key(a: &AgentView) -> String {
+    a.account
+        .clone()
+        .or_else(|| a.terminal.then(|| crate::accounts::project_account(&a.project)).flatten())
+        .unwrap_or_else(|| pitwall_core::accounts::DEFAULT.into())
 }
 
 /// How the sidebar groups agents (`sidebarGroup` in ui.json).
