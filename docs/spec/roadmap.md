@@ -92,6 +92,10 @@ release → [gpui/README.md](gpui/README.md), checklist [gpui/inventory.md](gpui
   drives another Pitwall's agents on the same tailnet: list and status,
   terminal take-over, Review and explorer, notifications, start agents
   there, per-peer permissions; off by default → [tailnet-peers.md](tailnet-peers.md)
+- Collaboration (designed, not started): teams on the tailnet, no server;
+  share an agent with teammates (Ask, Ask + Do, with approval), one session
+  per asker, enforced scope and secrets, patches back over the tailnet,
+  later A2A and MCP → [collaboration.md](collaboration.md)
 
 ## Website — DONE
 - `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo
