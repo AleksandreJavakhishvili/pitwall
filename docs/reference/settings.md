@@ -49,6 +49,15 @@ Codex hooks are installed in ~/.codex/hooks.json for exact Codex status (backed 
 - **Stored in:** kept by Pitwall, outside `ui.json`
 - **When an agent changes it:** asks you in Pitwall first
 
+### `agents.updateTools`
+
+Pitwall keeps agent tools up to date itself (claude update, at startup and every 6 hours, one at a time) and turns off their own updaters in what it starts, so many sessions don't update at once and break the install. false: each tool updates itself.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `noToolUpdates` (the opposite: `true` there means `false` here)
+- **When an agent changes it:** applies directly
+
 ### `engineer.agent`
 
 What the Race Engineer (Pitwall's optional assistant) runs on: auto (Claude Code if installed, else the first installed agent), an agent id from New agent (claude, codex, gemini, opencode, aider, …) or custom (engineer.command). Applies the next time it starts.

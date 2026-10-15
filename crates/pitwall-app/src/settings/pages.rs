@@ -79,7 +79,7 @@ impl SettingsView {
                 let codex = self.codex(ui, cx);
                 let engineer = self.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx);
                 let accounts = self.accounts_section(ui, cx);
-                vec![accounts, Self::claude(ui), codex, engineer]
+                vec![accounts, Self::claude(ui), Self::tool_updates(ui, cx), codex, engineer]
             }
             Page::Rules => {
                 let extra: Vec<AnyElement> = cx
@@ -166,6 +166,41 @@ impl SettingsView {
         section()
             .child(head(ui, "Claude Code").child(crate::kit::chip_tone("automatic", crate::kit::Tone::Ok, &ui.t)))
             .child(crate::kit::muted("Hooks are passed per launch. Your ~/.claude settings are never edited.", &ui.t))
+    }
+
+    /// `agents.updateTools`: Pitwall updates the agent tools, one at a time.
+    fn tool_updates(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        const KEY: &str = "agents.updateTools";
+        let def = pitwall_proto::settings::find(KEY);
+        let on = def
+            .and_then(|d| super::data::value(&crate::ui_state::get(cx), d))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        section().child(
+            div()
+                .id("tool-updates")
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Keep agent tools up to date"))
+                        .child(crate::kit::hint("Pitwall runs “claude update” when it starts and every 6 hours, one at a time, and the sessions it starts don’t update themselves. Many sessions updating at once can break the install (“command not found: claude”). Off: each tool updates itself.", &ui.t)),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
+        )
     }
 
     fn codex(&self, ui: &Ui, cx: &mut Context<Self>) -> Div {

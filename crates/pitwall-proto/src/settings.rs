@@ -189,6 +189,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: true,
     },
     Setting {
+        key: "agents.updateTools",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Pitwall keeps agent tools up to date itself (claude update, at startup and every 6 hours, one at a time) and turns off their own updaters in what it starts, so many sessions don't update at once and break the install. false: each tool updates itself.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "noToolUpdates", invert: true },
+        only_on: false,
+    },
+    Setting {
         key: "engineer.agent",
         kind: Kind::Text { max: 64 },
         default: DefaultValue::Str("auto"),

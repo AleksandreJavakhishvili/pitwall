@@ -152,6 +152,9 @@ pub fn run() {
             cli_spaces::attach(w, cx);
         }
         engineer::register(cx, engine.as_ref());
+        if let Some(e) = engine.clone() {
+            follow_tool_updates(e, cx);
+        }
         rules::init(cx, engine);
 
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -298,6 +301,20 @@ fn show_main(cx: &mut App) -> WindowHandle<MainView> {
 }
 
 /// End every agent (off the main thread: stopping waits on holders), then quit.
+/// `agents.updateTools`, followed live: while it's on, Pitwall updates the
+/// agent tools itself (`pitwall_core::tool_updates`).
+fn follow_tool_updates(engine: pitwall_core::engine::Shared, cx: &mut App) {
+    fn on(cx: &App) -> bool {
+        pitwall_proto::settings::find("agents.updateTools")
+            .and_then(|def| settings::data::value(&ui_state::get(cx), def))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+    engine.set_tool_updates(on(cx));
+    let store = ui_state::store(cx);
+    cx.observe(&store, move |_, cx| engine.set_tool_updates(on(cx))).detach();
+}
+
 fn quit_and_stop_agents(_: &QuitAndStopAgents, cx: &mut App) {
     let Some(engine) = cx
         .global::<AppState>()

@@ -85,6 +85,8 @@ pub struct Engine {
     homes: Mutex<std::collections::HashMap<String, String>>,
     /// The agent whose changes each window shows (`show_changes`).
     shown: Mutex<std::collections::HashMap<u64, String>>,
+    /// Agent tools Pitwall keeps up to date (crate::tool_updates).
+    pub(crate) tool_updates: crate::tool_updates::ToolUpdates,
 }
 
 pub type Shared = Arc<Engine>;
@@ -113,6 +115,7 @@ impl Engine {
             worktrees: Default::default(),
             git_flights: Default::default(),
             shown: Default::default(),
+            tool_updates: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
             engineer: Default::default(),

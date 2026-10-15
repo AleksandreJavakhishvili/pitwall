@@ -172,6 +172,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     };
     let mut env = env;
     env.extend(account_env(core, &*provider, &kind.id, account.as_deref())?);
+    env.extend(core.tool_update_env());
 
     let mut rec = AgentRecord {
         id: uuid::Uuid::new_v4().to_string(),
@@ -468,6 +469,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
     let (kind, mut env, _) = engineer_launch(core, rec.engineer, kind)?;
     env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
+    env.extend(core.tool_update_env());
     // On an account, its conversation from wherever it is newest.
     if let (Some(sid), true, true) = (&rec.session_id, rec.has_conversation, provider.caps().local_process) {
         if let Some(def) = core.kinds().find(&rec.kind).filter(|k| k.account_env.is_some()) {

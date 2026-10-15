@@ -55,6 +55,8 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `account_env` | string | none | The environment variable that names the folder the tool keeps its login in (`CLAUDE_CONFIG_DIR`). Set, the kind can run on more than one account (see [Accounts](#accounts)). |
 | `account_home` | string | none | That folder when the variable isn't set (`~/.claude`). It's the Default account. `~/` means your home folder. |
 | `icon` | string | none | The logo shown before the kind's name in the sidebar, tile headers, New agent and the strip of hidden agents: a bundled logo (`claude`, `codex`, `gemini`, `copilot`, `cursor`, `qwen`, or `terminal` for the terminal icon) or the full path of a one-colour SVG file (`~/` means your home folder; it's tinted to the theme). None: the kind's first letter on a badge. |
+| `update_command` | string | none | The command that updates the tool (`claude update`). With **Keep agent tools up to date** on (Settings → Agents, `agents.updateTools`), Pitwall runs it through your login shell when it starts and every 6 hours, one tool at a time, and only for installed tools. |
+| `update_off_env` | table | `{}` | Environment that turns the tool's own updater off (`{ DISABLE_AUTOUPDATER = "1" }`). While Pitwall updates the tool, every agent and terminal it starts gets it, so many sessions don't update themselves at once (they race and can leave the tool's command missing). |
 
 Unknown keys are ignored.
 

@@ -67,6 +67,15 @@ pub struct AgentKind {
     /// `terminal`) or an SVG file. None: the kind's own, else a letter.
     #[serde(default)]
     pub icon: Option<String>,
+    /// The command that updates the tool (`claude update`), run by Pitwall
+    /// one at a time when it keeps tools up to date (`crate::tool_updates`).
+    #[serde(default)]
+    pub update_command: Option<String>,
+    /// The environment that turns off the tool's own updater
+    /// (`DISABLE_AUTOUPDATER = "1"`), given to everything Pitwall launches
+    /// while it updates the tool itself.
+    #[serde(default)]
+    pub update_off_env: std::collections::BTreeMap<String, String>,
 }
 
 impl AgentKind {
@@ -138,6 +147,8 @@ pub fn custom_kind(command: &str) -> AgentKind {
         account_env: None,
         account_home: None,
         icon: Some("terminal".into()),
+        update_command: None,
+        update_off_env: Default::default(),
     }
 }
 

@@ -52,6 +52,11 @@
       ],
       "type": "string"
     },
+    "noToolUpdates": {
+      "default": false,
+      "description": "The inverse of `agents.updateTools`: Pitwall keeps agent tools up to date itself (claude update, at startup and every 6 hours, one at a time) and turns off their own updaters in what it starts, so many sessions don't update at once and break the install. false: each tool updates itself.",
+      "type": "boolean"
+    },
     "reduceMotion": {
       "default": false,
       "description": "`appearance.reduceMotion`: Fewer animations (the OS setting also applies).",

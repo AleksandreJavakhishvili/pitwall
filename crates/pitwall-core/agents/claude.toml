@@ -22,3 +22,8 @@ account_env = "CLAUDE_CONFIG_DIR"
 account_home = "~/.claude"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "claude"
+# Pitwall updates Claude Code itself, one update at a time, and turns off the
+# self-update of every session it starts: many sessions updating at once race
+# and can leave the `claude` command gone (Settings → Agents).
+update_command = "claude update"
+update_off_env = { DISABLE_AUTOUPDATER = "1" }

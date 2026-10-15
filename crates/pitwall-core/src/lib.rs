@@ -33,6 +33,7 @@ pub mod rules;
 pub mod shell;
 pub mod store;
 pub mod term;
+pub mod tool_updates;
 pub mod vcs;
 pub mod worktrees;
 

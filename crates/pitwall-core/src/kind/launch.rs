@@ -92,6 +92,8 @@ pub fn then_shell(
         account_env: None,
         account_home: None,
         icon: None,
+        update_command: None,
+        update_off_env: Default::default(),
     };
     (kind, inner)
 }
