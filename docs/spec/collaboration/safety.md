@@ -46,7 +46,9 @@ can see it until the owner reads the summary and presses Go live ([§5.4](sharin
 Once live, neither a shared session nor any asker can change any sharing
 setting, approve anything, or drive Pitwall. Sessions: the sandbox denies
 `pitwalld.sock` and Pitwall's data folder, there is no `pitwall` on their
-`PATH`, and the daemon rejects their process tree ([§8.5](protocol.md)). Askers: the
+`PATH`, and the daemon rejects their process tree ([§8.5](protocol.md)). The only
+exception is opt-in and add-only: a share may let its sessions propose
+tasks through their own `task.sock` ([§15.7](tasks.md)). Askers: the
 tailnet listener has no owner methods at all. The owner's own pane of the
 agent is not a shared session and keeps its normal CLI; its changes to
 sharing go through approvals with a diff ([§5.5](sharing.md)).
@@ -81,7 +83,9 @@ sharing go through approvals with a diff ([§5.5](sharing.md)).
 | Agent↔agent loops burn the owner's quota | Chain depth, cycle check, quotas, caps, asker-side budgets |
 | Flood of requests or probes | Rate limits per caller, queue cap, probe limits |
 | A result carries a malicious change to the asker | Shown in Review; applied only by the asker's click, into a worktree they pick |
-| A task item carries a prompt injection | Items are text; they reach an agent only when a person takes or gives them (or the person's own watch rule does), as an ordinary prompt; agent-added items are labelled and can be excluded from rules ([§15.9](tasks.md)) |
+| A task item carries a prompt injection | Items are text; they reach an agent only when a person assigns them to it (or the person's own watch rule does), as an ordinary prompt; agent-added items are labelled and can be excluded from rules ([§15.10](tasks.md)) |
+| Injected text makes a shared agent spam or poison a list with proposals | Opt-in per share; add-only socket; items stay `proposed` until a person accepts; labelled with share and asker; 3 per session and 20 per share per day; a cap on pending proposals per list ([§15.7](tasks.md)) |
+| Two people assign the same item to different agents at once | Compare-and-set `assign`, first in fold order wins; delivery waits for the assign to settle, and a lost assign's queued prompt is removed or its A2A task cancelled ([§15.6](tasks.md)) |
 | A teammate's agent floods a team list | Owner switch and per-agent budgets on the adding machine; per-device flood limits at receivers; admins can drop and fence |
 | A removed member keeps writing task ops | `fence` op from the removing admin; later ops from that device rejected by everyone ([§15.3](tasks.md)) |
 | Tailscale ACLs block the port | Discovery shows "can't reach"; docs give an ACL grant example for `tcp:47421` |

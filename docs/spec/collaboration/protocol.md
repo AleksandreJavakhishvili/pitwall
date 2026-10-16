@@ -171,7 +171,7 @@ headers ([§8.2](protocol.md)). They keep the signed-records design of [§4](tea
 |---|---|---|
 | **Owner UI** (in-process GPUI app) | — | Everything, including all `share.*` methods |
 | **Owner's CLI and agents** (CLI socket; agent vs user from the process tree, as approvals do today) | `pitwalld.sock` | `share.*` reads directly; `share.create` and `share.guest` on drafts directly (nobody else can see a draft); other `share.*` changes through approvals (`share.go_live` and widening always ask, not rememberable; narrowing direct, [§5.5](sharing.md)); `suggest.*`; `ask.*` (the daemon sends it out over A2A) with the "let my agents ask" switch |
-| **A shared session** (inside its sandbox; process tree as a second check) | the hook endpoint only, as any agent | Hook events for its own agent id (status, the Stop text). Nothing on `pitwalld.sock` |
+| **A shared session** (inside its sandbox; process tree as a second check) | the hook endpoint, as any agent; and its own `task.sock` only if its share allows proposals | Hook events for its own agent id (status, the Stop text); `add` of a proposed task with its session token ([§15.7](tasks.md)). Nothing on `pitwalld.sock` |
 | **Teammates and A2A clients** | the tailnet HTTP listener | A2A ([§8.3](protocol.md)) and Pitwall endpoints ([§8.4](protocol.md)) |
 
 Shared sessions are cut off from Pitwall by construction: the sandbox
@@ -179,7 +179,9 @@ denies `pitwalld.sock` and the data folder ([§6.3](sessions.md)); their environ
 `PITWALL_*` variables and no `pitwall` on `PATH`; and the daemon still
 rejects any connection whose peer process descends from a shared session's
 holder (`Caller::Shared` → `forbidden`). The hook endpoint already accepts
-only hook events, keyed to the agent id Pitwall gave the session.
+only hook events, keyed to the agent id Pitwall gave the session. The
+optional per-session `task.sock` accepts one request type (`add`, with the
+session's token) and nothing else.
 
 **Owner-only local methods** (UI, or CLI/agents through approvals; never on
 the tailnet listener, never from shared sessions): `share.get`,
@@ -221,7 +223,7 @@ pitwall share sessions <agent>                        # per asker: state, usage
 pitwall suggest share <agent> --reason "…"            # a card for the owner, nothing more
 pitwall suggest skill <skill> --agent <agent> --reason "…"
 
-# Tasks (§15): pitwall task add|list|show|take|release|done|drop|comment|tags|give|watch
+# Tasks (§15): pitwall task add|list|show|take|release|done|drop|comment|tags|accept|assign|watch
 ```
 
 The task commands are listed in [§15.4](tasks.md).

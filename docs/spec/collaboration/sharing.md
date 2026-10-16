@@ -60,7 +60,8 @@ own code is a normal Review action the owner may take, like for any agent.
   prompts").
 
 ### 5.4 The Share dialog: a short questionnaire
-The dialog is seven short steps, then a summary and a guest try. Each answer
+The dialog is seven short steps (plus an optional eighth once task lists
+exist), then a summary and a guest try. Each answer
 is either **enforced** (Pitwall or the OS sandbox around the session makes
 it true, whatever the model does) or **soft** (passed to the agent as instructions,
 labelled "not guaranteed" in the UI). [§9.1](safety.md) lists which is which.
@@ -115,6 +116,11 @@ labelled "not guaranteed" in the UI). [§9.1](safety.md) lists which is which.
    "Instructions to the agent: not guaranteed".
 7. **Limits.** Messages per person per day, sessions running at once,
    queue length. *Enforced.*
+8. **Tasks it may propose** (off by default). "This shared agent may add
+   tasks to: [a list the owner is a member of]", with a per-day limit. When
+   on, sessions get an optional add-only `pitwall-task` command and their
+   own add-only socket; proposals arrive as `proposed` and a person accepts
+   or drops them ([§15.7](tasks.md)). *Enforced*: add-only, rate-limited, labelled.
 
 **Summary before going live.** A plain-language page made by Pitwall from
 the answers (fixed sentences, not written by a model):
@@ -220,6 +226,7 @@ Share payments-expert with team Payments?" They do this with
   "start": {"from": "fresh"},              // or {"from":"summary","text":"…","approvedAt":"…"}
   "access": {"env": [], "network": {"allow": []}, "account": "work"},
   "offLimits": "Don't discuss pricing or the reorg",
+  "proposeTasks": null,                    // or {"list": "team:t_9f2c…", "perSessionPerDay": 3, "perDay": 20}
   "limits": {"perAsker": {"messagesPerDay": 20}, "sessionsRunning": 2,
              "queue": 10, "turnTimeoutMin": 15, "idleStopMin": 15, "keepSessionsDays": 30}
 }

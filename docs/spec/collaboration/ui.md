@@ -33,7 +33,8 @@ Same visual language as tailnet-peers.md §7.
      (account, with "use a separate account for sharing"; environment
      variables to pass, none by default; extra network hosts; programs it
      may run, as an allow or deny list) · 6.
-     Off-limits topics and the role text · 7. Limits.
+     Off-limits topics and the role text · 7. Limits · 8. Tasks it may
+     propose (optional: a list and a per-day limit).
   - Then **Summary** ([§5.4](sharing.md)), **Try as guest** (opens the Ask panel on the
     draft with the probe buttons) and **Go live**.
   - Editing later opens the same steps; Save shows the diff and marks
@@ -67,15 +68,22 @@ Same visual language as tailnet-peers.md §7.
   review, join requests (admins), suggestions (quiet), optionally every
   reply. Asker: replies that arrived while the window was unfocused, results
   ready.
-- **Tasks** (new screen, from the top bar and ⌘K; [§15](tasks.md)): lists on the left (My list, then each team's), tag filter chips
-  with counts across all lists, status and "added by an agent" filters.
-  Item detail: title, body, tags, who added it (with the agent label),
-  status, history with lost ops ("bob took it first"), comments. Buttons:
-  **Take**, **Give to agent…** (own agents, and shared agents I may use),
-  **Release**, **Done** (with "attach changes from…"), **Drop**. A result
-  patch opens in Review with Apply. Watch rules under "Watch…" per tag.
-  Badges count new items in watched tags; the item's agent row in the
-  sidebar shows a small task chip while it works on one.
+- **Tasks** (new screen, from the top bar and ⌘K; [§15](tasks.md)):
+  - **Left:** "Assigned to me", "Proposed" (with a count), then My list and
+    each team's list.
+  - **Filters:** tag chips with counts across all lists (combinable), status,
+    assignee, "added by an agent".
+  - **Proposed queue:** each proposal with "proposed by alice/api-expert (in
+    bob@example.com's conversation)", body, and **Accept** / **Drop**.
+  - **Item detail:** title, body, tags, who added it (agent or proposal
+    label), assignee, taker, status, history with lost ops ("bob took it
+    first", "carol assigned it first"), comments. Buttons: **Take**,
+    **Assign…** (nobody, a person, one of my agents, a shared agent I may
+    use), **Release**, **Done** (with "attach changes from…"), **Drop**. A
+    result patch opens in Review with Apply.
+  - Watch rules under "Watch…" per tag. Badges count new items in watched
+    tags, items newly assigned to me, and proposed items waiting; the agent
+    row in the sidebar shows a small task chip while it works on one.
 - **Settings → Collaboration.** The three switches, "Look for teams on",
   the global session cap, budgets for my agents, rotate key, the audit log,
   and Tailscale state (shared with Peers).

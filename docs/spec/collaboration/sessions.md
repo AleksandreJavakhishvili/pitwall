@@ -91,7 +91,7 @@ what its processes can reach is limited.
 | Programs | The "Programs it may run" list | Denied |
 | Network | Pitwall's per-share egress proxy on localhost only; the proxy allows the kind's model hosts (kind data, e.g. `api.anthropic.com`) plus hosts the owner added | Denied |
 | Environment | Built by Pitwall from nothing: `PATH` (system + the agent's install), `HOME` = session folder, `TMPDIR`, `LANG`, `TERM`, `HTTPS_PROXY`/`HTTP_PROXY`, the agent account's config variable, what the owner chose to pass | Nothing else: no `SSH_AUTH_SOCK`, no tokens, no `PITWALL_*` |
-| Pitwall | The hook endpoint, for hook events only ([§8.5](protocol.md)) | `pitwalld.sock` and every other socket |
+| Pitwall | The hook endpoint, for hook events only ([§8.5](protocol.md)); and, only if the share lets it propose tasks, this session's own add-only `task.sock` ([§15.7](tasks.md)) | `pitwalld.sock` and every other socket |
 
 #### One abstraction, one backend per OS
 A `SessionSandbox` in `pitwall-core::platform` (beside the existing

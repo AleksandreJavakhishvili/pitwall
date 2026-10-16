@@ -50,9 +50,11 @@ assigned to a shared agent come from [rules.md](../rules.md).
   said) and, when the turn changed the copy at a "Can change code"
   capability, the **result** (a patch series).
 - **Task list.** My list (local) or a team's list (replicated among its
-  members as a log of signed ops). Its **items** have tags and a status
-  (open, taken, done, dropped), and a result patch when the one who
-  finished it changed code ([§15](tasks.md)).
+  members as a log of signed ops). Its **items** have tags, a status
+  (proposed, open, taken, done, dropped), an **assignee** (who it is for)
+  separate from the taker (who works on it), and a result patch when the
+  one who finished it changed code. Shared agents may only *propose* items,
+  if their share allows ([§15](tasks.md)).
 
 ## Parts
 
@@ -78,5 +80,5 @@ C1a MVP on macOS (A2A, discovery, single-admin teams, Read only shares,
 Seatbelt isolation) → C1b signed multi-admin teams → C2 "Can change code"
 and patches → C2b tagged task lists → C3 Linux hosting → C4 owner in the loop, suggestions,
 precedent → C5 Windows (WSL2 route, native later) → C6 Tailscale binding
-and hardening → C7 MCP, more agent kinds. About 20–27 weeks; details in
+and hardening → C7 MCP, more agent kinds. About 20–28 weeks; details in
 [plan.md](plan.md).
