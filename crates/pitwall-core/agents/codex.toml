@@ -16,3 +16,22 @@ account_env = "CODEX_HOME"
 account_home = "~/.codex"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "codex"
+
+# Sharing (docs/spec/collaboration/sessions.md §6.7). Hosts: the API, ChatGPT
+# sign-in's backend and token refresh (unverified beyond api.openai.com). The
+# login is auth.json in the account's folder, so no Keychain.
+[share]
+model_hosts = ["api.openai.com", "chatgpt.com", "auth.openai.com"]
+install_paths = [
+    "~/.codex/packages",
+    "/opt/homebrew/Caskroom/codex",
+    "/opt/homebrew/lib/node_modules/@openai/codex",
+    "/usr/local/lib/node_modules/@openai/codex",
+]
+programs = ["node"]
+# Its hooks are opt-in and global, so replies come from the terminal for now.
+reply = "terminal"
+fork_args = ["fork", "{base}"]
+instruction_files = ["AGENTS.md"]
+# Its own Seatbelt sandbox can't start inside Pitwall's: off, Pitwall's holds.
+own_sandbox_off_args = ["--sandbox", "danger-full-access"]

@@ -200,6 +200,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         inner_agent: None,
         engineer: req.engineer,
         account,
+        shared: None,
     };
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
@@ -355,6 +356,7 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
         inner_agent: None,
         engineer: false,
         account: None,
+        shared: None,
     }
 }
 
@@ -437,6 +439,7 @@ pub fn stop(core: &Shared, id: &str) -> Result<(), String> {
 /// `size` (cols, rows) is what the UI will show; else the last known size.
 pub fn restart(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<AgentView, String> {
     crate::exec::assert_off_ui("lifecycle::restart");
+    refuse_shared(core, id)?;
     // It may still attach to the session it has: not two of them. A pending
     // retry (machine unreachable) is called off, and taken up again if this
     // fails.
@@ -550,11 +553,128 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     view
 }
 
+/// A shared session runs only inside its sandbox, started by its share
+/// (collaboration, sessions.md §6.3): the engine never (re)starts it the
+/// ordinary way, which would run the agent unconfined.
+fn refuse_shared(core: &Shared, id: &str) -> Result<(), String> {
+    match core.with(id, |a| a.rec.shared.is_some())? {
+        true => Err("a shared session is started by its share; send it a message instead".into()),
+        false => Ok(()),
+    }
+}
+
+/// A shared session's launch (collaboration, sessions.md §6.1): an ordinary
+/// agent whose process is exactly `command_line` (already wrapped in the
+/// session's sandbox, with its whole environment), run on this machine.
+pub struct SharedLaunch<'a> {
+    /// The agent id (the conversation's, stable across restarts).
+    pub id: &'a str,
+    pub name: &'a str,
+    /// The kind it is (screen rules, hooks, status as for any agent).
+    pub kind: &'a str,
+    pub kind_name: &'a str,
+    pub cwd: &'a str,
+    pub project: &'a str,
+    /// A complete command line, run as is (`exec` by the login shell).
+    pub command_line: String,
+    pub shared: crate::model::SharedSession,
+    pub session_id: Option<String>,
+    pub resumed: bool,
+}
+
+/// Start a shared session's agent, or start it again (same id, same record).
+/// Only on a provider whose agents are processes on this machine: the
+/// sandbox wraps a local process. Blocking.
+pub fn launch_shared(core: &Shared, spec: SharedLaunch) -> Result<AgentView, String> {
+    crate::exec::assert_off_ui("lifecycle::launch_shared");
+    let (provider, machine) = core.providers().target(None, None)?;
+    let caps = provider.caps();
+    if !caps.create || !caps.local_process {
+        return Err("shared sessions run on this machine only".into());
+    }
+    let mut kind = kind::custom_kind(&spec.command_line);
+    kind.id = spec.kind.to_string();
+    kind.name = spec.kind_name.to_string();
+    let existing = core.with(spec.id, |a| (a.rec.locator(), a.host.clone(), a.rec.term_size())).ok();
+    let size = TermSize::from_pair(existing.as_ref().and_then(|(_, _, s)| *s));
+    let launch = LaunchSpec { agent: spec.id, kind: &kind, cwd: spec.cwd, intent: LaunchIntent::Fresh, worktree: None, size, hooks: None, env: &[] };
+    let mut started = match &existing {
+        Some((loc, old, _)) => {
+            if old.as_ref().is_some_and(|h| !h.ended()) {
+                end(Some(&provider), loc, old.as_ref());
+            }
+            provider.start(loc, &launch)?
+        }
+        None => provider.create(&CreateSpec { machine: &machine.id, name: spec.name, options: &BTreeMap::new(), launch })?,
+    };
+    let host = match host_of(core, &*provider, &mut started, size) {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = provider.stop(&started.locator);
+            return Err(e);
+        }
+    };
+    let now = core.now();
+    if existing.is_some() {
+        let facts = core.facts(&started.locator, &core.with(spec.id, |a| a.rec.clone())?);
+        let view = core.with(spec.id, |a| {
+            a.rec.locator = Some(started.locator.clone());
+            a.rec.session_id = spec.session_id.clone();
+            a.rec.has_conversation = spec.resumed;
+            a.rec.shared = Some(spec.shared.clone());
+            a.attach_host(host.clone(), now);
+            a.facts = facts;
+            a.view()
+        });
+        if view.is_err() {
+            end(Some(&provider), &started.locator, Some(&host));
+        }
+        core.changed(true);
+        return view;
+    }
+    let rec = AgentRecord {
+        id: spec.id.to_string(),
+        locator: Some(started.locator.clone()),
+        name: spec.name.to_string(),
+        kind: spec.kind.to_string(),
+        kind_name: spec.kind_name.to_string(),
+        custom_command: None,
+        cwd: spec.cwd.to_string(),
+        project: spec.project.to_string(),
+        worktree: None,
+        worktree_pending: false,
+        base_commit: None,
+        session_id: spec.session_id.clone(),
+        has_conversation: spec.resumed,
+        queue: vec![],
+        auto_send: false,
+        last_sent: None,
+        last_sent_at: None,
+        created_at: unix_ms(),
+        tasks: vec![],
+        cols: None,
+        rows: None,
+        adopted: false,
+        inner_agent: None,
+        engineer: false,
+        account: None,
+        shared: Some(spec.shared),
+    };
+    let loc = started.locator.clone();
+    let mut agent = Agent::new(rec, Some(host), now);
+    agent.facts = core.facts(&loc, &agent.rec);
+    let view = agent.view();
+    core.agents().push(agent);
+    core.changed(true);
+    Ok(view)
+}
+
 /// Run agent `id` under another login (`crate::accounts`; `None` or
 /// `"default"`: the user's own): its conversation is copied into that
 /// account's folder, then it restarts there and picks it up. Blocking.
 pub fn switch_account(core: &Shared, id: &str, account: Option<&str>, size: Option<(u16, u16)>) -> Result<AgentView, String> {
     crate::exec::assert_off_ui("lifecycle::switch_account");
+    refuse_shared(core, id)?;
     use crate::accounts::{self, Accounts, DEFAULT};
     let account = account.filter(|a| *a != DEFAULT).map(String::from);
     let rec = core.with(id, |a| a.rec.clone())?;

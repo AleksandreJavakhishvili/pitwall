@@ -192,6 +192,25 @@ pub struct AgentRecord {
     /// The account (`crate::accounts`) it runs with; `None`: the user's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// A shared session (collaboration, sessions.md §6.1): one caller's
+    /// conversation with a shared agent. Started and restarted only by its
+    /// share, inside its sandbox; never by the engine's own restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<SharedSession>,
+}
+
+/// Which share and caller a shared session belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedSession {
+    /// The share's slug.
+    pub share: String,
+    /// The ordinary agent being shared (its agent id).
+    pub agent: String,
+    /// The conversation (`c_…`).
+    pub conversation: String,
+    /// The caller, for display (`bob@example.com`, `client-fix@bob-mbp`).
+    pub caller: String,
 }
 
 /// An agent started by hand in a terminal, as remembered on its record.

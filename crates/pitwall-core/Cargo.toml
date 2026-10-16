@@ -24,6 +24,13 @@ regex = "1"
 # Request and response types of the collaboration handler and clients
 # (`net`, docs/spec/collaboration/network.md); already in the tree via gpui.
 http = "1"
+# Collaboration (docs/spec/collaboration/): team records are hashed
+# (SHA-256) and signed (Ed25519) per §4.2; daily limits reset at the owner's
+# local midnight (§5.8). sha2 and chrono are already in the tree.
+sha2 = "0.10"
+ed25519-dalek = "2"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
 
