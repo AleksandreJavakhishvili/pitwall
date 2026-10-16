@@ -93,9 +93,9 @@ release → [gpui/README.md](gpui/README.md), checklist [gpui/inventory.md](gpui
   terminal take-over, Review and explorer, notifications, start agents
   there, per-peer permissions; off by default → [tailnet-peers.md](tailnet-peers.md)
 - Collaboration (designed, not started): teams on the tailnet, no server;
-  share an agent with teammates (Ask, Ask + Do, with approval), one session
-  per asker, enforced scope and secrets, patches back over the tailnet,
-  later A2A and MCP → [collaboration.md](collaboration.md)
+  share any agent with teammates over A2A (read only, can change code, with
+  approval), one session per asker in an OS sandbox, patches back over the
+  same channel, MCP front-end → [collaboration.md](collaboration.md)
 
 ## Website — DONE
 - `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo
