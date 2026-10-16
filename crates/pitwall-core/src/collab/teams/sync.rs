@@ -2,7 +2,8 @@
 //! listed teams (§3), asking to join or redeeming an invite (§4.6), and
 //! pulling records (§4.3). The paths are the `/pitwall/v1/…` endpoints of
 //! §8.4; the Fronts' handler serves them from [`super::TeamStore`]'s
-//! [`Teams`](crate::collab::Teams) side.
+//! [`Teams`](crate::collab::Teams) side, with its body shapes
+//! (`{"records": […]}`, `{"heads": […]}`, `202 {}`).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +23,21 @@ const MAX_BODY: usize = crate::collab::MAX_BODY;
 /// Devices probed per refresh, and the connect timeout of a probe (§3).
 pub const MAX_PROBES: usize = 256;
 pub const PROBE_CONNECT: Duration = Duration::from_secs(2);
+
+/// `{"records": [TeamRecord]}` (`records`, `teams:discover`).
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Records {
+    #[serde(default)]
+    pub records: Vec<TeamRecord>,
+}
+
+/// `{"heads": [TeamHead]}`, the answer to `POST teams/{t}/heads` (whose
+/// body is the asker's one `TeamHead`).
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Heads {
+    #[serde(default)]
+    pub heads: Vec<TeamHead>,
+}
 
 pub mod paths {
     //! The team endpoints' paths (§8.4), shared with the Fronts' router.
@@ -122,8 +138,8 @@ pub(crate) fn pull_later(store: &TeamStore, from: DeviceAddr, teams: Vec<TeamId>
 /// Returns how many were added.
 pub fn pull(store: &TeamStore, from: &DeviceAddr, team: &TeamId) -> Result<usize> {
     let ours = store.head(team).map_or(0, |h| h.version);
-    let records: Vec<TeamRecord> = call(store, from, get(&paths::records(team, ours)))?;
-    store.accept(team, records, ours == 0)
+    let records: Records = call(store, from, get(&paths::records(team, ours)))?;
+    store.accept(team, records.records, ours == 0)
 }
 
 /// Exchange heads with another member device for every team we share with
@@ -136,8 +152,8 @@ pub fn sync_with(store: &TeamStore, peer: &DeviceAddr) -> Result<usize> {
             continue;
         }
         let Some(ours) = store.head(&team) else { continue };
-        let theirs: Vec<TeamHead> = call(store, peer, post(&paths::heads(&team), std::slice::from_ref(&ours)))?;
-        if theirs.iter().any(|h| h.team == team && h.version > ours.version) {
+        let theirs: Heads = call(store, peer, post(&paths::heads(&team), &ours))?;
+        if theirs.heads.iter().any(|h| h.team == team && h.version > ours.version) {
             added += pull(store, peer, &team)?;
         }
     }
@@ -162,8 +178,8 @@ pub fn discover(store: &TeamStore) -> Vec<TeamCard> {
             if info.listed_teams.is_empty() {
                 continue;
             }
-            if let Ok(records) = call::<Vec<TeamRecord>>(store, &hint.addr, get(paths::DISCOVER)) {
-                store.note_discovered(&hint.addr, records);
+            if let Ok(listed) = call::<Records>(store, &hint.addr, get(paths::DISCOVER)) {
+                store.note_discovered(&hint.addr, listed.records);
             }
         }
     }

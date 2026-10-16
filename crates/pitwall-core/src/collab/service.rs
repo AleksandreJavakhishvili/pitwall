@@ -99,4 +99,14 @@ pub trait Teams: Send + Sync {
 
     /// `GET /pitwall/v1/teams/{t}/requests`: pending join requests. Admins.
     fn join_requests(&self, caller: &Caller, team: &TeamId) -> Result<Vec<PendingJoin>>;
+
+    /// `GET /pitwall/v1/events` (`team.announce`): the head of each team
+    /// the caller's device is a member of, whenever an admin changes it
+    /// here. Member devices only; anyone else is `NotFound`. Each call
+    /// subscribes anew; dropping the receiver unsubscribes. The default
+    /// serves nobody.
+    fn announcements(&self, caller: &Caller) -> Result<Receiver<TeamHead>> {
+        let _ = caller;
+        Err(crate::error::PwError::not_found("not found"))
+    }
 }

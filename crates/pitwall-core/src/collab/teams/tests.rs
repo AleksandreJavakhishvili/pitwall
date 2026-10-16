@@ -13,8 +13,8 @@ use crate::net::fake::{FakeNet, FakeNetwork};
 use crate::net::{http, Body, Handler, Request, Response};
 use crate::testing::TempDir;
 
-/// The team endpoints of §8.4, routed to a store: what the Fronts' handler
-/// does for real.
+/// The team endpoints of §8.4, routed to a store, with the Fronts'
+/// handler's body shapes.
 struct Router(Arc<TeamStore>);
 
 fn json<T: serde::Serialize>(v: &T) -> Response {
@@ -46,16 +46,16 @@ impl Handler for Router {
             return json(&store.info(&caller));
         }
         if path == sync::paths::DISCOVER {
-            return json(&store.listed(&caller));
+            return json(&serde_json::json!({"records": store.listed(&caller)}));
         }
         let rest = path.strip_prefix("/pitwall/v1/teams/").unwrap_or("");
         let (team, op) = rest.split_once('/').unwrap_or((rest, ""));
         let team = TeamId(team.to_string());
         let res = match op {
-            "heads" => store.heads(&caller, &serde_json::from_slice::<Vec<TeamHead>>(&body).unwrap()).map(|h| json(&h)),
+            "heads" => store.heads(&caller, &[serde_json::from_slice::<TeamHead>(&body).unwrap()]).map(|h| json(&serde_json::json!({"heads": h}))),
             "records" => {
                 let after = query.strip_prefix("after=").and_then(|n| n.parse().ok()).unwrap_or(0);
-                store.records(&caller, &team, after).map(|r| json(&r))
+                store.records(&caller, &team, after).map(|r| json(&serde_json::json!({"records": r})))
             }
             "join" => store.request_join(&caller, &team, serde_json::from_slice(&body).unwrap()).map(|()| json(&serde_json::json!({}))),
             "invites:redeem" => store.redeem_invite(&caller, &team, serde_json::from_slice(&body).unwrap()).map(|()| json(&serde_json::json!({}))),
@@ -336,4 +336,21 @@ fn identity_links_come_from_member_entries() {
     alice.store.add_identity(&team, &member, cloud.clone()).unwrap();
     let linked = alice.store.linked(&cloud);
     assert!(linked.iter().any(|i| i.is(&bob)) && linked.iter().any(|i| i.is(&cloud)));
+}
+
+#[test]
+fn member_devices_hear_announcements() {
+    let net = FakeNet::new("example");
+    let alice = node(&net, "alice@example.com", "studio", 1);
+    let bob = node(&net, "bob@example.com", "bob-mbp", 2);
+    let team = alice.store.create("Platform", "", true, JoinPolicy::Request).unwrap();
+    let bob_caller = net.caller("bob-mbp").unwrap();
+    assert!(alice.store.announcements(&bob_caller).unwrap_err().is(ErrorCode::NotFound));
+    sync::request_join(&bob.store, &alice.net.addr(), &team, "").unwrap();
+    alice.store.approve(&team, &net.person("bob@example.com")).unwrap();
+    let heads = alice.store.announcements(&bob_caller).unwrap();
+    alice.store.add_member(&team, net.person("erin@example.com")).unwrap();
+    let head = heads.try_recv().unwrap();
+    assert_eq!(head, alice.store.head(&team).unwrap());
+    assert_eq!(head.version, 3);
 }

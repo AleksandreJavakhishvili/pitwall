@@ -181,6 +181,8 @@ pub struct TeamStore {
     networks: RwLock<Vec<Arc<dyn Network>>>,
     inner: Mutex<Inner>,
     subscribers: Mutex<Vec<Sender<()>>>,
+    /// Member devices listening on `/events` for `team.announce`.
+    announce_to: Mutex<Vec<(Caller, Sender<TeamHead>)>>,
     /// Itself, for pulls in the background.
     this: Weak<TeamStore>,
 }
@@ -224,6 +226,7 @@ impl TeamStore {
             networks: RwLock::default(),
             inner: Mutex::new(inner),
             subscribers: Mutex::default(),
+            announce_to: Mutex::default(),
         })
     }
 
@@ -254,6 +257,20 @@ impl TeamStore {
 
     fn notify(&self) {
         self.subscribers.lock().unwrap_or_else(|e| e.into_inner()).retain(|tx| tx.send(()).is_ok());
+    }
+
+    /// Tell member devices listening on `/events` that `team` changed here.
+    fn announce(&self, team: &TeamId) {
+        let Some(head) = self.head(team) else { return };
+        let subs: Vec<(Caller, Sender<TeamHead>)> = std::mem::take(&mut *self.announce_to.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut keep = Vec::new();
+        for (caller, tx) in subs {
+            let ok = !self.member_device(team, &caller) || tx.send(head.clone()).is_ok();
+            if ok {
+                keep.push((caller, tx));
+            }
+        }
+        self.announce_to.lock().unwrap_or_else(|e| e.into_inner()).extend(keep);
     }
 
     fn now(&self) -> String {
@@ -509,6 +526,7 @@ impl TeamStore {
         drop(inner);
         self.save_chain_record(team, &record)?;
         self.notify();
+        self.announce(team);
         Ok(record)
     }
 
@@ -653,6 +671,7 @@ impl TeamStore {
         }
         if !added.is_empty() {
             self.notify();
+            self.announce(team);
         }
         Ok(added.len())
     }
@@ -869,6 +888,15 @@ impl Teams for TeamStore {
             return Err(not_found());
         }
         Ok(self.requests(team))
+    }
+
+    fn announcements(&self, caller: &Caller) -> Result<Receiver<TeamHead>> {
+        if !self.teams().iter().any(|t| self.member_device(t, caller)) {
+            return Err(not_found());
+        }
+        let (tx, rx) = mpsc::channel();
+        self.announce_to.lock().unwrap_or_else(|e| e.into_inner()).push((caller.clone(), tx));
+        Ok(rx)
     }
 }
 
