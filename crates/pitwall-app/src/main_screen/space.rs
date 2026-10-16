@@ -44,15 +44,19 @@ impl MainScreen {
     ) -> impl IntoElement {
         // Switching space / Wall / Review: a short cross-fade in (`m-fade`).
         let fade_key: Option<SharedString> = match self.route {
-            _ if agents.is_empty() && self.engine.is_some() => None,
+            Route::Space | Route::Wall | Route::Review if agents.is_empty() && self.engine.is_some() => None,
             Route::Wall => Some("center-wall".into()),
             Route::Review => Some("center-review".into()),
             Route::Explorer => None,
+            Route::People => Some("center-people".into()),
+            Route::Ask => Some("center-ask".into()),
             Route::Space => self
                 .active_space()
                 .map(|s| format!("center-space-{}", s.id).into()),
         };
-        let body: AnyElement = if agents.is_empty() && self.engine.is_some() {
+        // People and Ask don't need agents of one's own.
+        let own_screen = matches!(self.route, Route::People | Route::Ask);
+        let body: AnyElement = if agents.is_empty() && self.engine.is_some() && !own_screen {
             empty_state(t, cx).into_any_element()
         } else if self.route != Route::Space {
             match self.parts.as_ref().filter(|_| super::part::cached(cx)) {
@@ -1551,6 +1555,8 @@ fn route_placeholder(route: Route, t: &Theme, cx: &mut Context<MainScreen>) -> i
         Route::Wall => ("Wall", "every agent, live · view only"),
         Route::Review => ("Review", "what agents changed"),
         Route::Explorer => ("Files", "read-only file viewer"),
+        Route::People => ("People", "teams and shared agents"),
+        Route::Ask => ("Ask", "teammates' shared agents"),
         Route::Space => ("", ""),
     };
     div()

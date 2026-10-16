@@ -123,9 +123,12 @@ impl SettingsView {
         }));
         let store = crate::ui_state::store(cx);
         let outside = super::backend::outside(cx);
+        let collab = crate::collab::model_or_new(cx);
         let subs = vec![
             cx.observe(&store, |_, _, cx| cx.notify()),
             super::accounts::observe(cx),
+            // Settings → Collaboration and Networks follow the switches.
+            cx.observe(&collab, |_, _, cx| cx.notify()),
             // `pitwall settings` installed hooks or the CLI: read again.
             cx.observe(&outside, |v, _, cx| {
                 if let Some(t) = Self::read_hooks(cx) {

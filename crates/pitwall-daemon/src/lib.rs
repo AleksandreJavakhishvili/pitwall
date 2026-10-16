@@ -11,8 +11,14 @@
 //! - [`manage`]: stop/restart/remove/rename/status/wait, queues, projects,
 //!   rules, review.
 //! - [`workspace`]: `space.*` over the host's [`WorkspaceBackend`].
+//! - [`collab`]: collaboration's owner-only methods (`share.*`, `team.*`,
+//!   `people.list`, `ask.*`, `collab.settings.*`) over a [`CollabBackend`].
+
+// The tests build large JSON fixtures (`serde_json::json!`).
+#![recursion_limit = "256"]
 
 pub mod approvals;
+pub mod collab;
 pub mod identity;
 pub mod manage;
 pub mod methods;
@@ -22,6 +28,7 @@ pub mod settings;
 pub mod workspace;
 
 pub use approvals::{Approvals, Decision};
+pub use collab::{CollabBackend, CollabService};
 pub use identity::{Caller, Identify, ProcessIdentity};
 pub use server::{serve, Config, Handle};
 pub use settings::SettingsBackend;

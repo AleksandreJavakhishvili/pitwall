@@ -19,7 +19,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 | Status | Meaning |
 |---|---|
 | `0` | Done. |
-| `1` | An error (see the JSON on stderr), including `wait` timing out (code `timeout`). |
+| `1` | An error (see the JSON on stderr), including `wait` timing out (code `timeout`) and collaboration's refusals (`offline`, `busy`, `quota`, `share_total`, `agent_limit`, `not_allowed`, `no_answer`, `loop`, `forbidden`). |
 | `2` | Bad arguments: unknown command or option, a missing value, or a value the server rejects (`bad_params`). |
 | `3` | Not approved: you denied the request in Pitwall, or didn't answer. |
 
@@ -85,6 +85,10 @@ These work with every command.
 - [`rules`](#rules): Rule sets (rulesync) for agents and projects
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
+- [`people`](#people): People in your teams and the agents they share with you
+- [`team`](#team): Teams on your networks: list, show, join, leave; admins add members
+- [`share`](#share): Share one of your agents with people or teams, and change what it shares. Drafts apply directly; going live and widening a live share always wait for your OK in Pitwall, with the exact change
+- [`ask`](#ask): Ask a teammate's shared agent (`ask alice/api-expert "…"`), or list your messages and replies (`ask list`). Waits for the reply
 
 ## agent
 
@@ -611,4 +615,366 @@ pitwall wait [OPTIONS] --for <STATUS> <AGENT>
 pitwall queue add api "run the tests"
 pitwall wait api --for done,blocked --fresh --timeout 900
 ```
+
+
+## people
+
+People in your teams and the agents they share with you.
+
+### people list
+
+Everyone in your teams, their devices and the agents they share with you.
+
+```bash
+pitwall people list [OPTIONS]
+```
+
+
+## team
+
+Teams on your networks: list, show, join, leave; admins add members.
+
+### team list
+
+Your teams, then teams found on your networks.
+
+```bash
+pitwall team list [OPTIONS]
+```
+
+### team show
+
+One team: members, admins, requests, setup lines for people without Pitwall.
+
+```bash
+pitwall team show [OPTIONS] <TEAM>
+```
+
+| Argument | |
+|---|---|
+| `TEAM` | The team (name, fingerprint such as 9F2-C1A, or id). |
+
+### team join
+
+Ask to join a listed team, or join with an invite link.
+
+```bash
+pitwall team join [OPTIONS] <TEAM>
+```
+
+| Argument | |
+|---|---|
+| `TEAM` | The team (name, fingerprint or id), or a pitwall://team/join?… link. |
+
+| Option | |
+|---|---|
+| `--note <NOTE>` | A note for the admins. |
+
+### team leave
+
+Leave a team.
+
+```bash
+pitwall team leave [OPTIONS] <TEAM>
+```
+
+| Argument | |
+|---|---|
+| `TEAM` | The team (name, fingerprint or id). |
+
+### team add-member
+
+Add someone by login, also people without Pitwall (admins; asks you in Pitwall). Prints the setup lines to send them.
+
+```bash
+pitwall team add-member [OPTIONS] <TEAM> <LOGIN>
+```
+
+| Argument | |
+|---|---|
+| `TEAM` | The team (name, fingerprint or id). |
+| `LOGIN` | Their login, e.g. erin@example.com. |
+
+| Option | |
+|---|---|
+| `--network <NETWORK>` | The network the login is on (tailscale, or tailscale:example.ts.net). |
+
+### team create
+
+Create a team with you as its only admin (asks you in Pitwall).
+
+```bash
+pitwall team create [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | The team's name. |
+
+| Option | |
+|---|---|
+| `--description <DESCRIPTION>` |  |
+| `--listed` | People on your networks can find it and ask to join (default: invite-only). |
+| `--closed` | Nobody can ask to join: invite links only. |
+
+### team invite
+
+A one-time invite link (admins; asks you in Pitwall).
+
+```bash
+pitwall team invite [OPTIONS] <TEAM>
+```
+
+| Argument | |
+|---|---|
+| `TEAM` | The team (name, fingerprint or id). |
+
+### team approve
+
+Approve (or --decline) a join request (admins).
+
+```bash
+pitwall team approve [OPTIONS] <TEAM> <PERSON>
+```
+
+| Argument | |
+|---|---|
+| `TEAM` | The team (name, fingerprint or id). |
+| `PERSON` | Who asked (their login). |
+
+| Option | |
+|---|---|
+| `--decline` |  |
+
+
+## share
+
+Share one of your agents with people or teams, and change what it shares. Drafts apply directly; going live and widening a live share always wait for your OK in Pitwall, with the exact change.
+
+### share list
+
+Your shares: state, capability, who may use them.
+
+```bash
+pitwall share list [OPTIONS]
+```
+
+### share show
+
+One share: its settings, the plain summary, the sensitive files left out, usage.
+
+```bash
+pitwall share show [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share (its name, or the shared agent's id or name). |
+
+### share create
+
+Make a draft share of one of your agents. Nobody else sees a draft. Anything not given takes the Share dialog's defaults: read only, fresh start, no network beyond the model, no environment variables, sensitive files left out. Prints the summary and the excluded files.
+
+```bash
+pitwall share create [OPTIONS] <AGENT>
+```
+
+| Argument | |
+|---|---|
+| `AGENT` | The agent to share (id or name). |
+
+| Option | |
+|---|---|
+| `--team <TEAM>` | Add a team (name, fingerprint or id). Repeatable. |
+| `--person <LOGIN>` | Add a person by login. Repeatable. |
+| `--everyone-on <NETWORK>` | Add everyone on a network (tailscale:example.ts.net). |
+| `--remove-team <TEAM>` |  |
+| `--remove-person <LOGIN>` |  |
+| `--remove-network <NETWORK>` |  |
+| `--capability <CAPABILITY>` | read, write or write_approval. |
+| `--paths <PATHS>` | The folders it sees (comma-separated, relative to the repository). |
+| `--exclude <PATHS>` | Leave these out too (comma-separated). |
+| `--include <PATHS>` | Put these back in (a sensitive file the scan left out). |
+| `--uncommitted <UNCOMMITTED>` | Include uncommitted changes. |
+| `--start <fresh\|summary>` | fresh, or summary (with --summary). |
+| `--summary <TEXT>` | The approved summary sessions start from (`-`: stdin). |
+| `--env <NAMES>` | Environment variables to pass (comma-separated; none by default). |
+| `--hosts <HOSTS>` | Hosts it may reach besides its model (comma-separated). |
+| `--account <ACCOUNT>` | The agent account sessions run on (`default`: your own login). |
+| `--programs <allow:LIST\|deny:LIST>` | Programs it may run: allow:git,rg,cargo or deny:curl,ssh. |
+| `--instructions <TEXT>` | Off-limits topics and role, as instructions to the agent (`-`: stdin). Not guaranteed. |
+| `--messages-per-day <N>` |  |
+| `--sessions <N>` | Conversations running at once. |
+| `--queue <N>` |  |
+| `--turn-timeout <MIN>` | Minutes per turn. |
+| `--agent-minutes <MIN>` | Agent minutes per day, all callers together. |
+| `--limit <LOGIN=N>` | A person's own daily limit: LOGIN=N (N=default removes it). |
+| `--slug <SLUG>` | Its name in addresses (alice/<slug>). |
+| `--name <NAME>` |  |
+| `--description <DESCRIPTION>` |  |
+
+### share guest
+
+Try the draft as a guest: the standard probes (.env, history, environment, ~/.ssh, the network, a change at read only) or a message.
+
+```bash
+pitwall share guest [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+| Option | |
+|---|---|
+| `--probes` | Run the standard guest probes. |
+| `--only <PROBE>` | Only these probes (env-file, history, env-vars, ssh-key, fetch, change-readme). |
+| `--message <MESSAGE>` | Your own message (`-` reads it from stdin). |
+
+### share set
+
+Change a share. Prints the diff; widening a live share asks you in Pitwall (more people, paths, hosts, a stronger capability, higher limits); narrowing applies directly.
+
+```bash
+pitwall share set [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+| Option | |
+|---|---|
+| `--team <TEAM>` | Add a team (name, fingerprint or id). Repeatable. |
+| `--person <LOGIN>` | Add a person by login. Repeatable. |
+| `--everyone-on <NETWORK>` | Add everyone on a network (tailscale:example.ts.net). |
+| `--remove-team <TEAM>` |  |
+| `--remove-person <LOGIN>` |  |
+| `--remove-network <NETWORK>` |  |
+| `--capability <CAPABILITY>` | read, write or write_approval. |
+| `--paths <PATHS>` | The folders it sees (comma-separated, relative to the repository). |
+| `--exclude <PATHS>` | Leave these out too (comma-separated). |
+| `--include <PATHS>` | Put these back in (a sensitive file the scan left out). |
+| `--uncommitted <UNCOMMITTED>` | Include uncommitted changes. |
+| `--start <fresh\|summary>` | fresh, or summary (with --summary). |
+| `--summary <TEXT>` | The approved summary sessions start from (`-`: stdin). |
+| `--env <NAMES>` | Environment variables to pass (comma-separated; none by default). |
+| `--hosts <HOSTS>` | Hosts it may reach besides its model (comma-separated). |
+| `--account <ACCOUNT>` | The agent account sessions run on (`default`: your own login). |
+| `--programs <allow:LIST\|deny:LIST>` | Programs it may run: allow:git,rg,cargo or deny:curl,ssh. |
+| `--instructions <TEXT>` | Off-limits topics and role, as instructions to the agent (`-`: stdin). Not guaranteed. |
+| `--messages-per-day <N>` |  |
+| `--sessions <N>` | Conversations running at once. |
+| `--queue <N>` |  |
+| `--turn-timeout <MIN>` | Minutes per turn. |
+| `--agent-minutes <MIN>` | Agent minutes per day, all callers together. |
+| `--limit <LOGIN=N>` | A person's own daily limit: LOGIN=N (N=default removes it). |
+| `--slug <SLUG>` | Its name in addresses (alice/<slug>). |
+| `--name <NAME>` |  |
+| `--description <DESCRIPTION>` |  |
+| `--dry-run` | Only print the diff. |
+
+### share go-live
+
+Publish a draft (always asks you in Pitwall, with the full summary).
+
+```bash
+pitwall share go-live [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+### share pause
+
+Pause a live share: queued messages are refused, running turns stop.
+
+```bash
+pitwall share pause [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+### share resume
+
+Resume a paused share (asks you in Pitwall).
+
+```bash
+pitwall share resume [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+### share stop
+
+Stop sharing: the agent stays as it was.
+
+```bash
+pitwall share stop [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+### share sessions
+
+Conversations with a share, per caller: state and usage.
+
+```bash
+pitwall share sessions [OPTIONS] <SHARE>
+```
+
+| Argument | |
+|---|---|
+| `SHARE` | The share. |
+
+### share setup
+
+The `claude mcp add` line for this machine (for people without Pitwall).
+
+```bash
+pitwall share setup [OPTIONS]
+```
+
+### share block
+
+Stop all of a person's messages to your shares (or to one, --share).
+
+```bash
+pitwall share block [OPTIONS] <PERSON>
+```
+
+| Argument | |
+|---|---|
+| `PERSON` | Their login (bob@example.com) or person id. |
+
+| Option | |
+|---|---|
+| `--share <SHARE>` |  |
+| `--unblock` | Let them in again (asks you in Pitwall). |
+
+
+## ask
+
+Ask a teammate's shared agent (`ask alice/api-expert "…"`), or list your messages and replies (`ask list`). Waits for the reply.
+
+```bash
+pitwall ask [OPTIONS] <OWNER/AGENT MESSAGE>...
+```
+
+| Argument | |
+|---|---|
+| `OWNER/AGENT MESSAGE` | `OWNER/AGENT MESSAGE` (the message `-` reads stdin), or `list`. |
+
+| Option | |
+|---|---|
+| `--new` | Start a new conversation instead of continuing yours. |
+| `--timeout <SECONDS>` | Stop waiting after this many seconds (default 600); the turn goes on. |
+| `--owner <OWNER>` | `ask list`: only this owner's agents. |
 

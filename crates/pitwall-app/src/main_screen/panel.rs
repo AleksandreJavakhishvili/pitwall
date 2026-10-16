@@ -142,6 +142,7 @@ impl MainScreen {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let shared = section(super::PanelSlot::Shared, a, window, cx);
         let top = section(super::PanelSlot::Top, a, window, cx);
         let changes = self.changes_section(a, t, window, cx).into_any_element();
         let bottom = section(super::PanelSlot::Bottom, a, window, cx);
@@ -180,6 +181,7 @@ impl MainScreen {
                 .flex()
                 .flex_col()
                 .child(head)
+                .children(shared)
                 .children(top)
                 .child(changes)
                 .children(bottom)

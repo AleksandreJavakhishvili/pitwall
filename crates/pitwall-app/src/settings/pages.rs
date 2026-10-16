@@ -18,12 +18,12 @@ use crate::kit::{tooltip, BtnKind, SegItem};
 use crate::theme::{appearance, clamp_font, Density, Look, ThemePref, DEFAULT_FONT, FONT_FLOOR, FONT_MAX, FONT_MIN};
 
 /// A section: its parts 8 px apart.
-fn section() -> Div {
+pub(crate) fn section() -> Div {
     div().flex().flex_col().gap(px(8.))
 }
 
 /// A section's title row (sentence case, 13 px medium), controls after it.
-fn head(ui: &Ui, title: &str) -> Div {
+pub(crate) fn head(ui: &Ui, title: &str) -> Div {
     div()
         .flex()
         .items_center()
@@ -39,7 +39,7 @@ fn head(ui: &Ui, title: &str) -> Div {
 }
 
 /// A labelled row inside a section ("Theme  [seg]").
-fn row(ui: &Ui, name: &str) -> Div {
+pub(crate) fn row(ui: &Ui, name: &str) -> Div {
     div()
         .flex()
         .items_center()
@@ -96,6 +96,8 @@ impl SettingsView {
             }
             Page::Appearance => vec![Self::appearance_section(ui, cx), Self::tiles(ui, cx)],
             Page::FolderAccess => self.folder_access(ui, cx),
+            Page::Collaboration => crate::collab::settings_page::collaboration(ui, cx),
+            Page::Networks => crate::collab::settings_page::networks(ui, cx),
             Page::About => vec![Self::about(ui, cx)],
         }
     }
