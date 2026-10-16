@@ -226,6 +226,10 @@ fn find_holder(
         .ok_or_else(|| "the terminal holder (pitwall-hold) is missing next to the app".into())
 }
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_collab_e2e.rs"]
+mod collab_e2e;
+
 #[cfg(test)]
 mod tests {
     use super::*;
