@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 
 use super::turn::Front;
 use super::turn::{Asker, Refusal, ShareCard, Turn, TurnId, TurnStatus, Who};
-use super::{Conversations, RefusalReason, Teams, AGENT_HEADER, CHAIN_HEADER, MAX_CHAIN_DEPTH, MAX_STREAMS};
+use super::{Conversations, RefusalReason, Teams, AGENT_HEADER, CHAIN_HEADER, MAX_STREAMS};
 use crate::error::Result;
 use crate::net::http::{header, Method, StatusCode};
 use crate::net::{Caller, Endpoint, Handler, Network, NetworkId, PersonId, Request, Response};
@@ -310,25 +310,19 @@ impl Ctx {
     }
 
     /// The loop check (§8.6) for a message to `share`, before the core
-    /// sees it: a chain deeper than [`MAX_CHAIN_DEPTH`] shares, or one that
-    /// already went through this share, is refused with `loop`. The core
-    /// checks again (the chain is on the [`Asker`]); a plain client sends no chain and limits are the real
-    /// bound.
+    /// sees it, with the one rule ([`super::turn::chain_loop`]): a chain
+    /// through more than `MAX_CHAIN_DEPTH` shares, or one that already went
+    /// through this share, is refused with `loop`. The core applies the
+    /// same rule again (the chain is on the [`Asker`]); a plain client sends
+    /// no chain and limits are the real bound.
     fn loop_refusal(&self, asker: &Asker, share: &ShareCard, conversation: Option<&str>) -> Option<Turn> {
-        let shares: Vec<&str> = asker.chain.iter().map(String::as_str).filter(|e| is_share_entry(e)).collect();
-        let cycle = shares.iter().any(|e| names_share(e, share));
-        if shares.len() <= MAX_CHAIN_DEPTH && !cycle {
-            return None;
-        }
+        let found = super::turn::chain_loop(&asker.chain, &share.slug, &share.owner)?;
         let owner = short_name(&share.owner);
-        let message = if cycle {
-            format!("{owner}/{} is already in this message's chain; not asking it again", share.slug)
-        } else {
-            format!(
-                "This message already went through {} shared agents; not asking {owner}/{}",
-                shares.len(),
-                share.slug
-            )
+        let message = match found {
+            super::turn::ChainLoop::Cycle => format!("{owner}/{} is already in this message's chain; not asking it again", share.slug),
+            super::turn::ChainLoop::TooDeep(n) => {
+                format!("This message already went through {n} shared agents; not asking {owner}/{}", share.slug)
+            }
         };
         // Never reaches the core, so it has no turn there: a one-off id.
         let conversation = conversation.map_or_else(|| format!("x_{}", uuid::Uuid::new_v4().simple()), str::to_string);
@@ -353,30 +347,8 @@ fn turn_id(raw: &str) -> Option<TurnId> {
     wire::percent_decode(raw).filter(|s| !s.is_empty()).map(TurnId)
 }
 
-/// A chain entry naming a share (`alice/api-expert`), not a turn
-/// (`c_8f2k/7`, `c_17`).
-fn is_share_entry(entry: &str) -> bool {
-    entry
-        .rsplit_once('/')
-        .is_some_and(|(owner, slug)| !owner.is_empty() && !slug.is_empty() && !slug.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// Whether a chain entry names this share: `<owner>/<slug>` with the
-/// owner as subject, email or short name.
-fn names_share(entry: &str, share: &ShareCard) -> bool {
-    let Some((owner, slug)) = entry.rsplit_once('/') else { return false };
-    if slug != share.slug {
-        return false;
-    }
-    let o = &share.owner;
-    owner == o.subject || o.email.as_deref() == Some(owner) || owner == short_name(o)
-}
-
 /// `alice` for `alice@example.com`.
-pub(crate) fn short_name(identity: &crate::net::Identity) -> String {
-    let full = identity.email.as_deref().unwrap_or(&identity.subject);
-    full.split('@').next().unwrap_or(full).to_string()
-}
+pub(crate) use super::turn::short_name;
 
 /// How a person is shown: email, else subject.
 pub(crate) fn display_name(identity: &crate::net::Identity) -> String {

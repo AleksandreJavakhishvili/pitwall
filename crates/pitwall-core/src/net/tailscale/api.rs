@@ -212,6 +212,11 @@ impl CliApi {
         CliApi { exec: Arc::new(LocalExec), program }
     }
 
+    /// Whether the CLI was found (Tailscale is installed here).
+    pub fn installed(&self) -> bool {
+        self.program.is_some()
+    }
+
     /// A given program through a given exec (tests of the parsing).
     pub fn with(exec: Arc<dyn Exec>, program: &str) -> CliApi {
         CliApi { exec, program: Some(program.to_string()) }

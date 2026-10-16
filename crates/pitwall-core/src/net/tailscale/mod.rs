@@ -211,6 +211,13 @@ impl TailscaleNetwork {
         TailscaleNetwork::new(Arc::new(CliApi::new()), config)
     }
 
+    /// [`local`](Self::local), when Tailscale is installed here (its CLI
+    /// was found); `None` otherwise.
+    pub fn installed(config: TailscaleConfig) -> Option<TailscaleNetwork> {
+        let api = CliApi::new();
+        api.installed().then(|| TailscaleNetwork::new(Arc::new(api), config))
+    }
+
     /// The backend on any [`LocalApi`] (tests script one).
     pub fn new(api: Arc<dyn LocalApi>, config: TailscaleConfig) -> TailscaleNetwork {
         TailscaleNetwork {

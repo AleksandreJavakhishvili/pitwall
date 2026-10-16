@@ -252,3 +252,63 @@ pub struct ConversationSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_at: Option<String>,
 }
+
+/// Why a message's `Pitwall-Chain` is a loop (§8.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChainLoop {
+    /// It already went through this share.
+    Cycle,
+    /// It went through more than [`super::MAX_CHAIN_DEPTH`] shares.
+    TooDeep(usize),
+}
+
+/// The loop rule (§8.6), the one both fronts and the core apply: only
+/// share entries count (`alice/api-expert`; turn ids such as `c_8f2k/7` or
+/// `c_17` don't), an entry names this share when its slug matches and its
+/// owner is `owner` by subject, email or short name, and a chain through
+/// more than [`super::MAX_CHAIN_DEPTH`] shares is too deep.
+pub fn chain_loop(chain: &[String], slug: &str, owner: &Identity) -> Option<ChainLoop> {
+    let shares: Vec<&str> = chain.iter().map(String::as_str).filter(|e| is_share_entry(e)).collect();
+    if shares.iter().any(|e| names_share(e, slug, owner)) {
+        return Some(ChainLoop::Cycle);
+    }
+    (shares.len() > super::MAX_CHAIN_DEPTH).then_some(ChainLoop::TooDeep(shares.len()))
+}
+
+/// A chain entry naming a share (`alice/api-expert`), not a turn
+/// (`c_8f2k/7`, `c_17`).
+fn is_share_entry(entry: &str) -> bool {
+    entry
+        .rsplit_once('/')
+        .is_some_and(|(owner, slug)| !owner.is_empty() && !slug.is_empty() && !slug.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Whether a chain entry is `<owner>/<slug>` with the owner as subject,
+/// email or short name.
+fn names_share(entry: &str, slug: &str, owner: &Identity) -> bool {
+    let Some((who, s)) = entry.rsplit_once('/') else { return false };
+    s == slug && (who == owner.subject || owner.email.as_deref() == Some(who) || who == short_name(owner))
+}
+
+/// `alice` for `alice@example.com`.
+pub fn short_name(identity: &Identity) -> String {
+    let full = identity.email.as_deref().unwrap_or(&identity.subject);
+    full.split('@').next().unwrap_or(full).to_string()
+}
+
+#[cfg(test)]
+mod chain_tests {
+    use super::*;
+
+    #[test]
+    fn only_share_entries_count_and_owners_match_any_name() {
+        let alice = Identity { email: Some("alice@example.com".into()), ..Identity::new("tailscale", "alice@example.com") };
+        let c = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(chain_loop(&c(&["c_17", "alice/api-expert"]), "api-expert", &alice), Some(ChainLoop::Cycle));
+        assert_eq!(chain_loop(&c(&["alice@example.com/api-expert"]), "api-expert", &alice), Some(ChainLoop::Cycle));
+        assert_eq!(chain_loop(&c(&["dave/api-expert"]), "api-expert", &alice), None, "someone else's share of that name");
+        assert_eq!(chain_loop(&c(&["c_1/1", "bob/fixer", "c_2/4", "carol/reviewer"]), "api-expert", &alice), None);
+        assert_eq!(chain_loop(&c(&["bob/fixer", "carol/reviewer", "dave/docs"]), "api-expert", &alice), Some(ChainLoop::TooDeep(3)));
+        assert_eq!(chain_loop(&c(&["a", "b", "c", "c_9/3"]), "api-expert", &alice), None, "no share entries");
+    }
+}

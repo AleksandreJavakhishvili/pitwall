@@ -56,6 +56,38 @@ impl Snapshots for GitSnapshots {
     }
 }
 
+/// What the sensitive-file scan of a share's scope found (§5.4 step 3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScopeScan {
+    /// Flagged files of the scope, before its exclusions (so the owner sees
+    /// the ones excluded too), relative to the repository's top.
+    pub findings: Vec<crate::sandbox::scan::Finding>,
+    /// Files a copy would hold after the exclusions.
+    pub files: u32,
+}
+
+/// Scan the files a copy of `scope` would hold, as the copy holds them:
+/// tracked files at the scope's ref ([`snapshot::scope_files`]), names and
+/// content ([`crate::sandbox::scan::scan`]). Untracked files never reach a
+/// copy, so they aren't listed.
+pub fn scan_scope(exec: &dyn Exec, scope: &Scope) -> Result<ScopeScan> {
+    let mut spec = snapshot_spec(scope);
+    let exclude = std::mem::take(&mut spec.exclude);
+    let entries = snapshot::scope_files(exec, &spec)?;
+    let out = exec.run(&crate::exec::Cmd::new(&["git", "-C", &spec.repo, "rev-parse", "--show-toplevel"]))?;
+    let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let paths: Vec<String> = entries.iter().map(|e| e.path.clone()).collect();
+    let findings = crate::sandbox::scan::scan(exec, &top, &paths);
+    let excluded = |p: &str| {
+        exclude.iter().any(|e| {
+            let e = e.trim_start_matches("./").trim_end_matches('/');
+            !e.is_empty() && (p == e || p.starts_with(&format!("{e}/")))
+        })
+    };
+    let files = paths.iter().filter(|p| !excluded(p)).count() as u32;
+    Ok(ScopeScan { findings, files })
+}
+
 /// One egress proxy per share, started when its first session needs the
 /// network.
 #[derive(Default)]
@@ -160,5 +192,10 @@ mod tests {
         assert_eq!(snap.base_commit.len(), 40);
         assert!(work.join("src/lib.rs").is_file());
         assert!(!work.join(".env").exists());
+        // The scan lists the excluded .env too (the owner sees why), and
+        // counts what the copy holds.
+        let scanned = scan_scope(&crate::exec::LocalExec, &scope).unwrap();
+        assert_eq!(scanned.findings.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), [".env"]);
+        assert_eq!(scanned.files, 1);
     }
 }

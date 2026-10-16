@@ -851,6 +851,27 @@ impl Collab {
         self.lock().usage.as_ref().map(|u| u.day(&day)).unwrap_or_default()
     }
 
+    /// Usage rows of the last `days` days, today included (the Usage
+    /// view's 30 days).
+    pub fn usage_days(&self, days: u32) -> Vec<UsageRow> {
+        let now = self.now();
+        let st = self.lock();
+        let Some(u) = st.usage.as_ref() else { return Vec::new() };
+        (0..days.max(1)).flat_map(|n| u.day(&time::day(now - chrono::Duration::days(i64::from(n))))).collect()
+    }
+
+    /// The share's agent shows its vendor limit: `Some(until)` (the reset
+    /// time it showed, when it did).
+    pub fn limited(&self, slug: &str) -> Option<Option<String>> {
+        self.lock().limited.get(slug).map(|l| l.until.clone())
+    }
+
+    /// Whether engine agent `agent` is one of the shared sessions (its
+    /// processes may not use Pitwall's socket at all, §8.5).
+    pub fn is_session(&self, agent: &str) -> bool {
+        self.lock().by_agent.contains_key(agent)
+    }
+
     /// `share.sessions`: each caller's conversation with a share (owner sidebar).
     pub fn sessions(&self, slug: &str) -> Vec<SharedSessionView> {
         let st = self.lock();
@@ -1914,9 +1935,14 @@ impl Collab {
         None
     }
 
-    fn loops(asker: &Asker, share: &ShareSettings) -> bool {
-        asker.chain.len() > super::MAX_CHAIN_DEPTH
-            || asker.chain.iter().any(|c| c == &share.slug || c.rsplit_once('/').is_some_and(|(_, s)| s == share.slug))
+    /// The loop rule (§8.6), the same one the fronts apply before a message
+    /// gets here ([`super::turn::chain_loop`]).
+    fn loops(&self, asker: &Asker, share: &ShareSettings) -> bool {
+        let network = match &asker.who {
+            Who::Network(c) => Some(c.network().clone()),
+            Who::Guest => None,
+        };
+        super::turn::chain_loop(&asker.chain, &share.slug, &self.owner_identity(network.as_ref())).is_some()
     }
 }
 
@@ -1997,7 +2023,7 @@ impl Conversations for Collab {
         let turn = {
             let mut st = self.lock();
             let conv_id = self.conversation_for(&mut st, asker, &person, &ask, &share)?;
-            let refused = if Self::loops(asker, &share) {
+            let refused = if self.loops(asker, &share) {
                 Some(refusal(RefusalReason::Loop, format!("{} already passed this message on", share.slug), None, None))
             } else {
                 self.limit_refusal(&st, &share, &person, guest)

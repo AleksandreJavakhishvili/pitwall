@@ -890,8 +890,11 @@ fn chains_through_this_share_are_loops() {
     let mut bob = w.asker("bob@example.com", "bob-mbp");
     bob.chain = vec!["c_17".into(), "alice@example.com/api-expert".into()];
     assert_eq!(reason(&w.ask(&bob, "api-expert", "hi").status), Some(RefusalReason::Loop));
-    bob.chain = vec!["a".into(), "b".into(), "c".into()];
+    // The fronts' rule: only share entries count, more than two is a loop.
+    bob.chain = vec!["bob/fixer".into(), "carol/reviewer".into(), "dave/docs".into()];
     assert_eq!(reason(&w.ask(&bob, "api-expert", "hi").status), Some(RefusalReason::Loop));
+    bob.chain = vec!["c_1/1".into(), "c_2/4".into(), "c_3/2".into()];
+    assert!(!matches!(w.ask(&bob, "api-expert", "hi").status, TurnStatus::Refused(_)), "turn ids don't count");
     bob.chain = vec!["c_1".into(), "dave@example.com/docs".into()];
     assert!(!matches!(w.ask(&bob, "api-expert", "hi").status, TurnStatus::Refused(_)));
 }
