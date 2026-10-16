@@ -228,6 +228,14 @@ pub fn kind_argv(kind: &AgentKind, start: &StartAs, hook: Option<&str>) -> (Vec<
     (argv, session, resumed)
 }
 
+/// The kind's `[share] session_args` for a session in `cwd` (its real
+/// path, as the agent records it).
+pub fn session_args(kind: &AgentKind, cwd: &Path) -> Vec<String> {
+    let real = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let real = real.to_string_lossy();
+    share_kind(kind).session_args.iter().map(|a| a.replace("{cwd}", &real)).collect()
+}
+
 /// The hook relay command for one shared session: the agent id and the
 /// socket are in the command itself, so the session's environment carries
 /// no `PITWALL_*` variable (§6.3).
@@ -314,6 +322,23 @@ mod tests {
         let (argv, id, _) = kind_argv(&k, &StartAs::Fork("base-1".into()), None);
         let id = id.unwrap();
         assert_eq!(argv, ["claude", "--resume", "base-1", "--fork-session", "--session-id", id.as_str(), "--settings", off]);
+    }
+
+    #[test]
+    fn codex_sessions_trust_their_copy_for_this_run_only() {
+        let k: AgentKind = toml::from_str(include_str!("../../agents/codex.toml")).unwrap();
+        let dir = crate::testing::TempDir::new("codex-copy");
+        let real = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+        let trust = format!("projects={{\"{real}\"={{trust_level=\"trusted\"}}}}");
+        let (mut argv, id, resumed) = kind_argv(&k, &StartAs::Fresh, None);
+        argv.extend(session_args(&k, dir.path()));
+        assert_eq!(argv, ["codex", "--sandbox", "danger-full-access", "-c", trust.as_str()]);
+        assert!(id.is_none() && !resumed, "Codex names its conversation itself (its session file says which)");
+        let (mut argv, _, resumed) = kind_argv(&k, &StartAs::Resume("019a-1".into()), None);
+        argv.extend(session_args(&k, dir.path()));
+        assert_eq!(argv, ["codex", "resume", "019a-1", "--sandbox", "danger-full-access", "-c", trust.as_str()]);
+        assert!(resumed);
+        assert_eq!(share_kind(&k).reply, crate::kind::ReplyTier::SessionFile);
     }
 
     #[test]

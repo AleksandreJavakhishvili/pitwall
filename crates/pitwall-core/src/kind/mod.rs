@@ -150,6 +150,59 @@ pub struct ShareKind {
     /// in the share's environment; never copied implicitly.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_key_env: Vec<String>,
+    /// Arguments every shared session's launch gets after the kind's own
+    /// (`{cwd}`: the session's copy, its real path). Codex: trust the copy
+    /// for this run only, so a new conversation doesn't stop at "Trust
+    /// this folder?".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_args: Vec<String>,
+    /// `reply = "session-file"`: where and how the kind writes its own
+    /// session files (§7.2 (a)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_files: Option<SessionFiles>,
+    /// `reply = "non-interactive"`: how a turn runs as one command (§7.2 (b)).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub non_interactive: Option<NonInteractive>,
+}
+
+/// A kind's own session files (JSON Lines), as data (§7.2 (a)): which
+/// line names the session (its id and working folder) and which line ends
+/// a turn with its reply. Lines are matched by JSON pointers to values.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionFiles {
+    /// The folder they're in, relative to the agent account's folder (the
+    /// kind's `account_env`), searched to any depth.
+    pub dir: String,
+    /// Their file names end with this (`.jsonl`).
+    #[serde(default)]
+    pub suffix: String,
+    /// The line that describes the session: pointer → value it must have.
+    pub meta: std::collections::BTreeMap<String, String>,
+    /// Pointers to the session's id and working folder on that line.
+    pub id: String,
+    pub cwd: String,
+    /// A line that ends a turn: pointer → value it must have.
+    pub end: std::collections::BTreeMap<String, String>,
+    /// Pointer to the reply on that line.
+    pub reply: String,
+}
+
+/// A kind's non-interactive mode, as data (§7.2 (b)): each turn runs as
+/// one command in the session's pane, and the reply is a field of the JSON
+/// it prints.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NonInteractive {
+    /// A conversation's first turn: `{message}` is the message,
+    /// `{session_id}` a new id Pitwall picks.
+    pub first_args: Vec<String>,
+    /// Every later turn (`{session_id}`: the conversation's).
+    pub next_args: Vec<String>,
+    /// JSON pointers into its output: the reply, the session id, an error.
+    pub reply: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 impl ShareKind {

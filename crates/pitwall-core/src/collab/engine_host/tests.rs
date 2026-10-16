@@ -96,3 +96,51 @@ fn the_owners_agent_is_described_for_sharing() {
     let env = host.account_env(&a.kind, None);
     assert_eq!(env[0].0, "CLAUDE_CONFIG_DIR");
 }
+
+/// Codex (tier (a), session files): the turn ends when its session file
+/// says so, with the reply from that line, and the file names the
+/// conversation for its resume.
+#[test]
+fn a_codex_turn_ends_with_the_reply_in_its_session_file() {
+    let h = Harness::new(vec![]);
+    let mut caps = FakeProvider::local_like();
+    caps.local_process = true;
+    h.provider.set_caps(caps);
+    let host = EngineHost::new(h.engine.clone());
+    let events: Arc<Mutex<Vec<(String, SessionEvent)>>> = Arc::default();
+    let seen = events.clone();
+    host.subscribe(Arc::new(move |a: &str, e: SessionEvent| seen.lock().unwrap().push((a.to_string(), e))));
+    let account = h.dir.path().join("codex-sharing");
+    let work = h.dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let mut l = launch(&work.to_string_lossy());
+    l.kind = "codex".into();
+    l.kind_name = "Codex".into();
+    l.session_id = None;
+    l.wrapped.env.insert("CODEX_HOME".into(), account.to_string_lossy().into_owned());
+    host.launch(&l).unwrap();
+
+    let real = std::fs::canonicalize(&work).unwrap();
+    let rollout = include_str!("../fixtures/codex-rollout.jsonl").replace("/pw/collab/shares/api-expert/s/c_1/work", &real.to_string_lossy());
+    let all: Vec<&str> = rollout.lines().collect();
+    let end = all.iter().position(|x| x.contains("task_complete")).unwrap();
+    let day = account.join("sessions/2026/10/16");
+    std::fs::create_dir_all(&day).unwrap();
+    let file = day.join("rollout-2026-10-16T22-53-27-01a1460f-dcd9-7cd2-9dcc-336889d84012.jsonl");
+    // Codex starts its file with the session's line; the message goes in.
+    std::fs::write(&file, format!("{}\n", all[0])).unwrap();
+    host.send("shared-1", "From bob@example.com:\nWhere is the entry point?").unwrap();
+    let id = SessionEvent::SessionId("01a1460f-dcd9-7cd2-9dcc-336889d84012".into());
+    assert!(events.lock().unwrap().iter().any(|(_, e)| *e == id), "the id comes from the file before the turn");
+    let rest: String = all[1..=end].iter().map(|x| format!("{x}\n")).collect();
+    std::fs::OpenOptions::new().append(true).open(&file).and_then(|mut f| std::io::Write::write_all(&mut f, rest.as_bytes())).unwrap();
+    let want = SessionEvent::TurnEnded(Some(Reply { text: "Mock reply 1: the entry point is src/lib.rs.".into(), source: ReplySource::SessionFile }));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !events.lock().unwrap().iter().any(|(_, e)| *e == want) {
+        assert!(std::time::Instant::now() < deadline, "the turn ended from the file: {:?}", events.lock().unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // Once.
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    assert_eq!(events.lock().unwrap().iter().filter(|(_, e)| matches!(e, SessionEvent::TurnEnded(_))).count(), 1);
+}

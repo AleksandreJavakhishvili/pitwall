@@ -1444,7 +1444,8 @@ impl Collab {
         let account = share.access.account.clone().or(owner_agent.account.clone());
         let policy = self.policy(share, &kind, account.as_deref(), &folder)?;
         let hook = self.hooks.as_ref().map(|h| super::session::hook_command(&h.command, &conv.agent, &h.socket));
-        let (argv, session_id, resumed) = kind_argv(&kind, &job.start, hook.as_deref());
+        let (mut argv, session_id, resumed) = kind_argv(&kind, &job.start, hook.as_deref());
+        argv.extend(super::session::session_args(&kind, &work));
         let wrapped = self.sandbox.wrap(&policy, &argv)?;
         let launch = HostLaunch {
             agent: conv.agent.clone(),

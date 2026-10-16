@@ -24,6 +24,7 @@ pub mod people;
 pub mod sandboxed;
 mod service;
 pub mod session;
+pub mod session_file;
 pub mod shares;
 pub mod store;
 pub mod team;

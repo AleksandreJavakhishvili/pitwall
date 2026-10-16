@@ -15,7 +15,9 @@ use super::session::{
     limit_on_screen, reply_from_hook, reply_from_screen, share_kind, HostLaunch, HostSink, OwnerAgents, SessionEvent, SessionHost,
     SharedAgent,
 };
+use super::session_file::{Found, SessionFileReader};
 use super::turn::Reply;
+use pitwall_proto::collab::ReplySource;
 use crate::engine::{input, lifecycle, Shared};
 use crate::error::{PwError, Result};
 use crate::kind::ReplyTier;
@@ -26,6 +28,8 @@ use crate::model::Status;
 const POLL: Duration = Duration::from_millis(250);
 /// After the turn ends by status, how long to wait for a hook's reply.
 const HOOK_GRACE: Duration = Duration::from_secs(2);
+/// … and for the turn's end in the kind's session file.
+const FILE_GRACE: Duration = Duration::from_secs(5);
 
 struct Watch {
     kind: AgentKind,
@@ -45,6 +49,33 @@ struct Watch {
     exited: bool,
     /// Being (re)started: its old state isn't an exit.
     launching: bool,
+    /// Tier (a) from the kind's own session files (Codex).
+    files: Option<SessionFileReader>,
+    /// The conversation a resumed launch continues (its file is older).
+    resume_id: Option<String>,
+    /// The id the files gave, once told to the core.
+    told_id: Option<String>,
+}
+
+impl Watch {
+    /// New lines of the session file: the id (once) and a turn's end.
+    fn read_files(&mut self) -> (Vec<SessionEvent>, Option<Option<Reply>>) {
+        let Some(r) = self.files.as_mut() else { return (Vec::new(), None) };
+        let mut events = Vec::new();
+        let mut ended = None;
+        for f in r.poll_for(self.resume_id.as_deref()) {
+            match f {
+                Found::SessionId(id) => {
+                    if self.told_id.as_deref() != Some(id.as_str()) {
+                        self.told_id = Some(id.clone());
+                        events.push(SessionEvent::SessionId(id));
+                    }
+                }
+                Found::TurnEnded(text) => ended = Some(text.map(|text| Reply { text, source: ReplySource::SessionFile })),
+            }
+        }
+        (events, ended)
+    }
 }
 
 /// The engine as the place shared sessions run.
@@ -164,6 +195,17 @@ impl EngineHost {
                         }
                         _ => {}
                     }
+                    // Tier (a), session files: the turn's end and its reply.
+                    if watch.files.is_some() {
+                        let (events, ended) = watch.read_files();
+                        out.extend(events);
+                        if let (true, Some(reply)) = (watch.open, ended) {
+                            watch.open = false;
+                            watch.idle_since = None;
+                            let reply = reply.or_else(|| reply_from_screen(&watch.before, &screen, &watch.sent));
+                            out.push(SessionEvent::TurnEnded(reply));
+                        }
+                    }
                     match status {
                         Status::Idle | Status::Done if !watch.ready => {
                             watch.ready = true;
@@ -184,7 +226,12 @@ impl EngineHost {
                             // Ended by status; a hook's reply may still be on its way.
                             let since = *watch.idle_since.get_or_insert_with(Instant::now);
                             let tier = share_kind(&watch.kind).reply;
-                            if tier != ReplyTier::Hook || since.elapsed() >= HOOK_GRACE {
+                            let grace = match tier {
+                                ReplyTier::Hook => HOOK_GRACE,
+                                ReplyTier::SessionFile if watch.files.is_some() => FILE_GRACE,
+                                _ => Duration::ZERO,
+                            };
+                            if since.elapsed() >= grace {
                                 watch.open = false;
                                 watch.idle_since = None;
                                 let reply = watch.hook_reply.take().or_else(|| reply_from_screen(&watch.before, &screen, &watch.sent));
@@ -219,6 +266,8 @@ impl SessionHost for EngineHost {
         }
         parts.extend(launch.wrapped.argv.iter().cloned());
         let command_line = parts.iter().map(|p| crate::shell::quote(p)).collect::<Vec<_>>().join(" ");
+        let files = session_files(&kind, launch);
+        let resume_id = launch.resumed.then(|| launch.session_id.clone()).flatten();
         self.watches().insert(
             launch.agent.clone(),
             Watch {
@@ -234,6 +283,9 @@ impl SessionHost for EngineHost {
                 limited: None,
                 exited: false,
                 launching: true,
+                files,
+                resume_id,
+                told_id: None,
             },
         );
         let cwd = launch.cwd.to_string_lossy().into_owned();
@@ -261,6 +313,14 @@ impl SessionHost for EngineHost {
 
     fn send(&self, agent: &str, text: &str) -> Result<()> {
         let before = self.screen(agent);
+        let mut told = Vec::new();
+        if let Some(w) = self.watches().get_mut(agent) {
+            // Only what the file gets after this message is this turn's.
+            told = w.read_files().0;
+        }
+        for e in told {
+            self.emit(agent, e);
+        }
         if let Some(w) = self.watches().get_mut(agent) {
             w.open = true;
             w.worked = false;
@@ -341,6 +401,18 @@ impl OwnerAgents for EngineHost {
             },
         }
     }
+}
+
+/// A reader of the kind's session files for this launch (tier (a), §7.2),
+/// under the agent account's folder the launch's environment names.
+fn session_files(kind: &AgentKind, launch: &HostLaunch) -> Option<SessionFileReader> {
+    let sk = share_kind(kind);
+    if sk.reply != ReplyTier::SessionFile {
+        return None;
+    }
+    let spec = sk.session_files?;
+    let root = kind.account_env.as_ref().and_then(|v| launch.wrapped.env.get(v)).or_else(|| launch.wrapped.env.get("HOME"))?;
+    Some(SessionFileReader::new(spec, std::path::Path::new(root), &launch.cwd, std::time::SystemTime::now()))
 }
 
 /// How long a variable read from the login shell is reused.
