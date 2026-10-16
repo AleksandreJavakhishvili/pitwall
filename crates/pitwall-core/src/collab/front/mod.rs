@@ -49,6 +49,15 @@ use crate::net::{Caller, Endpoint, Handler, Network, NetworkId, PersonId, Reques
 
 pub use wire::{SseEvent, SseReader};
 
+/// Requests per second per person, sustained (§8.1), and the burst on top.
+/// **Provisional**: the spec gives no numbers; these are a first guess
+/// (decided 2026-10-16 to keep them for now), to be tuned once real
+/// teams use collaboration. A Pitwall caller's Ask panel and an MCP
+/// client's `tools/list` + `tools/call` + `check_turn` stay far below
+/// them; a script hammering the endpoint doesn't.
+pub const REQUESTS_PER_SECOND: u32 = 10;
+pub const BURST: u32 = 40;
+
 /// Tunables; [`Options::default`] is what Pitwall ships.
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -69,8 +78,8 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Options {
         Options {
-            requests_per_second: 10,
-            burst: 40,
+            requests_per_second: REQUESTS_PER_SECOND,
+            burst: BURST,
             heartbeat: Duration::from_secs(15),
             send_wait: Duration::from_secs(u64::from(super::WAIT_SECONDS_MAX)),
             version: env!("CARGO_PKG_VERSION").to_string(),
