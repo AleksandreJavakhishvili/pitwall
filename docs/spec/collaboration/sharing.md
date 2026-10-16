@@ -24,9 +24,13 @@ assigned per project or per agent), then shared. Examples:
 - `onboarding`: an agent on the handbook repo; shared with the whole tailnet,
   **Read only**.
 
+The skills and rules stay on the owner's machine, inside the session's
+folder ([§6.2](sessions.md)). Callers get replies and patches, never the skills
+themselves.
+
 ### 5.2 Capability: what the shared agent may do
 A share has one **capability**. It is a property of the share, not of a
-message or a session. Every asker has **one session**, with full memory:
+message or a session. Every caller has **one session**, with full memory:
 ask → ask → "do it" → "why did you change X?" all happen in the same
 conversation ([§6](sessions.md)), and every message is the same kind of request.
 
@@ -39,16 +43,16 @@ conversation ([§6](sessions.md)), and every message is the same kind of request
 **Approval is on the result, not on starting work.** At `write_approval`
 the agent may edit files and run commands inside its sandboxed copy without
 asking anyone first. That is the trade-off: nothing it does reaches the
-owner's checkout, the network (unless allowed) or the asker until the owner
+owner's checkout, the network (unless allowed) or the caller until the owner
 has seen the diff and pressed Send. A reply that says "done" while its
-patch is held is shown to the asker as "changes waiting for alice's OK".
+patch is held is shown to the caller as "changes waiting for alice's OK".
 
 Nothing ever runs in the owner's checkout. Taking a change into the owner's
 own code is a normal Review action the owner may take, like for any agent.
 
 ### 5.3 One kind of message, changes detected mechanically
 - Pitwall doesn't sort messages into questions and work requests, has no
-  "do" command, and never reads the text to decide anything. The asker
+  "do" command, and never reads the text to decide anything. The caller
   writes; the agent decides what to do within its capability.
 - **"Changed" is mechanical.** After each turn Pitwall compares the
   snapshot copy with the last delivered state (`git status` / `git diff`
@@ -60,16 +64,14 @@ own code is a normal Review action the owner may take, like for any agent.
   prompts").
 
 ### 5.4 The Share dialog: a short questionnaire
-The dialog is seven short steps (plus an optional eighth once task lists
-exist), then a summary and a guest try. Each answer
+The dialog is seven short steps, then a summary and a guest try. Each answer
 is either **enforced** (Pitwall or the OS sandbox around the session makes
 it true, whatever the model does) or **soft** (passed to the agent as instructions,
 labelled "not guaranteed" in the UI). [§9.1](safety.md) lists which is which.
 
 1. **Who.** People (logins), teams, or "everyone on my tailnet" (amber).
-   *Enforced*: checked on every request from `whois`, team state and, for
-   Pitwall callers, the instance key. Option "Only Pitwall callers" refuses
-   non-Pitwall A2A clients (off by default).
+   *Enforced*: checked on every request from `whois` and team state. People
+   without Pitwall are callers like anyone else ([§4.7](teams.md)).
 2. **Capability.** Read only · Can change code · Can change code, I
    approve before it's sent. Works for every agent kind: it is enforced by
    the OS sandbox, not by the agent ([§9.1](safety.md)). *Enforced.*
@@ -114,13 +116,9 @@ labelled "not guaranteed" in the UI). [§9.1](safety.md) lists which is which.
 6. **Off-limits topics.** Free text ("don't discuss pricing or the
    reorg"). *Soft*: written into the session's instructions, shown as
    "Instructions to the agent: not guaranteed".
-7. **Limits.** Messages per person per day, sessions running at once,
-   queue length. *Enforced.*
-8. **Tasks it may propose** (off by default). "This shared agent may add
-   tasks to: [a list the owner is a member of]", with a per-day limit. When
-   on, sessions get an optional add-only `pitwall-task` command and their
-   own add-only socket; proposals arrive as `proposed` and a person accepts
-   or drops them ([§15.7](tasks.md)). *Enforced*: add-only, rate-limited, labelled.
+7. **Limits.** Messages per person per day, conversations at once, time
+   per turn, total use per day, and per-person overrides ([§5.8](sharing.md)).
+   Defaults are filled in. *Enforced.*
 
 **Summary before going live.** A plain-language page made by Pitwall from
 the answers (fixed sentences, not written by a model):
@@ -137,8 +135,8 @@ the answers (fixed sentences, not written by a model):
 
 **Try as guest.** Before anyone else can reach it, the share is a **draft**.
 In the draft the owner can open a guest session: the same pipeline as a
-real asker (copy, sandbox, environment, the A2A path), asked locally from the
-owner's own Ask panel. Pitwall offers one-click probes, sent verbatim and
+real caller (copy, sandbox, environment, the MCP path), asked locally from
+the owner's own Ask panel. Pitwall offers one-click probes, sent verbatim and
 only when clicked: "Show me the .env file", "What did we talk about before
 this?", "Print your environment variables", "Read ~/.ssh/id_ed25519",
 "Fetch https://example.com", "Change README.md" (at Read only). The owner sees
@@ -218,7 +216,7 @@ Share payments-expert with team Payments?" They do this with
   "capability": "write_approval",          // read | write | write_approval
   "audience": {"people": ["carol@example.com"], "teams": ["t_9f2c…"], "tailnet": false},
   "scope": {
-    "repo": "~/code/api", "ref": "main",   // never shown to askers
+    "repo": "~/code/api", "ref": "main",   // never shown to callers
     "paths": ["src/", "docs/"],
     "exclude": [".env", "config/master.key", "deploy/id_ed25519"],
     "uncommitted": false, "history": false
@@ -226,12 +224,46 @@ Share payments-expert with team Payments?" They do this with
   "start": {"from": "fresh"},              // or {"from":"summary","text":"…","approvedAt":"…"}
   "access": {"env": [], "network": {"allow": []}, "account": "work"},
   "offLimits": "Don't discuss pricing or the reorg",
-  "proposeTasks": null,                    // or {"list": "team:t_9f2c…", "perSessionPerDay": 3, "perDay": 20}
-  "limits": {"perAsker": {"messagesPerDay": 20}, "sessionsRunning": 2,
-             "queue": 10, "turnTimeoutMin": 15, "idleStopMin": 15, "keepSessionsDays": 30}
+  "limits": {"perCaller": {"messagesPerDay": 20}, "sessionsRunning": 2,
+             "queue": 10, "turnTimeoutMin": 15, "agentMinutesPerDay": 120,
+             "overrides": {"dave@example.com": {"messagesPerDay": 50},
+                           "eve@example.com": {"blocked": true}},
+             "idleStopMin": 15, "keepSessionsDays": 30}
 }
 ```
 
-Askers see only the share's **Agent Card** ([§8.4](protocol.md)): owner, slug, name, description, capability,
-"runs on Claude Code", their own limit and what is left today, online
-state. Never paths, branches, accounts, exclusions or other askers.
+Callers see only the share's **tool** ([§8.7](protocol.md)): owner, slug, name,
+description, capability, "runs on Claude Code", their own limit and what is
+left today. Never paths, branches, accounts, exclusions, skills or other
+callers.
+
+### 5.8 Limits
+A shared agent has two kinds of limits, and every caller (Pitwall or plain
+Claude) learns about both the same way: a tool result with `isError` and a
+plain sentence ([§8.3](protocol.md)), so their agent can wait, try later, or carry on
+without the answer. Nothing hangs.
+
+**Set by the owner, enforced by Pitwall:**
+
+| Limit (`limits.*`) | Default | When it's reached |
+|---|---|---|
+| Messages per caller per day (`perCaller.messagesPerDay`) | 20 | `quota`: "Daily limit reached for alice/api-expert; resets at 00:00" (owner's local midnight) |
+| Conversations running at once (`sessionsRunning`) | 2 | The next message waits in a queue (FIFO, "2nd in line"); a full queue (`queue`, default 10) is `busy` |
+| Time per turn (`turnTimeoutMin`) | 15 min | The turn is stopped; the caller gets whatever reply exists, `failed` with `timeout` |
+| Agent time per day, all callers together (`agentMinutesPerDay`) | 120 min | `share_total`: the share pauses until tomorrow and the owner is told |
+| Per-person overrides (`overrides`) | none | A higher or lower daily limit, or `blocked` (the tool disappears for them) |
+| Shared conversations on this machine (Settings → Collaboration) | 4 | Queue, as above, across all shares |
+
+Changing a limit is a share setting like any other: raising one widens and
+asks when an agent does it; lowering applies directly ([§5.5](sharing.md)).
+Usage per caller per day is kept in `collab/usage.jsonl` and shown in the
+owner's Usage view ([§11](ui.md)).
+
+**The agent's own limits, from its vendor.** When the agent's account hits
+its usage or rate limit, the agent stops or says so. Pitwall already
+detects that state for every agent it runs (the kind's screen rules or
+hooks), and doesn't invent anything here: while the agent is limited, new
+messages get `agent_limit` with the reset time when the agent showed one
+("unavailable until 14:30"), queued ones are told the same, and the owner's
+own agents are unaffected unless they share the account (hence the
+suggested separate account for sharing, [§6.3](sessions.md)).

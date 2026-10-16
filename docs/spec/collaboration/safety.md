@@ -12,7 +12,7 @@ layer, and the UI says so.
 
 | Share answer | Enforced by | Layer |
 |---|---|---|
-| Who | `whois` before any HTTP handling, team state, device key for Pitwall callers | Pitwall |
+| Who | `whois` before any HTTP handling, team state, the owner's block list | Pitwall |
 | Capability (read / write) | OS sandbox: copy not writable at Read only; writes only inside the copy at "Can change code" | OS sandbox, all kinds |
 | What it can see | Snapshot copy with only the picked paths, minus exclusions, no history; the OS sandbox denies the rest of the disk | Pitwall + OS sandbox |
 | Programs it may run | Exec allowlist/denylist | OS sandbox, all kinds (also written into the kind's per-command rules where they exist) |
@@ -21,7 +21,7 @@ layer, and the UI says so.
 | Network | Only Pitwall's egress proxy is reachable; it allows the kind's model hosts and owner-added hosts | OS sandbox + proxy |
 | Results leaving | Mechanical diff of the copy; held for Send at `write_approval` | Pitwall |
 | Changing sharing settings | Shared sessions can't reach `pitwalld.sock` (sandbox) and are rejected by process tree; widening from CLI/agents always asks | OS sandbox + Pitwall |
-| Limits | Quotas, caps, queue, timeouts | Pitwall |
+| Limits | Per-caller quotas, running caps, queue, turn timeouts, daily agent time, overrides ([§5.8](sharing.md)) | Pitwall |
 | Which built-in tools the agent uses (its file, web, shell tools by name) | The agent's own tool settings, where the kind has them ([§6.8](sessions.md)). The OS layer can't see tools by name, only their effects | Second layer (agent-native) |
 | Off-limits topics, role, anything in the owner's instructions | Instructions | **Soft** |
 
@@ -43,13 +43,12 @@ Sharing needs the second switch. Every share starts as a **draft**: nobody
 can see it until the owner reads the summary and presses Go live ([§5.4](sharing.md)).
 
 ### 9.4 Settings are out of reach of shared sessions
-Once live, neither a shared session nor any asker can change any sharing
+Once live, neither a shared session nor any caller can change any sharing
 setting, approve anything, or drive Pitwall. Sessions: the sandbox denies
 `pitwalld.sock` and Pitwall's data folder, there is no `pitwall` on their
-`PATH`, and the daemon rejects their process tree ([§8.5](protocol.md)). The only
-exception is opt-in and add-only: a share may let its sessions propose
-tasks through their own `task.sock` ([§15.7](tasks.md)). Askers: the
-tailnet listener has no owner methods at all. The owner's own pane of the
+`PATH`, and the daemon rejects their process tree ([§8.5](protocol.md)). Callers: the
+tailnet listener has no owner methods at all; the MCP endpoint offers only
+the `ask_<slug>`, `check_turn` and `get_changes` tools. The owner's own pane of the
 agent is not a shared session and keeps its normal CLI; its changes to
 sharing go through approvals with a diff ([§5.5](sharing.md)).
 
@@ -63,8 +62,12 @@ sharing go through approvals with a diff ([§5.5](sharing.md)).
   `subpath` that includes more than meant, an allowed Mach service that
   leaks) widens every session. One profile template, reviewed and tested
   with canaries on each macOS release, rather than per-agent rules.
-- **Teammates' Pitwalls are trusted to label their agents**, and
-  non-Pitwall clients are trusted only as their Tailscale login.
+- **Callers are their Tailscale login.** Anyone who controls a node
+  logged in as Bob is Bob. Teammates' Pitwalls are trusted to label their
+  agents, and the label never grants anything.
+- **Plain clients' agents decide when to ask.** The owner's limits bound
+  what that costs; the caller's own client settings decide whether their
+  agent may call the tool without asking them.
 
 ### 9.6 Threats
 
@@ -77,15 +80,10 @@ sharing go through approvals with a diff ([§5.5](sharing.md)).
 | The owner's history leaks into sessions | Fresh by default; only an approved summary |
 | A removed member keeps asking | Every request checked against the current team state; owner block list at once |
 | A removed admin races with forged changes | Revocation wins at the fork point ([§4.4](teams.md)) |
-| Someone on the tailnet impersonates a member | `whois` identifies the node's login; Pitwall callers also need the device key |
-| A replayed or relayed signed request | Time window, nonce cache, both IPs in the signature |
+| Someone on the tailnet impersonates a member | `whois` identifies the node's login from WireGuard keys; a header can't change it. A stolen node is removed in the Tailscale admin console |
 | A member serves forged team records | Admin-signed records chained to the pinned team id |
-| Agent↔agent loops burn the owner's quota | Chain depth, cycle check, quotas, caps, asker-side budgets |
+| Agent↔agent loops burn the owner's quota | Chain depth and cycle check for Pitwall callers; per-caller quotas and daily agent time for everyone ([§5.8](sharing.md)) |
 | Flood of requests or probes | Rate limits per caller, queue cap, probe limits |
-| A result carries a malicious change to the asker | Shown in Review; applied only by the asker's click, into a worktree they pick |
-| A task item carries a prompt injection | Items are text; they reach an agent only when a person assigns them to it (or the person's own watch rule does), as an ordinary prompt; agent-added items are labelled and can be excluded from rules ([§15.10](tasks.md)) |
-| Injected text makes a shared agent spam or poison a list with proposals | Opt-in per share; add-only socket; items stay `proposed` until a person accepts; labelled with share and asker; 3 per session and 20 per share per day; a cap on pending proposals per list ([§15.7](tasks.md)) |
-| Two people assign the same item to different agents at once | Compare-and-set `assign`, first in fold order wins; delivery waits for the assign to settle, and a lost assign's queued prompt is removed or its A2A task cancelled ([§15.6](tasks.md)) |
+| A result carries a malicious change to the caller | Shown in Review; applied only by the caller's click, into a worktree they pick |
 | A teammate's agent floods a team list | Owner switch and per-agent budgets on the adding machine; per-device flood limits at receivers; admins can drop and fence |
-| A removed member keeps writing task ops | `fence` op from the removing admin; later ops from that device rejected by everyone ([§15.3](tasks.md)) |
 | Tailscale ACLs block the port | Discovery shows "can't reach"; docs give an ACL grant example for `tcp:47421` |

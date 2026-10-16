@@ -4,24 +4,25 @@ Part of the [collaboration spec](README.md).
 
 ## 6. Sessions
 
-### 6.1 One session per asker
-- **Asker identity**, decided on the owner's side from the request:
+### 6.1 One session per caller
+- **Caller identity**, decided on the owner's side from the request:
   - a person: `login` (from `whois`), the same on all their devices;
-  - a Pitwall agent asking: `login` + `agent` + `device`, where `agent` is
-    the asking agent's id as the asker's Pitwall reports it, signed with
-    that device's instance key ([§8.2](protocol.md)). The owner trusts Bob's Pitwall to
-    label Bob's agents honestly, as it trusts Bob;
-  - a non-Pitwall A2A client: `login` only.
-- **Same asker → same session**, resumed with the kind's own resume: every
-  message from that asker continues one conversation (one A2A
-  `contextId`). A new conversation is explicit: "New conversation" in the
-  Ask panel, `--new` on the CLI ([§8.3](protocol.md)). The old one is kept until
+  - a Pitwall agent asking: `login` + `agent`, where `agent` is the
+    `Pitwall-Agent` label Bob's Pitwall sends ([§8.2](protocol.md)). The owner trusts
+    Bob's Pitwall to label Bob's agents honestly, as it trusts Bob;
+  - a plain MCP client (Claude Code or any other): `login` only. All of
+    that person's plain clients share one conversation unless they pass
+    `new_conversation`.
+- **Same caller → same session**, resumed with the kind's own resume: every
+  message from that caller continues one conversation. A new conversation
+  is explicit: "New conversation" in the Ask panel, `--new` on the CLI,
+  `new_conversation: true` on the MCP tool ([§8.3](protocol.md)). The old one is kept until
   `keepSessionsDays`.
-- **Different asker → a new, fresh session** of the same agent kind, for
+- **Different caller → a new, fresh session** of the same agent kind, for
   every kind: its own copy, sandbox, process and agent session id. Nothing
   from Bob's session is visible to Carol's.
 - A session is an ordinary engine agent with
-  `AgentRecord.shared = { share, asker }`, grouped under the shared agent in
+  `AgentRecord.shared = { share, caller }`, grouped under the shared agent in
   the owner's sidebar ([§11](ui.md)).
 
 ### 6.2 The session's copy: only what was picked
@@ -35,8 +36,8 @@ Part of the [collaboration spec](README.md).
   `git show HEAD~3:.env` or reading `.git` can't reach anything outside the
   scope, whatever the capability.
   - Blobs are content-addressed, so every file in the snapshot has the same
-    blob id as in the owner's (and the asker's) repository. That is what
-    lets `git am -3` do three-way merges on the asker's side ([§7.5](messages.md)).
+    blob id as in the owner's (and the caller's) repository. That is what
+    lets `git am -3` do three-way merges on the caller's side ([§7.5](messages.md)).
   - "Include git history" is a later option ([§14](plan.md) question 12).
 - **Skills.** The agent's assigned skills come along: Pitwall generates the
   agent's skills into the session folder the same way it does for the agent
@@ -47,7 +48,7 @@ Part of the [collaboration spec](README.md).
 - **Refresh.** A resumed session keeps its copy. "Update copies" in the owner
   view (or a scope change) rebuilds idle copies at the current `ref`. With
   "Can change code", undelivered turn changes are kept on top when they
-  still apply, else the asker sees "files updated; earlier changes kept as
+  still apply, else the caller sees "files updated; earlier changes kept as
   patch".
 - **Cleanup.** Removing a session deletes its folder.
 
@@ -91,7 +92,7 @@ what its processes can reach is limited.
 | Programs | The "Programs it may run" list | Denied |
 | Network | Pitwall's per-share egress proxy on localhost only; the proxy allows the kind's model hosts (kind data, e.g. `api.anthropic.com`) plus hosts the owner added | Denied |
 | Environment | Built by Pitwall from nothing: `PATH` (system + the agent's install), `HOME` = session folder, `TMPDIR`, `LANG`, `TERM`, `HTTPS_PROXY`/`HTTP_PROXY`, the agent account's config variable, what the owner chose to pass | Nothing else: no `SSH_AUTH_SOCK`, no tokens, no `PITWALL_*` |
-| Pitwall | The hook endpoint, for hook events only ([§8.5](protocol.md)); and, only if the share lets it propose tasks, this session's own add-only `task.sock` ([§15.7](tasks.md)) | `pitwalld.sock` and every other socket |
+| Pitwall | The hook endpoint, for hook events only ([§8.5](protocol.md)) | `pitwalld.sock` and every other socket |
 
 #### One abstraction, one backend per OS
 A `SessionSandbox` in `pitwall-core::platform` (beside the existing
@@ -176,7 +177,7 @@ main account is allowed with a plain warning.
   in its copy, with the owner's instructions ([§6.5](sessions.md)).
 - **Summary:** the owner approved a text ([§5.4](sharing.md) step 4). Pitwall makes a
   **base session** once: a fresh session in a snapshot whose first message
-  is the approved summary. New asker sessions then **fork the base** where
+  is the approved summary. New caller sessions then **fork the base** where
   the kind can: Claude Code `claude --resume <base> --fork-session`, Codex
   `codex fork <base>`; Pitwall learns the new id as it does today (Claude
   Code's `SessionStart` hook reports `source: "fork"`). Other kinds get the
@@ -196,7 +197,7 @@ agent's assigned skills ([§6.2](sessions.md)). The dialog starts from a short d
 owner edits; what gets written is exactly what the owner saved. Pitwall adds
 no rules of its own: no reply protocol, no commands to run, no labels to
 follow. It is the **soft** layer and is labelled so. Pitwall never edits an
-asker's message.
+caller's message.
 
 ### 6.6 Lifecycle, caps and queueing
 - **States:** `new → starting → ready → working → ready … → idle-stopped
@@ -210,21 +211,22 @@ asker's message.
   stops. Its agent session id and copy are kept; the next message resumes it
   with the kind's resume. Kinds without resume (Aider, custom commands) are
   kept running instead, up to the running cap; when one must stop, its
-  memory is lost and the asker sees "new conversation (the agent can't
+  memory is lost and the caller sees "new conversation (the agent can't
   resume)".
 - **Running cap.** At most `sessionsRunning` processes per share. When a
   message needs one and none is free, the least recently used idle session
   is stopped; when all are busy, the message waits in the queue (FIFO,
-  `queue` long; A2A state `submitted`, "2nd in line"). A full queue is
-  answered `rejected` with "busy".
-- **One message at a time per session.** A second one from the same asker
+  `queue` long; "2nd in line" in progress notifications). A full queue is
+  refused with `busy`.
+- **One message at a time per session.** A second one from the same caller
   waits behind the first, in the same session.
 - **Global cap.** Settings → Collaboration → "At most N shared sessions on
   this machine" (default 4).
 - **Turn timeout.** A turn over `turnTimeoutMin` is interrupted (as Stop
-  for a turn); the task fails with `timeout` plus whatever reply exists.
-- **Quota.** Messages per asker per day, reset at local midnight on the
-  owner's machine. Over quota → `rejected` with the reset time.
+  for a turn); the turn fails with `timeout` plus whatever reply exists.
+- **Quota.** Messages per caller per day, reset at local midnight on the
+  owner's machine. Over quota → refused with `quota` and the reset time.
+  All limits, including the agent's own vendor limits, are in [§5.8](sharing.md).
 
 ### 6.7 Per-kind facts are data
 Everything kind-specific lives in the kind's TOML (`[share]` table), like

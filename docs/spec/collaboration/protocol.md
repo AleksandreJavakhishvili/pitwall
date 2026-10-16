@@ -1,4 +1,4 @@
-# Collaboration: protocol, A2A and API
+# Collaboration: protocol, MCP and API
 
 Part of the [collaboration spec](README.md).
 
@@ -6,182 +6,177 @@ Part of the [collaboration spec](README.md).
 
 ### 8.1 One HTTP listener on the tailnet
 - **Port.** Its own port, 47421/tcp proposed (beside peers' framed-TCP
-  47420), configurable. One listener serves both the A2A endpoints and the
-  Pitwall endpoints.
+  47420), configurable. One listener serves the MCP endpoint (`/mcp`) and
+  the Pitwall team endpoints (`/pitwall/v1/…`).
 - **Same rules as the peer listener** (tailnet-peers.md §4): bound only to
   this node's Tailscale IPs, source address checked against the tailnet
   ranges, and `whois` must succeed **before any HTTP handling**; otherwise
   the connection is closed without a byte. The `whois` result (login, node,
-  tags, `CapMap`) is the request's transport identity.
+  tags, `CapMap`) is the request's identity.
 - **Plain HTTP inside WireGuard.** Traffic is already encrypted and
-  authenticated end to end by the tailnet. HTTPS with a `tailscale cert`
-  certificate is an option for clients that insist ([§14](plan.md) question 9).
+  authenticated end to end by the tailnet, so `http://` URLs work in
+  `claude mcp add`. HTTPS with a `tailscale cert` certificate is an option
+  for clients that insist ([§14](plan.md) question 9).
 - **Server.** A small blocking HTTP/1.1 server on its own threads, no async
   runtime: `tiny_http` is the candidate (a request per worker thread;
   streaming responses use chunked transfer from a `Read` fed by a channel),
-  so SSE is a response whose body is written event by event. Client side:
-  `ureq` (blocking, reads the SSE body line by line). Both to be confirmed in
-  a C1a spike and recorded in gpui/licensing.md.
+  so an SSE response is written event by event. Client side (Pitwall
+  callers): `ureq`, reading SSE line by line. Both to be confirmed in a C1a
+  spike and recorded in gpui/licensing.md.
 - **Limits** as peers: per caller connections, requests per second, body
-  size (2 MiB for messages; larger patch artifacts are fetched by URL,
-  [§8.3](protocol.md)), streams at most 8 per caller.
+  size (2 MiB), at most 8 open streams per caller.
 
-### 8.2 Who is calling: `whois`, plus a key for Pitwall callers
-- **Every caller:** the `whois` login and node. That alone is enough for a
-  share whose audience names the login, includes a team the login belongs
-  to (team records list logins), or is the whole tailnet. This is how
-  non-Pitwall A2A clients are accepted (unless the share is "Only Pitwall
-  callers").
-- **Pitwall callers** also prove their installation with an **A2A
-  extension**, declared in every share's Agent Card and activated with the
-  standard `A2A-Extensions` request header:
-  `uri: "https://<pitwall-domain>/a2a/ext/device/v1"`, `required: false`.
-  The client adds:
+### 8.2 Who is calling: Tailscale, nothing else
+- **Every caller is its `whois` login and node.** That is the whole check
+  for the MCP endpoint: a caller may use a share when the share's audience
+  names the login, includes a team the login is a member of (team records
+  list logins, [§4](teams.md)), or is the whole tailnet. There are no
+  accounts, tokens, OAuth or pairing for callers, and no difference between
+  a Pitwall caller and a plain Claude Code one. (MCP's HTTP authorization
+  is optional; it is not used.)
+- **Pitwall callers may add two labels**, plain headers, trusted as much as
+  the person whose node sent them:
 
   ```
-  A2A-Extensions: https://<pitwall-domain>/a2a/ext/device/v1
-  Pitwall-Key:    ed25519:Bq3…            (instance key)
-  Pitwall-Time:   1792141920               (unix seconds)
-  Pitwall-Nonce:  9c1f…
-  Pitwall-Agent:  client-fix@bob-mbp       (optional: the asking agent, from Bob's process tree)
-  Pitwall-Chain:  r_17,x_api-expert        (optional: loop check, [§8.6](protocol.md))
-  Pitwall-Sig:    ed25519 signature over
-                  "pitwall-a2a/1\n" + method + "\n" + path + "\n" + sha256(body)
-                  + "\n" + time + "\n" + nonce + "\n" + client IP + "\n" + server IP
-                  + "\n" + agent + "\n" + chain
+  Pitwall-Agent: client-fix@bob-mbp     (the asking agent, from Bob's process tree)
+  Pitwall-Chain: c_17,alice/api-expert  (loop check, §8.6)
   ```
 
-  The server checks the time (±60 s), the nonce (not seen in 5 min), the
-  signature, and that the key is a device of the `whois` login: from team
-  records, or, for a person named directly in an audience, pinned on first
-  use ("bob@example.com used a new device") and shown to the owner. A
-  failed check is `401`; a missing extension just means "login only".
-- The same headers sign the Pitwall endpoints ([§8.4](protocol.md)), which require them
-  except `GET /pitwall/v1/info` and `GET /pitwall/v1/teams:discover`.
+  The label only keys the conversation ([§6.1](sessions.md)) and names it
+  for the owner. A label can't widen anything: access is the login's.
+- **The instance key** (tailnet-peers.md §5) is used only to sign team
+  records ([§4](teams.md)), never per request.
 
-### 8.3 A2A: how a conversation maps
-**Binding: HTTP+JSON** (A2A's REST binding), recommended over JSON-RPC: one
-URL per operation is simpler to route, rate-limit and audit in a small
-blocking server, it is `curl`-friendly for owners debugging, and streaming
-is the same SSE either way. JSON-RPC can be added later as a second
-`supportedInterfaces` entry if clients need it.
+### 8.3 The MCP endpoint
+One endpoint per owner: `http://<owner's tailnet name or IP>:47421/mcp`,
+MCP over **Streamable HTTP** (JSON-RPC over `POST`, answered as JSON or as
+an SSE stream). A plain Claude Code user adds it once:
 
-Per share, base URL `http://<owner tailnet IP>:47421/a2a/<slug>`:
+```
+claude mcp add --transport http alice http://studio.tail1234.ts.net:47421/mcp
+```
 
-| A2A operation | HTTP+JSON endpoint | Pitwall behaviour |
+**Server capabilities:** `tools` with `listChanged: true`. No resources,
+prompts or sampling in v1.
+
+**`tools/list` is the directory.** It returns, for this caller only, one
+tool per live share they may use, plus two helpers. A caller outside every
+audience gets an empty list. When a share goes live, pauses, or its
+audience changes, connected clients get `notifications/tools/list_changed`.
+
+| Tool | Input | What it does |
 |---|---|---|
-| Agent Card | `GET /a2a/<slug>/card` | The share's card, only to callers in its audience (else 404) |
-| `SendMessage` | `POST /message:send` | Starts a turn; returns the task (never a bare message, since results can follow later) |
-| `SendStreamingMessage` | `POST /message:stream` → `text/event-stream` | Same, with status and artifact updates as SSE events |
-| `GetTask` | `GET /tasks/{id}` | The task, its status and artifacts so far |
-| `ListTasks` | `GET /tasks?contextId=…` | The caller's own tasks only |
-| `CancelTask` | `POST /tasks/{id}:cancel` | Interrupts the turn (as Stop for a turn) or drops it from the queue |
-| `SubscribeToTask` | `POST /tasks/{id}:subscribe` | Re-attach to a running task's stream |
+| `ask_<slug>` (e.g. `ask_payments_expert`) | `message` (string, required), `new_conversation` (bool), `wait_seconds` (int, default 120, max 240), `my_changes` (string, a patch series: "redo on my code", [§7.5](messages.md)) | Sends one message into the caller's conversation and waits for the turn, up to `wait_seconds` |
+| `check_turn` | `turn` (string), `wait_seconds` | The state of a turn that was still working, waiting for the owner, or holding changes; waits like `ask` |
+| `get_changes` | `turn`, `part` (int, default 1) | A turn's patch series in parts of 40,000 characters, for series too big to inline |
 
-Every request carries `A2A-Version: 1.0`. Push notifications (webhooks) are
-not offered: the caller is usually on a laptop; streaming and `GetTask`
-cover it (`capabilities.pushNotifications: false`).
+The `ask_<slug>` description is built from the share: its name and
+description, the capability in plain words ("read only" / "can change
+code; changes come back as a patch"), the agent kind ("runs on Claude
+Code"), and "N messages left today". The agent on the caller's side reads
+that like any tool description.
 
-**Mapping:**
-- **`contextId` = the per-asker session.** The server generates it. A
-  message without `contextId` goes to the caller's current session (created
-  if none) and the response carries its `contextId`. A message with one of
-  the caller's own `contextId`s goes there; anyone else's is `404`. "New
-  conversation" is a message with the device extension's
-  `Pitwall-New-Context: 1` header; plain A2A clients get a new context after
-  the owner or they `DELETE /pitwall/v1/sessions/{contextId}` ([§8.4](protocol.md)).
-- **One task per message.** The message's text parts are the asker's text,
-  delivered verbatim ([§8.3.1](protocol.md)). File parts with `mediaType: text/x-patch`
-  are the "redo on my code" commits ([§7.5](messages.md)). Other part types are refused
-  with an error in v1.
-- **Task states:**
+**Results.** Every result has the MCP `structuredContent` described by the
+tool's `outputSchema`, and the same information as text content (the
+reply first, then a short status line, then the patch when inlined), so
+clients that only show text still work:
 
-  | A2A state | When |
-  |---|---|
-  | `TASK_STATE_SUBMITTED` | Queued; status message "2nd in line" |
-  | `TASK_STATE_WORKING` | The turn runs; also while the agent waits for the owner ("waiting for alice") and while a result is held for the owner's OK ("changes waiting for alice's OK") |
-  | `TASK_STATE_COMPLETED` | Reply delivered and the result sent, discarded or not needed |
-  | `TASK_STATE_FAILED` | `no_answer`, `timeout`, the agent crashed |
-  | `TASK_STATE_CANCELED` | `CancelTask`, or the owner stopped sharing mid-turn |
-  | `TASK_STATE_REJECTED` | Busy (queue full), over quota, share paused |
-  | `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_AUTH_REQUIRED` | Not used |
+```json
+{
+  "conversation": "c_8f2k",
+  "turn": "c_8f2k/7",
+  "status": "done",                     // done | working | waiting_for_owner | failed
+  "reply": "Refunds older than 30 days go through …",
+  "replySource": "hook",                // hook | session-file | non-interactive | terminal
+  "changes": {                          // only when the turn changed the copy
+    "state": "sent",                    // sent | held (waiting for the owner's OK) | discarded
+    "baseCommit": "3f2a1c9…", "files": 2, "added": 14, "removed": 3, "patches": 1,
+    "patch": "From 7c1e… Mon Sep 17 00:00:00 2001\n…",   // inline up to 40,000 characters, else get_changes
+    "parts": 1
+  },
+  "left": {"messagesToday": 17, "resetsAt": "2026-10-17T00:00:00+02:00"}
+}
+```
 
-  **Why the owner's approval is `working`, not an interrupted state.** Both
-  interrupted states hand the next step to the **client**: input-required
-  means the client continues with a new message on the same task, and
-  auth-required delegates the authorization to the client (the spec's
-  in-task authorization section; its example is human approval, but the
-  client is the one asked to obtain it, and the transition by itself is not
-  authorization). Here the asker can do nothing; the owner decides on their
-  own machine. So the task stays `working` with a status message, and the
-  reply artifact is already delivered meanwhile.
-- **Artifacts:**
-  - `reply`: one text part with what the agent said ([§7.2](messages.md)), plus a data part
-    `{ "source": "hook"|"session-file"|"non-interactive"|"terminal" }`.
-  - `changes` (only at "Can change code"): a file part with
-    `mediaType: text/x-patch`, `filename: "turn-7.patch"`, the series as
-    `raw` (base64) up to 2 MiB or a `url` part pointing to
-    `/pitwall/v1/results/{task}` above that (same auth); and a data part
-    `{ baseCommit, files, added, removed, patches }`.
-  - Streaming sends them as artifact update events (`lastChunk: true`).
-- **Errors:** not in the audience, unknown context → `404` (indistinguishable
-  from "no such share"); failed device signature → `401`; paused → task
-  `rejected`. Pitwall's own codes (`busy`, `quota`, `loop`, `no_answer`,
-  `timeout`) go in the status message's data part.
+- **Waiting.** `ask` returns when the turn ends, or after `wait_seconds`
+  with `status: "working"` and the `turn` id; the caller's agent then calls
+  `check_turn` when it wants. When the client sent a `progressToken`,
+  Pitwall sends `notifications/progress` while waiting ("2nd in line",
+  "working", "waiting for alice"). Claude Code's hard limit per tool call
+  is about 28 hours by default, but it also gives up on an HTTP tool call
+  that is idle for 5 minutes (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), so
+  `wait_seconds` is capped at 240. Other clients: **unverified**
+  ([References](references.md)).
+- **Size.** Claude Code warns above 10,000 tokens of tool output, cuts at
+  25,000 (`MAX_MCP_OUTPUT_TOKENS`), and saves text results over 50,000
+  characters to a file. So a result inlines at most 40,000 characters of
+  patch; larger series come through `get_changes` in parts of that size.
+- **Changes are a patch series** (`git format-patch` output). A Pitwall
+  caller shows it in Review; a plain caller's agent applies it with
+  `git am -3` or `git apply`, as it would any patch.
+- **Refusals** are tool results with `isError: true` and a reason in
+  `structuredContent.refused`: `quota` (with `resetsAt`), `busy` (queue
+  full), `paused`, `share_total` (the share's daily total is used up),
+  `agent_limit` (the agent's own vendor limit, with `until` when the agent
+  reported one), `loop`. The caller's agent sees a plain sentence ("Daily
+  limit reached; resets at 09:00") and decides what to do.
+- **Cancel.** `notifications/cancelled` for a running `ask` or `check_turn`
+  stops the turn (as Stop) when the turn belongs to that request; a queued
+  message is dropped.
+- **Not in the audience** and **unknown tool** look the same: the tool
+  isn't listed, and calling it is a JSON-RPC error "unknown tool".
+- **MCP sessions** (`Mcp-Session-Id`) are transport only. Conversations are
+  keyed by the caller ([§6.1](sessions.md)), so a new MCP session or a
+  restarted client continues the same conversation.
 
 #### 8.3.1 What the agent receives
-The agents never speak A2A. Pitwall turns the message into ordinary input:
-the asker's text, as written. By default one factual line goes in front so
-the agent knows who is talking:
+The shared agent never sees MCP. Pitwall turns the message into ordinary
+input: the caller's text, as written. By default one factual line goes in
+front so the agent knows who is talking:
 
 ```
 From bob@example.com (agent client-fix on bob-mbp):
 Where are refresh tokens rotated?
 ```
 
-No request kinds, no reply instructions; the owner can turn the "From" line
-off per share. When something changed under the agent since its last turn,
-Pitwall adds one factual line after it ("Files updated to main @ 3f2a1c",
-"Your changes from the previous turn were not sent"). The owner view shows
-exactly what was typed.
+(For a plain client: `From bob@example.com (Claude Code over MCP):`, from
+the client name in MCP's `initialize`.) No request kinds, no reply
+instructions; the owner can turn the "From" line off per share. When
+something changed under the agent since its last turn, Pitwall adds one
+factual line after it ("Files updated to main @ 3f2a1c", "Your changes
+from the previous turn were not sent"). The owner view shows exactly what
+was typed.
 
-### 8.4 Pitwall endpoints beside A2A
-Teams, discovery, the directory and session housekeeping are small JSON
-endpoints on the same listener, under `/pitwall/v1/`, signed with the device
-headers ([§8.2](protocol.md)). They keep the signed-records design of [§4](teams.md).
+### 8.4 Pitwall endpoints beside MCP
+Teams and discovery are small JSON endpoints on the same listener, under
+`/pitwall/v1/`. Identity is `whois`, as for MCP; team records carry their
+own signatures ([§4](teams.md)). Plain Claude users never need them.
 
 | Endpoint | Caller | What |
 |---|---|---|
-| `GET /info` | any tailnet caller (`whois` only) | `{version, login, label, listedTeams, a2a: true}`: the discovery probe ([§3](teams.md)) |
+| `GET /info` | any tailnet caller | `{version, login, label, listedTeams, mcp: "/mcp"}`: the discovery probe ([§3](teams.md)) |
 | `GET /teams:discover` | any tailnet caller | listed teams this Pitwall knows, as signed records |
-| `POST /teams/{t}/join`, `POST /teams/{t}/invites:redeem` | Pitwall callers | join request, invite ([§4.6](teams.md)) |
-| `POST /teams/{t}/heads`, `GET /teams/{t}/records?after=n`, `POST /teams/{t}/announce`, `POST /teams/{t}/cosign` | members | replication and conflicts ([§4.3](teams.md)–4.4) |
+| `POST /teams/{t}/join`, `POST /teams/{t}/invites:redeem` | anyone with Pitwall | join request, invite ([§4.6](teams.md)) |
+| `POST /teams/{t}/heads`, `GET /teams/{t}/records?after=n`, `POST /teams/{t}/announce`, `POST /teams/{t}/cosign` | member devices | replication and conflicts ([§4.3](teams.md)–4.4) |
 | `GET /teams/{t}/requests` | admins | pending join requests, forwarded |
-| `GET /directory` | anyone in some share's audience | the Agent Card URLs and cards this caller may use (A2A allows catalogs and pre-configured card URLs besides the well-known path; one host here serves many agents, so the root `/.well-known/agent-card.json` is not used) |
-| `GET /sessions`, `DELETE /sessions/{contextId}` | audience | the caller's own sessions with this owner: list, forget |
-| `GET /results/{task}` | the task's asker | a large patch series |
-| `POST /lists/{list}/sync` | members of the list's team | exchange version vectors, return missing ops ([§15.3](tasks.md)) |
-| `POST /lists/{list}/announce` | members | "I have new ops": the receiver syncs |
-| `GET /lists/{list}/blobs/{sha256}` | members | a result patch attached to an item ([§15.6](tasks.md)) |
-| `GET /events` (SSE) | members | `directory.changed`, `team.announce`, `list.changed` |
+| `GET /events` (SSE) | member devices | `team.announce`, `shares.changed` (refresh `tools/list`) |
 
 ### 8.5 Local sockets and who may call what
 
 | Caller (how the daemon knows) | Reaches | May call |
 |---|---|---|
 | **Owner UI** (in-process GPUI app) | — | Everything, including all `share.*` methods |
-| **Owner's CLI and agents** (CLI socket; agent vs user from the process tree, as approvals do today) | `pitwalld.sock` | `share.*` reads directly; `share.create` and `share.guest` on drafts directly (nobody else can see a draft); other `share.*` changes through approvals (`share.go_live` and widening always ask, not rememberable; narrowing direct, [§5.5](sharing.md)); `suggest.*`; `ask.*` (the daemon sends it out over A2A) with the "let my agents ask" switch |
-| **A shared session** (inside its sandbox; process tree as a second check) | the hook endpoint, as any agent; and its own `task.sock` only if its share allows proposals | Hook events for its own agent id (status, the Stop text); `add` of a proposed task with its session token ([§15.7](tasks.md)). Nothing on `pitwalld.sock` |
-| **Teammates and A2A clients** | the tailnet HTTP listener | A2A ([§8.3](protocol.md)) and Pitwall endpoints ([§8.4](protocol.md)) |
+| **Owner's CLI and agents** (CLI socket; agent vs user from the process tree, as approvals do today) | `pitwalld.sock` | `share.*` reads directly; `share.create` and `share.guest` on drafts directly (nobody else can see a draft); other `share.*` changes through approvals (`share.go_live` and widening always ask, not rememberable; narrowing direct, [§5.5](sharing.md)); `suggest.*`; `ask.*` (the daemon calls the owner's MCP endpoint) with the "let my agents ask" switch |
+| **A shared session** (inside its sandbox; process tree as a second check) | the hook endpoint, as any agent | Hook events for its own agent id (status, the Stop text). Nothing on `pitwalld.sock` |
+| **Anyone on the tailnet** | the HTTP listener | MCP ([§8.3](protocol.md)) and team endpoints ([§8.4](protocol.md)) |
 
 Shared sessions are cut off from Pitwall by construction: the sandbox
-denies `pitwalld.sock` and the data folder ([§6.3](sessions.md)); their environment has no
-`PITWALL_*` variables and no `pitwall` on `PATH`; and the daemon still
-rejects any connection whose peer process descends from a shared session's
-holder (`Caller::Shared` → `forbidden`). The hook endpoint already accepts
-only hook events, keyed to the agent id Pitwall gave the session. The
-optional per-session `task.sock` accepts one request type (`add`, with the
-session's token) and nothing else.
+denies `pitwalld.sock` and the data folder ([§6.3](sessions.md)); their
+environment has no `PITWALL_*` variables and no `pitwall` on `PATH`; and the
+daemon still rejects any connection whose peer process descends from a
+shared session's holder (`Caller::Shared` → `forbidden`). The hook endpoint
+already accepts only hook events, keyed to the agent id Pitwall gave the
+session.
 
 **Owner-only local methods** (UI, or CLI/agents through approvals; never on
 the tailnet listener, never from shared sessions): `share.get`,
@@ -189,26 +184,27 @@ the tailnet listener, never from shared sessions): `share.get`,
 applied), `share.go_live`, `share.pause`, `share.resume`, `share.stop`,
 `share.guest`, `share.sessions`, `share.block`, `share.summary`,
 `result.send`, `result.discard`, `team.*` changes (create, approve, invite,
-promote, remove, bind), `collab.settings.*`. Typing into or prompting a
-shared session uses the ordinary agent methods (`term.*`, `agent.prompt`),
-owner only.
+add member, promote, remove, bind), `collab.settings.*`. Typing into or
+prompting a shared session uses the ordinary agent methods (`term.*`,
+`agent.prompt`), owner only.
 
 ### 8.6 CLI (asking is agent-neutral)
-`pitwall ask` is an ordinary shell command, so **any agent kind** that can
-run a command can ask, and `pitwall mcp` ([§10.2](protocol.md)) serves agents that prefer
-MCP tools. Both are local front-ends: the daemon holds the keys and speaks
-A2A outward.
+Pitwall users and their agents ask through the local daemon, which calls
+the owner's MCP endpoint with the `Pitwall-Agent` label. `pitwall ask` is
+an ordinary shell command, so **any agent kind** that can run a command can
+ask; `pitwall mcp` ([§10.2](protocol.md)) serves agents that prefer MCP
+tools.
 
 ```bash
-# Asker side
-pitwall people list                                   # people and their shared agents (directory cache)
+# Caller side
+pitwall people list                                   # people in my teams and their shared agents
 pitwall team list | show <team> | join <team|link> | leave <team>
-pitwall ask alice/api-expert "where are refresh tokens rotated?"   # waits; prints {reply, context, task, result}
+pitwall ask alice/api-expert "where are refresh tokens rotated?"   # waits; prints {reply, conversation, turn, changes}
 pitwall ask alice/api-expert "add a dry-run flag to the jobs CLI"  # same command, same conversation
 pitwall ask alice/api-expert - < message.md --new --timeout 900
-pitwall ask list [--owner alice]                      # my messages, replies, results
-pitwall result apply <task> [--worktree new|<agent>]  # asks the user; git am -3
-pitwall result redo <task>                            # asks the user: sends my commits since base
+pitwall ask list [--owner alice]                      # my messages, replies, changes
+pitwall result apply <turn> [--worktree new|<agent>]  # asks the user; git am -3
+pitwall result redo <turn>                            # asks the user: sends my commits since base
 
 # Owner side (CLI or the owner's own agents; changes go through approvals)
 pitwall share list | show <agent>
@@ -219,59 +215,55 @@ pitwall share guest <agent> --probes                 # runs the guest probes on 
 pitwall share set <agent> --add-team payments --capability write_approval   # prints the diff; widening asks
 pitwall share set <agent> --remove-person bob@example.com                   # narrowing: direct
 pitwall share go-live <agent> | pause <agent> | stop <agent>
-pitwall share sessions <agent>                        # per asker: state, usage
+pitwall share sessions <agent>                        # per caller: state, usage
+pitwall share setup                                   # the `claude mcp add` line for this machine
 pitwall suggest share <agent> --reason "…"            # a card for the owner, nothing more
 pitwall suggest skill <skill> --agent <agent> --reason "…"
 
-# Tasks (§15): pitwall task add|list|show|take|release|done|drop|comment|tags|accept|assign|watch
+# Teams (admins)
+pitwall team add-member <team> bob@example.com       # works for people without Pitwall; prints their setup lines
 ```
 
-The task commands are listed in [§15.4](tasks.md).
-
 - Output, errors and exit codes as today (JSON, exit 3 for a denied
-  approval). New error codes: `offline`, `busy`, `quota`, `not_allowed`
-  (my agents asking without the switch), `no_answer`, `loop`, `forbidden`.
+  approval). New error codes: `offline`, `busy`, `quota`, `share_total`,
+  `agent_limit`, `not_allowed` (my agents asking without the switch),
+  `no_answer`, `loop`, `forbidden`.
 - **Agents asking:** refused with `not_allowed` unless Settings →
   Collaboration → "Let my agents ask shared agents" is on (off by default;
   per project override). With it on: 20 messages per hour per asking agent,
   `result apply` and `result redo` still ask the user, and the request is
-  labelled with the agent's id from the process tree (`Pitwall-Agent`),
-  never from an argument.
-- **Loops.** `Pitwall-Chain` carries the task and share ids a message came
+  labelled with the agent's id from the process tree, never from an
+  argument. This switch governs Pitwall's own `ask`; a plain MCP client the
+  user configured themselves is the user's choice.
+- **Loops.** `Pitwall-Chain` carries the turns and shares a message came
   from. Depth limit 2; a chain containing the target share is refused with
   `loop`. Shared sessions can't ask anyone (no CLI, no network beyond their
-  model), so chains only grow through owners' ordinary agents. A modified
-  client can lie; quotas and caps are the real limit.
+  model), so chains only grow through people's ordinary agents. A plain
+  client sends no chain and a modified one can lie; limits are the real
+  bound ([§5.8](sharing.md)).
 
 ### 8.7 Data shapes
-A2A objects use the spec's names (field spelling checked with golden
-fixtures against the spec's schema at implementation). A share's card:
+A tool as `tools/list` returns it:
 
 ```json
 {
-  "name": "API expert",
-  "description": "Questions about the API service: auth, billing, jobs",
-  "version": "3",
-  "supportedInterfaces": [
-    {"url": "http://100.101.102.103:47421/a2a/api-expert",
-     "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0"}
-  ],
-  "capabilities": {
-    "streaming": true, "pushNotifications": false,
-    "extensions": [
-      {"uri": "https://<pitwall-domain>/a2a/ext/device/v1", "required": false,
-       "description": "Pitwall device key and asking-agent label"},
-      {"uri": "https://<pitwall-domain>/a2a/ext/share/v1", "required": false,
-       "description": "Pitwall share facts",
-       "params": {"owner": "alice@example.com", "slug": "api-expert",
-                  "capability": "write_approval", "kind": "claude",
-                  "messagesPerDay": 20, "left": 17}}
-    ]
+  "name": "ask_api_expert",
+  "title": "alice/api-expert",
+  "description": "API expert (alice@example.com): questions about the API service — auth, billing, jobs. Read only. Runs on Claude Code. One conversation per caller; it remembers earlier messages. 17 of 20 messages left today.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "message": {"type": "string"},
+      "new_conversation": {"type": "boolean"},
+      "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 240},
+      "my_changes": {"type": "string", "description": "a git format-patch series to apply to the agent's copy first"}
+    },
+    "required": ["message"]
   },
-  "defaultInputModes": ["text/plain"],
-  "defaultOutputModes": ["text/plain", "text/x-patch"],
-  "skills": [{"id": "ask", "name": "Ask", "tags": ["code", "api"],
-              "description": "Send any message; replies, and patches when it changed code"}]
+  "outputSchema": { "…": "the result shape in §8.3" },
+  "annotations": {"readOnlyHint": true, "openWorldHint": false},
+  "_meta": {"pitwall/share": {"owner": "alice@example.com", "slug": "api-expert",
+            "capability": "read", "kind": "claude", "messagesPerDay": 20, "left": 17}}
 }
 ```
 
@@ -282,26 +274,24 @@ interface TeamCard { team: string; name: string; description: string;
   admins: string[]; members: number; version: number; listed: boolean;
   join: "request"|"closed"; fingerprint: string; bound: boolean;
   mine: "member"|"admin"|"requested"|null }
-interface DirectoryEntry { cardUrl: string; card: object /* A2A AgentCard */;
-  owner: string; slug: string; capability: "read"|"write"|"write_approval";
-  online: boolean; lastSeen: string|null; via: string[] /* team ids, "direct" or "tailnet" */ }
-interface AskView { taskId: string; contextId: string; share: string; text: string;
+interface DirectoryEntry { endpoint: string; tool: string; owner: string; slug: string;
+  name: string; description: string; capability: "read"|"write"|"write_approval";
+  kind: string; left: number|null; online: boolean; lastSeen: string|null;
+  via: string[] /* team ids, "direct" or "tailnet" */ }
+interface AskView { turn: string; conversation: string; share: string; text: string;
   from: "me"|"owner";
-  state: "submitted"|"working"|"completed"|"failed"|"canceled"|"rejected";
+  status: "queued"|"working"|"waiting_for_owner"|"done"|"failed"|"refused";
   statusMessage: string|null; reply: string|null; replySource: string|null;
-  result: { state: "held"|"sent"|"discarded"; files: number; added: number; removed: number;
-            baseCommit: string; patches: number; path: string|null } | null;
+  changes: { state: "held"|"sent"|"discarded"; files: number; added: number; removed: number;
+             baseCommit: string; patches: number; path: string|null } | null;
   at: string; doneAt: string|null }
-interface SharedSessionView { contextId: string; share: string;
-  asker: { login: string; agent: string|null; device: string|null; guest: boolean; pitwall: boolean };
+interface SharedSessionView { conversation: string; share: string;
+  caller: { login: string; agent: string|null; client: string|null; guest: boolean; pitwall: boolean };
   state: "new"|"starting"|"ready"|"working"|"blocked"|"stopped"|"closed";
-  agentId: string; tasks: number; results: number; held: number;
+  agentId: string; turns: number; results: number; held: number;
   usage: { minutesToday: number; messagesToday: number; tokens: number|null }; lastAt: string|null }
 type ShareDiff = { field: string; from: unknown; to: unknown; widens: boolean }[]
 ```
-
-Task list shapes (`TaskItem`, `TaskListView`, `WatchRule`) are in
-[§15.10](tasks.md).
 
 ### 8.8 Storage
 
@@ -309,18 +299,17 @@ Task list shapes (`TaskItem`, `TaskListView`, `WatchRule`) are in
 <PITWALL_HOME>/collab/
   (settings in ui.json, collab.*, like every setting)
   discovered.json            Pitwall nodes and listed teams seen
-  directory.json             cards, cached
+  directory.json             teammates' tools, cached from tools/list
   teams/<team>/chain.jsonl   signed records
   teams/<team>/invites.json  admin only (hashes replicate)
-  devices.json               pinned device keys of directly named people
   shares/<share>.json        share settings (owner)
   shares/<share>/base/       instructions, approved summary, PRECEDENTS.md
-  shares/<share>/s/<ctx>/    work/ (snapshot repo), home/, tmp/, sandbox.sb, tasks.jsonl
-  asks.jsonl                 my messages and replies (asker)
-  results/<task>/            received patch series (asker)
-  audit.jsonl                owner side: every task, result decision, share change (with diff), join, refusal
+  shares/<share>/s/<conv>/   work/ (snapshot repo), home/, tmp/, sandbox.sb
+  usage.jsonl                owner side: per share, per caller, per day
+  asks.jsonl                 my messages and replies (caller)
+  results/<turn>/            received patch series (caller)
+  audit.jsonl                owner side: every turn, result decision, share change (with diff), join, refusal
   suggestions.json           open and dismissed suggestions
-  lists/                     task lists: op logs, result blobs, watch rules (§15.10)
 ```
 
 The audit log uses tailnet-peers.md §5's format with `kind:"collab"`,
@@ -328,31 +317,38 @@ rotates at 1 MiB × 3, and is shown in the owner view and Settings.
 
 ---
 
-## 10. A2A as the channel; MCP
+## 10. MCP as the channel
 
-### 10.1 Why A2A carries the conversations
-The first draft of this spec kept Pitwall's own framed protocol and offered
-A2A only as a gateway. That is reversed: conversations **are** A2A.
-- **Open by default.** Any A2A client on the tailnet (another tool, a
-  script, an agent framework) can use a shared agent, within its audience,
-  with nothing Pitwall-specific.
-- **It fits.** Agent Card ↔ the share's card; `contextId` ↔ the per-asker
-  session; tasks with states ↔ one message's turn; artifacts ↔ the reply
-  and the patch series; SSE streaming ↔ progress; `CancelTask` ↔ stop the
-  turn ([§8.3](protocol.md)).
-- **What A2A doesn't cover stays Pitwall's,** beside it on the same
-  listener: tailnet identity before HTTP, the device-key extension, teams,
-  discovery, gossip of signed records ([§8.4](protocol.md)).
-- **Cost.** An HTTP server and client in Pitwall (blocking, small, [§8.1](protocol.md)),
-  and following A2A versions. The agents never see any of it.
+### 10.1 Why MCP
+Earlier drafts used Pitwall's own framed protocol, then A2A. MCP replaces
+both:
+- **Plain Claude Code users can connect with one command.** Claude Code
+  (and most agent tools) already speak MCP over HTTP; nobody needs Pitwall
+  to ask. A2A would need a client most people don't have.
+- **It is the native interface for agents.** A shared agent shows up as a
+  tool in the caller's agent, which decides when to use it, like any other
+  tool. Nothing is added to the caller's agent beyond a tool.
+- **Pitwall callers use the same endpoint.** One server, one set of checks,
+  one audit log; Pitwall is just a richer client (directory, Ask panel,
+  Review).
+- **Identity stays Tailscale's.** No OAuth server on every owner's laptop.
+- **What MCP doesn't cover stays Pitwall's,** beside it on the same
+  listener: teams, discovery and gossip of signed records ([§8.4](protocol.md)).
+- **Cost.** Long turns don't fit a single tool call well: `wait_seconds`
+  plus `check_turn` covers it, and progress notifications where clients
+  support them ([§8.3](protocol.md)). Large patches come in parts.
 - **Peers stay framed TCP** (tailnet-peers.md): terminals and screen frames
   aren't conversations.
 
-### 10.2 MCP
-- **`pitwall mcp`**: a local stdio MCP server on the asker's machine with
-  tools `list_shared_agents`, `ask {agent, message, new}`,
-  `get_task {id}`. A thin front-end over the same local `ask.*` methods as
-  `pitwall ask`, so the "let my agents ask" switch, budgets and labels
-  apply. Any MCP-capable agent on the asker's machine, inside Pitwall or
-  not, can then use shared agents.
-- An MCP server on the tailnet is not planned: A2A is the remote interface.
+### 10.2 `pitwall mcp`: one local server for Pitwall users' agents
+A local stdio MCP server on the caller's machine that merges every
+teammate's tools into one (`ask_alice_api_expert`, …) plus
+`list_shared_agents`, and forwards calls through the daemon with the
+`Pitwall-Agent` label. So the "let my agents ask" switch, budgets and loop
+checks apply, and agents don't need one `claude mcp add` per teammate. It
+calls owners directly; it never relays for anyone else.
+
+### 10.3 A2A later
+An A2A front for the same shares (Agent Card per share, `contextId` = the
+conversation) can be added beside `/mcp` if A2A clients show up. Not in
+v1.

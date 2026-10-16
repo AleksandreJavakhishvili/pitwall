@@ -21,27 +21,29 @@ Checked on 2026-10-16. "Unverified" items are marked in the text.
 - `tailscale status --json` fields used for discovery: as listed and caveated
   in tailnet-peers.md §3.
 
-**A2A** (specification 1.0.0): https://a2a-protocol.org/latest/specification/
-- Agent Card required fields (`name`, `description`, `supportedInterfaces`,
-  `version`, `capabilities`, `defaultInputModes`, `defaultOutputModes`,
-  `skills`), `AgentSkill`, `AgentInterface` (`url`, `protocolBinding`:
-  `JSONRPC`, `GRPC`, `HTTP+JSON`; `protocolVersion`), `AgentExtension`
-  (`uri`, `description`, `required`, `params`) in
-  `capabilities.extensions`, card signatures; discovery by
-  `/.well-known/agent-card.json`, catalogs or pre-configured card URLs.
-- `contextId` (server may generate; groups tasks into a conversation); a
-  server may return a Message or a Task.
-- Task states, including input-required (client continues) and
-  auth-required (in-task authorization delegated to the client; the state
-  by itself is not authorization).
-- `Part` (exactly one of `text`, `raw`, `url`, `data`; `mediaType`,
-  `filename`), `Artifact` (`artifactId`, `name`, `parts`), artifact update
-  events (`append`, `lastChunk`).
-- HTTP+JSON endpoints (`POST /message:send`, `POST /message:stream` with
-  `text/event-stream`, `GET /tasks/{id}`, `GET /tasks`,
-  `POST /tasks/{id}:cancel`, `POST /tasks/{id}:subscribe`), body media type
-  `application/a2a+json`, `A2A-Version` and `A2A-Extensions` headers; push
-  notifications optional.
+**MCP** (Model Context Protocol): https://modelcontextprotocol.io/specification
+- Streamable HTTP transport (JSON-RPC over `POST`, JSON or SSE answers,
+  `Mcp-Session-Id`), tools (`tools/list`, `tools/call`, `inputSchema`,
+  `outputSchema`, `structuredContent` with a text copy, `isError`,
+  annotations, `listChanged`), progress and cancellation notifications,
+  authorization optional for HTTP. Not rechecked field by field: golden
+  fixtures at implementation.
+- Claude Code as a client (checked 2026-10-16):
+  https://code.claude.com/docs/en/mcp
+  - `claude mcp add --transport http <name> <url>` (optional `--header`).
+  - `MCP_TIMEOUT` (startup), `MCP_TOOL_TIMEOUT` and per-server `timeout`
+    (hard limit per call; default about 28 hours); progress notifications
+    don't extend it.
+  - `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`: idle window 5 minutes for HTTP
+    servers by default.
+  - Output: warning above 10,000 tokens, limit 25,000 (`MAX_MCP_OUTPUT_TOKENS`);
+    text results over 50,000 characters are saved to a file unless the tool
+    sets `anthropic/maxResultSizeChars`.
+  - `list_changed` for tools refreshes the list without reconnecting
+    (tools only in `-p` mode).
+
+**A2A** (possible later front, [§10.3](protocol.md)):
+https://a2a-protocol.org/latest/specification/
 
 **Claude Code**
 - `-p`, `--resume`, `--fork-session`, `--session-id`, `--output-format`,
@@ -127,9 +129,6 @@ Checked on 2026-10-16. "Unverified" items are marked in the text.
   https://jmmv.dev/2019/11/macos-sandbox-exec.html,
   https://gastown.dev/docs/research/macos-sandbox-exec (secondary sources).
 
-**MCP**
-- Model Context Protocol specification (tools, stdio transport), not
-  rechecked in detail: https://modelcontextprotocol.io/specification
 
 **Pitwall**
 - Skills library and per-project / per-agent assignment: [rules.md](../rules.md)
@@ -151,10 +150,15 @@ Checked on 2026-10-16. "Unverified" items are marked in the text.
   ([§6.3](sessions.md)).
 - Codex session-file fields for the last assistant message ([§7.2](messages.md)).
 - `tiny_http` streaming and `ureq` SSE reading in practice ([§8.1](protocol.md)).
-- Whether A2A requires TLS for production deployments ([§8.1](protocol.md), [§14](plan.md)
-  question 9).
+- Whether every MCP client accepts plain `http://` on a tailnet address
+  ([§8.1](protocol.md), [§14](plan.md) question 9).
+- Whether progress notifications reset Claude Code's idle timer, and tool
+  timeouts and output limits in other MCP clients ([§8.3](protocol.md), [§14](plan.md)
+  question 17).
+- How each agent kind shows its vendor usage limit and reset time on
+  screen or in hooks ([§5.8](sharing.md)).
 - The exact grant shape (`dst`) for a Pitwall node to see a caller's app
-  capability via LocalAPI `whois` ([§4.7](teams.md)), and how tagged devices appear in
+  capability via LocalAPI `whois` ([§4.8](teams.md)), and how tagged devices appear in
   `UserProfile`.
 - Tailscale multicast: only an older staff forum answer ([§3](teams.md)).
 - Vendor terms for letting others use an agent subscription ([§14](plan.md) question 6).

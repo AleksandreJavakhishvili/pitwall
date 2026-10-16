@@ -21,7 +21,7 @@ tailnet and asking.
   - **Only devices I add by name** (for very large tailnets).
 - **Probe.** `GET http://<tailnet IP>:47421/pitwall/v1/info` ([§8.4](protocol.md)). No
   answer means no Pitwall, or a Pitwall with collaboration off. A node that
-  answers returns only `{ version, login, label, listedTeams, a2a: true }`.
+  answers returns only `{ version, login, label, listedTeams, mcp: "/mcp" }`.
 - **Limits.** At most 256 nodes per refresh, 16 at a time, 2 s connect
   timeout. A node that didn't answer is not probed again for 24 h, unless it
   changes in `tailscale status` (new IP, came online) or the user presses ↻.
@@ -43,15 +43,19 @@ tailnet and asking.
   valid version wins.
 
 ### Finding shared agents
-- `GET /pitwall/v1/directory` on each Pitwall that runs a member of the caller's teams
-  returns the shared agents **that caller may use**: Agent Cards ([§8.7](protocol.md)) only, no
-  paths, no session data. People with no common team see nothing, unless a
-  share names them directly or is open to the whole tailnet.
+- The directory is MCP's own `tools/list`: Pitwall calls it on the `/mcp`
+  endpoint of each Pitwall that runs a member of the caller's teams, and
+  gets the shared agents **that caller may use**, as tools ([§8.7](protocol.md)): name,
+  description, capability, what's left today. No paths, no session data.
+  People with no common team see nothing, unless a share names them
+  directly or is open to the whole tailnet. A plain Claude user sees the
+  same list in their client after `claude mcp add`.
 - The directory is a cache (`collab/directory.json`), refreshed with
-  discovery and when an owner announces a change (`directory.changed`
-  event, sent to connected teammates). An owner who is offline shows their
-  agents dimmed, "alice is offline · 2 h", and requests to them are refused
-  at once (no offline queue in v1, [§14](plan.md) question 5).
+  discovery and when an owner announces a change (`shares.changed` event to
+  connected teammates; `notifications/tools/list_changed` to MCP clients).
+  An owner who is offline shows their agents dimmed, "alice is offline ·
+  2 h", and requests to them fail at once (no offline queue in v1, [§14](plan.md)
+  question 5).
 
 ---
 
@@ -61,7 +65,7 @@ tailnet and asking.
 
 | Key | Where | Purpose |
 |---|---|---|
-| **Instance key** (Ed25519) | `peers/identity.key`, as in tailnet-peers.md §5 | Identifies one Pitwall installation. Signs every request a Pitwall makes to another ([§8.2](protocol.md)). A device in a team is this key plus its node |
+| **Instance key** (Ed25519) | `peers/identity.key`, as in tailnet-peers.md §5 | Identifies one Pitwall installation. Signs team records (as admin, or for its own device entry). Requests are not signed: callers are identified by `whois` ([§8.2](protocol.md)). A device in a team is this key plus its node |
 | **Admin authority** | No separate key: an admin is a person, and each of their devices' instance keys signs as admin | Signs team records |
 | **Team id** | Hash (SHA-256) of the genesis record | Names the team forever. Two teams called "Platform" are different ids |
 
@@ -91,7 +95,7 @@ after one change, plus what changed:
       …
     ],
     "removed": [{"login":"eve@example.com","at":5}],
-    "binding": null                   // §4.7
+    "binding": null                   // §4.8
   },
   "by": {"login":"alice@example.com","key":"ed25519:A1…"},
   "at": "2026-10-16T09:12:00Z",       // informative only, never used for ordering
@@ -177,8 +181,8 @@ whether that is the default.
 - **Join by request.** Bob → `team.request_join {team, note}` to any online
   member. Members pass it on to admins they can reach (`team.request`
   events). Any admin approves in Requests, which writes `add_member` with
-  Bob's device from the request (login from `whois`, key from the
-  handshake). Requests expire after 7 days. At most 3 open requests per
+  Bob's device from the request (login from `whois`, key sent in the
+  request and bound to that node). Requests expire after 7 days. At most 3 open requests per
   person per team.
 - **Join by invite link.** An admin makes a one-time code (valid 7 days,
   one use; or "reusable until revoked", open question 2). Bob's Pitwall
@@ -198,14 +202,15 @@ whether that is the default.
   Collaboration → Rotate key; also after a suspected leak). The device signs
   `{old, new}` with both keys and sends it to each team. Members accept a
   `rotate_device` record signed by the device's own old key, for its own
-  entry only. Old-key handshakes are refused once the record is accepted.
+  entry only. Records signed with the old key are refused once the
+  rotation is accepted.
 - **Lost or stolen device.** An admin, or the same person from another of
   their devices, writes `remove_device`. The removed key can no longer sign
-  handshakes or records for this team. Revocation is as fast as the record
-  spreads: members check every connection against their current state, so
-  a member who already has the record refuses at once. Tailscale node
-  removal in the admin console is the second, independent lever: `whois`
-  then fails.
+  records for this team. Access to shares is by login, so a person whose
+  laptop was stolen also asks the Tailscale admin to remove that node:
+  `whois` then fails and every request from it is refused at once.
+  Removing the person from the team takes effect as fast as the record
+  spreads; an owner's block list takes effect at once.
 - **Leaving.** A member writes `remove_member` for themselves (allowed
   without admin, for their own login only). An admin removes others.
 - **Last admin.** The last admin can't leave or step down without naming
@@ -214,7 +219,28 @@ whether that is the default.
   (members can "Re-create team from this one", which copies the member list
   into a new genesis and invites them).
 
-### 4.7 Binding a team to Tailscale (optional, for orgs with an admin)
+### 4.7 Members without Pitwall
+A team member is a **login**. Devices are only needed to sign records and
+to see the team in Pitwall, so a person who uses plain Claude Code (or any
+MCP client) can be a full member for every share that names the team:
+- **Adding.** An admin adds them by login: Team → Add member →
+  `erin@example.com` (or `pitwall team add-member platform erin@…`). The
+  record holds the login with `devices: []`. No join request is needed,
+  since they have no Pitwall to send one from.
+- **Setup lines.** Pitwall then shows a short text to send them: one
+  `claude mcp add --transport http <owner> http://<node>:47421/mcp` line per
+  member who shares agents with the team, and a note that their Claude
+  will see the shared agents as tools. Owners can print their own line with
+  `pitwall share setup`. When a new owner starts sharing with the team,
+  plain members need one more line (Pitwall users get it automatically);
+  the team page shows "Setup for people without Pitwall" with the current
+  list.
+- **Later Pitwall.** If they install Pitwall, their device joins as
+  "another device of erin@example.com" ([§4.6](teams.md)).
+- **What they can't do:** admin the team, see the member list in a UI, or
+  share their own agents. They only call shares.
+
+### 4.8 Binding a team to Tailscale (optional, for orgs with an admin)
 Tailscale grants can give an **app capability** to traffic from some
 users or devices to others. The receiving app reads it from `whois`
 (`CapMap`), the way golink reads `tailscale.com/cap/golink` and tsidp reads
@@ -236,8 +262,7 @@ users or devices to others. The receiving app reads it from `whois`
   `CapMap` has the capability with that team name. Admin is the same with
   `admin: true`. Pitwall stops accepting signed `add_member`/`remove_member`
   for bound teams; the Tailscale admin console is the source of truth.
-  Devices still need their instance key (handshake) so a process other than
-  Pitwall can't act as a member.
+  Plain Claude users in the group are members with no further step.
 - **Who can bind.** An admin of the team, and only when their own `whois`
   shows the capability with `admin: true` for that team.
 - **Ceiling.** The same capability can carry limits an org wants enforced,
