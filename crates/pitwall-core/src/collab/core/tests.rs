@@ -676,7 +676,7 @@ fn the_daily_quota_resets_at_the_owners_midnight() {
     let TurnStatus::Refused(r) = &refused.status else { panic!("refused: {:?}", refused.status) };
     assert_eq!(r.reason, RefusalReason::Quota);
     assert_eq!(r.resets_at.as_deref(), Some("2026-10-17T00:00:00+02:00"));
-    assert_eq!(r.message, "Daily limit reached for alice@example.com/api-expert; resets at 00:00");
+    assert_eq!(r.message, "Daily limit reached for alice/api-expert; resets at 00:00");
     assert_eq!(refused.left.as_ref().unwrap().messages_today, 0);
     assert_eq!(w.collab.shares(&bob)[0].left, 0);
     // Refusals don't count, and other people have their own.

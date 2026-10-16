@@ -1905,7 +1905,8 @@ impl Collab {
         let now = self.now();
         let day = time::day(now);
         let midnight = time::rfc3339(self.clock.next_midnight(now));
-        let owner = format!("{}/{}", login(&self.owner_identity(None)), share.slug);
+        // The share's address as callers write it (`alice/api-expert`, §5.8).
+        let owner = format!("{}/{}", super::turn::short_name(&self.owner_identity(None)), share.slug);
         if share.state == ShareState::Paused {
             return Some(refusal(RefusalReason::Paused, format!("{owner} is paused by its owner"), None, None));
         }
