@@ -7,7 +7,7 @@
 //! - `tailscale` (v1): devices on the user's tailnet, identity from `whois`;
 //! - `cloud` (later): Pitwall accounts and a relay, identity from signed
 //!   tokens;
-//! - [`fake`] (tests): in-process, scripted people and devices.
+//! - `fake` (tests, `net::fake`): in-process, scripted people and devices.
 //!
 //! Backend modules live under `net::` and nothing outside `net` names them;
 //! `collab` in particular depends only on this module's traits and types
