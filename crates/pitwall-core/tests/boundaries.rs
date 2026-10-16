@@ -114,10 +114,24 @@ fn production_lines(text: &str) -> Vec<(usize, &str)> {
     out
 }
 
+/// A file its parent declares as `#[cfg(test)] mod <name>;` (a test-only
+/// module, like `collab/interop.rs`).
+fn test_only_module(file: &Path) -> bool {
+    let (Some(stem), Some(dir)) = (file.file_stem().and_then(|s| s.to_str()), file.parent()) else {
+        return false;
+    };
+    let decl = format!("mod {stem};");
+    ["mod.rs", "lib.rs"].iter().any(|parent| {
+        let Ok(text) = std::fs::read_to_string(dir.join(parent)) else { return false };
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        lines.windows(2).any(|w| w[0] == "#[cfg(test)]" && w[1].trim_start_matches("pub(crate) ").trim_start_matches("pub ") == decl)
+    })
+}
+
 fn offenders(files: &[PathBuf], src: &Path, banned: &[&str]) -> Vec<String> {
     let mut found = Vec::new();
     for file in files {
-        if file.file_name().is_some_and(|n| n == "tests.rs") {
+        if file.file_name().is_some_and(|n| n == "tests.rs") || test_only_module(file) {
             continue;
         }
         let text = std::fs::read_to_string(file).expect("read source");
