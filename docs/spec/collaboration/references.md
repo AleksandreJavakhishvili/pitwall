@@ -28,7 +28,9 @@ Checked on 2026-10-16. "Unverified" items are marked in the text.
   annotations, `listChanged`), progress and cancellation notifications,
   authorization optional for HTTP. Not rechecked field by field: golden
   fixtures at implementation.
-- Claude Code as a client (checked 2026-10-16):
+- Claude Code as a client (checked 2026-10-16; C1a interop with Claude Code
+  2.1.301 showed it speaks MCP 2026-07-28 and needs `ttlMs`/`cacheScope` on
+  `tools/list`):
   https://code.claude.com/docs/en/mcp
   - `claude mcp add --transport http <name> <url>` (optional `--header`).
   - `MCP_TIMEOUT` (startup), `MCP_TOOL_TIMEOUT` and per-server `timeout`

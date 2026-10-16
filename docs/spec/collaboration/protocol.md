@@ -166,7 +166,12 @@ cover it (`capabilities.pushNotifications: false`).
 #### 8.3.3 The MCP front
 One endpoint per owner and network: `<Network::endpoint>/mcp`,
 MCP over **Streamable HTTP** (JSON-RPC over `POST`, answered as JSON or as
-an SSE stream). A plain Claude Code user adds it once:
+an SSE stream). The front serves both the 2025 protocol versions
+(`initialize`) and **2026-07-28**, which Claude Code 2.1.301 speaks
+(`server/discover`, `subscriptions/listen`, closing a call's stream
+cancels it); `tools/list` must carry `ttlMs` and `cacheScope` or Claude
+Code drops every tool (found in C1a interop testing). A plain Claude Code
+user adds it once:
 
 ```
 claude mcp add --transport http alice http://studio.example.ts.net:47421/mcp   # Tailscale
@@ -354,13 +359,14 @@ checked with golden fixtures against the spec's schema at implementation):
     {"url": "http://studio.example.ts.net:47421/a2a/api-expert",
      "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0"}
   ],
-  "capabilities": {"streaming": true, "pushNotifications": false},
   "defaultInputModes": ["text/plain", "text/x-patch"],
   "defaultOutputModes": ["text/plain", "text/x-patch"],
   "skills": [{"id": "ask", "name": "Ask", "tags": ["code", "api"],
               "description": "Send any message; replies, and patches when it changed code"}],
-  "metadata": {"pitwall/share": {"owner": "alice@example.com", "slug": "api-expert",
-               "capability": "read", "kind": "claude", "messagesPerDay": 20, "left": 17}}
+  "capabilities": {"streaming": true, "pushNotifications": false,
+    "extensions": [{"uri": "<pitwall-domain>/a2a/ext/share/v1", "required": false,
+      "params": {"owner": "alice@example.com", "slug": "api-expert",
+                 "capability": "read", "kind": "claude", "messagesPerDay": 20, "left": 17}}]}
 }
 ```
 
