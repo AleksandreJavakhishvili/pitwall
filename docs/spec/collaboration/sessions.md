@@ -169,10 +169,17 @@ the outer one stays.
 #### The agent account
 The agent needs its own login (model access). Its config folder is readable
 inside the sandbox, and that folder may hold the account's other
-conversations. So the Share dialog suggests a **separate account for
-sharing** (Pitwall's accounts already support several logins per kind,
-README "Accounts"), so only shared sessions live there. Using the owner's
-main account is allowed with a plain warning.
+conversations. So a share **requires a separate account for sharing**
+(decided 2026-10-16; Pitwall's accounts already support several logins per
+kind, README "Accounts"), so only shared sessions live there. Going live,
+or widening to an account, is refused when the share would run on the
+kind's default (the owner's main) account; the Share dialog offers to pick
+or add one. Guest tries may use any account, with an amber warning.
+
+**Gemini CLI** keeps its login in `~/.gemini` and has no variable to move
+it, so a sandboxed session (its own `HOME`) has no login. A Gemini share
+goes live only with an API key the owner passes explicitly in the access
+step (e.g. `GEMINI_API_KEY`); `~/.gemini` is never mounted or copied.
 
 ### 6.4 Starting point: fresh or an approved summary
 - **Fresh** (default), for every kind: the session starts with no history,

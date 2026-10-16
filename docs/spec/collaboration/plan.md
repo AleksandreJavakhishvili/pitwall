@@ -121,7 +121,9 @@ socket (a first macOS demo confirmed a detached child stays blocked,
    team has three or more admins (proposed: yes; off for smaller teams)?
 2. **Invite links.** One-time only (proposed), or also reusable until
    revoked?
-3. **Domain.** The app capability (`<domain>/cap/pitwall`) needs a domain the project controls. Which one?
+3. **Domain.** *Decided (2026-10-16):* `aleksandrejavakhishvili.github.io`,
+   the project's GitHub Pages site, for the app capability and the A2A
+   extension URIs; one constant, changeable before the first release.
 4. **Full conversation as the base.** Offer forking the owner's whole
    conversation (with an amber warning) besides fresh and summary, or never?
 5. **Offline owners.** Refuse messages while the owner is offline

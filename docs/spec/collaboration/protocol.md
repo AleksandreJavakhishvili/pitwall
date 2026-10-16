@@ -27,7 +27,8 @@ Part of the [collaboration spec](README.md).
   callers): `ureq` 3 through `Network::client`, reading SSE line by line.
   Recorded in gpui/licensing.md.
 - **Limits** per caller, the same on every network: connections, requests
-  per second, body size (2 MiB), at most 8 open streams.
+  per second (10 per person, bursts of 40: provisional, to be tuned after
+  real use), body size (2 MiB), at most 8 open streams.
 
 ### 8.2 Who is calling: whatever the network proves
 - **Every request carries a `Caller`** from its backend: identity, person,
