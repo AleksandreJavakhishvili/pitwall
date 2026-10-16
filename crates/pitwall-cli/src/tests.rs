@@ -446,7 +446,7 @@ impl Host {
         } else {
             None
         };
-        let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace };
+        let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace, collab: None };
         let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
         Host { server: Some(server), approvals, socket, sock_dir, _dir: dir }
     }

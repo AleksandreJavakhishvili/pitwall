@@ -601,7 +601,9 @@ impl CollabBackend for MemoryCollab {
                 .push(e.clone());
             }
         }
-        out.into_values().collect()
+        let mut list: Vec<PersonView> = out.into_values().collect();
+        list.sort_by(|a, b| a.login.cmp(&b.login));
+        list
     }
 
     fn directory(&self) -> Vec<DirectoryEntry> {

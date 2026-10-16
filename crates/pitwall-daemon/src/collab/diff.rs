@@ -169,37 +169,7 @@ pub fn diff(old: &ShareSettings, new: &ShareSettings) -> ShareDiff {
     ShareDiff(out)
 }
 
-/// One diff line as the approval dialog and the CLI show it: `▲` widens
-/// (asked, amber in Pitwall), `▼` doesn't. Lists say what was added and
-/// taken out: `▲ audience.people: + dave@example.com`.
-pub fn describe(l: &ShareDiffLine) -> String {
-    let mark = if l.widens { "▲" } else { "▼" };
-    let show = |x: &Value| match x {
-        Value::String(s) => s.clone(),
-        Value::Null => "none".into(),
-        Value::Object(o) if o.contains_key("subject") => o["subject"].as_str().unwrap_or_default().to_string(),
-        Value::Object(o) if o.contains_key("network") && o.contains_key("id") => {
-            format!("{} on {}", o["id"].as_str().unwrap_or_default(), o["network"].as_str().unwrap_or_default())
-        }
-        other => other.to_string(),
-    };
-    match (&l.from, &l.to) {
-        (Value::Array(a), Value::Array(b)) => {
-            let mut parts = Vec::new();
-            for x in b.iter().filter(|x| !a.contains(x)) {
-                parts.push(format!("+ {}", show(x)));
-            }
-            for x in a.iter().filter(|x| !b.contains(x)) {
-                parts.push(format!("− {}", show(x)));
-            }
-            if parts.is_empty() {
-                parts.push("reordered".into());
-            }
-            format!("{mark} {}: {}", l.field, parts.join(", "))
-        }
-        (from, to) => format!("{mark} {}: {} → {}", l.field, show(from), show(to)),
-    }
-}
+pub use pitwall_proto::api::collab::describe;
 
 /// Apply `p` to `old`. `team` resolves a team given by name, fingerprint
 /// or id to its id (`Err`: a sentence saying it isn't known).

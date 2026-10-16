@@ -459,13 +459,29 @@ impl CollabService {
         }
     }
 
+    /// People given by login only (`--person bob@example.com`, empty
+    /// provider) on the network they are on.
+    fn normalize(&self, mut p: SharePatch) -> Result<SharePatch, ErrorBody> {
+        for list in [&mut p.add.people, &mut p.remove.people] {
+            for who in list.iter_mut() {
+                if who.provider.is_empty() {
+                    *who = self.identity(&who.subject, None)?;
+                }
+            }
+        }
+        // Overrides by login (`--limit bob@example.com=50`): by person id.
+        p.overrides = std::mem::take(&mut p.overrides).into_iter().map(|(k, v)| (self.person(&k), v)).collect();
+        Ok(p)
+    }
+
     fn resolve_teams(&self) -> impl Fn(&str) -> Result<TeamId, String> + '_ {
         move |t: &str| self.team_id(t).map_err(|e| e.message)
     }
 
     // ------------------------------------------------------------ shares
 
-    fn create(&self, r: ShareCreate) -> Result<ShareView, ErrorBody> {
+    fn create(&self, mut r: ShareCreate) -> Result<ShareView, ErrorBody> {
+        r.patch = self.normalize(r.patch)?;
         let agent = self.agent(&r.agent)?;
         let all = self.backend.shares();
         if let Some(s) = all.iter().find(|s| s.agent == agent.id) {
@@ -506,7 +522,8 @@ impl CollabService {
     }
 
     /// `share.set`: apply, diff, ask when it widens a share others can see.
-    pub fn set(&self, caller: &Caller, who: &Who, r: ShareSet) -> Result<ShareChanged, ErrorBody> {
+    pub fn set(&self, caller: &Caller, who: &Who, mut r: ShareSet) -> Result<ShareChanged, ErrorBody> {
+        r.patch = self.normalize(r.patch)?;
         let old = self.find(&r.share)?;
         let new = diff::apply(&old, &r.patch, &self.resolve_teams()).map_err(|e| err(code::BAD_PARAMS, e))?;
         if new.slug != old.slug && self.backend.shares().iter().any(|x| x.slug == new.slug) {

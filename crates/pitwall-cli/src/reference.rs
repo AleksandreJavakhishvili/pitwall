@@ -33,7 +33,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 | Status | Meaning |
 |---|---|
 | `0` | Done. |
-| `1` | An error (see the JSON on stderr), including `wait` timing out (code `timeout`). |
+| `1` | An error (see the JSON on stderr), including `wait` timing out (code `timeout`) and collaboration's refusals (`offline`, `busy`, `quota`, `share_total`, `agent_limit`, `not_allowed`, `no_answer`, `loop`, `forbidden`). |
 | `2` | Bad arguments: unknown command or option, a missing value, or a value the server rejects (`bad_params`). |
 | `3` | Not approved: you denied the request in Pitwall, or didn't answer. |
 
