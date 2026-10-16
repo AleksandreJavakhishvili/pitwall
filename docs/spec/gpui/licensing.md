@@ -185,3 +185,11 @@ Polish round (`kit/fonts.rs`): two more static instances of the same Inter varia
 Parity round (`code_view/markdown.rs`): `tree-sitter-md` 0.5 (MIT, tree-sitter-grammars), the Markdown block and inline grammars for Review's Markdown colours (used through `tree-sitter-language`, no new tree-sitter version).
 
 Parity round (`code_view/highlight.rs`, more of the languages React gets from `@codemirror/language-data`): tree-sitter grammars `tree-sitter-php` 0.25, `tree-sitter-c-sharp` 0.23, `tree-sitter-lua` 0.5, `tree-sitter-swift` 0.7, `tree-sitter-kotlin-ng` 1.1 (highlight query written in-house: `code_view/kotlin_highlights.scm`), `tree-sitter-scala` 0.26, `tree-sitter-sequel` 0.3 (SQL), `tree-sitter-xml` 0.7, `tree-sitter-haskell` 0.24, `tree-sitter-zig` 1.1, `tree-sitter-r` 1.3, `tree-sitter-powershell` 0.26, `tree-sitter-scss` 1.0, `tree-sitter-ocaml` 0.26, `tree-sitter-nix` 0.3 (all MIT) and `tree-sitter-elixir` 0.3 (Apache-2.0); all on the one tree-sitter 0.25.
+
+## Collaboration (docs/spec/collaboration/)
+
+C1a interfaces (`pitwall-core::net`, `pitwall-core::collab`): `http` 1 (MIT OR
+Apache-2.0, already in the tree via gpui, with its dependencies `bytes` and
+`itoa`), for the request and response types of the collaboration handler. The
+HTTP server and client (`tiny_http`, `ureq`, §8.1) come with the Tailscale
+backend and are recorded here when they land.

@@ -23,6 +23,7 @@ pub mod hooks;
 pub mod host;
 pub mod kind;
 pub mod model;
+pub mod net;
 pub mod onboarding;
 pub mod paths;
 pub mod permissions;
