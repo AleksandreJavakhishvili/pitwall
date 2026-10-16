@@ -132,6 +132,12 @@ pub struct ShareKind {
     pub own_sandbox_off_args: Vec<String>,
     #[serde(default)]
     pub own_sandbox_off_env: std::collections::BTreeMap<String, String>,
+    /// The same as settings, for kinds that take a settings object per
+    /// launch (`hooks = "claude-settings"`: merged into the `--settings`
+    /// JSON with the hooks), e.g. Claude Code's `{ sandbox = { enabled =
+    /// false } }`, which wins over the account's own settings files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_sandbox_off_settings: Option<serde_json::Value>,
 }
 
 impl ShareKind {

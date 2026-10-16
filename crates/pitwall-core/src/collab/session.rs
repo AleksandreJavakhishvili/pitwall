@@ -6,9 +6,10 @@
 //!   engine sees (status, hooks, the screen) as [`SessionEvent`]s;
 //!   [`super::engine_host::EngineHost`] is the engine's, tests script one.
 //! - [`OwnerAgents`]: the ordinary agent being shared (its kind, account).
-//! - [`Snapshots`]: makes the session's copy (§6.2); the Sandbox track's.
-//! - [`EgressProxies`]: the per-share egress proxy's port (§6.3); the
-//!   Sandbox track's.
+//! - [`Snapshots`]: makes the session's copy (§6.2);
+//!   [`super::sandboxed::GitSnapshots`] in Pitwall.
+//! - [`EgressProxies`]: the per-share egress proxy's port (§6.3);
+//!   [`super::sandboxed::ProxyPool`] in Pitwall.
 //! - [`SessionSkills`]: the agent's assigned rules and skills, generated
 //!   into the session folder (§6.2).
 //!
@@ -134,6 +135,8 @@ pub trait Snapshots: Send + Sync {
 /// the network through, allowing `hosts` only; `None`: no network.
 pub trait EgressProxies: Send + Sync {
     fn port(&self, share: &ShareSettings, hosts: &[String]) -> Result<Option<u16>>;
+    /// The share stopped: its proxy can go.
+    fn forget(&self, _share: &str) {}
 }
 
 /// Generates the shared agent's assigned rules and skills into a session
@@ -190,11 +193,24 @@ pub fn kind_argv(kind: &AgentKind, start: &StartAs, hook: Option<&str>) -> (Vec<
             argv.push(arg);
         }
     }
-    // The agent's own sandbox can't nest inside Pitwall's (§6.8).
-    argv.extend(share_kind(kind).own_sandbox_off_args);
-    if let (crate::kind::HookMode::ClaudeSettings, Some(cmd)) = (kind.hooks, hook) {
-        argv.push("--settings".into());
-        argv.push(crate::hooks::claude_settings_json(cmd));
+    // The agent's own sandbox can't nest inside Pitwall's (§6.8): off, by
+    // its own arguments, environment (the policy) or settings.
+    let sk = share_kind(kind);
+    argv.extend(sk.own_sandbox_off_args.iter().cloned());
+    if kind.hooks == crate::kind::HookMode::ClaudeSettings {
+        let mut settings = match hook {
+            Some(cmd) => crate::hooks::claude_settings_value(cmd),
+            None => serde_json::json!({}),
+        };
+        if let (Some(obj), Some(serde_json::Value::Object(extra))) = (settings.as_object_mut(), &sk.own_sandbox_off_settings) {
+            for (k, v) in extra {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+        if settings.as_object().is_some_and(|o| !o.is_empty()) {
+            argv.push("--settings".into());
+            argv.push(settings.to_string());
+        }
     }
     (argv, session, resumed)
 }
@@ -271,14 +287,20 @@ mod tests {
         assert_eq!(argv[3], "--settings");
         assert!(argv[4].contains("\"command\":\"sh /h\""));
 
+        // Its own Bash sandbox is off in the same settings: it can't nest.
+        let settings: serde_json::Value = serde_json::from_str(&argv[4]).unwrap();
+        assert_eq!(settings["sandbox"], serde_json::json!({"enabled": false}));
+        assert!(settings["hooks"]["Stop"].is_array());
+
+        let off = r#"{"sandbox":{"enabled":false}}"#;
         let (argv, id, resumed) = kind_argv(&k, &StartAs::Resume("s-1".into()), None);
-        assert_eq!(argv, ["claude", "--resume", "s-1"]);
+        assert_eq!(argv, ["claude", "--resume", "s-1", "--settings", off]);
         assert_eq!(id.as_deref(), Some("s-1"));
         assert!(resumed);
 
         let (argv, id, _) = kind_argv(&k, &StartAs::Fork("base-1".into()), None);
         let id = id.unwrap();
-        assert_eq!(argv, ["claude", "--resume", "base-1", "--fork-session", "--session-id", id.as_str()]);
+        assert_eq!(argv, ["claude", "--resume", "base-1", "--fork-session", "--session-id", id.as_str(), "--settings", off]);
     }
 
     #[test]

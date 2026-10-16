@@ -245,7 +245,7 @@ impl World {
             egress: Arc::new(FakeProxy),
             skills: None,
             teams: Some(teams.clone()),
-            hooks: Some(HookWiring { command: "sh '/pw/hook'".into(), socket: PathBuf::from("/pw/hooks.sock") }),
+            hooks: Some(HookWiring { command: "'/pw/pitwall-hook'".into(), socket: PathBuf::from("/pw/hooks.sock"), programs: vec![PathBuf::from("/pw/pitwall-hook")] }),
             settings,
             run: RunMode::Inline,
         });
@@ -350,8 +350,9 @@ fn the_sandbox_policy_is_built_from_nothing() {
     let policy = w.sandbox.policies.lock().unwrap()[0].clone();
     let folder = w.dir.path().join("collab/shares/api-expert/s").join(&turn.conversation.0);
     assert_eq!(policy.env["HOME"], folder.join("home").to_string_lossy());
-    assert_eq!(policy.env["TMPDIR"], folder.join("tmp").to_string_lossy());
+    assert_eq!(policy.env["TMPDIR"].trim_end_matches('/'), folder.join("tmp").to_string_lossy());
     assert_eq!(policy.env["HTTPS_PROXY"], "http://127.0.0.1:4242");
+    assert_eq!(policy.env["NO_PROXY"], "", "everything goes through the proxy");
     assert_eq!(policy.env["FAKE_CONFIG_DIR"], "/accounts/share");
     assert!(policy.env.keys().all(|k| !k.starts_with("PITWALL")), "{:?}", policy.env.keys());
     assert!(!policy.env.contains_key("SSH_AUTH_SOCK"));
@@ -361,7 +362,12 @@ fn the_sandbox_policy_is_built_from_nothing() {
     assert!(!policy.read.iter().any(|r| policy.state_dir.starts_with(r)), "the profile is outside what it reads");
     assert!(!policy.write.contains(&folder.join("work")));
     assert!(policy.write.contains(&folder.join("home")) && policy.write.contains(&PathBuf::from("/accounts/share")));
-    assert!(matches!(policy.exec, ExecRule::Allow(_)), "an allowlist at Read only");
+    let ExecRule::Allow(programs) = &policy.exec else { panic!("an allowlist at Read only") };
+    // The hook relay is the pitwall-hook binary: runnable and readable, and
+    // no curl among the programs.
+    assert!(programs.contains(&PathBuf::from("/pw/pitwall-hook")) && policy.read.contains(&PathBuf::from("/pw/pitwall-hook")));
+    assert!(!programs.iter().any(|p| p.ends_with("curl")), "{programs:?}");
+    assert!(programs.iter().any(|p| p.ends_with("git")));
     assert_eq!(policy.connect, vec![LocalEndpoint::UnixSocket(PathBuf::from("/pw/hooks.sock"))]);
     // The hook relay carries the agent id itself: no PITWALL_* in the environment.
     let argv = &w.host.last_launch().wrapped.argv;

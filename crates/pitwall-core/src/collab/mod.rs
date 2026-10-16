@@ -20,6 +20,7 @@ mod core;
 pub mod engine_host;
 pub mod front;
 pub mod people;
+pub mod sandboxed;
 mod service;
 pub mod session;
 pub mod shares;

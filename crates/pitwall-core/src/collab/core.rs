@@ -57,6 +57,30 @@ const LIMIT_WITHOUT_TIME: Duration = Duration::from_secs(30 * 60);
 pub struct HookWiring {
     pub command: String,
     pub socket: PathBuf,
+    /// What the relay command runs or reads besides the shell the agent
+    /// runs hooks with: readable and runnable inside the sandbox.
+    pub programs: Vec<PathBuf>,
+}
+
+impl HookWiring {
+    /// The `pitwall-hook` relay binary: the session runs it and nothing
+    /// else for hooks (no `curl` in its programs).
+    pub fn binary(relay: &Path, socket: &Path) -> HookWiring {
+        HookWiring {
+            command: crate::shell::quote(&relay.to_string_lossy()),
+            socket: socket.to_path_buf(),
+            programs: vec![relay.to_path_buf()],
+        }
+    }
+
+    /// The `sh` + `curl` relay script (when the binary isn't there).
+    pub fn script(script: &Path, socket: &Path) -> HookWiring {
+        HookWiring {
+            command: format!("sh {}", crate::shell::quote(&script.to_string_lossy())),
+            socket: socket.to_path_buf(),
+            programs: vec![script.to_path_buf(), PathBuf::from("/usr/bin/curl")],
+        }
+    }
 }
 
 /// Settings → Collaboration, as the core needs them.
@@ -734,6 +758,7 @@ impl Collab {
         }
         actions.push(Action::Delete(self.paths.share_dir(slug)));
         self.run(actions);
+        self.egress.forget(slug);
         Ok(())
     }
 
@@ -1379,74 +1404,85 @@ impl Collab {
         Ok(())
     }
 
-    /// The OS sandbox's policy for one session (§6.3).
+    /// The OS sandbox's policy for one session (§6.3): the copy (read, and
+    /// write from "Can change code"), the owner's instruction files, the
+    /// agent's install from its kind data (`sandbox::kind::resolve`), the
+    /// session's own `HOME` and temp, the agent account's folder, the
+    /// share's egress proxy, the hook socket, and an environment built from
+    /// nothing (`sandbox::env::build`). The backend adds the system's
+    /// read-only parts itself.
     fn policy(&self, share: &ShareSettings, kind: &AgentKind, account: Option<&str>, folder: &Path) -> Result<SandboxPolicy> {
-        let home_dir = crate::paths::home();
-        let expand = |p: &str| -> PathBuf {
-            match p.strip_prefix("~/") {
-                Some(rest) => home_dir.join(rest),
-                None => PathBuf::from(p),
-            }
-        };
+        use crate::sandbox::{env, kind as kinds};
         let sk = share_kind(kind);
         let work = folder.join("work");
         let home = folder.join("home");
         let tmp = folder.join("tmp");
-        let installs: Vec<PathBuf> = sk.install_paths.iter().map(|p| expand(p)).collect();
-        let mut read: Vec<PathBuf> = SYSTEM_READ.iter().map(PathBuf::from).collect();
-        read.extend(installs.iter().cloned());
-        // The copy and the owner's instruction files; never the sandbox's
-        // own state (its profile), which lives outside the session folder.
-        read.push(work.clone());
+        let owner_home = crate::paths::home();
+        let owner_path = crate::shell::spawn_path().or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
+        let command = kind.command.split_whitespace().next().unwrap_or_default();
+        let program = kinds::which(&crate::paths::expand_tilde(command).to_string_lossy(), &owner_path);
+        let install = kinds::resolve(kind, &owner_home, program.as_deref(), &owner_path);
+
+        let mut read = vec![work.clone()];
         read.extend(sk.instruction_files_or_default().iter().map(|f| folder.join(f)));
+        read.extend(install.read.iter().cloned());
         let mut write = vec![home.clone(), tmp.clone()];
         if share.capability != Capability::Read {
             write.push(work.clone());
         }
-        let mut env: BTreeMap<String, String> = BTreeMap::new();
-        for (k, v) in self.agents.account_env(kind, account) {
-            // The account's folder: readable and writable (§6.3).
-            write.push(PathBuf::from(&v));
-            env.insert(k, v);
+        // The agent account's folder: readable and writable (§6.3).
+        let account_env = self.agents.account_env(kind, account).into_iter().next();
+        if let Some((_, dir)) = &account_env {
+            write.push(PathBuf::from(dir));
         }
-        let mut path_dirs: Vec<String> = installs.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-        path_dirs.extend(SYSTEM_PATH.iter().map(|s| s.to_string()));
-        env.insert("PATH".into(), path_dirs.join(":"));
-        env.insert("HOME".into(), home.to_string_lossy().into_owned());
-        env.insert("TMPDIR".into(), tmp.to_string_lossy().into_owned());
-        env.insert("LANG".into(), "en_US.UTF-8".into());
-        env.insert("TERM".into(), "xterm-256color".into());
-        for (k, v) in kind.update_off_env.iter().chain(sk.own_sandbox_off_env.iter()) {
-            env.insert(k.clone(), v.clone());
-        }
-        for name in &share.access.env {
-            if let Ok(v) = std::env::var(name) {
-                env.insert(name.clone(), v);
-            }
-        }
-        let mut hosts = sk.model_hosts.clone();
+
+        let mut path: Vec<PathBuf> = install.path.clone();
+        path.extend(SYSTEM_PATH.iter().map(PathBuf::from).filter(|p| p.is_dir()));
+        let mut hosts = install.hosts.clone();
         hosts.extend(share.access.network.allow.iter().cloned());
         let proxy_port = self.egress.port(share, &hosts)?;
-        if let Some(port) = proxy_port {
-            let url = format!("http://127.0.0.1:{port}");
-            for k in ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"] {
-                env.insert(k.into(), url.clone());
+        let mut pass: BTreeMap<String, String> = kind.update_off_env.iter().chain(sk.own_sandbox_off_env.iter()).map(|(k, v)| (k.clone(), v.clone())).collect();
+        for name in &share.access.env {
+            match env::check_passed(name) {
+                Ok(()) => {
+                    if let Ok(v) = std::env::var(name) {
+                        pass.insert(name.clone(), v);
+                    }
+                }
+                Err(why) => eprintln!("pitwall: {} isn't passed to {}'s sessions: {why}", name, share.slug),
             }
         }
-        let search: Vec<PathBuf> = path_dirs.iter().map(PathBuf::from).collect();
-        let resolve = |names: &[String]| -> Vec<PathBuf> {
-            names.iter().flat_map(|n| resolve_program(n, &search)).collect()
-        };
-        let programs = share.access.programs.clone().unwrap_or_else(|| default_programs(share.capability, kind));
-        let exec = match programs {
+        let env = env::build(&env::EnvSpec {
+            home: home.clone(),
+            tmp: tmp.clone(),
+            path: path.clone(),
+            proxy_port,
+            account: account_env.map(|(k, v)| (k, PathBuf::from(v))),
+            shell: SESSION_SHELLS.iter().map(PathBuf::from).find(|p| p.is_file()),
+            lang: None,
+            pass,
+        })?;
+
+        let search: Vec<PathBuf> = path;
+        let resolve = |names: &[String]| -> Vec<PathBuf> { names.iter().flat_map(|n| resolve_program(n, &search)).collect() };
+        let hook_programs: Vec<PathBuf> = self.hooks.iter().flat_map(|h| h.programs.iter().cloned()).collect();
+        read.extend(hook_programs.iter().cloned());
+        let exec = match super::shares::effective_programs(share) {
             Programs::Allow(mut names) => {
-                // The agent itself, its runtimes, and what the hook relay runs.
-                names.extend(kind.command.split_whitespace().next().map(String::from));
+                // The agent itself and its runtimes, and the shell its hooks run in.
                 names.extend(sk.programs.iter().cloned());
-                if self.hooks.is_some() {
-                    names.extend(["sh".to_string(), "curl".to_string()]);
+                if program.is_none() && !command.is_empty() {
+                    names.push(command.to_string());
                 }
-                ExecRule::Allow(resolve(&names))
+                if self.hooks.is_some() {
+                    names.push("sh".to_string());
+                }
+                let mut list = resolve(&names);
+                list.extend(install.exec.iter().cloned());
+                list.extend(hook_programs);
+                list.sort();
+                list.dedup();
+                ExecRule::Allow(list)
             }
             Programs::Deny(names) => ExecRule::Deny(resolve(&names)),
         };
@@ -1908,25 +1944,12 @@ fn limit_sentence(share: &str, until: Option<&str>) -> String {
     }
 }
 
-/// Read inside every session: the system (macOS and Unix layouts; a backend
-/// may add what its OS needs).
-const SYSTEM_READ: &[&str] = &["/usr", "/bin", "/sbin", "/etc", "/System", "/Library", "/private/etc", "/private/var/db", "/opt/homebrew", "/dev"];
+/// `PATH` inside every session after the agent's own folders (the ones
+/// that exist here).
 const SYSTEM_PATH: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
-
-/// "Programs it may run" defaults (§6.3; §14 question 16): an allowlist at
-/// Read only, a denylist at Can change code.
-fn default_programs(capability: Capability, kind: &AgentKind) -> Programs {
-    let _ = kind;
-    match capability {
-        Capability::Read => Programs::Allow(
-            ["git", "ls", "cat", "rg", "grep", "find", "head", "tail", "wc", "sed", "awk", "sort", "uniq", "diff", "file", "node", "env"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-        ),
-        _ => Programs::Deny(["curl", "wget", "ssh", "scp", "nc", "osascript"].iter().map(|s| s.to_string()).collect()),
-    }
-}
+/// `SHELL` inside a session: agents that run commands through it (Claude
+/// Code's Bash tool) want bash or zsh.
+const SESSION_SHELLS: &[&str] = &["/bin/zsh", "/bin/bash", "/bin/sh"];
 
 /// A program name as absolute paths in `dirs` (an absolute path as is).
 fn resolve_program(name: &str, dirs: &[PathBuf]) -> Vec<PathBuf> {
