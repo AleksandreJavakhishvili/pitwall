@@ -5,6 +5,10 @@
 //! - [`frame`]: length-prefixed frames, JSON or terminal bytes.
 //! - [`msg`]: the versioned handshake, requests, responses, events.
 //! - [`api`]: method names, their parameters and results, approvals.
+//! - [`collab`]: collaboration's shapes: identities on a network, share
+//!   settings, and the views of teams, shared agents and conversations
+//!   (docs/spec/collaboration/). Not re-exported at the root: use
+//!   `pitwall_proto::collab::…`.
 //! - [`create`]: the form a provider describes for new agents on a machine.
 //! - [`explorer`]: the read-only code explorer (tree, file, search).
 //! - [`manage`]: managing agents, queues, spaces, projects, rules, review.
@@ -15,6 +19,7 @@
 //! Serde only: no sockets, no engine.
 
 pub mod api;
+pub mod collab;
 pub mod create;
 pub mod explorer;
 pub mod frame;
@@ -77,6 +82,13 @@ mod ts_export {
         SettingView::export_all(&cfg).unwrap();
         SettingSet::export_all(&cfg).unwrap();
         SettingKey::export_all(&cfg).unwrap();
+        collab::ShareSettings::export_all(&cfg).unwrap();
+        collab::TeamCard::export_all(&cfg).unwrap();
+        collab::DirectoryEntry::export_all(&cfg).unwrap();
+        collab::AskView::export_all(&cfg).unwrap();
+        collab::SharedSessionView::export_all(&cfg).unwrap();
+        collab::ShareDiff::export_all(&cfg).unwrap();
+        collab::RefusalReason::export_all(&cfg).unwrap();
         assert!(dir.join("AgentView.ts").is_file());
     }
 }
