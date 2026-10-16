@@ -87,7 +87,13 @@ pub struct Engine {
     shown: Mutex<std::collections::HashMap<u64, String>>,
     /// Agent tools Pitwall keeps up to date (crate::tool_updates).
     pub(crate) tool_updates: crate::tool_updates::ToolUpdates,
+    /// Who else hears agents' hook payloads (collaboration reads a shared
+    /// session's `Stop` text, sessions.md §7.2).
+    hook_taps: Mutex<Vec<HookTap>>,
 }
+
+/// A listener for hook payloads: (agent id, payload).
+pub type HookTap = Box<dyn Fn(&str, &Value) + Send + Sync>;
 
 pub type Shared = Arc<Engine>;
 
@@ -121,6 +127,7 @@ impl Engine {
             engineer: Default::default(),
             connector: Default::default(),
             homes: Default::default(),
+            hook_taps: Default::default(),
             providers: Providers::new(providers),
             paths,
             events,
@@ -208,6 +215,14 @@ impl Engine {
         worktree::on_hook(self, id, payload);
         self.apply_hook(id, hooks::map_hook(payload));
         tasks::on_hook(self, id, payload);
+        for tap in lock(&self.hook_taps).iter() {
+            tap(id, payload);
+        }
+    }
+
+    /// Hear every hook payload after the engine has applied it.
+    pub fn tap_hooks(&self, tap: HookTap) {
+        lock(&self.hook_taps).push(tap);
     }
 
     pub fn paths(&self) -> &Paths {
