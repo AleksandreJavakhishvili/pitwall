@@ -21,10 +21,13 @@
 //! - removing a person or device at the provider stops their requests;
 //! - identities are stable (`subject`, never a display name).
 
+mod key;
+mod probe;
 mod transport;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod fake;
+pub mod tailscale;
 
 #[cfg(test)]
 mod tests;
@@ -34,6 +37,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+pub use self::key::{InstanceKey, KEY_PREFIX};
+pub use self::probe::{ProbeLimits, Probed, Prober, INFO_PATH};
 pub use self::transport::{Body, BodyWriter, HttpClient, Request, Response, Timeouts};
 use crate::error::Result;
 /// The `http` crate (request and response types), so users of this module
