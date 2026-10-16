@@ -91,7 +91,7 @@ after one change, plus what changed:
       …
     ],
     "removed": [{"login":"eve@example.com","at":5}],
-    "binding": null                   // [§4.7](teams.md)
+    "binding": null                   // §4.7
   },
   "by": {"login":"alice@example.com","key":"ed25519:A1…"},
   "at": "2026-10-16T09:12:00Z",       // informative only, never used for ordering

@@ -109,10 +109,6 @@ the `Tailnet` trait.
    and WSL2 (Windows) are the plan. For Windows native, AppContainer or a
    restricted token? And for owners who want more everywhere: a separate OS
    user per share, a container, or an agw VM?
-16. **Programs list defaults.** Allowlist by default (safer, may break
-    agents that shell out to unexpected tools) or denylist by default
-    (friendlier, leakier)? Proposed: allowlist at Read only, denylist at
-    "Can change code".
 8. **Shared nodes across tailnets.** Allow askers whose nodes are shared
    into the tailnet (Tailscale node sharing), if `whois` identifies them
    reliably?
@@ -132,3 +128,7 @@ the `Tailnet` trait.
     without the asker seeing it?
 15. **Non-Pitwall callers.** Accept A2A clients by login by default
     (proposed), or require "Only Pitwall callers" unless the owner opts in?
+16. **Programs list defaults.** Allowlist by default (safer, may break
+    agents that shell out to unexpected tools) or denylist by default
+    (friendlier, leakier)? Proposed: allowlist at Read only, denylist at
+    "Can change code".
