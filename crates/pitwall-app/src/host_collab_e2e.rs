@@ -33,7 +33,7 @@ use pitwall_core::paths::Paths;
 use pitwall_daemon::collab::core::NetworkFactory;
 use pitwall_daemon::identity::Caller;
 use pitwall_proto::api::collab::ProbeResult;
-use pitwall_proto::collab::AskView;
+use pitwall_proto::collab::{AskView, TeamCard, TeamRole};
 use pitwall_proto::{method, ApprovalAnswer};
 use serde_json::{json, Value};
 
@@ -391,6 +391,47 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     assert!(reply.starts_with("echo: Hello from carol") && reply.contains("files=2"), "{called}");
     no_canary("carol", &reply);
     assert_eq!(alice.collab.backend().sessions(&slug).len(), 2, "bob's and carol's conversations, each its own");
+
+    // ------------------------------------------------ a signed team
+    // alice makes a listed team; bob finds it (probes over the network),
+    // asks to join, alice approves, bob pulls the records signed with
+    // alice's instance key and checks them.
+    let made = call(&alice, &caller_ui(), method::TEAM_CREATE, json!({"name": "Platform", "description": "API", "listed": true, "join": "request"})).unwrap();
+    let team_id = made["card"]["team"].as_str().unwrap().to_string();
+    let found: Vec<TeamCard> = serde_json::from_value(call(&bob, &caller_ui(), method::TEAM_LIST, Value::Null).unwrap()).unwrap();
+    let card = found.iter().find(|c| c.team.0 == team_id).expect("bob discovers the listed team");
+    assert_eq!(card.mine, None);
+    let asked: TeamCard = serde_json::from_value(call(&bob, &caller_ui(), method::TEAM_JOIN, json!({"team": "Platform", "note": "I work on the API"})).unwrap()).unwrap();
+    assert_eq!(asked.mine, Some(TeamRole::Requested));
+    let shown = call(&alice, &caller_ui(), method::TEAM_SHOW, json!({"team": "Platform"})).unwrap();
+    assert_eq!(shown["requests"][0]["login"], json!("bob@example.com"), "{shown}");
+    let approved = call(&alice, &caller_ui(), method::TEAM_APPROVE, json!({"team": "Platform", "person": "fake:bob@example.com"})).unwrap();
+    assert_eq!(approved["members"].as_array().unwrap().len(), 2);
+    let mine: Vec<TeamCard> = serde_json::from_value(call(&bob, &caller_ui(), method::TEAM_LIST, Value::Null).unwrap()).unwrap();
+    assert_eq!(mine.iter().find(|c| c.team.0 == team_id).and_then(|c| c.mine), Some(TeamRole::Member), "bob pulled and checked the records");
+    let detail = call(&bob, &caller_ui(), method::TEAM_SHOW, json!({"team": "Platform"})).unwrap();
+    let admins: Vec<&str> = detail["members"].as_array().unwrap().iter().filter(|m| m["admin"] == json!(true)).map(|m| m["login"].as_str().unwrap()).collect();
+    assert_eq!(admins, ["alice@example.com"]);
+    println!("scenario: team {team_id} has {} members on bob's side", detail["members"].as_array().unwrap().len());
+
+    // The share opens to the team instead of bob by name; his limit goes
+    // up for him. He reaches it through the team, same conversation.
+    call(
+        &alice,
+        &caller_ui(),
+        method::SHARE_SET,
+        json!({"share": slug, "patch": {
+            "add": {"teams": ["Platform"]},
+            "remove": {"people": [{"provider": "fake", "subject": "bob@example.com"}]},
+            "overrides": {"fake:bob@example.com": {"messagesPerDay": 5}}
+        }}),
+    )
+    .unwrap();
+    let via_team: AskView = serde_json::from_value(ask("Through the team now?").expect("reached through the team")).unwrap();
+    println!("scenario: bob via team -> {:?}", via_team.reply);
+    assert_eq!(via_team.conversation, first.conversation);
+    let text = via_team.reply.unwrap();
+    assert!(text.starts_with("echo: Through the team now?") && text.contains("remembered=Where is the entry point?;And where are tokens rotated?;"), "{text}");
 
     // ------------------------------------------------ clean up
     call(&alice, &caller_ui(), method::SHARE_STOP, json!({"share": slug})).unwrap();
