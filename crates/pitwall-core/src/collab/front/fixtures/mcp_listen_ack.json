@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/subscriptions/acknowledged",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/subscriptionId": 11
+    },
+    "notifications": {
+      "toolsListChanged": true
+    }
+  }
+}

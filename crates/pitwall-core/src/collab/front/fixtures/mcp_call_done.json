@@ -1,0 +1,21 @@
+{
+  "id": 3,
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "text": "Refunds older than 30 days go through the manual queue.\n\nTurn c_1/1 is done (conversation c_1).",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "conversation": "c_1",
+      "reply": "Refunds older than 30 days go through the manual queue.",
+      "replySource": "hook",
+      "status": "done",
+      "statusMessage": "done",
+      "turn": "c_1/1"
+    }
+  }
+}

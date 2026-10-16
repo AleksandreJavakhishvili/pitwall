@@ -15,6 +15,7 @@
 //! (§15.8). Its sessions are sandboxed through
 //! [`crate::sandbox::SessionSandbox`].
 
+pub mod front;
 mod service;
 pub mod team;
 pub mod turn;

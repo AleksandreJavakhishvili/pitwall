@@ -1,0 +1,61 @@
+{
+  "capability": "read",
+  "card": {
+    "capabilities": {
+      "extensions": [
+        {
+          "description": "Pitwall shared agent: owner, capability, agent kind, messages left today",
+          "params": {
+            "capability": "read",
+            "kind": "claude",
+            "left": 17,
+            "messagesPerDay": 20,
+            "owner": "alice@example.com",
+            "slug": "api-expert"
+          },
+          "required": false,
+          "uri": "https://aleksandrejavakhishvili.github.io/pitwall/a2a/share/v1"
+        }
+      ],
+      "pushNotifications": false,
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text/plain",
+      "text/x-patch"
+    ],
+    "defaultOutputModes": [
+      "text/plain",
+      "text/x-patch"
+    ],
+    "description": "Questions about the API service: auth, billing, jobs",
+    "name": "API expert",
+    "skills": [
+      {
+        "description": "Send any message; it replies (read only)",
+        "id": "ask",
+        "name": "Ask",
+        "tags": [
+          "code",
+          "claude"
+        ]
+      }
+    ],
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "HTTP+JSON",
+        "protocolVersion": "1.0",
+        "url": "http://studio.example.fake/a2a/api-expert"
+      }
+    ],
+    "version": "3"
+  },
+  "cardUrl": "http://studio.example.fake/a2a/api-expert/card",
+  "kind": "claude",
+  "lastSeen": null,
+  "left": 17,
+  "online": true,
+  "owner": "alice@example.com",
+  "slug": "api-expert",
+  "via": []
+}

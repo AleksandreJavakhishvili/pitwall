@@ -1,0 +1,31 @@
+{
+  "securityRequirements": [
+    {
+      "schemes": {
+        "pitwall": {
+          "list": [
+            "collab"
+          ]
+        }
+      }
+    }
+  ],
+  "securitySchemes": {
+    "pitwall": {
+      "oauth2SecurityScheme": {
+        "description": "Sign in with the network this agent is shared on",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.pitwall.example/authorize",
+            "pkceRequired": true,
+            "scopes": {
+              "collab": "collab"
+            },
+            "tokenUrl": "https://auth.pitwall.example/token"
+          }
+        },
+        "oauth2MetadataUrl": "https://auth.pitwall.example/.well-known/oauth-authorization-server"
+      }
+    }
+  }
+}
