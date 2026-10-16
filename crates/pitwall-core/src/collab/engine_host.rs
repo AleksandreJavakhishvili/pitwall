@@ -606,7 +606,8 @@ fn owner_env_value(name: &str) -> Option<String> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || name.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
-    static CACHE: Mutex<Option<HashMap<String, (Instant, Option<String>)>>> = Mutex::new(None);
+    type Cache = HashMap<String, (Instant, Option<String>)>;
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
     if let Some((at, v)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).get(name) {
         if at.elapsed() < SHELL_VALUE_TTL {
             return v.clone();

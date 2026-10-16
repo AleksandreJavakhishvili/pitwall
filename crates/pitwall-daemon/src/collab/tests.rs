@@ -492,7 +492,7 @@ fn the_owner_reads_turns_the_audit_log_and_notices() {
     });
     for who in [ui(), user(), my_agent()] {
         let turns: Vec<OwnerTurnView> = serde_json::from_value(w.call(&who, method::SHARE_TURNS, json!({"share": "alice/api", "conversation": "c_1"})).unwrap()).unwrap();
-        assert_eq!(turns, [turn.clone()]);
+        assert_eq!(turns, std::slice::from_ref(&turn));
         let audit: Vec<AuditEntryView> = serde_json::from_value(w.call(&who, method::SHARE_AUDIT, json!({"share": "api"})).unwrap()).unwrap();
         assert_eq!(audit.iter().map(|a| a.method.as_str()).collect::<Vec<_>>(), ["turn", "ask"], "this share's, newest first");
         let all: Vec<AuditEntryView> = serde_json::from_value(w.call(&who, method::SHARE_AUDIT, json!({"limit": 2})).unwrap()).unwrap();
