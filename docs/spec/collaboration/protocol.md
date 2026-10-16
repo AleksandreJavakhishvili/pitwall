@@ -167,7 +167,7 @@ headers ([§8.2](protocol.md)). They keep the signed-records design of [§4](tea
 | Caller (how the daemon knows) | Reaches | May call |
 |---|---|---|
 | **Owner UI** (in-process GPUI app) | — | Everything, including all `share.*` methods |
-| **Owner's CLI and agents** (CLI socket; agent vs user from the process tree, as approvals do today) | `pitwalld.sock` | `share.*` reads directly; `share.*` changes through approvals (widening always asks, not rememberable; narrowing direct, [§5.5](sharing.md)); `suggest.*`; `ask.*` (the daemon sends it out over A2A) with the "let my agents ask" switch |
+| **Owner's CLI and agents** (CLI socket; agent vs user from the process tree, as approvals do today) | `pitwalld.sock` | `share.*` reads directly; `share.create` and `share.guest` on drafts directly (nobody else can see a draft); other `share.*` changes through approvals (`share.go_live` and widening always ask, not rememberable; narrowing direct, [§5.5](sharing.md)); `suggest.*`; `ask.*` (the daemon sends it out over A2A) with the "let my agents ask" switch |
 | **A shared session** (inside its sandbox; process tree as a second check) | the hook endpoint only, as any agent | Hook events for its own agent id (status, the Stop text). Nothing on `pitwalld.sock` |
 | **Teammates and A2A clients** | the tailnet HTTP listener | A2A ([§8.3](protocol.md)) and Pitwall endpoints ([§8.4](protocol.md)) |
 
@@ -207,6 +207,10 @@ pitwall result redo <task>                            # asks the user: sends my 
 
 # Owner side (CLI or the owner's own agents; changes go through approvals)
 pitwall share list | show <agent>
+pitwall share create <agent> --team platform --capability read \
+    --paths src/,docs/ [--exclude …] [--start fresh|summary] [--programs allow:git,rg,cargo] \
+    [--messages-per-day 20] [--instructions -]       # a draft; prints the summary and excluded files
+pitwall share guest <agent> --probes                 # runs the guest probes on the draft; prints results
 pitwall share set <agent> --add-team payments --capability write_approval   # prints the diff; widening asks
 pitwall share set <agent> --remove-person bob@example.com                   # narrowing: direct
 pitwall share go-live <agent> | pause <agent> | stop <agent>

@@ -40,10 +40,15 @@ Part of the [collaboration spec](README.md).
 8. **Owner view.** Alice sees `api-expert` in her sidebar with one row per
    asker, how much each one used, and can watch any conversation, take it
    over, block a person, or stop sharing.
-9. **Change by asking.** Alice tells her Race Engineer "also share
-   payments-expert with Dave". The Engineer runs `pitwall share set …`;
-   Pitwall shows Alice an approval with the exact diff (`+ people:
-   dave@example.com`). Widening always asks.
+9. **Share and change by asking.** Alice tells her Race Engineer "share
+   docs-helper with team Platform, read only, just the docs folder". The
+   Engineer runs `pitwall share create …`, reads her the summary and the
+   two files Pitwall excluded, runs the guest probes (`pitwall share guest
+   --probes`: nothing leaked), then `pitwall share go-live`; Pitwall asks
+   Alice with the full summary and she approves. Later: "also share
+   payments-expert with Dave" → `pitwall share set …`, an approval with the
+   exact diff (`+ people: dave@example.com`). Going live and widening
+   always ask.
 10. **A suggestion.** The Race Engineer notices people keep asking Alice's
     agents about refunds and suggests sharing `payments-expert` with team
     Payments. A card opens the Share dialog, prefilled. Nothing is shared

@@ -147,10 +147,27 @@ next turn, and its copy is rebuilt when the scope changed (the next message
 then carries the factual line "Files updated", [§8.3.1](protocol.md)). Removing a person or team, pausing and stopping take effect at
 once: queued requests are refused and running turns are interrupted.
 
-### 5.5 Who can change sharing settings
+### 5.5 Who can share and change sharing settings
 - **The owner**, in the Share dialog, or **by asking one of their own
   agents** (the Race Engineer or any agent), which uses the `pitwall share`
-  commands ([§8.6](protocol.md)).
+  commands ([§8.6](protocol.md)). This covers everything the dialog does,
+  including **sharing an agent for the first time**: "Race Engineer, share
+  api-expert with team Platform, read only, src/ and docs/" works end to end.
+- **Creating a share from the CLI** follows the dialog's steps:
+  1. `pitwall share create <agent> …` makes a **draft** with the given
+     answers. Anything not given takes the dialog's defaults (fresh start,
+     no network beyond the model, no environment variables, sensitive files
+     excluded). Pitwall runs the same sensitive-file scan and returns the
+     plain-language summary ([§5.4](sharing.md)) and the excluded files, so
+     the agent can show them to the owner. A draft is invisible to everyone
+     else, so creating one applies directly.
+  2. `pitwall share guest <agent> --probes` runs the standard guest probes
+     against the draft and returns what the agent answered and tried, so the
+     owner's agent can report "the .env probe got nothing" before going live.
+  3. `pitwall share go-live <agent>` **always asks the owner**, like every
+     widening: the approval shows the full summary (who, capability, files
+     and exclusions, start, access, programs, limits, soft instructions)
+     and the guest results if any. It can't be remembered.
 - **Changes from the CLI or an agent go through the existing approval
   mechanism** (architecture.md §4), and the dialog shows the **exact diff**
   of the share settings:
@@ -167,18 +184,21 @@ once: queued requests are refused and running turns are interrupted.
   any other: they can't reach the CLI or the daemon's methods at all ([§9.4](safety.md)).
   This is enforced, not instructed.
 
-### 5.6 Suggestions, never automatic sharing
-The Race Engineer, the agent itself (the owner's own pane of it, not a
-shared session) or any of the owner's agents may **suggest** sharing an agent
-or assigning a skill to it: "People keep asking about refunds. Share
-payments-expert with team Payments?" They do this with
+### 5.6 Suggestions, and nothing goes live without the owner
+Unasked, the Race Engineer, the agent itself (the owner's own pane of it,
+not a shared session) or any of the owner's agents may **suggest** sharing
+an agent or assigning a skill to it: "People keep asking about refunds.
+Share payments-expert with team Payments?" They do this with
 `pitwall suggest share <agent> --reason "…"` or
 `pitwall suggest skill <skill> --agent <agent> --reason "…"`.
 - A suggestion is a card in the owner's UI (and a quiet notification) that
-  opens the Share dialog or the skills assignment prefilled. It never shares,
-  widens or assigns anything by itself.
+  opens the Share dialog or the skills assignment prefilled.
 - At most 3 open suggestions; a dismissed one isn't repeated for 30 days.
-- The first share of any agent is always made by the owner in the dialog.
+- When the owner **asks** an agent to share, it uses `pitwall share create`
+  ([§5.5](sharing.md)) instead of a suggestion.
+- Either way, a share reaches anyone only through `go-live`, which always
+  asks the owner with the full summary. Agents can prepare and test a share;
+  only the owner publishes it.
 
 ### 5.7 Stored shape
 
