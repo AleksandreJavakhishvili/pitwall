@@ -58,6 +58,269 @@ pub enum Command {
     Review(ReviewCmd),
     /// Wait until an agent is idle, blocked or done (for coordinating agents).
     Wait(WaitArgs),
+    /// People in your teams and the agents they share with you.
+    #[command(subcommand)]
+    People(PeopleCmd),
+    /// Teams on your networks: list, show, join, leave; admins add members.
+    #[command(subcommand)]
+    Team(TeamCmd),
+    /// Share one of your agents with people or teams, and change what it
+    /// shares. Drafts apply directly; going live and widening a live share
+    /// always wait for your OK in Pitwall, with the exact change.
+    #[command(subcommand)]
+    Share(ShareCmd),
+    /// Ask a teammate's shared agent (`ask alice/api-expert "…"`), or list
+    /// your messages and replies (`ask list`). Waits for the reply.
+    Ask(AskArgs),
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum PeopleCmd {
+    /// Everyone in your teams, their devices and the agents they share with you.
+    List,
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum TeamCmd {
+    /// Your teams, then teams found on your networks.
+    List,
+    /// One team: members, admins, requests, setup lines for people without Pitwall.
+    Show {
+        /// The team (name, fingerprint such as 9F2-C1A, or id).
+        team: String,
+    },
+    /// Ask to join a listed team, or join with an invite link.
+    Join {
+        /// The team (name, fingerprint or id), or a pitwall://team/join?… link.
+        team: String,
+        /// A note for the admins.
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Leave a team.
+    Leave {
+        /// The team (name, fingerprint or id).
+        team: String,
+    },
+    /// Add someone by login, also people without Pitwall (admins; asks you
+    /// in Pitwall). Prints the setup lines to send them.
+    AddMember {
+        /// The team (name, fingerprint or id).
+        team: String,
+        /// Their login, e.g. erin@example.com.
+        login: String,
+        /// The network the login is on (tailscale, or tailscale:example.ts.net).
+        #[arg(long)]
+        network: Option<String>,
+    },
+    /// Create a team with you as its only admin (asks you in Pitwall).
+    Create {
+        /// The team's name.
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+        /// People on your networks can find it and ask to join (default: invite-only).
+        #[arg(long)]
+        listed: bool,
+        /// Nobody can ask to join: invite links only.
+        #[arg(long)]
+        closed: bool,
+    },
+    /// A one-time invite link (admins; asks you in Pitwall).
+    Invite {
+        /// The team (name, fingerprint or id).
+        team: String,
+    },
+    /// Approve (or --decline) a join request (admins).
+    Approve {
+        /// The team (name, fingerprint or id).
+        team: String,
+        /// Who asked (their login).
+        person: String,
+        #[arg(long)]
+        decline: bool,
+    },
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum ShareCmd {
+    /// Your shares: state, capability, who may use them.
+    List,
+    /// One share: its settings, the plain summary, the sensitive files left out, usage.
+    Show {
+        /// The share (its name, or the shared agent's id or name).
+        share: String,
+    },
+    /// Make a draft share of one of your agents. Nobody else sees a draft.
+    /// Anything not given takes the Share dialog's defaults: read only,
+    /// fresh start, no network beyond the model, no environment variables,
+    /// sensitive files left out. Prints the summary and the excluded files.
+    Create {
+        /// The agent to share (id or name).
+        agent: String,
+        #[command(flatten)]
+        flags: Box<ShareFlags>,
+    },
+    /// Try the draft as a guest: the standard probes (.env, history,
+    /// environment, ~/.ssh, the network, a change at read only) or a message.
+    Guest {
+        /// The share.
+        share: String,
+        /// Run the standard guest probes.
+        #[arg(long)]
+        probes: bool,
+        /// Only these probes (env-file, history, env-vars, ssh-key, fetch, change-readme).
+        #[arg(long, value_delimiter = ',', value_name = "PROBE")]
+        only: Vec<String>,
+        /// Your own message (`-` reads it from stdin).
+        #[arg(long)]
+        message: Option<String>,
+    },
+    /// Change a share. Prints the diff; widening a live share asks you in
+    /// Pitwall (more people, paths, hosts, a stronger capability, higher
+    /// limits); narrowing applies directly.
+    Set {
+        /// The share.
+        share: String,
+        #[command(flatten)]
+        flags: Box<ShareFlags>,
+        /// Only print the diff.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Publish a draft (always asks you in Pitwall, with the full summary).
+    GoLive {
+        /// The share.
+        share: String,
+    },
+    /// Pause a live share: queued messages are refused, running turns stop.
+    Pause {
+        /// The share.
+        share: String,
+    },
+    /// Resume a paused share (asks you in Pitwall).
+    Resume {
+        /// The share.
+        share: String,
+    },
+    /// Stop sharing: the agent stays as it was.
+    Stop {
+        /// The share.
+        share: String,
+    },
+    /// Conversations with a share, per caller: state and usage.
+    Sessions {
+        /// The share.
+        share: String,
+    },
+    /// The `claude mcp add` line for this machine (for people without Pitwall).
+    Setup,
+    /// Stop all of a person's messages to your shares (or to one, --share).
+    Block {
+        /// Their login (bob@example.com) or person id.
+        person: String,
+        #[arg(long)]
+        share: Option<String>,
+        /// Let them in again (asks you in Pitwall).
+        #[arg(long)]
+        unblock: bool,
+    },
+}
+
+/// A share's answers as flags (`share create`, `share set`).
+#[derive(Debug, Args, PartialEq, Default)]
+pub struct ShareFlags {
+    /// Add a team (name, fingerprint or id). Repeatable.
+    #[arg(long = "team", value_name = "TEAM")]
+    pub add_team: Vec<String>,
+    /// Add a person by login. Repeatable.
+    #[arg(long = "person", visible_alias = "add-person", value_name = "LOGIN")]
+    pub add_person: Vec<String>,
+    /// Add everyone on a network (tailscale:example.ts.net).
+    #[arg(long = "everyone-on", value_name = "NETWORK")]
+    pub add_network: Vec<String>,
+    #[arg(long = "remove-team", value_name = "TEAM")]
+    pub remove_team: Vec<String>,
+    #[arg(long = "remove-person", value_name = "LOGIN")]
+    pub remove_person: Vec<String>,
+    #[arg(long = "remove-network", value_name = "NETWORK")]
+    pub remove_network: Vec<String>,
+    /// read, write or write_approval.
+    #[arg(long, value_name = "CAPABILITY")]
+    pub capability: Option<String>,
+    /// The folders it sees (comma-separated, relative to the repository).
+    #[arg(long, value_delimiter = ',', value_name = "PATHS")]
+    pub paths: Option<Vec<String>>,
+    /// Leave these out too (comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "PATHS")]
+    pub exclude: Vec<String>,
+    /// Put these back in (a sensitive file the scan left out).
+    #[arg(long, value_delimiter = ',', value_name = "PATHS")]
+    pub include: Vec<String>,
+    /// Include uncommitted changes.
+    #[arg(long)]
+    pub uncommitted: Option<bool>,
+    /// fresh, or summary (with --summary).
+    #[arg(long, value_name = "fresh|summary")]
+    pub start: Option<String>,
+    /// The approved summary sessions start from (`-`: stdin).
+    #[arg(long, value_name = "TEXT")]
+    pub summary: Option<String>,
+    /// Environment variables to pass (comma-separated; none by default).
+    #[arg(long, value_delimiter = ',', value_name = "NAMES")]
+    pub env: Option<Vec<String>>,
+    /// Hosts it may reach besides its model (comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "HOSTS")]
+    pub hosts: Option<Vec<String>>,
+    /// The agent account sessions run on (`default`: your own login).
+    #[arg(long)]
+    pub account: Option<String>,
+    /// Programs it may run: allow:git,rg,cargo or deny:curl,ssh.
+    #[arg(long, value_name = "allow:LIST|deny:LIST")]
+    pub programs: Option<String>,
+    /// Off-limits topics and role, as instructions to the agent (`-`:
+    /// stdin). Not guaranteed.
+    #[arg(long, value_name = "TEXT")]
+    pub instructions: Option<String>,
+    #[arg(long, value_name = "N")]
+    pub messages_per_day: Option<u32>,
+    /// Conversations running at once.
+    #[arg(long, value_name = "N")]
+    pub sessions: Option<u32>,
+    #[arg(long, value_name = "N")]
+    pub queue: Option<u32>,
+    /// Minutes per turn.
+    #[arg(long, value_name = "MIN")]
+    pub turn_timeout: Option<u32>,
+    /// Agent minutes per day, all callers together.
+    #[arg(long, value_name = "MIN")]
+    pub agent_minutes: Option<u32>,
+    /// A person's own daily limit: LOGIN=N (N=default removes it).
+    #[arg(long = "limit", value_name = "LOGIN=N")]
+    pub limit: Vec<String>,
+    /// Its name in addresses (alice/<slug>).
+    #[arg(long)]
+    pub slug: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Args, PartialEq)]
+pub struct AskArgs {
+    /// `OWNER/AGENT MESSAGE` (the message `-` reads stdin), or `list`.
+    #[arg(required = true, num_args = 1..=2, value_name = "OWNER/AGENT MESSAGE")]
+    pub args: Vec<String>,
+    /// Start a new conversation instead of continuing yours.
+    #[arg(long)]
+    pub new: bool,
+    /// Stop waiting after this many seconds (default 600); the turn goes on.
+    #[arg(long, value_name = "SECONDS")]
+    pub timeout: Option<u64>,
+    /// `ask list`: only this owner's agents.
+    #[arg(long)]
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -454,6 +717,45 @@ mod tests {
             parse(&["wait", "api", "--for", "idle,done", "--timeout", "60", "--fresh"]).unwrap().command,
             Command::Wait(WaitArgs { agent: "api".into(), until: vec!["idle".into(), "done".into()], timeout: Some(60), fresh: true })
         );
+    }
+
+    #[test]
+    fn parses_collaboration() {
+        assert_eq!(parse(&["people", "list"]).unwrap().command, Command::People(PeopleCmd::List));
+        assert_eq!(
+            parse(&["team", "add-member", "platform", "erin@example.com", "--network", "tailscale"]).unwrap().command,
+            Command::Team(TeamCmd::AddMember { team: "platform".into(), login: "erin@example.com".into(), network: Some("tailscale".into()) })
+        );
+        let Command::Share(ShareCmd::Create { agent, flags }) =
+            parse(&["share", "create", "api-expert", "--team", "platform", "--capability", "read", "--paths", "src/,docs/", "--programs", "allow:git,rg", "--messages-per-day", "20"]).unwrap().command
+        else {
+            panic!()
+        };
+        assert_eq!(agent, "api-expert");
+        assert_eq!((flags.add_team.clone(), flags.paths.clone()), (vec!["platform".to_string()], Some(vec!["src/".to_string(), "docs/".to_string()])));
+        assert_eq!(flags.messages_per_day, Some(20));
+        assert_eq!(
+            parse(&["share", "guest", "api", "--probes"]).unwrap().command,
+            Command::Share(ShareCmd::Guest { share: "api".into(), probes: true, only: vec![], message: None })
+        );
+        assert_eq!(parse(&["share", "go-live", "api"]).unwrap().command, Command::Share(ShareCmd::GoLive { share: "api".into() }));
+        assert_eq!(parse(&["share", "setup"]).unwrap().command, Command::Share(ShareCmd::Setup));
+        let Command::Share(ShareCmd::Set { flags, dry_run, .. }) = parse(&["share", "set", "api", "--remove-person", "bob@example.com", "--dry-run"]).unwrap().command else {
+            panic!()
+        };
+        assert!(dry_run);
+        assert_eq!(flags.remove_person, ["bob@example.com"]);
+        assert_eq!(
+            parse(&["ask", "alice/api-expert", "where?", "--new", "--timeout", "900"]).unwrap().command,
+            Command::Ask(AskArgs { args: vec!["alice/api-expert".into(), "where?".into()], new: true, timeout: Some(900), owner: None })
+        );
+        assert_eq!(
+            parse(&["ask", "list", "--owner", "alice"]).unwrap().command,
+            Command::Ask(AskArgs { args: vec!["list".into()], new: false, timeout: None, owner: Some("alice".into()) })
+        );
+        for bad in [&["ask"][..], &["share", "create"], &["team", "add-member", "t"], &["share", "frobnicate"]] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

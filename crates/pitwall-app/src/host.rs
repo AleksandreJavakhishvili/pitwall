@@ -30,6 +30,9 @@ pub struct Host {
     pub settings: Arc<crate::settings::backend::AppSettings>,
     /// `pitwall space` (cli_spaces).
     pub workspace: Arc<crate::cli_spaces::AppWorkspace>,
+    /// Collaboration's owner methods, for the CLI and the app's own window
+    /// (`crate::collab`).
+    pub collab: Arc<pitwall_daemon::CollabService>,
     server: Option<Handle>,
 }
 
@@ -75,11 +78,13 @@ impl Host {
         let identify = ProcessIdentity::new(engine.clone());
         let settings = crate::settings::backend::AppSettings::new(Some(engine.clone()));
         let workspace = crate::cli_spaces::AppWorkspace::new();
+        let collab = collab_service(&paths, &engine, &approvals);
         let cfg = Config {
             socket: paths.cli_socket(),
             version: env!("CARGO_PKG_VERSION").into(),
             settings: Some(settings.clone()),
             workspace: Some(workspace.clone()),
+            collab: Some(collab.clone()),
         };
         let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {
             Ok(h) => Some(h),
@@ -93,6 +98,7 @@ impl Host {
             approvals,
             settings,
             workspace,
+            collab,
             server,
         }
     }
@@ -105,6 +111,19 @@ impl Host {
             server.stop();
         }
     }
+}
+
+/// Collaboration's service over the stand-in backend (share settings in
+/// `collab/` under the data folder) until the core's `Collab` service and
+/// the network backends land: no network yet, so nothing is reachable and
+/// asking reports that this Pitwall can't reach others.
+fn collab_service(paths: &Paths, engine: &Shared, approvals: &Arc<Approvals>) -> Arc<pitwall_daemon::CollabService> {
+    use pitwall_daemon::collab::memory::MemoryCollab;
+    use pitwall_daemon::collab::Me;
+    let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "me".into());
+    let backend = Arc::new(MemoryCollab::new(Me { login: user.clone(), name: user }, Some(paths.root().join("collab"))));
+    let e = engine.clone();
+    pitwall_daemon::CollabService::new(backend, approvals.clone(), move || e.views())
 }
 
 /// The `pitwall-hold` terminal holder: `$PITWALL_HOLD_BIN`, next to this

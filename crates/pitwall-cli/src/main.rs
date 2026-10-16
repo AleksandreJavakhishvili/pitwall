@@ -3,12 +3,15 @@
 //!
 //! Output is JSON on stdout (the call's result); `--human` prints text.
 //! Errors are `{"error":{"code","message"}}` on stderr. Exit status: 0 ok,
-//! 1 error, 2 bad arguments (usage, or `bad_params`), 3 the user denied (or
-//! didn't answer) an approval.
+//! 1 error (collaboration's refusals included: `offline`, `busy`, `quota`,
+//! `share_total`, `agent_limit`, `not_allowed`, `no_answer`, `loop`,
+//! `forbidden`), 2 bad arguments (usage, or `bad_params`), 3 the user
+//! denied (or didn't answer) an approval.
 
 #![recursion_limit = "256"]
 
 mod args;
+mod collab;
 mod manage;
 mod render;
 #[cfg(test)]
@@ -156,6 +159,10 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Rules(r) => manage::rules_cmd(r, &mut c)?,
         Command::Review(r) => manage::review_cmd(r, &mut c)?,
         Command::Wait(w) => manage::wait_cmd(w, &mut c)?,
+        Command::People(p) => collab::people_cmd(p, &mut c)?,
+        Command::Team(t) => collab::team_cmd(t, &mut c)?,
+        Command::Share(sh) => collab::share_cmd(sh, &mut c)?,
+        Command::Ask(a) => collab::ask_cmd(a, &mut c)?,
         Command::Session(SessionCmd::Add { provider, machine, name, start }) => {
             let added = c.add_session(&SessionAdd {
                 provider: provider.clone(),
@@ -250,3 +257,5 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod collab_tests;

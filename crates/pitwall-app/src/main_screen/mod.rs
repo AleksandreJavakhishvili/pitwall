@@ -87,6 +87,10 @@ actions!(
         ToggleWall,
         /// ⌘R
         ToggleReview,
+        /// ⌘⇧P: People (teams, the directory of shared agents).
+        TogglePeople,
+        /// ⌘⇧A: the Ask panel (talk to teammates' shared agents).
+        ToggleAsk,
         /// ⌘⏎
         ToggleMaximize,
         /// ⌘⇧R: source-control views refresh now.
@@ -122,6 +126,10 @@ pub enum Route {
     Review,
     /// The read-only file viewer.
     Explorer,
+    /// People: the directory, teams and people (collaboration, `crate::collab`).
+    People,
+    /// The Ask panel: threads with teammates' shared agents (`crate::collab`).
+    Ask,
 }
 
 /// What another screen's view gets to build itself.
@@ -178,6 +186,9 @@ pub fn register_files_panel(
 /// Where another module's section goes in the right panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PanelSlot {
+    /// First, under the head: a shared session's strip and Messages
+    /// (collaboration, `crate::collab::messages`).
+    Shared,
     /// Above Changes (Next up: queue and prompt box).
     Top,
     /// Below Changes (Last sent).
@@ -280,6 +291,8 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(&p("."), ToggleDetails, None),
         KeyBinding::new(&p("e"), ToggleWall, None),
         KeyBinding::new(&p("r"), ToggleReview, None),
+        KeyBinding::new(&s("p"), TogglePeople, None),
+        KeyBinding::new(&s("a"), ToggleAsk, None),
         KeyBinding::new(&s("r"), RefreshChanges, None),
         KeyBinding::new(&s("n"), MoveSpaceToWindow, None),
         KeyBinding::new(&p("enter"), ToggleMaximize, None),
@@ -500,6 +513,7 @@ impl MainScreen {
         window.focus(&focus);
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let accounts = crate::accounts::model(cx);
+        let collab = crate::collab::model_or_new(cx);
         let subs = vec![
             // The screen draws from the store: it re-renders itself (it is
             // a cached view; its window doesn't redraw it for a model).
@@ -528,6 +542,8 @@ impl MainScreen {
             }),
             // Accounts renamed, added or removed: the badges and menus.
             cx.observe(&accounts, |_, _, cx| cx.notify()),
+            // Collaboration's shares and sessions: the sidebar's Shared group.
+            cx.observe(&collab, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 // Leaving the window cancels a drag and closes a popup menu
                 // (`dnd.ts` and `Menu.tsx` listen for `blur`).
@@ -1106,7 +1122,7 @@ impl MainScreen {
         }
     }
 
-    fn toggle_route(&mut self, route: Route, cx: &mut Context<Self>) {
+    pub fn toggle_route(&mut self, route: Route, cx: &mut Context<Self>) {
         let next = if self.route == route {
             Route::Space
         } else {
@@ -1907,6 +1923,10 @@ impl Render for MainScreen {
             .on_action(
                 cx.listener(|this, _: &ToggleReview, _, cx| this.toggle_route(Route::Review, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &TogglePeople, _, cx| this.toggle_route(Route::People, cx)),
+            )
+            .on_action(cx.listener(|this, _: &ToggleAsk, _, cx| this.toggle_route(Route::Ask, cx)))
             .on_action(cx.listener(|this, _: &ToggleMaximize, _, cx| {
                 this.with_active(|s, id| s.toggle_maximize(id, None), cx)
             }))

@@ -342,6 +342,32 @@ impl MainScreen {
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_route(Route::Review, cx))),
             )
+            .when(crate::collab::hosted(cx), |d| {
+                d.child(
+                    icon_btn_state(
+                        "tb-people",
+                        "people",
+                        keys("People: teams and shared agents (⌘⇧P)", false),
+                        false,
+                        16.,
+                        lit(self.route == Route::People),
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_route(Route::People, cx))),
+                )
+                .child(
+                    icon_btn_state(
+                        "tb-ask",
+                        "ask",
+                        keys("Ask a teammate's shared agent (⌘⇧A)", false),
+                        false,
+                        16.,
+                        lit(self.route == Route::Ask),
+                        t,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_route(Route::Ask, cx))),
+                )
+            })
             .child(
                 icon_btn_state(
                     "tb-wall",

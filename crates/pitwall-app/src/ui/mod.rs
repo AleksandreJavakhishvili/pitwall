@@ -201,6 +201,13 @@ impl MainView {
             return;
         };
         match what {
+            // Collaboration's screens (`crate::collab`).
+            "people" | "ask" => {
+                if let Some(s) = &self.screen {
+                    let route = if what == "people" { crate::main_screen::Route::People } else { crate::main_screen::Route::Ask };
+                    s.update(cx, |s, cx| s.set_route(if on { route } else { crate::main_screen::Route::Space }, cx));
+                }
+            }
             "wall" | "review" | "visit-all" | "visit-all-4" => {
                 if let Some(s) = &self.screen {
                     s.update(cx, |s, cx| s.bench(what, on, window, cx));
@@ -474,6 +481,7 @@ impl Render for MainView {
         let root = root
             .child(self.layer.clone())
             .child(self.palette.clone())
+            .children(crate::collab::overlay(window, cx))
             .children(crate::approvals::overlay(window, cx))
             .children(crate::frame_stats::probe());
         crate::platform::decorations::frame(root, window, cx)
