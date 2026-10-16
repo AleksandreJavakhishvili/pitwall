@@ -1,5 +1,6 @@
-//! A [`CollabBackend`] in this process, standing in for the core's `Collab`
-//! service until it lands (and in tests). It keeps share settings in
+//! A [`CollabBackend`] in memory: the test double for the permission
+//! matrix, and the fallback when the core's (`super::core::CoreCollab`)
+//! can't open. It keeps share settings in
 //! `collab/shares/<slug>.json` and the switches in `collab/local.json`
 //! when given a folder; teams, people and conversations live in memory.
 //!

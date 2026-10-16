@@ -76,7 +76,11 @@ impl Drop for World {
 /// The service over a stand-in backend, with coding agents `ids` in one
 /// project (a `.env` in it), on a Fake network this machine is reachable on.
 fn world(cx: &mut TestAppContext, ids: &[&str]) -> World {
-    let project = std::env::temp_dir().join(format!("pw-app-collab-{}-{}", std::process::id(), ids.join("-")));
+    // One folder per world: tests with the same agents run in parallel, and
+    // each removes its folder when it ends.
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let project = std::env::temp_dir().join(format!("pw-app-collab-{}-{n}-{}", std::process::id(), ids.join("-")));
     let _ = std::fs::remove_dir_all(&project);
     std::fs::create_dir_all(project.join("src")).unwrap();
     std::fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();

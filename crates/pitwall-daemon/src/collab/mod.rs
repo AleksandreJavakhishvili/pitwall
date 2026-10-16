@@ -2,9 +2,10 @@
 //! §8.5): `share.*`, `team.*`, `people.list`, `ask.*`, `collab.settings.*`
 //! for the owner's UI, CLI and agents.
 //!
-//! - [`CollabBackend`]: what holds shares, teams, people and conversations
-//!   (the Core track's `Collab` service; [`memory::MemoryCollab`] until it
-//!   lands, and in tests).
+//! - [`CollabBackend`]: what holds shares, teams, people and conversations:
+//!   [`core::CoreCollab`] over the core's `Collab` service in Pitwall;
+//!   [`memory::MemoryCollab`] in tests and as the fallback when the core
+//!   can't open.
 //! - [`service::CollabService`]: who may call what (the permission matrix),
 //!   approvals with the exact [`ShareDiff`](pitwall_proto::collab::ShareDiff)
 //!   for widening, summaries, the sensitive-file scan, budgets for agents
@@ -43,9 +44,8 @@ pub struct Me {
     pub name: String,
 }
 
-/// What holds collaboration's state on the owner's machine. Implemented by
-/// the core's `Collab` service; [`memory::MemoryCollab`] stands in until
-/// then. Calls come on connection threads and may block (`ask` waits for a
+/// What holds collaboration's state on the owner's machine:
+/// [`core::CoreCollab`] in Pitwall, [`memory::MemoryCollab`] in tests. Calls come on connection threads and may block (`ask` waits for a
 /// turn). Decisions about **who may** do something are the
 /// [`CollabService`]'s, never the backend's: by the time a call gets here
 /// it was allowed (and approved where needed).

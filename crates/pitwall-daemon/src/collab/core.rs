@@ -7,7 +7,7 @@
 //!
 //! Networks come from the host (Tailscale in the app, Fake networks in
 //! tests) and are made the first time collaboration is turned on ("Use
-//! teams", or "Let people on <network> reach this machine"). The handler is
+//! teams", or "Let people on `<network>` reach this machine"). The handler is
 //! served on a network only while that network's switch is on.
 //!
 //! Who may call what was decided by the [`CollabService`](super::CollabService)
