@@ -190,6 +190,22 @@ Parity round (`code_view/highlight.rs`, more of the languages React gets from `@
 
 C1a interfaces (`pitwall-core::net`, `pitwall-core::collab`): `http` 1 (MIT OR
 Apache-2.0, already in the tree via gpui, with its dependencies `bytes` and
-`itoa`), for the request and response types of the collaboration handler. The
-HTTP server and client (`tiny_http`, `ureq`, §8.1) come with the Tailscale
-backend and are recorded here when they land.
+`itoa`), for the request and response types of the collaboration handler.
+
+C1a Tailscale backend (`pitwall-core::net::tailscale`, `net::InstanceKey`):
+
+| Crate | Licence | For |
+|---|---|---|
+| ureq 3.4.0 (pinned exactly), ureq-proto 0.6 | MIT OR Apache-2.0 | the HTTP client (`Network::client`); no default features, so no TLS or gzip crates |
+| utf8-zero 0.8, base64 0.23 | MIT OR Apache-2.0 | ureq's own dependencies |
+| httparse 1 | MIT OR Apache-2.0 | request heads on the backend's listener (already in the tree via hyper) |
+| ed25519-dalek 2.2, curve25519-dalek 4.1 | BSD-3-Clause | the instance key (Ed25519, tailnet-peers.md §5) |
+| curve25519-dalek-derive 0.1 | MIT OR Apache-2.0 | curve25519-dalek's SIMD backends (some targets) |
+| fiat-crypto 0.2 | MIT OR Apache-2.0 OR BSD-1-Clause | curve25519-dalek's field arithmetic (some targets) |
+| ed25519 2.2, signature 2.2, pkcs8 0.10, der 0.7, spki 0.7, const-oid 0.9, base64ct 1.8 | Apache-2.0 OR MIT | ed25519-dalek's dependencies (RustCrypto) |
+| getrandom 0.3, base64 0.22 | MIT OR Apache-2.0 | the key's seed and its text form (both already in the tree) |
+
+`tiny_http`, the spec's candidate server (protocol.md §8.1), is not used: it
+accepts and parses connections itself, so the backend couldn't run `whois`
+before reading a byte or close a connection without one (§15.4). The
+listener is a small HTTP/1.1 server of our own on `httparse` instead.
