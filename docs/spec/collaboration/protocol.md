@@ -160,7 +160,10 @@ headers ([§8.2](protocol.md)). They keep the signed-records design of [§4](tea
 | `GET /directory` | anyone in some share's audience | the Agent Card URLs and cards this caller may use (A2A allows catalogs and pre-configured card URLs besides the well-known path; one host here serves many agents, so the root `/.well-known/agent-card.json` is not used) |
 | `GET /sessions`, `DELETE /sessions/{contextId}` | audience | the caller's own sessions with this owner: list, forget |
 | `GET /results/{task}` | the task's asker | a large patch series |
-| `GET /events` (SSE) | members | `directory.changed`, `team.announce` |
+| `POST /lists/{list}/sync` | members of the list's team | exchange version vectors, return missing ops ([§15.3](tasks.md)) |
+| `POST /lists/{list}/announce` | members | "I have new ops": the receiver syncs |
+| `GET /lists/{list}/blobs/{sha256}` | members | a result patch attached to an item ([§15.6](tasks.md)) |
+| `GET /events` (SSE) | members | `directory.changed`, `team.announce`, `list.changed` |
 
 ### 8.5 Local sockets and who may call what
 
@@ -217,7 +220,11 @@ pitwall share go-live <agent> | pause <agent> | stop <agent>
 pitwall share sessions <agent>                        # per asker: state, usage
 pitwall suggest share <agent> --reason "…"            # a card for the owner, nothing more
 pitwall suggest skill <skill> --agent <agent> --reason "…"
+
+# Tasks (§15): pitwall task add|list|show|take|release|done|drop|comment|tags|give|watch
 ```
+
+The task commands are listed in [§15.4](tasks.md).
 
 - Output, errors and exit codes as today (JSON, exit 3 for a denied
   approval). New error codes: `offline`, `busy`, `quota`, `not_allowed`
@@ -291,6 +298,9 @@ interface SharedSessionView { contextId: string; share: string;
 type ShareDiff = { field: string; from: unknown; to: unknown; widens: boolean }[]
 ```
 
+Task list shapes (`TaskItem`, `TaskListView`, `WatchRule`) are in
+[§15.10](tasks.md).
+
 ### 8.8 Storage
 
 ```
@@ -308,6 +318,7 @@ type ShareDiff = { field: string; from: unknown; to: unknown; widens: boolean }[
   results/<task>/            received patch series (asker)
   audit.jsonl                owner side: every task, result decision, share change (with diff), join, refusal
   suggestions.json           open and dismissed suggestions
+  lists/                     task lists: op logs, result blobs, watch rules (§15.10)
 ```
 
 The audit log uses tailnet-peers.md §5's format with `kind:"collab"`,

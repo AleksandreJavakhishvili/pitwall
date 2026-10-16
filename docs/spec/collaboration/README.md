@@ -49,6 +49,10 @@ assigned to a shared agent come from [rules.md](../rules.md).
   becomes an A2A task whose artifacts are the **reply** (what the agent
   said) and, when the turn changed the copy at a "Can change code"
   capability, the **result** (a patch series).
+- **Task list.** My list (local) or a team's list (replicated among its
+  members as a log of signed ops). Its **items** have tags and a status
+  (open, taken, done, dropped), and a result patch when the one who
+  finished it changed code ([§15](tasks.md)).
 
 ## Parts
 
@@ -62,16 +66,17 @@ assigned to a shared agent come from [rules.md](../rules.md).
 | [protocol.md](protocol.md) | §8, §10 | HTTP listener, identity and the device extension, A2A mapping, Pitwall endpoints, local sockets, CLI, data shapes, storage; why A2A; MCP |
 | [safety.md](safety.md) | §9 | Enforced vs soft, per platform, switches, settings out of reach, what remains, threats |
 | [ui.md](ui.md) | §11 | People, Share dialog, owner sidebar and session pane, Ask panel, Review |
+| [tasks.md](tasks.md) | §15 | Tagged task lists: my list and team lists, signed op log, permissions, agents via `pitwall task`, giving items to agents, watch rules, results |
 | [plan.md](plan.md) | §12–14 | Phases, tests, risks, out of scope, open questions |
 | [references.md](references.md) | — | Sources checked, and what is still unverified |
 
-Section numbers (§1–§14) are global across the files, so a reference like
+Section numbers (§1–§15) are global across the files, so a reference like
 §6.3 always means the same place.
 
 ## Phases at a glance
 C1a MVP on macOS (A2A, discovery, single-admin teams, Read only shares,
 Seatbelt isolation) → C1b signed multi-admin teams → C2 "Can change code"
-and patches → C3 Linux hosting → C4 owner in the loop, suggestions,
+and patches → C2b tagged task lists → C3 Linux hosting → C4 owner in the loop, suggestions,
 precedent → C5 Windows (WSL2 route, native later) → C6 Tailscale binding
-and hardening → C7 MCP, more agent kinds. About 18–25 weeks; details in
+and hardening → C7 MCP, more agent kinds. About 20–27 weeks; details in
 [plan.md](plan.md).

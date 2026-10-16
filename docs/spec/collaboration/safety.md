@@ -81,4 +81,7 @@ sharing go through approvals with a diff ([§5.5](sharing.md)).
 | Agent↔agent loops burn the owner's quota | Chain depth, cycle check, quotas, caps, asker-side budgets |
 | Flood of requests or probes | Rate limits per caller, queue cap, probe limits |
 | A result carries a malicious change to the asker | Shown in Review; applied only by the asker's click, into a worktree they pick |
+| A task item carries a prompt injection | Items are text; they reach an agent only when a person takes or gives them (or the person's own watch rule does), as an ordinary prompt; agent-added items are labelled and can be excluded from rules ([§15.9](tasks.md)) |
+| A teammate's agent floods a team list | Owner switch and per-agent budgets on the adding machine; per-device flood limits at receivers; admins can drop and fence |
+| A removed member keeps writing task ops | `fence` op from the removing admin; later ops from that device rejected by everyone ([§15.3](tasks.md)) |
 | Tailscale ACLs block the port | Discovery shows "can't reach"; docs give an ACL grant example for `tcp:47421` |
