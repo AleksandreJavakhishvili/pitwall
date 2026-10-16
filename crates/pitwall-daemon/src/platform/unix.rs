@@ -118,6 +118,22 @@ pub fn parse_ps(text: &str) -> HashMap<u32, Proc> {
         .collect()
 }
 
+/// This machine's name (`gethostname`, without a `.local` suffix), for
+/// collaboration's `/info` label.
+pub fn device_label() -> Option<String> {
+    let mut buf = [0u8; 256];
+    // SAFETY: the buffer is valid for its length; gethostname writes at most
+    // that many bytes and the result is cut at the first NUL below.
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+    if rc != 0 {
+        return None;
+    }
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    let name = String::from_utf8_lossy(&buf[..end]).trim().to_string();
+    let name = name.strip_suffix(".local").unwrap_or(&name).to_string();
+    (!name.is_empty()).then_some(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,20 +163,4 @@ mod tests {
         let (a, _b) = UnixStream::pair().unwrap();
         assert_eq!(peer_pid(&a), Some(std::process::id()));
     }
-}
-
-/// This machine's name (`gethostname`, without a `.local` suffix), for
-/// collaboration's `/info` label.
-pub fn device_label() -> Option<String> {
-    let mut buf = [0u8; 256];
-    // SAFETY: the buffer is valid for its length; gethostname writes at most
-    // that many bytes and the result is cut at the first NUL below.
-    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
-    if rc != 0 {
-        return None;
-    }
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    let name = String::from_utf8_lossy(&buf[..end]).trim().to_string();
-    let name = name.strip_suffix(".local").unwrap_or(&name).to_string();
-    (!name.is_empty()).then_some(name)
 }

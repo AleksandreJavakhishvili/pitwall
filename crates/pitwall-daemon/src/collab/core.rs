@@ -55,6 +55,8 @@ const DIRECTORY_TTL: Duration = Duration::from_secs(30);
 /// How often joins are polled and teams looked for while "Use teams" is on.
 const JOIN_POLL: Duration = Duration::from_secs(30);
 const DISCOVERY_EVERY: Duration = Duration::from_secs(5 * 60);
+/// The directory asks devices that didn't answer again after this.
+const RETRY_SILENT: Duration = Duration::from_secs(5 * 60);
 /// `team.list` looks for teams again when the last look is older than this.
 const DISCOVERY_TTL: Duration = Duration::from_secs(60);
 /// `ask.send` without a timeout waits this long for the turn to settle.
@@ -116,6 +118,8 @@ pub struct CoreCollab {
     directory: Mutex<Option<(Instant, Vec<Found>)>>,
     /// When teams were last looked for.
     discovered_at: Mutex<Option<Instant>>,
+    /// When the directory last asked devices that hadn't answered.
+    forced_at: Mutex<Option<Instant>>,
     prober: Prober,
     dir: PathBuf,
     user: String,
@@ -260,6 +264,7 @@ impl CoreCollab {
                 state: Mutex::new(State { settings: local.settings, asks, probes: HashMap::new() }),
                 directory: Mutex::default(),
                 discovered_at: Mutex::default(),
+                forced_at: Mutex::default(),
                 prober: Prober::default(),
                 dir,
                 user,
@@ -402,6 +407,12 @@ impl CoreCollab {
                     return list.clone();
                 }
             }
+        }
+        // Devices that didn't answer are asked again every few minutes, not
+        // after the Prober's day: a teammate may switch "reachable" on.
+        let force = force || lock(&self.forced_at).is_none_or(|t| t.elapsed() >= RETRY_SILENT);
+        if force {
+            *lock(&self.forced_at) = Some(Instant::now());
         }
         let mut out: Vec<Found> = Vec::new();
         for net in self.networks() {
