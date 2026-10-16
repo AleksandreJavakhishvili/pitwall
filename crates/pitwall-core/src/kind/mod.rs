@@ -78,14 +78,16 @@ pub struct AgentKind {
     pub update_off_env: std::collections::BTreeMap<String, String>,
     /// What hosting a shared session of this kind needs (`[share]`,
     /// docs/spec/collaboration/sessions.md §6.7). None: it can still be
-    /// shared, with no model hosts allowed and its install found from its
-    /// command only.
-    #[serde(default)]
+    /// shared, with defaults: replies from the terminal, no fork, no model
+    /// hosts allowed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share: Option<ShareKind>,
 }
 
-/// A kind's `[share]` table. Additive: more keys (resume and fork commands,
-/// reply capture, native controls) join it as collaboration grows.
+/// A kind's `[share]` table. The sandbox's keys (`model_hosts`,
+/// `install_paths`, `programs`, `keychain`) and the conversation core's
+/// (`reply`, `fork_args`, `instruction_files`, `limit_screen`,
+/// `own_sandbox_off_args`, `own_sandbox_off_env`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShareKind {
     /// Hosts the agent reaches its model and login at; the share's egress
@@ -106,6 +108,56 @@ pub struct ShareKind {
     /// so the sandbox lets it reach that (`SandboxPolicy::credential_store`).
     #[serde(default)]
     pub keychain: bool,
+    /// How a turn's reply is read (§7.2).
+    #[serde(default)]
+    pub reply: ReplyTier,
+    /// Start a session as a fork of a base conversation (§6.4), instead of
+    /// `new_args`: `{base}` is the base's id, `{session_id}` a new id when
+    /// the kind takes one. Empty: it can't fork; the approved summary is
+    /// sent as the first message instead.
+    #[serde(default)]
+    pub fork_args: Vec<String>,
+    /// The instruction files it reads by itself (§6.5): the owner's text
+    /// goes into these in the session folder.
+    #[serde(default)]
+    pub instruction_files: Vec<String>,
+    /// Its own usage-limit message (§5.8), a regex on its screen; a group
+    /// named `until` is the reset time it shows.
+    #[serde(default)]
+    pub limit_screen: Option<String>,
+    /// Arguments and environment that turn the agent's own sandbox off: it
+    /// can't start inside Pitwall's (Seatbelt doesn't nest), which is the
+    /// one that holds; its tool rules stay as the second layer (§6.8).
+    #[serde(default)]
+    pub own_sandbox_off_args: Vec<String>,
+    #[serde(default)]
+    pub own_sandbox_off_env: std::collections::BTreeMap<String, String>,
+}
+
+impl ShareKind {
+    /// The files a kind without `instruction_files` gets.
+    pub fn instruction_files_or_default(&self) -> Vec<String> {
+        if self.instruction_files.is_empty() {
+            ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "QWEN.md"].iter().map(|s| s.to_string()).collect()
+        } else {
+            self.instruction_files.clone()
+        }
+    }
+}
+
+/// How the reply of a turn is read (§7.2), best first.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReplyTier {
+    /// (a) The kind's hooks carry the last message (Claude Code `Stop`).
+    Hook,
+    /// (a) The kind's own session files.
+    SessionFile,
+    /// (b) Each turn through the kind's non-interactive mode.
+    NonInteractive,
+    /// (c) The terminal output of the turn.
+    #[default]
+    Terminal,
 }
 
 impl AgentKind {

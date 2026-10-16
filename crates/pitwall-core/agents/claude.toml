@@ -29,8 +29,8 @@ update_command = "claude update"
 update_off_env = { DISABLE_AUTOUPDATER = "1" }
 
 # Sharing (docs/spec/collaboration/sessions.md §6.7): what a shared session's
-# sandbox lets it reach. Hosts: the API and the login's token refresh
-# (only api.anthropic.com checked so far; the others are unverified).
+# sandbox lets it reach, and how its conversations run. Hosts: the API and the
+# login's token refresh (only api.anthropic.com checked so far).
 [share]
 model_hosts = ["api.anthropic.com", "console.anthropic.com", "platform.claude.com", "claude.ai"]
 # The native installer, the old local install, and npm's global folders.
@@ -43,3 +43,11 @@ install_paths = [
 programs = ["node"]
 # A subscription login lives in the macOS Keychain (unverified per account).
 keychain = true
+# The Stop hook carries the turn's last message (`last_assistant_message`).
+reply = "hook"
+# A caller's session forks the share's base conversation (§6.4).
+fork_args = ["--resume", "{base}", "--fork-session", "--session-id", "{session_id}"]
+instruction_files = ["CLAUDE.md"]
+# Its usage-limit message, e.g. "5-hour limit reached ∙ resets 2pm".
+limit_screen = '(?i)(?:usage )?limit reached[^\n]*?resets? (?:at )?(?P<until>[0-9][0-9:]*\s*(?:am|pm)?)'
+# Its Bash sandbox is off unless its settings turn it on; nothing to pass.

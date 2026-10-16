@@ -4399,6 +4399,7 @@ name = "pitwall-core"
 version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "ed25519-dalek",
  "getrandom 0.3.4",
  "http",
@@ -4410,6 +4411,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "toml 1.1.6+spec-1.1.0",
  "ureq",
  "uuid",

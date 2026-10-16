@@ -31,3 +31,9 @@ install_paths = [
     "/usr/local/lib/node_modules/@openai/codex",
 ]
 programs = ["node"]
+# Its hooks are opt-in and global, so replies come from the terminal for now.
+reply = "terminal"
+fork_args = ["fork", "{base}"]
+instruction_files = ["AGENTS.md"]
+# Its own Seatbelt sandbox can't start inside Pitwall's: off, Pitwall's holds.
+own_sandbox_off_args = ["--sandbox", "danger-full-access"]

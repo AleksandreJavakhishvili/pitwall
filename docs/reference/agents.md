@@ -57,7 +57,7 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `icon` | string | none | The logo shown before the kind's name in the sidebar, tile headers, New agent and the strip of hidden agents: a bundled logo (`claude`, `codex`, `gemini`, `copilot`, `cursor`, `qwen`, or `terminal` for the terminal icon) or the full path of a one-colour SVG file (`~/` means your home folder; it's tinted to the theme). None: the kind's first letter on a badge. |
 | `update_command` | string | none | The command that updates the tool (`claude update`). With **Keep agent tools up to date** on (Settings → Agents, `agents.updateTools`), Pitwall runs it through your login shell when it starts and every 6 hours, one tool at a time, and only for installed tools. |
 | `update_off_env` | table | `{}` | Environment that turns the tool's own updater off (`{ DISABLE_AUTOUPDATER = "1" }`). While Pitwall updates the tool, every agent and terminal it starts gets it, so many sessions don't update themselves at once (they race and can leave the tool's command missing). |
-| `share` | table | none | What hosting a shared session of this kind needs (see [Sharing](#sharing)). None: the kind can still be shared, with no model hosts allowed until the owner adds some. |
+| `share` | table | none | What hosting a shared session of this kind needs (see [Sharing](#sharing)). None: the kind can still be shared, with replies from its terminal output, no fork, and no model hosts allowed until the owner adds some. |
 
 Unknown keys are ignored.
 
@@ -113,6 +113,12 @@ A `[share]` table tells Pitwall what a shared session of the kind needs inside i
 | `install_paths` | list of strings | `[]` | Where the agent's own install may be (`~/` means your home folder). They're readable inside the sandbox and their programs may run. Missing ones are skipped. |
 | `programs` | list of strings | `[]` | Programs the agent needs besides its command, such as its runtime (`node`), looked up on PATH. |
 | `keychain` | boolean | `false` | The agent keeps its login in the macOS Keychain, so the sandbox lets it reach the Keychain. |
+| `own_sandbox_off_args` | list of strings | `[]` | Arguments that turn the agent's own sandbox off (Codex: `["--sandbox", "danger-full-access"]`). Its sandbox can't start inside Pitwall's (Seatbelt doesn't nest), and Pitwall's is the one that holds; the agent's own tool rules stay as a second layer. |
+| `own_sandbox_off_env` | table | `{}` | The same as environment (Gemini CLI: `{ GEMINI_SANDBOX = "false" }`). |
+| `reply` | string | `terminal` | Where a turn's reply is read: `hook` (the `Stop` hook's last message), `session-file`, `non-interactive` or `terminal` (the turn's terminal output). |
+| `fork_args` | list of strings | `[]` | Arguments that start a session as a fork of a base conversation: `{base}` is its id, `{session_id}` a new one. Empty: it can't fork, and the approved summary is sent as the first message instead. |
+| `instruction_files` | list of strings | `[]` | The files it reads its instructions from (`CLAUDE.md`); the owner's text goes into these in the session folder. Empty: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `QWEN.md`. |
+| `limit_screen` | string | none | A regex matching its own usage-limit message; a group named `until` is the reset time it shows. |
 
 ```toml
 [share]

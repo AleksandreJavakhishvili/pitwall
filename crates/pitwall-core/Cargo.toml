@@ -37,6 +37,11 @@ httparse = "1"
 ed25519-dalek = "2"
 getrandom = "0.3"
 base64 = "0.22"
+# Collaboration (docs/spec/collaboration/): team records are hashed
+# (SHA-256) and signed (Ed25519, above) per §4.2; daily limits reset at the
+# owner's local midnight (§5.8). sha2 and chrono are already in the tree.
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
 

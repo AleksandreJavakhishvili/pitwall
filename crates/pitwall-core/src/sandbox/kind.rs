@@ -134,6 +134,7 @@ mod tests {
             install_paths: vec!["~/.local/share/drift".into(), "~/missing".into()],
             programs: vec!["node".into(), "nope".into()],
             keychain: false,
+            ..Default::default()
         });
         let i = resolve(&kind, &home, Some(&bin.join("drift")), &rt.to_string_lossy());
         let real_pkg = std::fs::canonicalize(home.join(".local/share/drift")).unwrap();

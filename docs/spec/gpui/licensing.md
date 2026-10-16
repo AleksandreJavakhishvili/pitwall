@@ -209,3 +209,9 @@ C1a Tailscale backend (`pitwall-core::net::tailscale`, `net::InstanceKey`):
 accepts and parses connections itself, so the backend couldn't run `whois`
 before reading a byte or close a connection without one (§15.4). The
 listener is a small HTTP/1.1 server of our own on `httparse` instead.
+
+C1a core (`pitwall-core::collab`: team records, limits): `ed25519-dalek` 2
+(listed above with the instance key) to sign and check team records (§4.2); `sha2` 0.10 (MIT OR Apache-2.0, already in the tree) for
+record hashes and team ids; `base64` 0.22 (MIT OR Apache-2.0, already in the
+tree) for keys and signatures; `chrono` 0.4 (MIT OR Apache-2.0, already in the
+tree via the app) for the owner's local midnight, when daily limits reset.

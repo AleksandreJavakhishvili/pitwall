@@ -17,9 +17,9 @@ hooks = "none"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "gemini"
 
-# Sharing (docs/spec/collaboration/sessions.md §6.7): what a shared session's
-# sandbox lets it reach. Hosts from Gemini CLI's docs: the Gemini API, Code
-# Assist (Google sign-in) and Google's OAuth (unverified: not installed here).
+# Sharing (docs/spec/collaboration/sessions.md §6.7). Hosts from Gemini CLI's
+# docs (unverified: not installed here). Its login lives in ~/.gemini with no
+# variable to move it, so a session's own HOME has no login yet (open point).
 [share]
 model_hosts = [
     "generativelanguage.googleapis.com",
@@ -33,3 +33,7 @@ install_paths = [
     "/opt/homebrew/Cellar/gemini-cli",
 ]
 programs = ["node"]
+reply = "terminal"
+instruction_files = ["GEMINI.md"]
+# Its own sandbox (Seatbelt on macOS) can't nest inside Pitwall's.
+own_sandbox_off_env = { GEMINI_SANDBOX = "false" }
