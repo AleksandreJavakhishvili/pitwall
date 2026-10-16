@@ -12,7 +12,7 @@ layer, and the UI says so.
 
 | Share answer | Enforced by | Layer |
 |---|---|---|
-| Who | `whois` before any HTTP handling, team state, the owner's block list | Pitwall |
+| Who | The network backend proves the caller before any HTTP handling ([§15.4](network.md)); team state; the owner's block list | Network backend + Pitwall |
 | Capability (read / write) | OS sandbox: copy not writable at Read only; writes only inside the copy at "Can change code" | OS sandbox, all kinds |
 | What it can see | Snapshot copy with only the picked paths, minus exclusions, no history; the OS sandbox denies the rest of the disk | Pitwall + OS sandbox |
 | Programs it may run | Exec allowlist/denylist | OS sandbox, all kinds (also written into the kind's per-command rules where they exist) |
@@ -36,7 +36,8 @@ layer, and the UI says so.
 ### 9.3 Defaults and switches
 Settings → Collaboration, all off:
 - **"Use teams"**: discovery, joining, asking. Outgoing only.
-- **"Let teammates reach this machine"**: the HTTP listener ([§8.1](protocol.md)).
+- **"Let people on <network> reach this machine"**, one per enabled
+  network: whether that backend serves the collaboration handler ([§8.1](protocol.md)).
 - **"Let my agents ask shared agents"**: [§8.6](protocol.md).
 
 Sharing needs the second switch. Every share starts as a **draft**: nobody
@@ -47,7 +48,7 @@ Once live, neither a shared session nor any caller can change any sharing
 setting, approve anything, or drive Pitwall. Sessions: the sandbox denies
 `pitwalld.sock` and Pitwall's data folder, there is no `pitwall` on their
 `PATH`, and the daemon rejects their process tree ([§8.5](protocol.md)). Callers: the
-tailnet listener has no owner methods at all; the MCP endpoint offers only
+network handler has no owner methods at all; the MCP endpoint offers only
 the `ask_<slug>`, `check_turn` and `get_changes` tools. The owner's own pane of the
 agent is not a shared session and keeps its normal CLI; its changes to
 sharing go through approvals with a diff ([§5.5](sharing.md)).
@@ -62,8 +63,10 @@ sharing go through approvals with a diff ([§5.5](sharing.md)).
   `subpath` that includes more than meant, an allowed Mach service that
   leaks) widens every session. One profile template, reviewed and tested
   with canaries on each macOS release, rather than per-agent rules.
-- **Callers are their Tailscale login.** Anyone who controls a node
-  logged in as Bob is Bob. Teammates' Pitwalls are trusted to label their
+- **Callers are what their network proves.** Anyone who controls a device
+  signed in as Bob (to the tailnet, or to Bob's Cloud account) is Bob. Each
+  backend must meet the contract in [§15.4](network.md); a weaker network weakens every
+  share open to it. Teammates' Pitwalls are trusted to label their
   agents, and the label never grants anything.
 - **Plain clients' agents decide when to ask.** The owner's limits bound
   what that costs; the caller's own client settings decide whether their
@@ -80,10 +83,10 @@ sharing go through approvals with a diff ([§5.5](sharing.md)).
 | The owner's history leaks into sessions | Fresh by default; only an approved summary |
 | A removed member keeps asking | Every request checked against the current team state; owner block list at once |
 | A removed admin races with forged changes | Revocation wins at the fork point ([§4.4](teams.md)) |
-| Someone on the tailnet impersonates a member | `whois` identifies the node's login from WireGuard keys; a header can't change it. A stolen node is removed in the Tailscale admin console |
+| Someone impersonates a member | Identity comes only from the backend (Tailscale: WireGuard keys via `whois`; Cloud: a signed, short-lived token); no header or body can change it. A stolen device is removed at the provider ([§15.4](network.md)) |
+| Same email on two networks used to impersonate | Identities on different networks are different people unless explicitly linked ([§15.7](network.md)); never matched by email alone |
 | A member serves forged team records | Admin-signed records chained to the pinned team id |
 | Agent↔agent loops burn the owner's quota | Chain depth and cycle check for Pitwall callers; per-caller quotas and daily agent time for everyone ([§5.8](sharing.md)) |
 | Flood of requests or probes | Rate limits per caller, queue cap, probe limits |
 | A result carries a malicious change to the caller | Shown in Review; applied only by the caller's click, into a worktree they pick |
-| A teammate's agent floods a team list | Owner switch and per-agent budgets on the adding machine; per-device flood limits at receivers; admins can drop and fence |
-| Tailscale ACLs block the port | Discovery shows "can't reach"; docs give an ACL grant example for `tcp:47421` |
+| Tailscale ACLs block the port (Tailscale backend) | Discovery shows "can't reach"; docs give an ACL grant example for `tcp:47421` |

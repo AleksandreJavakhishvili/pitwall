@@ -4,36 +4,41 @@ Part of the [collaboration spec](README.md).
 
 ## 3. Discovery
 
-Tailscale does not carry broadcast or multicast between nodes, so mDNS and
-LAN broadcast can't find Pitwalls on a tailnet ([References](references.md): Tailscale
-forum). Pitwall finds them the way tailnet-peers.md §3 does, by listing the
-tailnet and asking.
+Discovery asks every enabled network backend for devices that may run
+Pitwall (`Network::discover`, [§15.3](network.md)), probes them, and merges the
+results. Only how the candidates are found differs per network.
 
 ### Finding Pitwalls
-- **List.** `tailscale status --json` (later LocalAPI directly), `Peer[*]`:
-  online nodes with their `UserID`, `Tags`, `DNSName`, `TailscaleIPs`.
-- **Filter.** Settings → Collaboration → "Look for teams on":
-  - **Nodes tagged `tag:pitwall`** (default when the tailnet uses tags at
-    all; the tag is configurable). This is how a tailnet admin opts devices
-    in.
-  - **Every online node of people in my tailnet** (default otherwise),
-    capped below.
-  - **Only devices I add by name** (for very large tailnets).
-- **Probe.** `GET http://<tailnet IP>:47421/pitwall/v1/info` ([§8.4](protocol.md)). No
-  answer means no Pitwall, or a Pitwall with collaboration off. A node that
-  answers returns only `{ version, login, label, listedTeams, a2a: true, mcp: "/mcp" }`.
-- **Limits.** At most 256 nodes per refresh, 16 at a time, 2 s connect
-  timeout. A node that didn't answer is not probed again for 24 h, unless it
-  changes in `tailscale status` (new IP, came online) or the user presses ↻.
+- **Candidates, per backend:**
+  - **Tailscale.** Tailscale does not carry broadcast or multicast between
+    nodes, so mDNS and LAN broadcast can't find Pitwalls on a tailnet
+    ([References](references.md): Tailscale forum). The backend lists the tailnet the
+    way tailnet-peers.md §3 does: `tailscale status --json` (later LocalAPI
+    directly), `Peer[*]`: online nodes with their `UserID`, `Tags`,
+    `DNSName`, `TailscaleIPs`. Filter (Settings → Networks → Tailscale →
+    "Look for teams on"): **nodes tagged `tag:pitwall`** (default when the
+    tailnet uses tags at all; configurable), **every online node of people
+    in my tailnet** (default otherwise, capped below), or **only devices I
+    add by name** (very large tailnets).
+  - **Pitwall Cloud.** The Cloud's directory returns the online devices of
+    people in the same org; nothing is probed blindly.
+- **Probe.** `GET <endpoint>/pitwall/v1/info` ([§8.4](protocol.md)) through
+  `Network::client`. No answer means no Pitwall, or a Pitwall with
+  collaboration off. A device that answers returns only `{ version,
+  person, label, listedTeams, a2a: true, mcp: "/mcp" }`.
+- **Limits.** At most 256 devices per refresh, 16 at a time, 2 s connect
+  timeout. A device that didn't answer is not probed again for 24 h, unless
+  its backend reports a change (new address, came online) or the user
+  presses ↻.
 - **When.** When People opens, every 30 min while the app runs and
   collaboration is on, and on ↻. Nothing at all while collaboration is off.
-- **Cache.** `collab/discovered.json`: Pitwall nodes seen, with last-seen
-  time and the listed teams they reported. The Teams page shows the cache at
-  once and refreshes behind it.
+- **Cache.** `collab/discovered.json`: Pitwall devices seen, per network,
+  with last-seen time and the listed teams they reported. The Teams page
+  shows the cache at once and refreshes behind it.
 
 ### Finding teams
 - `GET /pitwall/v1/teams:discover` on each Pitwall found returns the **listed** teams it
-  knows: `{ team, name, description, admins: [login], members: n,
+  knows: `{ team, name, description, admins: [person], members: n,
   version, join: "request"|"closed" }`. Any member can answer for a listed
   team, so a team is discoverable while its creator is offline. The answer
   is a signed record ([§4](teams.md)), checked before it is shown.
@@ -48,7 +53,7 @@ tailnet and asking.
   Agent Cards ([§8.7](protocol.md)): name, description, capability, what's left today.
   No paths, no session data.
   People with no common team see nothing, unless a share names them
-  directly or is open to the whole tailnet. A plain Claude user sees the
+  directly, one of their groups, or everyone on their network. A plain Claude user sees the
   same shares as tools in their client after `claude mcp add` (`tools/list`).
 - The directory is a cache (`collab/directory.json`), refreshed with
   discovery and when an owner announces a change (`directory.changed` event to
@@ -82,22 +87,27 @@ after one change, plus what changed:
   "team": "t_9f2c…",                  // genesis hash (absent in genesis)
   "version": 7,
   "prev": "sha256:…",                 // hash of record 6
-  "ops": [{"op":"add_member","login":"carol@example.com",
-           "devices":[{"key":"ed25519:…","node":"nXyz…"}]}],
+  "ops": [{"op":"add_member","member":"p_carol",
+           "identities":[{"provider":"tailscale","subject":"carol@example.com"}],
+           "devices":[{"key":"ed25519:…","addr":[{"network":"tailscale:example.ts.net","node":"nXyz…"}]}]}],
   "state": {
     "name": "Platform", "description": "API, jobs, infra",
     "listed": true, "join": "request",
-    "admins": ["alice@example.com", "dave@example.com"],
+    "admins": ["p_alice", "p_dave"],
     "members": [
-      {"login":"alice@example.com","devices":[{"key":"ed25519:A1…","node":"nStudio"},
-                                               {"key":"ed25519:A2…","node":"nLaptop"}]},
-      {"login":"bob@example.com","devices":[{"key":"ed25519:B1…","node":"nBob"}]},
+      {"member":"p_alice",
+       "identities":[{"provider":"tailscale","subject":"alice@example.com"},
+                     {"provider":"cloud","subject":"u_3Fz9…"}],
+       "devices":[{"key":"ed25519:A1…","addr":[{"network":"tailscale:example.ts.net","node":"nStudio"},
+                                               {"network":"cloud:acme","node":"d_77…"}]}]},
+      {"member":"p_bob","identities":[{"provider":"tailscale","subject":"bob@example.com"}],
+       "devices":[{"key":"ed25519:B1…","addr":[{"network":"tailscale:example.ts.net","node":"nBob"}]}]},
       …
     ],
-    "removed": [{"login":"eve@example.com","at":5}],
+    "removed": [{"member":"p_eve","at":5}],
     "binding": null                   // §4.8
   },
-  "by": {"login":"alice@example.com","key":"ed25519:A1…"},
+  "by": {"member":"p_alice","key":"ed25519:A1…"},
   "at": "2026-10-16T09:12:00Z",       // informative only, never used for ordering
   "sig": "ed25519:…"                  // over the canonical JSON (RFC 8785 JCS) of all fields above
 }
@@ -105,12 +115,16 @@ after one change, plus what changed:
 
 **Valid** means:
 - **Genesis** (version 1, no `prev`): signed by a device listed in its own
-  state, whose login is an admin. The team id is its hash.
+  state, whose member is an admin. The team id is its hash.
+- **Members** are team-local person ids (`p_…`) with one or more
+  identities from any network ([§15.2](network.md)). A request matches a member when
+  its `Caller.identity` is one of theirs.
 - **Later records:** `prev` is the hash of the accepted version − 1, and
   `by.key` is a device of a person who is an **admin in the previous
   state**, the signature checks, and `state` equals the previous state with
   `ops` applied (so every member can recompute it).
-- **Ops:** `add_member`, `remove_member`, `add_device`, `remove_device`,
+- **Ops:** `add_member`, `remove_member`, `add_identity`, `remove_identity`,
+  `add_device`, `remove_device`,
   `rotate_device`, `add_admin`, `remove_admin`, `set_info`,
   `set_join`, `bind`, `unbind`.
 - Records are small (members × devices × ~120 B), changes are rare, and the
@@ -164,15 +178,15 @@ whether that is the default.
 - **First contact (TOFU, pinned).** The first time Bob joins, he trusts the
   genesis record and the admins' keys he received, after checking two
   things Pitwall shows him:
-  - **Who served it.** `whois` on the connection: "from alice@example.com
-    on studio".
+  - **Who served it.** The `Caller` of the connection, from its network:
+    "from alice@example.com on studio (example.ts.net)".
   - **The team fingerprint.** The first 6 characters of the team id, in
     groups (`9F2-C1A`), shown on the Teams page of every member. Read it
     out, compare it in chat.
   From then on the team id is pinned; a record that doesn't chain to it is
   rejected.
 - **Invite links** carry the trust: `pitwall://team/join?t=<team id>&v=<version>
-  &by=<admin login>&k=<admin key fp>&c=<one-time code>`. Opening one pins
+  &by=<admin identity>&k=<admin key fp>&c=<one-time code>`. Opening one pins
   the team id from the link, so there is nothing to compare by hand.
 - **Signed records protect against members who serve stale or forged
   state.** Any member can serve records, but only admins can sign them.
@@ -181,8 +195,8 @@ whether that is the default.
 - **Join by request.** Bob → `team.request_join {team, note}` to any online
   member. Members pass it on to admins they can reach (`team.request`
   events). Any admin approves in Requests, which writes `add_member` with
-  Bob's device from the request (login from `whois`, key sent in the
-  request and bound to that node). Requests expire after 7 days. At most 3 open requests per
+  Bob's identity and device from the request (identity from the
+  `Caller`, key sent in the request and bound to that device address). Requests expire after 7 days. At most 3 open requests per
   person per team.
 - **Join by invite link.** An admin makes a one-time code (valid 7 days,
   one use; or "reusable until revoked", open question 2). Bob's Pitwall
@@ -196,8 +210,10 @@ whether that is the default.
   independent; nothing is shared between them except the person's devices.
 - **New device.** Alice's new laptop asks to join as "another device of
   alice@example.com". Any admin, or Alice from a device already in the team
-  (`add_device` is the one op a member may sign for their own login, and
-  only when the requesting node's `whois` login is the same), approves it.
+  (`add_device` and `add_identity` are the ops a member may sign for their
+  own entry, and only when the requesting `Caller` is one of that member's
+  identities; for `add_identity`, the device must be signed in to both
+  networks and each backend confirms one of the two identities), approves it.
 - **Key rotation.** Pitwall can rotate its instance key (Settings →
   Collaboration → Rotate key; also after a suspected leak). The device signs
   `{old, new}` with both keys and sends it to each team. Members accept a
@@ -206,13 +222,14 @@ whether that is the default.
   rotation is accepted.
 - **Lost or stolen device.** An admin, or the same person from another of
   their devices, writes `remove_device`. The removed key can no longer sign
-  records for this team. Access to shares is by login, so a person whose
-  laptop was stolen also asks the Tailscale admin to remove that node:
-  `whois` then fails and every request from it is refused at once.
+  records for this team. Access to shares is by person, so a person whose
+  laptop was stolen also has the device removed at the network provider
+  (Tailscale admin console, or the Cloud account page): its backend then
+  refuses every request from it at once ([§15.4](network.md)).
   Removing the person from the team takes effect as fast as the record
   spreads; an owner's block list takes effect at once.
 - **Leaving.** A member writes `remove_member` for themselves (allowed
-  without admin, for their own login only). An admin removes others.
+  without admin, for their own entry only). An admin removes others.
 - **Last admin.** The last admin can't leave or step down without naming
   another admin. If every admin device is lost, the team is frozen: members
   keep working, nobody can change membership. Recovery is a new team
@@ -220,15 +237,16 @@ whether that is the default.
   into a new genesis and invites them).
 
 ### 4.7 Members without Pitwall
-A team member is a **login**. Devices are only needed to sign records and
+A team member is a **person with one or more identities**. Devices are only needed to sign records and
 to see the team in Pitwall, so a person who uses plain Claude Code (or any
 MCP client) can be a full member for every share that names the team:
-- **Adding.** An admin adds them by login: Team → Add member →
-  `erin@example.com` (or `pitwall team add-member platform erin@…`). The
-  record holds the login with `devices: []`. No join request is needed,
+- **Adding.** An admin adds them by identity: Team → Add member →
+  `erin@example.com` on a chosen network (or `pitwall team add-member
+  platform erin@… --network tailscale`). The record holds the identity with
+  `devices: []`. No join request is needed,
   since they have no Pitwall to send one from.
 - **Setup lines.** Pitwall then shows a short text to send them: one
-  `claude mcp add --transport http <owner> http://<node>:47421/mcp` line per
+  `claude mcp add --transport http <owner> <endpoint>/mcp` line per
   member who shares agents with the team, and a note that their Claude
   will see the shared agents as tools. Owners can print their own line with
   `pitwall share setup`. When a new owner starts sharing with the team,
@@ -240,34 +258,44 @@ MCP client) can be a full member for every share that names the team:
 - **What they can't do:** admin the team, see the member list in a UI, or
   share their own agents. They only call shares.
 
-### 4.8 Binding a team to Tailscale (optional, for orgs with an admin)
-Tailscale grants can give an **app capability** to traffic from some
-users or devices to others. The receiving app reads it from `whois`
-(`CapMap`), the way golink reads `tailscale.com/cap/golink` and tsidp reads
-`tailscale.com/cap/tsidp` ([References](references.md)). Pitwall can use the same mechanism:
+### 4.8 Binding a team to a provider's group (optional, for orgs with an admin)
+A team can follow a group the network provider manages instead of its own
+member list (`Network::groups`, [§15.3](network.md)). The record holds `binding =
+{network, group, adminGroup?}`. For a bound team, a caller is a member when
+their `Caller.groups` contains the group, and an admin with `adminGroup`.
+Pitwall stops accepting signed `add_member`/`remove_member` for bound
+teams; the provider is the source of truth, and plain Claude users in the
+group are members with no further step.
+
+- **Who can bind.** An admin of the team, and only when their own `Caller`
+  shows the admin group.
+- **Ceiling.** The provider can carry limits an org wants enforced, e.g.
+  `{"maxCapability": "read"}` so nobody in the group can share with a "Can
+  change code" capability. Pitwall applies the lower of the owner's setting
+  and the ceiling.
+
+**Tailscale.** Tailscale grants can give an **app capability** to traffic
+from some users or devices to others. The receiving app reads it from
+`whois` (`CapMap`), the way golink reads `tailscale.com/cap/golink` and
+tsidp reads `tailscale.com/cap/tsidp` ([References](references.md)). The Tailscale backend
+turns it into groups:
 
 ```json
 "grants": [{
   "src": ["group:platform"],
   "dst": ["autogroup:member"],
   "app": { "<pitwall-domain>/cap/pitwall": [
-    {"team": "platform", "admin": false},
-    {"team": "platform", "admin": true, "logins": ["alice@example.com"]}
+    {"group": "platform", "admin": false},
+    {"group": "platform", "admin": true, "logins": ["alice@example.com"],
+     "maxCapability": "read"}
   ]}
 }]
 ```
 
-- **What binding means.** A team record with `binding = {capability,
-  team: "platform"}`. For a bound team, a caller is a member if their `whois`
-  `CapMap` has the capability with that team name. Admin is the same with
-  `admin: true`. Pitwall stops accepting signed `add_member`/`remove_member`
-  for bound teams; the Tailscale admin console is the source of truth.
-  Plain Claude users in the group are members with no further step.
-- **Who can bind.** An admin of the team, and only when their own `whois`
-  shows the capability with `admin: true` for that team.
-- **Ceiling.** The same capability can carry limits an org wants enforced,
-  e.g. `{"maxCapability": "read"}` so nobody in the group can share with a
-  "Can change code" capability. Pitwall
-  applies the lower of the owner's setting and the ceiling.
-- The capability name needs a domain the project controls (open question 3).
-  The exact grant shape is checked with `tailscale whois` during P5 testing.
+The capability name needs a domain the project controls (open question
+3). The exact grant shape is checked with `tailscale whois` during C6
+testing.
+
+**Pitwall Cloud.** Groups are the Cloud org's groups, or the company's SSO
+groups synced into it; the backend puts them in `Caller.groups` from the
+signed assertion.

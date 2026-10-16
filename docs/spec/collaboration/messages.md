@@ -9,7 +9,8 @@ Part of the [collaboration spec](README.md).
    `SendStreamingMessage` to the share's endpoint; a plain MCP client such
    as Claude Code calls the share's `ask_<slug>` tool on `/mcp`. Both reach
    the same core ([§8.3](protocol.md)).
-2. The owner's Pitwall checks `whois`, audience, share state, limits and queue, and writes an audit
+2. The network backend has already proved who is calling ([§8.2](protocol.md)); the
+   owner's Pitwall checks audience, share state, limits and queue, and writes an audit
    line. A caller outside the audience gets `404` (A2A) or doesn't see the
    tool (MCP); limit refusals are a `rejected` task or a tool result with
    `isError`.

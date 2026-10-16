@@ -6,7 +6,9 @@ Part of the [collaboration spec](README.md).
 
 ### 6.1 One session per caller
 - **Caller identity**, decided on the owner's side from the request:
-  - a person: `login` (from `whois`), the same on all their devices;
+  - a person: their person id (from the `Caller` the network proved,
+    [§8.2](protocol.md)), the same on all their devices and on every network once
+    their identities are linked ([§15.7](network.md));
   - a Pitwall agent asking: `login` + `agent`, where `agent` is the
     `Pitwall-Agent` label Bob's Pitwall sends ([§8.2](protocol.md)). The owner trusts
     Bob's Pitwall to label Bob's agents honestly, as it trusts Bob;

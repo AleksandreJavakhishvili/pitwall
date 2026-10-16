@@ -1,7 +1,7 @@
 # Pitwall collaboration: teams and shared agents
 
-People on the same Tailscale tailnet can **share** (expose) some of their
-agents with others. Someone sends a shared agent messages: a question, then
+People on the same network (a Tailscale tailnet, or later a Pitwall Cloud)
+can **share** (expose) some of their agents with others. Someone sends a shared agent messages: a question, then
 "add a dry-run flag", then "why did you change that?", all in one
 conversation. If the share lets it change code, any turn that changed its
 copy comes back as a patch. The owner decides what is shared and with whom,
@@ -27,18 +27,20 @@ assigned to a shared agent come from [rules.md](../rules.md); they stay on
 the owner's machine.
 
 ## Three choices that shape it
-- **No Pitwall server.** Everything runs on the users' own machines, over
-  their own tailnet. A hosted or B2B version is parked
-  ([plan.md §13](plan.md)).
-- **One core, two fronts; Tailscale is the identity.** Each owner's
+- **Any network, behind one interface.** Collaboration talks to networks
+  only through `Network` ([network.md](network.md)): who is calling, how to reach a
+  device, who is around, which groups. Tailscale (no Pitwall server at all)
+  is the v1 backend; a Pitwall Cloud (accounts, a relay, no VPN) is a
+  second backend designed to the same contract; a Fake backend runs the
+  tests. Nothing above the interface knows which one is in use.
+- **One core, two fronts; the network is the identity.** Each owner's
   Pitwall serves an **A2A** front (Pitwall callers and any A2A client: long
   tasks, waiting for the owner, re-attaching are native) and an **MCP**
-  front (plain Claude Code: each shared agent is a tool) on its tailnet
-  address, over one core. Who is calling comes from Tailscale (`whois` on
-  the connection): no accounts, keys or pairing for callers. Teams use a
-  few small Pitwall endpoints beside them ([protocol.md](protocol.md)). The network and
-  identity sit behind one seam, so a Pitwall Cloud could later stand in
-  for Tailscale ([§13](plan.md)).
+  front (plain Claude Code: each shared agent is a tool), over one core, on
+  every network it is on. Who is calling comes from the network (Tailscale
+  `whois`, or a Cloud-signed token); the core never handles credentials.
+  Teams use a few small Pitwall endpoints beside the fronts
+  ([protocol.md](protocol.md)).
 - **Any agent kind, on either side, with native behaviour.** Any agent
   Pitwall runs can be shared, and any agent that can call an MCP tool or
   run a command can ask. The shared agent never speaks A2A or MCP itself and
@@ -49,12 +51,15 @@ the owner's machine.
   was shared, and a clean environment ([sessions.md](sessions.md)).
 
 ## Glossary
-- **Person.** Stored as `{provider, id}`; in v1 always a Tailscale login
-  (`UserProfile.LoginName` from `whois`). A Pitwall Cloud account could be a
-  second provider later ([§13](plan.md)).
-- **Device.** One Pitwall installation: its instance key plus the Tailscale
-  node (`Node.StableID`) it runs on. A person has zero or more devices;
-  plain Claude users have none.
+- **Network.** One backend instance behind the `Network` interface:
+  `tailscale:example.ts.net`, `cloud:acme` ([§15](network.md)).
+- **Identity.** Who a network says someone is: `{provider, subject}`, e.g.
+  a Tailscale login or a Cloud account id.
+- **Person.** One or more linked identities ([§15.7](network.md)). Audiences, team
+  members, conversations and limits are keyed by person.
+- **Device.** One Pitwall installation: its instance key plus its address
+  on each network it is on. A person has zero or more devices; plain
+  Claude users have none.
 - **Team.** A named list of people, with admins, kept as signed records on
   members' Pitwalls and identified by the hash of its first record, never
   by its name. Used as an audience for shares and, in Pitwall, as a
@@ -82,7 +87,7 @@ the owner's machine.
 | File | Sections | What |
 |---|---|---|
 | [goals.md](goals.md) | §1–2 | User stories, goals, non-goals, what changes in tailnet-peers, the model |
-| [teams.md](teams.md) | §3–4 | Discovery on the tailnet; teams, keys, signed records, gossip, conflicts, joining, members without Pitwall, Tailscale binding |
+| [teams.md](teams.md) | §3–4 | Discovery on every network; teams, keys, signed records, gossip, conflicts, joining, members without Pitwall, binding to a provider's group |
 | [sharing.md](sharing.md) | §5 | Share as a setting, capability, the Share questionnaire, limits, who can change settings, suggestions, stored shape |
 | [sessions.md](sessions.md) | §6 | Per-caller conversations, the snapshot copy, OS isolation per platform, native controls per agent kind, starting point, instructions, lifecycle |
 | [messages.md](messages.md) | §7 | Message flow, reply capture, the owner in the loop, precedent, how patches travel back |
@@ -90,9 +95,10 @@ the owner's machine.
 | [safety.md](safety.md) | §9 | Enforced vs soft, per platform, switches, settings out of reach, what remains, threats |
 | [ui.md](ui.md) | §11 | People, Share dialog, owner sidebar and conversation pane, Ask panel, Review |
 | [plan.md](plan.md) | §12–14 | Phases, tests, risks, out of scope, open questions |
+| [network.md](network.md) | §15 | The `Network` interface, what every backend must guarantee, Tailscale, Pitwall Cloud and Fake backends, several networks at once |
 | [references.md](references.md) | — | Sources checked, and what is still unverified |
 
-Section numbers (§1–§14) are global across the files, so a reference like
+Section numbers (§1–§15) are global across the files, so a reference like
 §6.3 always means the same place.
 
 Task lists, jobs and boards are **not** part of this design: people
@@ -100,9 +106,10 @@ already track work in GitHub Issues, Linear or chat, and every flow here
 works with conversations alone ([goals.md](goals.md#non-goals-v1)).
 
 ## Phases at a glance
-C1a MVP on macOS (A2A and MCP fronts, discovery, single-admin teams, Read
+C1a MVP on macOS (`Network` with Tailscale and Fake backends, A2A and MCP fronts, discovery, single-admin teams, Read
 only shares, Seatbelt isolation, limits) → C1b signed multi-admin teams →
 C2 "Can change code" and patches → C3 Linux hosting → C4 owner in the loop,
 suggestions, precedent → C5 Windows (WSL2 route, native later) → C6
-Tailscale binding and hardening → C7 more agent kinds, `pitwall mcp`.
+group binding and hardening → C7 more agent kinds, `pitwall mcp` → C8
+Pitwall Cloud backend, when the Cloud exists.
 About 18–27 weeks; details in [plan.md](plan.md).

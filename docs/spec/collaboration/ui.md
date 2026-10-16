@@ -11,8 +11,8 @@ Same visual language as tailnet-peers.md §7.
     description, capability chip (READ / WRITE / WRITE ✓), "runs on Claude
     Code", what's left today, online dot. Click → Ask panel on that agent.
   - **Teams.** My teams (name, fingerprint `9F2-C1A`, members, my role,
-    "bound to Tailscale" chip), then Discovered (listed teams on the
-    tailnet, "Request to join"), then "Join with a link…" and "Create
+    "bound to a group" chip), then Discovered (listed teams on my
+    networks, with the network shown, "Request to join"), then "Join with a link…" and "Create
     team…".
     - **Team detail:** members with devices and online state, admins (★),
       version and "last change by dave · 2 d", Requests (admins: Approve /
@@ -21,7 +21,7 @@ Same visual language as tailnet-peers.md §7.
       only"), **Setup for people without Pitwall** (the `claude mcp add`
       lines to send them, with Copy), rename,
       listed/invite-only, join by request/closed, promote/demote, remove,
-      Bind to Tailscale….
+      Bind to a group….
     - Conflict note inline when it happened: "Your change was re-applied
       after dave's".
   - **People.** Everyone in my teams, their devices and shared agents.
@@ -77,4 +77,9 @@ Same visual language as tailnet-peers.md §7.
   ready.
 - **Settings → Collaboration.** The three switches, "Look for teams on",
   the global session cap, budgets for my agents, "Copy my MCP setup line",
-  rotate key, the audit log, and Tailscale state (shared with Peers).
+  rotate key, and the audit log.
+- **Settings → Networks.** One row per backend: Tailscale (state shared
+  with Peers, "Look for teams on", "Let people on example.ts.net reach this
+  machine") and, when it exists, Pitwall Cloud (sign in, org, "Let people
+  in acme reach this machine"). People → a person shows their identities
+  and "Link identities…".

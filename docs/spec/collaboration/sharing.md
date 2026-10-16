@@ -21,7 +21,8 @@ assigned per project or per agent), then shared. Examples:
   **Read only**; its owner's instructions tell it to stop and say so when a
   question needs a product decision, which flags the session for the
   product person ([§7.3](messages.md)).
-- `onboarding`: an agent on the handbook repo; shared with the whole tailnet,
+- `onboarding`: an agent on the handbook repo; shared with everyone on the
+  company tailnet,
   **Read only**.
 
 The skills and rules stay on the owner's machine, inside the session's
@@ -69,9 +70,11 @@ is either **enforced** (Pitwall or the OS sandbox around the session makes
 it true, whatever the model does) or **soft** (passed to the agent as instructions,
 labelled "not guaranteed" in the UI). [§9.1](safety.md) lists which is which.
 
-1. **Who.** People (logins), teams, or "everyone on my tailnet" (amber).
-   *Enforced*: checked on every request from `whois` and team state. People
-   without Pitwall are callers like anyone else ([§4.7](teams.md)).
+1. **Who.** People (by identity on any network Pitwall is on), teams,
+   provider groups, or "everyone on <network>" (amber), e.g. "everyone on
+   example.ts.net". *Enforced*: checked on every request against the
+   `Caller` its network proved ([§8.2](protocol.md)) and team state. People without
+   Pitwall are callers like anyone else ([§4.7](teams.md)).
 2. **Capability.** Read only · Can change code · Can change code, I
    approve before it's sent. Works for every agent kind: it is enforced by
    the OS sandbox, not by the agent ([§9.1](safety.md)). *Enforced.*
@@ -176,7 +179,7 @@ once: queued requests are refused and running turns are interrupted.
   mechanism** (architecture.md §4), and the dialog shows the **exact diff**
   of the share settings:
   - **Widening** access always asks and can't be "remembered": more people
-    or teams, the tailnet audience, more paths, fewer exclusions, a
+    teams or groups, a whole network, more paths, fewer exclusions, a
     stronger capability (Read only → Can change code, or approval removed),
     network on or more hosts,
     passing environment variables, adding a base summary, higher limits,
@@ -214,7 +217,8 @@ Share payments-expert with team Payments?" They do this with
   "description": "Questions about the API service: auth, billing, jobs",
   "state": "draft",                        // draft | live | paused
   "capability": "write_approval",          // read | write | write_approval
-  "audience": {"people": ["carol@example.com"], "teams": ["t_9f2c…"], "tailnet": false},
+  "audience": {"people": [{"provider": "tailscale", "subject": "carol@example.com"}],
+               "teams": ["t_9f2c…"], "groups": [], "networks": []},   // networks: e.g. ["tailscale:example.ts.net"]
   "scope": {
     "repo": "~/code/api", "ref": "main",   // never shown to callers
     "paths": ["src/", "docs/"],

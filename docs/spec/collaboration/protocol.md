@@ -4,37 +4,42 @@ Part of the [collaboration spec](README.md).
 
 ## 8. Protocol and API
 
-### 8.1 One HTTP listener on the tailnet
-- **Port.** Its own port, 47421/tcp proposed (beside peers' framed-TCP
-  47420), configurable. One listener serves the A2A front (`/a2a/<slug>/…`),
-  the MCP front (`/mcp`) and the Pitwall team endpoints (`/pitwall/v1/…`).
-- **Same rules as the peer listener** (tailnet-peers.md §4): bound only to
-  this node's Tailscale IPs, source address checked against the tailnet
-  ranges, and `whois` must succeed **before any HTTP handling**; otherwise
-  the connection is closed without a byte. The `whois` result (login, node,
-  tags, `CapMap`) is the request's identity.
-- **Plain HTTP inside WireGuard.** Traffic is already encrypted and
-  authenticated end to end by the tailnet, so `http://` URLs work in A2A
-  clients and in `claude mcp add`. HTTPS with a `tailscale cert`
-  certificate is an option for clients that insist ([§14](plan.md) question 9).
+### 8.1 One HTTP handler, served by every network
+- **One handler.** Collaboration is one HTTP handler with three groups of
+  routes: the A2A front (`/a2a/<slug>/…`), the MCP front (`/mcp`) and the
+  Pitwall team endpoints (`/pitwall/v1/…`). It is handed to every enabled
+  network backend's `serve` ([§15.3](network.md)); it never opens a socket itself.
+- **The backend authenticates first.** A request reaches the handler only
+  with a `Caller` the backend produced ([§15.4](network.md)): on Tailscale after
+  `whois` on the connection, on the Cloud after checking the signed
+  assertion. Otherwise the connection is closed without a byte.
+- **Transport is the backend's.** Tailscale serves plain HTTP inside
+  WireGuard on 47421/tcp (beside peers' 47420), optionally HTTPS with
+  `tailscale cert` ([§14](plan.md) question 9); the Cloud serves through its relay
+  tunnel ([§15.5](network.md)–15.6).
 - **Server.** A small blocking HTTP/1.1 server on its own threads, no async
   runtime: `tiny_http` is the candidate (a request per worker thread;
   streaming responses use chunked transfer from a `Read` fed by a channel),
   so an SSE response is written event by event. Client side (Pitwall
-  callers): `ureq`, reading SSE line by line. Both to be confirmed in a C1a
-  spike and recorded in gpui/licensing.md.
-- **Limits** as peers: per caller connections, requests per second, body
-  size (2 MiB), at most 8 open streams per caller.
+  callers): `ureq` through `Network::client`, reading SSE line by line.
+  Both to be confirmed in a C1a spike and recorded in gpui/licensing.md.
+- **Limits** per caller, the same on every network: connections, requests
+  per second, body size (2 MiB), at most 8 open streams.
 
-### 8.2 Who is calling: Tailscale, nothing else
-- **Every caller is its `whois` login and node**, on both fronts. A caller
-  may use a share when the share's audience names the login, includes a
-  team the login is a member of (team records list logins, [§4](teams.md)), or is
-  the whole tailnet. There are no accounts, tokens, OAuth or pairing for
-  callers. (A2A's security schemes and MCP's HTTP authorization are both
-  optional; neither is used.)
+### 8.2 Who is calling: whatever the network proves
+- **Every request carries a `Caller`** from its backend: identity, person,
+  device when it is a Pitwall, network and groups ([§15.2](network.md)). A caller may
+  use a share when its audience names the person, includes a team the
+  person is a member of, includes one of their provider groups, or is
+  everyone on the caller's network. Nothing else is checked, and nothing
+  differs between fronts or between Pitwall and plain clients.
+- **No credentials in the core.** On Tailscale there are none; on the
+  Cloud the bearer token is checked inside the backend. The fronts publish
+  how plain clients authenticate from `Network::endpoint` ([§15.3](network.md)): A2A
+  `securitySchemes` and MCP protected resource metadata, both empty on
+  Tailscale.
 - **Pitwall callers may add two labels**, plain headers on either front,
-  trusted as much as the person whose node sent them:
+  trusted as much as the person whose device sent them:
 
   ```
   Pitwall-Agent: client-fix@bob-mbp     (the asking agent, from Bob's process tree)
@@ -42,14 +47,9 @@ Part of the [collaboration spec](README.md).
   ```
 
   The label only keys the conversation ([§6.1](sessions.md)) and names it
-  for the owner. A label can't widen anything: access is the login's.
-- **The instance key** (tailnet-peers.md §5) is used only to sign team
-  records ([§4](teams.md)), never per request.
-- **Behind a seam.** The `whois` check, the URLs and discovery all go
-  through one `Network` trait, so a future Pitwall Cloud can identify
-  callers with a bearer token and reach owners through a relay instead,
-  with nothing above it changing ([§13](plan.md)). People are stored as
-  `{provider, id}` from v1.
+  for the owner. A label can't widen anything: access is the person's.
+- **The instance key** (tailnet-peers.md §5) signs team records ([§4](teams.md)),
+  and on the Cloud also registers the device; it never signs requests.
 
 ### 8.3 Conversations: one core, two fronts
 Everything that matters is in **one core** on the owner's Pitwall:
@@ -97,7 +97,8 @@ blocking server, it is `curl`-friendly for owners debugging, and streaming
 is the same SSE either way. JSON-RPC can be added later as a second
 `supportedInterfaces` entry if clients need it.
 
-Per share, base URL `http://<owner tailnet IP>:47421/a2a/<slug>`:
+Per share, base URL `<Network::endpoint>/a2a/<slug>`, e.g.
+`http://studio.example.ts.net:47421/a2a/api-expert` on Tailscale:
 
 | A2A operation | HTTP+JSON endpoint | Pitwall behaviour |
 |---|---|---|
@@ -160,12 +161,13 @@ cover it (`capabilities.pushNotifications: false`).
   are the plain headers of [§8.2](protocol.md).
 
 #### 8.3.3 The MCP front
-One endpoint per owner: `http://<owner's tailnet name or IP>:47421/mcp`,
+One endpoint per owner and network: `<Network::endpoint>/mcp`,
 MCP over **Streamable HTTP** (JSON-RPC over `POST`, answered as JSON or as
 an SSE stream). A plain Claude Code user adds it once:
 
 ```
-claude mcp add --transport http alice http://studio.tail1234.ts.net:47421/mcp
+claude mcp add --transport http alice http://studio.example.ts.net:47421/mcp   # Tailscale
+claude mcp add --transport http alice https://studio.acme.pitwall.cloud/mcp    # Pitwall Cloud: signs in via OAuth
 ```
 
 **Server capabilities:** `tools` with `listChanged: true`. No resources,
@@ -241,13 +243,13 @@ clients that only show text still work:
 
 ### 8.4 Pitwall endpoints beside the fronts
 Teams, discovery and the directory are small JSON endpoints on the same
-listener, under `/pitwall/v1/`. Identity is `whois`; team records carry
-their own signatures ([§4](teams.md)). Plain Claude users never need them.
+handler, under `/pitwall/v1/`. Identity is the `Caller`, as for the
+fronts; team records carry their own signatures ([§4](teams.md)). Plain Claude users never need them.
 
 | Endpoint | Caller | What |
 |---|---|---|
-| `GET /info` | any tailnet caller | `{version, login, label, listedTeams, a2a: true, mcp: "/mcp"}`: the discovery probe ([§3](teams.md)) |
-| `GET /teams:discover` | any tailnet caller | listed teams this Pitwall knows, as signed records |
+| `GET /info` | any caller on the network | `{version, person, label, listedTeams, a2a: true, mcp: "/mcp"}`: the discovery probe ([§3](teams.md)) |
+| `GET /teams:discover` | any caller on the network | listed teams this Pitwall knows, as signed records |
 | `POST /teams/{t}/join`, `POST /teams/{t}/invites:redeem` | anyone with Pitwall | join request, invite ([§4.6](teams.md)) |
 | `POST /teams/{t}/heads`, `GET /teams/{t}/records?after=n`, `POST /teams/{t}/announce`, `POST /teams/{t}/cosign` | member devices | replication and conflicts ([§4.3](teams.md)–4.4) |
 | `GET /teams/{t}/requests` | admins | pending join requests, forwarded |
@@ -263,7 +265,7 @@ their own signatures ([§4](teams.md)). Plain Claude users never need them.
 | **Owner UI** (in-process GPUI app) | — | Everything, including all `share.*` methods |
 | **Owner's CLI and agents** (CLI socket; agent vs user from the process tree, as approvals do today) | `pitwalld.sock` | `share.*` reads directly; `share.create` and `share.guest` on drafts directly (nobody else can see a draft); other `share.*` changes through approvals (`share.go_live` and widening always ask, not rememberable; narrowing direct, [§5.5](sharing.md)); `suggest.*`; `ask.*` (the daemon speaks A2A outward) with the "let my agents ask" switch |
 | **A shared session** (inside its sandbox; process tree as a second check) | the hook endpoint, as any agent | Hook events for its own agent id (status, the Stop text). Nothing on `pitwalld.sock` |
-| **Anyone on the tailnet** | the HTTP listener | The A2A and MCP fronts ([§8.3](protocol.md)) and the Pitwall endpoints ([§8.4](protocol.md)) |
+| **Anyone on an enabled network** | the collaboration handler, through that backend | The A2A and MCP fronts ([§8.3](protocol.md)) and the Pitwall endpoints ([§8.4](protocol.md)) |
 
 Shared sessions are cut off from Pitwall by construction: the sandbox
 denies `pitwalld.sock` and the data folder ([§6.3](sessions.md)); their
@@ -274,7 +276,7 @@ already accepts only hook events, keyed to the agent id Pitwall gave the
 session.
 
 **Owner-only local methods** (UI, or CLI/agents through approvals; never on
-the tailnet listener, never from shared sessions): `share.get`,
+any network, never from shared sessions): `share.get`,
 `share.list`, `share.create` (draft), `share.set` (returns the diff it
 applied), `share.go_live`, `share.pause`, `share.resume`, `share.stop`,
 `share.guest`, `share.sessions`, `share.block`, `share.summary`,
@@ -346,7 +348,7 @@ checked with golden fixtures against the spec's schema at implementation):
   "description": "Questions about the API service: auth, billing, jobs",
   "version": "3",
   "supportedInterfaces": [
-    {"url": "http://100.101.102.103:47421/a2a/api-expert",
+    {"url": "http://studio.example.ts.net:47421/a2a/api-expert",
      "protocolBinding": "HTTP+JSON", "protocolVersion": "1.0"}
   ],
   "capabilities": {"streaming": true, "pushNotifications": false},
@@ -393,7 +395,7 @@ interface TeamCard { team: string; name: string; description: string;
 interface DirectoryEntry { cardUrl: string; card: object /* A2A AgentCard */;
   owner: string; slug: string; capability: "read"|"write"|"write_approval";
   kind: string; left: number|null; online: boolean; lastSeen: string|null;
-  via: string[] /* team ids, "direct" or "tailnet" */ }
+  via: string[] /* team ids, groups, "direct" or a network id */ }
 interface AskView { turn: string; conversation: string; share: string; text: string;
   from: "me"|"owner";
   status: "queued"|"working"|"waiting_for_owner"|"done"|"failed"|"canceled"|"refused";
@@ -441,7 +443,7 @@ rotates at 1 MiB × 3, and is shown in the owner view and Settings.
   working, done), long turns, a turn waiting on the owner, held changes,
   cancel and re-attaching to a stream are all native; a conversation is a
   `contextId`. Pitwall talks to Pitwall over A2A, and any other A2A client
-  on the tailnet can use a share with nothing Pitwall-specific.
+  on the same network can use a share with nothing Pitwall-specific.
 - **MCP is what plain Claude Code has.** Claude Code (and most agent tools)
   have no built-in A2A client but connect to MCP over HTTP with one
   command, and a shared agent then shows up as a tool its agent uses like
@@ -451,8 +453,9 @@ rotates at 1 MiB × 3, and is shown in the owner view and Settings.
   sandboxing, results and the audit log exist once; the fronts only
   translate. A turn looks the same in the owner's view whichever front it
   came from (with a small "A2A" or "MCP" tag).
-- **Identity stays Tailscale's** on both. No OAuth server on every owner's
-  laptop.
+- **Identity stays the network's** on both fronts ([§15](network.md)): no
+  credentials on Tailscale, the Cloud's OAuth on the Cloud. No OAuth
+  server on every owner's laptop.
 - **What neither covers stays Pitwall's,** beside them on the same
   listener: teams, discovery, gossip of signed records, the directory
   ([§8.4](protocol.md)).

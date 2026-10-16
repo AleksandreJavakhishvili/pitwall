@@ -26,8 +26,8 @@ Part of the [collaboration spec](README.md).
    `claude mcp add --transport http alice http://studio.tail1234.ts.net:47421/mcp`.
    Erin runs it. Her Claude now has a tool `ask_api_expert`, and while
    fixing a client bug it asks "what does 409 from /jobs mean?" on its own.
-   Tailscale tells Alice's Pitwall that the call is from Erin; nothing else
-   is set up.
+   The network (here Tailscale) tells Alice's Pitwall that the call is from
+   Erin; nothing else is set up.
 5. **Ask from Pitwall.** Bob opens the Ask panel, picks `alice/api-expert`
    and asks "Where are refresh tokens rotated?". His Pitwall sends it over
    A2A; the reply streams into his thread. Tomorrow he asks a follow-up and the same conversation continues.
@@ -73,21 +73,30 @@ Part of the [collaboration spec](README.md).
     "Platform" team to a Tailscale group with an app capability, so joining
     and leaving follows the company's identity provider, and Pitwall needs no
     signed membership changes for that team.
+14. **Later: Pitwall Cloud.** Frank is a contractor outside the company's
+    tailnet. Alice also turns on Pitwall Cloud and adds Frank's Cloud
+    account to `api-expert`'s audience. Frank runs `claude mcp add
+    --transport http alice https://studio.acme.pitwall.cloud/mcp`, signs in
+    through his browser, and asks. Bob, on both networks, has linked his
+    two identities, so his conversation and limits are the same whichever
+    way he comes in. Nothing in shares, sessions or limits changed for
+    this.
 
 ### Goals
 - **No server.** Every request goes from a caller straight to the owner's
   machine over WireGuard. Membership and the directory live on members'
   machines.
-- **Works with plain Claude Code.** Anyone on the tailnet with an MCP
+- **Works with plain Claude Code.** Anyone on the network with an MCP
   client can use what is shared with them, with one setup command and
   nothing else installed. Pitwall users get more (teams, directory, Ask
   panel, Review) over A2A, which fits agent-to-agent work best. One core
   behind both, so the rules are the same.
-- **An open channel.** Any A2A client on the tailnet can use a share too,
+- **An open channel.** Any A2A client on the network can use a share too,
   within its audience.
-- **Identity from Tailscale.** Every request is tied to a Tailscale login
-  and node (LocalAPI `whois`) before anything else. No accounts, tokens or
-  pairing for callers.
+- **Network-neutral, identity from the network.** Every request is tied to
+  an identity its network proves (Tailscale `whois`, a Cloud-signed token)
+  before anything else, through one `Network` interface ([§15](network.md)). The core
+  never knows which network is in use, and several can be on at once.
 - **Teams survive any one machine.** Membership records are signed,
   versioned and copied to every member's Pitwall.
 - **Expertise stays with its owner.** A shared agent's skills, rules,
@@ -119,7 +128,8 @@ Part of the [collaboration spec](README.md).
   Linear, chat). Revisit only if real use shows a gap.
 - **No sharing of skills, rules or "recipes".** Expertise is reached by
   talking to the owner's agent, never copied to callers.
-- No Pitwall server, directory service, relay or account system ([§13](plan.md)).
+- No Pitwall server, directory service, relay or account system in v1
+  ([§13](plan.md)); the Cloud backend comes later ([§15.6](network.md)).
 - No special "shared agent" or "specialist" type or template. A specialist
   is just an ordinary agent with a role and skills, shared ([§5.1](sharing.md)).
 - No sharing of a whole Pitwall. Teams never grant tailnet-peers
@@ -130,8 +140,9 @@ Part of the [collaboration spec](README.md).
   result mode, [§7.5](messages.md)).
 - No shared sessions on agw machines in v1, on Linux before C3, or on
   Windows before the WSL2 route (C5) ([§9.2](safety.md)). Asking works everywhere.
-- No reaching people outside the tailnet. (A future Pitwall Cloud could;
-  v1 keeps that door open behind one seam, [§13](plan.md).)
+- No Pitwall Cloud backend in v1: only Tailscale (and Fake for tests). The
+  Cloud backend is designed to the same contract and added in C8
+  ([§15.6](network.md)).
 - No group chat between people. Each conversation is one caller and one
   shared agent.
 
@@ -144,7 +155,7 @@ purpose and only for the narrow collaboration surface:
 | "No real multi-user collaboration" | Several people use one shared agent, each in their own conversation. Peers (whole-machine access) stay single-owner |
 | "Discovery lists same-user nodes only" | Team discovery probes other users' nodes too ([§3](teams.md)), within limits and only while the feature is on |
 | "No peer access from agents or the CLI on the viewer" | `pitwall ask` (and `pitwall mcp`) reach other Pitwalls, only shared agents, only with the local user's opt-in and budgets ([§8.6](protocol.md)). All other peer routes stay off the CLI socket |
-| Pairing is the only way to be accepted | A share's audience (a login, a team, the tailnet) is a second way, for the collaboration endpoints only. It never unlocks `peer` methods |
+| Pairing is the only way to be accepted | A share's audience (a person, a team, a group, everyone on a network) is a second way, for the collaboration endpoints only. It never unlocks `peer` methods |
 | One framed-TCP listener (47420) | Collaboration has its own HTTP listener (47421 proposed) with the same bind and accept rules ([§8.1](protocol.md)). Peers stay on framed TCP |
 | Two listener switches | A third: "Let teammates reach this machine" ([§9.3](safety.md)) |
 | "No relaying: one hop only" | Still one hop. A message always goes straight to the owner's machine. Membership records may come from any member, but they are signed ([§4](teams.md)) |
@@ -156,11 +167,11 @@ purpose and only for the narrow collaboration surface:
 ```
  bob-mbp (Pitwall)                                     studio (owner: alice, Pitwall)
 ┌────────────────────────────────┐                   ┌───────────────────────────────────────┐
-│ Ask panel · pitwall ask · mcp  │   A2A over HTTP   │ HTTP listener on the tailnet IP       │
+│ Ask panel · pitwall ask · mcp  │   A2A over HTTP   │ HTTP handler on each network          │
 │   └─ daemon: A2A client        │──  (tasks, SSE) ─▶│  /a2a/<share>   A2A front ┐           │
 │ Review: changes, Apply (am -3) │◀─ reply + patch ──│  /mcp           MCP front ┴─▶ one core│
 │                                │                   │  /pitwall/v1/…  teams, discovery      │
-│ Collab: teams, directory cache │   whois = who     │ Collab: shares, conversations, limits │
+│ Collab: teams, directory cache │  Network says who │ Collab: shares, conversations, limits │
 └────────────────────────────────┘                   │  conversation = ordinary agent, any   │
           ▲   gossip of team records                 │  kind, in an OS sandbox around a      │
           └──── any member ◀───────────────────────▶ │  snapshot copy, clean env             │
@@ -168,7 +179,7 @@ purpose and only for the narrow collaboration surface:
  erin-mbp (plain Claude Code)                                     ▲
 ┌────────────────────────────────┐   MCP over HTTP                │
 │ claude mcp add … alice …/mcp   │────────────────────────────────┘
-│ tool ask_api_expert            │   whois = erin@ (a member of Platform)
+│ tool ask_api_expert            │   Network says: erin@ (a member of Platform)
 └────────────────────────────────┘
 ```
 
@@ -180,5 +191,6 @@ Collaboration is a new service beside the engine, like `Peers` in
 tailnet-peers.md: `Collab` owns teams, the directory, shares,
 conversations, limits, the A2A server and client, and the MCP server. Conversations are
 ordinary engine agents with an extra `AgentRecord.shared = { share, caller }`.
+`Collab` sees networks only through `Network` ([§15](network.md)).
 Status, holders, hooks, Review and the Wall work for them as for any agent;
 caps decide what the UI shows (the CI no-special-cases grep stays green).
