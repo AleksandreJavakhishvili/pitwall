@@ -30,11 +30,24 @@ pub enum Page {
     Rules,
     Appearance,
     FolderAccess,
+    /// Teams and shared agents (docs/spec/collaboration/ §9.3, §11).
+    Collaboration,
+    /// The networks collaboration runs on (Tailscale, later Pitwall Cloud).
+    Networks,
     About,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [Page::General, Page::Agents, Page::Rules, Page::Appearance, Page::FolderAccess, Page::About];
+    pub const ALL: [Page; 8] = [
+        Page::General,
+        Page::Agents,
+        Page::Rules,
+        Page::Appearance,
+        Page::FolderAccess,
+        Page::Collaboration,
+        Page::Networks,
+        Page::About,
+    ];
 
     /// The id in `ui.json` (`settingsPage`) and the CLI.
     pub fn id(self) -> &'static str {
@@ -44,6 +57,8 @@ impl Page {
             Page::Rules => "rules",
             Page::Appearance => "appearance",
             Page::FolderAccess => "folderAccess",
+            Page::Collaboration => "collaboration",
+            Page::Networks => "networks",
             Page::About => "about",
         }
     }
@@ -55,6 +70,8 @@ impl Page {
             Page::Rules => "Rules",
             Page::Appearance => "Appearance",
             Page::FolderAccess => "Folder access",
+            Page::Collaboration => "Collaboration",
+            Page::Networks => "Networks",
             Page::About => "About",
         }
     }

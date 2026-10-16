@@ -3,4 +3,4 @@
 /**
  * The Settings page a setting is on (the sidebar's order).
  */
-export type Page = "general" | "agents" | "rules" | "appearance" | "folderAccess" | "about";
+export type Page = "general" | "agents" | "rules" | "appearance" | "folderAccess" | "collaboration" | "networks" | "about";
