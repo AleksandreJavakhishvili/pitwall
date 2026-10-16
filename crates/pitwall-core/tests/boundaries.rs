@@ -7,7 +7,9 @@
 //!   (`src/exec/local.rs`); everything else runs programs through an `Exec`
 //!   (§2.4), and git/Review/worktree code reaches files only through it;
 //! - no terminal holders or places to run in core (those are providers), and
-//!   the engine never asks which provider an agent has (§3).
+//!   the engine never asks which provider an agent has (§3);
+//! - collaboration sees networks only through `net`'s traits, never a
+//!   backend (docs/spec/collaboration/network.md §15.8).
 
 use std::path::{Path, PathBuf};
 
@@ -112,10 +114,24 @@ fn production_lines(text: &str) -> Vec<(usize, &str)> {
     out
 }
 
+/// A file its parent declares as `#[cfg(test)] mod <name>;` (a test-only
+/// module, like `collab/interop.rs`).
+fn test_only_module(file: &Path) -> bool {
+    let (Some(stem), Some(dir)) = (file.file_stem().and_then(|s| s.to_str()), file.parent()) else {
+        return false;
+    };
+    let decl = format!("mod {stem};");
+    ["mod.rs", "lib.rs"].iter().any(|parent| {
+        let Ok(text) = std::fs::read_to_string(dir.join(parent)) else { return false };
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        lines.windows(2).any(|w| w[0] == "#[cfg(test)]" && w[1].trim_start_matches("pub(crate) ").trim_start_matches("pub ") == decl)
+    })
+}
+
 fn offenders(files: &[PathBuf], src: &Path, banned: &[&str]) -> Vec<String> {
     let mut found = Vec::new();
     for file in files {
-        if file.file_name().is_some_and(|n| n == "tests.rs") {
+        if file.file_name().is_some_and(|n| n == "tests.rs") || test_only_module(file) {
             continue;
         }
         let text = std::fs::read_to_string(file).expect("read source");
@@ -171,4 +187,30 @@ fn the_engine_never_asks_which_provider() {
     rust_files(&src.join("engine"), &mut files);
     let found = offenders(&files, &src, &["ProviderId::LOCAL", "ProviderId::local", "\"local\"", "\"agw\"", "\"ssh", "THIS_MAC", "pitwall_hold"]);
     assert!(found.is_empty(), "branch on ProviderCaps instead:\n{}", found.join("\n"));
+}
+
+/// Collaboration is written once against `net::Network`; which network a
+/// request came over is never its business (collaboration spec §15.8). Test
+/// modules may use the Fake network.
+#[test]
+fn collaboration_never_names_a_network_backend() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&src.join("collab"), &mut files);
+    assert!(!files.is_empty(), "src/collab/ exists");
+    let backends = [
+        "net::tailscale",
+        "net::cloud",
+        "net::fake",
+        "tailscale::",
+        "cloud::",
+        "fake::",
+        "Tailscale",
+        "FakeNet",
+        "\"tailscale\"",
+        "\"cloud\"",
+        "\"fake\"",
+    ];
+    let found = offenders(&files, &src, &backends);
+    assert!(found.is_empty(), "go through net::Network and its types instead:\n{}", found.join("\n"));
 }

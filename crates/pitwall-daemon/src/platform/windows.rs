@@ -72,3 +72,8 @@ pub fn process_table() -> Option<HashMap<u32, Proc>> {
     unsafe { CloseHandle(snap) };
     Some(out)
 }
+
+/// This machine's name (`COMPUTERNAME`), for collaboration's `/info` label.
+pub fn device_label() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok().filter(|n| !n.is_empty())
+}

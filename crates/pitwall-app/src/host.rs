@@ -12,6 +12,8 @@ use pitwall_core::clock::SystemClock;
 use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
+use pitwall_core::net::Network;
+use pitwall_daemon::collab::core::NetworkFactory;
 use pitwall_daemon::{Approvals, Config, Handle, ProcessIdentity};
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
 use pitwall_providers::local::{LocalConfig, LocalProvider};
@@ -30,6 +32,9 @@ pub struct Host {
     pub settings: Arc<crate::settings::backend::AppSettings>,
     /// `pitwall space` (cli_spaces).
     pub workspace: Arc<crate::cli_spaces::AppWorkspace>,
+    /// Collaboration's owner methods, for the CLI and the app's own window
+    /// (`crate::collab`).
+    pub collab: Arc<pitwall_daemon::CollabService>,
     server: Option<Handle>,
 }
 
@@ -42,13 +47,20 @@ impl Host {
 
     /// [`Host::start`] with a given holder binary (tests).
     fn start_with_holder(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>) -> Host {
-        Host::start_with(paths, bridge, holder, None)
+        Host::start_with(paths, bridge, holder, None, None)
     }
 
-    /// [`Host::start`] with a given holder and `agw` program (tests).
-    /// Never waits on a provider: saved agents reconnect in the background
-    /// (`pitwall_core::engine::connect`).
-    fn start_with(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>, agw: Option<PathBuf>) -> Host {
+    /// [`Host::start`] with a given holder and `agw` program, and the
+    /// networks collaboration uses (tests: Fake networks; `None`: this
+    /// machine's Tailscale). Never waits on a provider: saved agents
+    /// reconnect in the background (`pitwall_core::engine::connect`).
+    fn start_with(
+        paths: Paths,
+        bridge: Bridge,
+        holder: Result<PathBuf, String>,
+        agw: Option<PathBuf>,
+        networks: Option<NetworkFactory>,
+    ) -> Host {
         let holder = holder.map(|b| crate::packaging::stable_sidecar(b, &paths.root().join("bin")));
         let local = LocalProvider::new(LocalConfig {
             hold_dir: paths.hold_dir(),
@@ -75,11 +87,13 @@ impl Host {
         let identify = ProcessIdentity::new(engine.clone());
         let settings = crate::settings::backend::AppSettings::new(Some(engine.clone()));
         let workspace = crate::cli_spaces::AppWorkspace::new();
+        let collab = collab_service(&paths, &engine, &approvals, networks);
         let cfg = Config {
             socket: paths.cli_socket(),
             version: env!("CARGO_PKG_VERSION").into(),
             settings: Some(settings.clone()),
             workspace: Some(workspace.clone()),
+            collab: Some(collab.clone()),
         };
         let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {
             Ok(h) => Some(h),
@@ -93,6 +107,7 @@ impl Host {
             approvals,
             settings,
             workspace,
+            collab,
             server,
         }
     }
@@ -105,6 +120,73 @@ impl Host {
             server.stop();
         }
     }
+}
+
+/// Collaboration's service over the core (`pitwall_daemon::collab::core`):
+/// shares and conversations on this engine, shared sessions in the OS
+/// sandbox, teams signed with this data folder's instance key. Networks
+/// are made when collaboration is first turned on: this machine's Tailscale
+/// when it is installed (`networks` replaces that in tests). If the core
+/// can't open (a damaged instance key), the in-memory stand-in keeps the
+/// owner's drafts reachable and says asking isn't available.
+fn collab_service(
+    paths: &Paths,
+    engine: &Shared,
+    approvals: &Arc<Approvals>,
+    networks: Option<NetworkFactory>,
+) -> Arc<pitwall_daemon::CollabService> {
+    use pitwall_daemon::collab::core::{CoreCollab, CoreDeps};
+    use pitwall_daemon::collab::memory::MemoryCollab;
+    use pitwall_daemon::collab::Me;
+    let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "me".into());
+    let networks = networks.unwrap_or_else(|| Box::new(tailscale_networks));
+    let hooks = match hook_bin() {
+        Some(bin) => {
+            let bin = crate::packaging::stable_sidecar(bin, &paths.root().join("bin"));
+            pitwall_core::collab::HookWiring::binary(&bin, &paths.hook_socket())
+        }
+        None => pitwall_core::collab::HookWiring::script(&paths.hook_script(), &paths.hook_socket()),
+    };
+    let deps = CoreDeps {
+        paths: paths.clone(),
+        engine: engine.clone(),
+        networks,
+        sandbox: Arc::from(pitwall_core::sandbox::session_sandbox()),
+        hooks: Some(hooks),
+        version: env!("CARGO_PKG_VERSION").into(),
+        label: pitwall_daemon::device_label(),
+        user: user.clone(),
+    };
+    let e = engine.clone();
+    match CoreCollab::start(deps) {
+        Ok(core) => pitwall_daemon::CollabService::new(core, approvals.clone(), move || e.views()),
+        Err(why) => {
+            eprintln!("pitwall: collaboration can't start ({why}); sharing is limited to drafts");
+            let backend = Arc::new(MemoryCollab::new(Me { login: user.clone(), name: user }, Some(paths.root().join("collab"))));
+            pitwall_daemon::CollabService::new(backend, approvals.clone(), move || e.views())
+        }
+    }
+}
+
+/// This machine's Tailscale, when it is installed (the only network in
+/// C1a; the Fake network is tests-only).
+fn tailscale_networks() -> Vec<Arc<dyn Network>> {
+    use pitwall_core::net::tailscale::{TailscaleConfig, TailscaleNetwork};
+    TailscaleNetwork::installed(TailscaleConfig::default())
+        .map(|n| vec![Arc::new(n) as Arc<dyn Network>])
+        .unwrap_or_default()
+}
+
+/// The `pitwall-hook` relay binary shared sessions run for their hooks:
+/// `$PITWALL_HOOK_BIN`, else next to this executable (a bundle, or
+/// `target/<profile>/` after a workspace build). `None`: the sh script.
+pub fn hook_bin() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("PITWALL_HOOK_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Some(p);
+    }
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let name = format!("pitwall-hook{}", std::env::consts::EXE_SUFFIX);
+    [exe_dir.join(&name), exe_dir.parent()?.join(&name)].into_iter().find(|p| p.is_file())
 }
 
 /// The `pitwall-hold` terminal holder: `$PITWALL_HOLD_BIN`, next to this
@@ -143,6 +225,14 @@ fn find_holder(
         .find(|p| p.is_file())
         .ok_or_else(|| "the terminal holder (pitwall-hold) is missing next to the app".into())
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_collab_e2e.rs"]
+mod collab_e2e;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_collab_canary.rs"]
+mod collab_canary;
 
 #[cfg(test)]
 mod tests {
@@ -221,7 +311,7 @@ mod tests {
 
         let t = std::time::Instant::now();
         let (bridge, _rx) = Bridge::new();
-        let mut host = Host::start_with(paths.clone(), bridge, Err("no holder in this test".into()), Some(agw));
+        let mut host = Host::start_with(paths.clone(), bridge, Err("no holder in this test".into()), Some(agw), None);
         let took = t.elapsed();
         let view = host.engine.views().remove(0);
         let mut cli = pitwall_client::Client::connect(&paths.cli_socket());

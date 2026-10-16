@@ -1,0 +1,72 @@
+{
+  "session_id": "3b0f8f8e-5a2c-4d3e-9a51-1d2c3e4f5a6b",
+  "response": "Mock Gemini reply 12: the docs are in docs/.",
+  "stats": {
+    "models": {
+      "gemini-mock": {
+        "api": {
+          "totalRequests": 6,
+          "totalErrors": 0,
+          "totalLatencyMs": 41,
+          "errorsByType": {}
+        },
+        "tokens": {
+          "input": 60,
+          "prompt": 60,
+          "candidates": 30,
+          "total": 90,
+          "cached": 0,
+          "thoughts": 0,
+          "tool": 0
+        },
+        "roles": {
+          "utility_router": {
+            "totalRequests": 5,
+            "totalErrors": 0,
+            "totalLatencyMs": 32,
+            "tokens": {
+              "input": 50,
+              "prompt": 50,
+              "candidates": 25,
+              "total": 75,
+              "cached": 0,
+              "thoughts": 0,
+              "tool": 0
+            }
+          },
+          "main": {
+            "totalRequests": 1,
+            "totalErrors": 0,
+            "totalLatencyMs": 9,
+            "tokens": {
+              "input": 10,
+              "prompt": 10,
+              "candidates": 5,
+              "total": 15,
+              "cached": 0,
+              "thoughts": 0,
+              "tool": 0
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

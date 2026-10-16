@@ -185,3 +185,33 @@ Polish round (`kit/fonts.rs`): two more static instances of the same Inter varia
 Parity round (`code_view/markdown.rs`): `tree-sitter-md` 0.5 (MIT, tree-sitter-grammars), the Markdown block and inline grammars for Review's Markdown colours (used through `tree-sitter-language`, no new tree-sitter version).
 
 Parity round (`code_view/highlight.rs`, more of the languages React gets from `@codemirror/language-data`): tree-sitter grammars `tree-sitter-php` 0.25, `tree-sitter-c-sharp` 0.23, `tree-sitter-lua` 0.5, `tree-sitter-swift` 0.7, `tree-sitter-kotlin-ng` 1.1 (highlight query written in-house: `code_view/kotlin_highlights.scm`), `tree-sitter-scala` 0.26, `tree-sitter-sequel` 0.3 (SQL), `tree-sitter-xml` 0.7, `tree-sitter-haskell` 0.24, `tree-sitter-zig` 1.1, `tree-sitter-r` 1.3, `tree-sitter-powershell` 0.26, `tree-sitter-scss` 1.0, `tree-sitter-ocaml` 0.26, `tree-sitter-nix` 0.3 (all MIT) and `tree-sitter-elixir` 0.3 (Apache-2.0); all on the one tree-sitter 0.25.
+
+## Collaboration (docs/spec/collaboration/)
+
+C1a interfaces (`pitwall-core::net`, `pitwall-core::collab`): `http` 1 (MIT OR
+Apache-2.0, already in the tree via gpui, with its dependencies `bytes` and
+`itoa`), for the request and response types of the collaboration handler.
+
+C1a Tailscale backend (`pitwall-core::net::tailscale`, `net::InstanceKey`):
+
+| Crate | Licence | For |
+|---|---|---|
+| ureq 3.4.0 (pinned exactly), ureq-proto 0.6 | MIT OR Apache-2.0 | the HTTP client (`Network::client`); no default features, so no TLS or gzip crates |
+| utf8-zero 0.8, base64 0.23 | MIT OR Apache-2.0 | ureq's own dependencies |
+| httparse 1 | MIT OR Apache-2.0 | request heads on the backend's listener (already in the tree via hyper) |
+| ed25519-dalek 2.2, curve25519-dalek 4.1 | BSD-3-Clause | the instance key (Ed25519, tailnet-peers.md §5) |
+| curve25519-dalek-derive 0.1 | MIT OR Apache-2.0 | curve25519-dalek's SIMD backends (some targets) |
+| fiat-crypto 0.2 | MIT OR Apache-2.0 OR BSD-1-Clause | curve25519-dalek's field arithmetic (some targets) |
+| ed25519 2.2, signature 2.2, pkcs8 0.10, der 0.7, spki 0.7, const-oid 0.9, base64ct 1.8 | Apache-2.0 OR MIT | ed25519-dalek's dependencies (RustCrypto) |
+| getrandom 0.3, base64 0.22 | MIT OR Apache-2.0 | the key's seed and its text form (both already in the tree) |
+
+`tiny_http`, the spec's candidate server (protocol.md §8.1), is not used: it
+accepts and parses connections itself, so the backend couldn't run `whois`
+before reading a byte or close a connection without one (§15.4). The
+listener is a small HTTP/1.1 server of our own on `httparse` instead.
+
+C1a core (`pitwall-core::collab`: team records, limits): `ed25519-dalek` 2
+(listed above with the instance key) to sign and check team records (§4.2); `sha2` 0.10 (MIT OR Apache-2.0, already in the tree) for
+record hashes and team ids; `base64` 0.22 (MIT OR Apache-2.0, already in the
+tree) for keys and signatures; `chrono` 0.4 (MIT OR Apache-2.0, already in the
+tree via the app) for the owner's local midnight, when daily limits reset.

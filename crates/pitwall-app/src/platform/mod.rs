@@ -90,30 +90,61 @@ fn state(cx: &mut App) -> &mut PlatformState {
 /// Keep the badge on the blocked count and notify on attention events
 /// (Tauri: `attention::set_badge`, `attention::notify`).
 pub fn follow(store: &Entity<AgentStore>, cx: &mut App) {
-    let initial = store.read(cx).blocked;
+    // Blocked agents, plus shared sessions that need the owner in ways the
+    // engine doesn't count (a reply that couldn't be read, results held).
+    let count = |store: &Entity<AgentStore>, cx: &App| store.read(cx).blocked + crate::collab::extra_attention(cx);
+    let initial = count(store, cx);
     set_badge(initial, cx);
-    cx.observe(store, |store, cx| {
-        let blocked = store.read(cx).blocked;
-        if blocked != state(cx).blocked {
-            set_badge(blocked, cx);
+    cx.observe(store, move |store, cx| {
+        let n = count(&store, cx);
+        if n != state(cx).blocked {
+            set_badge(n, cx);
+        }
+    })
+    .detach();
+    let collab = crate::collab::model_or_new(cx);
+    let weak = store.downgrade();
+    cx.observe(&collab, move |_, cx| {
+        let Some(store) = weak.upgrade() else { return };
+        let n = count(&store, cx);
+        if n != state(cx).blocked {
+            set_badge(n, cx);
         }
     })
     .detach();
     cx.subscribe(store, |_, event: &StoreEvent, cx| {
         let StoreEvent::Attention {
+            agent_id,
             name,
             reason,
             detail,
-            ..
         } = event
         else {
             return;
         };
-        if notify::wanted(pitwall_in_front(cx), notify::bench()) {
-            notify::send(name.clone(), notify::body(reason, detail.as_deref()));
-        }
+        // A shared session says whose conversation it is (§7.3).
+        let shared = crate::collab::snapshot(cx).session_of(agent_id).map(|(share, s)| (share.settings.slug.clone(), s.caller.login.clone()));
+        let (title, body) = match (shared, *reason) {
+            (Some((share, login)), "blocked") => {
+                let more = detail.as_deref().map(|d| format!(" — {d}")).unwrap_or_default();
+                (share, format!("{login}'s conversation needs you{more}"))
+            }
+            _ => (name.clone(), notify::body(reason, detail.as_deref())),
+        };
+        notify_user(title, body, cx);
     })
     .detach();
+}
+
+/// A system notification, unless the user is looking at Pitwall (or this
+/// is a test or a bench instance).
+pub fn notify_user(title: String, body: String, cx: &App) {
+    if cfg!(test) {
+        return;
+    }
+    if notify::wanted(pitwall_in_front(cx), notify::bench()) {
+        notify::send(title, body);
+    }
 }
 
 /// The user is looking at Pitwall: its main window is the active one

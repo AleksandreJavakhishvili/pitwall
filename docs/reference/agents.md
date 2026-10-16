@@ -57,6 +57,7 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `icon` | string | none | The logo shown before the kind's name in the sidebar, tile headers, New agent and the strip of hidden agents: a bundled logo (`claude`, `codex`, `gemini`, `copilot`, `cursor`, `qwen`, or `terminal` for the terminal icon) or the full path of a one-colour SVG file (`~/` means your home folder; it's tinted to the theme). None: the kind's first letter on a badge. |
 | `update_command` | string | none | The command that updates the tool (`claude update`). With **Keep agent tools up to date** on (Settings → Agents, `agents.updateTools`), Pitwall runs it through your login shell when it starts and every 6 hours, one tool at a time, and only for installed tools. |
 | `update_off_env` | table | `{}` | Environment that turns the tool's own updater off (`{ DISABLE_AUTOUPDATER = "1" }`). While Pitwall updates the tool, every agent and terminal it starts gets it, so many sessions don't update themselves at once (they race and can leave the tool's command missing). |
+| `share` | table | none | What hosting a shared session of this kind needs (see [Sharing](#sharing)). None: the kind can still be shared, with replies from its terminal output, no fork, and no model hosts allowed until the owner adds some. |
 
 Unknown keys are ignored.
 
@@ -101,6 +102,51 @@ A kind with `account_env` can run on more than one login, say a work and a perso
 - The CLI takes `pitwall agent new --account <name>`.
 
 Moving a running agent carries its conversation along and showing who an account is logged in as both work for Claude Code and Codex only, since they need to know where each tool keeps its files. For another kind, `account_env` still lets each agent start on the account you chose.
+
+## Sharing
+
+A `[share]` table tells Pitwall what a shared session of the kind needs inside its sandbox (see the collaboration spec, `docs/spec/collaboration/sessions.md` §6.3 and §6.7). Every key is optional.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `model_hosts` | list of strings | `[]` | Hosts the agent reaches its model and login at. The share's egress proxy allows these, plus the hosts the owner adds. `host`, `host:port` or `*.domain`; without a port, 443 and 80. |
+| `install_paths` | list of strings | `[]` | Where the agent's own install may be (`~/` means your home folder). They're readable inside the sandbox and their programs may run. Missing ones are skipped. |
+| `programs` | list of strings | `[]` | Programs the agent needs besides its command, such as its runtime (`node`), looked up on PATH. |
+| `keychain` | boolean | `false` | The agent keeps its login in the macOS Keychain, so the sandbox lets it reach the Keychain. |
+| `own_sandbox_off_args` | list of strings | `[]` | Arguments that turn the agent's own sandbox off (Codex: `["--sandbox", "danger-full-access"]`). Its sandbox can't start inside Pitwall's (Seatbelt doesn't nest), and Pitwall's is the one that holds; the agent's own tool rules stay as a second layer. |
+| `own_sandbox_off_env` | table | `{}` | The same as environment (Gemini CLI: `{ GEMINI_SANDBOX = "false" }`). |
+| `own_sandbox_off_settings` | table | none | The same as settings, for kinds that take a settings object per launch (`hooks = "claude-settings"`): merged into the `--settings` JSON with the hooks, so it wins over the account's own settings files (Claude Code: `{ sandbox = { enabled = false } }`). |
+| `reply` | string | `terminal` | Where a turn's reply is read: `hook` (the `Stop` hook's last message), `session-file` (the agent's own session files, `[share.session_files]`), `non-interactive` (each turn is one run of its non-interactive mode, `[share.non_interactive]`) or `terminal` (the turn's terminal output). |
+| `session_args` | list of strings | `[]` | Arguments every shared session's launch gets after the kind's own; `{cwd}` is the session's copy (its real path). Codex trusts the copy for the run (`-c projects=…`), Gemini CLI passes `--skip-trust`. |
+| `fork_args` | list of strings | `[]` | Arguments that start a session as a fork of a base conversation: `{base}` is its id, `{session_id}` a new one. Empty: it can't fork, and the approved summary is sent as the first message instead. |
+| `instruction_files` | list of strings | `[]` | The files it reads its instructions from (`CLAUDE.md`); the owner's text goes into these in the session folder. Empty: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `QWEN.md`. |
+| `limit_screen` | string | none | A regex matching its own usage-limit message; a group named `until` is the reset time it shows. |
+| `login_dir` | string | none | Where the agent keeps its login when no variable can move it (Gemini CLI: `~/.gemini`). It is never mounted or copied into a shared session. |
+| `api_key_env` | list of strings | `[]` | Variables holding an API key the agent can log in with (Gemini CLI: `GEMINI_API_KEY`). When set, a share of the kind goes live only once the owner passes one of them in the share's environment and it has a value. |
+
+A share runs on a separate agent account: for kinds with accounts (`account_env`), going live is refused while its sessions would use your own login (the kind's Default) or the account the shared agent itself runs on, because a session can read and write its account's folder, which holds that account's other conversations. Guest tries may use any login.
+
+```toml
+[share]
+model_hosts = ["api.example.com"]
+install_paths = ["~/.local/share/drift"]
+programs = ["node"]
+```
+
+`[share.session_files]` (with `reply = "session-file"`) says where the agent writes its own session files, as JSON Lines, and which lines matter. Lines are matched by JSON pointers (`"/payload/type"`) to values:
+
+| Key | Meaning |
+|---|---|
+| `dir`, `suffix` | The folder under the agent account's folder (the kind's `account_env`), searched to any depth, and the files' name ending (`.jsonl`). |
+| `meta`, `id`, `cwd` | The line naming the session, and pointers to its id and working folder on it. Pitwall picks the file whose working folder is the session's copy, and learns the id for the kind's resume. |
+| `end`, `reply` | A line that ends a turn, and the pointer to the reply on it. |
+
+`[share.non_interactive]` (with `reply = "non-interactive"`) runs each turn as one command in the session's pane; nothing runs between turns:
+
+| Key | Meaning |
+|---|---|
+| `first_args`, `next_args` | The arguments of a conversation's first turn and of every later one: `{message}` is the message, `{session_id}` the conversation's id (Pitwall picks it for the first turn). |
+| `reply`, `session_id`, `error` | Pointers into the JSON the run prints: the reply, the conversation's id and an error message. |
 
 ## The bundled Claude Code definition
 

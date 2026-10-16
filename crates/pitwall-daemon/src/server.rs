@@ -20,7 +20,8 @@ use crate::{methods, platform};
 /// How long a client may take to say hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// What this server offers (`welcome.caps`; plus `settings` with a
-/// settings backend and `spaces` with a workspace backend).
+/// settings backend, `spaces` with a workspace backend and `collab` with
+/// collaboration).
 pub const CAPS: &[&str] = &[caps::AGENTS, caps::SESSIONS, caps::APPROVALS, caps::MANAGE];
 
 pub struct Config {
@@ -32,6 +33,9 @@ pub struct Config {
     pub settings: Option<Arc<dyn crate::SettingsBackend>>,
     /// Where `space.*` and `agent.move` arrange spaces (`None`: not offered).
     pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
+    /// `share.*`, `team.*`, `people.list`, `ask.*`, `collab.settings.*`
+    /// (`None`: not offered).
+    pub collab: Option<Arc<crate::collab::CollabService>>,
 }
 
 /// What every connection shares.
@@ -41,6 +45,7 @@ pub struct Server {
     pub identify: Arc<dyn Identify>,
     pub settings: Option<Arc<dyn crate::SettingsBackend>>,
     pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
+    pub collab: Option<Arc<crate::collab::CollabService>>,
     caps: Vec<&'static str>,
     instance: String,
     version: String,
@@ -93,12 +98,16 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
     if cfg.workspace.is_some() {
         offered.push(caps::SPACES);
     }
+    if cfg.collab.is_some() {
+        offered.push(caps::COLLAB);
+    }
     let server = Arc::new(Server {
         engine,
         approvals,
         identify,
         settings: cfg.settings,
         workspace: cfg.workspace,
+        collab: cfg.collab,
         caps: offered,
         instance: uuid::Uuid::new_v4().to_string(),
         version: cfg.version,

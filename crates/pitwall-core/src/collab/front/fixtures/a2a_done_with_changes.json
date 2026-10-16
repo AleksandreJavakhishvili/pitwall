@@ -1,0 +1,89 @@
+{
+  "artifacts": [
+    {
+      "artifactId": "reply",
+      "name": "reply",
+      "parts": [
+        {
+          "text": "Added the flag."
+        },
+        {
+          "data": {
+            "source": "hook"
+          }
+        }
+      ]
+    },
+    {
+      "artifactId": "changes",
+      "name": "changes",
+      "parts": [
+        {
+          "filename": "turn-1.patch",
+          "mediaType": "text/x-patch",
+          "raw": "RnJvbSA3YzFlIE1vbiBTZXAgMTcgMDA6MDA6MDAgMjAwMQpTdWJqZWN0OiBbUEFUQ0hdIGFkZCBkcnktcnVuCgotLS0gYS94CisrKyBiL3gKQEAgLTEgKzEgQEAKLWEKK2IK"
+        },
+        {
+          "data": {
+            "added": 14,
+            "baseCommit": "3f2a1c9d0e",
+            "files": 2,
+            "patches": 1,
+            "removed": 3
+          }
+        }
+      ]
+    }
+  ],
+  "contextId": "c_1",
+  "id": "c_1/1",
+  "metadata": {
+    "pitwall/turn": {
+      "at": "2026-10-16T10:00:00Z",
+      "changes": {
+        "added": 14,
+        "baseCommit": "3f2a1c9d0e",
+        "files": 2,
+        "parts": 1,
+        "patches": 1,
+        "removed": 3,
+        "state": "sent"
+      },
+      "conversation": "c_1",
+      "doneAt": "2026-10-16T10:02:00Z",
+      "id": "c_1/1",
+      "left": {
+        "messagesToday": 16,
+        "resetsAt": "2026-10-17T00:00:00+02:00"
+      },
+      "reply": {
+        "source": "hook",
+        "text": "Added the flag."
+      },
+      "share": "payments-expert",
+      "status": {
+        "state": "done"
+      }
+    }
+  },
+  "status": {
+    "message": {
+      "contextId": "c_1",
+      "messageId": "c_1/1#done",
+      "parts": [
+        {
+          "text": "done"
+        },
+        {
+          "data": {
+            "state": "done"
+          }
+        }
+      ],
+      "role": "ROLE_AGENT",
+      "taskId": "c_1/1"
+    },
+    "state": "TASK_STATE_COMPLETED",
+    "timestamp": "2026-10-16T10:02:00Z"
+  }
+}

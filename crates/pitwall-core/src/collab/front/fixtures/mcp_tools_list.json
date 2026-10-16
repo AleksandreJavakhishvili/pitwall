@@ -1,0 +1,521 @@
+{
+  "id": 2,
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "_meta": {
+          "pitwall/share": {
+            "capability": "read",
+            "kind": "claude",
+            "left": 17,
+            "messagesPerDay": 20,
+            "owner": "alice@example.com",
+            "slug": "api-expert"
+          }
+        },
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true
+        },
+        "description": "API expert (alice@example.com): Questions about the API service: auth, billing, jobs. Read only. Runs on Claude Code. One conversation per caller; it remembers earlier messages. 17 of 20 messages left today.",
+        "inputSchema": {
+          "properties": {
+            "message": {
+              "description": "Your message to the agent, in your own words",
+              "type": "string"
+            },
+            "my_changes": {
+              "description": "a git format-patch series to apply to the agent's copy first",
+              "type": "string"
+            },
+            "new_conversation": {
+              "description": "Start a new conversation instead of continuing yours",
+              "type": "boolean"
+            },
+            "wait_seconds": {
+              "default": 120,
+              "description": "How long to wait for the turn before returning with status \"working\"",
+              "maximum": 240,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "type": "object"
+        },
+        "name": "ask_api_expert",
+        "outputSchema": {
+          "properties": {
+            "changes": {
+              "properties": {
+                "added": {
+                  "type": "integer"
+                },
+                "baseCommit": {
+                  "type": "string"
+                },
+                "files": {
+                  "type": "integer"
+                },
+                "parts": {
+                  "type": "integer"
+                },
+                "patch": {
+                  "type": "string"
+                },
+                "patches": {
+                  "type": "integer"
+                },
+                "removed": {
+                  "type": "integer"
+                },
+                "state": {
+                  "enum": [
+                    "sent",
+                    "held",
+                    "discarded"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "conversation": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "failure": {
+              "enum": [
+                "no_answer",
+                "timeout",
+                "crashed",
+                "canceled"
+              ],
+              "type": "string"
+            },
+            "left": {
+              "properties": {
+                "messagesToday": {
+                  "type": "integer"
+                },
+                "resetsAt": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "message": {
+              "type": "string"
+            },
+            "refused": {
+              "enum": [
+                "quota",
+                "busy",
+                "paused",
+                "share_total",
+                "agent_limit",
+                "loop"
+              ],
+              "type": "string"
+            },
+            "reply": {
+              "type": "string"
+            },
+            "replySource": {
+              "enum": [
+                "hook",
+                "session-file",
+                "non-interactive",
+                "terminal"
+              ],
+              "type": "string"
+            },
+            "resetsAt": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "done",
+                "working",
+                "waiting_for_owner",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "statusMessage": {
+              "type": "string"
+            },
+            "turn": {
+              "type": "string"
+            },
+            "until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        "title": "alice/api-expert"
+      },
+      {
+        "_meta": {
+          "pitwall/share": {
+            "capability": "write_approval",
+            "kind": "claude",
+            "left": 17,
+            "messagesPerDay": 20,
+            "owner": "alice@example.com",
+            "slug": "payments-expert"
+          }
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "openWorldHint": false,
+          "readOnlyHint": false
+        },
+        "description": "Payments expert (alice@example.com): Refunds and invoices. Can change code; changes come back as a patch after the owner approves them. Runs on Claude Code. One conversation per caller; it remembers earlier messages. 17 of 20 messages left today.",
+        "inputSchema": {
+          "properties": {
+            "message": {
+              "description": "Your message to the agent, in your own words",
+              "type": "string"
+            },
+            "my_changes": {
+              "description": "a git format-patch series to apply to the agent's copy first",
+              "type": "string"
+            },
+            "new_conversation": {
+              "description": "Start a new conversation instead of continuing yours",
+              "type": "boolean"
+            },
+            "wait_seconds": {
+              "default": 120,
+              "description": "How long to wait for the turn before returning with status \"working\"",
+              "maximum": 240,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "type": "object"
+        },
+        "name": "ask_payments_expert",
+        "outputSchema": {
+          "properties": {
+            "changes": {
+              "properties": {
+                "added": {
+                  "type": "integer"
+                },
+                "baseCommit": {
+                  "type": "string"
+                },
+                "files": {
+                  "type": "integer"
+                },
+                "parts": {
+                  "type": "integer"
+                },
+                "patch": {
+                  "type": "string"
+                },
+                "patches": {
+                  "type": "integer"
+                },
+                "removed": {
+                  "type": "integer"
+                },
+                "state": {
+                  "enum": [
+                    "sent",
+                    "held",
+                    "discarded"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "conversation": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "failure": {
+              "enum": [
+                "no_answer",
+                "timeout",
+                "crashed",
+                "canceled"
+              ],
+              "type": "string"
+            },
+            "left": {
+              "properties": {
+                "messagesToday": {
+                  "type": "integer"
+                },
+                "resetsAt": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "message": {
+              "type": "string"
+            },
+            "refused": {
+              "enum": [
+                "quota",
+                "busy",
+                "paused",
+                "share_total",
+                "agent_limit",
+                "loop"
+              ],
+              "type": "string"
+            },
+            "reply": {
+              "type": "string"
+            },
+            "replySource": {
+              "enum": [
+                "hook",
+                "session-file",
+                "non-interactive",
+                "terminal"
+              ],
+              "type": "string"
+            },
+            "resetsAt": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "done",
+                "working",
+                "waiting_for_owner",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "statusMessage": {
+              "type": "string"
+            },
+            "turn": {
+              "type": "string"
+            },
+            "until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        "title": "alice/payments-expert"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true
+        },
+        "description": "The state of a turn that was still working, waiting for its owner, or holding changes; waits up to wait_seconds for it to finish, like ask_<agent>.",
+        "inputSchema": {
+          "properties": {
+            "turn": {
+              "description": "The turn id an earlier result gave",
+              "type": "string"
+            },
+            "wait_seconds": {
+              "default": 120,
+              "description": "How long to wait for the turn before returning with status \"working\"",
+              "maximum": 240,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "turn"
+          ],
+          "type": "object"
+        },
+        "name": "check_turn",
+        "outputSchema": {
+          "properties": {
+            "changes": {
+              "properties": {
+                "added": {
+                  "type": "integer"
+                },
+                "baseCommit": {
+                  "type": "string"
+                },
+                "files": {
+                  "type": "integer"
+                },
+                "parts": {
+                  "type": "integer"
+                },
+                "patch": {
+                  "type": "string"
+                },
+                "patches": {
+                  "type": "integer"
+                },
+                "removed": {
+                  "type": "integer"
+                },
+                "state": {
+                  "enum": [
+                    "sent",
+                    "held",
+                    "discarded"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "conversation": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "failure": {
+              "enum": [
+                "no_answer",
+                "timeout",
+                "crashed",
+                "canceled"
+              ],
+              "type": "string"
+            },
+            "left": {
+              "properties": {
+                "messagesToday": {
+                  "type": "integer"
+                },
+                "resetsAt": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "message": {
+              "type": "string"
+            },
+            "refused": {
+              "enum": [
+                "quota",
+                "busy",
+                "paused",
+                "share_total",
+                "agent_limit",
+                "loop"
+              ],
+              "type": "string"
+            },
+            "reply": {
+              "type": "string"
+            },
+            "replySource": {
+              "enum": [
+                "hook",
+                "session-file",
+                "non-interactive",
+                "terminal"
+              ],
+              "type": "string"
+            },
+            "resetsAt": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "done",
+                "working",
+                "waiting_for_owner",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "statusMessage": {
+              "type": "string"
+            },
+            "turn": {
+              "type": "string"
+            },
+            "until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        "title": "Check a turn"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true
+        },
+        "description": "A turn's patch series in parts of 40000 characters, for series too big to come inline. Concatenate the parts in order and apply with `git am -3`.",
+        "inputSchema": {
+          "properties": {
+            "part": {
+              "default": 1,
+              "description": "Which part, from 1",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "turn": {
+              "description": "The turn id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "turn"
+          ],
+          "type": "object"
+        },
+        "name": "get_changes",
+        "outputSchema": {
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "part": {
+              "type": "integer"
+            },
+            "parts": {
+              "type": "integer"
+            },
+            "patch": {
+              "type": "string"
+            },
+            "turn": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "title": "Get a turn's changes"
+      }
+    ]
+  }
+}

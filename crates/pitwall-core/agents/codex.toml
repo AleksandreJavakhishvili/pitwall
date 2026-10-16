@@ -16,3 +16,43 @@ account_env = "CODEX_HOME"
 account_home = "~/.codex"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "codex"
+
+# Sharing (docs/spec/collaboration/sessions.md §6.7): what a shared session's
+# sandbox lets it reach. Hosts: the API, ChatGPT sign-in's backend and token
+# refresh (unverified beyond api.openai.com). The login is auth.json in the
+# account's folder, so no Keychain.
+[share]
+model_hosts = ["api.openai.com", "chatgpt.com", "auth.openai.com"]
+# The standalone installer, Homebrew's cask and npm's global folders.
+install_paths = [
+    "~/.codex/packages",
+    "/opt/homebrew/Caskroom/codex",
+    "/opt/homebrew/lib/node_modules/@openai/codex",
+    "/usr/local/lib/node_modules/@openai/codex",
+]
+programs = ["node"]
+# Its hooks are opt-in and global, so replies come from its own session files
+# (below): the line that ends a turn carries its last message.
+reply = "session-file"
+fork_args = ["fork", "{base}"]
+instruction_files = ["AGENTS.md"]
+# Its own Seatbelt sandbox can't start inside Pitwall's: off, Pitwall's holds.
+own_sandbox_off_args = ["--sandbox", "danger-full-access"]
+# Each conversation's copy is a new folder: trusted for this run only (never
+# written to the account's config.toml), so it doesn't stop at "Trust this
+# folder?". Checked with codex-cli 0.160.1.
+session_args = ["-c", 'projects={"{cwd}"={trust_level="trusted"}}']
+
+# Its session files: $CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl, one
+# JSON line per event. The first names the session (id, working folder); each
+# turn ends with event_msg/task_complete carrying last_agent_message. Checked
+# with codex-cli 0.160.1 (exec and the interactive TUI, against a local mock
+# of the model API); a resumed conversation appends to the same file.
+[share.session_files]
+dir = "sessions"
+suffix = ".jsonl"
+meta = { "/type" = "session_meta" }
+id = "/payload/id"
+cwd = "/payload/cwd"
+end = { "/type" = "event_msg", "/payload/type" = "task_complete" }
+reply = "/payload/last_agent_message"

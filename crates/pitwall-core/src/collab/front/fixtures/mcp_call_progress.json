@@ -1,0 +1,54 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "method": "notifications/progress",
+    "params": {
+      "message": "2nd in line",
+      "progress": 1,
+      "progressToken": "p-1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "notifications/progress",
+    "params": {
+      "message": "working",
+      "progress": 2,
+      "progressToken": "p-1"
+    }
+  },
+  {
+    "jsonrpc": "2.0",
+    "method": "notifications/progress",
+    "params": {
+      "message": "waiting for alice",
+      "progress": 3,
+      "progressToken": "p-1"
+    }
+  },
+  {
+    "id": 7,
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "text": "Shipped.\n\nTurn c_1/1 is done (conversation c_1). 16 messages left today.",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "conversation": "c_1",
+        "left": {
+          "messagesToday": 16,
+          "resetsAt": "2026-10-17T00:00:00+02:00"
+        },
+        "reply": "Shipped.",
+        "replySource": "hook",
+        "status": "done",
+        "statusMessage": "done",
+        "turn": "c_1/1"
+      }
+    }
+  }
+]

@@ -80,7 +80,7 @@ fn world(approval_timeout: Duration) -> World {
     let approvals = Approvals::new(approval_timeout);
     let callers = Arc::new(Callers::default());
     let socket = short_socket();
-    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None })
+    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, collab: None })
         .expect("listen on a temp socket");
     World { engine, vm, approvals, callers, server: Some(server), socket, _dir: dir }
 }
@@ -161,7 +161,7 @@ fn the_socket_is_private_and_removed_on_stop() {
         assert_eq!(mode, 0o600);
     }
     // A second server on the same socket refuses to start.
-    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None });
+    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None, collab: None });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
     w.server.take().unwrap().stop();
     assert!(!w.socket.exists());
@@ -584,4 +584,50 @@ fn waiting_for_a_status() {
     // A stopped agent won't become idle.
     let e = server_error(c.call("agent.wait", json!({"agentId": a.id, "until": ["idle"]})).unwrap_err());
     assert_eq!(e.code, code::NOT_RUNNING);
+}
+
+/// Collaboration over the socket: offered as a cap; a shared session's
+/// process tree gets `forbidden` for every method, collaboration or not.
+#[test]
+fn shared_sessions_get_nothing_on_the_socket() {
+    use pitwall_daemon::collab::memory::MemoryCollab;
+    use pitwall_daemon::collab::Me;
+    use pitwall_daemon::CollabService;
+    let dir = TempDir::new("daemon-collab");
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let approvals = Approvals::new(Duration::from_millis(100));
+    let mem = Arc::new(MemoryCollab::new(Me { login: "alice@example.com".into(), name: "alice".into() }, None));
+    mem.mark_shared_session("s1");
+    let e = engine.clone();
+    let collab = CollabService::new(mem, approvals.clone(), move || e.views());
+    let callers = Arc::new(Callers::default());
+    let socket = short_socket();
+    let cfg = Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, collab: Some(collab) };
+    let server = serve(engine, approvals, callers.clone(), cfg).unwrap();
+    let connect = |c: Caller| {
+        callers.0.lock().unwrap().push_back(c);
+        Client::connect(&socket).unwrap()
+    };
+    let mut user = connect(Caller::outside());
+    assert!(user.has(pitwall_proto::caps::COLLAB));
+    assert_eq!(user.call(pitwall_proto::method::SHARE_LIST, Value::Null).unwrap(), json!([]));
+    let mut shared = connect(agent_caller("s1", "api · bob"));
+    for m in [pitwall_proto::method::SHARE_LIST, pitwall_proto::method::AGENT_LIST, pitwall_proto::method::SETTINGS_LIST, pitwall_proto::method::ASK_SEND] {
+        match shared.call(m, Value::Null) {
+            Err(Error::Server(e)) => assert_eq!(e.code, code::FORBIDDEN, "{m}"),
+            other => panic!("{m}: {other:?}"),
+        }
+    }
+    let mut agent = connect(agent_caller("a9", "helper"));
+    assert!(agent.call(pitwall_proto::method::AGENT_LIST, Value::Null).is_ok(), "the owner's own agents are fine");
+    server.stop();
+    if let Some(d) = socket.parent() {
+        let _ = std::fs::remove_dir_all(d);
+    }
 }

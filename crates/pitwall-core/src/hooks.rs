@@ -85,6 +85,11 @@ pub fn claude_settings_arg(command: &str) -> String {
 
 /// `claude --settings` value wiring every event to the relay script.
 pub fn claude_settings_json(command: &str) -> String {
+    claude_settings_value(command).to_string()
+}
+
+/// [`claude_settings_json`] as a value, to merge more settings into.
+pub fn claude_settings_value(command: &str) -> Value {
     let mut hooks = serde_json::Map::new();
     for event in EVENTS {
         hooks.insert(
@@ -92,7 +97,7 @@ pub fn claude_settings_json(command: &str) -> String {
             json!([{ "hooks": [{ "type": "command", "command": command }] }]),
         );
     }
-    json!({ "hooks": hooks }).to_string()
+    json!({ "hooks": hooks })
 }
 
 // ---------------------------------------------------------------- mapping

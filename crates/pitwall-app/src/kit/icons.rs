@@ -45,6 +45,10 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("headset", "M4 12.5V10a6 6 0 0 1 12 0v2.5M4 11.5h2.5v4H5a1 1 0 0 1-1-1zM16 11.5h-2.5v4H15a1 1 0 0 0 1-1zM14.5 15.5c0 1.2-1.3 2-3.5 2"),
     // An account (a login): the sidebar grouped by account.
     ("user", "M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"),
+    // Collaboration: People (two heads), Ask (a speech bubble), Share (out of a box).
+    ("people", "M10 7a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM2.5 15.5c0-2.5 2-4.2 5-4.2s5 1.7 5 4.2M12.5 4.8a2.5 2.5 0 0 1 0 4.4M14.5 11.6c1.8.5 3 1.8 3 3.9"),
+    ("ask", "M3.5 4.5h13v8.5H9l-3.5 3v-3h-2z"),
+    ("share", "M10 3v9M6.5 6.5 10 3l3.5 3.5M5 9.5H4v7h12v-7h-1"),
 ];
 
 fn icon_path(name: &str) -> Option<&'static str> {

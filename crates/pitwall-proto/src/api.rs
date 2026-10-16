@@ -13,6 +13,8 @@ use ts_rs::TS;
 
 use crate::views::{AgentView, ScannedPlace};
 
+pub mod collab;
+
 pub mod method {
     /// → `AgentView[]`
     pub const AGENT_LIST: &str = "agent.list";
@@ -99,6 +101,78 @@ pub mod method {
     pub const SPACE_MOVE: &str = "space.move";
     /// [`AgentMove`](crate::AgentMove) → `SpaceView` (the space it is in now)
     pub const AGENT_MOVE: &str = "agent.move";
+
+    // Collaboration (`caps::COLLAB`; `api::collab`): owner-only local
+    // methods (collaboration/protocol.md §8.5). Never on a network, never
+    // from a shared session (`forbidden`).
+    /// → `ShareView[]`
+    pub const SHARE_LIST: &str = "share.list";
+    /// [`ShareRef`](super::collab::ShareRef) → `ShareView`
+    pub const SHARE_GET: &str = "share.get";
+    /// [`ShareCreate`](super::collab::ShareCreate) → `ShareView`: a draft.
+    pub const SHARE_CREATE: &str = "share.create";
+    /// [`ShareSet`](super::collab::ShareSet) → [`ShareChanged`](super::collab::ShareChanged):
+    /// the diff it applied; widening a live share asks.
+    pub const SHARE_SET: &str = "share.set";
+    /// [`ShareRef`](super::collab::ShareRef) → `ShareView` (always asks,
+    /// with the full summary, unless from Pitwall's own window).
+    pub const SHARE_GO_LIVE: &str = "share.go_live";
+    /// [`ShareRef`](super::collab::ShareRef) → `ShareView` (narrowing: direct).
+    pub const SHARE_PAUSE: &str = "share.pause";
+    /// [`ShareRef`](super::collab::ShareRef) → `ShareView` (widening: asks).
+    pub const SHARE_RESUME: &str = "share.resume";
+    /// [`ShareRef`](super::collab::ShareRef) → `null`: stop sharing (the
+    /// agent stays as it was).
+    pub const SHARE_STOP: &str = "share.stop";
+    /// [`ShareGuest`](super::collab::ShareGuest) → `ProbeResult[]` (drafts only).
+    pub const SHARE_GUEST: &str = "share.guest";
+    /// [`ShareRef`](super::collab::ShareRef) → `SharedSessionView[]`
+    pub const SHARE_SESSIONS: &str = "share.sessions";
+    /// [`ShareBlock`](super::collab::ShareBlock) → `null` (blocking: direct;
+    /// letting in again asks).
+    pub const SHARE_BLOCK: &str = "share.block";
+    /// [`ShareSummaryRequest`](super::collab::ShareSummaryRequest) → `ShareSummary`
+    pub const SHARE_SUMMARY: &str = "share.summary";
+    /// → `SetupLine[]`: the `claude mcp add` lines for this machine.
+    pub const SHARE_SETUP: &str = "share.setup";
+    /// [`ShareTurns`](super::collab::ShareTurns) → `OwnerTurnView[]`: one
+    /// conversation's turns, as its owner sees them (the session's Messages).
+    pub const SHARE_TURNS: &str = "share.turns";
+    /// [`ShareAudit`](super::collab::ShareAudit) → `AuditEntryView[]`, newest first.
+    pub const SHARE_AUDIT: &str = "share.audit";
+    /// [`NoticesAfter`](super::collab::NoticesAfter) → `OwnerNotice[]`:
+    /// needs-you, no answer, the day's agent time used, the agent's limit.
+    pub const SHARE_NOTICES: &str = "share.notices";
+    /// → `TeamCard[]`: mine, then the discovered ones.
+    pub const TEAM_LIST: &str = "team.list";
+    /// [`TeamRef`](super::collab::TeamRef) → `TeamDetail`
+    pub const TEAM_SHOW: &str = "team.show";
+    /// [`TeamCreate`](super::collab::TeamCreate) → `TeamDetail`
+    pub const TEAM_CREATE: &str = "team.create";
+    /// [`TeamJoin`](super::collab::TeamJoin) → `TeamCard`
+    pub const TEAM_JOIN: &str = "team.join";
+    /// [`TeamRef`](super::collab::TeamRef) → `null`
+    pub const TEAM_LEAVE: &str = "team.leave";
+    /// [`TeamApprove`](super::collab::TeamApprove) → `TeamDetail` (admins)
+    pub const TEAM_APPROVE: &str = "team.approve";
+    /// [`TeamRef`](super::collab::TeamRef) → `InviteLink` (admins)
+    pub const TEAM_INVITE: &str = "team.invite";
+    /// [`TeamAddMember`](super::collab::TeamAddMember) → `MemberAdded` (admins)
+    pub const TEAM_ADD_MEMBER: &str = "team.add_member";
+    /// → `PersonView[]`: people in my teams and their shared agents.
+    pub const PEOPLE_LIST: &str = "people.list";
+    /// [`AskSend`](super::collab::AskSend) → `AskView` (waits for the turn,
+    /// up to `timeout`). Agents need "Let my agents ask" (`not_allowed`).
+    pub const ASK_SEND: &str = "ask.send";
+    /// [`AskFilter`](super::collab::AskFilter) → `AskView[]`
+    pub const ASK_LIST: &str = "ask.list";
+    /// [`AskRef`](super::collab::AskRef) → `AskView`
+    pub const ASK_GET: &str = "ask.get";
+    /// → `CollabSettingsView`
+    pub const COLLAB_SETTINGS_GET: &str = "collab.settings.get";
+    /// `CollabSettings` → `CollabSettingsView` (turning something on asks
+    /// unless from Pitwall's own window).
+    pub const COLLAB_SETTINGS_SET: &str = "collab.settings.set";
 }
 
 /// Feature flags in `welcome.caps`.
@@ -113,6 +187,9 @@ pub mod caps {
     pub const MANAGE: &str = "manage";
     /// `space.*` and `agent.move` (a Pitwall with windows: the app).
     pub const SPACES: &str = "spaces";
+    /// `share.*`, `team.*`, `people.list`, `ask.*`, `collab.settings.*`
+    /// (a Pitwall that hosts collaboration).
+    pub const COLLAB: &str = "collab";
 }
 
 pub mod event {
