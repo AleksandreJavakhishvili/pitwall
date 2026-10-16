@@ -1,8 +1,9 @@
 //! A share's settings, changed: [`apply`] a [`SharePatch`] and [`diff`] the
 //! result against what was there, line by line, each line marked when it
-//! **widens** access (collaboration/sharing.md §5.5). Widening from the CLI
-//! or an agent always asks the owner and can't be remembered; narrowing
-//! applies directly.
+//! **widens** access (collaboration/sharing.md §5.5). The diff is the
+//! core's (`pitwall_core::collab::shares::diff`), the same one `Collab`
+//! applies. Widening from the CLI or an agent always asks the owner and
+//! can't be remembered; narrowing applies directly.
 //!
 //! Widening: more people, teams, groups or a whole network; more paths or
 //! fewer exclusions; uncommitted changes or history in; a stronger
@@ -11,163 +12,12 @@
 //! different repository, branch or account; more programs; higher limits;
 //! a person let in again; going live.
 
-use std::collections::BTreeSet;
-
-use serde_json::{json, Value};
-
 use pitwall_proto::api::collab::SharePatch;
-use pitwall_proto::collab::{Capability, LimitOverride, Programs, ShareDiff, ShareDiffLine, ShareSettings, ShareState, Start, TeamId};
+use pitwall_proto::collab::{ShareSettings, TeamId};
 
-/// Strength of a capability: approval removed is stronger than kept.
-fn rank(c: Capability) -> u8 {
-    match c {
-        Capability::Read => 0,
-        Capability::WriteApproval => 1,
-        Capability::Write => 2,
-    }
-}
-
-fn state_rank(s: ShareState) -> u8 {
-    match s {
-        ShareState::Draft | ShareState::Paused => 0,
-        ShareState::Live => 1,
-    }
-}
-
-fn line(field: &str, from: Value, to: Value, widens: bool) -> ShareDiffLine {
-    ShareDiffLine { field: field.into(), from, to, widens }
-}
-
-fn v<T: serde::Serialize>(x: &T) -> Value {
-    serde_json::to_value(x).unwrap_or(Value::Null)
-}
-
-/// Something in `new` that isn't in `old`.
-fn added<T: Ord + Clone>(old: &[T], new: &[T]) -> bool {
-    let old: BTreeSet<&T> = old.iter().collect();
-    new.iter().any(|x| !old.contains(x))
-}
-
-/// A list field: one line when it changed, widening when `grow_widens` and
-/// something was added (or, when not, something was taken out).
-fn list<T: Ord + Clone + serde::Serialize>(out: &mut Vec<ShareDiffLine>, field: &str, old: &[T], new: &[T], grow_widens: bool) {
-    let (a, b): (BTreeSet<&T>, BTreeSet<&T>) = (old.iter().collect(), new.iter().collect());
-    if a == b {
-        return;
-    }
-    let widens = if grow_widens { added(old, new) } else { added(new, old) };
-    out.push(line(field, v(&old), v(&new), widens));
-}
-
-fn number(out: &mut Vec<ShareDiffLine>, field: &str, old: u32, new: u32) {
-    if old != new {
-        out.push(line(field, json!(old), json!(new), new > old));
-    }
-}
-
-/// Every path in the copy (`[]`: the whole repository) is it still covered?
-fn paths_widen(old: &[String], new: &[String]) -> bool {
-    let covered = |p: &String| old.iter().any(|o| p.starts_with(o.as_str()));
-    match (old.is_empty(), new.is_empty()) {
-        (true, _) => false,
-        (false, true) => true,
-        (false, false) => !new.iter().all(covered),
-    }
-}
-
-/// More programs allowed: an allowlist that grew, a denylist that shrank,
-/// a denylist instead of an allowlist, or the defaults dropped for a list
-/// (compared with the capability's default: an allowlist at Read only).
-fn programs_widen(old: &Option<Programs>, new: &Option<Programs>) -> bool {
-    match (old, new) {
-        (Some(Programs::Allow(a)), Some(Programs::Allow(b))) => added(a, b),
-        (Some(Programs::Deny(a)), Some(Programs::Deny(b))) => added(b, a),
-        (Some(Programs::Allow(_)), Some(Programs::Deny(_))) => true,
-        (Some(Programs::Deny(_)), Some(Programs::Allow(_))) => false,
-        (None, Some(Programs::Deny(_))) => true,
-        (None, Some(Programs::Allow(_))) => false,
-        (Some(_), None) => true,
-        (None, None) => false,
-    }
-}
-
-fn override_widens(old: Option<&LimitOverride>, new: Option<&LimitOverride>, base: u32) -> bool {
-    let limit = |o: Option<&LimitOverride>| o.and_then(|o| o.messages_per_day).unwrap_or(base);
-    let blocked = |o: Option<&LimitOverride>| o.is_some_and(|o| o.blocked);
-    (blocked(old) && !blocked(new)) || (!blocked(new) && limit(new) > limit(old))
-}
-
-/// What changed from `old` to `new`, in a fixed order.
-pub fn diff(old: &ShareSettings, new: &ShareSettings) -> ShareDiff {
-    let mut out = Vec::new();
-    if old.state != new.state {
-        out.push(line("state", v(&old.state), v(&new.state), state_rank(new.state) > state_rank(old.state)));
-    }
-    for (field, a, b) in [("slug", &old.slug, &new.slug), ("name", &old.name, &new.name), ("description", &old.description, &new.description)] {
-        if a != b {
-            out.push(line(field, json!(a), json!(b), false));
-        }
-    }
-    if old.capability != new.capability {
-        out.push(line("capability", v(&old.capability), v(&new.capability), rank(new.capability) > rank(old.capability)));
-    }
-    list(&mut out, "audience.people", &old.audience.people, &new.audience.people, true);
-    list(&mut out, "audience.teams", &old.audience.teams, &new.audience.teams, true);
-    list(&mut out, "audience.groups", &old.audience.groups, &new.audience.groups, true);
-    list(&mut out, "audience.networks", &old.audience.networks, &new.audience.networks, true);
-    let (s, t) = (&old.scope, &new.scope);
-    if s.repo != t.repo {
-        out.push(line("scope.repo", json!(s.repo), json!(t.repo), true));
-    }
-    if s.git_ref != t.git_ref {
-        out.push(line("scope.ref", json!(s.git_ref), json!(t.git_ref), true));
-    }
-    if s.paths.iter().collect::<BTreeSet<_>>() != t.paths.iter().collect::<BTreeSet<_>>() {
-        out.push(line("scope.paths", v(&s.paths), v(&t.paths), paths_widen(&s.paths, &t.paths)));
-    }
-    list(&mut out, "scope.exclude", &s.exclude, &t.exclude, false);
-    for (field, a, b) in [("scope.uncommitted", s.uncommitted, t.uncommitted), ("scope.history", s.history, t.history)] {
-        if a != b {
-            out.push(line(field, json!(a), json!(b), b));
-        }
-    }
-    if old.start != new.start {
-        // Fresh is the narrowest start; any summary (new or edited) widens.
-        out.push(line("start", v(&old.start), v(&new.start), new.start != Start::Fresh));
-    }
-    list(&mut out, "access.env", &old.access.env, &new.access.env, true);
-    list(&mut out, "access.network.allow", &old.access.network.allow, &new.access.network.allow, true);
-    if old.access.account != new.access.account {
-        out.push(line("access.account", v(&old.access.account), v(&new.access.account), true));
-    }
-    if old.access.programs != new.access.programs {
-        out.push(line("access.programs", v(&old.access.programs), v(&new.access.programs), programs_widen(&old.access.programs, &new.access.programs)));
-    }
-    if old.off_limits != new.off_limits {
-        // Soft instructions: never access, so never asked for.
-        out.push(line("offLimits", json!(old.off_limits), json!(new.off_limits), false));
-    }
-    let (a, b) = (&old.limits, &new.limits);
-    number(&mut out, "limits.perCaller.messagesPerDay", a.per_caller.messages_per_day, b.per_caller.messages_per_day);
-    number(&mut out, "limits.sessionsRunning", a.sessions_running, b.sessions_running);
-    number(&mut out, "limits.queue", a.queue, b.queue);
-    number(&mut out, "limits.turnTimeoutMin", a.turn_timeout_min, b.turn_timeout_min);
-    number(&mut out, "limits.agentMinutesPerDay", a.agent_minutes_per_day, b.agent_minutes_per_day);
-    let people: BTreeSet<&String> = a.overrides.keys().chain(b.overrides.keys()).collect();
-    for p in people {
-        let (o, n) = (a.overrides.get(p), b.overrides.get(p));
-        if o != n {
-            let widens = override_widens(o, n, b.per_caller.messages_per_day);
-            out.push(line(&format!("limits.overrides.{p}"), v(&o), v(&n), widens));
-        }
-    }
-    for (field, x, y) in [("limits.idleStopMin", a.idle_stop_min, b.idle_stop_min), ("limits.keepSessionsDays", a.keep_sessions_days, b.keep_sessions_days)] {
-        if x != y {
-            out.push(line(field, json!(x), json!(y), false));
-        }
-    }
-    ShareDiff(out)
-}
+/// What changed from `old` to `new`, line by line: the core's diff, the one
+/// the core applies, so what an approval shows is what changes.
+pub use pitwall_core::collab::shares::diff;
 
 pub use pitwall_proto::api::collab::describe;
 
@@ -312,7 +162,7 @@ pub fn slugify(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use pitwall_proto::api::collab::AudienceEdit;
-    use pitwall_proto::collab::{Identity, NetworkId, Scope};
+    use pitwall_proto::collab::{Capability, Identity, LimitOverride, NetworkId, Programs, Scope, ShareState, Start};
 
     use super::*;
 

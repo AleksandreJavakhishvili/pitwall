@@ -8,7 +8,7 @@
 //! remembered; narrowing may apply directly. Who asks is the daemon's
 //! approval mechanism; this module only says which is which.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -184,6 +184,10 @@ pub fn check(share: &ShareSettings) -> Result<()> {
 }
 
 // ------------------------------------------------------------------ diff
+//
+// The one share diff: the core applies it (`set_share`, `preview_share`)
+// and the daemon's approvals show its lines (`pitwall_daemon::collab::diff`
+// re-exports it), so what the owner approves is what changes.
 
 fn v<T: Serialize + ?Sized>(x: &T) -> Value {
     serde_json::to_value(x).unwrap_or(Value::Null)
@@ -197,11 +201,22 @@ impl Lines {
             self.0.push(ShareDiffLine { field: field.into(), from: v(from), to: v(to), widens });
         }
     }
-}
 
-/// Something in `to` that isn't in `from`.
-fn added<T: PartialEq>(from: &[T], to: &[T]) -> bool {
-    to.iter().any(|x| !from.contains(x))
+    /// A list compared as a set (order never matters): one line when its
+    /// members changed, widening when `grow_widens` and something was added
+    /// (or, when not, when something was taken out).
+    fn set<T: Serialize + Ord>(&mut self, field: &str, from: &[T], to: &[T], grow_widens: bool) {
+        let (a, b): (BTreeSet<&T>, BTreeSet<&T>) = (from.iter().collect(), to.iter().collect());
+        if a == b {
+            return;
+        }
+        let widens = if grow_widens { b.iter().any(|x| !a.contains(x)) } else { a.iter().any(|x| !b.contains(x)) };
+        self.0.push(ShareDiffLine { field: field.into(), from: v(from), to: v(to), widens });
+    }
+
+    fn number(&mut self, field: &str, from: u32, to: u32) {
+        self.push(field, &from, &to, to > from);
+    }
 }
 
 fn capability_rank(c: Capability) -> u8 {
@@ -209,6 +224,13 @@ fn capability_rank(c: Capability) -> u8 {
         Capability::Read => 0,
         Capability::WriteApproval => 1,
         Capability::Write => 2,
+    }
+}
+
+fn state_rank(s: ShareState) -> u8 {
+    match s {
+        ShareState::Draft | ShareState::Paused => 0,
+        ShareState::Live => 1,
     }
 }
 
@@ -225,12 +247,31 @@ fn more_paths(from: &[String], to: &[String]) -> bool {
     to.iter().map(norm).any(|t| !from.iter().map(norm).any(|f| f.is_empty() || t == f || t.starts_with(&format!("{f}/"))))
 }
 
-fn more_programs(from: &Option<Programs>, to: &Option<Programs>) -> bool {
+/// "Programs it may run" as it applies: the share's own list, else the
+/// capability's default (an allowlist at Read only, a denylist at Can
+/// change code; `sandbox::kind`).
+pub fn effective_programs(share: &ShareSettings) -> Programs {
+    share.access.programs.clone().unwrap_or_else(|| default_programs(share.capability))
+}
+
+/// The capability's default "Programs it may run" (§6.3; §14 question 16).
+pub fn default_programs(capability: Capability) -> Programs {
+    let names = |l: &[&str]| l.iter().map(|s| s.to_string()).collect();
+    match capability {
+        Capability::Read => Programs::Allow(names(crate::sandbox::kind::DEFAULT_ALLOW)),
+        _ => Programs::Deny(names(crate::sandbox::kind::DEFAULT_DENY)),
+    }
+}
+
+/// More programs allowed: an allowlist that grew, a denylist that shrank,
+/// or a denylist instead of an allowlist.
+fn more_programs(from: &Programs, to: &Programs) -> bool {
+    let added = |a: &[String], b: &[String]| b.iter().any(|x| !a.contains(x));
     match (from, to) {
-        (Some(Programs::Allow(a)), Some(Programs::Allow(b))) => added(a, b),
-        (Some(Programs::Deny(a)), Some(Programs::Deny(b))) => added(b, a),
-        (Some(Programs::Deny(_)), Some(Programs::Allow(_))) => false,
-        _ => from != to,
+        (Programs::Allow(a), Programs::Allow(b)) => added(a, b),
+        (Programs::Deny(a), Programs::Deny(b)) => added(b, a),
+        (Programs::Allow(_), Programs::Deny(_)) => true,
+        (Programs::Deny(_), Programs::Allow(_)) => false,
     }
 }
 
@@ -243,25 +284,39 @@ fn allowance(limits: &Limits, o: Option<&LimitOverride>) -> Option<u32> {
     }
 }
 
-/// The exact changes from `a` to `b`, each marked `widens` per §5.5: more
-/// people, teams, groups or networks; more paths or fewer exclusions; a
-/// stronger capability; more network hosts, environment or programs; a new
-/// base summary; higher limits; going live. Narrowing is the opposite.
-/// Names, descriptions and the soft off-limits text never widen.
+/// The exact changes from `a` to `b`, in a fixed order, each marked
+/// `widens` per §5.5: going live; a stronger capability; more people,
+/// teams, groups or networks; another repository, ref or account; more
+/// paths or fewer exclusions; uncommitted changes or history in; a new
+/// base summary; more environment, hosts or programs; higher limits; a
+/// person let in again. Narrowing is the opposite. Names, descriptions and
+/// the soft off-limits text never widen. Lists compare as sets.
 pub fn diff(a: &ShareSettings, b: &ShareSettings) -> ShareDiff {
     let mut d = Lines(Vec::new());
+    d.push("state", &a.state, &b.state, state_rank(b.state) > state_rank(a.state));
+    d.push("slug", &a.slug, &b.slug, false);
     d.push("name", &a.name, &b.name, false);
     d.push("description", &a.description, &b.description, false);
-    d.push("state", &a.state, &b.state, b.state == ShareState::Live);
     d.push("capability", &a.capability, &b.capability, capability_rank(b.capability) > capability_rank(a.capability));
-    d.push("audience.people", &a.audience.people, &b.audience.people, b.audience.people.iter().any(|p| !a.audience.people.iter().any(|q| q.is(p))));
-    d.push("audience.teams", &a.audience.teams, &b.audience.teams, added(&a.audience.teams, &b.audience.teams));
-    d.push("audience.groups", &a.audience.groups, &b.audience.groups, added(&a.audience.groups, &b.audience.groups));
-    d.push("audience.networks", &a.audience.networks, &b.audience.networks, added(&a.audience.networks, &b.audience.networks));
+    {
+        // People match on any of their identities (a login given with or
+        // without its email is the same person).
+        let (pa, pb): (BTreeSet<_>, BTreeSet<_>) = (a.audience.people.iter().collect(), b.audience.people.iter().collect());
+        if pa != pb {
+            let widens = b.audience.people.iter().any(|p| !a.audience.people.iter().any(|q| q.is(p)));
+            d.0.push(ShareDiffLine { field: "audience.people".into(), from: v(&a.audience.people), to: v(&b.audience.people), widens });
+        }
+    }
+    d.set("audience.teams", &a.audience.teams, &b.audience.teams, true);
+    d.set("audience.groups", &a.audience.groups, &b.audience.groups, true);
+    d.set("audience.networks", &a.audience.networks, &b.audience.networks, true);
     d.push("scope.repo", &a.scope.repo, &b.scope.repo, true);
     d.push("scope.ref", &a.scope.git_ref, &b.scope.git_ref, true);
-    d.push("scope.paths", &a.scope.paths, &b.scope.paths, more_paths(&a.scope.paths, &b.scope.paths));
-    d.push("scope.exclude", &a.scope.exclude, &b.scope.exclude, added(&b.scope.exclude, &a.scope.exclude));
+    if a.scope.paths.iter().collect::<BTreeSet<_>>() != b.scope.paths.iter().collect::<BTreeSet<_>>() {
+        let widens = more_paths(&a.scope.paths, &b.scope.paths);
+        d.0.push(ShareDiffLine { field: "scope.paths".into(), from: v(&a.scope.paths), to: v(&b.scope.paths), widens });
+    }
+    d.set("scope.exclude", &a.scope.exclude, &b.scope.exclude, false);
     d.push("scope.uncommitted", &a.scope.uncommitted, &b.scope.uncommitted, b.scope.uncommitted);
     d.push("scope.history", &a.scope.history, &b.scope.history, b.scope.history);
     let new_summary = match (&a.start, &b.start) {
@@ -270,20 +325,18 @@ pub fn diff(a: &ShareSettings, b: &ShareSettings) -> ShareDiff {
         (Start::Fresh, Start::Summary { .. }) => true,
     };
     d.push("start", &a.start, &b.start, new_summary);
-    d.push("access.env", &a.access.env, &b.access.env, added(&a.access.env, &b.access.env));
-    d.push("access.network.allow", &a.access.network.allow, &b.access.network.allow, added(&a.access.network.allow, &b.access.network.allow));
+    d.set("access.env", &a.access.env, &b.access.env, true);
+    d.set("access.network.allow", &a.access.network.allow, &b.access.network.allow, true);
     d.push("access.account", &a.access.account, &b.access.account, true);
-    d.push("access.programs", &a.access.programs, &b.access.programs, more_programs(&a.access.programs, &b.access.programs));
+    d.push("access.programs", &a.access.programs, &b.access.programs, more_programs(&effective_programs(a), &effective_programs(b)));
     d.push("offLimits", &a.off_limits, &b.off_limits, false);
     let (la, lb) = (&a.limits, &b.limits);
-    d.push("limits.perCaller.messagesPerDay", &la.per_caller.messages_per_day, &lb.per_caller.messages_per_day, lb.per_caller.messages_per_day > la.per_caller.messages_per_day);
-    d.push("limits.sessionsRunning", &la.sessions_running, &lb.sessions_running, lb.sessions_running > la.sessions_running);
-    d.push("limits.queue", &la.queue, &lb.queue, lb.queue > la.queue);
-    d.push("limits.turnTimeoutMin", &la.turn_timeout_min, &lb.turn_timeout_min, lb.turn_timeout_min > la.turn_timeout_min);
-    d.push("limits.agentMinutesPerDay", &la.agent_minutes_per_day, &lb.agent_minutes_per_day, lb.agent_minutes_per_day > la.agent_minutes_per_day);
-    d.push("limits.idleStopMin", &la.idle_stop_min, &lb.idle_stop_min, false);
-    d.push("limits.keepSessionsDays", &la.keep_sessions_days, &lb.keep_sessions_days, false);
-    let keys: std::collections::BTreeSet<&String> = la.overrides.keys().chain(lb.overrides.keys()).collect();
+    d.number("limits.perCaller.messagesPerDay", la.per_caller.messages_per_day, lb.per_caller.messages_per_day);
+    d.number("limits.sessionsRunning", la.sessions_running, lb.sessions_running);
+    d.number("limits.queue", la.queue, lb.queue);
+    d.number("limits.turnTimeoutMin", la.turn_timeout_min, lb.turn_timeout_min);
+    d.number("limits.agentMinutesPerDay", la.agent_minutes_per_day, lb.agent_minutes_per_day);
+    let keys: BTreeSet<&String> = la.overrides.keys().chain(lb.overrides.keys()).collect();
     for key in keys {
         let (oa, ob) = (la.overrides.get(key), lb.overrides.get(key));
         let widens = match (allowance(la, oa), allowance(lb, ob)) {
@@ -293,5 +346,7 @@ pub fn diff(a: &ShareSettings, b: &ShareSettings) -> ShareDiff {
         };
         d.push(&format!("limits.overrides.{key}"), &oa, &ob, widens);
     }
+    d.push("limits.idleStopMin", &la.idle_stop_min, &lb.idle_stop_min, false);
+    d.push("limits.keepSessionsDays", &la.keep_sessions_days, &lb.keep_sessions_days, false);
     ShareDiff(d.0)
 }
