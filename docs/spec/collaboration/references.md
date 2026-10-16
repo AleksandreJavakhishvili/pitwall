@@ -110,8 +110,10 @@ https://a2a-protocol.org/latest/specification/
   `general.defaultApprovalMode`, `--approval-mode=yolo`, `policyPaths`):
   https://geminicli.com/docs/reference/configuration
 - Gemini CLI headless mode (`-p`/`--prompt`, `--output-format json` /
-  stream JSON): https://geminicli.com/docs/cli/headless.md. `--resume` with
-  `-p`: only third-party sources, **unverified**.
+  stream JSON): https://geminicli.com/docs/cli/headless.md. `-p` with
+  `--session-id` and `--resume`, `--skip-trust`, and the error JSON on
+  stderr were checked against Gemini CLI 0.64.0 with a local fake model
+  server (no account).
 - opencode permissions (keys, `allow`/`ask`/`deny`, bash patterns, last
   match wins, per-agent overrides): https://opencode.ai/docs/permissions/.
   `opencode run -s/--session`, `-c`, `--fork`, `--format json`: third-party
@@ -150,6 +152,16 @@ https://a2a-protocol.org/latest/specification/
   https://gastown.dev/docs/research/macos-sandbox-exec (secondary sources).
 
 
+**Versions checked in C1a** (each against the integrated core, or a
+local fake model server where noted; no owner account used except Claude
+Code's `-p --model haiku` interop run)
+- codex-cli 0.160.1 (`exec` and the interactive screen; session-file
+  replies, per-run trust; fake model server)
+- Gemini CLI 0.64.0 (headless turns, resume; fake model server)
+- A2A Python SDK (`a2a-sdk`) 1.2.2: send and stream over HTTP+JSON
+- MCP Inspector CLI 2.11.0: list tools, call a share's tool
+- Claude Code 2.1.301: `claude -p --model haiku` with an HTTP MCP config
+
 **Pitwall**
 - Skills library and per-project / per-agent assignment: [rules.md](../rules.md)
   (on the `rules-scopes` work).
@@ -158,7 +170,7 @@ https://a2a-protocol.org/latest/specification/
 - Seatbelt details per agent: Mach services (Keychain, DNS), proxy
   behaviour, nesting with Claude Code's and Codex's own Seatbelt sandboxes,
   behaviour on macOS 26 ([§6.3](sessions.md)).
-- Gemini CLI `--resume` with `-p`; reply capture and fork for opencode,
+- Reply capture and fork for opencode,
   Cursor Agent, Copilot CLI, Qwen Code, Amp ([§6.7](sessions.md)).
 - Native controls not found in the agents' own docs ([§6.8](sessions.md)): Qwen Code
   per-tool settings, folders, sandbox and network; Copilot CLI
@@ -168,8 +180,9 @@ https://a2a-protocol.org/latest/specification/
 - Linux backend details: Landlock exec rules on the kernels we target,
   the proxy relay inside a network namespace, `bwrap` inside WSL2
   ([§6.3](sessions.md)).
-- Codex session-file fields for the last assistant message ([§7.2](messages.md)).
-- `tiny_http` streaming and `ureq` SSE reading in practice ([§8.1](protocol.md)).
+- Claude Code's folder-trust prompt in a new copy, and whether Gemini CLI
+  honours the egress proxy inside the sandbox ([§6.3](sessions.md)).
+- `ureq` SSE reading over long streams in practice ([§8.1](protocol.md)).
 - Whether A2A and MCP clients accept plain `http://` on a tailnet address
   ([§8.1](protocol.md), [§14](plan.md) question 9).
 - Whether progress notifications reset Claude Code's idle timer, and tool

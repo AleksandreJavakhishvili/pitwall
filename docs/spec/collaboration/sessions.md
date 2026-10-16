@@ -173,13 +173,21 @@ conversations. So a share **requires a separate account for sharing**
 (decided 2026-10-16; Pitwall's accounts already support several logins per
 kind, README "Accounts"), so only shared sessions live there. Going live,
 or widening to an account, is refused when the share would run on the
-kind's default (the owner's main) account; the Share dialog offers to pick
-or add one. Guest tries may use any account, with an amber warning.
+kind's default (the owner's main) account, or on the account the owner's
+own agent (the one being shared) runs on, since that agent's conversations
+live in its folder. Moving a live share onto such an account is refused the
+same way, before any approval is asked. The Share dialog offers to pick or
+add one. Guest tries may use any account, with an amber warning. Accounts
+are stored by id; a name given on the CLI (`--account Work`) is resolved to
+its id, never left to fall back to the default.
 
 **Gemini CLI** keeps its login in `~/.gemini` and has no variable to move
 it, so a sandboxed session (its own `HOME`) has no login. A Gemini share
-goes live only with an API key the owner passes explicitly in the access
-step (e.g. `GEMINI_API_KEY`); `~/.gemini` is never mounted or copied.
+goes live only when the owner passes `GEMINI_API_KEY` explicitly in the
+access step and it has a value; `~/.gemini` is never mounted or copied.
+Pitwall reads the key from its own environment, else from the login shell
+(an app started from the Dock has no shell variables). `GOOGLE_API_KEY` is
+not offered: on its own it is Gemini's Vertex AI setting and doesn't sign in.
 
 ### 6.4 Starting point: fresh or an approved summary
 - **Fresh** (default), for every kind: the session starts with no history,
@@ -249,8 +257,8 @@ stop, OS layer only.
 | Kind | Reply from hooks / own session files | Resume (interactive) | Fork |
 |---|---|---|---|
 | Claude Code | `Stop` hook `last_assistant_message`; transcript | `--resume <id>` | `--resume <id> --fork-session` |
-| Codex | hooks (opt-in in Pitwall); its session files (**unverified** fields) | `codex resume <id>` | `codex fork`, `codex exec fork` |
-| Gemini CLI | none known | yes (Pitwall today) | **unverified** |
+| Codex | its session files: each turn ends with an event carrying the last message; the same file gives the conversation id (checked with codex-cli 0.160.1) | `codex resume <id>` | `codex fork`, `codex exec fork` |
+| Gemini CLI | none; each turn runs non-interactively, `gemini -p … --output-format json`, first with `--session-id <id>`, then `--resume <id>` (checked with Gemini CLI 0.64.0) | `--resume <id>` | **unverified** |
 | opencode | none known | yes (Pitwall today) | `opencode run --fork` (third-party docs, **unverified**) |
 | Aider | none known | no | no |
 | Cursor Agent | none known | `--resume <chatId>` | **unverified** |
@@ -268,7 +276,7 @@ the **second layer** ([§6.3](sessions.md)); the OS layer applies to all of them
 |---|---|---|---|---|---|
 | **Claude Code** | `--tools`, `--allowedTools`, `--disallowedTools`; rules like `Bash(git *)`, `Read(…)`; permission modes `default`, `acceptEdits`, `plan`, `auto`, `dontAsk`, `bypassPermissions` | Working dir; `--add-dir`; `permissions.additionalDirectories`; `blockReadsOutsideWorkingDirectories` | Bash sandbox (shell commands only; file tools follow permission rules): macOS, Linux and WSL2 (bubblewrap + socat); **not native Windows** | Sandbox proxy with `network.allowedDomains` (shell commands); `WebFetch` via permission rules | `claude -p --resume <id> --output-format json` |
 | **Codex** | Coarse: `--sandbox read-only|workspace-write|danger-full-access`, `approval_policy` (`on-request`, `never`, granular); beta permission profiles (filesystem `read`/`write`/`deny`) | Workspace; `sandbox_workspace_write.writable_roots` | Yes: Seatbelt (macOS), bubblewrap (Linux, WSL2; AppArmor profile needed on Ubuntu 24.04), native Windows sandbox (PowerShell) | `sandbox_workspace_write.network_access` (off by default); `shell_environment_policy` for env | `codex exec resume <id> --json` |
-| **Gemini CLI** | `tools.core` (allowlist), `tools.exclude`, `tools.allowed` (no prompt; e.g. `run_shell_command(git)`), `tools.confirmationRequired`; policy files (`policyPaths`); approval mode `default`, `auto_edit`, `plan`, `yolo` | Working dir; `context.includeDirectories`; `tools.sandboxAllowedPaths` | Yes: `tools.sandbox` / `GEMINI_SANDBOX` = docker, podman, lxc, `windows-native`, or Seatbelt on macOS (`SEATBELT_PROFILE`: `permissive-open`, `restrictive-open`, `strict-open`, `strict-proxied`, custom) | `tools.sandboxNetworkAccess` (default false) | `gemini -p … --output-format json`; `--resume` with `-p` **unverified** |
+| **Gemini CLI** | `tools.core` (allowlist), `tools.exclude`, `tools.allowed` (no prompt; e.g. `run_shell_command(git)`), `tools.confirmationRequired`; policy files (`policyPaths`); approval mode `default`, `auto_edit`, `plan`, `yolo` | Working dir; `context.includeDirectories`; `tools.sandboxAllowedPaths` | Yes: `tools.sandbox` / `GEMINI_SANDBOX` = docker, podman, lxc, `windows-native`, or Seatbelt on macOS (`SEATBELT_PROFILE`: `permissive-open`, `restrictive-open`, `strict-open`, `strict-proxied`, custom) | `tools.sandboxNetworkAccess` (default false) | `gemini -p … --output-format json` with `--session-id`, then `--resume` (checked, 0.64.0) |
 | **opencode** | `permission` block: keys `read`, `edit`, `glob`, `grep`, `bash`, `task`, `skill`, `lsp`, `question`, `webfetch`, `websearch`, `external_directory`, `doom_loop`; values `allow`/`ask`/`deny`; bash patterns with `*`/`?`, last match wins; per-agent overrides | Project dir; `external_directory` rule | — (none documented) | `webfetch`/`websearch` permissions only | `opencode run -s <id> --format json` (third-party docs, **unverified**) |
 | **Aider** | — (edits files it is given; `--yes` auto-confirms) | Files added to the chat; `--read` for read-only files | — | — | `--message` runs one message and exits; no resume |
 | **Cursor Agent** | `permissions.allow` / `deny` in `~/.cursor/cli-config.json` or `.cursor/cli.json`: `Shell(cmd)`, `Read(glob)`, `Write(glob)`, `WebFetch(domain)`, `Mcp(server:tool)`; deny wins | Path globs in `Read`/`Write` rules | — (none documented) | `WebFetch(domain)` rules | `-p` (print) with `--output-format json`, `--force` to apply edits; `--resume <chatId>` (from the JSON `session_id`) |
@@ -282,4 +290,13 @@ Codex `--sandbox read-only`, Gemini `plan` approval mode, opencode
 `edit: deny`, Cursor `Write(**)` deny, Copilot `--deny-tool write`, Amp a
 reject rule for edit tools); for the programs list it writes the kind's
 per-command rules (§6.3). Where the agent has its own sandbox that would
-nest badly with the OS layer, the agent's sandbox is left off.
+nest badly with the OS layer, the agent's sandbox is left off (Claude Code's
+sandbox setting, Codex `--sandbox danger-full-access`,
+`GEMINI_SANDBOX=false`).
+
+Folder trust: every session runs in a new copy, which agents treat as an
+unknown folder. Codex asks "Trust this folder?" in each one, so the session
+trusts its copy **for that run only** (a per-run config override; nothing
+is written to the account's config). Gemini's headless mode refuses
+untrusted folders, so its turns pass `--skip-trust`. Claude Code's
+first-run trust prompt in a new copy is still **unverified**.

@@ -168,5 +168,6 @@ network. A backend that can't meet one doesn't ship.
   so nothing is migrated when a second backend arrives.
 - **Words:** the UI says "network", "people" and "groups", and names the
   backend only where it matters ("on example.ts.net", "Pitwall Cloud").
-- **Tests:** the full suite runs on the Fake backend; a contract test
-  suite checks each real backend against [§15.4](network.md).
+- **Tests:** the full suite runs on the Fake backend; one contract suite
+  (`net::contract`, 9 checks) runs against every backend and checks it
+  against [§15.4](network.md). Fake and Tailscale pass it.

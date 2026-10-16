@@ -34,20 +34,25 @@ The reply is simply **what the agent said** in that turn. Pitwall reads it
 the way it already reads agents, in this order, per kind data ([§6.7](sessions.md)):
 - **(a) Hooks or the agent's own session files**, where the kind has them:
   Claude Code's `Stop` hook carries `last_assistant_message`, and its
-  transcript (`transcript_path`); Codex's hooks and session files.
+  transcript (`transcript_path`); Codex's session files, where each turn
+  ends with an event carrying its last message (this also gives the
+  conversation id, so an idle-stopped Codex conversation can resume).
 - **(b) The kind's own non-interactive mode**, where it exists with resume:
   the session runs each turn as `claude -p --resume <id> --output-format
   json`, `codex exec resume <id> --json`, `gemini -p … --output-format json`
   and so on, and the reply is the result field of that output. The owner
   still watches the run in a pane. This is chosen per kind when (a) isn't
-  available, or by the owner ([§14](plan.md) question 10).
+  available, or by the owner ([§14](plan.md) question 10). Gemini CLI uses
+  this route. A failed run prints its error JSON on stderr; the turn ends
+  with `no_answer` and that error is shown to the owner.
 - **(c) Otherwise, the terminal output of that turn**, which Pitwall already
   reads for status: the text printed between sending the message and the end
   of the turn, from the terminal model, with the kind's screen rules
   stripping its chrome (input box, status bar) where rules exist. Marked
   "from terminal output" in the caller's thread.
 - If nothing is captured when the turn ends, the turn fails with
-  `no_answer` and the owner sees the session flagged.
+  `no_answer` and the owner sees the session flagged (amber, and counted
+  in the share's badge) until a later turn in that session is answered.
 
 The end of a turn is detected as status is today: hooks, else the kind's
 screen rules, else output going quiet.

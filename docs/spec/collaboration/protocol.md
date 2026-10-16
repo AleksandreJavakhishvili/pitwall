@@ -289,6 +289,9 @@ any network, never from shared sessions): `share.get`,
 `share.list`, `share.create` (draft), `share.set` (returns the diff it
 applied), `share.go_live`, `share.pause`, `share.resume`, `share.stop`,
 `share.guest`, `share.sessions`, `share.block`, `share.summary`,
+`share.turns` (a session's turns and replies), `share.audit` (the share's
+audit log), `share.notices` (needs you, no answer, the day's agent time
+used, the agent's own limit),
 `result.send`, `result.discard`, `team.*` changes (create, approve, invite,
 add member, promote, remove, bind), `collab.settings.*`. Typing into or
 prompting a shared session uses the ordinary agent methods (`term.*`,
