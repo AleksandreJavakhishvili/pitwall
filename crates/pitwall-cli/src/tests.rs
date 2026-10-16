@@ -162,7 +162,7 @@ fn commands_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwc-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("c.sock");
-    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None }).unwrap();
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, collab: None }).unwrap();
     let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command;
 
     let o = run(&parse(&["agent", "list"]), &socket).unwrap();
@@ -266,7 +266,7 @@ fn settings_against_a_running_pitwall() {
     let sock_dir = std::env::temp_dir().join(format!("pwcs-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("s.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()), workspace: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()), workspace: None, collab: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     // The file is never touched while Pitwall answers.
     let root = dir.path().join("home");

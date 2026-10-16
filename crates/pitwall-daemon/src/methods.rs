@@ -27,6 +27,10 @@ pub enum Access {
     AskWhen(&'static str, Risk),
     /// Pitwall's own (verified) UI only.
     Ui,
+    /// Collaboration's owner-only methods: who may do what is decided per
+    /// call (`collab::service`: reads and drafts directly, widening asks
+    /// every time, shared sessions never).
+    Collab,
 }
 
 pub const METHODS: &[(&str, Access)] = &[
@@ -81,6 +85,9 @@ pub const METHODS: &[(&str, Access)] = &[
 ];
 
 pub fn access(name: &str) -> Option<Access> {
+    if crate::collab::service::METHODS.contains(&name) {
+        return Some(Access::Collab);
+    }
     METHODS.iter().find(|(m, _)| *m == name).map(|(_, a)| *a)
 }
 
@@ -106,6 +113,18 @@ fn other(e: impl Into<String>) -> ErrorBody {
 }
 
 pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
+    // A shared session (or anything it started) gets nothing on the socket
+    // (collaboration/protocol.md §8.5): its sandbox denies the socket, and
+    // this is the second check, by process tree.
+    if s.collab.as_ref().is_some_and(|c| c.is_shared(caller)) {
+        return Err(ErrorBody::new(code::FORBIDDEN, "A shared session can't use Pitwall's socket."));
+    }
+    if access(name) == Some(Access::Collab) {
+        return match &s.collab {
+            Some(c) => c.call(caller, name, p).unwrap_or_else(|| Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\"")))),
+            None => Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall doesn't host collaboration")),
+        };
+    }
     match access(name) {
         None => return Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
         Some(Access::Ui) if !caller.ui => {
@@ -338,5 +357,9 @@ mod tests {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
         assert_eq!(access("agent.prompt"), None);
+        for m in crate::collab::service::METHODS {
+            assert_eq!(access(m), Some(Access::Collab), "{m}");
+            assert!(METHODS.iter().all(|(n, _)| n != m), "{m} in both tables");
+        }
     }
 }
