@@ -12,6 +12,7 @@
 
 pub mod accounts;
 pub mod clock;
+pub mod collab;
 pub mod engine;
 pub mod engineer;
 pub mod error;
@@ -23,6 +24,7 @@ pub mod hooks;
 pub mod host;
 pub mod kind;
 pub mod model;
+pub mod net;
 pub mod onboarding;
 pub mod paths;
 pub mod permissions;
@@ -30,6 +32,7 @@ pub mod procs;
 pub mod provider;
 pub mod review;
 pub mod rules;
+pub mod sandbox;
 pub mod shell;
 pub mod store;
 pub mod term;

@@ -6,8 +6,8 @@ description = "Pitwall's logic: the Engine (agents, status, queue, tasks), kinds
 
 [features]
 # Test doubles (`testing::{RecordingSink, ManualClock, MemStore, FakeExec,
-# FakeProvider}`) and the provider contract suite (`testing::contract`) for
-# hosts' and providers' tests.
+# FakeProvider}`), the provider contract suite (`testing::contract`) and the
+# Fake network (`net::fake`) for hosts' and providers' tests.
 testing = []
 
 [dependencies]
@@ -21,6 +21,9 @@ toml = "1.1.6"
 notify = "8"
 # Match ranges for git grep results (explorer search); already in the tree via pitwall-detect.
 regex = "1"
+# Request and response types of the collaboration handler and clients
+# (`net`, docs/spec/collaboration/network.md); already in the tree via gpui.
+http = "1"
 pitwall-detect = { path = "../pitwall-detect" }
 pitwall-proto = { path = "../pitwall-proto" }
 

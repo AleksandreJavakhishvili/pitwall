@@ -4313,6 +4313,7 @@ dependencies = [
 name = "pitwall-core"
 version = "0.2.1"
 dependencies = [
+ "http",
  "interprocess",
  "notify",
  "pitwall-detect",
