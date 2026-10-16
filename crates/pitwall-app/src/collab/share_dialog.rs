@@ -106,7 +106,6 @@ pub struct Inputs {
     pub description: Entity<TextInput>,
     pub paths: Entity<TextInput>,
     pub summary: Entity<TextInput>,
-    pub account: Entity<TextInput>,
     pub env: Entity<TextInput>,
     pub hosts: Entity<TextInput>,
     pub programs: Entity<TextInput>,
@@ -137,6 +136,9 @@ pub struct ShareDialog {
     pub programs_mode: Option<bool>,
     pub busy: bool,
     pub error: Option<String>,
+    /// What keeps the draft from going live (the daemon's check: the
+    /// owner's own login, Gemini CLI without an API key, §6.3).
+    pub live_blocks: Vec<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -178,7 +180,6 @@ impl ShareDialog {
             description: field(cx, &draft.description, "What to ask it about"),
             paths: field(cx, &draft.scope.paths.join(", "), "All tracked files (or: src/, docs/)"),
             summary: multi(cx, &summary_text, "A short summary for teammates: only this text reaches sessions", 5),
-            account: field(cx, draft.access.account.as_deref().unwrap_or(""), "Your own login"),
             env: field(cx, &draft.access.env.join(", "), "None (names, comma-separated)"),
             hosts: field(cx, &draft.access.network.allow.join(", "), "None beyond its model (e.g. registry.npmjs.org)"),
             programs: field(cx, &programs_text, "git, rg, cargo"),
@@ -218,6 +219,7 @@ impl ShareDialog {
             programs_mode,
             busy: false,
             error: None,
+            live_blocks: Vec::new(),
             _subs: subs,
         }
     }
@@ -260,8 +262,6 @@ impl ShareDialog {
         }
         d.description = text(&self.inputs.description).trim().into();
         d.scope.paths = list_of(&text(&self.inputs.paths));
-        let account = text(&self.inputs.account);
-        d.access.account = (!account.trim().is_empty()).then(|| account.trim().to_string());
         d.access.env = list_of(&text(&self.inputs.env));
         d.access.network.allow = list_of(&text(&self.inputs.hosts));
         let programs = list_of(&text(&self.inputs.programs));
@@ -355,6 +355,7 @@ impl ShareDialog {
     }
 
     fn load_summary(&mut self, cx: &mut Context<Self>) {
+        self.check_live(cx);
         let this = cx.entity().downgrade();
         super::call::<ShareSummary>(method::SHARE_SUMMARY, json!({"settings": self.draft}), cx, move |r, cx| {
             let _ = this.update(cx, |d, cx| {
@@ -365,6 +366,73 @@ impl ShareDialog {
                 cx.notify();
             });
         });
+    }
+
+    /// What keeps the draft from going live, as it is now.
+    pub fn check_live(&mut self, cx: &mut Context<Self>) {
+        let Some(svc) = super::service(cx) else { return };
+        let draft = self.draft.clone();
+        let task = cx.background_executor().spawn(async move { svc.backend().live_check(&draft).blocks });
+        cx.spawn(async move |this, cx| {
+            let blocks = task.await;
+            let _ = this.update(cx, |d, cx| {
+                d.live_blocks = blocks;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The account sessions run on (`None`: the agent's own login).
+    fn pick_account(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        self.draft.access.account = id;
+        self.error = None;
+        self.check_live(cx);
+        cx.notify();
+    }
+
+    /// "Add an account for sharing": a fresh login folder named Sharing,
+    /// picked for this share, and an agent on it to log in with (the
+    /// tool asks for its login on its first run there).
+    fn add_sharing_account(&mut self, cx: &mut Context<Self>) {
+        let kind = self.agent.kind.clone();
+        let model = crate::accounts::model(cx);
+        let taken: Vec<String> = model.read(cx).of_kind(&kind).into_iter().map(|a| a.name.to_lowercase()).collect();
+        let name = (1..).map(|n| if n == 1 { "Sharing".to_string() } else { format!("Sharing {n}") }).find(|n| !taken.contains(&n.to_lowercase())).unwrap_or_default();
+        match model.update(cx, |m, cx| m.add(&kind, &name, None, cx)) {
+            Ok(a) => {
+                self.pick_account(Some(a.id.clone()), cx);
+                let Some(engine) = cx.try_global::<crate::main_screen::EngineHandle>().map(|e| e.0.clone()) else { return };
+                let req = crate::accounts::login_request(&kind, &a.id, &pitwall_core::paths::home().to_string_lossy());
+                let task = cx.background_executor().spawn(async move { pitwall_core::engine::lifecycle::create(&engine, req) });
+                let this = cx.entity().downgrade();
+                cx.spawn(async move |_, cx| {
+                    if let Err(e) = task.await {
+                        let _ = this.update(cx, |d, cx| {
+                            d.error = Some(format!("Added {name}, but its login agent didn't start: {e}"));
+                            cx.notify();
+                        });
+                    }
+                })
+                .detach();
+            }
+            Err(e) => {
+                self.error = Some(e);
+                cx.notify();
+            }
+        }
+    }
+
+    /// Pass `var` (an API key variable) to the sessions.
+    fn pass_key(&mut self, var: &str, cx: &mut Context<Self>) {
+        self.read_inputs(cx);
+        if !self.draft.access.env.iter().any(|v| v == var) {
+            self.draft.access.env.push(var.to_string());
+        }
+        let text = self.draft.access.env.join(", ");
+        self.inputs.env.update(cx, |i, cx| i.set_text(&text, cx));
+        self.check_live(cx);
+        cx.notify();
     }
 
     /// Save as it is now: create the draft, or (editing) apply the change.
@@ -381,6 +449,7 @@ impl ShareDialog {
                 match r {
                     Ok(v) => {
                         d.draft = v.settings.clone();
+                        d.live_blocks = v.live_blocks.clone();
                         d.existing = Some(v);
                         then(d, cx);
                     }
@@ -792,9 +861,9 @@ impl ShareDialog {
                         })
                     },
                 );
+                let login = self.login_part(t, cx);
                 page.child(hint("A clean environment: none of your variables, tokens or logins, no SSH agent, a session-local HOME. Network only to its model through Pitwall's proxy.", t))
-                    .child(small_label("Agent account (a separate account for sharing is suggested)", t))
-                    .child(self.inputs.account.clone())
+                    .child(login)
                     .child(small_label("Environment variables to pass", t))
                     .child(self.inputs.env.clone())
                     .child(small_label("Extra network hosts", t))
@@ -847,6 +916,7 @@ impl ShareDialog {
                         }
                     }
                 }
+                p = p.children(self.blocks(t));
                 if self.editing() {
                     p = p.child(hint("Changes apply from each conversation's next message; removing people, pausing and stopping apply at once.", t));
                 } else {
@@ -863,8 +933,11 @@ impl ShareDialog {
                     }
                     buttons = buttons.child(text_button(SharedString::from(format!("probe-{id}")), text, BtnKind::GhostSm, self.busy, t).on_click(cx.listener(move |d, _, _, cx| d.probe(id, None, cx))));
                 }
-                let mut p = page
-                    .child(hint("The same pipeline as a real caller (copy, sandbox, clean environment), asked from here. Each probe is sent verbatim, only when you click it.", t))
+                let mut p = page.child(hint("The same pipeline as a real caller (copy, sandbox, clean environment), asked from here. Each probe is sent verbatim, only when you click it.", t));
+                if !self.live_blocks.is_empty() {
+                    p = p.child(amber("Your guest tries run on this login as it is. Going live needs what's below.", t)).children(self.blocks(t));
+                }
+                let mut p = p
                     .child(buttons)
                     .child(div().flex().gap(px(6.)).child(div().flex_1().child(self.inputs.guest.clone())).child(
                         text_button("guest-send", "Send", BtnKind::Small, self.busy, t).on_click(cx.listener(|d, _, _, cx| {
@@ -912,6 +985,103 @@ impl ShareDialog {
     }
 }
 
+/// An amber line (a warning the owner should read).
+fn amber(text: impl Into<SharedString>, t: &Theme) -> Div {
+    div().px(px(8.)).py(px(5.)).rounded(RADIUS).bg(t.amber_soft).text_size(px(12.5)).line_height(px(18.)).text_color(t.amber).child(text.into())
+}
+
+/// A kind's definition: the engine's (with the user's overrides), else
+/// the built-in one.
+fn kind_def(id: &str, cx: &App) -> Option<pitwall_core::kind::AgentKind> {
+    if let Some(e) = cx.try_global::<crate::main_screen::EngineHandle>() {
+        if let Some(k) = e.0.kinds().find(id) {
+            return Some(k);
+        }
+    }
+    pitwall_core::kind::load_kinds(std::path::Path::new("")).into_iter().find(|k| k.id == id)
+}
+
+impl ShareDialog {
+    /// What keeps it from going live, one amber line each.
+    fn blocks(&self, t: &Theme) -> Vec<Div> {
+        self.live_blocks.iter().enumerate().map(|(i, b)| amber(b.clone(), t).debug_selector(move || format!("live-block-{i}"))).collect()
+    }
+
+    /// Secrets and access → the login sessions run on (§6.3): a separate
+    /// account for kinds with accounts, an API key for Gemini CLI.
+    fn login_part(&mut self, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let mut p = div().flex().flex_col().gap(px(6.));
+        let Some(kind) = kind_def(&self.agent.kind, cx) else { return p };
+        let share = kind.share.clone().unwrap_or_default();
+        if !share.api_key_env.is_empty() {
+            let dir = share.login_dir.clone().unwrap_or_else(|| "its own folder".into());
+            let passed = share.api_key_env.iter().find(|v| self.draft.access.env.contains(v)).cloned();
+            p = p.child(small_label("Agent login", t));
+            p = match passed {
+                Some(var) => p.child(hint(format!("Sessions log in with the API key in {var}, read from your environment when a session starts. {dir} is never used."), t)),
+                None => {
+                    let mut row = div().flex().flex_wrap().gap(px(6.));
+                    for (i, var) in share.api_key_env.iter().enumerate() {
+                        let v = var.clone();
+                        row = row.child(text_button(("pass-key", i), format!("Pass {var}"), BtnKind::Small, false, t).on_click(cx.listener(move |d, _, _, cx| d.pass_key(&v, cx))));
+                    }
+                    p.child(amber(format!("{} keeps its login in {dir}, which shared sessions can't use; add an API key for sharing.", kind.name), t).debug_selector(|| "login-needs-key".into()))
+                        .child(row)
+                }
+            };
+            return p;
+        }
+        if kind.account_env.is_none() {
+            return p;
+        }
+        let model = crate::accounts::model(cx);
+        let accounts = model.read(cx).of_kind(&kind.id);
+        let mine = self.agent.account.clone().filter(|a| a != pitwall_core::accounts::DEFAULT);
+        let current = self.draft.access.account.clone().or_else(|| mine.clone()).filter(|a| a != pitwall_core::accounts::DEFAULT);
+        let own_dir = kind.account_home.clone().unwrap_or_default();
+        p = p
+            .child(small_label("Agent account", t))
+            .child(hint(
+                "A shared session can read and write its account's folder, and that folder holds the account's other conversations. Sharing needs a separate account, so only shared sessions live there.",
+                t,
+            ));
+        let row = |id: SharedString, on: bool, label: String, note: Option<String>, t: &Theme| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .cursor_pointer()
+                .child(radio(on, t))
+                .child(label)
+                .children(note.map(|n| hint(n, t)))
+        };
+        p = p.child(
+            row("account-own".into(), current.is_none(), format!("Your own login ({own_dir})"), Some("guest tries only".into()), t)
+                .on_click(cx.listener(|d, _, _, cx| d.pick_account(Some(pitwall_core::accounts::DEFAULT.into()), cx))),
+        );
+        for a in accounts {
+            let on = current.as_deref() == Some(a.id.as_str());
+            let note = (mine.as_deref() == Some(a.id.as_str())).then(|| "this agent's own account: guest tries only".to_string());
+            let id = a.id.clone();
+            p = p.child(
+                row(SharedString::from(format!("account-{}", a.id)), on, a.name.clone(), note, t)
+                    .on_click(cx.listener(move |d, _, _, cx| d.pick_account(Some(id.clone()), cx))),
+            );
+        }
+        let separate = current.as_ref().is_some_and(|c| mine.as_ref() != Some(c));
+        if !separate {
+            p = p.child(amber("Fine for trying it as a guest; going live needs a separate account.", t).debug_selector(|| "login-own-account".into()));
+        }
+        p.child(
+            div().flex().child(
+                text_button("add-sharing-account", "Add an account for sharing…", BtnKind::Small, !model.read(cx).live(), t)
+                    .on_click(cx.listener(|d, _, _, cx| d.add_sharing_account(cx))),
+            ),
+        )
+    }
+}
+
 fn upper_first(s: &str) -> String {
     let mut c = s.chars();
     c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
@@ -949,6 +1119,7 @@ impl gpui::Render for ShareDialog {
             footer = footer.child(text_button("back", "Back", BtnKind::Ghost, busy, &t).on_click(cx.listener(|d, _, _, cx| d.back(cx))));
         }
         let live = self.existing.as_ref().is_some_and(|v| v.settings.state != ShareState::Draft);
+        let blocked = !self.live_blocks.is_empty();
         footer = match self.step {
             Step::Summary => {
                 let mut f = footer;
@@ -961,11 +1132,11 @@ impl gpui::Render for ShareDialog {
                     f = f.child(text_button("save-draft", "Save draft", BtnKind::Ghost, busy, &t).on_click(cx.listener(|d, _, _, cx| d.save(cx, |_, _| {}))));
                 }
                 if !live {
-                    f = f.child(text_button("go-live", "Go live", BtnKind::Primary, busy, &t).on_click(cx.listener(|d, _, _, cx| d.go_live(cx))));
+                    f = f.child(text_button("go-live", "Go live", BtnKind::Primary, busy || blocked, &t).on_click(cx.listener(|d, _, _, cx| d.go_live(cx))));
                 }
                 f
             }
-            Step::Guest => footer.child(text_button("go-live", "Go live", BtnKind::Primary, busy, &t).on_click(cx.listener(|d, _, _, cx| d.go_live(cx)))),
+            Step::Guest => footer.child(text_button("go-live", "Go live", BtnKind::Primary, busy || blocked, &t).on_click(cx.listener(|d, _, _, cx| d.go_live(cx)))),
             Step::Diff => {
                 let any = self.diff.as_ref().is_some_and(|d| !d.0.is_empty());
                 footer.child(text_button("apply", "Apply", BtnKind::Primary, busy || !any, &t).on_click(cx.listener(|d, _, _, cx| {

@@ -4,6 +4,7 @@
 //! go-live approval all show it.
 
 use pitwall_proto::api::collab::{ShareSummary, SummaryPart, SummarySentence, SummaryTopic};
+pub use pitwall_core::collab::live::Login;
 use pitwall_proto::collab::{Capability, Programs, ShareSettings, Start};
 
 /// What the summary needs besides the settings: names and counts the
@@ -17,8 +18,9 @@ pub struct Facts {
     pub files: Option<u32>,
     /// The agent kind's name (`Claude Code`).
     pub kind_name: String,
-    /// The account's name (`work`), when sessions run on one.
-    pub account: Option<String>,
+    /// How sessions log in (the core's answer; `Unknown`: the settings'
+    /// account id is all there is).
+    pub login: Login,
 }
 
 struct Sentence {
@@ -151,9 +153,25 @@ pub fn summarize(s: &ShareSettings, facts: &Facts) -> ShareSummary {
 
     // Account.
     let kind = if facts.kind_name.is_empty() { "agent" } else { facts.kind_name.as_str() };
-    out.push(match facts.account.as_deref().or(acc.account.as_deref()) {
-        Some(name) => Sentence::new(SummaryTopic::Account).t(format!("It runs on your {kind} account \"{name}\".")).done(),
-        None => Sentence::new(SummaryTopic::Account).t(format!("It runs on your own {kind} login.")).done(),
+    let account = Sentence::new(SummaryTopic::Account);
+    out.push(match &facts.login {
+        Login::Account { name: Some(name) } => account.t(format!("It runs on your {kind} account \"{name}\".")).done(),
+        Login::Account { name: None } => account
+            .b(format!("It would run on your own {kind} login"))
+            .t(", which holds your other conversations: pick a separate account for sharing before it goes live.")
+            .done(),
+        Login::ApiKey { passed: Some(var), login_dir, .. } => {
+            let never = login_dir.as_deref().map(|d| format!(", never your {d} login")).unwrap_or_default();
+            account.t(format!("It logs in to {kind} with the API key in `{var}`{never}.")).done()
+        }
+        Login::ApiKey { passed: None, login_dir, .. } => account
+            .b(format!("{kind} keeps its login in {}, which shared sessions can't use", login_dir.as_deref().unwrap_or("its own folder")))
+            .t("; add an API key for sharing.")
+            .done(),
+        Login::Unknown => match acc.account.as_deref() {
+            Some(name) => account.t(format!("It runs on your {kind} account \"{name}\".")).done(),
+            None => account.t(format!("It runs on your own {kind} login.")).done(),
+        },
     });
 
     // Limits.
@@ -211,7 +229,7 @@ mod tests {
             limits: Default::default(),
         };
         s.access.account = Some("work".into());
-        let facts = Facts { teams: vec![Some(("Platform".into(), 6))], files: Some(412), kind_name: "Claude Code".into(), account: None };
+        let facts = Facts { teams: vec![Some(("Platform".into(), 6))], files: Some(412), kind_name: "Claude Code".into(), login: Login::Unknown };
         (s, facts)
     }
 
@@ -280,5 +298,22 @@ mod tests {
         s.audience.networks = vec![pitwall_proto::collab::NetworkId::new("tailscale", "example.ts.net")];
         assert!(summarize(&s, &facts).text.starts_with("everyone on example.ts.net can send messages."));
         assert_eq!(and_list(&["a".into(), "b".into(), "c".into()]), "a, b and c");
+    }
+
+    #[test]
+    fn the_account_sentence_says_how_sessions_log_in() {
+        let (s, mut facts) = example();
+        let account = |facts: &Facts| summarize(&s, facts).sentences.into_iter().find(|x| x.topic == SummaryTopic::Account).unwrap();
+        facts.login = Login::Account { name: Some("Sharing".into()) };
+        assert_eq!(account(&facts).text(), "It runs on your Claude Code account \"Sharing\".");
+        facts.login = Login::Account { name: None };
+        let own = account(&facts);
+        assert_eq!(own.text(), "It would run on your own Claude Code login, which holds your other conversations: pick a separate account for sharing before it goes live.");
+        assert!(own.parts[0].strong);
+        facts.kind_name = "Gemini CLI".into();
+        facts.login = Login::ApiKey { vars: vec!["GEMINI_API_KEY".into()], passed: None, login_dir: Some("~/.gemini".into()) };
+        assert_eq!(account(&facts).text(), "Gemini CLI keeps its login in ~/.gemini, which shared sessions can't use; add an API key for sharing.");
+        facts.login = Login::ApiKey { vars: vec!["GEMINI_API_KEY".into()], passed: Some("GEMINI_API_KEY".into()), login_dir: Some("~/.gemini".into()) };
+        assert_eq!(account(&facts).text(), "It logs in to Gemini CLI with the API key in `GEMINI_API_KEY`, never your ~/.gemini login.");
     }
 }

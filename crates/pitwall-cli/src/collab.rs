@@ -418,6 +418,16 @@ pub fn share_view(v: &ShareView) -> String {
             let _ = writeln!(out, "  {} {} ({})", if left_out { "✕ left out:" } else { "! included:" }, f.path, f.why);
         }
     }
+    if !v.live_blocks.is_empty() {
+        out.push_str(if v.settings.state == pitwall_proto::collab::ShareState::Draft {
+            "Before it can go live:\n"
+        } else {
+            "Its sessions can't start:\n"
+        });
+        for b in &v.live_blocks {
+            let _ = writeln!(out, "  ! {b}");
+        }
+    }
     out
 }
 

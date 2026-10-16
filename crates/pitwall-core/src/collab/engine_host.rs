@@ -319,6 +319,17 @@ impl OwnerAgents for EngineHost {
         Some(SharedAgent { kind, project: rec.project, account: rec.account })
     }
 
+    fn account(&self, kind: &AgentKind, key: &str) -> Option<super::live::AccountInfo> {
+        let accounts = crate::accounts::Accounts::load(self.engine.paths());
+        let id = accounts.find(&kind.id, key).filter(|id| id != crate::accounts::DEFAULT)?;
+        let a = accounts.get(&id)?;
+        Some(super::live::AccountInfo { id: a.id.clone(), name: a.name.clone(), dir: crate::paths::expand_tilde(&a.dir) })
+    }
+
+    fn env_value(&self, name: &str) -> Option<String> {
+        owner_env_value(name)
+    }
+
     fn account_env(&self, kind: &AgentKind, account: Option<&str>) -> Vec<(String, String)> {
         let accounts = crate::accounts::Accounts::load(self.engine.paths());
         match account.filter(|a| *a != crate::accounts::DEFAULT).and_then(|a| accounts.get(a)) {
@@ -330,6 +341,36 @@ impl OwnerAgents for EngineHost {
             },
         }
     }
+}
+
+/// How long a variable read from the login shell is reused.
+const SHELL_VALUE_TTL: Duration = Duration::from_secs(60);
+
+/// The owner's variable `name` (passed explicitly by a share): this
+/// process's environment, else the login shell's (`$SHELL -l -i -c`,
+/// time-boxed, cached a minute). Only a valid variable name is looked up.
+fn owner_env_value(name: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(name) {
+        return Some(v);
+    }
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || name.starts_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    static CACHE: Mutex<Option<HashMap<String, (Instant, Option<String>)>>> = Mutex::new(None);
+    if let Some((at, v)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).get(name) {
+        if at.elapsed() < SHELL_VALUE_TTL {
+            return v.clone();
+        }
+    }
+    const MARK: &str = "__pitwall_value__";
+    let shell = crate::shell::LoginShell::current();
+    let value = (shell.flavor == crate::shell::Flavor::Posix)
+        .then(|| shell.output(&format!("printf '\\n{MARK}%s' \"${{{name}:-}}\""), Duration::from_secs(5)))
+        .flatten()
+        .and_then(|out| out.rsplit_once(MARK).map(|(_, v)| v.trim_end_matches(['\r', '\n']).to_string()))
+        .filter(|v| !v.is_empty());
+    CACHE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(name.to_string(), (Instant::now(), value.clone()));
+    value
 }
 
 #[cfg(test)]

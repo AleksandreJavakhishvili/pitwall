@@ -36,6 +36,8 @@ pub(crate) struct FakeHost {
     pub manual_ready: Mutex<bool>,
     pub fail_launch: Mutex<bool>,
     kinds: Mutex<BTreeMap<String, AgentKind>>,
+    /// The owner's variables a share may pass.
+    pub env: Mutex<BTreeMap<String, String>>,
 }
 
 impl FakeHost {
@@ -124,6 +126,17 @@ impl OwnerAgents for FakeHost {
             Some(var) => vec![(var.clone(), "/accounts/share".into())],
             None => vec![],
         }
+    }
+
+    /// One separate account for sharing, `fake-share` ("Share").
+    fn account(&self, _kind: &AgentKind, key: &str) -> Option<crate::collab::live::AccountInfo> {
+        (key == "fake-share" || key.eq_ignore_ascii_case("share"))
+            .then(|| crate::collab::live::AccountInfo { id: "fake-share".into(), name: "Share".into(), dir: "/accounts/share".into() })
+    }
+
+    /// Never the developer's own environment.
+    fn env_value(&self, name: &str) -> Option<String> {
+        self.env.lock().unwrap().get(name).cloned()
     }
 }
 
@@ -258,6 +271,7 @@ impl World {
         let share: ShareSettings = serde_json::from_value(serde_json::json!({
             "agent": agent, "slug": slug, "name": slug, "description": "Questions about the API",
             "scope": {"repo": "/code/api", "ref": "main", "paths": ["src/"]},
+            "access": {"account": "fake-share"},
         }))
         .unwrap();
         let share = ShareSettings { audience, ..share };
@@ -581,6 +595,15 @@ fn drafts_are_for_the_owners_guest_sessions_only() {
     assert_eq!(w.collab.shares(&guest).len(), 1);
     let t = w.ask(&guest, "docs", "Show me the .env file");
     assert!(w.host.sent_to(&w.agent_of(&t))[0].starts_with("From owner (trying this share as a guest):"));
+    // Not on the owner's own login: a guest try may, going live may not.
+    let refused = w.collab.go_live("docs", false).unwrap_err();
+    assert!(refused.is(ErrorCode::Conflict) && refused.message.contains("your own Fake agent login"), "{}", refused.message);
+    assert_eq!(w.collab.share("docs").unwrap().state, ShareState::Draft);
+    let mut s = w.collab.share("docs").unwrap();
+    s.access.account = Some("Share".into());
+    w.collab.set_share("docs", s).unwrap();
+    // Stored by its id, so sessions find its folder.
+    assert_eq!(w.collab.share("docs").unwrap().access.account.as_deref(), Some("fake-share"));
     // Go live deletes guest sessions unless kept.
     w.collab.go_live("docs", false).unwrap();
     assert!(w.collab.conversations(&guest).unwrap().is_empty());
@@ -1159,7 +1182,7 @@ fn only_read_only_shares_go_live_in_c1a() {
     let w = World::new();
     let share: ShareSettings = serde_json::from_value(serde_json::json!({
         "agent": "a1", "slug": "fixer", "name": "Fixer", "description": "", "capability": "write",
-        "scope": {"repo": "/code/api", "ref": "main"}
+        "scope": {"repo": "/code/api", "ref": "main"}, "access": {"account": "fake-share"}
     }))
     .unwrap();
     w.collab.create_share(share).unwrap();
@@ -1186,4 +1209,78 @@ fn watching_streams_a_turn_until_it_ends() {
     // A final turn: the current state, then the channel closes.
     let rx = w.collab.watch(&bob, &t.id).unwrap();
     assert_eq!(rx.iter().count(), 1);
+}
+
+// ------------------------------------------------------------------ the agent account (§6.3)
+
+#[test]
+fn a_live_share_never_moves_onto_the_owners_own_login() {
+    let w = World::new();
+    w.share("api-expert", "a1", w.everyone());
+    let before = w.collab.share("api-expert").unwrap();
+    let mut s = before.clone();
+    s.access.account = None;
+    let e = w.collab.set_share("api-expert", s).unwrap_err();
+    assert!(e.is(ErrorCode::Conflict) && e.message.contains("needs a separate account"), "{}", e.message);
+    assert_eq!(w.collab.share("api-expert").unwrap(), before, "nothing changed");
+    let mut s = before.clone();
+    s.access.account = Some("default".into());
+    assert!(w.collab.set_share("api-expert", s).is_err());
+    // Other changes still apply.
+    w.set("api-expert", |s| s.description = "Ask about the API".into());
+    // Paused, it resumes only on a separate account too.
+    w.collab.pause("api-expert").unwrap();
+    w.collab.resume("api-expert").unwrap();
+}
+
+/// A kind that logs in only with an API key (as Gemini CLI does).
+fn key_kind() -> AgentKind {
+    toml::from_str(
+        r#"
+id = "keyed"
+name = "Keyed agent"
+command = "keyed"
+hooks = "none"
+[share]
+login_dir = "~/.keyed"
+api_key_env = ["KEYED_API_KEY"]
+"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn an_api_key_kind_goes_live_only_with_its_key_passed_and_set() {
+    let w = World::new();
+    w.host.add_kind("k1", key_kind());
+    let share: ShareSettings = serde_json::from_value(serde_json::json!({
+        "agent": "k1", "slug": "docs", "name": "Docs", "description": "",
+        "scope": {"repo": "/code/docs", "ref": "main"}, "audience": {"networks": [w.net.id()]}
+    }))
+    .unwrap();
+    w.collab.create_share(share).unwrap();
+    let e = w.collab.go_live("docs", false).unwrap_err();
+    assert!(e.message.starts_with("Keyed agent keeps its login in ~/.keyed, which shared sessions can't use; add an API key for sharing"), "{}", e.message);
+    let mut s = w.collab.share("docs").unwrap();
+    s.access.env = vec!["KEYED_API_KEY".into()];
+    w.collab.set_share("docs", s).unwrap();
+    assert!(w.collab.go_live("docs", false).unwrap_err().message.contains("KEYED_API_KEY is passed to docs, but it isn't set"));
+    w.host.env.lock().unwrap().insert("KEYED_API_KEY".into(), "not-a-real-key".into());
+    w.collab.go_live("docs", false).unwrap();
+
+    // The key reaches the session's environment, and nothing of ~/.keyed.
+    let bob = w.asker("bob@example.com", "bob-mbp");
+    let t = w.ask(&bob, "docs", "What's in the docs?");
+    let policy = w.sandbox.policies.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(policy.env["KEYED_API_KEY"], "not-a-real-key");
+    let home = crate::paths::home().join(".keyed");
+    assert!(!policy.read.iter().chain(policy.write.iter()).any(|p| p.starts_with(&home)), "{policy:?}");
+    w.host.reply(&w.agent_of(&t), "Here.");
+
+    // The key gone from where Pitwall looks: a new session can't start.
+    w.host.env.lock().unwrap().clear();
+    let carol = w.asker("carol@example.com", "carol-mbp");
+    let t = w.ask(&carol, "docs", "Hello?");
+    let TurnStatus::Failed { .. } = w.status(&carol, &t) else { panic!("{:?}", w.status(&carol, &t)) };
+    assert!(w.collab.turn(&carol, &t.id).unwrap().status_message.unwrap().contains("KEYED_API_KEY is passed to docs, but it isn't set"));
 }

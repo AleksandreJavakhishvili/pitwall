@@ -406,7 +406,7 @@ impl CollabService {
             teams: s.audience.teams.iter().map(|id| teams.iter().find(|t| t.team == *id).map(|t| (t.name.clone(), t.members))).collect(),
             files: scanned.files,
             kind_name: agent.map(|a| a.kind_name.clone()).unwrap_or_default(),
-            account: None,
+            login: self.backend.live_check(s).login,
         };
         (facts, scanned)
     }
@@ -427,7 +427,17 @@ impl CollabService {
             files: scanned.files,
             usage: self.backend.usage(&s.slug),
             probes: self.backend.probes(&s.slug),
+            live_blocks: self.backend.live_check(s).blocks,
         }
+    }
+
+    /// Refused before anyone is asked: the share would run on a login it
+    /// may not (the owner's own, or Gemini CLI without an API key, §6.3).
+    fn refuse_blocked(&self, blocks: Vec<String>) -> Result<(), ErrorBody> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        Err(err(code::NOT_ALLOWED, blocks.join(" ")))
     }
 
     /// Ask the owner in Pitwall unless Pitwall's own window asked. Always
@@ -536,6 +546,11 @@ impl CollabService {
         if r.dry_run || d.0.is_empty() {
             return Ok(ShareChanged { share: self.view(if r.dry_run { &new } else { &old }, true), diff: d, approved: false, dry_run: r.dry_run });
         }
+        if old.state != ShareState::Draft {
+            // A live share never moves onto a login it couldn't go live on.
+            let before = self.backend.live_check(&old).blocks;
+            self.refuse_blocked(self.backend.live_check(&new).blocks.into_iter().filter(|b| !before.contains(b)).collect())?;
+        }
         let mut approved = false;
         if d.widens() && old.state != ShareState::Draft {
             let address = format!("{}/{}", self.me().name, old.slug);
@@ -563,6 +578,7 @@ impl CollabService {
             ));
         }
         let view = self.view(&s, true);
+        self.refuse_blocked(view.live_blocks.clone())?;
         let mut details: Vec<String> = view.summary.sentences.iter().map(|x| x.text()).collect();
         if view.probes.is_empty() {
             details.push("Not tried as a guest yet.".into());
@@ -597,6 +613,7 @@ impl CollabService {
             ShareState::Live => {}
             ShareState::Draft => return Err(err(code::CONFLICT, "a draft goes live with `pitwall share go-live`")),
             ShareState::Paused => {
+                self.refuse_blocked(self.backend.live_check(&s).blocks)?;
                 let address = format!("{}/{}", self.me().name, s.slug);
                 self.ask_owner(caller, who, method::SHARE_RESUME, format!("resume sharing {address}"), vec!["▲ state: paused → live".into()])?;
                 s.state = ShareState::Live;

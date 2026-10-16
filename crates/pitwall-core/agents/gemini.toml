@@ -18,9 +18,13 @@ hooks = "none"
 icon = "gemini"
 
 # Sharing (docs/spec/collaboration/sessions.md §6.7). Hosts from Gemini CLI's
-# docs (unverified: not installed here). Its login lives in ~/.gemini with no
-# variable to move it, so a session's own HOME has no login yet (open point).
+# docs (unverified: not installed here).
 [share]
+# Its login lives in ~/.gemini with no variable to move it, so a session's own
+# HOME has no login, and ~/.gemini is never mounted or copied. A share goes
+# live only with an API key the owner passes explicitly (§6.3).
+login_dir = "~/.gemini"
+api_key_env = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
 model_hosts = [
     "generativelanguage.googleapis.com",
     "cloudcode-pa.googleapis.com",

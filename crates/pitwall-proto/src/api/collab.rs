@@ -291,6 +291,12 @@ pub struct ShareView {
     pub usage: ShareUsage,
     /// Guest probes run on it, newest last.
     pub probes: Vec<ProbeResult>,
+    /// What keeps it from going live (or a live one from widening to its
+    /// login), one plain sentence each with how to fix it: the owner's own
+    /// agent login instead of a separate account, Gemini CLI without an
+    /// API key (sessions.md §6.3). Empty: nothing.
+    #[serde(default)]
+    pub live_blocks: Vec<String>,
 }
 
 /// What `share.set` did (or, with `dryRun`, would do).

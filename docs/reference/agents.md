@@ -120,6 +120,10 @@ A `[share]` table tells Pitwall what a shared session of the kind needs inside i
 | `fork_args` | list of strings | `[]` | Arguments that start a session as a fork of a base conversation: `{base}` is its id, `{session_id}` a new one. Empty: it can't fork, and the approved summary is sent as the first message instead. |
 | `instruction_files` | list of strings | `[]` | The files it reads its instructions from (`CLAUDE.md`); the owner's text goes into these in the session folder. Empty: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `QWEN.md`. |
 | `limit_screen` | string | none | A regex matching its own usage-limit message; a group named `until` is the reset time it shows. |
+| `login_dir` | string | none | Where the agent keeps its login when no variable can move it (Gemini CLI: `~/.gemini`). It is never mounted or copied into a shared session. |
+| `api_key_env` | list of strings | `[]` | Variables holding an API key the agent can log in with (Gemini CLI: `GEMINI_API_KEY`, `GOOGLE_API_KEY`). When set, a share of the kind goes live only once the owner passes one of them in the share's environment and it has a value. |
+
+A share runs on a separate agent account: for kinds with accounts (`account_env`), going live is refused while its sessions would use your own login (the kind's Default) or the account the shared agent itself runs on, because a session can read and write its account's folder, which holds that account's other conversations. Guest tries may use any login.
 
 ```toml
 [share]

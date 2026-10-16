@@ -115,6 +115,19 @@ pub trait OwnerAgents: Send + Sync {
     /// The agent account's config folder and variable, readable and
     /// writable inside the sandbox (§6.3 "The agent account").
     fn account_env(&self, kind: &AgentKind, account: Option<&str>) -> Vec<(String, String)>;
+    /// One of `kind`'s accounts by id or name (`accounts.json`); `None`:
+    /// no such account. The kind's Default (the owner's own login) is never
+    /// one ([`super::live`]).
+    fn account(&self, _kind: &AgentKind, _key: &str) -> Option<super::live::AccountInfo> {
+        None
+    }
+    /// The value of the owner's variable `name`, for a share that passes
+    /// it explicitly (§5.4 step 5): this process's environment, else the
+    /// owner's login shell (the app, started from the Dock, has no shell
+    /// variables). Only names a share passes are ever looked up.
+    fn env_value(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
 }
 
 /// The session copy that was made.

@@ -22,6 +22,7 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
 use super::audit::{AuditLine, AuditLog};
+use super::live::LiveBlock;
 use super::people::{audience_via, People, Person};
 use super::session::{
     can_resume, kind_argv, share_kind, HostLaunch, OwnerAgents, SessionEvent, SessionHost, SessionSkills, SharedSession, Snapshots,
@@ -597,7 +598,7 @@ impl Collab {
         if self.agents.agent(&share.agent).is_none() {
             return Err(PwError::not_found(format!("no agent {}", share.agent)));
         }
-        let share = self.shares.create(share)?;
+        let share = self.shares.create(self.normalized(share))?;
         let mut line = AuditLine::new(time::rfc3339(self.now()), "share.create", "ok");
         line.agent = Some(share.slug.clone());
         self.audit.write(&line);
@@ -606,6 +607,47 @@ impl Collab {
 
     pub fn share(&self, slug: &str) -> Option<ShareSettings> {
         self.shares.get(slug)
+    }
+
+    /// An account given by name (`--account Sharing`) stored by its id, so
+    /// sessions find its folder.
+    fn normalized(&self, mut share: ShareSettings) -> ShareSettings {
+        if let (Some(key), Some(agent)) = (share.access.account.clone(), self.agents.agent(&share.agent)) {
+            if key.eq_ignore_ascii_case(crate::accounts::DEFAULT) {
+                // Explicitly the owner's own login (not the agent's account).
+                share.access.account = Some(crate::accounts::DEFAULT.into());
+            } else if let Some(acc) = self.agents.account(&agent.kind, &key) {
+                share.access.account = Some(acc.id);
+            }
+        }
+        share
+    }
+
+    /// What keeps `share` from going live (§6.3 "The agent account"):
+    /// the owner's own login, the shared agent's own account, or Gemini
+    /// CLI without an API key. Empty: nothing.
+    pub fn live_blocks(&self, share: &ShareSettings) -> Vec<LiveBlock> {
+        match self.agents.agent(&share.agent) {
+            Some(agent) => super::live::live_blocks(share, &agent, &*self.agents),
+            None => Vec::new(),
+        }
+    }
+
+    /// How `share`'s sessions log in (the summary, the Share dialog).
+    pub fn login(&self, share: &ShareSettings) -> super::live::Login {
+        match self.agents.agent(&share.agent) {
+            Some(agent) => super::live::login(share, &agent, &*self.agents),
+            None => super::live::Login::Unknown,
+        }
+    }
+
+    /// Refused with every reason, in one error.
+    fn refuse_blocks(&self, share: &ShareSettings, blocks: &[LiveBlock]) -> Result<()> {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        let text = blocks.iter().map(|b| b.message(&share.slug)).collect::<Vec<_>>().join(" ");
+        Err(PwError::new(crate::error::ErrorCode::Conflict, text))
     }
 
     pub fn list_shares(&self) -> Vec<ShareSettings> {
@@ -622,6 +664,16 @@ impl Collab {
     /// resume, copies are rebuilt when the scope changed (§5.4). People no
     /// longer in the audience lose their queued and running turns at once.
     pub fn set_share(&self, slug: &str, next: ShareSettings) -> Result<ShareDiff> {
+        let next = self.normalized(next);
+        if let Some(current) = self.shares.get(slug).filter(|c| c.state != ShareState::Draft) {
+            // A live share never moves onto a login it couldn't go live on.
+            let mut probe = next.clone();
+            probe.agent = current.agent.clone();
+            probe.slug = current.slug.clone();
+            let before = self.live_blocks(&current);
+            let new: Vec<LiveBlock> = self.live_blocks(&probe).into_iter().filter(|b| !before.contains(b)).collect();
+            self.refuse_blocks(&probe, &new)?;
+        }
         let (d, share) = self.shares.set(slug, next)?;
         if d.0.is_empty() {
             return Ok(d);
@@ -699,6 +751,9 @@ impl Collab {
     /// `share.go_live` (always asked of the owner first). Guest sessions are
     /// deleted unless `keep_guest`.
     pub fn go_live(&self, slug: &str, keep_guest: bool) -> Result<ShareSettings> {
+        if let Some(draft) = self.shares.get(slug).filter(|s| s.state == ShareState::Draft) {
+            self.refuse_blocks(&draft, &self.live_blocks(&draft))?;
+        }
         let share = self.shares.go_live(slug)?;
         let mut line = AuditLine::new(time::rfc3339(self.now()), "share.go_live", "ok");
         line.agent = Some(slug.into());
@@ -734,6 +789,9 @@ impl Collab {
     }
 
     pub fn resume(&self, slug: &str) -> Result<ShareSettings> {
+        if let Some(paused) = self.shares.get(slug).filter(|s| s.state == ShareState::Paused) {
+            self.refuse_blocks(&paused, &self.live_blocks(&paused))?;
+        }
         let share = self.shares.resume(slug)?;
         self.audit_owner("share.resume", slug);
         self.run(vec![Action::SharesChanged]);
@@ -1356,6 +1414,11 @@ impl Collab {
         let share = &job.share;
         let conv = &job.conv;
         let owner_agent = self.agents.agent(&share.agent).ok_or_else(|| PwError::not_found("the shared agent is gone"))?;
+        // Guests (the owner trying a draft) may use any login; nobody else
+        // reaches a session on the owner's own (§6.3).
+        if !conv.caller.guest {
+            self.refuse_blocks(share, &super::live::live_blocks(share, &owner_agent, &*self.agents))?;
+        }
         let kind = owner_agent.kind.clone();
         let folder = self.paths.session_dir(&share.slug, &conv.id.0);
         let work = folder.join("work");
@@ -1457,6 +1520,13 @@ impl Collab {
             write.push(PathBuf::from(dir));
         }
 
+        // A login folder no variable can move (Gemini CLI's `~/.gemini`) is
+        // never mounted, whatever else the kind data says (§6.3).
+        if let Some(login) = sk.login_dir.as_deref().map(crate::paths::expand_tilde) {
+            read.retain(|p| !p.starts_with(&login));
+            write.retain(|p| !p.starts_with(&login));
+        }
+
         let mut path: Vec<PathBuf> = install.path.clone();
         path.extend(SYSTEM_PATH.iter().map(PathBuf::from).filter(|p| p.is_dir()));
         let mut hosts = install.hosts.clone();
@@ -1466,7 +1536,7 @@ impl Collab {
         for name in &share.access.env {
             match env::check_passed(name) {
                 Ok(()) => {
-                    if let Ok(v) = std::env::var(name) {
+                    if let Some(v) = self.agents.env_value(name) {
                         pass.insert(name.clone(), v);
                     }
                 }

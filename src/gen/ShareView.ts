@@ -29,4 +29,11 @@ files: number | null, usage: ShareUsage,
 /**
  * Guest probes run on it, newest last.
  */
-probes: Array<ProbeResult>, };
+probes: Array<ProbeResult>, 
+/**
+ * What keeps it from going live (or a live one from widening to its
+ * login), one plain sentence each with how to fix it: the owner's own
+ * agent login instead of a separate account, Gemini CLI without an
+ * API key (sessions.md §6.3). Empty: nothing.
+ */
+liveBlocks: Array<string>, };

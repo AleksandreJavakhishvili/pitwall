@@ -398,3 +398,52 @@ fn asking_needs_teams_and_for_agents_the_switch_and_a_budget() {
     assert_eq!(list.as_array().unwrap().len(), 1, "one turn, kept once");
     assert_eq!(w.call(&user(), method::ASK_GET, json!({"turn": "c_new/1"})).unwrap()["share"], "carol/docs");
 }
+
+/// Sessions on the owner's own login can't go live (sessions.md §6.3).
+fn own_login_rule() -> super::memory::LiveRule {
+    Arc::new(|s: &pitwall_proto::collab::ShareSettings| super::LiveCheck {
+        blocks: if s.access.account.as_deref() == Some("claude-sharing") {
+            vec![]
+        } else {
+            vec![format!("{} would run on your own Claude Code login (~/.claude). …", s.slug)]
+        },
+        login: super::summary::Login::Account { name: (s.access.account.as_deref() == Some("claude-sharing")).then(|| "Sharing".into()) },
+    })
+}
+
+#[test]
+fn going_live_on_the_owners_own_login_is_refused_before_anyone_is_asked() {
+    let mut w = world(Duration::from_secs(5));
+    let mem = Arc::new(
+        MemoryCollab::new(Me { login: "alice@example.com".into(), name: "alice".into() }, None)
+            .with_guest_runner(Arc::new(Sandboxed))
+            .with_live_rule(own_login_rule()),
+    );
+    let p = w.project.to_string_lossy().into_owned();
+    w.svc = CollabService::new(mem.clone(), w.approvals.clone(), move || vec![agent("a1", "api", &p)]);
+    w.mem = mem;
+    w.reachable();
+    let people = json!({"people": [{"provider": "tailscale", "subject": "bob@example.com"}]});
+    let v: ShareView = serde_json::from_value(w.call(&user(), method::SHARE_CREATE, json!({"agent": "api", "patch": {"add": people}})).unwrap()).unwrap();
+    assert_eq!(v.live_blocks, ["api would run on your own Claude Code login (~/.claude). …"]);
+    assert!(v.summary.text.contains("It would run on your own Claude Code login, which holds your other conversations"), "{}", v.summary.text);
+    // Guests may try it on any login.
+    w.call(&user(), method::SHARE_GUEST, json!({"share": "api", "probes": true, "only": ["env-file"]})).unwrap();
+    // Going live: refused with the reason, nobody asked, from the CLI and the window.
+    for who in [user(), ui(), my_agent()] {
+        let e = w.call(&who, method::SHARE_GO_LIVE, json!({"share": "api"})).unwrap_err();
+        assert_eq!(e.code, code::NOT_ALLOWED);
+        assert!(e.message.contains("your own Claude Code login"), "{}", e.message);
+    }
+    assert!(w.approvals.pending().is_empty());
+    // A separate account: live.
+    w.call(&user(), method::SHARE_SET, json!({"share": "api", "patch": {"account": "claude-sharing"}})).unwrap();
+    let t = w.answer(true, |_| {});
+    w.call(&user(), method::SHARE_GO_LIVE, json!({"share": "api"})).unwrap();
+    t.join().unwrap();
+    // Moving the live share back onto the owner's login: refused before asking.
+    let e = w.call(&my_agent(), method::SHARE_SET, json!({"share": "api", "patch": {"account": "default"}})).unwrap_err();
+    assert_eq!(e.code, code::NOT_ALLOWED);
+    assert!(w.approvals.pending().is_empty());
+    assert_eq!(w.svc.find("api").unwrap().access.account.as_deref(), Some("claude-sharing"));
+}

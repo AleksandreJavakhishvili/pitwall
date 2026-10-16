@@ -19,6 +19,7 @@ pub mod audit;
 mod core;
 pub mod engine_host;
 pub mod front;
+pub mod live;
 pub mod people;
 pub mod sandboxed;
 mod service;

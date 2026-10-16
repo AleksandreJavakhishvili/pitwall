@@ -76,6 +76,10 @@ impl Drop for World {
 /// The service over a stand-in backend, with coding agents `ids` in one
 /// project (a `.env` in it), on a Fake network this machine is reachable on.
 fn world(cx: &mut TestAppContext, ids: &[&str]) -> World {
+    world_with(cx, ids, None)
+}
+
+fn world_with(cx: &mut TestAppContext, ids: &[&str], live: Option<pitwall_daemon::collab::memory::LiveRule>) -> World {
     // One folder per world: tests with the same agents run in parallel, and
     // each removes its folder when it ends.
     static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -94,6 +98,10 @@ fn world(cx: &mut TestAppContext, ids: &[&str]) -> World {
             .with_ask_client(Arc::new(Echo))
             .with_guest_runner(Arc::new(NoLeak)),
     );
+    let mem = match live {
+        Some(rule) => Arc::new(Arc::into_inner(mem).unwrap().with_live_rule(rule)),
+        None => mem,
+    };
     let mut s = CollabSettings { use_teams: true, ..Default::default() };
     s.reachable.insert("fake:example.ts.net".into(), true);
     mem.set_settings(s).unwrap();
@@ -286,6 +294,59 @@ fn the_sidebar_lists_shared_agents_and_their_callers(cx: &mut TestAppContext) {
     // The shared session's own agent is never offered Share….
     let s1 = coder("s1", "/work/api");
     assert!(vcx.update(|_, cx| !super::can_share(&s1, cx)));
+}
+
+#[gpui::test]
+fn going_live_needs_a_separate_account_and_the_dialog_says_why(cx: &mut TestAppContext) {
+    let rule: pitwall_daemon::collab::memory::LiveRule = Arc::new(|s: &ShareSettings| pitwall_daemon::collab::LiveCheck {
+        blocks: match s.access.account.as_deref() {
+            Some("claude-sharing") => vec![],
+            _ => vec!["api would run on your own Claude Code login (~/.claude). …".into()],
+        },
+        login: Default::default(),
+    });
+    let w = world_with(cx, &["a1"], Some(rule));
+    let a = w.agents[0].clone();
+    let (view, vcx) = window(cx, w.agents.clone());
+    let dialog = vcx.update(|window, cx| {
+        let d = cx.new(|cx| ShareDialog::new(a.clone(), None, cx));
+        super::show_dialog(d.clone().into(), window, cx);
+        d
+    });
+    dialog.update(vcx, |d, cx| {
+        d.draft.audience.people.push(pitwall_proto::collab::Identity::new("fake", "bob@example.com"));
+        d.go(Step::Access, cx);
+    });
+    redraw(&view, vcx);
+    assert!(vcx.debug_bounds("login-own-account").is_some(), "amber: guest tries only on the own login");
+    // The summary lists what keeps it from going live, and Go live is refused.
+    dialog.update(vcx, |d, cx| d.go(Step::Summary, cx));
+    vcx.run_until_parked();
+    redraw(&view, vcx);
+    assert_eq!(dialog.read_with(vcx, |d, _| d.live_blocks.len()), 1);
+    assert!(vcx.debug_bounds("live-block-0").is_some());
+    // A guest try works on it anyway.
+    dialog.update(vcx, |d, cx| d.try_as_guest(cx));
+    vcx.run_until_parked();
+    dialog.update(vcx, |d, cx| d.probe("env-file", None, cx));
+    vcx.run_until_parked();
+    assert_eq!(dialog.read_with(vcx, |d, _| d.probes.len()), 1);
+    dialog.update(vcx, |d, cx| d.go_live(cx));
+    vcx.run_until_parked();
+    let e = dialog.read_with(vcx, |d, _| d.error.clone()).unwrap_or_default();
+    assert!(e.contains("your own Claude Code login"), "{e}");
+    assert_eq!(w.mem.shares()[0].state, ShareState::Draft);
+    // A separate account: the warning goes, and it goes live.
+    dialog.update(vcx, |d, cx| {
+        d.error = None;
+        d.draft.access.account = Some("claude-sharing".into());
+        d.check_live(cx);
+    });
+    vcx.run_until_parked();
+    assert!(dialog.read_with(vcx, |d, _| d.live_blocks.is_empty()));
+    dialog.update(vcx, |d, cx| d.go_live(cx));
+    vcx.run_until_parked();
+    assert_eq!(w.mem.shares()[0].state, ShareState::Live);
 }
 
 #[test]

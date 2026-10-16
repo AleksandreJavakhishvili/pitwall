@@ -96,6 +96,10 @@ impl Drop for World {
 }
 
 fn world(tag: &str) -> World {
+    world_with(tag, None)
+}
+
+fn world_with(tag: &str, live: Option<pitwall_daemon::collab::memory::LiveRule>) -> World {
     let dir = TempDir::new("cli-collab");
     let project = TempDir::new("cli-collab-repo");
     let put = |rel: &str, text: &str| {
@@ -124,6 +128,10 @@ fn world(tag: &str) -> World {
             .with_ask_client(Arc::new(Echo))
             .with_guest_runner(Arc::new(NoLeak)),
     );
+    let mem = match live {
+        Some(rule) => Arc::new(Arc::into_inner(mem).unwrap().with_live_rule(rule)),
+        None => mem,
+    };
     mem.add_directory_entry(DirectoryEntry {
         card_url: "http://studio.example.ts.net:47421/a2a/docs".into(),
         card: json!({"name": "Docs"}),
@@ -200,7 +208,8 @@ fn share_create_prints_the_draft_summary_and_exclusions() {
             "sensitive": [{"path": ".env", "why": "matches .env*"}, {"path": "deploy/id_ed25519", "why": "matches id_*"}],
             "files": 3,
             "usage": {"agentMinutesToday": 0, "running": 0, "limitedUntil": null, "callers": []},
-            "probes": []
+            "probes": [],
+            "liveBlocks": []
         })
     );
     let repo = std::fs::canonicalize(w.project.path()).unwrap();
@@ -383,4 +392,29 @@ fn an_older_pitwall_without_collaboration_says_so() {
     assert_eq!(failure(&e).0["error"]["code"], "unsupported");
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
+#[test]
+fn going_live_on_the_owners_own_login_is_refused_with_how_to_fix_it() {
+    let rule: pitwall_daemon::collab::memory::LiveRule = Arc::new(|s: &ShareSettings| pitwall_daemon::collab::LiveCheck {
+        blocks: if s.access.account.is_some() {
+            vec![]
+        } else {
+            vec![format!("{} would run on your own Claude Code login (~/.claude). Pick or add one with `pitwall share set {} --account <name>`.", s.slug, s.slug)]
+        },
+        login: Default::default(),
+    });
+    let w = world_with("own-login", Some(rule));
+    let o = w.run(&["--human", "share", "create", "api-expert", "--person", "bob@example.com"]).unwrap();
+    assert!(o.human.contains("Before it can go live:\n  ! api-expert would run on your own Claude Code login (~/.claude)."), "{}", o.human);
+    let e = w.run(&["share", "go-live", "api-expert"]).err().unwrap();
+    let (body, exit) = failure(&e);
+    assert_eq!(body["error"]["code"], "not_allowed");
+    assert!(body["error"]["message"].as_str().unwrap().contains("--account <name>"), "{body}");
+    assert_ne!(exit, 0);
+    assert!(w.approvals.pending().is_empty(), "nobody was asked");
+    w.run(&["share", "set", "api-expert", "--account", "claude-sharing"]).unwrap();
+    let t = w.answer(true);
+    w.run(&["share", "go-live", "api-expert"]).unwrap();
+    t.join().unwrap();
 }

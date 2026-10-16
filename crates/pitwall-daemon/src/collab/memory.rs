@@ -28,6 +28,9 @@ use pitwall_proto::{code, ErrorBody};
 
 use super::{CollabBackend, Me};
 
+/// A test rule for [`CollabBackend::live_check`].
+pub type LiveRule = Arc<dyn Fn(&ShareSettings) -> super::LiveCheck + Send + Sync>;
+
 /// Sends one message to another Pitwall's shared agent and waits for the
 /// turn (the fronts track's A2A client). Refusals and failures come back
 /// as errors with the CLI's codes (`quota`, `busy`, `share_total`,
@@ -78,6 +81,7 @@ pub struct MemoryCollab {
     networks: Vec<Arc<dyn Network>>,
     ask_client: Option<Arc<dyn AskClient>>,
     guest: Option<Arc<dyn GuestRunner>>,
+    live: Option<LiveRule>,
     counter: std::sync::atomic::AtomicU64,
 }
 
@@ -170,6 +174,7 @@ impl MemoryCollab {
             networks: Vec::new(),
             ask_client: None,
             guest: None,
+            live: None,
             counter: std::sync::atomic::AtomicU64::new(1),
         }
     }
@@ -186,6 +191,12 @@ impl MemoryCollab {
 
     pub fn with_guest_runner(mut self, runner: Arc<dyn GuestRunner>) -> MemoryCollab {
         self.guest = Some(runner);
+        self
+    }
+
+    /// Tests: what keeps a share from going live (the core's rule in Pitwall).
+    pub fn with_live_rule(mut self, rule: LiveRule) -> MemoryCollab {
+        self.live = Some(rule);
         self
     }
 
@@ -281,6 +292,10 @@ impl CollabBackend for MemoryCollab {
 
     fn is_shared_session(&self, agent_id: &str) -> bool {
         lock(&self.state).shared_agents.contains(agent_id)
+    }
+
+    fn live_check(&self, s: &ShareSettings) -> super::LiveCheck {
+        self.live.as_ref().map(|rule| rule(s)).unwrap_or_default()
     }
 
     fn settings(&self) -> CollabSettings {

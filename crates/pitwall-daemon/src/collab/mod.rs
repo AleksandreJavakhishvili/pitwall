@@ -34,6 +34,13 @@ use pitwall_proto::ErrorBody;
 
 pub use service::{CollabService, Who};
 
+/// [`CollabBackend::live_check`]'s answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveCheck {
+    pub blocks: Vec<String>,
+    pub login: summary::Login,
+}
+
 /// Me, as my networks know me.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Me {
@@ -86,6 +93,13 @@ pub trait CollabBackend: Send + Sync {
     /// Person ids blocked from all my shares.
     fn blocked(&self) -> Vec<String>;
     fn set_blocked(&self, person: &str, blocked: bool) -> Result<(), ErrorBody>;
+    /// What keeps `s` from going live, as sentences with how to fix them,
+    /// and how its sessions log in (sessions.md §6.3): the core's answer
+    /// in Pitwall; nothing known by default.
+    fn live_check(&self, s: &ShareSettings) -> LiveCheck {
+        let _ = s;
+        LiveCheck::default()
+    }
     /// The sensitive-file scan of a scope (default: [`scan::PatternScan`]).
     fn scan(&self, scope: &pitwall_proto::collab::Scope) -> scan::ScanResult {
         use scan::Scanner;

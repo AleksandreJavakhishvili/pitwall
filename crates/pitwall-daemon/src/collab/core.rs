@@ -749,6 +749,13 @@ impl CollabBackend for CoreCollab {
         }
     }
 
+    fn live_check(&self, s: &ShareSettings) -> super::LiveCheck {
+        super::LiveCheck {
+            blocks: self.collab.live_blocks(s).iter().map(|b| b.message(&s.slug)).collect(),
+            login: self.collab.login(s),
+        }
+    }
+
     fn scan(&self, scope: &pitwall_proto::collab::Scope) -> ScanResult {
         match scan_scope(&LocalExec, scope) {
             Ok(s) => ScanResult {

@@ -138,6 +138,18 @@ pub struct ShareKind {
     /// false } }`, which wins over the account's own settings files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own_sandbox_off_settings: Option<serde_json::Value>,
+    /// Where the agent keeps its login when no variable can move it
+    /// (Gemini CLI's `~/.gemini`): a session's own `HOME` has no login, and
+    /// this folder is never mounted or copied into a session. With
+    /// `api_key_env`, a share of the kind goes live only with one of those
+    /// variables passed by the owner (§6.3 "The agent account").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_dir: Option<String>,
+    /// Variables that hold an API key the agent logs in with
+    /// (`GEMINI_API_KEY`), any one of them, passed explicitly by the owner
+    /// in the share's environment; never copied implicitly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub api_key_env: Vec<String>,
 }
 
 impl ShareKind {
