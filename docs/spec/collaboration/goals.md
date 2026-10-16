@@ -29,8 +29,8 @@ Part of the [collaboration spec](README.md).
    Tailscale tells Alice's Pitwall that the call is from Erin; nothing else
    is set up.
 5. **Ask from Pitwall.** Bob opens the Ask panel, picks `alice/api-expert`
-   and asks "Where are refresh tokens rotated?". The reply appears in his
-   thread. Tomorrow he asks a follow-up and the same conversation continues.
+   and asks "Where are refresh tokens rotated?". His Pitwall sends it over
+   A2A; the reply streams into his thread. Tomorrow he asks a follow-up and the same conversation continues.
 6. **Ask, change, ask.** `alice/payments-expert` (a Codex agent) is shared
    with team Payments with **Can change code**. Carol asks how refunds are
    booked, then writes "add a dry-run flag to the refund job". That turn
@@ -81,7 +81,10 @@ Part of the [collaboration spec](README.md).
 - **Works with plain Claude Code.** Anyone on the tailnet with an MCP
   client can use what is shared with them, with one setup command and
   nothing else installed. Pitwall users get more (teams, directory, Ask
-  panel, Review) over the same channel.
+  panel, Review) over A2A, which fits agent-to-agent work best. One core
+  behind both, so the rules are the same.
+- **An open channel.** Any A2A client on the tailnet can use a share too,
+  within its audience.
 - **Identity from Tailscale.** Every request is tied to a Tailscale login
   and node (LocalAPI `whois`) before anything else. No accounts, tokens or
   pairing for callers.
@@ -127,7 +130,8 @@ Part of the [collaboration spec](README.md).
   result mode, [§7.5](messages.md)).
 - No shared sessions on agw machines in v1, on Linux before C3, or on
   Windows before the WSL2 route (C5) ([§9.2](safety.md)). Asking works everywhere.
-- No reaching people outside the tailnet.
+- No reaching people outside the tailnet. (A future Pitwall Cloud could;
+  v1 keeps that door open behind one seam, [§13](plan.md).)
 - No group chat between people. Each conversation is one caller and one
   shared agent.
 
@@ -151,10 +155,11 @@ purpose and only for the narrow collaboration surface:
 
 ```
  bob-mbp (Pitwall)                                     studio (owner: alice, Pitwall)
-┌────────────────────────────────┐   MCP over HTTP   ┌───────────────────────────────────────┐
-│ Ask panel · pitwall ask · mcp  │   (tools/call,    │ HTTP listener on the tailnet IP       │
-│   └─ daemon: MCP client        │──  SSE progress)─▶│  /mcp           one tool per share    │
-│ Review: changes, Apply (am -3) │◀─ reply + patch ──│  /pitwall/v1/…  teams, discovery      │
+┌────────────────────────────────┐                   ┌───────────────────────────────────────┐
+│ Ask panel · pitwall ask · mcp  │   A2A over HTTP   │ HTTP listener on the tailnet IP       │
+│   └─ daemon: A2A client        │──  (tasks, SSE) ─▶│  /a2a/<share>   A2A front ┐           │
+│ Review: changes, Apply (am -3) │◀─ reply + patch ──│  /mcp           MCP front ┴─▶ one core│
+│                                │                   │  /pitwall/v1/…  teams, discovery      │
 │ Collab: teams, directory cache │   whois = who     │ Collab: shares, conversations, limits │
 └────────────────────────────────┘                   │  conversation = ordinary agent, any   │
           ▲   gossip of team records                 │  kind, in an OS sandbox around a      │
@@ -173,7 +178,7 @@ conversation, message, reply, changes, limits) are defined in the
 
 Collaboration is a new service beside the engine, like `Peers` in
 tailnet-peers.md: `Collab` owns teams, the directory, shares,
-conversations, limits and the MCP server and client. Conversations are
+conversations, limits, the A2A server and client, and the MCP server. Conversations are
 ordinary engine agents with an extra `AgentRecord.shared = { share, caller }`.
 Status, holders, hooks, Review and the Wall work for them as for any agent;
 caps decide what the UI shows (the CI no-special-cases grep stays green).

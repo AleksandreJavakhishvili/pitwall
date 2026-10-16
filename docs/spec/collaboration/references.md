@@ -42,8 +42,26 @@ Checked on 2026-10-16. "Unverified" items are marked in the text.
   - `list_changed` for tools refreshes the list without reconnecting
     (tools only in `-p` mode).
 
-**A2A** (possible later front, [§10.3](protocol.md)):
+**A2A** (specification 1.0.0), the Pitwall front ([§8.3.2](protocol.md)):
 https://a2a-protocol.org/latest/specification/
+- Agent Card required fields (`name`, `description`, `supportedInterfaces`,
+  `version`, `capabilities`, `defaultInputModes`, `defaultOutputModes`,
+  `skills`), `AgentSkill`, `AgentInterface` (`url`, `protocolBinding`:
+  `JSONRPC`, `GRPC`, `HTTP+JSON`; `protocolVersion`); discovery by
+  `/.well-known/agent-card.json`, catalogs or pre-configured card URLs.
+- `contextId` (server may generate; groups tasks into a conversation); a
+  server may return a Message or a Task; `metadata` on messages.
+- Task states, including input-required (client continues) and
+  auth-required (in-task authorization delegated to the client; the state
+  by itself is not authorization).
+- `Part` (exactly one of `text`, `raw`, `url`, `data`; `mediaType`,
+  `filename`), `Artifact` (`artifactId`, `name`, `parts`), artifact update
+  events (`append`, `lastChunk`).
+- HTTP+JSON endpoints (`POST /message:send`, `POST /message:stream` with
+  `text/event-stream`, `GET /tasks/{id}`, `GET /tasks`,
+  `POST /tasks/{id}:cancel`, `POST /tasks/{id}:subscribe`), body media type
+  `application/a2a+json`, `A2A-Version` header; push notifications
+  optional.
 
 **Claude Code**
 - `-p`, `--resume`, `--fork-session`, `--session-id`, `--output-format`,
@@ -150,10 +168,10 @@ https://a2a-protocol.org/latest/specification/
   ([§6.3](sessions.md)).
 - Codex session-file fields for the last assistant message ([§7.2](messages.md)).
 - `tiny_http` streaming and `ureq` SSE reading in practice ([§8.1](protocol.md)).
-- Whether every MCP client accepts plain `http://` on a tailnet address
+- Whether A2A and MCP clients accept plain `http://` on a tailnet address
   ([§8.1](protocol.md), [§14](plan.md) question 9).
 - Whether progress notifications reset Claude Code's idle timer, and tool
-  timeouts and output limits in other MCP clients ([§8.3](protocol.md), [§14](plan.md)
+  timeouts and output limits in other MCP clients ([§8.3.3](protocol.md), [§14](plan.md)
   question 17).
 - How each agent kind shows its vendor usage limit and reset time on
   screen or in hooks ([§5.8](sharing.md)).

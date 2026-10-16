@@ -21,7 +21,7 @@ tailnet and asking.
   - **Only devices I add by name** (for very large tailnets).
 - **Probe.** `GET http://<tailnet IP>:47421/pitwall/v1/info` ([§8.4](protocol.md)). No
   answer means no Pitwall, or a Pitwall with collaboration off. A node that
-  answers returns only `{ version, login, label, listedTeams, mcp: "/mcp" }`.
+  answers returns only `{ version, login, label, listedTeams, a2a: true, mcp: "/mcp" }`.
 - **Limits.** At most 256 nodes per refresh, 16 at a time, 2 s connect
   timeout. A node that didn't answer is not probed again for 24 h, unless it
   changes in `tailscale status` (new IP, came online) or the user presses ↻.
@@ -43,15 +43,15 @@ tailnet and asking.
   valid version wins.
 
 ### Finding shared agents
-- The directory is MCP's own `tools/list`: Pitwall calls it on the `/mcp`
-  endpoint of each Pitwall that runs a member of the caller's teams, and
-  gets the shared agents **that caller may use**, as tools ([§8.7](protocol.md)): name,
-  description, capability, what's left today. No paths, no session data.
+- `GET /pitwall/v1/directory` on each Pitwall that runs a member of the
+  caller's teams returns the shared agents **that caller may use**, as A2A
+  Agent Cards ([§8.7](protocol.md)): name, description, capability, what's left today.
+  No paths, no session data.
   People with no common team see nothing, unless a share names them
   directly or is open to the whole tailnet. A plain Claude user sees the
-  same list in their client after `claude mcp add`.
+  same shares as tools in their client after `claude mcp add` (`tools/list`).
 - The directory is a cache (`collab/directory.json`), refreshed with
-  discovery and when an owner announces a change (`shares.changed` event to
+  discovery and when an owner announces a change (`directory.changed` event to
   connected teammates; `notifications/tools/list_changed` to MCP clients).
   An owner who is offline shows their agents dimmed, "alice is offline ·
   2 h", and requests to them fail at once (no offline queue in v1, [§14](plan.md)

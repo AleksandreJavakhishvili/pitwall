@@ -49,7 +49,7 @@ Same visual language as tailnet-peers.md §7.
 - **Sidebar, owner side.** A "Shared" group (after local projects, before
   peer machines): each shared agent is a heading with capability chip,
   running / cap (`1/2`), draft or paused state; under it one row per
-  session, named by caller (`bob`, `bob · client-fix agent`, `erin (Claude Code)`,
+  session, named by caller (`bob`, `bob · client-fix agent`, `erin · Claude Code (MCP)`,
   `guest`), with status flag, last message time and usage. Needs-you and
   held results flag amber like any blocked agent and count in the badge.
 - **Session pane, owner side.** The terminal (watch), with a strip "Shared

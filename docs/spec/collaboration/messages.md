@@ -5,25 +5,28 @@ Part of the [collaboration spec](README.md).
 ## 7. Messages, replies, the owner, results
 
 ### 7.1 Flow of one message
-1. The caller's Pitwall, or any MCP client such as plain Claude Code,
-   calls the share's `ask_<slug>` tool on the owner's `/mcp` endpoint
-   ([§8.3](protocol.md)).
+1. The caller's Pitwall (or any A2A client) sends A2A
+   `SendStreamingMessage` to the share's endpoint; a plain MCP client such
+   as Claude Code calls the share's `ask_<slug>` tool on `/mcp`. Both reach
+   the same core ([§8.3](protocol.md)).
 2. The owner's Pitwall checks `whois`, audience, share state, limits and queue, and writes an audit
-   line. A caller outside the audience doesn't see the tool; other refusals
-   (busy, over quota, agent limited) are tool results with `isError`.
+   line. A caller outside the audience gets `404` (A2A) or doesn't see the
+   tool (MCP); limit refusals are a `rejected` task or a tool result with
+   `isError`.
 3. It finds or creates the caller's session, starts or resumes it, waits
    until it is idle, then delivers the message as ordinary input: typed into
    the terminal as a prompt (bracketed paste + Enter, as Pitwall sends any
    prompt), or, for kinds that use their non-interactive mode ([§7.2](messages.md) b), as
    that command's prompt argument.
-4. Progress goes back as MCP progress notifications when the client asked
-   for them: queued (with position) → working → done | failed. If the turn
-   outlasts `wait_seconds`, the call returns `working` with the turn id and
-   the caller uses `check_turn`.
+4. Progress goes back as A2A status updates over SSE (`submitted` with
+   position → `working` → `completed` | `failed` | `canceled`), or as MCP
+   progress notifications; an MCP call that outlasts `wait_seconds` returns
+   `working` with the turn id, and the caller uses `check_turn`.
 5. When the turn ends, the reply ([§7.2](messages.md)) goes back at once as an artifact. If
    the turn changed the copy ([§5.3](sharing.md)), the patch series follows ([§7.5](messages.md)): in the
-   same result for `write`; after the owner's Send for `write_approval`,
-   with the result saying `held` until then (seen through `check_turn`).
+   same turn for `write`; after the owner's Send for `write_approval`,
+   with the turn staying `working` ("changes waiting for alice's OK") until
+   then.
 
 ### 7.2 Capturing the reply, for any agent kind
 The reply is simply **what the agent said** in that turn. Pitwall reads it
@@ -72,7 +75,7 @@ caller's message and the owner's answer to the share's instructions (a
 file. The owner sees, edits and deletes them. Never automatic.
 
 ### 7.5 How changes travel back
-**Default: over the same MCP channel as the reply.** No GitHub, no shared
+**Default: over the same channel as the reply.** No GitHub, no shared
 remote, no push.
 1. **At the end of every turn** at a "Can change code" capability, if the
    copy differs from the last delivered state, Pitwall commits the changes
@@ -89,9 +92,9 @@ remote, no push.
    resets the session's copy to the last delivered state, and the next
    message carries the factual line "Your changes from the previous turn
    were not sent" ([§8.3.1](protocol.md)).
-4. **Send:** the patch series goes out in the turn's result, `changes`
-   ([§8.3](protocol.md)): inline up to 40,000 characters, else in parts through `get_changes`. A
-   Pitwall caller stores it in `collab/results/<turn>/` and shows it **in
+4. **Send:** the patch series goes out as the turn's `changes`: an A2A
+   artifact, or in the MCP result (inline up to 40,000 characters, else in
+   parts through `get_changes`, [§8.3.3](protocol.md)). A Pitwall caller stores it in `collab/results/<turn>/` and shows it **in
    Review** as "changes from alice/api-expert", with the reply next to it.
    A plain client's agent gets the patch text and applies it itself
    (`git am -3` or `git apply`), as with any patch.
@@ -102,8 +105,8 @@ remote, no push.
    in Review.
 6. **Or redo on my latest code.** "Ask to redo on my code" sends a message
    in the same conversation with the caller's own text plus their commits
-   since the base, limited to the share's scope, in the tool's
-   `my_changes` field (in Pitwall, after the caller approves what is sent:
+   since the base, limited to the share's scope, as a `text/x-patch` part
+   (A2A) or the tool's `my_changes` field (MCP) (in Pitwall, after the caller approves what is sent:
    it is their code leaving the machine). The owner's Pitwall applies them to the
    session's copy before the turn and adds the factual line "Files updated:
    3 commits from bob@example.com applied". The agent just sees updated
