@@ -57,6 +57,7 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `icon` | string | none | The logo shown before the kind's name in the sidebar, tile headers, New agent and the strip of hidden agents: a bundled logo (`claude`, `codex`, `gemini`, `copilot`, `cursor`, `qwen`, or `terminal` for the terminal icon) or the full path of a one-colour SVG file (`~/` means your home folder; it's tinted to the theme). None: the kind's first letter on a badge. |
 | `update_command` | string | none | The command that updates the tool (`claude update`). With **Keep agent tools up to date** on (Settings → Agents, `agents.updateTools`), Pitwall runs it through your login shell when it starts and every 6 hours, one tool at a time, and only for installed tools. |
 | `update_off_env` | table | `{}` | Environment that turns the tool's own updater off (`{ DISABLE_AUTOUPDATER = "1" }`). While Pitwall updates the tool, every agent and terminal it starts gets it, so many sessions don't update themselves at once (they race and can leave the tool's command missing). |
+| `share` | table | none | What hosting a shared session of this kind needs (see [Sharing](#sharing)). None: the kind can still be shared, with no model hosts allowed until the owner adds some. |
 
 Unknown keys are ignored.
 
@@ -101,6 +102,24 @@ A kind with `account_env` can run on more than one login, say a work and a perso
 - The CLI takes `pitwall agent new --account <name>`.
 
 Moving a running agent carries its conversation along and showing who an account is logged in as both work for Claude Code and Codex only, since they need to know where each tool keeps its files. For another kind, `account_env` still lets each agent start on the account you chose.
+
+## Sharing
+
+A `[share]` table tells Pitwall what a shared session of the kind needs inside its sandbox (see the collaboration spec, `docs/spec/collaboration/sessions.md` §6.3 and §6.7). Every key is optional.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `model_hosts` | list of strings | `[]` | Hosts the agent reaches its model and login at. The share's egress proxy allows these, plus the hosts the owner adds. `host`, `host:port` or `*.domain`; without a port, 443 and 80. |
+| `install_paths` | list of strings | `[]` | Where the agent's own install may be (`~/` means your home folder). They're readable inside the sandbox and their programs may run. Missing ones are skipped. |
+| `programs` | list of strings | `[]` | Programs the agent needs besides its command, such as its runtime (`node`), looked up on PATH. |
+| `keychain` | boolean | `false` | The agent keeps its login in the macOS Keychain, so the sandbox lets it reach the Keychain. |
+
+```toml
+[share]
+model_hosts = ["api.example.com"]
+install_paths = ["~/.local/share/drift"]
+programs = ["node"]
+```
 
 ## The bundled Claude Code definition
 

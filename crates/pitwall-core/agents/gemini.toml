@@ -16,3 +16,20 @@ hooks = "none"
 # rulesync only covers the Antigravity products), so none is set.
 # The logo shown before its name (docs/reference/agents.md).
 icon = "gemini"
+
+# Sharing (docs/spec/collaboration/sessions.md §6.7): what a shared session's
+# sandbox lets it reach. Hosts from Gemini CLI's docs: the Gemini API, Code
+# Assist (Google sign-in) and Google's OAuth (unverified: not installed here).
+[share]
+model_hosts = [
+    "generativelanguage.googleapis.com",
+    "cloudcode-pa.googleapis.com",
+    "oauth2.googleapis.com",
+    "www.googleapis.com",
+]
+install_paths = [
+    "/opt/homebrew/lib/node_modules/@google/gemini-cli",
+    "/usr/local/lib/node_modules/@google/gemini-cli",
+    "/opt/homebrew/Cellar/gemini-cli",
+]
+programs = ["node"]
