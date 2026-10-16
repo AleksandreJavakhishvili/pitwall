@@ -95,7 +95,7 @@ release → [gpui/README.md](gpui/README.md), checklist [gpui/inventory.md](gpui
 - Collaboration (designed, not started): teams on the tailnet, no server;
   share any agent with teammates over A2A (read only, can change code, with
   approval), one session per asker in an OS sandbox, patches back over the
-  same channel, MCP front-end → [collaboration.md](collaboration.md)
+  same channel, MCP front-end → [collaboration/](collaboration/README.md)
 
 ## Website — DONE
 - `website/` deploys to GitHub Pages (`.github/workflows/pages.yml`); the live demo
