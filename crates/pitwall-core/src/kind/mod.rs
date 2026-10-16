@@ -76,6 +76,36 @@ pub struct AgentKind {
     /// while it updates the tool itself.
     #[serde(default)]
     pub update_off_env: std::collections::BTreeMap<String, String>,
+    /// What hosting a shared session of this kind needs (`[share]`,
+    /// docs/spec/collaboration/sessions.md §6.7). None: it can still be
+    /// shared, with no model hosts allowed and its install found from its
+    /// command only.
+    #[serde(default)]
+    pub share: Option<ShareKind>,
+}
+
+/// A kind's `[share]` table. Additive: more keys (resume and fork commands,
+/// reply capture, native controls) join it as collaboration grows.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShareKind {
+    /// Hosts the agent reaches its model and login at; the share's egress
+    /// proxy allows these (plus what the owner adds). `host`, `host:port`
+    /// or `*.domain`.
+    #[serde(default)]
+    pub model_hosts: Vec<String>,
+    /// Where the agent's own install may be (`~/` = the owner's home):
+    /// readable inside the sandbox, and its programs may run. Missing ones
+    /// are skipped.
+    #[serde(default)]
+    pub install_paths: Vec<String>,
+    /// Programs the agent needs besides its command (its runtime, `node`),
+    /// by name, looked up on PATH.
+    #[serde(default)]
+    pub programs: Vec<String>,
+    /// It keeps its login in the OS credential store (the macOS Keychain),
+    /// so the sandbox lets it reach that (`SandboxPolicy::credential_store`).
+    #[serde(default)]
+    pub keychain: bool,
 }
 
 impl AgentKind {
@@ -149,6 +179,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         icon: Some("terminal".into()),
         update_command: None,
         update_off_env: Default::default(),
+        share: None,
     }
 }
 
