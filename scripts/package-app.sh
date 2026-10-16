@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Packages Pitwall (crates/pitwall-app, the GPUI app; binary `pitwall`):
 # builds the app and its sidecars (pitwall-hold, pitwall-cli, and
-# pitwall-hook on Windows) in release mode and bundles them, with the
+# pitwall-hook on Windows and macOS) in release mode and bundles them, with the
 # Race Engineer's skills (skills/pitwall, skills/race-engineer;
 # docs/spec/engineer.md) as resources (docs/spec/gpui/packaging.md).
 # .github/workflows/release.yml runs it.
@@ -87,7 +87,9 @@ icons="$root/crates/pitwall-app/packaging/icons"
 exe=""
 [ $os = windows ] && exe=.exe
 sidecars="pitwall-hold pitwall-cli"
-[ $os = windows ] && sidecars="$sidecars pitwall-hook"
+# The hook relay: Windows' only one; on macOS what shared sessions run for
+# their hooks inside the OS sandbox (no sh + curl there).
+case $os in windows|macos) sidecars="$sidecars pitwall-hook" ;; esac
 # The Race Engineer's files: found at run time by crates/pitwall-app/src/engineer
 # (macOS: Contents/Resources/skills; Linux: /usr/lib/<package>/skills;
 # Windows: skills/ next to the app).

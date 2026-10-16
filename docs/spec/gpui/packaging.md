@@ -4,7 +4,9 @@ Up to v0.1.x `pnpm tauri build` made the macOS universal `.app`/`.dmg`,
 the Linux AppImage and `.deb`, and the Windows NSIS `.exe` and `.msi`, with
 three sidecars: `pitwall-hold` (terminal holder), `pitwall-cli` (linked as
 `pitwall`) and, on Windows, `pitwall-hook` (the hook relay; Unix uses an sh
-script). Since v0.2.0 (the switch-over) the same artifacts, under the same
+script). Since collaboration C1a `pitwall-hook` ships on macOS too: shared
+sessions run it for their hooks inside the OS sandbox, so `curl` isn't
+among their programs. Since v0.2.0 (the switch-over) the same artifacts, under the same
 release asset names, come from `cargo` plus a packager:
 `scripts/package-app.sh`, run by `.github/workflows/release.yml`.
 
