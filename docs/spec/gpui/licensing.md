@@ -193,3 +193,11 @@ Apache-2.0, already in the tree via gpui, with its dependencies `bytes` and
 `itoa`), for the request and response types of the collaboration handler. The
 HTTP server and client (`tiny_http`, `ureq`, §8.1) come with the Tailscale
 backend and are recorded here when they land.
+
+C1a core (`pitwall-core::collab`: team records, limits): `ed25519-dalek` 2
+(BSD-3-Clause, with `curve25519-dalek` 4 BSD-3-Clause, `ed25519` 2 MIT OR
+Apache-2.0, `signature`, `subtle` BSD-3-Clause, `zeroize`) to sign and check
+team records (§4.2); `sha2` 0.10 (MIT OR Apache-2.0, already in the tree) for
+record hashes and team ids; `base64` 0.22 (MIT OR Apache-2.0, already in the
+tree) for keys and signatures; `chrono` 0.4 (MIT OR Apache-2.0, already in the
+tree via the app) for the owner's local midnight, when daily limits reset.

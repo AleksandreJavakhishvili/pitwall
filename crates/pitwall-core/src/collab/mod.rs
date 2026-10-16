@@ -15,9 +15,19 @@
 //! (§15.8). Its sessions are sandboxed through
 //! [`crate::sandbox::SessionSandbox`].
 
+pub mod audit;
+mod core;
+pub mod engine_host;
+pub mod people;
 mod service;
+pub mod session;
+pub mod shares;
+pub mod store;
 pub mod team;
+pub mod teams;
+pub mod time;
 pub mod turn;
+pub mod usage;
 
 #[cfg(test)]
 mod tests;
@@ -26,6 +36,7 @@ pub use pitwall_proto::collab::{
     Access, Audience, Capability, LimitOverride, Limits, PerCaller, Programs, RefusalReason, Scope, ShareSettings,
     ShareState, Start,
 };
+pub use self::core::{Collab, CollabDeps, CollabSettings, HookWiring, Notice, RunMode, DEFAULT_MAX_SESSIONS};
 pub use service::{Conversations, Teams};
 pub use turn::{
     Ask, Asker, Changes, ChangesPart, ConversationId, ConversationSummary, Failure, Left, Refusal, Reply, ShareCard,
