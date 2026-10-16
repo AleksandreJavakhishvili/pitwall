@@ -15,14 +15,13 @@ use super::keys::SignatureCheck;
 use super::{ParsedInvite, TeamStore};
 use crate::collab::team::{InviteRedeem, JoinRequest, PitwallInfo, TeamHead, TeamId, TeamRecord};
 use crate::error::{ErrorCode, PwError, Result};
-use crate::net::{http, Body, DeviceAddr, Network, Request, Timeouts};
+use crate::net::{http, Body, DeviceAddr, Network, Probed, Request, Timeouts};
 use pitwall_proto::collab::TeamCard;
 
 /// Bodies read from other Pitwalls are capped like requests (§8.1).
 const MAX_BODY: usize = crate::collab::MAX_BODY;
-/// Devices probed per refresh, and the connect timeout of a probe (§3).
-pub const MAX_PROBES: usize = 256;
-pub const PROBE_CONNECT: Duration = Duration::from_secs(2);
+/// The connect timeout of a `teams:discover` after a probe answered (§3).
+const DISCOVER_CONNECT: Duration = Duration::from_secs(2);
 
 /// `{"records": [TeamRecord]}` (`records`, `teams:discover`).
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -160,26 +159,25 @@ pub fn sync_with(store: &TeamStore, peer: &DeviceAddr) -> Result<usize> {
     Ok(added)
 }
 
-/// Probe the devices every network lists (§3): `/info`, then
-/// `teams:discover` where it lists teams. Caches what checks out and returns
-/// the team cards (mine and discovered).
+/// Probe the devices every network lists (§3): `/info` through
+/// [`crate::net::Prober`] (256 per refresh, 16 at a time, 2 s to connect;
+/// a device that didn't answer is left alone for a day), then
+/// `teams:discover` where `/info` lists teams. Caches what checks out and
+/// returns the team cards (mine and discovered).
 pub fn discover(store: &TeamStore) -> Vec<TeamCard> {
-    let mut probed = 0;
+    refresh(store, false)
+}
+
+/// [`discover`]; `force` (↻) probes devices that recently didn't answer too.
+pub fn refresh(store: &TeamStore, force: bool) -> Vec<TeamCard> {
     for net in store.networks() {
         let Ok(hints) = net.discover() else { continue };
-        for hint in hints.into_iter().filter(|h| h.online) {
-            if probed >= MAX_PROBES {
-                break;
-            }
-            probed += 1;
-            let mut req = get(paths::INFO);
-            req.extensions_mut().insert(Timeouts { connect: PROBE_CONNECT, idle: Some(Duration::from_secs(5)) });
-            let Ok(info) = call::<PitwallInfo>(store, &hint.addr, req) else { continue };
-            if info.listed_teams.is_empty() {
-                continue;
-            }
-            if let Ok(listed) = call::<Records>(store, &hint.addr, get(paths::DISCOVER)) {
-                store.note_discovered(&hint.addr, listed.records);
+        let answered: Vec<Probed<PitwallInfo>> = store.prober().probe(&*net, &hints, force);
+        for p in answered.into_iter().filter(|p| !p.info.listed_teams.is_empty()) {
+            let mut req = get(paths::DISCOVER);
+            req.extensions_mut().insert(Timeouts { connect: DISCOVER_CONNECT, idle: Some(Duration::from_secs(5)) });
+            if let Ok(listed) = call::<Records>(store, &p.hint.addr, req) {
+                store.note_discovered(&p.hint.addr, listed.records);
             }
         }
     }

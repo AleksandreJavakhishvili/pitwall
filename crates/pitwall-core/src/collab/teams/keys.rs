@@ -2,15 +2,17 @@
 //! device's instance key (tailnet-peers.md §5, `peers/identity.key`), which
 //! the network side owns: it hands collaboration a [`RecordSigner`]. Keys
 //! and signatures are written `ed25519:<base64url>` (no padding), as the
-//! network side's instance key (`net::InstanceKey`) writes them, so a
-//! [`RecordSigner`] can be backed by it directly.
+//! network side's instance key (`net::InstanceKey`) writes them; the
+//! instance key is the production [`RecordSigner`] and [`Ed25519`] checks
+//! with its `verify`.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
+use ed25519_dalek::{Signer as _, SigningKey};
 use sha2::{Digest, Sha256};
 
 use crate::collab::team::DeviceKey;
+use crate::net::InstanceKey;
 
 const PREFIX: &str = "ed25519:";
 
@@ -33,17 +35,23 @@ pub trait SignatureCheck: Send + Sync {
 pub struct Ed25519;
 
 impl SignatureCheck for Ed25519 {
+    /// The instance key's own check ([`InstanceKey::verify`], strict
+    /// Ed25519), so records are checked exactly as they are signed.
     fn verify(&self, key: &DeviceKey, msg: &[u8], sig: &str) -> bool {
-        let Some(key) = decode_key(key) else { return false };
-        let Some(sig) = sig.strip_prefix(PREFIX).and_then(|s| URL_SAFE_NO_PAD.decode(s).ok()) else { return false };
-        let Ok(sig) = <[u8; 64]>::try_from(sig.as_slice()) else { return false };
-        key.verify(msg, &Signature::from_bytes(&sig)).is_ok()
+        InstanceKey::verify(&key.0, msg, sig)
     }
 }
 
-fn decode_key(key: &DeviceKey) -> Option<VerifyingKey> {
-    let bytes = key.0.strip_prefix(PREFIX).and_then(|s| URL_SAFE_NO_PAD.decode(s).ok())?;
-    VerifyingKey::from_bytes(&<[u8; 32]>::try_from(bytes.as_slice()).ok()?).ok()
+/// This device's instance key (`peers/identity.key`) signs the records it
+/// writes: the production [`RecordSigner`].
+impl RecordSigner for InstanceKey {
+    fn key(&self) -> DeviceKey {
+        DeviceKey(self.public_key())
+    }
+
+    fn sign(&self, msg: &[u8]) -> String {
+        InstanceKey::sign(self, msg)
+    }
 }
 
 /// A signer over an Ed25519 secret key held in memory. The network side
@@ -100,5 +108,16 @@ mod tests {
         assert!(!Ed25519.verify(&DeviceKey("ed25519:nonsense".into()), b"record", &sig));
         assert!(!Ed25519.verify(&a.key(), b"record", "ed25519:AAAA"));
         assert_eq!(key_fingerprint(&a.key()).len(), 16);
+    }
+
+    #[test]
+    fn the_instance_key_signs_records_as_the_check_expects() {
+        let key = InstanceKey::from_seed([9; 32]);
+        let same = Ed25519Signer::from_seed([9; 32]);
+        assert_eq!(RecordSigner::key(&key), same.key(), "one text form for keys");
+        let sig = RecordSigner::sign(&key, b"record");
+        assert_eq!(sig, same.sign(b"record"));
+        assert!(Ed25519.verify(&RecordSigner::key(&key), b"record", &sig));
+        assert!(!Ed25519.verify(&RecordSigner::key(&key), b"other", &sig));
     }
 }

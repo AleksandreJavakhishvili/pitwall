@@ -183,6 +183,9 @@ pub struct TeamStore {
     subscribers: Mutex<Vec<Sender<()>>>,
     /// Member devices listening on `/events` for `team.announce`.
     announce_to: Mutex<Vec<(Caller, Sender<TeamHead>)>>,
+    /// Discovery's probes (§3): parallel, capped, and devices that didn't
+    /// answer are left alone a day ([`crate::net::Prober`]).
+    prober: crate::net::Prober,
     /// Itself, for pulls in the background.
     this: Weak<TeamStore>,
 }
@@ -227,6 +230,7 @@ impl TeamStore {
             inner: Mutex::new(inner),
             subscribers: Mutex::default(),
             announce_to: Mutex::default(),
+            prober: crate::net::Prober::default(),
         })
     }
 
@@ -241,6 +245,10 @@ impl TeamStore {
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn prober(&self) -> &crate::net::Prober {
+        &self.prober
     }
 
     pub(crate) fn arc(&self) -> Option<Arc<TeamStore>> {

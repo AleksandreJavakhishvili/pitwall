@@ -354,3 +354,19 @@ fn member_devices_hear_announcements() {
     assert_eq!(head, alice.store.head(&team).unwrap());
     assert_eq!(head.version, 3);
 }
+
+#[test]
+fn discovery_leaves_silent_devices_alone_until_forced() {
+    let net = FakeNet::new("example");
+    let bob = node(&net, "bob@example.com", "bob-mbp", 2);
+    // Alice's device is there but her Pitwall isn't serving yet.
+    let dir = TempDir::new("teams");
+    let (alice, alice_net) = open(dir.path(), &net, "alice@example.com", "studio", 1);
+    let team = alice.create("Platform", "", true, JoinPolicy::Request).unwrap();
+    assert!(sync::discover(&bob.store).iter().all(|c| c.team != team));
+    let _serving = alice_net.serve(Arc::new(Router(alice.clone()))).unwrap();
+    // It didn't answer: not probed again for a day…
+    assert!(sync::discover(&bob.store).iter().all(|c| c.team != team));
+    // …unless the user refreshes (↻).
+    assert!(sync::refresh(&bob.store, true).iter().any(|c| c.team == team));
+}
