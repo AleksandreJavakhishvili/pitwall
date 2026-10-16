@@ -462,13 +462,16 @@ impl CollabService {
     /// People given by login only (`--person bob@example.com`, empty
     /// provider) on the network they are on.
     fn normalize(&self, mut p: SharePatch) -> Result<SharePatch, ErrorBody> {
-        for list in [&mut p.add.people, &mut p.remove.people] {
+        let mut whole = p.settings.take();
+        let lists = [Some(&mut p.add.people), Some(&mut p.remove.people), whole.as_mut().map(|s| &mut s.audience.people)];
+        for list in lists.into_iter().flatten() {
             for who in list.iter_mut() {
                 if who.provider.is_empty() {
                     *who = self.identity(&who.subject, None)?;
                 }
             }
         }
+        p.settings = whole;
         // Overrides by login (`--limit bob@example.com=50`): by person id.
         p.overrides = std::mem::take(&mut p.overrides).into_iter().map(|(k, v)| (self.person(&k), v)).collect();
         Ok(p)

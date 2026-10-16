@@ -11,6 +11,7 @@ pub mod bench;
 pub mod approvals;
 pub mod bridge;
 pub mod cli_spaces;
+pub mod collab;
 pub mod explorer;
 pub mod frame_stats;
 pub mod code_view;
@@ -118,6 +119,7 @@ pub fn run() {
                 platform::follow(&store, cx);
                 platform::single_instance::serve(paths.root(), cx);
                 approvals::init(&store, host.approvals.clone(), cx);
+                collab::init(Some(host.collab.clone()), cx);
                 terminal::init(&store, cx);
                 AppState {
                     host: Some(host),

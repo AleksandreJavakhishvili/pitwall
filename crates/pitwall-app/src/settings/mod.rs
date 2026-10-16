@@ -112,6 +112,8 @@ fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
         Page::Rules => "rulesync rule sets",
         Page::Appearance => "theme dark light glass flat liquid motion density font",
         Page::FolderAccess => "full disk access permissions privacy folders",
+        Page::Collaboration => "teams sharing shared agents ask mcp setup reach budget audit",
+        Page::Networks => "tailscale tailnet pitwall cloud network reach",
         Page::About => "version licence license",
     }
 }

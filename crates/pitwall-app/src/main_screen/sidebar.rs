@@ -108,6 +108,14 @@ impl MainScreen {
                 !sections.is_empty()
             }
         };
+        // Collaboration's "Shared" group: after the local projects, before
+        // agents elsewhere (`crate::collab::sidebar`).
+        let shared = crate::collab::sidebar::render(self, t, window, cx);
+        if any && !shared.is_empty() {
+            list.push(div().h(px(4.)).flex_none().into_any_element());
+        }
+        let any = any || !shared.is_empty();
+        list.extend(shared);
         let elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
         if any && !elsewhere.is_empty() {
             list.push(div().h(px(4.)).flex_none().into_any_element());
@@ -644,6 +652,12 @@ impl MainScreen {
             for acc in list {
                 push(Some(acc.id.clone()), acc.name.clone());
             }
+        }
+        // Collaboration: share this agent (or change how it is shared).
+        if crate::collab::can_share(a, cx) {
+            let id = a.id.clone();
+            let label = if crate::collab::share_of(&a.id, cx).is_some() { "Sharing…" } else { "Share…" };
+            items.push(MenuItem::new("share", label, move |_, window, cx| crate::collab::share_dialog::open(&id, window, cx)));
         }
         let id = a.id.clone();
         items.push(MenuItem::new(
