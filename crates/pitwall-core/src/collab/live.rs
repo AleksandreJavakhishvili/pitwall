@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(
             b[0].message("docs"),
             "Gemini CLI keeps its login in ~/.gemini, which shared sessions can't use; add an API key for sharing: \
-             pass GEMINI_API_KEY (or GOOGLE_API_KEY) in Share… → Secrets and access, or with `pitwall share set docs --env GEMINI_API_KEY`."
+             pass GEMINI_API_KEY in Share… → Secrets and access, or with `pitwall share set docs --env GEMINI_API_KEY`."
         );
         // Passed, but not set anywhere Pitwall looks.
         assert_eq!(live_blocks(&share(None, &["GEMINI_API_KEY"]), &agent, &o), [LiveBlock::KeyNotSet { var: "GEMINI_API_KEY".into() }]);
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(live_blocks(&share(None, &["OTHER"]), &agent, &o).len(), 1);
         assert_eq!(
             login(&share(None, &["GEMINI_API_KEY"]), &agent, &o),
-            Login::ApiKey { vars: vec!["GEMINI_API_KEY".into(), "GOOGLE_API_KEY".into()], passed: Some("GEMINI_API_KEY".into()), login_dir: Some("~/.gemini".into()) }
+            Login::ApiKey { vars: vec!["GEMINI_API_KEY".into()], passed: Some("GEMINI_API_KEY".into()), login_dir: Some("~/.gemini".into()) }
         );
     }
 

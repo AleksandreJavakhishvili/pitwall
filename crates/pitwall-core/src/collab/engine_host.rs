@@ -15,6 +15,7 @@ use super::session::{
     limit_on_screen, reply_from_hook, reply_from_screen, share_kind, HostLaunch, HostSink, OwnerAgents, SessionEvent, SessionHost,
     SharedAgent,
 };
+use super::session::TurnArgs;
 use super::session_file::{Found, SessionFileReader};
 use super::turn::Reply;
 use pitwall_proto::collab::ReplySource;
@@ -30,6 +31,9 @@ const POLL: Duration = Duration::from_millis(250);
 const HOOK_GRACE: Duration = Duration::from_secs(2);
 /// … and for the turn's end in the kind's session file.
 const FILE_GRACE: Duration = Duration::from_secs(5);
+/// A non-interactive run that just started isn't over before this, whatever
+/// the engine's view of its previous run says.
+const RUN_SETTLE: Duration = Duration::from_millis(400);
 
 struct Watch {
     kind: AgentKind,
@@ -55,6 +59,58 @@ struct Watch {
     resume_id: Option<String>,
     /// The id the files gave, once told to the core.
     told_id: Option<String>,
+    /// Tier (b): the kind's non-interactive mode; nothing runs between turns.
+    runs: Option<Runs>,
+}
+
+/// A non-interactive session (tier (b), §7.2): each turn is one run in the
+/// session's pane, its output kept in the session folder (outside what
+/// the sandbox can write) and its reply read from that.
+struct Runs {
+    launch: HostLaunch,
+    turns: TurnArgs,
+    spec: crate::kind::NonInteractive,
+    /// The conversation's first turn ran (later ones resume it).
+    started: bool,
+    /// A run is going: since when.
+    running: Option<Instant>,
+    /// Where the runs' stdout and stderr go.
+    out: std::path::PathBuf,
+    err: std::path::PathBuf,
+}
+
+impl Runs {
+    /// The command line of one turn: the sandboxed run, its stdout and
+    /// stderr each shown in the pane and kept in a file. The pipes and
+    /// `tee` are Pitwall's, outside the sandbox; only the run is inside.
+    fn command_line(&self, message: &str) -> String {
+        let w = if self.started { &self.turns.next } else { &self.turns.first };
+        let mut run: Vec<String> = Vec::new();
+        if w.argv.first().map(String::as_str) != Some("/usr/bin/env") {
+            run.extend(["/usr/bin/env".to_string(), "-i".to_string()]);
+            run.extend(w.env.iter().map(|(k, v)| format!("{k}={v}")));
+        }
+        run.extend(w.argv.iter().map(|a| a.replace(super::session::MESSAGE, message)));
+        let script = r#"out=$1; err=$2; shift 2; { "$@" 2>&1 1>&3 3>&- | /usr/bin/tee "$err" 1>&2; } 3>&1 | /usr/bin/tee "$out""#;
+        let mut parts = vec!["/bin/sh".to_string(), "-c".into(), script.into(), "sh".into()];
+        parts.push(self.out.to_string_lossy().into_owned());
+        parts.push(self.err.to_string_lossy().into_owned());
+        parts.extend(run);
+        parts.iter().map(|p| crate::shell::quote(p)).collect::<Vec<_>>().join(" ")
+    }
+
+    /// The finished run's reply, or the error it printed.
+    fn result(&self) -> (Option<Reply>, Option<String>) {
+        let out = std::fs::read_to_string(&self.out).unwrap_or_default();
+        let err = std::fs::read_to_string(&self.err).unwrap_or_default();
+        match super::session::reply_from_run(&self.spec, &out, &err) {
+            Ok(r) => (r, None),
+            Err(e) => {
+                eprintln!("pitwall: a shared session's turn ({}) failed: {e}", self.launch.shared.share);
+                (None, Some(e))
+            }
+        }
+    }
 }
 
 impl Watch {
@@ -172,6 +228,31 @@ impl EngineHost {
             {
                 let mut w = self.watches();
                 let Some(watch) = w.get_mut(&id) else { continue };
+                if let Some(runs) = watch.runs.as_mut() {
+                    // Tier (b): ready at once; a turn ends when its run does.
+                    if !watch.ready && !watch.launching {
+                        watch.ready = true;
+                        out.push(SessionEvent::Ready);
+                    }
+                    let running = views.get(&id).is_some_and(|(status, _, running)| *running && !matches!(status, Status::Exited | Status::Stopped));
+                    if let Some(since) = runs.running {
+                        if !running && since.elapsed() >= RUN_SETTLE {
+                            runs.running = None;
+                            let (reply, error) = runs.result();
+                            // Later turns resume the conversation once it exists.
+                            runs.started |= reply.is_some() || error.as_deref().is_some_and(|e| e.contains("already exists"));
+                            if watch.open {
+                                watch.open = false;
+                                out.push(SessionEvent::TurnEnded(reply));
+                            }
+                        }
+                    }
+                    drop(w);
+                    for e in out {
+                        self.emit(&id, e);
+                    }
+                    continue;
+                }
                 let Some((status, detail, running)) = views.get(&id).cloned() else { continue };
                 if watch.launching {
                     continue;
@@ -268,6 +349,47 @@ impl SessionHost for EngineHost {
         let command_line = parts.iter().map(|p| crate::shell::quote(p)).collect::<Vec<_>>().join(" ");
         let files = session_files(&kind, launch);
         let resume_id = launch.resumed.then(|| launch.session_id.clone()).flatten();
+        let runs = match (&launch.turns, share_kind(&kind).non_interactive) {
+            (Some(turns), Some(spec)) => {
+                let dir = launch.cwd.parent().map(|p| p.join("turn")).unwrap_or_else(|| launch.cwd.join("../turn"));
+                std::fs::create_dir_all(&dir).map_err(|e| PwError::other(format!("{}: {e}", dir.display())))?;
+                Some(Runs {
+                    launch: launch.clone(),
+                    turns: turns.clone(),
+                    spec,
+                    started: launch.resumed,
+                    running: None,
+                    out: dir.join("stdout"),
+                    err: dir.join("stderr"),
+                })
+            }
+            _ => None,
+        };
+        if let Some(runs) = runs {
+            // Nothing runs until the first message (poll says Ready).
+            self.watches().insert(
+                launch.agent.clone(),
+                Watch {
+                    kind,
+                    ready: false,
+                    open: false,
+                    worked: false,
+                    before: String::new(),
+                    sent: String::new(),
+                    idle_since: None,
+                    hook_reply: None,
+                    blocked: false,
+                    limited: None,
+                    exited: false,
+                    launching: false,
+                    files: None,
+                    resume_id: None,
+                    told_id: None,
+                    runs: Some(runs),
+                },
+            );
+            return Ok(());
+        }
         self.watches().insert(
             launch.agent.clone(),
             Watch {
@@ -286,6 +408,7 @@ impl SessionHost for EngineHost {
                 files,
                 resume_id,
                 told_id: None,
+                runs: None,
             },
         );
         let cwd = launch.cwd.to_string_lossy().into_owned();
@@ -312,6 +435,48 @@ impl SessionHost for EngineHost {
     }
 
     fn send(&self, agent: &str, text: &str) -> Result<()> {
+        // Tier (b): the turn is one run of the kind's non-interactive mode.
+        let run = self.watches().get_mut(agent).and_then(|w| {
+            let runs = w.runs.as_mut()?;
+            let _ = std::fs::remove_file(&runs.out);
+            let _ = std::fs::remove_file(&runs.err);
+            let line = runs.command_line(text);
+            w.open = true;
+            w.launching = true;
+            Some((line, runs.launch.clone()))
+        });
+        if let Some((command_line, l)) = run {
+            let cwd = l.cwd.to_string_lossy().into_owned();
+            let started = lifecycle::launch_shared(
+                &self.engine,
+                lifecycle::SharedLaunch {
+                    id: &l.agent,
+                    name: &l.name,
+                    kind: &l.kind,
+                    kind_name: &l.kind_name,
+                    cwd: &cwd,
+                    project: &l.project,
+                    command_line,
+                    shared: l.shared.clone(),
+                    session_id: l.session_id.clone(),
+                    resumed: true,
+                },
+            )
+            .map_err(other);
+            if let Some(w) = self.watches().get_mut(agent) {
+                w.launching = false;
+                if let Some(runs) = w.runs.as_mut() {
+                    runs.running = started.is_ok().then(Instant::now);
+                }
+                if started.is_err() {
+                    w.open = false;
+                }
+            }
+            if started.is_ok() {
+                self.emit(agent, SessionEvent::Working);
+            }
+            return started.map(|_| ());
+        }
         let before = self.screen(agent);
         let mut told = Vec::new();
         if let Some(w) = self.watches().get_mut(agent) {
@@ -334,8 +499,17 @@ impl SessionHost for EngineHost {
     }
 
     fn interrupt(&self, agent: &str) -> Result<()> {
+        let mut run = false;
         if let Some(w) = self.watches().get_mut(agent) {
             w.open = false;
+            if let Some(r) = w.runs.as_mut() {
+                // A run is stopped, not typed at.
+                run = r.running.take().is_some();
+                r.started = true;
+            }
+        }
+        if run {
+            return lifecycle::stop(&self.engine, agent).or(Ok(()));
         }
         input::write_input_bytes(&self.engine, agent, b"\x1b").map_err(other)
     }
@@ -368,6 +542,10 @@ impl SessionHost for EngineHost {
         let screen = self.screen(agent);
         let w = self.watches();
         let watch = w.get(agent)?;
+        if let Some(runs) = &watch.runs {
+            // A run prints its JSON only at the end: whatever is there.
+            return runs.result().0;
+        }
         watch.hook_reply.clone().or_else(|| reply_from_screen(&watch.before, &screen, &watch.sent))
     }
 }

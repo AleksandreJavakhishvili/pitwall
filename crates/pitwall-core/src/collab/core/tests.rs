@@ -1284,3 +1284,48 @@ fn an_api_key_kind_goes_live_only_with_its_key_passed_and_set() {
     let TurnStatus::Failed { .. } = w.status(&carol, &t) else { panic!("{:?}", w.status(&carol, &t)) };
     assert!(w.collab.turn(&carol, &t.id).unwrap().status_message.unwrap().contains("KEYED_API_KEY is passed to docs, but it isn't set"));
 }
+
+// ------------------------------------------------------------------ reply tiers (§7.2)
+
+#[test]
+fn a_non_interactive_kind_gets_sandboxed_turn_commands_and_its_own_id() {
+    let w = World::new();
+    let kind: AgentKind = toml::from_str(
+        r#"
+id = "headless"
+name = "Headless agent"
+command = "headless"
+resume_args = ["--resume", "{session_id}"]
+hooks = "none"
+[share]
+reply = "non-interactive"
+session_args = ["--trust"]
+[share.non_interactive]
+first_args = ["--new", "{session_id}", "-p", "{message}"]
+next_args = ["--resume", "{session_id}", "-p", "{message}"]
+reply = "/response"
+"#,
+    )
+    .unwrap();
+    w.host.add_kind("h1", kind);
+    let share: ShareSettings = serde_json::from_value(serde_json::json!({
+        "agent": "h1", "slug": "docs", "name": "Docs", "description": "",
+        "scope": {"repo": "/code/docs", "ref": "main"}, "audience": {"networks": [w.net.id()]}
+    }))
+    .unwrap();
+    w.collab.create_share(share).unwrap();
+    w.collab.go_live("docs", false).unwrap();
+    let bob = w.asker("bob@example.com", "bob-mbp");
+    let t = w.ask(&bob, "docs", "Where are the docs?");
+    let l = w.host.last_launch();
+    let turns = l.turns.clone().expect("turn commands");
+    let id = l.session_id.clone().expect("Pitwall picks the conversation's id");
+    assert_eq!(turns.first.argv, ["sandbox", "headless", "--new", id.as_str(), "-p", "{message}", "--trust"]);
+    assert_eq!(turns.next.argv, ["sandbox", "headless", "--resume", id.as_str(), "-p", "{message}", "--trust"]);
+    assert_eq!(turns.first.env, turns.next.env, "one sandbox policy for both");
+    assert!(!l.resumed);
+    // The message goes in as usual; the host runs it.
+    assert!(w.host.sent_to(&l.agent)[0].ends_with("Where are the docs?"));
+    w.host.reply(&l.agent, "In docs/.");
+    assert_eq!(w.status(&bob, &t), TurnStatus::Done);
+}

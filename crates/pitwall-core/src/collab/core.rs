@@ -1444,9 +1444,19 @@ impl Collab {
         let account = share.access.account.clone().or(owner_agent.account.clone());
         let policy = self.policy(share, &kind, account.as_deref(), &folder)?;
         let hook = self.hooks.as_ref().map(|h| super::session::hook_command(&h.command, &conv.agent, &h.socket));
-        let (mut argv, session_id, resumed) = kind_argv(&kind, &job.start, hook.as_deref());
+        let (mut argv, mut session_id, mut resumed) = kind_argv(&kind, &job.start, hook.as_deref());
         argv.extend(super::session::session_args(&kind, &work));
-        let wrapped = self.sandbox.wrap(&policy, &argv)?;
+        let mut wrapped = self.sandbox.wrap(&policy, &argv)?;
+        // Tier (b): nothing runs between turns; each turn is one sandboxed run.
+        let mut turns = None;
+        if let Some((first, next, id, res)) = super::session::turn_argv(&kind, &job.start, &work) {
+            let first = self.sandbox.wrap(&policy, &first)?;
+            let next = self.sandbox.wrap(&policy, &next)?;
+            wrapped = first.clone();
+            turns = Some(super::session::TurnArgs { first, next });
+            session_id = Some(id);
+            resumed = res;
+        }
         let launch = HostLaunch {
             agent: conv.agent.clone(),
             name: format!("{} · {}", share.slug, conv.caller.agent.clone().unwrap_or_else(|| conv.caller.login.clone())),
@@ -1463,6 +1473,7 @@ impl Collab {
             },
             session_id: session_id.clone(),
             resumed,
+            turns,
         };
         self.host.launch(&launch)?;
         Ok((session_id, copy))

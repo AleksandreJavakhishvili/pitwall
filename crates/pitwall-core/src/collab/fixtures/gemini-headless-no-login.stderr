@@ -1,0 +1,8 @@
+{
+  "session_id": "4c1f0a9e-6b3d-4e4f-8a62-2e3d4f5a6b7c",
+  "error": {
+    "type": "Error",
+    "message": "Please set an Auth method in your /pw/collab/shares/docs/s/c_1/home/.gemini/settings.json or specify one of the following environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA",
+    "code": 41
+  }
+}

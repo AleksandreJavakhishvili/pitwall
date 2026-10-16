@@ -27,6 +27,7 @@ fn launch(cwd: &str) -> HostLaunch {
         shared: SharedSession { share: "api-expert".into(), agent: "a1".into(), conversation: "c_1".into(), caller: "bob@example.com".into() },
         session_id: Some("s-1".into()),
         resumed: false,
+        turns: None,
     }
 }
 
@@ -143,4 +144,73 @@ fn a_codex_turn_ends_with_the_reply_in_its_session_file() {
     // Once.
     std::thread::sleep(std::time::Duration::from_millis(600));
     assert_eq!(events.lock().unwrap().iter().filter(|(_, e)| matches!(e, SessionEvent::TurnEnded(_))).count(), 1);
+}
+
+fn wait_event(events: &Arc<Mutex<Vec<(String, SessionEvent)>>>, want: &SessionEvent) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !events.lock().unwrap().iter().any(|(_, e)| e == want) {
+        assert!(std::time::Instant::now() < deadline, "waited for {want:?}: {:?}", events.lock().unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Gemini CLI (tier (b), its non-interactive mode): nothing runs between
+/// turns; each message is one sandboxed run in the pane, the first one
+/// starting the conversation with Pitwall's id, the next ones resuming it,
+/// and the reply is the JSON's `response` (recorded from Gemini CLI 0.64.0).
+#[test]
+fn a_gemini_turn_is_one_run_and_its_reply_is_the_jsons_response() {
+    let h = Harness::new(vec![]);
+    let mut caps = FakeProvider::local_like();
+    caps.local_process = true;
+    h.provider.set_caps(caps);
+    let host = EngineHost::new(h.engine.clone());
+    let events: Arc<Mutex<Vec<(String, SessionEvent)>>> = Arc::default();
+    let seen = events.clone();
+    host.subscribe(Arc::new(move |a: &str, e: SessionEvent| seen.lock().unwrap().push((a.to_string(), e))));
+    let folder = h.dir.path().join("s/c_1");
+    let work = folder.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let wrap = |args: &[&str]| {
+        let mut argv: Vec<String> = ["sandbox-exec", "-f", "/p.sb", "gemini", "--skip-trust"].iter().map(|s| s.to_string()).collect();
+        argv.extend(args.iter().map(|s| s.to_string()));
+        Wrapped { argv, env: BTreeMap::from([("HOME".to_string(), "/s/home".to_string()), ("GEMINI_API_KEY".to_string(), "not-a-real-key".to_string())]) }
+    };
+    let mut l = launch(&work.to_string_lossy());
+    l.kind = "gemini".into();
+    l.kind_name = "Gemini CLI".into();
+    l.session_id = Some("g-1".into());
+    l.turns = Some(crate::collab::session::TurnArgs {
+        first: wrap(&["--session-id", "g-1", "-p", "{message}", "--output-format", "json"]),
+        next: wrap(&["--resume", "g-1", "-p", "{message}", "--output-format", "json"]),
+    });
+    l.wrapped = l.turns.as_ref().unwrap().first.clone();
+    host.launch(&l).unwrap();
+    assert!(h.provider.launched().is_empty(), "nothing runs before a message");
+    wait_event(&events, &SessionEvent::Ready);
+
+    host.send("shared-1", "From bob@example.com:\nWhere are the docs?").unwrap();
+    let line = h.provider.launched()[0].command_line.clone();
+    assert!(line.starts_with("/bin/sh -c "), "{line}");
+    assert!(line.contains("/usr/bin/env -i GEMINI_API_KEY=not-a-real-key HOME=/s/home sandbox-exec -f /p.sb gemini --skip-trust --session-id g-1 -p"), "{line}");
+    assert!(line.contains("'From bob@example.com:\nWhere are the docs?'"), "the message is one argument: {line}");
+    assert!(!line.contains("{message}"));
+    let out = folder.join("turn/stdout");
+    std::fs::write(&out, include_str!("../fixtures/gemini-headless.json")).unwrap();
+    std::fs::write(folder.join("turn/stderr"), "Warning: Basic terminal detected (TERM=dumb).\nRipgrep is not available. Falling back to GrepTool.\n").unwrap();
+    h.provider.ctl("shared-1").unwrap().exit(0);
+    let reply = Reply { text: "Mock Gemini reply 12: the docs are in docs/.".into(), source: ReplySource::NonInteractive };
+    wait_event(&events, &SessionEvent::TurnEnded(Some(reply)));
+
+    // The next message resumes the conversation, in the same record.
+    host.send("shared-1", "And the tokens?").unwrap();
+    let line = h.provider.launched()[1].command_line.clone();
+    assert!(line.contains("--resume g-1 -p 'And the tokens?'"), "{line}");
+    assert!(!out.exists(), "each run's output starts empty");
+    assert_eq!(h.engine.records().iter().filter(|r| r.id == "shared-1").count(), 1);
+    // No login in the session: the run's error, no answer.
+    std::fs::write(folder.join("turn/stderr"), include_str!("../fixtures/gemini-headless-no-login.stderr")).unwrap();
+    h.provider.ctl("shared-1").unwrap().exit(41);
+    wait_event(&events, &SessionEvent::TurnEnded(None));
+    assert!(!events.lock().unwrap().iter().any(|(_, e)| *e == SessionEvent::Exited), "a run ending isn't the session exiting");
 }

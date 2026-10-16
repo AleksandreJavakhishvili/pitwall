@@ -24,7 +24,8 @@ icon = "gemini"
 # HOME has no login, and ~/.gemini is never mounted or copied. A share goes
 # live only with an API key the owner passes explicitly (§6.3).
 login_dir = "~/.gemini"
-api_key_env = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+# GOOGLE_API_KEY alone isn't enough: it's for Vertex AI with more settings.
+api_key_env = ["GEMINI_API_KEY"]
 model_hosts = [
     "generativelanguage.googleapis.com",
     "cloudcode-pa.googleapis.com",
@@ -37,7 +38,24 @@ install_paths = [
     "/opt/homebrew/Cellar/gemini-cli",
 ]
 programs = ["node"]
-reply = "terminal"
+# Each turn runs in its non-interactive mode (below); the reply is the JSON's
+# `response`.
+reply = "non-interactive"
 instruction_files = ["GEMINI.md"]
 # Its own sandbox (Seatbelt on macOS) can't nest inside Pitwall's.
 own_sandbox_off_env = { GEMINI_SANDBOX = "false" }
+# Each conversation's copy is a new folder: trusted for the run, or headless
+# mode refuses to start ("not running in a trusted directory").
+session_args = ["--skip-trust"]
+
+# `gemini -p … --output-format json`: one turn per run, resumed by id. Checked
+# with Gemini CLI 0.64.0 against a local mock of the model API: `--session-id`
+# starts a conversation with Pitwall's id, `--resume <id>` with `-p` continues
+# it (the history goes with the request), the reply is `response`, and a
+# failed run prints `{"session_id", "error": {"message", …}}` on stderr.
+[share.non_interactive]
+first_args = ["--session-id", "{session_id}", "-p", "{message}", "--output-format", "json"]
+next_args = ["--resume", "{session_id}", "-p", "{message}", "--output-format", "json"]
+reply = "/response"
+session_id = "/session_id"
+error = "/error/message"

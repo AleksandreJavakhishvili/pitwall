@@ -54,7 +54,23 @@ pub struct HostLaunch {
     pub session_id: Option<String>,
     /// The launch continues `session_id` (the kind's resume).
     pub resumed: bool,
+    /// Tier (b), the kind's non-interactive mode (§7.2): nothing runs
+    /// between turns, and each turn is one run of these (`{message}`: the
+    /// message as typed), already sandboxed. `None`: an interactive agent.
+    pub turns: Option<TurnArgs>,
 }
+
+/// A non-interactive kind's turn commands, already sandboxed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnArgs {
+    /// The conversation's first turn (a resumed launch has none: `next`).
+    pub first: Wrapped,
+    /// Every later turn.
+    pub next: Wrapped,
+}
+
+/// Where a turn's message goes in [`TurnArgs`].
+pub const MESSAGE: &str = "{message}";
 
 /// What a host reports about a running session's agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,6 +244,71 @@ pub fn kind_argv(kind: &AgentKind, start: &StartAs, hook: Option<&str>) -> (Vec<
     (argv, session, resumed)
 }
 
+/// Tier (b): the kind's per-turn argv for its first and later turns
+/// (`{message}` left in place, `{session_id}` filled), the conversation
+/// id they use, and whether the launch resumes. `None`: the kind has no
+/// non-interactive mode in its data, or reads replies another way.
+pub fn turn_argv(kind: &AgentKind, start: &StartAs, cwd: &Path) -> Option<(Vec<String>, Vec<String>, String, bool)> {
+    let sk = share_kind(kind);
+    if sk.reply != crate::kind::ReplyTier::NonInteractive {
+        return None;
+    }
+    let ni = sk.non_interactive.as_ref()?;
+    let (id, resumed) = match start {
+        StartAs::Resume(id) => (id.clone(), true),
+        _ => (uuid::Uuid::new_v4().to_string(), false),
+    };
+    let build = |args: &[String]| -> Vec<String> {
+        let mut argv: Vec<String> = kind.command.split_whitespace().map(String::from).collect();
+        argv.extend(args.iter().map(|a| a.replace("{session_id}", &id)));
+        argv.extend(sk.own_sandbox_off_args.iter().cloned());
+        argv.extend(session_args(kind, cwd));
+        argv
+    };
+    let next = build(&ni.next_args);
+    let first = if resumed { next.clone() } else { build(&ni.first_args) };
+    Some((first, next, id, resumed))
+}
+
+/// Tier (b): the reply in a non-interactive run's output: the last JSON
+/// object printed (stdout first; Gemini CLI prints its error object on
+/// stderr), its `reply` field. `Err`: the run's error message, when it
+/// printed one.
+pub fn reply_from_run(ni: &crate::kind::NonInteractive, stdout: &str, stderr: &str) -> std::result::Result<Option<Reply>, String> {
+    let objects = |text: &str| -> Vec<serde_json::Value> {
+        // Pretty-printed objects start on a line of their own; warnings and
+        // stack traces around them are skipped.
+        let mut out = Vec::new();
+        let mut at = 0;
+        while let Some(i) = text[at..].find('{').map(|i| at + i) {
+            let line_start = i == 0 || text[..i].ends_with('\n');
+            if line_start {
+                let mut it = serde_json::Deserializer::from_str(&text[i..]).into_iter::<serde_json::Value>();
+                if let Some(Ok(v)) = it.next() {
+                    if v.is_object() {
+                        out.push(v);
+                    }
+                    at = i + it.byte_offset().max(1);
+                    continue;
+                }
+            }
+            at = i + 1;
+        }
+        out
+    };
+    let all: Vec<serde_json::Value> = objects(stdout).into_iter().chain(objects(stderr)).collect();
+    for v in all.iter().rev() {
+        if let Some(text) = v.pointer(&ni.reply).and_then(|x| x.as_str()).map(str::trim).filter(|t| !t.is_empty()) {
+            return Ok(Some(Reply { text: text.to_string(), source: ReplySource::NonInteractive }));
+        }
+    }
+    let error = ni.error.as_deref().and_then(|p| all.iter().rev().find_map(|v| v.pointer(p).and_then(|x| x.as_str()).map(String::from)));
+    match error {
+        Some(e) => Err(e),
+        None => Ok(None),
+    }
+}
+
 /// The kind's `[share] session_args` for a session in `cwd` (its real
 /// path, as the agent records it).
 pub fn session_args(kind: &AgentKind, cwd: &Path) -> Vec<String> {
@@ -339,6 +420,40 @@ mod tests {
         assert_eq!(argv, ["codex", "resume", "019a-1", "--sandbox", "danger-full-access", "-c", trust.as_str()]);
         assert!(resumed);
         assert_eq!(share_kind(&k).reply, crate::kind::ReplyTier::SessionFile);
+    }
+
+    #[test]
+    fn gemini_turns_run_its_non_interactive_mode_and_resume_by_id() {
+        let k: AgentKind = toml::from_str(include_str!("../../agents/gemini.toml")).unwrap();
+        let dir = crate::testing::TempDir::new("gemini-copy");
+        let (first, next, id, resumed) = turn_argv(&k, &StartAs::Fresh, dir.path()).unwrap();
+        assert!(!resumed);
+        assert_eq!(first, ["gemini", "--session-id", id.as_str(), "-p", MESSAGE, "--output-format", "json", "--skip-trust"]);
+        assert_eq!(next, ["gemini", "--resume", id.as_str(), "-p", MESSAGE, "--output-format", "json", "--skip-trust"]);
+        let (first, next, id2, resumed) = turn_argv(&k, &StartAs::Resume("g-7".into()), dir.path()).unwrap();
+        assert!(resumed && id2 == "g-7" && first == next);
+        assert!(turn_argv(&claude(), &StartAs::Fresh, dir.path()).is_none(), "an interactive kind");
+        assert_eq!(share_kind(&k).own_sandbox_off_env.get("GEMINI_SANDBOX").map(String::as_str), Some("false"));
+    }
+
+    /// Recorded from Gemini CLI 0.64.0 (`-p … --output-format json`) against
+    /// a local mock of the model API.
+    #[test]
+    fn gemini_replies_and_errors_from_its_recorded_output() {
+        let k: AgentKind = toml::from_str(include_str!("../../agents/gemini.toml")).unwrap();
+        let ni = share_kind(&k).non_interactive.unwrap();
+        let first = include_str!("fixtures/gemini-headless.json");
+        let r = reply_from_run(&ni, first, "Warning: Basic terminal detected (TERM=dumb).\n").unwrap().unwrap();
+        assert_eq!((r.text.as_str(), r.source), ("Mock Gemini reply 12: the docs are in docs/.", ReplySource::NonInteractive));
+        let resumed = include_str!("fixtures/gemini-headless-resumed.json");
+        assert_eq!(reply_from_run(&ni, resumed, "").unwrap().unwrap().text, "Mock Gemini reply 1: the docs are in docs/.");
+        // Warnings and a stack trace around it on the same stream.
+        let noisy = format!("Ripgrep is not available.\n    at async main (file:///x.js:1:2) {{\n{first}\nmore\n");
+        assert!(reply_from_run(&ni, &noisy, "").unwrap().is_some());
+        // No login: the error object, on stderr.
+        let e = reply_from_run(&ni, "", include_str!("fixtures/gemini-headless-no-login.stderr")).unwrap_err();
+        assert!(e.starts_with("Please set an Auth method"), "{e}");
+        assert_eq!(reply_from_run(&ni, "", "").unwrap(), None);
     }
 
     #[test]
