@@ -146,6 +146,26 @@ pub fn link_program(target: &Path, link: &Path) -> io::Result<()> {
     std::fs::rename(&tmp, link)
 }
 
+/// Write a secret (the instance key, `net::InstanceKey`). The data folder
+/// is under the user's own `%APPDATA%`, which only they (and admins) can
+/// read; a fresh file is renamed over `path` so a reader never sees half.
+pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// Nothing to tighten beyond the per-user data folder (see `write_private`).
+pub fn make_private(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+/// Per-user by its folder (tests).
+#[cfg(test)]
+pub fn is_private(path: &Path) -> bool {
+    path.is_file()
+}
+
 /// A symlink at `link` to `target` (tests; needs Developer Mode or admin).
 #[cfg(test)]
 pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
