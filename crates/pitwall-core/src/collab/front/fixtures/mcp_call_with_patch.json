@@ -1,0 +1,35 @@
+{
+  "id": 2,
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "text": "Added the flag.\n\nTurn c_1/1 is done (conversation c_1). Changes: 2 files, +14 -3, 1 patch on 3f2a1c9. The patch series follows; apply it with `git am -3` (or `git apply`). 16 messages left today.\n\nFrom 7c1e Mon Sep 17 00:00:00 2001\nSubject: [PATCH] add dry-run\n\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "changes": {
+        "added": 14,
+        "baseCommit": "3f2a1c9d0e",
+        "files": 2,
+        "parts": 1,
+        "patch": "From 7c1e Mon Sep 17 00:00:00 2001\nSubject: [PATCH] add dry-run\n\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n",
+        "patches": 1,
+        "removed": 3,
+        "state": "sent"
+      },
+      "conversation": "c_1",
+      "left": {
+        "messagesToday": 16,
+        "resetsAt": "2026-10-17T00:00:00+02:00"
+      },
+      "reply": "Added the flag.",
+      "replySource": "hook",
+      "status": "done",
+      "statusMessage": "done",
+      "turn": "c_1/1"
+    }
+  }
+}

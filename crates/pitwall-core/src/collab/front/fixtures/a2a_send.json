@@ -1,0 +1,57 @@
+{
+  "task": {
+    "artifacts": [
+      {
+        "artifactId": "reply",
+        "name": "reply",
+        "parts": [
+          {
+            "text": "Refunds older than 30 days go through the manual queue."
+          },
+          {
+            "data": {
+              "source": "hook"
+            }
+          }
+        ]
+      }
+    ],
+    "contextId": "c_1",
+    "id": "c_1/1",
+    "metadata": {
+      "pitwall/turn": {
+        "at": "2026-10-16T10:00:00Z",
+        "conversation": "c_1",
+        "id": "c_1/1",
+        "reply": {
+          "source": "hook",
+          "text": "Refunds older than 30 days go through the manual queue."
+        },
+        "share": "api-expert",
+        "status": {
+          "state": "done"
+        }
+      }
+    },
+    "status": {
+      "message": {
+        "contextId": "c_1",
+        "messageId": "c_1/1#done",
+        "parts": [
+          {
+            "text": "done"
+          },
+          {
+            "data": {
+              "state": "done"
+            }
+          }
+        ],
+        "role": "ROLE_AGENT",
+        "taskId": "c_1/1"
+      },
+      "state": "TASK_STATE_COMPLETED",
+      "timestamp": "2026-10-16T10:00:00Z"
+    }
+  }
+}

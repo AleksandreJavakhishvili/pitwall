@@ -1,0 +1,28 @@
+{
+  "id": "d",
+  "jsonrpc": "2.0",
+  "result": {
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "pitwall",
+        "title": "Pitwall",
+        "version": "0.0.0-test"
+      }
+    },
+    "cacheScope": "private",
+    "capabilities": {
+      "tools": {
+        "listChanged": true
+      }
+    },
+    "instructions": "Agents alice@example.com shares with you, one ask_<agent> tool each. A message goes into your conversation with that agent, which remembers earlier messages. A long turn comes back with status \"working\" and a turn id: call check_turn with it to wait more. Changes come back as a git format-patch series (apply with `git am -3`); big ones through get_changes.",
+    "resultType": "complete",
+    "supportedVersions": [
+      "2026-07-28",
+      "2025-11-25",
+      "2025-06-18",
+      "2025-03-26"
+    ],
+    "ttlMs": 300000
+  }
+}

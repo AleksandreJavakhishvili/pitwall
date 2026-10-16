@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": 404,
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "domain": "a2a-protocol.org",
+        "reason": "NOT_FOUND"
+      }
+    ],
+    "message": "not found",
+    "status": "NOT_FOUND"
+  }
+}

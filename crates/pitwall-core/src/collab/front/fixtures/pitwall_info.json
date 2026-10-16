@@ -1,0 +1,14 @@
+{
+  "a2a": true,
+  "label": "studio",
+  "listedTeams": [
+    "t_9f2c"
+  ],
+  "mcp": "/mcp",
+  "person": {
+    "email": "alice@example.com",
+    "provider": "fake",
+    "subject": "alice@example.com"
+  },
+  "version": "0.0.0-test"
+}
