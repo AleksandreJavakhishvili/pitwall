@@ -40,7 +40,8 @@ pub const VERSION_HEADER: &str = "A2A-Version";
 pub const TURN_META: &str = "pitwall/turn";
 /// The (informational) extension in a card's capabilities that carries
 /// the share's Pitwall data: A2A 1.0's `AgentCard` has no `metadata`.
-pub const SHARE_EXTENSION: &str = "https://aleksandrejavakhishvili.github.io/pitwall/a2a/share/v1";
+/// Under the project's domain ([`pitwall_proto::DOMAIN`]).
+pub const SHARE_EXTENSION: &str = concat!("https://", pitwall_proto::project_domain!(), "/pitwall/a2a/share/v1");
 /// The security scheme name in cards on networks with OAuth.
 pub const SECURITY_SCHEME: &str = "pitwall";
 

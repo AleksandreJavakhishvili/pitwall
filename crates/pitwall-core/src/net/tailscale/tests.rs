@@ -751,12 +751,14 @@ fn the_cli_is_read_as_tailscale_writes_it() {
         "MagicDNSSuffix": "example.ts.net",
         "CurrentTailnet": {"Name": "example.com", "MagicDNSSuffix": "example.ts.net", "MagicDNSEnabled": true}
     }"#;
-    let whois = r#"{"Node": {"ID": 12, "StableID": "nBob1CNTRL", "Name": "bob-mbp.example.ts.net.", "User": 2,
-        "Addresses": ["100.64.0.2/32"]},
-        "UserProfile": {"ID": 2, "LoginName": "bob@example.com", "DisplayName": "Bob"},
-        "CapMap": {"aleksandrejavakhishvili.github.io/cap/pitwall": [{"group": "platform"}], "other/cap": [{}]}}"#;
+    let whois = format!(
+        r#"{{"Node": {{"ID": 12, "StableID": "nBob1CNTRL", "Name": "bob-mbp.example.ts.net.", "User": 2,
+        "Addresses": ["100.64.0.2/32"]}},
+        "UserProfile": {{"ID": 2, "LoginName": "bob@example.com", "DisplayName": "Bob"}},
+        "CapMap": {{"{CAP_NAME}": [{{"group": "platform"}}], "other/cap": [{{}}]}}}}"#
+    );
     exec.on(&["tailscale", "status", "--json"], status);
-    exec.on(&["tailscale", "whois", "--json", "100.64.0.2:51000"], whois);
+    exec.on(&["tailscale", "whois", "--json", "100.64.0.2:51000"], &whois);
     exec.on_exit(&["tailscale", "whois", "--json", "100.64.0.9:51000"], 1, "", "no match for IP:port");
     let api = CliApi::with(exec.clone(), "tailscale");
 
@@ -857,4 +859,10 @@ fn real_tailnet() {
     let answer = String::from_utf8(read_to_end(s)).unwrap();
     assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
     assert!(answer.contains(&format!("|{}|{}|", me.subject, addr.node)), "{answer}");
+}
+
+#[test]
+fn the_capability_and_extension_live_under_the_one_project_domain() {
+    assert_eq!(CAP_NAME, format!("{}/cap/pitwall", pitwall_proto::DOMAIN));
+    assert!(crate::collab::front::a2a::SHARE_EXTENSION.starts_with(&format!("https://{}/", pitwall_proto::DOMAIN)));
 }

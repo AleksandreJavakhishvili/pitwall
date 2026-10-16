@@ -54,10 +54,10 @@ pub const PROVIDER: &str = "tailscale";
 /// Collaboration's port (protocol.md §8.1), beside peers' 47420.
 pub const DEFAULT_PORT: u16 = 47421;
 
-/// The Pitwall app capability in a grant's `app` field (teams.md §4.8).
-/// The domain is open question 3 ("a domain the project controls"); until
-/// it is settled this is the project's GitHub Pages domain.
-pub const CAP_NAME: &str = "aleksandrejavakhishvili.github.io/cap/pitwall";
+/// The Pitwall app capability in a grant's `app` field (teams.md §4.8),
+/// under the project's domain ([`pitwall_proto::DOMAIN`], the one place it
+/// is written).
+pub const CAP_NAME: &str = concat!(pitwall_proto::project_domain!(), "/cap/pitwall");
 
 /// The suffix of the group an admin entry of [`CAP_NAME`] grants:
 /// `{"group": "platform", "admin": true}` puts the caller in `platform`

@@ -40,6 +40,24 @@ pub use views::*;
 /// The protocol version this build speaks.
 pub const PROTOCOL: u32 = 1;
 
+/// The project's domain: its GitHub Pages site. Names that must live under
+/// a domain the project controls are built from it, and only from it: the
+/// Tailscale app capability (`<domain>/cap/pitwall`, teams.md §4.8), the
+/// A2A extension URIs (`https://<domain>/pitwall/a2a/…`) and the website
+/// link. Decided 2026-10-16 (collaboration plan.md §14 question 3); it can
+/// still change before the first release, and changing it here changes
+/// every one of them. A macro so the others can be `concat!`ed at compile
+/// time; [`DOMAIN`] is the same text as a constant.
+#[macro_export]
+macro_rules! project_domain {
+    () => {
+        "aleksandrejavakhishvili.github.io"
+    };
+}
+
+/// [`project_domain!`] as a constant.
+pub const DOMAIN: &str = project_domain!();
+
 /// Environment of every agent and terminal Pitwall starts: the socket the
 /// `pitwall` CLI talks to.
 pub const SOCKET_ENV: &str = "PITWALL_CLI_SOCKET";

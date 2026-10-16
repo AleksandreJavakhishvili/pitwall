@@ -58,7 +58,7 @@ fn status_chip(ui: &Ui, installed: Option<bool>) -> Div {
 }
 
 /// External links on About.
-pub const WEBSITE: &str = "https://aleksandrejavakhishvili.github.io/pitwall/";
+pub const WEBSITE: &str = concat!("https://", pitwall_proto::project_domain!(), "/pitwall/");
 pub const SOURCE: &str = "https://github.com/AleksandreJavakhishvili/pitwall";
 pub const ISSUES: &str = "https://github.com/AleksandreJavakhishvili/pitwall/issues";
 pub const LICENSE: &str = "https://github.com/AleksandreJavakhishvili/pitwall/blob/main/LICENSE";
