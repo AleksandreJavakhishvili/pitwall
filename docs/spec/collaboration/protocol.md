@@ -17,12 +17,15 @@ Part of the [collaboration spec](README.md).
   WireGuard on 47421/tcp (beside peers' 47420), optionally HTTPS with
   `tailscale cert` ([§14](plan.md) question 9); the Cloud serves through its relay
   tunnel ([§15.5](network.md)–15.6).
-- **Server.** A small blocking HTTP/1.1 server on its own threads, no async
-  runtime: `tiny_http` is the candidate (a request per worker thread;
-  streaming responses use chunked transfer from a `Read` fed by a channel),
-  so an SSE response is written event by event. Client side (Pitwall
-  callers): `ureq` through `Network::client`, reading SSE line by line.
-  Both to be confirmed in a C1a spike and recorded in gpui/licensing.md.
+- **Server.** A small blocking HTTP/1.1 server of Pitwall's own on
+  `httparse`, on its own threads, no async runtime (decided in C1a):
+  `tiny_http` accepts and parses on its own threads, so it can't run the
+  identity check before reading a byte, and it answers dropped requests
+  with a 500 instead of closing silently. Streaming responses use chunked
+  transfer from a `Read` fed by a channel, so an SSE response is written
+  event by event; long-lived streams send heartbeats. Client side (Pitwall
+  callers): `ureq` 3 through `Network::client`, reading SSE line by line.
+  Recorded in gpui/licensing.md.
 - **Limits** per caller, the same on every network: connections, requests
   per second, body size (2 MiB), at most 8 open streams.
 
