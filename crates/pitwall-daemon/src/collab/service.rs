@@ -19,7 +19,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use pitwall_proto::api::collab::{
-    AskFilter, AskRef, AskSend, CollabSettings, CollabSettingsView, ShareBlock, ShareChanged, ShareCreate, ShareGuest, SharePatch, ShareRef,
+    AskFilter, AskRef, AskSend, CollabSettings, CollabSettingsView, ShareBlock, ShareChanged, ShareCreate, ShareGoLive, ShareGuest, SharePatch, ShareRef,
     ShareSet, ShareSummaryRequest, ShareView, TeamAddMember, TeamApprove, TeamCreate, TeamJoin, TeamRef,
 };
 use pitwall_proto::collab::{Identity, LimitOverride, PersonId, ShareSettings, ShareState, Start, TeamId};
@@ -547,7 +547,7 @@ impl CollabService {
         Ok(ShareChanged { share: self.view(&new, true), diff: d, approved, dry_run: false })
     }
 
-    fn go_live(&self, caller: &Caller, who: &Who, r: ShareRef) -> Result<ShareView, ErrorBody> {
+    fn go_live(&self, caller: &Caller, who: &Who, r: ShareGoLive) -> Result<ShareView, ErrorBody> {
         let mut s = self.find(&r.share)?;
         if s.state == ShareState::Live {
             return Ok(self.view(&s, true));
@@ -573,9 +573,12 @@ impl CollabService {
             details.push(format!("Guest \"{}\": {}{tried}", p.message, one_line(reply, 120)));
         }
         let address = format!("{}/{}", self.me().name, s.slug);
+        if r.keep_guest {
+            details.push("The guest conversations tried on the draft are kept.".into());
+        }
         self.ask_owner(caller, who, method::SHARE_GO_LIVE, format!("go live with {address}"), details)?;
         s.state = ShareState::Live;
-        self.backend.save_share(&s, None)?;
+        self.backend.go_live(&s, r.keep_guest)?;
         Ok(self.view(&s, true))
     }
 

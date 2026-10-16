@@ -117,7 +117,7 @@ pub fn fingerprint(team: &TeamId) -> String {
     format!("{}-{}", &hex[..3], &hex[3..])
 }
 
-fn label_of(net: &Arc<dyn Network>) -> String {
+pub(crate) fn label_of(net: &Arc<dyn Network>) -> String {
     match net.id().provider() {
         "tailscale" => "Tailscale".into(),
         "cloud" => "Pitwall Cloud".into(),
@@ -128,7 +128,7 @@ fn label_of(net: &Arc<dyn Network>) -> String {
     }
 }
 
-fn state_of(s: &NetState) -> String {
+pub(crate) fn state_of(s: &NetState) -> String {
     match s {
         NetState::Off => "off".into(),
         NetState::SignedOut => "signed_out".into(),

@@ -886,6 +886,10 @@ pitwall share go-live [OPTIONS] <SHARE>
 |---|---|
 | `SHARE` | The share. |
 
+| Option | |
+|---|---|
+| `--keep-guest` | Keep the guest conversations you tried it with (else they go). |
+
 ### share pause
 
 Pause a live share: queued messages are refused, running turns stop.

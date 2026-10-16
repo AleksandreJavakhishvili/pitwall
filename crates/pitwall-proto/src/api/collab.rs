@@ -28,6 +28,17 @@ pub struct ShareRef {
     pub share: String,
 }
 
+/// `share.go_live`: publish a draft (always asked of the owner outside
+/// Pitwall's window). The guest conversations tried on the draft are
+/// deleted unless `keepGuest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareGoLive {
+    pub share: String,
+    #[serde(default)]
+    pub keep_guest: bool,
+}
+
 /// What to change in a share's settings (`share.create`, `share.set`). Every
 /// field is optional: what isn't given stays (or, on `share.create`, takes
 /// the Share dialog's defaults: fresh start, no network beyond the model,
@@ -703,6 +714,7 @@ pub(crate) fn export(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     ShareCreate::export_all(cfg)?;
     ShareSet::export_all(cfg)?;
     ShareGuest::export_all(cfg)?;
+    ShareGoLive::export_all(cfg)?;
     ShareBlock::export_all(cfg)?;
     ShareSummaryRequest::export_all(cfg)?;
     SetupLine::export_all(cfg)?;

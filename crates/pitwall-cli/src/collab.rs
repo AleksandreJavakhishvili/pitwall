@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use pitwall_client::{Client, Error};
 use pitwall_proto::api::collab::{
     capability_chip, describe, state_word, AskFilter, AskSend, AudienceEdit, MemberAdded, PersonView, ProbeResult, SetupLine,
-    ShareBlock, ShareChanged, ShareCreate, ShareGuest, SharePatch, ShareRef, ShareSet, ShareView, TeamAddMember, TeamApprove, TeamCreate,
+    ShareBlock, ShareChanged, ShareCreate, ShareGoLive, ShareGuest, SharePatch, ShareRef, ShareSet, ShareView, TeamAddMember, TeamApprove, TeamCreate,
     TeamDetail, TeamJoin, TeamRef,
 };
 use pitwall_proto::collab::{AskStatus, AskView, Capability, Identity, JoinPolicy, LimitOverride, NetworkId, Programs, SharedSessionView, Start, TeamCard};
@@ -241,8 +241,8 @@ pub fn share_cmd(cmd: &ShareCmd, c: &mut Client) -> Result<Output, Error> {
             let changed: ShareChanged = call(c, method::SHARE_SET, ShareSet { share: share.clone(), patch: patch(flags)?, dry_run: *dry_run })?;
             out(&changed, share_changed(&changed))
         }
-        ShareCmd::GoLive { share } => {
-            let v: ShareView = call(c, method::SHARE_GO_LIVE, r(share))?;
+        ShareCmd::GoLive { share, keep_guest } => {
+            let v: ShareView = call(c, method::SHARE_GO_LIVE, ShareGoLive { share: share.clone(), keep_guest: *keep_guest })?;
             out(&v, format!("{} is live.\n", v.address))
         }
         ShareCmd::Pause { share } => {

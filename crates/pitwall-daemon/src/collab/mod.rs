@@ -14,6 +14,7 @@
 //! Shared sessions never get here: every method on the socket answers them
 //! `forbidden` (`methods::dispatch`).
 
+pub mod core;
 pub mod diff;
 pub mod memory;
 pub mod scan;
@@ -67,6 +68,12 @@ pub trait CollabBackend: Send + Sync {
     fn shares(&self) -> Vec<ShareSettings>;
     /// Create or replace (by slug; `previous` when the slug changed).
     fn save_share(&self, s: &ShareSettings, previous: Option<&str>) -> Result<(), ErrorBody>;
+    /// Publish `s` (a draft, now `live`): approved by the owner already.
+    /// The guest conversations tried on the draft go unless `keep_guest`.
+    fn go_live(&self, s: &ShareSettings, keep_guest: bool) -> Result<(), ErrorBody> {
+        let _ = keep_guest;
+        self.save_share(s, None)
+    }
     /// Stop sharing: the share and its sessions go; the agent stays.
     fn remove_share(&self, slug: &str) -> Result<(), ErrorBody>;
     fn sessions(&self, slug: &str) -> Vec<SharedSessionView>;

@@ -28,6 +28,11 @@ pub mod settings;
 pub mod workspace;
 
 pub use approvals::{Approvals, Decision};
+
+/// This machine's name, for collaboration's `/info` (`studio`).
+pub fn device_label() -> String {
+    platform::device_label().unwrap_or_else(|| "this computer".into())
+}
 pub use collab::{CollabBackend, CollabService};
 pub use identity::{Caller, Identify, ProcessIdentity};
 pub use server::{serve, Config, Handle};

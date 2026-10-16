@@ -192,6 +192,9 @@ pub enum ShareCmd {
     GoLive {
         /// The share.
         share: String,
+        /// Keep the guest conversations you tried it with (else they go).
+        #[arg(long)]
+        keep_guest: bool,
     },
     /// Pause a live share: queued messages are refused, running turns stop.
     Pause {
@@ -738,7 +741,11 @@ mod tests {
             parse(&["share", "guest", "api", "--probes"]).unwrap().command,
             Command::Share(ShareCmd::Guest { share: "api".into(), probes: true, only: vec![], message: None })
         );
-        assert_eq!(parse(&["share", "go-live", "api"]).unwrap().command, Command::Share(ShareCmd::GoLive { share: "api".into() }));
+        assert_eq!(parse(&["share", "go-live", "api"]).unwrap().command, Command::Share(ShareCmd::GoLive { share: "api".into(), keep_guest: false }));
+        assert_eq!(
+            parse(&["share", "go-live", "api", "--keep-guest"]).unwrap().command,
+            Command::Share(ShareCmd::GoLive { share: "api".into(), keep_guest: true })
+        );
         assert_eq!(parse(&["share", "setup"]).unwrap().command, Command::Share(ShareCmd::Setup));
         let Command::Share(ShareCmd::Set { flags, dry_run, .. }) = parse(&["share", "set", "api", "--remove-person", "bob@example.com", "--dry-run"]).unwrap().command else {
             panic!()
