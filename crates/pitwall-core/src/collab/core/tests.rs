@@ -957,7 +957,20 @@ fn nothing_captured_is_no_answer_and_flags_the_session() {
     w.host.emit(&w.agent_of(&t), SessionEvent::TurnEnded(None));
     assert_eq!(w.status(&bob, &t), TurnStatus::Failed { reason: Failure::NoAnswer });
     assert!(w.collab.flagged(&t.conversation));
+    assert!(w.collab.sessions("api-expert")[0].flagged, "the owner's sidebar flags it");
     assert_eq!(notices.try_iter().next(), Some(Notice::NoAnswer { share: "api-expert".into(), conversation: t.conversation.clone() }));
+    // The owner's view of the conversation: what was typed and how it ended.
+    let turns = w.collab.owner_turns("api-expert", &t.conversation).unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].text, "hi");
+    assert!(turns[0].delivered.as_deref().unwrap().starts_with("From bob@example.com"));
+    assert!(w.collab.owner_turns("other", &t.conversation).is_err(), "only through its own share");
+    assert_eq!(w.collab.caller_of(&t.conversation).map(|(login, _)| login).as_deref(), Some("bob@example.com"));
+    // The next turn with a reply clears the flag.
+    let t2 = w.ask(&bob, "api-expert", "again?");
+    w.host.reply(&w.agent_of(&t2), "Here.");
+    assert!(!w.collab.flagged(&t.conversation));
+    assert_eq!(w.collab.owner_turns("api-expert", &t.conversation).unwrap()[1].turn.reply.as_ref().unwrap().text, "Here.");
 }
 
 #[test]

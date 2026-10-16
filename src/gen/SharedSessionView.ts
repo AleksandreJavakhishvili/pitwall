@@ -19,4 +19,9 @@ agentId: string, turns: number, results: number,
 /**
  * Results waiting for my Send.
  */
-held: number, usage: SessionUsage, lastAt: string | null, };
+held: number, usage: SessionUsage, lastAt: string | null, 
+/**
+ * A turn ended with nothing read as its reply (`no_answer`, §7.2): the
+ * owner should look. Cleared by the next turn that has a reply.
+ */
+flagged: boolean, };

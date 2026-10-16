@@ -557,6 +557,10 @@ pub struct SharedSessionView {
     pub held: u32,
     pub usage: SessionUsage,
     pub last_at: Option<String>,
+    /// A turn ended with nothing read as its reply (`no_answer`, §7.2): the
+    /// owner should look. Cleared by the next turn that has a reply.
+    #[serde(default)]
+    pub flagged: bool,
 }
 
 /// One changed share setting (`share.set`, the Share dialog's Save).

@@ -26,8 +26,8 @@ pub mod summary;
 mod tests;
 
 use pitwall_proto::api::collab::{
-    AskSend, CollabSettings, InviteLink, MemberAdded, NetworkRow, PersonView, ProbeResult, SetupLine, ShareUsage, TeamCreate,
-    TeamDetail, TeamJoin,
+    AskSend, AuditEntryView, CollabSettings, InviteLink, MemberAdded, NetworkRow, OwnerNotice, OwnerTurnView, PersonView, ProbeResult,
+    SetupLine, ShareUsage, TeamCreate, TeamDetail, TeamJoin,
 };
 use pitwall_proto::collab::{AskView, DirectoryEntry, Identity, ShareSettings, SharedSessionView, TeamCard, TeamId};
 use pitwall_proto::ErrorBody;
@@ -84,6 +84,22 @@ pub trait CollabBackend: Send + Sync {
     /// Stop sharing: the share and its sessions go; the agent stays.
     fn remove_share(&self, slug: &str) -> Result<(), ErrorBody>;
     fn sessions(&self, slug: &str) -> Vec<SharedSessionView>;
+    /// One conversation's turns as its owner sees them (the session's
+    /// Messages). Empty where the backend keeps no turns.
+    fn owner_turns(&self, slug: &str, conversation: &str) -> Result<Vec<OwnerTurnView>, ErrorBody> {
+        let _ = (slug, conversation);
+        Ok(Vec::new())
+    }
+    /// The audit log, newest first: only `share`'s lines when given.
+    fn audit(&self, share: Option<&str>, limit: usize) -> Vec<AuditEntryView> {
+        let _ = (share, limit);
+        Vec::new()
+    }
+    /// What the owner should hear about, after notice `after`.
+    fn notices(&self, after: Option<u64>) -> Vec<OwnerNotice> {
+        let _ = after;
+        Vec::new()
+    }
     fn usage(&self, slug: &str) -> ShareUsage;
     /// Guest messages sent to this share, oldest first.
     fn probes(&self, slug: &str) -> Vec<ProbeResult>;

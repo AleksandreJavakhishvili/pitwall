@@ -135,6 +135,14 @@ pub mod method {
     pub const SHARE_SUMMARY: &str = "share.summary";
     /// → `SetupLine[]`: the `claude mcp add` lines for this machine.
     pub const SHARE_SETUP: &str = "share.setup";
+    /// [`ShareTurns`](super::collab::ShareTurns) → `OwnerTurnView[]`: one
+    /// conversation's turns, as its owner sees them (the session's Messages).
+    pub const SHARE_TURNS: &str = "share.turns";
+    /// [`ShareAudit`](super::collab::ShareAudit) → `AuditEntryView[]`, newest first.
+    pub const SHARE_AUDIT: &str = "share.audit";
+    /// [`NoticesAfter`](super::collab::NoticesAfter) → `OwnerNotice[]`:
+    /// needs-you, no answer, the day's agent time used, the agent's limit.
+    pub const SHARE_NOTICES: &str = "share.notices";
     /// → `TeamCard[]`: mine, then the discovered ones.
     pub const TEAM_LIST: &str = "team.list";
     /// [`TeamRef`](super::collab::TeamRef) → `TeamDetail`

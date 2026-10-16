@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::collab::{
-    Audience, Capability, DirectoryEntry, GroupRef, Identity, LimitOverride, NetworkId, Programs, ShareDiff, ShareSettings, ShareState,
-    Start, TeamCard, TeamId, TeamRole,
+    AskStatus, Audience, Capability, DirectoryEntry, GroupRef, Identity, LimitOverride, NetworkId, Programs, ReplySource, ShareDiff,
+    ShareSettings, ShareState, Start, TeamCard, TeamId, TeamRole,
 };
 
 // ------------------------------------------------------------ shares
@@ -340,6 +340,119 @@ pub struct ProbeResult {
     /// (`read ~/.ssh/id_ed25519: denied`).
     pub tried: Vec<String>,
     pub at: String,
+}
+
+/// `share.turns`: one conversation's turns as its owner sees them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareTurns {
+    pub share: String,
+    pub conversation: String,
+}
+
+/// One turn of a shared session on the owner's side (the session pane's
+/// Messages, ui.md §11): what the caller wrote, exactly what was typed into
+/// the session, and the reply with where it was read from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnerTurnView {
+    pub turn: String,
+    /// What the caller wrote.
+    pub text: String,
+    /// What was typed into the session ("From …" and factual lines first),
+    /// once delivered.
+    pub delivered: Option<String>,
+    /// Pitwall's own turn (the approved summary, sent first): callers never
+    /// see it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub internal: bool,
+    pub status: AskStatus,
+    pub status_message: Option<String>,
+    pub reply: Option<String>,
+    pub reply_source: Option<ReplySource>,
+    pub at: String,
+    pub done_at: Option<String>,
+}
+
+/// `share.audit`: the audit log (`collab/audit.jsonl`), newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareAudit {
+    /// Only lines about this share (its slug); all when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub share: Option<String>,
+    /// At most this many (default 200).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub limit: Option<u32>,
+}
+
+/// One line of the audit log, as the owner reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEntryView {
+    pub at: String,
+    /// `ask`, `turn`, `share.go_live`, `share.set`, …
+    pub method: String,
+    /// `ok`, `done`, `refused:quota`, `failed:no_answer`, `ok:widens`, …
+    pub outcome: String,
+    /// The share (or team) it was about.
+    pub share: Option<String>,
+    /// Who: `owner`, `guest`, or the caller's identity.
+    pub who: String,
+    /// The network it came over (`local` for the owner's own).
+    pub network: String,
+    /// `a2a` or `mcp`.
+    pub front: Option<String>,
+    pub turn: Option<String>,
+    /// A share change's diff or a refusal's sentence, on one line.
+    pub detail: Option<String>,
+}
+
+/// What a notice is about (ui.md §11 Notifications, sessions.md §7.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeKind {
+    /// A shared session stopped and waits for the owner.
+    NeedsYou,
+    /// A turn ended with no reply read: the session is flagged.
+    NoAnswer,
+    /// The share's agent time for today is used up.
+    ShareTotal,
+    /// The agent hit its vendor's usage limit.
+    AgentLimit,
+    /// Results wait for the owner's Send ("Can change code, I approve",
+    /// C2): never sent before then.
+    Held,
+}
+
+/// Something the owner should hear about, newest last (`share.notices`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnerNotice {
+    /// Increasing: a client remembers the last it showed.
+    #[ts(type = "number")]
+    pub id: u64,
+    pub at: String,
+    pub kind: NoticeKind,
+    pub share: String,
+    pub conversation: Option<String>,
+    /// The caller's login, for a conversation's notice.
+    pub caller: Option<String>,
+    /// The engine agent of that conversation (to open it).
+    pub agent_id: Option<String>,
+    /// One plain sentence: "api-expert: bob@example.com's conversation needs you".
+    pub text: String,
+}
+
+/// `share.notices`: those after `after` (all kept when absent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticesAfter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub after: Option<u64>,
 }
 
 /// `share.block`: stop all of a person's messages to my shares at once
@@ -735,6 +848,12 @@ pub(crate) fn export(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     AskSend::export_all(cfg)?;
     AskFilter::export_all(cfg)?;
     CollabSettingsView::export_all(cfg)?;
+    ShareTurns::export_all(cfg)?;
+    OwnerTurnView::export_all(cfg)?;
+    ShareAudit::export_all(cfg)?;
+    AuditEntryView::export_all(cfg)?;
+    OwnerNotice::export_all(cfg)?;
+    NoticesAfter::export_all(cfg)?;
     Ok(())
 }
 

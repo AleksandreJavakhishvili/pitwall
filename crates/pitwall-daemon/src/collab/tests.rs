@@ -447,3 +447,61 @@ fn going_live_on_the_owners_own_login_is_refused_before_anyone_is_asked() {
     assert!(w.approvals.pending().is_empty());
     assert_eq!(w.svc.find("api").unwrap().access.account.as_deref(), Some("claude-sharing"));
 }
+
+#[test]
+fn the_owner_reads_turns_the_audit_log_and_notices() {
+    use pitwall_proto::api::collab::{AuditEntryView, NoticeKind, OwnerNotice, OwnerTurnView};
+    let w = world(Duration::from_millis(100));
+    w.call(&ui(), method::SHARE_CREATE, json!({"agent": "api"})).unwrap();
+    let turn = OwnerTurnView {
+        turn: "c_1/1".into(),
+        text: "Where are tokens rotated?".into(),
+        delivered: Some("From bob@example.com:\nWhere are tokens rotated?".into()),
+        internal: false,
+        status: AskStatus::Done,
+        status_message: None,
+        reply: Some("In auth/refresh.rs.".into()),
+        reply_source: Some(pitwall_proto::collab::ReplySource::SessionFile),
+        at: "2026-10-16T09:00:00Z".into(),
+        done_at: Some("2026-10-16T09:00:05Z".into()),
+    };
+    w.mem.set_owner_turns("api", "c_1", vec![turn.clone()]);
+    let line = |share: &str, method: &str| AuditEntryView {
+        at: "2026-10-16T09:00:00Z".into(),
+        method: method.into(),
+        outcome: "ok".into(),
+        share: Some(share.into()),
+        who: "tailscale:bob@example.com".into(),
+        network: "tailscale:example.ts.net".into(),
+        front: Some("mcp".into()),
+        turn: None,
+        detail: None,
+    };
+    w.mem.add_audit(line("api", "ask"));
+    w.mem.add_audit(line("other", "ask"));
+    w.mem.add_audit(line("api", "turn"));
+    w.mem.add_notice(OwnerNotice {
+        id: 1,
+        at: "2026-10-16T09:00:06Z".into(),
+        kind: NoticeKind::NoAnswer,
+        share: "api".into(),
+        conversation: Some("c_1".into()),
+        caller: Some("bob@example.com".into()),
+        agent_id: Some("s1".into()),
+        text: "api: the reply in bob@example.com's conversation couldn't be read".into(),
+    });
+    for who in [ui(), user(), my_agent()] {
+        let turns: Vec<OwnerTurnView> = serde_json::from_value(w.call(&who, method::SHARE_TURNS, json!({"share": "alice/api", "conversation": "c_1"})).unwrap()).unwrap();
+        assert_eq!(turns, [turn.clone()]);
+        let audit: Vec<AuditEntryView> = serde_json::from_value(w.call(&who, method::SHARE_AUDIT, json!({"share": "api"})).unwrap()).unwrap();
+        assert_eq!(audit.iter().map(|a| a.method.as_str()).collect::<Vec<_>>(), ["turn", "ask"], "this share's, newest first");
+        let all: Vec<AuditEntryView> = serde_json::from_value(w.call(&who, method::SHARE_AUDIT, json!({"limit": 2})).unwrap()).unwrap();
+        assert_eq!(all.len(), 2);
+        let notices: Vec<OwnerNotice> = serde_json::from_value(w.call(&who, method::SHARE_NOTICES, Value::Null).unwrap()).unwrap();
+        assert_eq!(notices[0].kind, NoticeKind::NoAnswer);
+        let none: Vec<OwnerNotice> = serde_json::from_value(w.call(&who, method::SHARE_NOTICES, json!({"after": 1})).unwrap()).unwrap();
+        assert!(none.is_empty());
+    }
+    assert_eq!(code_of(w.call(&ui(), method::SHARE_TURNS, json!({"share": "api", "conversation": "c_9"}))), code::NOT_FOUND);
+    assert!(w.approvals.pending().is_empty(), "reads never ask");
+}

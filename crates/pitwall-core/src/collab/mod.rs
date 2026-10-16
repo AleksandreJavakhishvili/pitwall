@@ -40,7 +40,7 @@ pub use pitwall_proto::collab::{
     Access, Audience, Capability, LimitOverride, Limits, PerCaller, Programs, RefusalReason, Scope, ShareSettings,
     ShareState, Start,
 };
-pub use self::core::{Collab, CollabDeps, CollabSettings, HookWiring, Notice, RunMode, DEFAULT_MAX_SESSIONS};
+pub use self::core::{Collab, CollabDeps, CollabSettings, HookWiring, Notice, OwnerTurn, RunMode, DEFAULT_MAX_SESSIONS};
 pub use service::{Conversations, Teams};
 pub use turn::{
     Ask, Asker, Changes, ChangesPart, ConversationId, ConversationSummary, Failure, Left, Refusal, Reply, ShareCard,

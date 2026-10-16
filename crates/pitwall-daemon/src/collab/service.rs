@@ -19,8 +19,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use pitwall_proto::api::collab::{
-    AskFilter, AskRef, AskSend, CollabSettings, CollabSettingsView, ShareBlock, ShareChanged, ShareCreate, ShareGoLive, ShareGuest, SharePatch, ShareRef,
-    ShareSet, ShareSummaryRequest, ShareView, TeamAddMember, TeamApprove, TeamCreate, TeamJoin, TeamRef,
+    AskFilter, AskRef, AskSend, CollabSettings, CollabSettingsView, NoticesAfter, ShareAudit, ShareBlock, ShareChanged, ShareCreate, ShareGoLive,
+    ShareGuest, SharePatch, ShareRef, ShareSet, ShareSummaryRequest, ShareTurns, ShareView, TeamAddMember, TeamApprove, TeamCreate, TeamJoin, TeamRef,
 };
 use pitwall_proto::collab::{Identity, LimitOverride, PersonId, ShareSettings, ShareState, Start, TeamId};
 use pitwall_proto::{code, method, AgentView, ErrorBody, Risk};
@@ -111,6 +111,9 @@ pub const METHODS: &[&str] = &[
     method::SHARE_BLOCK,
     method::SHARE_SUMMARY,
     method::SHARE_SETUP,
+    method::SHARE_TURNS,
+    method::SHARE_AUDIT,
+    method::SHARE_NOTICES,
     method::TEAM_LIST,
     method::TEAM_SHOW,
     method::TEAM_CREATE,
@@ -202,6 +205,23 @@ impl CollabService {
                 ok(summary::summarize(&s, &facts))
             }
             method::SHARE_SETUP => ok(self.backend.setup_lines()),
+            method::SHARE_TURNS => {
+                let r: ShareTurns = required(p)?;
+                let s = self.find(&r.share)?;
+                ok(self.backend.owner_turns(&s.slug, &r.conversation)?)
+            }
+            method::SHARE_AUDIT => {
+                let r: ShareAudit = params(p)?;
+                let slug = match r.share.as_deref() {
+                    Some(key) => Some(self.find(key)?.slug),
+                    None => None,
+                };
+                ok(self.backend.audit(slug.as_deref(), r.limit.unwrap_or(200).clamp(1, 5000) as usize))
+            }
+            method::SHARE_NOTICES => {
+                let r: NoticesAfter = params(p)?;
+                ok(self.backend.notices(r.after))
+            }
             method::TEAM_LIST => ok(self.backend.teams()),
             method::TEAM_SHOW => {
                 let r: TeamRef = required(p)?;

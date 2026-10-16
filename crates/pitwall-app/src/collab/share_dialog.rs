@@ -16,7 +16,7 @@ use gpui::{
 use serde_json::json;
 
 use pitwall_proto::api::collab::{
-    capability_words, describe, ProbeResult, SensitiveFile, ShareChanged, ShareSummary, ShareView, SummaryTopic,
+    capability_words, describe, AuditEntryView, ProbeResult, SensitiveFile, ShareChanged, ShareSummary, ShareView, SummaryTopic,
 };
 use pitwall_proto::collab::{
     Access, Audience, Capability, Identity, LimitOverride, NetworkAccess, Programs, Scope, ShareDiff, ShareSettings, ShareState, Start, TeamId,
@@ -1161,11 +1161,32 @@ pub struct UsageDialog {
     pub share: ShareView,
     limit: Entity<TextInput>,
     error: Option<String>,
+    /// The audit log's lines about this share, newest first (§11 Usage).
+    pub audit: Vec<AuditEntryView>,
 }
+
+/// Audit lines shown in Usage.
+const AUDIT_SHOWN: u32 = 50;
 
 impl UsageDialog {
     pub fn new(share: ShareView, cx: &mut Context<Self>) -> UsageDialog {
-        UsageDialog { share, limit: cx.new(|cx| TextInput::new(cx, "", "bob@example.com=50")), error: None }
+        let mut d = UsageDialog { share, limit: cx.new(|cx| TextInput::new(cx, "", "bob@example.com=50")), error: None, audit: Vec::new() };
+        d.load_audit(cx);
+        d
+    }
+
+    /// The audit log filtered to this share (`collab/audit.jsonl`).
+    pub fn load_audit(&mut self, cx: &mut Context<Self>) {
+        let this = cx.entity().downgrade();
+        let params = json!({"share": self.share.settings.slug, "limit": AUDIT_SHOWN});
+        super::call::<Vec<AuditEntryView>>(method::SHARE_AUDIT, params, cx, move |r, cx| {
+            let _ = this.update(cx, |d, cx| {
+                if let Ok(lines) = r {
+                    d.audit = lines;
+                }
+                cx.notify();
+            });
+        });
     }
 
     fn block(&mut self, person: String, blocked: bool, cx: &mut Context<Self>) {
@@ -1236,6 +1257,12 @@ impl gpui::Render for UsageDialog {
                 )),
             );
         }
+        if u.agent_minutes_today >= l.agent_minutes_per_day {
+            content = content.child(amber(
+                "The agent time for today is used up: new messages are refused with “share_total” until midnight.",
+                &t,
+            ));
+        }
         content = content.child(
             div()
                 .flex()
@@ -1284,11 +1311,41 @@ impl gpui::Render for UsageDialog {
                 text_button("usage-limit", "Set", BtnKind::Small, false, &t).on_click(cx.listener(|d, _, _, cx| d.set_limit(cx))),
             ))
             .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t)));
+        content = content.child(crate::kit::label_t("AUDIT LOG", t.text_3, 11., 0.08));
+        if self.audit.is_empty() {
+            content = content.child(hint("Nothing recorded for this share yet.", &t));
+        }
+        for (i, a) in self.audit.iter().enumerate() {
+            content = content.child(audit_row(i, a, &t));
+        }
+        let scroll = crate::kit::dialog::scrolling("usage-body", content, &t);
         Modal::new("usage-dialog", 560., |_, cx| super::close_dialog(cx))
             .title(format!("Usage · {}", self.share.address))
             .motion(theme::motion_on(cx))
-            .render(&t, content)
+            .render(&t, div().flex().flex_col().min_h_0().max_h(px(640.)).child(scroll))
     }
+}
+
+/// One audit line: when, who, what, how it ended (refusals and failures amber).
+fn audit_row(i: usize, a: &AuditEntryView, t: &Theme) -> Div {
+    let when = chrono::DateTime::parse_from_rfc3339(&a.at)
+        .map(|d| d.with_timezone(&chrono::Local).format("%b %-d %H:%M").to_string())
+        .unwrap_or_else(|_| a.at.clone());
+    let who = match a.who.as_str() {
+        "owner" => "you".to_string(),
+        w => w.split_once(':').map_or(w, |(_, s)| s).to_string(),
+    };
+    let front = a.front.as_deref().map(|f| format!(" ({})", f.to_uppercase())).unwrap_or_default();
+    let bad = a.outcome.starts_with("refused") || a.outcome.starts_with("failed");
+    div()
+        .debug_selector(move || format!("audit-{i}"))
+        .flex()
+        .gap(px(8.))
+        .text_size(px(11.5))
+        .font_family(crate::kit::MONO_FONT)
+        .child(div().w(px(92.)).flex_none().text_color(t.text_4).child(when))
+        .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().text_color(t.text_2).child(format!("{who}{front} · {}", a.method)))
+        .child(div().flex_none().text_color(if bad { t.amber } else { t.text_3 }).child(a.outcome.clone()))
 }
 
 fn stat(label: &str, value: String, t: &Theme) -> Div {

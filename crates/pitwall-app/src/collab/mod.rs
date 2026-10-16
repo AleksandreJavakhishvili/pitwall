@@ -28,7 +28,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use pitwall_daemon::{Caller, CollabService};
-use pitwall_proto::api::collab::{CollabSettingsView, PersonView, ShareView};
+use pitwall_proto::api::collab::{CollabSettingsView, NoticeKind, OwnerNotice, PersonView, ShareView};
 use pitwall_proto::collab::{AskView, DirectoryEntry, SharedSessionView, TeamCard};
 use pitwall_proto::{method, AgentView, ErrorBody};
 
@@ -56,6 +56,9 @@ pub struct Snapshot {
     pub people: Vec<PersonView>,
     pub asks: Vec<AskView>,
     pub settings: Option<CollabSettingsView>,
+    /// What the owner should hear about (needs you, no answer, the day's
+    /// agent time, the agent's limit), oldest first.
+    pub notices: Vec<OwnerNotice>,
 }
 
 impl Snapshot {
@@ -92,15 +95,29 @@ pub struct CollabState {
     pub dialog: Option<(AnyWindowHandle, AnyView)>,
     /// The Ask panel's chosen agent (`alice/api-expert`).
     pub ask_target: Option<String>,
+    /// The last notice told as a system notification.
+    pub notified: Option<u64>,
 }
 
 impl CollabState {
     fn new() -> CollabState {
-        CollabState { data: Snapshot::default(), loaded: false, collapsed: BTreeSet::new(), dialog: None, ask_target: None }
+        CollabState { data: Snapshot::default(), loaded: false, collapsed: BTreeSet::new(), dialog: None, ask_target: None, notified: None }
     }
 
-    /// New data: notify only when it changed.
+    /// New data: notify only when it changed. Notices that are new since
+    /// the last look become system notifications (not needs-you: the
+    /// engine tells that one for every blocked agent), never the ones
+    /// already there when Pitwall started.
     pub fn set(&mut self, data: Snapshot, cx: &mut Context<Self>) {
+        let last = data.notices.last().map(|n| n.id);
+        if let Some(seen) = self.notified {
+            for n in data.notices.iter().filter(|n| n.id > seen && n.kind != NoticeKind::NeedsYou) {
+                crate::platform::notify_user(n.share.clone(), n.text.clone(), cx);
+            }
+        }
+        if last.is_some() || self.notified.is_none() {
+            self.notified = Some(last.unwrap_or(0).max(self.notified.unwrap_or(0)));
+        }
         self.loaded = true;
         if data != self.data {
             self.data = data;
@@ -174,7 +191,16 @@ pub fn fetch(svc: &CollabService) -> Snapshot {
         people: get(svc, &ui, method::PEOPLE_LIST, Value::Null),
         asks: get(svc, &ui, method::ASK_LIST, Value::Null),
         settings,
+        notices: get(svc, &ui, method::SHARE_NOTICES, Value::Null),
     }
+}
+
+/// Shared sessions that need the owner beyond what the engine counts as
+/// blocked: a turn whose reply couldn't be read, results held for Send.
+/// They flag amber and count in the badge like a blocked agent.
+pub fn extra_attention(cx: &App) -> usize {
+    let Some(m) = model(cx) else { return 0 };
+    m.read(cx).data.sessions.values().flatten().filter(|s| s.state != pitwall_proto::collab::SessionState::Blocked && (s.flagged || s.held > 0)).count()
 }
 
 /// Read everything again now (after a change).

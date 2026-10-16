@@ -405,6 +405,18 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     assert_eq!(String::from_utf8_lossy(&count.stdout).trim(), "1");
     assert!(!std::fs::read_to_string(work.join("README.md")).unwrap().contains("CANARY"), "uncommitted changes stay out");
 
+    // alice's view of bob's conversation: what was typed, the replies, the audit.
+    let turns: Vec<pitwall_proto::api::collab::OwnerTurnView> =
+        serde_json::from_value(call(&alice, &caller_ui(), method::SHARE_TURNS, json!({"share": slug, "conversation": bobs.conversation})).unwrap()).unwrap();
+    assert_eq!(turns.len(), 3, "two answers and the refusal");
+    assert!(turns[0].delivered.as_deref().unwrap().starts_with("From bob@example.com"), "{:?}", turns[0].delivered);
+    assert_eq!(turns[0].reply_source, Some(pitwall_proto::collab::ReplySource::Hook));
+    let audit: Vec<pitwall_proto::api::collab::AuditEntryView> =
+        serde_json::from_value(call(&alice, &caller_ui(), method::SHARE_AUDIT, json!({"share": slug})).unwrap()).unwrap();
+    assert!(audit.iter().any(|a| a.method == "turn" && a.outcome == "done" && a.who == "fake:bob@example.com"), "{audit:?}");
+    assert!(audit.iter().any(|a| a.outcome == "refused:quota"), "{audit:?}");
+    assert!(audit.iter().any(|a| a.method == "share.go_live"), "{audit:?}");
+
     // ------------------------------------------------ carol over MCP, no Pitwall
     let http = carol_dev.client(&net.addr("studio")).unwrap();
     let (init, session) = mcp(&*http, None, json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
@@ -464,6 +476,16 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     assert_eq!(via_team.conversation, first.conversation);
     let text = via_team.reply.unwrap();
     assert!(text.starts_with("echo: Through the team now?") && text.contains("remembered=Where is the entry point?;And where are tokens rotated?;"), "{text}");
+
+    // The day's agent time used up: refused, and alice hears about it once.
+    call(&alice, &caller_ui(), method::SHARE_SET, json!({"share": slug, "patch": {"agentMinutesPerDay": 0}})).unwrap();
+    let total = ask("Anything left?").expect_err("the share's time is used up");
+    assert_eq!(total.code, pitwall_proto::code::SHARE_TOTAL, "{}", total.message);
+    wait_for("the owner's notice", 10, || {
+        let notices: Vec<pitwall_proto::api::collab::OwnerNotice> =
+            serde_json::from_value(call(&alice, &caller_ui(), method::SHARE_NOTICES, Value::Null).unwrap()).unwrap();
+        notices.iter().any(|n| n.kind == pitwall_proto::api::collab::NoticeKind::ShareTotal && n.text.starts_with("api-expert has used its agent time for today"))
+    });
 
     // ------------------------------------------------ clean up
     call(&alice, &caller_ui(), method::SHARE_STOP, json!({"share": slug})).unwrap();

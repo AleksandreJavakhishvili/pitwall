@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pitwall_core::net::{NetState, Network};
 use pitwall_proto::api::collab::{
-    AskSend, CollabSettings, InviteLink, MemberAdded, MemberView, NetworkRow, PersonView, ProbeResult, SetupLine, ShareUsage, TeamCreate,
-    TeamDetail, TeamJoin,
+    AskSend, AuditEntryView, CollabSettings, InviteLink, MemberAdded, MemberView, NetworkRow, OwnerNotice, OwnerTurnView, PersonView,
+    ProbeResult, SetupLine, ShareUsage, TeamCreate, TeamDetail, TeamJoin,
 };
 use pitwall_proto::collab::{
     AskFrom, AskStatus, AskView, DirectoryEntry, Identity, PersonId, ShareSettings, SharedSessionView, TeamCard, TeamId, TeamRole,
@@ -64,6 +64,9 @@ struct State {
     directory: Vec<DirectoryEntry>,
     asks: Vec<AskView>,
     shared_agents: HashSet<String>,
+    owner_turns: HashMap<(String, String), Vec<OwnerTurnView>>,
+    audit: Vec<AuditEntryView>,
+    notices: Vec<OwnerNotice>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
@@ -215,6 +218,21 @@ impl MemoryCollab {
         let mut st = lock(&self.state);
         st.shared_agents.insert(s.agent_id.clone());
         st.sessions.entry(slug.into()).or_default().push(s);
+    }
+
+    /// Tests: a conversation's turns as its owner sees them.
+    pub fn set_owner_turns(&self, slug: &str, conversation: &str, turns: Vec<OwnerTurnView>) {
+        lock(&self.state).owner_turns.insert((slug.into(), conversation.into()), turns);
+    }
+
+    /// Tests: an audit line (oldest first).
+    pub fn add_audit(&self, line: AuditEntryView) {
+        lock(&self.state).audit.push(line);
+    }
+
+    /// Tests: a notice for the owner.
+    pub fn add_notice(&self, n: OwnerNotice) {
+        lock(&self.state).notices.push(n);
     }
 
     pub fn set_usage(&self, slug: &str, u: ShareUsage) {
@@ -379,6 +397,22 @@ impl CollabBackend for MemoryCollab {
 
     fn sessions(&self, slug: &str) -> Vec<SharedSessionView> {
         lock(&self.state).sessions.get(slug).cloned().unwrap_or_default()
+    }
+
+    fn owner_turns(&self, slug: &str, conversation: &str) -> Result<Vec<OwnerTurnView>, ErrorBody> {
+        lock(&self.state)
+            .owner_turns
+            .get(&(slug.to_string(), conversation.to_string()))
+            .cloned()
+            .ok_or_else(|| ErrorBody::new(code::NOT_FOUND, "no such conversation"))
+    }
+
+    fn audit(&self, share: Option<&str>, limit: usize) -> Vec<AuditEntryView> {
+        lock(&self.state).audit.iter().rev().filter(|a| share.is_none_or(|s| a.share.as_deref() == Some(s))).take(limit).cloned().collect()
+    }
+
+    fn notices(&self, after: Option<u64>) -> Vec<OwnerNotice> {
+        lock(&self.state).notices.iter().filter(|n| after.is_none_or(|a| n.id > a)).cloned().collect()
     }
 
     fn usage(&self, slug: &str) -> ShareUsage {

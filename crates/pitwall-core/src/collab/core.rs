@@ -124,6 +124,18 @@ pub struct CollabDeps {
     pub run: RunMode,
 }
 
+/// One turn as the owner sees it ([`Collab::owner_turns`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerTurn {
+    pub turn: Turn,
+    /// What the caller wrote.
+    pub text: String,
+    /// What was typed into the session, once delivered.
+    pub delivered: Option<String>,
+    /// Pitwall's own (the approved summary as a first message).
+    pub internal: bool,
+}
+
 /// Something the owner should hear about (badge, notification, §7.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
@@ -959,9 +971,29 @@ impl Collab {
                     held: 0,
                     usage: SessionUsage { minutes_today: (ms / 60_000) as u32, messages_today: messages, tokens: None },
                     last_at: c.last_at.clone(),
+                    flagged: c.flagged,
                 }
             })
             .collect()
+    }
+
+    /// One conversation of share `slug`, turn by turn, as its owner sees
+    /// it (the session pane's Messages, §11): what the caller wrote, what
+    /// was typed, the reply and its source. Pitwall's own briefing turns
+    /// are included, marked.
+    pub fn owner_turns(&self, slug: &str, conversation: &ConversationId) -> Result<Vec<OwnerTurn>> {
+        let st = self.lock();
+        let conv = st.convs.get(conversation).filter(|c| c.share == slug).ok_or_else(|| PwError::not_found("no such conversation"))?;
+        Ok(conv
+            .turns
+            .iter()
+            .map(|t| OwnerTurn { turn: t.turn.clone(), text: t.text.clone(), delivered: t.delivered.clone(), internal: t.internal })
+            .collect())
+    }
+
+    /// Who a conversation is with (`bob@example.com`), and its engine agent.
+    pub fn caller_of(&self, conversation: &ConversationId) -> Option<(String, String)> {
+        self.lock().convs.get(conversation).map(|c| (c.caller.login.clone(), c.agent.clone()))
     }
 
     /// Whether a conversation's session is flagged (a turn with no answer).
@@ -1696,6 +1728,7 @@ impl Collab {
                     Some(r) => {
                         t.turn.reply = Some(r);
                         t.turn.status = TurnStatus::Done;
+                        conv.flagged = false;
                     }
                     None if internal => t.turn.status = TurnStatus::Done,
                     None => {

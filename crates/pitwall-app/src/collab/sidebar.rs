@@ -29,9 +29,10 @@ pub fn caller_name(s: &SharedSessionView) -> String {
     }
 }
 
-/// The session needs the owner: blocked, or results held for Send.
+/// The session needs the owner: blocked, a reply that couldn't be read,
+/// or results held for Send.
 pub fn needs_you(s: &SharedSessionView) -> bool {
-    s.state == SessionState::Blocked || s.held > 0
+    s.state == SessionState::Blocked || s.held > 0 || s.flagged
 }
 
 /// `2026-10-16T09:12:00Z` as "5 m", "2 h", "3 d" ago.
@@ -169,6 +170,11 @@ fn share_head(i: usize, v: &ShareView, sessions: &[SharedSessionView], folded: b
         .when(s.state == ShareState::Draft, |d| d.child(chip_tone("draft", Tone::Subtle, t)))
         .when(s.state == ShareState::Paused, |d| d.child(chip_tone("paused", Tone::Warn, t)))
         .when(needs > 0, |d| d.child(chip_tone(format!("{needs} needs you"), Tone::Warn, t)))
+        // Refusing messages for now: its vendor's limit, or its time today.
+        .when_some(v.usage.limited_until.clone(), |d, until| d.child(chip_tone(format!("limited until {until}"), Tone::Warn, t)))
+        .when(s.state == ShareState::Live && v.usage.agent_minutes_today >= s.limits.agent_minutes_per_day, |d| {
+            d.child(chip_tone("time used today", Tone::Warn, t))
+        })
         .when(s.state == ShareState::Live, |d| {
             d.child(
                 div()
@@ -204,7 +210,13 @@ fn session_row(i: usize, j: usize, s: &SharedSessionView, t: &Theme, cx: &mut Co
         serde_json::to_value(s.state).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default(),
         s.turns,
         s.usage.minutes_today,
-        if needs_you(s) { "\nNeeds you" } else { "" }
+        if s.flagged {
+            "\nIts last reply couldn't be read: have a look"
+        } else if needs_you(s) {
+            "\nNeeds you"
+        } else {
+            ""
+        }
     );
     div()
         .id(SharedString::from(format!("shared-row-{i}-{j}")))

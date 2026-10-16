@@ -29,7 +29,7 @@ use pitwall_core::collab::teams::keys::Ed25519;
 use pitwall_core::collab::teams::{sync, ParsedInvite, TeamStore, TeamsDeps};
 use pitwall_core::collab::turn::short_name;
 use pitwall_core::collab::{
-    Ask, Asker, Collab, CollabDeps, Conversations, ConversationId, HookWiring, RunMode, Turn, TurnStatus, Who,
+    Ask, Asker, Collab, CollabDeps, Conversations, ConversationId, HookWiring, Notice, RunMode, Turn, TurnStatus, Who,
 };
 use pitwall_core::error::{ErrorCode, PwError};
 use pitwall_core::exec::LocalExec;
@@ -37,8 +37,9 @@ use pitwall_core::net::{Caller, DeviceAddr, Handler, InstanceKey, Network, Perso
 use pitwall_core::sandbox::SessionSandbox;
 use pitwall_core::Shared;
 use pitwall_proto::api::collab::{
-    AskSend, CallerUsage, CollabSettings, DeviceView, InviteLink, JoinRequestView, MemberAdded, MemberView, NetworkRow, PersonView,
-    ProbeResult, SensitiveFile, SetupLine, ShareUsage, TeamCreate, TeamDetail, TeamJoin, UsageCounts,
+    AskSend, AuditEntryView, CallerUsage, CollabSettings, DeviceView, InviteLink, JoinRequestView, MemberAdded, MemberView, NetworkRow,
+    NoticeKind, OwnerNotice, OwnerTurnView, PersonView, ProbeResult, SensitiveFile, SetupLine, ShareUsage, TeamCreate, TeamDetail, TeamJoin,
+    UsageCounts,
 };
 use pitwall_proto::collab::{
     AskFrom, AskStatus, AskView, DirectoryEntry, Front, Identity, RefusalReason, SessionState, ShareSettings, ShareState,
@@ -96,7 +97,13 @@ struct State {
     settings: CollabSettings,
     asks: Vec<AskView>,
     probes: HashMap<String, Vec<ProbeResult>>,
+    /// What the owner should hear about, newest last (at most [`NOTICES_KEPT`]).
+    notices: Vec<OwnerNotice>,
+    next_notice: u64,
 }
+
+/// Notices kept for the app to show.
+const NOTICES_KEPT: usize = 200;
 
 /// A shared agent I may use, and the device that answered for it.
 #[derive(Clone)]
@@ -180,9 +187,9 @@ fn login(identity: &Identity) -> String {
     identity.email.clone().unwrap_or_else(|| identity.subject.clone())
 }
 
-/// A turn as the caller's thread shows it.
-pub fn ask_view(share: &str, text: &str, t: &Turn) -> AskView {
-    let (status, message) = match &t.status {
+/// A turn's status as a thread shows it, with its message.
+fn status_words(t: &Turn) -> (AskStatus, Option<String>) {
+    match &t.status {
         TurnStatus::Queued { .. } => (AskStatus::Queued, t.status_message.clone()),
         TurnStatus::Working => (AskStatus::Working, t.status_message.clone()),
         TurnStatus::WaitingForOwner | TurnStatus::ChangesHeld => (AskStatus::WaitingForOwner, t.status_message.clone()),
@@ -190,7 +197,12 @@ pub fn ask_view(share: &str, text: &str, t: &Turn) -> AskView {
         TurnStatus::Failed { .. } => (AskStatus::Failed, t.status_message.clone()),
         TurnStatus::Canceled => (AskStatus::Canceled, t.status_message.clone()),
         TurnStatus::Refused(r) => (AskStatus::Refused, Some(r.message.clone())),
-    };
+    }
+}
+
+/// A turn as the caller's thread shows it.
+pub fn ask_view(share: &str, text: &str, t: &Turn) -> AskView {
+    let (status, message) = status_words(t);
     AskView {
         turn: t.id.0.clone(),
         conversation: t.conversation.0.clone(),
@@ -261,7 +273,7 @@ impl CoreCollab {
                 make_networks: networks,
                 networks: RwLock::new(None),
                 serving: Mutex::default(),
-                state: Mutex::new(State { settings: local.settings, asks, probes: HashMap::new() }),
+                state: Mutex::new(State { settings: local.settings, asks, ..State::default() }),
                 directory: Mutex::default(),
                 discovered_at: Mutex::default(),
                 forced_at: Mutex::default(),
@@ -273,7 +285,62 @@ impl CoreCollab {
         });
         me.apply();
         me.background();
+        me.follow_notices();
         Ok(me)
+    }
+
+    /// The core's notices, kept with an id and a sentence for the app
+    /// (needs you, no answer, the day's agent time, the agent's limit).
+    fn follow_notices(self: &Arc<Self>) {
+        let rx = self.collab.notices();
+        let weak = Arc::downgrade(self);
+        std::thread::spawn(move || {
+            for n in rx {
+                let Some(me) = weak.upgrade() else { return };
+                me.keep_notice(n);
+            }
+        });
+    }
+
+    fn keep_notice(&self, n: Notice) {
+        let who = |c: &ConversationId| self.collab.caller_of(c);
+        let (kind, share, conversation, caller, agent_id, text) = match n {
+            Notice::NeedsYou { share, conversation, caller, detail } => {
+                let agent = who(&conversation).map(|(_, a)| a);
+                let more = detail.map(|d| format!(" ({d})")).unwrap_or_default();
+                let text = format!("{share}: {caller}'s conversation needs you{more}");
+                (NoticeKind::NeedsYou, share, Some(conversation), Some(caller), agent, text)
+            }
+            Notice::NoAnswer { share, conversation } => {
+                let (caller, agent) = who(&conversation).map_or((None, None), |(c, a)| (Some(c), Some(a)));
+                let text = format!("{share}: the reply in {}'s conversation couldn't be read", caller.as_deref().unwrap_or("a caller"));
+                (NoticeKind::NoAnswer, share, Some(conversation), caller, agent, text)
+            }
+            Notice::ShareTotal { share } => {
+                let text = format!("{share} has used its agent time for today; it takes messages again at midnight");
+                (NoticeKind::ShareTotal, share, None, None, None, text)
+            }
+            Notice::AgentLimit { share, until } => {
+                let when = until.map(|u| format!(" until {u}")).unwrap_or_default();
+                let text = format!("{share} reached its agent's usage limit; it refuses messages{when}");
+                (NoticeKind::AgentLimit, share, None, None, None, text)
+            }
+        };
+        let mut st = lock(&self.state);
+        st.next_notice += 1;
+        let notice = OwnerNotice {
+            id: st.next_notice,
+            at: rfc3339(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs())),
+            kind,
+            share,
+            conversation: conversation.map(|c| c.0),
+            caller,
+            agent_id,
+            text,
+        };
+        st.notices.push(notice);
+        let over = st.notices.len().saturating_sub(NOTICES_KEPT);
+        st.notices.drain(..over);
     }
 
     /// The core's collaboration service (tests, the app's own views).
@@ -665,6 +732,57 @@ impl CollabBackend for CoreCollab {
 
     fn sessions(&self, slug: &str) -> Vec<SharedSessionView> {
         self.collab.sessions(slug)
+    }
+
+    fn owner_turns(&self, slug: &str, conversation: &str) -> Result<Vec<OwnerTurnView>, ErrorBody> {
+        let turns = self.collab.owner_turns(slug, &ConversationId(conversation.to_string())).map_err(body)?;
+        Ok(turns
+            .into_iter()
+            .map(|o| {
+                let (status, status_message) = status_words(&o.turn);
+                OwnerTurnView {
+                    turn: o.turn.id.0.clone(),
+                    text: o.text,
+                    delivered: o.delivered,
+                    internal: o.internal,
+                    status,
+                    status_message,
+                    reply: o.turn.reply.as_ref().map(|r| r.text.clone()),
+                    reply_source: o.turn.reply.as_ref().map(|r| r.source),
+                    at: o.turn.at.clone(),
+                    done_at: o.turn.done_at.clone(),
+                }
+            })
+            .collect())
+    }
+
+    fn audit(&self, share: Option<&str>, limit: usize) -> Vec<AuditEntryView> {
+        self.collab
+            .audit_log()
+            .lines()
+            .into_iter()
+            .rev()
+            .filter(|l| share.is_none_or(|s| l.agent.as_deref() == Some(s)))
+            .take(limit)
+            .map(|l| AuditEntryView {
+                detail: l.detail.as_ref().map(|d| match d {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                }),
+                at: l.at,
+                method: l.method,
+                outcome: l.outcome,
+                share: l.agent,
+                who: l.login,
+                network: l.peer,
+                front: l.front,
+                turn: l.turn,
+            })
+            .collect()
+    }
+
+    fn notices(&self, after: Option<u64>) -> Vec<OwnerNotice> {
+        lock(&self.state).notices.iter().filter(|n| after.is_none_or(|a| n.id > a)).cloned().collect()
     }
 
     fn usage(&self, slug: &str) -> ShareUsage {

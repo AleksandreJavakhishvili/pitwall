@@ -280,6 +280,7 @@ fn the_sidebar_lists_shared_agents_and_their_callers(cx: &mut TestAppContext) {
         held,
         usage: SessionUsage { minutes_today: 4, messages_today: 3, tokens: None },
         last_at: None,
+        flagged: false,
     };
     w.mem.add_session("api", session("s1", "erin@example.com", SessionState::Working, 0));
     w.mem.add_session("api", session("s2", "bob@example.com", SessionState::Blocked, 0));
@@ -370,4 +371,90 @@ fn words() {
     assert_eq!(super::ask::status_line(&a), "2nd in line");
     assert_eq!(super::short("bob@example.com"), "bob");
     assert_eq!(super::sidebar::ago("not a time"), "");
+}
+
+#[gpui::test]
+fn the_owner_sees_turns_audit_and_flags_of_shared_sessions(cx: &mut TestAppContext) {
+    use pitwall_proto::api::collab::{AuditEntryView, NoticeKind, OwnerNotice, OwnerTurnView};
+    let w = world(cx, &["a1"]);
+    let a = w.agents[0].clone();
+    let mut live = super::share_dialog::defaults(&a, vec![]);
+    live.state = ShareState::Live;
+    w.mem.save_share(&live, None).unwrap();
+    let session = SharedSessionView {
+        conversation: "c_1".into(),
+        share: "api".into(),
+        caller: SessionCaller { login: "bob@example.com".into(), agent: None, client: None, front: Front::A2a, guest: false, pitwall: true },
+        state: SessionState::Ready,
+        agent_id: "s1".into(),
+        turns: 2,
+        results: 0,
+        held: 0,
+        usage: SessionUsage { minutes_today: 1, messages_today: 2, tokens: None },
+        last_at: Some("2026-10-16T09:00:05Z".into()),
+        flagged: true,
+    };
+    w.mem.add_session("api", session);
+    let turn = |n: u32, reply: Option<&str>, status: AskStatus| OwnerTurnView {
+        turn: format!("c_1/{n}"),
+        text: format!("question {n}"),
+        delivered: Some(format!("From bob@example.com:\nquestion {n}")),
+        internal: false,
+        status,
+        status_message: (status == AskStatus::Failed).then(|| "the agent's reply couldn't be read".into()),
+        reply: reply.map(String::from),
+        reply_source: reply.map(|_| pitwall_proto::collab::ReplySource::NonInteractive),
+        at: "2026-10-16T09:00:00Z".into(),
+        done_at: None,
+    };
+    w.mem.set_owner_turns("api", "c_1", vec![turn(1, Some("In docs/."), AskStatus::Done), turn(2, None, AskStatus::Failed)]);
+    w.mem.add_audit(AuditEntryView {
+        at: "2026-10-16T09:00:00Z".into(),
+        method: "turn".into(),
+        outcome: "failed:no_answer".into(),
+        share: Some("api".into()),
+        who: "tailscale:bob@example.com".into(),
+        network: "tailscale:example.ts.net".into(),
+        front: Some("a2a".into()),
+        turn: Some("c_1/2".into()),
+        detail: None,
+    });
+    w.mem.add_notice(OwnerNotice {
+        id: 7,
+        at: "2026-10-16T09:00:06Z".into(),
+        kind: NoticeKind::NoAnswer,
+        share: "api".into(),
+        conversation: Some("c_1".into()),
+        caller: Some("bob@example.com".into()),
+        agent_id: Some("s1".into()),
+        text: "api: the reply in bob@example.com's conversation couldn't be read".into(),
+    });
+    let (view, vcx) = window(cx, w.agents.clone());
+    redraw(&view, vcx);
+    // Flagged: amber and in the badge's count, like a blocked agent.
+    let snap = vcx.update(|_, cx| super::snapshot(cx));
+    assert!(super::sidebar::needs_you(&snap.sessions["api"][0]));
+    assert_eq!(vcx.update(|_, cx| super::extra_attention(cx)), 1);
+    assert_eq!(snap.notices.len(), 1);
+    assert_eq!(vcx.update(|_, cx| super::model(cx).unwrap().read(cx).notified), Some(7), "seen; not told again");
+    // The session pane's Messages: each turn, its reply and where it came from.
+    let s1 = coder("s1", "/work/api");
+    let panel = vcx.update(|_, cx| cx.new(super::messages::SessionPanel::new));
+    panel.update(vcx, |p, cx| p.set_agent(&s1, cx));
+    vcx.run_until_parked();
+    let turns = panel.read_with(vcx, |p, _| p.turns.clone());
+    assert_eq!(turns.len(), 2);
+    assert_eq!(turns[0].reply.as_deref(), Some("In docs/."));
+    assert_eq!(super::messages::source_words(turns[0].reply_source.unwrap()), "from its non-interactive run");
+    // Usage → the audit log, for this share.
+    let share = snap.shares[0].clone();
+    let usage = vcx.update(|window, cx| {
+        let d = cx.new(|cx| super::share_dialog::UsageDialog::new(share, cx));
+        super::show_dialog(d.clone().into(), window, cx);
+        d
+    });
+    vcx.run_until_parked();
+    assert_eq!(usage.read_with(vcx, |d, _| d.audit.iter().map(|a| a.outcome.clone()).collect::<Vec<_>>()), ["failed:no_answer"]);
+    redraw(&view, vcx);
+    assert!(vcx.debug_bounds("audit-0").is_some());
 }
