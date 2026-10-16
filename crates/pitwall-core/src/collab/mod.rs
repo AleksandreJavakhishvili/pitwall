@@ -34,6 +34,8 @@ pub mod turn;
 pub mod usage;
 
 #[cfg(test)]
+mod interop;
+#[cfg(test)]
 mod tests;
 
 pub use pitwall_proto::collab::{

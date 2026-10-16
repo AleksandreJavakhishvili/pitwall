@@ -1385,12 +1385,14 @@ fn unknown_task_states_read_as_unspecified() {
 
 // ------------------------------------------------- interop (ignored)
 
-/// A minimal HTTP/1.1 server for the interop test only (the real one is
+/// A minimal HTTP/1.1 server for the interop tests only (the real one is
 /// the network backend's): every connection is Bob, as the Fake network
 /// proves him; streaming bodies go out chunked.
-fn serve_locally(fronts: Fronts, caller: crate::net::Caller) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+/// The black-box clients (`collab::interop`) use it against the integrated
+/// core; the listener is bound already, so the fronts can name its address
+/// in Agent Cards.
+pub(crate) fn serve_locally_on(listener: std::net::TcpListener, fronts: Fronts, caller: crate::net::Caller) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
     use std::io::{BufRead, BufReader, Read, Write};
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let log = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = log.clone();
@@ -1478,68 +1480,4 @@ fn serve_locally(fronts: Fronts, caller: crate::net::Caller) -> (u16, Arc<std::s
         }
     });
     (port, log)
-}
-
-/// Plain Claude Code against the MCP front: `claude -p` with an HTTP MCP
-/// server config (no change to the user's own config). Needs `claude` on
-/// PATH and a signed-in account; run with
-/// `cargo test -p pitwall-core --lib interop_claude_code -- --ignored --nocapture`.
-#[test]
-#[ignore]
-fn interop_claude_code() {
-    interop(false);
-}
-
-/// The same with a turn that takes a few seconds and waits for the owner
-/// on the way: the answer comes over SSE.
-#[test]
-#[ignore]
-fn interop_claude_code_streaming() {
-    interop(true);
-}
-
-fn interop(slow: bool) {
-    let w = world();
-    const REPLY: &str = "Refresh tokens are rotated in src/auth/refresh.rs, in rotate_refresh_token().";
-    if slow {
-        w.conv.on_ask(OnAsk::Work);
-        let conv = w.conv.clone();
-        thread::spawn(move || {
-            while conv.asks().is_empty() {
-                thread::sleep(Duration::from_millis(20));
-            }
-            let id = TurnId("c_1/1".into());
-            thread::sleep(Duration::from_secs(2));
-            conv.update(&id, |t| t.status = TurnStatus::WaitingForOwner);
-            thread::sleep(Duration::from_secs(1));
-            conv.update(&id, done_with_reply(REPLY));
-        });
-    } else {
-        w.conv.on_ask(OnAsk::Reply(REPLY.into()));
-    }
-    let fronts = Fronts::for_networks(w.conv.clone(), w.teams.clone(), vec![Arc::new(w.alice.clone())], options());
-    let (port, log) = serve_locally(fronts, w.net.caller("bob-mbp").unwrap());
-    let dir = std::env::temp_dir().join(format!("pitwall-interop-{port}"));
-    std::fs::create_dir_all(&dir).unwrap();
-    let config = dir.join("mcp.json");
-    std::fs::write(
-        &config,
-        json!({"mcpServers": {"alice": {"type": "http", "url": format!("http://127.0.0.1:{port}/mcp")}}}).to_string(),
-    )
-    .unwrap();
-    let out = std::process::Command::new("claude")
-        .current_dir(&dir)
-        .args(["-p", "Call the ask_api_expert tool once with the message \"Where are refresh tokens rotated?\" and then repeat its reply word for word."])
-        .args(["--mcp-config", config.to_str().unwrap(), "--strict-mcp-config"])
-        .args(["--allowedTools", "mcp__alice__ask_api_expert", "--model", "haiku", "--output-format", "text"])
-        .args(std::env::var("PITWALL_INTEROP_DEBUG").ok().map(|_| "--debug"))
-        .output()
-        .expect("claude on PATH");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    eprintln!("--- claude stdout\n{stdout}\n--- stderr\n{}", String::from_utf8_lossy(&out.stderr));
-    eprintln!("--- requests\n{}", log.lock().unwrap().join("\n"));
-    let asks = w.conv.asks();
-    assert_eq!(asks.len(), 1, "Claude Code called the tool once");
-    eprintln!("--- asker client: {:?}, front {:?}", asks[0].0.client, asks[0].0.front);
-    assert!(stdout.contains("refresh.rs"), "the reply came back");
 }

@@ -222,7 +222,7 @@ pub(crate) struct World {
 }
 
 impl World {
-    fn new() -> World {
+    pub(crate) fn new() -> World {
         World::with(CollabSettings { max_sessions: 4, owner_name: "alice".into() })
     }
 
@@ -267,7 +267,7 @@ impl World {
     }
 
     /// A live Read only share of agent `agent`, for `audience`.
-    fn share(&self, slug: &str, agent: &str, audience: Audience) -> ShareSettings {
+    pub(crate) fn share(&self, slug: &str, agent: &str, audience: Audience) -> ShareSettings {
         let share: ShareSettings = serde_json::from_value(serde_json::json!({
             "agent": agent, "slug": slug, "name": slug, "description": "Questions about the API",
             "scope": {"repo": "/code/api", "ref": "main", "paths": ["src/"]},
@@ -285,7 +285,7 @@ impl World {
         self.collab.set_share(slug, s).unwrap()
     }
 
-    fn everyone(&self) -> Audience {
+    pub(crate) fn everyone(&self) -> Audience {
         Audience { networks: vec![self.net.id()], ..Audience::default() }
     }
 
