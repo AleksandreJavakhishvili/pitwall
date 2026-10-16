@@ -55,6 +55,8 @@ const DIRECTORY_TTL: Duration = Duration::from_secs(30);
 /// How often joins are polled and teams looked for while "Use teams" is on.
 const JOIN_POLL: Duration = Duration::from_secs(30);
 const DISCOVERY_EVERY: Duration = Duration::from_secs(5 * 60);
+/// `team.list` looks for teams again when the last look is older than this.
+const DISCOVERY_TTL: Duration = Duration::from_secs(60);
 /// `ask.send` without a timeout waits this long for the turn to settle.
 const ASK_WAIT: Duration = Duration::from_secs(10 * 60);
 
@@ -112,6 +114,8 @@ pub struct CoreCollab {
     serving: Mutex<HashMap<String, ServeHandle>>,
     state: Mutex<State>,
     directory: Mutex<Option<(Instant, Vec<Found>)>>,
+    /// When teams were last looked for.
+    discovered_at: Mutex<Option<Instant>>,
     prober: Prober,
     dir: PathBuf,
     user: String,
@@ -255,6 +259,7 @@ impl CoreCollab {
                 serving: Mutex::default(),
                 state: Mutex::new(State { settings: local.settings, asks, probes: HashMap::new() }),
                 directory: Mutex::default(),
+                discovered_at: Mutex::default(),
                 prober: Prober::default(),
                 dir,
                 user,
@@ -554,6 +559,7 @@ impl CollabBackend for CoreCollab {
             self.save_local(&st);
         }
         *lock(&self.directory) = None;
+        *lock(&self.discovered_at) = None;
         if let Some(me) = self.this.upgrade() {
             me.apply();
         }
@@ -745,7 +751,18 @@ impl CollabBackend for CoreCollab {
 
     // ------------------------------------------------------------ teams
 
+    /// Mine, then the listed ones discovered on my networks: looked for
+    /// again when the last look is older than a minute, and pending joins
+    /// pulled once accepted.
     fn teams(&self) -> Vec<TeamCard> {
+        if self.settings_now().use_teams {
+            let stale = lock(&self.discovered_at).is_none_or(|t| t.elapsed() >= DISCOVERY_TTL);
+            if stale {
+                *lock(&self.discovered_at) = Some(Instant::now());
+                let _ = sync::discover(&self.teams);
+            }
+            let _ = sync::poll_joins(&self.teams);
+        }
         self.teams.cards()
     }
 
