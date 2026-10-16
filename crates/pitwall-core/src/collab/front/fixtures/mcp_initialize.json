@@ -1,0 +1,18 @@
+{
+  "id": 0,
+  "jsonrpc": "2.0",
+  "result": {
+    "capabilities": {
+      "tools": {
+        "listChanged": true
+      }
+    },
+    "instructions": "Agents alice@example.com shares with you, one ask_<agent> tool each. A message goes into your conversation with that agent, which remembers earlier messages. A long turn comes back with status \"working\" and a turn id: call check_turn with it to wait more. Changes come back as a git format-patch series (apply with `git am -3`); big ones through get_changes.",
+    "protocolVersion": "2025-06-18",
+    "serverInfo": {
+      "name": "pitwall",
+      "title": "Pitwall",
+      "version": "0.0.0-test"
+    }
+  }
+}

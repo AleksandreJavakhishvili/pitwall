@@ -1,0 +1,13 @@
+{
+  "authorization_servers": [
+    "https://auth.pitwall.example"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "resource": "https://studio.acme.pitwall.example/mcp",
+  "resource_name": "Pitwall shared agents",
+  "scopes_supported": [
+    "collab"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "task": {
+    "contextId": "c_1",
+    "id": "c_1/1",
+    "metadata": {
+      "pitwall/turn": {
+        "at": "2026-10-16T10:00:00Z",
+        "conversation": "c_1",
+        "id": "c_1/1",
+        "share": "api-expert",
+        "status": {
+          "message": "Daily limit reached for alice/api-expert; resets at 00:00",
+          "reason": "quota",
+          "resetsAt": "2026-10-17T00:00:00+02:00",
+          "state": "refused"
+        }
+      }
+    },
+    "status": {
+      "message": {
+        "contextId": "c_1",
+        "messageId": "c_1/1#refused",
+        "parts": [
+          {
+            "text": "Daily limit reached for alice/api-expert; resets at 00:00"
+          },
+          {
+            "data": {
+              "message": "Daily limit reached for alice/api-expert; resets at 00:00",
+              "reason": "quota",
+              "resetsAt": "2026-10-17T00:00:00+02:00",
+              "state": "refused"
+            }
+          }
+        ],
+        "role": "ROLE_AGENT",
+        "taskId": "c_1/1"
+      },
+      "state": "TASK_STATE_REJECTED",
+      "timestamp": "2026-10-16T10:00:00Z"
+    }
+  }
+}

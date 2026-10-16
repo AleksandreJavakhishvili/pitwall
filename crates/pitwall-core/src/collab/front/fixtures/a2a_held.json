@@ -1,0 +1,64 @@
+{
+  "artifacts": [
+    {
+      "artifactId": "reply",
+      "name": "reply",
+      "parts": [
+        {
+          "text": "Done; see the patch."
+        },
+        {
+          "data": {
+            "source": "hook"
+          }
+        }
+      ]
+    }
+  ],
+  "contextId": "c_1",
+  "id": "c_1/1",
+  "metadata": {
+    "pitwall/turn": {
+      "at": "2026-10-16T10:00:00Z",
+      "changes": {
+        "added": 14,
+        "baseCommit": "3f2a1c9d0e",
+        "files": 2,
+        "parts": 1,
+        "patches": 1,
+        "removed": 3,
+        "state": "held"
+      },
+      "conversation": "c_1",
+      "id": "c_1/1",
+      "reply": {
+        "source": "hook",
+        "text": "Done; see the patch."
+      },
+      "share": "payments-expert",
+      "status": {
+        "state": "changes_held"
+      }
+    }
+  },
+  "status": {
+    "message": {
+      "contextId": "c_1",
+      "messageId": "c_1/1#changes_held",
+      "parts": [
+        {
+          "text": "changes waiting for alice's OK"
+        },
+        {
+          "data": {
+            "state": "changes_held"
+          }
+        }
+      ],
+      "role": "ROLE_AGENT",
+      "taskId": "c_1/1"
+    },
+    "state": "TASK_STATE_WORKING",
+    "timestamp": "2026-10-16T10:00:00Z"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": 4,
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "text": "Daily limit reached for alice/api-expert; resets at 00:00",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "conversation": "c_1",
+      "message": "Daily limit reached for alice/api-expert; resets at 00:00",
+      "refused": "quota",
+      "resetsAt": "2026-10-17T00:00:00+02:00",
+      "status": "failed",
+      "statusMessage": "Daily limit reached for alice/api-expert; resets at 00:00",
+      "turn": "c_1/1"
+    }
+  }
+}
