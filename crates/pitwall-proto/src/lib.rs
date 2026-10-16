@@ -89,6 +89,7 @@ mod ts_export {
         collab::SharedSessionView::export_all(&cfg).unwrap();
         collab::ShareDiff::export_all(&cfg).unwrap();
         collab::RefusalReason::export_all(&cfg).unwrap();
+        api::collab::export(&cfg).unwrap();
         assert!(dir.join("AgentView.ts").is_file());
     }
 }

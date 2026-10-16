@@ -149,6 +149,27 @@ pub mod code {
     /// `agent.wait` gave up before the agent got there.
     pub const TIMEOUT: &str = "timeout";
     pub const OTHER: &str = "other";
+
+    // Collaboration (collaboration/protocol.md §8.6).
+    /// The shared agent's owner can't be reached right now.
+    pub const OFFLINE: &str = "offline";
+    /// Every session of the share is busy and its queue is full.
+    pub const BUSY: &str = "busy";
+    /// My messages for today (or my agent's budget for this hour) are used up.
+    pub const QUOTA: &str = "quota";
+    /// The share's agent time for today is used up.
+    pub const SHARE_TOTAL: &str = "share_total";
+    /// The shared agent hit its vendor's limit.
+    pub const AGENT_LIMIT: &str = "agent_limit";
+    /// An agent asked while "Let my agents ask shared agents" is off (or
+    /// collaboration is off).
+    pub const NOT_ALLOWED: &str = "not_allowed";
+    /// The turn ended without a reply.
+    pub const NO_ANSWER: &str = "no_answer";
+    /// The message already came through this share (`Pitwall-Chain`).
+    pub const LOOP: &str = "loop";
+    /// A shared session called the socket: nothing is allowed.
+    pub const FORBIDDEN: &str = "forbidden";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
