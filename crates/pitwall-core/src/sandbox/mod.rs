@@ -9,7 +9,21 @@
 //! - Windows: the Linux backend inside WSL2, C5.
 //!
 //! The backends live in `src/platform/` with the rest of the OS-specific
-//! code; nothing outside it knows which one runs.
+//! code; nothing outside it knows which one runs. [`session_sandbox`] gives
+//! this machine's.
+//!
+//! Around the sandbox, OS-neutral pieces the session needs:
+//! - [`proxy`]: the per-share egress proxy (the only network a session has);
+//! - [`env`]: the session's environment, built from nothing;
+//! - [`snapshot`]: the session's copy, a one-commit repository of the scope;
+//! - [`scan`]: the sensitive-file scan of a share's scope;
+//! - [`kind`]: a kind's `[share]` data resolved on this machine.
+
+pub mod env;
+pub mod kind;
+pub mod proxy;
+pub mod scan;
+pub mod snapshot;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -37,10 +51,16 @@ pub struct SandboxPolicy {
     /// A folder for the backend's own files (a Seatbelt profile), outside
     /// everything above.
     pub state_dir: PathBuf,
+    /// The agent may use the OS credential store for its own login (macOS:
+    /// the Keychain, where Claude Code keeps a subscription login). Off by
+    /// default: kinds that keep their login in their config folder (Codex
+    /// `auth.json`) don't need it. From kind data (`[share] keychain`).
+    pub credential_store: bool,
 }
 
 /// Which programs may be executed (absolute paths, resolved by the caller
-/// from the share's "Programs it may run").
+/// from the share's "Programs it may run"; a folder stands for the programs
+/// inside it, e.g. an agent's install folder).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecRule {
     /// Only these (plus nothing else).
@@ -101,4 +121,11 @@ pub trait SessionSandbox: Send + Sync {
     /// Wrap `argv` so it runs under `policy`, writing what the backend
     /// needs into `policy.state_dir`. Fails rather than run unconfined.
     fn wrap(&self, policy: &SandboxPolicy, argv: &[String]) -> Result<Wrapped>;
+}
+
+/// This machine's sandbox backend: Seatbelt on macOS; elsewhere one whose
+/// [`support`](SessionSandbox::support) is `Unsupported` and that never
+/// wraps (Linux in C3, Windows in C5).
+pub fn session_sandbox() -> Box<dyn SessionSandbox> {
+    crate::platform::session_sandbox()
 }

@@ -27,3 +27,19 @@ icon = "claude"
 # and can leave the `claude` command gone (Settings → Agents).
 update_command = "claude update"
 update_off_env = { DISABLE_AUTOUPDATER = "1" }
+
+# Sharing (docs/spec/collaboration/sessions.md §6.7): what a shared session's
+# sandbox lets it reach. Hosts: the API and the login's token refresh
+# (only api.anthropic.com checked so far; the others are unverified).
+[share]
+model_hosts = ["api.anthropic.com", "console.anthropic.com", "platform.claude.com", "claude.ai"]
+# The native installer, the old local install, and npm's global folders.
+install_paths = [
+    "~/.local/share/claude",
+    "~/.claude/local",
+    "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code",
+    "/usr/local/lib/node_modules/@anthropic-ai/claude-code",
+]
+programs = ["node"]
+# A subscription login lives in the macOS Keychain (unverified per account).
+keychain = true
