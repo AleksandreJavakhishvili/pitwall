@@ -531,7 +531,8 @@ impl CollabService {
             return Err(err(code::CONFLICT, format!("{}/{} exists: pick another name with --slug", self.me().name, s.slug)));
         }
         self.backend.save_share(&s, None)?;
-        Ok(self.view(&s, true))
+        let stored = self.find(&s.slug).unwrap_or(s);
+        Ok(self.view(&stored, true))
     }
 
     /// `share.set`: apply, diff, ask when it widens a share others can see.
@@ -559,7 +560,9 @@ impl CollabService {
             approved = self.ask_owner(caller, who, method::SHARE_SET, format!("change what {address} shares"), details)?;
         }
         self.backend.save_share(&new, (new.slug != old.slug).then_some(old.slug.as_str()))?;
-        Ok(ShareChanged { share: self.view(&new, true), diff: d, approved, dry_run: false })
+        // As stored (the backend may normalize: an account by name is kept by id).
+        let stored = self.find(&new.slug).unwrap_or(new);
+        Ok(ShareChanged { share: self.view(&stored, true), diff: d, approved, dry_run: false })
     }
 
     fn go_live(&self, caller: &Caller, who: &Who, r: ShareGoLive) -> Result<ShareView, ErrorBody> {

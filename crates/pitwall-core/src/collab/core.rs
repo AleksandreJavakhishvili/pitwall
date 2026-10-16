@@ -975,6 +975,14 @@ impl Collab {
         self.lock().convs.get(&turn.conversation()).and_then(|c| c.turns.iter().find(|t| &t.turn.id == turn)).and_then(|t| t.delivered.clone())
     }
 
+    /// What a conversation's session tried and its sandbox refused since
+    /// `since` (the guest probes' "tried" lines, §5.4): reads, writes,
+    /// programs, connections, as the OS reported them.
+    pub fn sandbox_denials(&self, conversation: &ConversationId, since: std::time::SystemTime) -> Vec<String> {
+        let denials = self.sandbox.denials(&session_tag(&conversation.0), since);
+        crate::sandbox::tried_lines(&denials, &crate::paths::home())
+    }
+
     /// The engine agent a conversation's session is.
     pub fn agent_of(&self, conversation: &ConversationId) -> Option<String> {
         self.lock().convs.get(conversation).map(|c| c.agent.clone())
@@ -1592,7 +1600,8 @@ impl Collab {
         let connect = self.hooks.iter().map(|h| LocalEndpoint::UnixSocket(h.socket.clone())).collect();
         let state_dir = self.paths.sandbox_state(&share.slug, folder.file_name().and_then(|n| n.to_str()).unwrap_or("session"));
         std::fs::create_dir_all(&state_dir).map_err(|e| PwError::other(format!("{}: {e}", state_dir.display())))?;
-        Ok(SandboxPolicy { read, write, exec, egress: Egress { proxy_port }, env, connect, state_dir, credential_store: sk.keychain })
+        let tag = Some(session_tag(folder.file_name().and_then(|n| n.to_str()).unwrap_or("session")));
+        Ok(SandboxPolicy { read, write, exec, egress: Egress { proxy_port }, env, connect, state_dir, credential_store: sk.keychain, tag })
     }
 
     // ------------------------------------------------------------ events
@@ -2027,6 +2036,12 @@ impl Collab {
         };
         super::turn::chain_loop(&asker.chain, &share.slug, &self.owner_identity(network.as_ref())).is_some()
     }
+}
+
+/// The tag a conversation's sandbox puts on its denials (`pitwall-c_…`).
+fn session_tag(conversation: &str) -> String {
+    let id: String = conversation.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').collect();
+    format!("pitwall-{id}")
 }
 
 /// "From bob@example.com (agent client-fix on bob-mbp):" (§8.3.1).

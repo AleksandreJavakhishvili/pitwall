@@ -56,6 +56,52 @@ pub struct SandboxPolicy {
     /// default: kinds that keep their login in their config folder (Codex
     /// `auth.json`) don't need it. From kind data (`[share] keychain`).
     pub credential_store: bool,
+    /// A tag the backend attaches to every denial it reports, so this
+    /// session's can be read back afterwards ([`SessionSandbox::denials`]):
+    /// letters, digits, `-` and `_` only.
+    pub tag: Option<String>,
+}
+
+/// One thing a session tried and its sandbox refused, as the OS reported
+/// it: the process, the operation (`file-read-data`, `process-exec`,
+/// `network-outbound`) and its target (a path, an address).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Denial {
+    pub process: String,
+    pub operation: String,
+    pub target: String,
+}
+
+/// What a guest probe's "tried" lines say about the sandbox's denials:
+/// reads, writes, programs and connections, each once, the owner's home
+/// shown as `~`. File lookups (`stat`), devices, IPC and system queries
+/// that every program makes on its way are left out.
+pub fn tried_lines(denials: &[Denial], home: &std::path::Path) -> Vec<String> {
+    let home = home.to_string_lossy();
+    let tilde = |t: &str| match t.strip_prefix(home.as_ref()) {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
+        _ => t.to_string(),
+    };
+    let mut out: Vec<String> = Vec::new();
+    for d in denials {
+        let verb = match d.operation.as_str() {
+            "file-read-data" => "read",
+            op if op.starts_with("file-write") => "write",
+            op if op.starts_with("process-exec") => "run",
+            op if op.starts_with("network-outbound") => "connect to",
+            _ => continue,
+        };
+        // Devices, and the system log's socket every program tries on its own.
+        if d.target.starts_with("/dev/") || d.target.is_empty() || d.target.contains("/var/run/syslog") {
+            continue;
+        }
+        let line = format!("{verb} {}: denied by the sandbox", tilde(&d.target));
+        if !out.contains(&line) {
+            out.push(line);
+        }
+    }
+    out.truncate(20);
+    out
 }
 
 /// Which programs may be executed (absolute paths, resolved by the caller
@@ -121,6 +167,14 @@ pub trait SessionSandbox: Send + Sync {
     /// Wrap `argv` so it runs under `policy`, writing what the backend
     /// needs into `policy.state_dir`. Fails rather than run unconfined.
     fn wrap(&self, policy: &SandboxPolicy, argv: &[String]) -> Result<Wrapped>;
+
+    /// What sessions wrapped with `tag` tried and were refused since
+    /// `since`, as the OS reported it (macOS: the sandbox's violation
+    /// reports in the unified log). Empty where the backend can't tell.
+    fn denials(&self, tag: &str, since: std::time::SystemTime) -> Vec<Denial> {
+        let _ = (tag, since);
+        Vec::new()
+    }
 }
 
 /// This machine's sandbox backend: Seatbelt on macOS; elsewhere one whose
@@ -128,4 +182,43 @@ pub trait SessionSandbox: Send + Sync {
 /// wraps (Linux in C3, Windows in C5).
 pub fn session_sandbox() -> Box<dyn SessionSandbox> {
     crate::platform::session_sandbox()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn d(op: &str, target: &str) -> Denial {
+        Denial { process: "sh".into(), operation: op.into(), target: target.into() }
+    }
+
+    #[test]
+    fn tried_lines_say_what_was_refused_once_each() {
+        let home = std::path::Path::new("/Users/alice");
+        let lines = tried_lines(
+            &[
+                d("file-read-metadata", "/opt/homebrew/opt/openjdk@21"),
+                d("file-write-data", "/dev/dtracehelper"),
+                d("file-read-data", "/Users/alice/.ssh/id_ed25519"),
+                d("file-read-data", "/Users/alice/.ssh/id_ed25519"),
+                d("ipc-posix-shm-read-data", "apple.cfprefs.501v1"),
+                d("file-write-create", "/Users/alice/code/api/README.md"),
+                d("process-exec*", "/usr/bin/curl"),
+                d("network-outbound", "93.184.216.34:443"),
+                d("network-outbound", "/private/var/run/syslog"),
+                d("file-read-data", "/Users/alicex/notes"),
+            ],
+            home,
+        );
+        assert_eq!(
+            lines,
+            [
+                "read ~/.ssh/id_ed25519: denied by the sandbox",
+                "write ~/code/api/README.md: denied by the sandbox",
+                "run /usr/bin/curl: denied by the sandbox",
+                "connect to 93.184.216.34:443: denied by the sandbox",
+                "read /Users/alicex/notes: denied by the sandbox",
+            ]
+        );
+    }
 }

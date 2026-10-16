@@ -725,7 +725,12 @@ impl CollabBackend for CoreCollab {
                 Err(_) => break,
             }
         }
+        // What it tried: the proxy's refusals, then the sandbox's own
+        // denials as the OS reported them (macOS: the unified log, a moment
+        // behind).
         let mut tried = self.proxies.refused_since(slug, since);
+        std::thread::sleep(Duration::from_millis(700));
+        tried.extend(self.collab.sandbox_denials(&last.conversation, since - Duration::from_secs(1)));
         if !matches!(last.status, TurnStatus::Done) {
             tried.push(format!("the turn ended {:?}: {}", last.status, last.status_message.clone().unwrap_or_default()));
         }

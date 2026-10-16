@@ -33,7 +33,7 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
 use crate::error::{ErrorCode, PwError, Result};
-use crate::sandbox::{ExecRule, LocalEndpoint, SandboxPolicy, SessionSandbox, Support, Wrapped};
+use crate::sandbox::{Denial, ExecRule, LocalEndpoint, SandboxPolicy, SessionSandbox, Support, Wrapped};
 
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// Starts `sandbox-exec` with exactly the session's environment, whatever
@@ -284,6 +284,7 @@ impl Seatbelt {
             credential_store: policy.credential_store,
             home: crate::platform::home_dir(),
             env,
+            tag: policy.tag.clone().filter(|t| valid_tag(t)),
         })
     }
 }
@@ -339,6 +340,26 @@ impl SessionSandbox for Seatbelt {
         out.extend(argv[1..].iter().cloned());
         Ok(Wrapped { argv: out, env: resolved.env })
     }
+
+    /// The kernel reports each denial to the unified log, with the
+    /// profile's `(with message …)` text: `log show` filtered on the tag
+    /// returns this session's reports and nothing else of the system's.
+    fn denials(&self, tag: &str, since: std::time::SystemTime) -> Vec<Denial> {
+        if !valid_tag(tag) {
+            return Vec::new();
+        }
+        let start: chrono::DateTime<chrono::Local> = since.into();
+        let start = start.format("%Y-%m-%d %H:%M:%S").to_string();
+        let predicate = format!("eventMessage CONTAINS \"{tag}\" AND eventMessage CONTAINS \"Sandbox: \"");
+        let argv = ["/usr/bin/log", "show", "--start", start.as_str(), "--style", "ndjson", "--predicate", predicate.as_str()];
+        let Some(out) = crate::exec::local_stdout(&argv, std::time::Duration::from_secs(20)) else { return Vec::new() };
+        out.lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter_map(|v| v.get("eventMessage").and_then(|m| m.as_str()).map(String::from))
+            .filter(|m| m.contains(tag))
+            .filter_map(|m| parse_report(&m))
+            .collect()
+    }
 }
 
 /// The policy with every path resolved (Seatbelt matches real paths:
@@ -353,6 +374,24 @@ struct Resolved {
     credential_store: bool,
     home: PathBuf,
     env: BTreeMap<String, String>,
+    tag: Option<String>,
+}
+
+/// A tag goes into the profile and a log predicate: letters, digits, `-`, `_`.
+fn valid_tag(t: &str) -> bool {
+    !t.is_empty() && t.len() <= 80 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// One violation report's text, `Sandbox: cat(123) deny(1) file-read-data
+/// /path` (a "N duplicate reports for …" line too), as a [`Denial`].
+pub(crate) fn parse_report(message: &str) -> Option<Denial> {
+    let first = message.lines().next()?;
+    let rest = &first[first.find("Sandbox: ")? + "Sandbox: ".len()..];
+    let (process, rest) = rest.split_once('(')?;
+    let rest = rest.split_once(") deny(")?.1;
+    let rest = rest.split_once(") ")?.1;
+    let (operation, target) = rest.split_once(' ').unwrap_or((rest, ""));
+    Some(Denial { process: process.to_string(), operation: operation.to_string(), target: target.trim().to_string() })
 }
 
 /// `path` with symlinks resolved; for a path that doesn't exist yet, its
@@ -436,11 +475,15 @@ fn rule(out: &mut String, head: &str, filters: impl IntoIterator<Item = String>)
 
 /// The profile text.
 fn render(r: &Resolved) -> String {
-    let mut s = String::from(
-        "; Pitwall shared session (docs/spec/collaboration/sessions.md §6.3). Generated; do not edit.\n\
-         (version 1)\n\
-         (deny default)\n\n\
-         ; Processes: children inherit this profile; signals and process info stay inside it.\n\
+    // Denials carry the session's tag into the OS's reports (`denials`).
+    let tagged = r.tag.as_ref().map(|t| format!("(with message {})", q(t)));
+    let mut s = String::from("; Pitwall shared session (docs/spec/collaboration/sessions.md §6.3). Generated; do not edit.\n(version 1)\n");
+    match &tagged {
+        Some(m) => s.push_str(&format!("(deny default {m})\n\n")),
+        None => s.push_str("(deny default)\n\n"),
+    }
+    s.push_str(
+        "; Processes: children inherit this profile; signals and process info stay inside it.\n\
          (allow process-fork)\n\
          (allow signal (target same-sandbox))\n\
          (allow process-info* (target same-sandbox))\n",
@@ -453,7 +496,9 @@ fn render(r: &Resolved) -> String {
         ExecRule::Allow(list) => rule(&mut s, "(allow process-exec", list.iter().map(program)),
         ExecRule::Deny(list) => {
             s.push_str("(allow process-exec)\n");
-            rule(&mut s, "(deny process-exec", list.iter().map(program));
+            if !list.is_empty() {
+                rule(&mut s, "(deny process-exec", list.iter().map(program).chain(tagged.clone()));
+            }
         }
     }
 

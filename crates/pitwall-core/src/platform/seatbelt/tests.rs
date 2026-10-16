@@ -76,6 +76,7 @@ impl World {
             connect,
             state_dir: self.state.clone(),
             credential_store: false,
+            tag: None,
         }
     }
 
@@ -372,4 +373,50 @@ fn smoke_installed_agents() {
         let (ok, out, err) = w.run(&p, &format!("'{}' --version", program.display()));
         println!("{id}: ok={ok} out={} err={}", out.trim(), err.trim());
     }
+}
+
+/// The kernel's reports, as `log show` gives them (recorded on macOS 26.5
+/// from a tagged profile; paths replaced).
+#[test]
+fn violation_reports_parse_into_denials() {
+    let d = parse_report("Sandbox: cat(13306) deny(1) file-read-data /Users/alice/.ssh/id_ed25519\npitwall-c_1").unwrap();
+    assert_eq!((d.process.as_str(), d.operation.as_str(), d.target.as_str()), ("cat", "file-read-data", "/Users/alice/.ssh/id_ed25519"));
+    let d = parse_report("1 duplicate report for Sandbox: bash(13304) deny(1) file-write-create /x/new file.txt\npitwall-c_1").unwrap();
+    assert_eq!((d.operation.as_str(), d.target.as_str()), ("file-write-create", "/x/new file.txt"));
+    let d = parse_report("Sandbox: curl(13308) deny(1) network-outbound 93.184.216.34:443\npitwall-c_1").unwrap();
+    assert_eq!(d.operation, "network-outbound");
+    assert!(parse_report("log run noninteractively, parent: 1 (zsh)").is_none());
+    assert!(!valid_tag("a\" OR 1==1") && valid_tag("pitwall-c_1a2b"));
+}
+
+/// A tagged session's denials come back from the OS's reports, and only
+/// its own: the guest probes' "tried" lines (§5.4).
+#[test]
+fn a_tagged_sessions_denials_are_read_back() {
+    let w = World::new("sb-denials");
+    let tag = format!("pitwall-test-{}", uuid::Uuid::new_v4().simple());
+    let mut p = w.policy(false, with(&[]), None, vec![]);
+    p.tag = Some(tag.clone());
+    let profile = {
+        Seatbelt::new().wrap(&p, &["sh".to_string()]).unwrap();
+        std::fs::read_to_string(w.state.join(PROFILE_FILE)).unwrap()
+    };
+    assert!(profile.contains(&format!("(deny default (with message \"{tag}\"))")), "{profile}");
+    let since = std::time::SystemTime::now() - Duration::from_secs(2);
+    let key = w.owner.join(".ssh/id_test");
+    w.run(&p, &format!("cat '{}'; echo hi > '{}/x.txt'", key.display(), w.owner.display()));
+    // The unified log takes a moment.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let real_key = std::fs::canonicalize(&key).unwrap().to_string_lossy().into_owned();
+    let lines = loop {
+        let lines = crate::sandbox::tried_lines(&Seatbelt::new().denials(&tag, since), Path::new("/nonexistent-home"));
+        if lines.iter().any(|l| l.contains(&real_key)) || Instant::now() > deadline {
+            break lines;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    assert!(lines.contains(&format!("read {real_key}: denied by the sandbox")), "{lines:?}");
+    assert!(lines.iter().any(|l| l.starts_with("write ") && l.contains("x.txt")), "{lines:?}");
+    // Another tag: nothing.
+    assert!(Seatbelt::new().denials("pitwall-test-nobody-0", since).is_empty());
 }

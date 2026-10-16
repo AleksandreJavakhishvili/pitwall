@@ -72,7 +72,7 @@ while IFS= read -r line; do
     *"Change README"*) out=$( { echo changed >> README.md && echo wrote README.md; } 2>&1 ) ;;
     *"talk about before"*) out="history: $(cat "$HOME/history" 2>/dev/null)" ;;
     *"instance key"*) out=$( { cat '@DATA@/peers/identity.key'; ls '@DATA@'; ls '@REPO@'; } 2>&1 ) ;;
-    *) out="files=$(find . -type f -not -path './.git/*' | wc -l | tr -d ' ') src=$(ls src) own-sandbox=$own remembered=$(tr '\n' ';' < "$HOME/history" 2>/dev/null)" ;;
+    *) out="files=$(find . -type f -not -path './.git/*' | wc -l | tr -d ' ') src=$(ls src) own-sandbox=$own account=${E2E_CONFIG_DIR##*/} remembered=$(tr '\n' ';' < "$HOME/history" 2>/dev/null)" ;;
   esac
   printf '%s\n' "$msg" >> "$HOME/history"
   reply=$(printf 'echo: %s :: %s' "$msg" "$out" | clean)
@@ -240,6 +240,8 @@ new_args = ["--session", "{{session_id}}"]
 resume_args = ["--resume", "{{session_id}}"]
 assign_session_id = true
 hooks = "claude-settings"
+account_env = "E2E_CONFIG_DIR"
+account_home = "{default_login}"
 [share]
 install_paths = ["{bin}"]
 reply = "hook"
@@ -247,8 +249,18 @@ instruction_files = ["AGENTS.md"]
 own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
 "#,
             script = script.display(),
-            bin = agent_bin.display()
+            bin = agent_bin.display(),
+            default_login = dir.join("e2e-default-login").display()
         ),
+    )
+    .unwrap();
+    // A separate account for sharing (Settings → Agents → Accounts).
+    let sharing = alice_dir.join("accounts/e2e-sharing");
+    std::fs::create_dir_all(&sharing).unwrap();
+    std::fs::create_dir_all(dir.join("e2e-default-login")).unwrap();
+    std::fs::write(
+        alice_dir.join("accounts.json"),
+        serde_json::to_string(&json!({"accounts": [{"id": "e2e-sharing", "kind": "e2e", "name": "Sharing", "dir": sharing}], "projects": {}})).unwrap(),
     )
     .unwrap();
 
@@ -309,6 +321,15 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     assert!(env.contains("HOME=") && env.contains("/collab/shares/api-expert/s/") && !env.contains(&*owner_home.to_string_lossy()), "{env}");
     assert!(!env.contains("SSH_AUTH_SOCK") && !env.contains("HTTPS_PROXY"), "no proxy without hosts, no agent socket: {env}");
     assert!(reply("ssh-key").contains("Operation not permitted"), "{}", reply("ssh-key"));
+    // What it tried, from the sandbox's own reports (not only the proxy's).
+    let tried = |id: &str| probes.iter().find(|p| p.probe == id).map(|p| p.tried.clone()).unwrap_or_default();
+    let key_path = std::fs::canonicalize(owner_home.join(".ssh")).unwrap().join("id_ed25519");
+    assert!(
+        tried("ssh-key").contains(&format!("read {}: denied by the sandbox", key_path.display())),
+        "the sandbox's denial is a tried line: {:?}",
+        tried("ssh-key")
+    );
+    assert!(tried("change-readme").iter().any(|t| t.starts_with("write ") && t.contains("README.md")), "{:?}", tried("change-readme"));
     assert!(reply("fetch").contains("not permitted") && !reply("fetch").contains("Example Domain"), "{}", reply("fetch"));
     assert!(!reply("change-readme").contains("wrote README.md"), "the copy is read only: {}", reply("change-readme"));
     assert!(reply("history").trim_end().ends_with("history:"), "a guest conversation has no history: {}", reply("history"));
@@ -318,6 +339,15 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     assert!(std::fs::read_to_string(alice_dir.join("peers/identity.key")).unwrap().contains("secret"));
 
     // ------------------------------------------------ going live asks alice
+    // Not on her own login: refused before anyone is asked, with how to fix it.
+    let own = call(&alice, &caller_cli(), method::SHARE_GO_LIVE, json!({"share": slug})).expect_err("her own login");
+    assert_eq!(own.code, pitwall_proto::code::NOT_ALLOWED);
+    assert!(own.message.contains("your own E2E agent login") && own.message.contains("--account <name>"), "{}", own.message);
+    assert!(alice.approvals.pending().is_empty());
+    println!("scenario: go-live on her own login -> {}", own.message);
+    let set = call(&alice, &caller_cli(), method::SHARE_SET, json!({"share": slug, "patch": {"account": "Sharing"}})).expect("a draft changes directly");
+    assert_eq!(set["share"]["settings"]["access"]["account"], json!("e2e-sharing"), "stored by id");
+    assert_eq!(set["share"]["liveBlocks"], json!([]));
     let approvals = alice.approvals.clone();
     let answer = std::thread::spawn(move || loop {
         if let Some(p) = approvals.pending().first() {
@@ -332,6 +362,7 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     assert_eq!(action, method::SHARE_GO_LIVE);
     assert!(summary.contains("alice/api-expert"), "{summary}");
     assert!(details.iter().any(|d| d.contains("Guest")), "the approval shows the guest probes: {details:?}");
+    assert!(details.iter().any(|d| d == "It runs on your E2E agent account \"Sharing\"."), "{details:?}");
     assert_eq!(live["settings"]["state"], json!("live"));
     assert!(alice.collab.backend().sessions(&slug).iter().all(|s| !s.caller.guest), "guest conversations went with go-live");
 
@@ -342,6 +373,7 @@ own_sandbox_off_settings = {{ sandbox = {{ enabled = false }} }}
     let text = first.reply.clone().unwrap();
     assert!(text.starts_with("echo: Where is the entry point?"), "{text}");
     assert!(text.contains("files=2") && text.contains("src=lib.rs") && text.contains("own-sandbox=off"), "{text}");
+    assert!(text.contains("account=e2e-sharing"), "the session runs on the account for sharing: {text}");
     no_canary("bob 1", &text);
     assert_eq!(first.reply_source, Some(pitwall_proto::collab::ReplySource::Hook));
 
