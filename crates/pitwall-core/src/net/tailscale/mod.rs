@@ -95,7 +95,10 @@ impl Default for Discovery {
 pub struct Limits {
     /// Open connections per caller (each open stream holds one).
     pub connections: usize,
-    /// Sustained requests per second per caller…
+    /// Sustained requests per second per caller… An outer, looser layer
+    /// against floods before any parsing; the fronts' per-person limit
+    /// (`collab::front::REQUESTS_PER_SECOND`, provisional) is the one
+    /// callers meet.
     pub requests_per_sec: u32,
     /// …with bursts up to this many.
     pub burst: u32,

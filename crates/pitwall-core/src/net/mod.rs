@@ -30,6 +30,8 @@ pub mod fake;
 pub mod tailscale;
 
 #[cfg(test)]
+pub(crate) mod contract;
+#[cfg(test)]
 mod tests;
 
 use std::sync::mpsc::Receiver;

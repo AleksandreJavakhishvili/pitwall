@@ -1,7 +1,8 @@
 //! The Tailscale backend against the guarantees every backend must meet
-//! (network.md §15.4; the same checklist as `net/tests.rs` for Fake), on a
-//! scripted tailnet: a fake [`LocalApi`] per device and real sockets on
-//! 127.0.0.1 ([`TestHooks`]).
+//! (network.md §15.4: the shared contract suite, `net::contract`, which
+//! the Fake backend passes too), and its own listener rules, on a scripted
+//! tailnet: a fake [`LocalApi`] per device and real sockets on 127.0.0.1
+//! ([`TestHooks`]).
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -12,7 +13,8 @@ use std::time::Duration;
 
 use super::*;
 use crate::error::ErrorCode;
-use crate::net::{http, Body, Caller, Handler, PersonId, Request, Response, Timeouts};
+use crate::net::contract::{echo, get, ContractWorld};
+use crate::net::{http, Body, Caller, Request, Response, Timeouts};
 use crate::testing::FakeExec;
 
 // ------------------------------------------------------- a scripted tailnet
@@ -214,27 +216,6 @@ impl LocalApi for FakeApi {
 
 // ------------------------------------------------------------------ helpers
 
-/// Answers with what the network proved: `person|subject|device|groups`.
-fn echo() -> Arc<dyn Handler> {
-    Arc::new(|_req: Request, caller: Caller| {
-        let groups: Vec<_> = caller.groups().iter().map(|g| g.id.as_str()).collect();
-        let text = format!(
-            "{}|{}|{}|{}",
-            caller.person().as_str(),
-            caller.identity().subject,
-            caller.device().map_or("-", |d| d.node.as_str()),
-            groups.join(",")
-        );
-        Response::new(Body::from(text))
-    })
-}
-
-fn get(net: &dyn Network, to: &DeviceAddr, path: &str) -> Result<String> {
-    let req = http::Request::get(path).body(Body::Empty).unwrap();
-    let res = net.client(to)?.send(req)?;
-    Ok(String::from_utf8(res.into_body().read_all(1 << 20)?).unwrap())
-}
-
 fn status_of(net: &dyn Network, to: &DeviceAddr, req: Request) -> u16 {
     net.client(to).unwrap().send(req).unwrap().status().as_u16()
 }
@@ -260,78 +241,80 @@ fn read_to_end(mut s: TcpStream) -> Vec<u8> {
     out
 }
 
-// --------------------------------------------------- §15.4, as for Fake
+// --------------------------------------------------- §15.4: the contract suite
 
+/// The scripted tailnet as a provider for the contract suite
+/// (`net::contract`), the same checks the Fake backend passes.
+struct TsWorld(FakeTailnet);
+
+impl ContractWorld for TsWorld {
+    type Net = TailscaleNetwork;
+
+    fn new(name: &str) -> TsWorld {
+        TsWorld(FakeTailnet::new(&format!("{name}.ts.net")))
+    }
+    fn provider(&self) -> &str {
+        PROVIDER
+    }
+    fn device(&self, login: &str, host: &str) -> TailscaleNetwork {
+        self.0.node(login, host)
+    }
+    fn addr(&self, host: &str) -> DeviceAddr {
+        self.0.addr(host)
+    }
+    fn grant_group(&self, login: &str, group: &str) {
+        self.0.grant(login, serde_json::json!({ "group": group }));
+    }
+    fn set_online(&self, host: &str, online: bool) {
+        self.0.set_online(host, online);
+    }
+    fn set_signed_in(&self, host: &str, _net: &TailscaleNetwork, on: bool) {
+        self.0.set_state(host, if on { "Running" } else { "NeedsLogin" });
+    }
+    fn remove_device(&self, host: &str) {
+        self.0.remove_node(host);
+    }
+    fn remove_person(&self, login: &str) {
+        self.0.remove_user(login);
+    }
+    fn refresh(&self, net: &TailscaleNetwork) {
+        net.refresh();
+    }
+}
+
+crate::net::contract::network_contract_tests!(TsWorld);
+
+/// What's Tailscale's own: the endpoint is the node's MagicDNS name on the
+/// listener's port, bound to tailnet addresses only (loopback in tests),
+/// and `me` carries the login's display name.
 #[test]
-fn two_instances_talk_and_the_caller_is_what_the_network_proved() {
+fn the_endpoint_and_me_are_the_tailnets() {
     let net = FakeTailnet::new("example.ts.net");
     let alice = net.node("alice@example.com", "studio");
-    let bob = net.node("bob@example.com", "bob-mbp");
-    net.grant("bob@example.com", serde_json::json!({"group": "platform"}));
     let _serving = alice.serve(echo()).unwrap();
-
-    let answer = get(&bob, &net.addr("studio"), "/pitwall/v1/info").unwrap();
-    assert_eq!(answer, "tailscale:bob@example.com|bob@example.com|n-bob-mbp|platform");
-    let group = GroupRef { network: alice.id(), id: "platform".into() };
-    assert_eq!(alice.groups(&Identity::new(PROVIDER, "bob@example.com")).unwrap(), vec![group]);
     assert_eq!(alice.id().as_str(), "tailscale:example.ts.net");
     let (me, addr) = alice.me().unwrap();
     assert_eq!((me.subject.as_str(), me.email.as_deref(), me.name.as_deref()), ("alice@example.com", Some("alice@example.com"), Some("alice")));
     assert_eq!(addr, net.addr("studio"));
-    assert_eq!(alice.state(), NetState::Ready);
     let port = alice.listening()[0].port();
-    assert_eq!(
-        alice.endpoint(),
-        Endpoint { base_url: format!("http://studio.example.ts.net:{port}"), client_auth: ClientAuth::None }
-    );
+    assert_eq!(alice.endpoint(), Endpoint { base_url: format!("http://studio.example.ts.net:{port}"), client_auth: ClientAuth::None });
     assert!(alice.listening().iter().all(|a| a.ip().is_loopback()));
+    // Stopping closes the port itself.
+    drop(_serving);
+    assert!(alice.listening().is_empty());
+    assert!(TcpStream::connect(("127.0.0.1", port)).is_err(), "the port is closed");
 }
 
+/// Offline is said as such.
 #[test]
-fn headers_and_bodies_cant_change_who_is_calling() {
-    let net = FakeTailnet::new("example.ts.net");
-    let alice = net.node("alice@example.com", "studio");
-    let mallory = net.node("mallory@example.com", "laptop");
-    let _serving = alice.serve(echo()).unwrap();
-
-    let req = http::Request::post("/mcp")
-        .header("Tailscale-User-Login", "alice@example.com")
-        .header("X-Pitwall-Identity", "alice@example.com")
-        .header("Pitwall-Agent", "fix@studio")
-        .header("Host", "studio")
-        .body(Body::from(r#"{"identity":{"provider":"tailscale","subject":"alice@example.com"}}"#))
-        .unwrap();
-    let res = mallory.client(&net.addr("studio")).unwrap().send(req).unwrap();
-    let text = String::from_utf8(res.into_body().read_all(1024).unwrap()).unwrap();
-    assert!(text.starts_with("tailscale:mallory@example.com|mallory@example.com|n-laptop"), "{text}");
-}
-
-#[test]
-fn revocation_stops_requests_and_is_announced() {
+fn an_offline_node_is_named_offline() {
     let net = FakeTailnet::new("example.ts.net");
     let alice = net.node("alice@example.com", "studio");
     let bob = net.node("bob@example.com", "bob-mbp");
-    let carol = net.node("carol@example.com", "carol-mbp");
     let _serving = alice.serve(echo()).unwrap();
-    let revoked = alice.revocations();
-    assert!(get(&bob, &net.addr("studio"), "/").is_ok());
-
-    net.remove_node("bob-mbp");
-    let err = get(&bob, &net.addr("studio"), "/").unwrap_err();
-    assert!(err.is(ErrorCode::Unreachable), "{err:?}");
-    alice.refresh();
-    assert_eq!(revoked.try_recv().unwrap(), Revocation::Device { device: net.addr("bob-mbp") });
-    // Bob had no other device: his login is gone too.
-    assert!(matches!(revoked.try_recv().unwrap(), Revocation::Identity { identity } if identity.subject == "bob@example.com"));
-
-    assert!(get(&carol, &net.addr("studio"), "/").is_ok());
-    net.remove_user("carol@example.com");
-    assert!(get(&carol, &net.addr("studio"), "/").unwrap_err().is(ErrorCode::Unreachable));
-    alice.refresh();
-    assert_eq!(revoked.try_recv().unwrap(), Revocation::Device { device: net.addr("carol-mbp") });
-    assert!(matches!(revoked.try_recv().unwrap(), Revocation::Identity { identity } if identity.subject == "carol@example.com"));
-    assert!(alice.groups(&Identity::new(PROVIDER, "carol@example.com")).unwrap().is_empty());
-    assert!(revoked.try_recv().is_err());
+    net.set_online("studio", false);
+    assert!(get(&bob, &net.addr("studio"), "/").unwrap_err().contains("offline"));
+    assert!(get(&bob, &net.addr("nobody"), "/").unwrap_err().is(ErrorCode::Unreachable));
 }
 
 /// A connection already open when its node is removed is refused on its
@@ -387,58 +370,10 @@ fn revocation_closes_open_streams() {
     assert!(ended.is_err() || rest.is_empty(), "the stream ends");
 }
 
+/// Which devices are offered: every online one while the tailnet uses no
+/// tags, then only `tag:pitwall` ones, or the ones named in Settings.
 #[test]
-fn only_serve_reaches_a_handler_and_stopping_closes_it() {
-    let net = FakeTailnet::new("example.ts.net");
-    let alice = net.node("alice@example.com", "studio");
-    let bob = net.node("bob@example.com", "bob-mbp");
-    assert!(get(&bob, &net.addr("studio"), "/").unwrap_err().is(ErrorCode::Unreachable));
-
-    let serving = alice.serve(echo()).unwrap();
-    assert!(alice.serve(echo()).unwrap_err().is(ErrorCode::Conflict));
-    assert!(get(&bob, &net.addr("studio"), "/").is_ok());
-    let port = alice.listening()[0].port();
-    serving.stop();
-    assert!(alice.listening().is_empty());
-    assert!(get(&bob, &net.addr("studio"), "/").unwrap_err().is(ErrorCode::Unreachable));
-    assert!(TcpStream::connect(("127.0.0.1", port)).is_err(), "the port is closed");
-
-    // Dropping the handle stops too, and a stale handle can't stop a newer serve.
-    let first = alice.serve(echo()).unwrap();
-    first.stop();
-    let second = alice.serve(echo()).unwrap();
-    drop(first);
-    assert!(!alice.listening().is_empty());
-    assert!(get(&bob, &net.addr("studio"), "/").is_ok());
-    drop(second);
-    assert!(alice.listening().is_empty());
-}
-
-#[test]
-fn offline_signed_out_and_foreign_devices_cant_be_reached() {
-    let net = FakeTailnet::new("example.ts.net");
-    let other = FakeTailnet::new("elsewhere.ts.net");
-    let alice = net.node("alice@example.com", "studio");
-    let bob = net.node("bob@example.com", "bob-mbp");
-    let _serving = alice.serve(echo()).unwrap();
-
-    net.set_online("studio", false);
-    assert!(get(&bob, &net.addr("studio"), "/").unwrap_err().contains("offline"));
-    net.set_online("studio", true);
-
-    net.set_state("bob-mbp", "NeedsLogin");
-    assert!(get(&bob, &net.addr("studio"), "/").is_err());
-    assert!(bob.me().is_none());
-    assert_eq!(bob.state(), NetState::SignedOut);
-    net.set_state("bob-mbp", "Running");
-
-    let foreign = bob.client(&other.addr("studio")).err().expect("not on this network");
-    assert!(foreign.is(ErrorCode::Unreachable));
-    assert!(get(&bob, &net.addr("nobody"), "/").unwrap_err().is(ErrorCode::Unreachable));
-}
-
-#[test]
-fn discovery_lists_the_other_devices() {
+fn discovery_follows_tags_and_names() {
     let net = FakeTailnet::new("example.ts.net");
     let alice = net.node("alice@example.com", "studio");
     net.node("bob@example.com", "bob-mbp");
@@ -469,69 +404,6 @@ fn discovery_lists_the_other_devices() {
     );
     let hints = named.discover().unwrap();
     assert_eq!(hints.iter().map(|h| (h.label.as_str(), h.online)).collect::<Vec<_>>(), [("ci-runner", true), ("erin-mbp", false)]);
-}
-
-/// One handler on two networks; the owner links Bob's two identities
-/// (§15.7), so both arrive as one person. Unlinked, they stay apart.
-#[test]
-fn several_networks_one_handler_and_linked_identities() {
-    struct Linked(Arc<dyn Handler>);
-    impl Handler for Linked {
-        fn handle(&self, req: Request, caller: Caller) -> Response {
-            self.0.handle(req, caller)
-        }
-        fn person_of(&self, identity: &Identity) -> PersonId {
-            match identity.subject.as_str() {
-                "bob@example.com" | "bob@acme.com" => PersonId("bob".into()),
-                _ => PersonId::of(identity),
-            }
-        }
-    }
-
-    let home = FakeTailnet::new("example.ts.net");
-    let work = FakeTailnet::new("acme.ts.net");
-    let handler: Arc<dyn Handler> = Arc::new(Linked(echo()));
-    let _a = home.node("alice@example.com", "studio").serve(handler.clone()).unwrap();
-    let _b = work.node("alice@acme.com", "studio").serve(handler).unwrap();
-
-    let bob_home = home.node("bob@example.com", "bob-mbp");
-    let bob_work = work.node("bob@acme.com", "bob-mbp");
-    let carol = work.node("carol@acme.com", "carol-mbp");
-    assert!(get(&bob_home, &home.addr("studio"), "/").unwrap().starts_with("bob|"));
-    assert!(get(&bob_work, &work.addr("studio"), "/").unwrap().starts_with("bob|"));
-    assert!(get(&carol, &work.addr("studio"), "/").unwrap().starts_with("tailscale:carol@acme.com|"));
-}
-
-#[test]
-fn streaming_bodies_arrive_chunk_by_chunk() {
-    let net = FakeTailnet::new("example.ts.net");
-    let alice = net.node("alice@example.com", "studio");
-    let bob = net.node("bob@example.com", "bob-mbp");
-    let _serving = alice
-        .serve(Arc::new(|_req: Request, _caller: Caller| {
-            let (tx, body) = Body::channel();
-            std::thread::spawn(move || {
-                for n in 1..=3 {
-                    tx.send(format!("data: {n}\n\n"));
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            });
-            let mut res = Response::new(body);
-            res.headers_mut().insert(http::header::CONTENT_TYPE, http::HeaderValue::from_static("text/event-stream"));
-            res
-        }))
-        .unwrap();
-
-    let res = bob.client(&net.addr("studio")).unwrap().send(Request::new(Body::Empty)).unwrap();
-    assert!(res.body().is_stream());
-    assert_eq!(res.headers()[http::header::CONTENT_TYPE], "text/event-stream");
-    let mut reader = res.into_body().into_reader();
-    let mut first = [0u8; 9];
-    reader.read_exact(&mut first).unwrap();
-    assert_eq!(&first, b"data: 1\n\n");
-    let mut text = String::new();
-    reader.read_to_string(&mut text).unwrap();
-    assert_eq!(text, "data: 2\n\ndata: 3\n\n");
 }
 
 // --------------------------------------------------------- the listener
