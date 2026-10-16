@@ -230,6 +230,10 @@ fn find_holder(
 #[path = "host_collab_e2e.rs"]
 mod collab_e2e;
 
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_collab_canary.rs"]
+mod collab_canary;
+
 #[cfg(test)]
 mod tests {
     use super::*;

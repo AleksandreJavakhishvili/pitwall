@@ -82,7 +82,7 @@ done
 "#;
 
 /// The holder and the hook relay, built once into their own target dir.
-fn binaries() -> (PathBuf, PathBuf) {
+pub(super) fn binaries() -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target = root.join("target").join("hold-tests");
     let mut cmd = std::process::Command::new(env!("CARGO"));
@@ -135,7 +135,7 @@ fn call(host: &Host, who: &Caller, m: &str, p: Value) -> Result<Value, pitwall_p
     host.collab.call(who, m, p).expect("a collaboration method")
 }
 
-fn git(repo: &Path, args: &[&str]) {
+pub(super) fn git(repo: &Path, args: &[&str]) {
     let ok = std::process::Command::new("git")
         .arg("-C")
         .arg(repo)
@@ -184,7 +184,7 @@ fn factory(dev: FakeNetwork) -> NetworkFactory {
     Box::new(move || vec![Arc::new(dev.clone()) as Arc<dyn Network>])
 }
 
-fn wait_for(what: &str, secs: u64, f: impl Fn() -> bool) {
+pub(super) fn wait_for(what: &str, secs: u64, f: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(secs);
     while !f() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
