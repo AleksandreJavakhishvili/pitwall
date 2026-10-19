@@ -43,6 +43,9 @@ pub enum DialogEvent {
     /// the user's own) named `name`; one not logged in yet logs in first
     /// (`login`: start its login terminal in the project).
     MoveAgents { ids: Vec<String>, account: Option<String>, name: String, kind: String, project: String, login: bool },
+    /// `project` runs as git identity `name` now (`None`: the user's own
+    /// setup): its running agents restart to take it.
+    GitIdentity { project: String, name: Option<String> },
 }
 
 /// The modal frame: backdrop, box, title with ✕ (`Modal.tsx`).
@@ -1678,9 +1681,16 @@ impl ProjectAccountsDialog {
     /// their next start (`None`: the user's own git setup).
     fn pick_git(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
         let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        if m.read(cx).list.project_git(&project).map(|g| g.id.as_str()) == id {
+            return;
+        }
         if let Err(e) = m.update(cx, |m, cx| m.set_project_git(&project, id, cx)) {
             self.error = Some(e);
+            return cx.notify();
         }
+        // Its agents take it at once (restarted, conversations with them).
+        let name = id.and_then(|i| m.read(cx).list.git_identity(i).map(|g| g.name.clone()));
+        cx.emit(DialogEvent::GitIdentity { project, name });
         cx.notify();
     }
 
@@ -1723,7 +1733,7 @@ impl ProjectAccountsDialog {
             .child(field_label("Git identity", t))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
             .when(list.is_empty(), |d| d.child(hint("Add git identities in Settings → Agents → Accounts.", t)))
-            .when(running && !list.is_empty(), |d| d.child(hint("Agents and terminals take it at their next start: restart running ones to switch.", t)))
+            .when(running && !list.is_empty(), |d| d.child(hint("Picking one restarts the project's agents as it (conversations included; busy ones when they finish). Terminals take it when you restart them.", t)))
             .into_any_element()
     }
 

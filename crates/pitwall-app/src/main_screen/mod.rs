@@ -427,6 +427,10 @@ pub struct MainScreen {
     /// Agents waiting for their new account's login to move there.
     pending_moves: Vec<Move>,
     login_watch: Option<Task<()>>,
+    /// Agents to restart once they aren't busy (a project's git identity
+    /// changed), and the timer that checks.
+    pending_restarts: Vec<String>,
+    restart_watch: Option<Task<()>>,
     /// What this window last told the engine it shows the changes of
     /// (`Engine::show_changes`; its key, the agent).
     changes_shown: (u64, Option<String>),
@@ -557,6 +561,8 @@ impl MainScreen {
             changes_shown: (0, None),
             pending_moves: Vec::new(),
             login_watch: None,
+            pending_restarts: Vec::new(),
+            restart_watch: None,
             label: crate::windows::label_of(window, cx),
             active: ALL_SPACE.into(),
             ui,
@@ -1364,6 +1370,7 @@ impl MainScreen {
                 self.close_modal(window, cx);
                 self.created(*view, window, cx);
             }
+            dialogs::DialogEvent::GitIdentity { project, name } => self.git_identity_changed(project, name, cx),
             dialogs::DialogEvent::MoveAgents { ids, account, name, kind, project, login } => {
                 self.close_modal(window, cx);
                 self.move_agents(Move { ids, account, name, kind }, login.then_some(project), window, cx);
@@ -1585,6 +1592,62 @@ impl MainScreen {
                 break;
             }
         }));
+    }
+
+    /// `project`'s git identity changed (`name`; `None`: the user's own
+    /// setup): its running agents (the project is a folder on this Mac)
+    /// that can continue their conversation restart to take it, busy ones
+    /// once they finish. Plain terminals don't: what runs in them would end.
+    fn git_identity_changed(&mut self, project: String, name: Option<String>, cx: &mut Context<Self>) {
+        let (restart, keep) = git_restarts(self.agents(cx), &project);
+        let who = name.unwrap_or_else(|| "your own git setup".into());
+        let mut parts = Vec::new();
+        if !restart.is_empty() {
+            parts.push(format!("{} restarting as it", count(restart.len(), "agent", "agents")));
+        }
+        if !keep.is_empty() {
+            parts.push(format!("{} take it when restarted", count(keep.len(), "terminal", "terminals")));
+        }
+        let detail = (!parts.is_empty()).then(|| format!("{}.", parts.join("; ")));
+        let folder = project.trim_end_matches('/').rsplit('/').next().unwrap_or(&project).to_string();
+        self.toast(Toast::info(&format!("{folder} uses {who}"), detail), cx);
+        self.pending_restarts.extend(restart);
+        self.restart_when_free(cx);
+    }
+
+    /// Restart the pending agents that aren't working or waiting on the
+    /// user now; the others every couple of seconds until they aren't (or
+    /// are gone or stopped).
+    fn restart_when_free(&mut self, cx: &mut Context<Self>) {
+        self.restart_free(cx);
+        if self.pending_restarts.is_empty() || self.restart_watch.is_some() {
+            return;
+        }
+        self.restart_watch = Some(cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+            let more = this.update(cx, |s, cx| {
+                s.restart_free(cx);
+                if s.pending_restarts.is_empty() {
+                    s.restart_watch = None;
+                }
+                !s.pending_restarts.is_empty()
+            });
+            if !matches!(more, Ok(true)) {
+                break;
+            }
+        }));
+    }
+
+    fn restart_free(&mut self, cx: &mut Context<Self>) {
+        let agents = self.agents(cx).to_vec();
+        let busy = |id: &String| agents.iter().find(|a| &a.id == id).filter(|a| a.running).map(|a| matches!(a.status, Status::Working | Status::Blocked));
+        for id in std::mem::take(&mut self.pending_restarts) {
+            match busy(&id) {
+                Some(true) => self.pending_restarts.push(id),
+                Some(false) => self.restart_agent(id, cx),
+                None => {}
+            }
+        }
     }
 
     pub(super) fn switch_account(&mut self, id: String, account: Option<String>, name: String, cx: &mut Context<Self>) {
@@ -1993,6 +2056,24 @@ impl Drop for MainScreen {
 }
 
 /// Agents of `kind` to move to `account` (`None`: the user's own), `name`.
+/// When `project`'s git identity changes: the running agents that restart
+/// to take it (they continue their conversation), and those that don't
+/// (plain terminals, whose programs would end; agents that would start
+/// over). The Race Engineer isn't a project's.
+fn git_restarts(agents: &[AgentView], project: &str) -> (Vec<String>, Vec<String>) {
+    let (restart, keep): (Vec<&AgentView>, Vec<&AgentView>) = agents
+        .iter()
+        .filter(|a| a.project == project && a.running && !a.engineer)
+        .partition(|a| (!a.terminal || a.agent_in_terminal) && a.caps.restart && a.caps.resume);
+    let ids = |v: Vec<&AgentView>| v.into_iter().map(|a| a.id.clone()).collect();
+    (ids(restart), ids(keep))
+}
+
+/// "1 agent", "3 agents".
+fn count(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
 #[derive(Clone)]
 struct Move {
     ids: Vec<String>,

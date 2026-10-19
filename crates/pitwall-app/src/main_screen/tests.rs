@@ -438,3 +438,32 @@ fn an_agent_dropped_on_a_tab_still_joins_that_space(cx: &mut TestAppContext) {
         .iter()
         .all(|e| !matches!(e, ScreenEvent::MoveSpaceToWindow(..))));
 }
+
+#[test]
+fn a_new_git_identity_restarts_the_projects_resumable_agents() {
+    let resumable = |mut a: AgentView| {
+        a.terminal = false;
+        a.caps.restart = true;
+        a.caps.resume = true;
+        a
+    };
+    let mut in_terminal = agent("claude-in-term", "/work/alpha", "idle", 0, true);
+    in_terminal.agent_in_terminal = true;
+    in_terminal.caps.restart = true;
+    in_terminal.caps.resume = true;
+    let mut engineer = resumable(agent("engineer", "/work/alpha", "idle", 0, true));
+    engineer.engineer = true;
+    let mut stopped = resumable(agent("stopped", "/work/alpha", "idle", 0, true));
+    stopped.running = false;
+    let agents = vec![
+        resumable(agent("claude", "/work/alpha", "working", 0, true)),
+        in_terminal,
+        agent("shell", "/work/alpha", "idle", 0, true),
+        engineer,
+        stopped,
+        resumable(agent("elsewhere", "/work/beta", "idle", 0, true)),
+    ];
+    let (restart, keep) = git_restarts(&agents, "/work/alpha");
+    assert_eq!(restart, ["claude", "claude-in-term"]);
+    assert_eq!(keep, ["shell"], "a plain terminal takes it when the user restarts it");
+}
