@@ -108,7 +108,7 @@ A git identity says who a project's agents and terminals are in git: the name an
 
 - Add them in Settings → Agents → Accounts → Git identities. Each one logs in to GitHub and Azure DevOps on its own: "Log in" next to a service opens a terminal where `gh auth login` or `az login` runs in the browser. Log in only to the services you use.
 - Pick one per project from its right-click menu → Accounts…. Projects without one use your own git setup.
-- Agents and terminals Pitwall starts in that project get `GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`, and with a key `GIT_SSH_COMMAND` (works for any host, Azure DevOps' `ssh.dev.azure.com` too).
+- Agents and terminals Pitwall starts in that project get `GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL` (and `user.name`/`user.email` as git settings, so `git config` shows them), and with a key `GIT_SSH_COMMAND` (works for any host, Azure DevOps' `ssh.dev.azure.com` too).
 - For each service the identity is logged in to, they also get its CLI's folder (`GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`), and git's HTTPS logins to its hosts come from it: `github.com` through `gh`, `dev.azure.com` and `*.visualstudio.com` with a token from `az`. A service it isn't logged in to stays on your own setup. Your `~/.gitconfig` isn't changed.
 - It's read at each start: restart a running agent to switch it. Terminals you open outside Pitwall still use your own setup.
 

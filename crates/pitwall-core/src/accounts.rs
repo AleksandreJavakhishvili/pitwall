@@ -398,7 +398,7 @@ impl GitService {
 }
 
 /// The environment of a process with git identity `g`: its commits'
-/// author and committer, its SSH key, and for each service it's logged in
+/// author and committer (`user.name`/`user.email` too), its SSH key, and for each service it's logged in
 /// to that service's CLI folder and git's HTTPS logins to its hosts (in
 /// place of whatever helpers the user's config names). A service it isn't
 /// logged in to stays the user's own. `logging_in`: every service's folder,
@@ -410,7 +410,9 @@ pub fn git_env(g: &GitIdentity, logging_in: bool) -> Vec<(String, String)> {
         ("GIT_COMMITTER_NAME".into(), g.user_name.clone()),
         ("GIT_COMMITTER_EMAIL".into(), g.email.clone()),
     ];
-    let mut config: Vec<(String, String)> = Vec::new();
+    // Also as git's own settings (above every config file), so `git config
+    // user.email` says who commits too.
+    let mut config: Vec<(String, String)> = vec![("user.name".into(), g.user_name.clone()), ("user.email".into(), g.email.clone())];
     for s in GitService::ALL {
         let logged_in = s.login(g).is_some();
         if logging_in || logged_in {
@@ -429,12 +431,10 @@ pub fn git_env(g: &GitIdentity, logging_in: bool) -> Vec<(String, String)> {
             }
         }
     }
-    if !config.is_empty() {
-        env.push(("GIT_CONFIG_COUNT".into(), config.len().to_string()));
-        for (i, (k, v)) in config.into_iter().enumerate() {
-            env.push((format!("GIT_CONFIG_KEY_{i}"), k));
-            env.push((format!("GIT_CONFIG_VALUE_{i}"), v));
-        }
+    env.push(("GIT_CONFIG_COUNT".into(), config.len().to_string()));
+    for (i, (k, v)) in config.into_iter().enumerate() {
+        env.push((format!("GIT_CONFIG_KEY_{i}"), k));
+        env.push((format!("GIT_CONFIG_VALUE_{i}"), v));
     }
     if let Some(key) = &g.ssh_key {
         let key = expand(key).to_string_lossy().replace('\'', "'\\''");
@@ -658,7 +658,9 @@ mod tests {
         // Logged in nowhere: who commits; GitHub and Azure stay the user's own.
         let env = git_env(&work, false);
         assert_eq!(get(&env, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@work.example"));
-        assert_eq!((get(&env, "GH_CONFIG_DIR"), get(&env, "AZURE_CONFIG_DIR"), get(&env, "GIT_CONFIG_COUNT")), (None, None, None));
+        assert_eq!((get(&env, "GH_CONFIG_DIR"), get(&env, "AZURE_CONFIG_DIR")), (None, None));
+        assert_eq!(get(&env, "GIT_CONFIG_COUNT").as_deref(), Some("2"), "user.name and user.email only");
+        assert_eq!(get(&env, "GIT_CONFIG_VALUE_1").as_deref(), Some("sam@work.example"));
         assert_eq!(get(&env, "GIT_SSH_COMMAND"), None);
         let ssh = get(&git_env(&home, false), "GIT_SSH_COMMAND").unwrap();
         assert!(ssh.contains(&*key.to_string_lossy()) && ssh.contains("IdentitiesOnly=yes"), "{ssh}");
@@ -680,8 +682,8 @@ mod tests {
         let env = git_env(&work, false);
         assert_eq!(get(&env, "GH_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
         assert_eq!(get(&env, "AZURE_CONFIG_DIR"), None, "not logged in to Azure");
-        assert_eq!(get(&env, "GIT_CONFIG_KEY_1").as_deref(), Some("credential.https://github.com.helper"));
-        assert_eq!(get(&env, "GIT_CONFIG_VALUE_1").as_deref(), Some("!gh auth git-credential"));
+        assert_eq!(get(&env, "GIT_CONFIG_KEY_3").as_deref(), Some("credential.https://github.com.helper"));
+        assert_eq!(get(&env, "GIT_CONFIG_VALUE_3").as_deref(), Some("!gh auth git-credential"));
 
         // And to Azure DevOps (az writes its profile with a byte order mark).
         std::fs::write(
@@ -744,6 +746,15 @@ mod tests {
             child.stdin.take().unwrap().write_all(format!("protocol=https\nhost={host}\n\n").as_bytes()).unwrap();
             String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
         };
+        // `git config` says who commits, over the user's own config.
+        let email = std::process::Command::new("git")
+            .args(["config", "user.email"])
+            .env("HOME", t.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .envs(git_env(&g, false))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&email.stdout).trim(), "sam@work.example");
         let out = fill("dev.azure.com");
         assert!(out.contains("password=tok-123") && out.contains("username=pitwall"), "{out}");
         assert!(fill("acme.visualstudio.com").contains("password=tok-123"));
