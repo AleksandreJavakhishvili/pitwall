@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext, Context, Entity, Global};
 
-use pitwall_core::accounts::{self, Account, Accounts, GitFields, GitIdentity};
+use pitwall_core::accounts::{self, Account, Accounts, GitFields, GitIdentity, GitService};
 use pitwall_core::kind::AgentKind;
 use pitwall_core::paths::Paths;
 use pitwall_core::Shared;
@@ -204,30 +204,34 @@ impl AccountsModel {
         self.save(cx)
     }
 
-    /// The GitHub user git identity `id` is logged in as (read again like
-    /// [`login`](Self::login)).
-    pub fn github_login(&mut self, id: &str) -> Option<String> {
+    /// Who git identity `id` is logged in to `service` as (read again
+    /// like [`login`](Self::login)).
+    pub fn git_login(&mut self, id: &str, service: GitService) -> Option<String> {
         if self.logins_at.is_none_or(|t| t.elapsed() > LOGIN_EVERY) {
             self.logins.clear();
             self.logins_at = Some(Instant::now());
         }
-        let key = ("git".to_string(), id.to_string());
+        let key = (format!("git:{}", service.label()), id.to_string());
         if let Some(v) = self.logins.get(&key) {
             return v.clone();
         }
-        let v = self.list.git_identity(id).and_then(accounts::github_login);
+        let v = self.list.git_identity(id).and_then(|g| service.login(g));
         self.logins.insert(key, v.clone());
         v
     }
 }
 
-/// A terminal with git identity `id` in the home folder where `gh` logs in
-/// to GitHub (it opens the browser).
-pub fn github_login_request(id: &str) -> pitwall_core::model::CreateAgentRequest {
+/// A terminal with git identity `id`'s folders in the home folder where
+/// `service`'s CLI logs in (in the browser).
+pub fn git_login_request(id: &str, service: GitService) -> pitwall_core::model::CreateAgentRequest {
+    let what = match service {
+        GitService::GitHub => "github",
+        GitService::AzureDevOps => "azure",
+    };
     pitwall_core::model::CreateAgentRequest {
-        name: format!("github-{}", id.trim_start_matches("git-")),
+        name: format!("{what}-{}", id.trim_start_matches("git-")),
         kind: pitwall_core::kind::CUSTOM.into(),
-        custom_command: Some(accounts::GITHUB_LOGIN.into()),
+        custom_command: Some(service.login_command().into()),
         project_path: pitwall_core::paths::home().to_string_lossy().into_owned(),
         git_identity: Some(id.into()),
         ..Default::default()

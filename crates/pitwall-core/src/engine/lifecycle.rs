@@ -69,13 +69,15 @@ fn account_env(engine: &Engine, provider: &dyn Provider, kind: &str, account: Op
 
 /// The environment of a process launched in `cwd` for `project` with
 /// git identity `asked` (`crate::accounts::git_env`): the one asked for,
-/// else the folder's or project's. Local processes only.
+/// else the folder's or project's. One asked for by id is a terminal where
+/// it logs in: all its services' folders. Local processes only.
 fn git_identity_env(engine: &Engine, provider: &dyn Provider, cwd: &str, project: &str, asked: Option<&str>) -> Vec<(String, String)> {
     if !provider.caps().local_process {
         return vec![];
     }
     let accounts = crate::accounts::Accounts::load(engine.paths());
-    accounts.resolve_git(cwd, project, asked).map(crate::accounts::git_env).unwrap_or_default()
+    let logging_in = asked.is_some_and(|a| a != crate::accounts::DEFAULT);
+    accounts.resolve_git(cwd, project, asked).map(|g| crate::accounts::git_env(g, logging_in)).unwrap_or_default()
 }
 
 /// Before a launch with the kind's worktree flag: the name to pass, and what
@@ -797,6 +799,8 @@ mod tests {
         let home = acc.add_git(h.engine.paths(), &fields("Home", "sam@home.example")).unwrap();
         acc.set_project_git(&project, Some(&work.id));
         acc.save(h.engine.paths()).unwrap();
+        // Work is logged in to GitHub (gh's file); Home isn't.
+        std::fs::write(std::path::Path::new(&work.dir).join("hosts.yml"), "github.com:\n    user: sam-work\n").unwrap();
         let env_of = |n: usize, key: &str| h.provider.launched()[n].env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone());
 
         let a = create(&h.engine, req("claude", &project, false)).unwrap();
@@ -809,7 +813,7 @@ mod tests {
         create(&h.engine, req("shell", &other.path().to_string_lossy(), false)).unwrap();
         assert_eq!(env_of(2, "GIT_AUTHOR_EMAIL"), None, "another project: the user's own setup");
         create(&h.engine, CreateAgentRequest { git_identity: Some(home.id.clone()), ..req("shell", &other.path().to_string_lossy(), false) }).unwrap();
-        assert_eq!(env_of(3, "GH_CONFIG_DIR").as_deref(), Some(home.dir.as_str()), "asked for");
+        assert_eq!(env_of(3, "GH_CONFIG_DIR").as_deref(), Some(home.dir.as_str()), "asked for (to log in): its folders");
         create(&h.engine, CreateAgentRequest { git_identity: Some("default".into()), ..req("shell", &project, false) }).unwrap();
         assert_eq!(env_of(4, "GIT_AUTHOR_EMAIL"), None, "none asked for");
 

@@ -104,11 +104,12 @@ Moving a running agent carries its conversation along and showing who an account
 
 ### Git identities
 
-A git identity says who a project's agents and terminals are in git: the name and email on their commits, the GitHub login `gh` uses, and optionally an SSH key. Use one when different projects belong to different GitHub accounts.
+A git identity says who a project's agents and terminals are in git: the name and email on their commits, their GitHub and Azure DevOps logins, and optionally an SSH key. Use one when different projects belong to different accounts.
 
-- Add them in Settings → Agents → Accounts → Git identities. Each gets its own `gh` login: "Log in to GitHub" opens a terminal where `gh auth login` runs in the browser.
+- Add them in Settings → Agents → Accounts → Git identities. Each one logs in to GitHub and Azure DevOps on its own: "Log in" next to a service opens a terminal where `gh auth login` or `az login` runs in the browser. Log in only to the services you use.
 - Pick one per project from its right-click menu → Accounts…. Projects without one use your own git setup.
-- Agents and terminals Pitwall starts in that project get `GIT_AUTHOR_NAME`/`EMAIL`, `GIT_COMMITTER_NAME`/`EMAIL`, their own `GH_CONFIG_DIR`, git's HTTPS logins to github.com from that `gh`, and with a key `GIT_SSH_COMMAND`. Your `~/.gitconfig` isn't changed.
+- Agents and terminals Pitwall starts in that project get `GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL`, and with a key `GIT_SSH_COMMAND` (works for any host, Azure DevOps' `ssh.dev.azure.com` too).
+- For each service the identity is logged in to, they also get its CLI's folder (`GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`), and git's HTTPS logins to its hosts come from it: `github.com` through `gh`, `dev.azure.com` and `*.visualstudio.com` with a token from `az`. A service it isn't logged in to stays on your own setup. Your `~/.gitconfig` isn't changed.
 - It's read at each start: restart a running agent to switch it. Terminals you open outside Pitwall still use your own setup.
 
 ## The bundled Claude Code definition

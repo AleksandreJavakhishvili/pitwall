@@ -6,8 +6,9 @@
 //! where the tool's own login runs.
 //!
 //! Then the git identities (`pitwall_core::accounts::GitIdentity`): who
-//! commits and which GitHub login `gh` and pushes use, for the projects
-//! that name one; "Log in to GitHub" opens a terminal where `gh` logs in.
+//! commits, and the GitHub and Azure DevOps logins their CLIs and HTTPS
+//! pushes use, for the projects that name one; each login's "Log in" opens
+//! a terminal where `gh` or `az` logs in.
 
 use std::rc::Rc;
 
@@ -16,8 +17,9 @@ use gpui::{div, prelude::*, px, Context, Div, Entity, SharedString, Subscription
 use super::view::{SettingsEvent, SettingsView};
 use super::widgets::Ui;
 use crate::accounts::{self as acc, AccountsModel};
-use pitwall_core::accounts::{GitFields, GitIdentity};
+use pitwall_core::accounts::{GitFields, GitIdentity, GitService};
 use crate::kit::Ellipsis as _;
+use crate::kit::HoverText as _;
 use crate::kit::{BtnKind, InputEvent, SegItem, TextInput};
 
 /// The section's own state.
@@ -175,8 +177,8 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Save the form: a new identity (then log it in to GitHub), or the
-    /// edited one.
+    /// Save the form: a new identity (its logins are made from its row),
+    /// or the edited one.
     fn save_git(&mut self, cx: &mut Context<Self>) {
         let Some(f) = &self.accounts.git_form else { return };
         let fields = GitFields {
@@ -188,16 +190,11 @@ impl SettingsView {
         let id = f.id.clone();
         let model = acc::model(cx);
         let res = match &id {
-            Some(id) => model.update(cx, |m, cx| m.edit_git(id, &fields, cx)).map(|_| None),
-            None => model.update(cx, |m, cx| m.add_git(&fields, cx)).map(|g| Some(g.id)),
+            Some(id) => model.update(cx, |m, cx| m.edit_git(id, &fields, cx)),
+            None => model.update(cx, |m, cx| m.add_git(&fields, cx)).map(|_| ()),
         };
         match res {
-            Ok(added) => {
-                self.accounts.git_form = None;
-                if let Some(id) = added {
-                    self.github_log_in(&id, cx);
-                }
-            }
+            Ok(_) => self.accounts.git_form = None,
             Err(e) => {
                 if let Some(f) = self.accounts.git_form.as_mut() {
                     f.error = Some(e);
@@ -207,10 +204,10 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Open a terminal where `gh` logs git identity `id` in to GitHub.
-    fn github_log_in(&mut self, id: &str, cx: &mut Context<Self>) {
+    /// Open a terminal where git identity `id` logs in to `service`.
+    fn git_log_in(&mut self, id: &str, service: GitService, cx: &mut Context<Self>) {
         let Some(engine) = cx.try_global::<super::SettingsHost>().and_then(|h| h.engine.clone()) else { return };
-        let req = acc::github_login_request(id);
+        let req = acc::git_login_request(id, service);
         self.accounts.busy = true;
         let task = cx.background_executor().spawn(async move { pitwall_core::engine::lifecycle::create(&engine, req) });
         cx.spawn(async move |this, cx| {
@@ -249,7 +246,7 @@ impl SettingsView {
                 }),
         );
         sec = sec.child(crate::kit::muted(
-            "Who a project's agents and terminals are in git: their commits' name and email, the GitHub login gh and HTTPS pushes use, and an SSH key. Projects without one use your own git setup. Applies at each start: restart running agents to switch.",
+            "Who a project's agents and terminals are in git: their commits' name and email, their GitHub and Azure DevOps logins (for gh, az and HTTPS pushes) and an SSH key. Projects without one, and services it isn't logged in to, use your own setup. Applies at each start: restart running agents to switch.",
             t,
         ));
         if adding {
@@ -288,7 +285,7 @@ impl SettingsView {
             .child(row("Commit email", f.email.clone()))
             .child(row("SSH key", f.ssh_key.clone()))
             .child(crate::kit::hint(
-                "Agents and terminals get GIT_AUTHOR_* and GIT_COMMITTER_*, their own GH_CONFIG_DIR (HTTPS pushes to GitHub log in through it) and, with a key, GIT_SSH_COMMAND.",
+                "Agents and terminals get GIT_AUTHOR_* and GIT_COMMITTER_*, and with a key GIT_SSH_COMMAND. Log it in to GitHub or Azure DevOps from its row: then they get that login's GH_CONFIG_DIR or AZURE_CONFIG_DIR too, and HTTPS pushes there use it.",
                 t,
             ))
             .when_some(f.error.clone(), |d, e| d.child(crate::kit::dialog::form_error(e, t)))
@@ -304,7 +301,7 @@ impl SettingsView {
                         })),
                     )
                     .child(
-                        crate::kit::text_button("git-save", if editing { "Save" } else { "Add and log in to GitHub" }, BtnKind::Primary, empty, t)
+                        crate::kit::text_button("git-save", if editing { "Save" } else { "Add" }, BtnKind::Primary, empty, t)
                             .on_click(cx.listener(|v, _, _, cx| v.save_git(cx))),
                     ),
             )
@@ -315,7 +312,8 @@ impl SettingsView {
     fn git_row(&mut self, ui: &Ui, g: &GitIdentity, cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
         let model = acc::model(cx);
-        let github = model.update(cx, |m, _| m.github_login(&g.id));
+        let logins: Vec<(GitService, Option<String>)> = GitService::ALL.iter().map(|&s| (s, model.update(cx, |m, _| m.git_login(&g.id, s)))).collect();
+        let any_login = logins.iter().any(|(_, l)| l.is_some());
         let projects = model.read(cx).list.git_projects_of(&g.id);
         let key: SharedString = g.id.clone().into();
         let removing = self.accounts.git_removing.as_deref() == Some(g.id.as_str());
@@ -341,12 +339,8 @@ impl SettingsView {
                     })),
                 );
         } else {
-            let (i1, i3, g2) = (g.id.clone(), g.id.clone(), g.clone());
+            let (i3, g2) = (g.id.clone(), g.clone());
             actions = actions
-                .child(
-                    crate::kit::text_button(gpui::ElementId::Name(format!("git-login-{key}").into()), if github.is_some() { "Log in again" } else { "Log in to GitHub" }, BtnKind::Small, self.accounts.busy, t)
-                        .on_click(cx.listener(move |v, _, _, cx| v.github_log_in(&i1, cx))),
-                )
                 .child(
                     crate::kit::text_button(gpui::ElementId::Name(format!("git-edit-{key}").into()), "Edit", BtnKind::Small, false, t)
                         .on_click(cx.listener(move |v, _, _, cx| v.open_git_form(Some(&g2), cx))),
@@ -370,11 +364,35 @@ impl SettingsView {
                 .child(crate::kit::one_line(text))
         };
         let who = format!("{} <{}>", g.user_name, g.email);
-        let gh = match &github {
-            Some(u) => format!("GitHub: {u}"),
-            None => "GitHub: not logged in".into(),
-        };
-        let dot = if github.is_some() { t.green } else { t.text_4 };
+        // One line per service: who it's logged in as, and its Log in.
+        let busy = self.accounts.busy;
+        let login_lines: Vec<Div> = logins
+            .into_iter()
+            .map(|(service, login)| {
+                let text = match &login {
+                    Some(u) => format!("{}: {u}", service.label()),
+                    None => format!("{}: not logged in", service.label()),
+                };
+                let id = g.id.clone();
+                let label = if login.is_some() { "Log in again" } else { "Log in" };
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .min_w_0()
+                    .child(line(format!("git-{}-{key}", service.label()), text, false))
+                    .child(
+                        div()
+                            .id(gpui::ElementId::Name(format!("git-login-{}-{key}", service.label()).into()))
+                            .flex_none()
+                            .text_size(px(11.5))
+                            .text_color(t.text_2)
+                            .when(!busy, |d| d.cursor_pointer().hover_text(t.text, |s| s.underline()).on_click(cx.listener(move |v, _, _, cx| v.git_log_in(&id, service, cx))))
+                            .child(label),
+                    )
+            })
+            .collect();
+        let dot = if any_login { t.green } else { t.text_4 };
         div()
             .flex()
             .items_center()
@@ -410,7 +428,7 @@ impl SettingsView {
                                     .child(crate::kit::one_line(who)),
                             ),
                     )
-                    .child(line(format!("git-gh-{key}"), gh, false))
+                    .children(login_lines)
                     .when_some(g.ssh_key.clone(), |d, k| d.child(line(format!("git-key-{key}"), format!("SSH key {k}"), true)))
                     .when(!projects.is_empty(), |d| {
                         let names: Vec<String> = projects.iter().map(|p| p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string()).collect();

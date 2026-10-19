@@ -8,8 +8,9 @@
 //! `~/.pitwall/accounts.json`. Local agents only.
 //!
 //! Git identities live there too ([`GitIdentity`]): who commits, which
-//! GitHub login `gh` and HTTPS pushes use, which SSH key, for the agents
-//! and terminals of the projects that name one ([`git_env`]).
+//! GitHub and Azure DevOps logins their CLIs and HTTPS pushes use
+//! ([`GitService`]), which SSH key, for the agents and terminals of the
+//! projects that name one ([`git_env`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -50,9 +51,9 @@ pub struct Accounts {
     pub git_projects: BTreeMap<String, String>,
 }
 
-/// Who an agent is in git and on GitHub: commits' author and committer,
-/// `gh`'s login (its own `GH_CONFIG_DIR`, which git's HTTPS pushes to
-/// GitHub ask too), and the SSH key for SSH remotes.
+/// Who an agent is in git: commits' author and committer, its logins to
+/// GitHub and Azure DevOps ([`GitService`]; their CLIs' folders are in
+/// `dir`), and the SSH key for SSH remotes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitIdentity {
@@ -67,7 +68,7 @@ pub struct GitIdentity {
     /// The private key SSH remotes are reached with (`~/.ssh/id_work`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_key: Option<String>,
-    /// Its `gh` config folder (the GitHub login).
+    /// Its folder: `gh`'s config (the GitHub login), `azure/` for `az`.
     pub dir: String,
 }
 
@@ -243,8 +244,8 @@ impl Accounts {
         self.git.iter().find(|g| g.id == id)
     }
 
-    /// Add a git identity, with a fresh `gh` folder under
-    /// `~/.pitwall/git/` (logged in to GitHub separately).
+    /// Add a git identity, with a fresh folder under `~/.pitwall/git/`
+    /// (logged in to its services separately).
     pub fn add_git(&mut self, paths: &Paths, f: &GitFields) -> Result<GitIdentity, String> {
         let (name, user_name, email, ssh_key) = f.checked()?;
         if self.git.iter().any(|g| g.name.eq_ignore_ascii_case(&name)) {
@@ -312,23 +313,128 @@ impl Accounts {
     }
 }
 
+/// A service a git identity logs in to: its CLI keeps the login in a
+/// folder of the identity's, and git's HTTPS logins to its hosts come from
+/// that CLI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitService {
+    /// `gh` (`GH_CONFIG_DIR`: the identity's folder).
+    GitHub,
+    /// `az` (`AZURE_CONFIG_DIR`: its `azure/` folder); git gets an Azure
+    /// DevOps token from it.
+    AzureDevOps,
+}
+
+/// Azure DevOps' resource id: what `az` gets git's tokens for.
+const AZURE_DEVOPS: &str = "499b84ac-1321-427f-aa17-267ca6975798";
+
+impl GitService {
+    pub const ALL: [GitService; 2] = [GitService::GitHub, GitService::AzureDevOps];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GitService::GitHub => "GitHub",
+            GitService::AzureDevOps => "Azure DevOps",
+        }
+    }
+
+    /// Its CLI's variable and the identity's folder for it.
+    fn dir(self, g: &GitIdentity) -> (&'static str, String) {
+        match self {
+            GitService::GitHub => ("GH_CONFIG_DIR", g.dir.clone()),
+            GitService::AzureDevOps => ("AZURE_CONFIG_DIR", Path::new(&g.dir).join("azure").to_string_lossy().into_owned()),
+        }
+    }
+
+    /// The command that logs in (in a terminal with the identity's folders).
+    pub fn login_command(self) -> &'static str {
+        match self {
+            GitService::GitHub => "gh auth login --hostname github.com --git-protocol https --web",
+            GitService::AzureDevOps => "az login --allow-no-subscriptions",
+        }
+    }
+
+    /// The hosts git logs in to with it, and the helper that does it.
+    fn helpers(self) -> (&'static [&'static str], String) {
+        match self {
+            GitService::GitHub => (&["https://github.com", "https://gist.github.com"], "!gh auth git-credential".into()),
+            // A fresh token per request (`get` only); none when `az` can't.
+            GitService::AzureDevOps => (
+                &["https://dev.azure.com", "https://*.visualstudio.com"],
+                format!(
+                    "!f() {{ test \"$1\" = get || exit 0; t=$(az account get-access-token --resource {AZURE_DEVOPS} --query accessToken -o tsv 2>/dev/null) || exit 0; test -n \"$t\" || exit 0; echo username=pitwall; echo password=$t; }}; f"
+                ),
+            ),
+        }
+    }
+
+    /// Who `g` is logged in as here: `gh`'s `hosts.yml`, `az`'s
+    /// `azureProfile.json`.
+    pub fn login(self, g: &GitIdentity) -> Option<String> {
+        let (_, dir) = self.dir(g);
+        match self {
+            GitService::GitHub => {
+                let hosts = std::fs::read_to_string(Path::new(&dir).join("hosts.yml")).ok()?;
+                let mut in_github = false;
+                for line in hosts.lines() {
+                    if !line.starts_with(' ') {
+                        in_github = line.trim_end() == "github.com:";
+                    } else if let Some(user) = line.trim().strip_prefix("user:").filter(|_| in_github) {
+                        return Some(user.trim().trim_matches('"').to_string()).filter(|u| !u.is_empty());
+                    }
+                }
+                None
+            }
+            GitService::AzureDevOps => {
+                let text = std::fs::read_to_string(Path::new(&dir).join("azureProfile.json")).ok()?;
+                // (`az` writes it with a byte order mark.)
+                let v: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+                let subs = v.get("subscriptions")?.as_array()?;
+                let first = subs.iter().find(|s| s.get("isDefault").and_then(|d| d.as_bool()) == Some(true)).or(subs.first())?;
+                first.get("user")?.get("name")?.as_str().map(String::from)
+            }
+        }
+    }
+}
+
 /// The environment of a process with git identity `g`: its commits'
-/// author and committer, `gh`'s folder, git's HTTPS logins to GitHub from
-/// `gh` (whatever helper the user's config names), and its SSH key.
-pub fn git_env(g: &GitIdentity) -> Vec<(String, String)> {
+/// author and committer, its SSH key, and for each service it's logged in
+/// to that service's CLI folder and git's HTTPS logins to its hosts (in
+/// place of whatever helpers the user's config names). A service it isn't
+/// logged in to stays the user's own. `logging_in`: every service's folder,
+/// logged in or not (a terminal where it logs in).
+pub fn git_env(g: &GitIdentity, logging_in: bool) -> Vec<(String, String)> {
     let mut env = vec![
         ("GIT_AUTHOR_NAME".into(), g.user_name.clone()),
         ("GIT_AUTHOR_EMAIL".into(), g.email.clone()),
         ("GIT_COMMITTER_NAME".into(), g.user_name.clone()),
         ("GIT_COMMITTER_EMAIL".into(), g.email.clone()),
-        ("GH_CONFIG_DIR".into(), g.dir.clone()),
     ];
-    // (An empty helper clears the ones before it.)
-    let helpers = [("credential.https://github.com.helper", ""), ("credential.https://github.com.helper", "!gh auth git-credential")];
-    env.push(("GIT_CONFIG_COUNT".into(), helpers.len().to_string()));
-    for (i, (k, v)) in helpers.iter().enumerate() {
-        env.push((format!("GIT_CONFIG_KEY_{i}"), k.to_string()));
-        env.push((format!("GIT_CONFIG_VALUE_{i}"), v.to_string()));
+    let mut config: Vec<(String, String)> = Vec::new();
+    for s in GitService::ALL {
+        let logged_in = s.login(g).is_some();
+        if logging_in || logged_in {
+            let (var, dir) = s.dir(g);
+            if logging_in {
+                let _ = std::fs::create_dir_all(&dir);
+            }
+            env.push((var.into(), dir));
+        }
+        if logged_in {
+            let (hosts, helper) = s.helpers();
+            for host in hosts {
+                // (An empty helper clears the ones before it.)
+                config.push((format!("credential.{host}.helper"), String::new()));
+                config.push((format!("credential.{host}.helper"), helper.clone()));
+            }
+        }
+    }
+    if !config.is_empty() {
+        env.push(("GIT_CONFIG_COUNT".into(), config.len().to_string()));
+        for (i, (k, v)) in config.into_iter().enumerate() {
+            env.push((format!("GIT_CONFIG_KEY_{i}"), k));
+            env.push((format!("GIT_CONFIG_VALUE_{i}"), v));
+        }
     }
     if let Some(key) = &g.ssh_key {
         let key = expand(key).to_string_lossy().replace('\'', "'\\''");
@@ -336,24 +442,6 @@ pub fn git_env(g: &GitIdentity) -> Vec<(String, String)> {
     }
     env
 }
-
-/// The GitHub user `g`'s `gh` is logged in as (its `hosts.yml`).
-pub fn github_login(g: &GitIdentity) -> Option<String> {
-    let hosts = std::fs::read_to_string(Path::new(&g.dir).join("hosts.yml")).ok()?;
-    let mut in_github = false;
-    for line in hosts.lines() {
-        if !line.starts_with(' ') {
-            in_github = line.trim_end() == "github.com:";
-        } else if let Some(user) = line.trim().strip_prefix("user:").filter(|_| in_github) {
-            return Some(user.trim().trim_matches('"').to_string()).filter(|u| !u.is_empty());
-        }
-    }
-    None
-}
-
-/// The command that logs `gh` in to GitHub (in a terminal with the
-/// identity's environment).
-pub const GITHUB_LOGIN: &str = "gh auth login --hostname github.com --git-protocol https --web";
 
 /// `~/x` → the home folder's `x`.
 fn expand(dir: &str) -> PathBuf {
@@ -550,7 +638,7 @@ mod tests {
         let mut a = Accounts::default();
         let work = a.add_git(&paths, &f("Work", "sam@work.example", "")).unwrap();
         assert_eq!(work.id, "git-work");
-        assert!(Path::new(&work.dir).is_dir(), "its own gh folder");
+        assert!(Path::new(&work.dir).is_dir(), "its own folder");
         assert!(a.add_git(&paths, &f("work", "x@y.example", "")).is_err(), "names are unique");
         assert!(a.add_git(&paths, &f("Bad", "not-an-email", "")).is_err());
         assert!(a.add_git(&paths, &f("Keyless", "k@y.example", "/nonexistent/id_x")).is_err(), "a key that isn't there");
@@ -566,22 +654,47 @@ mod tests {
         assert_eq!(a.resolve_git("/x", "/x", None), None);
         assert_eq!(a.git_projects_of("git-work"), ["/p"]);
 
-        let env = git_env(&work);
         let get = |env: &[(String, String)], k: &str| env.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        // Logged in nowhere: who commits; GitHub and Azure stay the user's own.
+        let env = git_env(&work, false);
         assert_eq!(get(&env, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@work.example"));
-        assert_eq!(get(&env, "GH_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
-        assert_eq!(get(&env, "GIT_CONFIG_VALUE_1").as_deref(), Some("!gh auth git-credential"));
+        assert_eq!((get(&env, "GH_CONFIG_DIR"), get(&env, "AZURE_CONFIG_DIR"), get(&env, "GIT_CONFIG_COUNT")), (None, None, None));
         assert_eq!(get(&env, "GIT_SSH_COMMAND"), None);
-        let ssh = get(&git_env(&home), "GIT_SSH_COMMAND").unwrap();
+        let ssh = get(&git_env(&home, false), "GIT_SSH_COMMAND").unwrap();
         assert!(ssh.contains(&*key.to_string_lossy()) && ssh.contains("IdentitiesOnly=yes"), "{ssh}");
+        // A terminal where it logs in: both folders.
+        let env = git_env(&work, true);
+        assert_eq!(get(&env, "GH_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
+        let azure = Path::new(&work.dir).join("azure");
+        assert_eq!(get(&env, "AZURE_CONFIG_DIR").as_deref(), Some(&*azure.to_string_lossy()));
+        assert!(azure.is_dir());
 
-        assert_eq!(github_login(&work), None);
+        // Logged in to GitHub: gh's folder and git's logins to GitHub.
+        assert_eq!(GitService::GitHub.login(&work), None);
         std::fs::write(
             Path::new(&work.dir).join("hosts.yml"),
             "github.com:\n    users:\n        sam-work:\n    git_protocol: https\n    user: sam-work\n",
         )
         .unwrap();
-        assert_eq!(github_login(&work).as_deref(), Some("sam-work"));
+        assert_eq!(GitService::GitHub.login(&work).as_deref(), Some("sam-work"));
+        let env = git_env(&work, false);
+        assert_eq!(get(&env, "GH_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
+        assert_eq!(get(&env, "AZURE_CONFIG_DIR"), None, "not logged in to Azure");
+        assert_eq!(get(&env, "GIT_CONFIG_KEY_1").as_deref(), Some("credential.https://github.com.helper"));
+        assert_eq!(get(&env, "GIT_CONFIG_VALUE_1").as_deref(), Some("!gh auth git-credential"));
+
+        // And to Azure DevOps (az writes its profile with a byte order mark).
+        std::fs::write(
+            azure.join("azureProfile.json"),
+            "\u{feff}{\"subscriptions\":[{\"isDefault\":true,\"user\":{\"name\":\"sam@work.example\",\"type\":\"user\"}}]}",
+        )
+        .unwrap();
+        assert_eq!(GitService::AzureDevOps.login(&work).as_deref(), Some("sam@work.example"));
+        let env = git_env(&work, false);
+        assert!(get(&env, "AZURE_CONFIG_DIR").is_some());
+        let keys: Vec<String> = env.iter().filter(|(k, _)| k.starts_with("GIT_CONFIG_KEY_")).map(|(_, v)| v.clone()).collect();
+        assert!(keys.contains(&"credential.https://dev.azure.com.helper".to_string()), "{keys:?}");
+        assert_eq!(get(&env, "GIT_CONFIG_COUNT").as_deref(), Some(&*keys.len().to_string()));
 
         a.edit_git(&work.id, &f("Office", "sam@work.example", "")).unwrap();
         assert_eq!(a.git_identity("git-work").map(|g| g.name.as_str()), Some("Office"), "same id");
@@ -590,6 +703,51 @@ mod tests {
         assert_eq!(a.project_git("/p"), None, "its projects forget it");
         a.save(&paths).unwrap();
         assert_eq!(Accounts::load(&paths), a);
+    }
+
+    /// git's HTTPS logins to Azure DevOps come from the identity's `az`:
+    /// a fake one answers here (the real one asks Microsoft).
+    #[test]
+    fn git_gets_azure_devops_tokens_from_the_identitys_az() {
+        use std::io::Write;
+        // (A POSIX shell script stands in for `az`.)
+        if std::path::MAIN_SEPARATOR == '\\' {
+            return;
+        }
+        let t = TempDir::new("git-azure");
+        let paths = Paths::new(t.path().join("pw"));
+        let mut a = Accounts::default();
+        let fields = GitFields { name: "Work".into(), user_name: "Sam Doe".into(), email: "sam@work.example".into(), ssh_key: String::new() };
+        let g = a.add_git(&paths, &fields).unwrap();
+        let azure = Path::new(&g.dir).join("azure");
+        std::fs::create_dir_all(&azure).unwrap();
+        std::fs::write(azure.join("azureProfile.json"), r#"{"subscriptions":[{"user":{"name":"sam@work.example"}}]}"#).unwrap();
+        // `az` that prints a token only for the identity's folder.
+        let bin = t.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let az = bin.join("az");
+        std::fs::write(&az, format!("#!/bin/sh\n[ \"$AZURE_CONFIG_DIR\" = '{}' ] && echo tok-123\n", azure.display())).unwrap();
+        crate::platform::make_executable(&az).unwrap();
+
+        let fill = |host: &str| {
+            let mut cmd = std::process::Command::new("git");
+            cmd.args(["credential", "fill"])
+                .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env("HOME", t.path())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .envs(git_env(&g, false))
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            let mut child = cmd.spawn().unwrap();
+            child.stdin.take().unwrap().write_all(format!("protocol=https\nhost={host}\n\n").as_bytes()).unwrap();
+            String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+        };
+        let out = fill("dev.azure.com");
+        assert!(out.contains("password=tok-123") && out.contains("username=pitwall"), "{out}");
+        assert!(fill("acme.visualstudio.com").contains("password=tok-123"));
+        assert!(!fill("example.org").contains("tok-123"), "other hosts aren't its");
     }
 
     #[test]
