@@ -287,6 +287,11 @@ impl MainScreen {
                 }
             }
             "terminal" => self.open_terminal_dialog(window, cx),
+            // `project-accounts <folder>`: that project's Accounts… dialog.
+            w if w.starts_with("project-accounts ") => {
+                let folder = w["project-accounts ".len()..].trim().to_string();
+                self.open_project_accounts(folder, window, cx);
+            }
             "diff" => {
                 if let Some(a) = self.selected(cx) {
                     if let Some(f) = changes(&a.name).into_iter().next() {

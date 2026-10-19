@@ -197,9 +197,14 @@ impl MainView {
             return;
         }
         let mut words = cmd.split_whitespace();
-        let (Some(what), on) = (words.next(), words.next() != Some("off")) else {
+        let (Some(what), arg) = (words.next(), words.next()) else {
             return;
         };
+        let on = arg != Some("off");
+        // `settings <page>`: open on that page.
+        if let Some(page) = arg.filter(|_| what == "settings").and_then(pitwall_proto::settings::Page::parse) {
+            crate::settings::data::set_page(cx, page);
+        }
         match what {
             "wall" | "review" | "visit-all" | "visit-all-4" => {
                 if let Some(s) = &self.screen {
