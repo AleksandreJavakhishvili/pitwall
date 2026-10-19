@@ -107,6 +107,10 @@ pub struct CreateAgentRequest {
     /// own). `None`: the project's, else the user's own. Local agents only.
     #[serde(default)]
     pub account: Option<String>,
+    /// The git identity it runs with (`crate::accounts::GitIdentity`;
+    /// `"default"`: none). `None`: its project's. Local agents only.
+    #[serde(default)]
+    pub git_identity: Option<String>,
 }
 
 /// (cols, rows) when both are given.
@@ -194,6 +198,10 @@ pub struct AgentRecord {
     /// The account (`crate::accounts`) it runs with; `None`: the user's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// A git identity asked for at its start (`CreateAgentRequest`); `None`:
+    /// its project's, looked up at each launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_identity: Option<String>,
 }
 
 /// An agent started by hand in a terminal, as remembered on its record.

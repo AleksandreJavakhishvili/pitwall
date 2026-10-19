@@ -1674,6 +1674,59 @@ impl ProjectAccountsDialog {
         cx.notify();
     }
 
+    /// Name the git identity the project's agents and terminals use from
+    /// their next start (`None`: the user's own git setup).
+    fn pick_git(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        if let Err(e) = m.update(cx, |m, cx| m.set_project_git(&project, id, cx)) {
+            self.error = Some(e);
+        }
+        cx.notify();
+    }
+
+    /// The git identity row: "Your git setup" and each identity as chips.
+    fn git_row(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let m = crate::accounts::model(cx);
+        let (list, current) = {
+            let m = m.read(cx);
+            (m.git(), m.list.project_git(&self.project).map(|g| g.id.clone()))
+        };
+        let chip = |id: Option<String>, name: String, i: usize, cx: &mut Context<Self>| {
+            let on = current == id;
+            div()
+                .id(("pa-git", i))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(28.))
+                .px(px(10.))
+                .rounded_full()
+                .border_1()
+                .border_color(if on { t.text_2 } else { t.line_strong })
+                .when(on, |d| d.bg(t.surface_2))
+                .cursor_pointer()
+                .hover_probed(|s| s.bg(t.surface_2))
+                .on_click(cx.listener(move |d, _, _, cx| d.pick_git(id.as_deref(), cx)))
+                .when(on, |d| d.child(icon("check", 12., t.text_2)))
+                .child(div().text_size(px(12.5)).when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                .into_any_element()
+        };
+        let mut chips: Vec<AnyElement> = vec![chip(None, "Your git setup".into(), 0, cx)];
+        for (i, g) in list.iter().enumerate() {
+            chips.push(chip(Some(g.id.clone()), g.name.clone(), i + 1, cx));
+        }
+        let running = self.agents.iter().any(|a| !a.engineer);
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(field_label("Git identity", t))
+            .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
+            .when(list.is_empty(), |d| d.child(hint("Add git identities in Settings → Agents → Accounts.", t)))
+            .when(running && !list.is_empty(), |d| d.child(hint("Agents and terminals take it at their next start: restart running ones to switch.", t)))
+            .into_any_element()
+    }
+
     /// One agent's row: its name, then Default and its accounts as chips
     /// (the project's ticked), "+ New", or the new account's name field.
     fn kind_row(&self, def: &pitwall_core::kind::AgentKind, n: usize, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
@@ -1790,6 +1843,7 @@ impl Render for ProjectAccountsDialog {
                         ))
                         .children(rows)
                         .when(kinds.is_empty(), |d| d.child(hint("None of your agents can have more than one login.", &t)))
+                        .child(self.git_row(&t, cx))
                         .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t))),
                 )
                 .child(

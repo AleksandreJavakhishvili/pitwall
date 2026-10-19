@@ -4,6 +4,10 @@
 //! projects whose new agents use it; "Add account" names one (a fresh
 //! folder, or one already logged in) and "Log in" starts an agent on it,
 //! where the tool's own login runs.
+//!
+//! Then the git identities (`pitwall_core::accounts::GitIdentity`): who
+//! commits and which GitHub login `gh` and pushes use, for the projects
+//! that name one; "Log in to GitHub" opens a terminal where `gh` logs in.
 
 use std::rc::Rc;
 
@@ -12,6 +16,7 @@ use gpui::{div, prelude::*, px, Context, Div, Entity, SharedString, Subscription
 use super::view::{SettingsEvent, SettingsView};
 use super::widgets::Ui;
 use crate::accounts::{self as acc, AccountsModel};
+use pitwall_core::accounts::{GitFields, GitIdentity};
 use crate::kit::Ellipsis as _;
 use crate::kit::{BtnKind, InputEvent, SegItem, TextInput};
 
@@ -31,7 +36,22 @@ pub struct Section {
     /// Starting a login agent.
     busy: bool,
     error: Option<String>,
+    /// The git identity form (adding one, or editing `GitForm::id`).
+    git_form: Option<GitForm>,
+    /// Asking before removing this git identity.
+    git_removing: Option<String>,
     _subs: Vec<Subscription>,
+}
+
+/// The add / edit form of a git identity.
+struct GitForm {
+    /// The one being edited; `None`: a new one.
+    id: Option<String>,
+    name: Entity<TextInput>,
+    user_name: Entity<TextInput>,
+    email: Entity<TextInput>,
+    ssh_key: Entity<TextInput>,
+    error: Option<String>,
 }
 
 impl SettingsView {
@@ -125,6 +145,281 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// Open the git identity form: empty (the user's own name filled in),
+    /// or `g`'s to edit.
+    fn open_git_form(&mut self, g: Option<&GitIdentity>, cx: &mut Context<Self>) {
+        let own = if g.is_none() { acc::own_git_name() } else { String::new() };
+        let name = cx.new(|cx| TextInput::new(cx, g.map(|g| g.name.as_str()).unwrap_or(""), "Work"));
+        let user_name = cx.new(|cx| TextInput::new(cx, g.map(|g| g.user_name.as_str()).unwrap_or(&own), "Your Name"));
+        let email = cx.new(|cx| TextInput::new(cx, g.map(|g| g.email.as_str()).unwrap_or(""), "you@company.com"));
+        let ssh_key = cx.new(|cx| TextInput::new(cx, g.and_then(|g| g.ssh_key.as_deref()).unwrap_or(""), "Optional: ~/.ssh/id_ed25519_work").mono());
+        let mut subs = Vec::new();
+        for input in [&name, &user_name, &email, &ssh_key] {
+            subs.push(cx.subscribe(input, |v, _, e: &InputEvent, cx| match e {
+                InputEvent::Submit => v.save_git(cx),
+                InputEvent::Cancel => {
+                    v.accounts.git_form = None;
+                    cx.notify();
+                }
+                InputEvent::Changed => {
+                    if let Some(f) = v.accounts.git_form.as_mut() {
+                        f.error = None;
+                    }
+                    cx.notify();
+                }
+                _ => {}
+            }));
+        }
+        self.accounts._subs.extend(subs);
+        self.accounts.git_form = Some(GitForm { id: g.map(|g| g.id.clone()), name, user_name, email, ssh_key, error: None });
+        cx.notify();
+    }
+
+    /// Save the form: a new identity (then log it in to GitHub), or the
+    /// edited one.
+    fn save_git(&mut self, cx: &mut Context<Self>) {
+        let Some(f) = &self.accounts.git_form else { return };
+        let fields = GitFields {
+            name: f.name.read(cx).text().to_string(),
+            user_name: f.user_name.read(cx).text().to_string(),
+            email: f.email.read(cx).text().to_string(),
+            ssh_key: f.ssh_key.read(cx).text().to_string(),
+        };
+        let id = f.id.clone();
+        let model = acc::model(cx);
+        let res = match &id {
+            Some(id) => model.update(cx, |m, cx| m.edit_git(id, &fields, cx)).map(|_| None),
+            None => model.update(cx, |m, cx| m.add_git(&fields, cx)).map(|g| Some(g.id)),
+        };
+        match res {
+            Ok(added) => {
+                self.accounts.git_form = None;
+                if let Some(id) = added {
+                    self.github_log_in(&id, cx);
+                }
+            }
+            Err(e) => {
+                if let Some(f) = self.accounts.git_form.as_mut() {
+                    f.error = Some(e);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Open a terminal where `gh` logs git identity `id` in to GitHub.
+    fn github_log_in(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(engine) = cx.try_global::<super::SettingsHost>().and_then(|h| h.engine.clone()) else { return };
+        let req = acc::github_login_request(id);
+        self.accounts.busy = true;
+        let task = cx.background_executor().spawn(async move { pitwall_core::engine::lifecycle::create(&engine, req) });
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            let _ = this.update(cx, |v, cx| {
+                v.accounts.busy = false;
+                match res {
+                    Ok(view) => cx.emit(SettingsEvent::Started(Box::new(view))),
+                    Err(e) => v.accounts.error = Some(e),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Git identities: header with "Add git identity", the form, the rows.
+    fn git_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let t = &ui.t;
+        let adding = self.accounts.git_form.as_ref().is_some_and(|f| f.id.is_none());
+        let mut sec = div().flex().flex_col().gap(px(8.)).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pt(px(4.))
+                .min_h(px(26.))
+                .child(div().text_size(px(11.)).font_weight(crate::kit::WEIGHT_550).text_color(t.text_3).child("GIT IDENTITIES"))
+                .child(div().flex_1())
+                .when(self.accounts.git_form.is_none(), |d| {
+                    d.child(
+                        crate::kit::text_button("git-add", "Add git identity", BtnKind::Small, false, t)
+                            .on_click(cx.listener(|v, _, _, cx| v.open_git_form(None, cx))),
+                    )
+                }),
+        );
+        sec = sec.child(crate::kit::muted(
+            "Who a project's agents and terminals are in git: their commits' name and email, the GitHub login gh and HTTPS pushes use, and an SSH key. Projects without one use your own git setup. Applies at each start: restart running agents to switch.",
+            t,
+        ));
+        if adding {
+            sec = sec.child(self.git_form(ui, cx));
+        }
+        let list = acc::model(cx).read(cx).git();
+        if list.is_empty() && !adding {
+            sec = sec.child(crate::kit::hint("None yet: every project uses your own git setup.", t));
+        }
+        for g in list {
+            let editing = self.accounts.git_form.as_ref().is_some_and(|f| f.id.as_deref() == Some(g.id.as_str()));
+            sec = sec.child(if editing { self.git_form(ui, cx) } else { self.git_row(ui, &g, cx) });
+        }
+        sec
+    }
+
+    fn git_form(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let t = &ui.t;
+        let Some(f) = &self.accounts.git_form else { return div() };
+        let row = |label: &'static str, input: Entity<TextInput>| {
+            div().flex().items_center().gap(px(8.)).child(crate::kit::muted(label, t)).child(div().flex_1()).child(div().w(px(260.)).child(input))
+        };
+        let editing = f.id.is_some();
+        let empty = [&f.name, &f.user_name, &f.email].iter().any(|i| i.read(cx).text().trim().is_empty());
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .p(px(12.))
+            .rounded(crate::theme::RADIUS)
+            .border_1()
+            .border_color(t.line_strong)
+            .bg(t.surface_2)
+            .child(row("Name", f.name.clone()))
+            .child(row("Commit name", f.user_name.clone()))
+            .child(row("Commit email", f.email.clone()))
+            .child(row("SSH key", f.ssh_key.clone()))
+            .child(crate::kit::hint(
+                "Agents and terminals get GIT_AUTHOR_* and GIT_COMMITTER_*, their own GH_CONFIG_DIR (HTTPS pushes to GitHub log in through it) and, with a key, GIT_SSH_COMMAND.",
+                t,
+            ))
+            .when_some(f.error.clone(), |d, e| d.child(crate::kit::dialog::form_error(e, t)))
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .child(
+                        crate::kit::text_button("git-cancel", "Cancel", BtnKind::Ghost, false, t).on_click(cx.listener(|v, _, _, cx| {
+                            v.accounts.git_form = None;
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        crate::kit::text_button("git-save", if editing { "Save" } else { "Add and log in to GitHub" }, BtnKind::Primary, empty, t)
+                            .on_click(cx.listener(|v, _, _, cx| v.save_git(cx))),
+                    ),
+            )
+    }
+
+    /// One git identity: name, who commits, GitHub login, key, projects;
+    /// Log in to GitHub, Edit, Remove.
+    fn git_row(&mut self, ui: &Ui, g: &GitIdentity, cx: &mut Context<Self>) -> Div {
+        let t = &ui.t;
+        let model = acc::model(cx);
+        let github = model.update(cx, |m, _| m.github_login(&g.id));
+        let projects = model.read(cx).list.git_projects_of(&g.id);
+        let key: SharedString = g.id.clone().into();
+        let removing = self.accounts.git_removing.as_deref() == Some(g.id.as_str());
+        let mut actions = div().flex().items_center().gap(px(6.)).flex_none();
+        if removing {
+            let id = g.id.clone();
+            actions = actions
+                .child(crate::kit::hint("Remove? Its GitHub login stays on disk.", t))
+                .child(
+                    crate::kit::text_button(gpui::ElementId::Name(format!("git-rm-yes-{key}").into()), "Remove", BtnKind::Danger, false, t).on_click(cx.listener(move |v, _, _, cx| {
+                        let model = acc::model(cx);
+                        if let Err(e) = model.update(cx, |m, cx| m.remove_git(&id, cx)) {
+                            v.accounts.error = Some(e);
+                        }
+                        v.accounts.git_removing = None;
+                        cx.notify();
+                    })),
+                )
+                .child(
+                    crate::kit::text_button(gpui::ElementId::Name(format!("git-rm-no-{key}").into()), "Keep", BtnKind::Ghost, false, t).on_click(cx.listener(|v, _, _, cx| {
+                        v.accounts.git_removing = None;
+                        cx.notify();
+                    })),
+                );
+        } else {
+            let (i1, i3, g2) = (g.id.clone(), g.id.clone(), g.clone());
+            actions = actions
+                .child(
+                    crate::kit::text_button(gpui::ElementId::Name(format!("git-login-{key}").into()), if github.is_some() { "Log in again" } else { "Log in to GitHub" }, BtnKind::Small, self.accounts.busy, t)
+                        .on_click(cx.listener(move |v, _, _, cx| v.github_log_in(&i1, cx))),
+                )
+                .child(
+                    crate::kit::text_button(gpui::ElementId::Name(format!("git-edit-{key}").into()), "Edit", BtnKind::Small, false, t)
+                        .on_click(cx.listener(move |v, _, _, cx| v.open_git_form(Some(&g2), cx))),
+                )
+                .child(
+                    crate::kit::text_button(gpui::ElementId::Name(format!("git-rm-{key}").into()), "Remove", BtnKind::Small, false, t).on_click(cx.listener(move |v, _, _, cx| {
+                        v.accounts.git_removing = Some(i3.clone());
+                        cx.notify();
+                    })),
+                );
+        }
+        let line = |id: String, text: String, mono: bool| {
+            div()
+                .id(gpui::ElementId::Name(id.into()))
+                .min_w_0()
+                .ellipsis()
+                .text_size(px(11.5))
+                .text_color(t.text_3)
+                .when(mono, |d| d.font_family(crate::kit::MONO_FONT))
+                .tooltip(crate::kit::tooltip(text.clone()))
+                .child(crate::kit::one_line(text))
+        };
+        let who = format!("{} <{}>", g.user_name, g.email);
+        let gh = match &github {
+            Some(u) => format!("GitHub: {u}"),
+            None => "GitHub: not logged in".into(),
+        };
+        let dot = if github.is_some() { t.green } else { t.text_4 };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(crate::theme::RADIUS)
+            .border_1()
+            .border_color(t.line)
+            .child(div().size(px(7.)).rounded_full().bg(dot).flex_none())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .min_w_0()
+                            .child(div().flex_none().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child(g.name.clone()))
+                            .child(
+                                div()
+                                    .id(gpui::ElementId::Name(format!("git-who-{key}").into()))
+                                    .min_w_0()
+                                    .ellipsis()
+                                    .text_size(px(12.))
+                                    .text_color(t.text_2)
+                                    .tooltip(crate::kit::tooltip(who.clone()))
+                                    .child(crate::kit::one_line(who)),
+                            ),
+                    )
+                    .child(line(format!("git-gh-{key}"), gh, false))
+                    .when_some(g.ssh_key.clone(), |d, k| d.child(line(format!("git-key-{key}"), format!("SSH key {k}"), true)))
+                    .when(!projects.is_empty(), |d| {
+                        let names: Vec<String> = projects.iter().map(|p| p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string()).collect();
+                        d.child(line(format!("git-proj-{key}"), format!("Used in {}", names.join(", ")), false))
+                    }),
+            )
+            .child(actions)
+    }
+
     pub(super) fn accounts_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
         let model = acc::model(cx);
@@ -170,8 +465,9 @@ impl SettingsView {
                 sec = sec.child(self.account_row(ui, &k.id, Some(a), cx));
             }
         }
+        sec = sec.child(self.git_section(ui, cx));
         if self.accounts.busy {
-            sec = sec.child(crate::kit::hint("Starting an agent to log in…", t));
+            sec = sec.child(crate::kit::hint("Starting a login…", t));
         }
         if let Some(e) = &self.accounts.error {
             sec = sec.child(crate::kit::dialog::form_error(e.clone(), t));

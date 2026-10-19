@@ -102,6 +102,15 @@ A kind with `account_env` can run on more than one login, say a work and a perso
 
 Moving a running agent carries its conversation along and showing who an account is logged in as both work for Claude Code and Codex only, since they need to know where each tool keeps its files. For another kind, `account_env` still lets each agent start on the account you chose.
 
+### Git identities
+
+A git identity says who a project's agents and terminals are in git: the name and email on their commits, the GitHub login `gh` uses, and optionally an SSH key. Use one when different projects belong to different GitHub accounts.
+
+- Add them in Settings → Agents → Accounts → Git identities. Each gets its own `gh` login: "Log in to GitHub" opens a terminal where `gh auth login` runs in the browser.
+- Pick one per project from its right-click menu → Accounts…. Projects without one use your own git setup.
+- Agents and terminals Pitwall starts in that project get `GIT_AUTHOR_NAME`/`EMAIL`, `GIT_COMMITTER_NAME`/`EMAIL`, their own `GH_CONFIG_DIR`, git's HTTPS logins to github.com from that `gh`, and with a key `GIT_SSH_COMMAND`. Your `~/.gitconfig` isn't changed.
+- It's read at each start: restart a running agent to switch it. Terminals you open outside Pitwall still use your own setup.
+
 ## The bundled Claude Code definition
 
 ```toml

@@ -6,6 +6,10 @@
 //! (`AgentRecord::account`) and run with its folder in their environment;
 //! a project can name the account its new agents use. Kept in
 //! `~/.pitwall/accounts.json`. Local agents only.
+//!
+//! Git identities live there too ([`GitIdentity`]): who commits, which
+//! GitHub login `gh` and HTTPS pushes use, which SSH key, for the agents
+//! and terminals of the projects that name one ([`git_env`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -39,6 +43,64 @@ pub struct Accounts {
     /// Project folder → kind → account id its new agents use.
     #[serde(default)]
     pub projects: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub git: Vec<GitIdentity>,
+    /// Project folder → the git identity its agents and terminals use.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub git_projects: BTreeMap<String, String>,
+}
+
+/// Who an agent is in git and on GitHub: commits' author and committer,
+/// `gh`'s login (its own `GH_CONFIG_DIR`, which git's HTTPS pushes to
+/// GitHub ask too), and the SSH key for SSH remotes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitIdentity {
+    /// Stable id (`git-work`).
+    pub id: String,
+    /// What the user calls it ("Work").
+    pub name: String,
+    /// `user.name` of its commits.
+    pub user_name: String,
+    /// `user.email` of its commits.
+    pub email: String,
+    /// The private key SSH remotes are reached with (`~/.ssh/id_work`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_key: Option<String>,
+    /// Its `gh` config folder (the GitHub login).
+    pub dir: String,
+}
+
+/// What a git identity is made from (the form's fields).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GitFields {
+    pub name: String,
+    pub user_name: String,
+    pub email: String,
+    pub ssh_key: String,
+}
+
+impl GitFields {
+    /// Trimmed and checked: (name, user name, email, SSH key).
+    fn checked(&self) -> Result<(String, String, String, Option<String>), String> {
+        let (name, user, email, key) = (self.name.trim(), self.user_name.trim(), self.email.trim(), self.ssh_key.trim());
+        if name.is_empty() {
+            return Err("Name it".into());
+        }
+        if user.is_empty() {
+            return Err("Give the name its commits carry".into());
+        }
+        if !email.contains('@') || email.contains(char::is_whitespace) {
+            return Err("That email doesn't look right".into());
+        }
+        let key = (!key.is_empty()).then(|| key.to_string());
+        if let Some(k) = &key {
+            if !expand(k).is_file() {
+                return Err(format!("There's no key at {k}"));
+            }
+        }
+        Ok((name.into(), user.into(), email.into(), key))
+    }
 }
 
 /// A kind's default login folder (`account_home`; `None`: no accounts).
@@ -176,7 +238,122 @@ impl Accounts {
     pub fn projects_of(&self, id: &str) -> Vec<String> {
         self.projects.iter().filter(|(_, k)| k.values().any(|a| a == id)).map(|(p, _)| p.clone()).collect()
     }
+
+    pub fn git_identity(&self, id: &str) -> Option<&GitIdentity> {
+        self.git.iter().find(|g| g.id == id)
+    }
+
+    /// Add a git identity, with a fresh `gh` folder under
+    /// `~/.pitwall/git/` (logged in to GitHub separately).
+    pub fn add_git(&mut self, paths: &Paths, f: &GitFields) -> Result<GitIdentity, String> {
+        let (name, user_name, email, ssh_key) = f.checked()?;
+        if self.git.iter().any(|g| g.name.eq_ignore_ascii_case(&name)) {
+            return Err(format!("There's already a git identity called {name}"));
+        }
+        let base = format!("git-{}", crate::slug::slug(&name));
+        let mut id = base.clone();
+        let mut n = 2;
+        while self.git_identity(&id).is_some() {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        let dir = paths.root().join("git").join(&id);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let g = GitIdentity { id, name, user_name, email, ssh_key, dir: dir.to_string_lossy().into_owned() };
+        self.git.push(g.clone());
+        Ok(g)
+    }
+
+    /// Change a git identity's fields (its id and GitHub login stay).
+    pub fn edit_git(&mut self, id: &str, f: &GitFields) -> Result<(), String> {
+        let (name, user_name, email, ssh_key) = f.checked()?;
+        if self.git.iter().any(|g| g.id != id && g.name.eq_ignore_ascii_case(&name)) {
+            return Err(format!("There's already a git identity called {name}"));
+        }
+        let g = self.git.iter_mut().find(|g| g.id == id).ok_or("No such git identity")?;
+        (g.name, g.user_name, g.email, g.ssh_key) = (name, user_name, email, ssh_key);
+        Ok(())
+    }
+
+    /// Forget one (its folder and GitHub login stay on disk) and the
+    /// projects that named it.
+    pub fn remove_git(&mut self, id: &str) {
+        self.git.retain(|g| g.id != id);
+        self.git_projects.retain(|_, g| g != id);
+    }
+
+    /// The git identity a project's agents and terminals use.
+    pub fn project_git(&self, project: &str) -> Option<&GitIdentity> {
+        self.git_identity(self.git_projects.get(project)?)
+    }
+
+    /// Name it (`None`: the user's own git setup).
+    pub fn set_project_git(&mut self, project: &str, id: Option<&str>) {
+        match id.filter(|i| *i != DEFAULT) {
+            Some(i) => self.git_projects.insert(project.to_string(), i.to_string()),
+            None => self.git_projects.remove(project),
+        };
+    }
+
+    /// Projects that name git identity `id`.
+    pub fn git_projects_of(&self, id: &str) -> Vec<String> {
+        self.git_projects.iter().filter(|(_, g)| *g == id).map(|(p, _)| p.clone()).collect()
+    }
+
+    /// The git identity of something launched in `cwd` for `project`: the
+    /// one asked for ([`DEFAULT`]: none), else the folder's, else the
+    /// project's.
+    pub fn resolve_git(&self, cwd: &str, project: &str, asked: Option<&str>) -> Option<&GitIdentity> {
+        match asked {
+            Some(DEFAULT) => None,
+            Some(id) => self.git_identity(id),
+            None => self.project_git(cwd).or_else(|| self.project_git(project)),
+        }
+    }
 }
+
+/// The environment of a process with git identity `g`: its commits'
+/// author and committer, `gh`'s folder, git's HTTPS logins to GitHub from
+/// `gh` (whatever helper the user's config names), and its SSH key.
+pub fn git_env(g: &GitIdentity) -> Vec<(String, String)> {
+    let mut env = vec![
+        ("GIT_AUTHOR_NAME".into(), g.user_name.clone()),
+        ("GIT_AUTHOR_EMAIL".into(), g.email.clone()),
+        ("GIT_COMMITTER_NAME".into(), g.user_name.clone()),
+        ("GIT_COMMITTER_EMAIL".into(), g.email.clone()),
+        ("GH_CONFIG_DIR".into(), g.dir.clone()),
+    ];
+    // (An empty helper clears the ones before it.)
+    let helpers = [("credential.https://github.com.helper", ""), ("credential.https://github.com.helper", "!gh auth git-credential")];
+    env.push(("GIT_CONFIG_COUNT".into(), helpers.len().to_string()));
+    for (i, (k, v)) in helpers.iter().enumerate() {
+        env.push((format!("GIT_CONFIG_KEY_{i}"), k.to_string()));
+        env.push((format!("GIT_CONFIG_VALUE_{i}"), v.to_string()));
+    }
+    if let Some(key) = &g.ssh_key {
+        let key = expand(key).to_string_lossy().replace('\'', "'\\''");
+        env.push(("GIT_SSH_COMMAND".into(), format!("ssh -i '{key}' -o IdentitiesOnly=yes")));
+    }
+    env
+}
+
+/// The GitHub user `g`'s `gh` is logged in as (its `hosts.yml`).
+pub fn github_login(g: &GitIdentity) -> Option<String> {
+    let hosts = std::fs::read_to_string(Path::new(&g.dir).join("hosts.yml")).ok()?;
+    let mut in_github = false;
+    for line in hosts.lines() {
+        if !line.starts_with(' ') {
+            in_github = line.trim_end() == "github.com:";
+        } else if let Some(user) = line.trim().strip_prefix("user:").filter(|_| in_github) {
+            return Some(user.trim().trim_matches('"').to_string()).filter(|u| !u.is_empty());
+        }
+    }
+    None
+}
+
+/// The command that logs `gh` in to GitHub (in a terminal with the
+/// identity's environment).
+pub const GITHUB_LOGIN: &str = "gh auth login --hostname github.com --git-protocol https --web";
 
 /// `~/x` → the home folder's `x`.
 fn expand(dir: &str) -> PathBuf {
@@ -363,6 +540,56 @@ mod tests {
     /// A built-in kind's definition.
     fn kind(id: &str) -> AgentKind {
         crate::kind::load_kinds(Path::new("/nonexistent/pitwall-agents")).into_iter().find(|k| k.id == id).unwrap()
+    }
+
+    #[test]
+    fn git_identities_their_projects_and_environment() {
+        let t = TempDir::new("git-ids");
+        let paths = Paths::new(t.path().join("pw"));
+        let f = |name: &str, email: &str, key: &str| GitFields { name: name.into(), user_name: "Sam Doe".into(), email: email.into(), ssh_key: key.into() };
+        let mut a = Accounts::default();
+        let work = a.add_git(&paths, &f("Work", "sam@work.example", "")).unwrap();
+        assert_eq!(work.id, "git-work");
+        assert!(Path::new(&work.dir).is_dir(), "its own gh folder");
+        assert!(a.add_git(&paths, &f("work", "x@y.example", "")).is_err(), "names are unique");
+        assert!(a.add_git(&paths, &f("Bad", "not-an-email", "")).is_err());
+        assert!(a.add_git(&paths, &f("Keyless", "k@y.example", "/nonexistent/id_x")).is_err(), "a key that isn't there");
+        let key = t.path().join("id_test");
+        std::fs::write(&key, "k").unwrap();
+        let home = a.add_git(&paths, &f("Home", "sam@home.example", &key.to_string_lossy())).unwrap();
+
+        a.set_project_git("/p", Some(&work.id));
+        a.set_project_git("/q", Some(&home.id));
+        assert_eq!(a.resolve_git("/p/sub", "/p", None).map(|g| g.id.as_str()), Some("git-work"), "the project's");
+        assert_eq!(a.resolve_git("/q", "/p", None).map(|g| g.id.as_str()), Some("git-home"), "the folder's first");
+        assert_eq!(a.resolve_git("/p", "/p", Some(DEFAULT)), None);
+        assert_eq!(a.resolve_git("/x", "/x", None), None);
+        assert_eq!(a.git_projects_of("git-work"), ["/p"]);
+
+        let env = git_env(&work);
+        let get = |env: &[(String, String)], k: &str| env.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        assert_eq!(get(&env, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@work.example"));
+        assert_eq!(get(&env, "GH_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
+        assert_eq!(get(&env, "GIT_CONFIG_VALUE_1").as_deref(), Some("!gh auth git-credential"));
+        assert_eq!(get(&env, "GIT_SSH_COMMAND"), None);
+        let ssh = get(&git_env(&home), "GIT_SSH_COMMAND").unwrap();
+        assert!(ssh.contains(&*key.to_string_lossy()) && ssh.contains("IdentitiesOnly=yes"), "{ssh}");
+
+        assert_eq!(github_login(&work), None);
+        std::fs::write(
+            Path::new(&work.dir).join("hosts.yml"),
+            "github.com:\n    users:\n        sam-work:\n    git_protocol: https\n    user: sam-work\n",
+        )
+        .unwrap();
+        assert_eq!(github_login(&work).as_deref(), Some("sam-work"));
+
+        a.edit_git(&work.id, &f("Office", "sam@work.example", "")).unwrap();
+        assert_eq!(a.git_identity("git-work").map(|g| g.name.as_str()), Some("Office"), "same id");
+        assert!(a.edit_git(&work.id, &f("Home", "sam@work.example", "")).is_err());
+        a.remove_git(&work.id);
+        assert_eq!(a.project_git("/p"), None, "its projects forget it");
+        a.save(&paths).unwrap();
+        assert_eq!(Accounts::load(&paths), a);
     }
 
     #[test]

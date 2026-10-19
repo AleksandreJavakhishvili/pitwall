@@ -2,13 +2,14 @@
 //! for the window's views (Settings → Agents → Accounts, New agent's
 //! account chips, the agent and project menus, the account badges), saved
 //! to `accounts.json` on every change, with who each one is logged in as.
+//! Git identities too (Settings → Agents → Accounts, a project's Accounts…).
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext, Context, Entity, Global};
 
-use pitwall_core::accounts::{self, Account, Accounts};
+use pitwall_core::accounts::{self, Account, Accounts, GitFields, GitIdentity};
 use pitwall_core::kind::AgentKind;
 use pitwall_core::paths::Paths;
 use pitwall_core::Shared;
@@ -174,6 +175,73 @@ impl AccountsModel {
         self.logins.insert(key, v.clone());
         v
     }
+}
+
+impl AccountsModel {
+    pub fn git(&self) -> Vec<GitIdentity> {
+        self.list.git.clone()
+    }
+
+    pub fn add_git(&mut self, f: &GitFields, cx: &mut Context<Self>) -> Result<GitIdentity, String> {
+        let paths = self.paths.clone().ok_or("Pitwall's engine isn't running")?;
+        let g = self.list.add_git(&paths, f)?;
+        self.save(cx)?;
+        Ok(g)
+    }
+
+    pub fn edit_git(&mut self, id: &str, f: &GitFields, cx: &mut Context<Self>) -> Result<(), String> {
+        self.list.edit_git(id, f)?;
+        self.save(cx)
+    }
+
+    pub fn remove_git(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        self.list.remove_git(id);
+        self.save(cx)
+    }
+
+    pub fn set_project_git(&mut self, project: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.list.set_project_git(project, id);
+        self.save(cx)
+    }
+
+    /// The GitHub user git identity `id` is logged in as (read again like
+    /// [`login`](Self::login)).
+    pub fn github_login(&mut self, id: &str) -> Option<String> {
+        if self.logins_at.is_none_or(|t| t.elapsed() > LOGIN_EVERY) {
+            self.logins.clear();
+            self.logins_at = Some(Instant::now());
+        }
+        let key = ("git".to_string(), id.to_string());
+        if let Some(v) = self.logins.get(&key) {
+            return v.clone();
+        }
+        let v = self.list.git_identity(id).and_then(accounts::github_login);
+        self.logins.insert(key, v.clone());
+        v
+    }
+}
+
+/// A terminal with git identity `id` in the home folder where `gh` logs in
+/// to GitHub (it opens the browser).
+pub fn github_login_request(id: &str) -> pitwall_core::model::CreateAgentRequest {
+    pitwall_core::model::CreateAgentRequest {
+        name: format!("github-{}", id.trim_start_matches("git-")),
+        kind: pitwall_core::kind::CUSTOM.into(),
+        custom_command: Some(accounts::GITHUB_LOGIN.into()),
+        project_path: pitwall_core::paths::home().to_string_lossy().into_owned(),
+        git_identity: Some(id.into()),
+        ..Default::default()
+    }
+}
+
+/// The user's own `user.name` (what a new git identity starts from).
+pub fn own_git_name() -> String {
+    std::process::Command::new("git")
+        .args(["config", "--global", "user.name"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
 }
 
 /// An agent of `kind` on account `id` in `folder`, to log in with: the

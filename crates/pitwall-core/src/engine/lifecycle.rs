@@ -67,6 +67,17 @@ fn account_env(engine: &Engine, provider: &dyn Provider, kind: &str, account: Op
     Ok(crate::accounts::env(&def, Some(acc)))
 }
 
+/// The environment of a process launched in `cwd` for `project` with
+/// git identity `asked` (`crate::accounts::git_env`): the one asked for,
+/// else the folder's or project's. Local processes only.
+fn git_identity_env(engine: &Engine, provider: &dyn Provider, cwd: &str, project: &str, asked: Option<&str>) -> Vec<(String, String)> {
+    if !provider.caps().local_process {
+        return vec![];
+    }
+    let accounts = crate::accounts::Accounts::load(engine.paths());
+    accounts.resolve_git(cwd, project, asked).map(crate::accounts::git_env).unwrap_or_default()
+}
+
 /// Before a launch with the kind's worktree flag: the name to pass, and what
 /// to compare against to spot the worktree the agent makes.
 fn watch_for(exec: &dyn Exec, kind: &AgentKind, rec: &AgentRecord, now: u64) -> (String, worktree::Watch) {
@@ -172,6 +183,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     };
     let mut env = env;
     env.extend(account_env(core, &*provider, &kind.id, account.as_deref())?);
+    env.extend(git_identity_env(core, &*provider, &cwd, &project, req.git_identity.as_deref()));
     env.extend(core.tool_update_env());
 
     let mut rec = AgentRecord {
@@ -200,6 +212,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         inner_agent: None,
         engineer: req.engineer,
         account,
+        git_identity: req.git_identity.clone(),
     };
     let size = size_of(req.cols, req.rows);
     if let Some(size) = size {
@@ -355,6 +368,7 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
         inner_agent: None,
         engineer: false,
         account: None,
+        git_identity: None,
     }
 }
 
@@ -469,6 +483,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
     let (kind, mut env, _) = engineer_launch(core, rec.engineer, kind)?;
     env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
+    env.extend(git_identity_env(core, &*provider, &rec.cwd, &rec.project, rec.git_identity.as_deref()));
     env.extend(core.tool_update_env());
     // On an account, its conversation from wherever it is newest.
     if let (Some(sid), true, true) = (&rec.session_id, rec.has_conversation, provider.caps().local_process) {
@@ -764,6 +779,47 @@ mod tests {
         // Back to the user's own.
         let v = switch_account(&h.engine, &a.id, Some("default"), None).unwrap();
         assert_eq!(v.account, None);
+    }
+
+    /// Git identities: a project's reaches its agents and terminals, at
+    /// each launch (a restart takes a new one); one can be asked for, or
+    /// none.
+    #[test]
+    fn agents_and_terminals_run_as_their_projects_git_identity() {
+        use crate::accounts::{Accounts, GitFields};
+        let h = Harness::new(vec![]);
+        h.provider.set_caps(ProviderCaps { local_process: true, ..crate::testing::FakeProvider::local_like() });
+        let dir = TempDir::new("git-proj");
+        let project = dir.path().to_string_lossy().into_owned();
+        let fields = |name: &str, email: &str| GitFields { name: name.into(), user_name: "Sam Doe".into(), email: email.into(), ssh_key: String::new() };
+        let mut acc = Accounts::default();
+        let work = acc.add_git(h.engine.paths(), &fields("Work", "sam@work.example")).unwrap();
+        let home = acc.add_git(h.engine.paths(), &fields("Home", "sam@home.example")).unwrap();
+        acc.set_project_git(&project, Some(&work.id));
+        acc.save(h.engine.paths()).unwrap();
+        let env_of = |n: usize, key: &str| h.provider.launched()[n].env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+
+        let a = create(&h.engine, req("claude", &project, false)).unwrap();
+        assert_eq!(env_of(0, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@work.example"));
+        assert_eq!(env_of(0, "GIT_COMMITTER_NAME").as_deref(), Some("Sam Doe"));
+        assert_eq!(env_of(0, "GH_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
+        create(&h.engine, req("shell", &project, false)).unwrap();
+        assert_eq!(env_of(1, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@work.example"), "terminals too");
+        let other = TempDir::new("git-other");
+        create(&h.engine, req("shell", &other.path().to_string_lossy(), false)).unwrap();
+        assert_eq!(env_of(2, "GIT_AUTHOR_EMAIL"), None, "another project: the user's own setup");
+        create(&h.engine, CreateAgentRequest { git_identity: Some(home.id.clone()), ..req("shell", &other.path().to_string_lossy(), false) }).unwrap();
+        assert_eq!(env_of(3, "GH_CONFIG_DIR").as_deref(), Some(home.dir.as_str()), "asked for");
+        create(&h.engine, CreateAgentRequest { git_identity: Some("default".into()), ..req("shell", &project, false) }).unwrap();
+        assert_eq!(env_of(4, "GIT_AUTHOR_EMAIL"), None, "none asked for");
+
+        // The project moves to Home: a restart runs as Home.
+        let mut acc = Accounts::load(h.engine.paths());
+        acc.set_project_git(&project, Some(&home.id));
+        acc.save(h.engine.paths()).unwrap();
+        restart(&h.engine, &a.id, None).unwrap();
+        let last = h.provider.launched().len() - 1;
+        assert_eq!(env_of(last, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@home.example"));
     }
 
     fn wait_until(f: impl Fn() -> bool) -> bool {
