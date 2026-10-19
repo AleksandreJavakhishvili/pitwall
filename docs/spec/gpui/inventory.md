@@ -202,7 +202,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Changes: count, refresh control ("refreshing…"/"updated N s ago" + ↻), "Open in Review" button (with `caps.review`), diffstat (`src/components/Changes.tsx`, `src/components/Freshness.tsx`) [in-house: tooltip]
 - [x] Where line: branch (or "detached HEAD") with "worktree" tag; folder path, click copies the absolute path ("Copied") (`src/components/Changes.tsx`) [in-house: tooltip]
 - [x] Changes list: file icon, dir + base name, +/− or "bin", status letter (M/A/D/R/U); click opens the diff dialog (`src/components/Changes.tsx`, `src/components/FileIcon.tsx`) [in-house: list/virtual list] [in-house: scroll view]
-- [x] Changes states: "Reading git…", "No changes since the agent started.", "Not a git repository…", error with Retry (`src/components/Changes.tsx`)
+- [x] Changes states: "Reading git…", "No uncommitted changes.", "Not a git repository…", error with Retry (`src/components/Changes.tsx`)
 - [x] Changes refresh: forced on open, on totals change, every 5 s while visible, ↻ and ⌘⇧R (`src/components/Changes.tsx`, `src/lib/freshness.ts`)
 - [x] Agent's worktrees sub-list (collapsed chip; expanding forces refresh; refresh control; error with Retry) (`src/components/Changes.tsx`) [in-house: list/virtual list]
 - [x] Last sent: relative time (tooltip absolute), quoted text, or "Nothing sent through Pitwall yet…" (`src/components/LastSent.tsx`) [in-house: tooltip]
@@ -233,7 +233,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Default selection: the agent it was opened for (its first file once read), else the first agent with changes (`src/components/review/Review.tsx`)
 - [x] Selected file disappearing (discarded/merged) picks a neighbour (`src/components/review/Review.tsx`)
 - [x] Picking an agent/worktree refreshes just that one (`src/components/review/Review.tsx`)
-- [x] Per-agent task scope select: "Since the agent started · <name>" or "Task N · HH:MM · <prompt…>" (running, snapshot pending disabled) (`src/components/review/Review.tsx`) [in-house: select/dropdown]
+- [x] Per-agent task scope select: "All changes · <name>" or "Task N · HH:MM · <prompt…>" (running, snapshot pending disabled) (`src/components/review/Review.tsx`) [in-house: select/dropdown]
 - [x] Task prompt shown above the diff when a task is selected (`src/components/review/Review.tsx`)
 - [x] File header: icon, base + dir, status letter, diffstat or "bin" (`src/components/review/Review.tsx`)
 - [x] Footer actions for an agent: "Discard file", "Send comments (N)", "Commit" or "Commit & merge" (worktree agents); notice text after actions (`src/components/review/Review.tsx`)

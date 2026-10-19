@@ -15,6 +15,18 @@ the Changes panel's Review button, or "Show diff" in the file viewer
 first (its first file, or the given file). Opened from a worktree, that
 worktree's project agents are listed too.
 
+## What "All changes" compares with
+The branch the agent's work goes back into, never a commit remembered from
+when the agent started (`review_base`, `vcs/review.rs`):
+- a worktree agent: its branch against where it left the main checkout's
+  current branch (`git merge-base`), plus what isn't committed yet. What
+  others merged there since doesn't show; once merged, nothing does.
+- an agent in the project folder on a feature branch: the same, against the
+  project's main branch (`origin/HEAD`'s, else `main` / `master`).
+- an agent on the main branch itself: what isn't committed yet (as the
+  Changes panel shows it); once committed, nothing.
+A task's diff (below) is always its own start and end snapshots.
+
 ## Layout
 Left: changes grouped by agent → files (+/−, untracked badge). Center: diff
 editor (side-by-side / inline toggle, syntax highlight, collapsed unchanged
@@ -45,7 +57,7 @@ and sends it verbatim via send_prompt (or adds to Next up if the agent is busy).
   branch (`git -C <wt> branch --show-current`; refuse if detached); refuse with a clear message if the main
   checkout is dirty. On conflicts: `git merge --abort`, then offer a prefilled,
   editable prompt to the agent ("rebase onto <branch> and resolve conflicts").
-- Discard file: restore from base / delete untracked file, after confirmation.
+- Discard file: restore from the compared-with commit / delete untracked file, after confirmation.
 - Agents without a worktree: no merge (they work in the main checkout); commit only.
 
 ## API (new commands)

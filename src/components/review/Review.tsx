@@ -596,9 +596,9 @@ export default function Review({
                     setSelAgentId(agent.id);
                   }}
                   aria-label="Which changes"
-                  title="Everything since the agent started (committed or not), or one task (prompt). The Changes panel shows only uncommitted work, like git status."
+                  title="The agent's work on its branch: what isn't committed yet, plus its commits that aren't in the branch it goes back into (a worktree's or a feature branch's). Or one task (prompt)."
                 >
-                  <option value="">Since the agent started · {agent.name}</option>
+                  <option value="">All changes · {agent.name}</option>
                   {[...tasks]
                     .map((t, i) => ({ t, n: i + 1 }))
                     .reverse()
@@ -652,7 +652,7 @@ export default function Review({
                   </span>
                 )}
                 <span className="spacer" />
-                <button className="ghost-btn" disabled={!file} onClick={() => setDialog({ type: "discard" })} title="Restore this file from where the agent started">
+                <button className="ghost-btn" disabled={!file} onClick={() => setDialog({ type: "discard" })} title="Undo this file's changes shown here">
                   Discard file
                 </button>
                 <button className="ghost-btn" disabled={agentComments.length === 0} onClick={() => setDialog({ type: "send" })}>

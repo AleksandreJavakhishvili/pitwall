@@ -152,6 +152,8 @@ pub struct AgentRecord {
     /// yet (see worktree.rs). `cwd` is still the folder it was launched in.
     #[serde(default)]
     pub worktree_pending: bool,
+    /// HEAD when the agent started. Kept for older state files; Review
+    /// compares with the agent's branch instead (`vcs::review::review_base`).
     #[serde(default)]
     pub base_commit: Option<String>,
     #[serde(default)]

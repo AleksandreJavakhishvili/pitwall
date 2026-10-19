@@ -61,10 +61,9 @@ enum Listed {
 
 /// git's view of the folder: tracked files (with their modes), untracked
 /// ones that aren't ignored (with `ignored`: ignored ones too), and the
-/// changes since the agent's base, in one round trip. `None` when git
-/// can't list it (not a repository).
+/// uncommitted changes (as the Changes panel shows them), in one round
+/// trip. `None` when git can't list it (not a repository).
 fn git_list(c: &Ctx, rel: &str, real: &str, ignored: bool) -> Option<Listed> {
-    let base = c.base.as_deref().unwrap_or("HEAD");
     let cached = git(real, &["ls-files", "-z", "--stage"]);
     let others = git(
         real,
@@ -79,7 +78,7 @@ fn git_list(c: &Ctx, rel: &str, real: &str, ignored: bool) -> Option<Listed> {
     );
     let diff = git(
         real,
-        &["diff", "--raw", "--numstat", "-z", "-M", "--relative", base],
+        &["diff", "--raw", "--numstat", "-z", "-M", "--relative", "HEAD"],
     );
     let ignored_cmd = git(
         real,

@@ -368,7 +368,7 @@ impl MainScreen {
                 .into_any_element(),
             (None, None) => hint("Reading git…".into()).into_any_element(),
             (None, Some(f)) if f.is_empty() => {
-                hint("No changes since the agent started.".into()).into_any_element()
+                hint("No uncommitted changes.".into()).into_any_element()
             }
             (None, Some(files)) => {
                 // Repositories inside the agent's folder: a header for each,

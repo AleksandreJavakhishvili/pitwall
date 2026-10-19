@@ -70,7 +70,6 @@ fn gitignore_and_change_letters_in_a_repo() {
     r.write("src/deep/b.rs", "fn b() {}\n");
     r.write("old.txt", "old\n");
     r.commit_all("init");
-    let base = r.git(&["rev-parse", "HEAD"]).trim().to_string();
     r.write("README.md", "hi there\n");
     r.write("target/debug/out.bin", "x");
     r.write("app.log", "noise");
@@ -78,8 +77,7 @@ fn gitignore_and_change_letters_in_a_repo() {
     r.write("fresh/x.rs", "x\n");
     r.write("src/deep/c.rs", "c\n");
     std::fs::remove_file(r.0.join("old.txt")).unwrap();
-    let mut rec = record("a", r.path());
-    rec.base_commit = Some(base);
+    let rec = record("a", r.path());
     let h = Harness::new(vec![rec]);
 
     let root = list_files(&h.engine, "a", "", false).unwrap();
@@ -405,8 +403,7 @@ fn remote() -> (Arc<FakeExec>, Arc<Remote>, Harness) {
         x: x.clone(),
         trips: AtomicUsize::new(0),
     });
-    let mut rec = record("a", "/remote/w");
-    rec.base_commit = Some("b0".into());
+    let rec = record("a", "/remote/w");
     let h = Harness::with_exec(vec![rec], r.clone());
     (x, r, h)
 }
@@ -433,7 +430,7 @@ fn a_remote_folder_in_one_round_trip() {
             "-z",
             "-M",
             "--relative",
-            "b0",
+            "HEAD",
         ],
         ":100644 100644 a b M\0README.md\x001\t0\tREADME.md\0",
     );

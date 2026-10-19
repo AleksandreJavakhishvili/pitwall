@@ -1,6 +1,6 @@
 //! The Review screen (Tauri: `src/components/review/Review.tsx`,
-//! docs/spec/review.md): what the agents changed, per agent since it started
-//! (its base commit) or per task, and their worktrees; a side-by-side or
+//! docs/spec/review.md): what the agents changed, per agent on its branch
+//! (`review_base`) or per task, and their worktrees; a side-by-side or
 //! inline diff of one file ([`crate::code_view`]) where clicking the margin
 //! collects a comment; and the actions: discard a file, send the comments
 //! as a prompt, commit (and merge a worktree's branch), remove a worktree.

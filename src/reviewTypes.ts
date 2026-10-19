@@ -43,7 +43,7 @@ export interface MergeStatus {
 
 export interface ReviewApi {
   listTasks(agentId: string): Promise<Task[]>;
-  /** taskId null = all changes since the agent started. Paths are repo-root relative. */
+  /** taskId null = all of the agent's changes on its branch (docs/spec/review.md). Paths are repo-root relative. */
   getTaskChanges(agentId: string, taskId: string | null): Promise<FileChange[]>;
   getFileVersions(agentId: string, path: string, taskId: string | null): Promise<FileVersions>;
   discardFile(agentId: string, path: string): Promise<void>;

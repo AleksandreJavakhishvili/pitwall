@@ -1082,7 +1082,7 @@ impl ReviewView {
             .map(|(i, t)| (i + 1, t))
             .collect();
         let current = match task {
-            None => format!("Since the agent started · {}", a.name),
+            None => format!("All changes · {}", a.name),
             Some(id) => numbered
                 .iter()
                 .find(|(_, x)| &x.id == id)
@@ -1090,7 +1090,7 @@ impl ReviewView {
                 .unwrap_or_default(),
         };
         // A native `<select>` is as wide as its widest option.
-        let options: Vec<String> = std::iter::once(format!("Since the agent started · {}", a.name))
+        let options: Vec<String> = std::iter::once(format!("All changes · {}", a.name))
             .chain(numbered.iter().map(|(n, x)| {
                 format!(
                     "{}{}",
@@ -1119,7 +1119,7 @@ impl ReviewView {
             .text_size(px(12.))
             .cursor_pointer()
             .tooltip(|_, cx| {
-                kit::tooltip_view("Everything since the agent started (committed or not), or one task (prompt). The Changes panel shows only uncommitted work, like git status.".to_string(), cx)
+                kit::tooltip_view("The agent's work on its branch: what isn't committed yet, plus its commits that aren't in the branch it goes back into (a worktree's or a feature branch's). Or one task (prompt).".to_string(), cx)
             })
             .on_click(cx.listener(|v, _, _, cx| {
                 v.task_menu = !v.task_menu;
@@ -1180,7 +1180,7 @@ impl ReviewView {
                 menu = menu.child(
                     item(
                         "all".into(),
-                        format!("Since the agent started · {}", a.name),
+                        format!("All changes · {}", a.name),
                         true,
                         task.is_none(),
                     )
@@ -1332,7 +1332,7 @@ impl ReviewView {
                 kit::button("rv-discard", BtnKind::Ghost, !has_file, t)
                     .child("Discard file")
                     .tooltip(|_, cx| {
-                        kit::tooltip_view("Restore this file from where the agent started".to_string(), cx)
+                        kit::tooltip_view("Undo this file's changes shown here".to_string(), cx)
                     })
                     .when(has_file, |d| {
                         d.on_click(cx.listener(|v, _, window, cx| v.open_discard(window, cx)))

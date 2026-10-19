@@ -49,7 +49,6 @@ struct Ctx {
     cwd: String,
     /// `cwd` resolved on its machine, when known already.
     real_cwd: Option<String>,
-    base: Option<String>,
     /// `Some(false)`: not a git repository (Changes found out).
     git_repo: Option<bool>,
     /// "provider/machine".
@@ -71,7 +70,6 @@ fn ctx(engine: &Engine, agent_id: &str) -> Res<Ctx> {
                 .as_ref()
                 .filter(|(from, _)| *from == a.rec.cwd)
                 .map(|(_, real)| real.clone()),
-            base: a.rec.base_commit.clone(),
             git_repo: a.git_repo,
             machine: format!("{}/{}", loc.provider, loc.machine),
             machine_label: a.facts.machine_label.clone(),

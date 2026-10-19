@@ -151,7 +151,7 @@ export function Changes({ agent: a, tabs }: { agent: AgentView; tabs?: React.Rea
       )}
       {error && error !== "not-a-git-repo" && <FreshError error={error} prefix="Couldn't read changes: " onRetry={() => void refresh()} />}
       {!error && files === null && <p className="hint">Reading git…</p>}
-      {!error && files?.length === 0 && <p className="hint">No changes since the agent started.</p>}
+      {!error && files?.length === 0 && <p className="hint">No uncommitted changes.</p>}
       {files && files.length > 0 && <FileList agent={a} files={files} onOpen={(f) => openDiff(a.id, f)} />}
       <AgentWorktrees agent={a} />
     </section>

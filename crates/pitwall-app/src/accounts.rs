@@ -41,16 +41,24 @@ fn remember(list: &Accounts) {
     }
 }
 
-/// Tests: projects and their accounts, as `accounts.json` would say.
+/// Tests: projects and their accounts, as `accounts.json` would say. Kept
+/// apart from [`PROJECTS`], which other tests' models replace meanwhile.
+#[cfg(test)]
+static TEST_PROJECTS: std::sync::RwLock<BTreeMap<String, String>> = std::sync::RwLock::new(BTreeMap::new());
+
 #[cfg(test)]
 pub fn set_project_accounts(pairs: &[(&str, &str)]) {
-    if let Ok(mut p) = PROJECTS.write() {
+    if let Ok(mut p) = TEST_PROJECTS.write() {
         p.extend(pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())));
     }
 }
 
 /// The account `project`'s agents run on, when it has one.
 pub fn project_account(project: &str) -> Option<String> {
+    #[cfg(test)]
+    if let Some(a) = TEST_PROJECTS.read().ok()?.get(project) {
+        return Some(a.clone());
+    }
     PROJECTS.read().ok()?.get(project).cloned()
 }
 

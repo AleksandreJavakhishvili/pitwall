@@ -93,6 +93,38 @@ fn versions(original: Option<Vec<u8>>, modified: Option<Vec<u8>>) -> FileVersion
     FileVersions { original: original.and_then(text), modified: modified.and_then(text), binary }
 }
 
+/// What Review compares an agent's work with: where its branch left the
+/// branch it goes back into, so neither its own commits drop out nor what
+/// others merged there since shows up. On that branch itself: HEAD (its
+/// uncommitted work). The branch it goes back into: for a worktree agent
+/// the main checkout's current branch (`main_checkout`), else the
+/// project's main branch ([`main_branch`]).
+pub fn review_base(top: &Git, main_checkout: Option<&str>) -> String {
+    let target = match main_checkout {
+        Some(repo) => top.at(repo).current_branch(),
+        None => main_branch(top),
+    };
+    match target {
+        Some(t) if top.current_branch().as_deref() != Some(t.as_str()) => {
+            top.merge_base("HEAD", &t).unwrap_or_else(|| "HEAD".into())
+        }
+        _ => "HEAD".into(),
+    }
+}
+
+/// The repository's main branch: the one `origin/HEAD` names, else `main`
+/// or `master`; a local branch when there is one (merges land there).
+pub fn main_branch(top: &Git) -> Option<String> {
+    let remote = top.run(&["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).ok();
+    let remote = remote.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+    let named = remote.as_deref().and_then(|r| r.split_once('/')).map(|(_, b)| b.to_string());
+    let local = named
+        .into_iter()
+        .chain(["main".to_string(), "master".to_string()])
+        .find(|b| top.run(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]).is_ok());
+    local.or(remote)
+}
+
 fn base_rev(top: &Git, base: Option<&str>) -> String {
     match base {
         Some(b) if top.run(&["cat-file", "-e", &format!("{b}^{{commit}}")]).is_ok() => b.to_string(),
@@ -300,6 +332,53 @@ mod tests {
     use crate::exec::LocalExec;
     use crate::testing::FakeExec;
     use crate::vcs::snapshot::{snapshot, TempRepo};
+
+    fn paths(top: &Git, base: &str) -> Vec<String> {
+        top.changes(Some(base)).unwrap().into_iter().map(|f| f.path).collect()
+    }
+
+    #[test]
+    fn review_compares_with_the_branch_not_where_the_agent_started() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        assert_eq!(main_branch(&top).as_deref(), Some("main"));
+
+        // On the main branch: only what isn't committed yet.
+        r.write("a.txt", "2\n");
+        assert_eq!(review_base(&top, None), "HEAD");
+        assert_eq!(paths(&top, &review_base(&top, None)), ["a.txt"]);
+        r.commit_all("agent work");
+        assert!(paths(&top, &review_base(&top, None)).is_empty(), "committed work leaves Review");
+
+        // On a feature branch: everything since it left main, but not what
+        // main got afterwards.
+        r.git(&["checkout", "-q", "-b", "feature"]);
+        r.write("f.txt", "f\n");
+        r.commit_all("feature work");
+        r.write("wip.txt", "w\n");
+        r.git(&["checkout", "-q", "main"]);
+        r.write("other.txt", "o\n");
+        r.git(&["add", "other.txt"]);
+        r.git(&["commit", "-q", "-m", "someone else"]);
+        r.git(&["checkout", "-q", "feature"]);
+        assert_eq!(paths(&top, &review_base(&top, None)), ["f.txt", "wip.txt"]);
+
+        // A worktree goes back into the main checkout's current branch.
+        let wt = format!("{}-wt", r.path());
+        r.git(&["worktree", "add", "-q", "-b", "agent", &wt, "main"]);
+        let wg = top.at(&wt);
+        std::fs::write(format!("{wt}/x.txt"), "x\n").unwrap();
+        wg.run(&["add", "x.txt"]).unwrap();
+        wg.run(&["commit", "-q", "-m", "agent"]).unwrap();
+        // (The main checkout is on `feature` now.)
+        r.git(&["checkout", "-q", "main"]);
+        assert_eq!(paths(&wg, &review_base(&wg, Some(r.path()))), ["x.txt"]);
+        r.git(&["merge", "-q", "--no-ff", "--no-edit", "agent"]);
+        assert!(paths(&wg, &review_base(&wg, Some(r.path()))).is_empty(), "merged work leaves Review");
+        r.git(&["worktree", "remove", "--force", &wt]);
+    }
 
     #[test]
     fn task_changes_between_snapshots() {
