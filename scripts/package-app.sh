@@ -26,6 +26,12 @@
 # to the released one without sharing its permissions or notification
 # settings (run it with PITWALL_HOME set to its own folder).
 #
+# A local stable build signed ad-hoc (no APPLE_SIGNING_IDENTITY, not in CI)
+# says dev.pitwall.app.unsigned in its Info.plist: macOS ties an ad-hoc
+# app's privacy grants to that one build, and under the real id they would
+# replace the installed app's. scripts/install-local.sh puts the real id
+# back when it signs it with the local certificate.
+#
 # The .dmg is named like the release asset: Pitwall_<version>_<arch>.dmg
 # ("Pitwall_Preview_…" for the preview channel).
 #
@@ -165,7 +171,11 @@ if [ $os = macos ]; then
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   for b in pitwall $sidecars; do cp "$bin/$b" "$app/Contents/MacOS/$b"; done
-  sed -e "s|@PRODUCT_NAME@|$product|g" -e "s|@BUNDLE_ID@|$bundle_id|g" \
+  plist_id=$bundle_id
+  if [ "$bundle_id" = dev.pitwall.app ] && [ "${APPLE_SIGNING_IDENTITY:--}" = - ] && [ -z "${CI:-}" ]; then
+    plist_id=dev.pitwall.app.unsigned
+  fi
+  sed -e "s|@PRODUCT_NAME@|$product|g" -e "s|@BUNDLE_ID@|$plist_id|g" \
       -e "s|@VERSION@|$version|g" -e "s|@EXECUTABLE@|pitwall|g" \
       crates/pitwall-app/packaging/macos/Info.plist > "$app/Contents/Info.plist"
   plutil -lint "$app/Contents/Info.plist" >/dev/null

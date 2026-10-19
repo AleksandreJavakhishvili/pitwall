@@ -24,7 +24,13 @@ next to its executable, one level up. That covers every bundle, since the
 sidecars sit next to the app binary in all of them; only an AppImage needs
 more, so `packaging::stable_sidecar` copies the holder out of the AppImage
 mount into `<data folder>/bin/` first (ported from
-`src-tauri/src/platform/mod.rs`). It has no `build.rs` building the
+`src-tauri/src/platform/mod.rs`). A macOS bundle too: an update replaces
+the bundle under holders that keep running, after which macOS refuses
+them Desktop and Full Disk Access, so terminals run a copy per build in
+`<data folder>/bin/versions/<hash>/`, which no update changes; copies no
+process runs any more are removed at the next start. A local ad-hoc build
+says `dev.pitwall.app.unsigned` (its grants would be tied to that one
+build) until `scripts/install-local.sh` signs it as `dev.pitwall.app`. It has no `build.rs` building the
 sidecars (a nested cargo build would run twice per workspace build):
 `scripts/package-app.sh` builds them.
 

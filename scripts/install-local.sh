@@ -18,9 +18,13 @@ SRC="${1:-${CARGO_TARGET_DIR:-$(cd "$(dirname "$0")/.." && pwd)/target}/package/
 DEST=/Applications/Pitwall.app
 
 [ -d "$SRC" ] || { echo "no app bundle at $SRC (build with: scripts/package-app.sh --formats app)" >&2; exit 1; }
-# Only the stable channel replaces /Applications/Pitwall.app.
+# Only the stable channel replaces /Applications/Pitwall.app (a local build
+# says dev.pitwall.app.unsigned until it's signed below; package-app.sh).
 id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$SRC/Contents/Info.plist")
-[ "$id" = dev.pitwall.app ] || { echo "$SRC is $id, not dev.pitwall.app (build with PITWALL_CHANNEL=stable)" >&2; exit 1; }
+case "$id" in
+  dev.pitwall.app | dev.pitwall.app.unsigned) ;;
+  *) echo "$SRC is $id, not dev.pitwall.app (build with PITWALL_CHANNEL=stable)" >&2; exit 1 ;;
+esac
 security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || {
   echo "signing identity \"$IDENTITY\" not found in the keychain" >&2
   exit 1
@@ -40,6 +44,7 @@ fi
 
 rm -rf "$DEST"
 ditto "$SRC" "$DEST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier dev.pitwall.app" "$DEST/Contents/Info.plist"
 # Sign every bundled helper (pitwall-hold, pitwall-cli, …) before the app itself,
 # each with a stable identifier derived from its file name.
 for bin in "$DEST"/Contents/MacOS/*; do
@@ -50,4 +55,10 @@ done
 codesign --force --options runtime --timestamp=none --sign "$IDENTITY" --identifier dev.pitwall.app "$DEST"
 codesign --verify --deep --strict "$DEST"
 echo "installed and signed: $DEST"
+# Terminals still running a holder from inside an older bundle lose macOS
+# file access (Desktop, Full Disk Access); newer ones run a copy outside it.
+old=$(pgrep -f "^$DEST/Contents/MacOS/pitwall-hold " | wc -l | tr -d ' ')
+if [ "$old" -gt 0 ]; then
+  echo "note: $old terminal(s) were started by an older Pitwall from inside the app; if one says \"Operation not permitted\", restart it."
+fi
 open "$DEST"
