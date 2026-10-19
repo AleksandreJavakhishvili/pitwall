@@ -1616,7 +1616,7 @@ impl MainScreen {
     }
 
     /// Restart the pending agents that aren't working or waiting on the
-    /// user now; the others every couple of seconds until they aren't (or
+    /// user, one every couple of seconds; busy ones once they aren't (or
     /// are gone or stopped).
     fn restart_when_free(&mut self, cx: &mut Context<Self>) {
         self.restart_free(cx);
@@ -1638,13 +1638,19 @@ impl MainScreen {
         }));
     }
 
+    /// One per call: agents started together (claude --resume all at once)
+    /// can hang on each other.
     fn restart_free(&mut self, cx: &mut Context<Self>) {
         let agents = self.agents(cx).to_vec();
         let busy = |id: &String| agents.iter().find(|a| &a.id == id).filter(|a| a.running).map(|a| matches!(a.status, Status::Working | Status::Blocked));
+        let mut started = false;
         for id in std::mem::take(&mut self.pending_restarts) {
             match busy(&id) {
-                Some(true) => self.pending_restarts.push(id),
-                Some(false) => self.restart_agent(id, cx),
+                Some(false) if !started => {
+                    started = true;
+                    self.restart_agent(id, cx);
+                }
+                Some(_) => self.pending_restarts.push(id),
                 None => {}
             }
         }
