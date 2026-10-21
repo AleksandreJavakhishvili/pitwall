@@ -712,7 +712,16 @@ pub fn import(dirs: &Dirs, req: ImportRequest) -> Res<ImportResult> {
             Ok(ImportResult { added, log: log.join("\n") })
         }
         "git" => {
-            let src = library::add_git(dirs, &req.source, &read(dirs).sources)?;
+            let src = match library::add_git(dirs, &req.source, &read(dirs).sources)? {
+                library::Cloned::Source(src) => src,
+                library::Cloned::Skills { added, skipped } => {
+                    let mut log = format!("Copied {} skill(s) from the repository's .claude/skills into the library", added.len());
+                    if !skipped.is_empty() {
+                        log.push_str(&format!("\nkept the library's own {} (same name)", skipped.join(", ")));
+                    }
+                    return Ok(ImportResult { added, log });
+                }
+            };
             let added: Vec<String> = library::list_root(&src.name, Path::new(&src.root)).into_iter().map(|f| f.id).collect();
             let log = format!("Added source \"{}\" ({} rules and skills) from {}", src.name, added.len(), src.root);
             update(dirs, |s| {

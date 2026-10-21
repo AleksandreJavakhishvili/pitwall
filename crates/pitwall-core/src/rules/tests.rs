@@ -998,6 +998,27 @@ fn importing_a_project_copies_its_claude_skills() {
     assert!(r.added.is_empty() && r.log.contains("kept the library's own lint"), "{}", r.log);
 }
 
+/// A git repository with only Claude Code's skills (no rulesync setup):
+/// they are copied into the library; no source or clone is kept.
+#[test]
+fn importing_a_git_repo_copies_its_bare_claude_skills() {
+    let p = Proj::new("import-git-skills");
+    write(&p.repo.join(".claude/skills/lint/SKILL.md"), "---\nname: lint\ndescription: Lint it\n---\nRun the linter.\n");
+    write(&p.repo.join(".claude/skills/lint/lint.sh"), "#!/bin/sh\n");
+    crate::platform::make_executable(&p.repo.join(".claude/skills/lint/lint.sh")).unwrap();
+    sh(&p.repo, &["add", "-A"]);
+    sh(&p.repo, &["commit", "-qm", "skills"]);
+    let r = import(&p.dirs, ImportRequest { kind: "git".into(), source: p.path() }).unwrap();
+    assert_eq!(r.added, vec!["library:skills/lint"], "{}", r.log);
+    assert!(crate::platform::is_executable(&p.dirs.library().join("skills/lint/lint.sh")));
+    assert!(sources(&p.dirs).is_empty());
+    assert!(std::fs::read_dir(p.dirs.sources()).unwrap().next().is_none(), "the clone is gone");
+    // Nothing to import at all: an error.
+    let empty = Proj::new("import-git-empty");
+    let e = import(&p.dirs, ImportRequest { kind: "git".into(), source: empty.path() }).unwrap_err();
+    assert!(e.contains(".claude/skills"), "{e}");
+}
+
 /// Both CLAUDE.md and AGENTS.md imported (rulesync makes each a root rule
 /// for every tool): Pitwall gives each its own tools, so generating
 /// reproduces each file as it was instead of merging them.
