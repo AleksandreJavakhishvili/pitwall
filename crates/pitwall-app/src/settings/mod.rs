@@ -55,7 +55,7 @@ pub struct SettingsHost {
 
 impl Global for SettingsHost {}
 
-/// Settings sections other modules add (Rules, §21): the Rules page.
+/// Settings sections other modules add (Rules, §21): the Rules & skills page.
 #[derive(Default)]
 pub struct ExtraSections(pub Vec<fn(&mut Window, &mut App) -> AnyElement>);
 
@@ -109,7 +109,7 @@ fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
     match p {
         Page::General => "scan again elsewhere command line cli tool",
         Page::Agents => "claude codex hooks race engineer assistant",
-        Page::Rules => "rulesync rule sets",
+        Page::Rules => "rulesync rule sets skills skill.md library",
         Page::Appearance => "theme dark light glass flat liquid motion density font",
         Page::FolderAccess => "full disk access permissions privacy folders",
         Page::About => "version licence license",

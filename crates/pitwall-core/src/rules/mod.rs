@@ -444,7 +444,7 @@ pub fn apply_with(
             .target
             .clone()
             .ok_or_else(|| format!("{} takes no rules (its agent definition has no rulesync_target or rules_fallback)", ctx.kind_name))?;
-        let runner = runner.ok_or("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.")?;
+        let runner = runner.ok_or("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules & skills.")?;
         let inputs = inputs_for(dirs, &store, ctx, &target);
         let stage = dirs.run().join(&ctx.id);
         let out = apply::run(runner, &stage, exec, &ctx.id, cwd, &target, &inputs, &state.files)?;
@@ -979,7 +979,7 @@ pub fn project_update(dirs: &Dirs, path: &str, rules: &[String], take: Option<&s
 }
 
 fn need_runner(dirs: &Dirs) -> Res<runner::Runner> {
-    runner::runner(read(dirs).allow_npx).ok_or_else(|| "rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.".to_string())
+    runner::runner(read(dirs).allow_npx).ok_or_else(|| "rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules & skills.".to_string())
 }
 
 pub fn project_import_existing(dirs: &Dirs, path: &str) -> Res<ProjectImported> {

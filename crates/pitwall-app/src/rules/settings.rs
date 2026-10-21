@@ -1,5 +1,5 @@
-//! Settings → Rules (`src/components/rules/RulesSettings.tsx`): rulesync's
-//! status and the npx opt-in, then "Manage rules…": the library (with
+//! Settings → Rules & skills (`src/components/rules/RulesSettings.tsx`): rulesync's
+//! status and the npx opt-in, then "Manage rules & skills…": the library (with
 //! import and sources), rule sets with their editor, and project defaults
 //! (each project opens to what its agents get: the two scopes, the project's
 //! default set and each agent's own set). When agents' rules changed since
@@ -675,7 +675,7 @@ impl RulesSection {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(kit::label("Rules", t.text_3, 12.))
+            .child(kit::label("Rules & skills", t.text_3, 12.))
             .child(kit::hint("via rulesync", t))
             .child(div().flex_1())
             .child(chip)
@@ -1486,7 +1486,7 @@ impl Render for RulesSection {
                 div().flex().child(
                     kit::text_button(
                         "rules-manage",
-                        if self.open { "Hide rules" } else { "Manage rules…" },
+                        if self.open { "Hide rules & skills" } else { "Manage rules & skills…" },
                         BtnKind::Small,
                         false,
                         &t,

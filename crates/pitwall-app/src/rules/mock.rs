@@ -352,7 +352,7 @@ impl RulesBackend for MockRules {
     }
     fn apply(&self, agent_id: &str, _confirm: bool) -> Res<ApplyResult> {
         if !self.status().available {
-            return Err("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules.".into());
+            return Err("rulesync isn't available. Install it (npm install -g rulesync) or allow npx in Settings → Rules & skills.".into());
         }
         let generated = vec![".claude/rules/typescript.md".to_string()];
         let mut s = self.lock();

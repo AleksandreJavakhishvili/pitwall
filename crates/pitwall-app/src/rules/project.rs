@@ -1,4 +1,4 @@
-//! Settings → Rules → a project's own rules (docs/spec/rules.md, "Project
+//! Settings → Rules & skills → a project's own rules (docs/spec/rules.md, "Project
 //! rules"): library rules, ticked by set or one by one, copied into the
 //! repository's `.rulesync/rules/` for the user to commit; updates from the
 //! library with their diff (taken only on request; conflicts need a

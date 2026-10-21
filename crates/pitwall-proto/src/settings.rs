@@ -52,7 +52,7 @@ impl Page {
         match self {
             Page::General => "General",
             Page::Agents => "Agents",
-            Page::Rules => "Rules",
+            Page::Rules => "Rules & skills",
             Page::Appearance => "Appearance",
             Page::FolderAccess => "Folder access",
             Page::About => "About",
