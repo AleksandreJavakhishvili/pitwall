@@ -55,6 +55,9 @@ pub trait RulesBackend: Send + Sync + 'static {
     fn library_dir(&self) -> Res<PathBuf>;
     /// Pitwall's data folder as the UI writes it (`~/.pitwall`).
     fn data_dir(&self) -> String;
+    /// Write a new skill into the library (`body`: its SKILL.md, with or
+    /// without frontmatter). Returns its id.
+    fn new_skill(&self, name: &str, description: &str, body: &str) -> Res<String>;
     fn sets(&self) -> Vec<RuleSet>;
     fn save_set(&self, set: SaveRuleSet) -> Res<RuleSet>;
     fn delete_set(&self, id: &str) -> Res<()>;
@@ -128,6 +131,16 @@ impl RulesBackend for EngineRules {
     }
     fn data_dir(&self) -> String {
         pitwall_core::paths::tildify(&self.0.paths().root().to_string_lossy())
+    }
+    fn new_skill(&self, name: &str, description: &str, body: &str) -> Res<String> {
+        let entry = rules::NewEntry {
+            skill: true,
+            name: name.into(),
+            description: Some(description.into()),
+            text: Some(body.into()),
+            ..Default::default()
+        };
+        rules::new_entry(&self.dirs(), &entry).map(|(id, _)| id)
     }
     fn sets(&self) -> Vec<RuleSet> {
         rules::sets(&self.dirs())
@@ -322,6 +335,13 @@ pub fn error_after_create(cx: &mut App, agent_id: String) -> Option<gpui::Task<O
 pub fn skill_label(id: &str) -> &str {
     let rel = rule_label(id);
     rel.strip_prefix("skills/").unwrap_or(rel)
+}
+
+/// A skill's id ("library:skills/review"), not a rule's.
+pub fn is_skill_id(id: &str) -> bool {
+    rule_label(id)
+        .strip_prefix("skills/")
+        .is_some_and(|n| !n.is_empty() && !n.ends_with(".md") && !n.contains('/'))
 }
 
 /// "library:web/style.md" → "web/style.md" (`ruleLabel`).

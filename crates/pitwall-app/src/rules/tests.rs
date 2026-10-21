@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use gpui::{AppContext, TestAppContext};
 
-use super::field::{RulesChoice, RulesField};
+use super::field::{groups, set_label, RulesChoice, RulesField};
 use super::mock::MockRules;
 use super::settings::{agent_state, import_message, project_rows, toggle_pick, ImportKind};
 use super::widgets::Span;
@@ -14,6 +14,39 @@ fn labels_drop_the_source() {
     assert_eq!(rule_label("library:web/style.md"), "web/style.md");
     assert_eq!(rule_label("team:a:b.md"), "a:b.md");
     assert_eq!(rule_label("plain.md"), "plain.md");
+}
+
+#[test]
+fn the_new_agent_menu_groups_rule_sets_and_skills() {
+    let set = |name: &str, ids: &[&str]| pitwall_core::rules::RuleSet {
+        id: name.into(),
+        name: name.into(),
+        rule_ids: ids.iter().map(|i| format!("library:{i}")).collect(),
+    };
+    let web = set("Web", &["style.md", "skills/review"]);
+    let kit = set("Kit", &["skills/review", "skills/deploy"]);
+    let empty = set("Empty", &[]);
+    let rules = set("Plain", &["style.md"]);
+    assert_eq!(set_label(&web), "Web (1 rule, 1 skill)");
+    assert_eq!(set_label(&kit), "Kit (2 skills)");
+    assert_eq!(set_label(&empty), "Empty (empty)");
+    assert_eq!(set_label(&rules), "Plain (1 rule)");
+    assert_eq!(
+        groups(&[&kit, &web, &empty, &rules]),
+        vec![("Rule sets", vec![1, 2, 3]), ("Skills", vec![0])]
+    );
+    assert_eq!(groups(&[&kit]), vec![("Skills", vec![0])]);
+    assert!(is_skill_id("library:skills/review"));
+    assert!(!is_skill_id("library:skills/x.md") && !is_skill_id("team:web/style.md"));
+}
+
+#[test]
+fn the_mock_adds_skills() {
+    let m = MockRules::new();
+    assert_eq!(m.new_skill("lint", "Lint it", "").unwrap(), "library:skills/lint");
+    assert!(m.library().iter().any(|f| f.id == "library:skills/lint" && f.skill));
+    assert!(m.new_skill("lint", "Again", "").unwrap_err().contains("already"));
+    assert!(m.new_skill("bare", " ", "").unwrap_err().contains("description"));
 }
 
 #[test]
@@ -48,7 +81,7 @@ fn the_hint_names_the_project_default() {
 fn import_kinds_and_messages() {
     assert_eq!(
         ImportKind::Git.hint("~/.pw"),
-        "Cloned into ~/.pw/rules-sources; pull to update."
+        "Cloned into ~/.pw/rules-sources; pull to update. A repository with only .claude/skills has its skills copied into the library."
     );
     assert_eq!(ImportKind::File.placeholder(), "/path/to/project/CLAUDE.md");
     assert_eq!(import_message(1, ""), "Imported 1 rule.");

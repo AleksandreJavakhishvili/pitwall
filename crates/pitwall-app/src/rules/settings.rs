@@ -71,7 +71,9 @@ impl ImportKind {
             ImportKind::Project => {
                 "Read in place from the project's .rulesync/ (read-only).".into()
             }
-            ImportKind::Git => format!("Cloned into {data_dir}/rules-sources; pull to update."),
+            ImportKind::Git => format!(
+                "Cloned into {data_dir}/rules-sources; pull to update. A repository with only .claude/skills has its skills copied into the library."
+            ),
         }
     }
 }
@@ -114,6 +116,13 @@ pub struct RulesSection {
     editing: Option<Editing>,
     set_name: Entity<TextInput>,
     picked: Vec<String>,
+    /// The "New skill" form: open, its fields, saving, and its error.
+    skill_form: bool,
+    skill_name: Entity<TextInput>,
+    skill_desc: Entity<TextInput>,
+    skill_body: Entity<TextInput>,
+    skill_busy: bool,
+    skill_error: Option<String>,
     kind: ImportKind,
     source: Entity<TextInput>,
     importing: bool,
@@ -144,7 +153,33 @@ impl RulesSection {
     pub fn new(cx: &mut Context<Self>) -> RulesSection {
         let set_name = cx.new(|cx| TextInput::new(cx, "", "Set name"));
         let source = cx.new(|cx| TextInput::new(cx, "", ImportKind::File.placeholder()).mono());
+        let skill_name = cx.new(|cx| TextInput::new(cx, "", "Name, e.g. review").mono());
+        let skill_desc =
+            cx.new(|cx| TextInput::new(cx, "", "When to use it, e.g. Review a diff for bugs"));
+        let skill_body = cx.new(|cx| {
+            TextInput::new(cx, "", "Instructions (SKILL.md; frontmatter optional)")
+                .multiline(8)
+                .mono()
+        });
+        let skill_events = |this: &mut Self, e: &InputEvent, cx: &mut Context<Self>| match e {
+            InputEvent::Submit => this.save_skill(cx),
+            InputEvent::Cancel => {
+                this.skill_form = false;
+                cx.notify();
+            }
+            InputEvent::Changed => cx.notify(),
+            _ => {}
+        };
         let subs = vec![
+            cx.subscribe(&skill_name, move |this, _, e: &InputEvent, cx| {
+                skill_events(this, e, cx)
+            }),
+            cx.subscribe(&skill_desc, move |this, _, e: &InputEvent, cx| {
+                skill_events(this, e, cx)
+            }),
+            cx.subscribe(&skill_body, move |this, _, e: &InputEvent, cx| {
+                skill_events(this, e, cx)
+            }),
             cx.subscribe(&source, |this, _, e: &InputEvent, cx| match e {
                 InputEvent::Submit => this.import(cx),
                 InputEvent::Changed => cx.notify(),
@@ -171,6 +206,12 @@ impl RulesSection {
             editing: None,
             set_name,
             picked: vec![],
+            skill_form: false,
+            skill_name,
+            skill_desc,
+            skill_body,
+            skill_busy: false,
+            skill_error: None,
             kind: ImportKind::File,
             source,
             importing: false,
@@ -367,6 +408,44 @@ impl RulesSection {
                         v.changed(cx);
                     }
                     Err(e) => v.import_msg = Some((false, e)),
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    /// Open the "New skill" form, empty.
+    fn new_skill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for i in [&self.skill_name, &self.skill_desc, &self.skill_body] {
+            i.update(cx, |i, cx| i.set_text("", cx));
+        }
+        window.focus(&self.skill_name.focus_handle(cx));
+        self.skill_error = None;
+        self.skill_form = true;
+        cx.notify();
+    }
+
+    fn save_skill(&mut self, cx: &mut Context<Self>) {
+        let name = self.skill_name.read(cx).text().trim().to_string();
+        let desc = self.skill_desc.read(cx).text().trim().to_string();
+        let body = self.skill_body.read(cx).text().to_string();
+        if !self.skill_form || self.skill_busy || name.is_empty() || desc.is_empty() {
+            return;
+        }
+        self.skill_busy = true;
+        self.skill_error = None;
+        cx.notify();
+        call(
+            cx,
+            move |b| b.new_skill(&name, &desc, &body),
+            |v: &mut Self, r, cx| {
+                v.skill_busy = false;
+                match r {
+                    Ok(_) => {
+                        v.skill_form = false;
+                        v.changed(cx);
+                    }
+                    Err(e) => v.skill_error = Some(e),
                 }
                 cx.notify();
             },
@@ -666,6 +745,12 @@ impl RulesSection {
                     .child(self.lib.len().to_string()),
             )
             .child(div().flex_1())
+            .when(!self.skill_form, |d| {
+                d.child(
+                    mini("rules-new-skill", "New skill", false, t)
+                        .on_click(cx.listener(|v, _, window, cx| v.new_skill(window, cx))),
+                )
+            })
             .child(
                 mini("rules-reveal", "Open folder", false, t)
                     .on_click(cx.listener(|v, _, _, cx| v.reveal(cx))),
@@ -757,6 +842,7 @@ impl RulesSection {
             .flex_col()
             .gap(px(8.))
             .child(head)
+            .when(self.skill_form, |d| d.child(self.skill_form(t, cx)))
             .child(body)
             .child(self.import_form(t, cx));
         if !self.sources.is_empty() {
@@ -796,6 +882,58 @@ impl RulesSection {
             ));
         }
         sec
+    }
+
+    /// "New skill": a name, a description and the SKILL.md text, written
+    /// into the library (as `pitwall rules skill new`).
+    fn skill_form(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
+        let ready = !self.skill_name.read(cx).text().trim().is_empty()
+            && !self.skill_desc.read(cx).text().trim().is_empty();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .px(px(12.))
+            .py(px(10.))
+            .rounded(crate::theme::RADIUS)
+            .border_1()
+            .border_color(t.line)
+            .bg(t.surface_2)
+            .child(field_label("New skill", t))
+            .child(self.skill_name.clone())
+            .child(self.skill_desc.clone())
+            .child(self.skill_body.clone())
+            .child(kit::hint(
+                format!(
+                    "Saved as {}/rules/skills/<name>/SKILL.md; add scripts or references to that folder. Agents read the description to decide when to use it.",
+                    self.data_dir
+                ),
+                t,
+            ))
+            .when_some(self.skill_error.clone(), |d, e| d.child(kit::error_text(e, t)))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        kit::text_button(
+                            "rules-skill-save",
+                            if self.skill_busy { "Saving…" } else { "Add skill" },
+                            BtnKind::Primary,
+                            !ready || self.skill_busy,
+                            t,
+                        )
+                        .on_click(cx.listener(|v, _, _, cx| v.save_skill(cx))),
+                    )
+                    .child(
+                        kit::text_button("rules-skill-cancel", "Cancel", BtnKind::Ghost, false, t)
+                            .on_click(cx.listener(|v, _, _, cx| {
+                                v.skill_form = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
     }
 
     fn import_form(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::Div {
