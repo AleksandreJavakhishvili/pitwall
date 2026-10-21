@@ -213,7 +213,7 @@ pitwall rules set rename Web "Web defaults"
 pitwall rules set delete Web                         # asks first
 pitwall rules import project ~/code/api              # a project's own .rulesync/ (read in place)
 pitwall rules import file ~/code/api/CLAUDE.md       # a CLAUDE.md / AGENTS.md / GEMINI.md: asks first
-pitwall rules import git https://github.com/acme/ai-rules.git   # cloned: asks first
+pitwall rules import git https://github.com/acme/ai-rules.git   # cloned: asks first (only .claude/skills: copied into the library)
 pitwall rules default ~/code/api Web                 # a project's default set (`none` clears)
 pitwall rules apply api [--set strict|none]          # write the agent's rule files now
 pitwall rules apply api --main-checkout              # it works in the main checkout: asks first
@@ -227,7 +227,8 @@ existing CLAUDE.md into a set: `rules import file <path>`, then
 (`library:style.md`) or, when only one rule has it, by file name. Gemini CLI
 and Aider get rules too (Pitwall writes their file itself). `rules list`
 shows whether rulesync is available (`settings set rules.allowNpx true`
-allows npx; asks); importing a file needs it.
+allows npx; asks); importing a file needs it. The user does the same in Pitwall's
+Settings → Rules & skills.
 
 ## Review (read-only)
 
