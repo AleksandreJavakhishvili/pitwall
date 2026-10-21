@@ -471,6 +471,7 @@ case ",$feats," in *,rules,*)
 case ",$feats," in *,skills,*)
   for r in $ins; do for d in "$r"/skills/*/; do [ -f "$d/SKILL.md" ] || continue
     n=$(basename "$d"); mkdir -p "$out/.claude/skills/$n"; cp -R "$d". "$out/.claude/skills/$n/"
+    find "$out/.claude/skills/$n" -type f -exec chmod a-x {} + # rulesync drops the bit
     (cd "$out/.claude/skills/$n" && find . -type f | sed 's|^\./||' | sort) | while read -r f; do
       printf '{"action":"write","kind":"file","path":".claude/skills/%s/%s"},' "$n" "$f" >> "$out/ops"; done
   done; done
@@ -921,6 +922,7 @@ fn skills_only_generation_leaves_the_main_files_alone() {
     sh(&p.repo, &["commit", "-qm", "instructions"]);
     let lib_dir = skill(&p.dirs, "review", "name: review\ndescription: Review\n", "Read it.\n");
     write(&lib_dir.join("run.sh"), "#!/bin/sh\n");
+    crate::platform::make_executable(&lib_dir.join("run.sh")).unwrap();
     project_assign(&p.dirs, &p.path(), None, &["library:skills/review".into()], &[]).unwrap();
     let st = p.status();
     assert!(st.existing.is_empty(), "no import offer for skills");
@@ -928,6 +930,8 @@ fn skills_only_generation_leaves_the_main_files_alone() {
     let g = project_generate_with(&p.dirs, &runner, &p.repo, &["claudecode".into()], &[], Vec::new).unwrap();
     assert_eq!(g.features, vec!["skills"]);
     assert_eq!(g.written, vec![".claude/skills/review/SKILL.md", ".claude/skills/review/run.sh"], "{}", g.log);
+    assert!(crate::platform::is_executable(&p.repo.join(".claude/skills/review/run.sh")), "the script stays executable");
+    assert!(!crate::platform::is_executable(&p.repo.join(".claude/skills/review/SKILL.md")));
     assert_eq!(std::fs::read_to_string(p.repo.join("CLAUDE.md")).unwrap(), "# Ours\n");
     assert_eq!(std::fs::read_to_string(p.repo.join("AGENTS.md")).unwrap(), "# Ours too\n");
     let st = p.status().generated;
@@ -950,7 +954,9 @@ fn skills_only_generation_leaves_the_main_files_alone() {
 fn agents_get_personal_skills_kept_out_of_git() {
     let p = Proj::new("agent-skills");
     let Some(runner) = fake_rulesync(&p._t.0) else { return };
-    skill(&p.dirs, "mine", "name: mine\ndescription: Mine\n", "Personal.\n");
+    let mine = skill(&p.dirs, "mine", "name: mine\ndescription: Mine\n", "Personal.\n");
+    write(&mine.join("run.sh"), "#!/bin/sh\n");
+    crate::platform::make_executable(&mine.join("run.sh")).unwrap();
     skill(&p.dirs, "shared", "name: shared\ndescription: Shared\n", "Shared, from the library.\n");
     write(&p.repo.join(".claude/skills/shared/SKILL.md"), "the project's committed skill\n");
     sh(&p.repo, &["add", "-A"]);
@@ -964,6 +970,7 @@ fn agents_get_personal_skills_kept_out_of_git() {
     let c = main_ctx(&p);
     let res = apply_with(&p.dirs, Some(&runner), &LocalExec, &c, true).unwrap();
     assert!(res.generated.contains(&".claude/skills/mine/SKILL.md".to_string()), "{res:?}");
+    assert!(crate::platform::is_executable(&p.repo.join(".claude/skills/mine/run.sh")), "the script stays executable");
     assert!(res.log.contains("kept the project's .claude/skills/shared/SKILL.md"), "{}", res.log);
     assert_eq!(std::fs::read_to_string(p.repo.join(".claude/skills/shared/SKILL.md")).unwrap(), "the project's committed skill\n");
     let exclude = std::fs::read_to_string(p.repo.join(".git/info/exclude")).unwrap();
