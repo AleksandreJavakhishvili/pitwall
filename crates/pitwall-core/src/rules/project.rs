@@ -876,11 +876,13 @@ pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], 
         let doc = runner.run_json(stage, &args)?;
         let mut log: Vec<String> = runner::warnings(&doc).into_iter().map(|w| format!("rulesync: {w}")).collect();
         let ops = doc.pointer("/data/plan/operations").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-        let outputs: Vec<String> = ops
+        let mut outputs: Vec<String> = ops
             .iter()
             .filter(|o| o["action"] == "write" && o["kind"] == "file")
             .filter_map(|o| o["path"].as_str().map(String::from))
             .collect();
+        // rulesync lists them in directory order, which differs by filesystem.
+        outputs.sort();
         let before = m.generated.clone().map(|g| g.files).unwrap_or_default();
         let mut res = ProjectGenerated { targets: targets.to_vec(), features: features.clone(), ..Default::default() };
         let mut files = BTreeMap::new();
