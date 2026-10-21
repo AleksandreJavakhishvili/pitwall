@@ -281,8 +281,10 @@ fn git(args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
     }
 }
 
-/// Clone a git repo into ~/.pitwall/rules-sources/<name>.
-pub fn add_git(dirs: &Dirs, url: &str, sources: &[RuleSource]) -> Result<RuleSource, String> {
+/// Clone a git repo into ~/.pitwall/rules-sources/<name>. A repository
+/// with only Claude Code's `.claude/skills` has those copied into the
+/// library instead.
+pub fn add_git(dirs: &Dirs, url: &str, sources: &[RuleSource]) -> Result<Cloned, String> {
     let url = url.trim();
     if url.is_empty() || url.starts_with('-') {
         return Err("enter a git URL".into());
@@ -297,15 +299,33 @@ pub fn add_git(dirs: &Dirs, url: &str, sources: &[RuleSource]) -> Result<RuleSou
     let dest_s = dest.to_string_lossy().into_owned();
     git(&["clone", "--depth", "1", "--", url, &dest_s], None).map_err(|e| format!("git clone failed: {e}"))?;
     let Some(root) = find_root(&dest) else {
+        // Claude Code's skills without any rulesync setup: copied into the
+        // library, as for a project (nothing to keep a clone for).
+        let claude = !skills_in("claude", &dest.join(".claude")).is_empty();
+        let copied = if claude { import_claude_skills(dirs, &dest) } else { Err(String::new()) };
         let _ = std::fs::remove_dir_all(&dest); // our own fresh clone
-        return Err("that repository has no rulesync rules or skills (.rulesync/rules, .rulesync/skills, rules/ or skills/)".into());
+        return match copied {
+            Ok((added, skipped)) => Ok(Cloned::Skills { added, skipped }),
+            Err(e) if claude => Err(e),
+            Err(_) => Err("that repository has no rulesync rules or skills (.rulesync/rules, .rulesync/skills, rules/ or skills/) and no .claude/skills".into()),
+        };
     };
-    Ok(RuleSource {
+    Ok(Cloned::Source(RuleSource {
         name,
         kind: "git".into(),
         origin: url.to_string(),
         root: root.to_string_lossy().into_owned(),
-    })
+    }))
+}
+
+/// What a git import gave.
+#[derive(Debug)]
+pub enum Cloned {
+    /// A rulesync source tree, kept as a source (pull to update).
+    Source(RuleSource),
+    /// Only `.claude/skills`: copied into the library (ids added, names
+    /// skipped because the library has its own).
+    Skills { added: Vec<String>, skipped: Vec<String> },
 }
 
 pub fn pull(dirs: &Dirs, source: &RuleSource) -> Result<String, String> {
