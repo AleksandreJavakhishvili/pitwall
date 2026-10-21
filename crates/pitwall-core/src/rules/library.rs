@@ -378,6 +378,9 @@ pub struct NewEntry {
     pub targets: Vec<String>,
     /// A library id, a file, or a folder (a skill's) to start from.
     pub from: Option<String>,
+    /// The text to start from instead (a SKILL.md or rule file, with or
+    /// without frontmatter): the app's form.
+    pub text: Option<String>,
     /// `from` is the other kind (a skill to make a rule of, or the
     /// reverse): only with this.
     pub convert: bool,
@@ -456,7 +459,7 @@ pub fn create(dirs: &Dirs, lib: &[RuleFile], e: &NewEntry) -> Result<(String, Ve
     let mut notes = Vec::new();
     // (SKILL.md or rule text, a skill folder to copy, targets, description)
     let (text, folder): (String, Option<PathBuf>) = match e.from.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
-        None => (String::new(), None),
+        None => (e.text.clone().unwrap_or_default(), None),
         Some(f) => {
             if let Some(item) = lib.iter().find(|x| x.id == f) {
                 if item.skill != e.skill && !e.convert {

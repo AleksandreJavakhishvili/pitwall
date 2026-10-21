@@ -478,6 +478,7 @@ pub fn library_new(s: &Server, caller: &Caller, r: LibraryNew) -> Res {
         description: r.description,
         targets: r.targets,
         from: r.from,
+        text: None,
         convert: r.convert,
         overwrite: exists,
     };
