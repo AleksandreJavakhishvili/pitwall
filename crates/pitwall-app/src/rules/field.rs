@@ -1,7 +1,8 @@
-//! The New agent dialog's "Rules" field (`src/components/rules/RulesField.tsx`):
+//! The New agent dialog's "Rules & skills" field (`src/components/rules/RulesField.tsx`):
 //! the agent's own rule set on top of the project default, and the explicit
 //! OK to write rule files into the main checkout. Hidden until there are
-//! rule sets and the chosen kind can take rules.
+//! rule sets and the chosen kind can take rules. The dropdown groups the
+//! sets: ones with rules, then ones of skills only.
 //!
 //! The dialog owns one [`RulesField`], tells it what it needs each render
 //! ([`RulesField::sync`]), draws it as a child view and spreads
@@ -9,15 +10,15 @@
 
 use std::time::Duration;
 
-use gpui::{div, prelude::*, px, Context, SharedString, Task, Window};
+use gpui::{anchored, deferred, div, prelude::*, px, Context, SharedString, Task, Window};
 
 use pitwall_core::rules::{RuleSet, RulesStatus};
 
 use crate::kit;
 use crate::theme::appearance;
 
-use super::call;
 use super::widgets::{self, check_row, rich, Span};
+use super::{call, is_skill_id};
 
 /// The project-default lookup waits for typing to pause.
 const LOOKUP_DELAY: Duration = Duration::from_millis(250);
@@ -169,6 +170,33 @@ impl RulesField {
     }
 }
 
+/// "Web defaults (2 rules, 1 skill)".
+pub fn set_label(s: &RuleSet) -> String {
+    let skills = s.rule_ids.iter().filter(|id| is_skill_id(id)).count();
+    let rules = s.rule_ids.len() - skills;
+    let n = |k: usize, one: &str| format!("{k} {one}{}", if k == 1 { "" } else { "s" });
+    let counts = match (rules, skills) {
+        (0, 0) => "empty".to_string(),
+        (r, 0) => n(r, "rule"),
+        (0, k) => n(k, "skill"),
+        (r, k) => format!("{}, {}", n(r, "rule"), n(k, "skill")),
+    };
+    format!("{} ({counts})", s.name)
+}
+
+/// The dropdown's groups, as indexes into `sets`: sets with any rule
+/// ("Rule sets"), then sets of skills only ("Skills"); empty groups left out.
+pub fn groups(sets: &[&RuleSet]) -> Vec<(&'static str, Vec<usize>)> {
+    let skills_only =
+        |s: &RuleSet| !s.rule_ids.is_empty() && s.rule_ids.iter().all(|id| is_skill_id(id));
+    let (skills, rules): (Vec<usize>, Vec<usize>) =
+        (0..sets.len()).partition(|&i| skills_only(sets[i]));
+    [("Rule sets", rules), ("Skills", skills)]
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        .collect()
+}
+
 impl Render for RulesField {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(sets) = self.sets.clone().filter(|_| self.visible()) else {
@@ -195,29 +223,20 @@ impl Render for RulesField {
             .rule_set_id
             .as_ref()
             .and_then(|id| offered.iter().find(|s| &s.id == id))
-            .map(|s| format!("{} ({})", s.name, s.rule_ids.len()))
+            .map(|s| set_label(s))
             .unwrap_or_else(|| none_label.to_string())
             .into();
-        let mut items = vec![(none_label.to_string(), self.choice.rule_set_id.is_none())];
-        items.extend(offered.iter().map(|s| {
-            (
-                format!("{} ({})", s.name, s.rule_ids.len()),
-                self.choice.rule_set_id.as_ref() == Some(&s.id),
-            )
-        }));
-        let ids: Vec<Option<String>> = std::iter::once(None)
-            .chain(offered.iter().map(|s| Some(s.id.clone())))
-            .collect();
         let e = cx.entity().downgrade();
         let (e2, e3) = (e.clone(), e.clone());
-        let select = widgets::select(
+        // The kit's select draws the trigger; the menu is grouped here.
+        let trigger = widgets::select(
             "na-rules",
             current,
             34.,
             13.,
             true,
-            self.open,
-            widgets::items(items),
+            false,
+            vec![],
             &t,
             move |_, cx| {
                 let _ = e.update(cx, |f, cx| {
@@ -225,21 +244,73 @@ impl Render for RulesField {
                     cx.notify();
                 });
             },
-            widgets::on_pick(move |i, _, cx| {
-                let id = ids[i].clone();
-                let _ = e2.update(cx, |f, cx| {
+            widgets::on_pick(|_, _, _| {}),
+            widgets::on_close(|_, _| {}),
+        );
+        let pick = move |id: Option<String>| {
+            let e = e2.clone();
+            move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
+                let id = id.clone();
+                let _ = e.update(cx, |f, cx| {
                     f.choice.rule_set_id = id;
                     f.open = false;
                     cx.notify();
                 });
-            }),
-            widgets::on_close(move |_, cx| {
+            }
+        };
+        let item = |key: usize, label: String, on: bool| {
+            kit::menu_item(
+                ("na-rules-item", key),
+                if on { "check" } else { "" },
+                label,
+                None,
+                false,
+                &t,
+            )
+        };
+        let mut menu = kit::menu_panel(&t)
+            .id("na-rules-menu")
+            .occlude()
+            .max_h(px(320.))
+            .overflow_y_scroll()
+            .border_1()
+            .border_color(t.line_strong)
+            .on_mouse_down_out(move |_, _, cx| {
                 let _ = e3.update(cx, |f, cx| {
                     f.open = false;
                     cx.notify();
                 });
-            }),
-        );
+            })
+            .child(
+                item(0, none_label.to_string(), self.choice.rule_set_id.is_none())
+                    .on_click(pick(None)),
+            );
+        for (heading, idx) in groups(&offered) {
+            menu = menu.child(
+                kit::label(heading, t.text_3, 11.)
+                    .px(px(8.))
+                    .pt(px(8.))
+                    .pb(px(2.)),
+            );
+            for i in idx {
+                let s = offered[i];
+                let on = self.choice.rule_set_id.as_ref() == Some(&s.id);
+                menu = menu.child(item(i + 1, set_label(s), on).on_click(pick(Some(s.id.clone()))));
+            }
+        }
+        let select = div()
+            .relative()
+            .w_full()
+            .child(trigger)
+            .when(self.open, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(px(36.))
+                        .child(deferred(anchored().snap_to_window().child(menu))),
+                )
+            });
         let hint = Self::hint(
             project_name.as_deref(),
             self.choice.rule_set_id.is_some(),
@@ -251,12 +322,12 @@ impl Render for RulesField {
             .flex()
             .flex_col()
             .gap(px(6.))
-            .child(kit::label("Rules", t.text_3, 12.))
+            .child(kit::label("Rules & skills", t.text_3, 12.))
             .child(select)
             .child(div().text_size(px(12.)).child(rich(&parts, t.text_3)))
             .when(unavailable, |d| {
                 d.child(kit::error_text(
-                    "rulesync isn't available — install it or allow npx in Settings → Rules.",
+                    "rulesync isn't available — install it or allow npx in Settings → Rules & skills.",
                     &t,
                 ))
             })

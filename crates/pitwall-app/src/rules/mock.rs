@@ -184,6 +184,34 @@ impl RulesBackend for MockRules {
     fn data_dir(&self) -> String {
         "~/.pitwall".into()
     }
+    fn new_skill(&self, name: &str, description: &str, _body: &str) -> Res<String> {
+        let name = name.trim();
+        if name.is_empty() || name.contains('/') {
+            return Err(format!("\"{name}\" can't be a skill name"));
+        }
+        if description.trim().is_empty() {
+            return Err(
+                "give the skill a description: agents read it to decide when to use the skill"
+                    .into(),
+            );
+        }
+        let id = format!("library:skills/{name}");
+        let mut s = self.lock();
+        if s.lib.iter().any(|f| f.id == id) {
+            return Err(format!("the library already has a skill called {name}"));
+        }
+        s.lib.push(RuleFile {
+            id: id.clone(),
+            path: format!("~/.pitwall/rules/skills/{name}"),
+            description: Some(description.trim().into()),
+            targets: vec!["*".into()],
+            root: false,
+            local_root: false,
+            skill: true,
+            source: "library".into(),
+        });
+        Ok(id)
+    }
     fn sets(&self) -> Vec<RuleSet> {
         self.lock().sets.clone()
     }
