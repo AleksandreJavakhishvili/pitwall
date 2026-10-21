@@ -82,7 +82,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Agent row selected highlight for the focused agent (`src/components/AgentRow.tsx`) [in-house: list/virtual list]
 - [x] Click agent row → show agent (section 6 "Show agent") (`src/components/Sidebar.tsx`)
 - [x] Agent row is a drag source (`src/components/AgentRow.tsx`) [in-house: drag and drop]
-- [x] Agent row context menu: "Open terminal here" (creatable machines), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
+- [x] Agent row context menu: "Open terminal here" (creatable machines), "Rename…" (also double-click the row: the name becomes a field in place), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
 - [x] Agent row worktree chip "N worktrees" toggles its worktree list; expanding forces a worktree refresh (`src/components/AgentRow.tsx`, `src/components/Sidebar.tsx`)
 - [x] Per-project "N other worktrees" chip listing worktrees no agent works in (`src/components/Sidebar.tsx`)
 - [x] "Elsewhere" group: agents running in other terminal apps, collapsible, count (section 22) (`src/components/ElsewhereGroup.tsx`) [in-house: list/virtual list]
@@ -445,7 +445,7 @@ key code.
 - [x] Enter: run palette/quick-open item; submit dialogs; commit tab rename; open tree file; re-run search
 - [x] Arrows: palette/quick-open/menu ↑/↓; explorer tree ↑/↓/←/→; Review file list ↑/↓; diff menu ↑/↓ [in-house: list/virtual list] [in-house: file tree]
 - [x] Editor: Mod-F find, Enter/Shift+Enter next/prev in find, F3/Shift+F3, Mod-G/Shift+Mod-G, Esc closes find, default CodeMirror navigation keys (`src/components/review/editorSetup.ts`) [in-house: code/diff viewer]
-- [x] Mouse: double-click tab renames; double-click pane header maximises; middle-click viewer tab closes; right-click project/agent/worktree opens menus [in-house: tabs] [in-house: pane/split layout] [in-house: popover/menu]
+- [x] Mouse: double-click tab or sidebar agent renames; double-click pane header maximises; middle-click viewer tab closes; right-click project/agent/worktree opens menus [in-house: tabs] [in-house: pane/split layout] [in-house: popover/menu]
 - [x] Shortcut labels everywhere rendered per desktop (`keys()`, compact "⌃⇧" form in rows) (`src/lib/host.ts`, `src/components/Kbd.tsx`) [in-house: keybinding label]
 - [x] macOS native menu shortcuts: ⌘Q quit, ⌘W close window, ⌘H hide, ⌥⌘H hide others, ⌘M minimise, ⌃⌘F full screen, Edit ⌘Z/⇧⌘Z/⌘X/⌘C/⌘V/⌘A (Tauri default menu) (`src-tauri/src/menu.rs`)
 
