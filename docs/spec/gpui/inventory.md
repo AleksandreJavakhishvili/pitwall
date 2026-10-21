@@ -392,9 +392,9 @@ marks terminal items. Section 36 lists each component once.
 
 ## 21. Rules (via rulesync)
 
-- [x] Settings → Rules: status chip "rulesync <ver>" / "npx rulesync" / "not installed" (`src/components/rules/RulesSettings.tsx`)
+- [x] Settings → Rules & skills: status chip "rulesync <ver>" / "npx rulesync" / "not installed" (`src/components/rules/RulesSettings.tsx`)
 - [x] Install hint "npm install -g rulesync" and "Use npx -y rulesync when it isn't installed" checkbox (disabled without npx) (`src/components/rules/RulesSettings.tsx`) [in-house: checkbox/toggle]
-- [x] "Manage rules…" / "Hide rules" expander (`src/components/rules/RulesSettings.tsx`)
+- [x] "Manage rules & skills…" / "Hide rules & skills" expander (`src/components/rules/RulesSettings.tsx`)
 - [x] Library: count, "Open folder" (reveals in file manager), "Refresh", rule list (label, source chip, root, local, description), empty hint with data dir path (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: tooltip]
 - [x] Import form: kind select (CLAUDE.md / AGENTS.md file, project's .rulesync, git repository), source input with kind-specific placeholder and hint, Import, log/error output (`src/components/rules/RulesSettings.tsx`) [in-house: select/dropdown] [in-house: text input]
 - [x] Sources list: name, kind chip, origin, "Pull" (git), "Remove" (`src/components/rules/RulesSettings.tsx`) [in-house: list/virtual list] [in-house: tooltip]

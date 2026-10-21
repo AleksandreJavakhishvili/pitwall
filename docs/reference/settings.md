@@ -85,7 +85,7 @@ The prompt queued for a new Race Engineer when it first opens (empty: none).
 - **Stored in:** `ui.json` → `engineerGreeting`
 - **When an agent changes it:** applies directly
 
-## Rules
+## Rules & skills
 
 ### `rules.allowNpx`
 

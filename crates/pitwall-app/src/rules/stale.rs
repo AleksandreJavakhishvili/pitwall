@@ -2,7 +2,7 @@
 //! (`src/rules/useAgentRules.ts`), the header's "Re-apply rules &
 //! restart" button (`src/components/rules/RulesStaleButton.tsx`), and the
 //! bulk "Re-apply & restart all" ([`affected`], [`reapply_all`]) that
-//! Settings → Rules offers.
+//! Settings → Rules & skills offers.
 //!
 //! The poller reads `agent_rules` every 20 s while some header shows a
 //! button, when a window comes to the front, and after rules change. Views

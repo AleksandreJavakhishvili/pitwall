@@ -357,7 +357,7 @@ fn exclude(exec: &dyn Exec, cwd: &str, agent_id: &str, files: &[GenFile], log: &
 
 /// The first line of a fallback file.
 pub const FALLBACK_HEADER: &str =
-    "<!-- Written by Pitwall from your rules (Settings → Rules). Pitwall rewrites this file when rules are applied and keeps it out of git. -->";
+    "<!-- Written by Pitwall from your rules (Settings → Rules & skills). Pitwall rewrites this file when rules are applied and keeps it out of git. -->";
 
 fn body(src: &str) -> &str {
     match front_block(src) {

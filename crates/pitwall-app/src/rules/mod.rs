@@ -1,9 +1,9 @@
 //! Rules via rulesync (inventory §21; docs/spec/rules.md): a port of
 //! `src/components/rules/*` and `src/rules/*`.
 //!
-//! - [`settings`]: Settings → Rules (status, npx, library, import, sources,
+//! - [`settings`]: Settings → Rules & skills (status, npx, library, import, sources,
 //!   rule sets, project defaults), drawn through `settings::ExtraSections`;
-//! - [`field`]: the New agent dialog's "Rules" field;
+//! - [`field`]: the New agent dialog's "Rules & skills" field;
 //! - [`stale`]: the shared per-agent rules poller and the pane header's
 //!   "Re-apply rules & restart" button.
 //!
