@@ -8,13 +8,13 @@
 use crate::kit::Ellipsis as _;
 use crate::kit::HoverText;
 use gpui::{
-    div, point, prelude::*, px, AnyElement, App, Context, FontWeight, IntoElement, MouseButton,
-    MouseDownEvent, SharedString, Window,
+    div, point, prelude::*, px, AnyElement, App, Context, Entity, Focusable as _, FontWeight, IntoElement,
+    MouseButton, MouseDownEvent, SharedString, Window,
 };
 
 use pitwall_proto::{AgentView, Status};
 
-use crate::kit::{icon, MONO_FONT};
+use crate::kit::{icon, InputEvent, TextInput, MONO_FONT};
 use super::menu::MenuItem;
 use super::model::{by_account, initials, machine_heading, summarize, with_projects, AccountSection};
 use super::workspace::SidebarGroup;
@@ -26,6 +26,15 @@ use crate::kit::{
 use super::{Confirm, MainScreen, SelectNext, SelectPrev, SidebarMode};
 use crate::agents::{group_by_project, status_word, ProjectGroup};
 use crate::theme::{Theme, RADIUS, SIDEBAR_W};
+
+/// An agent's name being edited in its sidebar row, and why the last try
+/// failed.
+pub(super) struct AgentRenaming {
+    pub(super) id: String,
+    pub(super) input: Entity<TextInput>,
+    pub(super) error: Option<String>,
+    _sub: gpui::Subscription,
+}
 
 impl MainScreen {
     fn sidebar_groups(&self, agents: &[AgentView]) -> Vec<ProjectGroup> {
@@ -645,6 +654,8 @@ impl MainScreen {
                 push(Some(acc.id.clone()), acc.name.clone());
             }
         }
+        let rn = a.id.clone();
+        items.push(MenuItem::new("", "Rename…", move |this, window, cx| this.start_agent_rename(&rn, window, cx)));
         let id = a.id.clone();
         items.push(MenuItem::new(
             "trash",
@@ -652,6 +663,56 @@ impl MainScreen {
             move |this, _, cx| this.open_remove(&id, cx),
         ));
         self.open_menu(at, items, window, cx);
+    }
+
+    /// "Rename…" (or a double-click on its row): the agent's name becomes a
+    /// field in place. Enter saves, Esc cancels, leaving it saves a valid name.
+    pub(super) fn start_agent_rename(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.store.read(cx).agents.iter().find(|a| a.id == id).map(|a| a.name.clone()) else {
+            return;
+        };
+        self.menu = None;
+        let input = cx.new(|cx| TextInput::new(cx, &name, "Name"));
+        input.update(cx, |i, cx| i.select_all_text(cx));
+        let sub = cx.subscribe_in(&input, window, |this, _, e: &InputEvent, window, cx| match e {
+            InputEvent::Submit | InputEvent::SubmitShift => this.finish_agent_rename(true, window, cx),
+            InputEvent::Blur => this.finish_agent_rename(false, window, cx),
+            InputEvent::Cancel => {
+                this.agent_rename = None;
+                window.focus(&this.focus);
+                cx.notify();
+            }
+            InputEvent::Changed => {
+                if let Some(r) = this.agent_rename.as_mut().filter(|r| r.error.is_some()) {
+                    r.error = None;
+                    cx.notify();
+                }
+            }
+        });
+        window.focus(&input.focus_handle(cx));
+        self.agent_rename = Some(AgentRenaming { id: id.to_string(), input, error: None, _sub: sub });
+        cx.notify();
+    }
+
+    /// Save the name being edited. A bad one stays in the field with why
+    /// (`keep`), or is dropped (the field lost focus).
+    pub(super) fn finish_agent_rename(&mut self, keep: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(r) = self.agent_rename.as_mut() else { return };
+        let typed = r.input.read(cx).text().to_string();
+        let saved = pitwall_core::engine::check_name(&typed).map(str::to_string).and_then(|name| match &self.engine {
+            Some(engine) => engine.rename(&r.id, &name),
+            None => Err("Pitwall's engine isn't running".into()),
+        });
+        match saved {
+            Ok(view) => {
+                self.agent_rename = None;
+                crate::agents::patch(view, cx);
+                window.focus(&self.focus);
+            }
+            Err(e) if keep => r.error = Some(e),
+            Err(_) => self.agent_rename = None,
+        }
+        cx.notify();
     }
 
     /// Demo only: the agent menu next to the sidebar.
@@ -695,6 +756,9 @@ impl MainScreen {
         // Grouped by account, the heading already says it.
         let account = crate::accounts::name_of(cx, a.account.as_deref()).filter(|_| self.ui.sidebar_group != SidebarGroup::Account);
         let (id_click, id_menu) = (a.id.clone(), a.clone());
+        let renaming = self.agent_rename.as_ref().filter(|r| r.id == a.id);
+        let rename_error = renaming.and_then(|r| r.error.clone());
+        let rename_input = renaming.map(|r| r.input.clone());
         let drag = AgentDrag {
             id: a.id.clone(),
             name: a.name.clone().into(),
@@ -725,9 +789,13 @@ impl MainScreen {
             .when(cursor, |d| d.border_1().border_color(t.focus))
             .tooltip(tooltip(tip))
             .on_drag(drag, |d, grab, w, cx| d.ghost(grab, w, cx))
-            .on_click(
-                cx.listener(move |this, _, window, cx| this.show_agent(&id_click, window, cx)),
-            )
+            .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
+                if e.click_count() >= 2 {
+                    this.start_agent_rename(&id_click, window, cx);
+                } else {
+                    this.show_agent(&id_click, window, cx);
+                }
+            }))
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, e: &MouseDownEvent, window, cx| {
@@ -819,16 +887,26 @@ impl MainScreen {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(
-                                div()
+                            .child(match rename_input {
+                                // Clicks and drags in the field stay in it.
+                                Some(input) => div()
+                                    .id(SharedString::from(format!("row-rename-{}", a.id)))
+                                    .flex_1()
+                                    .min_w_0()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                    .on_click(|_, _, cx| cx.stop_propagation())
+                                    .child(input)
+                                    .into_any_element(),
+                                None => div()
                                     .flex_1()
                                     .min_w_0()
                                     .ellipsis()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_size(px(13.))
                                     .text_color(t.text)
-                                    .child(crate::kit::one_line(a.name.clone())),
-                            )
+                                    .child(crate::kit::one_line(a.name.clone()))
+                                    .into_any_element(),
+                            })
                             .when(a.engineer, |d| d.child(chip("engineer", t)))
                             .when_some(account, |d, n| d.child(chip(n, t)))
                             .child(status_label(a.status, t)),
@@ -856,6 +934,7 @@ impl MainScreen {
                                     .child(diffstat(a.added, a.removed, t)),
                             ),
                     )
+                    .when_some(rename_error, |d, e| d.child(crate::kit::error_text(e, t)))
                     .when(blocked, |d| {
                         d.children(a.status_detail.clone().map(|det| {
                             div()
