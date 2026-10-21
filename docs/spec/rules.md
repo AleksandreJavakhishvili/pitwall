@@ -1,4 +1,4 @@
-# Rules (via rulesync)
+# Rules & skills (via rulesync)
 
 Pitwall never reimplements rulesync; it calls the `rulesync` CLI (detect
 `rulesync` on PATH, else `npx -y rulesync` only if the user enabled it in
@@ -19,13 +19,17 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
   (`rules/*.md`, optionally `skills/`, `subagents/`, `commands/`). Plus
   imported sources: a project's own `.rulesync/`, an existing CLAUDE.md /
   AGENTS.md (via `rulesync import`), or a git repo (clone into
-  `~/.pitwall/rules-sources/<name>`, pull on demand).
+  `~/.pitwall/rules-sources/<name>`, pull on demand). A project's, or a git
+  repo's, Claude Code skills (`.claude/skills/<name>/SKILL.md`) are copied
+  into the library's skills (never over one of the same name); a git repo
+  with only those (no rulesync tree) keeps no clone.
 - **Rule sets**: named selections of library rules (stored in state).
 - **Assignment**: two scopes only. **Project**: rules copied into the
   repository and committed (see "Project rules"); the old project default
   set kept in Pitwall is only a fallback while the working folder has no
   `.rulesync/rules/`. **Agent**: an optional per-agent extra set, personal
-  and local-only (New agent dialog: "Rules" dropdown). There are no
+  and local-only (New agent dialog: "Rules & skills" dropdown, its sets grouped into
+  rule sets and skills-only sets). There are no
   account-wide or team-wide rules.
 - **Effective rules**: what an agent gets is the project default set (only
   as the fallback above), then
@@ -33,14 +37,15 @@ Reference docs: the `docs/` folder of a local clone of rulesync.
   working folder's own `.rulesync/` rules, keeping only rules whose
   `targets` include the agent's target (`*` or no `targets`: every agent).
   Rules picked in a set but gone from the library are listed as missing.
-  Settings → Rules → Project defaults → "Agents" shows this per project;
+  Settings → Rules & skills → Project defaults → "Agents" shows this per project;
   `pitwall rules show <project>` / `--agent <agent>` prints it.
 
 ## Skills (rulesync 27 format)
 Checked against rulesync 27.0.0's own source and bundled docs, and run
 end to end with rulesync 33.0.0 (`cargo test -p pitwall-core real_rulesync
 -- --ignored`; rulesync drops a skill script's executable bit, which
-Pitwall restores from the source)
+Pitwall restores from the source, in a project and in an agent's folder
+alike)
 (`src/features/skills/*`, `docs/reference/file-formats.md`,
 `docs/reference/cli-commands.md`):
 - Source: `.rulesync/skills/<dir>/SKILL.md` + other files in the folder.
@@ -67,7 +72,9 @@ Pitwall restores from the source)
   proper files (a skill gets `name`/`description`/`targets`; a folder's
   other files and frontmatter keys come along). New: direct; `--overwrite`
   asks. A skill becomes a rule (or the reverse) only with `--as-rule` /
-  `--as-skill`.
+  `--as-skill`. In the app: Settings → Rules & skills → Library → "New
+  skill" (name, description, SKILL.md text; frontmatter in the text is
+  read, the name and description given win), the same create path.
 
 ## Project rules (the project scope)
 Rules end up in the project: copied into `<repo>/.rulesync/rules/`, where the
@@ -81,7 +88,7 @@ user commits them (they show up in Review; nothing here goes in
   copy time; the targets and features the project generates; instruction files imported; the last
   generation (inputs fingerprint, output path → hash). The rule files stay
   plain rulesync files.
-- **Assign** a whole set or single rules (Settings → Rules → a project's
+- **Assign** a whole set or single rules (Settings → Rules & skills → a project's
   Details: checkboxes grouped by set; `pitwall rules project assign`).
   A rule goes to its path in its source (under `<source>/` when another
   source's rule has the name). A different file already there is never
@@ -152,7 +159,7 @@ user commits them (they show up in Review; nothing here goes in
   apply when the user explicitly confirms (checkbox in the dialog, default off).
 - Rules only affect new sessions; after edits show "Re-apply & restart" on
   affected agents.
-- Bulk: "Re-apply & restart all" (Settings → Rules, shown while any agent's
+- Bulk: "Re-apply & restart all" (Settings → Rules & skills, shown while any agent's
   rules changed or failed since its session started) re-applies every such
   agent, then restarts the running ones (stopped ones use the rules when
   they start). Only agents Pitwall may write for: own worktree, or a main
