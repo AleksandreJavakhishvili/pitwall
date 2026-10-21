@@ -854,6 +854,11 @@ fn new_rules_and_skills_in_the_library() {
     let (_, notes) = new(NewEntry { name: "deploy-rule".into(), from: Some("library:skills/deploy".into()), convert: true, ..Default::default() }).unwrap();
     assert!(notes.iter().any(|n| n.contains("run.sh")) && notes.iter().any(|n| n.contains("every session")), "{notes:?}");
     assert!(std::fs::read_to_string(dirs.library_rules().join("deploy-rule.md")).unwrap().contains("Run the deploy."));
+    // From text (the app's form): its frontmatter is read, the name is the given one.
+    let (id, _) = new(NewEntry { skill: true, name: "notes".into(), text: Some("---\nname: x\ndescription: Take notes\n---\nWrite them down.\n".into()), ..Default::default() }).unwrap();
+    assert_eq!(id, "library:skills/notes");
+    let md = std::fs::read_to_string(dirs.library().join("skills/notes/SKILL.md")).unwrap();
+    assert!(md.starts_with("---\nname: \"notes\"\ndescription: \"Take notes\"\n") && md.ends_with("---\nWrite them down.\n"), "{md}");
     // Overwriting is allowed when asked for.
     new(NewEntry { skill: true, name: "deploy".into(), description: Some("Ship it now".into()), overwrite: true, ..Default::default() }).unwrap();
     assert!(!dir.join("run.sh").exists(), "replaced as a whole");
