@@ -442,6 +442,17 @@ pub fn fallback(exec: &dyn Exec, agent_id: &str, cwd: &str, fb: &RulesFallback, 
     Ok(Outcome { files, log, exclude_file, launch_args })
 }
 
+/// The library file a generated skill file comes from
+/// (`.claude/skills/review/run.sh` → `<review's folder>/run.sh`).
+fn skill_file(skills: &[StagedSkill], rel: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let i = parts.iter().position(|p| *p == "skills")?;
+    let (name, rest) = (parts.get(i + 1)?, parts.get(i + 2..)?);
+    let skill = skills.iter().find(|s| s.name == *name)?;
+    let src = skill.dir.join(rest.join("/"));
+    (!rest.is_empty() && src.is_file()).then_some(src)
+}
+
 /// Run rulesync (here, in `stage`) and place its output in `cwd` on the
 /// agent's machine.
 #[allow(clippy::too_many_arguments)]
@@ -530,6 +541,13 @@ pub fn run(
             continue;
         }
         exec.write_file(&dest, &bytes).map_err(|e| format!("could not write {rel}: {e}"))?;
+        if skill_file(&inputs.skills, rel).is_some_and(|s| crate::platform::is_executable(&s)) {
+            // rulesync drops the bit; the agent's machine gets it back.
+            match exec.run(&exec::Cmd::new(&["chmod", "+x", &dest])) {
+                Ok(o) if o.ok() => {}
+                _ => log.push(format!("could not make {rel} executable")),
+            }
+        }
         files.push(GenFile { path: rel.clone(), hash: content_hash(&bytes) });
     }
 

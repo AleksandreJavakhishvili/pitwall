@@ -900,6 +900,7 @@ pub fn generate(root: &Path, runner: &Runner, stage: &Path, targets: &[String], 
             let dest = root.join(rel);
             let current = std::fs::read(&dest).ok();
             if current.as_deref() == Some(&bytes[..]) {
+                keep_executable(root, rel, &dest);
                 res.unchanged.push(rel.clone());
                 files.insert(rel.clone(), content_hash(&bytes));
                 continue;
