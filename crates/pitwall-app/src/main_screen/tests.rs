@@ -467,3 +467,29 @@ fn a_new_git_identity_restarts_the_projects_resumable_agents() {
     assert_eq!(restart, ["claude", "claude-in-term"]);
     assert_eq!(keep, ["shell"], "a plain terminal takes it when the user restarts it");
 }
+
+#[gpui::test]
+fn renaming_an_agent_shows_a_bad_name_in_place_and_esc_cancels(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    view.update_in(cx, |s, window, cx| s.start_agent_rename("api", window, cx));
+    let input = view.read_with(cx, |s, cx| {
+        let r = s.agent_rename.as_ref().expect("editing");
+        assert_eq!(r.id, "api");
+        assert_eq!(r.input.read(cx).text(), "api", "starts from its name");
+        r.input.clone()
+    });
+    input.update(cx, |i, cx| i.set_text("   ", cx));
+    view.update_in(cx, |s, window, cx| s.finish_agent_rename(true, window, cx));
+    view.read_with(cx, |s, _| {
+        let r = s.agent_rename.as_ref().expect("still editing");
+        assert_eq!(r.error.as_deref(), Some("a name can't be empty"));
+    });
+    input.update(cx, |i, cx| i.replace_text("billing", cx));
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| assert_eq!(s.agent_rename.as_ref().unwrap().error, None, "typing clears it"));
+    cx.dispatch_action(Dismiss);
+    view.read_with(cx, |s, cx| {
+        assert!(s.agent_rename.is_none());
+        assert_eq!(s.store.read(cx).agents.iter().find(|a| a.id == "api").unwrap().name, "api", "nothing changed");
+    });
+}

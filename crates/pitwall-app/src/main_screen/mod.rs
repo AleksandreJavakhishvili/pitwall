@@ -445,6 +445,8 @@ pub struct MainScreen {
     modal: Option<Modal>,
     menu: Option<CtxMenu>,
     rename: Option<(String, Entity<TextInput>)>,
+    /// An agent's name being edited in its sidebar row.
+    agent_rename: Option<sidebar::AgentRenaming>,
     projects: Vec<Project>,
     changes: ChangesState,
     toasts: Vec<Toast>,
@@ -575,6 +577,7 @@ impl MainScreen {
             modal: None,
             menu: None,
             rename: None,
+            agent_rename: None,
             projects,
             changes: ChangesState::default(),
             toasts: vec![],
@@ -1727,6 +1730,8 @@ impl MainScreen {
             self.close_modal(window, cx);
         } else if self.rename.is_some() {
             self.rename = None;
+        } else if self.agent_rename.is_some() {
+            self.agent_rename = None;
         } else if self.overlay_sidebar || self.drawer_open {
             self.overlay_sidebar = false;
             self.drawer_open = false;
