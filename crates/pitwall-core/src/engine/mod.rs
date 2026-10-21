@@ -472,14 +472,9 @@ impl Engine {
     }
 
     /// The name Pitwall shows for it (`pitwall agent rename`).
+    /// Only its name changes: id, worktree, branch and session stay.
     pub fn rename(&self, id: &str, name: &str) -> Result<AgentView, String> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err("a name can't be empty".into());
-        }
-        if name.chars().count() > 80 || name.chars().any(char::is_control) {
-            return Err("a name is at most 80 characters, on one line".into());
-        }
+        let name = check_name(name)?;
         let view = self.with(id, |a| {
             a.rec.name = name.to_string();
             a.view()
@@ -509,6 +504,19 @@ impl Engine {
             self.changed(persist);
         }
     }
+}
+
+/// An agent's name as given (trimmed), or why it can't be one. Names
+/// needn't be unique: the CLI asks for an id when one is shared.
+pub fn check_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("a name can't be empty".into());
+    }
+    if name.chars().count() > 80 || name.chars().any(char::is_control) {
+        return Err("a name is at most 80 characters, on one line".into());
+    }
+    Ok(name)
 }
 
 /// The `Exec` of a machine that can't be reached: every call fails with why.
@@ -586,6 +594,20 @@ mod tests {
         assert!(h.engine.rename("a", " ").is_err());
         assert!(h.engine.rename("a", "two\nlines").is_err());
         assert!(h.engine.rename("nope", "x").is_err());
+        assert!(h.engine.rename("a", &"x".repeat(81)).is_err());
+        let v = h.engine.rename("a", "web").unwrap();
+        assert_eq!((v.id.as_str(), v.name.as_str()), ("a", "web"), "the id stays");
+        h.engine.save().unwrap();
+        let saved = crate::store::Store::load(h.store.as_ref()).agents.remove(0);
+        assert_eq!((saved.id.as_str(), saved.name.as_str()), ("a", "web"), "saved under the same id");
+    }
+
+    #[test]
+    fn names_are_checked_as_typed() {
+        assert_eq!(check_name("  api ").unwrap(), "api");
+        assert_eq!(check_name(&"é".repeat(80)).unwrap().chars().count(), 80);
+        assert!(check_name("").is_err());
+        assert!(check_name("a\tb").is_err());
     }
 
     #[test]
