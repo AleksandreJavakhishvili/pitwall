@@ -493,3 +493,26 @@ fn renaming_an_agent_shows_a_bad_name_in_place_and_esc_cancels(cx: &mut TestAppC
         assert_eq!(s.store.read(cx).agents.iter().find(|a| a.id == "api").unwrap().name, "api", "nothing changed");
     });
 }
+
+#[gpui::test]
+fn a_renamed_agent_can_go_back_to_its_session_title(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    let labels = |view: &Entity<MainScreen>, cx: &mut VisualTestContext, a: AgentView| {
+        view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, window, cx));
+        view.read_with(cx, |s, _| s.menu_labels())
+    };
+    let mut a = agent("api", "/work/alpha", "idle", 1, true);
+    a.session_title = Some("Fix the login page".into());
+    a.name_auto = true;
+    assert!(!labels(&view, cx, a.clone()).iter().any(|l| l == "Use session title"), "already follows it");
+    a.name_auto = false;
+    assert!(labels(&view, cx, a.clone()).iter().any(|l| l == "Use session title"), "named by the user");
+    a.session_title = None;
+    assert!(!labels(&view, cx, a).iter().any(|l| l == "Use session title"), "no title to use");
+
+    // Saving the name unchanged pins nothing: the field just closes.
+    cx.dispatch_action(Dismiss);
+    view.update_in(cx, |s, window, cx| s.start_agent_rename("api", window, cx));
+    view.update_in(cx, |s, window, cx| s.finish_agent_rename(true, window, cx));
+    view.read_with(cx, |s, _| assert!(s.agent_rename.is_none(), "closed without asking the engine"));
+}
