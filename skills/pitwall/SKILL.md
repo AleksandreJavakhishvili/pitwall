@@ -29,7 +29,9 @@ only if told to.
   arguments (`bad_args`, `bad_params`), **3** the user denied or didn't
   answer an approval (`denied`, `approval_timeout`).
 - Agents and spaces can be named by id or by name (case-insensitive). Two
-  with the same name → `conflict`; use the id.
+  with the same name → `conflict`; use the id. An agent nobody named
+  takes its conversation's title (`nameAuto`), so its name can change:
+  keep ids for agents you come back to.
 - `unsupported` with "update Pitwall": this Pitwall is older than the CLI.
 
 ## Approvals
@@ -93,7 +95,8 @@ pitwall agent new --machine <vm> --name <session> --new-workspace [<name>] [--wo
 ## Manage agents
 
 ```bash
-pitwall agent rename a1b2 api
+pitwall agent rename a1b2 api              # kept from now on
+pitwall agent rename api --auto            # follow its conversation's title again
 pitwall agent stop api                     # asks; returns once it has stopped
 pitwall agent restart api                  # asks; continues its conversation when it can
 pitwall agent remove api                   # asks; an adopted agw session keeps running there

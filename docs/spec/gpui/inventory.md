@@ -82,7 +82,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Agent row selected highlight for the focused agent (`src/components/AgentRow.tsx`) [in-house: list/virtual list]
 - [x] Click agent row → show agent (section 6 "Show agent") (`src/components/Sidebar.tsx`)
 - [x] Agent row is a drag source (`src/components/AgentRow.tsx`) [in-house: drag and drop]
-- [x] Agent row context menu: "Open terminal here" (creatable machines), "Rename…" (also double-click the row: the name becomes a field in place), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
+- [x] Agent row context menu: "Open terminal here" (creatable machines), "Rename…" (also double-click the row: the name becomes a field in place; a name saved there is kept instead of the session title), "Use session title" (named by the user and the agent's own title is known: docs/spec/agents-more.md), "Remove agent…" (`src/components/Sidebar.tsx`) [in-house: popover/menu]
 - [x] Agent row worktree chip "N worktrees" toggles its worktree list; expanding forces a worktree refresh (`src/components/AgentRow.tsx`, `src/components/Sidebar.tsx`)
 - [x] Per-project "N other worktrees" chip listing worktrees no agent works in (`src/components/Sidebar.tsx`)
 - [x] "Elsewhere" group: agents running in other terminal apps, collapsible, count (section 22) (`src/components/ElsewhereGroup.tsx`) [in-house: list/virtual list]
