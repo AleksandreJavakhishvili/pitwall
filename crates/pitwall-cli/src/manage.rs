@@ -114,9 +114,15 @@ pub fn agent_cmd(cmd: &AgentCmd, c: &mut Client) -> Result<Output, Error> {
             let extra = if *worktree { " and deleted its worktree" } else { "" };
             Output { json: v, human: format!("Removed {}{extra}\n", a.name) }
         }
-        AgentCmd::Rename { name, .. } => {
-            let v: AgentView = manage(c, method::AGENT_RENAME, AgentRename { agent_id: a.id.clone(), name: name.clone() })?;
-            out(&v, format!("Renamed {} to {}\n", a.name, v.name))
+        AgentCmd::Rename { name, auto, .. } => {
+            let req = AgentRename { agent_id: a.id.clone(), name: name.clone().unwrap_or_default(), auto: *auto };
+            let v: AgentView = manage(c, method::AGENT_RENAME, req)?;
+            let human = match (*auto, &v.session_title) {
+                (false, _) => format!("Renamed {} to {}\n", a.name, v.name),
+                (true, Some(_)) => format!("{} follows its conversation's title: {}\n", a.name, v.name),
+                (true, None) => format!("{} will take its conversation's title once it has one\n", v.name),
+            };
+            out(&v, human)
         }
         AgentCmd::Status { .. } => {
             let d: AgentDiagnosis = manage(c, method::AGENT_STATUS, &r)?;

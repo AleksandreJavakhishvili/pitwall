@@ -172,16 +172,20 @@ pitwall agent remove [OPTIONS] <AGENT>
 
 ### agent rename
 
-Rename an agent.
+Rename an agent. A name you give is kept; agents otherwise take their conversation's title (Claude Code, Codex).
 
 ```bash
-pitwall agent rename [OPTIONS] <AGENT> <NAME>
+pitwall agent rename [OPTIONS] <AGENT> [NAME]
 ```
 
 | Argument | |
 |---|---|
 | `AGENT` | The agent (id or name). |
-| `NAME` | The new name. |
+| `NAME` (optional) | The new name. |
+
+| Option | |
+|---|---|
+| `--auto` | Follow its conversation's title again instead of a name. |
 
 ### agent status
 
