@@ -54,6 +54,12 @@ pub struct CtxMenu {
 }
 
 impl MainScreen {
+    /// The open menu's labels (tests).
+    #[cfg(test)]
+    pub(super) fn menu_labels(&self) -> Vec<String> {
+        self.menu.as_ref().map(|m| m.items.iter().map(|i| i.label.to_string()).collect()).unwrap_or_default()
+    }
+
     /// Open a menu at `at` with keyboard focus in it.
     pub(super) fn open_menu(
         &mut self,

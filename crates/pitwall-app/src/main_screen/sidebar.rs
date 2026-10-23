@@ -656,6 +656,11 @@ impl MainScreen {
         }
         let rn = a.id.clone();
         items.push(MenuItem::new("", "Rename…", move |this, window, cx| this.start_agent_rename(&rn, window, cx)));
+        // Named by the user, while its conversation has a title of its own.
+        if !a.name_auto && a.session_title.is_some() {
+            let id = a.id.clone();
+            items.push(MenuItem::new("", "Use session title", move |this, _, cx| this.use_session_title(&id, cx)));
+        }
         let id = a.id.clone();
         items.push(MenuItem::new(
             "trash",
@@ -699,6 +704,14 @@ impl MainScreen {
     pub(super) fn finish_agent_rename(&mut self, keep: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(r) = self.agent_rename.as_mut() else { return };
         let typed = r.input.read(cx).text().to_string();
+        // Unchanged: nothing to pin (a name following its title keeps doing so).
+        let current = self.store.read(cx).agents.iter().find(|a| a.id == r.id).map(|a| a.name.clone());
+        if current.as_deref() == Some(typed.trim()) {
+            self.agent_rename = None;
+            window.focus(&self.focus);
+            cx.notify();
+            return;
+        }
         let saved = pitwall_core::engine::check_name(&typed).map(str::to_string).and_then(|name| match &self.engine {
             Some(engine) => engine.rename(&r.id, &name),
             None => Err("Pitwall's engine isn't running".into()),
@@ -711,6 +724,15 @@ impl MainScreen {
             }
             Err(e) if keep => r.error = Some(e),
             Err(_) => self.agent_rename = None,
+        }
+        cx.notify();
+    }
+
+    /// "Use session title": the name follows the agent's conversation title again.
+    pub(super) fn use_session_title(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.menu = None;
+        if let Some(view) = self.engine.as_ref().and_then(|e| e.use_session_title(id).ok()) {
+            crate::agents::patch(view, cx);
         }
         cx.notify();
     }
