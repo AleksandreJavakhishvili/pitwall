@@ -489,6 +489,11 @@ fn managing_agents_queues_and_spaces() {
     // Agents by name or id.
     let o = h.run(&["agent", "rename", "worker", "api"]).unwrap();
     assert_eq!((o.json["name"].as_str(), o.human.as_str()), (Some("api"), "Renamed worker to api\n"));
+    assert_eq!(o.json["nameAuto"], false, "a name given is kept");
+    // Back to the conversation's title; a shell has none, so the name stays.
+    let o = h.run(&["agent", "rename", "api", "--auto"]).unwrap();
+    assert_eq!((o.json["name"].as_str(), o.json["nameAuto"].as_bool()), (Some("api"), Some(true)));
+    assert_eq!(o.human, "api will take its conversation's title once it has one\n");
     assert_eq!(h.run(&["agent", "status", &id]).unwrap().json["agentId"], id.as_str());
     let e = h.run(&["agent", "status", "nobody"]).err().unwrap();
     assert_eq!(failure(&e), (json!({"error": {"code": "not_found", "message": "no agent \"nobody\" in Pitwall (see `pitwall agent list`)"}}), 1));

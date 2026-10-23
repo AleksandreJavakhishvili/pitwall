@@ -478,12 +478,17 @@ pub enum AgentCmd {
         #[arg(long)]
         worktree: bool,
     },
-    /// Rename an agent.
+    /// Rename an agent. A name you give is kept; agents otherwise take
+    /// their conversation's title (Claude Code, Codex).
     Rename {
         /// The agent (id or name).
         agent: String,
         /// The new name.
-        name: String,
+        #[arg(required_unless_present = "auto", conflicts_with = "auto")]
+        name: Option<String>,
+        /// Follow its conversation's title again instead of a name.
+        #[arg(long)]
+        auto: bool,
     },
     /// Why an agent has its status (hooks, screen rules, activity).
     Status {
@@ -660,7 +665,10 @@ mod tests {
         assert_eq!(parse(&["settings", "get", "x"]).unwrap().command, Command::Settings(SettingsCmd::Get { key: "x".into() }));
         assert_eq!(parse(&["agent", "remove", "a1", "--worktree"]).unwrap().command, Command::Agent(AgentCmd::Remove { agent: "a1".into(), worktree: true }));
         assert_eq!(parse(&["agent", "stop", "api"]).unwrap().command, Command::Agent(AgentCmd::Stop { agent: "api".into() }));
-        assert_eq!(parse(&["agent", "rename", "a1", "api"]).unwrap().command, Command::Agent(AgentCmd::Rename { agent: "a1".into(), name: "api".into() }));
+        assert_eq!(parse(&["agent", "rename", "a1", "api"]).unwrap().command, Command::Agent(AgentCmd::Rename { agent: "a1".into(), name: Some("api".into()), auto: false }));
+        assert_eq!(parse(&["agent", "rename", "a1", "--auto"]).unwrap().command, Command::Agent(AgentCmd::Rename { agent: "a1".into(), name: None, auto: true }));
+        assert!(parse(&["agent", "rename", "a1"]).is_err(), "a name or --auto");
+        assert!(parse(&["agent", "rename", "a1", "api", "--auto"]).is_err(), "not both");
         assert_eq!(
             parse(&["agent", "move", "a1", "--space", "Work"]).unwrap().command,
             Command::Agent(AgentCmd::Move { agent: "a1".into(), space: "Work".into() })
