@@ -88,6 +88,13 @@ pub struct MachineView {
 pub struct AgentView {
     pub id: String,
     pub name: String,
+    /// The name follows its conversation's title (until the user renames it).
+    #[serde(default)]
+    pub name_auto: bool,
+    /// Its conversation's title as the agent itself keeps it, when Pitwall
+    /// can read one ("Use session title").
+    #[serde(default)]
+    pub session_title: Option<String>,
     /// What it is now: for a terminal running an agent the user started in
     /// it, that agent's kind (docs/spec/terminals.md).
     pub kind: String,

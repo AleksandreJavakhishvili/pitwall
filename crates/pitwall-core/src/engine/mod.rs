@@ -17,6 +17,7 @@ mod status;
 pub(crate) mod tasks;
 pub mod terminals;
 mod ticker;
+mod titles;
 pub(crate) mod worktree;
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -471,12 +472,14 @@ impl Engine {
         Ok(view)
     }
 
-    /// The name Pitwall shows for it (`pitwall agent rename`).
+    /// The name Pitwall shows for it (`pitwall agent rename`), kept from
+    /// now on: it no longer follows the conversation's title.
     /// Only its name changes: id, worktree, branch and session stay.
     pub fn rename(&self, id: &str, name: &str) -> Result<AgentView, String> {
         let name = check_name(name)?;
         let view = self.with(id, |a| {
             a.rec.name = name.to_string();
+            a.rec.name_source = Some(crate::model::NameSource::Manual);
             a.view()
         })?;
         self.changed(true);

@@ -122,7 +122,8 @@ pub fn continue_conversation(engine: &Shared, req: ContinueRequest) -> Result<Ag
         }
     }
     add_agent_project(engine, &view);
-    Ok(view)
+    // Named after the conversation it continues: it follows its title.
+    Ok(engine.use_session_title(&view.id).unwrap_or(view))
 }
 
 /// The agent's project joins the project list if it wasn't there yet (not

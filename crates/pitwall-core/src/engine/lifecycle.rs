@@ -11,7 +11,7 @@ use crate::clock::unix_ms;
 use crate::exec::{self, Exec};
 use crate::hooks;
 use crate::kind::{self, AgentKind};
-use crate::model::{size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateAgentRequest, KindCaps};
+use crate::model::{size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateAgentRequest, KindCaps, NameSource};
 use crate::onboarding::project_list;
 use crate::paths::expand_tilde_in;
 use crate::provider::{
@@ -188,10 +188,15 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     env.extend(git_identity_env(core, &*provider, &cwd, &project, req.git_identity.as_deref()));
     env.extend(core.tool_update_env());
 
+    // A name typed in New agent is kept; otherwise it follows the
+    // conversation's title once there is one.
+    let name_source = if req.name.trim().is_empty() && !req.engineer { NameSource::Auto } else { NameSource::Manual };
     let mut rec = AgentRecord {
         id: uuid::Uuid::new_v4().to_string(),
         locator: None,
         name,
+        name_source: Some(name_source),
+        session_title: None,
         kind: kind.id.clone(),
         kind_name: kind.name.clone(),
         custom_command: (kind.id == kind::CUSTOM).then(|| kind.command.clone()),
@@ -351,6 +356,9 @@ fn session_record(core: &Shared, id: String, loc: Locator, program: &str, cwd: S
         id,
         locator: Some(loc),
         name,
+        // The platform's own name for the session.
+        name_source: Some(NameSource::Manual),
+        session_title: None,
         kind,
         kind_name,
         custom_command: None,
@@ -908,6 +916,10 @@ mod tests {
         assert!(l.command_line.starts_with(&format!("claude --session-id {sid} --settings ")), "hooks wired: {}", l.command_line);
         assert!(v.running && v.caps.input && v.caps.stop && v.caps.restart);
         assert!(!v.caps.resume, "nothing to resume before a prompt");
+        assert!(v.name_auto && v.name == "Claude Code", "no name typed: its conversation's title, once there is one");
+        let typed = create(&h.engine, CreateAgentRequest { name: "api".into(), ..req("shell", &dir, false) }).unwrap();
+        assert!(!typed.name_auto, "a typed name is kept");
+        remove(&h.engine, &typed.id, false).unwrap();
 
         // Input reaches the agent's terminal.
         crate::engine::input::write_input(&h.engine, &v.id, "echo hi\r").unwrap();
@@ -954,7 +966,7 @@ mod tests {
 
         r.display_project = Some(project.clone());
         let v = create(&h.engine, r).unwrap();
-        assert!(v.engineer);
+        assert!(v.engineer && !v.name_auto);
         assert_eq!(v.name, "Race Engineer");
         let workdir = crate::engineer::workdir(h.engine.paths());
         assert_eq!(v.cwd, workdir.to_string_lossy());

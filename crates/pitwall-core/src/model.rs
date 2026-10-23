@@ -148,6 +148,14 @@ pub struct AgentRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locator: Option<Locator>,
     pub name: String,
+    /// Where `name` comes from; missing in older state files (see
+    /// [`AgentRecord::name_auto`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_source: Option<NameSource>,
+    /// Its conversation's title as the agent itself last recorded it
+    /// (`onboarding::latest::session_title`); what an `Auto` name follows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_title: Option<String>,
     pub kind: String,
     pub kind_name: String,
     #[serde(default)]
@@ -229,7 +237,27 @@ pub struct InnerAgent {
     pub left_at: Option<u64>,
 }
 
+/// Where an agent's name comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NameSource {
+    /// Follows its conversation's title, once there is one.
+    Auto,
+    /// The user's: kept as given.
+    Manual,
+}
+
 impl AgentRecord {
+    /// Its name follows its conversation's title. Records from before name
+    /// sources: only while the name is still its kind's own (a name someone
+    /// chose is never overwritten).
+    pub fn name_auto(&self) -> bool {
+        match self.name_source {
+            Some(s) => s == NameSource::Auto,
+            None => self.name == self.kind_name && !self.engineer,
+        }
+    }
+
     /// Where it lives (`local:this-mac/<id>` for records from before providers).
     pub fn locator(&self) -> Locator {
         self.locator.clone().unwrap_or_else(|| Locator::local(&self.id))
