@@ -495,8 +495,13 @@ fn renaming_queueing_and_reading_never_ask() {
     let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
     let a = local_agent(&mut c, "worker", &dir);
 
+    assert!(!a.name_auto, "a name typed in New agent is kept");
     let v = c.call("agent.rename", json!({"agentId": a.id, "name": "api"})).unwrap();
-    assert_eq!(v["name"], "api");
+    assert_eq!((&v["name"], &v["nameAuto"]), (&json!("api"), &json!(false)));
+    let v = c.call("agent.rename", json!({"agentId": a.id, "auto": true})).unwrap();
+    assert_eq!((&v["name"], &v["nameAuto"]), (&json!("api"), &json!(true)), "no title yet: the name stays");
+    let v = c.call("agent.rename", json!({"agentId": a.id, "name": "api"})).unwrap();
+    assert_eq!(v["nameAuto"], false, "renaming pins it again");
     assert_eq!(server_error(c.call("agent.rename", json!({"agentId": a.id, "name": " "})).unwrap_err()).code, code::BAD_PARAMS);
 
     c.call("queue.add", json!({"agentId": a.id, "text": "run the tests"})).unwrap();

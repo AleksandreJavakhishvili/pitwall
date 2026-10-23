@@ -152,6 +152,9 @@ pub fn remove(s: &Server, caller: &Caller, r: AgentRemove) -> Res {
 
 pub fn rename(s: &Server, r: AgentRename) -> Res {
     agent(s, &r.agent_id)?;
+    if r.auto {
+        return ok(s.engine.use_session_title(&r.agent_id).map_err(bad)?);
+    }
     ok(s.engine.rename(&r.agent_id, &r.name).map_err(bad)?)
 }
 
