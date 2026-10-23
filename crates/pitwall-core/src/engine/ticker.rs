@@ -10,7 +10,7 @@ use pitwall_detect::{self as detect, Detection};
 use super::status::{next_status, raw_state, ACTIVITY_WINDOW_MS};
 use super::tasks::{self, Job};
 use super::gitwatch::{self, FsWatch};
-use super::{worktree, Agent, Engine, Shared};
+use super::{titles, worktree, Agent, Engine, Shared};
 use crate::events::Event;
 use crate::model::{Attention, Source, Status};
 use crate::term::TermHost;
@@ -148,6 +148,9 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
             a.git_every = 0;
         }
         out.task_jobs.extend(ended);
+        // A finished turn may have (re)titled its conversation (agents
+        // without hooks; titles.rs).
+        a.title_wanted |= prev.0 == Status::Working && matches!(a.status, Status::Done | Status::Idle);
         a.status_since = now;
         let reason = match a.status {
             Status::Blocked => Some("blocked"),
@@ -227,6 +230,7 @@ fn tick(core: &Shared, badge: &mut usize) {
     let mut task_jobs = Vec::new();
     let blocked;
     let wt_probes;
+    let title_jobs;
     {
         let mut agents = core.agents();
         for p in probes {
@@ -246,6 +250,7 @@ fn tick(core: &Shared, badge: &mut usize) {
         jobs = git_due(&mut agents, now);
         blocked = agents.iter().filter(|a| a.status == Status::Blocked).count();
         wt_probes = worktree::due(&mut agents, now);
+        title_jobs = titles::due(&mut agents);
     }
 
     // 3. Side effects, unlocked.
@@ -269,6 +274,10 @@ fn tick(core: &Shared, badge: &mut usize) {
             let found = worktree::discover(&*core.exec_for(&probe.id), &probe, cwd);
             worktree::apply(&core, &probe.id, found);
         });
+    }
+    if !title_jobs.is_empty() {
+        let core = core.clone();
+        std::thread::spawn(move || titles::run(&core, title_jobs));
     }
     if changed || persist {
         core.changed(persist);

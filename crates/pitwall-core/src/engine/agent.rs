@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::hooks::{HookEffect, HookState};
-use crate::model::{AgentCaps, AgentRecord, AgentView, KindCaps, MachineView, Source, Status};
+use crate::model::{AgentCaps, AgentRecord, AgentView, KindCaps, MachineView, NameSource, Source, Status};
 use crate::paths;
 use crate::provider::ProviderCaps;
 use crate::term::{TermHost, DEFAULT_COLS, DEFAULT_ROWS};
@@ -90,12 +90,20 @@ pub struct Agent {
     /// `rec.cwd` resolved on its machine (symlinks, letter case), for
     /// matching worktree paths; (cwd it was resolved from, result).
     pub real_cwd: Option<(String, String)>,
+    /// Its conversation's title should be read again (titles.rs): set on
+    /// the events that can change it, cleared when the ticker reads it.
+    pub title_wanted: bool,
 }
 
 impl Agent {
     /// `now`: the engine clock's mono ms.
-    pub fn new(rec: AgentRecord, host: Option<Arc<TermHost>>, now: u64) -> Self {
+    pub fn new(mut rec: AgentRecord, host: Option<Arc<TermHost>>, now: u64) -> Self {
         let status = if host.is_some() { Status::Unknown } else { Status::Stopped };
+        // Records from before name sources keep what they had (see `name_auto`).
+        if rec.name_source.is_none() {
+            rec.name_source = Some(if rec.name_auto() { NameSource::Auto } else { NameSource::Manual });
+        }
+        let rec_has_session = rec.session_id.is_some();
         Agent {
             rec,
             host,
@@ -133,6 +141,8 @@ impl Agent {
             hook_session: None,
             shell_used: false,
             real_cwd: None,
+            // Titles may have changed while Pitwall wasn't running.
+            title_wanted: rec_has_session,
         }
     }
 
@@ -231,6 +241,8 @@ impl Agent {
         AgentView {
             id: r.id.clone(),
             name: r.name.clone(),
+            name_auto: r.name_auto(),
+            session_title: r.session_title.clone(),
             kind: self.kind().to_string(),
             kind_name: self.inner.as_ref().map_or(&r.kind_name, |i| &i.kind_name).clone(),
             terminal: self.is_terminal(),
@@ -288,9 +300,14 @@ impl Agent {
         } else if let Some(id) = effect.session_id {
             if self.rec.session_id.as_deref() != Some(id.as_str()) {
                 self.rec.session_id = Some(id);
+                // Another conversation: its own title, once it has one.
+                self.rec.session_title = None;
+                self.title_wanted = true;
                 persist = true;
             }
         }
+        // A prompt or a finished turn can (re)title the conversation.
+        self.title_wanted |= effect.prompt_submitted || effect.state == Some(HookState::Done);
         if effect.prompt_submitted && !self.rec.has_conversation {
             self.rec.has_conversation = true;
             persist = true;

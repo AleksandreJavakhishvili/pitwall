@@ -7,6 +7,15 @@ import type { Status } from "./Status";
 
 export type AgentView = { id: string, name: string, 
 /**
+ * The name follows its conversation's title (until the user renames it).
+ */
+nameAuto: boolean, 
+/**
+ * Its conversation's title as the agent itself keeps it, when Pitwall
+ * can read one ("Use session title").
+ */
+sessionTitle: string | null, 
+/**
  * What it is now: for a terminal running an agent the user started in
  * it, that agent's kind (docs/spec/terminals.md).
  */
