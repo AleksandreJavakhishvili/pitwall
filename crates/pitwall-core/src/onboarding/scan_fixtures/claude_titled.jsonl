@@ -1,0 +1,8 @@
+{"type":"permission-mode","permissionMode":"default","sessionId":"s3"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Add pagination to the invoices list"},"cwd":"/Users/dev/code/billing","sessionId":"s3"}
+{"type":"summary","summary":"Invoice list pagination","leafUuid":"u1"}
+{"type":"ai-title","aiTitle":"Paginate invoices","sessionId":"s3"}
+{"parentUuid":"u1","isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done: the \"summary\" view pages now."}]},"cwd":"/Users/dev/code/billing","sessionId":"s3"}
+{"type":"ai-title","aiTitle":"Paginate the invoices list","sessionId":"s3"}
+{"type":"custom-title","customTitle":"  billing:\tpages  ","sessionId":"s3"}
+{"type":"ai-title","aiTitle":"Later generated title","sessionId":"s3"}

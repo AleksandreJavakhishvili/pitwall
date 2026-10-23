@@ -699,6 +699,31 @@ pub fn parse_claude_transcript(r: impl BufRead, want_title: bool) -> TranscriptI
     info
 }
 
+/// The title Claude Code keeps for a conversation, newest of each kind:
+/// the user's own (`/rename`: `custom-title`), else its generated one
+/// (`ai-title`), else a `summary` entry; else the first prompt. Reads the
+/// whole transcript, parsing only lines that can hold one of them.
+pub fn parse_claude_title(r: impl BufRead) -> Option<String> {
+    let (mut custom, mut ai, mut summary, mut first) = (None, None, None, None);
+    let named = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(title_of);
+    for line in r.split(b'\n').map_while(Result::ok) {
+        let has = |needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
+        let marked = has(b"custom-title") || has(b"ai-title") || has(b"\"summary\"");
+        if !marked && (first.is_some() || !has(b"\"user\"")) {
+            continue;
+        }
+        let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
+        match v.get("type").and_then(Value::as_str) {
+            Some("custom-title") => custom = named(&v, "customTitle").or(custom),
+            Some("ai-title") => ai = named(&v, "aiTitle").or(ai),
+            Some("summary") => summary = named(&v, "summary").or(summary),
+            Some("user") if first.is_none() => first = parse_claude_transcript(&line[..], true).title,
+            _ => {}
+        }
+    }
+    custom.or(ai).or(summary).or(first)
+}
+
 fn env_context_cwd(text: &str) -> Option<String> {
     let start = text.find("<cwd>")? + "<cwd>".len();
     let end = text[start..].find("</cwd>")? + start;
@@ -957,6 +982,22 @@ mod tests {
         let quick = parse_claude_transcript(reader(src), false);
         assert_eq!(quick.title, None);
         assert_eq!(quick.cwd.as_deref(), Some("/Users/dev/code/orders-api"));
+    }
+
+    #[test]
+    fn claude_titles_the_user_s_own_first_then_its_own_then_the_prompt() {
+        let src = include_str!("scan_fixtures/claude_titled.jsonl");
+        assert_eq!(parse_claude_title(reader(src)).as_deref(), Some("billing: pages"), "the /rename title wins");
+        let no_custom: String = src.lines().filter(|l| !l.contains("custom-title")).map(|l| format!("{l}\n")).collect();
+        assert_eq!(parse_claude_title(reader(&no_custom)).as_deref(), Some("Later generated title"), "the newest generated one");
+        let summary_only: String = no_custom.lines().filter(|l| !l.contains("ai-title")).map(|l| format!("{l}\n")).collect();
+        assert_eq!(parse_claude_title(reader(&summary_only)).as_deref(), Some("Invoice list pagination"));
+        let prompt_only: String = summary_only.lines().filter(|l| !l.contains("\"summary\",")).map(|l| format!("{l}\n")).collect();
+        assert_eq!(parse_claude_title(reader(&prompt_only)).as_deref(), Some("Add pagination to the invoices list"));
+        let tools = include_str!("scan_fixtures/claude_tool_only.jsonl");
+        assert_eq!(parse_claude_title(reader(tools)).as_deref(), Some("Old session"), "a summary, no prompt");
+        assert_eq!(parse_claude_title(reader(tools.lines().skip(1).collect::<Vec<_>>().join("\n").as_str())), None);
+        assert_eq!(parse_claude_title(reader("")), None);
     }
 
     #[test]
