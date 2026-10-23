@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use super::project_list::normalize;
-use super::scan::{parse_claude_transcript, parse_codex_session};
+use super::scan::{parse_claude_title, parse_claude_transcript, parse_codex_session, title_of};
 
 /// Codex logs looked at, newest first, before giving up.
 const MAX_CODEX_FILES: usize = 60;
@@ -56,7 +56,12 @@ pub fn claude_project_dir(cwd: &str) -> String {
 }
 
 fn claude_dir(home: &Path, cwd: &str) -> PathBuf {
-    home.join(".claude").join("projects").join(claude_project_dir(cwd))
+    claude_dir_in(&home.join(".claude"), cwd)
+}
+
+/// The same under Claude Code's config folder `root` (`~/.claude`, or an account's).
+fn claude_dir_in(root: &Path, cwd: &str) -> PathBuf {
+    root.join("projects").join(claude_project_dir(cwd))
 }
 
 fn claude_title(file: &Path) -> Option<String> {
@@ -66,8 +71,13 @@ fn claude_title(file: &Path) -> Option<String> {
 
 /// Recent Codex session logs (the last few dated folders), newest first.
 fn codex_recent(home: &Path) -> Vec<(PathBuf, u64)> {
+    codex_recent_in(&home.join(".codex"))
+}
+
+/// The same under Codex's folder `root` (`~/.codex`, or an account's).
+fn codex_recent_in(root: &Path) -> Vec<(PathBuf, u64)> {
     let mut days = Vec::new();
-    'outer: for year in names_desc(&home.join(".codex").join("sessions")) {
+    'outer: for year in names_desc(&root.join("sessions")) {
         for month in names_desc(&year) {
             for day in names_desc(&month) {
                 days.push(day);
@@ -115,12 +125,49 @@ pub fn newest(home: &Path, kind: &str, cwd: &str, since: Option<u64>) -> Option<
 pub fn title(home: &Path, kind: &str, cwd: &str, session_id: &str) -> Option<String> {
     match kind {
         "claude" => claude_title(&claude_dir(home, &normalize(cwd)).join(format!("{session_id}.jsonl"))),
-        "codex" => codex_recent(home)
-            .into_iter()
-            .filter(|(f, _)| f.file_name().is_some_and(|n| n.to_string_lossy().contains(session_id)))
-            .find_map(|(f, _)| codex_info(&f)?.title),
+        "codex" => codex_first_prompt(&home.join(".codex"), session_id),
         _ => None,
     }
+}
+
+fn codex_first_prompt(root: &Path, session_id: &str) -> Option<String> {
+    codex_recent_in(root)
+        .into_iter()
+        .filter(|(f, _)| f.file_name().is_some_and(|n| n.to_string_lossy().contains(session_id)))
+        .find_map(|(f, _)| codex_info(&f)?.title)
+}
+
+/// Codex's name for a thread (its `session_index.jsonl`, appended to as
+/// threads are named; the last entry for it wins).
+fn codex_thread_name(root: &Path, session_id: &str) -> Option<String> {
+    let text = std::fs::read(root.join("session_index.jsonl")).ok()?;
+    text.split(|b| *b == b'\n')
+        .rev()
+        .filter_map(|l| serde_json::from_slice::<serde_json::Value>(l).ok())
+        .find(|v| v.get("id").and_then(|i| i.as_str()) == Some(session_id))
+        .and_then(|v| v.get("thread_name")?.as_str().map(str::trim).filter(|t| !t.is_empty()).map(title_of))
+}
+
+/// A conversation's title as the agent itself keeps it, fit for an agent's
+/// name (one line, at most 80 characters): the title the agent stores
+/// (Claude Code: `/rename`'s, else its own generated one or a summary;
+/// Codex: the thread's name), else the first prompt. `root` is the kind's
+/// folder (`~/.claude`, `~/.codex`, or an account's). Kinds whose files
+/// Pitwall can't read → `None`.
+pub fn session_title(root: &Path, kind: &str, cwd: &str, session_id: &str) -> Option<String> {
+    if session_id.is_empty() || session_id.contains(['/', '\\']) {
+        return None;
+    }
+    let t = match kind {
+        "claude" => {
+            let f = std::fs::File::open(claude_dir_in(root, &normalize(cwd)).join(format!("{session_id}.jsonl"))).ok()?;
+            parse_claude_title(BufReader::new(f))
+        }
+        "codex" => codex_thread_name(root, session_id).or_else(|| codex_first_prompt(root, session_id)),
+        _ => None,
+    }?;
+    let t: String = t.chars().filter(|c| !c.is_control()).collect();
+    Some(t).filter(|t| !t.trim().is_empty())
 }
 
 #[cfg(test)]
@@ -186,5 +233,36 @@ mod tests {
         assert_eq!((got.session_id.as_str(), got.title.as_deref()), ("019a", Some("hello 019a")));
         assert_eq!(title(home.path(), "codex", "/w/app", "019c").as_deref(), Some("hello 019c"));
         assert_eq!(newest(home.path(), "codex", "/w/none", None), None);
+    }
+
+    #[test]
+    fn session_titles_as_the_agents_keep_them() {
+        let root = TempDir::new("titles-claude");
+        let file = claude_dir_in(root.path(), "/w/app").join("s1.jsonl");
+        write(&file, "{\"type\":\"user\",\"cwd\":\"/w/app\",\"sessionId\":\"s1\",\"message\":{\"content\":\"fix the build\"}}\n");
+        assert_eq!(session_title(root.path(), "claude", "/w/app/", "s1").as_deref(), Some("fix the build"), "the first prompt");
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.push_str("{\"type\":\"ai-title\",\"aiTitle\":\"Fix the build\\u0007 on CI\",\"sessionId\":\"s1\"}\n");
+        write(&file, &text);
+        assert_eq!(session_title(root.path(), "claude", "/w/app", "s1").as_deref(), Some("Fix the build on CI"), "its own title, one clean line");
+        let long = "x".repeat(200);
+        text.push_str(&format!("{{\"type\":\"custom-title\",\"customTitle\":\"{long}\",\"sessionId\":\"s1\"}}\n"));
+        write(&file, &text);
+        let t = session_title(root.path(), "claude", "/w/app", "s1").unwrap();
+        assert!(crate::engine::check_name(&t).is_ok() && t.chars().count() == 80, "fits a name: {t}");
+        assert_eq!(session_title(root.path(), "claude", "/w/app", "nope"), None);
+        assert_eq!(session_title(root.path(), "claude", "/w/app", "../s1"), None);
+        assert_eq!(session_title(root.path(), "aider", "/w/app", "s1"), None, "a kind Pitwall can't read");
+
+        let root = TempDir::new("titles-codex");
+        let log = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"019a\",\"cwd\":\"/w/app\"}}\n{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"add a login page\"}}\n";
+        write(&root.path().join("sessions/2026/10/06/rollout-2026-10-06T10-00-00-019a.jsonl"), log);
+        assert_eq!(session_title(root.path(), "codex", "/w/app", "019a").as_deref(), Some("add a login page"));
+        let index = "{\"id\":\"019a\",\"thread_name\":\"Login page\",\"updated_at\":\"2026-10-06T10:01:00Z\"}\n\
+                     {\"id\":\"019b\",\"thread_name\":\"Other\",\"updated_at\":\"2026-10-06T10:02:00Z\"}\n\
+                     {\"id\":\"019a\",\"thread_name\":\"Login page, with SSO\",\"updated_at\":\"2026-10-06T10:03:00Z\"}\n";
+        write(&root.path().join("session_index.jsonl"), index);
+        assert_eq!(session_title(root.path(), "codex", "/w/app", "019a").as_deref(), Some("Login page, with SSO"), "the thread's newest name");
+        assert_eq!(session_title(root.path(), "codex", "/w/app", "019c"), None);
     }
 }
