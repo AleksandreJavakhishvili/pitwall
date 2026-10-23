@@ -32,7 +32,12 @@ pub struct AgentRemove {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRename {
     pub agent_id: String,
+    /// Kept as given from now on (ignored with `auto`).
+    #[serde(default)]
     pub name: String,
+    /// Follow the conversation's title again instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto: bool,
 }
 
 /// `agent.wait`: block until the agent's status is one of `until`.
@@ -738,7 +743,8 @@ mod tests {
         round_trip(&AgentRemove { agent_id: "a1".into(), delete_worktree: true }, json!({"agentId":"a1","deleteWorktree":true}));
         let r: AgentRemove = serde_json::from_value(json!({"agentId":"a1"})).unwrap();
         assert!(!r.delete_worktree, "keeps the worktree unless asked");
-        round_trip(&AgentRename { agent_id: "a1".into(), name: "api".into() }, json!({"agentId":"a1","name":"api"}));
+        round_trip(&AgentRename { agent_id: "a1".into(), name: "api".into(), auto: false }, json!({"agentId":"a1","name":"api"}));
+        round_trip(&AgentRename { agent_id: "a1".into(), name: String::new(), auto: true }, json!({"agentId":"a1","name":"","auto":true}));
         round_trip(
             &AgentWait { agent_id: "a1".into(), until: vec![Status::Idle, Status::Done], timeout_ms: Some(500), fresh: true },
             json!({"agentId":"a1","until":["idle","done"],"timeoutMs":500,"fresh":true}),
