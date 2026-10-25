@@ -624,6 +624,7 @@ fn human_snapshots_for_managing() {
         ],
         added: 16,
         removed: 3,
+        compared_with: None,
     };
     assert_eq!(manage::review("api", &r), "M  +12 -3  src/lib.rs\nU  +4 -0   notes.md\n   +16 -3  2 file(s)\n");
     assert_eq!(manage::review("api", &ReviewChanges { files: vec![], added: 0, removed: 0, ..r }), "api: no changes\n");

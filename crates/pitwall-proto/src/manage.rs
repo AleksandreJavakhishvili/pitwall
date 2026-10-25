@@ -704,6 +704,10 @@ pub struct ReviewRequest {
     pub agent_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    /// Compare with this branch (`develop`, `origin/main`) just this once,
+    /// instead of what Review compares with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -726,6 +730,10 @@ pub struct ReviewChanges {
     pub files: Vec<ChangedFile>,
     pub added: u32,
     pub removed: u32,
+    /// The branch the agent's work is compared with (`develop`,
+    /// `origin/main`); not for a task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compared_with: Option<String>,
 }
 
 #[cfg(test)]
@@ -770,7 +778,8 @@ mod tests {
         round_trip(&RuleSetSave { id: None, name: "Web".into(), rule_ids: vec!["library:a.md".into()] }, json!({"name":"Web","ruleIds":["library:a.md"]}));
         round_trip(&RulesImport { kind: "git".into(), source: "https://x/r.git".into() }, json!({"kind":"git","source":"https://x/r.git"}));
         round_trip(&RulesShow { project: None, agent_id: Some("a1".into()) }, json!({"agentId":"a1"}));
-        round_trip(&ReviewRequest { agent_id: "a1".into(), task_id: None }, json!({"agentId":"a1"}));
+        round_trip(&ReviewRequest { agent_id: "a1".into(), task_id: None, base: None }, json!({"agentId":"a1"}));
+        round_trip(&ReviewRequest { agent_id: "a1".into(), task_id: None, base: Some("develop".into()) }, json!({"agentId":"a1","base":"develop"}));
     }
 
     #[test]
@@ -804,8 +813,9 @@ mod tests {
                 files: vec![ChangedFile { path: "src/a.rs".into(), added: 3, removed: 1, binary: false, untracked: false, status: Some(FileStatus::M) }],
                 added: 3,
                 removed: 1,
+                compared_with: Some("develop".into()),
             },
-            json!({"agentId":"a1","since":"agent","files":[{"path":"src/a.rs","added":3,"removed":1,"binary":false,"untracked":false,"status":"M"}],"added":3,"removed":1}),
+            json!({"agentId":"a1","since":"agent","files":[{"path":"src/a.rs","added":3,"removed":1,"binary":false,"untracked":false,"status":"M"}],"added":3,"removed":1,"comparedWith":"develop"}),
         );
         round_trip(
             &AgentDiagnosis {

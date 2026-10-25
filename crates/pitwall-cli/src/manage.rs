@@ -633,7 +633,7 @@ pub fn rule_set_cmd(cmd: &RuleSetCmd, c: &mut Client) -> Result<Output, Error> {
 pub fn review_cmd(cmd: &ReviewCmd, c: &mut Client) -> Result<Output, Error> {
     let ReviewCmd::Changes { agent: key, task } = cmd;
     let a = agent(c, key)?;
-    let r: ReviewChanges = manage(c, method::REVIEW_CHANGES, ReviewRequest { agent_id: a.id.clone(), task_id: task.clone() })?;
+    let r: ReviewChanges = manage(c, method::REVIEW_CHANGES, ReviewRequest { agent_id: a.id.clone(), task_id: task.clone(), base: None })?;
     Ok(out(&r, review(&a.name, &r)))
 }
 
