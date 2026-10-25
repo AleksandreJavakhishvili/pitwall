@@ -407,6 +407,10 @@ pub enum ReviewCmd {
         /// One task's changes (ids in the Review screen).
         #[arg(long, value_name = "TASK_ID")]
         task: Option<String>,
+        /// Compare with this branch (`develop`, `origin/main`) instead of
+        /// the one Review compares with.
+        #[arg(long, value_name = "BRANCH", conflicts_with = "task")]
+        base: Option<String>,
     },
 }
 
@@ -756,7 +760,11 @@ mod tests {
             Command::Rules(RulesCmd::Project(ProjectRulesCmd::ImportExisting { project: Some(".".into()) }))
         );
         assert_eq!(parse(&["rules", "show", "--agent", "api"]).unwrap().command, Command::Rules(RulesCmd::Show { project: None, agent: Some("api".into()) }));
-        assert_eq!(parse(&["review", "changes", "api", "--json"]).unwrap().command, Command::Review(ReviewCmd::Changes { agent: "api".into(), task: None }));
+        assert_eq!(parse(&["review", "changes", "api", "--json"]).unwrap().command, Command::Review(ReviewCmd::Changes { agent: "api".into(), task: None, base: None }));
+        assert_eq!(
+            parse(&["review", "changes", "api", "--base", "develop"]).unwrap().command,
+            Command::Review(ReviewCmd::Changes { agent: "api".into(), task: None, base: Some("develop".into()) })
+        );
         assert_eq!(
             parse(&["wait", "api", "--for", "idle,done", "--timeout", "60", "--fresh"]).unwrap().command,
             Command::Wait(WaitArgs { agent: "api".into(), until: vec!["idle".into(), "done".into()], timeout: Some(60), fresh: true })
