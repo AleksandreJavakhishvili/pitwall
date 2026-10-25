@@ -6,6 +6,7 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 
 ### Highlights
 
+- Review compares an agent's branch with the branch it was created from (read from git's own records), not with a local `main` that may be months old: a branch made from `develop` shows only its own work. Of a branch and its `origin/` copy, the one that has moved on further is used; with no record, the main branch. The header says "Compared with <branch>", and its menu chooses another local or origin branch (remembered for that repository and branch) or Automatic. `pitwall review changes --base <branch>` does the same once.
 - See what rules each agent gets: Settings → Rules & skills → Project defaults → Agents shows a project's default set, each agent's own set, the rules they add up to for that agent's kind, its files, and whether they are applied. `pitwall rules show <project>` (or `--agent <agent>`) prints the same.
 - Gemini CLI and Aider get rules too, though rulesync has no target for them: Pitwall writes the rules into `GEMINI.md` (or a file of its own when the project has one) and `.aider.pitwall-rules.md` (passed with `--read`), kept out of git like the other generated files.
 - The Race Engineer (and scripts) can manage rules from the CLI: `pitwall rules set create|add|remove|rename|delete` and `pitwall rules import project|file|git`. Deleting a set and importing a file or a repository ask you first.
