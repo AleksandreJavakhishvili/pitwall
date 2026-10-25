@@ -93,36 +93,147 @@ fn versions(original: Option<Vec<u8>>, modified: Option<Vec<u8>>) -> FileVersion
     FileVersions { original: original.and_then(text), modified: modified.and_then(text), binary }
 }
 
-/// What Review compares an agent's work with: where its branch left the
-/// branch it goes back into, so neither its own commits drop out nor what
-/// others merged there since shows up. On that branch itself: HEAD (its
-/// uncommitted work). The branch it goes back into: for a worktree agent
-/// the main checkout's current branch (`main_checkout`), else the
-/// project's main branch ([`main_branch`]).
+/// What Review compares an agent's work with ([`compare_with`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewBase {
+    /// The commit the work is diffed against: where the branch left
+    /// `branch` (`git merge-base`), or `HEAD` on that branch itself.
+    pub rev: String,
+    /// The branch compared with, as the ref used (`develop`,
+    /// `origin/main`); `None` when there is none.
+    pub branch: Option<String>,
+    /// The user chose it (else found automatically).
+    pub chosen: bool,
+}
+
+/// [`compare_with`]'s commit, found automatically.
 pub fn review_base(top: &Git, main_checkout: Option<&str>) -> String {
-    let target = match main_checkout {
-        Some(repo) => top.at(repo).current_branch(),
-        None => main_branch(top),
-    };
-    match target {
-        Some(t) if top.current_branch().as_deref() != Some(t.as_str()) => {
-            top.merge_base("HEAD", &t).unwrap_or_else(|| "HEAD".into())
+    compare_with(top, main_checkout, None).rev
+}
+
+/// What Review compares an agent's work with: where its branch left the
+/// branch it came from, so neither its own commits drop out nor what
+/// others merged there since shows up. On that branch itself: HEAD (its
+/// uncommitted work). The branch, in order:
+/// - `chosen` by the user (when it still exists), used as it is;
+/// - the one this branch was created from, by git's own records
+///   ([`parent_branch`]);
+/// - for a worktree agent, the main checkout's current branch
+///   (`main_checkout`), which its merge goes into;
+/// - the project's main branch ([`main_branch`]).
+///
+/// Found automatically, of a local branch and its `origin/` copy whichever
+/// has moved on further ([`copies`]), so a local `main` left months behind
+/// doesn't put all that history into Review.
+pub fn compare_with(top: &Git, main_checkout: Option<&str>, chosen: Option<&str>) -> ReviewBase {
+    let current = top.current_branch();
+    let chosen = chosen.filter(|c| is_branch(top, c)).map(String::from);
+    let (name, refs) = match &chosen {
+        Some(c) => (c.clone(), vec![c.clone()]),
+        None => {
+            let name = current
+                .as_deref()
+                .and_then(|b| parent_branch(top, b))
+                .or_else(|| main_checkout.and_then(|r| top.at(r).current_branch()))
+                .or_else(|| main_branch(top));
+            let Some(name) = name else {
+                return ReviewBase { rev: "HEAD".into(), branch: None, chosen: false };
+            };
+            let refs = copies(top, &name);
+            (name, refs)
         }
-        _ => "HEAD".into(),
+    };
+    let found = ReviewBase { rev: "HEAD".into(), branch: Some(name.clone()), chosen: chosen.is_some() };
+    if current.as_deref() == Some(name.as_str()) {
+        return found;
+    }
+    let newest = refs.iter().filter_map(|r| top.merge_base("HEAD", r).map(|b| (r, b))).reduce(|best, x| {
+        let newer = x.1 != best.1 && top.run(&["merge-base", "--is-ancestor", &best.1, &x.1]).is_ok();
+        if newer { x } else { best }
+    });
+    match newest {
+        Some((r, rev)) => ReviewBase { rev, branch: Some(r.clone()), ..found },
+        None => found,
     }
 }
 
-/// The repository's main branch: the one `origin/HEAD` names, else `main`
-/// or `master`; a local branch when there is one (merges land there).
+fn ref_exists(top: &Git, r: &str) -> bool {
+    top.run(&["rev-parse", "--verify", "-q", r]).is_ok()
+}
+
+/// `name` is a local branch or a remote one (`origin/x`), not `HEAD`.
+fn is_branch(top: &Git, name: &str) -> bool {
+    !(name.is_empty() || name == "HEAD" || name.ends_with("/HEAD"))
+        && (ref_exists(top, &format!("refs/heads/{name}")) || ref_exists(top, &format!("refs/remotes/{name}")))
+}
+
+/// The branch `branch` was created from, by git's own records: the oldest
+/// entry of its reflog ("branch: Created from develop"); when that says
+/// HEAD, the HEAD reflog's oldest switch to it ("checkout: moving from
+/// develop to <branch>"). Not when that is the branch itself (or its
+/// `origin/` copy), a commit, or a branch that no longer exists; nor when
+/// the records are gone (a fresh clone, an expired reflog).
+pub fn parent_branch(top: &Git, branch: &str) -> Option<String> {
+    let oldest = |args: &[&str], pick: &dyn Fn(&str) -> Option<String>| -> Option<String> {
+        top.run(args).ok()?.lines().filter_map(pick).last()
+    };
+    let created = oldest(&["reflog", "show", "--format=%gs", &format!("refs/heads/{branch}"), "--"], &|l| {
+        l.strip_prefix("branch: Created from ").map(String::from)
+    });
+    let from = match created?.trim() {
+        "HEAD" => {
+            let to = format!(" to {branch}");
+            oldest(&["reflog", "show", "--format=%gs", "HEAD", "--"], &|l| {
+                l.strip_prefix("checkout: moving from ")?.strip_suffix(to.as_str()).map(String::from)
+            })?
+        }
+        x => x.to_string(),
+    };
+    let from = from.strip_prefix("refs/heads/").or_else(|| from.strip_prefix("refs/remotes/")).unwrap_or(&from);
+    let own = from == branch || from.split_once('/').is_some_and(|(_, rest)| rest == branch);
+    (!own && is_branch(top, from)).then(|| from.to_string())
+}
+
+/// The repository's main branch's name: the one `origin/HEAD` names, else
+/// `main` or `master`, when there is such a branch here or on origin.
 pub fn main_branch(top: &Git) -> Option<String> {
     let remote = top.run(&["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).ok();
-    let remote = remote.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
-    let named = remote.as_deref().and_then(|r| r.split_once('/')).map(|(_, b)| b.to_string());
-    let local = named
-        .into_iter()
-        .chain(["main".to_string(), "master".to_string()])
-        .find(|b| top.run(&["rev-parse", "--verify", "-q", &format!("refs/heads/{b}")]).is_ok());
-    local.or(remote)
+    let named = remote.as_deref().map(str::trim).and_then(|r| r.split_once('/')).map(|(_, b)| b.to_string());
+    named.into_iter().chain(["main".to_string(), "master".to_string()]).find(|b| {
+        ref_exists(top, &format!("refs/heads/{b}")) || ref_exists(top, &format!("refs/remotes/origin/{b}"))
+    })
+}
+
+/// The copies of branch `name` (`develop` or `origin/develop`) that can be
+/// compared with: the local branch and its `origin/` copy, those there are
+/// (else `name` itself, e.g. `upstream/x`).
+pub fn copies(top: &Git, name: &str) -> Vec<String> {
+    let local = match name.strip_prefix("origin/") {
+        Some(l) if !ref_exists(top, &format!("refs/heads/{name}")) => l,
+        _ => name,
+    };
+    let mut refs = Vec::new();
+    if ref_exists(top, &format!("refs/heads/{local}")) {
+        refs.push(local.to_string());
+    }
+    if ref_exists(top, &format!("refs/remotes/origin/{local}")) {
+        refs.push(format!("origin/{local}"));
+    }
+    if refs.is_empty() && is_branch(top, name) {
+        refs.push(name.to_string());
+    }
+    refs
+}
+
+/// Every branch Review can compare with: the local ones, then origin's.
+pub fn branches(top: &Git) -> Vec<String> {
+    let out = top.run(&["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"]).unwrap_or_default();
+    out.lines()
+        .filter(|r| !r.ends_with("/HEAD"))
+        .filter_map(|r| r.strip_prefix("refs/heads/").or_else(|| r.strip_prefix("refs/remotes/")))
+        .map(String::from)
+        .collect()
 }
 
 fn base_rev(top: &Git, base: Option<&str>) -> String {
@@ -378,6 +489,153 @@ mod tests {
         r.git(&["merge", "-q", "--no-ff", "--no-edit", "agent"]);
         assert!(paths(&wg, &review_base(&wg, Some(r.path()))).is_empty(), "merged work leaves Review");
         r.git(&["worktree", "remove", "--force", &wt]);
+    }
+
+    /// A local main left far behind `origin/main` (never pulled) doesn't
+    /// bring all of origin's history into Review; nor does a stale
+    /// `origin/main` when the local one is newer.
+    #[test]
+    fn review_uses_whichever_main_has_moved_on_further() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        let old_main = r.git(&["rev-parse", "HEAD"]).trim().to_string();
+        r.write("b.txt", "b\n");
+        r.commit_all("merged upstream");
+        // origin/main is here; local main stays at `init`.
+        r.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        r.git(&["checkout", "-q", "-b", "feature"]);
+        r.git(&["branch", "-f", "main", &old_main]);
+        r.write("f.txt", "f\n");
+        r.commit_all("feature work");
+        assert_eq!(copies(&top, "main"), ["main", "origin/main"]);
+        assert_eq!(compare_with(&top, None, None).branch.as_deref(), Some("origin/main"));
+        assert_eq!(paths(&top, &review_base(&top, None)), ["f.txt"]);
+
+        // The other way round: local main ahead, origin/main stale.
+        r.git(&["update-ref", "refs/remotes/origin/main", &old_main]);
+        r.git(&["branch", "-f", "main", "feature~1"]);
+        assert_eq!(compare_with(&top, None, None).branch.as_deref(), Some("main"));
+        assert_eq!(paths(&top, &review_base(&top, None)), ["f.txt"]);
+
+        // Only origin/main (no local main): still compared with it.
+        r.git(&["branch", "-D", "main"]);
+        r.git(&["update-ref", "refs/remotes/origin/main", "feature~1"]);
+        assert_eq!(copies(&top, "main"), ["origin/main"]);
+        assert_eq!(paths(&top, &review_base(&top, None)), ["f.txt"]);
+    }
+
+    fn branch_of(top: &Git, chosen: Option<&str>) -> Option<String> {
+        compare_with(top, None, chosen).branch
+    }
+
+    /// A branch made from `develop` is compared with `develop`, not with
+    /// main (which may be far away): only its own work shows.
+    #[test]
+    fn review_compares_with_the_branch_it_was_created_from() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        r.git(&["checkout", "-q", "-b", "develop"]);
+        r.write("d.txt", "d\n");
+        r.commit_all("develop work");
+        // "branch: Created from develop".
+        r.git(&["branch", "feat", "develop"]);
+        r.git(&["checkout", "-q", "feat"]);
+        assert_eq!(parent_branch(&top, "feat").as_deref(), Some("develop"));
+        r.write("f.txt", "f\n");
+        r.commit_all("feature work");
+        r.write("u.txt", "u\n");
+        // What develop gets afterwards stays out.
+        r.git(&["update-ref", "refs/heads/develop", "feat~1"]);
+        assert_eq!(branch_of(&top, None).as_deref(), Some("develop"));
+        assert_eq!(paths(&top, &review_base(&top, None)), ["f.txt", "u.txt"]);
+
+        // "branch: Created from HEAD": the HEAD reflog's switch to it.
+        r.git(&["checkout", "-q", "develop"]);
+        r.git(&["checkout", "-q", "-b", "feat2"]);
+        assert_eq!(r.git(&["reflog", "show", "--format=%gs", "refs/heads/feat2"]).trim(), "branch: Created from HEAD");
+        assert_eq!(parent_branch(&top, "feat2").as_deref(), Some("develop"));
+        r.git(&["checkout", "-q", "feat"]);
+        assert_eq!(parent_branch(&top, "feat2").as_deref(), Some("develop"), "the first switch to it counts");
+
+        // Not a commit, nor its own origin copy.
+        r.git(&["checkout", "-q", "--detach", "main"]);
+        r.git(&["checkout", "-q", "-b", "from-commit"]);
+        assert_eq!(parent_branch(&top, "from-commit"), None);
+        r.git(&["update-ref", "refs/remotes/origin/tracked", "main"]);
+        r.git(&["branch", "tracked", "origin/tracked"]);
+        assert_eq!(parent_branch(&top, "tracked"), None);
+        assert_eq!(branch_of(&top.at(r.path()), None).as_deref(), Some("main"), "from-commit: main");
+
+        // The parent is gone: main.
+        r.git(&["checkout", "-q", "feat"]);
+        r.git(&["branch", "-D", "feat2", "develop"]);
+        assert_eq!(parent_branch(&top, "feat"), None);
+        assert_eq!(branch_of(&top, None).as_deref(), Some("main"));
+    }
+
+    /// No record of where the branch came from (a fresh clone, an expired
+    /// reflog): the main branch.
+    #[test]
+    fn review_falls_back_to_main_without_records() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        r.git(&["checkout", "-q", "-b", "develop"]);
+        r.write("d.txt", "d\n");
+        r.commit_all("develop work");
+        r.git(&["checkout", "-q", "-b", "feat"]);
+        r.write("f.txt", "f\n");
+        r.commit_all("feature work");
+        assert_eq!(branch_of(&top, None).as_deref(), Some("develop"));
+        r.git(&["reflog", "expire", "--expire=all", "--all"]);
+        assert_eq!(parent_branch(&top, "feat"), None);
+        assert_eq!(branch_of(&top, None).as_deref(), Some("main"));
+        assert_eq!(paths(&top, &review_base(&top, None)), ["d.txt", "f.txt"]);
+    }
+
+    /// The user's choice wins while it exists; on that branch itself, HEAD.
+    #[test]
+    fn review_compares_with_the_chosen_branch() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        r.git(&["checkout", "-q", "-b", "develop"]);
+        r.write("d.txt", "d\n");
+        r.commit_all("develop work");
+        r.git(&["checkout", "-q", "-b", "feat"]);
+        r.write("f.txt", "f\n");
+        r.commit_all("feature work");
+        let b = compare_with(&top, None, Some("main"));
+        assert_eq!((b.branch.as_deref(), b.chosen), (Some("main"), true));
+        assert_eq!(paths(&top, &b.rev), ["d.txt", "f.txt"]);
+        // Gone: automatic again.
+        let b = compare_with(&top, None, Some("nope"));
+        assert_eq!((b.branch.as_deref(), b.chosen), (Some("develop"), false));
+        // Its own branch: what isn't committed yet.
+        assert_eq!(compare_with(&top, None, Some("feat")).rev, "HEAD");
+        r.git(&["update-ref", "refs/remotes/origin/develop", "develop"]);
+        assert_eq!(branches(&top), ["develop", "feat", "main", "origin/develop"]);
+    }
+
+    /// By hand, read-only: what Review compares a real checkout with.
+    /// `PITWALL_REVIEW_REPO=<dir> cargo test -p pitwall-core review_of_a_real_repo -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn review_of_a_real_repo() {
+        let dir = std::env::var("PITWALL_REVIEW_REPO").expect("PITWALL_REVIEW_REPO");
+        let top = toplevel(&Git::new(&LocalExec, &dir)).unwrap();
+        let b = compare_with(&top, None, None);
+        let files = top.changes(Some(&b.rev)).unwrap();
+        println!("on {:?}: compared with {:?} at {}: {} file(s)", top.current_branch(), b.branch, b.rev, files.len());
+        for f in files.iter().take(20) {
+            println!("  {}", f.path);
+        }
     }
 
     #[test]

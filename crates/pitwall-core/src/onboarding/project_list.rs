@@ -40,6 +40,10 @@ struct ProjectsFile {
     /// (conversations started outside a project, e.g. in `~`).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     conversation_projects: BTreeMap<String, String>,
+    /// Checkout folder → its branch → the branch Review compares it with,
+    /// chosen by the user (`vcs::review::compare_with`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    review_bases: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 fn load_from(path: &Path) -> ProjectsFile {
@@ -143,6 +147,28 @@ fn remember_conversation_project_at(path: &Path, session_id: &str, project: Opti
     Ok(())
 }
 
+fn set_review_base_at(path: &Path, repo: &str, branch: &str, base: Option<&str>) -> Result<(), String> {
+    let mut file = load_from(path);
+    let before = file.review_bases.clone();
+    match base.map(str::trim).filter(|b| !b.is_empty()) {
+        Some(b) => {
+            file.review_bases.entry(repo.to_string()).or_default().insert(branch.to_string(), b.to_string());
+        }
+        None => {
+            if let Some(m) = file.review_bases.get_mut(repo) {
+                m.remove(branch);
+                if m.is_empty() {
+                    file.review_bases.remove(repo);
+                }
+            }
+        }
+    }
+    if file.review_bases != before {
+        save_to(path, &file)?;
+    }
+    Ok(())
+}
+
 /// The project list file, with its read-modify-write serialised. Owned by
 /// the engine.
 pub struct ProjectList {
@@ -195,6 +221,19 @@ impl ProjectList {
     pub fn conversation_projects(&self) -> BTreeMap<String, String> {
         let _g = self.lock();
         load_from(&self.file).conversation_projects
+    }
+
+    /// The branch the user chose for Review to compare `branch` of the
+    /// checkout `repo` with (`None`: automatic).
+    pub fn review_base(&self, repo: &str, branch: &str) -> Option<String> {
+        let _g = self.lock();
+        load_from(&self.file).review_bases.get(repo)?.get(branch).cloned()
+    }
+
+    /// Remember (or forget, with `None`: automatic) [`Self::review_base`].
+    pub fn set_review_base(&self, repo: &str, branch: &str, base: Option<&str>) -> Result<(), String> {
+        let _g = self.lock();
+        set_review_base_at(&self.file, repo, branch, base)
     }
 
     /// Paths currently in the list (for marking scan results as already added).
@@ -275,6 +314,21 @@ mod tests {
         std::fs::write(&file, r#"{"version":1,"onboarded":true,"projects":[]}"#).unwrap();
         assert!(load_from(&file).onboarded);
         assert!(load_from(&file).conversation_projects.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn review_base_choices_persist() {
+        let dir = tmp("review-base");
+        let list = ProjectList::new(dir.join("projects.json"));
+        list.set_review_base("/x/repo", "feat", Some("develop")).unwrap();
+        list.set_review_base("/x/repo", "other", Some("origin/main")).unwrap();
+        let again = ProjectList::new(dir.join("projects.json"));
+        assert_eq!(again.review_base("/x/repo", "feat").as_deref(), Some("develop"));
+        assert_eq!(again.review_base("/x/repo", "nope"), None);
+        again.set_review_base("/x/repo", "feat", None).unwrap();
+        again.set_review_base("/x/repo", "other", None).unwrap();
+        assert!(load_from(&dir.join("projects.json")).review_bases.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
