@@ -1,6 +1,6 @@
 //! An agent's uncommitted work as the sidebar shows it: what `git status`
 //! shows (staged, unstaged, untracked), against HEAD. Review compares with
-//! the agent's branch instead (`vcs::review::review_base`).
+//! the agent's branch instead (`vcs::review::compare_with`).
 
 use super::Engine;
 use crate::vcs::git::{FileChange, Git, NOT_A_REPO};
