@@ -1222,6 +1222,56 @@ impl ReviewView {
         sel
     }
 
+    /// "Compared with <branch>" and the menu to choose another (or
+    /// Automatic again), for the agent's whole work on its branch.
+    fn base_select(&self, a: &AgentView, t: &Theme, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (_, c) = self.compare.as_ref().filter(|(id, _)| *id == a.id)?;
+        c.branch.as_ref()?;
+        let shown = c.base.branch.clone().unwrap_or_else(|| "HEAD".into());
+        let auto = format!("Automatic · {}", c.automatic.as_deref().unwrap_or("HEAD"));
+        let mut items: Vec<(SharedString, bool)> = vec![(auto.into(), !c.base.chosen)];
+        items.extend(c.branches.iter().map(|b| (b.clone().into(), c.base.chosen && c.base.branch.as_ref() == Some(b))));
+        let picks: Vec<Option<String>> = std::iter::once(None).chain(c.branches.iter().cloned().map(Some)).collect();
+        let tip = if c.base.rev == "HEAD" {
+            "On that branch itself: only what isn't committed yet.".to_string()
+        } else {
+            format!("The agent's commits since its branch left {shown}, plus what isn't committed yet.")
+        };
+        let this = cx.entity().downgrade();
+        let (this2, id) = (this.clone(), a.id.clone());
+        let on_pick: kit::OnPick = std::rc::Rc::new(move |i, _, cx| {
+            let base = picks.get(i).cloned().flatten();
+            let _ = this.update(cx, |v, cx| v.set_base(&id, base, cx));
+        });
+        let on_close: kit::OnClose = std::rc::Rc::new(move |_, cx| {
+            let _ = this2.update(cx, |v, cx| {
+                v.base_menu = false;
+                cx.notify();
+            });
+        });
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .child(hint("Compared with", t))
+                .child(
+                    div()
+                        .relative()
+                        .child(
+                            kit::select_trigger("rv-base", shown, t)
+                                .tooltip(move |_, cx| kit::tooltip_view(tip.clone(), cx))
+                                .on_click(cx.listener(|v, _, _, cx| {
+                                    v.base_menu = !v.base_menu;
+                                    cx.notify();
+                                })),
+                        )
+                        .when(self.base_menu, |d| d.child(kit::select_menu("rv-base-menu", items, t, on_pick, on_close))),
+                ),
+        )
+    }
+
     fn agent_main(
         &self,
         a: &AgentView,
@@ -1256,6 +1306,7 @@ impl ReviewView {
                     .border_b_1()
                     .border_color(t.line)
                     .child(self.task_select(a, task.as_ref(), t, cx))
+                    .when(task.is_none(), |d| d.children(self.base_select(a, t, cx)))
                     .when_some(file.as_ref(), |d, f| d.child(Self::file_head(f, t))),
             )
             .when_some(prompt, |d, p| {
@@ -1502,10 +1553,11 @@ impl Render for ReviewView {
                     // A dialog without a field has no focus of its own: Esc
                     // closes it from here (React: the modal's Esc).
                     v.close_dialog(window, cx);
-                } else if v.composer.is_none() && !v.task_menu {
+                } else if v.composer.is_none() && !v.task_menu && !v.base_menu {
                     v.exit(cx)
-                } else if v.task_menu {
+                } else if v.task_menu || v.base_menu {
                     v.task_menu = false;
+                    v.base_menu = false;
                     cx.notify();
                 }
             }))
