@@ -631,9 +631,9 @@ pub fn rule_set_cmd(cmd: &RuleSetCmd, c: &mut Client) -> Result<Output, Error> {
 }
 
 pub fn review_cmd(cmd: &ReviewCmd, c: &mut Client) -> Result<Output, Error> {
-    let ReviewCmd::Changes { agent: key, task } = cmd;
+    let ReviewCmd::Changes { agent: key, task, base } = cmd;
     let a = agent(c, key)?;
-    let r: ReviewChanges = manage(c, method::REVIEW_CHANGES, ReviewRequest { agent_id: a.id.clone(), task_id: task.clone(), base: None })?;
+    let r: ReviewChanges = manage(c, method::REVIEW_CHANGES, ReviewRequest { agent_id: a.id.clone(), task_id: task.clone(), base: base.clone() })?;
     Ok(out(&r, review(&a.name, &r)))
 }
 
@@ -807,8 +807,9 @@ pub fn project_rules(p: &ProjectRulesView, sets: &RuleSets) -> String {
 }
 
 pub fn review(name: &str, r: &ReviewChanges) -> String {
+    let with = r.compared_with.as_ref().map(|b| format!(" (compared with {b})")).unwrap_or_default();
     if r.files.is_empty() {
-        return format!("{name}: no changes\n");
+        return format!("{name}: no changes{with}\n");
     }
     let mut rows: Vec<Vec<String>> = r
         .files
@@ -819,6 +820,6 @@ pub fn review(name: &str, r: &ReviewChanges) -> String {
             vec![st, nums, f.path.clone()]
         })
         .collect();
-    rows.push(vec![String::new(), format!("+{} -{}", r.added, r.removed), format!("{} file(s)", r.files.len())]);
+    rows.push(vec![String::new(), format!("+{} -{}", r.added, r.removed), format!("{} file(s){with}", r.files.len())]);
     table(&rows)
 }

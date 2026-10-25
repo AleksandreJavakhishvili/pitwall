@@ -896,6 +896,7 @@ pitwall review changes [OPTIONS] <AGENT>
 | Option | |
 |---|---|
 | `--task <TASK_ID>` | One task's changes (ids in the Review screen). |
+| `--base <BRANCH>` | Compare with this branch (`develop`, `origin/main`) instead of the one Review compares with. |
 
 ```bash
 pitwall review changes api --human
