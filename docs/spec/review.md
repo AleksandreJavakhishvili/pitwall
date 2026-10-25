@@ -16,15 +16,31 @@ first (its first file, or the given file). Opened from a worktree, that
 worktree's project agents are listed too.
 
 ## What "All changes" compares with
-The branch the agent's work goes back into, never a commit remembered from
-when the agent started (`review_base`, `vcs/review.rs`):
-- a worktree agent: its branch against where it left the main checkout's
-  current branch (`git merge-base`), plus what isn't committed yet. What
-  others merged there since doesn't show; once merged, nothing does.
-- an agent in the project folder on a feature branch: the same, against the
-  project's main branch (`origin/HEAD`'s, else `main` / `master`).
-- an agent on the main branch itself: what isn't committed yet (as the
-  Changes panel shows it); once committed, nothing.
+A branch, never a commit remembered from when the agent started
+(`compare_with`, `vcs/review.rs`): the agent's commits since its branch left
+that branch (`git merge-base`), plus what isn't committed yet. What others
+merged there since doesn't show; once merged, nothing does. The branch, in
+order:
+1. the one the user chose in Review's "Compared with" menu (local and
+   `origin/` branches), remembered per checkout and branch in
+   `~/.pitwall/projects.json`; "Automatic" goes back. Used as chosen.
+2. the branch the agent's branch was created from, by git's own records:
+   the oldest entry of its reflog, "branch: Created from develop"; when that
+   says HEAD (`git checkout -b`, `git switch -c`), the HEAD reflog's oldest
+   "checkout: moving from develop to <branch>". Not when that names the
+   branch itself or its `origin/` copy, a commit, or a branch that no
+   longer exists. This holds for worktree agents too.
+3. a worktree agent: the main checkout's current branch (its merge target).
+4. the project's main branch (`origin/HEAD`'s, else `main` / `master`):
+   when there's no record (a fresh clone, an expired reflog).
+
+For 2–4, of the local branch and its `origin/` copy, whichever has moved on
+further (the newer merge base), so a local `main` never pulled doesn't put
+months of history into Review. On the compared-with branch itself: what
+isn't committed yet (as the Changes panel shows it); once committed,
+nothing. Review's header shows "Compared with <branch>" (the ref used, e.g.
+`origin/main`); `pitwall review changes` reports it as `comparedWith`, and
+`--base <branch>` compares with another branch just once.
 A task's diff (below) is always its own start and end snapshots.
 
 ## Layout
