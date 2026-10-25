@@ -431,3 +431,35 @@ fn hovering_review_moves_nothing(cx: &mut TestAppContext) {
     let n = crate::kit::hover::probe::assert_hover_keeps_layout(cx, "review");
     assert!(n >= 3, "only {n} hoverable elements in Review");
 }
+
+#[gpui::test]
+fn compared_with_shows_the_branch_and_a_choice_sticks(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("a.txt", "1\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    r.git(&["checkout", "-q", "-b", "develop"]);
+    r.write("d.txt", "d\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "develop"]);
+    r.git(&["checkout", "-q", "-b", "feat"]);
+    r.write("f.txt", "f\n");
+    let h = Harness::new(vec![record("agent-1", r.path())]);
+
+    let (view, cx) = open(cx, &h);
+    let compared = |view: &Entity<ReviewView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| {
+            let c = &v.compare.as_ref().expect("compared").1;
+            (c.base.branch.clone(), c.base.chosen, v.files["agent-1"].len())
+        })
+    };
+    assert_eq!(compared(&view, cx), (Some("develop".into()), false, 1));
+
+    view.update(cx, |v, cx| v.set_base("agent-1", Some("main".into()), cx));
+    cx.run_until_parked();
+    assert_eq!(compared(&view, cx), (Some("main".into()), true, 2));
+
+    view.update(cx, |v, cx| v.set_base("agent-1", None, cx));
+    cx.run_until_parked();
+    assert_eq!(compared(&view, cx), (Some("develop".into()), false, 1));
+}

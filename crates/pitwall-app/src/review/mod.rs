@@ -1,6 +1,6 @@
 //! The Review screen (Tauri: `src/components/review/Review.tsx`,
 //! docs/spec/review.md): what the agents changed, per agent on its branch
-//! (`review_base`) or per task, and their worktrees; a side-by-side or
+//! (`compare_with`; "Compared with" picks another branch) or per task, and their worktrees; a side-by-side or
 //! inline diff of one file ([`crate::code_view`]) where clicking the margin
 //! collects a comment; and the actions: discard a file, send the comments
 //! as a prompt, commit (and merge a worktree's branch), remove a worktree.
@@ -183,6 +183,10 @@ pub struct ReviewView {
     composer: Option<Composer>,
     dialog: Option<Dialog>,
     task_menu: bool,
+    /// What the shown agent's work is compared with (agent id, it).
+    compare: Option<(String, pitwall_core::review::Comparison)>,
+    /// The "Compared with" menu is open.
+    base_menu: bool,
     /// A merge conflict to show as a prompt at the next render.
     pending_conflict: Option<pitwall_core::review::MergeResult>,
     _subs: Vec<Subscription>,
@@ -292,6 +296,8 @@ impl ReviewView {
             composer: None,
             dialog: None,
             task_menu: false,
+            compare: None,
+            base_menu: false,
             pending_conflict: None,
             _subs: subs,
             _poll: None,
@@ -462,6 +468,7 @@ impl ReviewView {
             return;
         }
         self.tasks_for = Some(key.clone());
+        self.load_comparison(&id, cx);
         let id2 = id.clone();
         ops::spawn(
             cx,
@@ -818,6 +825,41 @@ impl ReviewView {
             }
             self.load_worktree_files(key, cx);
         }
+        cx.notify();
+    }
+
+    /// What `agent`'s work is compared with, and the branches to choose from.
+    fn load_comparison(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let id = agent.to_string();
+        ops::spawn(cx, {
+            let id = id.clone();
+            move |e| ops::comparison(e, &id)
+        }, move |this: &mut Self, res, cx| {
+            if matches!(&this.sel, Sel::Agent { id: shown, .. } if *shown == id) {
+                this.compare = res.ok().map(|c| (id, c));
+                cx.notify();
+            }
+        });
+    }
+
+    /// Compare `agent`'s work with `base` from now on (`None`: automatic).
+    fn set_base(&mut self, agent: &str, base: Option<String>, cx: &mut Context<Self>) {
+        self.base_menu = false;
+        let id = agent.to_string();
+        ops::spawn(cx, {
+            let id = id.clone();
+            move |e| ops::set_compare_with(e, &id, base.as_deref())
+        }, move |this: &mut Self, res, cx| {
+            if let Err(e) = res {
+                this.notice = Some(e);
+            }
+            this.nonce += 1;
+            this.files.remove(&id);
+            this.load_files(&id, cx);
+            this.load_comparison(&id, cx);
+            this.sync_diff(cx);
+            cx.notify();
+        });
         cx.notify();
     }
 

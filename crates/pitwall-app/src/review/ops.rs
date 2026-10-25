@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use gpui::{App, Context, Global};
 
 use pitwall_core::engine::{changes, input, Task};
-use pitwall_core::review::{self, FileVersions, MergeResult, MergeStatus};
+use pitwall_core::review::{self, Comparison, FileVersions, MergeResult, MergeStatus};
 use pitwall_core::vcs::git::FileChange;
 use pitwall_core::{worktrees, Shared};
 use pitwall_proto::ProjectWorktrees;
@@ -48,6 +48,14 @@ pub fn spawn<V: 'static, T: Send + 'static>(
 
 pub fn task_changes(e: &Shared, agent: &str, task: Option<&str>) -> Res<Vec<FileChange>> {
     review::task_changes(e, agent, task)
+}
+
+pub fn comparison(e: &Shared, agent: &str) -> Res<Comparison> {
+    review::comparison(e, agent)
+}
+
+pub fn set_compare_with(e: &Shared, agent: &str, base: Option<&str>) -> Res<()> {
+    review::set_compare_with(e, agent, base)
 }
 
 pub fn refresh_changes(e: &Shared, agent: &str) -> Res<Vec<FileChange>> {
