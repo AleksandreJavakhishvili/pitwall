@@ -108,6 +108,7 @@ pub struct ReviewBase {
 }
 
 /// [`compare_with`]'s commit, found automatically.
+#[cfg(test)]
 pub fn review_base(top: &Git, main_checkout: Option<&str>) -> String {
     compare_with(top, main_checkout, None).rev
 }

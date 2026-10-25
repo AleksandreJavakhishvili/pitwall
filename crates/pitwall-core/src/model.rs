@@ -172,7 +172,7 @@ pub struct AgentRecord {
     #[serde(default)]
     pub worktree_pending: bool,
     /// HEAD when the agent started. Kept for older state files; Review
-    /// compares with the agent's branch instead (`vcs::review::review_base`).
+    /// compares with the agent's branch instead (`vcs::review::compare_with`).
     #[serde(default)]
     pub base_commit: Option<String>,
     #[serde(default)]
