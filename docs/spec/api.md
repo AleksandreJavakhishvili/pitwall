@@ -171,6 +171,37 @@ Events (Tauri `listen`):
 | `approvals-changed` | `ApprovalView[]` | a CLI request started or stopped waiting for the user |
 | `open-settings` | – | native menu "Pitwall → Settings… ⌘," (sent only to the focused window, else main) |
 
+### Over the socket (`events.subscribe`)
+
+The same agent events reach `pitwall` CLI clients and, later, peers
+(tailnet-peers.md §6) over `pitwalld.sock`, offered when `welcome.caps` has
+`events`. A connection subscribes once and then gets events until it closes
+(subscribing again replaces the topics; calls still work on it):
+
+```json
+→ {"id":1,"method":"events.subscribe","params":{"topics":["agents","attention","blocked"]}}
+← {"id":1,"result":{"topics":["agents","attention","blocked"]}}
+← {"event":"agents.changed","data":[…AgentView…]}
+← {"event":"blocked.changed","data":{"count":0}}
+← {"event":"attention","data":{"agentId":"…","name":"api","reason":"blocked","detail":"Allow Bash?"}}
+```
+
+| Topic | Event | Data | When |
+|---|---|---|---|
+| `agents` | `agents.changed` | `AgentView[]` (as `agent.list`) | on subscribing, then on any change, max ~4/s |
+| `attention` | `attention` | `{ agentId, name, reason: "blocked" \| "done", detail?: string }` | an agent needs you / finished |
+| `blocked` | `blocked.changed` | `{ count: number }` | on subscribing, then when the number of blocked agents changes |
+
+- `topics` empty or missing = all three. Unknown topics are left out of
+  `result.topics`, not an error.
+- `approvals` is Pitwall's own window's only: anyone else gets `denied`.
+  It isn't sent over the socket yet.
+- Any other caller, agents included, may follow the three topics: they show
+  what `agent.list` already does.
+- A client that reads slowly never holds up Pitwall: it gets the latest
+  agent list and count (older ones still waiting are replaced) and its
+  newest 64 `attention` events (older ones are dropped).
+
 ## TypeScript shapes
 
 ```ts

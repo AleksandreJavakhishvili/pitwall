@@ -718,8 +718,8 @@ the UI build green.
   dialog in every window (`approvals-changed`, `answer_approval`), ships
   the CLI as a second `externalBin` and links it from Settings
   (`cli_install.rs`). Agents get `PITWALL_CLI_SOCKET`. Skill:
-  `skills/pitwall/SKILL.md`. Not done: events over the socket, terminal
-  streams, the single-instance lock, cancelling an approval when its client
+  `skills/pitwall/SKILL.md`. Not done: events over the socket (done since,
+  below), terminal streams, the single-instance lock, cancelling an approval when its client
   disconnects, and every other CLI command (stop/remove/prompt/queue/space/…;
   the table and client are ready for them).
 
@@ -735,6 +735,20 @@ the UI build green.
   Pitwall's own window asked. `agent.status` explains the status from the
   hook, screen-rule and activity signals (`engine::diagnose`). The CLI
   names agents and spaces by id or name; usage errors are JSON, exit 2.
+
+- Events over the socket done (tailnet-peers.md P0, first part):
+  `events.subscribe {topics}` (cap `events`) with topics `agents`,
+  `attention` and `blocked` → `agents.changed` (`AgentView[]`, as
+  `agent.list`), `attention` (`AttentionView`: blocked or done) and
+  `blocked.changed` (`{count}`); the list and count now are sent first.
+  `pitwall_daemon::events::Hub` is the engine's `EventSink`, wrapping the
+  app's bridge, so the engine reports once and both hear it. Each
+  subscribed connection has its own queue and writer thread: the engine
+  never waits on a client; a slow one keeps only the latest list and count
+  and its newest 64 alerts. Closing the connection unsubscribes. Anyone may
+  follow agents (what `agent.list` shows); `approvals` is the UI's only and
+  not sent yet. CLI: `pitwall events [--topics] [--count]`, one JSON line
+  per event. Not done: `projects`, `scan`, `ui_state`, `approvals` topics.
 
 - Step 8b done (agw diffs and Review): `providers::agw::AgwExec` implements
   `Exec` through agw's own `vm exec` / `agent exec` (options before the
