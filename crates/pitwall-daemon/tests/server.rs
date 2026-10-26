@@ -694,18 +694,25 @@ fn a_client_that_stops_reading_never_holds_up_the_engine() {
     frame::write_json(&mut raw, &json!({"hello": {"protocol": {"min": 1, "max": 1}, "client": "slow", "role": "cli"}})).unwrap();
     frame::read(&mut raw).unwrap();
     frame::write_json(&mut raw, &json!({"id": 1, "method": "events.subscribe"})).unwrap();
-    // Big agent lists, far more than the socket buffers, while nobody reads.
+    // Agent lists adding up to far more than the socket or pipe buffers
+    // (~60 MB), while nobody reads. Emitting has to finish: if it waited on
+    // the client it would never return. No time bound: serializing this
+    // much in a debug build takes seconds, more on slow runners.
     let add = SessionAdd { provider: "vmhost".into(), machine: "box".into(), native: "work".into(), ..Default::default() };
     let one = w.client().add_session(&add).unwrap().agent;
-    let big: Vec<_> = (0..200).map(|i| pitwall_proto::AgentView { id: format!("a{i}"), ..one.clone() }).collect();
-    let started = std::time::Instant::now();
+    let big: Vec<_> = (0..20).map(|i| pitwall_proto::AgentView { id: format!("a{i}"), ..one.clone() }).collect();
     const N: usize = 2000;
-    for i in 1..=N {
-        w.hub.emit(Event::AgentsChanged(big.clone()));
-        w.hub.emit(Event::Attention(pitwall_core::model::Attention { agent_id: format!("a{i}"), name: "n".into(), reason: "done", detail: None }));
-        w.hub.emit(Event::BlockedCount(i));
-    }
-    assert!(started.elapsed() < Duration::from_secs(20), "emitting never waited on the client ({:?})", started.elapsed());
+    let (done, emitted) = std::sync::mpsc::channel();
+    let hub = w.hub.clone();
+    std::thread::spawn(move || {
+        for i in 1..=N {
+            hub.emit(Event::AgentsChanged(big.clone()));
+            hub.emit(Event::Attention(pitwall_core::model::Attention { agent_id: format!("a{i}"), name: "n".into(), reason: "done", detail: None }));
+            hub.emit(Event::BlockedCount(i));
+        }
+        let _ = done.send(());
+    });
+    emitted.recv_timeout(Duration::from_secs(300)).expect("emitting never waits on the client");
     // Reading again: the latest state arrives; what piled up was trimmed.
     let mut seen = 0;
     let mut last_alert = 0;
