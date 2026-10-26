@@ -181,6 +181,31 @@ async fn markdown_files_preview_in_the_viewer(cx: &mut TestAppContext) {
         assert_eq!(d.blocks.len(), 3);
         assert!(d.blocks.iter().all(|b| b.change.is_none()), "no diff here");
     });
+
+    // Drawn on its own, the Preview selects and copies as Review's does.
+    struct Host(Entity<Viewer>);
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().flex().child(self.0.clone())
+        }
+    }
+    cx.update(|_, cx| crate::markdown_view::register(cx));
+    let v2 = viewer.clone();
+    let (_, vcx) = cx.add_window_view(move |_, _| Host(v2));
+    vcx.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    vcx.run_until_parked();
+    vcx.simulate_keystrokes("f12");
+    let body = vcx.debug_bounds("ex-md-body").expect("the Preview is drawn");
+    let md = viewer.read_with(vcx, |v, _| v.md.clone());
+    let first = md.read_with(vcx, |m, _| m.text_position(0, 1));
+    assert!(body.contains(&first), "{first:?} in {body:?}");
+    vcx.simulate_click(first, gpui::Modifiers::none());
+    vcx.simulate_keystrokes(if cfg!(target_os = "macos") { "cmd-a cmd-c" } else { "ctrl-a ctrl-c" });
+    assert_eq!(
+        vcx.read_from_clipboard().and_then(|c| c.text()).as_deref(),
+        Some("Hello\n\n- [x] done\n\na\tb\n1\t2")
+    );
+
     open("src/main.rs", cx);
     viewer.read_with(cx, |v, _| {
         assert!(v.md_text().is_none() && !v.showing_preview(), "code stays code")

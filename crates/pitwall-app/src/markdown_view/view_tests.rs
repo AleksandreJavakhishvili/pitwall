@@ -56,10 +56,7 @@ fn block(cx: &mut VisualTestContext, i: usize) -> Option<Bounds<Pixels>> {
 
 /// Where byte `ix` of piece `k` is drawn (a little inside the line).
 fn at(view: &Entity<MarkdownView>, cx: &mut VisualTestContext, k: usize, ix: usize) -> Point<Pixels> {
-    view.read_with(cx, |v, _| {
-        let p = v.pieces[k].layout.position_for_index(ix).expect("drawn");
-        point(p.x + px(1.), p.y + px(5.))
-    })
+    view.read_with(cx, |v, _| v.text_position(k, ix))
 }
 
 fn clipboard(cx: &mut VisualTestContext) -> Option<String> {
