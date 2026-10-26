@@ -517,4 +517,47 @@ fn markdown_files_switch_to_a_preview(cx: &mut TestAppContext) {
     view.update_in(cx, |v, window, cx| v.select_file("agent-1", "README.md", window, cx));
     cx.run_until_parked();
     assert!(view.read_with(cx, |v, _| v.showing_preview()), "the session's choice");
+
+}
+
+/// A long Preview scrolls with the wheel to its end.
+#[gpui::test]
+fn a_long_preview_scrolls(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("README.md", "# Title\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let mut rec = record("agent-1", r.path());
+    rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]));
+    let h = Harness::new(vec![rec]);
+    let long: String = (0..60)
+        .map(|i| format!("Paragraph {i}, long enough to wrap onto a second line of the column {}.\n\n", "and on".repeat(20)))
+        .collect();
+    r.write("README.md", &long);
+    let (view, cx) = open(cx, &h);
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(900.)));
+    view.update_in(cx, |v, window, cx| v.select_file("agent-1", "README.md", window, cx));
+    cx.run_until_parked();
+    let switch = cx.debug_bounds("rv-md-switch").expect("Diff / Preview for Markdown");
+    let at = gpui::point(switch.right() - gpui::px(8.), switch.center().y);
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    let body = cx.debug_bounds("rv-md-body").unwrap();
+    let wheel = |dy: f32, cx: &mut VisualTestContext| {
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: body.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(dy))),
+            ..Default::default()
+        });
+    };
+    cx.simulate_mouse_move(body.center(), None, gpui::Modifiers::none());
+    wheel(-100000., cx);
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    // The last paragraph's text comes into sight.
+    let md = view.read_with(cx, |v, _| v.md.clone());
+    let scroll = md.read_with(cx, |m, _| m.scroll.clone());
+    assert!(scroll.offset().y < gpui::px(-2000.), "{:?}", scroll.offset());
+    let last = cx.debug_bounds("md-b59").expect("drawn");
+    assert!(last.bottom() <= body.bottom(), "{last:?} in {body:?}");
 }

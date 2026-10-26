@@ -65,6 +65,7 @@ actions!(
 /// closes Review, is the main screen's).
 pub fn register(cx: &mut App) {
     crate::code_view::register(cx);
+    crate::markdown_view::register(cx);
     let mac = cfg!(target_os = "macos");
     cx.bind_keys([
         KeyBinding::new(
