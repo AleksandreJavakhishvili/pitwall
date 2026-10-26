@@ -258,6 +258,31 @@ fn big_pieces_are_cached_parts_that_follow_the_layout(cx: &mut TestAppContext) {
     view.read_with(cx, |s, cx| assert_eq!(s.agents(cx)[0].status, pitwall_proto::Status::Working));
 }
 
+#[gpui::test]
+fn a_printed_dev_server_shows_a_preview_chip_while_the_agent_runs(cx: &mut TestAppContext) {
+    let (view, store, cx) = screen(cx);
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(900.)));
+    view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
+    let chip = |cx: &mut VisualTestContext| {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        cx.debug_bounds("preview-web").is_some()
+    };
+    assert!(!chip(cx), "nothing printed yet");
+    let set = |store: &Entity<AgentStore>, urls: &[&str], running: bool, cx: &mut VisualTestContext| {
+        store.update(cx, |s, cx| {
+            let a = s.agents.iter_mut().find(|a| a.id == "web").unwrap();
+            a.preview_urls = urls.iter().map(|u| u.to_string()).collect();
+            a.running = running;
+            cx.notify();
+        });
+    };
+    set(&store, &["http://localhost:5173/", "http://localhost:3000"], false, cx);
+    assert!(!chip(cx), "a stopped agent has none");
+    set(&store, &["http://localhost:5173/", "http://localhost:3000"], true, cx);
+    assert!(chip(cx));
+}
+
 /// A view that stands in for a terminal in the pane body.
 struct FakeTerm;
 
