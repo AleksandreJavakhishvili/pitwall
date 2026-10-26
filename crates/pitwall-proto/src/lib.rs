@@ -8,6 +8,7 @@
 //! - [`create`]: the form a provider describes for new agents on a machine.
 //! - [`explorer`]: the read-only code explorer (tree, file, search).
 //! - [`manage`]: managing agents, queues, spaces, projects, rules, review.
+//! - [`peer`]: what two Pitwalls say on the peer port (tailnet-peers.md).
 //! - [`views`]: what clients are shown (`AgentView`, sessions, …).
 //! - [`pipe`]: the Windows named pipe for a socket path.
 //! - [`settings`]: the settings registry (keys, types, defaults, schema).
@@ -20,6 +21,7 @@ pub mod explorer;
 pub mod frame;
 pub mod manage;
 pub mod msg;
+pub mod peer;
 pub mod pipe;
 pub mod settings;
 pub mod views;
@@ -81,6 +83,7 @@ mod ts_export {
         SettingView::export_all(&cfg).unwrap();
         SettingSet::export_all(&cfg).unwrap();
         SettingKey::export_all(&cfg).unwrap();
+        peer::LinkView::export_all(&cfg).unwrap();
         assert!(dir.join("AgentView.ts").is_file());
     }
 }

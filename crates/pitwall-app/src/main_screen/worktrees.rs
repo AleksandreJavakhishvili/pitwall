@@ -903,6 +903,7 @@ pub fn demo_list(agents: &[AgentView]) -> (Vec<ProjectWorktrees>, Vec<(String, V
                     id: "this-mac".into(),
                     label: "This Mac".into(),
                     can_create: true,
+                    link: None,
                 },
                 agent_ids: members.iter().map(|a| a.id.clone()).collect(),
                 worktrees,

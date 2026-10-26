@@ -57,6 +57,11 @@ fn bad(msg: &str) -> io::Error {
 
 /// The next frame; `None` at a clean end of stream (between frames).
 pub fn read(r: &mut impl Read) -> io::Result<Option<Frame>> {
+    read_max(r, MAX_FRAME)
+}
+
+/// [`read`] with a smaller cap (peers: `peer::PEER_MAX_FRAME`).
+pub fn read_max(r: &mut impl Read, max: u32) -> io::Result<Option<Frame>> {
     let mut len = [0u8; 4];
     match r.read_exact(&mut len) {
         Ok(()) => {}
@@ -64,7 +69,7 @@ pub fn read(r: &mut impl Read) -> io::Result<Option<Frame>> {
         Err(e) => return Err(e),
     }
     let len = u32::from_be_bytes(len);
-    if len == 0 || len > MAX_FRAME {
+    if len == 0 || len > max.min(MAX_FRAME) {
         return Err(bad("bad frame length"));
     }
     let mut buf = vec![0u8; len as usize];
@@ -110,5 +115,6 @@ mod tests {
         assert!(read(&mut &[0xffu8, 0, 0, 0][..]).is_err(), "too long");
         assert!(read(&mut &[0u8, 0, 0, 3, TERM, 0, 0][..]).is_err(), "short terminal frame");
         assert!(read(&mut &[0u8, 0, 0, 5, JSON, b'{'][..]).is_err(), "truncated body");
+        assert!(read_max(&mut &json(&"abcdef")[..], 4).is_err(), "over a smaller cap");
     }
 }

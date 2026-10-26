@@ -81,6 +81,10 @@ pub struct MachineView {
     /// here", "Open terminal here"). False on a platform's machine (agw),
     /// where new sessions come from its own form (New agent → Runs on).
     pub can_create: bool,
+    /// Another machine's Pitwall (a paired peer, tailnet-peers.md): how
+    /// the link to it is doing. Local agents leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<crate::peer::LinkView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

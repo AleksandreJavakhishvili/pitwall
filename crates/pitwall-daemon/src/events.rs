@@ -127,9 +127,13 @@ pub fn topics(caller: &Caller, req: &EventsSubscribe) -> Result<Vec<&'static str
 /// What a new subscriber gets first: the agent list and blocked count now,
 /// so it never has to call `agent.list` and race the events.
 pub fn snapshot(engine: &Shared, q: &Queue) {
-    let views = engine.views();
+    snapshot_of(&engine.views(), q);
+}
+
+/// [`snapshot`] of a given list (the peer listener's tests).
+pub fn snapshot_of(views: &[AgentView], q: &Queue) {
     let blocked = views.iter().filter(|a| a.status == Status::Blocked).count();
-    q.push_first(topic::AGENTS, agents_changed(&views));
+    q.push_first(topic::AGENTS, agents_changed(views));
     q.push_first(topic::BLOCKED, blocked_changed(blocked));
 }
 

@@ -105,6 +105,22 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::EVENTS_SUBSCRIBE, Access::Open),
 ];
 
+/// What a paired machine may call over the tailnet (tailnet-peers.md §6),
+/// and the access level it needs. Only View exists in v1: the agent list
+/// and its events (`agents`, `attention`, `blocked`; never `approvals`). A
+/// method missing here is never served over the network. The handshake's
+/// `peer.auth` is answered by the peer listener itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerAccess {
+    View,
+}
+
+pub const PEER_METHODS: &[(&str, PeerAccess)] = &[(method::AGENT_LIST, PeerAccess::View), (method::EVENTS_SUBSCRIBE, PeerAccess::View)];
+
+pub fn peer_access(name: &str) -> Option<PeerAccess> {
+    PEER_METHODS.iter().find(|(m, _)| *m == name).map(|(_, a)| *a)
+}
+
 pub fn access(name: &str) -> Option<Access> {
     METHODS.iter().find(|(m, _)| *m == name).map(|(_, a)| *a)
 }
@@ -389,5 +405,17 @@ mod tests {
         }
         assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
         assert_eq!(access("agent.prompt"), None);
+    }
+
+    #[test]
+    fn peers_get_only_reads_of_the_agent_list() {
+        for (m, _) in PEER_METHODS {
+            assert_eq!(access(m), Some(Access::Open), "{m}: a peer method is an open local one");
+        }
+        assert_eq!(peer_access(method::AGENT_LIST), Some(PeerAccess::View));
+        assert_eq!(peer_access(method::EVENTS_SUBSCRIBE), Some(PeerAccess::View));
+        for m in [method::AGENT_CREATE, method::AGENT_STOP, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::QUEUE_ADD, method::MACHINE_LIST] {
+            assert_eq!(peer_access(m), None, "{m}");
+        }
     }
 }
