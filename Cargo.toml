@@ -1,7 +1,7 @@
 # Cargo workspace (architecture.md §1, migration step 0).
 [workspace]
 resolver = "2"
-members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-app", "crates/pitwall-term-view"]
+members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-peer", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-app", "crates/pitwall-term-view"]
 
 # Profiles only take effect at the workspace root.
 [profile.release]

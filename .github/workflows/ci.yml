@@ -155,6 +155,10 @@ jobs:
       - name: cargo test (daemon)
         run: cargo test -p pitwall-daemon
 
+      # Peers over a fake tailnet on 127.0.0.1: pairing, links, the listener.
+      - name: cargo test (peers)
+        run: cargo test -p pitwall-peer
+
       # ---- not yet ported: informational until their fixtures run on Windows.
       # TODO(windows): port the POSIX-shell fixtures, then move each suite up
       # into the required steps and delete its continue-on-error.

@@ -4295,6 +4295,7 @@ dependencies = [
  "pitwall-client",
  "pitwall-core",
  "pitwall-daemon",
+ "pitwall-peer",
  "pitwall-proto",
  "serde",
  "serde_json",
@@ -4369,6 +4370,19 @@ name = "pitwall-hook"
 version = "0.2.1"
 dependencies = [
  "interprocess",
+]
+
+[[package]]
+name = "pitwall-peer"
+version = "0.2.1"
+dependencies = [
+ "base64",
+ "pitwall-core",
+ "pitwall-daemon",
+ "pitwall-proto",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
