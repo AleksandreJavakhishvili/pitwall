@@ -63,7 +63,12 @@ holds for the app session. Preview draws the file's new version formatted
 task lists, strikethrough, footnotes): headings, paragraphs, emphasis,
 inline and fenced code (highlighted like the diff), quotes, nested and task
 lists (display only), tables (scroll sideways when wide), rules, front
-matter as code, raw HTML as text. Centred column, at most 760 px wide.
+matter as code. Raw HTML is drawn as GitHub shows it: paragraphs and
+headings (`align="center"` centred), line breaks, rules, list items, links,
+images (their `width` kept; images alone in a paragraph side by side, as
+badges), bold, italic, code, preformatted text; comments, scripts and
+styles hidden, entities decoded, other tags keep their text. Centred
+column, at most 760 px wide; the whole file scrolls.
 - Changes: the diff's hunks map to blocks by source line. A block wholly
   inside an insertion gets a green bar on its left, any other touched block
   an amber one (list items one by one); removed lines between blocks are a
@@ -72,9 +77,18 @@ matter as code, raw HTML as text. Centred column, at most 760 px wide.
   styled. Images next to the file (relative paths, in the worktree) are
   shown at most the column wide; remote images are never fetched: their alt
   text with an image icon instead.
+- Selecting and copying, as on a web page: drag across blocks (the view
+  scrolls when the drag leaves its top or bottom), double-click a word,
+  triple-click a block, shift-click to extend; ⌘A selects the whole file,
+  ⌘C (Edit ▸ Copy, or Copy in the right-click menu with Select All) copies
+  it as plain text: blocks a blank line apart, list items with their
+  markers (`- `, `1. `, `- [x] `), table cells by tabs, code as written.
+  Esc or a click elsewhere clears it. The selection uses the diff's
+  selection colour; the pointer is an I-beam over text. A click on a link
+  without dragging opens it.
 - No Preview for deleted or binary files; over 1 MB the file is shown as a
-  diff only (Preview disabled, says why). Text in Preview isn't selectable
-  (use Diff to copy). Comments are added from the Diff.
+  diff only (Preview disabled, says why). Comments are added from the
+  Diff.
 
 ## Per-task diffs (backend)
 A task = one prompt delivered to an agent (send_prompt, queue send, typed Enter,
