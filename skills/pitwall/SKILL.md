@@ -144,6 +144,12 @@ pitwall wait "$id" --for done,blocked --fresh --timeout 1800
 pitwall review changes "$id"
 ```
 
+To watch every agent instead of one, `pitwall events` prints one JSON line
+per event until stopped: `agents.changed` (the whole list, as `agent list`),
+`attention` (`{agentId,name,reason:"blocked"|"done",detail?}`) and
+`blocked.changed` (`{count}`). `--topics attention` narrows it; `--count N`
+stops after N lines.
+
 ## Spaces and windows
 
 ```bash

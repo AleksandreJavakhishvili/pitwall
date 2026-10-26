@@ -963,3 +963,59 @@ fn skills_end_to_end() {
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
+
+#[test]
+fn events_print_one_line_each_as_they_arrive() {
+    use pitwall_core::events::{Event, EventSink};
+    let dir = TempDir::new("cli-events");
+    let hub = pitwall_daemon::Hub::new(RecordingSink::new());
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: hub.clone(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let sock_dir = std::env::temp_dir().join(format!("pwce-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("e.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: Some(hub.clone()) };
+    let server = serve(engine, Approvals::new(Duration::from_secs(10)), Arc::new(Outside), cfg).unwrap();
+    let follow = |args: &[&str], human: bool| {
+        let Command::Events(a) = Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command else { panic!("events") };
+        let socket = socket.clone();
+        std::thread::spawn(move || {
+            let mut out = Vec::new();
+            events::follow(&a, &socket, human, &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        })
+    };
+    let alert = || Event::Attention(pitwall_core::model::Attention { agent_id: "a1".into(), name: "api".into(), reason: "blocked", detail: Some("Allow Bash?".into()) });
+
+    let json_lines = follow(&["events", "--count", "3"], false);
+    let text = follow(&["events", "--topics", "attention", "--count", "1"], true);
+    while hub.subscribers() < 2 {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    hub.emit(alert());
+    let lines: Vec<serde_json::Value> = json_lines.join().unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(
+        lines,
+        [
+            json!({"event": "agents.changed", "data": []}),
+            json!({"event": "blocked.changed", "data": {"count": 0}}),
+            json!({"event": "attention", "data": {"agentId": "a1", "name": "api", "reason": "blocked", "detail": "Allow Bash?"}}),
+        ]
+    );
+    assert_eq!(text.join().unwrap(), "api is blocked: Allow Bash?\n");
+
+    // Text for the rest.
+    let ev = |name: &str, data: serde_json::Value| pitwall_proto::Event { event: name.into(), data };
+    assert_eq!(events::text(&ev("agents.changed", json!([]))), "agents: none");
+    let list = serde_json::to_value(vec![agent("a1", "api", true), agent("a2", "web", false)]).unwrap();
+    assert_eq!(events::text(&ev("agents.changed", list)), "agents: api idle · web stopped");
+    assert_eq!(events::text(&ev("blocked.changed", json!({"count": 2}))), "blocked: 2");
+    assert_eq!(events::text(&ev("later", json!(1))), "later: 1");
+    server.stop();
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}

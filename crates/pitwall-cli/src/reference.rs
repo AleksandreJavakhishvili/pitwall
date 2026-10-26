@@ -100,6 +100,7 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("rules import", "pitwall rules import project ~/code/api          # its own .rulesync/\npitwall rules import file ~/code/api/CLAUDE.md   # asks first\npitwall rules import git https://github.com/acme/ai-rules.git   # asks first"),
     ("review changes", "pitwall review changes api --human"),
     ("wait", "pitwall queue add api \"run the tests\"\npitwall wait api --for done,blocked --fresh --timeout 900"),
+    ("events", "pitwall events --human\npitwall events --topics attention | jq -r 'select(.data.reason == \"blocked\") | .data.name'"),
 ];
 
 /// The reference as Markdown.

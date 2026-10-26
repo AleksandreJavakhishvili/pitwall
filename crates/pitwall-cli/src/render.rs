@@ -21,7 +21,7 @@ pub fn table(rows: &[Vec<String>]) -> String {
     out
 }
 
-fn status(a: &AgentView) -> String {
+pub fn status(a: &AgentView) -> String {
     serde_json::to_value(a.status).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()
 }
 
