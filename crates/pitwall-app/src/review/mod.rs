@@ -17,6 +17,8 @@ pub mod ops;
 mod render;
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
@@ -31,6 +33,7 @@ use pitwall_proto::{AgentView, ProjectWorktrees};
 use crate::agents::{group_by_project, AgentStore, ProjectGroup};
 use crate::kit::{InputEvent, TextInput};
 use crate::code_view::{CodeView, CodeViewEvent, Layout, Side};
+use crate::markdown_view::{model::is_markdown, MarkdownView, MAX_PREVIEW_BYTES};
 use comments::Comments;
 use dialogs::Dialog;
 use model::{Breadth, Space, WtRef};
@@ -181,6 +184,15 @@ pub struct ReviewView {
     diff: DiffState,
     diff_key: Option<String>,
     side_by_side: bool,
+    /// A Markdown file's Preview instead of its diff (the session's choice).
+    preview: bool,
+    md: Entity<MarkdownView>,
+    /// The shown Markdown file's new version (not deleted, not too large).
+    md_text: Option<Arc<str>>,
+    /// The shown Markdown file is over [`MAX_PREVIEW_BYTES`].
+    md_large: bool,
+    /// The folder of the shown file in its worktree (relative images).
+    md_base: Option<PathBuf>,
     refreshing: bool,
     updated_at: Option<u64>,
     fresh_error: Option<String>,
@@ -252,8 +264,9 @@ impl ReviewView {
             cx.observe(&store, |this, _, cx| this.agents_changed(cx)),
             cx.observe(&wt_list, |this, _, cx| this.worktrees_taken(cx)),
             cx.subscribe_in(&code, window, |this, _, e: &CodeViewEvent, window, cx| {
-                if let CodeViewEvent::Comment { line } = e {
-                    this.start_comment(*line + 1, window, cx);
+                match e {
+                    CodeViewEvent::Comment { line } => this.start_comment(*line + 1, window, cx),
+                    CodeViewEvent::Loaded => this.sync_preview(cx),
                 }
             }),
             cx.observe_global::<Comments>(|this, cx| {
@@ -296,6 +309,11 @@ impl ReviewView {
             diff: DiffState::Idle,
             diff_key: None,
             side_by_side,
+            preview: cx.try_global::<ReviewPreview>().is_some_and(|p| p.0),
+            md: cx.new(MarkdownView::new),
+            md_text: None,
+            md_large: false,
+            md_base: None,
             refreshing: false,
             updated_at: None,
             fresh_error: None,
@@ -895,6 +913,33 @@ impl ReviewView {
         cx.notify();
     }
 
+    fn set_preview(&mut self, on: bool, cx: &mut Context<Self>) {
+        cx.set_global(ReviewPreview(on));
+        self.preview = on;
+        self.sync_preview(cx);
+        cx.notify();
+    }
+
+    /// The Markdown Preview is shown (instead of the diff).
+    fn showing_preview(&self) -> bool {
+        self.preview && self.md_text.is_some() && self.diff == DiffState::Shown
+    }
+
+    /// The shown Markdown file's new version and the diff's hunks, into
+    /// the Preview.
+    fn sync_preview(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = self.md_text.clone().filter(|_| self.preview) else {
+            return;
+        };
+        let code = self.code.read(cx);
+        let (Some(path), hunks) = (code.path().map(str::to_string), code.hunks()) else {
+            return;
+        };
+        let base = self.md_base.clone();
+        self.md
+            .update(cx, |m, cx| m.set(&path, text, hunks, base, cx));
+    }
+
     /// The selected agent, file and task (agent selection only).
     fn agent_sel(&self) -> Option<(&AgentView, Option<&FileChange>, Option<String>)> {
         let Sel::Agent { id, path } = &self.sel else {
@@ -929,7 +974,7 @@ impl ReviewView {
             Agent(String, String, Option<String>),
             Wt(String, String, String),
         }
-        let (key, load) = if let Some((a, Some(f), task)) = self.agent_sel() {
+        let (key, load, root) = if let Some((a, Some(f), task)) = self.agent_sel() {
             (
                 format!(
                     "a:{}:{}:{}:{}:{}:{}:{}:{}:{}",
@@ -944,6 +989,7 @@ impl ReviewView {
                     f.removed
                 ),
                 Load::Agent(a.id.clone(), f.path.clone(), task),
+                a.cwd.clone(),
             )
         } else if let Some((r, Some(f))) = self.wt_sel() {
             (
@@ -957,10 +1003,12 @@ impl ReviewView {
                     f.removed
                 ),
                 Load::Wt(r.project_id.clone(), r.wt.path.clone(), f.path.clone()),
+                r.wt.path.clone(),
             )
         } else {
             if self.diff_key.take().is_some() {
                 self.diff = DiffState::Idle;
+                self.md_text = None;
                 self.code.update(cx, |c, cx| c.clear(cx));
             }
             return;
@@ -975,11 +1023,17 @@ impl ReviewView {
             .is_some_and(|k| k.split(':').take(3).eq(key.split(':').take(3)));
         if !same_file {
             self.diff = DiffState::Loading;
+            self.md_text = None;
+            self.md_large = false;
         }
         self.diff_key = Some(key.clone());
         let path = match &load {
             Load::Agent(_, p, _) | Load::Wt(_, _, p) => p.clone(),
         };
+        let base = std::path::Path::new(&root)
+            .join(&path)
+            .parent()
+            .map(|p| p.to_path_buf());
         ops::spawn(
             cx,
             move |e| match load {
@@ -990,6 +1044,8 @@ impl ReviewView {
                 if this.diff_key.as_deref() != Some(key.as_str()) {
                     return;
                 }
+                this.md_text = None;
+                this.md_large = false;
                 match res {
                     Err(e) => this.diff = DiffState::Error(e),
                     Ok(v) if v.binary => this.diff = DiffState::Binary,
@@ -998,6 +1054,14 @@ impl ReviewView {
                     }
                     Ok(v) => {
                         this.diff = DiffState::Shown;
+                        // Markdown gets a Preview of its new version.
+                        if let Some(m) = v.modified.as_ref().filter(|_| is_markdown(&path)) {
+                            this.md_large = m.len() > MAX_PREVIEW_BYTES;
+                            if !this.md_large {
+                                this.md_text = Some(Arc::from(m.as_str()));
+                                this.md_base = base.clone();
+                            }
+                        }
                         let commentable = matches!(this.sel, Sel::Agent { .. });
                         this.code.update(cx, |c, cx| {
                             c.set_commentable(commentable, cx);
@@ -1124,6 +1188,13 @@ impl ReviewView {
         self.reload_everything(cx);
     }
 }
+
+/// Review's Diff / Preview choice for Markdown files (kept for the app
+/// session; off: Diff).
+#[derive(Default)]
+struct ReviewPreview(bool);
+
+impl gpui::Global for ReviewPreview {}
 
 /// Review's Agent / Project / All choice (kept for the app session).
 #[derive(Default)]

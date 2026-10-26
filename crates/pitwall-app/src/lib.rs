@@ -19,6 +19,7 @@ pub mod home;
 pub mod kit;
 pub mod host;
 pub mod main_screen;
+pub mod markdown_view;
 pub mod menu;
 pub mod palette;
 pub mod next_up;

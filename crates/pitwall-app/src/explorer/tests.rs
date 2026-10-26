@@ -148,3 +148,41 @@ async fn moving_change_totals_refresh_the_tree(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(src.lists.load(Ordering::SeqCst) > before);
 }
+
+/// A Markdown file: Code / Preview in the header; Preview parses the file
+/// and the choice holds for the next Markdown file, not for code.
+#[gpui::test]
+async fn markdown_files_preview_in_the_viewer(cx: &mut TestAppContext) {
+    let src = FakeSource::new(&[
+        ("README.md", "# Hello\n\n- [x] done\n\n| a | b |\n|---|--:|\n| 1 | 2 |\n"),
+        ("src/main.rs", "fn main() {}\n"),
+    ]);
+    let (_, explorer, cx) = setup(cx, vec![readable("a1")], src);
+    explorer.update(cx, |e, cx| e.set_agent(Some("a1".into()), cx));
+    cx.run_until_parked();
+    let open = |path: &str, cx: &mut VisualTestContext| {
+        let path = path.to_string();
+        cx.update(|window, cx| {
+            explorer.update(cx, |e, cx| e.open_viewer("a1", Some(path), None, None, window, cx))
+        });
+        cx.run_until_parked();
+    };
+    open("README.md", cx);
+    let viewer = explorer.read_with(cx, |e, _| e.viewers["a1"].clone());
+    // (The explorer alone doesn't draw the viewer: its state says what is.)
+    assert!(viewer.read_with(cx, |v, _| v.md_text().is_some()), "Code / Preview");
+    assert!(!viewer.read_with(cx, |v, _| v.showing_preview()), "Code by default");
+    viewer.update(cx, |v, cx| v.set_preview(true, cx));
+    cx.run_until_parked();
+    viewer.read_with(cx, |v, cx| {
+        assert!(v.showing_preview());
+        let md = v.md.read(cx);
+        let d = md.doc().expect("parsed");
+        assert_eq!(d.blocks.len(), 3);
+        assert!(d.blocks.iter().all(|b| b.change.is_none()), "no diff here");
+    });
+    open("src/main.rs", cx);
+    viewer.read_with(cx, |v, _| {
+        assert!(v.md_text().is_none() && !v.showing_preview(), "code stays code")
+    });
+}

@@ -494,3 +494,35 @@ pub fn resize_grip(id: impl Into<ElementId>, color: gpui::Hsla) -> Stateful<Div>
             .size_full(),
         )
 }
+
+/// One segment of Review's compact segmented control (Side by side /
+/// Inline, Diff / Preview, the list's breadth); `first` has no divider.
+pub fn segment(
+    id: &'static str,
+    label: SharedString,
+    on: bool,
+    first: bool,
+    t: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(24.))
+        .px(px(9.))
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .when(!first, |d| d.border_l_1().border_color(t.line_strong))
+        .when(on, |d| d.bg(t.surface_3))
+        .child(super::label_t(label, if on { t.text } else { t.text_3 }, 11., 0.08))
+}
+
+/// The frame around [`segment`]s.
+pub fn segments(t: &Theme) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .border_1()
+        .border_color(t.line_strong)
+        .rounded(RADIUS)
+        .overflow_hidden()
+}

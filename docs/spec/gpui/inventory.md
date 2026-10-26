@@ -237,6 +237,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Per-agent task scope select: "All changes · <name>" or "Task N · HH:MM · <prompt…>" (running, snapshot pending disabled) (`src/components/review/Review.tsx`) [in-house: select/dropdown]
 - [x] Task prompt shown above the diff when a task is selected (`src/components/review/Review.tsx`)
 - [x] File header: icon, base + dir, status letter, diffstat or "bin" (`src/components/review/Review.tsx`)
+- [x] Markdown files: "Diff" / "Preview" switch in the file header (session only, default Diff); Preview renders the new version with change bars (added green, modified amber) and "N lines removed" markers; same Preview as "Code" / "Preview" in the file viewer (GPUI only; `markdown_view/`, `docs/spec/review.md` "Markdown preview") [in-house: segmented control]
 - [x] Footer actions for an agent: "Discard file", "Send comments (N)", "Commit" or "Commit & merge" (worktree agents); notice text after actions (`src/components/review/Review.tsx`)
 - [x] Footer for a worktree: name, "locked" chip, "Open terminal", "Remove worktree…", "Commit" / "Commit & merge" by caps (`src/components/review/Review.tsx`) [in-house: tooltip]
 - [x] Per-agent files refetched every 5 s while visible and on totals change (`src/components/review/Review.tsx`)

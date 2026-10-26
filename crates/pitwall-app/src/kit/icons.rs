@@ -47,6 +47,8 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("user", "M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"),
     // Opens in the browser: a pane's "Open preview".
     ("external", "M11 3.5h5.5V9M16.5 3.5 9.5 10.5M14 11.5v5H3.5V6h5"),
+    // A picture: a Markdown image that isn't shown (remote or missing).
+    ("image", "M3.5 4.5h13v11h-13zM3.5 13l4-4 3.5 3.5 2-2 4 4M12.5 8.5h.01"),
 ];
 
 fn icon_path(name: &str) -> Option<&'static str> {
