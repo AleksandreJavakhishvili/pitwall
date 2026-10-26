@@ -247,6 +247,9 @@ pub fn wrap_lines(
     max: f32,
     width: &mut dyn FnMut(std::ops::Range<usize>) -> f32,
 ) -> Vec<std::ops::Range<usize>> {
+    // A squeezed box can offer a negative width: then a character a line
+    // (an empty line never fits under 0, which looped forever).
+    let max = if max.is_nan() { 0. } else { max.max(0.) };
     let mut lines = Vec::new();
     if text.is_empty() {
         #[allow(clippy::single_range_in_vec_init)]
@@ -727,6 +730,7 @@ mod tests {
         assert_eq!(lines("a supercalifragilistic word", 8.), ["a", "supercal", "ifragili", "stic", "word"]);
         assert_eq!(lines("line one\nline two", 40.), ["line one", "line two"]);
         assert_eq!(lines("", 10.), [""]);
+        assert!(lines("ab c", -20.).len() >= 3, "ends");
         assert!(break_points("x (y).").iter().all(|&b| !"x (y)."[b..].starts_with([')', '.'])));
     }
 
