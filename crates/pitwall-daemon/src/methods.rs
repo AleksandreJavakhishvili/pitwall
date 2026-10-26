@@ -100,6 +100,9 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::SPACE_RENAME, Access::Open),
     (method::SPACE_MOVE, Access::Open),
     (method::AGENT_MOVE, Access::Open),
+    // What agent.list shows, as it changes; `approvals` only for the UI
+    // (events.rs). Answered per connection (server.rs).
+    (method::EVENTS_SUBSCRIBE, Access::Open),
 ];
 
 pub fn access(name: &str) -> Option<Access> {
@@ -108,7 +111,7 @@ pub fn access(name: &str) -> Option<Access> {
 
 type Res = Result<Value, ErrorBody>;
 
-fn params<T: DeserializeOwned + Default>(v: Value) -> Result<T, ErrorBody> {
+pub(crate) fn params<T: DeserializeOwned + Default>(v: Value) -> Result<T, ErrorBody> {
     if v.is_null() {
         return Ok(T::default());
     }
@@ -202,6 +205,8 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::SPACE_RENAME => workspace::rename(s, required(p)?),
         method::SPACE_MOVE => workspace::move_to_window(s, required(p)?),
         method::AGENT_MOVE => workspace::move_agent(s, required(p)?),
+        // Needs the connection: server.rs answers it before dispatching.
+        method::EVENTS_SUBSCRIBE => Err(ErrorBody::new(code::UNSUPPORTED, "events.subscribe needs a connection of its own")),
         _ => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{name}\""))),
     }
 }
@@ -382,6 +387,7 @@ mod tests {
         for m in [method::AGENT_STATUS, method::AGENT_WAIT, method::QUEUE_LIST, method::PROJECT_LIST, method::RULES_LIST, method::RULES_SETS, method::RULES_SHOW, method::REVIEW_CHANGES, method::SPACE_LIST] {
             assert_eq!(access(m), Some(Access::Open), "{m}");
         }
+        assert_eq!(access(method::EVENTS_SUBSCRIBE), Some(Access::Open));
         assert_eq!(access("agent.prompt"), None);
     }
 }

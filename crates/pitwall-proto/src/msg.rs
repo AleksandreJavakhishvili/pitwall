@@ -9,6 +9,10 @@
 //! ← {"id":7,"result":[…]}
 //! ← {"id":8,"error":{"code":"not_found","message":"…"}}
 //! ← {"event":"approvals.changed","data":[…]}
+//! → {"id":9,"method":"events.subscribe","params":{"topics":["agents","attention"]}}
+//! ← {"id":9,"result":{"topics":["agents","attention"]}}
+//! ← {"event":"agents.changed","data":[…AgentView…]}
+//! ← {"event":"attention","data":{"agentId":"…","name":"api","reason":"blocked"}}
 //! ```
 //!
 //! Within a protocol version changes are additive only: new fields are
@@ -257,5 +261,27 @@ mod tests {
         assert_eq!(later, ServerMsg::Response(Response::ok(1, json!(2))));
         assert_eq!(Response::ok(1, json!(2)).into_result(), Ok(json!(2)));
         assert_eq!(Response::err(1, ErrorBody::new("x", "y")).into_result().unwrap_err().code, "x");
+    }
+
+    #[test]
+    fn subscription_golden_json() {
+        use crate::{event, method, AttentionView, BlockedCount, EventsSubscribe, EventsSubscribed};
+        let sub = EventsSubscribe { topics: vec!["agents".into(), "attention".into(), "blocked".into()] };
+        round_trip(
+            &Request { id: 9, method: method::EVENTS_SUBSCRIBE.into(), params: serde_json::to_value(&sub).unwrap() },
+            json!({"id":9,"method":"events.subscribe","params":{"topics":["agents","attention","blocked"]}}),
+        );
+        let ok = ServerMsg::Response(Response::ok(9, serde_json::to_value(EventsSubscribed { topics: sub.topics }).unwrap()));
+        round_trip(&ok, json!({"id":9,"result":{"topics":["agents","attention","blocked"]}}));
+        round_trip(&ServerMsg::Event(Event { event: event::AGENTS_CHANGED.into(), data: json!([]) }), json!({"event":"agents.changed","data":[]}));
+        let att = AttentionView { agent_id: "a1".into(), name: "api".into(), reason: "done".into(), detail: None };
+        round_trip(
+            &ServerMsg::Event(Event { event: event::ATTENTION.into(), data: serde_json::to_value(att).unwrap() }),
+            json!({"event":"attention","data":{"agentId":"a1","name":"api","reason":"done"}}),
+        );
+        round_trip(
+            &ServerMsg::Event(Event { event: event::BLOCKED_CHANGED.into(), data: serde_json::to_value(BlockedCount { count: 1 }).unwrap() }),
+            json!({"event":"blocked.changed","data":{"count":1}}),
+        );
     }
 }

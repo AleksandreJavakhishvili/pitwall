@@ -134,6 +134,12 @@ pub mod method {
     pub const SPACE_MOVE: &str = "space.move";
     /// [`AgentMove`](crate::AgentMove) → `SpaceView` (the space it is in now)
     pub const AGENT_MOVE: &str = "agent.move";
+
+    // Events (`caps::EVENTS`).
+    /// [`EventsSubscribe`](crate::EventsSubscribe) →
+    /// [`EventsSubscribed`](crate::EventsSubscribed); then the connection
+    /// gets [`event`](crate::event)s until it closes.
+    pub const EVENTS_SUBSCRIBE: &str = "events.subscribe";
 }
 
 /// Feature flags in `welcome.caps`.
@@ -148,11 +154,35 @@ pub mod caps {
     pub const MANAGE: &str = "manage";
     /// `space.*` and `agent.move` (a Pitwall with windows: the app).
     pub const SPACES: &str = "spaces";
+    /// `events.subscribe` (a Pitwall whose engine reports to the server).
+    pub const EVENTS: &str = "events";
 }
 
+/// Server-pushed events: `{"event":"…","data":…}`.
 pub mod event {
     /// The pending approvals changed: `ApprovalView[]`.
     pub const APPROVALS_CHANGED: &str = "approvals.changed";
+    /// The agent list or something shown about an agent changed: the whole
+    /// list, `AgentView[]` (as `agent.list`), at most ~4 a second.
+    pub const AGENTS_CHANGED: &str = "agents.changed";
+    /// An agent turned blocked or done: [`AttentionView`](crate::AttentionView).
+    pub const ATTENTION: &str = "attention";
+    /// How many agents are blocked now: [`BlockedCount`](crate::BlockedCount).
+    pub const BLOCKED_CHANGED: &str = "blocked.changed";
+}
+
+/// What `events.subscribe` can ask for.
+pub mod topic {
+    /// `agents.changed`: the full list now, then on every change.
+    pub const AGENTS: &str = "agents";
+    /// `attention`: an agent needs the user (blocked) or finished (done).
+    pub const ATTENTION: &str = "attention";
+    /// `blocked.changed`: the count now, then whenever it changes.
+    pub const BLOCKED: &str = "blocked";
+    /// `approvals.changed`: Pitwall's own window only (not served yet).
+    pub const APPROVALS: &str = "approvals";
+    /// What an empty `topics` means.
+    pub const DEFAULT: &[&str] = &[AGENTS, ATTENTION, BLOCKED];
 }
 
 /// One agent, by id.
@@ -279,6 +309,45 @@ pub struct ProviderMachines {
     pub error: Option<String>,
 }
 
+// ------------------------------------------------------------ events
+
+/// Start getting events on this connection (until it closes). Subscribing
+/// again replaces the topics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EventsSubscribe {
+    /// Any of [`topic`]; empty = [`topic::DEFAULT`]. Topics this server
+    /// doesn't know are left out of the answer, not an error.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EventsSubscribed {
+    /// The topics this connection now gets.
+    pub topics: Vec<String>,
+}
+
+/// An agent needs the user (`blocked`) or finished a turn (`done`): what
+/// Pitwall notifies about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AttentionView {
+    pub agent_id: String,
+    pub name: String,
+    /// `blocked` or `done`.
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedCount {
+    pub count: u32,
+}
+
 // ------------------------------------------------------------ approvals
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -369,6 +438,26 @@ mod tests {
         assert_eq!(serde_json::from_value::<AgentCreate>(wire).unwrap(), create);
         let answer: ApprovalAnswer = serde_json::from_value(json!({"id":"a1","allow":true})).unwrap();
         assert!(!answer.remember);
+    }
+
+    #[test]
+    fn events_golden_json() {
+        assert_eq!(serde_json::from_value::<EventsSubscribe>(json!({})).unwrap(), EventsSubscribe::default());
+        let sub = EventsSubscribe { topics: vec!["agents".into(), "attention".into()] };
+        let wire = json!({"topics":["agents","attention"]});
+        assert_eq!(serde_json::to_value(&sub).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<EventsSubscribe>(wire).unwrap(), sub);
+        let got = EventsSubscribed { topics: vec!["agents".into()] };
+        assert_eq!(serde_json::to_value(&got).unwrap(), json!({"topics":["agents"]}));
+        let att = AttentionView { agent_id: "a1".into(), name: "api".into(), reason: "blocked".into(), detail: Some("Allow Bash?".into()) };
+        let wire = json!({"agentId":"a1","name":"api","reason":"blocked","detail":"Allow Bash?"});
+        assert_eq!(serde_json::to_value(&att).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<AttentionView>(wire).unwrap(), att);
+        let done: AttentionView = serde_json::from_value(json!({"agentId":"a1","name":"api","reason":"done","later":1})).unwrap();
+        assert_eq!(done.detail, None);
+        assert_eq!(serde_json::to_value(done).unwrap(), json!({"agentId":"a1","name":"api","reason":"done"}));
+        assert_eq!(serde_json::to_value(BlockedCount { count: 2 }).unwrap(), json!({"count":2}));
+        assert_eq!(topic::DEFAULT, ["agents", "attention", "blocked"]);
     }
 
     #[test]
