@@ -1,8 +1,9 @@
 //! A client of Pitwall's socket (architecture.md §4): connect, handshake,
 //! typed calls. Blocking and single-threaded: one request at a time, which
 //! is what the CLI needs. Events that arrive meanwhile are kept
-//! ([`Client::take_events`]); terminal frames are skipped (no terminal
-//! streams are opened yet).
+//! ([`Client::take_events`]); after [`Client::subscribe`],
+//! [`Client::next_event`] waits for the next. Terminal frames are skipped
+//! (no terminal streams are opened yet).
 
 mod platform;
 
@@ -192,6 +193,32 @@ impl Client {
 
     pub fn reset_setting(&mut self, key: &str) -> Result<pitwall_proto::SettingView> {
         self.call_as(method::SETTINGS_RESET, pitwall_proto::SettingKey { key: key.into() })
+    }
+
+    /// Get events on this connection from now on (`topics` empty: agents,
+    /// attention and the blocked count). The agent list and the blocked
+    /// count come first, as events.
+    pub fn subscribe(&mut self, topics: &[String]) -> Result<pitwall_proto::EventsSubscribed> {
+        let req = pitwall_proto::EventsSubscribe { topics: topics.to_vec() };
+        self.call_cap(pitwall_proto::caps::EVENTS, method::EVENTS_SUBSCRIBE, req)
+    }
+
+    /// The next event (kept ones first), waiting for it; `None` once
+    /// Pitwall closed the connection.
+    pub fn next_event(&mut self) -> Result<Option<Event>> {
+        if !self.events.is_empty() {
+            return Ok(Some(self.events.remove(0)));
+        }
+        loop {
+            match frame::read(&mut self.conn)? {
+                Some(Frame::Json(body)) => match serde_json::from_slice::<ServerMsg>(&body).map_err(|e| Error::Protocol(e.to_string()))? {
+                    ServerMsg::Event(e) => return Ok(Some(e)),
+                    ServerMsg::Response(r) => return Err(Error::Protocol(format!("answer to request {} with none waiting", r.id))),
+                },
+                Some(_) => continue,
+                None => return Ok(None),
+            }
+        }
     }
 
     /// Answer an approval (verified UI clients only).

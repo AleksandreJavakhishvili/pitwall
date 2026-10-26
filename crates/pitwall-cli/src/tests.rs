@@ -162,7 +162,7 @@ fn commands_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwc-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("c.sock");
-    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None }).unwrap();
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None }).unwrap();
     let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command;
 
     let o = run(&parse(&["agent", "list"]), &socket).unwrap();
@@ -266,7 +266,7 @@ fn settings_against_a_running_pitwall() {
     let sock_dir = std::env::temp_dir().join(format!("pwcs-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("s.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()), workspace: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()), workspace: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     // The file is never touched while Pitwall answers.
     let root = dir.path().join("home");
@@ -446,7 +446,7 @@ impl Host {
         } else {
             None
         };
-        let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace };
+        let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace, events: None };
         let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
         Host { server: Some(server), approvals, socket, sock_dir, _dir: dir }
     }
@@ -691,7 +691,7 @@ fn rule_sets_and_imports_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwcr-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("r.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
     let answer = |allow: bool| {
@@ -814,7 +814,7 @@ fn project_rules_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwcp-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("p.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
     let answer = |allow: bool| {
@@ -914,7 +914,7 @@ fn skills_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwck-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("k.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
     let answer = |allow: bool| {

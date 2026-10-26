@@ -1,6 +1,6 @@
 //! Client ↔ server over a temp socket, with an engine on fake providers
 //! (no real agents, agw or `~/.pitwall`): handshake and versions, the
-//! methods the CLI uses, and the approval flow with caller identity.
+//! methods the CLI uses, the approval flow with caller identity, and events.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -9,12 +9,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pitwall_client::{Client, Error};
+use pitwall_core::events::{Event, EventSink};
 use pitwall_core::exec::LocalExec;
 use pitwall_core::paths::Paths;
 use pitwall_core::provider::ProviderCaps;
 use pitwall_core::testing::{FakeProvider, ManualClock, MemStore, RecordingSink, TempDir};
 use pitwall_core::{Deps, Engine, Shared};
-use pitwall_daemon::{serve, Approvals, Caller, Config, Handle, Identify, ProcessIdentity};
+use pitwall_daemon::{serve, Approvals, Caller, Config, Handle, Hub, Identify, ProcessIdentity};
 use pitwall_proto::frame::{self, Frame};
 use pitwall_proto::{code, AgentCreate, ApprovalAnswer, FormRequest, RequesterKind, Risk, Role, SessionAdd, SessionFilter};
 use serde_json::{json, Value};
@@ -42,6 +43,8 @@ struct World {
     vm: Arc<FakeProvider>,
     approvals: Arc<Approvals>,
     callers: Arc<Callers>,
+    /// The engine's event sink (tests emit through it as the engine would).
+    hub: Arc<Hub>,
     server: Option<Handle>,
     socket: PathBuf,
     _dir: TempDir,
@@ -70,9 +73,10 @@ fn world(approval_timeout: Duration) -> World {
     vm.set_remote(true);
     vm.add_session("work", "claude-code", "/srv/work");
     vm.add_session("idle", "codex", "/srv/idle").exit(0);
+    let hub = Hub::new(RecordingSink::new());
     let engine = Engine::open(Deps {
         paths: Paths::new(dir.path().join("pitwall")),
-        events: RecordingSink::new(),
+        events: hub.clone(),
         clock: ManualClock::new(1),
         store: MemStore::with(vec![]),
         providers: vec![local, vm.clone()],
@@ -80,9 +84,9 @@ fn world(approval_timeout: Duration) -> World {
     let approvals = Approvals::new(approval_timeout);
     let callers = Arc::new(Callers::default());
     let socket = short_socket();
-    let server = serve(engine.clone(), approvals.clone(), callers.clone(), Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None })
-        .expect("listen on a temp socket");
-    World { engine, vm, approvals, callers, server: Some(server), socket, _dir: dir }
+    let cfg = Config { socket: socket.clone(), version: "0.1.0-test".into(), settings: None, workspace: None, events: Some(hub.clone()) };
+    let server = serve(engine.clone(), approvals.clone(), callers.clone(), cfg).expect("listen on a temp socket");
+    World { engine, vm, approvals, callers, hub, server: Some(server), socket, _dir: dir }
 }
 
 impl World {
@@ -161,7 +165,7 @@ fn the_socket_is_private_and_removed_on_stop() {
         assert_eq!(mode, 0o600);
     }
     // A second server on the same socket refuses to start.
-    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None });
+    let again = serve(w.engine.clone(), w.approvals.clone(), w.callers.clone(), Config { socket: w.socket.clone(), version: "x".into(), settings: None, workspace: None, events: None });
     assert_eq!(again.err().map(|e| e.kind()), Some(std::io::ErrorKind::AddrInUse));
     w.server.take().unwrap().stop();
     assert!(!w.socket.exists());
@@ -589,4 +593,136 @@ fn waiting_for_a_status() {
     // A stopped agent won't become idle.
     let e = server_error(c.call("agent.wait", json!({"agentId": a.id, "until": ["idle"]})).unwrap_err());
     assert_eq!(e.code, code::NOT_RUNNING);
+}
+
+// ------------------------------------------------------------ events
+
+fn next(c: &mut Client) -> pitwall_proto::Event {
+    c.next_event().unwrap().expect("an event")
+}
+
+/// Wait (up to 5 s) for `f`.
+fn eventually(what: &str, f: impl Fn() -> bool) {
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    while !f() {
+        assert!(std::time::Instant::now() < until, "timed out: {what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_subscriber_gets_the_state_then_every_change() {
+    let w = world(Duration::from_secs(5));
+    let mut c = w.client();
+    assert!(c.has("events"));
+    let got = c.subscribe(&[]).unwrap();
+    assert_eq!(got.topics, ["agents", "attention", "blocked"]);
+    // The state now comes first, so a viewer needs no agent.list.
+    let first = next(&mut c);
+    assert_eq!((first.event.as_str(), first.data.clone()), ("agents.changed", json!([])));
+    let count = next(&mut c);
+    assert_eq!((count.event.as_str(), count.data.clone()), ("blocked.changed", json!({"count": 0})));
+
+    // Another client adds an agent; the engine reports it.
+    let mut other = w.client();
+    let add = SessionAdd { provider: "vmhost".into(), machine: "box".into(), native: "work".into(), ..Default::default() };
+    let added = other.add_session(&add).unwrap().agent;
+    w.hub.emit(Event::AgentsChanged(w.engine.views()));
+    let changed = next(&mut c);
+    assert_eq!(changed.event, "agents.changed");
+    let views: Vec<pitwall_proto::AgentView> = serde_json::from_value(changed.data).unwrap();
+    assert_eq!(views.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), [added.id.as_str()], "as agent.list shows them");
+
+    w.hub.emit(Event::Attention(pitwall_core::model::Attention { agent_id: added.id.clone(), name: added.name.clone(), reason: "blocked", detail: Some("Allow Bash?".into()) }));
+    w.hub.emit(Event::BlockedCount(1));
+    w.hub.emit(Event::ProjectsChanged(vec![]));
+    let att = next(&mut c);
+    assert_eq!((att.event.as_str(), att.data.clone()), ("attention", json!({"agentId": added.id, "name": added.name, "reason": "blocked", "detail": "Allow Bash?"})));
+    assert_eq!(next(&mut c).data, json!({"count": 1}));
+
+    // Calls still work on a subscribed connection; events meanwhile are kept.
+    w.hub.emit(Event::BlockedCount(0));
+    assert_eq!(c.agents().unwrap().len(), 1);
+    let kept = next(&mut c);
+    assert_eq!((kept.event.as_str(), kept.data.clone()), ("blocked.changed", json!({"count": 0})));
+
+    // Subscribing again changes the topics.
+    assert_eq!(c.subscribe(&["attention".into()]).unwrap().topics, ["attention"]);
+    w.hub.emit(Event::BlockedCount(5));
+    w.hub.emit(Event::AgentsChanged(vec![]));
+    w.hub.emit(Event::Attention(pitwall_core::model::Attention { agent_id: added.id.clone(), name: added.name, reason: "done", detail: None }));
+    let only = next(&mut c);
+    assert_eq!((only.event.as_str(), only.data["reason"].clone()), ("attention", json!("done")));
+}
+
+#[test]
+fn agents_may_follow_agents_but_not_approvals() {
+    let w = world(Duration::from_secs(5));
+    let mut agent = w.client_as(agent_caller("a1", "api"));
+    let e = server_error(agent.subscribe(&["agents".into(), "approvals".into()]).unwrap_err());
+    assert_eq!(e.code, code::DENIED);
+    assert_eq!(w.hub.subscribers(), 0, "a denied subscribe subscribes nothing");
+    assert_eq!(agent.subscribe(&["agents".into(), "later".into()]).unwrap().topics, ["agents"], "unknown topics are left out");
+    assert_eq!(next(&mut agent).event, "agents.changed");
+    // The UI may ask for approvals; they aren't sent over the socket yet.
+    let mut ui = w.client_as(ui_caller());
+    assert_eq!(ui.subscribe(&["approvals".into(), "blocked".into()]).unwrap().topics, ["blocked"]);
+}
+
+#[test]
+fn a_closed_connection_unsubscribes() {
+    let w = world(Duration::from_secs(5));
+    let mut c = w.client();
+    c.subscribe(&[]).unwrap();
+    let mut c2 = w.client();
+    c2.subscribe(&["attention".into()]).unwrap();
+    assert_eq!(w.hub.subscribers(), 2);
+    drop(c);
+    eventually("the closed connection's queue is gone", || w.hub.subscribers() == 1);
+    // The other one still gets events.
+    w.hub.emit(Event::BlockedCount(1));
+    w.hub.emit(Event::Attention(pitwall_core::model::Attention { agent_id: "x".into(), name: "x".into(), reason: "done", detail: None }));
+    assert_eq!(next(&mut c2).event, "attention");
+    drop(c2);
+    eventually("no subscribers", || w.hub.subscribers() == 0);
+}
+
+#[test]
+fn a_client_that_stops_reading_never_holds_up_the_engine() {
+    let w = world(Duration::from_secs(5));
+    let mut raw = pitwall_client::connect_raw(&w.socket).unwrap();
+    frame::write_json(&mut raw, &json!({"hello": {"protocol": {"min": 1, "max": 1}, "client": "slow", "role": "cli"}})).unwrap();
+    frame::read(&mut raw).unwrap();
+    frame::write_json(&mut raw, &json!({"id": 1, "method": "events.subscribe"})).unwrap();
+    // Big agent lists, far more than the socket buffers, while nobody reads.
+    let add = SessionAdd { provider: "vmhost".into(), machine: "box".into(), native: "work".into(), ..Default::default() };
+    let one = w.client().add_session(&add).unwrap().agent;
+    let big: Vec<_> = (0..200).map(|i| pitwall_proto::AgentView { id: format!("a{i}"), ..one.clone() }).collect();
+    let started = std::time::Instant::now();
+    const N: usize = 2000;
+    for i in 1..=N {
+        w.hub.emit(Event::AgentsChanged(big.clone()));
+        w.hub.emit(Event::Attention(pitwall_core::model::Attention { agent_id: format!("a{i}"), name: "n".into(), reason: "done", detail: None }));
+        w.hub.emit(Event::BlockedCount(i));
+    }
+    assert!(started.elapsed() < Duration::from_secs(20), "emitting never waited on the client ({:?})", started.elapsed());
+    // Reading again: the latest state arrives; what piled up was trimmed.
+    let mut seen = 0;
+    let mut last_alert = 0;
+    loop {
+        let Some(Frame::Json(body)) = frame::read(&mut raw).unwrap() else { panic!("the connection stays open") };
+        let v: Value = serde_json::from_slice(&body).unwrap();
+        if v.get("id").is_some() {
+            continue;
+        }
+        seen += 1;
+        if v["event"] == "attention" {
+            last_alert = v["data"]["agentId"].as_str().unwrap()[1..].parse().unwrap();
+        }
+        if v["event"] == "blocked.changed" && v["data"]["count"] == N {
+            break;
+        }
+    }
+    assert_eq!(last_alert, N, "the newest alerts are kept");
+    assert!(seen < N, "most of the {} events were coalesced or dropped ({seen} arrived)", 3 * N);
 }

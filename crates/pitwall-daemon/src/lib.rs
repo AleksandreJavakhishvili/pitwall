@@ -6,6 +6,8 @@
 //! - [`methods`]: the method table with each method's access/risk, and what
 //!   each method does in `pitwall-core`.
 //! - [`approvals`]: risky requests wait for the user's answer in Pitwall.
+//! - [`events`]: the engine's events to subscribed connections
+//!   (`events.subscribe`), never blocking the engine.
 //! - [`identity`]: who is calling (peer pid → the agent it runs in).
 //! - [`settings`]: `settings.*` over the host's [`SettingsBackend`].
 //! - [`manage`]: stop/restart/remove/rename/status/wait, queues, projects,
@@ -13,6 +15,7 @@
 //! - [`workspace`]: `space.*` over the host's [`WorkspaceBackend`].
 
 pub mod approvals;
+pub mod events;
 pub mod identity;
 pub mod manage;
 pub mod methods;
@@ -22,6 +25,7 @@ pub mod settings;
 pub mod workspace;
 
 pub use approvals::{Approvals, Decision};
+pub use events::Hub;
 pub use identity::{Caller, Identify, ProcessIdentity};
 pub use server::{serve, Config, Handle};
 pub use settings::SettingsBackend;

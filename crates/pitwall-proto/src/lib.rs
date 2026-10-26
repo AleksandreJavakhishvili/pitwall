@@ -61,6 +61,10 @@ mod ts_export {
         ScannedPlace::export_all(&cfg).unwrap();
         ApprovalView::export_all(&cfg).unwrap();
         ApprovalAnswer::export_all(&cfg).unwrap();
+        EventsSubscribe::export_all(&cfg).unwrap();
+        EventsSubscribed::export_all(&cfg).unwrap();
+        AttentionView::export_all(&cfg).unwrap();
+        BlockedCount::export_all(&cfg).unwrap();
         SessionAdded::export_all(&cfg).unwrap();
         SessionAdd::export_all(&cfg).unwrap();
         ProviderMachines::export_all(&cfg).unwrap();
