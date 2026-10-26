@@ -358,3 +358,37 @@ fn the_context_menu_copies(cx: &mut TestAppContext) {
     assert_eq!(clipboard(cx).as_deref(), Some("First"));
     assert!(view.read_with(cx, |v, _| v.menu.is_none()));
 }
+
+/// HTML is drawn as formatting: a centred heading sits in the middle, a
+/// row of badges side by side; centred text still selects where it is.
+#[gpui::test]
+fn html_and_centred_text(cx: &mut TestAppContext) {
+    let text = "<h1 align=\"center\">Pitwall</h1>\n\n\
+                <p align=\"center\">\n  <img alt=\"One\" src=\"https://x.dev/1.svg\" />\n  \
+                <img alt=\"Two\" src=\"https://x.dev/2.svg\" />\n</p>\n\n\
+                | Name | Centred value |\n|---|:---:|\n| a | middle word |\n";
+    let (view, cx) = setup(cx, 900., text);
+    check_layout(&view, cx, "html");
+    let col = cx.debug_bounds("md-col").unwrap();
+    let title = view.read_with(cx, |v, _| {
+        assert_eq!(v.pieces[0].text.as_ref(), "Pitwall");
+        v.pieces[0].layout.bounds()
+    });
+    assert!((title.center().x - col.center().x).abs() < px(2.), "{title:?} centred in {col:?}");
+    // The two badges share a line.
+    let badges = block(cx, 1).unwrap();
+    assert!(badges.size.height < px(40.), "{badges:?}");
+    // A double click on the centred cell's second word selects it.
+    let k = view.read_with(cx, |v, _| {
+        v.pieces.iter().position(|p| p.text.as_ref() == "middle word").unwrap()
+    });
+    let p = at(&view, cx, k, 8);
+    cx.simulate_event(MouseDownEvent {
+        position: p,
+        modifiers: Modifiers::none(),
+        button: MouseButton::Left,
+        click_count: 2,
+        first_mouse: false,
+    });
+    assert_eq!(view.read_with(cx, |v, _| v.selected_text()).as_deref(), Some("word"));
+}
