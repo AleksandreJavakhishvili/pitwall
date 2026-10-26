@@ -87,8 +87,9 @@ Status: built (backend, API and UI).
 - **Markdown**: the viewer's header switches a Markdown file between
   **Code** and **Preview** (formatted, as Review's Markdown preview, without
   change bars; relative images from the file's folder, remote ones never
-  fetched). Code is the default; the choice holds for the app session.
-  Files over 1 MB stay Code.
+  fetched). Its text selects and copies the same way (drag, double- and
+  triple-click, ⌘A, ⌘C, the right-click menu). Code is the default; the
+  choice holds for the app session. Files over 1 MB stay Code.
 - **Quick-open index** (`list_all_files`): `git ls-files` (cached + others,
   minus deleted) in a repo. Elsewhere `rg --files` when ripgrep is on that
   machine. Otherwise a breadth-first listing within a 3 s budget. At most
