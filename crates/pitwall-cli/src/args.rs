@@ -58,11 +58,68 @@ pub enum Command {
     Review(ReviewCmd),
     /// Wait until an agent is idle, blocked or done (for coordinating agents).
     Wait(WaitArgs),
+    /// Your other machines' Pitwalls over Tailscale (read-only): see their
+    /// agents here. Only machines of your own Tailscale user; works on
+    /// Pitwall's data folder directly, without the app.
+    #[command(subcommand)]
+    Peers(PeersCmd),
     /// Follow Pitwall as it changes: the agent list, agents that need you
     /// (blocked) or finished (done), and how many are blocked. The current
     /// list and count come first. Prints one JSON event per line until
     /// stopped (or --count).
     Events(EventsArgs),
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum PeersCmd {
+    /// Paired machines both ways (the ones shown here, the ones that may
+    /// see this Pitwall), the two switches, and Tailscale's state.
+    List,
+    /// Your own machines on the tailnet, each online one probed for a
+    /// Pitwall (version, name, agent count). Needs --show on.
+    Discover,
+    /// Pair with one of your machines to see its agents here (or again
+    /// after its identity changed). No code: it must be yours on Tailscale
+    /// and have --share on.
+    Pair {
+        /// Its name (`studio`), MagicDNS name or Tailscale IP.
+        name: String,
+    },
+    /// Stop showing a paired machine and forget its key.
+    Unpair {
+        /// Its id or name from `peers list`.
+        name: String,
+    },
+    /// Follow a paired machine's agents: one JSON line per change (link
+    /// state, agent list, attention, blocked count) until stopped.
+    Watch {
+        /// Its id or name from `peers list`.
+        name: String,
+        /// Stop after this many lines.
+        #[arg(long, value_name = "N")]
+        count: Option<usize>,
+    },
+    /// Sharing this Pitwall: the switch, the port, this machine's
+    /// Tailscale addresses, and the machines that may connect.
+    Serve,
+    /// Stop a machine from seeing this Pitwall's agents.
+    Revoke {
+        /// Its name or Tailscale node id from `peers serve`.
+        name: String,
+    },
+    /// Turn the switches on or off, or change the port. The app applies
+    /// them when it starts.
+    Set {
+        /// "Let my other machines see this Pitwall's agents" (on/off).
+        #[arg(long, value_name = "ON|OFF", value_parser = clap::builder::BoolishValueParser::new())]
+        share: Option<bool>,
+        /// "Show agents from my other machines" (on/off).
+        #[arg(long, value_name = "ON|OFF", value_parser = clap::builder::BoolishValueParser::new())]
+        show: Option<bool>,
+        /// The port this Pitwall listens on and reaches others on (47420).
+        #[arg(long, value_name = "PORT")]
+        port: Option<u16>,
+    },
 }
 
 #[derive(Debug, Args, PartialEq)]

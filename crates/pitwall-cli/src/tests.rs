@@ -1019,3 +1019,20 @@ fn events_print_one_line_each_as_they_arrive() {
     server.stop();
     let _ = std::fs::remove_dir_all(&sock_dir);
 }
+
+#[test]
+fn peers_switches_are_kept_in_the_data_folder() {
+    let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command;
+    let Command::Peers(set) = parse(&["peers", "set", "--show", "on", "--port", "5000"]) else { panic!("peers set") };
+    assert_eq!(set, args::PeersCmd::Set { share: None, show: Some(true), port: Some(5000) });
+    assert!(Cli::try_parse_from(["pitwall", "peers", "set", "--share", "maybe"]).is_err());
+    let dir = pitwall_core::testing::TempDir::new("cli-peers");
+    let e = peers::run(&set, dir.path(), true).err().unwrap();
+    assert_eq!(failure(&e).1, 3, "not from inside an agent");
+    let o = peers::run(&set, dir.path(), false).unwrap();
+    assert_eq!(o.json, json!({"share": false, "show": true, "port": 5000}));
+    let Command::Peers(off) = parse(&["peers", "set", "--show", "off", "--share", "true"]) else { panic!("peers set") };
+    let o = peers::run(&off, dir.path(), false).unwrap();
+    assert_eq!(o.json, json!({"share": true, "show": false, "port": 5000}));
+    assert!(dir.path().join("peers/identity.key").is_file());
+}

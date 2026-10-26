@@ -10,6 +10,8 @@ path = "src/main.rs"
 
 [dependencies]
 pitwall-client = { path = "../pitwall-client" }
+# `pitwall peers` (tailnet-peers.md), on the data folder directly.
+pitwall-peer = { path = "../pitwall-peer" }
 pitwall-proto = { path = "../pitwall-proto" }
 clap = { version = "4", features = ["derive"] }
 serde = "1"

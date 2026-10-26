@@ -8,7 +8,7 @@ Settings → *Install command-line tool* links `pitwall` into `~/.local/bin` (or
 
 ## How it works
 
-- **It talks to the running app** over a local socket: `$PITWALL_CLI_SOCKET` when set, else `~/.pitwall/run/pitwalld.sock` (`--socket` overrides both). Only `settings` also works while Pitwall is closed: it edits `~/.pitwall/ui.json` (safe settings only).
+- **It talks to the running app** over a local socket: `$PITWALL_CLI_SOCKET` when set, else `~/.pitwall/run/pitwalld.sock` (`--socket` overrides both). Only `settings` also works while Pitwall is closed: it edits `~/.pitwall/ui.json` (safe settings only). `peers` always works on `~/.pitwall/peers/` directly.
 - **Output is JSON** on stdout, the call's result, so scripts and agents can parse it (`jq` works well). `--human` (`-H`) prints readable text instead.
 - **Errors** are `{"error":{"code":"…","message":"…"}}` on stderr.
 - **Agents and spaces** are named by id or by name.
@@ -85,6 +85,7 @@ These work with every command.
 - [`rules`](#rules): Rule sets (rulesync) for agents and projects
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
+- [`peers`](#peers): Your other machines' Pitwalls over Tailscale (read-only): see their agents here. Only machines of your own Tailscale user; works on Pitwall's data folder directly, without the app
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
 
 ## agent
@@ -926,6 +927,109 @@ pitwall wait [OPTIONS] --for <STATUS> <AGENT>
 pitwall queue add api "run the tests"
 pitwall wait api --for done,blocked --fresh --timeout 900
 ```
+
+
+## peers
+
+Your other machines' Pitwalls over Tailscale (read-only): see their agents here. Only machines of your own Tailscale user; works on Pitwall's data folder directly, without the app.
+
+### peers list
+
+Paired machines both ways (the ones shown here, the ones that may see this Pitwall), the two switches, and Tailscale's state.
+
+```bash
+pitwall peers list [OPTIONS]
+```
+
+### peers discover
+
+Your own machines on the tailnet, each online one probed for a Pitwall (version, name, agent count). Needs --show on.
+
+```bash
+pitwall peers discover [OPTIONS]
+```
+
+### peers pair
+
+Pair with one of your machines to see its agents here (or again after its identity changed). No code: it must be yours on Tailscale and have --share on.
+
+```bash
+pitwall peers pair [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | Its name (`studio`), MagicDNS name or Tailscale IP. |
+
+```bash
+pitwall peers set --show on          # here
+pitwall peers set --share on         # on studio
+pitwall peers discover --human
+pitwall peers pair studio
+pitwall peers watch studio --human
+```
+
+### peers unpair
+
+Stop showing a paired machine and forget its key.
+
+```bash
+pitwall peers unpair [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | Its id or name from `peers list`. |
+
+### peers watch
+
+Follow a paired machine's agents: one JSON line per change (link state, agent list, attention, blocked count) until stopped.
+
+```bash
+pitwall peers watch [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | Its id or name from `peers list`. |
+
+| Option | |
+|---|---|
+| `--count <N>` | Stop after this many lines. |
+
+### peers serve
+
+Sharing this Pitwall: the switch, the port, this machine's Tailscale addresses, and the machines that may connect.
+
+```bash
+pitwall peers serve [OPTIONS]
+```
+
+### peers revoke
+
+Stop a machine from seeing this Pitwall's agents.
+
+```bash
+pitwall peers revoke [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` | Its name or Tailscale node id from `peers serve`. |
+
+### peers set
+
+Turn the switches on or off, or change the port. The app applies them when it starts.
+
+```bash
+pitwall peers set [OPTIONS]
+```
+
+| Option | |
+|---|---|
+| `--share <ON\|OFF>` | "Let my other machines see this Pitwall's agents" (on/off). |
+| `--show <ON\|OFF>` | "Show agents from my other machines" (on/off). |
+| `--port <PORT>` | The port this Pitwall listens on and reaches others on (47420). |
 
 
 ## events
