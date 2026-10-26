@@ -1,0 +1,23 @@
+[package]
+name = "pitwall-peer"
+version = "0.2.1"
+edition = "2021"
+description = "Pitwall peers over Tailscale (docs/spec/tailnet-peers.md): see the agents of your other machines. The Tailnet (the `tailscale` CLI, or a fake in tests), the instance key and pairings, the listener on this node's Tailscale addresses, and links that mirror a peer's agents. Blocking and threaded, no async runtime."
+
+[features]
+# `FakeTailnet` for hosts' tests (never in a release build).
+testing = []
+
+[dependencies]
+pitwall-core = { path = "../pitwall-core" }
+pitwall-daemon = { path = "../pitwall-daemon" }
+pitwall-proto = { path = "../pitwall-proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The instance key (Ed25519) and nonces; already in the tree via rustls.
+ring = "0.17.14"
+# Keys', signatures' and nonces' text form; already in the tree.
+base64 = "0.22"
+
+[dev-dependencies]
+pitwall-core = { path = "../pitwall-core", features = ["testing"] }
