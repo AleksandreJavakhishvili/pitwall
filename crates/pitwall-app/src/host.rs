@@ -2,7 +2,8 @@
 //! `setup` does: the same providers (local holders, agw), the same file store,
 //! the `pitwall` CLI's socket server with its approvals, and the hook relay
 //! (started by `Engine::start`). Only the event sink differs: a channel into
-//! GPUI ([`Bridge`]) instead of webview events.
+//! GPUI ([`Bridge`]) instead of webview events, behind the server's event
+//! [`Hub`] (`pitwall events`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use pitwall_core::clock::SystemClock;
 use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
-use pitwall_daemon::{Approvals, Config, Handle, ProcessIdentity};
+use pitwall_daemon::{Approvals, Config, Handle, Hub, ProcessIdentity};
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
 use pitwall_providers::local::{LocalConfig, LocalProvider};
 
@@ -61,10 +62,11 @@ impl Host {
             agw_cfg.agw = agw;
         }
         let agw = AgwProvider::new(agw_cfg);
+        let hub = Hub::new(Arc::new(bridge.clone()));
         let engine = Engine::open(Deps {
             store: Arc::new(FileStore::new(paths.state_file())),
             paths: paths.clone(),
-            events: Arc::new(bridge.clone()),
+            events: hub.clone(),
             clock: Arc::new(SystemClock::new()),
             providers: vec![Arc::new(local), Arc::new(agw)],
         });
@@ -80,6 +82,7 @@ impl Host {
             version: env!("CARGO_PKG_VERSION").into(),
             settings: Some(settings.clone()),
             workspace: Some(workspace.clone()),
+            events: Some(hub),
         };
         let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {
             Ok(h) => Some(h),
