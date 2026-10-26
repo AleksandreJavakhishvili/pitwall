@@ -206,6 +206,7 @@ fn members(engine: &Engine) -> Vec<Member> {
                     id: loc.machine.to_string(),
                     label: if a.facts.machine_label.is_empty() { loc.machine.to_string() } else { a.facts.machine_label.clone() },
                     can_create: p.create && !p.platform_create,
+                    link: None,
                 },
                 home: a.facts.home.clone(),
                 min_gap: u64::from(p.git_poll_ms).max(MIN_GAP_MS),
