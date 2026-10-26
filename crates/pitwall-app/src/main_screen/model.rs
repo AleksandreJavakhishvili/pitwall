@@ -291,6 +291,19 @@ pub fn split_path(p: &str) -> (&str, &str) {
 /// "updated 12 s ago" (`updatedLabel`).
 pub use crate::kit::updated_label;
 
+/// The dev-server addresses a pane header offers ("Open preview"): none
+/// once the agent stopped.
+pub fn previews(a: &AgentView) -> &[String] {
+    if a.running { &a.preview_urls } else { &[] }
+}
+
+/// The pane header's preview chip: the address's port (":5173").
+pub fn preview_port(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = rest.split('/').next().unwrap_or(rest);
+    host.rfind(':').map_or(host, |i| &host[i..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +313,18 @@ mod tests {
     fn on(mut a: AgentView, account: Option<&str>) -> AgentView {
         a.account = account.map(String::from);
         a
+    }
+
+    #[test]
+    fn a_preview_is_named_by_its_port() {
+        assert_eq!(preview_port("http://localhost:5173/"), ":5173");
+        assert_eq!(preview_port("https://127.0.0.1:8443/app/x"), ":8443");
+        assert_eq!(preview_port("http://[::1]:4000"), ":4000");
+        let mut a = agent("a", "/work/alpha", "idle", 1, true);
+        a.preview_urls = vec!["http://localhost:3000".into()];
+        assert_eq!(previews(&a).len(), 1);
+        a.running = false;
+        assert!(previews(&a).is_empty(), "gone with the agent");
     }
 
     #[test]

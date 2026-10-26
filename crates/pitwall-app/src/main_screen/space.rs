@@ -917,6 +917,7 @@ impl MainScreen {
                     .child(diffstat(a.added, a.removed, t)),
             )
             .child(div().flex_1())
+            .children(self.preview_chip(a, pane_id, t, cx))
             .children(crate::rules::stale::button(&a.id, t, cx, {
                 let id = a.id.clone();
                 move |this: &mut Self, r, cx| match r {
@@ -1147,6 +1148,80 @@ impl MainScreen {
                         )
                     })
             }))
+    }
+
+    /// "Open preview" (docs/spec/terminals.md): the latest local
+    /// dev-server address the agent printed, opened in the browser; with
+    /// more than one, the chevron lists them (most recent first).
+    fn preview_chip(&self, a: &AgentView, pane_id: &str, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let urls = super::model::previews(a);
+        let latest = urls.first()?.clone();
+        let port = super::model::preview_port(&latest).to_string();
+        let more = (urls.len() > 1).then(|| urls.to_vec());
+        let open = latest.clone();
+        // Clicks stay on the chip (no drag, no double-click maximise).
+        let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
+        let id = a.id.clone();
+        let chip = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .h(px(22.))
+            .rounded(px(4.))
+            .border_1()
+            .border_color(t.line)
+            .bg(t.surface_2)
+            .text_size(px(11.5))
+            .text_color(t.text_2)
+            .debug_selector(move || format!("preview-{id}"))
+            .child(
+                div()
+                    .id(SharedString::from(format!("preview-{pane_id}")))
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .px(px(6.))
+                    .cursor_pointer()
+                    .hover_text(t.text, |s| s)
+                    .tooltip(tooltip(format!("Open {latest} in the browser")))
+                    .on_mouse_down(MouseButton::Left, keep)
+                    .on_click(cx.listener(move |_, _, _, cx| crate::platform::files::open_url(cx, &open)))
+                    .child(icon("external", 12., t.text_3))
+                    .child("Preview")
+                    .child(div().font_family(crate::kit::MONO_FONT).text_color(t.text_3).child(port)),
+            )
+            .when_some(more, |d, urls| {
+                d.child(
+                    div()
+                        .id(SharedString::from(format!("previews-{pane_id}")))
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .px(px(4.))
+                        .border_l_1()
+                        .border_color(t.line)
+                        .cursor_pointer()
+                        .hover_text(t.text, |s| s)
+                        .tooltip(tooltip("Other addresses it printed"))
+                        .on_mouse_down(MouseButton::Left, keep)
+                        .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
+                            let items = urls
+                                .iter()
+                                .map(|u| {
+                                    let u = u.clone();
+                                    MenuItem::new("external", &u.clone(), move |_, _, cx| {
+                                        crate::platform::files::open_url(cx, &u)
+                                    })
+                                })
+                                .collect();
+                            let at = e.position();
+                            this.open_menu(gpui::point(at.x, at.y + px(6.)), items, window, cx);
+                        }))
+                        .child(crate::kit::chevron_at(true, 11., t.text_3)),
+                )
+            });
+        Some(chip.into_any_element())
     }
 }
 
