@@ -70,6 +70,9 @@ tree-sitter-r = "1.3"
 tree-sitter-powershell = "0.26"
 tree-sitter-ocaml = "0.26"
 tree-sitter-nix = "0.3"
+# Review's and the file viewer's Markdown preview (src/markdown_view); MIT.
+# No default features: the HTML writer and the CLI's getopts aren't used.
+pulldown-cmark = { version = "0.13.4", default-features = false }
 # The terminal view in panes (Apache-2.0, this repo): fed from the engine,
 # no PTY or holder connection of its own.
 pitwall-term-view = { path = "../pitwall-term-view", default-features = false }
