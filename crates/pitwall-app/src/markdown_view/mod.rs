@@ -187,6 +187,14 @@ impl MarkdownView {
         Some(select::text(&self.pieces, &s))
     }
 
+    /// Where byte `ix` of the `k`th text was drawn (window coordinates, a
+    /// little inside its line). Tests.
+    #[cfg(test)]
+    pub fn text_position(&self, k: usize, ix: usize) -> Point<Pixels> {
+        let p = self.pieces[k].layout.position_for_index(ix).expect("drawn");
+        point(p.x + px(1.), p.y + px(5.))
+    }
+
     fn set_sel(&mut self, sel: Option<Selection>) {
         self.sel = sel;
         self.selecting.set(sel.is_some_and(|s| !s.is_empty()));
