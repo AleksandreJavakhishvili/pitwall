@@ -344,6 +344,7 @@ impl Render for MarkdownView {
             sep: "",
             prefix: SharedString::default(),
             in_item: false,
+            fit: false,
             selecting: self.selecting.clone(),
         };
         let mut col: Vec<AnyElement> = Vec::new();
@@ -490,6 +491,10 @@ struct Draw<'a> {
     prefix: SharedString,
     /// Inside a list item: its blocks are a line apart, not a paragraph.
     in_item: bool,
+    /// Texts take only their width (centred or right-aligned by their
+    /// box: text alignment would put the glyphs where the mouse can't
+    /// find them).
+    fit: bool,
     selecting: Rc<Cell<bool>>,
 }
 
@@ -613,6 +618,9 @@ impl Draw<'_> {
                 };
                 let color = if *level == 6 { t.text_2 } else { self.color };
                 div()
+                    .flex()
+                    .flex_col()
+                    .when(self.fit, |d| d.w_full().items_center())
                     .text_size(px(size))
                     .line_height(relative(1.3))
                     .when(*level == 1, |d| d.mt(px(6.)))
@@ -656,24 +664,18 @@ impl Draw<'_> {
             }
             Kind::Table { aligns, head, rows } => self.table(aligns, head, rows),
             Kind::Rule => div().h(px(1.)).my(px(6.)).bg(t.line_strong).into_any_element(),
-            Kind::Html(h) => {
-                let mut font = gpui::font(MONO_FONT);
-                font.weight = FontWeight::NORMAL;
-                let run = TextRun {
-                    len: h.len(),
-                    font,
-                    color: t.text_3,
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                };
-                let text = self.piece(h.clone().into(), vec![run]);
+            Kind::Group { center, blocks } => {
+                let was = self.fit;
+                self.fit |= *center;
+                let kids: Vec<AnyElement> =
+                    blocks.iter().map(|b| self.block(b, depth)).collect();
+                self.fit = was;
                 div()
-                    .w_full()
-                    .cursor_text()
-                    .text_size(px(12.5))
-                    .line_height(relative(1.5))
-                    .child(text)
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .when(*center, |d| d.items_center())
+                    .children(kids)
                     .into_any_element()
             }
             Kind::Footnote(label, blocks) => {
@@ -732,19 +734,27 @@ impl Draw<'_> {
             .child(div().flex_1().min_w_0().flex().flex_col().gap(px(6.)).children(kids))
     }
 
-    /// Inline content: text with images on their own lines.
+    /// Inline content: text with images on their own lines (images alone
+    /// side by side, wrapping: a row of badges).
     fn inline(&mut self, inline: &Inline, weight: FontWeight, color: Hsla) -> AnyElement {
         let mut parts: Vec<AnyElement> = Vec::new();
         for seg in inline {
             match seg {
                 Seg::Text(text) => parts.push(self.text(text, weight, color)),
-                Seg::Image { src, alt } => parts.push(self.image(src, alt)),
+                Seg::Image { src, alt, width } => parts.push(self.image(src, alt, *width)),
             }
         }
         if parts.len() == 1 {
             return parts.pop().expect("one");
         }
-        div().flex().flex_col().gap(px(6.)).children(parts).into_any_element()
+        let row = inline.iter().all(|s| matches!(s, Seg::Image { .. }));
+        div()
+            .flex()
+            .gap(px(6.))
+            .map(|d| if row { d.flex_wrap().items_center() } else { d.flex_col() })
+            .when(self.fit, |d| d.justify_center().items_center())
+            .children(parts)
+            .into_any_element()
     }
 
     fn text(&mut self, text: &Text, weight: FontWeight, color: Hsla) -> AnyElement {
@@ -762,8 +772,13 @@ impl Draw<'_> {
                 opens(url).then(|| (r.clone(), url.clone()))
             })
             .collect();
+        let fit = self.fit;
         if text.links.is_empty() {
-            return div().w_full().cursor_text().child(styled).into_any_element();
+            return div()
+                .when(!fit, |d| d.w_full())
+                .cursor_text()
+                .child(styled)
+                .into_any_element();
         }
         let tips: Vec<(std::ops::Range<usize>, String)> = text
             .runs
@@ -773,7 +788,7 @@ impl Draw<'_> {
         let urls: Vec<String> = clicks.iter().map(|(_, u)| u.clone()).collect();
         let selecting = self.selecting.clone();
         div()
-            .w_full()
+            .when(!fit, |d| d.w_full())
             .cursor_text()
             .child(
                 InteractiveText::new(self.id(), styled)
@@ -825,7 +840,7 @@ impl Draw<'_> {
         }
     }
 
-    fn image(&self, src: &str, alt: &str) -> AnyElement {
+    fn image(&self, src: &str, alt: &str, width: Option<f32>) -> AnyElement {
         let t = self.t;
         let alt: SharedString = if alt.is_empty() { "image".into() } else { alt.to_string().into() };
         let muted = t.text_3;
@@ -846,6 +861,7 @@ impl Draw<'_> {
                 .overflow_hidden()
                 .child(
                     img(p)
+                        .when_some(width, |i, w| i.w(px(w)))
                         .max_w_full()
                         .max_h(px(560.))
                         .object_fit(ObjectFit::Contain)
@@ -950,16 +966,21 @@ impl Draw<'_> {
                     d.sep = "\n";
                 }
                 let weight = if is_head { FontWeight::SEMIBOLD } else { FontWeight::NORMAL };
+                let align = aligns.get(c).copied().unwrap_or(Align::None);
+                let was = std::mem::replace(&mut d.fit, matches!(align, Align::Center | Align::Right));
                 let content = cells.get(c).map(|i| d.inline(i, weight, d.color));
+                d.fit = was;
                 let cell = div()
                     .flex_none()
                     .w(px(*w))
                     .px(px(10.))
                     .py(px(5.))
+                    .flex()
+                    .flex_col()
                     .when(c + 1 < cols, |x| x.border_r_1().border_color(t.line))
-                    .map(|x| match aligns.get(c) {
-                        Some(Align::Center) => x.text_center(),
-                        Some(Align::Right) => x.text_right(),
+                    .map(|x| match align {
+                        Align::Center => x.items_center(),
+                        Align::Right => x.items_end(),
                         _ => x,
                     })
                     .children(content);

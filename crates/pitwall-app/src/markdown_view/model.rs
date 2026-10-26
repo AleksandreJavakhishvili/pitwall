@@ -1,8 +1,10 @@
 //! Markdown as blocks to draw: pulldown-cmark (MIT, CommonMark with GFM
 //! tables, task lists, strikethrough and footnotes) folded into headings,
-//! paragraphs, code, quotes, lists, tables, rules and raw HTML (kept as
-//! text), each with the source lines it came from. [`mark`] colours the
-//! blocks a diff's hunks touch. Pure.
+//! paragraphs, code, quotes, lists, tables, rules and raw HTML (drawn as
+//! formatting by [`html`]), each with the source lines it came from.
+//! [`mark`] colours the blocks a diff's hunks touch. Pure.
+
+mod html;
 
 use std::ops::Range;
 
@@ -56,11 +58,17 @@ impl Text {
     }
 }
 
-/// A piece of inline content: text, or an image (drawn on its own line).
+/// A piece of inline content: text, or an image (drawn on its own line;
+/// images alone side by side, as a row of badges).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Seg {
     Text(Text),
-    Image { src: String, alt: String },
+    Image {
+        src: String,
+        alt: String,
+        /// An HTML `<img width>` (pixels).
+        width: Option<f32>,
+    },
 }
 
 pub type Inline = Vec<Seg>;
@@ -122,8 +130,11 @@ pub enum Kind {
         rows: Vec<Vec<Inline>>,
     },
     Rule,
-    /// Raw HTML, shown as text.
-    Html(String),
+    /// Raw HTML's blocks; `center`: `align="center"`.
+    Group {
+        center: bool,
+        blocks: Vec<Block>,
+    },
     Footnote(String, Vec<Block>),
 }
 
@@ -267,10 +278,18 @@ impl<'a, I: Iterator<Item = (Event<'a>, Range<usize>)>> Builder<'a, I> {
                     self.it.next();
                     out.push(self.mk(Kind::Rule, &range));
                 }
-                Event::Html(h) | Event::DisplayMath(h) => {
-                    // Outside an HTML block only in odd nesting: as text.
+                Event::Html(h) => {
+                    // Outside an HTML block only in odd nesting.
                     self.it.next();
-                    out.push(self.mk(Kind::Html(h.trim_end().to_string()), &range));
+                    let blocks = html::blocks(&h, self.lines(&range));
+                    if !blocks.is_empty() {
+                        out.push(self.mk(Kind::Group { center: false, blocks }, &range));
+                    }
+                }
+                Event::DisplayMath(h) => {
+                    self.it.next();
+                    let kind = self.code(None, h.to_string());
+                    out.push(self.mk(kind, &range));
                 }
                 _ => {
                     // A tight list item's text: an implicit paragraph.
@@ -345,7 +364,14 @@ impl<'a, I: Iterator<Item = (Event<'a>, Range<usize>)>> Builder<'a, I> {
                 let text = self.raw();
                 self.code(Some(lang.into()), text)
             }
-            Tag::HtmlBlock => Kind::Html(self.raw().trim_end().to_string()),
+            Tag::HtmlBlock => {
+                let blocks = html::blocks(&self.raw(), self.lines(range));
+                match blocks.len() {
+                    0 => return None,
+                    1 => return blocks.into_iter().next(),
+                    _ => Kind::Group { center: false, blocks },
+                }
+            }
             Tag::List(start) => Kind::List {
                 start,
                 items: self.items(),
@@ -455,7 +481,46 @@ impl<'a, I: Iterator<Item = (Event<'a>, Range<usize>)>> Builder<'a, I> {
                 Event::Code(s) | Event::InlineMath(s) | Event::DisplayMath(s) => {
                     text.push(&s, Style { code: true, ..style })
                 }
-                Event::Html(s) | Event::InlineHtml(s) => text.push(&s, style),
+                Event::Html(s) | Event::InlineHtml(s) => {
+                    for tok in html::tokens(&s) {
+                        let html::Token::Open { name, .. } = &tok else {
+                            if let html::Token::Close(name) = &tok {
+                                match name.as_str() {
+                                    "b" | "strong" => style.bold = open.contains(&TagEnd::Strong),
+                                    "i" | "em" => style.italic = open.contains(&TagEnd::Emphasis),
+                                    "code" | "kbd" | "tt" | "samp" => style.code = false,
+                                    "s" | "del" | "strike" => {
+                                        style.strike = open.contains(&TagEnd::Strikethrough)
+                                    }
+                                    "a" => style.link = links.pop().flatten(),
+                                    _ => {}
+                                }
+                            } else if let html::Token::Text(t) = &tok {
+                                text.push(&html::decode(t), style);
+                            }
+                            continue;
+                        };
+                        match name.as_str() {
+                            "br" => text.push("\n", style),
+                            "b" | "strong" => style.bold = true,
+                            "i" | "em" => style.italic = true,
+                            "code" | "kbd" | "tt" | "samp" => style.code = true,
+                            "s" | "del" | "strike" => style.strike = true,
+                            "a" => {
+                                links.push(style.link);
+                                text.links.push(tok.attr("href").unwrap_or_default());
+                                style.link = Some(text.links.len() - 1);
+                            }
+                            "img" => {
+                                if !text.text.is_empty() {
+                                    segs.push(Seg::Text(std::mem::take(&mut text)));
+                                }
+                                segs.push(html::image(&tok));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 Event::SoftBreak => text.push(" ", style),
                 Event::HardBreak => text.push("\n", style),
                 Event::FootnoteReference(l) => {
@@ -485,6 +550,7 @@ impl<'a, I: Iterator<Item = (Event<'a>, Range<usize>)>> Builder<'a, I> {
                     segs.push(Seg::Image {
                         src: dest_url.to_string(),
                         alt,
+                        width: None,
                     });
                 }
                 Event::Start(t) => {
@@ -599,7 +665,7 @@ mod tests {
                 Kind::List { .. } => "list",
                 Kind::Table { .. } => "table",
                 Kind::Rule => "hr",
-                Kind::Html(_) => "html",
+                Kind::Group { .. } => "group",
                 Kind::Footnote(..) => "note",
             })
             .collect()
@@ -638,7 +704,8 @@ mod tests {
             p[0],
             Seg::Image {
                 src: "img/a.png".into(),
-                alt: "logo".into()
+                alt: "logo".into(),
+                width: None
             }
         );
     }
@@ -675,16 +742,25 @@ mod tests {
     #[test]
     fn code_quotes_html_and_front_matter() {
         let d = parse(
-            "---\ntitle: x\n---\n\n```rust\nfn a() {}\n```\n\n> quoted\n> more\n\n<div>hi</div>\n",
+            "---\ntitle: x\n---\n\n```rust\nfn a() {}\n```\n\n> quoted\n> more\n\n<div>hi</div>\n\n\
+             Text <kbd>Cmd</kbd>, a<br>break and <b>bold</b>.\n\n<!-- gone -->\n",
         );
-        assert_eq!(kinds(&d), ["code", "code", "quote", "html"]);
+        assert_eq!(kinds(&d), ["code", "code", "quote", "p", "p"]);
         let Kind::Code { ref lang, ref text, ref spans } = d.blocks[1].kind else { panic!() };
         assert_eq!(lang.as_deref(), Some("rust"));
         assert_eq!(text, "fn a() {}");
         assert!(!spans[0].is_empty(), "highlighted");
         assert_eq!(d.blocks[1].lines, 4..7);
-        let Kind::Html(ref h) = d.blocks[3].kind else { panic!() };
-        assert_eq!(h, "<div>hi</div>");
+        assert_eq!(d.blocks[3].lines, 11..12);
+        let Kind::Paragraph(ref p) = d.blocks[4].kind else { panic!() };
+        assert_eq!(plain(p), "Text Cmd, a\nbreak and bold.");
+        let Seg::Text(ref t) = p[0] else { panic!() };
+        let styled: Vec<(&str, bool, bool)> = t
+            .runs
+            .iter()
+            .map(|(r, s)| (&t.text[r.clone()], s.code, s.bold))
+            .collect();
+        assert!(styled.contains(&("Cmd", true, false)) && styled.contains(&("bold", false, true)));
         assert_eq!(fence_lang("ts {1,3}"), Some(Lang::TypeScript));
         assert_eq!(fence_lang("python"), Some(Lang::Python));
         assert_eq!(fence_lang("nope"), None);
