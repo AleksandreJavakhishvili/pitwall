@@ -55,6 +55,25 @@ Need: a shell that became `claude` should restart as `claude`.
   and leaving the pane at the prompt, the shell exiting, or Pitwall
   restarting keeps it.
 
+## 4. Open preview
+Need: an agent started a dev server; open it without copying the address.
+- When an agent's terminal prints a local dev-server address, its pane
+  header shows a "Preview :<port>" chip (before the header actions); a click
+  opens it in the default browser. Several addresses: the most recent wins,
+  and a chevron on the chip lists them all (most recent first, up to 4).
+- Matched: `http(s)://` + `localhost` | `127.0.0.1` | `0.0.0.0` | `[::1]` +
+  a port, with an optional path; a bare `localhost:<port>` only standing on
+  its own (not `user@localhost:5432`, `redis://localhost:6379`). `0.0.0.0`
+  opens as `localhost`. No port, another host or scheme: no chip.
+- Read from the output the engine already receives (`TermHost`, core
+  `term/preview.rs`), incrementally per chunk: escape sequences dropped on
+  the way (colours vanish, so Vite's bold port joins up; cursor moves and
+  OSC titles don't), each finished line matched once, the unfinished one
+  only for an address already followed by something. Never a scrollback
+  rescan.
+- `AgentView.previewUrls` (most recent first), read by the ticker; empty
+  once the agent stops or exits, and reset by a restart.
+
 ## Order
 Backend parts land on top of migration Step 2 (core crate), UI after the
 drag & drop fix lands.
