@@ -57,4 +57,9 @@ account?: string | null, status: Status, statusSource: Source, statusDetail: str
 /**
  * Current PTY size.
  */
-cols: number, rows: number, added: number, removed: number, filesChanged: number, queue: Array<QueueItem>, autoSend: boolean, lastSent: string | null, lastSentAt: number | null, createdAt: number, currentTaskId: string | null, caps: AgentCaps, };
+cols: number, rows: number, added: number, removed: number, filesChanged: number, queue: Array<QueueItem>, autoSend: boolean, lastSent: string | null, lastSentAt: number | null, createdAt: number, currentTaskId: string | null, caps: AgentCaps, 
+/**
+ * Local dev-server addresses its terminal printed while it runs, most
+ * recent first ("Open preview", docs/spec/terminals.md).
+ */
+previewUrls?: Array<string>, };

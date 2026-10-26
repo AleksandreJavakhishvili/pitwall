@@ -8,6 +8,7 @@
 mod fanout;
 mod frames;
 mod modes;
+pub mod preview;
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -73,6 +74,8 @@ pub struct TermHost {
     ended: AtomicBool,
     /// Who wants styled frames of the screen: woken on every change.
     watchers: Mutex<Vec<frames::Watcher>>,
+    /// Dev-server addresses in the output ("Open preview").
+    preview: Mutex<preview::PreviewScan>,
     clock: Arc<dyn Clock>,
 }
 
@@ -104,6 +107,7 @@ impl TermHost {
             last_input: AtomicU64::new(0),
             ended: AtomicBool::new(false),
             watchers: Mutex::new(Vec::new()),
+            preview: Mutex::new(preview::PreviewScan::default()),
             clock,
         });
         if !history.is_empty() {
@@ -145,6 +149,7 @@ impl TermHost {
             self.own_screen();
         }
         self.screen_changed();
+        lock(&self.preview).feed(chunk);
         let now = self.clock.mono_ms();
         self.output_seq.fetch_add(1, Ordering::Relaxed);
         if live && now.saturating_sub(self.last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
@@ -229,6 +234,11 @@ impl TermHost {
     pub fn screen_text(&self) -> (String, Option<String>) {
         let screen = lock(&self.screen);
         (screen.source.text(), screen.source.title())
+    }
+
+    /// Local dev-server addresses it printed, most recent first.
+    pub fn preview_urls(&self) -> Vec<String> {
+        lock(&self.preview).urls().to_vec()
     }
 
     /// The screen as styled rows (what the Wall draws).
