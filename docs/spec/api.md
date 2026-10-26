@@ -202,6 +202,26 @@ The same agent events reach `pitwall` CLI clients and, later, peers
   agent list and count (older ones still waiting are replaced) and its
   newest 64 `attention` events (older ones are dropped).
 
+### Peers over Tailscale (`pitwall-peer`, tailnet-peers.md)
+
+Another Pitwall of the same Tailscale user reaches this one on its peer port
+(47420, Tailscale addresses only, while "Let my other machines see this
+Pitwall's agents" is on), in the same frames (JSON frames capped at 4 MiB):
+
+| Message / method | Params → result | Who |
+|---|---|---|
+| `{"peerHello":{protocol, client, nonce}}` | → `{"peerWelcome":{protocol, daemon, label, pairing: "open"\|"closed", agents, nonce}}` or `{"reject":…}` | any machine of the same user (others: closed without a byte) |
+| `peer.auth` | `{ key, sig, label, pair }` → `{ key, sig, label, perms: "view" }`; errors `not_paired`, `identity_changed`, `denied` | after the welcome |
+| `peer.ping` | → `null` (every 15 s; 45 s of silence ends the link) | paired |
+| `agent.list` | → `AgentView[]` (this Pitwall's own agents, never mirrors) | paired |
+| `events.subscribe` | as above; `agents`, `attention`, `blocked` only (`approvals`: `denied`) | paired |
+
+Every other method, and every method before `peer.auth`, is `denied`. On
+the viewer, a peer's agents are `AgentView`s with id `peer:<peer>:<id>`,
+`machine.provider` `peer:<peer>`, `machine.label` the peer's name (`studio ›
+vm-1` for its other machines), every cap `false`, and
+`machine.link: { peer, state: "connected"|"connecting"|"offline"|"identityChanged", since, lastSeen? }`.
+
 ## TypeScript shapes
 
 ```ts
@@ -222,6 +242,7 @@ interface AgentView {
   location: string; // provider id ("local"); display only
   machine: { provider: string; id: string; label: string; canCreate: boolean }; // display and grouping;
                            // canCreate: "New agent/terminal here" is offered for its projects
+                           // + link?: LinkView: another machine's agent (peers, below)
   terminal: boolean; agentInTerminal: boolean; // a terminal, running an agent started by hand
   restartAs: string | null; // a terminal that restarts as the agent last started in it (its name; terminals.md §3)
   caps: AgentCaps; // the only thing the UI decides features by (below)

@@ -5,14 +5,88 @@ machine on the same Tailscale tailnet: the laptop shows the desktop's agents
 next to its own, opens their terminals, reviews their changes, gets their
 "needs you" notifications and starts new agents there.
 
-Status: **planned, not built.** It comes after the GPUI switch (gpui/README.md
-phase 9): the Tauri app is frozen and gets none of it. The core, protocol and
-daemon parts are UI-agnostic. They also finish work that architecture.md §4
-and §6 step 5 already plan (events and terminal streams over the socket), and
-the local CLI needs that work anyway.
+Status: **P1 core built** (read-only "see them": the `pitwall-peer` crate,
+the protocol, `pitwall peers` in the CLI; see "Phase 1 as built" below). The
+GPUI part of P1 (sidebar heading, Settings → Peers, notifications) comes
+next; P2–P5 are planned, not built. The Tauri app is frozen and gets none of
+it. The core, protocol and daemon parts are UI-agnostic.
 
 Hostnames and users below are made up: `laptop` and `studio` are two
 machines, and `alice@example.com` is their owner.
+
+---
+
+## Phase 1 as built
+
+The user's decisions for v1 (2026-10-26) narrow the design below. Where a
+later section says more (permission levels, pairing codes, other users,
+tags, terminals), that is for later phases.
+
+- **Read-only "see them".** `laptop` shows `studio`'s agents: live list and
+  status, "needs you" attention and the blocked count. No terminal attach,
+  no starting or stopping agents, no review over the link. Mirrored agents
+  have every cap off.
+- **Only the user's own machines.** Both sides require the **same Tailscale
+  user** (`UserID` and `LoginName`) as this node. Tagged devices and other
+  users' machines are never offered, dialed or accepted. No manual add of
+  other users' machines, no `tag:pitwall` opt-in (later, if ever).
+- **Two switches, both off** (`peers/settings.json`, `PeerSettings`):
+  - "Show agents from my other machines" (`show`): discover, pair, keep
+    links. Off: nothing is probed or dialed. The UI phase adds the
+    onboarding step / notification that offers it.
+  - "Let my other machines see this Pitwall's agents" (`share`): listen.
+    Off: nothing listens. On: only on this node's Tailscale IPs (never
+    `0.0.0.0`), port 47420 by default (`port`).
+- **Discovery.** No broadcast, no mDNS. `Peers::discover` lists the user's
+  own machines from `tailscale status --json` and probes each online one
+  with a `peerHello`; the welcome says only `{version, machine label,
+  pairing open/closed, agent count}`. Probes run only when asked; links to
+  paired machines that Tailscale calls offline dial every 10 min.
+- **Pairing for View needs no code**: same Tailscale user plus an opted-in
+  listener is enough. It is still a key exchange (§5 "Who is connecting"):
+  each data folder has an Ed25519 key in `peers/identity.key` (0600), and
+  each side signs the other's nonce, both connection ends and the protocol
+  (`peer::transcript`). The viewer keeps the peer (`StableID`, login,
+  public key) in `peers.json` → `peers`; the listener keeps the viewer the
+  same way in `viewers`, revocable. A changed node, user or key is refused
+  with "identity changed; pair again"; pairing again (the user's explicit
+  action) replaces the key on both sides.
+- **The link.** After `peer.auth` the viewer subscribes to `agents`,
+  `attention` and `blocked` (the daemon's events hub, same frames as the
+  local socket), mirrors the peer's `AgentView`s, pings every 15 s, calls
+  the peer gone after 45 s of silence and reconnects with backoff (1, 2, 5,
+  10, 30 s). Link state: Connected / Connecting / Offline since T / Identity
+  changed (`MachineView.link`).
+- **What a View peer may call:** `peerHello`, `peer.auth`, `peer.ping`,
+  `agent.list`, and `events.subscribe` for those three topics
+  (`pitwall_daemon::methods::PEER_METHODS`). Everything else is `denied`,
+  and so is every method before `peer.auth`.
+- **Limits:** 4 connections per machine, 32 in all, 3 pairings per machine
+  per 10 min, 100 requests/s (bursts of 300) per connection, frames capped
+  at 4 MiB (`PEER_MAX_FRAME`).
+- **Audit:** `peers/audit.jsonl` (rotated at 1 MiB, 3 files): listening,
+  connections, pairings, revocations, refusals (with why) and denied
+  methods.
+
+Where it lives:
+
+| Piece | Where |
+|---|---|
+| Wire shapes: `peerHello`/`peerWelcome`, `peer.auth`, `peer.ping`, `LinkView`, `MachineView.link`, `PEER_PORT`, `PEER_MAX_FRAME`, `frame::read_max` | `pitwall-proto::peer` |
+| Which methods a peer may call | `pitwall-daemon::methods::PEER_METHODS`; topics through `events::topics` as any non-UI caller |
+| `Tailnet` trait, `TailscaleCli` (the `tailscale` CLI, cached: status 5 s, whois 60 s), `FakeTailnet` (feature `testing`) | `pitwall-peer::tailnet`, `::fake` |
+| Instance key (`ring`'s Ed25519, already in the tree) | `pitwall-peer::key` |
+| Settings, pairings, audit log | `pitwall-peer::store` |
+| Listener: bind, accept checks, handshake, View-only dispatch, limits | `pitwall-peer::server` (`Feed`: the engine's views and the events `Hub`) |
+| Links, the mirror (`peer:<peer>:<id>` ids, read-only caps) | `pitwall-peer::link` |
+| What the app calls: `Peers` (`start`, `stop`, `settings`/`set_settings`, `info`, `discover`, `pair`, `unpair`, `peers`, `views`, `mirror`, `viewers`, `revoke`, `kick`, `audit`) and `PeerSink` for change notifications | `pitwall-peer::peers` |
+| `pitwall peers list / discover / pair / unpair / watch / serve / revoke / set` | `pitwall-cli` (on the data folder directly; changing pairings or switches is refused inside an agent) |
+
+Tests run two or three Pitwalls in one process on a `FakeTailnet`
+(127.0.0.1, `whois` by source port): pairing and the mirror, listener off,
+other users and tagged devices refused, outside the tailnet refused,
+denied methods, changed keys on either side, changed owner, revocation,
+reconnect after sleep, rate limits.
 
 ---
 
@@ -205,8 +279,9 @@ services that admins define) are an option for P5, not a requirement.
 on the LAN would advertise Pitwall to networks the user didn't choose.
 
 **Unpaired peers learn little.** A peer that answers a probe returns only
-`{ pitwall version, machine label, pairing: "open"|"closed" }`. It returns
-nothing about agents.
+`{ pitwall version, machine label, pairing: "open"|"closed", agent count }`
+(P1: the count, by the user's decision; it only ever reaches the same
+Tailscale user's machines). It returns nothing else about agents.
 
 ---
 
@@ -287,9 +362,9 @@ non-Tailscale transport is ever allowed.
 
 ### Default posture
 - **Two separate switches, both off:**
-  - "Connect to other Pitwalls" lets this machine pair with others and
-    show their agents (outgoing only).
-  - "Let paired Pitwalls connect to this machine" opens the listener.
+  - "Show agents from my other machines" lets this machine pair with others
+    and show their agents (outgoing only).
+  - "Let my other machines see this Pitwall's agents" opens the listener.
 - `laptop` typically turns on only the first, and `studio` both. Turning
   the listener on shows the address it listens on, and the warning in
   "What each permission really means" below.
@@ -421,6 +496,24 @@ on `laptop`.
 ## 6. Protocol
 
 ### Reuse pitwall-proto, as is, over TCP
+
+P1 as built uses its own small handshake on the peer port (`pitwall-proto::peer`),
+so `PROTOCOL` stays 1 and the local socket's hello is untouched:
+
+```json
+→ {"peerHello":{"protocol":{"min":1,"max":1},"client":"pitwall/0.2.1","nonce":"…"}}
+← {"peerWelcome":{"protocol":1,"daemon":"0.2.1","label":"studio","pairing":"open","agents":3,"nonce":"…"}}
+→ {"id":1,"method":"peer.auth","params":{"key":"ed25519:…","sig":"ed25519:…","label":"laptop","pair":false}}
+← {"id":1,"result":{"key":"ed25519:…","sig":"ed25519:…","label":"studio","perms":"view"}}
+→ {"id":2,"method":"events.subscribe","params":{"topics":["agents","attention","blocked"]}}
+→ {"id":1001,"method":"peer.ping"}
+```
+
+Each `sig` is over `pitwall-peer-auth/1 \n <viewer|listener> \n <the other side's
+nonce> \n <viewer ip:port> \n <listener ip:port> \n <protocol>`. `pair: true`
+pairs (or pairs again) a machine of the same user; `false` (reconnects) is
+refused with `not_paired` or `identity_changed`. The rest of this section is
+the full design for later phases.
 - **Same framing and messages.** Peers use `len:u32be type:u8 body`, with
   JSON type 0 and terminal type 1, the same `Request`/`Response`/`Event`,
   and the same method names (architecture.md §4).
@@ -644,7 +737,7 @@ approval dialog, and the Settings row style.
 | Terminal view fed by a `TermFeed` (local `TermHost` or remote stream) | `pitwall-term-view` / `terminal.rs` | |
 
 New dependencies, each recorded in gpui/licensing.md:
-- an Ed25519 implementation (`ed25519-dalek`, BSD-3-Clause, or `ring`)
+- an Ed25519 implementation: P1 uses `ring` (Apache-2.0 AND ISC, already in the tree)
 - `zstd` (MIT/BSD)
 
 No async runtime is added.
@@ -660,7 +753,7 @@ OSes.
 | Phase | Scope | Effort | Done when |
 |---|---|---|---|
 | **P0 prerequisites** | Socket events (`events.subscribe`; **done**: topics `agents`, `attention`, `blocked`, CLI `pitwall events`, architecture.md §6 "Events over the socket done"), `term.attach`/`detach`/`resize` and input over the local socket. The remaining methods as daemon methods: queue, prompt, stop/restart, changes, review, worktrees, explorer. Golden fixtures. Useful to the CLI by itself | 1–1.5 wk | `pitwall` CLI can follow events and attach a terminal locally |
-| **P1 read-only list and status** (macOS) | `pitwall-peer`: `Tailnet` (CLI) and `FakeTailnet`, keys, pairing (dialog and one-time code), listener with all accept checks, `PeerLink` interactive lane, mirror, `agents.changed`/`attention`, View permission only. UI: sidebar machine heading with link state, Settings → Peers, notifications and badge. Audit log | 2 wk | `laptop` shows `studio`'s agents live, notifies on blocked, survives `studio` sleeping |
+| **P1 read-only list and status** (macOS) — **core built** (see "Phase 1 as built"; UI next) | `pitwall-peer`: `Tailnet` (CLI) and `FakeTailnet`, keys, pairing (dialog and one-time code), listener with all accept checks, `PeerLink` interactive lane, mirror, `agents.changed`/`attention`, View permission only. UI: sidebar machine heading with link state, Settings → Peers, notifications and badge. Audit log | 2 wk | `laptop` shows `studio`'s agents live, notifies on blocked, survives `studio` sleeping |
 | **P2 terminal view and take-over** | `term.attach` over the link (view-only, then control), `TermHost` controller lease, "Typing from laptop · Take back", Control permission, prompt and Next up, stop and restart, the bulk lane, frame type 2, Wall tiles, zstd, back-pressure. Measure bandwidth | 2 wk | Typing into `studio`'s agent from `laptop` feels like ssh; 20 remote Wall tiles stay within budget |
 | **P3 Review, explorer and git** | Changes, Review (reads, then commit, merge and discard with Full, or asked on the peer), worktrees view, explorer (chunked reads, search), `ReviewSource` routing in the app | 1–1.5 wk | Review and merge a `studio` worktree agent from `laptop` end to end |
 | **P4 start agents, queue, approvals** | Start agents permission, "Runs on" with peer machines, `machine.form`/`kind.list`/`project.recent`, remote project picker, `session.add`, forwarded approvals for Full ("answer its approvals"), rules apply | 1–1.5 wk | Start a Claude agent on `studio` and an agw session through `studio` from `laptop`; answer `studio`'s approval on `laptop` |
@@ -735,10 +828,10 @@ Total: about 9–11 weeks.
 ## 10. Open questions
 
 1. **Default permission** offered in the pairing dialog for the same
-   Tailscale user: View (proposed) or Control?
-2. **Pairing remotely.** Is the one-time code from the listening machine
-   enough, or should pairing also be allowed with no one at that machine
-   when both nodes belong to the same Tailscale user (View only)?
+   Tailscale user: View (proposed) or Control? *P1: View is the only level.*
+2. **Pairing remotely.** *Decided for P1: View pairing between machines of
+   the same Tailscale user needs no code and nobody at the listening
+   machine, once it turned sharing on.*
 3. **Full permission and approvals.** Is it right that with Full, the
    viewer's own confirmation counts as the peer's approval for merge,
    commit and discard? Or should those always ask on the machine where the
@@ -751,3 +844,10 @@ Total: about 9–11 weeks.
    discovery require an ACL tag on shared tailnets?
 7. **Linux userspace-mode Tailscale.** Support outgoing links through
    Tailscale's SOCKS5 proxy in P5, or document it as unsupported?
+8. **Re-pairing after a key change.** P1 lets the viewer's explicit "pair
+   again" replace its key on the listener (same node, same user, rate
+   limited), so the user needn't walk to the other machine. Should the
+   listener instead ask (a notification) before accepting a new key?
+9. **The app picking up CLI changes.** `pitwall peers set|pair` write the
+   data folder; the app applies them at its next start (or when the UI
+   calls `Peers::set_settings`). Watch `peers/` for changes instead?
