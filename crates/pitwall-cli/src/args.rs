@@ -58,6 +58,21 @@ pub enum Command {
     Review(ReviewCmd),
     /// Wait until an agent is idle, blocked or done (for coordinating agents).
     Wait(WaitArgs),
+    /// Follow Pitwall as it changes: the agent list, agents that need you
+    /// (blocked) or finished (done), and how many are blocked. The current
+    /// list and count come first. Prints one JSON event per line until
+    /// stopped (or --count).
+    Events(EventsArgs),
+}
+
+#[derive(Debug, Args, PartialEq)]
+pub struct EventsArgs {
+    /// Only these: agents, attention, blocked (comma-separated; default all).
+    #[arg(long, value_name = "TOPIC", value_delimiter = ',')]
+    pub topics: Vec<String>,
+    /// Stop after this many events.
+    #[arg(long, value_name = "N")]
+    pub count: Option<usize>,
 }
 
 #[derive(Debug, Subcommand, PartialEq)]
@@ -768,6 +783,11 @@ mod tests {
         assert_eq!(
             parse(&["wait", "api", "--for", "idle,done", "--timeout", "60", "--fresh"]).unwrap().command,
             Command::Wait(WaitArgs { agent: "api".into(), until: vec!["idle".into(), "done".into()], timeout: Some(60), fresh: true })
+        );
+        assert_eq!(parse(&["events"]).unwrap().command, Command::Events(EventsArgs { topics: vec![], count: None }));
+        assert_eq!(
+            parse(&["events", "--topics", "attention,blocked", "--count", "3"]).unwrap().command,
+            Command::Events(EventsArgs { topics: vec!["attention".into(), "blocked".into()], count: Some(3) })
         );
     }
 

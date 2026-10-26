@@ -85,6 +85,7 @@ These work with every command.
 - [`rules`](#rules): Rule sets (rulesync) for agents and projects
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
+- [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
 
 ## agent
 
@@ -924,5 +925,24 @@ pitwall wait [OPTIONS] --for <STATUS> <AGENT>
 ```bash
 pitwall queue add api "run the tests"
 pitwall wait api --for done,blocked --fresh --timeout 900
+```
+
+
+## events
+
+Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count).
+
+```bash
+pitwall events [OPTIONS]
+```
+
+| Option | |
+|---|---|
+| `--topics <TOPIC>` | Only these: agents, attention, blocked (comma-separated; default all). |
+| `--count <N>` | Stop after this many events. |
+
+```bash
+pitwall events --human
+pitwall events --topics attention | jq -r 'select(.data.reason == "blocked") | .data.name'
 ```
 

@@ -9,6 +9,7 @@
 #![recursion_limit = "256"]
 
 mod args;
+mod events;
 mod manage;
 mod render;
 #[cfg(test)]
@@ -149,6 +150,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             out(&list, render::sessions(&list))
         }
         Command::Settings(_) => unreachable!("handled above"),
+        Command::Events(_) => unreachable!("streamed by main (events::follow)"),
         Command::Agent(a) => manage::agent_cmd(a, &mut c)?,
         Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
         Command::Space(sp) => manage::space_cmd(sp, &mut c)?,
@@ -227,6 +229,12 @@ fn main() -> ExitCode {
         Err(status) => return status,
     };
     let socket = cli.socket.clone().unwrap_or_else(pitwall_client::socket_path);
+    if let Command::Events(a) = &cli.command {
+        return match events::follow(a, &socket, cli.human, &mut std::io::stdout().lock()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => report(&e, cli.human),
+        };
+    }
     match run(&cli.command, &socket) {
         Ok(o) if cli.human => {
             print!("{}", o.human);
@@ -236,16 +244,19 @@ fn main() -> ExitCode {
             println!("{}", serde_json::to_string_pretty(&o.json).unwrap_or_default());
             ExitCode::SUCCESS
         }
-        Err(e) => {
-            let (body, status) = failure(&e);
-            if cli.human {
-                eprintln!("pitwall: {e}");
-            } else {
-                eprintln!("{body}");
-            }
-            ExitCode::from(status)
-        }
+        Err(e) => report(&e, cli.human),
     }
+}
+
+/// Print the error on stderr; its exit status.
+fn report(e: &Error, human: bool) -> ExitCode {
+    let (body, status) = failure(e);
+    if human {
+        eprintln!("pitwall: {e}");
+    } else {
+        eprintln!("{body}");
+    }
+    ExitCode::from(status)
 }
 
 #[cfg(test)]
