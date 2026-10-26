@@ -1,5 +1,5 @@
 //! `pitwall`: set up and manage Pitwall from a terminal — agents, sessions,
-//! queues, spaces, projects, rules, review and settings.
+//! queues, spaces, projects, rules, review, settings and peers.
 //!
 //! Output is JSON on stdout (the call's result); `--human` prints text.
 //! Errors are `{"error":{"code","message"}}` on stderr. Exit status: 0 ok,
@@ -11,6 +11,7 @@
 mod args;
 mod events;
 mod manage;
+mod peers;
 mod render;
 #[cfg(test)]
 mod reference;
@@ -110,6 +111,10 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         // Works without Pitwall running too (edits ui.json).
         return settings::run(s, socket, &pitwall_client::data_dir());
     }
+    if let Command::Peers(p) = cmd {
+        // Works on the data folder, without the app.
+        return peers::run(p, &pitwall_client::data_dir(), peers::in_an_agent());
+    }
     let mut c = Client::connect_as(socket, &format!("pitwall-cli/{}", env!("CARGO_PKG_VERSION")), pitwall_proto::Role::Cli)?;
     Ok(match cmd {
         Command::Agent(AgentCmd::List) => {
@@ -149,7 +154,7 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
             let list = c.sessions(&SessionFilter { provider: provider.clone(), machine: machine.clone() })?;
             out(&list, render::sessions(&list))
         }
-        Command::Settings(_) => unreachable!("handled above"),
+        Command::Settings(_) | Command::Peers(_) => unreachable!("handled above"),
         Command::Events(_) => unreachable!("streamed by main (events::follow)"),
         Command::Agent(a) => manage::agent_cmd(a, &mut c)?,
         Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
@@ -229,6 +234,12 @@ fn main() -> ExitCode {
         Err(status) => return status,
     };
     let socket = cli.socket.clone().unwrap_or_else(pitwall_client::socket_path);
+    if let Command::Peers(args::PeersCmd::Watch { name, count }) = &cli.command {
+        return match peers::watch(name, *count, &pitwall_client::data_dir(), cli.human, &mut std::io::stdout().lock()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => report(&e, cli.human),
+        };
+    }
     if let Command::Events(a) = &cli.command {
         return match events::follow(a, &socket, cli.human, &mut std::io::stdout().lock()) {
             Ok(()) => ExitCode::SUCCESS,
