@@ -84,6 +84,11 @@ Status: built (backend, API and UI).
   characters, as VS Code does by default. Line endings are kept. A language
   hint (`lang`, from the file name or extension) helps the viewer pick a
   highlighter. The viewer may still override it.
+- **Markdown**: the viewer's header switches a Markdown file between
+  **Code** and **Preview** (formatted, as Review's Markdown preview, without
+  change bars; relative images from the file's folder, remote ones never
+  fetched). Code is the default; the choice holds for the app session.
+  Files over 1 MB stay Code.
 - **Quick-open index** (`list_all_files`): `git ls-files` (cached + others,
   minus deleted) in a repo. Elsewhere `rg --files` when ripgrep is on that
   machine. Otherwise a breadth-first listing within a 3 s budget. At most

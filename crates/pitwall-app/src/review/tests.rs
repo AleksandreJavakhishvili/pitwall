@@ -467,3 +467,54 @@ fn compared_with_shows_the_branch_and_a_choice_sticks(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(compared(&view, cx), (Some("develop".into()), false, 1));
 }
+
+/// A Markdown file: Diff / Preview in its header; Preview draws the new
+/// version with the changed blocks marked, and the choice sticks for the
+/// session.
+#[gpui::test]
+fn markdown_files_switch_to_a_preview(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("README.md", "# Title\n\nKept.\n\n- one\n- two\n");
+    r.write("src/a.rs", "fn a() {}\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let mut rec = record("agent-1", r.path());
+    rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]));
+    let h = Harness::new(vec![rec]);
+    r.write("README.md", "# Title\n\nKept.\n\nNew paragraph.\n\n- one\n- two!\n");
+    r.write("src/a.rs", "fn a() { b(); }\n");
+    let (view, cx) = open(cx, &h);
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(900.)));
+    view.update_in(cx, |v, window, cx| v.select_file("agent-1", "README.md", window, cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("rv-md-body").is_none(), "Diff by default");
+    let switch = cx.debug_bounds("rv-md-switch").expect("Diff / Preview for Markdown");
+    let at = gpui::point(switch.right() - gpui::px(8.), switch.center().y);
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.showing_preview()));
+    let body = cx.debug_bounds("rv-md-body").expect("the Preview is drawn");
+    assert!(body.size.height > gpui::px(100.) && body.size.width > gpui::px(400.));
+    assert!(cx.debug_bounds("md-preview").is_some());
+    let md = view.read_with(cx, |v, _| v.md.clone());
+    md.read_with(cx, |m, _| {
+        use crate::markdown_view::model::{Change, Kind};
+        let d = m.doc().expect("parsed");
+        let changes: Vec<_> = d.blocks.iter().map(|b| b.change).collect();
+        assert_eq!(changes, [None, None, Some(Change::Added), None]);
+        let Kind::List { ref items, .. } = d.blocks[3].kind else { panic!() };
+        assert_eq!(items[1].change, Some(Change::Modified));
+    });
+
+    // Another file has no switch; back on the Markdown one, Preview stays.
+    view.update_in(cx, |v, window, cx| v.select_file("agent-1", "src/a.rs", window, cx));
+    cx.run_until_parked();
+    // (debug bounds outlive their frame: the state says what's drawn.)
+    view.read_with(cx, |v, _| {
+        assert!(v.md_text.is_none() && !v.md_large, "no switch");
+        assert!(!v.showing_preview());
+    });
+    view.update_in(cx, |v, window, cx| v.select_file("agent-1", "README.md", window, cx));
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.showing_preview()), "the session's choice");
+}

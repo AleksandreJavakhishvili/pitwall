@@ -55,6 +55,27 @@ to look and behave like the Monaco diff editor it replaced (perf.md, pass 2).
 Above the diff: "All changes" or a specific task (see below). Bottom actions
 per agent: Discard file, Send comments, Commit & merge.
 
+## Markdown preview
+A Markdown file (`.md`, `.markdown`, `.mdx` read as plain Markdown) gets a
+**Diff / Preview** switch in its header; Diff is the default and the choice
+holds for the app session. Preview draws the file's new version formatted
+(`crates/pitwall-app/src/markdown_view`, pulldown-cmark with GFM tables,
+task lists, strikethrough, footnotes): headings, paragraphs, emphasis,
+inline and fenced code (highlighted like the diff), quotes, nested and task
+lists (display only), tables (scroll sideways when wide), rules, front
+matter as code, raw HTML as text. Centred column, at most 760 px wide.
+- Changes: the diff's hunks map to blocks by source line. A block wholly
+  inside an insertion gets a green bar on its left, any other touched block
+  an amber one (list items one by one); removed lines between blocks are a
+  thin red "N lines removed" rule where they were.
+- Links: http(s) and mailto open in the browser; relative links are only
+  styled. Images next to the file (relative paths, in the worktree) are
+  shown at most the column wide; remote images are never fetched: their alt
+  text with an image icon instead.
+- No Preview for deleted or binary files; over 1 MB the file is shown as a
+  diff only (Preview disabled, says why). Text in Preview isn't selectable
+  (use Diff to copy). Comments are added from the Diff.
+
 ## Per-task diffs (backend)
 A task = one prompt delivered to an agent (send_prompt, queue send, typed Enter,
 or UserPromptSubmit hook) until it is done/idle. Snapshot the working tree

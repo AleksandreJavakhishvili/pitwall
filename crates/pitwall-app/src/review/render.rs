@@ -94,18 +94,6 @@ impl ReviewView {
                 .unwrap_or_default()
                 .into()
         };
-        let seg = |id: &'static str, label: SharedString, on: bool, first: bool| {
-            div()
-                .id(id)
-                .h(px(24.))
-                .px(px(9.))
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .when(!first, |d| d.border_l_1().border_color(t.line_strong))
-                .when(on, |d| d.bg(t.surface_3))
-                .child(kit::label_t(label, if on { t.text } else { t.text_3 }, 11., 0.08))
-        };
         div()
             .h(px(32.))
             .flex_none()
@@ -140,17 +128,10 @@ impl ReviewView {
                 } else {
                     Breadth::Space
                 };
-                let mut group = div()
-                    .flex()
-                    .flex_none()
-                    .max_w(px(260.))
-                    .border_1()
-                    .border_color(t.line_strong)
-                    .rounded(RADIUS)
-                    .overflow_hidden();
+                let mut group = kit::segments(t).max_w(px(260.));
                 for (i, (id, b, label)) in widths.into_iter().enumerate() {
                     group = group.child(
-                        seg(id, label, b == shown, i == 0)
+                        kit::segment(id, label, b == shown, i == 0, t)
                             .on_click(cx.listener(move |v, _, _, cx| v.set_breadth(b, cx))),
                     );
                 }
@@ -164,19 +145,13 @@ impl ReviewView {
                 cx.listener(|v, _, _, cx| v.refresh_all(cx)),
             ))
             .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .border_1()
-                    .border_color(t.line_strong)
-                    .rounded(RADIUS)
-                    .overflow_hidden()
+                kit::segments(t)
                     .child(
-                        seg("rv-sbs", "Side by side".into(), self.side_by_side, true)
+                        kit::segment("rv-sbs", "Side by side".into(), self.side_by_side, true, t)
                             .on_click(cx.listener(|v, _, _, cx| v.set_side_by_side(true, cx))),
                     )
                     .child(
-                        seg("rv-inline", "Inline".into(), !self.side_by_side, false)
+                        kit::segment("rv-inline", "Inline".into(), !self.side_by_side, false, t)
                             .on_click(cx.listener(|v, _, _, cx| v.set_side_by_side(false, cx))),
                     ),
             )
@@ -924,6 +899,31 @@ impl ReviewView {
             })
     }
 
+    /// Diff / Preview for a Markdown file (none for deleted, binary and
+    /// unreadable ones); over 1 MB only Diff.
+    fn preview_switch(&self, t: &Theme, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        if self.diff != DiffState::Shown || (self.md_text.is_none() && !self.md_large) {
+            return None;
+        }
+        let on = self.showing_preview();
+        let group = kit::segments(t)
+            .debug_selector(|| "rv-md-switch".into())
+            .child(
+                kit::segment("rv-md-diff", "Diff".into(), !on, true, t)
+                    .on_click(cx.listener(|v, _, _, cx| v.set_preview(false, cx))),
+            )
+            .child(if self.md_large {
+                kit::segment("rv-md-preview", "Preview".into(), false, false, t)
+                    .cursor_default()
+                    .opacity(0.5)
+                    .tooltip(|_, cx| kit::tooltip_view("Over 1 MB: shown as a diff only", cx))
+            } else {
+                kit::segment("rv-md-preview", "Preview".into(), on, false, t)
+                    .on_click(cx.listener(|v, _, _, cx| v.set_preview(true, cx)))
+            });
+        Some(div().flex_1().flex().justify_end().child(group))
+    }
+
     fn head_row() -> Div {
         div()
             .flex()
@@ -976,6 +976,13 @@ impl ReviewView {
                 area.child(Self::empty("Binary or very large file — not shown", t))
             }
             DiffState::Empty => area.child(Self::empty("No content on either side", t)),
+            DiffState::Shown if self.showing_preview() => area.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .debug_selector(|| "rv-md-body".into())
+                    .child(self.md.clone()),
+            ),
             DiffState::Shown => area.child(div().flex_1().min_h_0().child(self.code.clone())),
         };
         if let Some(c) = self.composer.as_ref() {
@@ -1309,7 +1316,8 @@ impl ReviewView {
                     .border_color(t.line)
                     .child(self.task_select(a, task.as_ref(), t, cx))
                     .when(task.is_none(), |d| d.children(self.base_select(a, t, cx)))
-                    .when_some(file.as_ref(), |d, f| d.child(Self::file_head(f, t))),
+                    .when_some(file.as_ref(), |d, f| d.child(Self::file_head(f, t)))
+                    .children(self.preview_switch(t, cx)),
             )
             .when_some(prompt, |d, p| {
                 d.child(
@@ -1460,7 +1468,8 @@ impl ReviewView {
                                 r.target.clone().unwrap_or_else(|| "its HEAD".into())
                             )),
                     )
-                    .when_some(file.as_ref(), |d, f| d.child(Self::file_head(f, t))),
+                    .when_some(file.as_ref(), |d, f| d.child(Self::file_head(f, t)))
+                    .children(self.preview_switch(t, cx)),
             )
             .child(self.diff_area(empty, file.is_some(), t, cx))
             .child(

@@ -595,6 +595,14 @@ impl CodeView {
         self.content.as_ref().map_or(0, |c| c.diff.hunks.len())
     }
 
+    /// The diff's hunks (`None`: no diff shown).
+    pub fn hunks(&self) -> Option<Vec<diff::Hunk>> {
+        self.content
+            .as_ref()
+            .filter(|c| c.is_diff)
+            .map(|c| c.diff.hunks.clone())
+    }
+
     pub fn selection(&self) -> Option<Selection> {
         self.sel
     }

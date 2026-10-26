@@ -3,7 +3,9 @@
 //! or Search; centre: tabs of open files, a header (icon, path, change
 //! letter, size, "Copy path", "Show diff") and the text. Binary files say
 //! so; files over 2 MiB offer "Load anyway" (up to 10 MiB); an open file
-//! that changed on disk offers "Reload". Nothing here can change a file.
+//! that changed on disk offers "Reload"; Markdown files switch between
+//! Code and a formatted Preview ([`crate::markdown_view`]). Nothing here
+//! can change a file.
 
 use crate::kit::Ellipsis as _;
 use std::collections::HashMap;
@@ -32,6 +34,7 @@ use crate::kit::{
     button, checkbox, icon, kbd, keys, small_btn, tooltip_view, BtnKind, MONO_FONT,
 };
 use crate::agents::AgentStore;
+use crate::markdown_view::{model::is_markdown, MarkdownView, MAX_PREVIEW_BYTES};
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
 
 actions!(explorer_viewer, [Back, NextTab, PrevTab, PickTab]);
@@ -114,8 +117,20 @@ pub struct Viewer {
     focus: FocusHandle,
     /// Each file tab's keyboard focus (by path).
     tab_focus: HashMap<String, FocusHandle>,
+    /// Markdown files show their Preview (the session's choice).
+    preview: bool,
+    pub(crate) md: Entity<MarkdownView>,
+    /// What the Preview was given: the path and its text (by identity).
+    md_shown: Option<(String, (usize, usize))>,
     _subs: Vec<Subscription>,
 }
+
+/// The file viewer's Code / Preview choice for Markdown (kept for the app
+/// session; off: Code).
+#[derive(Default)]
+struct ViewerPreview(bool);
+
+impl gpui::Global for ViewerPreview {}
 
 impl EventEmitter<ViewerEvent> for Viewer {}
 
@@ -170,6 +185,9 @@ impl Viewer {
             copied_task: None,
             focus: cx.focus_handle(),
             tab_focus: HashMap::new(),
+            preview: cx.try_global::<ViewerPreview>().is_some_and(|p| p.0),
+            md: cx.new(MarkdownView::new),
+            md_shown: None,
             _subs: subs,
         }
     }
@@ -412,6 +430,47 @@ impl Viewer {
 
     fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(ViewerEvent::Exit);
+    }
+
+    /// The active file's text when it can be previewed (Markdown, read,
+    /// not too large).
+    pub(crate) fn md_text(&self) -> Option<(String, SharedString)> {
+        let active = self.active.clone().filter(|p| is_markdown(p))?;
+        let v = self.docs.get(&active)?.view.as_ref()?;
+        let text = v.text.clone().filter(|_| v.kind == ContentKind::Text)?;
+        (text.len() <= MAX_PREVIEW_BYTES).then_some((active, text))
+    }
+
+    /// The Preview is shown instead of the code.
+    pub(crate) fn showing_preview(&self) -> bool {
+        self.preview && self.md_text().is_some()
+    }
+
+    pub(crate) fn set_preview(&mut self, on: bool, cx: &mut Context<Self>) {
+        cx.set_global(ViewerPreview(on));
+        self.preview = on;
+        let a = self.agent(cx);
+        self.sync_preview(a.as_ref(), cx);
+        cx.notify();
+    }
+
+    /// The active Markdown file's text, into the Preview (when it changed).
+    fn sync_preview(&mut self, a: Option<&AgentView>, cx: &mut Context<Self>) {
+        let Some((path, text)) = self.md_text().filter(|_| self.preview) else {
+            return;
+        };
+        let id = (text.as_ptr() as usize, text.len());
+        if self.md_shown.as_ref() == Some(&(path.clone(), id)) {
+            return;
+        }
+        self.md_shown = Some((path.clone(), id));
+        let base = a.and_then(|a| {
+            std::path::Path::new(&absolute_path(&a.cwd, &path))
+                .parent()
+                .map(|p| p.to_path_buf())
+        });
+        let text: Arc<str> = Arc::from(text.as_ref());
+        self.md.update(cx, |m, cx| m.set(&path, text, None, base, cx));
     }
 
     fn agent(&self, cx: &App) -> Option<AgentView> {
@@ -749,6 +808,21 @@ impl Viewer {
                 )
             })
             .child(div().flex_1())
+            .when(self.md_text().is_some(), |d| {
+                let on = self.preview;
+                d.child(
+                    crate::kit::segments(t)
+                        .debug_selector(|| "ex-md-switch".into())
+                        .child(
+                            crate::kit::segment("ex-md-code", "Code".into(), !on, true, t)
+                                .on_click(cx.listener(|v, _, _, cx| v.set_preview(false, cx))),
+                        )
+                        .child(
+                            crate::kit::segment("ex-md-preview", "Preview".into(), on, false, t)
+                                .on_click(cx.listener(|v, _, _, cx| v.set_preview(true, cx))),
+                        ),
+                )
+            })
             .child(
                 button("ex-copy-path", BtnKind::GhostSm, false, t).gap(px(6.)).child(icon("copy", 13., t.text_2)).child(if self.copied { "Copied" } else { "Copy path" })
 .on_click(cx.listener(move |this, _, _, cx| this.copy_path(&cwd, cx)))
@@ -835,6 +909,12 @@ impl Viewer {
                     })
                     .into_any_element()
             }
+            ContentKind::Text if self.showing_preview() => div()
+                .size_full()
+                .min_h_0()
+                .debug_selector(|| "ex-md-body".into())
+                .child(self.md.clone())
+                .into_any_element(),
             ContentKind::Text => {
                 let text = v.text.clone().unwrap_or_default();
                 code_view(&active, &text, self.target.as_ref(), window, cx)
@@ -848,6 +928,7 @@ impl Render for Viewer {
         let t = theme::theme(cx).clone();
         let a = self.agent(cx);
         let stale = self.is_stale();
+        self.sync_preview(a.as_ref(), cx);
         let active = self.active.clone();
         let body = self.body(&t, window, cx);
         let tabs = self.tabs.clone();

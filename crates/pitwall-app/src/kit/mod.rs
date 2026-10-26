@@ -48,7 +48,7 @@ pub use button::{
 };
 pub use chip::{chip, chip_sm, chip_subtle, chip_tone, Tone};
 pub use controls::{
-    check, check_row, checkbox, resize_grip, GripDrag, checkbox_box, radio, seg, select, widest, select_menu, select_trigger, spinner, spinner_ms, toggle,
+    check, check_row, checkbox, resize_grip, GripDrag, checkbox_box, radio, seg, segment, segments, select, widest, select_menu, select_trigger, spinner, spinner_ms, toggle,
     OnClose, OnPick, SegItem,
 };
 pub use file_icons::{file_icon, folder_icon, svg_image};
