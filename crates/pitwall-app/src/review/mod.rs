@@ -33,7 +33,7 @@ use crate::kit::{InputEvent, TextInput};
 use crate::code_view::{CodeView, CodeViewEvent, Layout, Side};
 use comments::Comments;
 use dialogs::Dialog;
-use model::{Space, WtRef};
+use model::{Breadth, Space, WtRef};
 
 pub use mount::{mount, review_space, ReviewRoute};
 pub use ops::ReviewEngine;
@@ -152,6 +152,12 @@ pub struct ReviewView {
     /// In scope but outside a git repository.
     hidden: usize,
     can_widen: bool,
+    /// How far the list reaches (the session's choice, or the project when
+    /// opened on a worktree).
+    breadth: Breadth,
+    /// Narrowed to the focused agent (its project's other worktrees aren't
+    /// listed).
+    agent_only: bool,
     label: String,
     files: HashMap<String, Vec<FileChange>>,
     errors: HashMap<String, String>,
@@ -268,6 +274,8 @@ impl ReviewView {
             groups: Vec::new(),
             hidden: 0,
             can_widen: false,
+            breadth: cx.try_global::<ReviewBreadth>().map(|b| b.0).unwrap_or_default(),
+            agent_only: false,
             label: String::new(),
             files: HashMap::new(),
             errors: HashMap::new(),
@@ -303,7 +311,6 @@ impl ReviewView {
             _poll: None,
         };
         v.show(focus, cx);
-        v.agents_changed(cx);
         // Opening Review reads everything now.
         v.refresh_all(cx);
         v.start_polling(cx);
@@ -335,10 +342,15 @@ impl ReviewView {
                     .unwrap_or_default();
                 self.wt_open.insert(key.clone());
                 self.sel = Sel::Worktree { key, path: None };
+                // A worktree is the project's: list the project around it.
+                if self.breadth == Breadth::Agent {
+                    self.breadth = Breadth::Space;
+                }
             }
             None => {}
         }
-        cx.notify();
+        // Listed again: the extra agents, the breadth.
+        self.agents_changed(cx);
     }
 
     /// The space and focused agent of the window (they change while open).
@@ -349,18 +361,19 @@ impl ReviewView {
         cx: &mut Context<Self>,
     ) {
         if self.space != space || self.focused_agent != focused_agent {
+            // Another agent: the session's breadth again (not a worktree's).
+            if self.focused_agent != focused_agent {
+                self.breadth = cx.try_global::<ReviewBreadth>().map(|b| b.0).unwrap_or_default();
+            }
             self.space = space;
             self.focused_agent = focused_agent;
             self.agents_changed(cx);
         }
     }
 
-    fn all_projects(cx: &App) -> bool {
-        cx.try_global::<AllProjects>().is_some_and(|a| a.0)
-    }
-
-    fn set_all_projects(&mut self, on: bool, cx: &mut Context<Self>) {
-        cx.set_global(AllProjects(on));
+    fn set_breadth(&mut self, breadth: Breadth, cx: &mut Context<Self>) {
+        cx.set_global(ReviewBreadth(breadth));
+        self.breadth = breadth;
         self.agents_changed(cx);
     }
 
@@ -377,7 +390,7 @@ impl ReviewView {
         let s = model::scope(
             &agents,
             &self.space,
-            Self::all_projects(cx),
+            self.breadth,
             &self.extra,
             focused,
         );
@@ -385,6 +398,7 @@ impl ReviewView {
             s.agents.iter().filter(|a| a.caps.review).cloned().collect();
         self.hidden = s.agents.len() - reviewable.len();
         self.can_widen = s.can_widen;
+        self.agent_only = s.agent_only;
         self.label = s.label;
         self.groups = group_by_project(&reviewable);
         self.ordered = self.groups.iter().flat_map(|g| g.agents.clone()).collect();
@@ -1111,11 +1125,11 @@ impl ReviewView {
     }
 }
 
-/// Review's "All projects" toggle (kept for the app session).
+/// Review's Agent / Project / All choice (kept for the app session).
 #[derive(Default)]
-struct AllProjects(bool);
+struct ReviewBreadth(Breadth);
 
-impl gpui::Global for AllProjects {}
+impl gpui::Global for ReviewBreadth {}
 
 #[cfg(test)]
 mod tests;

@@ -219,7 +219,7 @@ marks terminal items. Section 36 lists each component once.
 - [x] Full main-area mode: ⌘R (toggle; opens on the focused agent when it can be reviewed), top bar, palette, Changes "Open in Review", viewer "Show diff", worktree "Review changes" (`src/App.tsx`)
 - [x] Scope: active space's agents (project space → project, custom → members, All → focused agent's project, or everyone); plus the agent/worktree it was opened for (`src/lib/reviewScope.ts`)
 - [x] Header: "Review", scope label, hint "what your agents changed · click a line number to comment" (`src/components/review/Review.tsx`)
-- [x] "All projects" checkbox widens the list (session only) (`src/components/review/Review.tsx`, `src/App.tsx`) [in-house: checkbox/toggle]
+- [x] Agent / project / All switch widens the list from the focused agent (session only) (`src/components/review/Review.tsx`, `src/App.tsx`) [in-house: checkbox/toggle]
 - [x] Refresh control; opening Review forces a refresh of every agent's changes and worktrees; combined error with Retry (`src/components/review/Review.tsx`) [in-house: tooltip]
 - [x] "Side by side" / "Inline" toggle, persisted (`pitwall.review.sideBySide`, default side by side) (`src/components/review/Review.tsx`) [in-house: segmented control]
 - [x] "Back esc"; Esc leaves (unless a dialog, editor, field or menu has it) (`src/components/review/Review.tsx`)
@@ -534,7 +534,7 @@ data `Pitwall` (Windows); `$PITWALL_HOME` overrides.
 - [x] localStorage `pitwall.right.files` (Changes/Files tab), `pitwall.explorer.showIgnored`, `pitwall.review.sideBySide` (`src/components/RightPanel.tsx`, `src/components/explorer/useTree.ts`, `src/components/review/Review.tsx`)
 - [x] localStorage `pitwall.accessHintShown` (one-time FDA hint) (`src/lib/permissions.ts`)
 - [x] ~~localStorage `pitwall.mock.ui`, `pitwall.mock.projects` (browser mock only) (`src/mock.ts`, `src/components/onboarding/mockOnboarding.ts`)~~ n/a: browser-mock-only storage
-- [x] In-memory session state (lost on restart): Next up drafts, review comments, viewer tabs, search panes, quick-open recents, Review "All projects", worktree list expansions (`src/components/NextUp.tsx`, `src/components/review/comments.ts`, `src/components/explorer/*`)
+- [x] In-memory session state (lost on restart): Next up drafts, review comments, viewer tabs, search panes, quick-open recents, Review's Agent / project / All choice, worktree list expansions (`src/components/NextUp.tsx`, `src/components/review/comments.ts`, `src/components/explorer/*`)
 
 ## 29. Events (backend → UI)
 

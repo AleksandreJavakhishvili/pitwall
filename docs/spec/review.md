@@ -3,17 +3,20 @@
 Full-window mode (⌘R, top-bar button, ⌘K) for reviewing what agents changed.
 
 ## Which agents
-Review lists the agents of the **active space**: a project space → that
-project's agents, a custom space → its members, the "All" space → the focused
-agent's project (everyone only when no agent is focused) (`lib/reviewScope.ts`,
-using `spaceMembers`). When narrowed, the header shows the space's (or the
-focused agent's project) name and an **All projects** checkbox that widens the
-list to every agent; it is remembered for the session (not persisted).
+With an agent focused, Review lists **that agent alone** (with its own
+worktrees, not the project's other ones). The header's **Agent / <project> /
+All** switch widens it: to the agent's project — the **active space**: a
+project space → that project's agents, a custom space → its members (named
+after the space), the "All" space → the focused agent's project — or to every
+agent. The choice is remembered for the session (not persisted); focusing
+another agent keeps it. With no agent focused there's no Agent choice: the
+space's agents, everyone in "All" (no switch).
 Opened for a specific agent — ⌘R / the top-bar button with an agent focused,
 the Changes panel's Review button, or "Show diff" in the file viewer
 (explorer.md) — that agent is listed even outside the space and selected
 first (its first file, or the given file). Opened from a worktree, that
-worktree's project agents are listed too.
+worktree's project agents are listed too, and the list starts at the project
+(not the agent alone) until another agent is focused.
 
 ## What "All changes" compares with
 A branch, never a commit remembered from when the agent started
