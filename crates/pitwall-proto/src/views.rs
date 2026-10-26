@@ -145,6 +145,10 @@ pub struct AgentView {
     pub created_at: u64,
     pub current_task_id: Option<String>,
     pub caps: AgentCaps,
+    /// Local dev-server addresses its terminal printed while it runs, most
+    /// recent first ("Open preview", docs/spec/terminals.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preview_urls: Vec<String>,
 }
 
 /// One provider's machines and the sessions there that can be added to

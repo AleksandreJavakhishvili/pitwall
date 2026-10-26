@@ -76,6 +76,8 @@ struct Observation {
     recent_output: bool,
     /// Last user keystroke / resize (mono ms).
     last_input: u64,
+    /// Dev-server addresses in its output (`TermHost::preview_urls`).
+    preview: Vec<String>,
 }
 
 struct Probe {
@@ -97,6 +99,7 @@ fn probe(id: String, session: Arc<TermHost>, kind: &str, detect_seq: u64, now: u
         detection,
         recent_output: last > 0 && now.saturating_sub(last) < ACTIVITY_WINDOW_MS,
         last_input: session.last_input.load(Ordering::Relaxed),
+        preview: if exited { Vec::new() } else { session.preview_urls() },
     };
     Probe { id, session, obs }
 }
@@ -136,6 +139,10 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
         };
     }
     if (a.status, a.source, a.detail.clone()) != prev {
+        out.changed = true;
+    }
+    if a.preview != obs.preview {
+        a.preview = obs.preview;
         out.changed = true;
     }
     if a.status != prev.0 {
@@ -518,6 +525,19 @@ mod tests {
         let f = fold(&mut a, Observation { exited: true, ..Default::default() }, 5_000);
         assert_eq!(a.status, Status::Exited);
         assert!(f.changed && f.alert.is_none());
+    }
+
+    #[test]
+    fn preview_addresses_follow_the_output_and_go_with_the_agent() {
+        let mut a = agent();
+        fold(&mut a, live(0), 1_000);
+        let urls = vec!["http://localhost:3000".to_string()];
+        let f = fold(&mut a, Observation { preview: urls.clone(), ..live(0) }, 1_400);
+        assert!(f.changed);
+        assert_eq!(a.preview, urls);
+        assert!(!fold(&mut a, Observation { preview: urls, ..live(0) }, 1_800).changed);
+        let f = fold(&mut a, Observation { exited: true, ..Default::default() }, 2_000);
+        assert!(f.changed && a.preview.is_empty());
     }
 
     #[test]

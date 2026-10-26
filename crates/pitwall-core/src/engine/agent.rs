@@ -93,6 +93,9 @@ pub struct Agent {
     /// Its conversation's title should be read again (titles.rs): set on
     /// the events that can change it, cleared when the ticker reads it.
     pub title_wanted: bool,
+    /// Dev-server addresses its terminal printed (`TermHost::preview_urls`),
+    /// as the ticker last read them.
+    pub preview: Vec<String>,
 }
 
 impl Agent {
@@ -143,6 +146,7 @@ impl Agent {
             real_cwd: None,
             // Titles may have changed while Pitwall wasn't running.
             title_wanted: rec_has_session,
+            preview: Vec::new(),
         }
     }
 
@@ -173,6 +177,7 @@ impl Agent {
         self.fg = Default::default();
         self.hook_session = None;
         self.shell_used = false;
+        self.preview.clear();
     }
 
     /// A plain terminal (it may be running an agent the user started in it).
@@ -285,6 +290,7 @@ impl Agent {
             created_at: r.created_at,
             current_task_id: super::tasks::current_task_id(r),
             caps: self.caps(),
+            preview_urls: if self.running() { self.preview.clone() } else { Vec::new() },
         }
     }
 
