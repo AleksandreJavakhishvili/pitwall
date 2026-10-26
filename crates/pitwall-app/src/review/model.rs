@@ -30,22 +30,38 @@ pub enum Space {
     Custom { name: String, members: Vec<String> },
 }
 
+/// How far Review's list reaches from the focused agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Breadth {
+    /// The focused agent alone (with its worktrees).
+    #[default]
+    Agent,
+    /// The active space (in "All", the focused agent's project).
+    Space,
+    /// Every agent.
+    All,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scope {
     pub agents: Vec<AgentView>,
-    /// Narrowed: the "All projects" toggle is offered.
+    /// Narrowed: the Agent / Project / All choice is offered.
     pub can_widen: bool,
+    /// Narrowed to the focused agent: the space's other worktrees aren't
+    /// listed.
+    pub agent_only: bool,
     /// What it is narrowed to (the space's or the focused agent's project).
     pub label: String,
 }
 
-/// `reviewScope`: the active space's agents (in "All", the focused agent's
-/// project; everyone with no focused agent), or everyone with "All
-/// projects"; `extra` agents always (the one Review was opened for).
+/// `reviewScope`: the focused agent alone; with [`Breadth::Space`], the
+/// active space's agents (in "All", the focused agent's project; everyone
+/// with no focused agent); with [`Breadth::All`], everyone. `extra` agents
+/// always (the one Review was opened for).
 pub fn scope(
     agents: &[AgentView],
     space: &Space,
-    all: bool,
+    breadth: Breadth,
     extra: &[String],
     focused: Option<&AgentView>,
 ) -> Scope {
@@ -55,22 +71,26 @@ pub fn scope(
             return Scope {
                 agents: agents.to_vec(),
                 can_widen: false,
+                agent_only: false,
                 label: String::new(),
             }
         }
         (Space::All, Some(f)) => f.project_display.clone(),
         (Space::Project { name, .. } | Space::Custom { name, .. }, _) => name.clone(),
     };
-    if all {
+    if breadth == Breadth::All {
         return Scope {
             agents: agents.to_vec(),
             can_widen: true,
+            agent_only: false,
             label,
         };
     }
+    let agent_only = breadth == Breadth::Agent && focused.is_some();
     let mut ids: HashSet<&str> = agents
         .iter()
         .filter(|a| match space {
+            _ if agent_only => focused.is_some_and(|f| a.id == f.id),
             Space::All => in_all && focused.is_some_and(|f| a.project == f.project),
             Space::Project {
                 project, members, ..
@@ -87,6 +107,7 @@ pub fn scope(
             .cloned()
             .collect(),
         can_widen: true,
+        agent_only,
         label,
     }
 }
@@ -513,29 +534,27 @@ mod tests {
             agent("b1", "/work/beta", "idle", 0, true),
         ];
         // All, nobody focused: everyone, no toggle.
-        let s = scope(&agents, &Space::All, false, &[], None);
+        let s = scope(&agents, &Space::All, Breadth::Agent, &[], None);
         assert_eq!(s.agents.len(), 3);
         assert!(!s.can_widen);
-        // All, focused agent: its project, with the toggle.
-        let s = scope(&agents, &Space::All, false, &[], Some(&agents[2]));
-        assert_eq!(
-            s.agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
-            ["b1"]
-        );
-        assert!(s.can_widen);
-        assert_eq!(s.label, "beta");
-        // Widened.
-        assert_eq!(
-            scope(&agents, &Space::All, true, &[], Some(&agents[2]))
-                .agents
-                .len(),
-            3
-        );
+        let ids = |s: &Scope| s.agents.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+        // A focused agent: that agent alone, with the choice.
+        let s = scope(&agents, &Space::All, Breadth::Agent, &[], Some(&agents[0]));
+        assert_eq!(ids(&s), ["a1"]);
+        assert!(s.can_widen && s.agent_only);
+        assert_eq!(s.label, "alpha");
+        // Its project.
+        let s = scope(&agents, &Space::All, Breadth::Space, &[], Some(&agents[0]));
+        assert_eq!(ids(&s), ["a1", "a2"]);
+        assert!(s.can_widen && !s.agent_only);
+        // Everyone.
+        let s = scope(&agents, &Space::All, Breadth::All, &[], Some(&agents[2]));
+        assert_eq!(s.agents.len(), 3);
         // Extra: the agent Review was opened for.
         let s = scope(
             &agents,
             &Space::All,
-            false,
+            Breadth::Agent,
             &["a1".into()],
             Some(&agents[2]),
         );
@@ -546,12 +565,25 @@ mod tests {
             project: "/work/alpha".into(),
             members: vec!["b1".into()],
         };
-        assert_eq!(scope(&agents, &p, false, &[], None).agents.len(), 3);
+        assert_eq!(
+            scope(&agents, &p, Breadth::Space, &[], None).agents.len(),
+            3
+        );
+        // With nobody focused, Agent is the space.
+        assert_eq!(
+            scope(&agents, &p, Breadth::Agent, &[], None).agents.len(),
+            3
+        );
+        // A focused agent in a project space: that agent alone.
+        assert_eq!(
+            ids(&scope(&agents, &p, Breadth::Agent, &[], Some(&agents[1]))),
+            ["a2"]
+        );
         let c = Space::Custom {
             name: "Space 2".into(),
             members: vec!["a2".into()],
         };
-        let s = scope(&agents, &c, false, &[], None);
+        let s = scope(&agents, &c, Breadth::Space, &[], None);
         assert_eq!((s.agents.len(), s.label.as_str()), (1, "Space 2"));
     }
 

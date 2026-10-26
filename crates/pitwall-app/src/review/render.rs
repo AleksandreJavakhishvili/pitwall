@@ -12,7 +12,7 @@ use gpui::{
 use pitwall_proto::{AgentView, FileStatus};
 
 use super::comments::Comments;
-use super::model::{self, TreeRow, WtRef};
+use super::model::{self, Breadth, TreeRow, WtRef};
 use super::{
     Back, CancelComment, DiffState, NextFile, OpenFile, PreviousFile, RefreshChanges, ReviewView,
     Sel,
@@ -58,6 +58,9 @@ pub(super) fn list_file_rows(v: &ReviewView, cx: &App) -> Vec<(String, String)> 
                 }
             }
         }
+        if v.agent_only {
+            continue;
+        }
         let ids: Vec<&str> = g.agents.iter().map(|a| a.id.as_str()).collect();
         for r in model::other_worktrees(&v.projects, &ids) {
             let key = r.key();
@@ -83,7 +86,6 @@ fn spacer() -> Div {
 
 impl ReviewView {
     fn bar(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let all = Self::all_projects(cx);
         let note: SharedString = if self.refreshing {
             "refreshing…".into()
         } else {
@@ -92,7 +94,7 @@ impl ReviewView {
                 .unwrap_or_default()
                 .into()
         };
-        let seg = |id: &'static str, label: &'static str, on: bool, first: bool| {
+        let seg = |id: &'static str, label: SharedString, on: bool, first: bool| {
             div()
                 .id(id)
                 .h(px(24.))
@@ -115,25 +117,6 @@ impl ReviewView {
             .border_b_1()
             .border_color(t.line)
             .child(kit::label("Review", t.text_3, 12.))
-            .when(self.can_widen, |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .max_w(px(180.))
-                        .overflow_hidden()
-                        .px(px(6.))
-                        .pt(px(3.))
-                        .pb(px(2.))
-                        .rounded(px(3.))
-                        .bg(t.surface_3)
-                        .child(kit::label_fit(
-                            if all { "all projects".to_string() } else { kit::project_name(&self.label).to_string() },
-                            t.text_2,
-                            11.,
-                            26,
-                        )),
-                )
-            })
             .child(
                 hint(
                     "what your agents changed · click a line number to comment",
@@ -144,20 +127,34 @@ impl ReviewView {
             )
             .child(spacer())
             .when(self.can_widen, |d| {
-                d.child(
-                    div()
-                        .id("rv-all")
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(5.))
-                        .text_size(px(12.))
-                        .text_color(t.text_2)
-                        .cursor_pointer()
-                        .child(kit::checkbox_box(all, false, 12., t))
-                        .child("All projects")
-                        .on_click(cx.listener(move |v, _, _, cx| v.set_all_projects(!all, cx))),
-                )
+                // The focused agent, its project (or the space), everyone.
+                let mut widths = Vec::new();
+                if self.focused_agent.is_some() {
+                    widths.push(("rv-agent", Breadth::Agent, "Agent".into()));
+                }
+                let middle = kit::project_name(&self.label).to_string();
+                widths.push(("rv-space", Breadth::Space, middle.into()));
+                widths.push(("rv-all", Breadth::All, "All".into()));
+                let shown = if self.agent_only || self.breadth != Breadth::Agent {
+                    self.breadth
+                } else {
+                    Breadth::Space
+                };
+                let mut group = div()
+                    .flex()
+                    .flex_none()
+                    .max_w(px(260.))
+                    .border_1()
+                    .border_color(t.line_strong)
+                    .rounded(RADIUS)
+                    .overflow_hidden();
+                for (i, (id, b, label)) in widths.into_iter().enumerate() {
+                    group = group.child(
+                        seg(id, label, b == shown, i == 0)
+                            .on_click(cx.listener(move |v, _, _, cx| v.set_breadth(b, cx))),
+                    );
+                }
+                d.child(group)
             })
             .child(self.refresh_control(
                 "rv-refresh",
@@ -175,11 +172,11 @@ impl ReviewView {
                     .rounded(RADIUS)
                     .overflow_hidden()
                     .child(
-                        seg("rv-sbs", "Side by side", self.side_by_side, true)
+                        seg("rv-sbs", "Side by side".into(), self.side_by_side, true)
                             .on_click(cx.listener(|v, _, _, cx| v.set_side_by_side(true, cx))),
                     )
                     .child(
-                        seg("rv-inline", "Inline", !self.side_by_side, false)
+                        seg("rv-inline", "Inline".into(), !self.side_by_side, false)
                             .on_click(cx.listener(|v, _, _, cx| v.set_side_by_side(false, cx))),
                     ),
             )
@@ -233,7 +230,12 @@ impl ReviewView {
                 group = group.child(self.agent_section(a, ai > 0, &wts, list_focused, t, cx));
             }
             let ids: Vec<&str> = g.agents.iter().map(|a| a.id.as_str()).collect();
-            let others = model::other_worktrees(&self.projects, &ids);
+            // Narrowed to one agent: not the project's other worktrees.
+            let others = if self.agent_only {
+                Vec::new()
+            } else {
+                model::other_worktrees(&self.projects, &ids)
+            };
             if !others.is_empty() {
                 let mut o = div()
                     .flex()

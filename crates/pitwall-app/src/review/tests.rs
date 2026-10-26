@@ -333,21 +333,25 @@ fn the_main_screen_opens_review_scoped_and_esc_leaves(cx: &mut TestAppContext) {
     screen.update_in(cx, |s, window, cx| s.show_agent("a1", window, cx));
     cx.run_until_parked();
 
-    // ⌘R: Review on the focused agent, scoped to its project.
+    // ⌘R: Review on the focused agent alone.
     cx.dispatch_action(crate::main_screen::ToggleReview);
     cx.run_until_parked();
     assert_eq!(screen.read_with(cx, |s, _| s.route()), Route::Review);
-    let view = review.read_with(cx, |r, _| r.view().cloned()).expect("open");
+    let view = review
+        .read_with(cx, |r, _| r.view().cloned())
+        .expect("open");
+    let listed = |v: &ReviewView| v.ordered.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
     view.read_with(cx, |v, _| {
-        let ids: Vec<&str> = v.ordered.iter().map(|a| a.id.as_str()).collect();
-        assert_eq!(ids, ["a1", "a2"], "the focused agent's project");
-        assert!(v.can_widen);
+        assert_eq!(listed(v), ["a1"], "the focused agent");
+        assert!(v.can_widen && v.agent_only);
         assert!(matches!(&v.sel, Sel::Agent { id, .. } if id == "a1"));
     });
-    // "All projects" widens it.
-    view.update(cx, |v, cx| v.set_all_projects(true, cx));
+    // Its project, then everyone.
+    view.update(cx, |v, cx| v.set_breadth(model::Breadth::Space, cx));
+    view.read_with(cx, |v, _| assert_eq!(listed(v), ["a1", "a2"]));
+    view.update(cx, |v, cx| v.set_breadth(model::Breadth::All, cx));
     view.read_with(cx, |v, _| assert_eq!(v.ordered.len(), 3));
-    view.update(cx, |v, cx| v.set_all_projects(false, cx));
+    view.update(cx, |v, cx| v.set_breadth(model::Breadth::Agent, cx));
 
     // A comment typed into the composer (the kit's multi-line input).
     view.update_in(cx, |v, window, cx| v.start_comment(2, window, cx));
