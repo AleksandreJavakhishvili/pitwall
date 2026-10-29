@@ -6,7 +6,6 @@ use gpui::{
 };
 
 use super::*;
-use model::Kind;
 use crate::theme::Theme;
 
 /// Mounted as Review mounts it: a flex column's `flex_1` child.
@@ -99,7 +98,6 @@ fn check_layout(view: &Entity<MarkdownView>, cx: &mut VisualTestContext, what: &
     let n = view.read_with(cx, |v, _| v.doc().unwrap().blocks.len().min(MAX_BLOCKS));
     let left = col.left() + px(PAD_X);
     let right = col.right() - px(PAD_X);
-    assert!(col.size.width <= px(COLUMN_W + 2. * PAD_X), "{what}: {col:?}");
     let mut last_bottom = col.top();
     for i in 0..n {
         let b = block(cx, i).unwrap_or_else(|| panic!("{what}: block {i} drawn"));
@@ -118,17 +116,11 @@ fn check_layout(view: &Entity<MarkdownView>, cx: &mut VisualTestContext, what: &
     );
     // Every text fits its box (its lines were measured at the width they
     // are drawn at) and its box sits in a block; outside code blocks and
-    // tables (they scroll sideways) it is no wider than the column.
-    let blocks: Vec<(Bounds<Pixels>, bool)> = (0..n)
-        .map(|i| {
-            let b = block(cx, i).unwrap();
-            let wide = view.read_with(cx, |v, _| {
-                matches!(v.doc().unwrap().blocks[i].kind, Kind::Code { .. } | Kind::Table { .. })
-            });
-            (b, wide)
-        })
-        .collect();
+    // tables (they scroll sideways, at any depth) it is no wider than the
+    // column.
+    let blocks: Vec<Bounds<Pixels>> = (0..n).map(|i| block(cx, i).unwrap()).collect();
     view.read_with(cx, |v, _| {
+        let sideways: Vec<Bounds<Pixels>> = v.hscroll.iter().map(|h| h.bounds()).collect();
         for p in &v.pieces {
             let b = p.layout.bounds();
             let end = p.layout.position_for_index(p.text.len()).unwrap();
@@ -138,12 +130,12 @@ fn check_layout(view: &Entity<MarkdownView>, cx: &mut VisualTestContext, what: &
                 "{what}: {:?} fits its box {b:?} (ends at {end:?})",
                 p.text
             );
-            let Some((outer, wide)) =
-                blocks.iter().find(|(o, _)| b.top() >= o.top() && b.top() < o.bottom())
+            let Some(outer) = blocks.iter().find(|o| b.top() >= o.top() && b.top() < o.bottom())
             else {
                 panic!("{what}: {:?} at {b:?} is in a block", p.text);
             };
             assert!(b.bottom() <= outer.bottom() + px(0.5), "{what}: {:?} in its block", p.text);
+            let wide = sideways.iter().any(|w| b.top() >= w.top() && b.bottom() <= w.bottom());
             if !wide {
                 assert!(b.right() <= right + px(0.5), "{what}: {:?} {b:?} in the column", p.text);
             }
@@ -166,8 +158,34 @@ fn the_sample_lays_out_narrow_and_wide(cx: &mut TestAppContext) {
         draw(cx);
         check_layout(&view, cx, &format!("{w}"));
     }
-    let narrow = block(cx, 1).unwrap();
-    assert!(narrow.size.width <= px(COLUMN_W));
+}
+
+/// The column fills the pane; wide code blocks and tables scroll sideways
+/// (their content is measured at its own width, not the column's).
+#[gpui::test]
+fn wide_code_and_tables_scroll_sideways(cx: &mut TestAppContext) {
+    let wide = format!(
+        "```\n{}\n```\n\n| {} |\n|---|---|---|---|---|---|---|---|\n| {} |\n",
+        "x".repeat(400),
+        ["head"; 8].join(" | "),
+        ["a long cell value that keeps going"; 8].join(" | "),
+    );
+    let (view, cx) = setup(cx, 1600., &wide);
+    let col = cx.debug_bounds("md-col").unwrap();
+    assert!(col.size.width >= px(1500.), "the column fills the pane: {col:?}");
+    let handles = view.read_with(cx, |v, _| v.hscroll.clone());
+    assert_eq!(handles.len(), 2);
+    for (h, what) in handles.iter().zip(["code", "table"]) {
+        assert!(h.max_offset().width > px(100.), "{what} scrolls: {:?}", h.max_offset());
+        let at = h.bounds().center();
+        cx.simulate_mouse_move(at, None, Modifiers::none());
+        cx.simulate_event(ScrollWheelEvent {
+            position: at,
+            delta: ScrollDelta::Pixels(point(px(-120.), px(0.))),
+            ..Default::default()
+        });
+        assert_eq!(h.offset().x, px(-120.), "{what} moved sideways");
+    }
 }
 
 /// The repository's own Markdown (README, specs) draws without anomalies.

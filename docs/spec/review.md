@@ -67,8 +67,9 @@ matter as code. Raw HTML is drawn as GitHub shows it: paragraphs and
 headings (`align="center"` centred), line breaks, rules, list items, links,
 images (their `width` kept; images alone in a paragraph side by side, as
 badges), bold, italic, code, preformatted text; comments, scripts and
-styles hidden, entities decoded, other tags keep their text. Centred
-column, at most 760 px wide; the whole file scrolls.
+styles hidden, entities decoded, other tags keep their text. The column
+fills the pane; the whole file scrolls, and code blocks and tables wider
+than the column scroll sideways on their own.
 - Changes: the diff's hunks map to blocks by source line. A block wholly
   inside an insertion gets a green bar on its left, any other touched block
   an amber one (list items one by one); removed lines between blocks are a
