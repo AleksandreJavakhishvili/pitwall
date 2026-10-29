@@ -1,6 +1,6 @@
 //! A Markdown file drawn as formatted text: Review's and the file viewer's
 //! Preview (docs/spec/review.md "Markdown preview"). [`model`] turns the
-//! text into blocks; [`MarkdownView`] draws them in a centred column with
+//! text into blocks; [`MarkdownView`] draws them in a column as wide as the pane, with
 //! the app's fonts and theme: headings, paragraphs, emphasis, inline and
 //! fenced code (highlighted by [`crate::code_view::highlight`]), quotes,
 //! lists and task lists, tables (scrolling sideways when wide), rules,
@@ -63,7 +63,6 @@ pub const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
 /// Top-level blocks drawn; the rest are counted.
 const MAX_BLOCKS: usize = 2000;
 /// The text column (readable line length).
-const COLUMN_W: f32 = 760.;
 const PAD_X: f32 = 28.;
 const BODY_SIZE: f32 = 14.;
 
@@ -388,10 +387,10 @@ impl Render for MarkdownView {
             col.push(kit::hint("Empty file", &t).into_any_element());
         }
         self.pieces = std::mem::take(&mut d.pieces);
-        // A block box around the column: centred by its margins, its text
-        // is measured at the column's width (a centring flex row measured
-        // it unwrapped, so the column came out shorter than its text: the
-        // end was cut off and long files barely scrolled).
+        // A block box around the column, as wide as the pane: its text is
+        // measured at the column's width (a centring flex row measured it
+        // unwrapped, so the column came out shorter than its text: the end
+        // was cut off and long files barely scrolled).
         let body = div()
             .id("md-body")
             .track_scroll(&self.scroll)
@@ -409,8 +408,6 @@ impl Render for MarkdownView {
             .child(
                 div()
                     .w_full()
-                    .mx_auto()
-                    .max_w(px(COLUMN_W + 2. * PAD_X))
                     .px(px(PAD_X))
                     .pt(px(20.))
                     .pb(px(48.))
@@ -945,7 +942,10 @@ impl Draw<'_> {
                     .line_height(relative(1.5))
                     .whitespace_nowrap()
                     .cursor_text()
-                    .child(code),
+                    // A row: the code keeps its own width (a block child
+                    // is stretched to the box's, so nothing scrolled).
+                    .flex()
+                    .child(div().flex_none().child(code)),
             ))
             .into_any_element()
     }
@@ -1009,7 +1009,7 @@ impl Draw<'_> {
                 id.clone(),
                 &h,
                 t,
-                div().id(id).track_scroll(&h).overflow_x_scroll().max_w_full().child(
+                div().id(id).track_scroll(&h).overflow_x_scroll().max_w_full().flex().child(
                     div()
                         .flex_none()
                         .flex()
