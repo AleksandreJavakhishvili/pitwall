@@ -158,6 +158,22 @@ pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
+/// What `peers/` and the mirror say now.
+struct Snapshot {
+    settings: PeerSettings,
+    entries: Vec<PeerEntry>,
+    viewers: Vec<Paired>,
+    audit: Vec<AuditEntry>,
+}
+
+impl Snapshot {
+    fn of(p: &Peers) -> Snapshot {
+        let mut audit = p.audit(30);
+        audit.reverse();
+        Snapshot { settings: p.settings(), entries: p.peers(), viewers: p.viewers(), audit }
+    }
+}
+
 /// What the model tells the windows.
 #[derive(Debug, Clone)]
 pub enum PeersEvent {
@@ -228,24 +244,37 @@ impl PeersModel {
         &self.peers
     }
 
-    /// Read what's kept on disk and in the mirror (cheap: tiny files).
+    /// Read what's kept on disk and in the mirror.
     fn read(&mut self) {
-        self.settings = self.peers.settings();
-        self.entries = self.peers.peers();
-        self.viewers = self.peers.viewers();
-        let mut audit = self.peers.audit(30);
-        audit.reverse();
-        self.audit = audit;
+        let snap = Snapshot::of(&self.peers);
+        self.take(snap);
     }
 
-    /// Something changed (an event, a reload): read again and redraw.
+    fn take(&mut self, s: Snapshot) {
+        self.settings = s.settings;
+        self.entries = s.entries;
+        self.viewers = s.viewers;
+        self.audit = s.audit;
+    }
+
+    /// Something changed (an event, a reload): read again (off the UI
+    /// thread: the peers' lock may be held while the listener starts) and
+    /// redraw.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        let was_showing = self.settings.show;
-        self.read();
-        if self.settings.show && !was_showing {
-            self.check(cx);
-        }
-        cx.notify();
+        let peers = self.peers.clone();
+        let read = cx.background_executor().spawn(async move { Snapshot::of(&peers) });
+        cx.spawn(async move |this, cx| {
+            let snap = read.await;
+            let _ = this.update(cx, |m, cx| {
+                let was_showing = m.settings.show;
+                m.take(snap);
+                if m.settings.show && !was_showing {
+                    m.check(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Read Tailscale's status and the listener (off the UI thread: it runs
@@ -264,15 +293,15 @@ impl PeersModel {
                         .collect()
                 })
                 .unwrap_or_default();
-            (info, machines)
+            (info, machines, Snapshot::of(&peers))
         });
         let task = cx.spawn(async move |this, cx| {
-            let (info, mut machines) = read.await;
+            let (info, mut machines, snap) = read.await;
             machines.sort_by(|a, b| b.online.cmp(&a.online).then(a.label.cmp(&b.label)));
             let _ = this.update(cx, |m, cx| {
                 m.info = Some(info);
                 m.machines = machines;
-                m.read();
+                m.take(snap);
                 let online: BTreeSet<String> = m.machines.iter().filter(|n| n.online).map(|n| n.stable_id.clone()).collect();
                 if m.settings.show && !online.is_subset(&m.probed) && !m.discovering {
                     m.probed = online;
@@ -378,7 +407,6 @@ impl PeersModel {
                 if let Err(e) = r {
                     m.error = Some(e.message);
                 }
-                m.refresh(cx);
                 m.check(cx);
             });
         });
