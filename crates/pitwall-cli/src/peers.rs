@@ -1,7 +1,7 @@
 //! `pitwall peers`: the user's other machines' Pitwalls over Tailscale
 //! (docs/spec/tailnet-peers.md), read-only. It works on Pitwall's data
-//! folder directly (`peers/`), like `settings` without the app: the app
-//! applies the switches when it starts. Changing pairings or switches is
+//! folder directly (`peers/`), like `settings` without the app: a running
+//! app sees the files change and applies them at once. Changing pairings or switches is
 //! refused inside an agent (`PITWALL_AGENT_ID` set): that is the user's
 //! call.
 
