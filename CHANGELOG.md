@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.3.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.3.0) - 2026-10-30
 
 ### Highlights
 
@@ -21,6 +21,140 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - Agents take their name from their conversation: Claude Code's own title (yours from `/rename`, else the one it generates) or Codex's thread name, else the first prompt, read from the agent's own session files when a prompt is sent or a turn ends. A name you give (in New agent, or by renaming) is kept; right-click → Use session title, or `pitwall agent rename <agent> --auto`, follows the title again. Agents named before keep their names.
 - Rename an agent in the app: right-click it in the sidebar → Rename…, or double-click its row. Enter saves, Esc cancels, and a bad name says why in place. Only the name changes: its worktree, branch and conversation stay (`pitwall agent rename <agent> <name>` does the same).
 - After rules change, Settings → Rules & skills offers "Re-apply & restart all" for every affected agent, next to each pane's own button; `pitwall rules apply --stale [--project <p>] [--restart]` does the same from a terminal.
+
+### Features
+
+- **app:** Drop a space tab onto another window to move it there ([`42167b9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/42167b983812b4b69079add72bce1bf994c18778))
+- **app:** File links outside the agent's folder open in the viewer ([`03187bf`](https://github.com/AleksandreJavakhishvili/pitwall/commit/03187bf08b1d1a3e3cb5e1afbe99544dd97d00f2))
+- **core:** Changes in repositories inside the agent's folder ([`0b8734b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0b8734b2ffa6d9a03b08c618c749dab2c0ab93cc))
+- **app:** A searchable project picker in New agent, More options, ⌘↵ ([`766a0f8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/766a0f84e677ec313065d5f324de1fa4517aa305))
+- **core:** Repositories linked into the agent's folder count too ([`7b8edb2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7b8edb2222d665f682fb400cc017bb88e9ac8cf1))
+- **app:** Accounts for agents; staged and unstaged changes ([`e11c903`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e11c903bfb815d3226185135d2ad1f92cc923ffe))
+- **app:** Group the sidebar by account; projects move their agents ([`5427b8f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5427b8ffd7a2d7c30ff369bb3d00bb9df7117761))
+- **ui:** The web demo shows accounts, staged changes and the new dialog ([`8b666c2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8b666c2a1d4155b2f4b169c6315e21df7e4307b9))
+- **ui:** Show agent logos next to each agent kind ([`68964f5`](https://github.com/AleksandreJavakhishvili/pitwall/commit/68964f520aa301bc6e6b2731071a7bb43b22a28f))
+- **core:** Keep agent tools up to date from pitwall, one at a time ([`f0e3c9f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f0e3c9ff10677958b47f2fe296cd0a04e23ee960))
+- **core:** Git identities per project for agents and terminals ([`dd5df49`](https://github.com/AleksandreJavakhishvili/pitwall/commit/dd5df4934bd981afed4fa0f6a499c48c0b35b5c6))
+- **app:** Bench opens a settings page or a project's accounts ([`8eaea3d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8eaea3dfa0472d265cebf887910b23ae02384775))
+- **core:** Git identities log in to azure devops too ([`4e5ee4f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4e5ee4ff3cfc759d7b3dfdad0fd370a516fea504))
+- **app:** Assigning a git identity restarts the project's agents ([`dc28cd7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/dc28cd70bf748b5328ebb8f07a580764b12d74cd))
+- **core:** Show a project's and an agent's effective rules ([`e36a232`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e36a232593149b6aee1ab5bdd8cf3a9036ac2767))
+- **core:** Rules for Gemini CLI and Aider without rulesync ([`56f74f0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/56f74f02cbc755b467714edeeab96e3ded774452))
+- **cli:** Manage rule sets and import rules from the CLI ([`33178e5`](https://github.com/AleksandreJavakhishvili/pitwall/commit/33178e536f65dd2fd47087780d5a5b9c184724f7))
+- **app:** Re-apply and restart every agent whose rules changed ([`8bbdc0a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8bbdc0a57eb1c1e58a05e140b125922afaa64d30))
+- **core:** Project rules copied into the repository's .rulesync ([`613f9ac`](https://github.com/AleksandreJavakhishvili/pitwall/commit/613f9accebbbbe349edc490ec81b87040a44ed6d))
+- **cli:** Project rules on the socket and the command line ([`a80196d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a80196d8e4d03fc4ca39893ed5bc8988730ac3f8))
+- **app:** Project rules in Settings → Rules ([`084c036`](https://github.com/AleksandreJavakhishvili/pitwall/commit/084c03656578b171d1daf12b624739edeafbeff4))
+- **core:** Skills in the library, in projects and for agents ([`eae2f92`](https://github.com/AleksandreJavakhishvili/pitwall/commit/eae2f9236c0f43a2e765a9c2f03151c2d480942c))
+- **cli:** Skills on the command line ([`9996df8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9996df80bf5e3ce53acd5d5000e46c775a0fcaec))
+- **app:** Skills first in Settings → Rules ([`299cece`](https://github.com/AleksandreJavakhishvili/pitwall/commit/299cece2ff2fc5c7bf1ec427da429f8c3b5033a2))
+- **core:** Import a git repository's bare .claude/skills ([`f69085f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f69085f7f49fe8016da767ea0f7b1b96c3bb70f8))
+- **core:** New library entries from text ([`b01ec8c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b01ec8cf154a233dbac33aaa79597707077f3a75))
+- **app:** New skills from Settings, grouped sets in New agent ([`2bc21bf`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2bc21bf15c86edd23aa15764983a87dd405adbd4))
+- **app:** The Settings page is Rules & skills ([`4236fe2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4236fe24eb3e85150c35a0d4686ac0858c12e910))
+- **core:** Check an agent's name before renaming it ([`56b9c7e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/56b9c7ed74f403402b86938ee53784f485a37210))
+- **app:** Rename an agent from the sidebar ([`a82a230`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a82a230621437a54aa30782f7019c3d17833c6fd))
+- **core:** Read a conversation's title from the agent's own files ([`4af6269`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4af6269169ffe48140c0e93a37038b9dd79d373a))
+- **core:** Name agents after their conversation's title ([`2889288`](https://github.com/AleksandreJavakhishvili/pitwall/commit/288928824930ac88ed4ac1ab89a4d4f4837160b5))
+- **daemon:** Let agent.rename follow the session title again ([`6c927e8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6c927e89748dd58bdaad4075fb8518c8069ee3c1))
+- **cli:** Add pitwall agent rename --auto ([`902b762`](https://github.com/AleksandreJavakhishvili/pitwall/commit/902b762348a39ca2a53043dfddd859dd3d41a367))
+- **app:** Use an agent's session title from the sidebar ([`24e03e8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/24e03e8ceff2193b0e3402395d0bea0c6aad9f04))
+- **app:** Review shows what it compares with and lets you choose ([`2658c61`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2658c61bf3735b6f0fc65b081d06f71c97ec5fb7))
+- **daemon:** Review.changes says what it compares with ([`9d25278`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9d252780140cc9e6ec3ad82e89759659b7eef620))
+- **cli:** Review changes --base compares with another branch ([`9c01588`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9c01588bd983a10b09fb7f50ca227cc9cf0ac73e))
+- **app:** Review lists the focused agent alone ([`d771187`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d771187e2a8e63e16a8e7b0565fd8550ec6b7ab8))
+- **core:** Agents report local dev-server addresses they print ([`18eda7e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/18eda7e1126e0f3f6f4521738629e686de4aa160))
+- **app:** Pane header opens an agent's dev server in the browser ([`e2cb1c6`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e2cb1c61554abe2a0b9dcc8ab841492f22f7c5a7))
+- **daemon:** Send agent events to subscribed socket clients ([`06f49a4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/06f49a48ae64d9e58da951ede0c558128cafe422))
+- **cli:** Follow agents with pitwall events ([`b111e55`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b111e5506ec912e7989dd733f73115f64add3a14))
+- **app:** Send the engine's events over the cli socket ([`04af321`](https://github.com/AleksandreJavakhishvili/pitwall/commit/04af321557835afdc0e8f87a742f767866ff48cf))
+- **app:** Preview markdown files in review and the file viewer ([`78dfd46`](https://github.com/AleksandreJavakhishvili/pitwall/commit/78dfd46e7f12efa2554c96edb69d185882ea1c48))
+- **daemon:** Add peer wire shapes and the methods peers may call ([`eb02a80`](https://github.com/AleksandreJavakhishvili/pitwall/commit/eb02a809440570b02f2df479d7c43b668e791e0e))
+- **core:** See the agents of your other machines over tailscale ([`5a60236`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5a60236b7e018edd58ca81c447fdf3725575ac1a))
+- **cli:** Add pitwall peers to pair with your other machines ([`36decb8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/36decb8178846323b79e7260571a9ed7b19ed612))
+- **app:** Liquid glass laid out as macOS does it ([`57d207b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/57d207bfe3d7726a6ca73814c984d840dfcb423f))
+- **app:** An agent's name is optional in New agent ([`2a2f611`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2a2f61122e43ddee9467c3db9c9af6a17b43bcee))
+- **app:** A web view interface for the in-app preview ([`f0ffc1f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f0ffc1fec05284d1da14bfb27ff12e34b1530606))
+- **core:** Count each time a terminal prints its dev-server address ([`764b01f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/764b01f58b870b39472b0feebaa0f2405b00816c))
+- **gpui:** Let native views follow each drawn frame ([`c484c5a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c484c5a3c38d593c3029ff790b7977ca8c8622df))
+- **app:** Open a pane's dev server beside its terminal ([`3bd69d1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3bd69d150f0b833b2d159527dc2e175aaf3d27dd))
+- **app:** Show the in-app preview with WKWebView on macOS ([`95d5b24`](https://github.com/AleksandreJavakhishvili/pitwall/commit/95d5b2487820b1333ae91a7b22abb9ef53b1c08c))
+- **app:** The in-app preview on Windows, with WebView2 ([`a66ee4d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a66ee4d4ceef4c0b6c477077ce84c135ca1b3ad4))
+- **app:** The in-app preview on Linux, with WebKitGTK ([`4d0ba8f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4d0ba8f827f92ea03ce90227e3a71d21b5cd368a))
+- **app:** Put the in-app preview on the terminal's left too ([`ffd94d0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ffd94d05cc675f86632ec044e8326511616c94b8))
+- **core:** Peers reload what another process wrote to peers/ ([`90299a6`](https://github.com/AleksandreJavakhishvili/pitwall/commit/90299a63baac9165eecf8a9675a561f6d11f54e6))
+- **core:** A peers page in settings ([`34fe62d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/34fe62db3e3f5a16ad6fbdd9c801e1fc9feee878))
+- **app:** Host tailnet peers and a settings page for them ([`f4bdacb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f4bdacbf33f6d50f452ca53a1aa77031f4349680))
+- **app:** Other machines' agents in the sidebar, read-only ([`70cbd95`](https://github.com/AleksandreJavakhishvili/pitwall/commit/70cbd95265bafa074b858c8af63163ca2cac3238))
+- **app:** Drag accounts, projects and agents in the sidebar ([`b751918`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b751918c544306945c88ba1854ed3674e722f1ee))
+
+### Fixes
+
+- **app:** "Choose folder…" opens the folder picker and keeps the dialog ([`09e8eeb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/09e8eeb68c0487ab8435483cf4eff92762dd4755))
+- **detect:** Read your own rules from pitwall's data folder ([`ff96b0e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ff96b0e64e982b403eba69b0bf1e5c667f715d42))
+- **app:** Long account emails end in an ellipsis, not under buttons ([`398994f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/398994fc0c40c2f0dd11f03c8f839fb880a4aeae))
+- **ui:** Terminals and empty projects sit under their project's account ([`d072d7d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d072d7dfeeaeca86853414f7ea5c18cc70f1f6f1))
+- **core:** Review compares with the agent's branch, not its start ([`3fca1b1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3fca1b1323ba978884d984d6a9dab5143de70d94))
+- **app:** Run terminals from a holder copy updates never replace ([`d12647a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d12647ae8a13e27db1b45517a08af65e1b1befcf))
+- **core:** Git config shows a git identity's name and email ([`d180e82`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d180e82f1075fcfc64a581e0b80892cf2d0bd3fd))
+- **app:** Restart a project's agents one at a time on a new git identity ([`df58cdc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/df58cdc1962cda3675a6e8417e3240c16b1b4785))
+- **app:** No rulesync warning for agents Pitwall writes rules for ([`f3d58c7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f3d58c784e505f8eeabcefbac98a8511e4e7cb52))
+- **core:** Imported CLAUDE.md and AGENTS.md stay apart when generated ([`b4765a2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b4765a2c94bfbdf1f222c2821d72e0a60481df53))
+- **core:** List generated rule files in a fixed order ([`9e66fc7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9e66fc72d0b458eb25d9f0018e26e5d080f2ddb2))
+- **core:** Personal skills' scripts stay executable in agents' folders ([`de70974`](https://github.com/AleksandreJavakhishvili/pitwall/commit/de709742dc3f26b2f5cd45e4b5d97b9f16d67976))
+- **core:** Review compares a branch with the one it was created from ([`c1f2f12`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c1f2f12c88f935b973d8a44d090ee02d46d1109b))
+- **app:** Wrap text in a squeezed box without looping ([`89c70b9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/89c70b9b7030f3113d31b849de315e6e25477d51))
+- **app:** Scroll the whole markdown preview and select its text ([`c326c43`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c326c437b5195c80235e3fe0d19333585d4f27b4))
+- **app:** Draw html in the markdown preview as formatting ([`88543c9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/88543c91b6c63751e784f29b3fbf1131704f5fcb))
+- **app:** Markdown preview fills the pane, wide code scrolls ([`7d64f0a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7d64f0a960bf0720c5f46ad2061e2de31dcf6c04))
+- **app:** Agents named from their folder follow the session title ([`c6c11d8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c6c11d820248a119bc0a262cbbfcb5e58169e32c))
+- **app:** Light glass reads as frosted white, not grey ([`0f7ed19`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0f7ed19e5215556916b3e179758c1ce0530afa4f))
+- **gpui:** Give X11 windows a raw window handle ([`9eeb4ae`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9eeb4ae8328c6383018bc95a48452bc45ca37f94))
+- **app:** Hand keys back on Windows and Linux as on macOS ([`e65bdb8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e65bdb8515c4d315553c38aefd74cc522f894fbb))
+- **app:** Keep the preview's web inspector out of the pane on macOS ([`7068c19`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7068c194e7a55aaf73b79a7459e0db99c9152f54))
+- **app:** Read peers off the ui thread ([`03cd37c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/03cd37c6722472505b918dc1f307d4f040094585))
+
+### Performance
+
+- **core:** Run git on its own only for agents whose changes are shown ([`97bf3e1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/97bf3e18ccd16ce89cd5ceb566e439e14fb08b56))
+
+### Refactors
+
+- **core:** Name compare_with as what review compares with ([`f302573`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f302573ead118926206e7cc3f7015ef7ecc52aef))
+
+### Documentation
+
+- Accounts, linked repositories and staged changes ([`ed4b17d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ed4b17d57624157ef4c602bfff06f03137067e80))
+- A docs section with cli, settings, agent and detection references ([`f72c12b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f72c12bdbf91d1d93ceb4c37cf5ab0831c78e38c))
+- Project rules in the spec, skill, Race Engineer and changelog ([`8f810d4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8f810d4f79846061ffd6e8ef7af37dc7002d0991))
+- Skills in the rules spec, skill, Race Engineer and changelog ([`e71f560`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e71f5607d73459f1ea4c8c046336e461d7191519))
+- Rules & skills page, new skill form, git skills import ([`cc91a01`](https://github.com/AleksandreJavakhishvili/pitwall/commit/cc91a01e9c6f875a5982b5b13b21860fb40530c0))
+- Renaming agents in the app ([`00bbe8b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/00bbe8b4bf7caa270ce949c8a6e30cbc6ffd957f))
+- Agents named after their session title ([`cd70b29`](https://github.com/AleksandreJavakhishvili/pitwall/commit/cd70b29e9d1fafc2dd396f5ec2763fc372d993c4))
+- What review compares with ([`fc86cf4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fc86cf416c000fd9742e7376710a3b2660fff6f2))
+- Open preview chip for printed dev-server addresses ([`391c6f2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/391c6f2d3706859975f80e6b0b71247c450c8303))
+- Socket events in the api, architecture and peers specs ([`0fee50e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0fee50e185782f481e2d58ff0525a332bdb5a6c4))
+- Selecting and copying the markdown preview, its html ([`29fdfd3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/29fdfd3668bf7ec89328c99967a30c826f379a94))
+- Mark the tailnet peers phase 1 core as built ([`42ccd09`](https://github.com/AleksandreJavakhishvili/pitwall/commit/42ccd09618ed73704acfe336f796f7b6e36b118d))
+- Describe the in-app preview ([`c95453c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c95453c3c78889d62770e39688d3b21938e198e9))
+- Tailnet peers in the app as built ([`4e4f18f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4e4f18f1ba667da09035488b4136f535ef69f204))
+- The running app applies pitwall peers changes at once ([`5cb48d1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5cb48d15de7f833362d212d53f393d27f7c05d14))
+- Highlights for 0.3.0 ([`1601fc4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/1601fc4758872743570dcc5c77756f3e7f0a17b6))
+
+### Tests
+
+- **daemon:** Drop the time bound from the slow-client events test ([`54843a3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/54843a34c4811008836986064fa4136e7a93c1bb))
+- **app:** Copy from the explorer's markdown preview ([`da4fb51`](https://github.com/AleksandreJavakhishvili/pitwall/commit/da4fb5137a022ab67f6ea07f96c110c056b34a60))
+- **app:** A laptop shows a studio's agents live on a fake tailnet ([`b27dd3f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b27dd3f5a3bddc0d615fd33fee716878813dd9a2))
+- **app:** Settings -> peers in a test window ([`03fd166`](https://github.com/AleksandreJavakhishvili/pitwall/commit/03fd166f8cb50abac0dee2040fb6a1c147e21a2a))
+- **app:** The host makes peers with both switches off ([`8b6f559`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8b6f5592459db277119863631d2e1ac09adb23df))
+
+### CI/Build
+
+- **deps:** Add pulldown-cmark for the markdown preview ([`c8ef7e9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c8ef7e9b55ef5fc4bae578805103ba7ad4661dc9))
+- **deps:** Add WebKit bindings and image for the in-app preview ([`001dcdc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/001dcdcb101e0e8e9cbd9a79e9117b84152aaa8c))
+- **deps:** Add webview2-com for the Windows preview ([`9bcbd79`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9bcbd793c6973d4767a0192a56ba817ba056c7ac))
+
 
 ## [0.2.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.2.1) - 2026-10-10
 
