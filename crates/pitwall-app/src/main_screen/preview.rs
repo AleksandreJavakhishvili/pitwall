@@ -99,6 +99,8 @@ pub(super) struct Previews {
 struct Drag {
     agent: String,
     row: bool,
+    /// The page comes first (on the left): dragging right shrinks the terminal.
+    flip: bool,
     start: Pixels,
     total: f32,
     from: f32,
@@ -481,7 +483,8 @@ impl MainScreen {
     pub(super) fn preview_drag_move(&mut self, e: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = &self.previews.drag else { return };
         let pos = if d.row { e.position.x } else { e.position.y };
-        let frac = (d.from + f32::from(pos - d.start) / d.total).clamp(MIN_SHARE, 1. - MIN_SHARE);
+        let moved = f32::from(pos - d.start) / d.total;
+        let frac = (d.from + if d.flip { -moved } else { moved }).clamp(MIN_SHARE, 1. - MIN_SHARE);
         let agent = d.agent.clone();
         self.with_pane(&agent, |p| p.frac = frac, cx);
     }
@@ -500,6 +503,7 @@ impl MainScreen {
             return term;
         };
         let row = !self.ui.preview_below;
+        let left = row && self.ui.preview_left;
         let frac = p.frac;
         let split = p.split.clone();
         let measure = canvas(move |b, _, _| split.set(Some(b)), |_, _, _, _| {})
@@ -529,6 +533,7 @@ impl MainScreen {
                     this.previews.drag = Some(Drag {
                         agent: id.clone(),
                         row,
+                        flip: left,
                         start: if row { e.position.x } else { e.position.y },
                         total,
                         from: p.frac,
@@ -545,9 +550,14 @@ impl MainScreen {
             .flex()
             .when(!row, |d| d.flex_col())
             .child(measure)
-            .child(cell(frac).child(term))
-            .child(divider)
-            .child(cell(1. - frac).child(page))
+            .map(|d| {
+                let (term, page) = (cell(frac).child(term), cell(1. - frac).child(page));
+                if left {
+                    d.child(page).child(divider).child(term)
+                } else {
+                    d.child(term).child(divider).child(page)
+                }
+            })
             .into_any_element()
     }
 
@@ -638,7 +648,13 @@ impl MainScreen {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         };
         let act = |cx: &mut Context<Self>, f: PaneAct| on_click(cx, &a.id, f);
-        let below = self.ui.preview_below;
+        // Right → left → below → right.
+        let (below, left) = (self.ui.preview_below, self.ui.preview_left);
+        let (next_icon, next_tip) = match (below, left) {
+            (false, false) => ("page-left", "Preview on the left"),
+            (false, true) => ("page-below", "Preview below"),
+            (true, _) => ("page-right", "Preview on the right"),
+        };
         let title = if p.title.is_empty() { p.page_url.clone() } else { p.title.clone() };
         div()
             .h(px(TOOLBAR_H))
@@ -690,9 +706,17 @@ impl MainScreen {
                     .on_click(act(cx, |s, id, _, cx| s.with_pane(id, |p| p.phone = !p.phone, cx))),
             )
             .child(
-                btn("layout", if below { "split-right" } else { "split-down" }, if below { "Beside the terminal" } else { "Below the terminal" }, None)
-                    .on_click(cx.listener(|this, _, _, cx| this.update_ui(|mut s| {
-                        s.preview_below = !s.preview_below;
+                btn("layout", next_icon, next_tip, None)
+                    .debug_selector({
+                        let id = a.id.clone();
+                        move || format!("pv-layout-{id}")
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.update_ui(|mut s| {
+                        (s.preview_below, s.preview_left) = match (below, left) {
+                            (false, false) => (false, true),
+                            (false, true) => (true, false),
+                            (true, _) => (false, false),
+                        };
                         s
                     }, cx))),
             )
