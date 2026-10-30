@@ -54,16 +54,24 @@ fn modifier_key(vk: u16) -> bool {
     )
 }
 
-/// Copy, paste, cut, select all, undo, redo: the page's.
+/// Copy, paste, cut, select all, undo, redo: the page's
+/// ([`crate::webview::editing_key`]).
 fn editing(vk: u16, m: Modifiers) -> bool {
-    if m.alt || m.platform {
-        return false;
-    }
-    match vk {
-        VK_C | VK_V | VK_X | VK_A | VK_Y => !m.shift,
-        VK_Z => true,
-        _ => false,
-    }
+    let key = match vk {
+        VK_A => "a",
+        VK_C => "c",
+        VK_V => "v",
+        VK_X => "x",
+        VK_Y => "y",
+        VK_Z => "z",
+        _ => return false,
+    };
+    !m.platform && crate::webview::editing_key(key, m.control, m.shift, m.alt)
+}
+
+/// A plain Esc: the page has it, then Pitwall takes the keys back.
+pub fn plain_escape(vk: u16, m: Modifiers) -> bool {
+    vk == 0x1B && !(m.control || m.alt || m.shift || m.platform)
 }
 
 /// Keys GPUI's Windows platform names whatever the layout
@@ -246,6 +254,9 @@ mod tests {
         }
         let shift = Modifiers { shift: true, ..ctrl() };
         assert_eq!(ks(VK_Z, shift), None);
+        assert_eq!(ks(VK_V, shift), None, "paste as plain text");
+        assert!(plain_escape(0x1B, Modifiers::default()));
+        assert!(!plain_escape(0x1B, ctrl()));
         assert_eq!(ks(VK_C, shift).as_deref(), Some("ctrl-shift-c"));
         // No Ctrl, or only a modifier key: not a shortcut.
         assert_eq!(ks(0x4B, Modifiers::default()), None);
