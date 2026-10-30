@@ -3,7 +3,9 @@
 //! the `pitwall` CLI's socket server with its approvals, and the hook relay
 //! (started by `Engine::start`). Only the event sink differs: a channel into
 //! GPUI ([`Bridge`]) instead of webview events, behind the server's event
-//! [`Hub`] (`pitwall events`).
+//! [`Hub`] (`pitwall events`). Next to it, [`Peers`]: the user's other
+//! machines over Tailscale (docs/spec/tailnet-peers.md), fed this engine's
+//! agents and telling the UI through the same bridge.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use pitwall_core::paths::Paths;
 use pitwall_core::store::FileStore;
 use pitwall_core::{Deps, Engine, Shared};
 use pitwall_daemon::{Approvals, Config, Handle, Hub, ProcessIdentity};
+use pitwall_peer::{EngineFeed, Peers, PeersConfig, Tailnet, TailscaleCli};
 use pitwall_providers::agw::{AgwConfig, AgwProvider};
 use pitwall_providers::local::{LocalConfig, LocalProvider};
 
@@ -31,6 +34,12 @@ pub struct Host {
     pub settings: Arc<crate::settings::backend::AppSettings>,
     /// `pitwall space` (cli_spaces).
     pub workspace: Arc<crate::cli_spaces::AppWorkspace>,
+    /// The user's other machines (`None`: the instance key couldn't be
+    /// made). Nothing runs until `crate::peers::init` starts it, and
+    /// nothing listens or dials while its switches are off.
+    pub peers: Option<Arc<Peers>>,
+    /// The local Tailscale (`tailscale status`, read-only).
+    pub tailnet: Arc<dyn Tailnet>,
     server: Option<Handle>,
 }
 
@@ -50,6 +59,11 @@ impl Host {
     /// Never waits on a provider: saved agents reconnect in the background
     /// (`pitwall_core::engine::connect`).
     fn start_with(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>, agw: Option<PathBuf>) -> Host {
+        Host::start_on(paths, bridge, holder, agw, Arc::new(TailscaleCli::new()))
+    }
+
+    /// [`Host::start_with`] on a given tailnet (tests: a fake one).
+    pub(crate) fn start_on(paths: Paths, bridge: Bridge, holder: Result<PathBuf, String>, agw: Option<PathBuf>, tailnet: Arc<dyn Tailnet>) -> Host {
         let holder = holder.map(|b| crate::packaging::stable_sidecar(b, &paths.root().join("bin")));
         let local = LocalProvider::new(LocalConfig {
             hold_dir: paths.hold_dir(),
@@ -71,6 +85,18 @@ impl Host {
             providers: vec![Arc::new(local), Arc::new(agw)],
         });
         engine.start();
+
+        let peers = Peers::new(PeersConfig {
+            root: paths.root().to_path_buf(),
+            tailnet: tailnet.clone(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            sink: Arc::new(bridge.clone()),
+            feed: Some(Arc::new(EngineFeed { engine: engine.clone(), hub: hub.clone() })),
+            timing: Default::default(),
+            limits: Default::default(),
+        })
+        .map_err(|e| eprintln!("pitwall: your other machines are off: {}", e.message))
+        .ok();
 
         let approvals = Approvals::new(APPROVAL_TIMEOUT);
         approvals.on_change(move |list| bridge.send(AppEvent::Approvals(list)));
@@ -96,6 +122,8 @@ impl Host {
             approvals,
             settings,
             workspace,
+            peers,
+            tailnet,
             server,
         }
     }
@@ -103,6 +131,11 @@ impl Host {
     /// Quitting: save, and close the CLI socket. Agents keep running in
     /// their holders (as with the Tauri app's ⌘Q).
     pub fn shutdown(&mut self) {
+        // Close the listener and links: other machines see this one go
+        // offline.
+        if let Some(peers) = &self.peers {
+            peers.stop();
+        }
         let _ = self.engine.save();
         if let Some(server) = self.server.take() {
             server.stop();

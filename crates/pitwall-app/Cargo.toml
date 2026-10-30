@@ -34,6 +34,9 @@ pitwall-providers = { path = "../pitwall-providers" }
 pitwall-daemon = { path = "../pitwall-daemon" }
 pitwall-proto = { path = "../pitwall-proto" }
 pitwall-client = { path = "../pitwall-client" }
+# Tailnet peers (docs/spec/tailnet-peers.md): the agents of the user's other
+# machines, read-only, and sharing this Mac's with them.
+pitwall-peer = { path = "../pitwall-peer" }
 # Review and the read-only code/diff view (src/code_view, src/review); every
 # crate and grammar below is MIT or Apache-2.0 (docs/spec/gpui/licensing.md).
 similar = "2"
@@ -141,3 +144,4 @@ libloading = "0.8"
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }
 pitwall-core = { path = "../pitwall-core", features = ["testing"] }
+pitwall-peer = { path = "../pitwall-peer", features = ["testing"] }

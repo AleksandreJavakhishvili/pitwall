@@ -96,6 +96,7 @@ impl SettingsView {
             }
             Page::Appearance => vec![Self::appearance_section(ui, cx), Self::tiles(ui, cx)],
             Page::FolderAccess => self.folder_access(ui, cx),
+            Page::Peers => self.peers_page(ui, cx),
             Page::About => vec![Self::about(ui, cx)],
         }
     }

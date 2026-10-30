@@ -11,6 +11,7 @@
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 
 use pitwall_core::events::{Event, EventSink};
+use pitwall_peer::{PeerEvent, PeerSink};
 use pitwall_proto::ApprovalView;
 
 /// Everything the UI hears from the hosted engine and the CLI server.
@@ -19,6 +20,9 @@ pub enum AppEvent {
     Engine(Event),
     /// The pending `pitwall` CLI approvals (Tauri: `approvals-changed`).
     Approvals(Vec<ApprovalView>),
+    /// The user's other machines (tailnet peers): their agents, links,
+    /// attention and pairings changed (`crate::peers`).
+    Peer(PeerEvent),
 }
 
 /// The sending half, cloned into every producer.
@@ -40,6 +44,12 @@ impl Bridge {
 impl EventSink for Bridge {
     fn emit(&self, event: Event) {
         self.send(AppEvent::Engine(event));
+    }
+}
+
+impl PeerSink for Bridge {
+    fn emit(&self, ev: PeerEvent) {
+        self.send(AppEvent::Peer(ev));
     }
 }
 

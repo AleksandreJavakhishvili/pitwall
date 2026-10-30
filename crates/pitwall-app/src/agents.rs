@@ -12,16 +12,24 @@ use pitwall_core::events::Event;
 use pitwall_proto::{AgentView, ApprovalView, MachineView, Status};
 
 use crate::bridge::AppEvent;
+use pitwall_peer::PeerEvent;
 
-/// What the UI knows about the engine, kept current by [`AgentStore::listen`].
+/// What the UI knows about the engine, kept current by [`AgentStore::listen`],
+/// and the agents of the user's other machines (tailnet peers, read-only
+/// mirrors whose `machine.link` is set) after this Pitwall's own.
 #[derive(Default)]
 pub struct AgentStore {
     pub agents: Vec<AgentView>,
     pub approvals: Vec<ApprovalView>,
-    /// Agents needing the user (the Dock badge's number).
+    /// Agents needing the user (the Dock badge's number), here and on the
+    /// user's other machines.
     pub blocked: usize,
     /// Engine events applied so far (the shell shows it: proof of life).
     pub updates: u64,
+    /// The engine's blocked count…
+    local_blocked: usize,
+    /// …and the connected peers'.
+    peer_blocked: usize,
 }
 
 /// Emitted for engine events views react to beyond re-rendering.
@@ -39,9 +47,19 @@ pub enum StoreEvent {
     ScanProgress(pitwall_core::onboarding::scan::ScanProgress),
     /// The project list changed.
     ProjectsChanged(Vec<pitwall_core::onboarding::project_list::Project>),
+    /// Something about the user's other machines changed (Settings →
+    /// Peers and the sidebar's headings follow it).
+    Peers,
 }
 
 impl EventEmitter<StoreEvent> for AgentStore {}
+
+/// Mirrored from another machine's Pitwall (a tailnet peer): its link is
+/// known. This Pitwall keeps no record of it, so it can't be renamed or
+/// removed here; everything else is decided by its caps (all off).
+pub fn mirrored(a: &AgentView) -> bool {
+    a.machine.link.is_some()
+}
 
 impl AgentStore {
     /// A store seeded with the engine's current agents.
@@ -53,8 +71,26 @@ impl AgentStore {
         AgentStore {
             agents,
             blocked,
+            local_blocked: blocked,
             ..Default::default()
         }
+    }
+
+    /// This Pitwall's own agents (not the peers' mirrors).
+    pub fn local(&self) -> impl Iterator<Item = &AgentView> {
+        self.agents.iter().filter(|a| !mirrored(a))
+    }
+
+    /// Replace the peers' agents and their blocked count (connected peers
+    /// only: stale rows don't badge).
+    pub fn set_peers(&mut self, views: Vec<AgentView>, blocked: usize) -> bool {
+        let same = blocked == self.peer_blocked
+            && self.agents.iter().filter(|a| mirrored(a)).eq(views.iter());
+        self.agents.retain(|a| !mirrored(a));
+        self.agents.extend(views);
+        self.peer_blocked = blocked;
+        self.blocked = self.local_blocked + self.peer_blocked;
+        !same
     }
 
     /// Apply one bridge event; whether anything shown changed.
@@ -63,9 +99,15 @@ impl AgentStore {
         match event {
             // The same list again (only something not shown changed):
             // nothing to redraw.
-            AppEvent::Engine(Event::AgentsChanged(views)) if views == self.agents => return false,
-            AppEvent::Engine(Event::AgentsChanged(views)) => self.agents = views,
-            AppEvent::Engine(Event::BlockedCount(n)) => self.blocked = n,
+            AppEvent::Engine(Event::AgentsChanged(views)) if self.local().eq(views.iter()) => return false,
+            AppEvent::Engine(Event::AgentsChanged(mut views)) => {
+                views.extend(self.agents.drain(..).filter(mirrored));
+                self.agents = views;
+            }
+            AppEvent::Engine(Event::BlockedCount(n)) => {
+                self.local_blocked = n;
+                self.blocked = n + self.peer_blocked;
+            }
             AppEvent::Engine(Event::Attention(a)) => {
                 cx.emit(StoreEvent::Attention {
                     agent_id: a.agent_id,
@@ -84,6 +126,28 @@ impl AgentStore {
             AppEvent::Engine(Event::ProjectsChanged(list)) => {
                 cx.emit(StoreEvent::ProjectsChanged(list));
                 return false;
+            }
+            // Attention on another machine: notified like a local agent's,
+            // named with its machine.
+            AppEvent::Peer(PeerEvent::Attention { label, attention, .. }) => {
+                cx.emit(StoreEvent::Attention {
+                    agent_id: attention.agent_id,
+                    name: format!("{} on {label}", attention.name),
+                    reason: if attention.reason == "blocked" { "blocked" } else { "done" },
+                    detail: attention.detail,
+                });
+                return false;
+            }
+            AppEvent::Peer(ev) => {
+                cx.emit(StoreEvent::Peers);
+                let Some(peers) = cx.try_global::<crate::peers::PeersHandle>().map(|h| h.0.clone()) else {
+                    return false;
+                };
+                if matches!(ev, PeerEvent::PairingsChanged) {
+                    return false;
+                }
+                let blocked = peers.mirror().blocked() as usize;
+                return self.set_peers(peers.views(), blocked);
             }
         }
         true
