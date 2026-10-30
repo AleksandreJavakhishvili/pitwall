@@ -42,12 +42,23 @@ pub struct PreviewScan {
     /// Bytes of the CSI being read (a runaway one is given up).
     csi_len: usize,
     urls: Vec<String>,
+    /// Addresses printed so far, each counted once per line.
+    seen: u32,
+    /// The addresses counted in the line being read.
+    line_seen: Vec<String>,
 }
 
 impl PreviewScan {
     /// The addresses seen so far, most recent first.
     pub fn urls(&self) -> &[String] {
         &self.urls
+    }
+
+    /// How many times an address was printed (once per line each): a dev
+    /// server printing its address again (a restart) counts, even when the
+    /// address list stays the same. The preview reloads on it.
+    pub fn seen(&self) -> u32 {
+        self.seen
     }
 
     pub fn feed(&mut self, chunk: &[u8]) {
@@ -135,9 +146,15 @@ impl PreviewScan {
         for url in find(&line, true) {
             self.note(url);
         }
+        self.line_seen.clear();
     }
 
     fn note(&mut self, url: String) {
+        // The unfinished line is matched again on every read: count once.
+        if !self.line_seen.contains(&url) {
+            self.line_seen.push(url.clone());
+            self.seen = self.seen.wrapping_add(1);
+        }
         if self.urls.first() == Some(&url) {
             return;
         }
@@ -253,6 +270,21 @@ mod tests {
         assert!(s.urls().is_empty());
         s.feed(b" now");
         assert_eq!(s.urls(), ["http://localhost:3000"]);
+    }
+
+    #[test]
+    fn counts_each_printing_once() {
+        let mut s = PreviewScan::default();
+        s.feed(b"open http://localhost:3000");
+        s.feed(b" now");
+        s.feed(b" really\n");
+        assert_eq!(s.seen(), 1, "one line, read three times");
+        // A restart prints it again: the list stays, the count moves.
+        s.feed(b"  Local: http://localhost:3000\n");
+        assert_eq!(s.urls(), ["http://localhost:3000"]);
+        assert_eq!(s.seen(), 2);
+        s.feed(b"compiled\n");
+        assert_eq!(s.seen(), 2);
     }
 
     #[test]

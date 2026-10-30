@@ -96,6 +96,8 @@ pub struct Agent {
     /// Dev-server addresses its terminal printed (`TermHost::preview_urls`),
     /// as the ticker last read them.
     pub preview: Vec<String>,
+    /// How many times one was printed (`TermHost::preview`).
+    pub preview_seen: u32,
 }
 
 impl Agent {
@@ -147,6 +149,7 @@ impl Agent {
             // Titles may have changed while Pitwall wasn't running.
             title_wanted: rec_has_session,
             preview: Vec::new(),
+            preview_seen: 0,
         }
     }
 
@@ -178,6 +181,7 @@ impl Agent {
         self.hook_session = None;
         self.shell_used = false;
         self.preview.clear();
+        self.preview_seen = 0;
     }
 
     /// A plain terminal (it may be running an agent the user started in it).
@@ -292,6 +296,7 @@ impl Agent {
             current_task_id: super::tasks::current_task_id(r),
             caps: self.caps(),
             preview_urls: if self.running() { self.preview.clone() } else { Vec::new() },
+            preview_seen: if self.running() { self.preview_seen } else { 0 },
         }
     }
 

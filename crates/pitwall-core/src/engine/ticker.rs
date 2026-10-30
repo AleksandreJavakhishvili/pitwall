@@ -78,6 +78,8 @@ struct Observation {
     last_input: u64,
     /// Dev-server addresses in its output (`TermHost::preview_urls`).
     preview: Vec<String>,
+    /// How many times one was printed (`TermHost::preview`).
+    preview_seen: u32,
 }
 
 struct Probe {
@@ -94,12 +96,14 @@ fn probe(id: String, session: Arc<TermHost>, kind: &str, detect_seq: u64, now: u
         (detect::detect(kind, &text, title.as_deref()), seq)
     });
     let last = session.last_activity.load(Ordering::Relaxed);
+    let (preview, preview_seen) = if exited { (Vec::new(), 0) } else { session.preview() };
     let obs = Observation {
         exited,
         detection,
         recent_output: last > 0 && now.saturating_sub(last) < ACTIVITY_WINDOW_MS,
         last_input: session.last_input.load(Ordering::Relaxed),
-        preview: if exited { Vec::new() } else { session.preview_urls() },
+        preview,
+        preview_seen,
     };
     Probe { id, session, obs }
 }
@@ -141,8 +145,9 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
     if (a.status, a.source, a.detail.clone()) != prev {
         out.changed = true;
     }
-    if a.preview != obs.preview {
+    if a.preview != obs.preview || a.preview_seen != obs.preview_seen {
         a.preview = obs.preview;
+        a.preview_seen = obs.preview_seen;
         out.changed = true;
     }
     if a.status != prev.0 {
@@ -535,7 +540,10 @@ mod tests {
         let f = fold(&mut a, Observation { preview: urls.clone(), ..live(0) }, 1_400);
         assert!(f.changed);
         assert_eq!(a.preview, urls);
-        assert!(!fold(&mut a, Observation { preview: urls, ..live(0) }, 1_800).changed);
+        assert!(!fold(&mut a, Observation { preview: urls.clone(), ..live(0) }, 1_800).changed);
+        // Printed again (a restart): same list, a change all the same.
+        let f = fold(&mut a, Observation { preview: urls, preview_seen: 2, ..live(0) }, 1_900);
+        assert!(f.changed && a.preview_seen == 2);
         let f = fold(&mut a, Observation { exited: true, ..Default::default() }, 2_000);
         assert!(f.changed && a.preview.is_empty());
     }

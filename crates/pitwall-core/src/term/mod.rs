@@ -241,6 +241,13 @@ impl TermHost {
         lock(&self.preview).urls().to_vec()
     }
 
+    /// [`preview_urls`](Self::preview_urls) and how many times an address
+    /// was printed (`PreviewScan::seen`: a restart prints it again).
+    pub fn preview(&self) -> (Vec<String>, u32) {
+        let p = lock(&self.preview);
+        (p.urls().to_vec(), p.seen())
+    }
+
     /// The screen as styled rows (what the Wall draws).
     pub fn snapshot(&self) -> pitwall_detect::screen::Snapshot {
         lock(&self.screen).source.snapshot()
