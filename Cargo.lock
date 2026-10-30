@@ -4246,6 +4246,7 @@ dependencies = [
  "gpui",
  "image",
  "libc",
+ "libloading",
  "notify-rust",
  "objc2",
  "objc2-app-kit",
