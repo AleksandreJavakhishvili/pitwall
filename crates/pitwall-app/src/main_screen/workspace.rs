@@ -272,6 +272,9 @@ pub struct UiState {
     /// window opens.
     #[serde(default = "yes", deserialize_with = "not_false")]
     pub right_open: bool,
+    /// A pane's Preview sits below its terminal instead of beside it.
+    #[serde(default, deserialize_with = "strict_true")]
+    pub preview_below: bool,
     /// The agent kind New agent last started (picked first next time).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub new_agent_kind: Option<String>,
@@ -332,6 +335,7 @@ impl Default for UiState {
             sidebar_collapsed: false,
             access_hint_shown: false,
             right_open: true,
+            preview_below: false,
             new_agent_kind: None,
             new_agent_accounts: BTreeMap::new(),
             rest: serde_json::Map::new(),

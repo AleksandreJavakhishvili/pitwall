@@ -27,6 +27,7 @@ mod menu;
 pub mod model;
 mod panel;
 mod part;
+mod preview;
 mod sidebar;
 mod space;
 mod strip;
@@ -486,6 +487,8 @@ pub struct MainScreen {
     _poll_elsewhere: Option<Task<()>>,
     /// The big, rarely changing pieces as cached views (part.rs).
     parts: Option<part::Parts>,
+    /// Agents' in-app previews (preview.rs).
+    previews: preview::Previews,
     _subs: Vec<Subscription>,
 }
 
@@ -601,6 +604,7 @@ impl MainScreen {
             elsewhere: Default::default(),
             _poll_elsewhere: None,
             parts: None,
+            previews: Default::default(),
             _subs: subs,
         };
         screen.start_elsewhere(cx);
@@ -747,6 +751,7 @@ impl MainScreen {
         self.follow_selected(cx);
         self.changes_follow(cx);
         self.wt_follow(cx);
+        self.previews_follow(cx);
         cx.notify();
     }
 
@@ -2016,6 +2021,8 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &SelectAgent9, w, cx| this.select_index(8, w, cx)))
             .on_mouse_move(cx.listener(Self::divider_move))
             .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::divider_up))
+            .on_mouse_move(cx.listener(Self::preview_drag_move))
+            .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::preview_drag_up))
             .relative()
             .size_full()
             .flex()
@@ -2056,6 +2063,8 @@ pub fn window_label() -> SharedString {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod preview_tests;
 
 impl Drop for MainScreen {
     /// A closed window shows no agent's changes any more.

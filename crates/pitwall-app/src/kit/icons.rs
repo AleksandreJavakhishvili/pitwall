@@ -49,6 +49,13 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("external", "M11 3.5h5.5V9M16.5 3.5 9.5 10.5M14 11.5v5H3.5V6h5"),
     // A picture: a Markdown image that isn't shown (remote or missing).
     ("image", "M3.5 4.5h13v11h-13zM3.5 13l4-4 3.5 3.5 2-2 4 4M12.5 8.5h.01"),
+    // The in-app preview (a pane's page beside its terminal) and its toolbar.
+    ("browser", "M3 4.5h14v11H3zM3 7.5h14M5.5 6h.01M7.5 6h.01"),
+    ("back", "M12 5l-5 5 5 5"),
+    ("phone", "M6.5 2.5h7v15h-7zM9.5 15h1"),
+    ("inspect", "M7 6l-4 4 4 4M13 6l4 4-4 4"),
+    ("split-right", "M3 4.5h14v11H3zM10 4.5v11"),
+    ("split-down", "M3 4.5h14v11H3zM3 10h14"),
 ];
 
 fn icon_path(name: &str) -> Option<&'static str> {

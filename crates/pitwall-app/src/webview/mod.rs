@@ -38,8 +38,10 @@ pub enum WebEvent {
     /// The page took keyboard focus (a click into it).
     Focused,
     /// A key with the platform modifier (⌘ on macOS, Ctrl elsewhere) that
-    /// isn't an editing key (copy, paste, cut, select all, undo, redo): it is
-    /// Pitwall's (pane switching, the palette…), not the page's.
+    /// isn't an editing key (copy, paste, cut, select all, undo, redo; see
+    /// [`editing_key`]): it is Pitwall's (pane switching, the palette…), not
+    /// the page's. Also a plain Esc, after the page had it too: the keyboard
+    /// goes back to Pitwall.
     Shortcut(Keystroke),
 }
 
@@ -101,6 +103,14 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
     }
 }
 
+/// The platform modifier's keys the page keeps (copy, paste, cut, select
+/// all, undo, redo); every other one goes to Pitwall as
+/// [`WebEvent::Shortcut`]. `platform`: the key has ⌘ on macOS, Ctrl
+/// elsewhere.
+pub fn editing_key(key: &str, platform: bool, shift: bool, alt: bool) -> bool {
+    platform && !alt && matches!((key, shift), ("c" | "v" | "x" | "a" | "z", false) | ("z" | "v", true) | ("y", false))
+}
+
 /// Only local dev servers: localhost, loopback, private LAN and tailnet
 /// addresses, over http(s). The preview isn't a general browser.
 pub fn allowed(url: &str) -> bool {
@@ -131,7 +141,19 @@ pub fn allowed(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::allowed;
+    use super::{allowed, editing_key};
+
+    #[test]
+    fn the_page_keeps_its_editing_keys() {
+        for (key, shift) in [("c", false), ("v", false), ("x", false), ("a", false), ("z", false), ("z", true), ("y", false), ("v", true)] {
+            assert!(editing_key(key, true, shift, false), "{key} {shift}");
+        }
+        for (key, shift) in [("k", false), ("1", false), ("n", true), ("r", false), ("t", false), ("c", true)] {
+            assert!(!editing_key(key, true, shift, false), "{key} {shift}");
+        }
+        assert!(!editing_key("c", false, false, false), "no modifier: not a shortcut at all");
+        assert!(!editing_key("c", true, false, true), "⌥⌘C is Pitwall's");
+    }
 
     #[test]
     fn only_local_dev_servers() {
