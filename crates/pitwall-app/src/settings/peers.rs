@@ -139,9 +139,9 @@ impl SettingsView {
             Some(_) => crate::kit::chip_tone("not ready", Tone::Warn, t),
         }));
         if let Some(words) = info.as_ref().and_then(|i| tailnet_words(i.state)) {
-            ts = ts.child(div().id("peers-tailnet-empty").child(crate::kit::muted(words, t)));
+            ts = ts.child(div().id("peers-tailnet-empty").debug_selector(|| "peers-tailnet-empty".into()).child(crate::kit::muted(words, t)));
         } else if info.is_some() && machines.is_empty() {
-            ts = ts.child(div().id("peers-no-machines").child(crate::kit::muted(
+            ts = ts.child(div().id("peers-no-machines").debug_selector(|| "peers-no-machines".into()).child(crate::kit::muted(
                 "No other machines of yours are on this tailnet. Sign in to Tailscale with the same account on your other Mac to see its agents here.",
                 t,
             )));
@@ -161,6 +161,7 @@ impl SettingsView {
             .child(
                 head(ui, "Let my other machines see this Mac's agents").child(
                     crate::kit::toggle("peers-share", s.share, t)
+                        .debug_selector(|| "peers-share".into())
                         .tooltip(tooltip("Listen on this Mac's Tailscale addresses only, for your own machines"))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             let _ = m2.update(cx, |m, cx| {
@@ -184,6 +185,7 @@ impl SettingsView {
             .child(
                 head(ui, "Show my other machines' agents").child(
                     crate::kit::toggle("peers-show", s.show, t)
+                        .debug_selector(|| "peers-show".into())
                         .tooltip(tooltip("Find and connect to your machines that share theirs"))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             let _ = m3.update(cx, |m, cx| {
@@ -234,7 +236,7 @@ impl SettingsView {
                 (_, Some(e)) => sec = sec.child(crate::kit::error_text(e.clone(), t)),
                 (None, None) => sec = sec.child(crate::kit::hint("Looking for your machines…", t)),
                 (Some(list), None) if list.is_empty() => {
-                    sec = sec.child(div().id("peers-found-empty").child(crate::kit::muted("No other machines of yours on Tailscale.", t)))
+                    sec = sec.child(div().id("peers-found-empty").debug_selector(|| "peers-found-empty".into()).child(crate::kit::muted("No other machines of yours on Tailscale.", t)))
                 }
                 (Some(list), None) => {
                     for (i, c) in list.iter().enumerate() {
@@ -247,6 +249,7 @@ impl SettingsView {
                             let b = busy.contains(&c.stable_id);
                             r = r.child(
                                 crate::kit::text_button(("peers-pair", i), if b { "Pairing…" } else { "Pair" }, BtnKind::Small, b, t)
+                                    .debug_selector(move || format!("peers-pair-{i}"))
                                     .tooltip(tooltip("Show its agents here (read-only)"))
                                     .on_click(cx.listener(move |_, _, _, cx| {
                                         let _ = mm.update(cx, |m, cx| m.pair(&id, cx));
@@ -267,7 +270,7 @@ impl SettingsView {
         // Paired machines.
         let mut sec = section().child(head(ui, "Shown here"));
         if entries.is_empty() {
-            sec = sec.child(div().id("peers-paired-empty").child(crate::kit::hint("No paired machines.", t)));
+            sec = sec.child(div().id("peers-paired-empty").debug_selector(|| "peers-paired-empty".into()).child(crate::kit::hint("No paired machines.", t)));
         }
         for (i, e) in entries.iter().enumerate() {
             let p = &e.paired;
@@ -301,7 +304,7 @@ impl SettingsView {
         // Machines watching this one.
         let mut sec = section().child(head(ui, "Can see this Mac"));
         if viewers.is_empty() {
-            sec = sec.child(div().id("peers-viewers-empty").child(crate::kit::hint("No machine sees this Mac's agents.", t)));
+            sec = sec.child(div().id("peers-viewers-empty").debug_selector(|| "peers-viewers-empty".into()).child(crate::kit::hint("No machine sees this Mac's agents.", t)));
         }
         for (i, v) in viewers.iter().enumerate() {
             let seen = v.last_seen.map(|t| format!("last connected {}", ago(t, now))).unwrap_or_else(|| "never connected".into());
@@ -356,5 +359,101 @@ mod tests {
         assert!(tailnet_words(TailnetState::NotInstalled).unwrap().contains("isn't installed"));
         assert!(tailnet_words(TailnetState::NeedsLogin).unwrap().contains("logged out"));
         assert_eq!(tailnet_words(TailnetState::Ready), None);
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use std::sync::Arc;
+
+    use gpui::{AppContext as _, Modifiers, TestAppContext, VisualTestContext};
+    use pitwall_core::testing::TempDir;
+    use pitwall_peer::fake::FakeWorld;
+    use pitwall_peer::{NullPeerSink, Peers, PeersConfig};
+    use pitwall_proto::peer::Pairing;
+    use pitwall_proto::settings::Page;
+
+    use super::*;
+    use crate::peers::ModelHandle;
+
+    fn frame(cx: &mut VisualTestContext) {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    }
+
+    /// Settings → Peers on a fake tailnet where this Mac is alone.
+    fn open(cx: &mut TestAppContext) -> (TempDir, Entity<PeersModel>, &mut VisualTestContext) {
+        let dir = TempDir::new("app-peers-settings");
+        let w = FakeWorld::new();
+        w.add("nLAPTOP", "laptop", "alice@example.com");
+        let tailnet = w.tailnet("nLAPTOP");
+        let peers = Peers::new(PeersConfig {
+            root: dir.path().to_path_buf(),
+            tailnet: tailnet.clone(),
+            version: "0.2.1".into(),
+            sink: Arc::new(NullPeerSink),
+            feed: None,
+            timing: Default::default(),
+            limits: Default::default(),
+        })
+        .unwrap();
+        let root = dir.path().to_path_buf();
+        let model = cx.update(|cx| {
+            cx.set_global(crate::theme::Theme::dark());
+            crate::ui_state::init(None, cx);
+            crate::settings::data::set_page(cx, Page::Peers);
+            let m = cx.new(|_| PeersModel::new(peers, tailnet, root));
+            cx.set_global(ModelHandle(m.clone()));
+            m
+        });
+        let (_view, cx) = cx.add_window_view(|_, cx| SettingsView::new(true, cx));
+        cx.simulate_resize(gpui::size(gpui::px(1600.), gpui::px(1000.)));
+        frame(cx);
+        (dir, model, cx)
+    }
+
+    #[gpui::test]
+    fn alone_on_the_tailnet_it_says_so_and_the_switches_work(cx: &mut TestAppContext) {
+        let (_dir, model, cx) = open(cx);
+        model.read_with(cx, |m, _| {
+            assert_eq!(m.info.as_ref().map(|i| i.state), Some(TailnetState::Ready));
+            assert!(m.machines.is_empty());
+        });
+        assert!(cx.debug_bounds("peers-no-machines").is_some(), "no other machines");
+        assert!(cx.debug_bounds("peers-paired-empty").is_some() && cx.debug_bounds("peers-viewers-empty").is_some());
+        let share = cx.debug_bounds("peers-share").expect("the share switch");
+        cx.simulate_click(share.center(), Modifiers::none());
+        frame(cx);
+        model.read_with(cx, |m, _| assert!(m.settings.share && !m.settings.show));
+        assert!(model.read_with(cx, |m, _| m.peers().settings().share), "saved");
+    }
+
+    #[gpui::test]
+    fn tailscale_missing_and_a_machine_to_pair(cx: &mut TestAppContext) {
+        let (_dir, model, cx) = open(cx);
+        model.update(cx, |m, cx| {
+            if let Some(i) = m.info.as_mut() {
+                i.state = TailnetState::NotInstalled;
+            }
+            cx.notify();
+        });
+        frame(cx);
+        assert!(cx.debug_bounds("peers-tailnet-empty").is_some());
+        model.update(cx, |m, cx| {
+            m.settings.show = true;
+            m.found = Some(vec![Candidate {
+                stable_id: "nSTUDIO".into(),
+                label: "studio".into(),
+                dns: "studio.example.ts.net".into(),
+                os: "macOS".into(),
+                online: true,
+                paired: None,
+                probe: Probe::Pitwall { version: "0.2.1".into(), label: "studio".into(), pairing: Pairing::Open, agents: 2 },
+            }]);
+            cx.notify();
+        });
+        frame(cx);
+        assert!(cx.debug_bounds("peers-pair-0").is_some(), "Pair for studio");
+        assert_eq!(found_words(&model.read_with(cx, |m, _| m.found.clone().unwrap())[0]), "Pitwall 0.2.1 · 2 agents");
     }
 }
