@@ -485,6 +485,8 @@ pub struct GlassTokens {
     pub on_primary: Hsla,
     /// `--text-3` on glass (small text stays ≥ 4.5:1).
     pub text_3: Hsla,
+    /// `--text-4` on glass (meta labels stay readable over the material).
+    pub text_4: Hsla,
     pub backdrop: Hsla,
     pub shadow: Hsla,
     /// Lite: the painted backdrop (`--g-base` with the `--g-atmo` colours
@@ -514,6 +516,7 @@ impl GlassTokens {
                 highlight: a(0xffffff, 0.07),
                 on_primary: c(0x0b0d12),
                 text_3: c(0x858c97),
+                text_4: c(0x474d55),
                 backdrop: a(0x06080c, 0.38),
                 shadow: a(0x000000, 0.5),
                 base_top: c(0x2b3a62),
@@ -522,24 +525,28 @@ impl GlassTokens {
                 atmo_bottom: a(0x3c2434, 0.34),
                 sheen: a(0x788cbe, 0.3),
             },
+            // Light glass reads as frosted white, not as grey: the material
+            // behind it (macOS's, Mica) comes out mid-grey over a busy or
+            // dark desktop, so surfaces and the wash over it carry more white.
             Mode::Light => GlassTokens {
-                surface: a(0xffffff, 0.5),
+                surface: a(0xffffff, 0.7),
                 surface_2: a(0x1e283c, 0.05),
                 surface_3: a(0x1e283c, 0.085),
-                raised: a(0xffffff, 0.76),
-                float: a(0xffffff, 0.82),
-                well: a(0xffffff, 0.55),
-                line: a(0x1e283c, 0.09),
-                line_strong: a(0x1e283c, 0.16),
-                highlight: a(0xffffff, 0.7),
+                raised: a(0xffffff, 0.86),
+                float: a(0xffffff, 0.92),
+                well: a(0xffffff, 0.72),
+                line: a(0x1e283c, 0.1),
+                line_strong: a(0x1e283c, 0.17),
+                highlight: a(0xffffff, 0.8),
                 on_primary: c(0xffffff),
                 text_3: c(0x5f6670),
+                text_4: c(0x8a909a),
                 backdrop: a(0x28303e, 0.16),
-                shadow: a(0x1e283c, 0.2),
-                base_top: c(0xc9d5ec),
-                base_bottom: c(0xf0d9d4),
-                atmo_top: a(0xdde4f2, 0.34),
-                atmo_bottom: a(0xf3e0db, 0.3),
+                shadow: a(0x1e283c, 0.16),
+                base_top: c(0xdde5f1),
+                base_bottom: c(0xf1e5e3),
+                atmo_top: a(0xf2f5fb, 0.72),
+                atmo_bottom: a(0xfaf0ed, 0.68),
                 sheen: a(0xffffff, 0.28),
             },
         }
@@ -553,6 +560,7 @@ impl GlassTokens {
         self.line = base.line_strong;
         self.line_strong = base.text_4;
         self.text_3 = base.text_2;
+        self.text_4 = base.text_3;
         self
     }
 }
@@ -668,6 +676,7 @@ impl Appearance {
         t.glass = self.glass;
         if self.glass.is_some() {
             t.text_3 = self.glass_tokens.text_3;
+            t.text_4 = self.glass_tokens.text_4;
         }
         t
     }
@@ -979,7 +988,7 @@ mod tests {
             "rgba(14, 16, 22, 0.36)",
             "rgba(22, 25, 32, 0.78)",
             "#858c97",
-            "rgba(255, 255, 255, 0.82)",
+            "rgba(255, 255, 255, 0.92)",
             "#5f6670",
         ] {
             assert!(

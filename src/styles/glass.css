@@ -59,15 +59,15 @@
 
 /* ── tokens: light (forced, or System when macOS is light; keep both copies identical) ── */
 :root[data-look="glass"][data-theme="light"] {
-  --g-surface: rgba(255, 255, 255, 0.5);
+  --g-surface: rgba(255, 255, 255, 0.7);
   --g-surface-2: rgba(30, 40, 60, 0.05);
   --g-surface-3: rgba(30, 40, 60, 0.085);
-  --g-raised: rgba(255, 255, 255, 0.76);
-  --g-float: rgba(255, 255, 255, 0.82);
-  --g-well: rgba(255, 255, 255, 0.55);
-  --g-line: rgba(30, 40, 60, 0.09);
-  --g-line-strong: rgba(30, 40, 60, 0.16);
-  --g-highlight: rgba(255, 255, 255, 0.7);
+  --g-raised: rgba(255, 255, 255, 0.86);
+  --g-float: rgba(255, 255, 255, 0.92);
+  --g-well: rgba(255, 255, 255, 0.72);
+  --g-line: rgba(30, 40, 60, 0.1);
+  --g-line-strong: rgba(30, 40, 60, 0.17);
+  --g-highlight: rgba(255, 255, 255, 0.8);
   --g-on-primary: #ffffff;
   --g-atmo:
     radial-gradient(120% 85% at 12% -12%, rgba(132, 160, 218, 0.5), transparent 62%),
@@ -80,22 +80,23 @@
     radial-gradient(80% 70% at 100% 0%, rgba(170, 186, 226, 0.2), transparent 58%),
     radial-gradient(85% 60% at 0% 104%, rgba(236, 170, 166, 0.3), transparent 62%),
     radial-gradient(70% 55% at 100% 100%, rgba(244, 196, 168, 0.22), transparent 62%),
-    linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14));
+    linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.62));
   --text-3: #5f6670;
-  --shadow: 0 24px 60px rgba(30, 40, 60, 0.2), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
+  --text-4: #8a909a;
+  --shadow: 0 24px 60px rgba(30, 40, 60, 0.16), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
   --backdrop: rgba(40, 48, 62, 0.16);
 }
 @media (prefers-color-scheme: light) {
   :root[data-look="glass"]:not([data-theme]) {
-    --g-surface: rgba(255, 255, 255, 0.5);
+    --g-surface: rgba(255, 255, 255, 0.7);
     --g-surface-2: rgba(30, 40, 60, 0.05);
     --g-surface-3: rgba(30, 40, 60, 0.085);
-    --g-raised: rgba(255, 255, 255, 0.76);
-    --g-float: rgba(255, 255, 255, 0.82);
-    --g-well: rgba(255, 255, 255, 0.55);
-    --g-line: rgba(30, 40, 60, 0.09);
-    --g-line-strong: rgba(30, 40, 60, 0.16);
-    --g-highlight: rgba(255, 255, 255, 0.7);
+    --g-raised: rgba(255, 255, 255, 0.86);
+    --g-float: rgba(255, 255, 255, 0.92);
+    --g-well: rgba(255, 255, 255, 0.72);
+    --g-line: rgba(30, 40, 60, 0.1);
+    --g-line-strong: rgba(30, 40, 60, 0.17);
+    --g-highlight: rgba(255, 255, 255, 0.8);
     --g-on-primary: #ffffff;
     --g-atmo:
       radial-gradient(120% 85% at 12% -12%, rgba(132, 160, 218, 0.5), transparent 62%),
@@ -108,9 +109,10 @@
       radial-gradient(80% 70% at 100% 0%, rgba(170, 186, 226, 0.2), transparent 58%),
       radial-gradient(85% 60% at 0% 104%, rgba(236, 170, 166, 0.3), transparent 62%),
       radial-gradient(70% 55% at 100% 100%, rgba(244, 196, 168, 0.22), transparent 62%),
-      linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.14));
+      linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.62));
     --text-3: #5f6670;
-    --shadow: 0 24px 60px rgba(30, 40, 60, 0.2), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
+    --text-4: #8a909a;
+    --shadow: 0 24px 60px rgba(30, 40, 60, 0.16), 0 0 0 1px var(--g-line-strong), inset 0 1px 0 var(--g-highlight);
     --backdrop: rgba(40, 48, 62, 0.16);
   }
 }
