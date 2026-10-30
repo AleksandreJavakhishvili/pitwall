@@ -278,7 +278,7 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
     let fresh = cx
         .try_global::<Terminals>()
         .and_then(|t| t.entries.get(&a.id))
-        .is_none_or(|e| a.running && !e.live);
+        .is_none_or(|e| a.running && a.caps.input && !e.live);
     if fresh {
         let engine = cx.try_global::<EngineHandle>().map(|e| e.0.clone());
         let size = TermSize::new(a.cols.max(20), a.rows.max(5));
@@ -286,7 +286,8 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
             theme: term_theme(mode),
             ..TerminalConfig::default()
         };
-        let live = a.running && engine.is_some();
+        // Keystrokes reach it (`caps.input`): attached through the engine.
+        let live = a.running && a.caps.input && engine.is_some();
         let terminal = match engine.filter(|_| live) {
             Some(engine) => Terminal::new(EngineStream::new(engine, a.id.clone()), size, config),
             None => Terminal::new(pitwall_term_view::NullStream, size, config),

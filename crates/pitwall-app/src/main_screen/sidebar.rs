@@ -117,7 +117,8 @@ impl MainScreen {
                 !sections.is_empty()
             }
         };
-        let elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
+        let mut elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
+        elsewhere.extend(self.render_peers(agents, t, cx));
         if any && !elsewhere.is_empty() {
             list.push(div().h(px(4.)).flex_none().into_any_element());
         }
@@ -256,17 +257,8 @@ impl MainScreen {
                 list.push(div().h(px(4.)).flex_none().into_any_element());
             }
             if let Some(h) = machine_heading(groups, gi) {
-                list.push(
-                    div()
-                        .px(px(14.))
-                        .pt(px(10.))
-                        .pb(px(2.))
-                        .text_size(px(10.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(t.text_4)
-                        .child(h.to_uppercase())
-                        .into_any_element(),
-                );
+                let link = g.machine.as_ref().and_then(|m| m.link.as_ref());
+                list.push(super::peers::machine_heading(&h, link, t));
             }
             list.push(self.project_head(g, collapsed, t, cx).into_any_element());
             if g.agents.is_empty() {
@@ -617,7 +609,7 @@ impl MainScreen {
         self.open_menu(at, items, window, cx);
     }
 
-    fn agent_menu(
+    pub(super) fn agent_menu(
         &mut self,
         a: &AgentView,
         can_create: bool,
@@ -654,6 +646,14 @@ impl MainScreen {
                 push(Some(acc.id.clone()), acc.name.clone());
             }
         }
+        // Another machine's agent: nothing of it is kept here to rename or
+        // remove (and its caps allow nothing else).
+        if crate::agents::mirrored(a) {
+            if !items.is_empty() {
+                self.open_menu(at, items, window, cx);
+            }
+            return;
+        }
         let rn = a.id.clone();
         items.push(MenuItem::new("", "Rename…", move |this, window, cx| this.start_agent_rename(&rn, window, cx)));
         // Named by the user, while its conversation has a title of its own.
@@ -673,7 +673,7 @@ impl MainScreen {
     /// "Rename…" (or a double-click on its row): the agent's name becomes a
     /// field in place. Enter saves, Esc cancels, leaving it saves a valid name.
     pub(super) fn start_agent_rename(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(name) = self.store.read(cx).agents.iter().find(|a| a.id == id).map(|a| a.name.clone()) else {
+        let Some(name) = self.store.read(cx).agents.iter().find(|a| a.id == id && !crate::agents::mirrored(a)).map(|a| a.name.clone()) else {
             return;
         };
         self.menu = None;
