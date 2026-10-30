@@ -313,7 +313,13 @@ impl rwh::HasDisplayHandle for RawWindow {
 
 impl rwh::HasWindowHandle for X11Window {
     fn window_handle(&self) -> Result<rwh::WindowHandle<'_>, rwh::HandleError> {
-        unimplemented!()
+        // Pitwall patch: the window's XID (was `unimplemented!()`, a panic),
+        // which the in-app preview reparents its web view into.
+        let Some(non_zero) = NonZeroU32::new(self.0.x_window) else {
+            return Err(rwh::HandleError::Unavailable);
+        };
+        let handle = rwh::XcbWindowHandle::new(non_zero);
+        Ok(unsafe { rwh::WindowHandle::borrow_raw(handle.into()) })
     }
 }
 impl rwh::HasDisplayHandle for X11Window {
