@@ -56,6 +56,12 @@ const ESCAPE: u16 = 53;
 
 pub struct ViewIvars {
     events: Events,
+    /// Where the pane wants it (the last `set_bounds`).
+    want: Cell<Option<NSRect>>,
+    /// Inside our own `setFrame:` (any other is WebKit's or AppKit's).
+    placing: Cell<bool>,
+    /// The inspector docked itself into the window and shrank the view.
+    docked: Cell<bool>,
 }
 
 define_class!(
@@ -67,6 +73,38 @@ define_class!(
     struct PreviewView;
 
     impl PreviewView {
+        /// WebKit docks its inspector by shrinking the view and putting the
+        /// inspector beside it, in Pitwall's window, over GPUI's drawing;
+        /// closing it restores the frame it had then. The inspector goes to
+        /// its own window instead, and the view stays where the pane wants it.
+        #[unsafe(method(setFrame:))]
+        fn set_frame(&self, frame: NSRect) {
+            let iv = self.ivars();
+            let mut frame = frame;
+            if !iv.placing.get() {
+                if let Some(inspector) = self.inspector() {
+                    // SAFETY: `_WKInspector`'s `isAttached`, checked to exist.
+                    let attached = responds(inspector, sel!(isAttached))
+                        && unsafe { msg_send![inspector, isAttached] };
+                    if attached && responds(inspector, sel!(detach)) {
+                        iv.docked.set(true);
+                        // SAFETY: NSObject's deferred perform (not while
+                        // WebKit is still attaching).
+                        let _: () = unsafe {
+                            msg_send![inspector, performSelector: sel!(detach), withObject: std::ptr::null::<AnyObject>(), afterDelay: 0f64]
+                        };
+                    }
+                }
+                if iv.docked.get() {
+                    if let Some(want) = iv.want.get() {
+                        frame = want;
+                    }
+                }
+            }
+            // SAFETY: NSView's method, with its argument.
+            let _: () = unsafe { msg_send![super(self), setFrame: frame] };
+        }
+
         #[unsafe(method(performKeyEquivalent:))]
         fn perform_key_equivalent(&self, event: &NSEvent) -> Bool {
             // The window offers key equivalents to every view: only the
@@ -111,6 +149,16 @@ define_class!(
 );
 
 impl PreviewView {
+    /// WebKit's inspector object (private, as wry uses it), if any.
+    fn inspector(&self) -> Option<&AnyObject> {
+        if !responds(self, sel!(_inspector)) {
+            return None;
+        }
+        // SAFETY: checked above; it returns the view's inspector or nil.
+        let inspector: *mut AnyObject = unsafe { msg_send![self, _inspector] };
+        unsafe { inspector.as_ref() }
+    }
+
     /// The window's first responder is this view or inside it.
     fn has_keys(&self) -> bool {
         let Some(responder) = self.window().and_then(|w| w.firstResponder()) else {
@@ -302,7 +350,12 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
         // Right-click → Inspect Element, and the inspector's own window.
         let prefs = config.preferences();
         let _: () = msg_send![&*prefs, setValue: &*objc2_foundation::NSNumber::new_bool(true), forKey: &*NSString::from_str("developerExtrasEnabled")];
-        let this = PreviewView::alloc(mtm).set_ivars(ViewIvars { events: events.clone() });
+        let this = PreviewView::alloc(mtm).set_ivars(ViewIvars {
+            events: events.clone(),
+            want: Cell::new(None),
+            placing: Cell::new(false),
+            docked: Cell::new(false),
+        });
         let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.));
         let view: Retained<PreviewView> = msg_send![super(this), initWithFrame: frame, configuration: &*config];
         view
@@ -374,7 +427,12 @@ impl WebView for MacWebView {
         let (x, y) = (f64::from(f32::from(b.origin.x)), f64::from(f32::from(b.origin.y)));
         let (w, h) = (f64::from(f32::from(b.size.width)), f64::from(f32::from(b.size.height)));
         let y = if self.content.isFlipped() { y } else { self.content.bounds().size.height - y - h };
-        self.view.setFrame(NSRect::new(NSPoint::new(x, y), NSSize::new(w, h)));
+        let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+        let iv = self.view.ivars();
+        iv.want.set(Some(frame));
+        iv.placing.set(true);
+        self.view.setFrame(frame);
+        iv.placing.set(false);
     }
 
     fn set_visible(&mut self, visible: bool) {
@@ -409,18 +467,17 @@ impl WebView for MacWebView {
     }
 
     fn open_inspector(&mut self) {
-        // No public call opens it (what wry does too): `_inspector` and
-        // `show`, where they exist; else right-click → Inspect Element.
-        if !responds(&self.view, sel!(_inspector)) {
-            return;
-        }
-        // SAFETY: checked above; the inspector object answers `show`.
+        // No public call opens it (what wry does too): `_inspector`'s
+        // `show`, where it exists, then `detach` (its own window, not
+        // docked in Pitwall's); else right-click → Inspect Element.
+        let Some(i) = self.view.inspector() else { return };
+        // SAFETY: each method checked to exist.
         unsafe {
-            let inspector: *mut AnyObject = msg_send![&*self.view, _inspector];
-            if let Some(i) = inspector.as_ref() {
-                if responds(i, sel!(show)) {
-                    let _: () = msg_send![i, show];
-                }
+            if responds(i, sel!(show)) {
+                let _: () = msg_send![i, show];
+            }
+            if responds(i, sel!(detach)) {
+                let _: () = msg_send![i, detach];
             }
         }
     }
