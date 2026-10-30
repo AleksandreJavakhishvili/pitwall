@@ -59,8 +59,10 @@ Need: a shell that became `claude` should restart as `claude`.
 Need: an agent started a dev server; open it without copying the address.
 - When an agent's terminal prints a local dev-server address, its pane
   header shows a "Preview :<port>" chip (before the header actions); a click
-  opens it in the default browser. Several addresses: the most recent wins,
-  and a chevron on the chip lists them all (most recent first, up to 4).
+  opens it in the pane, beside the terminal (below the chip: the in-app
+  preview); a second click closes it. Several addresses: the most recent
+  wins, and the chevron on the chip lists them all (most recent first, up to
+  4: each opens in the preview) and "Open in the browser".
 - Matched: `http(s)://` + `localhost` | `127.0.0.1` | `0.0.0.0` | `[::1]` +
   a port, with an optional path; a bare `localhost:<port>` only standing on
   its own (not `user@localhost:5432`, `redis://localhost:6379`). `0.0.0.0`
@@ -73,6 +75,49 @@ Need: an agent started a dev server; open it without copying the address.
   rescan.
 - `AgentView.previewUrls` (most recent first), read by the ticker; empty
   once the agent stops or exits, and reset by a restart.
+- `AgentView.previewSeen`: how many times the terminal printed an address
+  (each once per line). A dev server that restarts prints its address
+  again with the list unchanged; the preview reloads on the count.
+
+### In-app preview (GPUI)
+- The pane splits: terminal, a draggable divider (15 %–85 %), the page.
+  The toolbar's layout button puts the page below the terminal instead,
+  remembered for every pane (`ui.json` `previewBelow`).
+- Toolbar (30 px): back, forward, reload, the address (read-only,
+  selectable; the title as its tooltip; a dot while loading), phone width
+  (the page 390 px wide, centred), below/beside, Web Inspector, Open in
+  the browser, close.
+- The system's own engine in a native view over the window (`src/webview`:
+  WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux), made on the
+  first click. Where none can be made (no engine, Wayland), the chip opens
+  the browser instead and a toast says why, once.
+- Tied to the terminal (`src/preview` `Follow`): a new address (the server
+  came back on another port) is navigated to; the same one printed again
+  reloads; the agent stopping shows "Server stopped" in the page's place
+  (no engine error page), and its address printed again brings the page
+  back. A failed load shows "Can't reach :<port>" and retries on the next
+  printing or Reload. Removing the agent closes its preview.
+- Only local addresses (`webview::allowed`: localhost, loopback, private
+  LAN, tailnet, over http(s)) load in it; a link or new window elsewhere
+  opens in the browser.
+- Each project keeps its own cookies and storage across restarts (a data
+  folder per project under `<data>/webview/`; macOS keys WebKit's own
+  store by it, macOS 14+, and shares the default store before that).
+- Cost: hidden while its pane isn't drawn (another space, route or a
+  folded tile; the page paused), and after 10 minutes hidden the view is
+  dropped, its address kept: shown again, it is made again on that page.
+  No polling: after each frame the window draws, the view follows its
+  element's bounds (moved only when they change).
+- Overlays: the view sits above GPUI's drawing. While anything drawn after
+  it (menu, popover, palette, dialog, toast, tooltip) overlaps it, it is
+  swapped for a snapshot of itself drawn in its place, and comes back when
+  the overlay goes (a GPUI patch reports the frame's hitboxes in paint
+  order: `third_party/gpui/PATCHES.md`).
+- Keyboard: a click into the page gives it the keys; Pitwall's shortcuts
+  still work from there (dispatched from the preview; the page keeps copy,
+  paste, cut, select all, undo, redo). Esc (after the page has it too), a
+  click anywhere outside the page, or focus moving elsewhere gives the
+  keys back to the terminal.
 
 ## Order
 Backend parts land on top of migration Step 2 (core crate), UI after the
