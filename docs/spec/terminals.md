@@ -81,11 +81,12 @@ Need: an agent started a dev server; open it without copying the address.
 
 ### In-app preview (GPUI)
 - The pane splits: terminal, a draggable divider (15 %–85 %), the page.
-  The toolbar's layout button puts the page below the terminal instead,
-  remembered for every pane (`ui.json` `previewBelow`).
+  The toolbar's layout button moves the page right → left → below the
+  terminal, which takes the rest; remembered for every pane (`ui.json`
+  `previewLeft`, `previewBelow`).
 - Toolbar (30 px): back, forward, reload, the address (read-only,
   selectable; the title as its tooltip; a dot while loading), phone width
-  (the page 390 px wide, centred), below/beside, Web Inspector, Open in
+  (the page 390 px wide, centred), right/left/below, Web Inspector, Open in
   the browser, close.
 - The system's own engine in a native view over the window (`src/webview`:
   WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux), made on the

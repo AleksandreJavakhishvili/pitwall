@@ -58,6 +58,11 @@ fn click_chip(cx: &mut VisualTestContext) {
     cx.simulate_click(chip.center(), Modifiers::none());
 }
 
+/// The middle of the toolbar's layout button.
+fn layout(cx: &mut VisualTestContext) -> Point<Pixels> {
+    cx.debug_bounds("pv-layout-web").expect("the layout button").center()
+}
+
 /// The bounds the fake was given last ("bounds x y w h").
 fn last_bounds(calls: &[String]) -> Option<(f32, f32, f32, f32)> {
     let b = calls.iter().rev().find(|c| c.starts_with("bounds "))?;
@@ -79,15 +84,24 @@ fn preview_opens_beside_its_terminal_and_moves_only_when_its_place_does(cx: &mut
     // Frames where nothing moved ask nothing.
     assert!(calls(&log, cx).is_empty());
     assert!(calls(&log, cx).is_empty());
-    // Below the terminal instead (remembered in ui.json).
-    view.update(cx, |s, cx| s.update_ui(|mut u| {
-        u.preview_below = true;
-        u
-    }, cx));
+    // The layout button: on the left (the terminal on the right), then
+    // below (remembered in ui.json), then back on the right.
+    let at = layout(cx);
+    cx.simulate_click(at, Modifiers::none());
+    let c = calls(&log, cx);
+    let (xl, yl, wl, _) = last_bounds(&c).expect("moved");
+    assert!(xl + wl < x && yl == y, "on the left: {c:?}");
+    assert!(view.read_with(cx, |s, _| s.ui.preview_left && !s.ui.preview_below));
+    let at = layout(cx);
+    cx.simulate_click(at, Modifiers::none());
     let c = calls(&log, cx);
     let (_, y2, w2, _) = last_bounds(&c).expect("moved");
     assert!(y2 > y + 100. && w2 > w, "below, full width: {c:?}");
     assert_eq!(c.iter().filter(|c| c.starts_with("bounds")).count(), 1, "once: {c:?}");
+    let at = layout(cx);
+    cx.simulate_click(at, Modifiers::none());
+    let c = calls(&log, cx);
+    assert_eq!(last_bounds(&c).map(|b| (b.0, b.1)), Some((x, y)), "on the right again: {c:?}");
     // The chip again closes it, and the view goes.
     click_chip(cx);
     assert_eq!(calls(&log, cx), ["drop"]);

@@ -54,8 +54,10 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("back", "M12 5l-5 5 5 5"),
     ("phone", "M6.5 2.5h7v15h-7zM9.5 15h1"),
     ("inspect", "M7 6l-4 4 4 4M13 6l4 4-4 4"),
-    ("split-right", "M3 4.5h14v11H3zM10 4.5v11"),
-    ("split-down", "M3 4.5h14v11H3zM3 10h14"),
+    // Where the page goes: the half with the browser bar.
+    ("page-right", "M3 4.5h14v11H3zM10 4.5v11M10 7.5h7"),
+    ("page-left", "M3 4.5h14v11H3zM10 4.5v11M3 7.5h7"),
+    ("page-below", "M3 4.5h14v11H3zM3 10h14M3 12.5h14"),
 ];
 
 fn icon_path(name: &str) -> Option<&'static str> {
