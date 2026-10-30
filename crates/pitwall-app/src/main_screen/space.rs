@@ -635,10 +635,11 @@ impl MainScreen {
                     None => self.pane_header(a, pane_id, ctx, t, cx).into_any_element(),
                 })
                 .flex_col()
-                .child(
-                    div()
+                .child({
+                    let term = div()
                         .relative()
                         .flex_1()
+                        .min_w_0()
                         .min_h_0()
                         .flex()
                         .child(terminal_element(
@@ -649,8 +650,11 @@ impl MainScreen {
                             window,
                             cx,
                         ))
-                        .when(!a.running, |d| d.child(stopped_overlay(a, t, cx))),
-                )
+                        .when(!a.running, |d| d.child(stopped_overlay(a, t, cx)))
+                        .into_any_element();
+                    // The agent's Preview beside (or below) it (preview.rs).
+                    self.with_preview(a, term, t, cx)
+                })
                 .into_any_element(),
             None => self.empty_pane(pane_id, ctx, t, cx).into_any_element(),
         };
@@ -1150,18 +1154,21 @@ impl MainScreen {
             }))
     }
 
-    /// "Open preview" (docs/spec/terminals.md): the latest local
-    /// dev-server address the agent printed, opened in the browser; with
-    /// more than one, the chevron lists them (most recent first).
+    /// "Preview" (docs/spec/terminals.md §4): the latest local dev-server
+    /// address the agent printed, opened beside its terminal (preview.rs);
+    /// again, it closes. With more than one address, the chevron lists them
+    /// (most recent first) and offers the browser.
     fn preview_chip(&self, a: &AgentView, pane_id: &str, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let urls = super::model::previews(a);
         let latest = urls.first()?.clone();
         let port = super::model::preview_port(&latest).to_string();
-        let more = (urls.len() > 1).then(|| urls.to_vec());
-        let open = latest.clone();
+        let open = self.preview_open(&a.id);
         // Clicks stay on the chip (no drag, no double-click maximise).
         let keep = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| cx.stop_propagation();
         let id = a.id.clone();
+        let agent = a.clone();
+        let menu_agent = a.clone();
+        let urls = urls.to_vec();
         let chip = div()
             .flex_none()
             .flex()
@@ -1170,9 +1177,9 @@ impl MainScreen {
             .rounded(px(4.))
             .border_1()
             .border_color(t.line)
-            .bg(t.surface_2)
+            .bg(if open { t.surface_3 } else { t.surface_2 })
             .text_size(px(11.5))
-            .text_color(t.text_2)
+            .text_color(if open { t.text } else { t.text_2 })
             .debug_selector(move || format!("preview-{id}"))
             .child(
                 div()
@@ -1184,43 +1191,55 @@ impl MainScreen {
                     .px(px(6.))
                     .cursor_pointer()
                     .hover_text(t.text, |s| s)
-                    .tooltip(tooltip(format!("Open {latest} in the browser")))
+                    .tooltip(tooltip(if open {
+                        "Close the preview".to_string()
+                    } else {
+                        format!("Preview {latest} beside the terminal")
+                    }))
                     .on_mouse_down(MouseButton::Left, keep)
-                    .on_click(cx.listener(move |_, _, _, cx| crate::platform::files::open_url(cx, &open)))
-                    .child(icon("external", 12., t.text_3))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.preview_open(&agent.id) {
+                            this.close_preview(&agent.id, window, cx);
+                        } else {
+                            this.open_preview(&agent, &latest, window, cx);
+                        }
+                    }))
+                    .child(icon("browser", 12., t.text_3))
                     .child("Preview")
                     .child(div().font_family(crate::kit::MONO_FONT).text_color(t.text_3).child(port)),
             )
-            .when_some(more, |d, urls| {
-                d.child(
-                    div()
-                        .id(SharedString::from(format!("previews-{pane_id}")))
-                        .h_full()
-                        .flex()
-                        .items_center()
-                        .px(px(4.))
-                        .border_l_1()
-                        .border_color(t.line)
-                        .cursor_pointer()
-                        .hover_text(t.text, |s| s)
-                        .tooltip(tooltip("Other addresses it printed"))
-                        .on_mouse_down(MouseButton::Left, keep)
-                        .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
-                            let items = urls
-                                .iter()
-                                .map(|u| {
-                                    let u = u.clone();
-                                    MenuItem::new("external", &u.clone(), move |_, _, cx| {
-                                        crate::platform::files::open_url(cx, &u)
-                                    })
+            .child(
+                div()
+                    .id(SharedString::from(format!("previews-{pane_id}")))
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .px(px(4.))
+                    .border_l_1()
+                    .border_color(t.line)
+                    .cursor_pointer()
+                    .hover_text(t.text, |s| s)
+                    .tooltip(tooltip(if urls.len() > 1 { "Addresses it printed" } else { "Open in the browser" }))
+                    .on_mouse_down(MouseButton::Left, keep)
+                    .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
+                        let mut items: Vec<MenuItem> = urls
+                            .iter()
+                            .map(|u| {
+                                let (u, a) = (u.clone(), menu_agent.clone());
+                                MenuItem::new("browser", &u.clone(), move |this, window, cx| {
+                                    this.open_preview(&a, &u, window, cx)
                                 })
-                                .collect();
-                            let at = e.position();
-                            this.open_menu(gpui::point(at.x, at.y + px(6.)), items, window, cx);
-                        }))
-                        .child(crate::kit::chevron_at(true, 11., t.text_3)),
-                )
-            });
+                            })
+                            .collect();
+                        let first = urls[0].clone();
+                        items.push(MenuItem::new("external", "Open in the browser", move |_, _, cx| {
+                            crate::platform::files::open_url(cx, &first)
+                        }));
+                        let at = e.position();
+                        this.open_menu(gpui::point(at.x, at.y + px(6.)), items, window, cx);
+                    }))
+                    .child(crate::kit::chevron_at(true, 11., t.text_3)),
+            );
         Some(chip.into_any_element())
     }
 }

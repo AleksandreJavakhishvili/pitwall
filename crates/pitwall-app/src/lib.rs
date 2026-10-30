@@ -22,6 +22,7 @@ pub mod main_screen;
 pub mod markdown_view;
 pub mod menu;
 pub mod palette;
+pub mod preview;
 pub mod next_up;
 pub mod settings;
 pub mod platform;
