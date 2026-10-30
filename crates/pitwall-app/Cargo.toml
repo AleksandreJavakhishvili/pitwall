@@ -83,6 +83,9 @@ raw-window-handle = "0.6"
 # System notifications, as tauri-plugin-notification sends them
 # (MIT OR Apache-2.0).
 notify-rust = "4.11"
+# The in-app preview's snapshot, drawn while an overlay covers the web
+# view (src/preview). MIT OR Apache-2.0; already in the tree via gpui.
+image = { version = "0.25", default-features = false }
 
 # macOS: Liquid Glass (NSGlassEffectView), the window appearance and the
 # accessibility options (Settings → Appearance); Dock badge, attention bounce
@@ -95,8 +98,13 @@ tree-sitter-scss = "1.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSGeometry", "NSString"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSApplication", "NSDockTile", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSRunningApplication", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSError", "NSGeometry", "NSString", "NSURL", "NSURLRequest", "NSUUID", "NSValue"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSApplication", "NSDockTile", "NSEvent", "NSGlassEffectView", "NSGraphics", "NSImage", "NSResponder", "NSRunningApplication", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
+# The in-app preview's WKWebView (src/webview/macos.rs) and the blocks its
+# callbacks take: objc2-web-kit Zlib OR Apache-2.0 OR MIT, block2 MIT (the
+# objc2 family's; block2 already in the tree).
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKPreferences", "WKSnapshotConfiguration", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore"] }
+block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # Settings → Appearance: Mica and Reduce motion. MIT OR Apache-2.0.
