@@ -133,6 +133,10 @@ wayland-client = "0.31"
 # zed-async-tar) still names, so gpui stops compiling on Linux. Lift the
 # cap once gpui no longer pulls xattr 0.2. (MIT OR Apache-2.0.)
 libc = ">=0.2.150, <0.2.190"
+# The in-app preview loads WebKitGTK, GTK 3, cairo and Xlib at run time
+# (webview/linux.rs), so Pitwall starts where they aren't installed. ISC;
+# already in the tree via gpui (ash, wayland's dlib).
+libloading = "0.8"
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }
