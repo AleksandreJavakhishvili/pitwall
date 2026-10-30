@@ -1,5 +1,5 @@
 //! The Settings dialog: a compact page list on the left and one page on
-//! the right (General, Agents, Rules, Appearance, Folder access, About;
+//! the right (General, Agents, Rules, Appearance, Folder access, Peers, About;
 //! `pitwall_proto::settings::Page`). Every option keeps what the React
 //! dialog (`src/components/SettingsDialog.tsx` and its parts) does; the
 //! page shown last is remembered in `ui.json` (`settingsPage`). ↑/↓ move
@@ -67,6 +67,8 @@ pub struct SettingsView {
     pub(super) engineer: super::engineer::Section,
     /// Agents → Accounts.
     pub(super) accounts: super::accounts::Section,
+    /// Peers.
+    pub(super) peers: super::peers::Section,
     pub(super) focus: FocusHandle,
     scroll: ScrollHandle,
     _tasks: Vec<Task<()>>,
@@ -149,6 +151,7 @@ impl SettingsView {
             error: None,
             engineer: Default::default(),
             accounts: Default::default(),
+            peers: Default::default(),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             _tasks: tasks,

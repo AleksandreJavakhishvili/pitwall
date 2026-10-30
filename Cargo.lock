@@ -4255,6 +4255,7 @@ dependencies = [
  "pitwall-client",
  "pitwall-core",
  "pitwall-daemon",
+ "pitwall-peer",
  "pitwall-proto",
  "pitwall-providers",
  "pitwall-term-view",

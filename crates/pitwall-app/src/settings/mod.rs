@@ -22,6 +22,7 @@ pub mod data;
 mod engineer;
 pub mod onboarding;
 pub mod pages;
+mod peers;
 pub mod permissions;
 pub mod prefs;
 pub mod view;
@@ -112,6 +113,7 @@ fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
         Page::Rules => "rulesync rule sets skills skill.md library",
         Page::Appearance => "theme dark light glass flat liquid motion density font",
         Page::FolderAccess => "full disk access permissions privacy folders",
+        Page::Peers => "tailscale other machines mac share pair devices tailnet",
         Page::About => "version licence license",
     }
 }

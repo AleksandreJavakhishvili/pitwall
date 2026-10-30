@@ -22,6 +22,7 @@ pub mod main_screen;
 pub mod markdown_view;
 pub mod menu;
 pub mod palette;
+pub mod peers;
 pub mod preview;
 pub mod next_up;
 pub mod settings;
@@ -121,6 +122,9 @@ pub fn run() {
                 platform::follow(&store, cx);
                 platform::single_instance::serve(paths.root(), cx);
                 approvals::init(&store, host.approvals.clone(), cx);
+                if let Some(p) = host.peers.clone() {
+                    peers::init(p, host.tailnet.clone(), paths.root().into(), &store, cx);
+                }
                 terminal::init(&store, cx);
                 AppState {
                     host: Some(host),
