@@ -188,9 +188,10 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     env.extend(git_identity_env(core, &*provider, &cwd, &project, req.git_identity.as_deref()));
     env.extend(core.tool_update_env());
 
-    // A name typed in New agent is kept; otherwise it follows the
-    // conversation's title once there is one.
-    let name_source = if req.name.trim().is_empty() && !req.engineer { NameSource::Auto } else { NameSource::Manual };
+    // A name typed in New agent is kept; a suggested one (or none) follows
+    // the conversation's title once there is one.
+    let suggested = req.name.trim().is_empty() || req.name_auto;
+    let name_source = if suggested && !req.engineer { NameSource::Auto } else { NameSource::Manual };
     let mut rec = AgentRecord {
         id: uuid::Uuid::new_v4().to_string(),
         locator: None,
@@ -920,6 +921,9 @@ mod tests {
         let typed = create(&h.engine, CreateAgentRequest { name: "api".into(), ..req("shell", &dir, false) }).unwrap();
         assert!(!typed.name_auto, "a typed name is kept");
         remove(&h.engine, &typed.id, false).unwrap();
+        let suggested = create(&h.engine, CreateAgentRequest { name: "app-2".into(), name_auto: true, ..req("shell", &dir, false) }).unwrap();
+        assert!(suggested.name_auto && suggested.name == "app-2", "the folder's suggestion: shown until the title comes");
+        remove(&h.engine, &suggested.id, false).unwrap();
 
         // Input reaches the agent's terminal.
         crate::engine::input::write_input(&h.engine, &v.id, "echo hi\r").unwrap();

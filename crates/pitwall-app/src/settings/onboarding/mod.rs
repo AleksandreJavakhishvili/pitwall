@@ -790,6 +790,7 @@ fn start_one(engine: &Shared, p: PlannedAgent) -> Result<AgentView, String> {
                 engine,
                 CreateAgentRequest {
                     name: p.name,
+                    name_auto: true,
                     kind: p.kind,
                     project_path: p.project_path,
                     ..Default::default()

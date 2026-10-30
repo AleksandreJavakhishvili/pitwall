@@ -665,6 +665,8 @@ impl NewAgentDialog {
         let name = self.name.read(cx).text().to_string();
         let mut req = CreateAgentRequest {
             name,
+            // Still the folder's suggestion: the conversation's title names it.
+            name_auto: self.folder() && !self.name_touched,
             provider: target.as_ref().map(|t| t.provider.clone()),
             machine: target.as_ref().map(|t| t.machine.clone()),
             cols: self.size.0,

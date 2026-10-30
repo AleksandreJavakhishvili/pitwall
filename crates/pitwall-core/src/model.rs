@@ -68,6 +68,11 @@ impl KindCaps {
 #[serde(rename_all = "camelCase")]
 pub struct CreateAgentRequest {
     pub name: String,
+    /// `name` is only a suggestion (New agent's, from the folder): it
+    /// follows the conversation's title once there is one, as an empty
+    /// name does.
+    #[serde(default)]
+    pub name_auto: bool,
     /// Not needed where the platform decides what runs (a form without
     /// `folder`).
     #[serde(default)]

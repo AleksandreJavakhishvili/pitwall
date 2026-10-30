@@ -97,6 +97,8 @@ pub fn continue_conversation(engine: &Shared, req: ContinueRequest) -> Result<Ag
         engine,
         CreateAgentRequest {
             name: req.name,
+            // Callers suggest it (the folder's): the conversation names it.
+            name_auto: true,
             kind: req.kind,
             project_path: req.project_path,
             custom_command: None,
