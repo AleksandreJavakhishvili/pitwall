@@ -201,6 +201,19 @@ impl Peers {
         drop(stopped);
     }
 
+    /// Apply what another process (`pitwall peers set / pair / unpair /
+    /// revoke` on the same data folder) wrote: the switches, the port, the
+    /// paired machines, and close revoked viewers' connections. The host
+    /// calls it when `peers/` changes.
+    pub fn reload(&self) {
+        self.apply();
+        let viewers: Vec<String> = self.viewers().into_iter().map(|v| v.id).collect();
+        if let Some(l) = &lock(&self.run).listener {
+            l.keep_viewers(&viewers);
+        }
+        self.ctx.sink.emit(PeerEvent::PairingsChanged);
+    }
+
     /// Tailscale's state, this machine, and the listener.
     pub fn info(&self) -> TailnetInfo {
         let settings = self.settings();
