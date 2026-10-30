@@ -174,6 +174,14 @@ impl Listener {
         }
     }
 
+    /// Close the connections of viewers not in `keep` (revoked elsewhere,
+    /// e.g. by `pitwall peers revoke`).
+    pub fn keep_viewers(&self, keep: &[String]) {
+        for c in lock(&self.inner.conns).iter().filter(|c| c.viewer.as_ref().is_some_and(|v| !keep.contains(v))) {
+            let _ = c.stream.shutdown(Shutdown::Both);
+        }
+    }
+
     /// Open connections (tests, Settings).
     pub fn connections(&self) -> usize {
         lock(&self.inner.conns).len()

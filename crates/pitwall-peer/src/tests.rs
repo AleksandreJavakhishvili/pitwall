@@ -470,3 +470,35 @@ fn pairings_survive_a_restart() {
     let laptop = pitwall_in(&w, "nLAPTOP", dir, false, true, Limits::default());
     wait_until("connected after a restart", || laptop.peers.link_is("studio", LinkState::Connected));
 }
+
+/// `pitwall peers set / revoke` write the same data folder from another
+/// process; `reload` applies them in the running Pitwall.
+#[test]
+fn reload_applies_what_another_process_wrote() {
+    let w = world();
+    let studio = pitwall(&w, "nSTUDIO", false, false);
+    let laptop = pitwall(&w, "nLAPTOP", false, true);
+    // "The CLI": its own Peers on studio's folder, no feed.
+    let cli = Peers::new(PeersConfig {
+        root: studio.dir.path().to_path_buf(),
+        tailnet: w.tailnet("nSTUDIO"),
+        version: "0.2.1".into(),
+        sink: Arc::new(NullPeerSink),
+        feed: None,
+        timing: timing(),
+        limits: Limits::default(),
+    })
+    .unwrap();
+    cli.set_settings(PeerSettings { share: true, show: false, port: 0 }).unwrap();
+    assert!(studio.peers.info().listening.is_empty(), "not applied yet");
+    studio.peers.reload();
+    assert_eq!(studio.peers.info().listening.len(), 1);
+    assert!(lock(&studio.events.0).contains(&PeerEvent::PairingsChanged));
+
+    laptop.peers.pair("studio").unwrap();
+    wait_until("connected", || laptop.peers.link_is("studio", LinkState::Connected));
+    cli.revoke("laptop").unwrap();
+    studio.peers.reload();
+    wait_until("the revoked viewer is cut off", || studio.peers.connections() == 0);
+    wait_until("the laptop notices", || !laptop.peers.link_is("studio", LinkState::Connected));
+}
