@@ -217,11 +217,16 @@ mod tests {
         let (bridge, _rx) = Bridge::new();
         let mut host = Host::start(paths.clone(), bridge);
         assert!(host.engine.views().is_empty());
+        // Peers exist, both switches off: nothing listens or dials.
+        let peers = host.peers.clone().expect("peers");
+        assert_eq!(peers.settings(), pitwall_peer::PeerSettings::default());
+        assert!(paths.root().join("peers").join("identity.key").exists(), "its key is made");
         assert!(
             crate::home::answers(&paths.cli_socket()),
             "the CLI socket is served"
         );
         host.shutdown();
+        assert_eq!(peers.connections(), 0);
         assert!(
             !crate::home::answers(&paths.cli_socket()),
             "and closed on shutdown"
