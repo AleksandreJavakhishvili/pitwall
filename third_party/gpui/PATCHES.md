@@ -31,6 +31,11 @@ are left out. Every change is marked `Pitwall patch` in the source:
   (`crates/pitwall-app/src/webview/windows.rs`), and on top GPUI's drawing
   hid it. GPUI has no child windows of its own.
 
+- `src/platform/linux/x11/window.rs` — an X11 window's raw window handle
+  (its XID, as an `XcbWindowHandle`) instead of `unimplemented!()`, which
+  panicked: the in-app preview (`crates/pitwall-app/src/webview/linux.rs`)
+  reparents its WebKitGTK window into it.
+
 Windows out of sight keep their GPU memory on purpose: releasing it made
 coming back to a window (another Space) visibly slow to draw.
 
