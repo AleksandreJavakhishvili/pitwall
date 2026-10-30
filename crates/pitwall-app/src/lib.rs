@@ -34,6 +34,7 @@ pub mod theme;
 pub mod ui;
 pub mod ui_state;
 pub mod wall;
+pub mod webview;
 pub mod window_state;
 pub mod windows;
 
