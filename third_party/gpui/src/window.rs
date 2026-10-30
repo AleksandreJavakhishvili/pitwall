@@ -641,6 +641,9 @@ impl TooltipId {
     }
 }
 
+// Pitwall patch: see `Window::on_frame_drawn`.
+type FrameDrawnListener = Box<dyn FnMut(&mut Window, &mut App) -> bool>;
+
 pub(crate) struct TooltipBounds {
     id: TooltipId,
     bounds: Bounds<Pixels>,
@@ -847,6 +850,8 @@ pub struct Window {
     pub(crate) next_tooltip_id: TooltipId,
     pub(crate) tooltip_bounds: Option<TooltipBounds>,
     next_frame_callbacks: Rc<RefCell<Vec<FrameCallback>>>,
+    // Pitwall patch: see `on_frame_drawn`.
+    frame_drawn_listeners: Vec<FrameDrawnListener>,
     pub(crate) dirty_views: FxHashSet<EntityId>,
     focus_listeners: SubscriberSet<(), AnyWindowFocusListener>,
     pub(crate) focus_lost_listeners: SubscriberSet<(), AnyObserver>,
@@ -1230,6 +1235,7 @@ impl Window {
             next_hitbox_id: HitboxId(0),
             next_tooltip_id: TooltipId::default(),
             tooltip_bounds: None,
+            frame_drawn_listeners: Vec::new(),
             dirty_views: FxHashSet::default(),
             focus_listeners: SubscriberSet::new(),
             focus_lost_listeners: SubscriberSet::new(),
@@ -1640,6 +1646,28 @@ impl Window {
         AsyncWindowContext::new_context(cx.to_async(), self.handle)
     }
 
+    /// Pitwall patch: run `listener` after every frame this window draws
+    /// (the frame is then [`Self::rendered_hitboxes`]), until it returns
+    /// `false`. For native views placed over the window: they follow the
+    /// frame's layout and step aside for what is drawn over them.
+    pub fn on_frame_drawn(
+        &mut self,
+        listener: impl FnMut(&mut Window, &mut App) -> bool + 'static,
+    ) {
+        self.frame_drawn_listeners.push(Box::new(listener));
+    }
+
+    /// Pitwall patch: the hitboxes of the last drawn frame, in paint order
+    /// (a later one is drawn over an earlier one).
+    pub fn rendered_hitboxes(&self) -> &[Hitbox] {
+        &self.rendered_frame.hitboxes
+    }
+
+    /// Pitwall patch: where the last drawn frame showed a tooltip.
+    pub fn rendered_tooltip_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.tooltip_bounds.as_ref().map(|t| t.bounds)
+    }
+
     /// Schedule the given closure to be run directly after the current frame is rendered.
     pub fn on_next_frame(&self, callback: impl FnOnce(&mut Window, &mut App) + 'static) {
         RefCell::borrow_mut(&self.next_frame_callbacks).push(Box::new(callback));
@@ -1976,6 +2004,13 @@ impl Window {
         self.refreshing = false;
         self.invalidator.set_phase(DrawPhase::None);
         self.needs_present.set(true);
+
+        // Pitwall patch: `on_frame_drawn` listeners (ones added meanwhile
+        // run from the next frame).
+        let mut listeners = mem::take(&mut self.frame_drawn_listeners);
+        listeners.retain_mut(|listener| listener(self, cx));
+        listeners.append(&mut self.frame_drawn_listeners);
+        self.frame_drawn_listeners = listeners;
 
         ArenaClearNeeded
     }

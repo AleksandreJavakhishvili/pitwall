@@ -15,6 +15,15 @@ are left out. Every change is marked `Pitwall patch` in the source:
   shown in the app (its connection to the system's picker service cancelled
   half a second in): "Choose folder…" opened nothing.
 
+- `src/window.rs` — `Window::on_frame_drawn` (a listener run after every
+  frame the window draws), `Window::rendered_hitboxes` (the drawn frame's
+  hitboxes in paint order) and `Window::rendered_tooltip_bounds`. The
+  agent pane's web preview is a native view over GPUI's drawing: after each
+  frame it follows its element's bounds, hides when its element wasn't
+  drawn, and swaps itself for a snapshot while anything drawn later
+  (a menu, a dialog, the palette, a tooltip) covers it
+  (`crates/pitwall-app/src/preview`).
+
 Windows out of sight keep their GPU memory on purpose: releasing it made
 coming back to a window (another Space) visibly slow to draw.
 
