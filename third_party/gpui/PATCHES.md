@@ -24,6 +24,13 @@ are left out. Every change is marked `Pitwall patch` in the source:
   (a menu, a dialog, the palette, a tooltip) covers it
   (`crates/pitwall-app/src/preview`).
 
+- `src/platform/windows/directx_renderer.rs` — the window's
+  DirectComposition target is created behind its child windows
+  (`CreateTargetForHwnd(hwnd, false)`), not on top of them: the in-app
+  preview's WebView2 is a child window of the GPUI window
+  (`crates/pitwall-app/src/webview/windows.rs`), and on top GPUI's drawing
+  hid it. GPUI has no child windows of its own.
+
 Windows out of sight keep their GPU memory on purpose: releasing it made
 coming back to a window (another Space) visibly slow to draw.
 
