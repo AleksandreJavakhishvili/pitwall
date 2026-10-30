@@ -149,6 +149,8 @@ All already in the tree (via gpui or the Tauri app); now direct dependencies of 
 
 OS integration (phase 7, `src/platform/`): notify-rust 4.18 (MIT OR Apache-2.0), raw-window-handle 0.6 (MIT OR Apache-2.0 OR Zlib), objc2 0.6 / objc2-foundation 0.3 / objc2-app-kit 0.3 (MIT; macOS), tray-icon 0.25 (MIT OR Apache-2.0; Windows), windows 0.61 (MIT OR Apache-2.0; Windows), image 0.25 png-only (MIT OR Apache-2.0; Windows), zbus 5 (MIT; Linux). All were already in Cargo.lock (Tauri app, gpui): no new crates in the tree.
 
+In-app preview (`src/webview`, `src/preview`): objc2-web-kit 0.3 (Zlib OR Apache-2.0 OR MIT; macOS, new in the tree, the objc2 family's WebKit bindings) and block2 0.6 (MIT; macOS, already in the tree via objc2); image 0.25 without default features (MIT OR Apache-2.0; already in the tree via gpui) on every platform for the snapshot drawn under overlays.
+
 Packaging tools (phase 8; build-time only, nothing linked into Pitwall):
 cargo-packager 0.11.8 (MIT OR Apache-2.0) for the Linux and Windows bundles,
 and what it downloads while packaging: linuxdeploy and the AppImage runtime

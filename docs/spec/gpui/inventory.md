@@ -110,7 +110,8 @@ marks terminal items. Section 36 lists each component once.
 - [x] Pane focus on mouse down; focused pane styling (`src/components/PaneView.tsx`) [in-house: pane/split layout]
 - [x] Pane header: status glyph, name, status word, blocked detail, machine chip (tooltip label + provider), project display (tooltip cwd), kind, branch with worktree tooltip, diffstat (`src/components/PaneHeader.tsx`) [in-house: tooltip]
 - [x] Pane header "Re-apply rules & restart" button when rules are stale or failed (`src/components/rules/RulesStaleButton.tsx`)
-- [x] Pane header "Preview :<port>" chip: opens the latest dev-server address the agent printed; a chevron lists the others (docs/spec/terminals.md §4)
+- [x] Pane header "Preview :<port>" chip: opens the latest dev-server address the agent printed beside its terminal, in the pane; a chevron lists the others and "Open in the browser" (docs/spec/terminals.md §4)
+- [x] In-app preview: the pane split with a native web view (draggable divider, beside or below), its toolbar (back, forward, reload, address, phone width, Web Inspector, Open in browser, close), following the terminal's address, "Server stopped", snapshot under overlays (GPUI only; `src/preview`, `src/webview`, `main_screen/preview.rs`; docs/spec/terminals.md §4) [in-house: native view host]
 - [x] Pane header actions: Stop process (when `caps.stop`), Remove agent, Maximise/Restore, Close pane (agent keeps running) (`src/components/PaneHeader.tsx`) [in-house: tooltip]
 - [x] Pane header double-click maximises; header is a drag source (`src/components/PaneHeader.tsx`) [in-house: pane/split layout] [in-house: drag and drop]
 - [x] Empty pane: "Empty pane", hint, up to 8 member chips to pick (drops into that pane) (`src/components/PaneView.tsx`)
