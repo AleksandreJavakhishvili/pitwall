@@ -153,6 +153,14 @@ pub struct AgentView {
     /// recent first ("Open preview", docs/spec/terminals.md).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preview_urls: Vec<String>,
+    /// How many times its terminal printed one of them: a dev server that
+    /// restarts prints its address again, and the in-app preview reloads.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub preview_seen: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// One provider's machines and the sessions there that can be added to

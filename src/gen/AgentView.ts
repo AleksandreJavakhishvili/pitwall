@@ -62,4 +62,9 @@ cols: number, rows: number, added: number, removed: number, filesChanged: number
  * Local dev-server addresses its terminal printed while it runs, most
  * recent first ("Open preview", docs/spec/terminals.md).
  */
-previewUrls?: Array<string>, };
+previewUrls?: Array<string>, 
+/**
+ * How many times its terminal printed one of them: a dev server that
+ * restarts prints its address again, and the in-app preview reloads.
+ */
+previewSeen?: number, };
