@@ -5,10 +5,10 @@ machine on the same Tailscale tailnet: the laptop shows the desktop's agents
 next to its own, opens their terminals, reviews their changes, gets their
 "needs you" notifications and starts new agents there.
 
-Status: **P1 core built** (read-only "see them": the `pitwall-peer` crate,
-the protocol, `pitwall peers` in the CLI; see "Phase 1 as built" below). The
-GPUI part of P1 (sidebar heading, Settings → Peers, notifications) comes
-next; P2–P5 are planned, not built. The Tauri app is frozen and gets none of
+Status: **P1 built** (read-only "see them": the `pitwall-peer` crate, the
+protocol, `pitwall peers` in the CLI, and the GPUI app's sidebar headings,
+Settings → Peers, notifications, badge and offers; see "Phase 1 as built"
+and "The app" below). P2–P5 are planned, not built. The Tauri app is frozen and gets none of
 it. The core, protocol and daemon parts are UI-agnostic.
 
 Hostnames and users below are made up: `laptop` and `studio` are two
@@ -32,8 +32,8 @@ tags, terminals), that is for later phases.
   other users' machines, no `tag:pitwall` opt-in (later, if ever).
 - **Two switches, both off** (`peers/settings.json`, `PeerSettings`):
   - "Show agents from my other machines" (`show`): discover, pair, keep
-    links. Off: nothing is probed or dialed. The UI phase adds the
-    onboarding step / notification that offers it.
+    links. Off: nothing is probed or dialed. The app offers it (a sidebar
+    card, then one toast per machine found; "The app" below).
   - "Let my other machines see this Pitwall's agents" (`share`): listen.
     Off: nothing listens. On: only on this node's Tailscale IPs (never
     `0.0.0.0`), port 47420 by default (`port`).
@@ -79,7 +79,7 @@ Where it lives:
 | Settings, pairings, audit log | `pitwall-peer::store` |
 | Listener: bind, accept checks, handshake, View-only dispatch, limits | `pitwall-peer::server` (`Feed`: the engine's views and the events `Hub`) |
 | Links, the mirror (`peer:<peer>:<id>` ids, read-only caps) | `pitwall-peer::link` |
-| What the app calls: `Peers` (`start`, `stop`, `settings`/`set_settings`, `info`, `discover`, `pair`, `unpair`, `peers`, `views`, `mirror`, `viewers`, `revoke`, `kick`, `audit`) and `PeerSink` for change notifications | `pitwall-peer::peers` |
+| What the app calls: `Peers` (`start`, `stop`, `reload`, `settings`/`set_settings`, `info`, `discover`, `pair`, `unpair`, `peers`, `views`, `mirror`, `viewers`, `revoke`, `kick`, `audit`) and `PeerSink` for change notifications | `pitwall-peer::peers` |
 | `pitwall peers list / discover / pair / unpair / watch / serve / revoke / set` | `pitwall-cli` (on the data folder directly; changing pairings or switches is refused inside an agent) |
 
 Tests run two or three Pitwalls in one process on a `FakeTailnet`
@@ -87,6 +87,70 @@ Tests run two or three Pitwalls in one process on a `FakeTailnet`
 other users and tagged devices refused, outside the tailnet refused,
 denied methods, changed keys on either side, changed owner, revocation,
 reconnect after sleep, rate limits.
+
+### The app (P1 UI as built)
+
+What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
+`main_screen/peers.rs`, `settings/peers.rs`). Where §7 below says more
+(permission levels, Activity…, "Count in badge"), that is for later phases.
+
+- **Hosting.** `Host` makes `Peers` next to the engine with `TailscaleCli`,
+  an `EngineFeed` (the engine and the daemon's events `Hub`) and the
+  bridge as its `PeerSink` (`AppEvent::Peer`). `peers::init` starts it off
+  the UI thread (the listener reads Tailscale's status); quitting stops it
+  (`Host::shutdown`). With both switches off (the default) nothing listens,
+  probes or dials; the app only reads `tailscale status` (read-only) for
+  the offer card.
+- **Agents.** `AgentStore.agents` is this Mac's agents followed by the
+  peers' mirrors (`machine.link` set: `agents::mirrored`). An engine list
+  replaces only the local part; a peer event replaces only the mirrors
+  (`Peers::views`). `blocked` (the Dock badge) is the engine's count plus
+  the connected peers' (`Mirror::blocked`).
+- **Sidebar.** The mirrors group like agw machines: a heading per machine
+  (`studio`, `studio › vm-1`), always shown for a peer, with a dot and the
+  link in words: connected, connecting…, offline · last seen 5 min ago,
+  identity changed · pair again. A paired machine with no rows to show
+  keeps its heading ("No agents running" / "Its agents show once it's
+  reachable").
+- **Read-only by caps.** Mirrors have every cap off, so stop, restart,
+  review, diff, explorer and worktrees aren't offered; terminals attach
+  only while `caps.input`. The one rule not expressed by a cap: nothing of
+  a mirror is kept here, so Rename and Remove (menu, pane button,
+  double-click) aren't offered for `mirrored` agents. Opening one shows a
+  read-only summary in its pane (status, machine and link, agent, folder,
+  branch, changes, last sent): the backend sends no terminal in P1.
+- **Attention.** `PeerEvent::Attention` becomes the store's `Attention`
+  named "api on studio", so the in-app toast and the system notification
+  are the local ones ("api on studio needs you"); clicking focuses it.
+- **Settings → Peers** (`Page::Peers`, `settingsPage: "peers"`): Tailscale's
+  state and this machine (empty states for not installed, not running,
+  logged out, userspace networking, and no other machines of this user);
+  "Let my other machines see this Mac's agents" (share, with where it
+  listens or why not) and "Show my other machines' agents" (show); the
+  port (≥ 1024, the same on every machine); while showing, "Your machines"
+  (discovery, with Pair and "Look again"); "Shown here" (paired, link,
+  agent count, Unpair, "Pair again" after an identity change); "Can see
+  this Mac" (viewers, Revoke: disconnects now); recent activity (audit).
+- **Offers.** No probing while showing is off. While it is off and
+  Tailscale lists other machines of this user, the sidebar shows one card:
+  "studio is on your Tailscale. Show their Pitwall agents here, read-only?"
+  with **Show them** (turns showing on) and **Not now**; either answer is
+  final. While showing, the app looks at Tailscale's status every minute
+  and runs discovery when a machine of this user is newly online; each
+  machine found running a Pitwall that shares, not paired and never asked
+  gets one toast "studio is running Pitwall with 3 agents — show them
+  here?" with **Show** (pairs) and **Not now**. Asked machines and the card
+  are remembered in `peers/app.json`. The welcome screen has no step for
+  it: the card serves new and existing users alike.
+- **Live CLI changes.** `pitwall peers set / pair / unpair / revoke` write
+  `peers/` directly; the app checks `settings.json` and `peers.json` every
+  second and calls `Peers::reload` (apply the switches, port and pairings,
+  close revoked viewers' connections), so they apply without a restart.
+- **Tests** (`FakeTailnet` only, nothing leaves 127.0.0.1): two Pitwalls
+  where the laptop's store shows studio's agent read-only, notifies "api on
+  studio", badges it and drops it after a CLI unpair; main-screen window
+  tests for the heading, the details pane, no Rename/Remove, the offer
+  toast and the card; Settings → Peers window tests; `Peers::reload`.
 
 ---
 
