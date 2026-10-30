@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
-use gpui::{Bounds, Modifiers, Pixels, Window};
+use gpui::{Bounds, Keystroke, Modifiers, Pixels, Window};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
@@ -484,6 +484,19 @@ impl Shared {
             let _ = args.PhysicalKeyStatus(&mut status);
         }
         let vk = vk as u16;
+        let down = kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
+            || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
+        // Not handled: the page sees it too.
+        if logic::plain_escape(vk, modifiers()) {
+            if down {
+                self.emit(WebEvent::Shortcut(Keystroke {
+                    modifiers: Modifiers::default(),
+                    key: "escape".into(),
+                    key_char: None,
+                }));
+            }
+            return;
+        }
         let Some(keystroke) =
             logic::shortcut(vk, modifiers(), |shifted| layout_key(vk, status.ScanCode, shifted))
         else {
@@ -493,9 +506,7 @@ impl Shared {
         unsafe {
             let _ = args.SetHandled(true);
         }
-        if kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
-            || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
-        {
+        if down {
             self.emit(WebEvent::Shortcut(keystroke));
         }
     }

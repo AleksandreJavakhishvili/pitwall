@@ -375,6 +375,15 @@ unsafe extern "C" fn on_key_press(_widget: P, event: P, data: P) -> c_int {
             return 0;
         }
     }
+    // Not swallowed: the page sees it too.
+    if logic::plain_escape(keyval, state) {
+        i.emit(WebEvent::Shortcut(Keystroke {
+            modifiers: Modifiers::default(),
+            key: "escape".into(),
+            key_char: None,
+        }));
+        return 0;
+    }
     let Some((key, m)) = logic::shortcut(keyval, state) else { return 0 };
     i.emit(WebEvent::Shortcut(Keystroke {
         modifiers: Modifiers {

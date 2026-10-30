@@ -47,12 +47,15 @@ pub fn shortcut(keyval: u32, state: u32) -> Option<(String, Mods)> {
     Some((key, mods))
 }
 
-/// Ctrl+C/V/X/A/Z/Y and Ctrl+Shift+Z: the page's own.
+/// Copy, paste, cut, select all, undo, redo: the page's own
+/// ([`crate::webview::editing_key`]).
 fn is_editing(key: &str, mods: Mods) -> bool {
-    if mods.alt || mods.platform {
-        return false;
-    }
-    matches!((key, mods.shift), ("c" | "v" | "x" | "a" | "z" | "y", false) | ("z", true))
+    !mods.platform && crate::webview::editing_key(key, mods.control, mods.shift, mods.alt)
+}
+
+/// A plain Esc: the page has it, then Pitwall takes the keys back.
+pub fn plain_escape(keyval: u32, state: u32) -> bool {
+    keyval == 0xff1b && state & (CONTROL | ALT | SHIFT | SUPER) == 0
 }
 
 /// An X keysym (GDK's keyval) as GPUI's Linux platform names the key:
@@ -177,6 +180,9 @@ mod tests {
         assert_eq!(key('C' as u32, CONTROL), None);
         // Redo is Ctrl+Shift+Z; Ctrl+Shift+C is Pitwall's.
         assert_eq!(key('Z' as u32, CONTROL | SHIFT), None);
+        assert_eq!(key('V' as u32, CONTROL | SHIFT), None, "paste as plain text");
+        assert!(plain_escape(0xff1b, 0));
+        assert!(!plain_escape(0xff1b, CONTROL));
         assert_eq!(key('C' as u32, CONTROL | SHIFT), Some(("c".into(), Mods { shift: true, ..ctrl })));
         // With Alt, even C is a shortcut.
         assert_eq!(key('c' as u32, CONTROL | ALT), Some(("c".into(), Mods { alt: true, ..ctrl })));
