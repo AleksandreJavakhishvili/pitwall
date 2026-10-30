@@ -219,7 +219,6 @@ pub struct NewAgentDialog {
     /// Make the chosen account the project's.
     account_for_project: bool,
     name: Entity<TextInput>,
-    name_touched: bool,
     worktree: bool,
     targets: Vec<Target>,
     target: String,
@@ -286,7 +285,6 @@ impl NewAgentDialog {
             account: None,
             account_for_project: false,
             name,
-            name_touched: false,
             worktree: false,
             targets: vec![],
             target: String::new(),
@@ -532,9 +530,7 @@ impl NewAgentDialog {
             InputEvent::Submit | InputEvent::SubmitShift => self.submit(window, cx),
             InputEvent::Cancel => cx.emit(DialogEvent::Close),
             InputEvent::Changed => {
-                if *input == self.name {
-                    self.name_touched = true;
-                } else if *input == self.other {
+                if *input == self.other {
                     self.suggest(window, cx);
                 }
                 self.error = None;
@@ -555,17 +551,20 @@ impl NewAgentDialog {
         }
     }
 
-    /// A name from the folder until the user types one.
-    fn suggest(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if self.name_touched || !self.folder() {
-            return;
-        }
+    /// The name an agent left unnamed starts with: the folder's (an
+    /// unused one), until its conversation has a title.
+    fn suggested_name(&self, cx: &App) -> Option<String> {
         let path = self.project_path(cx);
-        if path.is_empty() {
-            return;
-        }
-        let name = suggest_name(&path, &self.taken);
-        self.name.update(cx, |i, cx| i.set_text(&name, cx));
+        (self.folder() && !path.is_empty()).then(|| suggest_name(&path, &self.taken))
+    }
+
+    /// The name field shows that suggestion, greyed: a name is optional.
+    fn suggest(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let hint = self.suggested_name(cx).unwrap_or_default();
+        self.name.update(cx, |i, cx| {
+            i.set_placeholder(hint);
+            cx.notify();
+        });
     }
 
     fn selected_kind(&self) -> Option<&KindView> {
@@ -615,7 +614,9 @@ impl NewAgentDialog {
             .map(|f| f.name.clone())
             .unwrap_or_else(CreateForm::pitwall_name);
         let name_err = if name.is_empty() {
-            Some("Name required".to_string())
+            // Unnamed: the conversation names it (a platform's session
+            // needs one there).
+            (!self.folder()).then(|| "Name required".to_string())
         } else if let Some(p) = name_problem(&rule, &name) {
             Some(p)
         } else if self.taken.contains(&name) {
@@ -662,11 +663,12 @@ impl NewAgentDialog {
         self.busy = true;
         self.error = None;
         let target = self.target().cloned();
-        let name = self.name.read(cx).text().to_string();
+        let typed = self.name.read(cx).text().to_string();
+        // Left empty: the folder's name until the conversation's title.
+        let suggested = typed.is_empty().then(|| self.suggested_name(cx)).flatten();
         let mut req = CreateAgentRequest {
-            name,
-            // Still the folder's suggestion: the conversation's title names it.
-            name_auto: self.folder() && !self.name_touched,
+            name_auto: suggested.is_some(),
+            name: suggested.unwrap_or(typed),
             provider: target.as_ref().map(|t| t.provider.clone()),
             machine: target.as_ref().map(|t| t.machine.clone()),
             cols: self.size.0,
@@ -1091,10 +1093,14 @@ impl Render for NewAgentDialog {
                 .flex()
                 .flex_col()
                 .gap(px(6.))
-                .child(field_label("Name", &t))
+                .child(field_label(if folder { "Name (optional)" } else { "Name" }, &t))
                 .child(self.name.clone())
                 .map(|d| match (&name_err, &self.form) {
                     (Some(e), _) if !name_text.is_empty() => d.child(field_error(e.clone(), &t)),
+                    _ if folder && name_text.is_empty() => d.child(hint(
+                        "Named after its conversation once the agent titles it.".to_string(),
+                        &t,
+                    )),
                     (_, Some(f)) if !folder => d.child(hint(
                         format!("Also its name on {}. {}", f.machine_label, f.name.hint),
                         &t,
@@ -2582,7 +2588,9 @@ mod new_agent_tests {
         d.read_with(vcx, |d, cx| {
             assert_eq!(d.project, None);
             assert_eq!(d.project_path(cx), "/srv/app");
-            assert_eq!(d.name.read(cx).text(), "app", "named from the folder");
+            assert_eq!(d.name.read(cx).text(), "", "a name is optional");
+            assert_eq!(d.suggested_name(cx).as_deref(), Some("app"), "the folder's until the conversation's title");
+            assert!(d.problems(cx).0.is_none(), "unnamed can start");
         });
         // A listed project picked from the search.
         let picks = typed(&d, vcx, "api");
