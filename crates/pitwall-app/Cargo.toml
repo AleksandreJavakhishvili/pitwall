@@ -96,7 +96,7 @@ tree-sitter-scss = "1.0"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSGeometry", "NSString"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSApplication", "NSDockTile", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSWorkspace"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAccessibility", "NSAppearance", "NSApplication", "NSDockTile", "NSGlassEffectView", "NSGraphics", "NSResponder", "NSRunningApplication", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
 
 [target.'cfg(windows)'.dependencies]
 # Settings → Appearance: Mica and Reduce motion. MIT OR Apache-2.0.

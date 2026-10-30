@@ -1,9 +1,12 @@
 //! The window material behind GPUI's content, per OS (docs/spec/gpui/platform.md
 //! "Glass"; Tauri: `src-tauri/src/platform/glass.rs`).
 //!
-//! - macOS 26+ (Liquid): an `NSGlassEffectView` under GPUI's Metal view, the
-//!   window made non-opaque (`WindowBackgroundAppearance::Transparent`).
-//!   Chrome regions can get their own glass pieces ([`sync_region`]).
+//! - macOS 26+ (Liquid), as Apple lays it out: the window's own background
+//!   (`NSVisualEffectView`, `.windowBackground`) under GPUI's Metal view,
+//!   the window made non-opaque (`WindowBackgroundAppearance::Transparent`),
+//!   and the chrome (sidebar, top bar, right panel) as `NSGlassEffectView`
+//!   pieces floating over it ([`sync_region`]). Glass is the controls'
+//!   layer, never the whole window: content sits on the window background.
 //! - Older macOS (Vibrancy): GPUI's `Blurred` (an `NSVisualEffectView`).
 //! - Windows 11 (Mica): `Transparent` + `DWMWA_SYSTEMBACKDROP_TYPE`.
 //! - Windows 10, Linux: nothing native; the UI paints "Glass lite".
@@ -298,7 +301,9 @@ mod mac {
     use objc2::{MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::{
         NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-        NSAutoresizingMaskOptions, NSGlassEffectView, NSView, NSWindowOrderingMode, NSWorkspace,
+        NSAutoresizingMaskOptions, NSGlassEffectView, NSView, NSVisualEffectBlendingMode,
+        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindowOrderingMode,
+        NSWorkspace,
     };
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -320,11 +325,12 @@ mod mac {
         }
     }
 
-    /// The glass views Pitwall added to each window.
+    /// The views Pitwall added to each window.
     #[derive(Default)]
     struct WindowGlass {
-        /// Behind the whole window.
-        window: Option<Retained<NSGlassEffectView>>,
+        /// Behind the whole window: its native background, which follows
+        /// light and dark and the window being active by itself.
+        window: Option<Retained<NSVisualEffectView>>,
         /// Chrome pieces, by region id (shown or hidden as
         /// [`super::regions`] says).
         regions: HashMap<&'static str, Retained<NSGlassEffectView>>,
@@ -391,7 +397,10 @@ mod mac {
             let g = all.entry(id).or_default();
             match (liquid, &g.window) {
                 (true, None) => {
-                    let glass = new_glass(mtm, content.bounds());
+                    let glass = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), content.bounds());
+                    glass.setMaterial(NSVisualEffectMaterial::WindowBackground);
+                    glass.setBlendingMode(NSVisualEffectBlendingMode::WithinWindow);
+                    glass.setState(NSVisualEffectState::FollowsWindowActiveState);
                     glass.setAutoresizingMask(
                         NSAutoresizingMaskOptions::ViewWidthSizable
                             | NSAutoresizingMaskOptions::ViewHeightSizable,
@@ -453,7 +462,7 @@ mod mac {
             let g = all.entry(wid).or_default();
             let v = g.regions.entry(id).or_insert_with(|| {
                 let v = new_glass(mtm, frame);
-                // Right under GPUI's view: above the window-wide glass.
+                // Right under GPUI's view: above the window's background.
                 content.addSubview_positioned_relativeTo(
                     &v,
                     NSWindowOrderingMode::Below,

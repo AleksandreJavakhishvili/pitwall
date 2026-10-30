@@ -516,7 +516,7 @@ impl GlassTokens {
                 highlight: a(0xffffff, 0.07),
                 on_primary: c(0x0b0d12),
                 text_3: c(0x858c97),
-                text_4: c(0x474d55),
+                text_4: c(0x5d646e),
                 backdrop: a(0x06080c, 0.38),
                 shadow: a(0x000000, 0.5),
                 base_top: c(0x2b3a62),
@@ -714,7 +714,7 @@ pub fn motion_on(cx: &App) -> bool {
 }
 
 /// Chrome regions get their own Liquid Glass pieces (macOS 26+, Glass on).
-/// `PITWALL_GLASS_REGIONS=0` keeps window-level glass only.
+/// `PITWALL_GLASS_REGIONS=0` leaves only the window's native background.
 pub fn glass_regions(cx: &App) -> bool {
     appearance(cx).glass == Some(GlassTier::Liquid)
         && std::env::var("PITWALL_GLASS_REGIONS").as_deref() != Ok("0")
@@ -735,7 +735,9 @@ impl Theme {
         }
         let g = &self.g;
         let mut out = self.clone();
-        out.surface = g.surface;
+        // Liquid: the chrome is the system's own glass (or the window's
+        // background); it tints itself for light and dark, so none of ours.
+        out.surface = if self.glass == Some(GlassTier::Liquid) { gpui::transparent_black() } else { g.surface };
         out.surface_2 = g.surface_2;
         out.surface_3 = g.surface_3;
         out.raised = g.raised;
@@ -852,11 +854,13 @@ pub fn float(t: &Theme, _cx: &App) -> Theme {
 }
 
 /// The window's root background: opaque `--bg` (Flat), the painted
-/// backdrop (lite), or a light tint over the native material.
+/// backdrop (lite), nothing over macOS's own window background (Liquid),
+/// or a light tint over the native material.
 pub fn backdrop(cx: &App) -> Background {
     let ap = appearance(cx);
     match ap.glass {
         None => theme(cx).bg.into(),
+        Some(GlassTier::Liquid) => gpui::transparent_black().into(),
         Some(GlassTier::Lite) => linear_gradient(
             180.,
             linear_color_stop(ap.glass_tokens.base_top, 0.),
