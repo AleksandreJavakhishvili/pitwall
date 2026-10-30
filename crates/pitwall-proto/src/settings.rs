@@ -30,11 +30,13 @@ pub enum Page {
     Rules,
     Appearance,
     FolderAccess,
+    /// The user's other machines over Tailscale (docs/spec/tailnet-peers.md).
+    Peers,
     About,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [Page::General, Page::Agents, Page::Rules, Page::Appearance, Page::FolderAccess, Page::About];
+    pub const ALL: [Page; 7] = [Page::General, Page::Agents, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
 
     /// The id in `ui.json` (`settingsPage`) and the CLI.
     pub fn id(self) -> &'static str {
@@ -44,6 +46,7 @@ impl Page {
             Page::Rules => "rules",
             Page::Appearance => "appearance",
             Page::FolderAccess => "folderAccess",
+            Page::Peers => "peers",
             Page::About => "about",
         }
     }
@@ -55,6 +58,7 @@ impl Page {
             Page::Rules => "Rules & skills",
             Page::Appearance => "Appearance",
             Page::FolderAccess => "Folder access",
+            Page::Peers => "Peers",
             Page::About => "About",
         }
     }
