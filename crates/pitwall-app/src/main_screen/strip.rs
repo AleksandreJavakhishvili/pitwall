@@ -25,6 +25,14 @@ pub enum ToastTone {
     Info,
 }
 
+/// A button on a toast (an offer's Show / Not now): runs, then the toast
+/// goes.
+pub struct ToastAction {
+    pub label: SharedString,
+    pub primary: bool,
+    pub run: std::rc::Rc<dyn Fn(&mut gpui::App)>,
+}
+
 pub struct Toast {
     id: u64,
     pub tone: ToastTone,
@@ -33,6 +41,10 @@ pub struct Toast {
     pub agent: Option<String>,
     /// A click opens Settings (the Full Disk Access hint).
     pub opens_settings: bool,
+    /// Buttons under the text; a toast with buttons stays until answered.
+    pub actions: Vec<ToastAction>,
+    /// One toast per key (an offer's machine); [`drop_key`] removes it.
+    pub key: Option<String>,
     _timer: Option<Task<()>>,
 }
 
@@ -45,6 +57,8 @@ impl Toast {
             detail: detail.map(Into::into),
             agent,
             opens_settings: false,
+            actions: Vec::new(),
+            key: None,
             _timer: None,
         }
     }
@@ -59,6 +73,13 @@ impl Toast {
     }
     pub fn info(title: &str, detail: Option<String>) -> Toast {
         Toast::new(ToastTone::Info, title.to_string(), detail, None)
+    }
+    /// A question with buttons, kept until answered (or closed).
+    pub fn ask(key: String, title: String, detail: Option<String>, actions: Vec<ToastAction>) -> Toast {
+        let mut t = Toast::new(ToastTone::Info, title, detail, None);
+        t.key = Some(key);
+        t.actions = actions;
+        t
     }
 
     fn lifetime(&self) -> Duration {
@@ -78,15 +99,20 @@ pub fn push(screen: &mut MainScreen, mut toast: Toast, cx: &mut Context<MainScre
     if let Some(a) = &toast.agent {
         screen.toasts.retain(|t| t.agent.as_ref() != Some(a));
     }
+    if let Some(k) = &toast.key {
+        screen.toasts.retain(|t| t.key.as_ref() != Some(k));
+    }
     let id = toast.id;
     let life = toast.lifetime();
-    toast._timer = Some(cx.spawn(async move |this, cx| {
-        cx.background_executor().timer(life).await;
-        let _ = this.update(cx, |s, cx| {
-            s.toasts.retain(|t| t.id != id);
-            cx.notify();
-        });
-    }));
+    if toast.actions.is_empty() {
+        toast._timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(life).await;
+            let _ = this.update(cx, |s, cx| {
+                s.toasts.retain(|t| t.id != id);
+                cx.notify();
+            });
+        }));
+    }
     screen.toasts.push(toast);
     while screen.toasts.len() > 4 {
         screen.toasts.remove(0);
@@ -94,7 +120,22 @@ pub fn push(screen: &mut MainScreen, mut toast: Toast, cx: &mut Context<MainScre
     cx.notify();
 }
 
+/// Remove the toast kept under `key` (its question was answered elsewhere).
+pub fn drop_key(screen: &mut MainScreen, key: &str, cx: &mut Context<MainScreen>) {
+    let n = screen.toasts.len();
+    screen.toasts.retain(|t| t.key.as_deref() != Some(key));
+    if screen.toasts.len() != n {
+        cx.notify();
+    }
+}
+
 impl MainScreen {
+    /// The toasts' titles (tests).
+    #[cfg(test)]
+    pub(super) fn toast_titles(&self) -> Vec<String> {
+        self.toasts.iter().map(|t| t.title.to_string()).collect()
+    }
+
     pub(super) fn render_strip(
         &mut self,
         t: &Theme,
@@ -380,6 +421,20 @@ impl MainScreen {
                             )
                             .when_some(toast.detail.clone(), |d, det| {
                                 d.child(div().text_size(px(12.)).text_color(t.text_2).child(det))
+                            })
+                            .when(!toast.actions.is_empty(), |d| {
+                                d.child(div().flex().gap(px(6.)).pt(px(6.)).children(toast.actions.iter().enumerate().map(|(i, a)| {
+                                    let run = a.run.clone();
+                                    let kind = if a.primary { crate::kit::BtnKind::Small } else { crate::kit::BtnKind::GhostSm };
+                                    crate::kit::text_button(("toast-act", id as usize * 8 + i), a.label.clone(), kind, false, t)
+                                        .debug_selector(move || format!("toast-act-{i}"))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.toasts.retain(|t| t.id != id);
+                                            run(cx);
+                                            cx.notify();
+                                        }))
+                                })))
                             }),
                     )
                     .child(

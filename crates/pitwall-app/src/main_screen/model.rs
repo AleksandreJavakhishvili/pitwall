@@ -116,7 +116,7 @@ fn machine_key(m: &MachineView) -> String {
 }
 
 /// The machine heading above `groups[i]`: when agents run on 2+ machines,
-/// each machine's first group names it.
+/// each machine's first group names it (another machine's Pitwall always).
 pub fn machine_heading(groups: &[ProjectGroup], i: usize) -> Option<String> {
     let mut keys: Vec<String> = groups
         .iter()
@@ -124,7 +124,9 @@ pub fn machine_heading(groups: &[ProjectGroup], i: usize) -> Option<String> {
         .collect();
     keys.sort();
     keys.dedup();
-    if keys.len() < 2 {
+    // Another machine's Pitwall is always named (with its link).
+    let linked = groups.get(i)?.machine.as_ref().is_some_and(|m| m.link.is_some());
+    if keys.len() < 2 && !linked {
         return None;
     }
     let mine = groups.get(i)?.machine.as_ref().map(machine_key)?;

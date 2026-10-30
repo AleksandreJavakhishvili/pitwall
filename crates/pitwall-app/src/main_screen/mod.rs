@@ -27,6 +27,7 @@ mod menu;
 pub mod model;
 mod panel;
 mod part;
+mod peers;
 mod preview;
 mod sidebar;
 mod space;
@@ -559,6 +560,12 @@ impl MainScreen {
                 }
             }),
         ];
+        let mut subs = subs;
+        // The user's other machines: their headings, the card and offers.
+        if let Some(m) = crate::peers::model(cx) {
+            subs.push(cx.observe(&m, |_, _, cx| cx.notify()));
+            subs.push(cx.subscribe(&m, |this, _, e: &crate::peers::PeersEvent, cx| this.peer_event(e, cx)));
+        }
         let (sidebar_collapsed, right_pinned) = (ui.sidebar_collapsed, ui.right_open);
         let mut screen = MainScreen {
             store,
@@ -1339,6 +1346,10 @@ impl MainScreen {
     }
 
     fn open_remove(&mut self, id: &str, cx: &mut Context<Self>) {
+        // Another machine's agent: this Pitwall keeps no record to remove.
+        if self.store.read(cx).agent(id).is_some_and(crate::agents::mirrored) {
+            return;
+        }
         self.modal = Some(Modal::Remove(RemoveState::new(id)));
         self.menu = None;
         cx.emit(ScreenEvent::ModalOpened);

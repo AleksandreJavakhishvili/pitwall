@@ -163,6 +163,9 @@ pub fn now_ms() -> u64 {
 pub enum PeersEvent {
     /// Offer to show this machine's agents (once per machine).
     Offer(Candidate),
+    /// The offer for this machine (StableID) was answered: other windows
+    /// drop theirs.
+    Answered(String),
 }
 
 /// The user's other machines, as the UI shows them.
@@ -387,6 +390,7 @@ impl PeersModel {
         if self.offers.asked.insert(c.stable_id.clone()) {
             self.offers.save(&self.root);
         }
+        cx.emit(PeersEvent::Answered(c.stable_id.clone()));
         if show {
             self.pair(&c.stable_id, cx);
         }

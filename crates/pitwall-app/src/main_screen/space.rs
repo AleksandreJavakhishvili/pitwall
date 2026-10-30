@@ -642,15 +642,22 @@ impl MainScreen {
                         .min_w_0()
                         .min_h_0()
                         .flex()
-                        .child(terminal_element(
-                            a,
-                            focused,
-                            self.focus.is_focused(window),
-                            self.tile_font(&a.id),
-                            window,
-                            cx,
-                        ))
-                        .when(!a.running, |d| d.child(stopped_overlay(a, t, cx)))
+                        .map(|d| {
+                            // Another machine's agent: its terminal stays
+                            // there; what is known of it, read-only.
+                            if crate::agents::mirrored(a) {
+                                return d.child(super::peers::remote_details(a, t));
+                            }
+                            d.child(terminal_element(
+                                a,
+                                focused,
+                                self.focus.is_focused(window),
+                                self.tile_font(&a.id),
+                                window,
+                                cx,
+                            ))
+                            .when(!a.running, |d| d.child(stopped_overlay(a, t, cx)))
+                        })
                         .into_any_element();
                     // The agent's Preview beside (or below) it (preview.rs).
                     self.with_preview(a, term, t, cx)
@@ -942,11 +949,13 @@ impl MainScreen {
                                 })),
                         )
                     })
-                    .child(
-                        pane_btn(format!("rm-{pane_id}"), "trash", "Remove agent", t).on_click(
-                            cx.listener(move |this, _, _, cx| this.open_remove(&rm_id, cx)),
-                        ),
-                    )
+                    .when(!crate::agents::mirrored(a), |d| {
+                        d.child(
+                            pane_btn(format!("rm-{pane_id}"), "trash", "Remove agent", t).on_click(
+                                cx.listener(move |this, _, _, cx| this.open_remove(&rm_id, cx)),
+                            ),
+                        )
+                    })
                     .child(
                         pane_btn(
                             format!("max-{pane_id}"),
