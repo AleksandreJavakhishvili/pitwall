@@ -228,6 +228,10 @@ pub struct UiState {
     /// Collapsed project groups in the sidebar (group keys).
     #[serde(default, deserialize_with = "lenient")]
     pub collapsed: Vec<String>,
+    /// The sidebar's order, as dragged: project group keys and agent ids
+    /// (those not in it follow, as before).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub sidebar_order: Vec<String>,
     /// Collapsed project groups on the Wall.
     #[serde(default, deserialize_with = "lenient")]
     pub wall_collapsed: Vec<String>,
@@ -326,6 +330,7 @@ impl Default for UiState {
             density: Density::Compact,
             tile_font: BTreeMap::new(),
             collapsed: vec![],
+            sidebar_order: vec![],
             wall_collapsed: vec![],
             hide_elsewhere: false,
             sidebar_group: SidebarGroup::Project,

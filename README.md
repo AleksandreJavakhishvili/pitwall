@@ -33,7 +33,7 @@
 
 ## Why Pitwall
 
-- **The one that needs you turns amber.** A permission prompt or a question flags the agent, sorts it to the top, lights a bar along the bottom of the window and counts it on the Dock badge (taskbar button on Windows). `⌘J` jumps there.
+- **The one that needs you turns amber.** A permission prompt or a question flags the agent in the sidebar, lights a bar along the bottom of the window and counts it on the Dock badge (taskbar button on Windows). `⌘J` jumps there.
 - **A tool, not an agent.** It never rewrites your prompts or decides what an agent does. Text you send goes in exactly as written.
 - **Your agents outlive the app.** `⌘Q` closes the window, not the agents: their terminals keep running and come back with the scrollback.
 - **The real CLIs, unwrapped.** Agents launch through your login shell with your PATH, logins and config. Hooks are used when an agent offers them and are never required.
@@ -52,7 +52,7 @@
 | **Appearance** | Light or dark, Flat or Glass: native Liquid Glass on macOS 26, vibrancy on older macOS, Mica on Windows 11, a painted "Glass lite" elsewhere. Terminals stay opaque; Reduce transparency and Reduce motion are respected. |
 | **Terminals** `⌘T` | A plain terminal in the focused agent's folder. Start `claude` or `codex` in it and the pane becomes that agent; Restart resumes it. |
 | **Rules** | One rule library, written into CLAUDE.md, AGENTS.md and friends through [rulesync](https://github.com/dyoshikawa/rulesync), per project or per agent. Generated files stay out of your diffs. |
-| **Accounts** | Run Claude Code and Codex on more than one login (say work and personal): add accounts in Settings → Agents, pick one in New agent, set one per project from the project's right-click menu, or move a running agent to another account and its conversation comes along. |
+| **Accounts** | Run Claude Code and Codex on more than one login (say work and personal): add accounts in Settings → Agents, pick one in New agent, set one per project from the project's right-click menu, or move a running agent to another account and its conversation comes along. Grouped by account, the sidebar does the same by drag and drop: drop an agent or a project on another account. Accounts, projects and agents also keep the order you drag them in. |
 | **Worktrees** | Through the agent's own flag (`claude --worktree`, `codex --worktree`). Pitwall creates no branches or folders of its own. |
 | **First launch** | A read-only scan: agent CLIs on your PATH, recent projects and conversations you can continue. Nothing changes until you tick a box. |
 | **agw machines and CLI** | Sessions on agw VMs next to your local agents, and a `pitwall` CLI for you or an agent; anything that changes another machine waits for your approval. |

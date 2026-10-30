@@ -46,6 +46,13 @@ pub struct AgentGhost {
     grab: gpui::Point<gpui::Pixels>,
 }
 
+impl AgentGhost {
+    /// The same chip for another dragged thing (a sidebar project or account).
+    pub fn named(name: SharedString, grab: gpui::Point<gpui::Pixels>) -> AgentGhost {
+        AgentGhost { name, grab }
+    }
+}
+
 impl Render for AgentGhost {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = crate::theme::theme(cx);

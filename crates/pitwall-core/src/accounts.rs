@@ -204,6 +204,15 @@ impl Accounts {
         Ok(())
     }
 
+    /// Move account `id` to just before `before` (`None`: the end); the
+    /// sidebar and Settings list them in this order.
+    pub fn move_before(&mut self, id: &str, before: Option<&str>) {
+        let Some(from) = self.accounts.iter().position(|a| a.id == id) else { return };
+        let a = self.accounts.remove(from);
+        let to = before.and_then(|b| self.accounts.iter().position(|x| x.id == b)).unwrap_or(self.accounts.len());
+        self.accounts.insert(to, a);
+    }
+
     /// The account a project's new agents of `kind` use (`None`: Default).
     pub fn project_default(&self, project: &str, kind: &str) -> Option<&Account> {
         let id = self.projects.get(project)?.get(kind)?;
@@ -784,6 +793,13 @@ mod tests {
 
         a.rename("claude-work", "Job").unwrap();
         assert_eq!(a.get("claude-work").unwrap().name, "Job");
+        let order = |a: &Accounts| a.accounts.iter().map(|x| x.id.clone()).collect::<Vec<_>>();
+        a.move_before("codex-work", Some("claude-work"));
+        assert_eq!(order(&a), ["codex-work", "claude-work"]);
+        a.move_before("codex-work", None);
+        assert_eq!(order(&a), ["claude-work", "codex-work"], "to the end");
+        a.move_before("gone", Some("claude-work"));
+        assert_eq!(order(&a), ["claude-work", "codex-work"]);
         a.save(&paths).unwrap();
         assert_eq!(Accounts::load(&paths), a);
 

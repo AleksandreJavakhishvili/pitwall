@@ -53,6 +53,48 @@ pub fn with_projects(groups: Vec<ProjectGroup>, projects: &[Project]) -> Vec<Pro
     all
 }
 
+/// A group's key without its account section's prefix (`acct:<id>|`): the
+/// same project under every account.
+pub fn base_key(key: &str) -> &str {
+    key.strip_prefix("acct:").and_then(|r| r.split_once('|')).map_or(key, |(_, k)| k)
+}
+
+/// The account section a group key sits in (`acct:<id>|…`; `None` when
+/// grouped by project).
+pub fn section_of(key: &str) -> Option<&str> {
+    key.strip_prefix("acct:")?.split_once('|').map(|(a, _)| a)
+}
+
+/// Groups in the order the user dragged them (`order`: project keys and
+/// agent ids): projects stay in their machine's block, agents in their
+/// project; what `order` doesn't name follows, projects as before and
+/// agents oldest first.
+pub fn in_order(mut groups: Vec<ProjectGroup>, order: &[String]) -> Vec<ProjectGroup> {
+    let rank = |k: &str| order.iter().position(|o| o == k).unwrap_or(usize::MAX);
+    let label = |g: &ProjectGroup| {
+        (!g.can_create)
+            .then(|| g.machine.as_ref().map(|m| m.label.clone()))
+            .flatten()
+            .unwrap_or_default()
+    };
+    groups.sort_by_cached_key(|g| (!g.can_create, label(g), rank(base_key(&g.key))));
+    for g in &mut groups {
+        g.agents.sort_by_cached_key(|a| (rank(&a.id), a.created_at));
+    }
+    groups
+}
+
+/// `order` with `item` placed just before `before` (`None`: last) among
+/// `siblings`, in their shown order; other entries keep their places.
+pub fn reorder(order: &[String], siblings: &[String], item: &str, before: Option<&str>) -> Vec<String> {
+    let mut seq: Vec<String> = siblings.iter().filter(|s| *s != item).cloned().collect();
+    let at = before.and_then(|b| seq.iter().position(|s| s == b)).unwrap_or(seq.len());
+    seq.insert(at, item.to_string());
+    let mut out: Vec<String> = order.iter().filter(|o| !seq.contains(o)).cloned().collect();
+    out.extend(seq);
+    out
+}
+
 /// One account in the sidebar grouped by account: its project groups.
 #[derive(Debug, Clone)]
 pub struct AccountSection {
@@ -435,6 +477,39 @@ mod tests {
         assert_eq!(name_problem(&rule, "ok-name"), None);
         assert!(name_problem(&rule, "Bad").is_some());
         assert!(name_problem(&rule, &"a".repeat(40)).unwrap().contains("32"));
+    }
+
+    #[test]
+    fn the_sidebar_keeps_the_dragged_order() {
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let agents = vec![
+            agent("a1", "/work/alpha", "idle", 1, true),
+            agent("a2", "/work/alpha", "blocked", 2, true),
+            agent("a3", "/work/alpha", "working", 3, true),
+            agent("b1", "/work/beta", "idle", 1, true),
+            agent("r1", "/srv/remote", "idle", 1, false),
+        ];
+        let names = |gs: &[ProjectGroup]| gs.iter().map(|g| g.display.clone()).collect::<Vec<_>>();
+        let rows = |gs: &[ProjectGroup]| gs[0].agents.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
+
+        let plain = in_order(group_by_project(&agents), &[]);
+        assert_eq!(rows(&plain), ["a1", "a2", "a3"], "oldest first: needs-you doesn't jump");
+
+        let order = reorder(&[], &ids(&["/work/alpha", "/work/beta"]), "/work/beta", Some("/work/alpha"));
+        let order = reorder(&order, &ids(&["a1", "a2", "a3"]), "a3", Some("a1"));
+        let g = in_order(group_by_project(&agents), &order);
+        assert_eq!(names(&g)[..2], ["beta", "alpha"]);
+        assert_eq!(rows(&g[1..]), ["a3", "a1", "a2"]);
+        assert!(!g[2].can_create, "another machine's projects stay after this Mac's");
+
+        let last = reorder(&order, &ids(&["a3", "a1", "a2"]), "a3", None);
+        assert_eq!(rows(&in_order(group_by_project(&agents), &last)[1..]), ["a1", "a2", "a3"]);
+        assert_eq!(last.iter().filter(|o| *o == "a3").count(), 1);
+
+        assert_eq!(base_key("acct:claude-work|/work/alpha"), "/work/alpha");
+        assert_eq!(base_key("/work/alpha"), "/work/alpha");
+        assert_eq!(section_of("acct:default|agw:m1|/srv"), Some("default"));
+        assert_eq!(section_of("/work/alpha"), None);
     }
 
     #[test]

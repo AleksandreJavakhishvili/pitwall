@@ -53,7 +53,7 @@ use pitwall_core::onboarding::project_list::Project;
 use pitwall_core::Shared;
 use pitwall_proto::{AgentView, Status};
 
-use crate::agents::{group_by_project, AgentStore};
+use crate::agents::AgentStore;
 use crate::menu::Dismiss;
 use crate::theme::{self, TOPBAR_H};
 
@@ -462,6 +462,8 @@ pub struct MainScreen {
     divider: Option<DividerDrag>,
     /// The pane and zone an agent is dragged over (`None` zone: centre).
     drop_hint: Option<(String, Option<tree::Side>)>,
+    /// Where a drag over the sidebar would land.
+    side_drop: Option<sidebar::SideDrop>,
     /// A space tab being dragged (out to a new window).
     space_drag: Option<topbar::SpaceDragState>,
     /// A space tab dragged in another window would land here (its name).
@@ -545,6 +547,7 @@ impl MainScreen {
                     if cx.has_active_drag() {
                         cx.stop_active_drag(window);
                         this.drop_hint = None;
+                        this.side_drop = None;
                         this.end_space_drag(cx);
                     }
                     if this.menu.take().is_some() {
@@ -596,6 +599,7 @@ impl MainScreen {
             area: None,
             divider: None,
             drop_hint: None,
+            side_drop: None,
             space_drag: None,
             space_incoming: None,
             cursor: None,
@@ -650,7 +654,7 @@ impl MainScreen {
 
     /// Agents in sidebar order (⌘1–9, ⌘J, the strip).
     fn ordered(&self, cx: &App) -> Vec<AgentView> {
-        group_by_project(self.agents(cx))
+        self.sidebar_list(self.agents(cx), cx)
             .into_iter()
             .flat_map(|g| g.agents)
             .collect()
@@ -1965,6 +1969,7 @@ impl Render for MainScreen {
                 if e.keystroke.key == "escape" && cx.has_active_drag() {
                     cx.stop_active_drag(window);
                     this.drop_hint = None;
+                    this.side_drop = None;
                     this.end_space_drag(cx);
                     cx.stop_propagation();
                     cx.notify();

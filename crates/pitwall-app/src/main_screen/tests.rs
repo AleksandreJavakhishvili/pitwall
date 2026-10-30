@@ -36,10 +36,10 @@ fn screen(
 fn first_run_places_the_first_agent_and_shows_on_click(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
     view.update(cx, |s, _| {
-        // Sidebar order: alpha (web blocked, api idle), beta (ops blocked, docs done).
+        // Sidebar order, oldest first in each project: alpha (api, web), beta (docs, ops).
         assert_eq!(
             s.ui.space(ALL_SPACE).unwrap().layout.agents(),
-            vec!["web".to_string()]
+            vec!["api".to_string()]
         );
     });
     view.update_in(cx, |s, window, cx| s.show_agent("docs", window, cx));
@@ -58,13 +58,14 @@ fn jump_cycles_blocked_agents_in_sidebar_order(cx: &mut TestAppContext) {
     };
     assert_eq!(
         order(&view, cx),
-        "ops",
-        "web is focused first, so the next blocked is ops"
+        "web",
+        "api is focused first, so the next blocked is web"
     );
+    assert_eq!(order(&view, cx), "ops");
     assert_eq!(order(&view, cx), "web");
-    view.update_in(cx, |s, window, cx| s.select_index(1, window, cx));
+    view.update_in(cx, |s, window, cx| s.select_index(2, window, cx));
     view.read_with(cx, |s, _| {
-        assert_eq!(s.focused_agent_id().as_deref(), Some("api"))
+        assert_eq!(s.focused_agent_id().as_deref(), Some("docs"))
     });
 }
 
@@ -94,12 +95,12 @@ fn spaces_and_presets(cx: &mut TestAppContext) {
     view.update(cx, |s, cx| s.new_space(cx));
     let custom = view.read_with(cx, |s, _| s.active.clone());
     assert_ne!(custom, ALL_SPACE);
-    view.update_in(cx, |s, window, cx| s.show_agent("api", window, cx));
+    view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
     view.update_in(cx, |s, window, cx| s.apply_preset(Preset::Two, window, cx));
     view.read_with(cx, |s, _| {
         let sp = s.ui.space(&custom).unwrap();
         assert_eq!(sp.layout.leaves().len(), 2);
-        assert_eq!(sp.members, vec!["api".to_string()]);
+        assert_eq!(sp.members, vec!["web".to_string()]);
     });
     view.update(cx, |s, cx| s.open_project_space("/work/beta", "beta", cx));
     view.read_with(cx, |s, _| {
@@ -540,4 +541,25 @@ fn a_renamed_agent_can_go_back_to_its_session_title(cx: &mut TestAppContext) {
     view.update_in(cx, |s, window, cx| s.start_agent_rename("api", window, cx));
     view.update_in(cx, |s, window, cx| s.finish_agent_rename(true, window, cx));
     view.read_with(cx, |s, _| assert!(s.agent_rename.is_none(), "closed without asking the engine"));
+}
+
+#[gpui::test]
+fn sidebar_rows_keep_the_order_they_are_dragged_in(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    let names = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |s, cx| s.ordered(cx).into_iter().map(|a| a.id).collect::<Vec<_>>())
+    };
+    assert_eq!(names(&view, cx), ["api", "web", "docs", "ops"]);
+    let dropped = view.update_in(cx, |s, window, cx| s.drop_agent_on_row("ops", "docs", true, window, cx));
+    assert!(dropped);
+    assert_eq!(names(&view, cx), ["api", "web", "ops", "docs"]);
+    view.read_with(cx, |s, _| assert_eq!(s.ui.sidebar_order, ["ops", "docs"], "kept in ui.json"));
+    let dropped = view.update_in(cx, |s, window, cx| s.drop_agent_on_row("api", "web", false, window, cx));
+    assert!(dropped);
+    assert_eq!(names(&view, cx), ["web", "api", "ops", "docs"]);
+    view.update_in(cx, |s, window, cx| s.select_index(2, window, cx));
+    view.read_with(cx, |s, _| assert_eq!(s.focused_agent_id().as_deref(), Some("ops"), "⌘3 follows it"));
+    let refused = view.update_in(cx, |s, window, cx| s.drop_agent_on_row("api", "docs", true, window, cx));
+    assert!(!refused, "not into another project");
+    assert_eq!(names(&view, cx), ["web", "api", "ops", "docs"]);
 }

@@ -154,6 +154,12 @@ impl AccountsModel {
         self.save(cx)
     }
 
+    /// Move account `id` before `before` (`None`: the end), as dragged.
+    pub fn move_before(&mut self, id: &str, before: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.list.move_before(id, before);
+        self.save(cx)
+    }
+
     pub fn set_project_default(&mut self, project: &str, kind: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
         self.list.set_project_default(project, kind, id);
         self.save(cx)

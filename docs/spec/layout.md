@@ -74,6 +74,27 @@ Need: more than two rows of tiles, with room for small ones.
 - **Free splitting**: any number of rows/columns, limited only by density.
 - Breakpoint table's "max panes per row" becomes a default for Auto grid, not a cap.
 
+## Sidebar order and moves by drag
+
+- The sidebar keeps the order the user drags things into, nothing else:
+  accounts (Default stays first; the order is `accounts.json`'s, so
+  Settings shows it too), projects (within this Mac's, or one machine's),
+  and agents within their project (`sidebarOrder` in `ui.json`). What was
+  never dragged follows: projects by name, agents oldest first. Status
+  never reorders it; a blocked agent is amber where it is. ⌘1–9 and ⌘J
+  follow this order.
+- A line shows where a drop lands (upper or lower half of a row or header);
+  dropping on a project's header puts an agent first in it.
+- Grouped by account, dropping onto another account (its header, or the
+  same project's header or rows under it) moves there:
+  - an agent: it restarts on that login at once, its conversation with it
+    (the agent menu's "Run on account");
+  - a project: it becomes the project's account for that tool, and its
+    running agents of that tool restart there at once (as Accounts…).
+  An account that isn't logged in yet starts its login terminal first.
+  Not allowed (nothing highlights): another tool's account, agents on other
+  machines, terminals, the Race Engineer, an agent into another project.
+
 ## Revision: drag & drop must rearrange properly
 
 Need: dragging an agent rearranges the layout and adds it properly.

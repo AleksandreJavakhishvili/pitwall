@@ -1,29 +1,37 @@
 //! The sidebar (React `Sidebar.tsx`, `AgentRow.tsx`, `RailItem.tsx`):
 //! agents grouped by machine and project (or by account, then project:
-//! Settings → General → Group agents by), needs-you first; collapsible
-//! groups with a summary; project "+" and right-click menus; agent context
-//! menu; ⌘1–9 hints; drag sources; ↑/↓/⏎ when it has keyboard focus; an
-//! icon rail on narrow windows.
+//! Settings → General → Group agents by), in the order the user drags them
+//! (accounts, projects, and agents within a project); collapsible groups
+//! with a summary; project "+" and right-click menus; agent context menu;
+//! ⌘1–9 hints; drag sources; ↑/↓/⏎ when it has keyboard focus; an icon
+//! rail on narrow windows.
+//!
+//! Grouped by account, dropping an agent or a project on another account
+//! moves it there: its agents restart on that login at once, conversations
+//! with them (as the agent menu's "Run on account" and a project's
+//! Accounts…).
 
 use crate::kit::Ellipsis as _;
 use crate::kit::HoverText;
 use gpui::{
-    div, point, prelude::*, px, AnyElement, App, Context, Entity, Focusable as _, FontWeight, IntoElement,
-    MouseButton, MouseDownEvent, SharedString, Window,
+    div, point, prelude::*, px, AnyElement, App, Context, Div, DragMoveEvent, Entity,
+    Focusable as _, FontWeight, IntoElement, MouseButton, MouseDownEvent, SharedString, Stateful,
+    Window,
 };
 
 use pitwall_proto::{AgentView, Status};
 
 use crate::kit::{icon, InputEvent, TextInput, MONO_FONT};
 use super::menu::MenuItem;
-use super::model::{by_account, initials, machine_heading, summarize, with_projects, AccountSection};
+use super::model::{base_key, by_account, section_of, in_order, initials, machine_heading, reorder, summarize, with_projects, AccountSection};
 use super::workspace::SidebarGroup;
 use crate::kit::keys;
-use super::topbar::AgentDrag;
+use super::topbar::{AgentDrag, AgentGhost};
 use crate::kit::{
     chevron, chip, diffstat, icon_btn, kbd, label_fit, status_label, tooltip,
 };
-use super::{Confirm, MainScreen, SelectNext, SelectPrev, SidebarMode};
+use super::strip::Toast;
+use super::{Confirm, MainScreen, Move, SelectNext, SelectPrev, SidebarMode};
 use crate::agents::{group_by_project, status_word, ProjectGroup};
 use crate::theme::{Theme, RADIUS, SIDEBAR_W};
 
@@ -38,12 +46,24 @@ pub(super) struct AgentRenaming {
 
 impl MainScreen {
     fn sidebar_groups(&self, agents: &[AgentView]) -> Vec<ProjectGroup> {
-        with_projects(group_by_project(agents), &self.projects)
+        in_order(with_projects(group_by_project(agents), &self.projects), &self.ui.sidebar_order)
     }
 
     /// The sidebar grouped by account, in Settings → Agents → Accounts' order.
     fn account_sections(&self, agents: &[AgentView], cx: &App) -> Vec<AccountSection> {
-        by_account(agents, &self.projects, &crate::accounts::ids(cx))
+        let mut sections = by_account(agents, &self.projects, &crate::accounts::ids(cx));
+        for s in &mut sections {
+            s.groups = in_order(std::mem::take(&mut s.groups), &self.ui.sidebar_order);
+        }
+        sections
+    }
+
+    /// Every project group in sidebar order, folded ones too (⌘1–9).
+    pub(super) fn sidebar_list(&self, agents: &[AgentView], cx: &App) -> Vec<ProjectGroup> {
+        match self.ui.sidebar_group {
+            SidebarGroup::Project => self.sidebar_groups(agents),
+            SidebarGroup::Account => self.account_sections(agents, cx).into_iter().flat_map(|s| s.groups).collect(),
+        }
     }
 
     /// Agents in sidebar order, skipping collapsed groups (keyboard moves).
@@ -318,7 +338,7 @@ impl MainScreen {
                     let selected = focused.as_deref() == Some(a.id.as_str());
                     let cursor = kb && self.cursor.as_deref() == Some(a.id.as_str());
                     list.push(
-                        self.agent_row(a, start + i, selected, cursor, g.can_create, t, cx)
+                        self.agent_row(a, &g.key, start + i, selected, cursor, g.can_create, t, cx)
                             .into_any_element(),
                     );
                     list.extend(self.wt_agent(a, t, cx));
@@ -349,9 +369,24 @@ impl MainScreen {
             g.project.clone(),
         );
         let can_create = g.can_create;
-        div()
+        let spot = Spot::Group {
+            key: g.key.clone(),
+            block: block(g),
+            account: section_of(&g.key).map(String::from),
+        };
+        let drag = ProjectDrag {
+            key: g.key.clone(),
+            project: g.project.clone(),
+            name: crate::kit::project_name(&g.display).to_string().into(),
+            block: block(g),
+            account: section_of(&g.key).map(String::from),
+        };
+        let mark = self.side_mark(&spot.key(), t, cx);
+        let el = div()
             .id(SharedString::from(format!("group-{}", g.key)))
             .group("project-head")
+            .relative()
+            .on_drag(drag, |d, grab, _, cx| cx.new(|_| AgentGhost::named(d.name.clone(), grab)))
             .flex()
             .items_center()
             .pl(px(8.))
@@ -480,7 +515,8 @@ impl MainScreen {
                             ),
                     )
                 }
-            })
+            });
+        self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
 
     /// An account's header in the sidebar grouped by account: its name and
@@ -503,9 +539,17 @@ impl MainScreen {
         };
         let (key, k_menu, k_space) = (sec.key.clone(), sec.account.clone(), sec.account.clone());
         let (n_menu, n_space) = (name.clone(), name.clone());
-        div()
+        let spot = Spot::Account(sec.account.clone());
+        let mark = self.side_mark(&spot.key(), t, cx);
+        let drag = AccountDrag { id: sec.account.clone(), name: name.clone().into() };
+        let el = div()
             .id(SharedString::from(format!("acct-{}", sec.key)))
             .group("account-head")
+            .relative()
+            // Default stays first.
+            .when(!default, |d| {
+                d.on_drag(drag, |d, grab, _, cx| cx.new(|_| AgentGhost::named(d.name.clone(), grab)))
+            })
             .flex()
             .items_center()
             .pl(px(8.))
@@ -567,7 +611,8 @@ impl MainScreen {
                             .on_click(cx.listener(move |this, _, _, cx| this.open_account_space(&k_space, &n_space, cx))),
                     ),
                 )
-            })
+            });
+        self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
 
     /// An account header's right-click menu.
@@ -751,6 +796,7 @@ impl MainScreen {
     fn agent_row(
         &self,
         a: &AgentView,
+        group: &str,
         index: usize,
         selected: bool,
         cursor: bool,
@@ -785,7 +831,8 @@ impl MainScreen {
             id: a.id.clone(),
             name: a.name.clone().into(),
         };
-        div()
+        let spot = Spot::Row { id: a.id.clone(), group: group.to_string() };
+        let el = div()
             .id(SharedString::from(format!("row-{}", a.id)))
             .group("agent-row")
             .relative()
@@ -980,7 +1027,9 @@ impl MainScreen {
                         .group_hover_probed("agent-row", |s| s.visible())
                         .child(keys(&format!("⌘{}", index + 1), true)),
                 )
-            })
+            });
+        let mark = self.side_mark(&spot.key(), t, cx);
+        self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
 
     fn render_rail(
@@ -989,7 +1038,7 @@ impl MainScreen {
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let groups = group_by_project(agents);
+        let groups = in_order(group_by_project(agents), &self.ui.sidebar_order);
         let focused = self.focused_agent_id();
         let rail = div()
             .id("rail")
@@ -1117,6 +1166,370 @@ impl MainScreen {
             .bg(t.surface)
             .border_r_1()
             .border_color(t.line)
+    }
+}
+
+/// Where a drag over the sidebar would land: the row or header under the
+/// pointer ([`Spot::key`]) and how.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct SideDrop {
+    target: String,
+    how: Landing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Landing {
+    /// Above it, in its list.
+    Before,
+    /// Below it (on a project's header: first in that project).
+    After,
+    /// Onto it: to its account.
+    Into,
+}
+
+/// A project dragged in the sidebar.
+#[derive(Clone, Debug)]
+pub struct ProjectDrag {
+    /// Its group key (with its account section's, grouped by account).
+    key: String,
+    project: String,
+    name: SharedString,
+    block: (bool, String),
+    /// Its account section (grouped by account).
+    account: Option<String>,
+}
+
+/// An account dragged in the sidebar grouped by account.
+#[derive(Clone, Debug)]
+pub struct AccountDrag {
+    id: String,
+    name: SharedString,
+}
+
+/// What is dragged.
+enum Payload {
+    Agent(String),
+    Project(ProjectDrag),
+    Account(String),
+}
+
+/// What a drag is over.
+#[derive(Clone)]
+enum Spot {
+    /// An agent's row in group `group` (its whole key).
+    Row { id: String, group: String },
+    /// A project's header.
+    Group { key: String, block: (bool, String), account: Option<String> },
+    /// An account's header (`default`: Default).
+    Account(String),
+}
+
+impl Spot {
+    fn key(&self) -> String {
+        match self {
+            Spot::Row { id, .. } => format!("row:{id}"),
+            Spot::Group { key, .. } => format!("group:{key}"),
+            Spot::Account(id) => format!("acct:{id}"),
+        }
+    }
+
+    /// The account a drop "into" it moves to.
+    fn account(&self) -> Option<&str> {
+        match self {
+            Spot::Row { group, .. } => section_of(group),
+            Spot::Group { account, .. } => account.as_deref(),
+            Spot::Account(id) => Some(id),
+        }
+    }
+}
+
+/// Which projects a project can be put between: this Mac's, or one
+/// machine's.
+fn block(g: &ProjectGroup) -> (bool, String) {
+    let label = g.machine.as_ref().filter(|_| !g.can_create).map(|m| m.label.clone());
+    (g.can_create, label.unwrap_or_default())
+}
+
+/// The sibling `item` goes before when dropped `how` on `target`
+/// (`None`: last).
+fn before_of(siblings: &[String], item: &str, target: &str, how: Landing) -> Option<String> {
+    let rest: Vec<&String> = siblings.iter().filter(|s| *s != item).collect();
+    match how {
+        Landing::Before => Some(target.to_string()),
+        _ => rest.iter().position(|s| *s == target).and_then(|i| rest.get(i + 1)).map(|s| s.to_string()),
+    }
+}
+
+/// Agents moving to an account, and the project a login starts in.
+struct ToAccount {
+    mv: Move,
+    project: String,
+}
+
+impl MainScreen {
+    /// Make `el` a place to drop on in the sidebar: it follows where a drag
+    /// over it would land ([`SideDrop`]) and acts on the drop.
+    fn drop_spot(&self, el: Stateful<Div>, spot: Spot, cx: &mut Context<Self>) -> Stateful<Div> {
+        let (s1, s2, s3) = (spot.clone(), spot.clone(), spot.clone());
+        let (s4, s5, s6) = (spot.clone(), spot.clone(), spot);
+        el.on_drag_move::<AgentDrag>(cx.listener(move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {
+            let p = Payload::Agent(e.drag(cx).id.clone());
+            this.side_track(p, &s1, e.bounds, e.event.position, cx)
+        }))
+        .on_drag_move::<ProjectDrag>(cx.listener(move |this, e: &DragMoveEvent<ProjectDrag>, _, cx| {
+            let p = Payload::Project(e.drag(cx).clone());
+            this.side_track(p, &s2, e.bounds, e.event.position, cx)
+        }))
+        .on_drag_move::<AccountDrag>(cx.listener(move |this, e: &DragMoveEvent<AccountDrag>, _, cx| {
+            let p = Payload::Account(e.drag(cx).id.clone());
+            this.side_track(p, &s3, e.bounds, e.event.position, cx)
+        }))
+        .on_drop(cx.listener(move |this, d: &AgentDrag, window, cx| {
+            this.side_dropped(Payload::Agent(d.id.clone()), &s4, window, cx)
+        }))
+        .on_drop(cx.listener(move |this, d: &ProjectDrag, window, cx| {
+            this.side_dropped(Payload::Project(d.clone()), &s5, window, cx)
+        }))
+        .on_drop(cx.listener(move |this, d: &AccountDrag, window, cx| {
+            this.side_dropped(Payload::Account(d.id.clone()), &s6, window, cx)
+        }))
+    }
+
+    fn side_track(
+        &mut self,
+        p: Payload,
+        spot: &Spot,
+        b: gpui::Bounds<gpui::Pixels>,
+        at: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let key = spot.key();
+        let next = if b.contains(&at) {
+            self.landing(&p, spot, at.y < b.center().y, cx).map(|how| SideDrop { target: key, how })
+        } else if self.side_drop.as_ref().is_some_and(|d| d.target == key) {
+            None
+        } else {
+            return;
+        };
+        if self.side_drop != next {
+            self.side_drop = next;
+            cx.notify();
+        }
+    }
+
+    /// The line or ring showing where a drag would land on `key`.
+    fn side_mark(&self, key: &str, t: &Theme, cx: &App) -> Option<AnyElement> {
+        let d = self.side_drop.as_ref().filter(|d| d.target == key && cx.has_active_drag())?;
+        let mark = match d.how {
+            Landing::Into => div().absolute().inset_0().rounded(RADIUS).border_1().border_color(t.focus).bg(t.focus.opacity(0.08)),
+            how => {
+                let line = div().absolute().left(px(6.)).right(px(6.)).h(px(2.)).rounded(px(1.)).bg(t.focus);
+                if how == Landing::Before { line.top(px(-1.)) } else { line.bottom(px(-1.)) }
+            }
+        };
+        Some(mark.into_any_element())
+    }
+
+    /// The group (its whole key) agent `id` shows in.
+    fn group_of(&self, id: &str, cx: &App) -> Option<String> {
+        self.sidebar_list(self.agents(cx), cx)
+            .into_iter()
+            .find(|g| g.agents.iter().any(|a| a.id == id))
+            .map(|g| g.key)
+    }
+
+    /// What dropping `p` on `spot` would do: put it in its place among its
+    /// siblings, or move it to another account; `None`: nothing.
+    fn landing(&self, p: &Payload, spot: &Spot, upper: bool, cx: &mut App) -> Option<Landing> {
+        let line = if upper { Landing::Before } else { Landing::After };
+        match (p, spot) {
+            (Payload::Account(a), Spot::Account(b)) if a != b => {
+                Some(if b == pitwall_core::accounts::DEFAULT { Landing::After } else { line })
+            }
+            (Payload::Project(d), Spot::Group { key, block, account, .. }) if *key != d.key => {
+                if *account == d.account {
+                    (*block == d.block).then_some(line)
+                } else {
+                    self.project_to(d, account.as_deref()?, cx).map(|_| Landing::Into)
+                }
+            }
+            (Payload::Project(d), Spot::Account(to)) => self.project_to(d, to, cx).map(|_| Landing::Into),
+            (Payload::Agent(id), Spot::Row { id: row, group }) if id != row => {
+                let from = self.group_of(id, cx)?;
+                if from == *group {
+                    Some(line)
+                } else if base_key(&from) == base_key(group) {
+                    self.agent_to(id, spot.account()?, cx).map(|_| Landing::Into)
+                } else {
+                    None
+                }
+            }
+            (Payload::Agent(id), Spot::Group { key, .. }) => {
+                let from = self.group_of(id, cx)?;
+                if from == *key {
+                    Some(Landing::After)
+                } else if base_key(&from) == base_key(key) {
+                    self.agent_to(id, spot.account()?, cx).map(|_| Landing::Into)
+                } else {
+                    None
+                }
+            }
+            (Payload::Agent(id), Spot::Account(to)) => self.agent_to(id, to, cx).map(|_| Landing::Into),
+            _ => None,
+        }
+    }
+
+    /// Agent `id` to account `to` (`default`: Default): only an agent on
+    /// this Mac whose tool has accounts, onto one of that tool's.
+    fn agent_to(&self, id: &str, to: &str, cx: &mut App) -> Option<ToAccount> {
+        let a = self.agents(cx).iter().find(|a| a.id == id)?.clone();
+        let local = a.machine.provider == pitwall_core::provider::ProviderId::LOCAL;
+        if !local || a.engineer || a.terminal || super::workspace::account_key(&a) == to {
+            return None;
+        }
+        let m = crate::accounts::model(cx);
+        let m = m.read(cx);
+        m.kind(&a.kind)?;
+        let (account, name) = if to == pitwall_core::accounts::DEFAULT {
+            (None, "Default".to_string())
+        } else {
+            let acc = m.list.get(to).filter(|acc| acc.kind == a.kind)?;
+            (Some(acc.id.clone()), acc.name.clone())
+        };
+        Some(ToAccount { mv: Move { ids: vec![a.id], account, name, kind: a.kind }, project: a.project })
+    }
+
+    /// A project, from its account section, to account `to`: its tool is
+    /// the one either account is for; its agents of that tool go along.
+    fn project_to(&self, d: &ProjectDrag, to: &str, cx: &mut App) -> Option<ToAccount> {
+        use pitwall_core::accounts::DEFAULT;
+        let from = d.account.as_deref()?;
+        if from == to || !d.block.0 {
+            return None;
+        }
+        let m = crate::accounts::model(cx);
+        let m = m.read(cx);
+        let kind = match (from == DEFAULT, to == DEFAULT) {
+            (true, true) => return None,
+            (false, _) => {
+                let k = m.list.get(from)?.kind.clone();
+                if to != DEFAULT && m.list.get(to)?.kind != k {
+                    return None;
+                }
+                k
+            }
+            (true, false) => m.list.get(to)?.kind.clone(),
+        };
+        let (account, name) = match m.list.get(to) {
+            Some(a) => (Some(a.id.clone()), a.name.clone()),
+            None => (None, "Default".to_string()),
+        };
+        let ids = self
+            .agents(cx)
+            .iter()
+            .filter(|a| a.project == d.project && a.kind == kind && a.account != account && !a.engineer)
+            .map(|a| a.id.clone())
+            .collect();
+        Some(ToAccount { mv: Move { ids, account, name, kind }, project: d.project.clone() })
+    }
+
+    fn side_dropped(&mut self, p: Payload, spot: &Spot, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(how) = self.side_drop.take().filter(|d| d.target == spot.key()).map(|d| d.how) else {
+            return;
+        };
+        cx.notify();
+        match (p, spot, how) {
+            (Payload::Account(a), Spot::Account(b), _) => {
+                let ids: Vec<String> = crate::accounts::ids(cx).into_iter().filter(|x| *x != a).collect();
+                let before = if b == pitwall_core::accounts::DEFAULT {
+                    ids.first().cloned()
+                } else {
+                    before_of(&ids, &a, b, how)
+                };
+                let m = crate::accounts::model(cx);
+                if let Err(e) = m.update(cx, |m, cx| m.move_before(&a, before.as_deref(), cx)) {
+                    self.failed("move the account", e, cx);
+                }
+            }
+            (Payload::Project(d), _, Landing::Into) => {
+                if let Some(to) = spot.account().and_then(|to| self.project_to(&d, to, cx)) {
+                    self.move_project(to, window, cx);
+                }
+            }
+            (Payload::Project(d), Spot::Group { key, .. }, how) => {
+                let siblings: Vec<String> = match d.account.as_deref() {
+                    None => self.sidebar_groups(self.agents(cx)),
+                    Some(a) => self
+                        .account_sections(self.agents(cx), cx)
+                        .into_iter()
+                        .find(|s| s.account == a)
+                        .map(|s| s.groups)
+                        .unwrap_or_default(),
+                }
+                .iter()
+                .map(|g| base_key(&g.key).to_string())
+                .collect();
+                let (item, target) = (base_key(&d.key), base_key(key));
+                let before = before_of(&siblings, item, target, how);
+                self.update_ui(|mut s| {
+                    s.sidebar_order = reorder(&s.sidebar_order, &siblings, item, before.as_deref());
+                    s
+                }, cx);
+            }
+            (Payload::Agent(id), _, Landing::Into) => {
+                if let Some(to) = spot.account().and_then(|to| self.agent_to(&id, to, cx)) {
+                    self.move_agents(to.mv, Some(to.project), window, cx);
+                }
+            }
+            (Payload::Agent(id), Spot::Row { group, .. } | Spot::Group { key: group, .. }, how) => {
+                let siblings: Vec<String> = self
+                    .sidebar_list(self.agents(cx), cx)
+                    .into_iter()
+                    .find(|g| g.key == *group)
+                    .map(|g| g.agents.into_iter().map(|a| a.id).collect())
+                    .unwrap_or_default();
+                let before = match spot {
+                    Spot::Row { id: target, .. } => before_of(&siblings, &id, target, how),
+                    // On its project's header: first.
+                    _ => siblings.iter().find(|s| **s != id).cloned(),
+                };
+                self.update_ui(|mut s| {
+                    s.sidebar_order = reorder(&s.sidebar_order, &siblings, &id, before.as_deref());
+                    s
+                }, cx);
+            }
+            _ => {}
+        }
+    }
+
+    /// A project's new agents of a tool use another account, and its
+    /// running ones of that tool restart there (as its Accounts…).
+    fn move_project(&mut self, to: ToAccount, window: &mut Window, cx: &mut Context<Self>) {
+        let ToAccount { mv, project } = to;
+        let m = crate::accounts::model(cx);
+        if let Err(e) = m.update(cx, |m, cx| m.set_project_default(&project, &mv.kind, mv.account.as_deref(), cx)) {
+            return self.failed("change the project's account", e, cx);
+        }
+        if mv.ids.is_empty() {
+            let folder = crate::kit::project_name(&project).to_string();
+            let tool = m.read(cx).kind(&mv.kind).map(|k| k.name).unwrap_or(mv.kind.clone());
+            self.toast(Toast::info(&format!("{folder} uses {}", mv.name), Some(format!("New {tool} agents there start on it."))), cx);
+        }
+        self.move_agents(mv, Some(project), window, cx);
+    }
+}
+
+#[cfg(test)]
+impl MainScreen {
+    /// Tests: drag agent `id` over the upper or lower half of `row`'s row and
+    /// drop it there; whether the drop was taken.
+    pub(super) fn drop_agent_on_row(&mut self, id: &str, row: &str, upper: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(group) = self.group_of(row, cx) else { return false };
+        let (p, spot) = (Payload::Agent(id.into()), Spot::Row { id: row.into(), group });
+        let Some(how) = self.landing(&p, &spot, upper, cx) else { return false };
+        self.side_drop = Some(SideDrop { target: spot.key(), how });
+        self.side_dropped(p, &spot, window, cx);
+        true
     }
 }
 
