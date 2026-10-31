@@ -51,6 +51,32 @@ pub trait Feed: Send + Sync {
     /// A queue of `topics` that starts with the agent list and blocked
     /// count now (`events::snapshot`).
     fn subscribe(&self, topics: Vec<&'static str>) -> Arc<Queue>;
+    /// This Pitwall's account names by id: a viewer groups the agents by
+    /// them (its own account ids mean nothing here).
+    fn account_names(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
+}
+
+/// `views` with their accounts' names (`AgentView::account_name`).
+pub fn name_accounts(mut views: Vec<AgentView>, names: &HashMap<String, String>) -> Vec<AgentView> {
+    for v in &mut views {
+        v.account_name = v.account.as_ref().and_then(|id| names.get(id)).cloned();
+    }
+    views
+}
+
+/// An `agents` event with its accounts' names; any other as it is.
+fn named_event(feed: &dyn Feed, mut ev: pitwall_proto::Event) -> pitwall_proto::Event {
+    if ev.event != pitwall_proto::event::AGENTS_CHANGED {
+        return ev;
+    }
+    if let Ok(views) = serde_json::from_value::<Vec<AgentView>>(ev.data.clone()) {
+        if let Ok(v) = serde_json::to_value(name_accounts(views, &feed.account_names())) {
+            ev.data = v;
+        }
+    }
+    ev
 }
 
 /// The engine and the server's event hub (the one `events.subscribe` on
@@ -69,6 +95,11 @@ impl Feed for EngineFeed {
         let q = self.hub.subscribe(topics);
         events::snapshot(&self.engine, &q);
         q
+    }
+
+    fn account_names(&self) -> HashMap<String, String> {
+        let list = pitwall_core::accounts::Accounts::load(self.engine.paths());
+        list.accounts.into_iter().map(|a| (a.id, a.name)).collect()
     }
 }
 
@@ -413,7 +444,7 @@ impl Session<'_> {
                 stream.set_read_timeout(Some(ctx.timing.dead_after))?;
             }
             // After the answer, so the viewer sees it before any event.
-            self.sub.start(&writer);
+            self.sub.start(&writer, self.inner.feed.clone());
         }
     }
 
@@ -501,7 +532,7 @@ impl Session<'_> {
                 self.audit_denied(m, "view only");
                 Err(denied(format!("{m} isn't allowed from another machine (view only)")))
             }
-            method::AGENT_LIST => serde_json::to_value(self.inner.feed.views()).map_err(|e| ErrorBody::new(code::OTHER, e.to_string())),
+            method::AGENT_LIST => serde_json::to_value(name_accounts(self.inner.feed.views(), &self.inner.feed.account_names())).map_err(|e| ErrorBody::new(code::OTHER, e.to_string())),
             method::EVENTS_SUBSCRIBE => self.subscribe(req.params),
             m => Err(ErrorBody::new(code::UNKNOWN_METHOD, format!("unknown method \"{m}\""))),
         };
@@ -542,13 +573,14 @@ struct Subscription {
 }
 
 impl Subscription {
-    fn start(&mut self, writer: &Writer) {
+    fn start(&mut self, writer: &Writer, feed: Arc<dyn Feed>) {
         let Some(q) = self.queue.clone().filter(|_| self.pusher.is_none()) else { return };
         let writer = writer.clone();
         self.pusher = std::thread::Builder::new()
             .name("pitwall-peer-events".into())
             .spawn(move || {
                 while let Some(ev) = q.pop() {
+                    let ev = named_event(&*feed, ev);
                     let mut w = lock(&writer);
                     if w.write_all(&frame::json(&ServerMsg::Event(ev))).and_then(|_| w.flush()).is_err() {
                         q.close();
