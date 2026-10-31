@@ -110,6 +110,9 @@ fn tailnet(i: &TailnetInfo) -> String {
     if let Some(m) = &i.message {
         s += &format!(" — {m}");
     }
+    if let Some(e) = &i.listen_error {
+        s += &format!("\nNot listening: {e}");
+    }
     format!("{s}\n{}", switches(&i.settings))
 }
 

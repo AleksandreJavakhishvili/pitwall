@@ -32,6 +32,9 @@ pub trait Tailnet: Send + Sync {
     /// `not_running`: it is, but its daemon isn't running.
     fn status(&self) -> Result<Status, ErrorBody>;
 
+    /// Ask again next time, not a cached status (a user's Refresh).
+    fn forget(&self) {}
+
     /// Who is behind a connection from `addr`. `Ok(None)`: not a node of
     /// this tailnet (or no longer one).
     fn whois(&self, addr: SocketAddr) -> Result<Option<WhoIs>, ErrorBody>;
@@ -286,6 +289,18 @@ const CLI_TIMEOUT: Duration = Duration::from_secs(5);
 const STATUS_TTL: Duration = Duration::from_secs(5);
 const WHOIS_TTL: Duration = Duration::from_secs(60);
 
+/// The CLI's environment. The standalone macOS app's binary tells the CLI
+/// from its GUI by `TERM` (or `SHLVL`): a Pitwall opened from the Dock has
+/// neither, and `status --json` then tries to start the GUI and prints an
+/// error instead of JSON. A `TERM` already set is kept.
+fn cli_env(term_set: bool) -> &'static [(&'static str, &'static str)] {
+    if term_set {
+        &[]
+    } else {
+        &[("TERM", "dumb")]
+    }
+}
+
 /// `program` on PATH.
 fn on_path(program: &str) -> Option<PathBuf> {
     let name = format!("{program}{}", std::env::consts::EXE_SUFFIX);
@@ -310,8 +325,10 @@ impl TailscaleCli {
         let program = self.program.as_deref().ok_or_else(|| ErrorBody::new(code::UNSUPPORTED, "Tailscale isn't installed"))?;
         let mut argv = vec![program];
         argv.extend_from_slice(args);
-        self.exec.run(&Cmd::new(&argv).timeout(CLI_TIMEOUT)).map_err(|e| ErrorBody::new(code::OTHER, format!("tailscale: {e}")))
+        let env = cli_env(std::env::var_os("TERM").is_some());
+        self.exec.run(&Cmd::new(&argv).env(env).timeout(CLI_TIMEOUT)).map_err(|e| ErrorBody::new(code::OTHER, format!("tailscale: {e}")))
     }
+
 
     fn fetch_status(&self) -> Result<Status, ErrorBody> {
         let out = self.run(&["status", "--json"])?;
@@ -342,6 +359,10 @@ impl Tailnet for TailscaleCli {
         let s = self.fetch_status();
         *cached = Some((Instant::now(), s.clone()));
         s
+    }
+
+    fn forget(&self) {
+        *lock(&self.status) = None;
     }
 
     fn whois(&self, addr: SocketAddr) -> Result<Option<WhoIs>, ErrorBody> {
@@ -454,7 +475,30 @@ mod tests {
         assert_eq!(cli.whois("100.64.0.9:5000".parse().unwrap()).unwrap(), None);
         cli.whois("100.64.0.9:5000".parse().unwrap()).unwrap();
         assert_eq!(exec.calls().len(), 2, "both answers cached");
+        // Opened from the Dock (no TERM): both get one, so the standalone
+        // macOS binary answers as the CLI; a TERM already set is kept.
+        let term = cli_env(std::env::var_os("TERM").is_some());
+        assert!(exec.calls().iter().all(|c| c.env.iter().map(|(k, v)| (k.as_str(), v.as_str())).eq(term.iter().copied())));
+        assert_eq!(cli_env(false), [("TERM", "dumb")]);
+        assert!(cli_env(true).is_empty());
         let missing = TailscaleCli::with(exec, None);
         assert_eq!(missing.status().unwrap_err().code, code::UNSUPPORTED);
+    }
+
+    #[test]
+    fn no_json_and_a_failure_is_not_running_with_why() {
+        let exec = FakeExec::new();
+        let gui = "The Tailscale GUI failed to start (Tailscale.CLIError error 3.)";
+        exec.on_exit(&["tailscale", "status", "--json"], 1, "", gui);
+        let cli = TailscaleCli::with(exec.clone(), Some("tailscale".into()));
+        let e = cli.status().unwrap_err();
+        assert_eq!(e.code, code::NOT_RUNNING);
+        assert!(e.message.contains(gui), "{}", e.message);
+        // Cached until forgotten (Settings → Peers' Refresh).
+        let _ = cli.status();
+        assert_eq!(exec.calls().len(), 1);
+        cli.forget();
+        let _ = cli.status();
+        assert_eq!(exec.calls().len(), 2);
     }
 }
