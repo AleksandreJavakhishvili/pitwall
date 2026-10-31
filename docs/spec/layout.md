@@ -94,6 +94,11 @@ Need: more than two rows of tiles, with room for small ones.
   An account that isn't logged in yet starts its login terminal first.
   Not allowed (nothing highlights): another tool's account, agents on other
   machines, terminals, the Race Engineer, an agent into another project.
+- With 2+ machines the sidebar is machines → accounts → projects → agents
+  (tailnet-peers.md, "Sidebar"). Drags stay within one machine's section:
+  only This Mac's accounts move or take agents and projects, and another
+  machine's Pitwall (a peer) is read-only: nothing is dragged into, out of
+  or within it.
 
 ## Revision: drag & drop must rearrange properly
 
