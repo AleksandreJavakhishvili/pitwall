@@ -130,6 +130,11 @@ pub struct AgentView {
     /// The account (login) it runs with, by id; `None`: the user's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// That account's name, for another machine's Pitwall (its ids mean
+    /// nothing there): the peer listener fills it from its own accounts
+    /// (tailnet-peers.md). Left out locally and by older peers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_name: Option<String>,
     pub status: Status,
     pub status_source: Source,
     pub status_detail: Option<String>,

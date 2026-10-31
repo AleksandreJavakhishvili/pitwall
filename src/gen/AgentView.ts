@@ -53,7 +53,13 @@ engineer: boolean,
 /**
  * The account (login) it runs with, by id; `None`: the user's own.
  */
-account?: string | null, status: Status, statusSource: Source, statusDetail: string | null, running: boolean, 
+account?: string | null, 
+/**
+ * That account's name, for another machine's Pitwall (its ids mean
+ * nothing there): the peer listener fills it from its own accounts
+ * (tailnet-peers.md). Left out locally and by older peers.
+ */
+accountName?: string | null, status: Status, statusSource: Source, statusDetail: string | null, running: boolean, 
 /**
  * Current PTY size.
  */

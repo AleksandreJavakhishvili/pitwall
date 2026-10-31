@@ -43,11 +43,13 @@ fn agent(id: &str, name: &str, status: &str) -> AgentView {
 struct TestFeed {
     views: Mutex<Vec<AgentView>>,
     hub: Arc<Hub>,
+    /// Its accounts' names by id.
+    names: Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl TestFeed {
     fn new(views: Vec<AgentView>) -> Arc<TestFeed> {
-        Arc::new(TestFeed { views: Mutex::new(views), hub: Hub::new(Arc::new(pitwall_core::events::NullSink)) })
+        Arc::new(TestFeed { views: Mutex::new(views), hub: Hub::new(Arc::new(pitwall_core::events::NullSink)), names: Mutex::default() })
     }
 
     fn set(&self, views: Vec<AgentView>) {
@@ -65,6 +67,10 @@ impl Feed for TestFeed {
         let q = self.hub.subscribe(topics);
         events::snapshot_of(&lock(&self.views), &q);
         q
+    }
+
+    fn account_names(&self) -> std::collections::HashMap<String, String> {
+        lock(&self.names).clone()
     }
 }
 
@@ -180,13 +186,21 @@ fn pair_without_a_code_and_mirror_the_agents() {
     assert_eq!(v.machine.link.as_ref().unwrap().state, LinkState::Connected);
     assert_eq!(v.caps, pitwall_proto::AgentCaps::default(), "read-only");
 
+    assert_eq!(v.account_name, None, "the user's own login");
+
     // Live: list changes, attention and the blocked count.
     let mut vm = agent("a2", "night", "blocked");
     vm.machine.provider = "agw".into();
     vm.machine.label = "vm-1".into();
-    studio.feed.set(vec![agent("a1", "api", "idle"), vm]);
+    let mut work = agent("a1", "api", "idle");
+    work.account = Some("claude-work".into());
+    lock(&studio.feed.names).insert("claude-work".into(), "Work".into());
+    studio.feed.set(vec![work, vm]);
     wait_until("the mirror follows", || laptop.peers.views().len() == 2);
     assert_eq!(laptop.peers.views()[1].machine.label, "studio › vm-1");
+    // Its account by the name studio gives it (its ids mean nothing here).
+    let a1 = laptop.peers.views()[0].clone();
+    assert_eq!((a1.account.as_deref(), a1.account_name.as_deref()), (Some("claude-work"), Some("Work")));
     studio.feed.hub.emit(Event::Attention(Attention { agent_id: "a2".into(), name: "night".into(), reason: "blocked", detail: Some("Allow Bash?".into()) }));
     studio.feed.hub.emit(Event::BlockedCount(1));
     wait_until("attention arrives", || !laptop.events.attention().is_empty());
@@ -302,7 +316,7 @@ fn call(d: &mut dial::Dialed, id: u64, m: &str, params: Value) -> Result<Value, 
 #[test]
 fn a_view_peer_may_only_list_and_follow() {
     let w = world();
-    let _studio = pitwall(&w, "nSTUDIO", true, false);
+    let studio = pitwall(&w, "nSTUDIO", true, false);
     listening(&w, "nSTUDIO");
     let dir = TempDir::new("peer-viewer");
     let ctx = viewer_ctx(&w, "nLAPTOP", &dir);
@@ -311,6 +325,12 @@ fn a_view_peer_may_only_list_and_follow() {
     assert_eq!(call(&mut d, 7, method::AGENT_LIST, Value::Null).unwrap_err().code, code::DENIED);
     d.auth(&ctx.key, "laptop", true, None).unwrap();
     assert_eq!(call(&mut d, 8, method::AGENT_LIST, Value::Null).unwrap().as_array().unwrap().len(), 1);
+    // `agent.list` names each agent's account (none here: the user's own).
+    let mut work = agent("a1", "api", "idle");
+    work.account = Some("claude-work".into());
+    lock(&studio.feed.names).insert("claude-work".into(), "Work".into());
+    *lock(&studio.feed.views) = vec![work];
+    assert_eq!(call(&mut d, 10, method::AGENT_LIST, Value::Null).unwrap()[0]["accountName"], json!("Work"));
     assert_eq!(call(&mut d, 9, PEER_PING, Value::Null).unwrap(), Value::Null);
     for (i, m) in [method::AGENT_CREATE, method::AGENT_STOP, method::AGENT_REMOVE, method::QUEUE_ADD, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::MACHINE_LIST, method::SESSION_LIST, "term.attach"].iter().enumerate() {
         assert_eq!(call(&mut d, 20 + i as u64, m, json!({})).unwrap_err().code, code::DENIED, "{m}");

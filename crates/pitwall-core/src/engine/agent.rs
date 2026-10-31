@@ -279,6 +279,7 @@ impl Agent {
             restart_as: self.restart_inner().map(|(i, _)| i.kind_name.clone()),
             engineer: r.engineer,
             account: r.account.clone(),
+            account_name: None,
             status: self.status,
             status_source: self.source,
             status_detail: self.detail.clone(),
