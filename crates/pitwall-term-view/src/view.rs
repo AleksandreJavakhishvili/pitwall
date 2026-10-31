@@ -1,10 +1,12 @@
 //! `TerminalView`: a GPUI view that shows a [`Terminal`] and turns keyboard,
 //! IME, mouse, scroll, focus and clipboard input into bytes for its stream.
 //!
-//! Two modes: [`ViewMode::Interactive`] (a pane: sizes the terminal to fit,
-//! takes input) and [`ViewMode::Tile`] (the Wall: read-only, never resizes
-//! the terminal, scales it to the tile width and shows the bottom rows,
-//! repaints at most 10 times a second).
+//! Three modes: [`ViewMode::Interactive`] (a pane: sizes the terminal to
+//! fit, takes input), [`ViewMode::Tile`] (the Wall: read-only, never
+//! resizes the terminal, scales it to the tile width and shows the bottom
+//! rows, repaints at most 10 times a second) and [`ViewMode::Mirror`]
+//! (another machine's terminal in a pane: sized like a tile, nothing goes
+//! to the program, but selection, copy, find and scrolling work).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -91,6 +93,15 @@ pub enum ViewMode {
     Interactive,
     /// Read-only Wall tile; `min_scale` is the smallest scale it shrinks to.
     Tile {
+        min_scale: f32,
+    },
+    /// View-only pane of a terminal whose program is elsewhere (another
+    /// machine's agent): shown at the terminal's own size (never resized),
+    /// scaled down to the pane's width as far as `min_scale`, then cropped
+    /// to the bottom rows; scrollback, selection, copy and find work.
+    /// Nothing is written to the program: no keys, paste, mouse or focus
+    /// reports, and the program's clipboard requests are ignored.
+    Mirror {
         min_scale: f32,
     },
 }
@@ -300,7 +311,7 @@ impl TerminalView {
     ) -> Self {
         let focus = cx.focus_handle();
         let mut subs = Vec::new();
-        if mode == ViewMode::Interactive {
+        if matches!(mode, ViewMode::Interactive | ViewMode::Mirror { .. }) {
             subs.push(cx.on_focus_in(&focus, window, |this, window, cx| this.focus_changed(true, window, cx)));
             subs.push(cx.on_focus_out(&focus, window, |this, _, window, cx| this.focus_changed(false, window, cx)));
             subs.push(cx.observe_window_activation(window, |this, window, cx| {
@@ -435,8 +446,21 @@ impl TerminalView {
         &self.focus
     }
 
+    /// Takes the pointer, the keyboard focus and the actions (a pane).
     fn interactive(&self) -> bool {
+        matches!(self.mode, ViewMode::Interactive | ViewMode::Mirror { .. })
+    }
+
+    /// Writes to the program (not a [`ViewMode::Mirror`]).
+    fn takes_input(&self) -> bool {
         self.mode == ViewMode::Interactive
+    }
+
+    /// Bytes for the program, if this view may send any.
+    fn write_program(&self, bytes: &[u8]) {
+        if self.takes_input() {
+            self.terminal.write(bytes);
+        }
     }
 
     // ── events from the terminal ────────────────────────────────────────────
@@ -447,6 +471,8 @@ impl TerminalView {
         }
         for r in self.terminal.take_requests() {
             match r {
+                // A program elsewhere doesn't get this Mac's clipboard.
+                UiRequest::Event(TermEvent::ClipboardStore(_)) | UiRequest::ClipboardLoad(_) if !self.takes_input() => {}
                 UiRequest::Event(TermEvent::ClipboardStore(text)) => {
                     cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                     cx.emit(TermEvent::ClipboardStore(text));
@@ -461,7 +487,7 @@ impl TerminalView {
                 }
                 UiRequest::ClipboardLoad(format) => {
                     let text = cx.read_from_clipboard().and_then(|c| c.text()).unwrap_or_default();
-                    self.terminal.write(format(&text).as_bytes());
+                    self.write_program(format(&text).as_bytes());
                 }
             }
         }
@@ -475,7 +501,7 @@ impl TerminalView {
             st.term.is_focused = focused;
         }
         if mode.contains(TermMode::FOCUS_IN_OUT) {
-            self.terminal.write(if focused { b"\x1b[I" } else { b"\x1b[O" });
+            self.write_program(if focused { b"\x1b[I" } else { b"\x1b[O" });
         }
         self.blink_on = true;
         self.restart_blink(cx);
@@ -526,11 +552,11 @@ impl TerminalView {
 
     /// Send bytes typed by the user: back to the live screen, cursor shown.
     fn send_input(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
-        if self.exited {
+        if self.exited || !self.takes_input() {
             return;
         }
         self.scroll_to_bottom_internal();
-        self.terminal.write(bytes);
+        self.write_program(bytes);
         self.input_happened(cx);
         cx.notify();
     }
@@ -553,8 +579,8 @@ impl TerminalView {
             cx.stop_propagation();
             return;
         }
-        if self.preedit.is_some() {
-            return; // composing: the input method has the key
+        if self.preedit.is_some() || !self.takes_input() {
+            return; // composing: the input method has the key (or view-only)
         }
         let mode = self.terminal.mode();
         let press = KeyPress {
@@ -700,7 +726,7 @@ impl TerminalView {
         }
         let mode = self.terminal.mode();
         let mods = ev.modifiers;
-        if mouse_modes(mode).any() && !mods.shift {
+        if self.takes_input() && mouse_modes(mode).any() && !mods.shift {
             let (col, row, _) = layout.cell_at(ev.position);
             let action = if lines > 0 { MouseAction::WheelUp } else { MouseAction::WheelDown };
             let m = MouseMods { shift: false, alt: mods.alt, ctrl: mods.control };
@@ -710,13 +736,13 @@ impl TerminalView {
                     out.extend(b);
                 }
             }
-            self.terminal.write(&out);
-        } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !mods.shift {
+            self.write_program(&out);
+        } else if self.takes_input() && mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !mods.shift {
             // Pagers and editors on the alternate screen get arrow keys.
             let key = if lines > 0 { "up" } else { "down" };
             let modes = KeyModes { app_cursor: mode.contains(TermMode::APP_CURSOR), option_as_meta: false };
             let one = keys::encode_key(KeyPress { key, text: None, mods: Mods::default() }, modes).unwrap_or_default();
-            self.terminal.write(&one.repeat(lines.unsigned_abs().min(10) as usize));
+            self.write_program(&one.repeat(lines.unsigned_abs().min(10) as usize));
         } else {
             self.scroll_by(Scroll::Delta(lines), cx);
         }
@@ -768,11 +794,11 @@ impl TerminalView {
             _ => None,
         };
         // Programs that track the mouse get it, unless Shift is held (xterm).
-        if mouse_modes(mode).any() && !ev.modifiers.shift {
+        if self.takes_input() && mouse_modes(mode).any() && !ev.modifiers.shift {
             if let Some(b) = btn {
                 let m = MouseMods { shift: false, alt: ev.modifiers.alt, ctrl: ev.modifiers.control };
                 if let Some(bytes) = mouse::encode_mouse(MouseAction::Press(b), col, row, m, mouse_modes(mode)) {
-                    self.terminal.write(&bytes);
+                    self.write_program(&bytes);
                 }
                 self.drag = Drag::Report(b);
                 self.last_report_cell = Some((col, row));
@@ -853,7 +879,7 @@ impl TerminalView {
         }
         let mode = self.terminal.mode();
         let mm = mouse_modes(mode);
-        if mm.any() && !ev.modifiers.shift && hovered {
+        if self.takes_input() && mm.any() && !ev.modifiers.shift && hovered {
             let (col, row, _) = layout.cell_at(ev.position);
             if self.last_report_cell != Some((col, row)) {
                 self.last_report_cell = Some((col, row));
@@ -863,7 +889,7 @@ impl TerminalView {
                 };
                 let m = MouseMods { shift: false, alt: ev.modifiers.alt, ctrl: ev.modifiers.control };
                 if let Some(bytes) = mouse::encode_mouse(MouseAction::Motion(held), col, row, m, mm) {
-                    self.terminal.write(&bytes);
+                    self.write_program(&bytes);
                 }
             }
         }
@@ -887,7 +913,7 @@ impl TerminalView {
                 let mode = self.terminal.mode();
                 let m = MouseMods { shift: false, alt: ev.modifiers.alt, ctrl: ev.modifiers.control };
                 if let Some(bytes) = mouse::encode_mouse(MouseAction::Release(b), col, row, m, mouse_modes(mode)) {
-                    self.terminal.write(&bytes);
+                    self.write_program(&bytes);
                 }
             }
             Drag::Select if button == MouseButton::Left => {

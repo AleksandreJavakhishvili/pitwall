@@ -442,8 +442,9 @@ impl Element for TermElement {
         let mut cache = self.cache.borrow_mut();
         let base = cache.metrics(&self.params.font, self.params.font.size, window, cx);
 
-        // Size: interactive views size the terminal to fit; tiles show it at
-        // its own size, scaled to the tile width, bottom rows first.
+        // Size: interactive views size the terminal to fit; tiles and
+        // mirrors show it at its own size, scaled to the width, bottom rows
+        // first.
         let metrics = match self.params.mode {
             ViewMode::Interactive => {
                 let usable_w = inner_w - if self.params.reserve_scrollbar { SCROLLBAR_W } else { 0.0 };
@@ -452,10 +453,11 @@ impl Element for TermElement {
                 self.terminal.resize(TermSize { cols, rows, cell_width: base.cell_w, cell_height: base.cell_h });
                 base
             }
-            ViewMode::Tile { min_scale } => {
+            ViewMode::Tile { min_scale } | ViewMode::Mirror { min_scale } => {
                 let size = self.terminal.size();
                 let natural_w = base.cell_w * size.cols as f32;
-                let s = (inner_w / natural_w).clamp(min_scale, 1.0);
+                let usable_w = inner_w - if self.params.reserve_scrollbar { SCROLLBAR_W } else { 0.0 };
+                let s = (usable_w / natural_w).clamp(min_scale, 1.0);
                 // Quantised so tiles share glyph atlas entries.
                 let fs = ((self.params.font.size * s) * 4.0).round() / 4.0;
                 if (fs - self.params.font.size).abs() < 0.01 {
@@ -599,8 +601,7 @@ impl Element for TermElement {
             history,
         };
         *self.layout.borrow_mut() = layout;
-        let scrollbar =
-            if self.params.show_scrollbar && interactive { layout.scrollbar().map(|(_, thumb)| thumb) } else { None };
+        let scrollbar = if self.params.show_scrollbar { layout.scrollbar().map(|(_, thumb)| thumb) } else { None };
 
         Prepaint {
             hitbox,

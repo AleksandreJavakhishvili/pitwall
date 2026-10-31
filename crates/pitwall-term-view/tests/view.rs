@@ -48,6 +48,84 @@ fn open(
     (view, terminal, rec, cx)
 }
 
+/// A [`ViewMode::Mirror`] view of an 80×24 terminal whose program is
+/// elsewhere.
+fn open_mirror(cx: &mut TestAppContext) -> (Entity<TerminalView>, Terminal, Recorder, &mut VisualTestContext) {
+    cx.update(|cx| cx.bind_keys(default_key_bindings()));
+    let rec = Recorder::default();
+    let terminal = Terminal::new(rec.clone(), TermSize::new(80, 24), TerminalConfig::default());
+    let t = terminal.clone();
+    let (view, cx) = cx.add_window_view(|window, cx| {
+        TerminalView::new(t, ViewMode::Mirror { min_scale: 0.5 }, ViewSettings::default(), window, cx)
+    });
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    (view, terminal, rec, cx)
+}
+
+#[gpui::test]
+fn a_mirror_sends_the_program_nothing(cx: &mut TestAppContext) {
+    let (view, t, rec, cx) = open_mirror(cx);
+    // Programs that ask for focus, mouse and bracketed paste reports.
+    t.feed().push(b"\x1b[?1004h\x1b[?1000h\x1b[?1006h\x1b[?2004h$ ");
+    cx.run_until_parked();
+    cx.update(|window, _| window.blur());
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.simulate_input("ls");
+    cx.simulate_keystrokes("enter ctrl-c up escape");
+    cx.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("rm -rf ~".into())));
+    cx.simulate_keystrokes("cmd-v cmd-k");
+    let at = center(&view, cx, 2, 1);
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: at,
+        delta: gpui::ScrollDelta::Lines(gpui::point(0.0, -2.0)),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    // (The parser's answers to queries go to the stream as ever: a
+    // mirror's stream has nowhere to send them.)
+    assert_eq!(rec.take(), "", "no keys, paste, mouse or focus reports");
+    // A program elsewhere doesn't get this Mac's clipboard.
+    t.feed().push(b"\x1b]52;c;aGk=\x07");
+    cx.run_until_parked();
+    let clip = cx.update(|_, cx| cx.read_from_clipboard().and_then(|c| c.text()));
+    assert_eq!(clip.as_deref(), Some("rm -rf ~"));
+}
+
+#[gpui::test]
+fn a_mirror_keeps_the_sources_size_and_selects(cx: &mut TestAppContext) {
+    let (view, t, rec, cx) = open_mirror(cx);
+    t.feed().push(b"hello world");
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert_eq!((t.size().cols, t.size().rows), (80, 24), "never resized to the pane");
+    assert!(rec.sizes.lock().unwrap().is_empty());
+    // The source resizes: the mirror follows (through its stream's owner).
+    t.feed().terminal().unwrap().resize(TermSize::new(100, 30));
+    cx.run_until_parked();
+    assert_eq!((t.size().cols, t.size().rows), (100, 30));
+    // Selection and copy work.
+    let first = view.read_with(cx, |v, _| v.cell_bounds(0, 0));
+    let a = gpui::point(first.left() + gpui::px(1.0), first.center().y);
+    let b = center(&view, cx, 4, 0);
+    cx.simulate_mouse_down(a, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(b, Some(gpui::MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_up(b, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_keystrokes("cmd-c");
+    let text = cx.update(|_, cx| cx.read_from_clipboard().and_then(|c| c.text())).unwrap();
+    assert_eq!(text, "hello");
+    // Starting over clears it.
+    t.feed().reset();
+    t.feed().push(b"fresh");
+    cx.run_until_parked();
+    cx.simulate_keystrokes("cmd-a cmd-c");
+    let text = cx.update(|_, cx| cx.read_from_clipboard().and_then(|c| c.text())).unwrap();
+    assert_eq!(text.trim_end(), "fresh");
+}
+
 #[gpui::test]
 fn typing_and_keys_reach_the_program(cx: &mut TestAppContext) {
     let (_view, _t, rec, cx) = open(cx, ViewSettings::default());
