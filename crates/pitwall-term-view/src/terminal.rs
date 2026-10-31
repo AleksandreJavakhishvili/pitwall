@@ -359,6 +359,18 @@ impl Feed {
         shared.io.wake();
     }
 
+    /// The terminal, while it exists: for a stream that also says what
+    /// size the terminal is (a view-only mirror of a terminal elsewhere).
+    pub fn terminal(&self) -> Option<Terminal> {
+        self.shared.upgrade().map(|shared| Terminal { shared })
+    }
+
+    /// Start over: the screen, its modes and the scrollback cleared (a
+    /// mirror about to get a fresh snapshot).
+    pub fn reset(&self) {
+        self.push(b"\x1bc\x1b[3J");
+    }
+
     /// This terminal as its agent's screen for the engine
     /// ([`TerminalScreen`]).
     pub fn screen_source(&self) -> TerminalScreen {
