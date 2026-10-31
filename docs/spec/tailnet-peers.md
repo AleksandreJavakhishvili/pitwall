@@ -74,7 +74,7 @@ Where it lives:
 |---|---|
 | Wire shapes: `peerHello`/`peerWelcome`, `peer.auth`, `peer.ping`, `LinkView`, `MachineView.link`, `PEER_PORT`, `PEER_MAX_FRAME`, `frame::read_max` | `pitwall-proto::peer` |
 | Which methods a peer may call | `pitwall-daemon::methods::PEER_METHODS`; topics through `events::topics` as any non-UI caller |
-| `Tailnet` trait, `TailscaleCli` (the `tailscale` CLI, cached: status 5 s, whois 60 s), `FakeTailnet` (feature `testing`) | `pitwall-peer::tailnet`, `::fake` |
+| `Tailnet` trait, `TailscaleCli` (the `tailscale` CLI, cached: status 5 s, whois 60 s; run with `TERM=dumb` when unset, or the standalone macOS binary takes an app opened from the Dock for its GUI and prints no JSON), `FakeTailnet` (feature `testing`) | `pitwall-peer::tailnet`, `::fake` |
 | Instance key (`ring`'s Ed25519, already in the tree) | `pitwall-peer::key` |
 | Settings, pairings, audit log | `pitwall-peer::store` |
 | Listener: bind, accept checks, handshake, View-only dispatch, limits | `pitwall-peer::server` (`Feed`: the engine's views and the events `Hub`) |
@@ -127,9 +127,13 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   logged out, userspace networking, and no other machines of this user);
   "Let my other machines see this Mac's agents" (share, with where it
   listens or why not) and "Show my other machines' agents" (show); the
-  port (≥ 1024, the same on every machine); while showing, "Your machines"
-  (discovery, with Pair and "Look again"); "Shown here" (paired, link,
-  agent count, Unpair, "Pair again" after an identity change); "Can see
+  port (≥ 1024, the same on every machine); "Machines": one list, this Mac
+  first (shared on which address, or why it isn't listening), then every
+  machine of this user Tailscale lists, online first, plus paired ones it
+  no longer lists, each with a green or grey dot and what is known in one
+  line (online · OS · its Pitwall and agents · paired, link), and Pair,
+  "Pair again" after an identity change, or Unpair; Refresh asks Tailscale
+  again (not its cached status) and probes again while showing; "Can see
   this Mac" (viewers, Revoke: disconnects now); recent activity (audit).
 - **Offers.** No probing while showing is off. While it is off and
   Tailscale lists other machines of this user, the sidebar shows one card:

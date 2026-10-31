@@ -313,6 +313,17 @@ impl PeersModel {
         task.detach();
     }
 
+    /// Settings → Peers' Refresh: ask Tailscale now (not its cached
+    /// status), then look for the machines' Pitwall again while showing.
+    pub fn refresh_now(&mut self, cx: &mut Context<Self>) {
+        self.tailnet.forget();
+        self.probed.clear();
+        if self.settings.show {
+            self.found = None;
+        }
+        self.check(cx);
+    }
+
     /// Look for the user's machines running a Pitwall that shares (probes
     /// each online one; the backend refuses while showing is off). `offer`:
     /// new ones get their one offer.
