@@ -9,6 +9,18 @@
 //! → {"id":2,"method":"events.subscribe","params":{"topics":["agents","attention","blocked"]}}
 //! ```
 //!
+//! An agent's terminal, view-only, on a connection of its own:
+//!
+//! ```text
+//! → {"id":2,"method":"term.watch","params":{"agentId":"a1"}}
+//! ← {"id":2,"result":{"stream":1,"cols":120,"rows":40}}
+//! ← {"event":"term.reset","data":{"stream":1,"cols":120,"rows":40}}
+//! ← [type 1, stream 1] the screen and scrollback so far, in ≤ 64 KiB pieces
+//! ← [type 1, stream 1] live output…
+//! ← {"event":"term.resized","data":{"stream":1,"cols":100,"rows":30}}
+//! ← {"event":"term.ended","data":{"stream":1,"reason":"exited"}}
+//! ```
+//!
 //! A probe stops after the welcome: an unpaired caller learns the version,
 //! the machine's name, whether it may pair and how many agents run there,
 //! nothing else. Until `peer.auth` succeeds every other method is `denied`.
@@ -26,7 +38,8 @@ pub const PEER_PORT: u16 = 47420;
 /// Larger frames from a peer are a protocol error (tailnet-peers.md §5).
 pub const PEER_MAX_FRAME: u32 = 4 * 1024 * 1024;
 
-/// The only access level in v1: list, status and attention.
+/// The only access level in v1: list, status, attention and view-only
+/// terminal streams.
 pub const PERMS_VIEW: &str = "view";
 
 /// `peer.auth`: [`PeerAuth`] → [`PeerAuthed`].
@@ -34,6 +47,80 @@ pub const PEER_AUTH: &str = "peer.auth";
 /// `peer.ping` → `null`: the viewer's keep-alive (every 15 s; a link with
 /// no frame for 45 s is gone).
 pub const PEER_PING: &str = "peer.ping";
+
+/// `term.watch`: [`TermWatch`] → [`TermWatching`], then the agent's
+/// terminal on that stream, view-only: a [`TERM_RESET`] event and the
+/// snapshot as terminal frames (type 1), then live output as it comes,
+/// [`TERM_RESIZED`] when the source's size changes and [`TERM_ENDED`] when
+/// the stream stops. Terminal frames from the viewer are refused (the
+/// connection is closed): no input in View.
+pub const TERM_WATCH: &str = "term.watch";
+/// `term.unwatch`: [`TermUnwatch`] → `null`.
+pub const TERM_UNWATCH: &str = "term.unwatch";
+/// Event [`TermScreen`]: start over at this size; the snapshot follows
+/// (sent first, and again after the viewer fell behind or the agent
+/// restarted).
+pub const TERM_RESET: &str = "term.reset";
+/// Event [`TermScreen`]: the source's terminal is this size now.
+pub const TERM_RESIZED: &str = "term.resized";
+/// Event [`TermEnded`]: nothing more comes on the stream.
+pub const TERM_ENDED: &str = "term.ended";
+/// Terminal frames from the listener carry at most this many bytes.
+pub const TERM_CHUNK: usize = 64 * 1024;
+/// Streams one connection may watch at once.
+pub const MAX_WATCHES: usize = 4;
+
+/// `term.watch` params: one of the agents `agent.list` lists (the
+/// listener's own id, not the viewer's `peer:<peer>:<id>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TermWatch {
+    pub agent_id: String,
+}
+
+/// `term.watch` result: the stream id its terminal frames carry, and the
+/// source's size now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TermWatching {
+    pub stream: u32,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TermUnwatch {
+    pub stream: u32,
+}
+
+/// [`TERM_RESET`] and [`TERM_RESIZED`]: the source's size. The viewer
+/// renders at it and never resizes the source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TermScreen {
+    pub stream: u32,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// Why a watched stream stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TermEnd {
+    /// The program exited.
+    Exited,
+    /// The agent is no longer attached (stopped, or its machine went away).
+    Stopped,
+    /// The agent is no longer listed.
+    Gone,
+    /// The viewer asked (`term.unwatch`).
+    Unwatched,
+}
+
+/// [`TERM_ENDED`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct TermEnded {
+    pub stream: u32,
+    pub reason: TermEnd,
+}
 
 /// Error code: the peer's machine, Tailscale user or Pitwall key isn't the
 /// one paired ("pair again").
@@ -190,6 +277,18 @@ mod tests {
         round_trip(&authed, json!({"key":"ed25519:k2","sig":"ed25519:s2","label":"studio","perms":"view"}));
         let link = LinkView { peer: "studio".into(), state: LinkState::IdentityChanged, since: 5, last_seen: None };
         round_trip(&link, json!({"peer":"studio","state":"identityChanged","since":5}));
+    }
+
+    #[test]
+    fn term_watch_golden_json() {
+        round_trip(&TermWatch { agent_id: "a1".into() }, json!({"agentId":"a1"}));
+        round_trip(&TermWatching { stream: 1, cols: 120, rows: 40 }, json!({"stream":1,"cols":120,"rows":40}));
+        round_trip(&TermUnwatch { stream: 1 }, json!({"stream":1}));
+        round_trip(&TermScreen { stream: 2, cols: 80, rows: 24 }, json!({"stream":2,"cols":80,"rows":24}));
+        round_trip(&TermEnded { stream: 2, reason: TermEnd::Exited }, json!({"stream":2,"reason":"exited"}));
+        round_trip(&TermEnded { stream: 3, reason: TermEnd::Unwatched }, json!({"stream":3,"reason":"unwatched"}));
+        // A chunk and its header fit a peer frame many times over.
+        assert!(TERM_CHUNK as u32 + 9 < PEER_MAX_FRAME);
     }
 
     #[test]

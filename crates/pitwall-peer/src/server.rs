@@ -13,27 +13,32 @@
 //!   node, user and key it paired with; a new one is paired when it asks
 //!   (no code: same user, and this side opted in). We sign its nonce back.
 //! - After that, View only: `agent.list`, `events.subscribe` (agents,
-//!   attention, blocked) and `peer.ping`. Everything else is `denied`.
+//!   attention, blocked), `term.watch` / `term.unwatch` (an agent's
+//!   terminal, view-only: [`crate::watch`]) and `peer.ping`. Everything
+//!   else is `denied`, and terminal data from the viewer (input) closes
+//!   the connection.
 //!
 //! Connections, pairings and refusals go to the audit log. One thread
 //! accepts per address and one runs each connection (no async runtime).
 
 use std::collections::HashMap;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use pitwall_core::engine::input;
+use pitwall_core::term::TermHost;
 use pitwall_core::Shared;
 use pitwall_daemon::events::{self, Hub, Queue};
 use pitwall_daemon::methods::peer_access;
 use pitwall_daemon::Caller;
-use pitwall_proto::frame;
+use pitwall_proto::frame::{self, Frame};
 use pitwall_proto::peer::{
-    transcript, Pairing, PeerAuth, PeerAuthed, PeerClientHello, PeerServerHello, PeerWelcome, Signer, IDENTITY_CHANGED, NOT_PAIRED, PEER_AUTH, PEER_PING,
-    PERMS_VIEW,
+    transcript, Pairing, PeerAuth, PeerAuthed, PeerClientHello, PeerServerHello, PeerWelcome, Signer, TermUnwatch, TermWatch, TermWatching, IDENTITY_CHANGED,
+    NOT_PAIRED, PEER_AUTH, PEER_MAX_FRAME, PEER_PING, PERMS_VIEW, TERM_UNWATCH, TERM_WATCH,
 };
 use pitwall_proto::{code, method, AgentView, ErrorBody, EventsSubscribe, EventsSubscribed, Range, Reject, Request, Response, ServerMsg};
 use serde_json::Value;
@@ -42,6 +47,7 @@ use crate::dial::read_json;
 use crate::key::{self, InstanceKey};
 use crate::store::{AuditEntry, Paired};
 use crate::tailnet::WhoIs;
+use crate::watch::{Viewer, Watches, Writer};
 use crate::{lock, now_ms, Ctx, PeerEvent};
 
 /// This Pitwall's agents, as the listener serves them: its engine's own
@@ -55,6 +61,11 @@ pub trait Feed: Send + Sync {
     /// them (its own account ids mean nothing here).
     fn account_names(&self) -> HashMap<String, String> {
         HashMap::new()
+    }
+    /// Agent `agent_id`'s terminal while it is attached (`term.watch`).
+    /// Whatever the agent is: Pitwall hosts every terminal the same way.
+    fn terminal(&self, _agent_id: &str) -> Option<Arc<TermHost>> {
+        None
     }
 }
 
@@ -100,6 +111,10 @@ impl Feed for EngineFeed {
     fn account_names(&self) -> HashMap<String, String> {
         let list = pitwall_core::accounts::Accounts::load(self.engine.paths());
         list.accounts.into_iter().map(|a| (a.id, a.name)).collect()
+    }
+
+    fn terminal(&self, agent_id: &str) -> Option<Arc<TermHost>> {
+        input::terminal(&self.engine, agent_id)
     }
 }
 
@@ -354,7 +369,18 @@ impl Inner {
             let Ok(clone) = stream.try_clone() else { return };
             conns.push(Conn { id, node: node.clone(), viewer: None, stream: clone });
         }
-        let mut session = Session { inner: &self, conn: id, peer, local, who, my_label: me.label(), nonce: key::nonce(), viewer: None, sub: Subscription::default() };
+        let mut session = Session {
+            inner: &self,
+            conn: id,
+            peer,
+            local,
+            who,
+            my_label: me.label(),
+            nonce: key::nonce(),
+            viewer: None,
+            sub: Subscription::default(),
+            watches: Watches::default(),
+        };
         let _ = session.run(stream);
         lock(&self.conns).retain(|c| c.id != id);
     }
@@ -372,8 +398,6 @@ impl Inner {
     }
 }
 
-type Writer = Arc<Mutex<BufWriter<TcpStream>>>;
-
 /// One authenticated (or not yet) connection.
 struct Session<'a> {
     inner: &'a Inner,
@@ -386,6 +410,8 @@ struct Session<'a> {
     /// The viewer's record once `peer.auth` succeeded.
     viewer: Option<Paired>,
     sub: Subscription,
+    /// Terminals it watches (after `sub`: dropped, they stop, quietly).
+    watches: Watches,
 }
 
 fn denied(msg: impl Into<String>) -> ErrorBody {
@@ -396,6 +422,8 @@ impl Session<'_> {
     fn run(&mut self, stream: TcpStream) -> std::io::Result<()> {
         let ctx = &self.inner.ctx;
         stream.set_read_timeout(Some(ctx.timing.hello))?;
+        // A viewer that stops reading doesn't hold a writer forever.
+        stream.set_write_timeout(Some(ctx.timing.dead_after))?;
         let _ = stream.set_nodelay(true);
         let mut reader = BufReader::new(stream.try_clone()?);
         let writer: Writer = Arc::new(Mutex::new(BufWriter::new(stream.try_clone()?)));
@@ -422,10 +450,15 @@ impl Session<'_> {
         frame::write_json(&mut *lock(&writer), &PeerServerHello::PeerWelcome(welcome))?;
         let mut bucket = Bucket::new(ctx.limits.requests_per_sec, ctx.limits.burst);
         loop {
-            let req = match read_json::<Request>(&mut reader) {
-                Ok(Some(r)) => r,
+            let req = match read_request(&mut reader) {
+                Ok(Incoming::Request(r)) => r,
+                Ok(Incoming::Input) => {
+                    // View only: nothing from the viewer reaches a terminal.
+                    self.audit_denied("terminal input", "view only");
+                    return Ok(());
+                }
                 // A probe ends here; so does a viewer that went quiet.
-                Ok(None) | Err(_) => return Ok(()),
+                Ok(Incoming::Closed) | Err(_) => return Ok(()),
             };
             if !bucket.take() {
                 frame::write_json(&mut *lock(&writer), &Response::err(req.id, ErrorBody::new(code::CONFLICT, "too many requests; slow down")))?;
@@ -445,6 +478,16 @@ impl Session<'_> {
             }
             // After the answer, so the viewer sees it before any event.
             self.sub.start(&writer, self.inner.feed.clone());
+            if let Some(v) = &self.viewer {
+                let viewer = Viewer {
+                    label: v.label.clone(),
+                    login: self.who.user_profile.login_name.clone(),
+                    node: self.who.node.stable_id.clone(),
+                    stable_id: v.stable_id.clone(),
+                    public_key: v.public_key.clone(),
+                };
+                self.watches.start_pending(&self.inner.ctx, &self.inner.feed, &writer, &viewer);
+            }
         }
     }
 
@@ -528,6 +571,11 @@ impl Session<'_> {
         }
         let res = match req.method.as_str() {
             PEER_PING => Ok(Value::Null),
+            TERM_WATCH => self.watch(req.params),
+            TERM_UNWATCH => serde_json::from_value::<TermUnwatch>(req.params)
+                .map_err(|e| ErrorBody::new(code::BAD_PARAMS, e.to_string()))
+                .and_then(|p| self.watches.remove(p.stream))
+                .map(|_| Value::Null),
             m if peer_access(m).is_none() => {
                 self.audit_denied(m, "view only");
                 Err(denied(format!("{m} isn't allowed from another machine (view only)")))
@@ -557,10 +605,47 @@ impl Session<'_> {
         serde_json::to_value(EventsSubscribed { topics: topics.iter().map(|t| t.to_string()).collect() }).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
     }
 
+    /// `term.watch`: one of the agents `agent.list` gives (its terminal,
+    /// whatever kind of agent or shell it is), view-only.
+    fn watch(&mut self, params: Value) -> Result<Value, ErrorBody> {
+        let p: TermWatch = serde_json::from_value(params).map_err(|e| ErrorBody::new(code::BAD_PARAMS, e.to_string()))?;
+        let feed = &self.inner.feed;
+        if !feed.views().iter().any(|a| a.id == p.agent_id) {
+            return Err(ErrorBody::new(code::NOT_FOUND, format!("no agent {} on {}", p.agent_id, self.my_label)));
+        }
+        let host = feed.terminal(&p.agent_id).ok_or_else(|| ErrorBody::new(code::NOT_RUNNING, format!("{} isn't running on {}", p.agent_id, self.my_label)))?;
+        let (cols, rows) = host.size();
+        let stream = self.watches.add(&p.agent_id, host)?;
+        serde_json::to_value(TermWatching { stream, cols, rows }).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+    }
+
     fn audit_denied(&self, m: &str, why: &str) {
         let label = self.viewer.as_ref().map(|v| v.label.clone()).unwrap_or_else(|| self.who.label());
         let e = AuditEntry::new("denied").peer(label).login(self.who.user_profile.login_name.clone()).node(self.who.node.stable_id.clone()).method(m).detail(why);
         self.inner.ctx.store.audit(e);
+    }
+}
+
+/// What a viewer sent.
+enum Incoming {
+    Request(Request),
+    /// Terminal data: input, which View doesn't allow.
+    Input,
+    Closed,
+}
+
+/// The next request, skipping frame types this side doesn't know; frames
+/// over `PEER_MAX_FRAME` and undecodable JSON are errors.
+fn read_request(r: &mut impl Read) -> std::io::Result<Incoming> {
+    loop {
+        match frame::read_max(r, PEER_MAX_FRAME)? {
+            Some(Frame::Json(body)) => {
+                return serde_json::from_slice(&body).map(Incoming::Request).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+            }
+            Some(Frame::Term { .. }) => return Ok(Incoming::Input),
+            Some(Frame::Unknown(_)) => continue,
+            None => return Ok(Incoming::Closed),
+        }
     }
 }
 

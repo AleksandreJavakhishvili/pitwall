@@ -39,6 +39,13 @@ pub fn mirrored_id(peer: &str, id: &str) -> String {
     format!("peer:{peer}:{id}")
 }
 
+/// A mirrored id back to its peer and the peer's own id for the agent
+/// (`peer:studio:a1` → `("studio", "a1")`).
+pub fn local_id(mirrored: &str) -> Option<(&str, &str)> {
+    let (peer, id) = mirrored.strip_prefix("peer:")?.split_once(':')?;
+    (!peer.is_empty() && !id.is_empty()).then_some((peer, id))
+}
+
 /// `view` from peer `peer` (named `label`) as the viewer shows it.
 pub fn mirrored(peer: &str, label: &str, link: &LinkView, mut view: AgentView) -> AgentView {
     view.id = mirrored_id(peer, &view.id);
@@ -377,13 +384,13 @@ impl Shared {
 }
 
 /// Pings a peer every `every` until dropped.
-struct Pinger {
+pub(crate) struct Pinger {
     stop: Arc<(Mutex<bool>, Condvar)>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Pinger {
-    fn start(stream: &TcpStream, every: std::time::Duration) -> Pinger {
+    pub(crate) fn start(stream: &TcpStream, every: std::time::Duration) -> Pinger {
         let stop = Arc::new((Mutex::new(false), Condvar::new()));
         let flag = stop.clone();
         let stream = stream.try_clone().ok();

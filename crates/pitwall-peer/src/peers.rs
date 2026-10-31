@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 use pitwall_proto::peer::{LinkState, LinkView, Pairing};
 use pitwall_proto::{code, AgentView, ErrorBody};
 
-use crate::link::{Link, Mirror};
+use crate::link::{local_id, Link, Mirror};
+use crate::viewer::{Ender, TermWatch, WatchSink};
 use crate::server::{Feed, Listener};
 use crate::store::{slug, AuditEntry, Paired, PeerSettings, Store};
 use crate::tailnet::{Node, Status, Tailnet, TailnetState};
@@ -117,6 +118,8 @@ pub struct Peers {
     feed: Option<Arc<dyn Feed>>,
     mirror: Arc<Mirror>,
     run: Mutex<Running>,
+    /// Open terminal watches, to end them with their peer.
+    watches: Mutex<Vec<Ender>>,
 }
 
 fn not_found(what: &str) -> ErrorBody {
@@ -138,7 +141,7 @@ impl Peers {
             timing: cfg.timing,
             limits: cfg.limits,
         });
-        Ok(Arc::new(Peers { ctx, feed: cfg.feed, mirror, run: Mutex::new(Running::default()) }))
+        Ok(Arc::new(Peers { ctx, feed: cfg.feed, mirror, run: Mutex::new(Running::default()), watches: Mutex::new(Vec::new()) }))
     }
 
     /// Run what the settings say: the listener while sharing, links while
@@ -156,6 +159,40 @@ impl Peers {
         let links = std::mem::take(&mut run.links);
         drop(run);
         drop(links);
+        self.end_watches(None, "Pitwall stopped showing other machines");
+    }
+
+    /// Watch a peer agent's terminal, view-only (`term.watch`): `id` is
+    /// the mirrored id (`peer:<peer>:<id>`). What comes goes to `sink`
+    /// ([`WatchEvent`](crate::WatchEvent)); dropping the watch closes it.
+    /// Works for any agent or shell the peer hosts: it streams the
+    /// terminal, not anything of the agent's.
+    pub fn watch(&self, id: &str, sink: Arc<dyn WatchSink>) -> Result<TermWatch, ErrorBody> {
+        let (peer, agent) = local_id(id).ok_or_else(|| not_found(&format!("{id} isn't another machine's agent")))?;
+        let s = self.settings();
+        if !s.show || !lock(&self.run).started {
+            return Err(ErrorBody::new(code::UNSUPPORTED, "turn on \"Show agents from my other machines\" first"));
+        }
+        let paired = self.ctx.store.pairings().peers.into_iter().find(|p| p.id == peer).ok_or_else(|| not_found(&format!("no paired machine {peer}")))?;
+        let w = TermWatch::start(self.ctx.clone(), paired, s.port, agent.to_string(), sink);
+        let mut watches = lock(&self.watches);
+        watches.retain(Ender::alive);
+        watches.push(w.ender());
+        Ok(w)
+    }
+
+    /// End open watches (of `peer`, or all), telling each `why`.
+    fn end_watches(&self, peer: Option<&str>, why: &str) {
+        let ending: Vec<Ender> = {
+            let mut watches = lock(&self.watches);
+            watches.retain(Ender::alive);
+            let (end, keep) = std::mem::take(&mut *watches).into_iter().partition(|w| peer.is_none() || w.peer().as_deref() == peer);
+            *watches = keep;
+            end
+        };
+        for w in ending {
+            w.end(why);
+        }
     }
 
     pub fn settings(&self) -> PeerSettings {
@@ -187,9 +224,11 @@ impl Peers {
         let want: Vec<Paired> = if s.show { self.ctx.store.pairings().peers } else { Vec::new() };
         let gone: Vec<String> = run.links.keys().filter(|id| !want.iter().any(|p| &p.id == *id)).cloned().collect();
         let mut stopped = Vec::new();
+        let mut unwatched = Vec::new();
         for id in gone {
             stopped.extend(run.links.remove(&id));
             self.mirror.remove(&id);
+            unwatched.push(id);
         }
         for p in want {
             if !run.links.contains_key(&p.id) {
@@ -199,6 +238,9 @@ impl Peers {
         }
         drop(run);
         drop(stopped);
+        for id in unwatched {
+            self.end_watches(Some(&id), "no longer shown here");
+        }
     }
 
     /// Apply what another process (`pitwall peers set / pair / unpair /
@@ -358,6 +400,7 @@ impl Peers {
         let link = lock(&self.run).links.remove(&p.id);
         drop(link);
         self.mirror.remove(&p.id);
+        self.end_watches(Some(&p.id), &format!("{} was unpaired", p.label));
         self.ctx.sink.emit(PeerEvent::PairingsChanged);
         Ok(p)
     }
