@@ -643,10 +643,11 @@ impl MainScreen {
                         .min_h_0()
                         .flex()
                         .map(|d| {
-                            // Another machine's agent: its terminal stays
-                            // there; what is known of it, read-only.
+                            // Another machine's agent: its terminal, live
+                            // and view-only (peer_term.rs).
                             if crate::agents::mirrored(a) {
-                                return d.child(super::peers::remote_details(a, t));
+                                let ids: Vec<String> = self.store.read(cx).agents.iter().map(|a| a.id.clone()).collect();
+                                return d.child(super::peer_term::pane(a, self.tile_font(&a.id), &ids, window, cx));
                             }
                             d.child(terminal_element(
                                 a,
