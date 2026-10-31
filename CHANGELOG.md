@@ -2,6 +2,15 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Watch another machine's agent live: open one of your other Mac's agents and its terminal streams in, colours, scrollback and all, following the theme and your tile font. View only: nothing you type reaches it. Works for every agent kind (Claude Code, Codex, any terminal), since it is the terminal itself that streams. Both Macs need this version.
+- The sidebar groups by machine, then account and project, then agent, once agents run on more than one machine. Each machine has a badge with how it is doing (this Mac, an agw machine, or another Mac: connected, offline · last seen…, view only), needs-you and agent counts, and folds. Another Mac's agents sit under its own accounts, by their names, with an eye on each row. The icon rail on narrow windows groups the same way. With only this Mac, the sidebar looks as before.
+- Settings → Peers lists all your machines in one place, this Mac included, with Pair, Pair again and Unpair, and a Refresh button to look again.
+- Fixed: Pitwall opened from the Dock couldn't reach the Tailscale CLI ("Not listening"), so it never found your other machines.
+
 ## [0.3.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.3.0) - 2026-10-30
 
 ### Highlights
