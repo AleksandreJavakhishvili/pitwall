@@ -1,20 +1,21 @@
 //! Settings → Peers (docs/spec/tailnet-peers.md): the user's other
 //! machines over Tailscale. The two switches ("Let my other machines see
-//! this Mac's agents", "Show my other machines' agents") and the port;
-//! machines found running a Pitwall that shares, with Pair; paired machines
-//! with their link and Unpair; machines watching this one with Revoke; the
-//! recent audit log. All of it is [`crate::peers::PeersModel`]; changes the
+//! this Mac's agents", "Show my other machines' agents") and the port; one
+//! list of the user's machines (this Mac first): online or not, its
+//! Pitwall, the pairing and its link, with Pair / Pair again / Unpair, and
+//! Refresh to ask Tailscale and the machines again; machines watching this
+//! one with Revoke; the recent audit log. All of it is [`crate::peers::PeersModel`]; changes the
 //! `pitwall peers` CLI makes show up here live.
 
 use gpui::{div, prelude::*, px, Context, Div, Entity, SharedString, Subscription};
 
-use pitwall_peer::{Candidate, PeerSettings, Probe, TailnetState};
+use pitwall_peer::{Candidate, PeerEntry, PeerSettings, Probe, TailnetState};
 use pitwall_proto::peer::LinkState;
 
 use super::view::SettingsView;
 use super::widgets::Ui;
 use crate::kit::{tooltip, BtnKind, InputEvent, TextInput, Tone};
-use crate::peers::{ago, link_text, now_ms, PeersModel};
+use crate::peers::{ago, link_text, now_ms, Machine, PeersModel};
 
 /// The page's own state.
 #[derive(Default)]
@@ -51,6 +52,69 @@ pub fn found_words(c: &Candidate) -> String {
     }
 }
 
+/// One machine in the list: Tailscale's word on it, its Pitwall (what a
+/// probe found) and this Mac's pairing with it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MachineRow {
+    pub stable_id: String,
+    pub label: String,
+    /// `None`: Tailscale doesn't list it (any more).
+    pub online: Option<bool>,
+    /// What it is, in words: "online · macOS · Pitwall 0.2.1 · 2 agents".
+    pub words: String,
+    pub entry: Option<PeerEntry>,
+    /// Found running a Pitwall that shares, not paired yet.
+    pub can_pair: bool,
+}
+
+/// The user's machines, from Tailscale's status (online first), then
+/// paired or found ones it no longer lists. `show`: discovery may run (off,
+/// nothing is probed, so their Pitwall is unknown).
+pub fn machine_rows(machines: &[Machine], found: Option<&[Candidate]>, entries: &[PeerEntry], show: bool, now: u64) -> Vec<MachineRow> {
+    let found = found.unwrap_or_default();
+    let mut ids: Vec<(String, String, Option<bool>)> = machines.iter().map(|m| (m.stable_id.clone(), m.label.clone(), Some(m.online))).collect();
+    for (id, label) in entries.iter().map(|e| (&e.paired.stable_id, &e.paired.label)).chain(found.iter().map(|c| (&c.stable_id, &c.label))) {
+        if !ids.iter().any(|(i, ..)| i == id) {
+            ids.push((id.clone(), label.clone(), None));
+        }
+    }
+    ids.into_iter()
+        .map(|(stable_id, label, online)| {
+            let cand = found.iter().find(|c| c.stable_id == stable_id);
+            let entry = entries.iter().find(|e| e.paired.stable_id == stable_id).cloned();
+            let mut words: Vec<String> = Vec::new();
+            match online.or(cand.map(|c| c.online)) {
+                Some(true) => words.push("online".into()),
+                Some(false) => words.push("offline".into()),
+                None => words.push("not on Tailscale".into()),
+            }
+            if let Some(c) = cand.filter(|c| !c.os.is_empty()) {
+                words.push(c.os.clone());
+            }
+            match (&entry, cand) {
+                (Some(e), _) => {
+                    let agents = format!("{} agent{}", e.agents, if e.agents == 1 { "" } else { "s" });
+                    words.push(match &e.link {
+                        Some(l) => format!("{} · {agents}", link_text(l, now)),
+                        None => "paired · not shown (showing is off)".into(),
+                    });
+                }
+                (None, Some(c)) if c.probe != Probe::NotProbed => {
+                    words.push(found_words(c));
+                    if matches!(c.probe, Probe::Pitwall { .. }) {
+                        words.push("not paired".into());
+                    }
+                }
+                (None, _) if !show => words.push("turn on “Show” to look for its Pitwall".into()),
+                (None, None) if online == Some(true) => words.push("checking for Pitwall…".into()),
+                _ => {}
+            }
+            let can_pair = entry.is_none() && matches!(cand.map(|c| &c.probe), Some(Probe::Pitwall { .. }));
+            MachineRow { stable_id, label, online, words: words.join(" · "), entry, can_pair }
+        })
+        .collect()
+}
+
 fn section() -> Div {
     div().flex().flex_col().gap(px(8.))
 }
@@ -73,6 +137,21 @@ fn machine_row(ui: &Ui, id: SharedString, name: String, sub: String) -> gpui::St
         .items_center()
         .gap(px(8.))
         .min_h(px(30.))
+        .child(div().flex_none().font_weight(crate::kit::WEIGHT_550).child(name))
+        .child(div().flex_1().min_w_0().child(crate::kit::hint(sub, &ui.t)))
+}
+
+/// A machine in the list: a dot (green online, grey not), its name, what's
+/// known, then its buttons.
+fn listed_row(ui: &Ui, id: SharedString, name: String, sub: String, online: bool) -> gpui::Stateful<Div> {
+    let dot = div().flex_none().size(px(7.)).rounded_full().bg(if online { ui.t.green } else { ui.t.text_4 });
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .min_h(px(30.))
+        .child(dot)
         .child(div().flex_none().font_weight(crate::kit::WEIGHT_550).child(name))
         .child(div().flex_1().min_w_0().child(crate::kit::hint(sub, &ui.t)))
 }
@@ -140,11 +219,6 @@ impl SettingsView {
         }));
         if let Some(words) = info.as_ref().and_then(|i| tailnet_words(i.state)) {
             ts = ts.child(div().id("peers-tailnet-empty").debug_selector(|| "peers-tailnet-empty".into()).child(crate::kit::muted(words, t)));
-        } else if info.is_some() && machines.is_empty() {
-            ts = ts.child(div().id("peers-no-machines").debug_selector(|| "peers-no-machines".into()).child(crate::kit::muted(
-                "No other machines of yours are on this tailnet. Sign in to Tailscale with the same account on your other Mac to see its agents here.",
-                t,
-            )));
         }
         ts = ts.child(crate::kit::hint(
             "Only your own machines take part: the same Tailscale user, never tagged devices or other people's machines. Their agents are read-only here.",
@@ -218,86 +292,79 @@ impl SettingsView {
         }
         out.push(sw);
 
-        // Discovered machines.
-        if s.show {
-            let md = model.downgrade();
-            let mut sec = section().child(
-                head(ui, "Your machines").child(
-                    crate::kit::text_button("peers-discover", if discovering { "Looking…" } else { "Look again" }, BtnKind::GhostSm, discovering, t)
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            let _ = md.update(cx, |m, cx| m.discover(false, cx));
-                        })),
-                ),
-            );
-            if found.is_none() && !discovering {
-                model.update(cx, |m, cx| m.discover(false, cx));
-            }
-            match (&found, &discover_error) {
-                (_, Some(e)) => sec = sec.child(crate::kit::error_text(e.clone(), t)),
-                (None, None) => sec = sec.child(crate::kit::hint("Looking for your machines…", t)),
-                (Some(list), None) if list.is_empty() => {
-                    sec = sec.child(div().id("peers-found-empty").debug_selector(|| "peers-found-empty".into()).child(crate::kit::muted("No other machines of yours on Tailscale.", t)))
-                }
-                (Some(list), None) => {
-                    for (i, c) in list.iter().enumerate() {
-                        let mut r = machine_row(ui, SharedString::from(format!("peers-found-{i}")), c.label.clone(), found_words(c));
-                        let can_pair = matches!(c.probe, Probe::Pitwall { .. }) && c.paired.is_none();
-                        if c.paired.is_some() {
-                            r = r.child(crate::kit::chip_tone("paired", Tone::Ok, t));
-                        } else if can_pair {
-                            let (id, mm) = (c.stable_id.clone(), model.downgrade());
-                            let b = busy.contains(&c.stable_id);
-                            r = r.child(
-                                crate::kit::text_button(("peers-pair", i), if b { "Pairing…" } else { "Pair" }, BtnKind::Small, b, t)
-                                    .debug_selector(move || format!("peers-pair-{i}"))
-                                    .tooltip(tooltip("Show its agents here (read-only)"))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        let _ = mm.update(cx, |m, cx| m.pair(&id, cx));
-                                    })),
-                            );
-                        }
-                        sec = sec.child(r);
-                    }
-                    sec = sec.child(crate::kit::hint(
-                        "A machine shows up here once its Pitwall has “Let my other machines see this Mac's agents” on.",
-                        t,
-                    ));
-                }
-            }
-            out.push(sec);
-        }
-
-        // Paired machines.
-        let mut sec = section().child(head(ui, "Shown here"));
-        if entries.is_empty() {
-            sec = sec.child(div().id("peers-paired-empty").debug_selector(|| "peers-paired-empty".into()).child(crate::kit::hint("No paired machines.", t)));
-        }
-        for (i, e) in entries.iter().enumerate() {
-            let p = &e.paired;
-            let state = match &e.link {
-                Some(l) => link_text(l, now),
-                None => "not shown (showing is off)".into(),
-            };
-            let sub = format!("{state} · {} agent{}", e.agents, if e.agents == 1 { "" } else { "s" });
-            let (id, mm) = (p.id.clone(), model.downgrade());
-            let b = busy.contains(&p.id);
-            let mut r = machine_row(ui, SharedString::from(format!("peers-paired-{i}")), p.label.clone(), sub);
-            if e.link.as_ref().is_some_and(|l| l.state == LinkState::IdentityChanged) {
-                let (sid, mp) = (p.stable_id.clone(), model.downgrade());
-                r = r.child(
-                    crate::kit::text_button(("peers-repair", i), "Pair again", BtnKind::Small, b, t).on_click(cx.listener(move |_, _, _, cx| {
-                        let _ = mp.update(cx, |m, cx| m.pair(&sid, cx));
+        // The machines: this Mac, then the user's others.
+        let mr = model.downgrade();
+        let checking = discovering || info.is_none();
+        let mut sec = section().child(
+            head(ui, "Machines").child(
+                crate::kit::text_button("peers-refresh", if checking { "Checking…" } else { "Refresh" }, BtnKind::GhostSm, checking, t)
+                    .debug_selector(|| "peers-refresh".into())
+                    .tooltip(tooltip("Ask Tailscale again and look for your machines' Pitwall"))
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        let _ = mr.update(cx, |m, cx| m.refresh_now(cx));
                     })),
+            ),
+        );
+        if s.show && found.is_none() && !discovering {
+            model.update(cx, |m, cx| m.discover(false, cx));
+        }
+        let here = info.as_ref().and_then(|i| i.machine.clone()).unwrap_or_else(|| "This Mac".into());
+        let here_words = match (s.share, listening.is_empty(), &listen_error) {
+            (false, ..) => "this Mac · not shared".to_string(),
+            (true, false, _) => format!("this Mac · shared on {}", listening.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")),
+            (true, true, Some(e)) => format!("this Mac · not listening: {e}"),
+            (true, true, None) => "this Mac · starting…".to_string(),
+        };
+        let ready = info.as_ref().is_some_and(|i| i.state == TailnetState::Ready);
+        sec = sec.child(listed_row(ui, "peers-this-mac".into(), here, here_words, ready).debug_selector(|| "peers-this-mac".into()));
+        let rows = machine_rows(&machines, found.as_deref(), &entries, s.show, now);
+        if let Some(e) = &discover_error {
+            sec = sec.child(crate::kit::error_text(e.clone(), t));
+        }
+        for (i, r) in rows.iter().enumerate() {
+            let b = busy.contains(&r.stable_id) || r.entry.as_ref().is_some_and(|e| busy.contains(&e.paired.id));
+            let mut row = listed_row(ui, SharedString::from(format!("peers-machine-{i}")), r.label.clone(), r.words.clone(), r.online == Some(true))
+                .debug_selector(move || format!("peers-machine-{i}"));
+            if let Some(e) = &r.entry {
+                if e.link.as_ref().is_some_and(|l| l.state == LinkState::IdentityChanged) {
+                    let (sid, mp) = (e.paired.stable_id.clone(), model.downgrade());
+                    row = row.child(
+                        crate::kit::text_button(("peers-repair", i), "Pair again", BtnKind::Small, b, t).on_click(cx.listener(move |_, _, _, cx| {
+                            let _ = mp.update(cx, |m, cx| m.pair(&sid, cx));
+                        })),
+                    );
+                }
+                let (id, mm) = (e.paired.id.clone(), model.downgrade());
+                row = row.child(
+                    crate::kit::text_button(("peers-unpair", i), "Unpair", BtnKind::GhostSm, b, t)
+                        .tooltip(tooltip("Stop showing its agents and forget its key"))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let _ = mm.update(cx, |m, cx| m.unpair(&id, cx));
+                        })),
+                );
+            } else if r.can_pair {
+                let (id, mm) = (r.stable_id.clone(), model.downgrade());
+                row = row.child(
+                    crate::kit::text_button(("peers-pair", i), if b { "Pairing…" } else { "Pair" }, BtnKind::Small, b, t)
+                        .debug_selector(move || format!("peers-pair-{i}"))
+                        .tooltip(tooltip("Show its agents here (read-only)"))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let _ = mm.update(cx, |m, cx| m.pair(&id, cx));
+                        })),
                 );
             }
-            r = r.child(
-                crate::kit::text_button(("peers-unpair", i), "Unpair", BtnKind::GhostSm, b, t)
-                    .tooltip(tooltip("Stop showing its agents and forget its key"))
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        let _ = mm.update(cx, |m, cx| m.unpair(&id, cx));
-                    })),
-            );
-            sec = sec.child(r);
+            sec = sec.child(row);
+        }
+        if rows.is_empty() && ready {
+            sec = sec.child(div().id("peers-no-machines").debug_selector(|| "peers-no-machines".into()).child(crate::kit::muted(
+                "No other machines of yours are on this tailnet. Sign in to Tailscale with the same account on your other Mac to see its agents here.",
+                t,
+            )));
+        } else if !rows.is_empty() {
+            sec = sec.child(crate::kit::hint(
+                "A machine can be paired once its Pitwall has “Let my other machines see this Mac's agents” on.",
+                t,
+            ));
         }
         out.push(sec);
 
@@ -350,6 +417,59 @@ impl SettingsView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_machine_list_says_what_each_one_is() {
+        use pitwall_peer::Paired;
+        use pitwall_proto::peer::{LinkView, Pairing};
+        let machine = |id: &str, label: &str, online| Machine { stable_id: id.into(), label: label.into(), online };
+        let cand = |id: &str, label: &str, probe| Candidate {
+            stable_id: id.into(),
+            label: label.into(),
+            dns: format!("{label}.example.ts.net"),
+            os: "macOS".into(),
+            online: true,
+            paired: None,
+            probe,
+        };
+        let pitwall = Probe::Pitwall { version: "0.2.1".into(), label: "studio".into(), pairing: Pairing::Open, agents: 2 };
+        let machines = [machine("nS", "studio", true), machine("nA", "air", true), machine("nO", "old", false)];
+        // Showing off: nothing probed, Tailscale's word only.
+        let rows = machine_rows(&machines, None, &[], false, 0);
+        assert_eq!(rows.iter().map(|r| r.label.as_str()).collect::<Vec<_>>(), ["studio", "air", "old"]);
+        assert_eq!(rows[0].words, "online · turn on “Show” to look for its Pitwall");
+        assert_eq!(rows[2].words, "offline · turn on “Show” to look for its Pitwall");
+        assert!(!rows[0].can_pair);
+        // Showing: studio shares, air has no Pitwall, old wasn't probed.
+        let found = [cand("nS", "studio", pitwall), cand("nA", "air", Probe::NoAnswer { message: "refused".into() })];
+        let rows = machine_rows(&machines, Some(&found), &[], true, 0);
+        assert_eq!(rows[0].words, "online · macOS · Pitwall 0.2.1 · 2 agents · not paired");
+        assert!(rows[0].can_pair && !rows[1].can_pair);
+        assert_eq!(rows[1].words, "online · macOS · no Pitwall sharing there");
+        assert_eq!(rows[2].words, "offline");
+        // Paired: its link and agents; one Tailscale no longer lists stays.
+        let paired = |id: &str, label: &str, link| PeerEntry {
+            paired: Paired {
+                id: label.into(),
+                label: label.into(),
+                stable_id: id.into(),
+                login: "me@".into(),
+                public_key: "ed25519:x".into(),
+                added_at: 0,
+                last_seen: None,
+            },
+            link,
+            agents: 3,
+            blocked: 0,
+        };
+        let connected = LinkView { peer: "studio".into(), state: LinkState::Connected, since: 0, last_seen: None };
+        let entries = [paired("nS", "studio", Some(connected)), paired("nGone", "gone", None)];
+        let rows = machine_rows(&machines, Some(&found), &entries, true, 0);
+        assert_eq!(rows[0].words, "online · macOS · connected · 3 agents");
+        assert!(!rows[0].can_pair && rows[0].entry.is_some());
+        assert_eq!(rows[3].label, "gone");
+        assert_eq!(rows[3].words, "not on Tailscale · paired · not shown (showing is off)");
+    }
 
     #[test]
     fn ports_and_words() {
@@ -420,7 +540,8 @@ mod window_tests {
             assert!(m.machines.is_empty());
         });
         assert!(cx.debug_bounds("peers-no-machines").is_some(), "no other machines");
-        assert!(cx.debug_bounds("peers-paired-empty").is_some() && cx.debug_bounds("peers-viewers-empty").is_some());
+        assert!(cx.debug_bounds("peers-this-mac").is_some() && cx.debug_bounds("peers-viewers-empty").is_some());
+        assert!(cx.debug_bounds("peers-refresh").is_some(), "Refresh");
         let share = cx.debug_bounds("peers-share").expect("the share switch");
         cx.simulate_click(share.center(), Modifiers::none());
         frame(cx);
@@ -454,6 +575,7 @@ mod window_tests {
         });
         frame(cx);
         assert!(cx.debug_bounds("peers-pair-0").is_some(), "Pair for studio");
+        assert!(cx.debug_bounds("peers-machine-0").is_some(), "studio in the list");
         assert_eq!(found_words(&model.read_with(cx, |m, _| m.found.clone().unwrap())[0]), "Pitwall 0.2.1 · 2 agents");
     }
 }
