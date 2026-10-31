@@ -27,6 +27,7 @@ mod menu;
 pub mod model;
 mod panel;
 mod part;
+pub mod peer_term;
 mod peers;
 mod preview;
 mod sidebar;
