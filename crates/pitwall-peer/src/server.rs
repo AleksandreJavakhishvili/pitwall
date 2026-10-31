@@ -381,7 +381,13 @@ impl Inner {
             sub: Subscription::default(),
             watches: Watches::default(),
         };
+        let closer = stream.try_clone().ok();
         let _ = session.run(stream);
+        // Done reading: writers (events, watches) stop at once.
+        if let Some(c) = closer {
+            let _ = c.shutdown(Shutdown::Both);
+        }
+        drop(session);
         lock(&self.conns).retain(|c| c.id != id);
     }
 
