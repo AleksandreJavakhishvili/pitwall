@@ -121,9 +121,12 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   Mac first, then its agw machines, then peer Macs (a peer's VMs as
   `studio › vm-1`, right after it), each by name (`model::by_machine`,
   `by_machine_account`). This Mac alone has no machine level: the sidebar
-  is exactly as before. A machine's heading has its name and, for a peer,
-  a dot and the link in words (connected, connecting…, offline · last seen
-  5 min ago, identity changed · pair again), its ▲ and agent counts; it
+  is exactly as before. A machine's heading has a badge (a laptop for This
+  Mac and peers, a server for agw machines; a dot: green for This Mac, the
+  link's colour for a peer), its name and under it what it is ("this Mac",
+  "agw machine", or the link in words: connected, connecting…, offline ·
+  last seen 5 min ago, identity changed · pair again, then "· view only"),
+  its ▲ and agent counts; it
   folds like an account (`machine:<provider>:<id>` in `ui.json`'s
   `collapsed`; folded, one summary line). Inside, that machine's own
   accounts (grouped by account) or straight its projects (grouped by
@@ -137,6 +140,10 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   account), or the account of that name; an older peer that sends only an
   id puts them under one "Unnamed account". Never under one of this Mac's
   (`model::peer_account`; the row's account chip uses the name too).
+  Accounts show their initials ("Work Laptop" → WL; Default, a person).
+  A peer's agent rows carry an eye: view only, it runs on that machine.
+- **The icon rail** (narrow windows) groups the same way: each machine's
+  badge, with its name and link in the tooltip, above its agents.
 - **Read-only sections.** A peer's accounts and projects have no menus, no
   "+"/New agent, and are no drop targets; nothing is dragged into, out of
   or within a peer's section (its rows still drag into spaces). Drags
