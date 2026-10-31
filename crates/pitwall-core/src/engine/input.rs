@@ -12,6 +12,13 @@ pub fn attach_output(engine: &Engine, agent_id: &str, sink: OutputSink) -> Res<u
     Ok(engine.host(agent_id)?.attach(sink))
 }
 
+/// Agent `agent_id`'s terminal while it is attached, for a host that
+/// streams it elsewhere view-only (`TermHost::watch_output`; another
+/// machine's viewer). A restart makes a new one.
+pub fn terminal(engine: &Engine, agent_id: &str) -> Option<std::sync::Arc<crate::term::TermHost>> {
+    engine.with(agent_id, |a| a.host.clone()).ok().flatten()
+}
+
 pub fn detach_output(engine: &Engine, agent_id: &str, subscription_id: u64) {
     // Detaching from an agent that is gone or restarted is not an error.
     if let Ok(Some(host)) = engine.with(agent_id, |a| a.host.clone()) {
