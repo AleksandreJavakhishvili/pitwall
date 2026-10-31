@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.4.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.4.0) - 2026-10-31
 
 ### Highlights
 
@@ -10,6 +10,31 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - The sidebar groups by machine, then account and project, then agent, once agents run on more than one machine. Each machine has a badge with how it is doing (this Mac, an agw machine, or another Mac: connected, offline · last seen…, view only), needs-you and agent counts, and folds. Another Mac's agents sit under its own accounts, by their names, with an eye on each row. The icon rail on narrow windows groups the same way. With only this Mac, the sidebar looks as before.
 - Settings → Peers lists all your machines in one place, this Mac included, with Pair, Pair again and Unpair, and a Refresh button to look again.
 - Fixed: Pitwall opened from the Dock couldn't reach the Tailscale CLI ("Not listening"), so it never found your other machines.
+
+### Features
+
+- **app:** One list of your machines in settings, with refresh ([`768437f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/768437f01e6d8117e31f64c2b09967875989b7ca))
+- **core:** Name each agent's account for other machines ([`d4917a4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d4917a416343575557e760858d97361bc654b8ec))
+- **app:** Group the sidebar by machine, then account and project ([`f55732e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f55732e9d0421f7e5d9bbde67114f9a79cc6c3c0))
+- **core:** Watch a terminal's output without nudging it ([`64ea5e2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/64ea5e2f3140fabdde20f2c3d74748a6439a854b))
+- **core:** Stream a peer agent's terminal view-only over the tailnet ([`c00e49e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c00e49ec5994dca04f2d00861f3a425133b7095b))
+- **gpui:** A view-only mirror mode for terminals ([`f434ee4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f434ee4895c3678df08c4af3443599b998847142))
+- **app:** Show another machine's agent's terminal live, view-only ([`d1bd31f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d1bd31fccc1769aedc889303032f01cbc117c8c6))
+- **app:** A peer's terminal follows the theme and the tile font ([`df2bcc7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/df2bcc7f1166446f5c45275ab689e736385f8e8b))
+- **app:** Machine badges, account initials and view-only marks ([`7e85a22`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7e85a2222d5811fbd24060f9964626ad741f99c7))
+
+### Fixes
+
+- **core:** Reach the tailscale cli from an app opened from the dock ([`71532bc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/71532bc6c55e3e559c53449d99a551ca1adcd1f4))
+- **core:** Stop a peer connection's writers as soon as it ends ([`9a18c31`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9a18c31c6f9b073a58868782fd63c1e5a7a3a4df))
+
+### Documentation
+
+- The sidebar groups by machine, then account and project ([`4c982bd`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4c982bd9446f66887fdbfab225c60df5d6ab49ee))
+- Live peer terminals, view only ([`a0b1160`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a0b116081bc8a71de083302a075e53aada92591d))
+- Machine badges, account initials and the rail by machine ([`b5102fa`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b5102faf1cac252268a23303220d532ec17ae4bb))
+- Highlights for 0.4.0 ([`d1e9aa5`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d1e9aa599dcd586c42d20d2723e816d4f6d37ca3))
+
 
 ## [0.3.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.3.0) - 2026-10-30
 

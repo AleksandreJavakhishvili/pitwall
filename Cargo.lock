@@ -4238,7 +4238,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "block2",
  "chrono",
@@ -4308,7 +4308,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "pitwall-client",
@@ -4322,7 +4322,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-client"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "interprocess",
  "pitwall-proto",
@@ -4332,7 +4332,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "interprocess",
  "notify",
@@ -4350,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-daemon"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libc",
  "pitwall-client",
@@ -4364,7 +4364,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-detect"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alacritty_terminal",
  "regex",
@@ -4375,7 +4375,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-hold"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "interprocess",
  "libc",
@@ -4386,14 +4386,14 @@ dependencies = [
 
 [[package]]
 name = "pitwall-hook"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "interprocess",
 ]
 
 [[package]]
 name = "pitwall-peer"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64",
  "pitwall-core",
@@ -4406,7 +4406,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-proto"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4415,7 +4415,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-providers"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "pitwall-core",
  "pitwall-detect",
@@ -4425,7 +4425,7 @@ dependencies = [
 
 [[package]]
 name = "pitwall-term-view"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "alacritty_terminal",
  "futures",

@@ -1,6 +1,6 @@
 [package]
 name = "pitwall-peer"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Pitwall peers over Tailscale (docs/spec/tailnet-peers.md): see the agents of your other machines. The Tailnet (the `tailscale` CLI, or a fake in tests), the instance key and pairings, the listener on this node's Tailscale addresses, and links that mirror a peer's agents. Blocking and threaded, no async runtime."
 
