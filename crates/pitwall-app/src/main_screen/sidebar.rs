@@ -1,6 +1,8 @@
 //! The sidebar (React `Sidebar.tsx`, `AgentRow.tsx`, `RailItem.tsx`):
-//! agents grouped by machine and project (or by account, then project:
-//! Settings → General → Group agents by), in the order the user drags them
+//! agents grouped by machine, then project (or by machine, account, then
+//! project: Settings → General → Group agents by; the machine level only
+//! with 2+ machines or another machine's Pitwall), in the order the user
+//! drags them
 //! (accounts, projects, and agents within a project); collapsible groups
 //! with a summary; project "+" and right-click menus; agent context menu;
 //! ⌘1–9 hints; drag sources; ↑/↓/⏎ when it has keyboard focus; an icon
@@ -9,7 +11,8 @@
 //! Grouped by account, dropping an agent or a project on another account
 //! moves it there: its agents restart on that login at once, conversations
 //! with them (as the agent menu's "Run on account" and a project's
-//! Accounts…).
+//! Accounts…). Drags stay within one machine; another machine's Pitwall
+//! is read-only (nothing is dragged in, out or within it).
 
 use crate::kit::Ellipsis as _;
 use crate::kit::HoverText;
@@ -23,7 +26,10 @@ use pitwall_proto::{AgentView, Status};
 
 use crate::kit::{icon, InputEvent, TextInput, MONO_FONT};
 use super::menu::MenuItem;
-use super::model::{base_key, by_account, section_of, in_order, initials, machine_heading, reorder, summarize, with_projects, AccountSection};
+use super::model::{
+    base_key, by_machine, by_machine_account, in_order, initials, machine_level, reorder, section_of, summarize, with_paired, with_projects, AccountSection,
+    MachineSection,
+};
 use super::workspace::SidebarGroup;
 use crate::kit::keys;
 use super::topbar::{AgentDrag, AgentGhost};
@@ -49,37 +55,44 @@ impl MainScreen {
         in_order(with_projects(group_by_project(agents), &self.projects), &self.ui.sidebar_order)
     }
 
-    /// The sidebar grouped by account, in Settings → Agents → Accounts' order.
-    fn account_sections(&self, agents: &[AgentView], cx: &App) -> Vec<AccountSection> {
-        let mut sections = by_account(agents, &self.projects, &crate::accounts::ids(cx));
-        for s in &mut sections {
-            s.groups = in_order(std::mem::take(&mut s.groups), &self.ui.sidebar_order);
-        }
-        sections
+    /// The sidebar's machines: their projects, or their accounts (in
+    /// Settings → Agents → Accounts' order) and their projects, as dragged;
+    /// paired machines with nothing to show too.
+    pub(super) fn machine_sections(&self, agents: &[AgentView], cx: &App) -> Vec<MachineSection> {
+        let sections = match self.ui.sidebar_group {
+            SidebarGroup::Project => by_machine(self.sidebar_groups(agents)),
+            SidebarGroup::Account => {
+                let mut sections = by_machine_account(agents, &self.projects, &crate::accounts::ids(cx));
+                for s in sections.iter_mut().flat_map(|m| m.accounts.iter_mut()) {
+                    s.groups = in_order(std::mem::take(&mut s.groups), &self.ui.sidebar_order);
+                }
+                sections
+            }
+        };
+        let paired: Vec<_> = crate::peers::model(cx)
+            .map(|m| m.read(cx).entries.iter().filter_map(|e| Some((e.paired.id.clone(), e.paired.label.clone(), e.link.clone()?))).collect())
+            .unwrap_or_default();
+        with_paired(sections, &paired)
     }
 
     /// Every project group in sidebar order, folded ones too (⌘1–9).
     pub(super) fn sidebar_list(&self, agents: &[AgentView], cx: &App) -> Vec<ProjectGroup> {
-        match self.ui.sidebar_group {
-            SidebarGroup::Project => self.sidebar_groups(agents),
-            SidebarGroup::Account => self.account_sections(agents, cx).into_iter().flat_map(|s| s.groups).collect(),
-        }
+        self.machine_sections(agents, cx)
+            .into_iter()
+            .flat_map(|m| m.groups.into_iter().chain(m.accounts.into_iter().flat_map(|s| s.groups)))
+            .collect()
     }
 
     /// Agents in sidebar order, skipping collapsed groups (keyboard moves).
-    fn visible_rows(&self, agents: &[AgentView], cx: &App) -> Vec<String> {
-        let groups = match self.ui.sidebar_group {
-            SidebarGroup::Project => self.sidebar_groups(agents),
-            SidebarGroup::Account => self
-                .account_sections(agents, cx)
-                .into_iter()
-                .filter(|s| !self.ui.collapsed.contains(&s.key))
-                .flat_map(|s| s.groups)
-                .collect(),
-        };
-        groups
+    pub(super) fn visible_rows(&self, agents: &[AgentView], cx: &App) -> Vec<String> {
+        let sections = self.machine_sections(agents, cx);
+        let level = machine_level(&sections);
+        let open = |k: &String| !self.ui.collapsed.contains(k);
+        sections
             .into_iter()
-            .filter(|g| !self.ui.collapsed.contains(&g.key))
+            .filter(|m| !level || open(&m.key))
+            .flat_map(|m| m.groups.into_iter().chain(m.accounts.into_iter().filter(|s| open(&s.key)).flat_map(|s| s.groups)))
+            .filter(|g| open(&g.key))
             .flat_map(|g| g.agents.into_iter().map(|a| a.id))
             .collect()
     }
@@ -114,31 +127,53 @@ impl MainScreen {
         let kb = self.sidebar_focus.is_focused(window);
         let mut index = 0usize;
         let mut list: Vec<AnyElement> = Vec::new();
-        let any = match self.ui.sidebar_group {
-            SidebarGroup::Project => {
-                let groups = self.sidebar_groups(agents);
-                list.extend(self.render_groups(&groups, &mut index, &focused, kb, t, cx));
-                !groups.is_empty()
-            }
-            SidebarGroup::Account => {
-                let sections = self.account_sections(agents, cx);
-                for (si, sec) in sections.iter().enumerate() {
-                    let collapsed = self.ui.collapsed.contains(&sec.key);
-                    if si > 0 {
-                        list.push(div().h(px(6.)).flex_none().into_any_element());
-                    }
-                    list.push(self.account_head(sec, collapsed, t, cx).into_any_element());
-                    if !collapsed {
-                        // Its projects sit a step in, under the account.
-                        let rows = self.render_groups(&sec.groups, &mut index, &focused, kb, t, cx);
-                        list.push(div().pl(px(10.)).flex().flex_col().children(rows).into_any_element());
-                    }
+        let sections = self.machine_sections(agents, cx);
+        // This Mac alone: no machine level, as before there were others.
+        let level = machine_level(&sections);
+        for (mi, m) in sections.iter().enumerate() {
+            if level {
+                let collapsed = self.ui.collapsed.contains(&m.key);
+                if mi > 0 {
+                    list.push(div().h(px(8.)).flex_none().into_any_element());
                 }
-                !sections.is_empty()
+                list.push(self.machine_head(m, collapsed, t, cx));
+                let all = m.agents();
+                let quiet = if collapsed {
+                    index += all.len();
+                    (!all.is_empty()).then(|| summarize(&all))
+                } else if m.groups.is_empty() && m.accounts.is_empty() {
+                    // A paired machine with nothing to show.
+                    let connected = m.link.as_ref().is_some_and(|l| l.state == pitwall_proto::peer::LinkState::Connected);
+                    Some(if connected { "No agents running" } else { "Its agents show once it's reachable" }.to_string())
+                } else {
+                    None
+                };
+                if let Some(q) = quiet {
+                    list.push(div().pl(px(32.)).pr(px(14.)).pb(px(6.)).text_size(px(12.)).text_color(t.text_4).child(q).into_any_element());
+                }
+                if collapsed {
+                    continue;
+                }
             }
-        };
+            list.extend(self.render_groups(&m.groups, &mut index, &focused, kb, t, cx));
+            for (si, sec) in m.accounts.iter().enumerate() {
+                let collapsed = self.ui.collapsed.contains(&sec.key);
+                if si > 0 {
+                    list.push(div().h(px(6.)).flex_none().into_any_element());
+                }
+                list.push(self.account_head(sec, collapsed, m.home, t, cx).into_any_element());
+                if collapsed {
+                    index += sec.agents;
+                } else {
+                    // Its projects sit a step in, under the account.
+                    let rows = self.render_groups(&sec.groups, &mut index, &focused, kb, t, cx);
+                    list.push(div().pl(px(10.)).flex().flex_col().children(rows).into_any_element());
+                }
+            }
+        }
+        let any = !sections.is_empty();
         let mut elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
-        elsewhere.extend(self.render_peers(agents, t, cx));
+        elsewhere.extend(self.render_peers(t, cx));
         if any && !elsewhere.is_empty() {
             list.push(div().h(px(4.)).flex_none().into_any_element());
         }
@@ -276,10 +311,6 @@ impl MainScreen {
             if gi > 0 {
                 list.push(div().h(px(4.)).flex_none().into_any_element());
             }
-            if let Some(h) = machine_heading(groups, gi) {
-                let link = g.machine.as_ref().and_then(|m| m.link.as_ref());
-                list.push(super::peers::machine_heading(&h, link, t));
-            }
             list.push(self.project_head(g, collapsed, t, cx).into_any_element());
             if g.agents.is_empty() {
                 if !collapsed {
@@ -382,11 +413,13 @@ impl MainScreen {
             account: section_of(&g.key).map(String::from),
         };
         let mark = self.side_mark(&spot.key(), t, cx);
+        // Another machine's Pitwall: read-only, nothing is dragged.
+        let ro = g.machine.as_ref().is_some_and(|m| m.link.is_some());
         let el = div()
             .id(SharedString::from(format!("group-{}", g.key)))
             .group("project-head")
             .relative()
-            .on_drag(drag, |d, grab, _, cx| cx.new(|_| AgentGhost::named(d.name.clone(), grab)))
+            .when(!ro, |d| d.on_drag(drag, |d, grab, _, cx| cx.new(|_| AgentGhost::named(d.name.clone(), grab))))
             .flex()
             .items_center()
             .pl(px(8.))
@@ -516,15 +549,61 @@ impl MainScreen {
                     )
                 }
             });
+        if ro {
+            return el;
+        }
         self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
+    }
+
+    /// A machine's heading (2+ machines): its name, for another machine's
+    /// Pitwall how the link is, needs-you and agent counts; folds what is
+    /// on it.
+    fn machine_head(&self, m: &MachineSection, collapsed: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let key = m.key.clone();
+        let (agents, blocked) = (m.agents().len(), m.blocked());
+        div()
+            .id(SharedString::from(format!("machine-{}", m.key)))
+            .debug_selector({
+                let k = m.key.clone();
+                move || format!("machine-head-{k}")
+            })
+            .flex()
+            .items_end()
+            .pr(px(14.))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let k = key.clone();
+                this.update_ui(|s| s.toggle_collapsed(&k), cx);
+            }))
+            .child(div().pl(px(12.)).pb(px(3.)).flex_none().child(chevron(
+                SharedString::from(format!("machine-chev-{}", m.key)),
+                !collapsed,
+                12.,
+                t.text_4,
+            )))
+            .child(div().flex_1().min_w_0().ml(px(-8.)).child(super::peers::machine_heading(&m.label, m.link.as_ref(), t)))
+            .when(blocked > 0, |d| {
+                d.child(
+                    div().flex_none().pb(px(2.)).mr(px(6.)).font_family(MONO_FONT).text_size(px(10.5)).text_color(t.amber).child(format!("▲ {blocked}")),
+                )
+            })
+            .when(agents > 0, |d| {
+                d.child(div().flex_none().pb(px(2.)).font_family(MONO_FONT).text_size(px(11.)).text_color(t.text_4).child(agents.to_string()))
+            })
+            .into_any_element()
     }
 
     /// An account's header in the sidebar grouped by account: its name and
     /// login, needs-you and agent counts, "Open as space"; folds its
     /// projects; right-click for its menu.
-    fn account_head(&self, sec: &AccountSection, collapsed: bool, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    /// On another machine than this Mac (`home`), accounts aren't dragged
+    /// or dropped on; another machine's Pitwall's have no menu either.
+    fn account_head(&self, sec: &AccountSection, collapsed: bool, home: bool, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
         let default = sec.account == pitwall_core::accounts::DEFAULT;
-        let (name, sub) = if default {
+        let peer = sec.peer_name.is_some();
+        let (name, sub) = if let Some(n) = &sec.peer_name {
+            (n.clone(), "read-only".to_string())
+        } else if default {
             ("Default".to_string(), "your own logins".to_string())
         } else {
             let m = crate::accounts::model(cx);
@@ -546,8 +625,8 @@ impl MainScreen {
             .id(SharedString::from(format!("acct-{}", sec.key)))
             .group("account-head")
             .relative()
-            // Default stays first.
-            .when(!default, |d| {
+            // Default stays first; only this Mac's accounts move.
+            .when(!default && home, |d| {
                 d.on_drag(drag, |d, grab, _, cx| cx.new(|_| AgentGhost::named(d.name.clone(), grab)))
             })
             .flex()
@@ -559,7 +638,9 @@ impl MainScreen {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, e: &MouseDownEvent, window, cx| {
-                    this.account_menu(&k_menu, &n_menu, e.position, window, cx);
+                    if !peer {
+                        this.account_menu(&k_menu, &n_menu, e.position, window, cx);
+                    }
                 }),
             )
             .child(
@@ -612,6 +693,9 @@ impl MainScreen {
                     ),
                 )
             });
+        if !home {
+            return el;
+        }
         self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
 
@@ -822,7 +906,7 @@ impl MainScreen {
         let blocked = a.status == Status::Blocked;
         let dim = matches!(a.status, Status::Exited | Status::Stopped);
         // Grouped by account, the heading already says it.
-        let account = crate::accounts::name_of(cx, a.account.as_deref()).filter(|_| self.ui.sidebar_group != SidebarGroup::Account);
+        let account = crate::accounts::agent_account(cx, a).filter(|_| self.ui.sidebar_group != SidebarGroup::Account);
         let (id_click, id_menu) = (a.id.clone(), a.clone());
         let renaming = self.agent_rename.as_ref().filter(|r| r.id == a.id);
         let rename_error = renaming.and_then(|r| r.error.clone());
@@ -1028,6 +1112,10 @@ impl MainScreen {
                         .child(keys(&format!("⌘{}", index + 1), true)),
                 )
             });
+        // Another machine's Pitwall: read-only, nothing lands on it.
+        if crate::agents::mirrored(a) {
+            return el;
+        }
         let mark = self.side_mark(&spot.key(), t, cx);
         self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
@@ -1342,6 +1430,12 @@ impl MainScreen {
     /// siblings, or move it to another account; `None`: nothing.
     fn landing(&self, p: &Payload, spot: &Spot, upper: bool, cx: &mut App) -> Option<Landing> {
         let line = if upper { Landing::Before } else { Landing::After };
+        // Another machine's Pitwall's agents stay where they are.
+        if let Payload::Agent(id) = p {
+            if self.agents(cx).iter().any(|a| a.id == *id && crate::agents::mirrored(a)) {
+                return None;
+            }
+        }
         match (p, spot) {
             (Payload::Account(a), Spot::Account(b)) if a != b => {
                 Some(if b == pitwall_core::accounts::DEFAULT { Landing::After } else { line })
@@ -1349,8 +1443,11 @@ impl MainScreen {
             (Payload::Project(d), Spot::Group { key, block, account, .. }) if *key != d.key => {
                 if *account == d.account {
                     (*block == d.block).then_some(line)
-                } else {
+                } else if block.0 {
+                    // To another of this Mac's accounts (never a machine's).
                     self.project_to(d, account.as_deref()?, cx).map(|_| Landing::Into)
+                } else {
+                    None
                 }
             }
             (Payload::Project(d), Spot::Account(to)) => self.project_to(d, to, cx).map(|_| Landing::Into),
@@ -1457,12 +1554,14 @@ impl MainScreen {
                 }
             }
             (Payload::Project(d), Spot::Group { key, .. }, how) => {
-                let siblings: Vec<String> = match d.account.as_deref() {
+                let siblings: Vec<String> = match d.account {
                     None => self.sidebar_groups(self.agents(cx)),
-                    Some(a) => self
-                        .account_sections(self.agents(cx), cx)
+                    // Its account section on its machine.
+                    Some(_) => self
+                        .machine_sections(self.agents(cx), cx)
                         .into_iter()
-                        .find(|s| s.account == a)
+                        .flat_map(|m| m.accounts)
+                        .find(|s| s.groups.iter().any(|g| g.key == d.key))
                         .map(|s| s.groups)
                         .unwrap_or_default(),
                 }

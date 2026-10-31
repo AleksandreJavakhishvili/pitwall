@@ -563,3 +563,15 @@ fn sidebar_rows_keep_the_order_they_are_dragged_in(cx: &mut TestAppContext) {
     assert!(!refused, "not into another project");
     assert_eq!(names(&view, cx), ["web", "api", "ops", "docs"]);
 }
+
+#[gpui::test]
+fn this_mac_alone_has_no_machine_headings(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    for group in [workspace::SidebarGroup::Project, workspace::SidebarGroup::Account] {
+        view.update(cx, |s, cx| s.set_sidebar_group(group, cx));
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("row-body-api").is_some(), "drawn");
+        assert!(cx.debug_bounds("machine-head-machine:this-mac").is_none(), "{group:?}: no machine level");
+    }
+}
