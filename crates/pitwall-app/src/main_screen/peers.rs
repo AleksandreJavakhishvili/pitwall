@@ -19,7 +19,7 @@ use crate::peers::{link_text, now_ms, offer_title, PeersEvent};
 use crate::theme::{Theme, RADIUS};
 
 /// The dot's colour for a link state.
-fn link_color(state: LinkState, t: &Theme) -> gpui::Hsla {
+pub(super) fn link_color(state: LinkState, t: &Theme) -> gpui::Hsla {
     match state {
         LinkState::Connected => t.green,
         LinkState::Connecting => t.text_3,
@@ -28,39 +28,22 @@ fn link_color(state: LinkState, t: &Theme) -> gpui::Hsla {
     }
 }
 
-/// A machine heading: its name in capitals, and for another machine's
-/// Pitwall how the link is.
-pub(super) fn machine_heading(label: &str, link: Option<&LinkView>, t: &Theme) -> AnyElement {
-    let base = div()
-        .px(px(14.))
-        .pt(px(10.))
-        .pb(px(2.))
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .text_size(px(10.5))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(t.text_4)
-        .child(div().flex_none().child(label.to_uppercase()));
+/// Under a machine's name in its heading: "this Mac", "agw machine", or
+/// for another machine's Pitwall how the link is and that it's view only.
+pub(super) fn machine_sub(label: &str, home: bool, link: Option<&LinkView>, t: &Theme) -> AnyElement {
+    let base = div().min_w_0().text_size(px(10.5)).text_color(t.text_4);
     let Some(link) = link else {
-        return base.into_any_element();
+        return base.child(if home { "this Mac" } else { "agw machine" }).into_any_element();
     };
     let words = link_text(link, now_ms());
-    base.debug_selector({
-        let peer = link.peer.clone();
-        move || format!("peer-heading-{peer}")
-    })
-    .child(div().flex_none().size(px(6.)).rounded(px(3.)).bg(link_color(link.state, t)))
-    .child(
-        div()
-            .id(SharedString::from(format!("peer-link-{}-{label}", link.peer)))
-            .min_w_0()
-            .overflow_hidden()
-            .font_weight(FontWeight::NORMAL)
-            .tooltip(tooltip(format!("{label}'s Pitwall: {words}. Its agents are read-only here.")))
-            .child(crate::kit::one_line(words)),
-    )
-    .into_any_element()
+    base.id(SharedString::from(format!("peer-link-{}-{label}", link.peer)))
+        .debug_selector({
+            let peer = link.peer.clone();
+            move || format!("peer-heading-{peer}")
+        })
+        .tooltip(tooltip(format!("{label}'s Pitwall: {words}. You can watch its agents here, not drive them.")))
+        .child(crate::kit::one_line(format!("{words} · view only")))
+        .into_any_element()
 }
 
 impl MainScreen {
@@ -399,6 +382,25 @@ mod tests {
         view.update(cx, |s, cx| s.update_ui(|u| u.toggle_collapsed("machine:peer:studio:studio-mac"), cx));
         assert_eq!(rows(&view, cx), ["api"]);
         view.read_with(cx, |s, _| assert!(s.ui.collapsed.contains(&"machine:peer:studio:studio-mac".to_string()), "remembered"));
+    }
+
+    #[gpui::test]
+    fn a_peers_agents_say_view_only_and_the_rail_groups_by_machine(cx: &mut TestAppContext) {
+        let (_s, _view, store, cx) = screen(cx);
+        store.update(cx, |st, cx| {
+            st.set_peers(vec![mirrored("a1", "blocked", LinkState::Connected)], 1);
+            cx.notify();
+        });
+        frame(cx);
+        assert!(cx.debug_bounds("peer-heading-studio").is_some(), "studio's heading says how the link is");
+        // The narrow rail: each machine's badge above its agents.
+        cx.simulate_resize(gpui::size(gpui::px(800.), gpui::px(900.)));
+        frame(cx);
+        let mine = cx.debug_bounds("rail-m-machine:this-mac").expect("this Mac's badge");
+        let theirs = cx.debug_bounds("rail-m-machine:peer:studio:studio-mac").expect("studio's badge");
+        let row = cx.debug_bounds("rail-peer:studio:a1").expect("studio's agent");
+        let api = cx.debug_bounds("rail-api").expect("this Mac's agent");
+        assert!(mine.origin.y < api.origin.y && api.origin.y < theirs.origin.y && theirs.origin.y < row.origin.y);
     }
 
     #[gpui::test]

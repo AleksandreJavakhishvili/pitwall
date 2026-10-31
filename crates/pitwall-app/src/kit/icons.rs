@@ -45,6 +45,11 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("headset", "M4 12.5V10a6 6 0 0 1 12 0v2.5M4 11.5h2.5v4H5a1 1 0 0 1-1-1zM16 11.5h-2.5v4H15a1 1 0 0 0 1-1zM14.5 15.5c0 1.2-1.3 2-3.5 2"),
     // An account (a login): the sidebar grouped by account.
     ("user", "M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"),
+    // Sidebar machine headings: this Mac or a paired one, an agw machine,
+    // and "view only" on another machine's agents.
+    ("laptop", "M4.5 5h11v7.5h-11zM2.5 15h15"),
+    ("server", "M3.5 4h13v5h-13zM3.5 11h13v5h-13zM6 6.5h.01M6 13.5h.01"),
+    ("eye", "M2.5 10s2.7-5 7.5-5 7.5 5 7.5 5-2.7 5-7.5 5-7.5-5-7.5-5zM12 10a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"),
     // Opens in the browser: a pane's "Open preview".
     ("external", "M11 3.5h5.5V9M16.5 3.5 9.5 10.5M14 11.5v5H3.5V6h5"),
     // A picture: a Markdown image that isn't shown (remote or missing).

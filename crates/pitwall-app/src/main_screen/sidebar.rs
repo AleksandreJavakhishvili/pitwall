@@ -555,40 +555,78 @@ impl MainScreen {
         self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
 
-    /// A machine's heading (2+ machines): its name, for another machine's
-    /// Pitwall how the link is, needs-you and agent counts; folds what is
-    /// on it.
+    /// A machine's heading (2+ machines): an icon with how it's doing,
+    /// its name and what it is (this Mac, an agw machine, or another
+    /// machine's Pitwall: how the link is, view only), needs-you and agent
+    /// counts; folds what is on it.
     fn machine_head(&self, m: &MachineSection, collapsed: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let key = m.key.clone();
         let (agents, blocked) = (m.agents().len(), m.blocked());
         div()
             .id(SharedString::from(format!("machine-{}", m.key)))
+            .group("machine-head")
+            .mx(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pl(px(4.))
+            .pr(px(8.))
+            .py(px(5.))
+            .rounded(RADIUS)
+            .cursor_pointer()
+            .hover_probed(|s| s.bg(t.surface_2))
+            // After the hover: tests keep one selector, the last.
             .debug_selector({
                 let k = m.key.clone();
                 move || format!("machine-head-{k}")
             })
-            .flex()
-            .items_end()
-            .pr(px(14.))
-            .cursor_pointer()
             .on_click(cx.listener(move |this, _, _, cx| {
                 let k = key.clone();
                 this.update_ui(|s| s.toggle_collapsed(&k), cx);
             }))
-            .child(div().pl(px(12.)).pb(px(3.)).flex_none().child(chevron(
-                SharedString::from(format!("machine-chev-{}", m.key)),
-                !collapsed,
-                12.,
-                t.text_4,
-            )))
-            .child(div().flex_1().min_w_0().ml(px(-8.)).child(super::peers::machine_heading(&m.label, m.link.as_ref(), t)))
+            .child(chevron(SharedString::from(format!("machine-chev-{}", m.key)), !collapsed, 10., t.text_4))
+            .child(machine_badge(m, 24., t))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .ellipsis()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text_2)
+                            .group_hover_text("machine-head", t.text, |s| s)
+                            .child(crate::kit::one_line(m.label.clone())),
+                    )
+                    .child(super::peers::machine_sub(&m.label, m.home, m.link.as_ref(), t)),
+            )
             .when(blocked > 0, |d| {
                 d.child(
-                    div().flex_none().pb(px(2.)).mr(px(6.)).font_family(MONO_FONT).text_size(px(10.5)).text_color(t.amber).child(format!("▲ {blocked}")),
+                    crate::kit::text_glow(
+                        div().font_family(MONO_FONT).text_size(px(10.5)).text_color(t.amber).child(format!("▲ {blocked}")),
+                        t.amber_glow,
+                        8.,
+                    )
+                    .flex_none(),
                 )
             })
             .when(agents > 0, |d| {
-                d.child(div().flex_none().pb(px(2.)).font_family(MONO_FONT).text_size(px(11.)).text_color(t.text_4).child(agents.to_string()))
+                d.child(
+                    div()
+                        .flex_none()
+                        .px(px(6.))
+                        .rounded_full()
+                        .bg(t.surface_2)
+                        .font_family(MONO_FONT)
+                        .text_size(px(10.5))
+                        .text_color(t.text_3)
+                        .child(agents.to_string()),
+                )
             })
             .into_any_element()
     }
@@ -602,7 +640,8 @@ impl MainScreen {
         let default = sec.account == pitwall_core::accounts::DEFAULT;
         let peer = sec.peer_name.is_some();
         let (name, sub) = if let Some(n) = &sec.peer_name {
-            (n.clone(), "read-only".to_string())
+            // The machine's heading already says it's view only.
+            (n.clone(), String::new())
         } else if default {
             ("Default".to_string(), "your own logins".to_string())
         } else {
@@ -655,13 +694,13 @@ impl MainScreen {
                     .py(px(3.))
                     .rounded(px(4.))
                     .cursor_pointer()
-                    .tooltip(tooltip(format!("{name} — {sub}")))
+                    .tooltip(tooltip(if sub.is_empty() { name.clone() } else { format!("{name} — {sub}") }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         let k = key.clone();
                         this.update_ui(|s| s.toggle_collapsed(&k), cx);
                     }))
                     .child(chevron(SharedString::from(format!("acct-chev-{}", sec.key)), !collapsed, 12., t.text_3))
-                    .child(icon("user", 12., t.text_3))
+                    .child(account_avatar(&name, default, t))
                     .child(
                         div()
                             .flex_none()
@@ -671,7 +710,7 @@ impl MainScreen {
                             .group_hover_text("account-head", t.text, |s| s)
                             .child(name),
                     )
-                    .child(div().min_w_0().ellipsis().text_size(px(11.)).text_color(t.text_4).child(crate::kit::one_line(sub)))
+                    .when(!sub.is_empty(), |d| d.child(div().min_w_0().ellipsis().text_size(px(11.)).text_color(t.text_4).child(crate::kit::one_line(sub))))
                     .child(div().flex_1())
                     .when(sec.blocked > 0, |d| {
                         d.child(
@@ -1062,6 +1101,16 @@ impl MainScreen {
                             })
                             .when(a.engineer, |d| d.child(chip("engineer", t)))
                             .when_some(account, |d, n| d.child(chip(n, t)))
+                            // Another machine's Pitwall: watched, not driven.
+                            .when(crate::agents::mirrored(a), |d| {
+                                d.child(
+                                    div()
+                                        .id(SharedString::from(format!("row-view-only-{}", a.id)))
+                                        .flex_none()
+                                        .tooltip(tooltip(format!("View only: it runs on {}", a.machine.label)))
+                                        .child(icon("eye", 12., t.text_4)),
+                                )
+                            })
                             .child(status_label(a.status, t)),
                     )
                     .child(
@@ -1126,7 +1175,16 @@ impl MainScreen {
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let groups = in_order(group_by_project(agents), &self.ui.sidebar_order);
+        // With 2+ machines, each machine's projects under its badge.
+        let sections = self.machine_sections(agents, cx);
+        let level = machine_level(&sections);
+        let groups: Vec<(Option<&MachineSection>, &ProjectGroup)> = sections
+            .iter()
+            .flat_map(|m| {
+                let mut first = true;
+                m.all_groups().map(move |g| (std::mem::take(&mut first).then_some(m).filter(|_| level), g))
+            })
+            .collect();
         let focused = self.focused_agent_id();
         let rail = div()
             .id("rail")
@@ -1139,11 +1197,39 @@ impl MainScreen {
             .py(px(8.))
             .gap(px(2.))
             .overflow_y_scroll()
-            .children(groups.iter().enumerate().map(|(gi, g)| {
+            .children(groups.iter().enumerate().map(|(gi, (head, g))| {
                 let title: SharedString = match (&g.machine, g.can_create) {
                     (Some(m), false) => format!("{} · {}", g.display, m.label).into(),
                     _ => g.display.clone().into(),
                 };
+                let head = head.map(|m| {
+                    let what = match &m.link {
+                        Some(l) => format!("{} · {} · view only", m.label, crate::peers::link_text(l, crate::peers::now_ms())),
+                        None => m.label.clone(),
+                    };
+                    div()
+                        .id(SharedString::from(format!("rail-m-{}", m.key)))
+                        .debug_selector({
+                            let k = m.key.clone();
+                            move || format!("rail-m-{k}")
+                        })
+                        .w_full()
+                        .flex()
+                        .justify_center()
+                        .pt(px(if gi > 0 { 10. } else { 2. }))
+                        .pb(px(2.))
+                        .when(gi > 0, |d| d.border_t_1().border_color(t.line_strong))
+                        .tooltip(tooltip(what))
+                        .child(machine_badge(m, 22., t))
+                });
+                let new_machine = head.is_some();
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .children(head)
+                    .child(
                 div()
                     .id(SharedString::from(format!("rail-g-{}", g.key)))
                     .w_full()
@@ -1152,7 +1238,7 @@ impl MainScreen {
                     .items_center()
                     .gap(px(4.))
                     .py(px(6.))
-                    .when(gi > 0, |d| d.border_t_1().border_color(t.line))
+                    .when(gi > 0 && !new_machine, |d| d.border_t_1().border_color(t.line))
                     .tooltip(tooltip(title))
                     .children(g.agents.iter().map(|a| {
                         let id = a.id.clone();
@@ -1189,6 +1275,10 @@ impl MainScreen {
                             })
                             .cursor_pointer()
                             .hover_text(t.text, |s| s.bg(t.surface_3))
+                            .debug_selector({
+                                let id = a.id.clone();
+                                move || format!("rail-{id}")
+                            })
                             .tooltip(tooltip(tip))
                             .on_drag(
                                 AgentDrag {
@@ -1223,7 +1313,8 @@ impl MainScreen {
                                         _ => t.text_4,
                                     }),
                             )
-                    }))
+                    })),
+                    )
             }))
             .child(
                 div()
@@ -1630,6 +1721,71 @@ impl MainScreen {
         self.side_dropped(p, &spot, window, cx);
         true
     }
+}
+
+/// A machine's icon (a laptop for this Mac and paired Macs, a server for
+/// an agw machine) in a `size` tile, with a dot for how it's doing: this
+/// Mac is always up, another machine's Pitwall shows its link.
+fn machine_badge(m: &MachineSection, size: f32, t: &Theme) -> Div {
+    let dot = match &m.link {
+        Some(l) => Some(super::peers::link_color(l.state, t)),
+        None => m.home.then_some(t.green),
+    };
+    div()
+        .relative()
+        .flex_none()
+        .size(px(size))
+        .rounded(px(6.))
+        .bg(t.surface_2)
+        .border_1()
+        .border_color(t.line)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icon(if m.home || m.link.is_some() { "laptop" } else { "server" }, size * 0.56, t.text_2))
+        .when_some(dot, |d, c| {
+            d.child(div().absolute().right(px(-2.)).bottom(px(-2.)).size(px(8.)).rounded_full().border_2().border_color(t.surface).bg(c))
+        })
+}
+
+/// An account's initials ("Work Laptop" → "WL"), the person icon for the
+/// default (the user's own logins).
+fn account_avatar(name: &str, default: bool, t: &Theme) -> AnyElement {
+    if default {
+        return div().flex_none().size(px(16.)).flex().items_center().justify_center().child(icon("user", 12., t.text_3)).into_any_element();
+    }
+    div()
+        .flex_none()
+        .size(px(16.))
+        .rounded(px(4.))
+        .bg(t.surface_3)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(8.5))
+        .font_weight(FontWeight::BOLD)
+        .text_color(t.text_2)
+        .child(avatar_letters(name))
+        .into_any_element()
+}
+
+/// Up to two letters for an account: the first of its first two words.
+fn avatar_letters(name: &str) -> String {
+    let words: Vec<&str> = name.split(|c: char| c.is_whitespace() || c == '-' || c == '_').filter(|w| !w.is_empty()).collect();
+    match words.as_slice() {
+        [] => "?".into(),
+        [one] => one.chars().take(2).collect::<String>().to_uppercase(),
+        [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect::<String>().to_uppercase(),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn avatar_letters_take_the_first_two_words() {
+    assert_eq!(avatar_letters("Work Laptop"), "WL");
+    assert_eq!(avatar_letters("client-acme"), "CA");
+    assert_eq!(avatar_letters("personal"), "PE");
+    assert_eq!(avatar_letters("  "), "?");
 }
 
 /// The chequered edge of a "done" row (`repeating-conic-gradient` of 3 px
