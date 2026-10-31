@@ -134,7 +134,12 @@ impl Space {
 /// The account an agent runs on, as spaces and the sidebar key it
 /// (`default`: the user's own login). A terminal has no login of its own:
 /// it goes with its project's account, so the project isn't split.
+/// Another machine's agent: that machine's account, by name
+/// ([`super::model::peer_account`]), never one of this Mac's.
 pub fn account_key(a: &AgentView) -> String {
+    if crate::agents::mirrored(a) {
+        return super::model::peer_account(a).0;
+    }
     a.account
         .clone()
         .or_else(|| a.terminal.then(|| crate::accounts::project_account(&a.project)).flatten())

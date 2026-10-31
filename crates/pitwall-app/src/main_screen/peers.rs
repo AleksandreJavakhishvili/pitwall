@@ -1,7 +1,8 @@
 //! The user's other machines on the main screen (docs/spec/tailnet-peers.md,
-//! "The app"): their machine headings say how the link is ("studio ·
-//! connected", "offline · last seen 5 min ago"); a paired machine without
-//! agents still gets its heading; the sidebar card offering to show them;
+//! "The app"): their machine headings in the sidebar say how the link is
+//! ("studio · connected", "offline · last seen 5 min ago"; a paired machine
+//! without agents still gets its section, `model::with_paired`); the
+//! sidebar card offering to show them;
 //! the one-time offer toast per machine; and the pane of one of their
 //! agents, a read-only summary (their terminals stay on their machine).
 
@@ -100,32 +101,14 @@ impl MainScreen {
         }
     }
 
-    /// Below the agents: headings of paired machines with no agents to
-    /// show (connecting, asleep, none running), and the card offering to
-    /// show the other machines' agents.
-    pub(super) fn render_peers(&mut self, agents: &[AgentView], t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// Below the agents: the card offering to show the other machines'
+    /// agents.
+    pub(super) fn render_peers(&mut self, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let Some(model) = crate::peers::model(cx) else {
             return vec![];
         };
         let m = model.read(cx);
         let mut out = Vec::new();
-        for e in &m.entries {
-            let Some(link) = &e.link else { continue };
-            let shown = agents.iter().any(|a| a.machine.link.as_ref().is_some_and(|l| l.peer == e.paired.id));
-            if !shown {
-                out.push(machine_heading(&e.paired.label, Some(link), t));
-                out.push(
-                    div()
-                        .pl(px(14.))
-                        .pr(px(14.))
-                        .pb(px(6.))
-                        .text_size(px(12.))
-                        .text_color(t.text_4)
-                        .child(if link.state == LinkState::Connected { "No agents running" } else { "Its agents show once it's reachable" })
-                        .into_any_element(),
-                );
-            }
-        }
         if m.card() {
             let names: Vec<String> = m.machines.iter().map(|n| n.label.clone()).collect();
             let who = match names.len() {
@@ -388,6 +371,57 @@ mod tests {
         });
         frame(cx);
         assert!(cx.debug_bounds("peer-heading-studio").is_some());
+    }
+
+    #[gpui::test]
+    fn this_mac_and_a_peer_are_sections_and_the_peers_is_read_only(cx: &mut TestAppContext) {
+        let (_s, view, store, cx) = screen(cx);
+        store.update(cx, |st, cx| {
+            st.set_peers(vec![mirrored("a1", "blocked", LinkState::Connected), mirrored("a2", "idle", LinkState::Connected)], 1);
+            cx.notify();
+        });
+        frame(cx);
+        let mine = cx.debug_bounds("machine-head-machine:this-mac").expect("this Mac's heading");
+        let theirs = cx.debug_bounds("machine-head-machine:peer:studio:studio-mac").expect("studio's");
+        let row = cx.debug_bounds("row-body-peer:studio:a1").expect("studio's agent");
+        let api = cx.debug_bounds("row-body-api").expect("this Mac's agent");
+        assert!(mine.origin.y < api.origin.y && api.origin.y < theirs.origin.y && theirs.origin.y < row.origin.y, "this Mac's first, studio's under its heading");
+        // Nothing is dragged into, out of or within studio's section.
+        view.update_in(cx, |s, window, cx| {
+            assert!(!s.drop_agent_on_row("peer:studio:a2", "peer:studio:a1", true, window, cx), "within");
+            assert!(!s.drop_agent_on_row("peer:studio:a1", "api", true, window, cx), "out");
+            assert!(!s.drop_agent_on_row("api", "peer:studio:a1", true, window, cx), "in");
+            assert!(s.ui.sidebar_order.is_empty());
+        });
+        // Folding studio folds its agents (keyboard moves skip them).
+        let rows = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| view.read_with(cx, |s, cx| s.visible_rows(s.agents(cx), cx));
+        assert_eq!(rows(&view, cx).len(), 3);
+        view.update(cx, |s, cx| s.update_ui(|u| u.toggle_collapsed("machine:peer:studio:studio-mac"), cx));
+        assert_eq!(rows(&view, cx), ["api"]);
+        view.read_with(cx, |s, _| assert!(s.ui.collapsed.contains(&"machine:peer:studio:studio-mac".to_string()), "remembered"));
+    }
+
+    #[gpui::test]
+    fn grouped_by_account_a_peers_agents_keep_its_accounts(cx: &mut TestAppContext) {
+        let (_s, view, store, cx) = screen(cx);
+        store.update(cx, |st, cx| {
+            let mut work = mirrored("a2", "idle", LinkState::Connected);
+            work.account = Some("default-looking-id".into());
+            work.account_name = Some("Work".into());
+            st.set_peers(vec![mirrored("a1", "blocked", LinkState::Connected), work], 1);
+            cx.notify();
+        });
+        view.update(cx, |s, cx| s.set_sidebar_group(crate::main_screen::workspace::SidebarGroup::Account, cx));
+        frame(cx);
+        let sections = view.read_with(cx, |s, cx| s.machine_sections(s.agents(cx), cx));
+        assert_eq!(sections.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["This Mac", "studio"]);
+        let keys: Vec<&str> = sections[0].accounts.iter().map(|a| a.key.as_str()).collect();
+        assert_eq!(keys, ["acct:default"], "not under this Mac's Default");
+        assert_eq!(sections[0].accounts[0].agents, 1);
+        let names: Vec<Option<&str>> = sections[1].accounts.iter().map(|a| a.peer_name.as_deref()).collect();
+        assert_eq!(names, [Some("Default"), Some("Work")], "studio's own accounts, by the names it gave");
+        assert!(cx.debug_bounds("row-body-peer:studio:a2").is_some());
+        assert!(cx.debug_bounds("machine-head-machine:peer:studio:studio-mac").is_some());
     }
 
     #[gpui::test]

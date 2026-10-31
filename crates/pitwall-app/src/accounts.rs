@@ -105,6 +105,16 @@ pub fn name_of(cx: &mut App, id: Option<&str>) -> Option<String> {
     name
 }
 
+/// The name of the account agent `a` runs on, when not the user's own:
+/// another machine's agent's by the name its machine gave it (never one
+/// of this Mac's).
+pub fn agent_account(cx: &mut App, a: &pitwall_proto::AgentView) -> Option<String> {
+    if crate::agents::mirrored(a) {
+        return a.account.as_ref().map(|_| a.account_name.clone().unwrap_or_else(|| "Unnamed account".into()));
+    }
+    name_of(cx, a.account.as_deref())
+}
+
 impl AccountsModel {
     /// Accounts can be kept (an engine runs).
     pub fn live(&self) -> bool {

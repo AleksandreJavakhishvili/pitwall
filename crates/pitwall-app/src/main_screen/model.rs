@@ -1,10 +1,11 @@
 //! Pure helpers of the main screen: sidebar groups with listed projects,
-//! machine headings, collapsed summaries, the status strip, rail initials,
+//! machine and account sections, collapsed summaries, the status strip, rail initials,
 //! agent and terminal names, shortcut labels (ports of `src/lib/groups.ts`,
 //! `statusStrip.ts`, `terminals.ts`, `host.ts` `keys()` and the New-agent
 //! dialog's name helpers).
 
 use pitwall_core::onboarding::project_list::Project;
+use pitwall_proto::peer::LinkView;
 use pitwall_proto::{AgentView, MachineView, Status};
 
 use crate::agents::{status_word, ProjectGroup};
@@ -100,8 +101,12 @@ pub fn reorder(order: &[String], siblings: &[String], item: &str, before: Option
 pub struct AccountSection {
     /// `account_key` of its agents (`default`: the user's own logins).
     pub account: String,
-    /// Its collapse key (`acct:<account>`).
+    /// Its collapse key (`acct:<account>`; on another machine than this
+    /// Mac `acct:<account>@<machine>`, so each folds on its own).
     pub key: String,
+    /// Another machine's Pitwall's account: its name there, and nothing
+    /// in it can be changed from here.
+    pub peer_name: Option<String>,
     pub groups: Vec<ProjectGroup>,
     pub agents: usize,
     pub blocked: usize,
@@ -133,7 +138,7 @@ pub fn by_account(agents: &[AgentView], projects: &[Project], order: &[String]) 
         }
     }
     let rank = |k: &String| match order.iter().position(|o| o == k) {
-        _ if k == DEFAULT => (0, 0, String::new()),
+        _ if k == DEFAULT || k.ends_with(PEER_DEFAULT) => (0, 0, String::new()),
         Some(i) => (1, i, String::new()),
         None => (2, 0, k.clone()),
     };
@@ -148,36 +153,155 @@ pub fn by_account(agents: &[AgentView], projects: &[Project], order: &[String]) 
                 g.key = format!("{key}|{}", g.key);
             }
             let blocked = groups.iter().map(|g| g.blocked).sum();
-            AccountSection { account, key, groups, agents: mine.len(), blocked }
+            let peer_name = mine.iter().find(|a| crate::agents::mirrored(a)).map(|a| peer_account(a).1);
+            AccountSection { account, key, peer_name, groups, agents: mine.len(), blocked }
         })
         .collect()
+}
+
+/// The end of a peer's Default account's key.
+const PEER_DEFAULT: &str = "/default";
+
+/// An agent of another machine's Pitwall: its account there, as a key
+/// (`peer:<peer>/default`, `peer:<peer>/@<name>`, or `peer:<peer>/~` when
+/// an older peer sent only an id) and the name shown. This Mac's account
+/// ids are never matched to it.
+pub fn peer_account(a: &AgentView) -> (String, String) {
+    let peer = a.machine.link.as_ref().map_or("", |l| l.peer.as_str());
+    match (&a.account, &a.account_name) {
+        (None, _) => (format!("peer:{peer}{PEER_DEFAULT}"), "Default".into()),
+        (Some(_), Some(n)) => (format!("peer:{peer}/@{}", n.replace('|', "/")), n.clone()),
+        (Some(_), None) => (format!("peer:{peer}/~"), "Unnamed account".into()),
+    }
 }
 
 fn machine_key(m: &MachineView) -> String {
     format!("{}:{}", m.provider, m.id)
 }
 
-/// The machine heading above `groups[i]`: when agents run on 2+ machines,
-/// each machine's first group names it (another machine's Pitwall always).
-pub fn machine_heading(groups: &[ProjectGroup], i: usize) -> Option<String> {
-    let mut keys: Vec<String> = groups
-        .iter()
-        .filter_map(|g| g.machine.as_ref().map(machine_key))
-        .collect();
-    keys.sort();
-    keys.dedup();
-    // Another machine's Pitwall is always named (with its link).
-    let linked = groups.get(i)?.machine.as_ref().is_some_and(|m| m.link.is_some());
-    if keys.len() < 2 && !linked {
-        return None;
+/// One machine in the sidebar: its heading (when there are 2+ machines,
+/// [`machine_level`]) over its accounts or projects.
+#[derive(Debug, Clone)]
+pub struct MachineSection {
+    /// Its collapse key (`machine:<provider>:<id>`; `machine:peer:<peer>`
+    /// for a paired machine with nothing to show).
+    pub key: String,
+    pub label: String,
+    /// This Mac: its agents and listed projects.
+    pub home: bool,
+    /// Another machine's Pitwall: how the link is. Read-only.
+    pub link: Option<LinkView>,
+    /// Grouped by project: its project groups.
+    pub groups: Vec<ProjectGroup>,
+    /// Grouped by account: its accounts, each with its project groups.
+    pub accounts: Vec<AccountSection>,
+}
+
+impl MachineSection {
+    /// Its project groups, under its accounts or not.
+    pub fn all_groups(&self) -> impl Iterator<Item = &ProjectGroup> {
+        self.groups.iter().chain(self.accounts.iter().flat_map(|s| s.groups.iter()))
     }
-    let mine = groups.get(i)?.machine.as_ref().map(machine_key)?;
-    let first = groups
-        .iter()
-        .position(|g| g.machine.as_ref().map(machine_key).as_deref() == Some(mine.as_str()))?;
-    (first == i)
-        .then(|| groups[i].machine.as_ref().map(|m| m.label.clone()))
-        .flatten()
+
+    pub fn agents(&self) -> Vec<AgentView> {
+        self.all_groups().flat_map(|g| g.agents.iter().cloned()).collect()
+    }
+
+    pub fn blocked(&self) -> usize {
+        self.all_groups().map(|g| g.blocked).sum()
+    }
+}
+
+/// The machine a group is on: (its key, label, link, this Mac). Listed
+/// projects without agents are this Mac's.
+fn machine_of(m: Option<&MachineView>) -> (String, String, Option<LinkView>, bool) {
+    match m {
+        Some(m) if m.provider != pitwall_core::provider::ProviderId::LOCAL => {
+            (format!("machine:{}", machine_key(m)), m.label.clone(), m.link.clone(), false)
+        }
+        m => ("machine:this-mac".into(), m.map_or("This Mac".into(), |m| m.label.clone()), None, true),
+    }
+}
+
+/// This Mac first, then its other machines (agw), then other machines'
+/// Pitwalls (a peer's VMs, `studio › vm-1`, after it), each by name.
+fn sort_machines(sections: &mut [MachineSection]) {
+    sections.sort_by_cached_key(|m| (if m.home { 0 } else if m.link.is_none() { 1 } else { 2 }, m.label.to_lowercase()));
+}
+
+/// The sidebar grouped by project, split by machine (`groups` in sidebar
+/// order; each keeps its place within its machine).
+pub fn by_machine(groups: Vec<ProjectGroup>) -> Vec<MachineSection> {
+    let mut out: Vec<MachineSection> = vec![];
+    for g in groups {
+        let (key, label, link, home) = machine_of(g.machine.as_ref());
+        match out.iter_mut().find(|m| m.key == key) {
+            Some(m) => m.groups.push(g),
+            None => out.push(MachineSection { key, label, home, link, groups: vec![g], accounts: vec![] }),
+        }
+    }
+    sort_machines(&mut out);
+    out
+}
+
+/// The sidebar grouped by account, split by machine: each machine's own
+/// accounts ([`by_account`]; listed projects go to this Mac's).
+pub fn by_machine_account(agents: &[AgentView], projects: &[Project], order: &[String]) -> Vec<MachineSection> {
+    let mut out: Vec<MachineSection> = vec![];
+    let mut mine: Vec<Vec<AgentView>> = vec![];
+    for a in agents {
+        let (key, label, link, home) = machine_of(Some(&a.machine));
+        match out.iter().position(|m| m.key == key) {
+            Some(i) => mine[i].push(a.clone()),
+            None => {
+                out.push(MachineSection { key, label, home, link, groups: vec![], accounts: vec![] });
+                mine.push(vec![a.clone()]);
+            }
+        }
+    }
+    if !out.iter().any(|m| m.home) && !projects.is_empty() {
+        let (key, label, link, home) = machine_of(None);
+        out.push(MachineSection { key, label, home, link, groups: vec![], accounts: vec![] });
+        mine.push(vec![]);
+    }
+    for (m, agents) in out.iter_mut().zip(mine) {
+        m.accounts = by_account(&agents, if m.home { projects } else { &[] }, order);
+        if !m.home {
+            let at = m.key.trim_start_matches("machine:").to_string();
+            for s in &mut m.accounts {
+                s.key = format!("{}@{at}", s.key);
+            }
+        }
+    }
+    out.retain(|m| m.accounts.iter().any(|s| !s.groups.is_empty()));
+    sort_machines(&mut out);
+    out
+}
+
+/// Paired machines with nothing to show (connecting, asleep, no agents
+/// running) still get their section: `paired` is (id, label, link).
+pub fn with_paired(mut sections: Vec<MachineSection>, paired: &[(String, String, LinkView)]) -> Vec<MachineSection> {
+    for (id, label, link) in paired {
+        if !sections.iter().any(|m| m.link.as_ref().is_some_and(|l| l.peer == *id)) {
+            sections.push(MachineSection {
+                key: format!("machine:peer:{id}"),
+                label: label.clone(),
+                home: false,
+                link: Some(link.clone()),
+                groups: vec![],
+                accounts: vec![],
+            });
+        }
+    }
+    sort_machines(&mut sections);
+    sections
+}
+
+/// Whether the sidebar names its machines: 2+ of them, or another
+/// machine's Pitwall (always named, with its link). This Mac alone: no
+/// machine level at all.
+pub fn machine_level(sections: &[MachineSection]) -> bool {
+    sections.len() > 1 || sections.iter().any(|m| m.link.is_some())
 }
 
 const ORDER: [Status; 7] = [
@@ -428,18 +552,99 @@ mod tests {
         assert!(all[0].agents.is_empty() && all[0].machine.is_none());
     }
 
+    /// `studio`'s agent `id` on its account (`None`: its Default), and
+    /// that account's name if studio sent one.
+    fn peer(id: &str, project: &str, account: Option<&str>, name: Option<&str>) -> AgentView {
+        let mut a = agent(&format!("peer:studio:{id}"), project, "idle", 1, false);
+        a.machine.provider = "peer:studio".into();
+        a.machine.id = "this-mac".into();
+        a.machine.label = "studio".into();
+        a.machine.link = Some(LinkView { peer: "studio".into(), state: pitwall_proto::peer::LinkState::Connected, since: 0, last_seen: None });
+        a.account = account.map(String::from);
+        a.account_name = name.map(String::from);
+        a
+    }
+
     #[test]
-    fn machine_headings_only_with_two_machines() {
-        let one = group_by_project(&[agent("a", "/work/a", "idle", 0, true)]);
-        assert_eq!(machine_heading(&one, 0), None);
-        let two = group_by_project(&[
+    fn this_mac_alone_has_no_machine_level() {
+        let agents = [agent("a", "/work/a", "idle", 0, true), agent("b", "/work/b", "idle", 0, true)];
+        let s = by_machine(group_by_project(&agents));
+        assert_eq!(s.len(), 1);
+        assert!(s[0].home && !machine_level(&s));
+        assert_eq!(s[0].groups.len(), 2, "its projects as before");
+        let s = by_machine_account(&agents, &[], &[]);
+        assert!(!machine_level(&s));
+        assert_eq!(s[0].accounts[0].key, "acct:default", "this Mac's keys as before");
+        assert_eq!(s[0].accounts[0].groups[0].key, "acct:default|/work/a");
+    }
+
+    #[test]
+    fn machines_then_projects() {
+        let mut vm2 = agent("w", "/srv/w", "idle", 0, false);
+        vm2.machine.id = "m2".into();
+        vm2.machine.label = "alpha-vm".into();
+        let agents = [
+            peer("p1", "/Users/me/api", None, None),
+            agent("v", "/srv/c", "blocked", 0, false),
             agent("a", "/work/a", "idle", 0, true),
-            agent("b", "/work/b", "idle", 0, true),
-            agent("v", "/srv/c", "idle", 0, false),
-        ]);
-        assert_eq!(machine_heading(&two, 0).as_deref(), Some("This Mac"));
-        assert_eq!(machine_heading(&two, 1), None);
-        assert_eq!(machine_heading(&two, 2).as_deref(), Some("vm-1"));
+            vm2,
+        ];
+        let s = by_machine(group_by_project(&agents));
+        let labels: Vec<&str> = s.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(labels, ["This Mac", "alpha-vm", "vm-1", "studio"], "this Mac, its machines, then other Pitwalls");
+        assert!(machine_level(&s));
+        assert_eq!((s[2].key.as_str(), s[2].blocked(), s[2].agents().len()), ("machine:agw:m1", 1, 1));
+        assert!(s[3].link.is_some() && !s[3].home);
+        // A peer alone is still named, with its link.
+        assert!(machine_level(&by_machine(group_by_project(&agents[..1]))));
+        // Listed projects without agents are this Mac's.
+        let p = Project { path: "/work/new".into(), display: "new".into(), is_git: true, added_at: 0 };
+        let s = by_machine(with_projects(group_by_project(&agents[..2]), &[p]));
+        assert_eq!(s.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["This Mac", "vm-1", "studio"]);
+    }
+
+    #[test]
+    fn machines_then_accounts_and_a_peers_accounts_are_its_own() {
+        // studio's "Work" has the same id as this Mac's: never matched.
+        let agents = [
+            on(agent("a", "/work/a", "idle", 1, true), Some("claude-work")),
+            agent("b", "/work/b", "idle", 2, true),
+            agent("v", "/srv/c", "idle", 3, false),
+            peer("p1", "/Users/me/api", Some("claude-work"), Some("Work")),
+            peer("p2", "/Users/me/api", None, None),
+            peer("p3", "/Users/me/web", Some("codex-old"), None),
+            peer("p4", "/Users/me/web", Some("other-id"), None),
+        ];
+        let order = ["claude-work".to_string()];
+        let s = by_machine_account(&agents, &[], &order);
+        assert_eq!(s.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["This Mac", "vm-1", "studio"]);
+        let accounts = |i: usize| s[i].accounts.iter().map(|a| a.key.clone()).collect::<Vec<_>>();
+        assert_eq!(accounts(0), ["acct:default", "acct:claude-work"]);
+        assert_eq!(s[0].accounts[1].agents, 1, "only this Mac's agent on this Mac's account");
+        assert_eq!(accounts(1), ["acct:default@agw:m1"], "the VM's Default folds apart from this Mac's");
+        assert_eq!(
+            accounts(2),
+            ["acct:peer:studio/default@peer:studio:this-mac", "acct:peer:studio/@Work@peer:studio:this-mac", "acct:peer:studio/~@peer:studio:this-mac"],
+            "studio's Default, its accounts by name, then one for those an older studio didn't name"
+        );
+        let names: Vec<Option<&str>> = s[2].accounts.iter().map(|a| a.peer_name.as_deref()).collect();
+        assert_eq!(names, [Some("Default"), Some("Work"), Some("Unnamed account")]);
+        assert_eq!(s[2].accounts[2].agents, 2);
+        assert!(s[0].accounts.iter().all(|a| a.peer_name.is_none()));
+        // Each group key still says its account (drag and drop).
+        assert_eq!(section_of(&s[2].accounts[1].groups[0].key), Some("peer:studio/@Work"));
+    }
+
+    #[test]
+    fn a_paired_machine_without_agents_keeps_its_section() {
+        let link = LinkView { peer: "studio".into(), state: pitwall_proto::peer::LinkState::Offline, since: 0, last_seen: None };
+        let mut quiet = link.clone();
+        quiet.peer = "quiet".into();
+        let paired = [("studio".to_string(), "studio".to_string(), link), ("quiet".to_string(), "attic".to_string(), quiet)];
+        let s = with_paired(by_machine(group_by_project(&[agent("a", "/work/a", "idle", 0, true), peer("p1", "/x", None, None)])), &paired);
+        let labels: Vec<(&str, usize)> = s.iter().map(|m| (m.label.as_str(), m.agents().len())).collect();
+        assert_eq!(labels, [("This Mac", 1), ("attic", 0), ("studio", 1)], "studio once, attic empty");
+        assert_eq!(s[1].key, "machine:peer:quiet");
     }
 
     #[test]

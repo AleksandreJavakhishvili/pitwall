@@ -795,7 +795,7 @@ impl MainScreen {
         );
         let (stop_id, rm_id) = (a.id.clone(), a.id.clone());
         // Another login than the user's own: its name (Settings → Accounts).
-        let account = crate::accounts::name_of(cx, a.account.as_deref());
+        let account = crate::accounts::agent_account(cx, a);
         // An agent's pane can always close (the agent keeps running).
         let can_close = true;
         let tint = match a.status {
