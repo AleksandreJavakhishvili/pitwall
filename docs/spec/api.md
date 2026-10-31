@@ -215,8 +215,12 @@ Pitwall's agents" is on), in the same frames (JSON frames capped at 4 MiB):
 | `peer.ping` | → `null` (every 15 s; 45 s of silence ends the link) | paired |
 | `agent.list` | → `AgentView[]` (this Pitwall's own agents, never mirrors) | paired |
 | `events.subscribe` | as above; `agents`, `attention`, `blocked` only (`approvals`: `denied`) | paired |
+| `term.watch` | `{ agentId }` (an id `agent.list` gives) → `{ stream, cols, rows }`; then events `term.reset {stream, cols, rows}` (start over: the snapshot follows), `term.resized {stream, cols, rows}`, `term.ended {stream, reason: "exited"\|"stopped"\|"gone"\|"unwatched"}`, and the terminal's bytes in terminal frames (type 1, ≤ 64 KiB each). Errors `not_found`, `not_running`, `conflict` (more than 4 on one connection) | paired |
+| `term.unwatch` | `{ stream }` → `null` (`term.ended {unwatched}` follows) | paired |
 
-Every other method, and every method before `peer.auth`, is `denied`. On
+Every other method, and every method before `peer.auth`, is `denied`.
+Terminal frames from the viewer (input) close the connection: View is
+view-only. On
 the viewer, a peer's agents are `AgentView`s with id `peer:<peer>:<id>`,
 `machine.provider` `peer:<peer>`, `machine.label` the peer's name (`studio ›
 vm-1` for its other machines), every cap `false`, and

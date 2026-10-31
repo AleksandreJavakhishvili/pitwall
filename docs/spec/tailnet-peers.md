@@ -8,7 +8,10 @@ next to its own, opens their terminals, reviews their changes, gets their
 Status: **P1 built** (read-only "see them": the `pitwall-peer` crate, the
 protocol, `pitwall peers` in the CLI, and the GPUI app's sidebar headings,
 Settings → Peers, notifications, badge and offers; see "Phase 1 as built"
-and "The app" below). P2–P5 are planned, not built. The Tauri app is frozen and gets none of
+and "The app" below), and **P2 part 1 built**: a peer agent's terminal,
+live and view-only ("Live terminals, view only" below). The rest of P2
+(the Control grant, then typing, approvals and stop over the link) and
+P3–P5 are planned, not built. The Tauri app is frozen and gets none of
 it. The core, protocol and daemon parts are UI-agnostic.
 
 Hostnames and users below are made up: `laptop` and `studio` are two
@@ -23,9 +26,9 @@ later section says more (permission levels, pairing codes, other users,
 tags, terminals), that is for later phases.
 
 - **Read-only "see them".** `laptop` shows `studio`'s agents: live list and
-  status, "needs you" attention and the blocked count. No terminal attach,
-  no starting or stopping agents, no review over the link. Mirrored agents
-  have every cap off.
+  status, "needs you" attention and the blocked count, and (P2 part 1)
+  their terminals, view-only. No input, no starting or stopping agents, no
+  review over the link. Mirrored agents have every cap off.
 - **Only the user's own machines.** Both sides require the **same Tailscale
   user** (`UserID` and `LoginName`) as this node. Tagged devices and other
   users' machines are never offered, dialed or accepted. No manual add of
@@ -59,27 +62,34 @@ tags, terminals), that is for later phases.
   changed (`MachineView.link`).
 - **What a View peer may call:** `peerHello`, `peer.auth`, `peer.ping`,
   `agent.list`, and `events.subscribe` for those three topics
-  (`pitwall_daemon::methods::PEER_METHODS`). Everything else is `denied`,
-  and so is every method before `peer.auth`.
-- **Limits:** 4 connections per machine, 32 in all, 3 pairings per machine
-  per 10 min, 100 requests/s (bursts of 300) per connection, frames capped
-  at 4 MiB (`PEER_MAX_FRAME`).
+  (`pitwall_daemon::methods::PEER_METHODS`), and `term.watch` /
+  `term.unwatch` (peer-only methods, `pitwall_proto::peer`; "Live
+  terminals" below). Everything else is `denied`, and so is every method
+  before `peer.auth`. Terminal data from a viewer (input) closes the
+  connection.
+- **Limits:** 8 connections per machine (its link and one per watched
+  terminal), 32 in all, 3 pairings per machine per 10 min, 100 requests/s
+  (bursts of 300) per connection, frames capped at 4 MiB
+  (`PEER_MAX_FRAME`), 4 watched terminals per connection, terminal frames
+  of at most 64 KiB, a watcher at most 1 MiB behind.
 - **Audit:** `peers/audit.jsonl` (rotated at 1 MiB, 3 files): listening,
-  connections, pairings, revocations, refusals (with why) and denied
-  methods.
+  connections, pairings, revocations, refusals (with why), denied methods
+  and refused input, and each terminal watch's start and end (`watch`,
+  `unwatch` with why: exited, stopped, gone, unwatched, closed).
 
 Where it lives:
 
 | Piece | Where |
 |---|---|
-| Wire shapes: `peerHello`/`peerWelcome`, `peer.auth`, `peer.ping`, `LinkView`, `MachineView.link`, `PEER_PORT`, `PEER_MAX_FRAME`, `frame::read_max` | `pitwall-proto::peer` |
+| Wire shapes: `peerHello`/`peerWelcome`, `peer.auth`, `peer.ping`, `term.watch` and its events, `LinkView`, `MachineView.link`, `PEER_PORT`, `PEER_MAX_FRAME`, `frame::read_max` | `pitwall-proto::peer` |
 | Which methods a peer may call | `pitwall-daemon::methods::PEER_METHODS`; topics through `events::topics` as any non-UI caller |
 | `Tailnet` trait, `TailscaleCli` (the `tailscale` CLI, cached: status 5 s, whois 60 s; run with `TERM=dumb` when unset, or the standalone macOS binary takes an app opened from the Dock for its GUI and prints no JSON), `FakeTailnet` (feature `testing`) | `pitwall-peer::tailnet`, `::fake` |
 | Instance key (`ring`'s Ed25519, already in the tree) | `pitwall-peer::key` |
 | Settings, pairings, audit log | `pitwall-peer::store` |
 | Listener: bind, accept checks, handshake, View-only dispatch, limits | `pitwall-peer::server` (`Feed`: the engine's views and the events `Hub`) |
 | Links, the mirror (`peer:<peer>:<id>` ids, read-only caps) | `pitwall-peer::link` |
-| What the app calls: `Peers` (`start`, `stop`, `reload`, `settings`/`set_settings`, `info`, `discover`, `pair`, `unpair`, `peers`, `views`, `mirror`, `viewers`, `revoke`, `kick`, `audit`) and `PeerSink` for change notifications | `pitwall-peer::peers` |
+| Terminal watches: serving (`watch`), viewing (`viewer`: `TermWatch`, `WatchSink`) | `pitwall-peer::watch`, `::viewer` |
+| What the app calls: `Peers` (`start`, `stop`, `reload`, `settings`/`set_settings`, `info`, `discover`, `pair`, `unpair`, `peers`, `views`, `mirror`, `viewers`, `revoke`, `kick`, `audit`, `watch`) and `PeerSink` for change notifications | `pitwall-peer::peers` |
 | `pitwall peers list / discover / pair / unpair / watch / serve / revoke / set` | `pitwall-cli` (on the data folder directly; changing pairings or switches is refused inside an agent) |
 
 Tests run two or three Pitwalls in one process on a `FakeTailnet`
@@ -136,9 +146,11 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   review, diff, explorer and worktrees aren't offered; terminals attach
   only while `caps.input`. The one rule not expressed by a cap: nothing of
   a mirror is kept here, so Rename and Remove (menu, pane button,
-  double-click) aren't offered for `mirrored` agents. Opening one shows a
-  read-only summary in its pane (status, machine and link, agent, folder,
-  branch, changes, last sent): the backend sends no terminal in P1.
+  double-click) aren't offered for `mirrored` agents. Opening one shows its
+  terminal live and view-only (below); the read-only summary (status,
+  machine and link, agent, folder, branch, changes, last sent) is behind
+  the banner's **Details**, and is what shows when this Pitwall can't
+  watch it (not showing other machines).
 - **Attention.** `PeerEvent::Attention` becomes the store's `Attention`
   named "api on studio", so the in-app toast and the system notification
   are the local ones ("api on studio needs you"); clicking focuses it.
@@ -178,6 +190,96 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   no machine level with This Mac alone, the details pane, no
   Rename/Remove, the offer toast and the card; `agent.list` and events
   carrying account names; Settings → Peers window tests; `Peers::reload`.
+
+### Live terminals, view only (P2 part 1 as built)
+
+The user's decision (2026-11-01): see another Mac's agent's terminal,
+exactly as it is there, before any control. Agent-agnostic: Pitwall
+streams the terminal it hosts (the PTY's bytes, through the same
+`TermHost` fan-out every local consumer uses), never anything of Claude's,
+Codex's or any agent's; every kind of agent, plain shells, and agw sessions
+the peer relays (it holds their terminal stream) work the same way. Parts
+2 (a "Control" grant confirmed by a code shown on the controlled Mac) and
+3 (typing, approvals, stop over the link) come later; this part sends no
+input and allows none.
+
+- **The method.** `term.watch {agentId}` → `{stream, cols, rows}`, for any
+  paired viewer (view is what pairing grants), checked like every method
+  after `peer.auth` (still paired, rate limit). Only agents `agent.list`
+  gives (the listener's own, never its mirrors: the viewer maps
+  `peer:<peer>:<id>` back to `<id>`); `not_found` otherwise, `not_running`
+  when it has no terminal now; at most 4 per connection (`conflict`).
+  `term.unwatch {stream}` ends one.
+- **What is streamed.** After the answer, `term.reset {stream, cols, rows}`,
+  then the snapshot: the agent's output ring (up to 1 MiB, after the
+  terminal modes set before it, as a local pane's replay) in terminal
+  frames (type 1: `stream:u32be` + bytes, at most 64 KiB each); then live
+  output as the program writes it. `term.resized` follows the source's
+  size (checked every 200 ms and with output); the viewer renders at it
+  and never resizes the source. `term.ended {stream, reason}` ends it:
+  `exited` (the program), `stopped` (no terminal any more), `gone` (no
+  longer listed), `unwatched`. A restart (a new terminal) starts over with
+  `term.reset` and its snapshot.
+
+  ```text
+  → {"id":2,"method":"term.watch","params":{"agentId":"a1"}}
+  ← {"id":2,"result":{"stream":1,"cols":120,"rows":40}}
+  ← {"event":"term.reset","data":{"stream":1,"cols":120,"rows":40}}
+  ← [type 1, stream 1] the ring: screen and scrollback so far
+  ← [type 1, stream 1] live output…
+  ← {"event":"term.resized","data":{"stream":1,"cols":100,"rows":30}}
+  ← {"event":"term.ended","data":{"stream":1,"reason":"exited"}}
+  ```
+- **The watcher touches nothing.** It subscribes with
+  `TermHost::watch_output`: the same atomic replay-then-live as `attach`,
+  without the redraw nudge (that resizes the PTY). Nothing is read from
+  the viewer for it: a terminal frame from the viewer is refused (`denied`
+  in the audit log, the connection closed), and `term.attach`,
+  `term.input`, `term.resize` and the like are `denied`. Input in part 3
+  will be type-1 frames on the same stream id once a Control grant allows
+  it.
+- **Slow viewers.** The subscriber only queues (it never blocks the agent);
+  a writer thread per watch sends. A viewer more than 1 MiB of live output
+  behind (`Limits::watch_behind`) is cut off the fan-out; once the writer
+  is through, the watch starts over with `term.reset` and a fresh
+  snapshot. Writes time out after 45 s; a session that stops reading shuts
+  its socket, so its writers stop at once.
+- **Ends.** Revoking or unpairing the viewer, turning sharing off and the
+  listener stopping close the connection (each watch audited `closed`); a
+  watch also checks the pairing and the agent list every second.
+- **The viewer** (`Peers::watch`, `pitwall-peer::viewer`): one connection
+  per watched pane, separate from the link (a busy terminal never delays
+  events; closing the pane closes it), dialed and proven like the link
+  (never pairing). It hands a `WatchSink` `Reset`, `Output`, `Resized`,
+  `Reconnecting(why)` and `Ended(why)`. A dropped connection dials again
+  with the link's backoff (1, 2, 5, 10, 30 s) and resumes with a fresh
+  snapshot; refusals and ends stop it. Unpairing, turning showing off and
+  stopping end open watches at once.
+- **The app** (`main_screen/peer_term.rs`). A mirrored agent's pane is a
+  `PeerPane`: a thin banner with a dot ("Live from studio · view only",
+  "Connecting to studio…", "studio: reconnecting…" with why in a tooltip
+  and the last screen kept under a "reconnecting…" pill, "studio: the
+  terminal ended (it exited) · view only" with **Watch again**) and
+  **Details** / **Terminal** to switch to the summary card. The terminal
+  is the same `pitwall-term-view` view as a local agent's, in
+  `ViewMode::Mirror`: the source's size, scaled down to the pane's width
+  (to half size, then cropped), bottom rows first, scrollback, selection,
+  copy and find; no keys, paste, mouse or focus reports, and the remote
+  program's clipboard requests are ignored. Its stream is a `NullStream`:
+  there is no path back to the other machine. The stream is open only
+  while the pane is drawn: a frame listener looks for the pane's hitbox;
+  not drawn for 2 s (another space, folded, closed), the stream closes;
+  drawn again, it opens with a fresh snapshot. An ended stream opens again
+  when the agent runs again.
+- **Tests** (`FakeTailnet`, 127.0.0.1 only): the listener's watch end to
+  end (snapshot, live, a resize followed and never caused, exit, audit), a
+  plain shell the same way, input refused with nothing written, a slow
+  viewer cut off and resynced while the agent never waits, a restart
+  resynced, revoke / unpair / sharing off, unknown and stopped agents;
+  `ViewMode::Mirror` window tests (nothing sent, size kept, selection and
+  copy); an app window test with two Pitwalls (banner and terminal, typing
+  goes nowhere, hidden closes and shown reopens, the link dropping and
+  resuming, the program exiting).
 
 ---
 
@@ -845,7 +947,7 @@ OSes.
 |---|---|---|---|
 | **P0 prerequisites** | Socket events (`events.subscribe`; **done**: topics `agents`, `attention`, `blocked`, CLI `pitwall events`, architecture.md §6 "Events over the socket done"), `term.attach`/`detach`/`resize` and input over the local socket. The remaining methods as daemon methods: queue, prompt, stop/restart, changes, review, worktrees, explorer. Golden fixtures. Useful to the CLI by itself | 1–1.5 wk | `pitwall` CLI can follow events and attach a terminal locally |
 | **P1 read-only list and status** (macOS) — **core built** (see "Phase 1 as built"; UI next) | `pitwall-peer`: `Tailnet` (CLI) and `FakeTailnet`, keys, pairing (dialog and one-time code), listener with all accept checks, `PeerLink` interactive lane, mirror, `agents.changed`/`attention`, View permission only. UI: sidebar machine heading with link state, Settings → Peers, notifications and badge. Audit log | 2 wk | `laptop` shows `studio`'s agents live, notifies on blocked, survives `studio` sleeping |
-| **P2 terminal view and take-over** | `term.attach` over the link (view-only, then control), `TermHost` controller lease, "Typing from laptop · Take back", Control permission, prompt and Next up, stop and restart, the bulk lane, frame type 2, Wall tiles, zstd, back-pressure. Measure bandwidth | 2 wk | Typing into `studio`'s agent from `laptop` feels like ssh; 20 remote Wall tiles stay within budget |
+| **P2 terminal view and take-over** — **part 1 built** (view-only `term.watch`; see "Live terminals, view only") | `term.attach` over the link (view-only, then control), `TermHost` controller lease, "Typing from laptop · Take back", Control permission, prompt and Next up, stop and restart, the bulk lane, frame type 2, Wall tiles, zstd, back-pressure. Measure bandwidth | 2 wk | Typing into `studio`'s agent from `laptop` feels like ssh; 20 remote Wall tiles stay within budget |
 | **P3 Review, explorer and git** | Changes, Review (reads, then commit, merge and discard with Full, or asked on the peer), worktrees view, explorer (chunked reads, search), `ReviewSource` routing in the app | 1–1.5 wk | Review and merge a `studio` worktree agent from `laptop` end to end |
 | **P4 start agents, queue, approvals** | Start agents permission, "Runs on" with peer machines, `machine.form`/`kind.list`/`project.recent`, remote project picker, `session.add`, forwarded approvals for Full ("answer its approvals"), rules apply | 1–1.5 wk | Start a Claude agent on `studio` and an agw session through `studio` from `laptop`; answer `studio`'s approval on `laptop` |
 | **P5 Windows, Linux, hardening** | Windows (firewall prompt, Tailscale CLI lookup, key file ACL), Linux (tun vs userspace mode message, optional SOCKS5 dialing), rate limits tuned, app-capability ceiling from ACL grants, direct LocalAPI client (optional), fuzzing of the peer handshake and frames, Headscale-based e2e job | 1.5–2 wk | Every pair of OSes works; fuzzers run in CI; security review done |
