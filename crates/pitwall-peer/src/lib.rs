@@ -11,6 +11,8 @@
 //!   agents"), on this node's Tailscale addresses only, for machines of the
 //!   same Tailscale user; View only.
 //! - [`link`]: one link per paired peer and the [`Mirror`] of its agents.
+//! - `watch` (the listener's) and `viewer` ([`TermWatch`]): a peer agent's
+//!   terminal, live and view-only (`term.watch`).
 //! - [`peers`]: [`Peers`], what the app calls.
 //!
 //! Only the user's own machines take part: same Tailscale user (id and
@@ -29,6 +31,8 @@ mod platform;
 pub mod server;
 pub mod store;
 pub mod tailnet;
+mod viewer;
+mod watch;
 
 #[cfg(test)]
 mod tests;
@@ -44,6 +48,7 @@ pub use peers::{Candidate, PeerEntry, Peers, PeersConfig, Probe, TailnetInfo};
 pub use server::{EngineFeed, Feed};
 pub use store::{AuditEntry, Paired, PeerSettings};
 pub use tailnet::{Tailnet, TailnetState, TailscaleCli};
+pub use viewer::{TermWatch, WatchEvent, WatchSink};
 
 /// What changed, for the host (the app turns these into its own events).
 #[derive(Debug, Clone, PartialEq)]
@@ -111,7 +116,8 @@ impl Default for Timing {
 /// What the listener allows per machine (tailnet-peers.md §5 "Limits").
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
-    /// Open connections per paired machine.
+    /// Open connections per paired machine (its link, and one per
+    /// terminal it watches).
     pub per_peer: usize,
     /// Open connections in all (threads are per connection).
     pub total: usize,
@@ -122,11 +128,22 @@ pub struct Limits {
     pub requests_per_sec: u32,
     /// …with bursts up to this many.
     pub burst: u32,
+    /// A watched terminal's live output a viewer may lag behind (bytes)
+    /// before it is cut off and starts over with a fresh snapshot.
+    pub watch_behind: usize,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { per_peer: 4, total: 32, pairs: 3, pair_window: Duration::from_secs(600), requests_per_sec: 100, burst: 300 }
+        Limits {
+            per_peer: 8,
+            total: 32,
+            pairs: 3,
+            pair_window: Duration::from_secs(600),
+            requests_per_sec: 100,
+            burst: 300,
+            watch_behind: 1024 * 1024,
+        }
     }
 }
 

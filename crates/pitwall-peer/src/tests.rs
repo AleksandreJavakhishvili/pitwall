@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 
 use pitwall_core::events::{Event, EventSink};
 use pitwall_core::model::Attention;
-use pitwall_core::testing::TempDir;
+use pitwall_core::provider::TermSize;
+use pitwall_core::term::TermHost;
+use pitwall_core::testing::{FakeTerm, FakeTermCtl, TempDir};
 use pitwall_daemon::events::{self, Hub, Queue};
 use pitwall_proto::frame;
 use pitwall_proto::peer::{LinkState, Pairing, PeerClientHello, PeerHello, IDENTITY_CHANGED, PEER_PING};
@@ -39,17 +41,29 @@ fn agent(id: &str, name: &str, status: &str) -> AgentView {
     .unwrap()
 }
 
-/// A Pitwall's agents without an engine: a list and the hub.
+/// A Pitwall's agents without an engine: a list, the hub and their
+/// terminals.
 struct TestFeed {
     views: Mutex<Vec<AgentView>>,
     hub: Arc<Hub>,
     /// Its accounts' names by id.
     names: Mutex<std::collections::HashMap<String, String>>,
+    terms: Mutex<std::collections::HashMap<String, Arc<TermHost>>>,
 }
 
 impl TestFeed {
     fn new(views: Vec<AgentView>) -> Arc<TestFeed> {
-        Arc::new(TestFeed { views: Mutex::new(views), hub: Hub::new(Arc::new(pitwall_core::events::NullSink)), names: Mutex::default() })
+        Arc::new(TestFeed { views: Mutex::new(views), hub: Hub::new(Arc::new(pitwall_core::events::NullSink)), names: Mutex::default(), terms: Mutex::default() })
+    }
+
+    /// Give `id` a (new) terminal: a fake program at 80×24 that printed
+    /// `history` before.
+    fn term(&self, id: &str, history: &[u8]) -> (Arc<TermHost>, FakeTermCtl) {
+        let (term, ctl) = FakeTerm::new(TermSize::new(80, 24), None);
+        ctl.set_history(history);
+        let host = TermHost::new(Box::new(term), TermSize::DEFAULT, Arc::new(pitwall_core::clock::SystemClock::new()));
+        lock(&self.terms).insert(id.into(), host.clone());
+        (host, ctl)
     }
 
     fn set(&self, views: Vec<AgentView>) {
@@ -71,6 +85,10 @@ impl Feed for TestFeed {
 
     fn account_names(&self) -> std::collections::HashMap<String, String> {
         lock(&self.names).clone()
+    }
+
+    fn terminal(&self, agent_id: &str) -> Option<Arc<TermHost>> {
+        lock(&self.terms).get(agent_id).cloned()
     }
 }
 
@@ -332,7 +350,7 @@ fn a_view_peer_may_only_list_and_follow() {
     *lock(&studio.feed.views) = vec![work];
     assert_eq!(call(&mut d, 10, method::AGENT_LIST, Value::Null).unwrap()[0]["accountName"], json!("Work"));
     assert_eq!(call(&mut d, 9, PEER_PING, Value::Null).unwrap(), Value::Null);
-    for (i, m) in [method::AGENT_CREATE, method::AGENT_STOP, method::AGENT_REMOVE, method::QUEUE_ADD, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::MACHINE_LIST, method::SESSION_LIST, "term.attach"].iter().enumerate() {
+    for (i, m) in [method::AGENT_CREATE, method::AGENT_STOP, method::AGENT_REMOVE, method::QUEUE_ADD, method::APPROVAL_ANSWER, method::SETTINGS_SET, method::MACHINE_LIST, method::SESSION_LIST, "term.attach", "term.input", "term.write", "term.resize", "agent.prompt"].iter().enumerate() {
         assert_eq!(call(&mut d, 20 + i as u64, m, json!({})).unwrap_err().code, code::DENIED, "{m}");
     }
     assert_eq!(call(&mut d, 40, method::EVENTS_SUBSCRIBE, json!({"topics":["approvals"]})).unwrap_err().code, code::DENIED);
@@ -521,4 +539,242 @@ fn reload_applies_what_another_process_wrote() {
     studio.peers.reload();
     wait_until("the revoked viewer is cut off", || studio.peers.connections() == 0);
     wait_until("the laptop notices", || !laptop.peers.link_is("studio", LinkState::Connected));
+}
+
+// ------------------------------------------------------------ term.watch
+
+/// What a watch said, in order.
+#[derive(Default)]
+struct Watched(Mutex<Vec<WatchEvent>>);
+
+impl WatchSink for Watched {
+    fn event(&self, ev: WatchEvent) {
+        lock(&self.0).push(ev);
+    }
+}
+
+impl Watched {
+    fn events(&self) -> Vec<WatchEvent> {
+        lock(&self.0).clone()
+    }
+
+    fn resets(&self) -> usize {
+        self.events().iter().filter(|e| matches!(e, WatchEvent::Reset { .. })).count()
+    }
+
+    /// The bytes since the last reset (what the viewer's terminal holds).
+    fn screen(&self) -> String {
+        let evs = self.events();
+        let from = evs.iter().rposition(|e| matches!(e, WatchEvent::Reset { .. })).map_or(0, |i| i + 1);
+        let bytes: Vec<u8> = evs[from..].iter().filter_map(|e| if let WatchEvent::Output(b) = e { Some(b.clone()) } else { None }).collect::<Vec<_>>().concat();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    fn ended(&self) -> Option<String> {
+        self.events().into_iter().find_map(|e| if let WatchEvent::Ended(w) = e { Some(w) } else { None })
+    }
+}
+
+/// Studio sharing `a1` (an agent) and `t1` (a plain shell), the laptop
+/// paired and showing.
+fn watching(w: &Arc<FakeWorld>, limits: Limits) -> (Pw, Pw) {
+    let studio = pitwall_in(w, "nSTUDIO", TempDir::new("peer-studio"), true, false, limits);
+    let mut shell = agent("t1", "zsh", "idle");
+    shell.kind = "shell".into();
+    shell.kind_name = "Terminal".into();
+    shell.terminal = true;
+    studio.feed.set(vec![agent("a1", "api", "working"), shell]);
+    listening(w, "nSTUDIO");
+    let laptop = pitwall(w, "nLAPTOP", false, true);
+    laptop.peers.pair("studio").unwrap();
+    wait_until("connected", || laptop.peers.link_is("studio", LinkState::Connected));
+    (studio, laptop)
+}
+
+fn audited(p: &Pw, event: &str) -> Vec<String> {
+    p.peers.audit(200).into_iter().filter(|e| e.event == event).filter_map(|e| e.detail).collect()
+}
+
+#[test]
+fn mirrored_ids_map_back_to_the_peers_own() {
+    assert_eq!(link::local_id("peer:studio:a1"), Some(("studio", "a1")));
+    assert_eq!(link::local_id("peer:studio:agw:vm-1:x"), Some(("studio", "agw:vm-1:x")));
+    assert_eq!(link::local_id("a1"), None);
+    assert_eq!(link::local_id("peer::a1"), None);
+}
+
+#[test]
+fn a_peer_agents_terminal_streams_live_and_view_only() {
+    let w = world();
+    let (studio, laptop) = watching(&w, Limits::default());
+    let (host, ctl) = studio.feed.term("a1", b"$ claude\r\nhello ");
+    let seen = Arc::new(Watched::default());
+    let watch = laptop.peers.watch("peer:studio:a1", seen.clone()).unwrap();
+    // The snapshot first, at the source's size.
+    wait_until("the snapshot", || seen.screen().contains("hello "));
+    assert_eq!(seen.events()[0], WatchEvent::Reset { cols: 80, rows: 24 });
+    // Then live output.
+    ctl.output(b"world");
+    wait_until("live output", || seen.screen().ends_with("hello world"));
+    // The source resizes: the viewer follows, and never resizes it.
+    host.resize(100, 30);
+    wait_until("the new size", || seen.events().contains(&WatchEvent::Resized { cols: 100, rows: 30 }));
+    assert_eq!(ctl.resizes(), [TermSize::new(100, 30)], "only the source's own resize");
+    assert!(ctl.input().is_empty(), "nothing was typed");
+    assert_eq!(audited(&studio, "watch"), ["agent a1"]);
+    // The program exits: the stream ends.
+    ctl.exit(0);
+    wait_until("it ended", || seen.ended().is_some());
+    assert_eq!(seen.ended().unwrap(), "it exited");
+    wait_until("the end is audited", || audited(&studio, "unwatch") == ["agent a1: exited"]);
+    drop(watch);
+}
+
+#[test]
+fn a_plain_shell_streams_the_same_way() {
+    let w = world();
+    let (studio, laptop) = watching(&w, Limits::default());
+    let (_host, ctl) = studio.feed.term("t1", b"me@studio ~ % ");
+    let seen = Arc::new(Watched::default());
+    let _watch = laptop.peers.watch("peer:studio:t1", seen.clone()).unwrap();
+    wait_until("the prompt", || seen.screen().contains("me@studio ~ % "));
+    ctl.output(b"ls\r\n");
+    wait_until("live", || seen.screen().ends_with("ls\r\n"));
+}
+
+#[test]
+fn input_on_a_watched_stream_is_refused() {
+    let w = world();
+    let (studio, _laptop) = watching(&w, Limits::default());
+    let (_host, ctl) = studio.feed.term("a1", b"prompt> ");
+    let dir = TempDir::new("peer-viewer");
+    let ctx = viewer_ctx(&w, "nLAPTOP", &dir);
+    let mut d = dial::dial(&ctx, &studio_node(&w), 0).unwrap();
+    d.auth(&ctx.key, "laptop-2", true, None).unwrap();
+    // Not listed (a mirror's id, or made up): nothing to watch.
+    assert_eq!(call(&mut d, 3, pitwall_proto::peer::TERM_WATCH, json!({"agentId":"peer:other:a1"})).unwrap_err().code, code::NOT_FOUND);
+    let ok = call(&mut d, 4, pitwall_proto::peer::TERM_WATCH, json!({"agentId":"a1"})).unwrap();
+    let stream = ok["stream"].as_u64().unwrap() as u32;
+    assert_eq!((ok["cols"].as_u64(), ok["rows"].as_u64()), (Some(80), Some(24)));
+    // Typing on the stream: the listener closes the connection, writes
+    // nothing to the program and logs it.
+    use std::io::Write;
+    d.stream.write_all(&frame::term(stream, b"rm -rf ~\r")).unwrap();
+    d.stream.flush().unwrap();
+    let mut closed = false;
+    for _ in 0..1000 {
+        match frame::read_max(&mut d.reader, pitwall_proto::peer::PEER_MAX_FRAME) {
+            Ok(Some(_)) => continue,
+            _ => {
+                closed = true;
+                break;
+            }
+        }
+    }
+    assert!(closed, "the connection is closed");
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(ctl.input().is_empty(), "nothing reached the program: {:?}", ctl.input());
+    wait_until("it is audited", || studio.peers.audit(50).iter().any(|e| e.event == "denied" && e.method.as_deref() == Some("terminal input")));
+}
+
+#[test]
+fn a_slow_viewer_starts_over_with_a_fresh_snapshot() {
+    let w = world();
+    let limits = Limits { watch_behind: 16 * 1024, ..Limits::default() };
+    let (studio, _laptop) = watching(&w, limits);
+    let (host, ctl) = studio.feed.term("a1", b"start ");
+    let dir = TempDir::new("peer-viewer");
+    let ctx = viewer_ctx(&w, "nLAPTOP", &dir);
+    let mut d = dial::dial(&ctx, &studio_node(&w), 0).unwrap();
+    d.auth(&ctx.key, "laptop-2", true, None).unwrap();
+    call(&mut d, 4, pitwall_proto::peer::TERM_WATCH, json!({"agentId":"a1"})).unwrap();
+    // The viewer doesn't read while the agent prints a lot: the agent
+    // never waits for it.
+    let line = [b'x'; 4096];
+    let started = Instant::now();
+    for _ in 0..2048 {
+        ctl.output(&line);
+    }
+    ctl.output(b"END");
+    wait_until("the agent printed it all", || host.history().ends_with(b"END"));
+    assert!(started.elapsed() < Duration::from_secs(10));
+    // Reading now: it was cut off and starts over (reset, snapshot).
+    let mut resets = 0;
+    let mut tail = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline && !(resets >= 2 && tail.ends_with(b"END")) {
+        match frame::read_max(&mut d.reader, pitwall_proto::peer::PEER_MAX_FRAME).unwrap().unwrap() {
+            frame::Frame::Json(b) => {
+                if let Ok(ServerMsg::Event(ev)) = serde_json::from_slice::<ServerMsg>(&b) {
+                    if ev.event == pitwall_proto::peer::TERM_RESET {
+                        resets += 1;
+                        tail.clear();
+                    }
+                }
+            }
+            frame::Frame::Term { data, .. } => {
+                assert!(data.len() <= pitwall_proto::peer::TERM_CHUNK);
+                tail.extend_from_slice(&data);
+            }
+            _ => {}
+        }
+    }
+    assert!(resets >= 2, "started over: {resets} resets");
+    assert!(tail.ends_with(b"END"), "the fresh snapshot ends with the latest output");
+}
+
+#[test]
+fn a_restarted_agent_streams_its_new_terminal() {
+    let w = world();
+    let (studio, laptop) = watching(&w, Limits::default());
+    studio.feed.term("a1", b"first run");
+    let seen = Arc::new(Watched::default());
+    let _watch = laptop.peers.watch("peer:studio:a1", seen.clone()).unwrap();
+    wait_until("the first run", || seen.screen().contains("first run"));
+    studio.feed.term("a1", b"second run");
+    wait_until("the new terminal from the top", || seen.resets() == 2 && seen.screen() == "second run");
+}
+
+#[test]
+fn watches_end_with_revocation_unpairing_and_sharing() {
+    let w = world();
+    let (studio, laptop) = watching(&w, Limits::default());
+    studio.feed.term("a1", b"hi");
+    // Sharing off: the stream drops, the viewer says it is reconnecting;
+    // back on, it resumes with a fresh snapshot.
+    let seen = Arc::new(Watched::default());
+    let _watch = laptop.peers.watch("peer:studio:a1", seen.clone()).unwrap();
+    wait_until("watching", || seen.screen() == "hi");
+    studio.peers.set_settings(PeerSettings { share: false, show: false, port: 0 }).unwrap();
+    wait_until("reconnecting", || seen.events().iter().any(|e| matches!(e, WatchEvent::Reconnecting(_))));
+    studio.peers.set_settings(PeerSettings { share: true, show: false, port: 0 }).unwrap();
+    wait_until("resumed", || seen.resets() == 2 && seen.screen() == "hi");
+    wait_until("the closed stream is audited", || audited(&studio, "unwatch").contains(&"agent a1: closed".to_string()));
+    // Revoked on studio: the stream ends, and the viewer must pair again.
+    studio.peers.revoke("laptop").unwrap();
+    wait_until("it ended", || seen.ended().is_some());
+    assert!(seen.ended().unwrap().contains("pair"), "{:?}", seen.ended());
+
+    // Unpaired on the laptop: its open watches end at once.
+    laptop.peers.pair("studio").unwrap();
+    let again = Arc::new(Watched::default());
+    let _watch = laptop.peers.watch("peer:studio:a1", again.clone()).unwrap();
+    wait_until("watching again", || again.screen() == "hi");
+    laptop.peers.unpair("studio").unwrap();
+    assert_eq!(again.ended().as_deref(), Some("studio was unpaired"));
+    assert_eq!(laptop.peers.watch("peer:studio:a1", again.clone()).err().map(|e| e.code), Some(code::NOT_FOUND.to_string()));
+}
+
+#[test]
+fn an_agent_without_a_terminal_ends_the_watch() {
+    let w = world();
+    let (_studio, laptop) = watching(&w, Limits::default());
+    let seen = Arc::new(Watched::default());
+    let _watch = laptop.peers.watch("peer:studio:a1", seen.clone()).unwrap();
+    wait_until("it ended", || seen.ended().is_some());
+    assert_eq!(seen.ended().unwrap(), "it isn't running");
+    let gone = Arc::new(Watched::default());
+    let _watch = laptop.peers.watch("peer:studio:zz", gone.clone()).unwrap();
+    wait_until("it ended", || gone.ended().is_some());
+    assert_eq!(gone.ended().unwrap(), "it's no longer on studio");
 }
