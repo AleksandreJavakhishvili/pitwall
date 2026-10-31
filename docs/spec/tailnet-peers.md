@@ -106,12 +106,32 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   replaces only the local part; a peer event replaces only the mirrors
   (`Peers::views`). `blocked` (the Dock badge) is the engine's count plus
   the connected peers' (`Mirror::blocked`).
-- **Sidebar.** The mirrors group like agw machines: a heading per machine
-  (`studio`, `studio › vm-1`), always shown for a peer, with a dot and the
-  link in words: connected, connecting…, offline · last seen 5 min ago,
-  identity changed · pair again. A paired machine with no rows to show
-  keeps its heading ("No agents running" / "Its agents show once it's
+- **Sidebar: machines → accounts → projects → agents.** With agents on
+  2+ machines, or any peer, the sidebar has a section per machine: This
+  Mac first, then its agw machines, then peer Macs (a peer's VMs as
+  `studio › vm-1`, right after it), each by name (`model::by_machine`,
+  `by_machine_account`). This Mac alone has no machine level: the sidebar
+  is exactly as before. A machine's heading has its name and, for a peer,
+  a dot and the link in words (connected, connecting…, offline · last seen
+  5 min ago, identity changed · pair again), its ▲ and agent counts; it
+  folds like an account (`machine:<provider>:<id>` in `ui.json`'s
+  `collapsed`; folded, one summary line). Inside, that machine's own
+  accounts (grouped by account) or straight its projects (grouped by
+  project). A paired machine with nothing to show keeps its section with
+  one quiet line ("No agents running" / "Its agents show once it's
   reachable").
+- **A peer's accounts are its own.** Its account ids mean nothing here, so
+  the listener adds each agent's account name (`AgentView.accountName`,
+  optional, from its own `accounts.json`) to `agent.list` and `agents`
+  events. The viewer groups a mirror under its machine's Default (no
+  account), or the account of that name; an older peer that sends only an
+  id puts them under one "Unnamed account". Never under one of this Mac's
+  (`model::peer_account`; the row's account chip uses the name too).
+- **Read-only sections.** A peer's accounts and projects have no menus, no
+  "+"/New agent, and are no drop targets; nothing is dragged into, out of
+  or within a peer's section (its rows still drag into spaces). Drags
+  never cross machines: an agw machine's projects and agents reorder only
+  among themselves, and only This Mac's accounts move or take agents.
 - **Read-only by caps.** Mirrors have every cap off, so stop, restart,
   review, diff, explorer and worktrees aren't offered; terminals attach
   only while `caps.input`. The one rule not expressed by a cap: nothing of
@@ -153,8 +173,11 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
 - **Tests** (`FakeTailnet` only, nothing leaves 127.0.0.1): two Pitwalls
   where the laptop's store shows studio's agent read-only, notifies "api on
   studio", badges it and drops it after a CLI unpair; main-screen window
-  tests for the heading, the details pane, no Rename/Remove, the offer
-  toast and the card; Settings → Peers window tests; `Peers::reload`.
+  tests for the heading, the machine sections (order, folding, no drops
+  in, out or within a peer's, its accounts by name grouped by account),
+  no machine level with This Mac alone, the details pane, no
+  Rename/Remove, the offer toast and the card; `agent.list` and events
+  carrying account names; Settings → Peers window tests; `Peers::reload`.
 
 ---
 
