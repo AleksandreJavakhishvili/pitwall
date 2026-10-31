@@ -46,6 +46,10 @@ pub fn clamp_size(cols: u16, rows: u16) -> (u16, u16) {
     TermSize::new(cols, rows).pair()
 }
 
+/// Output subscription ids (`attach`, `watch_output`): unique in this
+/// process, so a stale id never detaches a newer subscriber.
+static NEXT_SUB: AtomicU64 = AtomicU64::new(1);
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -192,12 +196,21 @@ impl TermHost {
     /// Returns a subscription id for `detach` (unique in this process, so a
     /// stale id never detaches a newer subscriber).
     pub fn attach(self: &Arc<Self>, sink: OutputSink) -> u64 {
-        static NEXT_SUB: AtomicU64 = AtomicU64::new(1);
         let sub_id = NEXT_SUB.fetch_add(1, Ordering::Relaxed);
         if !lock(&self.output).subscribe(sub_id, sink) {
             return sub_id;
         }
         self.nudge_redraw();
+        sub_id
+    }
+
+    /// [`attach`](Self::attach) for a watcher that must not touch the
+    /// program (another machine's view-only stream, tailnet-peers.md):
+    /// the same replay then live output, atomically, but no redraw nudge
+    /// (that resizes the PTY). Returns an id for [`detach`](Self::detach).
+    pub fn watch_output(&self, sink: OutputSink) -> u64 {
+        let sub_id = NEXT_SUB.fetch_add(1, Ordering::Relaxed);
+        lock(&self.output).subscribe(sub_id, sink);
         sub_id
     }
 
@@ -497,6 +510,27 @@ mod tests {
         assert_eq!(host.last_activity.load(Ordering::Relaxed), 10_000);
         assert!(host.screen_text().0.contains("before live"));
         assert_eq!(host.pid(), Some(7));
+    }
+
+    #[test]
+    fn a_watcher_gets_replay_then_live_and_never_resizes() {
+        let (term, ctl) = FakeTerm::new(TermSize::new(80, 24), None);
+        ctl.set_history(b"before ");
+        let host = TermHost::new(Box::new(term), TermSize::DEFAULT, crate::testing::ManualClock::new(1));
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let g = got.clone();
+        let id = host.watch_output(Box::new(move |b: &[u8]| {
+            g.lock().unwrap().extend_from_slice(b);
+            true
+        }));
+        ctl.output(b"live");
+        assert!(wait_until(|| got.lock().unwrap().as_slice() == b"before live"));
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(ctl.resizes().is_empty(), "no redraw nudge: {:?}", ctl.resizes());
+        host.detach(id);
+        ctl.output(b"!");
+        assert!(wait_until(|| host.history() == b"before live!"));
+        assert_eq!(got.lock().unwrap().as_slice(), b"before live");
     }
 
     /// A UI's terminal standing in as the screen: records what it is fed.
