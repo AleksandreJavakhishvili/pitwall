@@ -98,6 +98,7 @@ pub struct PeerPane {
     agent: AgentView,
     terminal: Terminal,
     view: Entity<TerminalView>,
+    mode: crate::theme::Mode,
     watch: Option<TermWatch>,
     pub live: Live,
     /// The details card instead of the terminal.
@@ -116,7 +117,8 @@ pub struct PeerPane {
 
 impl PeerPane {
     fn new(a: &AgentView, font: f32, window: &mut Window, cx: &mut Context<Self>) -> PeerPane {
-        let config = TerminalConfig { theme: crate::terminal::term_theme(crate::theme::theme(cx).mode), ..TerminalConfig::default() };
+        let mode = crate::theme::theme(cx).mode;
+        let config = TerminalConfig { theme: crate::terminal::term_theme(mode), ..TerminalConfig::default() };
         // The source's size arrives with the snapshot; until then, the last known.
         let terminal = Terminal::new(NullStream, TermSize::new(a.cols.max(20), a.rows.max(5)), config);
         let settings = ViewSettings { font: TermFont { size: font, ..TermFont::default() }, ..ViewSettings::default() };
@@ -141,6 +143,7 @@ impl PeerPane {
             agent: a.clone(),
             terminal,
             view,
+            mode,
             watch: None,
             live: Live::Closed,
             details: false,
@@ -189,8 +192,21 @@ impl PeerPane {
         }
     }
 
-    /// Drawn now: the stream should be open (unless it ended for good).
-    fn shown(&mut self, a: &AgentView, cx: &mut Context<Self>) {
+    /// Drawn now: the stream should be open (unless it ended for good);
+    /// the theme and the tile's font size as they are now.
+    fn shown(&mut self, a: &AgentView, font: f32, cx: &mut Context<Self>) {
+        let mode = crate::theme::theme(cx).mode;
+        if mode != self.mode {
+            self.mode = mode;
+            self.terminal.set_theme(crate::terminal::term_theme(mode));
+        }
+        if self.view.read(cx).settings().font.size != font {
+            self.view.update(cx, |v, cx| {
+                let mut s = v.settings().clone();
+                s.font.size = font;
+                v.set_settings(s, cx);
+            });
+        }
         let again = !self.was_running && a.running;
         self.was_running = a.running;
         self.agent = a.clone();
@@ -387,7 +403,7 @@ pub(super) fn pane(a: &AgentView, font: f64, live_ids: &[String], window: &mut W
             p
         }
     };
-    pane.update(cx, |p, cx| p.shown(a, cx));
+    pane.update(cx, |p, cx| p.shown(a, font as f32, cx));
     pane.into_any_element()
 }
 
