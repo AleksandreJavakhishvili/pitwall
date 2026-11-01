@@ -112,17 +112,27 @@ Both hook modes are tied to the Claude Code and Codex hook formats. A kind of yo
 
 A kind with `account_env` can run on more than one login, say a work and a personal subscription. Each account is a login folder; the agent starts with `account_env` set to that folder. Default is your own login, in `account_home`.
 
-- Add accounts in Settings → Agents → Accounts, or from a project's right-click menu → Accounts…. Choosing a folder you already use is fine.
+- Add accounts in Settings → Accounts, or from a project's right-click menu → Accounts…. Choosing a folder you already use is fine.
 - Pick one in New agent, set one per project, or move an agent with its right-click menu → Run on account.
 - The CLI takes `pitwall agent new --account <name>`.
 
-Moving a running agent carries its conversation along and showing who an account is logged in as both work for Claude Code and Codex only, since they need to know where each tool keeps its files. For another kind, `account_env` still lets each agent start on the account you chose.
+Built in: Claude Code (`CLAUDE_CONFIG_DIR`), Codex (`CODEX_HOME`), Gemini CLI (`GEMINI_CLI_HOME`, the folder its `.gemini` goes in) and GitHub Copilot CLI (`COPILOT_HOME`). Cursor Agent, opencode, Amp, Aider and Qwen Code have no setting that moves their login on its own, so they run on one login. Settings → Accounts lists the tools that are installed or already have accounts.
+
+Moving a running agent carries its conversation along for Claude Code and Codex only, since that needs to know where each tool keeps its conversations. Who an account is logged in as shows for all four where the tool's files say it (Gemini CLI and Copilot CLI may keep their login in the keychain instead). For another kind, `account_env` still lets each agent start on the account you chose.
+
+### Usage
+
+Settings → Accounts shows each account's usage, read from what the tool records on this Mac (nothing is sent anywhere):
+
+- Codex: its plan's limits as Codex last saw them (the 5-hour and weekly windows: how much is used and when each starts over), and tokens.
+- Claude Code: tokens in the last 5 hours, day and week, from its conversation logs (each reply counted once; the tooltip splits input, output and the prompt cache). Claude Code doesn't record its plan's limits on disk; `/usage` in Claude Code shows them.
+- Other tools record neither, so they show none.
 
 ### Git identities
 
 A git identity says who a project's agents and terminals are in git: the name and email on their commits, their GitHub and Azure DevOps logins, and optionally an SSH key. Use one when different projects belong to different accounts.
 
-- Add them in Settings → Agents → Accounts → Git identities. Each one logs in to GitHub and Azure DevOps on its own: "Log in" next to a service opens a terminal where `gh auth login` or `az login` runs in the browser. Log in only to the services you use.
+- Add them in Settings → Accounts → Git identities. Each one logs in to GitHub and Azure DevOps on its own: "Log in" next to a service opens a terminal where `gh auth login` or `az login` runs in the browser. Log in only to the services you use.
 - Pick one per project from its right-click menu → Accounts…. Projects without one use your own git setup.
 - Agents and terminals Pitwall starts in that project get `GIT_AUTHOR_NAME`/`EMAIL` and `GIT_COMMITTER_NAME`/`EMAIL` (and `user.name`/`user.email` as git settings, so `git config` shows them), and with a key `GIT_SSH_COMMAND` (works for any host, Azure DevOps' `ssh.dev.azure.com` too).
 - For each service the identity is logged in to, they also get its CLI's folder (`GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`), and git's HTTPS logins to its hosts come from it: `github.com` through `gh`, `dev.azure.com` and `*.visualstudio.com` with a token from `az`. A service it isn't logged in to stays on your own setup. Your `~/.gitconfig` isn't changed.
@@ -150,7 +160,7 @@ worktree_args = ["--worktree", "{name}"]
 worktree_dirs = [".claude/worktrees"]
 # What other platforms call it (agw's harness integration), for adopting their sessions.
 aliases = ["claude-code"]
-# Accounts: each login lives in its own folder (Settings → Agents → Accounts).
+# Accounts: each login lives in its own folder (Settings → Accounts).
 account_env = "CLAUDE_CONFIG_DIR"
 account_home = "~/.claude"
 ```

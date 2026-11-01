@@ -93,7 +93,7 @@ scripts/package-app.sh              <span class="c"># release bundles → target
         <h2 id="agents">Start an agent</h2>
         <p><kbd>⌘N</kbd> opens New agent: pick a project (search your projects and recent folders, paste a path, drop a folder or Choose folder…), a kind (Claude Code, Codex, Gemini CLI, opencode, Cursor Agent, GitHub Copilot CLI, Qwen Code, Amp, Aider or Shell) and a name. <kbd>⌘↵</kbd> starts it; More options holds the rest.</p>
         <ul>
-          <li><strong>Account</strong> (Claude Code and Codex) picks which login it runs on, when you've added more than one in Settings → Agents → Accounts. It starts on the project's account; "Use it for new agents in …" makes your pick the project's. Right-click a project → Accounts… does the same for the whole project.</li>
+          <li><strong>Account</strong> (Claude Code and Codex) picks which login it runs on, when you've added more than one in Settings → Accounts. It starts on the project's account; "Use it for new agents in …" makes your pick the project's. Right-click a project → Accounts… does the same for the whole project.</li>
           <li><strong>Separate worktree</strong> (off by default; Claude Code and Codex only) passes the agent's own flag — <code>claude --worktree &lt;name&gt;</code> or <code>codex --worktree</code>. Pitwall finds where the agent ends up working and uses that folder for status, diffs and Review. It creates no branches or folders of its own.</li>
           <li><strong>Rules</strong> picks a rule set to write through <code>rulesync</code> before launch. For agents in your main checkout this needs an explicit tick.</li>
           <li>Agents launch through <code>$SHELL -l -i -c</code>, so they see the same PATH and config as your terminal.</li>
