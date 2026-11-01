@@ -56,7 +56,7 @@ impl MainScreen {
     }
 
     /// The sidebar's machines: their projects, or their accounts (in
-    /// Settings → Agents → Accounts' order) and their projects, as dragged;
+    /// Settings → Accounts' order) and their projects, as dragged;
     /// paired machines with nothing to show too.
     pub(super) fn machine_sections(&self, agents: &[AgentView], cx: &App) -> Vec<MachineSection> {
         let sections = match self.ui.sidebar_group {
@@ -794,7 +794,7 @@ impl MainScreen {
                 move |this, window, cx| this.open_terminal(cwd.clone(), window, cx),
             ));
         }
-        // Which login it runs on (Settings → Agents → Accounts).
+        // Which login it runs on (Settings → Accounts).
         let local = a.machine.provider == pitwall_core::provider::ProviderId::LOCAL;
         let list = crate::accounts::model(cx).read(cx).of_kind(&a.kind);
         if local && !list.is_empty() && !a.engineer {

@@ -1,10 +1,11 @@
 //! The accounts (`pitwall_core::accounts`) as the app shows them: one model
-//! for the window's views (Settings → Agents → Accounts, New agent's
+//! for the window's views (Settings → Accounts, New agent's
 //! account chips, the agent and project menus, the account badges), saved
 //! to `accounts.json` on every change, with who each one is logged in as.
-//! Git identities too (Settings → Agents → Accounts, a project's Accounts…).
+//! Git identities too (Settings → Accounts, a project's Accounts…).
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext, Context, Entity, Global};
@@ -12,10 +13,13 @@ use gpui::{App, AppContext, Context, Entity, Global};
 use pitwall_core::accounts::{self, Account, Accounts, GitFields, GitIdentity, GitService};
 use pitwall_core::kind::AgentKind;
 use pitwall_core::paths::Paths;
+use pitwall_core::usage::{Usage, UsageCache};
 use pitwall_core::Shared;
 
 /// Who an account is logged in as is read again at most this often.
 const LOGIN_EVERY: Duration = Duration::from_secs(3);
+/// Usage is read again at most this often (while something shows it).
+const USAGE_EVERY: Duration = Duration::from_secs(60);
 
 pub struct AccountsModel {
     pub list: Accounts,
@@ -24,6 +28,15 @@ pub struct AccountsModel {
     /// (kind, account id or `default`) → its login's email.
     logins: BTreeMap<(String, String), Option<String>>,
     logins_at: Option<Instant>,
+    /// (kind, account id or `default`) → its usage, read off the UI thread.
+    usage: BTreeMap<(String, String), Usage>,
+    usage_at: Option<Instant>,
+    usage_reading: bool,
+    /// Parsed logs, kept between reads (logs only grow).
+    usage_cache: Arc<Mutex<UsageCache>>,
+    /// Kind → whether its command is installed, checked once (in the
+    /// background, with the first usage read).
+    installed: Option<BTreeMap<String, bool>>,
 }
 
 /// Project folder → the account its agents run on (its first kind's, in
@@ -87,7 +100,18 @@ pub fn model(cx: &mut App) -> Entity<AccountsModel> {
     }
     let list = paths.as_ref().map(Accounts::load).unwrap_or_default();
     remember(&list);
-    let m = cx.new(|_| AccountsModel { list, paths, engine, logins: BTreeMap::new(), logins_at: None });
+    let m = cx.new(|_| AccountsModel {
+        list,
+        paths,
+        engine,
+        logins: BTreeMap::new(),
+        logins_at: None,
+        usage: BTreeMap::new(),
+        usage_at: None,
+        usage_reading: false,
+        usage_cache: Arc::new(Mutex::new(UsageCache::new())),
+        installed: None,
+    });
     cx.set_global(Handle(m.clone()));
     m
 }
@@ -130,6 +154,71 @@ impl AccountsModel {
     /// name a login folder variable), in New agent's order, installed or not.
     pub fn kinds(&self) -> Vec<AgentKind> {
         self.engine.as_ref().map(|e| e.kinds().kinds().into_iter().filter(|k| k.account_env.is_some()).collect()).unwrap_or_default()
+    }
+
+    /// The kinds shown in Settings → Accounts: installed, or with
+    /// accounts already.
+    /// Until that's known, the ones whose usage it can read.
+    pub fn shown_kinds(&self) -> Vec<AgentKind> {
+        self.kinds()
+            .into_iter()
+            .filter(|k| {
+                let on = match &self.installed {
+                    Some(i) => i.get(&k.id).copied().unwrap_or(false),
+                    None => pitwall_core::usage::readable(&k.id),
+                };
+                on || self.list.of_kind(&k.id).next().is_some()
+            })
+            .collect()
+    }
+
+    /// `kind`'s usage on account `id` (`None`: the user's own) as last
+    /// read; reads every account's again in the background when it's older
+    /// than a minute (or `now`), and notifies when done.
+    pub fn usage(&mut self, kind: &str, id: Option<&str>, now: bool, cx: &mut Context<Self>) -> Option<Usage> {
+        if !self.usage_reading && (now || self.usage_at.is_none_or(|t| t.elapsed() > USAGE_EVERY)) {
+            self.read_usage(cx);
+        }
+        self.usage.get(&(kind.to_string(), id.unwrap_or(accounts::DEFAULT).to_string())).cloned()
+    }
+
+    fn read_usage(&mut self, cx: &mut Context<Self>) {
+        let mut jobs: Vec<(AgentKind, Option<Account>)> = Vec::new();
+        for k in self.kinds().into_iter().filter(|k| pitwall_core::usage::readable(&k.id)) {
+            jobs.push((k.clone(), None));
+            jobs.extend(self.list.of_kind(&k.id).cloned().map(|a| (k.clone(), Some(a))));
+        }
+        self.usage_reading = true;
+        self.usage_at = Some(Instant::now());
+        let cache = self.usage_cache.clone();
+        let check: Vec<(String, String)> =
+            if self.installed.is_none() { self.kinds().into_iter().map(|k| (k.id, k.command)).collect() } else { vec![] };
+        let installed = cx.background_executor().spawn(async move {
+            check.into_iter().map(|(id, cmd)| (id, pitwall_core::shell::which(&cmd).is_some())).collect::<BTreeMap<_, _>>()
+        });
+        let task = cx.background_executor().spawn(async move {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+            jobs.into_iter()
+                .filter_map(|(k, a)| {
+                    let u = cache.usage(&k, a.as_ref(), now)?;
+                    Some(((k.id.clone(), a.map(|a| a.id).unwrap_or_else(|| accounts::DEFAULT.into())), u))
+                })
+                .collect::<BTreeMap<_, _>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let usage = task.await;
+            let installed = installed.await;
+            let _ = this.update(cx, |m, cx| {
+                if !installed.is_empty() {
+                    m.installed = Some(installed);
+                }
+                m.usage = usage;
+                m.usage_reading = false;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// A kind's definition, when it can have accounts.

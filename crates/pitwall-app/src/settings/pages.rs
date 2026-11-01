@@ -78,9 +78,9 @@ impl SettingsView {
             Page::Agents => {
                 let codex = self.codex(ui, cx);
                 let engineer = self.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx);
-                let accounts = self.accounts_section(ui, cx);
-                vec![accounts, Self::claude(ui), Self::tool_updates(ui, cx), codex, engineer]
+                vec![Self::claude(ui), codex, Self::tool_updates(ui, cx), engineer]
             }
+            Page::Accounts => vec![self.accounts_section(ui, cx), self.git_section(ui, cx)],
             Page::Rules => {
                 let extra: Vec<AnyElement> = cx
                     .try_global::<ExtraSections>()
@@ -133,7 +133,7 @@ impl SettingsView {
         );
         section()
             .child(row(ui, "Group agents by").child(div().flex_1()).child(seg))
-            .child(crate::kit::hint("Account shows the Claude Code or Codex login each agent runs on (Settings → Agents → Accounts), then its projects.", &ui.t))
+            .child(crate::kit::hint("Account shows the login each agent runs on (Settings → Accounts), then its projects.", &ui.t))
     }
 
     fn elsewhere(ui: &Ui, cx: &mut Context<Self>) -> Div {

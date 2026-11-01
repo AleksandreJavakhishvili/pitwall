@@ -65,7 +65,7 @@ pub struct SettingsView {
     pub(super) error: Option<String>,
     /// Agents → Race Engineer.
     pub(super) engineer: super::engineer::Section,
-    /// Agents → Accounts.
+    /// Accounts: agent logins and git identities.
     pub(super) accounts: super::accounts::Section,
     /// Peers.
     pub(super) peers: super::peers::Section,
@@ -406,7 +406,7 @@ mod tests {
         assert_eq!(step(Page::General, 1), Page::Agents);
         assert_eq!(step(Page::General, -1), Page::About);
         assert_eq!(step(Page::About, 1), Page::General);
-        assert_eq!(step(Page::Appearance, -1), Page::Rules);
+        assert_eq!(step(Page::Rules, -1), Page::Accounts);
     }
 
     #[test]

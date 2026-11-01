@@ -27,6 +27,8 @@ use ts_rs::TS;
 pub enum Page {
     General,
     Agents,
+    /// Logins: agent accounts and their usage, git identities.
+    Accounts,
     Rules,
     Appearance,
     FolderAccess,
@@ -36,13 +38,14 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 7] = [Page::General, Page::Agents, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
+    pub const ALL: [Page; 8] = [Page::General, Page::Agents, Page::Accounts, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
 
     /// The id in `ui.json` (`settingsPage`) and the CLI.
     pub fn id(self) -> &'static str {
         match self {
             Page::General => "general",
             Page::Agents => "agents",
+            Page::Accounts => "accounts",
             Page::Rules => "rules",
             Page::Appearance => "appearance",
             Page::FolderAccess => "folderAccess",
@@ -55,6 +58,7 @@ impl Page {
         match self {
             Page::General => "General",
             Page::Agents => "Agents",
+            Page::Accounts => "Accounts",
             Page::Rules => "Rules & skills",
             Page::Appearance => "Appearance",
             Page::FolderAccess => "Folder access",

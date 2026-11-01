@@ -1,11 +1,14 @@
-//! Settings → Agents → Accounts: more than one Claude Code or Codex login
-//! (`pitwall_core::accounts`). Each kind lists Default (the user's own
-//! login) and the accounts added, with who each is logged in as and the
-//! projects whose new agents use it; "Add account" names one (a fresh
+//! Settings → Accounts: more than one login per agent tool, for the tools
+//! that keep their login in a folder they let you choose (Claude Code,
+//! Codex, Gemini CLI, Copilot CLI: `pitwall_core::accounts`). Each
+//! installed tool (or one with accounts) lists Default (the user's own
+//! login) and the accounts added, with who each is logged in as, its usage
+//! where the tool records it (`pitwall_core::usage`), and the projects
+//! whose new agents use it; "Add account" names one (a fresh
 //! folder, or one already logged in) and "Log in" starts an agent on it,
 //! where the tool's own login runs.
 //!
-//! Then the git identities (`pitwall_core::accounts::GitIdentity`): who
+//! Then, as a section of its own, the git identities (`pitwall_core::accounts::GitIdentity`): who
 //! commits, and the GitHub and Azure DevOps logins their CLIs and HTTPS
 //! pushes use, for the projects that name one; each login's "Log in" opens
 //! a terminal where `gh` or `az` logs in.
@@ -226,7 +229,7 @@ impl SettingsView {
     }
 
     /// Git identities: header with "Add git identity", the form, the rows.
-    fn git_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+    pub(super) fn git_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let t = &ui.t;
         let adding = self.accounts.git_form.as_ref().is_some_and(|f| f.id.is_none());
         let mut sec = div().flex().flex_col().gap(px(8.)).child(
@@ -236,7 +239,7 @@ impl SettingsView {
                 .gap(px(8.))
                 .pt(px(4.))
                 .min_h(px(26.))
-                .child(div().text_size(px(11.)).font_weight(crate::kit::WEIGHT_550).text_color(t.text_3).child("GIT IDENTITIES"))
+                .child(div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child("Git identities"))
                 .child(div().flex_1())
                 .when(self.accounts.git_form.is_none(), |d| {
                     d.child(
@@ -448,7 +451,7 @@ impl SettingsView {
                 .items_center()
                 .gap(px(8.))
                 .min_h(px(26.))
-                .child(div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child("Accounts"))
+                .child(div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child("Agent logins"))
                 .child(div().flex_1())
                 .when(live && !self.accounts.adding, |d| {
                     d.child(
@@ -458,7 +461,7 @@ impl SettingsView {
                 }),
         );
         sec = sec.child(crate::kit::muted(
-            "More than one Claude Code or Codex login: each agent runs on one, a project can pick the one its new agents use, and an agent can move to another (its conversation goes with it).",
+            "More than one login per tool: each agent runs on one, a project can pick the one its new agents use, and an agent can move to another (its conversation goes with it, for Claude Code and Codex). Usage is read from what each tool records on this Mac: Codex keeps its plan's limits, Claude Code its tokens.",
             t,
         ));
         if !live {
@@ -468,7 +471,7 @@ impl SettingsView {
             sec = sec.child(self.add_form(ui, cx));
         }
         // Every agent whose definition names a login folder.
-        for k in model.read(cx).kinds() {
+        for k in model.read(cx).shown_kinds() {
             sec = sec.child(
                 div()
                     .pt(px(4.))
@@ -483,7 +486,6 @@ impl SettingsView {
                 sec = sec.child(self.account_row(ui, &k.id, Some(a), cx));
             }
         }
-        sec = sec.child(self.git_section(ui, cx));
         if self.accounts.busy {
             sec = sec.child(crate::kit::hint("Starting a login…", t));
         }
@@ -564,6 +566,8 @@ impl SettingsView {
         let model = acc::model(cx);
         let id = a.as_ref().map(|a| a.id.clone());
         let login = model.update(cx, |m, _| m.login(kind, id.as_deref()));
+        let usage = model.update(cx, |m, cx| m.usage(kind, id.as_deref(), false, cx));
+        let readable = model.read(cx).kind(kind).map(|d| pitwall_core::accounts::logged_in(&d, None).is_some()).unwrap_or(false);
         let dir = acc::folder_of(cx, kind, id.as_deref());
         let projects = id.as_deref().map(|i| model.read(cx).list.projects_of(i)).unwrap_or_default();
         let key: SharedString = format!("{kind}-{}", id.clone().unwrap_or_default()).into();
@@ -645,7 +649,9 @@ impl SettingsView {
                                 let shown: SharedString = match &login {
                                     Some(email) => email.clone().into(),
                                     None if id.is_none() => "your own login".into(),
-                                    None => "not logged in".into(),
+                                    None if readable => "not logged in".into(),
+                                    // Its login may be in the keychain.
+                                    None => "log in to use it".into(),
                                 };
                                 div()
                                     .id(gpui::ElementId::Name(format!("acct-email-{key}").into()))
@@ -668,6 +674,7 @@ impl SettingsView {
                             .tooltip(crate::kit::tooltip(dir.clone()))
                             .child(crate::kit::one_line(dir)),
                     )
+                    .when_some(usage, |d, u| d.child(usage_line(&key, &u, t)))
                     .when(!projects.is_empty(), |d| {
                         let names: Vec<String> = projects
                             .iter()
@@ -684,6 +691,83 @@ impl SettingsView {
                     }),
             )
             .child(actions)
+    }
+}
+
+/// An account's usage: its plan's limits (Codex: "5h 25% · resets 14:20",
+/// "week 40%") as bars, then its tokens in the last 5 hours, day and week.
+fn usage_line(key: &SharedString, u: &pitwall_core::usage::Usage, t: &crate::theme::Theme) -> Div {
+    use pitwall_core::usage::short;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let mut col = div().flex().flex_col().gap(px(3.)).pt(px(2.));
+    for (i, l) in u.limits.iter().enumerate() {
+        let what = match l.window_minutes {
+            300 => "5h limit".to_string(),
+            10080 => "Weekly limit".to_string(),
+            m if m % 1440 == 0 => format!("{}-day limit", m / 1440),
+            m if m % 60 == 0 => format!("{}h limit", m / 60),
+            m => format!("{m} min limit"),
+        };
+        let pct = l.used_percent.clamp(0., 100.);
+        let color = if pct >= 90. { t.red } else if pct >= 70. { t.amber } else { t.green };
+        let resets = l.resets_at.filter(|r| *r > now).map(|r| format!(" · resets in {}", until(r - now))).unwrap_or_default();
+        col = col.child(
+            div()
+                .id(gpui::ElementId::Name(format!("acct-limit-{key}-{i}").into()))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .text_size(px(11.5))
+                .text_color(t.text_3)
+                .child(div().w(px(84.)).flex_none().child(what))
+                .child(
+                    div()
+                        .w(px(120.))
+                        .h(px(5.))
+                        .flex_none()
+                        .rounded_full()
+                        .bg(t.surface_3)
+                        .child(div().h_full().rounded_full().bg(color).w(px(120. * pct as f32 / 100.))),
+                )
+                .child(div().min_w_0().ellipsis().child(crate::kit::one_line(format!("{pct:.0}% used{resets}")))),
+        );
+    }
+    let tokens = if u.last_7d.total() == 0 {
+        "No use in the last week".to_string()
+    } else {
+        format!("Tokens: {} in 5h · {} today · {} this week", short(u.last_5h.total()), short(u.last_24h.total()), short(u.last_7d.total()))
+    };
+    let tip = format!(
+        "This week: {} input, {} output, {} from the cache, {} written to it.{}",
+        short(u.last_7d.input),
+        short(u.last_7d.output),
+        short(u.last_7d.cache_read),
+        short(u.last_7d.cache_write),
+        u.plan.as_ref().map(|p| format!(" Plan: {p}.")).unwrap_or_default()
+    );
+    col.child(
+        div()
+            .id(gpui::ElementId::Name(format!("acct-tokens-{key}").into()))
+            .debug_selector({
+                let k = key.clone();
+                move || format!("acct-tokens-{k}")
+            })
+            .min_w_0()
+            .ellipsis()
+            .text_size(px(11.5))
+            .text_color(t.text_3)
+            .tooltip(crate::kit::tooltip(tip))
+            .child(crate::kit::one_line(tokens)),
+    )
+}
+
+/// "2h 05m", "3d 4h", "12m".
+fn until(ms: u64) -> String {
+    let m = ms / 60_000;
+    match m {
+        m if m >= 1440 => format!("{}d {}h", m / 1440, m % 1440 / 60),
+        m if m >= 60 => format!("{}h {:02}m", m / 60, m % 60),
+        m => format!("{m}m"),
     }
 }
 
