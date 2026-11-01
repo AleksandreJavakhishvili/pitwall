@@ -34,7 +34,7 @@ pitwall wait "$id" --for done,blocked --fresh
 pitwall review changes "$id" --human
 ```
 
-Run it on another login (Settings → Agents → Accounts):
+Run it on another login (Settings → Accounts):
 
 ```bash
 pitwall agent new --kind codex --project ~/code/api --account work
