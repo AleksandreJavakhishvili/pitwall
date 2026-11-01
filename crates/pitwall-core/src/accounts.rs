@@ -477,10 +477,12 @@ pub fn dir_of(kind: &AgentKind, account: Option<&Account>) -> Option<PathBuf> {
     }
 }
 
-/// Who a login folder is logged in as (an email), where Pitwall can read
-/// the tool's files: Claude Code's `.claude.json` (`oauthAccount`), Codex's
-/// `auth.json` (the id token's claims). `None`: not logged in, an API key,
-/// or a tool whose login it can't read.
+/// Who a login folder is logged in as (an email or a user name), where
+/// Pitwall can read the tool's files: Claude Code's `.claude.json`
+/// (`oauthAccount`), Codex's `auth.json` (the id token's claims), Gemini
+/// CLI's `.gemini/google_accounts.json` (`active`), Copilot CLI's
+/// `config.json` (`last_logged_in_user`). `None`: not logged in, an API
+/// key, or a tool whose login it can't read.
 pub fn login(kind: &AgentKind, account: Option<&Account>) -> Option<String> {
     match kind.id.as_str() {
         "claude" => {
@@ -499,6 +501,20 @@ pub fn login(kind: &AgentKind, account: Option<&Account>) -> Option<String> {
             let claims = token.split('.').nth(1).and_then(base64url)?;
             let c: serde_json::Value = serde_json::from_slice(&claims).ok()?;
             c.get("email")?.as_str().map(String::from)
+        }
+        "gemini" => {
+            // GEMINI_CLI_HOME holds a `.gemini`; the user's own is ~/.gemini.
+            let state = match account {
+                Some(a) => PathBuf::from(&a.dir).join(".gemini"),
+                None => default_dir(kind)?,
+            };
+            let v: serde_json::Value = serde_json::from_slice(&std::fs::read(state.join("google_accounts.json")).ok()?).ok()?;
+            v.get("active")?.as_str().filter(|s| !s.is_empty()).map(String::from)
+        }
+        "copilot" => {
+            let file = dir_of(kind, account)?.join("config.json");
+            let v: serde_json::Value = serde_json::from_slice(&std::fs::read(file).ok()?).ok()?;
+            v.get("last_logged_in_user")?.get("login")?.as_str().map(String::from)
         }
         _ => None,
     }
@@ -604,7 +620,8 @@ pub fn freshen_conversation(kind: &AgentKind, list: &Accounts, account: Option<&
 
 /// Whether Pitwall can tell `account` (`None`: the user's own) is logged
 /// in: `Some(false)` when it can tell it isn't; `None` when it can't read
-/// that tool's login.
+/// that tool's login (Gemini CLI and Copilot CLI may keep theirs in the
+/// keychain, so their files saying nothing doesn't mean logged out).
 pub fn logged_in(kind: &AgentKind, account: Option<&Account>) -> Option<bool> {
     matches!(kind.id.as_str(), "claude" | "codex").then(|| login(kind, account).is_some())
 }
