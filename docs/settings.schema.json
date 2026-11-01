@@ -67,6 +67,7 @@
       "enum": [
         "general",
         "agents",
+        "accounts",
         "rules",
         "appearance",
         "folderAccess",

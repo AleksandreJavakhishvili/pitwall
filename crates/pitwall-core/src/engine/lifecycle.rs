@@ -599,7 +599,7 @@ pub fn switch_account(core: &Shared, id: &str, account: Option<&str>, size: Opti
     };
     // Not into a login it can't start in: it would quit at once.
     if let Some(a) = to.filter(|a| accounts::logged_in(&def, Some(a)) == Some(false)) {
-        return Err(format!("{} isn't logged in yet: Settings → Agents → Accounts → Log in, then move it.", a.name));
+        return Err(format!("{} isn't logged in yet: Settings → Accounts → Log in, then move it.", a.name));
     }
     let from = rec.account.as_deref().and_then(|a| list.get(a));
     if let (Some(sid), true) = (&rec.session_id, rec.has_conversation) {

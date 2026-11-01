@@ -802,7 +802,7 @@ impl NewAgentDialog {
                 .text_color(t.text_3)
                 .cursor_pointer()
                 .hover_text(t.text, |s| s)
-                .tooltip(crate::kit::tooltip("Settings → Agents → Accounts"))
+                .tooltip(crate::kit::tooltip("Settings → Accounts"))
                 .on_click(cx.listener(|_, _, window, cx| {
                     cx.emit(DialogEvent::Close);
                     window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
@@ -1741,7 +1741,7 @@ impl ProjectAccountsDialog {
             .gap(px(8.))
             .child(field_label("Git identity", t))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
-            .when(list.is_empty(), |d| d.child(hint("Add git identities in Settings → Agents → Accounts.", t)))
+            .when(list.is_empty(), |d| d.child(hint("Add git identities in Settings → Accounts.", t)))
             .when(running && !list.is_empty(), |d| d.child(hint("Picking one restarts the project's agents as it (conversations included; busy ones when they finish). Terminals take it when you restart them.", t)))
             .into_any_element()
     }
