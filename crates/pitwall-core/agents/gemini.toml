@@ -12,6 +12,12 @@ new_args = []
 resume_args = ["--resume", "{session_id}"]
 assign_session_id = false
 hooks = "none"
+# Accounts: each login lives in its own folder (Settings → Accounts).
+# GEMINI_CLI_HOME is the folder Gemini CLI keeps its `.gemini` state in
+# (geminicli.com/docs/reference/configuration), so an account's folder
+# holds a `.gemini` of its own; the user's own is ~/.gemini.
+account_env = "GEMINI_CLI_HOME"
+account_home = "~/.gemini"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "gemini"
 # No rulesync target for Gemini CLI in rulesync 27 (Gemini reads GEMINI.md;

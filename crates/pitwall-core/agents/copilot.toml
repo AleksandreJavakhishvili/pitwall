@@ -12,5 +12,10 @@ resume_args = ["--resume={session_id}"]
 assign_session_id = false
 hooks = "none"
 rulesync_target = "copilotcli"
+# Accounts: each login lives in its own folder (Settings → Accounts).
+# COPILOT_HOME replaces ~/.copilot: settings, sessions and the logged-in
+# user (docs.github.com, Copilot CLI config dir reference).
+account_env = "COPILOT_HOME"
+account_home = "~/.copilot"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "copilot"
