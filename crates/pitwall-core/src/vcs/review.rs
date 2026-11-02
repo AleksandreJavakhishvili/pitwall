@@ -180,8 +180,8 @@ pub fn compare_with(top: &Git, main_checkout: Option<&str>, chosen: Option<&str>
 fn merged_in(top: &Git, base: &str) -> Option<(String, Vec<String>)> {
     let out = top.run(&["rev-list", "--first-parent", "--merges", "--parents", &format!("{base}..HEAD")]).ok()?;
     let ancestor = |a: &str, b: &str| top.run(&["merge-base", "--is-ancestor", a, b]).is_ok();
-    // Newest first (rev-list's order).
-    let mut tips: Vec<String> = Vec::new();
+    // (merge commit, merged tip), newest first (rev-list's order).
+    let mut tips: Vec<(String, String)> = Vec::new();
     for line in out.lines() {
         let ids: Vec<&str> = line.split_whitespace().collect();
         let Some((first, others)) = ids.get(1).zip(ids.get(2..)) else { continue };
@@ -190,19 +190,19 @@ fn merged_in(top: &Git, base: &str) -> Option<(String, Vec<String>)> {
             // `base` means it came from elsewhere.
             let foreign = top.merge_base(first, tip).is_some_and(|fork| ancestor(&fork, base));
             if foreign {
-                tips.push(tip.to_string());
+                tips.push((ids[0].to_string(), tip.to_string()));
             }
         }
     }
     // The newest tip that holds the others (develop merged twice: the last).
-    let tip = tips.iter().find(|t| tips.iter().all(|o| ancestor(o, t)))?.clone();
+    let tip = tips.iter().map(|(_, t)| t).find(|t| tips.iter().all(|(_, o)| ancestor(o, t)))?.clone();
     let rev = if ancestor(base, &tip) {
         tip.clone()
     } else {
         let tree = top.run(&["merge-tree", "--write-tree", base, &tip]).ok()?;
         tree.lines().next().map(str::trim).filter(|t| !t.is_empty())?.to_string()
     };
-    let names = tips.iter().map(|t| branch_name(top, t)).fold(Vec::new(), |mut v, n| {
+    let names = tips.iter().map(|(m, t)| merged_name(top, m).unwrap_or_else(|| branch_name(top, t))).fold(Vec::new(), |mut v, n| {
         if !v.contains(&n) {
             v.push(n);
         }
@@ -211,9 +211,32 @@ fn merged_in(top: &Git, base: &str) -> Option<(String, Vec<String>)> {
     Some((rev, names))
 }
 
-/// A branch that has commit `rev` (`origin/develop`), else its short id.
+/// The branch a merge commit merged, as its message says ("Merge branch
+/// 'x'", "Merge remote-tracking branch 'origin/x'", "Merge origin/x into
+/// y"), when that names a branch there is.
+fn merged_name(top: &Git, merge: &str) -> Option<String> {
+    let subject = top.run(&["log", "-1", "--format=%s", merge]).ok()?;
+    let subject = subject.trim();
+    let rest = subject.strip_prefix("Merge ")?;
+    let rest = rest.strip_prefix("remote-tracking branch ").or_else(|| rest.strip_prefix("branch ")).unwrap_or(rest);
+    let name = match rest.strip_prefix('\'') {
+        Some(q) => q.split('\'').next()?,
+        None => rest.split([' ', ':']).next()?,
+    };
+    is_branch(top, name).then(|| name.to_string())
+}
+
+/// A branch that has commit `rev` (`origin/develop`), not the work's own
+/// branch (which has it too, once merged), else its short id.
 fn branch_name(top: &Git, rev: &str) -> String {
-    top.run(&["name-rev", "--name-only", "--no-undefined", "--refs=refs/heads/*", "--refs=refs/remotes/*", rev])
+    let own: Vec<String> = top
+        .current_branch()
+        .map(|b| vec![format!("--exclude=refs/heads/{b}"), format!("--exclude=refs/remotes/origin/{b}")])
+        .unwrap_or_default();
+    let mut args = vec!["name-rev", "--name-only", "--no-undefined"];
+    args.extend(own.iter().map(String::as_str));
+    args.extend(["--refs=refs/heads/*", "--refs=refs/remotes/*", rev]);
+    top.run(&args)
         .ok()
         .map(|n| n.trim().trim_start_matches("remotes/").to_string())
         .map(|n| n.split(['~', '^']).next().unwrap_or(&n).to_string())
@@ -612,7 +635,9 @@ mod tests {
         r.git(&["checkout", "-q", "-b", "feat"]);
         r.write("mine.txt", "m\n");
         r.commit_all("my work");
-        r.git(&["merge", "-q", "--no-ff", "--no-edit", "develop"]);
+        r.git(&["merge", "-q", "--no-ff", "-m", "Merge develop into feat: catch up", "develop"]);
+        // Its own pushed copy has develop's commits too: never named.
+        r.git(&["update-ref", "refs/remotes/origin/feat", "HEAD"]);
         // A sub-branch of its own, merged back.
         r.git(&["checkout", "-q", "-b", "sub"]);
         r.write("sub.txt", "s\n");
