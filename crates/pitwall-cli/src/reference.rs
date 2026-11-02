@@ -82,6 +82,7 @@ const EXAMPLES: &[(&str, &str)] = &[
     ("agent new", "pitwall agent new --kind claude --project ~/code/api --name api\npitwall agent new --kind claude --resume 7f3c2a90-…      # continue a conversation\npitwall agent new --kind shell                           # a terminal in this folder\npitwall agent new --machine my-vm --name fix --workspace work --as admin --template claude"),
     ("agent status", "pitwall agent status api --human"),
     ("agent move", "pitwall agent move api --space Review"),
+    ("agent track", "pitwall agent track ../repo-feature          # inside an agent: this agent\npitwall agent track ~/code/repo-fix --agent api"),
     ("machine form", "pitwall machine form my-vm --human"),
     ("session add", "pitwall session add agw my-vm work           # track it\npitwall session add agw my-vm work --start   # and start it (asks)"),
     ("settings set", "pitwall settings set appearance.theme dark\npitwall settings set appearance.density dense"),

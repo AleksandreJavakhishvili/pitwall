@@ -205,6 +205,55 @@ pitwall agent status [OPTIONS] <AGENT>
 pitwall agent status api --human
 ```
 
+### agent track
+
+Say an agent works in a worktree (or a folder in one): Review and the sidebar then show that worktree as the agent's, instead of guessing from its hooks and processes. Inside an agent Pitwall started, it is that agent.
+
+```bash
+pitwall agent track [OPTIONS] <PATH>
+```
+
+| Argument | |
+|---|---|
+| `PATH` | The worktree (relative to this folder, or full). |
+
+| Option | |
+|---|---|
+| `--agent <AGENT>` | The agent (id or name; default: $PITWALL_AGENT_ID, the agent this runs in). |
+
+```bash
+pitwall agent track ../repo-feature          # inside an agent: this agent
+pitwall agent track ~/code/repo-fix --agent api
+```
+
+### agent untrack
+
+The agent no longer works in that worktree.
+
+```bash
+pitwall agent untrack [OPTIONS] <PATH>
+```
+
+| Argument | |
+|---|---|
+| `PATH` | The worktree, as given to `track` (or a folder in it). |
+
+| Option | |
+|---|---|
+| `--agent <AGENT>` | The agent (id or name; default: $PITWALL_AGENT_ID). |
+
+### agent tracked
+
+The worktrees an agent tracks, newest first.
+
+```bash
+pitwall agent tracked [OPTIONS]
+```
+
+| Option | |
+|---|---|
+| `--agent <AGENT>` | The agent (id or name; default: $PITWALL_AGENT_ID). |
+
 ### agent move
 
 Show an agent in a space (as dragging it onto the space's tab).

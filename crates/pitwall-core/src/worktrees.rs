@@ -49,6 +49,8 @@ pub struct Spot {
     /// Folders its hooks reported it working in: (folder, recency-weighted
     /// hook events, last one in unix ms). Empty: no hooks came.
     pub worked: Vec<(String, f64, u64)>,
+    /// Folders it said it works in (`AgentRecord::tracked`), newest first.
+    pub tracked: Vec<String>,
 }
 
 /// `path` is `root` or inside it.
@@ -68,7 +70,7 @@ fn deepest(entries: &[WorktreeEntry], path: &str) -> Option<usize> {
 }
 
 /// Who each entry belongs to, by the rules in order: the agent's own folder;
-/// the agent that worked in it (most hook events from there, by the
+/// the agent that said it works there (`tracked`); the agent that worked in it (most hook events from there, by the
 /// hooks' `cwd`, recent ones counting more; then the latest); a process of
 /// the agent working in it, now or earlier (`proc_cwds`: agent id → folder,
 /// newest first); else nobody. Where a worktree lives never decides: git
@@ -104,8 +106,18 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
             if let Some(s) = spots.iter().zip(&own).filter(|(_, o)| **o == Some(i)).map(|(s, _)| s).min_by(order) {
                 return (Some(s.id.clone()), WorktreeVia::Own);
             }
-            // 2. It worked there, by its hooks (not the main checkout: that
-            //    is everyone's).
+            // 2. It said it works there (`pitwall agent track`): the newest
+            //    word wins (not the main checkout: that is everyone's).
+            if i > 0 {
+                let told = spots
+                    .iter()
+                    .filter_map(|s| Some((s, s.tracked.iter().position(|t| deepest(entries, t) == Some(i))?)))
+                    .min_by(|(a, pa), (b, pb)| pa.cmp(pb).then(order(b, a)));
+                if let Some((s, _)) = told {
+                    return (Some(s.id.clone()), WorktreeVia::Tracked);
+                }
+            }
+            // 3. It worked there, by its hooks (not the main checkout).
             if i > 0 {
                 let best = spots
                     .iter()
@@ -123,7 +135,7 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
                     return (Some(s.id.clone()), WorktreeVia::WorkedIn);
                 }
             }
-            // 3. A process in the agent's terminal works (or worked) in it.
+            // 4. A process in the agent's terminal works (or worked) in it.
             if let Some((id, _)) = procs.iter().find(|(_, e)| *e == i) {
                 return (Some(id.to_string()), WorktreeVia::Process);
             }
@@ -192,6 +204,7 @@ struct Member {
     /// Folders its hooks reported (`AgentRecord::worked_in`): (folder,
     /// weighted events as of now, last).
     worked: Vec<(String, f64, u64)>,
+    tracked: Vec<String>,
     pids: Vec<u32>,
     running: bool,
     process_cwd: bool,
@@ -218,7 +231,7 @@ fn members(engine: &Engine) -> Vec<Member> {
             let loc = r.locator();
             let p = &a.facts.provider;
             let mut h = DefaultHasher::new();
-            (&r.cwd, a.added, a.removed, a.files_changed, &a.branch, a.status as u8).hash(&mut h);
+            (&r.cwd, a.added, a.removed, a.files_changed, &a.branch, a.status as u8, &r.tracked).hash(&mut h);
             Member {
                 id: r.id.clone(),
                 project: r.project.clone(),
@@ -226,6 +239,7 @@ fn members(engine: &Engine) -> Vec<Member> {
                 real: a.real_cwd.as_ref().filter(|(from, _)| *from == r.cwd).map(|(_, real)| real.clone()),
                 created_at: r.created_at,
                 worked: r.worked_in.iter().map(|w| (w.path.clone(), w.score_at(wall), w.last)).collect(),
+                tracked: r.tracked.clone(),
                 pids: [a.local_pid(), a.inner.as_ref().map(|i| i.pid).filter(|_| p.local_process)].into_iter().flatten().collect(),
                 running: a.running(),
                 process_cwd: p.process_cwd,
@@ -283,6 +297,7 @@ fn spots(ms: &[&Member]) -> Vec<Spot> {
             folder: m.real.clone().unwrap_or_else(|| m.cwd.clone()),
             created_at: m.created_at,
             worked: m.worked.clone(),
+            tracked: m.tracked.clone(),
         })
         .collect()
 }
@@ -313,6 +328,38 @@ pub fn on_hook(engine: &Engine, id: &str, payload: &serde_json::Value) {
     if new == Ok(true) {
         engine.changed(true);
     }
+}
+
+/// Agent `id` says it works in `path` (`on`), or no longer (`!on`):
+/// `pitwall agent track`. Any agent can say so, the same way: its word
+/// beats the guesses (hooks, processes). A path inside a listed worktree
+/// counts as that worktree. Returns the folders it tracks, newest first.
+pub fn track(engine: &Engine, id: &str, path: &str, on: bool) -> Result<Vec<String>, String> {
+    let given = path.trim();
+    let Some(path) = given.starts_with('/').then(|| tidy(given)).flatten() else {
+        return Err(format!("\"{given}\" isn't a full path to a folder (start it with /)"));
+    };
+    let listed: Vec<Vec<WorktreeEntry>> = lock(&engine.worktrees.listed).values().map(|l| l.entries.clone()).collect();
+    let path = listed.iter().find_map(|entries| deepest(entries, &path).map(|i| entries[i].path.clone())).unwrap_or(path);
+    let tracked = engine.with(id, |a| {
+        let t = &mut a.rec.tracked;
+        let before = t.clone();
+        t.retain(|p| *p != path);
+        if on {
+            t.insert(0, path.clone());
+            t.truncate(crate::model::TRACKED_MAX);
+        }
+        (before != *t, t.clone())
+    })?;
+    if tracked.0 {
+        engine.changed(true);
+    }
+    Ok(tracked.1)
+}
+
+/// The folders agent `id` tracks, newest first.
+pub fn tracked(engine: &Engine, id: &str) -> Result<Vec<String>, String> {
+    engine.with(id, |a| a.rec.tracked.clone())
 }
 
 /// Every string in a JSON value (at most 64, each cut at 16 KB).
@@ -407,11 +454,12 @@ fn active_at(entries: &[WorktreeEntry], spots: &[Spot], seen: &[Seen]) -> Vec<Op
 fn forget_gone(engine: &Engine, ms: &[&Member], before: &[WorktreeEntry], now: &[WorktreeEntry]) {
     let gone = |p: &str| deepest(before, p).is_some_and(|i| i > 0 && !now.iter().any(|e| e.path == before[i].path));
     let mut any = false;
-    for m in ms.iter().filter(|m| m.worked.iter().any(|(p, _, _)| gone(p))) {
+    for m in ms.iter().filter(|m| m.worked.iter().any(|(p, _, _)| gone(p)) || m.tracked.iter().any(|p| gone(p))) {
         let _ = engine.with(&m.id, |a| {
-            let n = a.rec.worked_in.len();
+            let n = a.rec.worked_in.len() + a.rec.tracked.len();
             a.rec.worked_in.retain(|w| !gone(&w.path));
-            any |= a.rec.worked_in.len() != n;
+            a.rec.tracked.retain(|p| !gone(p));
+            any |= a.rec.worked_in.len() + a.rec.tracked.len() != n;
         });
     }
     if any {

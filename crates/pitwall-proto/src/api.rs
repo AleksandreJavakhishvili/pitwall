@@ -59,6 +59,8 @@ pub mod method {
     pub const AGENT_RENAME: &str = "agent.rename";
     /// [`AgentRef`](super::AgentRef) → [`AgentDiagnosis`](crate::AgentDiagnosis)
     pub const AGENT_STATUS: &str = "agent.status";
+    /// [`AgentTrack`](crate::AgentTrack) → [`AgentTracked`](crate::AgentTracked)
+    pub const AGENT_TRACK: &str = "agent.track";
     /// [`AgentWait`](crate::AgentWait) → [`WaitResult`](crate::WaitResult);
     /// error `timeout` when it didn't get there in time.
     pub const AGENT_WAIT: &str = "agent.wait";

@@ -12,7 +12,7 @@ use serde_json::Value;
 use pitwall_core::engine::{diagnose, input, lifecycle};
 use pitwall_core::rules::{self, Dirs, ImportRequest, SaveRuleSet};
 use pitwall_proto::{
-    code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
+    code, method, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentTrack, AgentTracked, AgentRulesDetail, AgentRulesInfo, AgentView, AgentWait, ChangedFile, ErrorBody, ProjectPath,
     ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, EffectiveRuleView, ReviewChanges, ReviewRequest, Risk, RuleFileView, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied,
     RulesApply, RulesDefault, RulesFailed, RulesImport, RulesImported, RulesOverview, RulesReapplied, RulesReapply, RulesShow, Status, WaitResult,
 };
@@ -156,6 +156,15 @@ pub fn rename(s: &Server, r: AgentRename) -> Res {
         return ok(s.engine.use_session_title(&r.agent_id).map_err(bad)?);
     }
     ok(s.engine.rename(&r.agent_id, &r.name).map_err(bad)?)
+}
+
+pub fn track(s: &Server, r: AgentTrack) -> Res {
+    agent(s, &r.agent_id)?;
+    let tracked = match &r.path {
+        Some(p) => pitwall_core::worktrees::track(&s.engine, &r.agent_id, p, !r.untrack).map_err(bad)?,
+        None => pitwall_core::worktrees::tracked(&s.engine, &r.agent_id).map_err(bad)?,
+    };
+    ok(AgentTracked { agent_id: r.agent_id, tracked })
 }
 
 pub fn status(s: &Server, r: AgentRef) -> Res {

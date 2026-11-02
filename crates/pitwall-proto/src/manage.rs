@@ -40,6 +40,28 @@ pub struct AgentRename {
     pub auto: bool,
 }
 
+/// `agent.track`: the agent works in `path` (`untrack`: no longer). Its
+/// word beats Pitwall's guesses about whose a worktree is. No `path`: only
+/// list them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTrack {
+    pub agent_id: String,
+    /// A full path: a worktree, or a folder inside one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrack: bool,
+}
+
+/// `agent.track`'s answer: the folders the agent tracks, newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTracked {
+    pub agent_id: String,
+    pub tracked: Vec<String>,
+}
+
 /// `agent.wait`: block until the agent's status is one of `until`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
 #[serde(rename_all = "camelCase")]

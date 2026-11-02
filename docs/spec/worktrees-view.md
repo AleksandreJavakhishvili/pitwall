@@ -10,7 +10,16 @@ each agent's own working folder.
   (path, HEAD, branch, locked/prunable flags) through `Exec` (works for agw too).
 - Attribute each worktree to an agent when possible, in this order:
   1. it is the agent's own working folder (today's behaviour);
-  2. the agent worked in it: its hooks reported that folder. Every hook
+  2. the agent (or you) said it works there: `pitwall agent track <path>`
+     (`agent.track`; inside an agent Pitwall started, `$PITWALL_AGENT_ID`
+     names it, so any agent that can run a command can say so, with no
+     agent-specific code). Kept on the agent (`AgentRecord::tracked`, newest
+     first, at most 20); a folder inside a listed worktree counts as that
+     worktree; the newest word wins when two agents said so; the main
+     checkout is everyone's and doesn't count. `untrack` takes it back; a
+     removed worktree is forgotten like rule 3's. It only decides whose a
+     worktree is, so it never asks for approval;
+  3. the agent worked in it: its hooks reported that folder. Every hook
      payload carries the session's `cwd` (the documented hook input, the
      same for every agent with hooks), and Pitwall's relay names the agent
      (`PITWALL_AGENT_ID`), so no agent's files or log formats are read.
@@ -28,9 +37,9 @@ each agent's own working folder.
      and doesn't count. A folder that was one of the repository's
      worktrees in the last listing and isn't now (a temporary worktree,
      removed) is forgotten; other folders age out of the 40;
-  3. a process inside the agent's terminal has (or had, this run) its cwd
+  4. a process inside the agent's terminal has (or had, this run) its cwd
      in it (local only, via the existing process helpers);
-  4. otherwise it's an "other worktree" of the project (made by a session
+  5. otherwise it's an "other worktree" of the project (made by a session
      outside Pitwall, an earlier conversation, or by hand).
 - Each worktree gets its own changes (+/−, files) against its merge-base with
   the project's current branch, refreshed cheaply: one `worktree list` per

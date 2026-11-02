@@ -508,6 +508,13 @@ fn renaming_queueing_and_reading_never_ask() {
     assert_eq!(v["nameAuto"], false, "renaming pins it again");
     assert_eq!(server_error(c.call("agent.rename", json!({"agentId": a.id, "name": " "})).unwrap_err()).code, code::BAD_PARAMS);
 
+    let v = c.call("agent.track", json!({"agentId": a.id, "path": "/tmp/wt-a"})).unwrap();
+    assert_eq!(v["tracked"], json!(["/tmp/wt-a"]));
+    assert_eq!(c.call("agent.track", json!({"agentId": a.id})).unwrap()["tracked"], json!(["/tmp/wt-a"]));
+    let v = c.call("agent.track", json!({"agentId": a.id, "path": "/tmp/wt-a", "untrack": true})).unwrap();
+    assert_eq!(v["tracked"], json!([]));
+    assert_eq!(server_error(c.call("agent.track", json!({"agentId": a.id, "path": "wt"})).unwrap_err()).code, code::BAD_PARAMS);
+
     c.call("queue.add", json!({"agentId": a.id, "text": "run the tests"})).unwrap();
     let v = c.call("queue.add", json!({"agentId": a.id, "text": "then lint"})).unwrap();
     let items = v["queue"].as_array().unwrap().clone();

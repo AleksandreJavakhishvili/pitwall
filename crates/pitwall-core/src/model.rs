@@ -143,6 +143,9 @@ pub struct WorktreeInfo {
     pub branch: String,
 }
 
+/// Most folders an agent can track ([`AgentRecord::tracked`]).
+pub const TRACKED_MAX: usize = 20;
+
 /// A folder an agent worked in, by its hooks (`AgentRecord::worked_in`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,6 +233,11 @@ pub struct AgentRecord {
     /// (worktrees.rs). Empty: no hooks came (the kind has none, or they're off).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub worked_in: Vec<WorkedIn>,
+    /// Folders the agent (or you) said it works in (`pitwall agent track`),
+    /// newest first; at most [`TRACKED_MAX`]. Worktrees in them are its,
+    /// before any guess from hooks or processes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tracked: Vec<String>,
     /// HEAD when the agent started. Kept for older state files; Review
     /// compares with the agent's branch instead (`vcs::review::compare_with`).
     #[serde(default)]

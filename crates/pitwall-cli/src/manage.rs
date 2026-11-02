@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use pitwall_client::{Client, Error};
 use pitwall_proto::{
-    caps, code, method, AgentDiagnosis, AgentMove, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentView, AgentWait, ErrorBody, ProjectPath,
+    caps, code, method, AgentDiagnosis, AgentMove, AgentQueue, AgentRef, AgentRemove, AgentRename, AgentTrack, AgentTracked, AgentView, AgentWait, ErrorBody, ProjectPath,
     ProjectRulesView, ProjectView, QueueAdd, QueueFilter, QueueItemRef, ReviewChanges, ReviewRequest, RuleSetRef, RuleSetSave, RuleSetView, RuleSets, RulesApplied, RulesApply, RulesDefault, RulesImport,
     RulesImported, RulesReapplied, RulesReapply,
     RulesOverview, RulesShow, SpaceCreate, SpaceMove, SpaceRename, SpaceView, Status, WaitResult,
@@ -95,6 +95,7 @@ pub fn agent_cmd(cmd: &AgentCmd, c: &mut Client) -> Result<Output, Error> {
         | AgentCmd::Rename { agent, .. }
         | AgentCmd::Status { agent }
         | AgentCmd::Move { agent, .. } => agent,
+        AgentCmd::Track { agent, .. } | AgentCmd::Untrack { agent, .. } | AgentCmd::Tracked { agent } => &this_agent(agent.as_deref())?,
         AgentCmd::List | AgentCmd::New(_) => unreachable!("main.rs runs these"),
     };
     let a = agent(c, key)?;
@@ -128,12 +129,47 @@ pub fn agent_cmd(cmd: &AgentCmd, c: &mut Client) -> Result<Output, Error> {
             let d: AgentDiagnosis = manage(c, method::AGENT_STATUS, &r)?;
             out(&d, diagnosis(&d))
         }
+        AgentCmd::Track { path, .. } | AgentCmd::Untrack { path, .. } => {
+            let untrack = matches!(cmd, AgentCmd::Untrack { .. });
+            let req = AgentTrack { agent_id: a.id.clone(), path: Some(full_path(path)), untrack };
+            let v: AgentTracked = manage(c, method::AGENT_TRACK, req)?;
+            out(&v, tracked_text(&a.name, &v.tracked))
+        }
+        AgentCmd::Tracked { .. } => {
+            let v: AgentTracked = manage(c, method::AGENT_TRACK, AgentTrack { agent_id: a.id.clone(), ..Default::default() })?;
+            out(&v, tracked_text(&a.name, &v.tracked))
+        }
         AgentCmd::Move { space, .. } => {
             let s: SpaceView = spaces(c, method::AGENT_MOVE, AgentMove { agent_id: a.id.clone(), space: space.clone() })?;
             out(&s, format!("{} is in space {} ({})\n", a.name, s.name, s.window))
         }
         AgentCmd::List | AgentCmd::New(_) => unreachable!(),
     })
+}
+
+/// `--agent`, else the agent this runs in.
+fn this_agent(given: Option<&str>) -> Result<String, Error> {
+    given
+        .map(str::to_string)
+        .or_else(|| std::env::var("PITWALL_AGENT_ID").ok().filter(|s| !s.is_empty()))
+        .ok_or_else(|| err(code::BAD_PARAMS, "say which agent (--agent NAME): this doesn't run inside an agent Pitwall started"))
+}
+
+/// `path` as a full path (`~/x`, relative to this folder).
+fn full_path(path: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    match path.trim() {
+        "~" => home,
+        p if p.starts_with("~/") => format!("{home}/{}", &p[2..]),
+        p => crate::absolute(Some(p), &std::env::current_dir().unwrap_or_else(|_| "/".into())),
+    }
+}
+
+fn tracked_text(name: &str, tracked: &[String]) -> String {
+    if tracked.is_empty() {
+        return format!("{name} tracks no worktrees\n");
+    }
+    tracked.iter().fold(format!("{name} works in:\n"), |s, p| s + "  " + p + "\n")
 }
 
 fn prompt_text(text: &str) -> Result<String, Error> {
