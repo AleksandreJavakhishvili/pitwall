@@ -11,7 +11,7 @@ fn entry(path: &str) -> WorktreeEntry {
 }
 
 fn spot(id: &str, folder: &str, dirs: &[&str], created_at: u64) -> Spot {
-    Spot { id: id.into(), folder: folder.into(), tool_dirs: dirs.iter().map(|d| d.to_string()).collect(), created_at }
+    Spot { id: id.into(), folder: folder.into(), tool_dirs: dirs.iter().map(|d| d.to_string()).collect(), created_at, worked: None }
 }
 
 #[test]
@@ -66,17 +66,45 @@ fn attribution_follows_the_rules_in_order() {
 }
 
 #[test]
-fn ties_in_a_tool_dir_go_to_the_agent_working_there() {
+fn a_shared_folder_s_tool_worktrees_are_never_guessed() {
     let entries = vec![entry("/r"), entry("/r/.claude/worktrees/a"), entry("/r/.claude/worktrees/b")];
     let spots = vec![spot("old", "/r", &[".claude/worktrees"], 1), spot("new", "/r", &[".claude/worktrees"], 2)];
     let procs = vec![("new".to_string(), "/r/.claude/worktrees/b/x".to_string())];
     let got = attribute(&entries, &spots, &procs);
-    assert_eq!(got[1], (Some("old".into()), WorktreeVia::ToolDir), "no process there: the oldest agent");
-    assert_eq!(got[2], (Some("new".into()), WorktreeVia::ToolDir), "its process works there");
+    assert_eq!(got[1], (None, WorktreeVia::Other), "two agents could have made it: not the oldest's");
+    assert_eq!(got[2], (Some("new".into()), WorktreeVia::Process), "its process works (or worked) there");
+    // One agent there whose records can't be read: its tool's folder.
+    let got = attribute(&entries, &spots[..1], &[]);
+    assert_eq!(got[1], (Some("old".into()), WorktreeVia::ToolDir));
     // Tool dirs never escape the checkout.
     let sneaky = vec![spot("s", "/r", &["../elsewhere", "/"], 1)];
     let got = attribute(&[entry("/r"), entry("/elsewhere/w")], &sneaky, &[]);
     assert_eq!(got[1], (None, WorktreeVia::Other));
+}
+
+#[test]
+fn the_agent_whose_hooks_worked_in_a_worktree_owns_it() {
+    let entries = vec![
+        entry("/r"),
+        entry("/r/.claude/worktrees/a"),
+        entry("/r/.claude/worktrees/b"),
+        entry("/r/.claude/worktrees/left"),
+        entry("/home/u/.codex/worktrees/7/r"),
+    ];
+    let worked = |v: &[(&str, u32)]| Some(v.iter().map(|(p, n)| (p.to_string(), *n)).collect::<Vec<_>>());
+    let mut a = spot("a", "/r", &[".claude/worktrees"], 1);
+    a.worked = worked(&[("/r", 40), ("/r/.claude/worktrees/a", 12), ("/r/.claude/worktrees/a/src", 3), ("/r/.claude/worktrees/b", 1)]);
+    let mut b = spot("b", "/r", &[".claude/worktrees"], 2);
+    b.worked = worked(&[("/r/.claude/worktrees/b", 9)]);
+    let mut c = spot("c", "/r", &[], 3);
+    c.worked = worked(&[("/home/u/.codex/worktrees/7/r", 2)]);
+    let got = attribute(&entries, &[a, b, c], &[("a".into(), "/r/.claude/worktrees/b".into())]);
+    let who = |i: usize| (got[i].0.as_deref(), got[i].1);
+    assert_eq!(who(0), (Some("a"), WorktreeVia::Own), "everyone works in the main checkout");
+    assert_eq!(who(1), (Some("a"), WorktreeVia::WorkedIn), "subfolders count for their worktree");
+    assert_eq!(who(2), (Some("b"), WorktreeVia::WorkedIn), "most steps there, over a visit or a process");
+    assert_eq!(who(3), (None, WorktreeVia::Other), "made by someone else (a session outside Pitwall): nobody's here");
+    assert_eq!(who(4), (Some("c"), WorktreeVia::WorkedIn), "worktrees outside the project (Codex's) too");
 }
 
 /// A temp repo with: `.claude/worktrees/sub` (branch worktree-sub), `wt/proc`
@@ -220,8 +248,11 @@ fn one_list_per_project_per_refresh_then_only_when_due() {
     let lists = || x.ran(&LIST);
     let p = list(&h.engine);
     assert_eq!((p.len(), lists()), (1, 1), "two agents, one project, one list");
-    assert_eq!(p[0].worktrees[0].via, WorktreeVia::ToolDir);
-    assert_eq!(p[0].worktrees[0].agent_id.as_deref(), Some("a"), "the older agent");
+    assert_eq!(
+        (p[0].worktrees[0].via, p[0].worktrees[0].agent_id.as_deref()),
+        (WorktreeVia::Other, None),
+        "either agent could have made it, and neither's conversation worked there"
+    );
     list(&h.engine);
     assert_eq!(lists(), 1, "nothing changed");
     // Something changed in the project: listed again, but not more than every MIN_GAP_MS.
@@ -337,4 +368,47 @@ fn a_forced_refresh_asked_twice_lists_once() {
     go.send(()).unwrap();
     assert_eq!(leader.join().unwrap(), follower.join().unwrap());
     assert_eq!(x.ran(&LIST), 2, "one forced list for both");
+}
+
+#[test]
+fn hooks_say_whose_worktree_it_is_and_it_is_kept() {
+    use crate::model::WorkedIn;
+    let x = fake();
+    let h = Harness::with_exec(vec![claude_at("a", "/r"), claude_at("b", "/r")], x.clone());
+    let hook = |id: &str, cwd: &str| h.engine.ingest_hook(id, &serde_json::json!({"hook_event_name": "PostToolUse", "cwd": cwd}));
+    hook("a", "/r");
+    hook("b", "/r/.claude/worktrees/w/src");
+    hook("b", "/r/.claude/worktrees/w");
+    let p = list(&h.engine);
+    assert_eq!(
+        (p[0].worktrees[0].via, p[0].worktrees[0].agent_id.as_deref()),
+        (WorktreeVia::WorkedIn, Some("b")),
+        "the younger agent worked there, whoever is older"
+    );
+    let b = h.engine.agents().iter().find(|a| a.rec.id == "b").unwrap().rec.worked_in.clone();
+    assert_eq!(
+        b,
+        vec![
+            WorkedIn { path: "/r/.claude/worktrees/w".into(), steps: 1 },
+            WorkedIn { path: "/r/.claude/worktrees/w/src".into(), steps: 1 }
+        ],
+        "kept on the agent's record, most recent first"
+    );
+}
+
+#[test]
+fn worked_in_counts_moves_up_and_is_capped() {
+    use crate::model::WorkedIn;
+    let mut l = Vec::new();
+    assert!(WorkedIn::note(&mut l, "/a/"), "a new folder: save now");
+    assert!(!WorkedIn::note(&mut l, "/a"));
+    assert!(WorkedIn::note(&mut l, "/b"));
+    assert!(!WorkedIn::note(&mut l, "/a"));
+    assert!(!WorkedIn::note(&mut l, ""));
+    assert_eq!(l, vec![WorkedIn { path: "/a".into(), steps: 3 }, WorkedIn { path: "/b".into(), steps: 1 }]);
+    for i in 0..WorkedIn::MAX + 5 {
+        WorkedIn::note(&mut l, &format!("/n{i}"));
+    }
+    assert_eq!(l.len(), WorkedIn::MAX);
+    assert_eq!(l[0].path, format!("/n{}", WorkedIn::MAX + 4));
 }

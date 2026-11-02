@@ -10,12 +10,22 @@ each agent's own working folder.
   (path, HEAD, branch, locked/prunable flags) through `Exec` (works for agw too).
 - Attribute each worktree to an agent when possible, in this order:
   1. it is the agent's own working folder (today's behaviour);
-  2. it lives under the agent's folder in a tool-managed location
-     (`.claude/worktrees/*`, plus a data-driven list of such locations
-     declared in agent definitions, e.g. `worktree_dirs = [".claude/worktrees"]`);
-  3. a process inside the agent's terminal has its cwd in it (local only,
-     via the existing process helpers);
-  4. otherwise it's an "other worktree" of the project.
+  2. the agent worked in it: its hooks reported that folder. Every hook
+     payload carries the session's `cwd` (the documented hook input, the
+     same for every agent with hooks), and Pitwall's relay names the agent
+     (`PITWALL_AGENT_ID`), so no agent's files or log formats are read.
+     Kept on the agent (`AgentRecord::workedIn`: folder → hook events,
+     most recent first, at most 40) across restarts. Most events there
+     wins; the main checkout is everyone's and doesn't count;
+  3. a process inside the agent's terminal has (or had, this run) its cwd
+     in it (local only, via the existing process helpers);
+  4. it lives under the agent's folder in a tool-managed location
+     (`worktree_dirs` of the agent definition, e.g. `.claude/worktrees`),
+     but only for an agent without hooks (none came), and only when it is
+     the one such agent in that checkout: several agents sharing a folder
+     never split its tool's worktrees by guessing;
+  5. otherwise it's an "other worktree" of the project (made by a session
+     outside Pitwall, an earlier conversation, or by hand).
 - Each worktree gets its own changes (+/−, files) against its merge-base with
   the project's current branch, refreshed cheaply: one `worktree list` per
   project when anything in the project changes or every 30 s while visible;
@@ -42,8 +52,8 @@ drive the UI; no provider/kind special cases.
   `vcs::git::parse_worktree_list` reads HEAD, branch, `bare`, `detached`,
   `locked [reason]`, `prunable`. Agent definitions gained
   `worktree_dirs` (Claude: `[".claude/worktrees"]`), relative to the root of
-  the agent's checkout. Ties: the agent with a process there, then the
-  deepest checkout, then the oldest agent. The main checkout is the project
+  the agent's checkout. Rule 2 ties: the agent with a process there, then
+  the oldest agent. The main checkout is the project
   itself and isn't listed; bare entries are skipped.
 - Agents are grouped per provider + machine + project folder; one list per
   group, run in the first agent's folder through its `Exec` (agw: AgwExec).
@@ -51,7 +61,9 @@ drive the UI; no provider/kind special cases.
   `/tmp` vs `/private/tmp` and letter case match git's paths.
 - Rule 3 asks processes only when some linked worktree is still unclaimed,
   in one batched call per provider (`Provider::process_cwds`; local: one
-  `lsof`); agw has no `process_cwd`, so it never asks.
+  `lsof`); agw has no `process_cwd`, so it never asks. What it finds is
+  remembered for the run (newest first), so a worktree stays the agent's
+  after its build or test process ends.
 - Refresh: UI-driven. App calls `useWorktrees` once per window: on first
   use, every 30 s while the document is visible, and ~1 s after agents'
   numbers move. The backend only lists a project when due (see api.md), so
@@ -70,3 +82,8 @@ drive the UI; no provider/kind special cases.
   selecting one shows its files and diff (no task scope, no comments),
   with Open terminal / Remove worktree… / Commit (& merge) in the footer.
   Commit & merge reuses the Review dialog; removal has its own confirmation.
+- Review reads every listed worktree's files once when the list changes, and
+  folds away the ones with nothing to review (no changes against their
+  branch: merged, or never touched), unless shown: "Show N worktrees
+  without changes" at the end of the list, "Hide worktrees without changes"
+  to fold them again (for the session). The selected one stays listed.

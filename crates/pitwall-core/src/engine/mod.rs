@@ -207,6 +207,7 @@ impl Engine {
     pub fn ingest_hook(self: &Shared, id: &str, payload: &Value) {
         // First: an agent that made its own worktree reports where it works.
         worktree::on_hook(self, id, payload);
+        crate::worktrees::on_hook(self, id, payload);
         self.apply_hook(id, hooks::map_hook(payload));
         tasks::on_hook(self, id, payload);
     }
