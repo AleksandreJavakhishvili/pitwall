@@ -175,8 +175,11 @@ pub struct ReviewView {
     wt_list: Entity<crate::main_screen::wt_list::WorktreeList>,
     wt_open: HashSet<String>,
     wt_files: HashMap<String, Result<Vec<FileChange>, String>>,
-    /// Worktrees with nothing to review (merged, untouched) are listed too.
+    /// Worktrees with nothing to review (merged, untouched, deleted) are
+    /// listed too.
     quiet_shown: bool,
+    /// Worktrees nobody worked in lately are listed too.
+    old_shown: bool,
     sel: Sel,
     pending_pick: Option<String>,
     collapsed: HashSet<String>,
@@ -220,7 +223,7 @@ impl Focusable for ReviewView {
     }
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
@@ -304,6 +307,7 @@ impl ReviewView {
             wt_open: HashSet::new(),
             wt_files: HashMap::new(),
             quiet_shown: false,
+            old_shown: false,
             sel: Sel::None,
             pending_pick: None,
             collapsed: HashSet::new(),
@@ -538,7 +542,7 @@ impl ReviewView {
                     self.sel = Sel::None;
                 }
             }
-            self.load_listed_worktrees(cx);
+            self.load_open_worktrees(cx);
         }
         cx.notify();
     }
@@ -554,31 +558,41 @@ impl ReviewView {
         }
     }
 
-    /// Read the files of every listed worktree once (the list changed), so
-    /// the ones with nothing to review can be folded away.
-    fn load_listed_worktrees(&mut self, cx: &mut Context<Self>) {
-        let keys: Vec<String> = self
-            .projects
-            .iter()
-            .flat_map(|p| p.worktrees.iter().map(move |w| model::wt_key(&p.id, &w.path)))
-            .collect();
-        for key in keys {
-            self.load_worktree_files(&key, cx);
-        }
-    }
-
-    /// Nothing to review there: its files are read and none changed (not
-    /// the one shown, and not while they are asked for).
-    pub(super) fn quiet(&self, r: &WtRef) -> bool {
+    /// Why `r` is folded away now (`None`: listed). The one shown stays.
+    pub(super) fn folded(&self, r: &WtRef, cx: &App) -> Option<model::Fold> {
         let key = r.key();
-        !self.quiet_shown
-            && matches!(self.wt_files.get(&key), Some(Ok(l)) if l.is_empty())
-            && !matches!(&self.sel, Sel::Worktree { key: k, .. } if *k == key)
+        if matches!(&self.sel, Sel::Worktree { key: k, .. } if *k == key) {
+            return None;
+        }
+        let has = self.wt_list.read(cx).has_work(&key);
+        match model::fold(r, has, now_ms())? {
+            model::Fold::Old if self.old_shown => None,
+            model::Fold::Gone | model::Fold::Empty if self.quiet_shown => None,
+            f => Some(f),
+        }
     }
 
     pub(super) fn toggle_quiet(&mut self, cx: &mut Context<Self>) {
         self.quiet_shown = !self.quiet_shown;
         cx.notify();
+    }
+
+    pub(super) fn toggle_old(&mut self, cx: &mut Context<Self>) {
+        self.old_shown = !self.old_shown;
+        cx.notify();
+    }
+
+    /// `git worktree prune` in these projects (deleted folders forgotten).
+    pub(super) fn clean_up(&mut self, projects: Vec<String>, cx: &mut Context<Self>) {
+        ops::spawn(
+            cx,
+            move |e| {
+                projects.iter().try_for_each(|p| pitwall_core::worktrees::prune(e, p))
+            },
+            |this: &mut Self, res: Result<(), String>, cx| {
+                this.done(res.map_or_else(|e| e, |()| "Deleted worktrees cleaned up".into()), cx);
+            },
+        );
     }
 
     fn load_worktree_files(&mut self, key: &str, cx: &mut Context<Self>) {

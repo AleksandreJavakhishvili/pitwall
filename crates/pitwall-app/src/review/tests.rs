@@ -580,27 +580,34 @@ fn worktrees_without_changes_fold_away(cx: &mut TestAppContext) {
     // The window's worktree list reads the engine the main screen sets.
     cx.update(|cx| cx.set_global(crate::main_screen::EngineHandle(h.engine.clone())));
     let (view, cx) = open(cx, &h);
-    for _ in 0..50 {
+    let known = |cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, cx| {
+            let list = v.wt_list.read(cx);
+            v.projects.iter().flat_map(|p| p.worktrees.iter().map(move |w| (p, w))).filter(|(p, w)| list.has_work(&model::wt_key(&p.id, &w.path)).is_some()).count()
+        })
+    };
+    for _ in 0..100 {
         cx.run_until_parked();
-        let ready = view.read_with(cx, |v, _| v.wt_files.len() >= 2);
-        if ready {
+        if known(cx) >= 2 {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    cx.run_until_parked();
-    let quiet = |cx: &mut VisualTestContext, name: &str| {
-        view.read_with(cx, |v, _| {
-            let key = v.wt_files.keys().find(|k| k.ends_with(name)).cloned().expect("its files were read");
-            v.quiet(&v.wt_ref(&key).unwrap())
+    let folded = |cx: &mut VisualTestContext, name: &str| {
+        view.read_with(cx, |v, cx| {
+            let p = &v.projects[0];
+            let w = p.worktrees.iter().find(|w| w.path.ends_with(name)).expect("listed");
+            v.folded(&model::find_worktree(&v.projects, &p.id, &w.path).unwrap(), cx)
         })
     };
-    assert!(!quiet(cx, &busy_name), "a worktree with changes is listed");
-    assert!(quiet(cx, &idle_name), "one with nothing to review is folded away");
+    assert_eq!(folded(cx, &busy_name), None, "a worktree with changes is listed");
+    assert_eq!(folded(cx, &idle_name), Some(model::Fold::Empty), "one with nothing to review is folded away");
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
     let toggle = cx.debug_bounds("rv-quiet").expect("says how many are folded away");
     cx.simulate_click(toggle.center(), gpui::Modifiers::none());
     cx.run_until_parked();
-    assert!(!quiet(cx, &idle_name), "shown on request");
+    assert_eq!(folded(cx, &idle_name), None, "shown on request");
     let _ = std::fs::remove_dir_all(&busy);
     let _ = std::fs::remove_dir_all(&idle);
 }

@@ -34,7 +34,16 @@ pub struct WorktreeList {
     again: bool,
     poll: Option<Task<()>>,
     settle: Option<Task<()>>,
+    /// Whether each worktree has anything to review, by `wt_key`: (its
+    /// HEAD when read, has changes, when read). Read for every listed
+    /// worktree, again when its HEAD moves or after `WORK_EVERY_MS`, so the
+    /// sidebar and Review fold the same ones.
+    work: HashMap<String, (Option<String>, bool, i64)>,
+    checking: bool,
 }
+
+/// A worktree's changes are read again at most this often unless its HEAD moves.
+const WORK_EVERY_MS: i64 = 60_000;
 
 #[derive(Default)]
 struct Lists(HashMap<WindowId, Entity<WorktreeList>>);
@@ -71,6 +80,8 @@ impl WorktreeList {
             again: false,
             poll: None,
             settle: None,
+            work: HashMap::new(),
+            checking: false,
         });
         cx.default_global::<Lists>().0.insert(id, list.clone());
         list
@@ -177,5 +188,64 @@ impl WorktreeList {
             self.projects = list;
             cx.notify();
         }
+        self.check_work(cx);
+    }
+
+    /// Has anything to review (`None`: not read yet, or its folder is gone).
+    pub fn has_work(&self, key: &str) -> Option<bool> {
+        self.work.get(key).map(|w| w.1)
+    }
+
+    /// Demo and tests: what a worktree has, as if read.
+    pub fn set_work(&mut self, key: String, has: bool, cx: &mut Context<Self>) {
+        self.work.insert(key, (None, has, i64::MAX / 2));
+        cx.notify();
+    }
+
+    /// Read the changes of listed worktrees that are new, moved, or stale.
+    fn check_work(&mut self, cx: &mut Context<Self>) {
+        let Some(engine) = self.engine.clone() else { return };
+        if self.checking {
+            return;
+        }
+        let now = now_ms();
+        let mut keys = std::collections::HashSet::new();
+        let mut due = Vec::new();
+        for p in &self.projects {
+            for w in &p.worktrees {
+                let key = crate::review::model::wt_key(&p.id, &w.path);
+                keys.insert(key.clone());
+                let fresh = self.work.get(&key).is_some_and(|(head, _, at)| *head == w.head && now - at < WORK_EVERY_MS);
+                if w.caps.diff && !fresh {
+                    due.push((key, p.id.clone(), w.path.clone(), w.head.clone()));
+                }
+            }
+        }
+        // Gone from the list: forget.
+        self.work.retain(|k, _| keys.contains(k));
+        if due.is_empty() {
+            return;
+        }
+        self.checking = true;
+        let task = cx.background_executor().spawn(async move {
+            due.into_iter()
+                .filter_map(|(key, p, path, head)| {
+                    let has = !ops::worktree_changes(&engine, &p, &path).ok()?.is_empty();
+                    Some((key, head, has))
+                })
+                .collect::<Vec<_>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let got = task.await;
+            let _ = this.update(cx, |l, cx| {
+                l.checking = false;
+                let at = now_ms();
+                for (key, head, has) in got {
+                    l.work.insert(key, (head, has, at));
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 }
