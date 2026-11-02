@@ -654,7 +654,7 @@ pub fn review_changes(s: &Server, r: ReviewRequest) -> Res {
     if !a.caps.diff {
         return Err(ErrorBody::new(code::UNSUPPORTED, format!("\"{}\" doesn't work in a git repository Pitwall can read", a.name)));
     }
-    let (files, compared_with) =
+    let (files, base) =
         pitwall_core::review::review_changes(&s.engine, &a.id, r.task_id.as_deref(), r.base.as_deref()).map_err(other)?;
     let files: Vec<ChangedFile> = files
         .into_iter()
@@ -666,6 +666,7 @@ pub fn review_changes(s: &Server, r: ReviewRequest) -> Res {
         added: files.iter().map(|f| f.added).sum(),
         removed: files.iter().map(|f| f.removed).sum(),
         files,
-        compared_with,
+        compared_with: base.as_ref().and_then(|b| b.branch.clone()),
+        merged_in: base.map(|b| b.merged).unwrap_or_default(),
     })
 }

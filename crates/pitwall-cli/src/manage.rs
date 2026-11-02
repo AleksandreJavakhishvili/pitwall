@@ -807,7 +807,8 @@ pub fn project_rules(p: &ProjectRulesView, sets: &RuleSets) -> String {
 }
 
 pub fn review(name: &str, r: &ReviewChanges) -> String {
-    let with = r.compared_with.as_ref().map(|b| format!(" (compared with {b})")).unwrap_or_default();
+    let without = if r.merged_in.is_empty() { String::new() } else { format!(", without {} merged in", r.merged_in.join(", ")) };
+    let with = r.compared_with.as_ref().map(|b| format!(" (compared with {b}{without})")).unwrap_or_default();
     if r.files.is_empty() {
         return format!("{name}: no changes{with}\n");
     }

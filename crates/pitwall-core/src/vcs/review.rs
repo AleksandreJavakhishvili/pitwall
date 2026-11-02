@@ -105,6 +105,11 @@ pub struct ReviewBase {
     pub branch: Option<String>,
     /// The user chose it (else found automatically).
     pub chosen: bool,
+    /// Branches merged into the work from elsewhere (`origin/develop`),
+    /// whose history is left out: it isn't the agent's work. Found
+    /// automatically only; empty when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged: Vec<String>,
 }
 
 /// [`compare_with`]'s commit, found automatically.
@@ -139,13 +144,13 @@ pub fn compare_with(top: &Git, main_checkout: Option<&str>, chosen: Option<&str>
                 .or_else(|| main_checkout.and_then(|r| top.at(r).current_branch()))
                 .or_else(|| main_branch(top));
             let Some(name) = name else {
-                return ReviewBase { rev: "HEAD".into(), branch: None, chosen: false };
+                return ReviewBase { rev: "HEAD".into(), branch: None, chosen: false, merged: vec![] };
             };
             let refs = copies(top, &name);
             (name, refs)
         }
     };
-    let found = ReviewBase { rev: "HEAD".into(), branch: Some(name.clone()), chosen: chosen.is_some() };
+    let found = ReviewBase { rev: "HEAD".into(), branch: Some(name.clone()), chosen: chosen.is_some(), merged: vec![] };
     if current.as_deref() == Some(name.as_str()) {
         return found;
     }
@@ -153,10 +158,67 @@ pub fn compare_with(top: &Git, main_checkout: Option<&str>, chosen: Option<&str>
         let newer = x.1 != best.1 && top.run(&["merge-base", "--is-ancestor", &best.1, &x.1]).is_ok();
         if newer { x } else { best }
     });
-    match newest {
+    let base = match newest {
         Some((r, rev)) => ReviewBase { rev, branch: Some(r.clone()), ..found },
-        None => found,
+        None => return found,
+    };
+    if base.chosen {
+        return base;
     }
+    match merged_in(top, &base.rev) {
+        Some((rev, names)) => ReviewBase { rev, merged: names, ..base },
+        None => base,
+    }
+}
+
+/// Another branch's history merged into the work since `base` (`git merge
+/// origin/develop`): the newest such merge's tip, as a commit to compare
+/// with when it contains `base`, else `base` and it merged together (a tree,
+/// `git merge-tree`), with the merged branches' names. A merge of a branch
+/// that forked off the work itself (a worktree's branch, a sub-task) is the
+/// agent's own work and stays. `None`: nothing merged in.
+fn merged_in(top: &Git, base: &str) -> Option<(String, Vec<String>)> {
+    let out = top.run(&["rev-list", "--first-parent", "--merges", "--parents", &format!("{base}..HEAD")]).ok()?;
+    let ancestor = |a: &str, b: &str| top.run(&["merge-base", "--is-ancestor", a, b]).is_ok();
+    // Newest first (rev-list's order).
+    let mut tips: Vec<String> = Vec::new();
+    for line in out.lines() {
+        let ids: Vec<&str> = line.split_whitespace().collect();
+        let Some((first, others)) = ids.get(1).zip(ids.get(2..)) else { continue };
+        for tip in others {
+            // Where the merged branch left the work's line: at or before
+            // `base` means it came from elsewhere.
+            let foreign = top.merge_base(first, tip).is_some_and(|fork| ancestor(&fork, base));
+            if foreign {
+                tips.push(tip.to_string());
+            }
+        }
+    }
+    // The newest tip that holds the others (develop merged twice: the last).
+    let tip = tips.iter().find(|t| tips.iter().all(|o| ancestor(o, t)))?.clone();
+    let rev = if ancestor(base, &tip) {
+        tip.clone()
+    } else {
+        let tree = top.run(&["merge-tree", "--write-tree", base, &tip]).ok()?;
+        tree.lines().next().map(str::trim).filter(|t| !t.is_empty())?.to_string()
+    };
+    let names = tips.iter().map(|t| branch_name(top, t)).fold(Vec::new(), |mut v, n| {
+        if !v.contains(&n) {
+            v.push(n);
+        }
+        v
+    });
+    Some((rev, names))
+}
+
+/// A branch that has commit `rev` (`origin/develop`), else its short id.
+fn branch_name(top: &Git, rev: &str) -> String {
+    top.run(&["name-rev", "--name-only", "--no-undefined", "--refs=refs/heads/*", "--refs=refs/remotes/*", rev])
+        .ok()
+        .map(|n| n.trim().trim_start_matches("remotes/").to_string())
+        .map(|n| n.split(['~', '^']).next().unwrap_or(&n).to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| rev.chars().take(8).collect())
 }
 
 fn ref_exists(top: &Git, r: &str) -> bool {
@@ -525,6 +587,72 @@ mod tests {
         r.git(&["update-ref", "refs/remotes/origin/main", "feature~1"]);
         assert_eq!(copies(&top, "main"), ["origin/main"]);
         assert_eq!(paths(&top, &review_base(&top, None)), ["f.txt"]);
+    }
+
+    /// A branch made from `lab` that later merged `develop` in: develop's
+    /// history isn't its work, so only its own commits show; a sub-branch
+    /// it merged (its own work) still does.
+    #[test]
+    fn history_merged_in_from_another_branch_stays_out() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        r.git(&["checkout", "-q", "-b", "lab"]);
+        r.write("lab.txt", "lab\n");
+        r.commit_all("lab work");
+        // develop moves on from lab with lots of others' work.
+        r.git(&["checkout", "-q", "-b", "develop"]);
+        r.write("dev1.txt", "1\n");
+        r.commit_all("develop 1");
+        r.write("dev2.txt", "2\n");
+        r.commit_all("develop 2");
+        // The agent's branch, from lab.
+        r.git(&["checkout", "-q", "lab"]);
+        r.git(&["checkout", "-q", "-b", "feat"]);
+        r.write("mine.txt", "m\n");
+        r.commit_all("my work");
+        r.git(&["merge", "-q", "--no-ff", "--no-edit", "develop"]);
+        // A sub-branch of its own, merged back.
+        r.git(&["checkout", "-q", "-b", "sub"]);
+        r.write("sub.txt", "s\n");
+        r.commit_all("sub-task");
+        r.git(&["checkout", "-q", "feat"]);
+        r.git(&["merge", "-q", "--no-ff", "--no-edit", "sub"]);
+        r.write("wip.txt", "w\n");
+
+        let b = compare_with(&top, None, None);
+        assert_eq!(b.branch.as_deref(), Some("lab"));
+        assert_eq!(b.merged, ["develop"]);
+        assert_eq!(paths(&top, &b.rev), ["mine.txt", "sub.txt", "wip.txt"]);
+        // Chosen by hand: exactly that branch, merged history and all.
+        let c = compare_with(&top, None, Some("lab"));
+        assert!(c.merged.is_empty());
+        assert_eq!(paths(&top, &c.rev), ["dev1.txt", "dev2.txt", "mine.txt", "sub.txt", "wip.txt"]);
+    }
+
+    /// develop merged in doesn't contain where the work started (it forked
+    /// from main before lab did): compared with both together.
+    #[test]
+    fn merged_in_history_that_lacks_the_start_is_merged_with_it() {
+        let r = TempRepo::new();
+        r.write("a.txt", "1\n");
+        r.commit_all("init");
+        let top = r.g();
+        r.git(&["checkout", "-q", "-b", "develop"]);
+        r.write("dev.txt", "d\n");
+        r.commit_all("develop");
+        r.git(&["checkout", "-q", "main"]);
+        r.git(&["checkout", "-q", "-b", "lab"]);
+        r.write("lab.txt", "l\n");
+        r.commit_all("lab");
+        r.git(&["checkout", "-q", "-b", "feat"]);
+        r.write("mine.txt", "m\n");
+        r.commit_all("mine");
+        r.git(&["merge", "-q", "--no-ff", "--no-edit", "develop"]);
+        let b = compare_with(&top, None, None);
+        assert_eq!((b.branch.as_deref(), b.merged.as_slice()), (Some("lab"), &["develop".to_string()][..]));
+        assert_eq!(paths(&top, &b.rev), ["mine.txt"]);
     }
 
     fn branch_of(top: &Git, chosen: Option<&str>) -> Option<String> {

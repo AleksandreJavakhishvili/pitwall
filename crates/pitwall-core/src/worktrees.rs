@@ -287,14 +287,80 @@ fn spots(ms: &[&Member]) -> Vec<Spot> {
         .collect()
 }
 
-/// A hook payload's `cwd` (the hook input every agent with hooks sends):
-/// count it where agent `id` worked.
+/// A hook payload (the documented hook input every agent with hooks
+/// sends): count where agent `id` worked. That is its `cwd`, and every
+/// listed worktree a path in its `tool_input` points into: an agent often
+/// runs `cd ../repo-feature && …` or edits a worktree's file by its full
+/// path while its own `cwd` stays the main checkout. Paths are read from
+/// any string of the input, the same for every tool and every agent.
 pub fn on_hook(engine: &Engine, id: &str, payload: &serde_json::Value) {
     let Some(cwd) = payload.get("cwd").and_then(serde_json::Value::as_str) else { return };
+    let mut places = vec![cwd.trim_end_matches('/').to_string()];
+    if let Some(input) = payload.get("tool_input") {
+        let listed: Vec<Vec<WorktreeEntry>> = lock(&engine.worktrees.listed).values().map(|l| l.entries.clone()).collect();
+        let mut strings = Vec::new();
+        strings_in(input, &mut strings);
+        for p in strings.iter().flat_map(|s| paths_in(s, cwd)) {
+            // Into a linked worktree (not a main checkout): that worktree.
+            let hit = listed.iter().find_map(|entries| deepest(entries, &p).filter(|i| *i > 0).map(|i| entries[i].path.clone()));
+            if let Some(wt) = hit.filter(|w| !places.contains(w)) {
+                places.push(wt);
+            }
+        }
+    }
     let now = crate::clock::unix_ms();
-    if engine.with(id, |a| crate::model::WorkedIn::note(&mut a.rec.worked_in, cwd, now)) == Ok(true) {
+    let new = engine.with(id, |a| places.iter().fold(false, |new, p| crate::model::WorkedIn::note(&mut a.rec.worked_in, p, now) | new));
+    if new == Ok(true) {
         engine.changed(true);
     }
+}
+
+/// Every string in a JSON value (at most 64, each cut at 16 KB).
+fn strings_in<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a str>) {
+    if out.len() >= 64 {
+        return;
+    }
+    match v {
+        serde_json::Value::String(s) => out.push(&s[..s.floor_char_boundary(16 * 1024)]),
+        serde_json::Value::Array(a) => a.iter().for_each(|x| strings_in(x, out)),
+        serde_json::Value::Object(m) => m.values().for_each(|x| strings_in(x, out)),
+        _ => {}
+    }
+}
+
+/// Paths in a piece of text (a command, a file path): words that start
+/// with `/`, `~/`, `./` or `../`, made absolute against `cwd` and tidied
+/// (`a/../b` → `b`).
+fn paths_in(text: &str, cwd: &str) -> Vec<String> {
+    text.split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '`' | ';' | '&' | '|' | '(' | ')' | '<' | '>' | '=' | ','))
+        .filter_map(|w| {
+            let abs = if w.starts_with('/') {
+                w.to_string()
+            } else if let Some(rest) = w.strip_prefix("~/") {
+                format!("{}/{rest}", crate::paths::home().to_string_lossy())
+            } else if w.starts_with("./") || w.starts_with("../") || w == ".." {
+                format!("{}/{w}", cwd.trim_end_matches('/'))
+            } else {
+                return None;
+            };
+            tidy(&abs)
+        })
+        .collect()
+}
+
+/// `/a/./b/../c/` → `/a/c` (by the text, without asking the disk).
+fn tidy(path: &str) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for p in path.split('/') {
+        match p {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            p => parts.push(p),
+        }
+    }
+    (!parts.is_empty()).then(|| format!("/{}", parts.join("/")))
 }
 
 /// Remembered process sightings of these agents, newest first.

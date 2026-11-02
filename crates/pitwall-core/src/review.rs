@@ -122,7 +122,7 @@ pub fn review_changes(
     agent_id: &str,
     task_id: Option<&str>,
     base: Option<&str>,
-) -> Res<(Vec<FileChange>, Option<String>)> {
+) -> Res<(Vec<FileChange>, Option<ReviewBase>)> {
     let c = ctx(engine, agent_id, task_id)?;
     let top = toplevel(&c.git())?;
     if let Some(b) = base.filter(|b| !ops::branches(&top).iter().any(|x| x == b)) {
@@ -131,7 +131,7 @@ pub fn review_changes(
     match c.task.clone() {
         None => {
             let b = c.compare(engine, &top, base);
-            Ok((top.changes(Some(&b.rev))?, b.branch))
+            Ok((top.changes(Some(&b.rev))?, Some(b)))
         }
         Some(t) => {
             let start = t.start_tree.ok_or("this task's snapshot isn't ready yet")?;
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(task_changes(&h.engine, "a", None).unwrap().len(), 2);
         // Just this once.
         let (files, with) = review_changes(&h.engine, "a", None, Some("develop")).unwrap();
-        assert_eq!((files.len(), with.as_deref()), (1, Some("develop")));
+        assert_eq!((files.len(), with.and_then(|b| b.branch).as_deref()), (1, Some("develop")));
         assert!(review_changes(&h.engine, "a", None, Some("nope")).is_err());
         assert!(set_compare_with(&h.engine, "a", Some("nope")).is_err());
 

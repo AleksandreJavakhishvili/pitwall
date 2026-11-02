@@ -447,3 +447,43 @@ fn old_work_counts_less_than_this_week_s() {
     old.worked = vec![("/r/wt/x".into(), 40.0, now - day)];
     assert_eq!(attribute(&entries, &[old, new], &[])[1].0.as_deref(), Some("old"));
 }
+
+#[test]
+fn worktrees_named_in_a_tool_s_input_count_where_the_cwd_stays() {
+    let x = FakeExec::new();
+    x.dir("/r").on(
+        &LIST,
+        "worktree /r\nHEAD a\nbranch refs/heads/main\n\nworktree /r-panel\nHEAD b\nbranch refs/heads/panel\n\nworktree /r-fair\nHEAD c\nbranch refs/heads/fair\n\n",
+    );
+    let h = Harness::with_exec(vec![claude_at("a", "/r"), claude_at("b", "/r")], x.clone());
+    list(&h.engine);
+    let hook = |id: &str, input: serde_json::Value| {
+        h.engine.ingest_hook(id, &serde_json::json!({"hook_event_name": "PreToolUse", "cwd": "/r", "tool_input": input}))
+    };
+    // Claude's `cd` into a folder outside the project lasts one command.
+    hook("a", serde_json::json!({"command": "cd ../r-panel && npm test"}));
+    hook("a", serde_json::json!({"file_path": "/r-panel/src/app.ts", "old_string": "x"}));
+    hook("b", serde_json::json!({"command": "git -C /r-fair/./pkg/.. status; git worktree list"}));
+    // Just listing them names none.
+    hook("b", serde_json::json!({"command": "git worktree list && ls .."}));
+    h.clock.advance(PERIOD_MS);
+    let p = list(&h.engine);
+    let who = |name: &str| {
+        let w = p[0].worktrees.iter().find(|w| w.name == name).unwrap();
+        (w.agent_id.clone(), w.via)
+    };
+    assert_eq!(who("r-panel"), (Some("a".into()), WorktreeVia::WorkedIn));
+    assert_eq!(who("r-fair"), (Some("b".into()), WorktreeVia::WorkedIn));
+    let a = h.engine.agents().iter().find(|a| a.rec.id == "a").unwrap().rec.worked_in.clone();
+    let panel = a.iter().find(|w| w.path == "/r-panel").unwrap();
+    assert!((panel.score - 2.0).abs() < 1e-6, "counted once per hook, as the worktree: {a:?}");
+    assert!(a.iter().all(|w| !w.path.contains("src")), "files count for their worktree, not themselves");
+}
+
+#[test]
+fn paths_are_read_from_any_text() {
+    assert_eq!(paths_in("cd ../x && cat './y/z' \"/abs/p\" ~/h", "/w/r"), vec!["/w/x".to_string(), "/w/r/y/z".into(), "/abs/p".into(), format!("{}/h", crate::paths::home().to_string_lossy())]);
+    assert_eq!(tidy("/a/./b/../c/"), Some("/a/c".into()));
+    assert_eq!(tidy("/.."), None);
+    assert!(paths_in("git worktree list; ls", "/w").is_empty());
+}

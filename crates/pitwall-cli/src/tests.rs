@@ -625,12 +625,15 @@ fn human_snapshots_for_managing() {
         added: 16,
         removed: 3,
         compared_with: None,
+        merged_in: vec![],
     };
     assert_eq!(manage::review("api", &r), "M  +12 -3  src/lib.rs\nU  +4 -0   notes.md\n   +16 -3  2 file(s)\n");
     let empty = ReviewChanges { files: vec![], added: 0, removed: 0, ..r.clone() };
     assert_eq!(manage::review("api", &empty), "api: no changes\n");
-    let with = ReviewChanges { compared_with: Some("develop".into()), ..r };
+    let with = ReviewChanges { compared_with: Some("develop".into()), ..r.clone() };
     assert!(manage::review("api", &with).ends_with("2 file(s) (compared with develop)\n"), "{}", manage::review("api", &with));
+    let merged = ReviewChanges { compared_with: Some("lab".into()), merged_in: vec!["origin/develop".into()], ..r };
+    assert!(manage::review("api", &merged).ends_with("(compared with lab, without origin/develop merged in)\n"), "{}", manage::review("api", &merged));
 }
 
 #[test]
