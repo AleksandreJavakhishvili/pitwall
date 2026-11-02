@@ -121,6 +121,11 @@ impl<'a> Git<'a> {
         self.run(&["worktree", "remove", path]).map(|_| ())
     }
 
+    /// Forget worktrees whose folder is gone (deletes nothing on disk).
+    pub fn worktree_prune(&self) -> Result<(), String> {
+        self.run(&["worktree", "prune"]).map(|_| ())
+    }
+
     /// Every worktree of the repo (the main checkout first).
     pub fn worktree_list(&self) -> Result<Vec<WorktreeEntry>, String> {
         Ok(parse_worktree_list(&self.run(&["worktree", "list", "--porcelain"])?))

@@ -144,38 +144,46 @@ pub struct WorktreeInfo {
 }
 
 /// A folder an agent worked in, by its hooks (`AgentRecord::worked_in`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkedIn {
     pub path: String,
-    /// Hook events from there.
-    pub steps: u32,
+    /// Hook events from there, each counting less as it ages: halved every
+    /// [`WorkedIn::HALF_LIFE_MS`], as of `last`.
+    pub score: f64,
+    /// When the last one came (unix ms).
+    pub last: u64,
 }
 
 impl WorkedIn {
     /// Folders remembered per agent.
     pub const MAX: usize = 40;
+    /// Work counts half as much after this long (2 days): what an agent did
+    /// this week outweighs what it did a month ago.
+    pub const HALF_LIFE_MS: f64 = 2.0 * 24.0 * 3_600_000.0;
 
-    /// Count one hook event from `cwd`. True when the folder is new to the
-    /// list (worth saving now; counts ride along with the next save).
-    pub fn note(list: &mut Vec<WorkedIn>, cwd: &str) -> bool {
+    /// Its score as of `now` (unix ms).
+    pub fn score_at(&self, now: u64) -> f64 {
+        self.score * 0.5f64.powf(now.saturating_sub(self.last) as f64 / Self::HALF_LIFE_MS)
+    }
+
+    /// Count one hook event from `cwd` at `now`. True when the folder is new
+    /// to the list (worth saving now; the rest rides along with the next save).
+    pub fn note(list: &mut Vec<WorkedIn>, cwd: &str, now: u64) -> bool {
         let cwd = cwd.trim_end_matches('/');
         if cwd.is_empty() {
             return false;
         }
         match list.iter().position(|w| w.path == cwd) {
-            Some(0) => {
-                list[0].steps = list[0].steps.saturating_add(1);
-                false
-            }
             Some(i) => {
                 let mut w = list.remove(i);
-                w.steps = w.steps.saturating_add(1);
+                w.score = w.score_at(now) + 1.0;
+                w.last = w.last.max(now);
                 list.insert(0, w);
                 false
             }
             None => {
-                list.insert(0, WorkedIn { path: cwd.to_string(), steps: 1 });
+                list.insert(0, WorkedIn { path: cwd.to_string(), score: 1.0, last: now });
                 list.truncate(Self::MAX);
                 true
             }
