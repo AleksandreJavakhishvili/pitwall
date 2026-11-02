@@ -271,6 +271,10 @@ pub struct WorktreeView {
     pub prunable: bool,
     /// The agent it belongs to, if any.
     pub agent_id: Option<String>,
+    /// When an agent last worked there (unix ms), by its hooks or a process
+    /// seen there; `None`: not known.
+    #[ts(type = "number | null")]
+    pub active_at: Option<u64>,
     pub via: WorktreeVia,
     pub caps: WorktreeCaps,
 }

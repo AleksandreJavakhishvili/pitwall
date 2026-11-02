@@ -14,9 +14,14 @@ each agent's own working folder.
      payload carries the session's `cwd` (the documented hook input, the
      same for every agent with hooks), and Pitwall's relay names the agent
      (`PITWALL_AGENT_ID`), so no agent's files or log formats are read.
-     Kept on the agent (`AgentRecord::workedIn`: folder → hook events,
-     most recent first, at most 40) across restarts. Most events there
-     wins; the main checkout is everyone's and doesn't count;
+     Kept on the agent (`AgentRecord::workedIn`: folder, score, last; most
+     recent first, at most 40) across restarts. Each hook event adds 1 to
+     the folder's score, and scores halve every 2 days, so this week's work
+     outweighs last month's. Highest score wins; close scores (a visit vs.
+     a visit) go to whoever was there last. The main checkout is everyone's
+     and doesn't count. A folder that was one of the repository's
+     worktrees in the last listing and isn't now (a temporary worktree,
+     removed) is forgotten; other folders age out of the 40;
   3. a process inside the agent's terminal has (or had, this run) its cwd
      in it (local only, via the existing process helpers);
   4. it lives under the agent's folder in a tool-managed location
@@ -82,8 +87,20 @@ drive the UI; no provider/kind special cases.
   selecting one shows its files and diff (no task scope, no comments),
   with Open terminal / Remove worktree… / Commit (& merge) in the footer.
   Commit & merge reuses the Review dialog; removal has its own confirmation.
-- Review reads every listed worktree's files once when the list changes, and
-  folds away the ones with nothing to review (no changes against their
-  branch: merged, or never touched), unless shown: "Show N worktrees
-  without changes" at the end of the list, "Hide worktrees without changes"
-  to fold them again (for the session). The selected one stays listed.
+- Each worktree's view has `activeAt`: when an agent last worked there (its
+  hooks, or a process seen there). Lists show the latest first; never seen
+  ones last, by name.
+- Folding (`review::model::fold`, the sidebar and Review alike): the
+  window's worktree list reads whether each listed worktree has changes
+  (again when its HEAD moves, or after 60 s). Folded away:
+  - deleted (prunable: the folder is gone, git still lists it);
+  - without changes against its branch (merged, untouched, a throwaway
+    build checkout);
+  - Review only: not worked in for 7 days (may still hold work: the line
+    says how many have changes).
+  The sidebar's chips count and list only the rest; Review ends with
+  "Show N worktrees without changes", "Show N worktrees not worked in for
+  a week · M with changes", and "Clean up N deleted worktrees" (`git
+  worktree prune` in those projects: nothing on disk changes). The shown
+  worktree always stays listed. No names are special (`agent-*` or
+  otherwise): what's in a worktree and when it was used decide.

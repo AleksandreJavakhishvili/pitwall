@@ -91,7 +91,7 @@ fn the_agent_whose_hooks_worked_in_a_worktree_owns_it() {
         entry("/r/.claude/worktrees/left"),
         entry("/home/u/.codex/worktrees/7/r"),
     ];
-    let worked = |v: &[(&str, u32)]| Some(v.iter().map(|(p, n)| (p.to_string(), *n)).collect::<Vec<_>>());
+    let worked = |v: &[(&str, u32)]| Some(v.iter().map(|(p, n)| (p.to_string(), f64::from(*n), 5)).collect::<Vec<_>>());
     let mut a = spot("a", "/r", &[".claude/worktrees"], 1);
     a.worked = worked(&[("/r", 40), ("/r/.claude/worktrees/a", 12), ("/r/.claude/worktrees/a/src", 3), ("/r/.claude/worktrees/b", 1)]);
     let mut b = spot("b", "/r", &[".claude/worktrees"], 2);
@@ -372,7 +372,6 @@ fn a_forced_refresh_asked_twice_lists_once() {
 
 #[test]
 fn hooks_say_whose_worktree_it_is_and_it_is_kept() {
-    use crate::model::WorkedIn;
     let x = fake();
     let h = Harness::with_exec(vec![claude_at("a", "/r"), claude_at("b", "/r")], x.clone());
     let hook = |id: &str, cwd: &str| h.engine.ingest_hook(id, &serde_json::json!({"hook_event_name": "PostToolUse", "cwd": cwd}));
@@ -386,29 +385,67 @@ fn hooks_say_whose_worktree_it_is_and_it_is_kept() {
         "the younger agent worked there, whoever is older"
     );
     let b = h.engine.agents().iter().find(|a| a.rec.id == "b").unwrap().rec.worked_in.clone();
-    assert_eq!(
-        b,
-        vec![
-            WorkedIn { path: "/r/.claude/worktrees/w".into(), steps: 1 },
-            WorkedIn { path: "/r/.claude/worktrees/w/src".into(), steps: 1 }
-        ],
-        "kept on the agent's record, most recent first"
-    );
+    let paths: Vec<&str> = b.iter().map(|w| w.path.as_str()).collect();
+    assert_eq!(paths, ["/r/.claude/worktrees/w", "/r/.claude/worktrees/w/src"], "kept on the agent's record, most recent first");
+    assert!(p[0].worktrees[0].active_at.is_some_and(|t| t >= b[0].last), "when it was last worked in");
+
+    // A temporary worktree, worked in, then removed: forgotten.
+    x.on(&LIST, "worktree /r\nHEAD a\nbranch refs/heads/main\n\nworktree /r/.claude/worktrees/w\nHEAD b\nbranch refs/heads/worktree-w\n\nworktree /r/.claude/worktrees/temp\nHEAD c\ndetached\n\n");
+    h.clock.advance(PERIOD_MS);
+    list(&h.engine);
+    hook("b", "/r/.claude/worktrees/temp");
+    hook("b", "/r/somewhere");
+    x.on(&LIST, "worktree /r\nHEAD a\nbranch refs/heads/main\n\nworktree /r/.claude/worktrees/w\nHEAD b\nbranch refs/heads/worktree-w\n\n");
+    h.clock.advance(PERIOD_MS);
+    list(&h.engine);
+    let b = h.engine.agents().iter().find(|a| a.rec.id == "b").unwrap().rec.worked_in.clone();
+    assert!(b.iter().all(|w| w.path != "/r/.claude/worktrees/temp"), "{b:?}");
+    assert!(b.iter().any(|w| w.path == "/r/.claude/worktrees/w"));
+    assert!(b.iter().any(|w| w.path == "/r/somewhere"), "other folders age out on their own");
 }
 
 #[test]
 fn worked_in_counts_moves_up_and_is_capped() {
     use crate::model::WorkedIn;
     let mut l = Vec::new();
-    assert!(WorkedIn::note(&mut l, "/a/"), "a new folder: save now");
-    assert!(!WorkedIn::note(&mut l, "/a"));
-    assert!(WorkedIn::note(&mut l, "/b"));
-    assert!(!WorkedIn::note(&mut l, "/a"));
-    assert!(!WorkedIn::note(&mut l, ""));
-    assert_eq!(l, vec![WorkedIn { path: "/a".into(), steps: 3 }, WorkedIn { path: "/b".into(), steps: 1 }]);
+    assert!(WorkedIn::note(&mut l, "/a/", 10), "a new folder: save now");
+    assert!(!WorkedIn::note(&mut l, "/a", 10));
+    assert!(WorkedIn::note(&mut l, "/b", 10));
+    assert!(!WorkedIn::note(&mut l, "/a", 10));
+    assert!(!WorkedIn::note(&mut l, "", 10));
+    assert_eq!(l.iter().map(|w| (w.path.as_str(), w.score, w.last)).collect::<Vec<_>>(), [("/a", 3.0, 10), ("/b", 1.0, 10)]);
     for i in 0..WorkedIn::MAX + 5 {
-        WorkedIn::note(&mut l, &format!("/n{i}"));
+        WorkedIn::note(&mut l, &format!("/n{i}"), 10);
     }
     assert_eq!(l.len(), WorkedIn::MAX);
     assert_eq!(l[0].path, format!("/n{}", WorkedIn::MAX + 4));
+}
+
+#[test]
+fn old_work_counts_less_than_this_week_s() {
+    use crate::model::WorkedIn;
+    let day = 24 * 3_600_000u64;
+    let mut l = Vec::new();
+    for _ in 0..8 {
+        WorkedIn::note(&mut l, "/w", 0);
+    }
+    assert!((l[0].score_at(2 * day) - 4.0).abs() < 1e-9, "halved after two days");
+    WorkedIn::note(&mut l, "/w", 2 * day);
+    assert!((l[0].score - 5.0).abs() < 1e-9 && l[0].last == 2 * day);
+
+    // Heavy work a month ago loses to a few steps today.
+    let entries = vec![entry("/r"), entry("/r/wt/x")];
+    let mut old = spot("old", "/r", &[], 1);
+    let mut new = spot("new", "/r", &[], 2);
+    let now = 30 * day;
+    old.worked = Some(vec![("/r/wt/x".into(), WorkedIn { path: String::new(), score: 300.0, last: 0 }.score_at(now), 0)]);
+    new.worked = Some(vec![("/r/wt/x".into(), 4.0, now)]);
+    assert_eq!(attribute(&entries, &[old.clone(), new.clone()], &[])[1].0.as_deref(), Some("new"));
+    // A visit (close scores): whoever was there last.
+    old.worked = Some(vec![("/r/wt/x".into(), 1.2, now - day)]);
+    new.worked = Some(vec![("/r/wt/x".into(), 1.0, now)]);
+    assert_eq!(attribute(&entries, &[old.clone(), new.clone()], &[])[1].0.as_deref(), Some("new"));
+    // Real work beats a later visit.
+    old.worked = Some(vec![("/r/wt/x".into(), 40.0, now - day)]);
+    assert_eq!(attribute(&entries, &[old, new], &[])[1].0.as_deref(), Some("old"));
 }

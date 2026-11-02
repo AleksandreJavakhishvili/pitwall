@@ -21,4 +21,9 @@ prunable: boolean,
 /**
  * The agent it belongs to, if any.
  */
-agentId: string | null, via: WorktreeVia, caps: WorktreeCaps, };
+agentId: string | null, 
+/**
+ * When an agent last worked there (unix ms), by its hooks or a process
+ * seen there; `None`: not known.
+ */
+activeAt: number | null, via: WorktreeVia, caps: WorktreeCaps, };

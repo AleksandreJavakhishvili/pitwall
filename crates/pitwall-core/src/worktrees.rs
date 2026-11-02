@@ -49,10 +49,10 @@ pub struct Spot {
     /// (`AgentKind::worktree_dirs`).
     pub tool_dirs: Vec<String>,
     pub created_at: u64,
-    /// Folders its hooks reported it working in, with how many hook events
-    /// came from each; `None`: no hooks came, so it may still be given its
-    /// tool's folder.
-    pub worked: Option<Vec<(String, u32)>>,
+    /// Folders its hooks reported it working in: (folder, recency-weighted
+    /// hook events, last one in unix ms); `None`: no hooks came, so it may
+    /// still be given its tool's folder.
+    pub worked: Option<Vec<(String, f64, u64)>>,
 }
 
 /// `path` is `root` or inside it.
@@ -73,7 +73,7 @@ fn deepest(entries: &[WorktreeEntry], path: &str) -> Option<usize> {
 
 /// Who each entry belongs to, by the rules in order: the agent's own folder;
 /// the agent that worked in it (most hook events from there, by the
-/// hooks' `cwd`); a process of the agent working in it, now or earlier
+/// hooks' `cwd`, recent ones counting more; then the latest); a process of the agent working in it, now or earlier
 /// (`proc_cwds`: agent id → folder, newest first); a tool-managed folder
 /// under the checkout of the one agent there without hooks; else nobody.
 /// Several agents sharing a folder never split its tool's worktrees by
@@ -85,14 +85,16 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
     let procs: Vec<(&str, usize)> = proc_cwds.iter().filter_map(|(id, cwd)| Some((id.as_str(), deepest(entries, cwd)?))).collect();
     let has_proc = |id: &str, i: usize| procs.iter().any(|(p, e)| *p == id && *e == i);
     let order = |a: &&Spot, b: &&Spot| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id));
-    // Hook events from each entry, per agent.
-    let steps: Vec<HashMap<usize, u32>> = spots
+    // (weighted hook events, latest) from each entry, per agent.
+    let steps: Vec<HashMap<usize, (f64, u64)>> = spots
         .iter()
         .map(|s| {
-            let mut m = HashMap::new();
-            for (cwd, n) in s.worked.iter().flatten() {
+            let mut m: HashMap<usize, (f64, u64)> = HashMap::new();
+            for (cwd, n, last) in s.worked.iter().flatten() {
                 if let Some(i) = deepest(entries, cwd) {
-                    *m.entry(i).or_default() += n;
+                    let e = m.entry(i).or_default();
+                    e.0 += n;
+                    e.1 = e.1.max(*last);
                 }
             }
             m
@@ -114,7 +116,14 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
                     .iter()
                     .zip(&steps)
                     .filter_map(|(s, m)| Some((s, *m.get(&i)?)))
-                    .max_by(|(a, na), (b, nb)| na.cmp(nb).then(has_proc(&a.id, i).cmp(&has_proc(&b.id, i))).then(order(b, a)));
+                    .max_by(|(a, (na, la)), (b, (nb, lb))| {
+                        // Close scores (a visit vs. real work aside): the latest.
+                        let near = (na - nb).abs() < 0.5;
+                        (if near { std::cmp::Ordering::Equal } else { na.total_cmp(nb) })
+                            .then(la.cmp(lb))
+                            .then(has_proc(&a.id, i).cmp(&has_proc(&b.id, i)))
+                            .then(order(b, a))
+                    });
                 if let Some((s, _)) = best {
                     return (Some(s.id.clone()), WorktreeVia::WorkedIn);
                 }
@@ -168,10 +177,14 @@ pub struct Cache {
     /// Forced refreshes running, by project id (`*`: all): asked again while
     /// one runs, the caller waits for it.
     forced: crate::flight::Flights<Vec<ProjectWorktrees>>,
-    /// (agent id, folder) a process of an agent was seen working in, newest
-    /// first (rule 3): a worktree stays the agent's after the process ends.
-    seen: Mutex<Vec<(String, String)>>,
+    /// (agent id, folder, unix ms) a process of an agent was seen working
+    /// in, newest first (rule 3): a worktree stays the agent's after the
+    /// process ends.
+    seen: Mutex<Vec<Seen>>,
 }
+
+/// A process of agent `.0` seen working in folder `.1` at unix ms `.2`.
+type Seen = (String, String, u64);
 
 /// Process sightings remembered (per Pitwall run).
 const MAX_SEEN: usize = 500;
@@ -200,8 +213,9 @@ struct Member {
     real: Option<String>,
     kind: String,
     created_at: u64,
-    /// Folders its hooks reported (`AgentRecord::worked_in`).
-    worked: Vec<(String, u32)>,
+    /// Folders its hooks reported (`AgentRecord::worked_in`): (folder,
+    /// weighted events as of now, last).
+    worked: Vec<(String, f64, u64)>,
     pids: Vec<u32>,
     running: bool,
     process_cwd: bool,
@@ -218,6 +232,7 @@ fn group_key(m: &Member) -> String {
 }
 
 fn members(engine: &Engine) -> Vec<Member> {
+    let wall = crate::clock::unix_ms();
     engine
         .agents()
         .iter()
@@ -235,7 +250,7 @@ fn members(engine: &Engine) -> Vec<Member> {
                 real: a.real_cwd.as_ref().filter(|(from, _)| *from == r.cwd).map(|(_, real)| real.clone()),
                 kind: a.kind().to_string(),
                 created_at: r.created_at,
-                worked: r.worked_in.iter().map(|w| (w.path.clone(), w.steps)).collect(),
+                worked: r.worked_in.iter().map(|w| (w.path.clone(), w.score_at(wall), w.last)).collect(),
                 pids: [a.local_pid(), a.inner.as_ref().map(|i| i.pid).filter(|_| p.local_process)].into_iter().flatten().collect(),
                 running: a.running(),
                 process_cwd: p.process_cwd,
@@ -304,29 +319,71 @@ fn spots(engine: &Engine, ms: &[&Member]) -> Vec<Spot> {
 /// count it where agent `id` worked.
 pub fn on_hook(engine: &Engine, id: &str, payload: &serde_json::Value) {
     let Some(cwd) = payload.get("cwd").and_then(serde_json::Value::as_str) else { return };
-    if engine.with(id, |a| crate::model::WorkedIn::note(&mut a.rec.worked_in, cwd)) == Ok(true) {
+    let now = crate::clock::unix_ms();
+    if engine.with(id, |a| crate::model::WorkedIn::note(&mut a.rec.worked_in, cwd, now)) == Ok(true) {
         engine.changed(true);
     }
 }
 
 /// Remembered process sightings of these agents, newest first.
-fn seen(engine: &Engine, ms: &[&Member]) -> Vec<(String, String)> {
-    lock(&engine.worktrees.seen).iter().filter(|(id, _)| ms.iter().any(|m| m.id == *id)).cloned().collect()
+fn seen(engine: &Engine, ms: &[&Member]) -> Vec<Seen> {
+    lock(&engine.worktrees.seen).iter().filter(|(id, _, _)| ms.iter().any(|m| m.id == *id)).cloned().collect()
+}
+
+/// (agent id, folder) of sightings, for [`attribute`].
+fn procs(seen: &[Seen]) -> Vec<(String, String)> {
+    seen.iter().map(|(id, f, _)| (id.clone(), f.clone())).collect()
 }
 
 /// Remember where processes were just seen (newest first, once each).
-fn remember(engine: &Engine, now: Vec<(String, String)>) {
+fn remember(engine: &Engine, found: Vec<(String, String)>) {
+    let at = crate::clock::unix_ms();
     let mut seen = lock(&engine.worktrees.seen);
-    seen.retain(|x| !now.contains(x));
-    let mut next = now;
+    seen.retain(|(id, f, _)| !found.iter().any(|(i, g)| i == id && g == f));
+    let mut next: Vec<Seen> = found.into_iter().map(|(id, f)| (id, f, at)).collect();
     next.append(&mut seen);
     next.truncate(MAX_SEEN);
     *seen = next;
 }
 
+/// When each entry was last worked in (unix ms), by hooks and sightings.
+fn active_at(entries: &[WorktreeEntry], spots: &[Spot], seen: &[Seen]) -> Vec<Option<u64>> {
+    let mut out = vec![None; entries.len()];
+    let mut bump = |path: &str, at: u64| {
+        if let Some(i) = deepest(entries, path) {
+            out[i] = out[i].max(Some(at));
+        }
+    };
+    for (cwd, _, last) in spots.iter().flat_map(|s| s.worked.iter().flatten()) {
+        bump(cwd, *last);
+    }
+    for (_, f, at) in seen {
+        bump(f, *at);
+    }
+    out
+}
+
+/// Forget folders agents worked in that were one of the repository's
+/// worktrees in the last listing and aren't now (temporary ones, removed):
+/// they'd crowd out the rest. Other folders age out on their own.
+fn forget_gone(engine: &Engine, ms: &[&Member], before: &[WorktreeEntry], now: &[WorktreeEntry]) {
+    let gone = |p: &str| deepest(before, p).is_some_and(|i| i > 0 && !now.iter().any(|e| e.path == before[i].path));
+    let mut any = false;
+    for m in ms.iter().filter(|m| m.worked.iter().any(|(p, _, _)| gone(p))) {
+        let _ = engine.with(&m.id, |a| {
+            let n = a.rec.worked_in.len();
+            a.rec.worked_in.retain(|w| !gone(&w.path));
+            any |= a.rec.worked_in.len() != n;
+        });
+    }
+    if any {
+        engine.changed(true);
+    }
+}
+
 /// Linked worktrees nobody claimed by folder: worth asking processes (rule 3).
-fn unclaimed(entries: &[WorktreeEntry], spots: &[Spot], seen: &[(String, String)]) -> bool {
-    attribute(entries, spots, seen).iter().zip(entries).skip(1).any(|((_, via), e)| *via == WorktreeVia::Other && !e.bare && !e.prunable)
+fn unclaimed(entries: &[WorktreeEntry], spots: &[Spot], seen: &[Seen]) -> bool {
+    attribute(entries, spots, &procs(seen)).iter().zip(entries).skip(1).any(|((_, via), e)| *via == WorktreeVia::Other && !e.bare && !e.prunable)
 }
 
 /// Folders processes of these agents work in, where their provider can
@@ -391,6 +448,9 @@ fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
         let exec = &execs[&list[0].id];
         let listed = match Git::new(&**exec, &list[0].cwd).worktree_list() {
             Ok(entries) => {
+                if let Some(before) = lock(&engine.worktrees.listed).get(key).map(|l| l.entries.clone()) {
+                    forget_gone(engine, list, &before, &entries);
+                }
                 let sp = spots(engine, list);
                 if unclaimed(&entries, &sp, &seen(engine, list)) {
                     remember(engine, process_cwds(engine, list));
@@ -411,7 +471,7 @@ fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
         listed.retain(|k, _| groups.iter().any(|(g, _)| g == k));
         listed.clone()
     };
-    lock(&engine.worktrees.seen).retain(|(id, _)| ms.iter().any(|m| m.id == *id));
+    lock(&engine.worktrees.seen).retain(|(id, _, _)| ms.iter().any(|m| m.id == *id));
     build(engine, &groups, &listed)
 }
 
@@ -454,17 +514,23 @@ fn build(engine: &Engine, groups: &[(String, Vec<&Member>)], listed: &HashMap<St
     out.into_iter()
         .map(|(mut view, ms, l)| {
             let sp = spots(engine, &ms);
-            let who = attribute(&l.entries, &sp, &seen(engine, &ms));
+            let seen = seen(engine, &ms);
+            let who = attribute(&l.entries, &sp, &procs(&seen));
+            let when = active_at(&l.entries, &sp, &seen);
             let main = &l.entries[0];
             view.agent_ids = ms.iter().map(|m| m.id.clone()).collect();
             view.error = l.error.clone();
             view.worktrees = l
                 .entries
                 .iter()
-                .zip(who)
+                .zip(who.into_iter().zip(when))
                 .skip(1)
                 .filter(|(e, _)| !e.bare)
-                .map(|(e, (agent_id, via))| worktree_view(e, main, agent_id, via, &view, ms[0].home.as_deref()))
+                .map(|(e, ((agent_id, via), at))| {
+                    let mut w = worktree_view(e, main, agent_id, via, &view, ms[0].home.as_deref());
+                    w.active_at = at;
+                    w
+                })
                 .collect();
             view
         })
@@ -485,6 +551,7 @@ fn worktree_view(e: &WorktreeEntry, main: &WorktreeEntry, agent_id: Option<Strin
         prunable: e.prunable,
         agent_id,
         via,
+        active_at: None,
         caps: WorktreeCaps {
             diff,
             commit: diff,
@@ -606,6 +673,25 @@ pub fn merge(engine: &Engine, project: &str, path: &str) -> Res<MergeResult> {
     let result = ops::merge(&t.git().at(&t.repo), &branch)?;
     t.touched(engine);
     Ok(result)
+}
+
+/// `git worktree prune` in the project: git forgets worktrees whose folder
+/// is already gone. Nothing on disk is deleted. Blocking.
+pub fn prune(engine: &Engine, project: &str) -> Res<()> {
+    let ms = members(engine);
+    let listed = lock(&engine.worktrees.listed).clone();
+    let p = build(engine, &grouped(&ms), &listed)
+        .into_iter()
+        .find(|v| v.id == project)
+        .ok_or("That project's worktrees aren't listed any more.")?;
+    let owner = p.agent_ids.first().cloned().ok_or("No agent works in that project any more.")?;
+    let exec = engine.exec_for(&owner);
+    Git::new(&*exec, &p.repo).worktree_prune()?;
+    for l in lock(&engine.worktrees.listed).values_mut() {
+        l.at = 0;
+    }
+    engine.changed(false);
+    Ok(())
 }
 
 /// `git worktree remove <path>` — never `--force`, so git refuses when it has
