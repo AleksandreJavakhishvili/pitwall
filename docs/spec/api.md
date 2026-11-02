@@ -119,7 +119,7 @@ interface ProjectWorktrees { id: string; repo: string; repoDisplay: string;
 interface WorktreeView { path: string; pathDisplay: string; name: string;
   branch: string | null; head: string | null; locked: boolean; lockReason: string | null;
   prunable: boolean; agentId: string | null;
-  via: "own" | "toolDir" | "process" | "other"; caps: WorktreeCaps }
+  via: "own" | "workedIn" | "process" | "other"; activeAt: number | null; caps: WorktreeCaps }
 interface WorktreeCaps { diff: boolean; commit: boolean; merge: boolean; remove: boolean; terminal: boolean }
 ```
 

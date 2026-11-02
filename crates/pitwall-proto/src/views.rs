@@ -227,9 +227,6 @@ pub enum WorktreeVia {
     Own,
     /// The agent worked in it: its hooks reported that folder (`cwd`).
     WorkedIn,
-    /// It lives under the agent's folder in a location its tool manages
-    /// (`worktree_dirs` of the agent definition, e.g. `.claude/worktrees`).
-    ToolDir,
     /// A process in the agent's terminal works in it.
     Process,
     /// No agent: one of the project's other worktrees.

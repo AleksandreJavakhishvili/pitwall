@@ -45,14 +45,10 @@ pub struct Spot {
     pub id: String,
     /// Its working folder, resolved on its machine.
     pub folder: String,
-    /// Tool-managed worktree folders, relative to its checkout's root
-    /// (`AgentKind::worktree_dirs`).
-    pub tool_dirs: Vec<String>,
     pub created_at: u64,
     /// Folders its hooks reported it working in: (folder, recency-weighted
-    /// hook events, last one in unix ms); `None`: no hooks came, so it may
-    /// still be given its tool's folder.
-    pub worked: Option<Vec<(String, f64, u64)>>,
+    /// hook events, last one in unix ms). Empty: no hooks came.
+    pub worked: Vec<(String, f64, u64)>,
 }
 
 /// `path` is `root` or inside it.
@@ -73,11 +69,10 @@ fn deepest(entries: &[WorktreeEntry], path: &str) -> Option<usize> {
 
 /// Who each entry belongs to, by the rules in order: the agent's own folder;
 /// the agent that worked in it (most hook events from there, by the
-/// hooks' `cwd`, recent ones counting more; then the latest); a process of the agent working in it, now or earlier
-/// (`proc_cwds`: agent id → folder, newest first); a tool-managed folder
-/// under the checkout of the one agent there without hooks; else nobody.
-/// Several agents sharing a folder never split its tool's worktrees by
-/// guessing: an agent with hooks gets only what it worked in. One answer
+/// hooks' `cwd`, recent ones counting more; then the latest); a process of
+/// the agent working in it, now or earlier (`proc_cwds`: agent id → folder,
+/// newest first); else nobody. Where a worktree lives never decides: git
+/// lists them all, and nothing is guessed from a folder's name. One answer
 /// per entry (the main checkout and a bare repository included; callers
 /// skip them).
 pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String, String)]) -> Vec<(Option<String>, WorktreeVia)> {
@@ -90,7 +85,7 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
         .iter()
         .map(|s| {
             let mut m: HashMap<usize, (f64, u64)> = HashMap::new();
-            for (cwd, n, last) in s.worked.iter().flatten() {
+            for (cwd, n, last) in &s.worked {
                 if let Some(i) = deepest(entries, cwd) {
                     let e = m.entry(i).or_default();
                     e.0 += n;
@@ -104,7 +99,7 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
     entries
         .iter()
         .enumerate()
-        .map(|(i, e)| {
+        .map(|(i, _)| {
             // 1. Its own working folder.
             if let Some(s) = spots.iter().zip(&own).filter(|(_, o)| **o == Some(i)).map(|(s, _)| s).min_by(order) {
                 return (Some(s.id.clone()), WorktreeVia::Own);
@@ -131,24 +126,6 @@ pub fn attribute(entries: &[WorktreeEntry], spots: &[Spot], proc_cwds: &[(String
             // 3. A process in the agent's terminal works (or worked) in it.
             if let Some((id, _)) = procs.iter().find(|(_, e)| *e == i) {
                 return (Some(id.to_string()), WorktreeVia::Process);
-            }
-            // 4. Under the agent's checkout, where its tool keeps worktrees:
-            //    only for the one agent there without hooks to tell.
-            let tool: Vec<&Spot> = spots
-                .iter()
-                .zip(&own)
-                .filter(|(s, _)| s.worked.is_none())
-                .filter(|(s, o)| {
-                    let root = o.map_or(s.folder.as_str(), |o| entries[o].path.as_str());
-                    s.tool_dirs.iter().any(|d| {
-                        let d = d.trim_matches('/');
-                        !d.is_empty() && !d.split('/').any(|p| p == "..") && inside(&e.path, &format!("{}/{d}", root.trim_end_matches('/')))
-                    })
-                })
-                .map(|(s, _)| s)
-                .collect();
-            if let [s] = tool.as_slice() {
-                return (Some(s.id.clone()), WorktreeVia::ToolDir);
             }
             (None, WorktreeVia::Other)
         })
@@ -211,7 +188,6 @@ struct Member {
     cwd: String,
     /// `cwd` resolved, when known.
     real: Option<String>,
-    kind: String,
     created_at: u64,
     /// Folders its hooks reported (`AgentRecord::worked_in`): (folder,
     /// weighted events as of now, last).
@@ -248,7 +224,6 @@ fn members(engine: &Engine) -> Vec<Member> {
                 project: r.project.clone(),
                 cwd: r.cwd.clone(),
                 real: a.real_cwd.as_ref().filter(|(from, _)| *from == r.cwd).map(|(_, real)| real.clone()),
-                kind: a.kind().to_string(),
                 created_at: r.created_at,
                 worked: r.worked_in.iter().map(|w| (w.path.clone(), w.score_at(wall), w.last)).collect(),
                 pids: [a.local_pid(), a.inner.as_ref().map(|i| i.pid).filter(|_| p.local_process)].into_iter().flatten().collect(),
@@ -301,16 +276,13 @@ fn group_sig(ms: &[&Member]) -> u64 {
     h.finish()
 }
 
-fn spots(engine: &Engine, ms: &[&Member]) -> Vec<Spot> {
-    let kinds = engine.kinds().kinds();
+fn spots(ms: &[&Member]) -> Vec<Spot> {
     ms.iter()
         .map(|m| Spot {
             id: m.id.clone(),
             folder: m.real.clone().unwrap_or_else(|| m.cwd.clone()),
-            tool_dirs: kinds.iter().find(|k| k.id == m.kind).map(|k| k.worktree_dirs.clone()).unwrap_or_default(),
             created_at: m.created_at,
-            // No hooks came: it can't say where it worked.
-            worked: (!m.worked.is_empty()).then(|| m.worked.clone()),
+            worked: m.worked.clone(),
         })
         .collect()
 }
@@ -354,7 +326,7 @@ fn active_at(entries: &[WorktreeEntry], spots: &[Spot], seen: &[Seen]) -> Vec<Op
             out[i] = out[i].max(Some(at));
         }
     };
-    for (cwd, _, last) in spots.iter().flat_map(|s| s.worked.iter().flatten()) {
+    for (cwd, _, last) in spots.iter().flat_map(|s| &s.worked) {
         bump(cwd, *last);
     }
     for (_, f, at) in seen {
@@ -451,7 +423,7 @@ fn refresh(engine: &Engine, force: Force) -> Vec<ProjectWorktrees> {
                 if let Some(before) = lock(&engine.worktrees.listed).get(key).map(|l| l.entries.clone()) {
                     forget_gone(engine, list, &before, &entries);
                 }
-                let sp = spots(engine, list);
+                let sp = spots(list);
                 if unclaimed(&entries, &sp, &seen(engine, list)) {
                     remember(engine, process_cwds(engine, list));
                 }
@@ -513,7 +485,7 @@ fn build(engine: &Engine, groups: &[(String, Vec<&Member>)], listed: &HashMap<St
     }
     out.into_iter()
         .map(|(mut view, ms, l)| {
-            let sp = spots(engine, &ms);
+            let sp = spots(&ms);
             let seen = seen(engine, &ms);
             let who = attribute(&l.entries, &sp, &procs(&seen));
             let when = active_at(&l.entries, &sp, &seen);

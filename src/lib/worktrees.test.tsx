@@ -24,6 +24,7 @@ const wt = (name: string, p: Partial<WorktreeView>): WorktreeView => ({
   prunable: false,
   agentId: null,
   via: "other",
+  activeAt: null,
   caps,
   ...p,
 });
@@ -40,7 +41,7 @@ const project = (id: string, agentIds: string[], worktrees: WorktreeView[]): Pro
 
 const projects = [
   project("api", ["a", "b"], [
-    wt("zeta", { agentId: "a", via: "toolDir" }),
+    wt("zeta", { agentId: "a", via: "workedIn" }),
     wt("alpha", { agentId: "a", via: "process" }),
     wt("own", { agentId: "b", via: "own", caps: { ...caps, remove: false } }),
     wt("hotfix", {}),
@@ -103,8 +104,8 @@ describe("worktree UI", () => {
   it("rows show branch and locked; detached ones say so", () => {
     const refs = worktreesByAgent([
       project("api", ["a"], [
-        wt("locked", { agentId: "a", via: "toolDir", locked: true, lockReason: "sub-agent running" }),
-        wt("det", { agentId: "a", via: "toolDir", branch: null }),
+        wt("locked", { agentId: "a", via: "workedIn", locked: true, lockReason: "sub-agent running" }),
+        wt("det", { agentId: "a", via: "workedIn", branch: null }),
       ]),
     ]).get("a")!;
     const h = withActions(<WorktreeRows refs={refs} label="Worktrees of refactor" />);
@@ -115,7 +116,7 @@ describe("worktree UI", () => {
   });
 
   it("Review's section says when a worktree's folder is gone", () => {
-    const r = worktreesByAgent([project("api", ["a"], [wt("gone", { agentId: "a", via: "toolDir", prunable: true, caps: { ...caps, diff: false, remove: false } })])]).get("a")![0];
+    const r = worktreesByAgent([project("api", ["a"], [wt("gone", { agentId: "a", via: "workedIn", prunable: true, caps: { ...caps, diff: false, remove: false } })])]).get("a")![0];
     const h = renderToStaticMarkup(
       <WorktreeSection r={r} open current={false} selected={null} nonce={0} onToggle={() => {}} onShow={() => {}} onSelect={() => {}} isClosed={() => false} onToggleDir={() => {}} onFiles={() => {}} />,
     );

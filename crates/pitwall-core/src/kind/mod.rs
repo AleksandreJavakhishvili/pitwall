@@ -45,12 +45,6 @@ pub struct AgentKind {
     /// `{name}` is replaced with a name Pitwall picks; empty = not supported.
     #[serde(default)]
     pub worktree_args: Vec<String>,
-    /// Folders, relative to the agent's working folder, where the agent's
-    /// tool makes worktrees of its own (sub-agents, `--worktree`), e.g.
-    /// `.claude/worktrees`. Worktrees found there are shown under the agent
-    /// (docs/spec/worktrees-view.md).
-    #[serde(default)]
-    pub worktree_dirs: Vec<String>,
     /// Program names this agent shows up as in the process table (e.g. when
     /// the user starts it by hand in a terminal, docs/spec/terminals.md).
     /// Empty = the program of `command`.
@@ -172,7 +166,6 @@ pub fn custom_kind(command: &str) -> AgentKind {
         rulesync_target: None,
         rules_fallback: None,
         worktree_args: vec![],
-        worktree_dirs: vec![],
         process_names: vec![],
         aliases: vec![],
         account_env: None,

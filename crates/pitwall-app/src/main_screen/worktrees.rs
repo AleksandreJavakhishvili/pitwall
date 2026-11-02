@@ -821,7 +821,7 @@ pub fn demo_list(agents: &[AgentView]) -> (Vec<ProjectWorktrees>, Vec<(String, V
             format!("{orders}/.claude/worktrees/agent-a1f3"),
             Some("worktree-agent-a1f3"),
             Some("refactor"),
-            WorktreeVia::ToolDir,
+            WorktreeVia::WorkedIn,
             None,
             vec![
                 f("src/orders/handler.ts", 12, 4, false),
@@ -833,7 +833,7 @@ pub fn demo_list(agents: &[AgentView]) -> (Vec<ProjectWorktrees>, Vec<(String, V
             format!("{orders}/.claude/worktrees/agent-77c2"),
             Some("worktree-agent-77c2"),
             Some("refactor"),
-            WorktreeVia::ToolDir,
+            WorktreeVia::WorkedIn,
             Some("claude agent agent-77c2 (pid 4242)"),
             vec![f("docs/api/orders.md", 8, 2, false)],
         ),
