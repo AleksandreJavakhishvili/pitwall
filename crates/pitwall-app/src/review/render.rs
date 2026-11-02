@@ -195,33 +195,24 @@ impl ReviewView {
         }
         let by_agent = model::worktrees_by_agent(&self.projects);
         let list_focused = self.list_focus.is_focused(window);
-        // Worktrees with nothing to review, folded away (or shown).
-        let mut quiet = 0usize;
-        let mut any_empty = false;
+        // Worktrees folded away (or shown on request), counted.
+        let mut tally = Tally::default();
         for (gi, g) in self.groups.iter().enumerate() {
             let mut group = div()
                 .flex()
                 .flex_col()
                 .when(gi > 0, |d| d.border_t_1().border_color(t.line_strong));
             for (ai, a) in g.agents.iter().enumerate() {
-                let mut wts = by_agent.get(&a.id).cloned().unwrap_or_default();
-                any_empty |= wts.iter().any(|r| matches!(self.wt_files.get(&r.key()), Some(Ok(l)) if l.is_empty()));
-                let before = wts.len();
-                wts.retain(|r| !self.quiet(r));
-                quiet += before - wts.len();
+                let wts = self.sift(by_agent.get(&a.id).cloned().unwrap_or_default(), &mut tally, cx);
                 group = group.child(self.agent_section(a, ai > 0, &wts, list_focused, t, cx));
             }
             let ids: Vec<&str> = g.agents.iter().map(|a| a.id.as_str()).collect();
             // Narrowed to one agent: not the project's other worktrees.
-            let mut others = if self.agent_only {
+            let others = if self.agent_only {
                 Vec::new()
             } else {
-                model::other_worktrees(&self.projects, &ids)
+                self.sift(model::other_worktrees(&self.projects, &ids), &mut tally, cx)
             };
-            any_empty |= others.iter().any(|r| matches!(self.wt_files.get(&r.key()), Some(Ok(l)) if l.is_empty()));
-            let before = others.len();
-            others.retain(|r| !self.quiet(r));
-            quiet += before - others.len();
             if !others.is_empty() {
                 let mut o = div()
                     .flex()
@@ -248,31 +239,9 @@ impl ReviewView {
             }
             col.push(group.into_any_element());
         }
-        if quiet > 0 || (self.quiet_shown && any_empty) {
-            let text = if self.quiet_shown {
-                "Hide worktrees without changes".to_string()
-            } else if quiet == 1 {
-                "Show 1 worktree without changes".to_string()
-            } else {
-                format!("Show {quiet} worktrees without changes")
-            };
-            col.push(
-                div()
-                    .px(px(12.))
-                    .py(px(8.))
-                    .child(
-                        div()
-                            .id("rv-quiet")
-                            .cursor_pointer()
-                            .text_size(px(12.))
-                            .text_color(t.text_3)
-                            .hover_text(t.text, |s| s.underline())
-                            .on_click(cx.listener(|v, _, _, cx| v.toggle_quiet(cx)))
-                            .child(text)
-                            .debug_selector(|| "rv-quiet".into()),
-                    )
-                    .into_any_element(),
-            );
+        let folds = self.fold_lines(&tally, t, cx);
+        if !folds.is_empty() {
+            col.push(div().flex().flex_col().gap(px(6.)).px(px(12.)).py(px(8.)).children(folds).into_any_element());
         }
         if self.hidden > 0 && !self.ordered.is_empty() {
             let who = if self.hidden == 1 {
@@ -749,6 +718,84 @@ impl ReviewView {
                     );
                 }
             }
+        }
+        out
+    }
+
+    /// The worktrees of `list` that are listed now, counting the rest.
+    fn sift(&self, list: Vec<WtRef>, tally: &mut Tally, cx: &App) -> Vec<WtRef> {
+        let now = super::now_ms();
+        let work = self.wt_list.read(cx);
+        list.into_iter()
+            .filter(|r| {
+                let has = work.has_work(&r.key());
+                match model::fold(r, has, now) {
+                    Some(model::Fold::Gone) => {
+                        tally.gone_in.insert(r.project_id.clone());
+                        tally.gone += 1;
+                        tally.quiet += 1;
+                    }
+                    Some(model::Fold::Empty) => tally.quiet += 1,
+                    Some(model::Fold::Old) => {
+                        tally.old += 1;
+                        tally.old_work += usize::from(has == Some(true));
+                    }
+                    None => {}
+                }
+                self.folded(r, cx).is_none()
+            })
+            .collect()
+    }
+
+    /// "Show N worktrees without changes", "Show N older worktrees",
+    /// "Clean up N deleted worktrees" (only those that apply).
+    fn fold_lines(&self, tally: &Tally, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let link = |id: &'static str, text: String, cx: &mut Context<Self>, f: fn(&mut Self, &mut Context<Self>)| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(t.text_3)
+                .hover_text(t.text, |s| s.underline())
+                .on_click(cx.listener(move |v, _, _, cx| f(v, cx)))
+                .child(text)
+                .debug_selector(move || id.into())
+                .into_any_element()
+        };
+        let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {many}") };
+        let mut out = Vec::new();
+        if tally.quiet > 0 {
+            let text = if self.quiet_shown {
+                "Hide worktrees without changes".to_string()
+            } else {
+                format!("Show {} without changes", plural(tally.quiet, "worktree", "worktrees"))
+            };
+            out.push(link("rv-quiet", text, cx, Self::toggle_quiet));
+        }
+        if tally.old > 0 {
+            let text = if self.old_shown {
+                "Hide older worktrees".to_string()
+            } else {
+                let with = if tally.old_work > 0 { format!(" · {} with changes", tally.old_work) } else { String::new() };
+                format!("Show {} not worked in for a week{with}", plural(tally.old, "worktree", "worktrees"))
+            };
+            out.push(link("rv-old", text, cx, Self::toggle_old));
+        }
+        if tally.gone > 0 {
+            let projects: Vec<String> = tally.gone_in.iter().cloned().collect();
+            out.push(
+                div()
+                    .id("rv-prune")
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .text_color(t.text_3)
+                    .hover_text(t.text, |s| s.underline())
+                    .tooltip(|_, cx| kit::tooltip_view("Their folders are already deleted: git forgets them (git worktree prune). Nothing on disk changes.", cx))
+                    .on_click(cx.listener(move |v, _, _, cx| v.clean_up(projects.clone(), cx)))
+                    .child(format!("Clean up {}", plural(tally.gone, "deleted worktree", "deleted worktrees")))
+                    .debug_selector(|| "rv-prune".into())
+                    .into_any_element(),
+            );
         }
         out
     }
@@ -1651,4 +1698,17 @@ impl Render for ReviewView {
             )
             .children(dialog)
     }
+}
+
+/// Worktrees folded away in one render.
+#[derive(Default)]
+struct Tally {
+    /// Without changes or deleted.
+    quiet: usize,
+    /// Deleted (prunable), and the projects they're in.
+    gone: usize,
+    gone_in: std::collections::BTreeSet<String>,
+    /// Not worked in lately, and how many of those have changes.
+    old: usize,
+    old_work: usize,
 }

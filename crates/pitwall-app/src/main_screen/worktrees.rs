@@ -453,9 +453,11 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let by_agent = worktrees_by_agent(&self.wt.projects);
-        let Some(refs) = by_agent.get(&a.id).filter(|r| !r.is_empty()) else {
+        let refs = self.with_work(by_agent.get(&a.id).cloned().unwrap_or_default(), cx);
+        if refs.is_empty() {
             return vec![];
-        };
+        }
+        let refs = &refs;
         let open = self.wt.open.contains(&a.id);
         let mut out = vec![self.wt_chip(
             a.id.clone(),
@@ -484,7 +486,7 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let ids: Vec<&str> = agents.iter().map(|a| a.id.as_str()).collect();
-        let others = other_worktrees(&self.wt.projects, &ids);
+        let others = self.with_work(other_worktrees(&self.wt.projects, &ids), cx);
         if others.is_empty() {
             return vec![];
         }
@@ -519,6 +521,7 @@ impl MainScreen {
         let refs = worktrees_by_agent(&self.wt.projects)
             .get(&a.id)
             .cloned()
+            .map(|r| self.with_work(r, cx))
             .filter(|r| !r.is_empty())?;
         let key = panel_key(&a.id);
         let open = self.wt.open.contains(&key);
@@ -562,6 +565,20 @@ impl MainScreen {
                 .when(open, |d| d.child(self.wt_rows(&refs, 0., t, cx).mx(px(0.))))
                 .into_any_element(),
         )
+    }
+
+    /// Worktrees with something in them: not deleted, and not known to have
+    /// no changes (Review folds the same ones).
+    fn with_work(&self, refs: Vec<WtRef>, cx: &gpui::App) -> Vec<WtRef> {
+        let list = self.wt_list_entity.read(cx);
+        refs.into_iter()
+            .filter(|r| {
+                !matches!(
+                    crate::review::model::fold(r, list.has_work(&r.key()), 0),
+                    Some(crate::review::model::Fold::Gone | crate::review::model::Fold::Empty)
+                )
+            })
+            .collect()
     }
 
     /// `.wt-list`: rows `inset` px in from the agent list's edge.
@@ -885,6 +902,7 @@ pub fn demo_list(agents: &[AgentView]) -> (Vec<ProjectWorktrees>, Vec<(String, V
                         prunable: false,
                         agent_id: owner.map(|a| a.id.clone()),
                         via,
+                        active_at: None,
                         caps: WorktreeCaps {
                             diff: true,
                             commit: true,

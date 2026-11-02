@@ -351,7 +351,7 @@ pub fn worktrees_by_agent(projects: &[ProjectWorktrees]) -> HashMap<String, Vec<
         }
     }
     for list in out.values_mut() {
-        list.sort_by(|a, b| a.wt.name.cmp(&b.wt.name));
+        list.sort_by(newest_first);
     }
     out
 }
@@ -368,8 +368,40 @@ pub fn other_worktrees(projects: &[ProjectWorktrees], ids: &[&str]) -> Vec<WtRef
                 .map(move |w| wt_ref(p, w))
         })
         .collect();
-    out.sort_by(|a, b| a.wt.name.cmp(&b.wt.name));
+    out.sort_by(newest_first);
     out
+}
+
+/// Last worked in first; never-seen ones last, by name.
+fn newest_first(a: &WtRef, b: &WtRef) -> std::cmp::Ordering {
+    b.wt.active_at.cmp(&a.wt.active_at).then_with(|| a.wt.name.cmp(&b.wt.name))
+}
+
+/// Not worked in for this long: folded as older (7 days).
+pub const OLD_AFTER_MS: u64 = 7 * 24 * 3_600_000;
+
+/// Why a worktree is folded away (the sidebar and Review alike).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fold {
+    /// Its folder is already deleted (`git worktree prune` forgets it).
+    Gone,
+    /// Nothing to review: no changes against its branch.
+    Empty,
+    /// Nobody worked there for [`OLD_AFTER_MS`]; it may still hold work.
+    Old,
+}
+
+/// `has_work`: whether it has changes (`None`: not known yet).
+pub fn fold(r: &WtRef, has_work: Option<bool>, now_ms: u64) -> Option<Fold> {
+    if r.wt.prunable {
+        Some(Fold::Gone)
+    } else if has_work == Some(false) {
+        Some(Fold::Empty)
+    } else if r.wt.active_at.is_some_and(|t| now_ms.saturating_sub(t) > OLD_AFTER_MS) {
+        Some(Fold::Old)
+    } else {
+        None
+    }
 }
 
 pub fn find_worktree(projects: &[ProjectWorktrees], project_id: &str, path: &str) -> Option<WtRef> {
@@ -524,6 +556,58 @@ mod tests {
             removed: 0,
             ..Default::default()
         }
+    }
+
+    fn wt(name: &str, active_at: Option<u64>, prunable: bool) -> WtRef {
+        WtRef {
+            project_id: "p".into(),
+            repo_display: "~/r".into(),
+            target: Some("main".into()),
+            wt: WorktreeView {
+                path: format!("/r/wt/{name}"),
+                path_display: format!("~/r/wt/{name}"),
+                name: name.into(),
+                branch: Some(name.into()),
+                head: Some("h".into()),
+                locked: false,
+                lock_reason: None,
+                prunable,
+                agent_id: None,
+                via: WorktreeVia::Other,
+                active_at,
+                caps: Default::default(),
+            },
+        }
+    }
+
+    #[test]
+    fn worktrees_fold_when_gone_empty_or_old_and_list_newest_first() {
+        let day = 24 * 3_600_000u64;
+        let now = 30 * day;
+        assert_eq!(fold(&wt("a", None, true), Some(true), now), Some(Fold::Gone), "deleted folder");
+        assert_eq!(fold(&wt("a", Some(now), false), Some(false), now), Some(Fold::Empty), "nothing to review, however recent");
+        assert_eq!(fold(&wt("a", Some(now - 8 * day), false), Some(true), now), Some(Fold::Old));
+        assert_eq!(fold(&wt("a", Some(now - 6 * day), false), Some(true), now), None);
+        assert_eq!(fold(&wt("a", None, false), None, now), None, "unknown: listed");
+
+        let p = ProjectWorktrees {
+            id: "p".into(),
+            repo: "/r".into(),
+            repo_display: "~/r".into(),
+            branch: Some("main".into()),
+            machine: pitwall_proto::MachineView {
+                provider: "local".into(),
+                id: "this-mac".into(),
+                label: "This Mac".into(),
+                can_create: true,
+                link: None,
+            },
+            agent_ids: vec!["x".into()],
+            worktrees: vec![wt("b", None, false).wt, wt("old", Some(1), false).wt, wt("new", Some(9), false).wt, wt("a", None, false).wt],
+            error: None,
+        };
+        let names: Vec<String> = other_worktrees(&[p], &["x"]).into_iter().map(|r| r.wt.name).collect();
+        assert_eq!(names, ["new", "old", "a", "b"], "last worked in first; never seen last, by name");
     }
 
     #[test]
