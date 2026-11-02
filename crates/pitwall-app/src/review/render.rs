@@ -811,10 +811,6 @@ impl ReviewView {
                         let key = key.clone();
                         move |v, _, _, cx| v.show_worktree(&key, cx)
                     }))
-                    .debug_selector({
-                        let name = wt.name.clone();
-                        move || format!("rv-wt-{name}")
-                    })
                     .child(kit::icon("branch", 12., t.text_3))
                     .child(
                         kit::label_t(wt.name.clone(), if current { t.text } else { t.text_2 }, 13., 0.1)
