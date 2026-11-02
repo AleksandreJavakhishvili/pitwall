@@ -24,12 +24,7 @@ each agent's own working folder.
      removed) is forgotten; other folders age out of the 40;
   3. a process inside the agent's terminal has (or had, this run) its cwd
      in it (local only, via the existing process helpers);
-  4. it lives under the agent's folder in a tool-managed location
-     (`worktree_dirs` of the agent definition, e.g. `.claude/worktrees`),
-     but only for an agent without hooks (none came), and only when it is
-     the one such agent in that checkout: several agents sharing a folder
-     never split its tool's worktrees by guessing;
-  5. otherwise it's an "other worktree" of the project (made by a session
+  4. otherwise it's an "other worktree" of the project (made by a session
      outside Pitwall, an earlier conversation, or by hand).
 - Each worktree gets its own changes (+/−, files) against its merge-base with
   the project's current branch, refreshed cheaply: one `worktree list` per
@@ -55,9 +50,10 @@ drive the UI; no provider/kind special cases.
 ## As built
 - Core: `pitwall-core/src/worktrees.rs` (cache, attribution, services);
   `vcs::git::parse_worktree_list` reads HEAD, branch, `bare`, `detached`,
-  `locked [reason]`, `prunable`. Agent definitions gained
-  `worktree_dirs` (Claude: `[".claude/worktrees"]`), relative to the root of
-  the agent's checkout. Rule 2 ties: the agent with a process there, then
+  `locked [reason]`, `prunable`. Where a worktree lives never decides whose
+  it is (git lists them wherever they are: `.claude/worktrees`, Codex's
+  `~/.codex/worktrees`, `../anything`), and no folder name is special.
+  Rule 2 ties: the agent with a process there, then
   the oldest agent. The main checkout is the project
   itself and isn't listed; bare entries are skipped.
 - Agents are grouped per provider + machine + project folder; one list per

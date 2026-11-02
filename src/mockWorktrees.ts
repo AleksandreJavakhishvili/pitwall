@@ -30,7 +30,7 @@ const worktrees: Wt[] = [
     path: `${ORDERS}/.claude/worktrees/agent-a1f3`,
     branch: "worktree-agent-a1f3",
     agent: "refactor",
-    via: "toolDir",
+    via: "workedIn",
     files: [
       { path: "src/orders/handler.ts", added: 12, removed: 4, untracked: false, binary: false, status: "M" },
       { path: "src/orders/money.ts", added: 31, removed: 0, untracked: true, binary: false, status: "U" },
@@ -41,7 +41,7 @@ const worktrees: Wt[] = [
     path: `${ORDERS}/.claude/worktrees/agent-77c2`,
     branch: "worktree-agent-77c2",
     agent: "refactor",
-    via: "toolDir",
+    via: "workedIn",
     locked: "claude agent agent-77c2 (pid 4242)",
     files: [{ path: "docs/api/orders.md", added: 8, removed: 2, untracked: false, binary: false, status: "M" }],
   },
@@ -79,6 +79,7 @@ export function createWorktreesMock(agents: () => AgentView[]): WorktreesApi {
       prunable: false,
       agentId: owner?.id ?? null,
       via,
+      activeAt: null,
       caps: { diff: true, commit: true, merge: !!w.branch, remove: !w.locked && via !== "own", terminal: true },
     };
   };

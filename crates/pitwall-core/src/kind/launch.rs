@@ -87,7 +87,6 @@ pub fn then_shell(
         rulesync_target: None,
         rules_fallback: None,
         worktree_args: vec![],
-        worktree_dirs: vec![],
         process_names: vec![],
         aliases: vec![],
         account_env: None,

@@ -10,8 +10,8 @@ fn entry(path: &str) -> WorktreeEntry {
     WorktreeEntry { path: path.into(), head: Some("h".into()), branch: Some("b".into()), ..Default::default() }
 }
 
-fn spot(id: &str, folder: &str, dirs: &[&str], created_at: u64) -> Spot {
-    Spot { id: id.into(), folder: folder.into(), tool_dirs: dirs.iter().map(|d| d.to_string()).collect(), created_at, worked: None }
+fn spot(id: &str, folder: &str, created_at: u64) -> Spot {
+    Spot { id: id.into(), folder: folder.into(), created_at, worked: vec![] }
 }
 
 #[test]
@@ -47,39 +47,34 @@ fn attribution_follows_the_rules_in_order() {
         entry("/r/.claudeX/worktrees/no"),
     ];
     let spots = vec![
-        spot("main", "/r/src", &[".claude/worktrees"], 1),
-        spot("own", "/r/.claude/worktrees/own/deep", &[".claude/worktrees"], 2),
-        spot("shell", "/r", &[], 3),
+        spot("main", "/r/src", 1),
+        spot("own", "/r/.claude/worktrees/own/deep", 2),
+        spot("shell", "/r", 3),
     ];
     let procs = vec![("shell".to_string(), "/r-proc/pkg".to_string())];
     let got = attribute(&entries, &spots, &procs);
     let who = |i: usize| (got[i].0.as_deref(), got[i].1);
     assert_eq!(who(0), (Some("main"), WorktreeVia::Own), "main checkout: the oldest agent in it");
-    assert_eq!(who(1), (Some("main"), WorktreeVia::ToolDir), "under the main agent's .claude/worktrees");
-    assert_eq!(who(2), (Some("own"), WorktreeVia::Own), "an agent's own folder wins over a tool dir");
+    assert_eq!(who(1), (None, WorktreeVia::Other), "where it lives says nothing: no hooks, no process");
+    assert_eq!(who(2), (Some("own"), WorktreeVia::Own), "an agent's own folder");
     assert_eq!(who(3), (Some("shell"), WorktreeVia::Process));
     assert_eq!(who(4), (None, WorktreeVia::Other));
-    assert_eq!(who(5), (None, WorktreeVia::Other), "a lookalike folder is not the tool dir");
+    assert_eq!(who(5), (None, WorktreeVia::Other));
 
     // Without the process: nobody's.
     assert_eq!(attribute(&entries, &spots, &[])[3], (None, WorktreeVia::Other));
 }
 
 #[test]
-fn a_shared_folder_s_tool_worktrees_are_never_guessed() {
+fn a_shared_folder_s_worktrees_are_never_guessed() {
     let entries = vec![entry("/r"), entry("/r/.claude/worktrees/a"), entry("/r/.claude/worktrees/b")];
-    let spots = vec![spot("old", "/r", &[".claude/worktrees"], 1), spot("new", "/r", &[".claude/worktrees"], 2)];
+    let spots = vec![spot("old", "/r", 1), spot("new", "/r", 2)];
     let procs = vec![("new".to_string(), "/r/.claude/worktrees/b/x".to_string())];
     let got = attribute(&entries, &spots, &procs);
-    assert_eq!(got[1], (None, WorktreeVia::Other), "two agents could have made it: not the oldest's");
+    assert_eq!(got[1], (None, WorktreeVia::Other), "either could have made it: not the oldest's");
     assert_eq!(got[2], (Some("new".into()), WorktreeVia::Process), "its process works (or worked) there");
-    // One agent there whose records can't be read: its tool's folder.
-    let got = attribute(&entries, &spots[..1], &[]);
-    assert_eq!(got[1], (Some("old".into()), WorktreeVia::ToolDir));
-    // Tool dirs never escape the checkout.
-    let sneaky = vec![spot("s", "/r", &["../elsewhere", "/"], 1)];
-    let got = attribute(&[entry("/r"), entry("/elsewhere/w")], &sneaky, &[]);
-    assert_eq!(got[1], (None, WorktreeVia::Other));
+    // Even one agent alone isn't given a worktree it never worked in.
+    assert_eq!(attribute(&entries, &spots[..1], &[])[1], (None, WorktreeVia::Other));
 }
 
 #[test]
@@ -91,12 +86,12 @@ fn the_agent_whose_hooks_worked_in_a_worktree_owns_it() {
         entry("/r/.claude/worktrees/left"),
         entry("/home/u/.codex/worktrees/7/r"),
     ];
-    let worked = |v: &[(&str, u32)]| Some(v.iter().map(|(p, n)| (p.to_string(), f64::from(*n), 5)).collect::<Vec<_>>());
-    let mut a = spot("a", "/r", &[".claude/worktrees"], 1);
+    let worked = |v: &[(&str, u32)]| v.iter().map(|(p, n)| (p.to_string(), f64::from(*n), 5)).collect::<Vec<_>>();
+    let mut a = spot("a", "/r", 1);
     a.worked = worked(&[("/r", 40), ("/r/.claude/worktrees/a", 12), ("/r/.claude/worktrees/a/src", 3), ("/r/.claude/worktrees/b", 1)]);
-    let mut b = spot("b", "/r", &[".claude/worktrees"], 2);
+    let mut b = spot("b", "/r", 2);
     b.worked = worked(&[("/r/.claude/worktrees/b", 9)]);
-    let mut c = spot("c", "/r", &[], 3);
+    let mut c = spot("c", "/r", 3);
     c.worked = worked(&[("/home/u/.codex/worktrees/7/r", 2)]);
     let got = attribute(&entries, &[a, b, c], &[("a".into(), "/r/.claude/worktrees/b".into())]);
     let who = |i: usize| (got[i].0.as_deref(), got[i].1);
@@ -142,6 +137,9 @@ fn a_real_repo_is_listed_attributed_diffed_merged_and_cleaned_up() {
     h.provider.set_cwd(&shell.id, &format!("{}/sub", real("wt/proc")));
     std::fs::create_dir_all(r.0.join("wt/proc/sub")).unwrap();
 
+    // Claude worked in its sub-agent's worktree (its hooks say so).
+    h.engine.ingest_hook(&claude.id, &serde_json::json!({"hook_event_name": "PostToolUse", "cwd": real(".claude/worktrees/sub")}));
+
     let projects = list(&h.engine);
     assert_eq!(projects.len(), 1, "{projects:?}");
     let p = &projects[0];
@@ -149,7 +147,7 @@ fn a_real_repo_is_listed_attributed_diffed_merged_and_cleaned_up() {
     assert_eq!(p.agent_ids.len(), 2);
     assert_eq!(p.worktrees.len(), 4, "the main checkout is the project itself");
     let sub = by_name(p, "sub");
-    assert_eq!((sub.agent_id.as_deref(), sub.via, sub.branch.as_deref()), (Some(claude.id.as_str()), WorktreeVia::ToolDir, Some("worktree-sub")));
+    assert_eq!((sub.agent_id.as_deref(), sub.via, sub.branch.as_deref()), (Some(claude.id.as_str()), WorktreeVia::WorkedIn, Some("worktree-sub")));
     assert!(sub.caps.diff && sub.caps.commit && sub.caps.merge && sub.caps.remove && sub.caps.terminal);
     let pr = by_name(p, "proc");
     assert_eq!((pr.agent_id.as_deref(), pr.via), (Some(shell.id.as_str()), WorktreeVia::Process));
@@ -435,17 +433,17 @@ fn old_work_counts_less_than_this_week_s() {
 
     // Heavy work a month ago loses to a few steps today.
     let entries = vec![entry("/r"), entry("/r/wt/x")];
-    let mut old = spot("old", "/r", &[], 1);
-    let mut new = spot("new", "/r", &[], 2);
+    let mut old = spot("old", "/r", 1);
+    let mut new = spot("new", "/r", 2);
     let now = 30 * day;
-    old.worked = Some(vec![("/r/wt/x".into(), WorkedIn { path: String::new(), score: 300.0, last: 0 }.score_at(now), 0)]);
-    new.worked = Some(vec![("/r/wt/x".into(), 4.0, now)]);
+    old.worked = vec![("/r/wt/x".into(), WorkedIn { path: String::new(), score: 300.0, last: 0 }.score_at(now), 0)];
+    new.worked = vec![("/r/wt/x".into(), 4.0, now)];
     assert_eq!(attribute(&entries, &[old.clone(), new.clone()], &[])[1].0.as_deref(), Some("new"));
     // A visit (close scores): whoever was there last.
-    old.worked = Some(vec![("/r/wt/x".into(), 1.2, now - day)]);
-    new.worked = Some(vec![("/r/wt/x".into(), 1.0, now)]);
+    old.worked = vec![("/r/wt/x".into(), 1.2, now - day)];
+    new.worked = vec![("/r/wt/x".into(), 1.0, now)];
     assert_eq!(attribute(&entries, &[old.clone(), new.clone()], &[])[1].0.as_deref(), Some("new"));
     // Real work beats a later visit.
-    old.worked = Some(vec![("/r/wt/x".into(), 40.0, now - day)]);
+    old.worked = vec![("/r/wt/x".into(), 40.0, now - day)];
     assert_eq!(attribute(&entries, &[old, new], &[])[1].0.as_deref(), Some("old"));
 }

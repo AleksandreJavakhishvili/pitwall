@@ -50,7 +50,6 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `rulesync_target` | string | none | The [rulesync](https://github.com/dyoshikawa/rulesync) target written when rules are applied for this kind (`claudecode`, `codexcli`, `cursor`, …). None: New agent doesn't offer rules for it, unless `rules_fallback` is set. |
 | `rules_fallback` | table | none | For a tool rulesync has no target for: Pitwall writes the rules into one file itself (see [Rules without rulesync](#rules-without-rulesync)). Ignored when `rulesync_target` is set. |
 | `worktree_args` | list of strings | `[]` | The agent's own "work in a new git worktree" flag, added when New agent's **Separate worktree** is ticked. `{name}` becomes a name Pitwall picks. Empty: no worktree option for this kind. Only for agents on this computer. |
-| `worktree_dirs` | list of strings | `[]` | Folders, relative to the agent's folder, where the tool makes worktrees of its own (`.claude/worktrees`). Worktrees found there are shown under the agent. |
 | `process_names` | list of strings | the program of `command` | Program names the agent runs as in the process table. Used to notice the agent when you start it by hand in a Pitwall terminal. |
 | `aliases` | list of strings | `[]` | Other names for this kind, matched like `id` when adopting sessions from other platforms (agw calls Claude Code `claude-code`). Matching ignores case. |
 | `account_env` | string | none | The environment variable that names the folder the tool keeps its login in (`CLAUDE_CONFIG_DIR`). Set, the kind can run on more than one account (see [Accounts](#accounts)). |
@@ -155,9 +154,6 @@ hooks = "claude-settings"
 rulesync_target = "claudecode"
 # `claude --worktree [name]` (-w): Claude creates and enters its own worktree.
 worktree_args = ["--worktree", "{name}"]
-# Where Claude makes worktrees (its own --worktree and sub-agents), relative to
-# the folder it works in; shown under the agent in Pitwall.
-worktree_dirs = [".claude/worktrees"]
 # What other platforms call it (agw's harness integration), for adopting their sessions.
 aliases = ["claude-code"]
 # Accounts: each login lives in its own folder (Settings → Accounts).
