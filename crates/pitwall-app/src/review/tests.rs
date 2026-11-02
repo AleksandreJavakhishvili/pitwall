@@ -611,3 +611,22 @@ fn worktrees_without_changes_fold_away(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&busy);
     let _ = std::fs::remove_dir_all(&idle);
 }
+
+#[gpui::test]
+fn agents_sharing_a_folder_are_told_their_changes_may_mix(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("a.txt", "1\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-qm", "init"]);
+    let h = Harness::new(vec![record("a", r.path()), record("b", r.path()), record("c", "/elsewhere")]);
+    let (view, cx) = open(cx, &h);
+    view.read_with(cx, |v, cx| {
+        let store = v.store.read(cx);
+        let a = store.agents.iter().find(|x| x.id == "a").unwrap().clone();
+        let c = store.agents.iter().find(|x| x.id == "c").unwrap().clone();
+        let note = v.shared_note(&a, true, cx).expect("b works there too");
+        assert!(note.starts_with("1 other agent works in this folder"), "{note}");
+        assert!(v.shared_note(&a, false, cx).is_none(), "a task is one prompt's changes alone");
+        assert!(v.shared_note(&c, true, cx).is_none());
+    });
+}

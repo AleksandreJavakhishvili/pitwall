@@ -14,6 +14,12 @@ each agent's own working folder.
      payload carries the session's `cwd` (the documented hook input, the
      same for every agent with hooks), and Pitwall's relay names the agent
      (`PITWALL_AGENT_ID`), so no agent's files or log formats are read.
+     A tool hook's `tool_input` counts too: any path in any of its strings
+     (`cd ../repo-feature && …`, a file edited by its full path; relative
+     ones against `cwd`) that falls in a listed linked worktree counts as
+     working in that worktree, once per hook. Agents often work in sibling
+     worktrees while their `cwd` stays the main checkout (Claude Code's
+     `cd` outside the project lasts one command).
      Kept on the agent (`AgentRecord::workedIn`: folder, score, last; most
      recent first, at most 40) across restarts. Each hook event adds 1 to
      the folder's score, and scores halve every 2 days, so this week's work

@@ -734,6 +734,10 @@ pub struct ReviewChanges {
     /// `origin/main`); not for a task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compared_with: Option<String>,
+    /// Branches merged into the agent's branch from elsewhere
+    /// (`origin/develop`), whose history is left out: not its work.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged_in: Vec<String>,
 }
 
 #[cfg(test)]
@@ -814,6 +818,7 @@ mod tests {
                 added: 3,
                 removed: 1,
                 compared_with: Some("develop".into()),
+                merged_in: vec![],
             },
             json!({"agentId":"a1","since":"agent","files":[{"path":"src/a.rs","added":3,"removed":1,"binary":false,"untracked":false,"status":"M"}],"added":3,"removed":1,"comparedWith":"develop"}),
         );

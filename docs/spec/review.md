@@ -41,10 +41,27 @@ For 2–4, of the local branch and its `origin/` copy, whichever has moved on
 further (the newer merge base), so a local `main` never pulled doesn't put
 months of history into Review. On the compared-with branch itself: what
 isn't committed yet (as the Changes panel shows it); once committed,
-nothing. Review's header shows "Compared with <branch>" (the ref used, e.g.
+nothing. Merged in from elsewhere: when the branch merged another branch's history
+since it left (`git merge origin/develop`), that history isn't the agent's
+work and is left out (found automatically only; a branch chosen by hand
+is compared with as is). A merge counts as "from elsewhere" when the
+merged branch left the agent's line at or before where the work started;
+a branch that forked off the work itself (a worktree's, a sub-task's) is
+the agent's own and stays. Compared with the newest such tip when it
+holds the start, else with the start and the tip merged together (`git
+merge-tree --write-tree`, nothing touched). Review's header adds
+"without origin/develop merged in"; `pitwall review changes` reports
+`mergedIn`.
+Review's header shows "Compared with <branch>" (the ref used, e.g.
 `origin/main`); `pitwall review changes` reports it as `comparedWith`, and
 `--base <branch>` compares with another branch just once.
 A task's diff (below) is always its own start and end snapshots.
+
+## Agents sharing a folder
+Several agents in one checkout (no worktree each) share one working tree:
+an agent's "All changes" holds the others' work too. Review says so above
+the diff ("N other agents work in this folder: these changes may include
+theirs") and points to tasks, whose snapshots are one prompt's changes.
 
 ## Layout
 Left: changes grouped by agent → files (+/−, untracked badge). Center: diff

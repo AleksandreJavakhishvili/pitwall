@@ -1325,8 +1325,14 @@ impl ReviewView {
         let mut items: Vec<(SharedString, bool)> = vec![(auto.into(), !c.base.chosen)];
         items.extend(c.branches.iter().map(|b| (b.clone().into(), c.base.chosen && c.base.branch.as_ref() == Some(b))));
         let picks: Vec<Option<String>> = std::iter::once(None).chain(c.branches.iter().cloned().map(Some)).collect();
+        let merged = c.base.merged.join(", ");
         let tip = if c.base.rev == "HEAD" {
             "On that branch itself: only what isn't committed yet.".to_string()
+        } else if !merged.is_empty() {
+            format!(
+                "The agent's commits since its branch left {shown}, plus what isn't committed yet. \
+                 {merged} was merged into the branch: its history isn't the agent's work and is left out."
+            )
         } else {
             format!("The agent's commits since its branch left {shown}, plus what isn't committed yet.")
         };
@@ -1361,7 +1367,15 @@ impl ReviewView {
                                 })),
                         )
                         .when(self.base_menu, |d| d.child(kit::select_menu("rv-base-menu", items, t, on_pick, on_close))),
-                ),
+                )
+                .when(!merged.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .id("rv-merged-in")
+                            .debug_selector(|| "rv-merged-in".into())
+                            .child(hint(format!("without {merged} merged in"), t)),
+                    )
+                }),
         )
     }
 
@@ -1431,8 +1445,40 @@ impl ReviewView {
                     .bg(t.surface),
                 )
             })
+            .when_some(self.shared_note(a, task.is_none(), cx), |d, note| {
+                d.child(
+                    div()
+                        .id("rv-shared")
+                        .debug_selector(|| "rv-shared".into())
+                        .flex_none()
+                        .px(px(12.))
+                        .py(px(6.))
+                        .border_b_1()
+                        .border_color(t.line)
+                        .bg(t.surface)
+                        .child(hint(note, t)),
+                )
+            })
             .child(self.diff_area(empty, file.is_some(), t, cx))
             .child(self.footer_agent(a, file.is_some(), comments.len(), t, cx))
+    }
+
+    /// "All changes" of an agent that shares its folder with others holds
+    /// their work too: say so, and that a task shows one prompt's alone.
+    pub(super) fn shared_note(&self, a: &AgentView, all: bool, cx: &App) -> Option<String> {
+        if !all {
+            return None;
+        }
+        let others = self
+            .store
+            .read(cx)
+            .local()
+            .filter(|o| o.id != a.id && o.cwd == a.cwd && o.machine.id == a.machine.id && o.machine.provider == a.machine.provider)
+            .count();
+        (others > 0).then(|| {
+            let who = if others == 1 { "1 other agent works".to_string() } else { format!("{others} other agents work") };
+            format!("{who} in this folder: these changes may include theirs. Pick a task to see what one prompt changed.")
+        })
     }
 
     fn footer_base(&self, t: &Theme) -> Div {
