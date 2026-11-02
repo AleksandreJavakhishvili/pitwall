@@ -4,4 +4,4 @@
  * How a worktree was matched to an agent (docs/spec/worktrees-view.md), in
  * the order the rules are tried.
  */
-export type WorktreeVia = "own" | "toolDir" | "process" | "other";
+export type WorktreeVia = "own" | "workedIn" | "toolDir" | "process" | "other";

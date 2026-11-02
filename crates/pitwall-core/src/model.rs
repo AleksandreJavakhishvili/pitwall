@@ -143,6 +143,46 @@ pub struct WorktreeInfo {
     pub branch: String,
 }
 
+/// A folder an agent worked in, by its hooks (`AgentRecord::worked_in`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkedIn {
+    pub path: String,
+    /// Hook events from there.
+    pub steps: u32,
+}
+
+impl WorkedIn {
+    /// Folders remembered per agent.
+    pub const MAX: usize = 40;
+
+    /// Count one hook event from `cwd`. True when the folder is new to the
+    /// list (worth saving now; counts ride along with the next save).
+    pub fn note(list: &mut Vec<WorkedIn>, cwd: &str) -> bool {
+        let cwd = cwd.trim_end_matches('/');
+        if cwd.is_empty() {
+            return false;
+        }
+        match list.iter().position(|w| w.path == cwd) {
+            Some(0) => {
+                list[0].steps = list[0].steps.saturating_add(1);
+                false
+            }
+            Some(i) => {
+                let mut w = list.remove(i);
+                w.steps = w.steps.saturating_add(1);
+                list.insert(0, w);
+                false
+            }
+            None => {
+                list.insert(0, WorkedIn { path: cwd.to_string(), steps: 1 });
+                list.truncate(Self::MAX);
+                true
+            }
+        }
+    }
+}
+
 /// Everything about an agent that survives an app restart.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,6 +216,12 @@ pub struct AgentRecord {
     /// yet (see worktree.rs). `cwd` is still the folder it was launched in.
     #[serde(default)]
     pub worktree_pending: bool,
+    /// Folders the agent's hooks reported it working in (their `cwd`), most
+    /// recent first, with how many hook events came from each; at most
+    /// [`WorkedIn::MAX`]. Decides whose a shared folder's worktrees are
+    /// (worktrees.rs). Empty: no hooks came (the kind has none, or they're off).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worked_in: Vec<WorkedIn>,
     /// HEAD when the agent started. Kept for older state files; Review
     /// compares with the agent's branch instead (`vcs::review::compare_with`).
     #[serde(default)]

@@ -225,6 +225,8 @@ pub struct ScannedSession {
 pub enum WorktreeVia {
     /// It is the agent's own working folder.
     Own,
+    /// The agent worked in it: its hooks reported that folder (`cwd`).
+    WorkedIn,
     /// It lives under the agent's folder in a location its tool manages
     /// (`worktree_dirs` of the agent definition, e.g. `.claude/worktrees`).
     ToolDir,
