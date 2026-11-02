@@ -571,6 +571,32 @@ pub enum AgentCmd {
         /// The agent (id or name).
         agent: String,
     },
+    /// Say an agent works in a worktree (or a folder in one): Review and
+    /// the sidebar then show that worktree as the agent's, instead of
+    /// guessing from its hooks and processes. Inside an agent Pitwall
+    /// started, it is that agent.
+    Track {
+        /// The worktree (relative to this folder, or full).
+        path: String,
+        /// The agent (id or name; default: $PITWALL_AGENT_ID, the agent this
+        /// runs in).
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// The agent no longer works in that worktree.
+    Untrack {
+        /// The worktree, as given to `track` (or a folder in it).
+        path: String,
+        /// The agent (id or name; default: $PITWALL_AGENT_ID).
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// The worktrees an agent tracks, newest first.
+    Tracked {
+        /// The agent (id or name; default: $PITWALL_AGENT_ID).
+        #[arg(long)]
+        agent: Option<String>,
+    },
     /// Show an agent in a space (as dragging it onto the space's tab).
     Move {
         /// The agent (id or name).
@@ -742,6 +768,12 @@ mod tests {
         assert_eq!(parse(&["agent", "remove", "a1", "--worktree"]).unwrap().command, Command::Agent(AgentCmd::Remove { agent: "a1".into(), worktree: true }));
         assert_eq!(parse(&["agent", "stop", "api"]).unwrap().command, Command::Agent(AgentCmd::Stop { agent: "api".into() }));
         assert_eq!(parse(&["agent", "rename", "a1", "api"]).unwrap().command, Command::Agent(AgentCmd::Rename { agent: "a1".into(), name: Some("api".into()), auto: false }));
+        assert_eq!(parse(&["agent", "track", "../wt"]).unwrap().command, Command::Agent(AgentCmd::Track { path: "../wt".into(), agent: None }));
+        assert_eq!(
+            parse(&["agent", "untrack", "/wt", "--agent", "api"]).unwrap().command,
+            Command::Agent(AgentCmd::Untrack { path: "/wt".into(), agent: Some("api".into()) })
+        );
+        assert_eq!(parse(&["agent", "tracked"]).unwrap().command, Command::Agent(AgentCmd::Tracked { agent: None }));
         assert_eq!(parse(&["agent", "rename", "a1", "--auto"]).unwrap().command, Command::Agent(AgentCmd::Rename { agent: "a1".into(), name: None, auto: true }));
         assert!(parse(&["agent", "rename", "a1"]).is_err(), "a name or --auto");
         assert!(parse(&["agent", "rename", "a1", "api", "--auto"]).is_err(), "not both");

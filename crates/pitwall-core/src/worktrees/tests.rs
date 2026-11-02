@@ -11,7 +11,7 @@ fn entry(path: &str) -> WorktreeEntry {
 }
 
 fn spot(id: &str, folder: &str, created_at: u64) -> Spot {
-    Spot { id: id.into(), folder: folder.into(), created_at, worked: vec![] }
+    Spot { id: id.into(), folder: folder.into(), created_at, worked: vec![], tracked: vec![] }
 }
 
 #[test]
@@ -486,4 +486,48 @@ fn paths_are_read_from_any_text() {
     assert_eq!(tidy("/a/./b/../c/"), Some("/a/c".into()));
     assert_eq!(tidy("/.."), None);
     assert!(paths_in("git worktree list; ls", "/w").is_empty());
+}
+
+#[test]
+fn an_agent_s_word_beats_every_guess() {
+    let entries = vec![entry("/r"), entry("/r-bet"), entry("/r-own")];
+    let mut said = spot("said", "/r", 1);
+    said.tracked = vec!["/r-bet/src".into()];
+    let mut busy = spot("busy", "/r", 2);
+    busy.worked = vec![("/r-bet".into(), 50.0, 9)];
+    let mut own = spot("own", "/r-own", 3);
+    own.tracked = vec!["/r".into()];
+    let procs = vec![("busy".to_string(), "/r-bet".to_string())];
+    let got = attribute(&entries, &[said.clone(), busy.clone(), own.clone()], &procs);
+    assert_eq!((got[1].0.as_deref(), got[1].1), (Some("said"), WorktreeVia::Tracked), "a folder inside it counts; hooks and processes don't win");
+    assert_eq!((got[2].0.as_deref(), got[2].1), (Some("own"), WorktreeVia::Own), "an agent's own folder stays its");
+    assert_eq!(got[0].1, WorktreeVia::Own, "tracking the main checkout changes nothing: it is everyone's");
+
+    // Two said so: the newest word wins.
+    busy.tracked = vec!["/r-bet".into()];
+    said.tracked = vec!["/r-x".into(), "/r-bet".into()];
+    let got = attribute(&entries, &[said, busy], &[]);
+    assert_eq!((got[1].0.as_deref(), got[1].1), (Some("busy"), WorktreeVia::Tracked));
+}
+
+#[test]
+fn tracking_keeps_the_newest_first_and_untracking_forgets() {
+    let r = repo();
+    let real = |rel: &str| LocalExec.real_path(r.0.join(rel).to_str().unwrap()).unwrap();
+    let h = Harness::new(vec![]);
+    let a = lifecycle::create(&h.engine, req("claude", r.path())).unwrap().id;
+    assert!(track(&h.engine, &a, "relative/x", true).is_err(), "only full paths");
+    track(&h.engine, &a, "/r-one/", true).unwrap();
+    assert_eq!(track(&h.engine, &a, "/r-two", true).unwrap(), ["/r-two", "/r-one"]);
+    assert_eq!(track(&h.engine, &a, "/r-one", true).unwrap(), ["/r-one", "/r-two"], "again: moves to the front");
+    assert_eq!(track(&h.engine, &a, "/r-two", false).unwrap(), ["/r-one"]);
+    assert_eq!(tracked(&h.engine, &a).unwrap(), ["/r-one"]);
+
+    // Once listed, a folder inside a worktree counts as the worktree.
+    let projects = list(&h.engine);
+    assert_eq!(by_name(&projects[0], "proc").via, WorktreeVia::Other);
+    assert_eq!(track(&h.engine, &a, &format!("{}/deep", real("wt/proc")), true).unwrap()[0], real("wt/proc"));
+    let projects = list(&h.engine);
+    let w = by_name(&projects[0], "proc");
+    assert_eq!((w.agent_id.as_deref(), w.via), (Some(a.as_str()), WorktreeVia::Tracked));
 }

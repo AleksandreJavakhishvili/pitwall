@@ -60,6 +60,8 @@ pub const METHODS: &[(&str, Access)] = &[
     (method::AGENT_REMOVE, Access::AskWhen("always; `deleteWorktree` also deletes its worktree", Risk::High)),
     (method::AGENT_RENAME, Access::Open),
     (method::AGENT_STATUS, Access::Open),
+    // Only which worktrees Review and the sidebar show as the agent's.
+    (method::AGENT_TRACK, Access::Open),
     (method::AGENT_WAIT, Access::Open),
     // Queued prompts go to agents already in Pitwall, as the UI's queue.
     (method::QUEUE_ADD, Access::Open),
@@ -189,6 +191,7 @@ pub fn dispatch(s: &Server, caller: &Caller, name: &str, p: Value) -> Res {
         method::AGENT_REMOVE => manage::remove(s, caller, required(p)?),
         method::AGENT_RENAME => manage::rename(s, required(p)?),
         method::AGENT_STATUS => manage::status(s, required(p)?),
+        method::AGENT_TRACK => manage::track(s, required(p)?),
         method::AGENT_WAIT => manage::wait(s, required(p)?),
         method::QUEUE_ADD => manage::queue_add(s, required(p)?),
         method::QUEUE_LIST => manage::queue_list(s, params(p)?),

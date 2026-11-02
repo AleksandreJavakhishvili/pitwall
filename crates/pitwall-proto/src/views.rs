@@ -225,6 +225,8 @@ pub struct ScannedSession {
 pub enum WorktreeVia {
     /// It is the agent's own working folder.
     Own,
+    /// The agent (or you) said it works there (`pitwall agent track`).
+    Tracked,
     /// The agent worked in it: its hooks reported that folder (`cwd`).
     WorkedIn,
     /// A process in the agent's terminal works in it.

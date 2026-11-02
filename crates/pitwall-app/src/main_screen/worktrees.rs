@@ -135,6 +135,7 @@ pub fn row_tip(r: &WtRef, error: Option<&str>) -> String {
     let mut tip = r.wt.path_display.clone();
     match r.wt.via {
         WorktreeVia::Process => tip.push_str("\nA process of this agent works (or worked) here"),
+        WorktreeVia::Tracked => tip.push_str("\nThis agent said it works here (pitwall agent track)"),
         WorktreeVia::WorkedIn => tip.push_str("\nThis agent worked here"),
         _ => {}
     }
