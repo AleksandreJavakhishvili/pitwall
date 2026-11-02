@@ -195,22 +195,33 @@ impl ReviewView {
         }
         let by_agent = model::worktrees_by_agent(&self.projects);
         let list_focused = self.list_focus.is_focused(window);
+        // Worktrees with nothing to review, folded away (or shown).
+        let mut quiet = 0usize;
+        let mut any_empty = false;
         for (gi, g) in self.groups.iter().enumerate() {
             let mut group = div()
                 .flex()
                 .flex_col()
                 .when(gi > 0, |d| d.border_t_1().border_color(t.line_strong));
             for (ai, a) in g.agents.iter().enumerate() {
-                let wts = by_agent.get(&a.id).cloned().unwrap_or_default();
+                let mut wts = by_agent.get(&a.id).cloned().unwrap_or_default();
+                any_empty |= wts.iter().any(|r| matches!(self.wt_files.get(&r.key()), Some(Ok(l)) if l.is_empty()));
+                let before = wts.len();
+                wts.retain(|r| !self.quiet(r));
+                quiet += before - wts.len();
                 group = group.child(self.agent_section(a, ai > 0, &wts, list_focused, t, cx));
             }
             let ids: Vec<&str> = g.agents.iter().map(|a| a.id.as_str()).collect();
             // Narrowed to one agent: not the project's other worktrees.
-            let others = if self.agent_only {
+            let mut others = if self.agent_only {
                 Vec::new()
             } else {
                 model::other_worktrees(&self.projects, &ids)
             };
+            any_empty |= others.iter().any(|r| matches!(self.wt_files.get(&r.key()), Some(Ok(l)) if l.is_empty()));
+            let before = others.len();
+            others.retain(|r| !self.quiet(r));
+            quiet += before - others.len();
             if !others.is_empty() {
                 let mut o = div()
                     .flex()
@@ -236,6 +247,32 @@ impl ReviewView {
                 group = group.child(o);
             }
             col.push(group.into_any_element());
+        }
+        if quiet > 0 || (self.quiet_shown && any_empty) {
+            let text = if self.quiet_shown {
+                "Hide worktrees without changes".to_string()
+            } else if quiet == 1 {
+                "Show 1 worktree without changes".to_string()
+            } else {
+                format!("Show {quiet} worktrees without changes")
+            };
+            col.push(
+                div()
+                    .px(px(12.))
+                    .py(px(8.))
+                    .child(
+                        div()
+                            .id("rv-quiet")
+                            .cursor_pointer()
+                            .text_size(px(12.))
+                            .text_color(t.text_3)
+                            .hover_text(t.text, |s| s.underline())
+                            .on_click(cx.listener(|v, _, _, cx| v.toggle_quiet(cx)))
+                            .child(text)
+                            .debug_selector(|| "rv-quiet".into()),
+                    )
+                    .into_any_element(),
+            );
         }
         if self.hidden > 0 && !self.ordered.is_empty() {
             let who = if self.hidden == 1 {
@@ -774,6 +811,10 @@ impl ReviewView {
                         let key = key.clone();
                         move |v, _, _, cx| v.show_worktree(&key, cx)
                     }))
+                    .debug_selector({
+                        let name = wt.name.clone();
+                        move || format!("rv-wt-{name}")
+                    })
                     .child(kit::icon("branch", 12., t.text_3))
                     .child(
                         kit::label_t(wt.name.clone(), if current { t.text } else { t.text_2 }, 13., 0.1)

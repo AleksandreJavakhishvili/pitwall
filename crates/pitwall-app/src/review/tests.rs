@@ -561,3 +561,46 @@ fn a_long_preview_scrolls(cx: &mut TestAppContext) {
     let last = cx.debug_bounds("md-b59").expect("drawn");
     assert!(last.bottom() <= body.bottom(), "{last:?} in {body:?}");
 }
+
+#[gpui::test]
+fn worktrees_without_changes_fold_away(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("a.txt", "1\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-qm", "init"]);
+    let busy = r.0.join("../").join(format!("{}-busy", r.0.file_name().unwrap().to_string_lossy()));
+    let idle = r.0.join("../").join(format!("{}-idle", r.0.file_name().unwrap().to_string_lossy()));
+    r.git(&["worktree", "add", "-q", "-b", "busy", busy.to_str().unwrap()]);
+    r.git(&["worktree", "add", "-q", "-b", "idle", idle.to_str().unwrap()]);
+    std::fs::write(busy.join("a.txt"), "2\n").unwrap();
+    let busy_name = busy.file_name().unwrap().to_string_lossy().to_string();
+    let idle_name = idle.file_name().unwrap().to_string_lossy().to_string();
+
+    let h = Harness::new(vec![record("s", r.path())]);
+    // The window's worktree list reads the engine the main screen sets.
+    cx.update(|cx| cx.set_global(crate::main_screen::EngineHandle(h.engine.clone())));
+    let (view, cx) = open(cx, &h);
+    for _ in 0..50 {
+        cx.run_until_parked();
+        let ready = view.read_with(cx, |v, _| v.wt_files.len() >= 2);
+        if ready {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    cx.run_until_parked();
+    let quiet = |cx: &mut VisualTestContext, name: &str| {
+        view.read_with(cx, |v, _| {
+            let key = v.wt_files.keys().find(|k| k.ends_with(name)).cloned().expect("its files were read");
+            v.quiet(&v.wt_ref(&key).unwrap())
+        })
+    };
+    assert!(!quiet(cx, &busy_name), "a worktree with changes is listed");
+    assert!(quiet(cx, &idle_name), "one with nothing to review is folded away");
+    let toggle = cx.debug_bounds("rv-quiet").expect("says how many are folded away");
+    cx.simulate_click(toggle.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(!quiet(cx, &idle_name), "shown on request");
+    let _ = std::fs::remove_dir_all(&busy);
+    let _ = std::fs::remove_dir_all(&idle);
+}

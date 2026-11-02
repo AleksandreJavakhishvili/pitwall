@@ -133,8 +133,10 @@ pub fn agents_signature(agents: &[AgentView]) -> String {
 /// A row's tooltip: its folder, how it belongs to the agent, a read error.
 pub fn row_tip(r: &WtRef, error: Option<&str>) -> String {
     let mut tip = r.wt.path_display.clone();
-    if r.wt.via == WorktreeVia::Process {
-        tip.push_str("\nA process of this agent works here");
+    match r.wt.via {
+        WorktreeVia::Process => tip.push_str("\nA process of this agent works (or worked) here"),
+        WorktreeVia::WorkedIn => tip.push_str("\nThis agent worked here"),
+        _ => {}
     }
     if let Some(e) = error {
         tip.push('\n');
@@ -956,8 +958,10 @@ mod tests {
         r.wt.via = WorktreeVia::Process;
         assert_eq!(
             row_tip(&r, Some("boom")),
-            "~/code/orders-api/.claude/worktrees/agent-a1f3\nA process of this agent works here\nboom"
+            "~/code/orders-api/.claude/worktrees/agent-a1f3\nA process of this agent works (or worked) here\nboom"
         );
+        r.wt.via = WorktreeVia::WorkedIn;
+        assert_eq!(row_tip(&r, None), "~/code/orders-api/.claude/worktrees/agent-a1f3\nThis agent worked here");
     }
 
     #[test]

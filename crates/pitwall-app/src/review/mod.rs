@@ -175,6 +175,8 @@ pub struct ReviewView {
     wt_list: Entity<crate::main_screen::wt_list::WorktreeList>,
     wt_open: HashSet<String>,
     wt_files: HashMap<String, Result<Vec<FileChange>, String>>,
+    /// Worktrees with nothing to review (merged, untouched) are listed too.
+    quiet_shown: bool,
     sel: Sel,
     pending_pick: Option<String>,
     collapsed: HashSet<String>,
@@ -301,6 +303,7 @@ impl ReviewView {
             wt_list,
             wt_open: HashSet::new(),
             wt_files: HashMap::new(),
+            quiet_shown: false,
             sel: Sel::None,
             pending_pick: None,
             collapsed: HashSet::new(),
@@ -535,7 +538,7 @@ impl ReviewView {
                     self.sel = Sel::None;
                 }
             }
-            self.load_open_worktrees(cx);
+            self.load_listed_worktrees(cx);
         }
         cx.notify();
     }
@@ -549,6 +552,33 @@ impl ReviewView {
         for key in keys {
             self.load_worktree_files(&key, cx);
         }
+    }
+
+    /// Read the files of every listed worktree once (the list changed), so
+    /// the ones with nothing to review can be folded away.
+    fn load_listed_worktrees(&mut self, cx: &mut Context<Self>) {
+        let keys: Vec<String> = self
+            .projects
+            .iter()
+            .flat_map(|p| p.worktrees.iter().map(move |w| model::wt_key(&p.id, &w.path)))
+            .collect();
+        for key in keys {
+            self.load_worktree_files(&key, cx);
+        }
+    }
+
+    /// Nothing to review there: its files are read and none changed (not
+    /// the one shown, and not while they are asked for).
+    pub(super) fn quiet(&self, r: &WtRef) -> bool {
+        let key = r.key();
+        !self.quiet_shown
+            && matches!(self.wt_files.get(&key), Some(Ok(l)) if l.is_empty())
+            && !matches!(&self.sel, Sel::Worktree { key: k, .. } if *k == key)
+    }
+
+    pub(super) fn toggle_quiet(&mut self, cx: &mut Context<Self>) {
+        self.quiet_shown = !self.quiet_shown;
+        cx.notify();
     }
 
     fn load_worktree_files(&mut self, key: &str, cx: &mut Context<Self>) {
