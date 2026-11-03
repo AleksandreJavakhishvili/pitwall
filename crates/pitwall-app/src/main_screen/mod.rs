@@ -1864,7 +1864,7 @@ impl Render for MainScreen {
             .when(sidebar_mode != SidebarMode::Hidden, |d| match &sidebar_part {
                 Some(p) => d.child(part::slot(
                     p,
-                    gpui::StyleRefinement::default().w(crate::theme::SIDEBAR_W).h_full().flex_none(),
+                    gpui::StyleRefinement::default().w(crate::kit::chrome_width(crate::theme::SIDEBAR_W, cx)).h_full().flex_none(),
                 )),
                 None => {
                     let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
@@ -1875,7 +1875,7 @@ impl Render for MainScreen {
             .when(right == Some(false), |d| match &panel_part {
                 Some(p) => d.child(part::slot(
                     p,
-                    gpui::StyleRefinement::default().w(crate::theme::RIGHT_W).h_full().flex_none(),
+                    gpui::StyleRefinement::default().w(crate::kit::chrome_width(crate::theme::RIGHT_W, cx)).h_full().flex_none(),
                 )),
                 None => d.children(selected.clone().map(|a| {
                     let panel = self.render_panel(&a, false, &slab, window, cx);

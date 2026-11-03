@@ -63,7 +63,7 @@ pub fn background_for(tier: Option<GlassTier>) -> WindowBackgroundAppearance {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{apply, liquid_available, os_prefs, sweep_regions, sync_region};
+pub use mac::{apply, drop_owner, liquid_available, os_prefs, sweep_regions, sync_region};
 
 #[cfg(windows)]
 pub use win::{apply, os_prefs};
@@ -78,6 +78,12 @@ pub fn liquid_available() -> bool {
 pub fn sync_region(window: &mut Window, id: &'static str, _: Bounds<Pixels>, _: f32) {
     let (wid, owner) = (window.window_handle().window_id(), window.current_view());
     regions::with_book(wid, |b| b.place(owner, id));
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn drop_owner(window: &Window, owner: gpui::EntityId) {
+    let wid = window.window_handle().window_id();
+    regions::with_book(wid, |b| b.drop_owner(owner));
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -207,6 +213,21 @@ pub(crate) mod regions {
             hide
         }
 
+        /// `owner` isn't drawn any more (a cached part left the screen): the
+        /// pieces it placed and still owns, to hide. A piece another view
+        /// has placed since stays.
+        pub fn drop_owner(&mut self, owner: EntityId) -> Vec<&'static str> {
+            let mut hide = Vec::new();
+            for (id, r) in &mut self.regions {
+                if r.owner == owner && r.shown {
+                    r.shown = false;
+                    hide.push(*id);
+                }
+            }
+            self.counts.hidden += hide.len();
+            hide
+        }
+
         /// The pieces showing, sorted.
         #[cfg(test)]
         pub fn shown(&self) -> Vec<&'static str> {
@@ -286,6 +307,23 @@ pub(crate) mod regions {
             assert_eq!(b.place(screen, "right-panel"), Placed::Shown);
             assert!(b.sweep().is_empty());
             assert_eq!(b.counts, Counts { made: 3, hidden: 1, reshown: 1 });
+        }
+
+        #[gpui::test]
+        fn a_view_that_leaves_hides_only_the_pieces_it_still_owns(cx: &mut TestAppContext) {
+            let v = ids(cx, 2);
+            let (part, screen) = (v[0], v[1]);
+            let mut b = Book::default();
+            b.place(part, "sidebar");
+            b.place(part, "topbar");
+            b.sweep();
+            // The screen draws the top bar itself now.
+            b.place(screen, "topbar");
+            b.sweep();
+            assert_eq!(b.drop_owner(part), vec!["sidebar"]);
+            assert_eq!(b.shown(), vec!["topbar"]);
+            assert!(b.drop_owner(part).is_empty(), "already hidden");
+            assert_eq!(b.place(part, "sidebar"), Placed::Shown, "back: shown again, not made");
         }
     }
 }
@@ -488,6 +526,18 @@ mod mac {
     pub fn sweep_regions(window: &mut Window) {
         let wid = Window::window_handle(window).window_id();
         let hide = super::regions::with_book(wid, |b| b.sweep());
+        hide_pieces(wid, hide);
+    }
+
+    /// Hide the pieces view `owner` placed: it isn't drawn any more (a
+    /// cached part that left the screen never draws again to sweep them).
+    pub fn drop_owner(window: &Window, owner: gpui::EntityId) {
+        let wid = Window::window_handle(window).window_id();
+        let hide = super::regions::with_book(wid, |b| b.drop_owner(owner));
+        hide_pieces(wid, hide);
+    }
+
+    fn hide_pieces(wid: gpui::WindowId, hide: Vec<&'static str>) {
         if hide.is_empty() {
             return;
         }

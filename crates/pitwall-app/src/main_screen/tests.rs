@@ -575,3 +575,66 @@ fn this_mac_alone_has_no_machine_headings(cx: &mut TestAppContext) {
         assert!(cx.debug_bounds("machine-head-machine:this-mac").is_none(), "{group:?}: no machine level");
     }
 }
+
+/// Liquid Glass with its regions: scrolling the sidebar redraws the
+/// sidebar part alone (the top bar replays its paint), each part keeps its
+/// own glass piece, and a part that leaves the screen hides its piece.
+#[gpui::test]
+fn under_liquid_glass_the_sidebar_scrolls_alone_and_parts_keep_their_glass(cx: &mut TestAppContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    cx.update(|cx| {
+        let ap = Appearance::resolve(
+            Inputs { look: Look::Glass, ..Inputs::default() },
+            gpui::WindowAppearance::Dark,
+            GlassOffer::Liquid,
+            OsPrefs::default(),
+        );
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        init(cx);
+        assert!(crate::theme::glass_regions(cx));
+    });
+    let store = cx.new(|_| {
+        AgentStore::new((0..60).map(|i| agent(&format!("a{i}"), &format!("/work/p{}", i % 6), "idle", i, true)).collect())
+    });
+    let s = store.clone();
+    let (view, cx) = cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), window, cx));
+    cx.simulate_resize(gpui::size(gpui::px(1500.), gpui::px(700.)));
+    cx.run_until_parked();
+    let wid = cx.update(|window, _| window.window_handle().window_id());
+    let pieces = || crate::platform::glass::regions::of(wid).0;
+    let renders = |cx: &mut VisualTestContext| {
+        view.read_with(cx, |s, cx| {
+            let p = s.parts.as_ref().expect("parts under Liquid Glass too");
+            (p.sidebar.read(cx).renders, p.topbar.read(cx).renders)
+        })
+    };
+    assert!(pieces().contains(&"sidebar") && pieces().contains(&"topbar"), "{:?}", pieces());
+    let before = renders(cx);
+
+    let at = gpui::point(gpui::px(120.), gpui::px(400.));
+    cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    for _ in 0..3 {
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-80.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+    }
+    let after = renders(cx);
+    assert!(after.0 > before.0, "the sidebar scrolled: {before:?} -> {after:?}");
+    assert_eq!(after.1, before.1, "scrolling the sidebar re-rendered the top bar");
+    assert!(pieces().contains(&"sidebar") && pieces().contains(&"topbar"), "replayed parts keep their glass: {:?}", pieces());
+
+    // The sidebar collapsed: its part isn't drawn, its glass goes.
+    view.update(cx, |s, cx| {
+        s.sidebar_collapsed = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert!(!pieces().contains(&"sidebar"), "{:?}", pieces());
+    assert!(pieces().contains(&"topbar"));
+}

@@ -131,6 +131,8 @@ impl Parts {
         for (p, kind) in all {
             if !drawn.contains(&kind) {
                 crate::kit::motion::pulse_forget(window, p.entity_id());
+                // Its glass piece too: it won't draw again to sweep it.
+                crate::platform::glass::drop_owner(window, p.entity_id());
             }
         }
     }
@@ -159,11 +161,12 @@ impl Part {
     }
 }
 
-/// Whether the parts are drawn as cached views. Liquid Glass regions place
-/// their native glass piece while they paint (a replayed paint would lose
-/// it), so with them the screen draws everything itself.
-pub fn cached(cx: &App) -> bool {
-    !crate::theme::glass_regions(cx) && std::env::var_os("PITWALL_PERF_NO_PARTS").is_none()
+/// Whether the parts are drawn as cached views. Under Liquid Glass too: a
+/// part places its own glass piece (`kit::glass`), and a frame that
+/// replays its paint keeps it (`platform::glass::regions`), so scrolling
+/// the sidebar redraws the sidebar, not the whole screen.
+pub fn cached(_cx: &App) -> bool {
+    std::env::var_os("PITWALL_PERF_NO_PARTS").is_none()
 }
 
 /// `part` as a cached child laid out with `style` (its outer box: the
@@ -186,22 +189,29 @@ impl Render for Part {
             let off = s.modal.is_some() || s.elsewhere.bring.is_some();
             let t = crate::theme::theme(cx).clone();
             let el = match kind {
+                // Each places its own Liquid Glass piece, as the screen
+                // does for them without parts.
                 PartKind::Sidebar => {
                     let agents = s.agents(cx).to_vec();
                     let slab = crate::theme::panel(&t, cx);
-                    s.render_sidebar(SidebarMode::Full, &agents, &slab, window, cx)
+                    let bar = s.render_sidebar(SidebarMode::Full, &agents, &slab, window, cx);
+                    crate::kit::chrome_panel("sidebar", bar, cx)
                 }
                 PartKind::Topbar => {
                     let agents = s.agents(cx).to_vec();
                     let bp = MainScreen::breakpoint(window);
-                    s.render_topbar(&agents, bp, &t.chrome(), window, cx)
-                        .into_any_element()
+                    let topbar = s.render_topbar(&agents, bp, &t.chrome(), window, cx);
+                    if crate::theme::glass_regions(cx) {
+                        crate::kit::glass_region("topbar", 0., topbar).w_full().into_any_element()
+                    } else {
+                        topbar.into_any_element()
+                    }
                 }
                 PartKind::Panel => match s.selected(cx) {
                     Some(a) => {
                         let slab = crate::theme::panel(&t, cx);
-                        s.render_panel(&a, false, &slab, window, cx)
-                            .into_any_element()
+                        let panel = s.render_panel(&a, false, &slab, window, cx);
+                        crate::kit::chrome_panel("right-panel", panel, cx)
                     }
                     None => div().into_any_element(),
                 },
