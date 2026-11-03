@@ -31,6 +31,19 @@ pub fn glass_region(id: &'static str, radius: f32, child: impl IntoElement) -> g
         .child(child)
 }
 
+/// The outer width of a [`chrome_panel`] whose content is `w` wide (the
+/// floating slab's margin under Liquid Glass with regions).
+pub fn chrome_width(w: Pixels, cx: &App) -> Pixels {
+    if glass_regions(cx) {
+        w + px(2. * SLAB_MARGIN)
+    } else {
+        w
+    }
+}
+
+/// The floating slab's margin from the window edges.
+const SLAB_MARGIN: f32 = 8.;
+
 /// A chrome panel (the sidebar, the right panel): under Liquid Glass with
 /// regions, a floating rounded glass slab inset from the window edges, like
 /// a macOS 26 source list; otherwise just `child`. Draw `child` with
@@ -43,7 +56,7 @@ pub fn chrome_panel(id: &'static str, child: impl IntoElement, cx: &App) -> AnyE
     div()
         .h_full()
         .flex_none()
-        .p(px(8.))
+        .p(px(SLAB_MARGIN))
         .child(
             glass_region(
                 id,

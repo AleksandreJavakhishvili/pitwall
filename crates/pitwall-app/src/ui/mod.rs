@@ -461,8 +461,9 @@ impl Render for MainView {
             // terminals are cached views: a frame for one terminal or for
             // the working dots' rings (the pulse layer) replays the rest
             // (main_screen/part.rs).
-            // Without parts (Liquid Glass regions) the screen itself is
-            // the cached view, as before.
+            // Without parts (PITWALL_PERF_NO_PARTS) the screen itself is
+            // the cached view. Under Liquid Glass each part places its own
+            // glass piece (kit::glass).
             Content::Live { .. } => root
                 .children(self.screen.clone().map(|s| {
                     if crate::main_screen::parts_cached(cx) {
