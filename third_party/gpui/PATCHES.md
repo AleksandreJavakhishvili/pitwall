@@ -10,6 +10,12 @@ are left out. Every change is marked `Pitwall patch` in the source:
   textures are made on the first frame that draws a path instead of with
   the window.
 
+- `src/platform/mac/metal_renderer.rs` — `update_transparency` sets the
+  Metal layer opaque when the window is (`WindowBackgroundAppearance::Opaque`,
+  Pitwall's Flat look). GPUI left every layer non-opaque, so the window
+  server blended the whole window on every frame; while scrolling, the main
+  thread spent over half its time waiting for a free drawable.
+
 - `src/platform/mac/platform.rs` — the folder/file picker (`NSOpenPanel`)
   is held until it answers. Autoreleased, it was let go of before it was
   shown in the app (its connection to the system's picker service cancelled
