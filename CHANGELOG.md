@@ -2,13 +2,47 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.5.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.0) - 2026-11-08
+
+### Highlights
 
 - Settings → Accounts: every agent login in one place, with its plan's limits and the tokens it used, read from each tool's own logs (Claude Code, Codex), next to your git identities. Gemini CLI and Copilot CLI can have more than one account too.
 - Agents can tell Pitwall which worktrees they work in: `pitwall agent track <path>` (and `untrack`, `tracked`). Inside an agent Pitwall started, `$PITWALL_AGENT_ID` names it, so any agent that can run a command can say so, and its word beats Pitwall's guesses.
 - Worktrees belong to the agent that worked there recently, by its hooks (this week's work outweighs last month's), not by where the folder lives. The sidebar and Review fold old, empty and deleted worktrees the same way, newest first, and offer `git worktree prune` for deleted ones.
 - Review shows only the agent's own work: a branch that merged `develop` in no longer lists all of develop's history, merged-in branches are named by their merge, and Review says when other agents share the folder.
 - Smoother sidebar scrolling: with the Flat look the window is drawn opaque, so macOS no longer blends the whole window on every frame; under Liquid Glass, scrolling the sidebar redraws only the sidebar.
+
+### Features
+
+- **core:** Read each account's usage from its tool's logs ([`9cb8c8a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9cb8c8a4693d75813ee97f234d8de9058e433e3c))
+- **core:** Accounts for gemini cli and copilot cli ([`272ebcc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/272ebcc98bee2eb2a57b9df48907d2304e3a5930))
+- **app:** A settings page for accounts, with their usage ([`058bc35`](https://github.com/AleksandreJavakhishvili/pitwall/commit/058bc354c0883bef0e60881e4dca13bce15509d0))
+- **app:** Review folds away worktrees without changes ([`3f798a0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3f798a046e7eabd9d7eec666c35f96254e8c572b))
+- **core:** Recent work decides a worktree's owner, and when it was used ([`92053b2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/92053b2738cdd49246adc60f3d4b5b221f67acd9))
+- **app:** Fold old, empty and deleted worktrees the same everywhere ([`c994281`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c9942810701ef68782a17e112968c8cfd440523d))
+- **core:** Let agents say which worktrees they work in ([`0d5be22`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0d5be225679b3851701cae418d78543d609315d2))
+
+### Fixes
+
+- **core:** A worktree is the agent's that worked there, by its hooks ([`50c1a87`](https://github.com/AleksandreJavakhishvili/pitwall/commit/50c1a87e88dca21fa45e856f87838d2160b1df50))
+- **core:** Review leaves out history merged in from other branches ([`97b0596`](https://github.com/AleksandreJavakhishvili/pitwall/commit/97b0596b96e9d4e206597c31a18f88fb0abef639))
+- **core:** Name merged-in branches by their merge, not the agent's own ([`2b591f3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2b591f32751105e494bb297adb2c9d8abf381d77))
+
+### Performance
+
+- **app:** Keep the cached parts under liquid glass ([`9954cc2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9954cc28fd7364911a066b6e8b7e7e40e4be639f))
+- **gpui:** An opaque window draws to an opaque layer ([`d21f8c0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d21f8c0fdff7929f17c313aacf0fbd50953173c3))
+
+### Refactors
+
+- **app:** Drop an unused worktree row selector ([`d336b1d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d336b1dec1d2a0d61b728d4726d8d6fb9efb1f0f))
+- **core:** Drop worktree_dirs, where a worktree lives never decides ([`257d1db`](https://github.com/AleksandreJavakhishvili/pitwall/commit/257d1db43996806136c51290d81df8ea2ac835a0))
+
+### Documentation
+
+- Settings → accounts, usage, gemini and copilot logins ([`0a395b8`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0a395b8dfbc945375bd8a2368493ba796d702a7f))
+- Highlights for 0.5.0 ([`7550201`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7550201950c2599ea5c3cbd9042c06985b374c50))
+
 
 ## [0.4.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.4.0) - 2026-10-31
 
