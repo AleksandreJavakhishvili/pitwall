@@ -2,6 +2,14 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+- Settings → Accounts: every agent login in one place, with its plan's limits and the tokens it used, read from each tool's own logs (Claude Code, Codex), next to your git identities. Gemini CLI and Copilot CLI can have more than one account too.
+- Agents can tell Pitwall which worktrees they work in: `pitwall agent track <path>` (and `untrack`, `tracked`). Inside an agent Pitwall started, `$PITWALL_AGENT_ID` names it, so any agent that can run a command can say so, and its word beats Pitwall's guesses.
+- Worktrees belong to the agent that worked there recently, by its hooks (this week's work outweighs last month's), not by where the folder lives. The sidebar and Review fold old, empty and deleted worktrees the same way, newest first, and offer `git worktree prune` for deleted ones.
+- Review shows only the agent's own work: a branch that merged `develop` in no longer lists all of develop's history, merged-in branches are named by their merge, and Review says when other agents share the folder.
+- Smoother sidebar scrolling: with the Flat look the window is drawn opaque, so macOS no longer blends the whole window on every frame; under Liquid Glass, scrolling the sidebar redraws only the sidebar.
+
 ## [0.4.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.4.0) - 2026-10-31
 
 ### Highlights
