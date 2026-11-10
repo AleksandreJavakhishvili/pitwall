@@ -28,6 +28,15 @@ Every change Pitwall makes to the vendored crates (README.md) is marked
   re-rendering its sidebar, top bar and other terminals
   (`crates/pitwall-app/src/ui/mod.rs`, docs/spec/perf.md).
 
+- `gpui/src/view.rs`, `gpui/src/window.rs` — `Window::frame_serial` and
+  `ViewElementState::frame`: a cached view replays only what it drew or
+  replayed in the frame before. A cached view inside a replayed one isn't
+  visited, so its ranges (prepaint, paint, line layouts) index an older
+  frame; GPUI relies on the outer view's next render refreshing
+  everything inside it, which `keep_inner_caches` turns off. Without this
+  a part replayed stale ranges after a Settings scroll and the app
+  panicked in `LineLayoutCache::reuse_layouts`.
+
 ## Now upstream (dropped)
 
 Patches Pitwall made to GPUI 0.2.2 (crates.io) that Zed's GPUI has since
