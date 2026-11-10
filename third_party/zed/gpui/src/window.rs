@@ -1299,6 +1299,10 @@ pub struct Window {
     /// Incremented every time focus moves. Used to invalidate a
     /// pending keyboard activation state when focus changes.
     pub(crate) focus_generation: u64,
+    /// Pitwall patch: the number of the frame being drawn (`draw` counts).
+    /// A cached view replays only what it drew in the frame before
+    /// (`view.rs`).
+    pub(crate) frame_serial: u64,
     pending_input: Option<PendingInput>,
     pending_modifier: ModifierState,
     pub(crate) pending_input_observers: SingleSubscriberSet<AnyObserver>,
@@ -2422,6 +2426,7 @@ impl Window {
             focus: None,
             focus_enabled: true,
             focus_generation: 0,
+            frame_serial: 0,
             pending_input: None,
             pending_modifier: ModifierState::default(),
             pending_input_observers: SingleSubscriberSet::new(),
@@ -3696,6 +3701,9 @@ impl Window {
         // Set up the per-App arena for element allocation during this draw.
         // This ensures that multiple test Apps have isolated arenas.
         let arena_scope = ElementArenaScope::enter(&cx.element_arena);
+
+        // Pitwall patch: see `frame_serial`.
+        self.frame_serial = self.frame_serial.wrapping_add(1);
 
         if self.platform_window.prepare_frame() {
             self.refresh();

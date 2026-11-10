@@ -319,6 +319,9 @@ impl<V: View> ViewElement<V> {
     /// they do inside an uncached view. By default a cached view that
     /// renders again renders every cached view inside it too, as
     /// [`Window::refresh`] does. A window refresh still renders them all.
+    /// A cached view inside that wasn't drawn or replayed in the frame
+    /// before (this view was replayed whole) renders again too: what it
+    /// kept indexes an older frame.
     pub fn keep_inner_caches(mut self) -> Self {
         self.keep_inner_caches = true;
         self
@@ -332,6 +335,12 @@ struct ViewElementState {
     /// The entities the view accessed while it was last drawn, in any phase,
     /// restored when its prepaint is reused so the window stays subscribed.
     accessed_entities: FxHashSet<EntityId>,
+    /// Pitwall patch: the frame (`Window::frame_serial`) this view was last
+    /// drawn or replayed in. Its ranges index that frame, so they can be
+    /// replayed in the next frame only: a cached view inside a replayed
+    /// one isn't visited, and its ranges go stale (with
+    /// `keep_inner_caches` nothing else renders it again).
+    frame: u64,
 }
 
 struct ViewElementCacheKey {
@@ -563,6 +572,7 @@ fn prepaint_view(
                     && element_state.cache_key.opacity.to_bits() == opacity.to_bits()
                     && !window.dirty_views.contains(&entity_id)
                     && !window.refreshing
+                    && element_state.frame.wrapping_add(1) == window.frame_serial
                 {
                     let prepaint_start = window.prepaint_index();
                     window.reuse_prepaint(element_state.prepaint_range.clone());
@@ -570,6 +580,7 @@ fn prepaint_view(
                         .extend_accessed(element_state.accessed_entities.iter().copied());
                     let prepaint_end = window.prepaint_index();
                     element_state.prepaint_range = prepaint_start..prepaint_end;
+                    element_state.frame = window.frame_serial;
 
                     return (None, element_state);
                 }
@@ -594,6 +605,7 @@ fn prepaint_view(
                         accessed_entities,
                         prepaint_range: prepaint_start..prepaint_end,
                         paint_range: PaintIndex::default()..PaintIndex::default(),
+                        frame: window.frame_serial,
                         cache_key: ViewElementCacheKey {
                             bounds,
                             content_mask,

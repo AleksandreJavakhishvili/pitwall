@@ -937,14 +937,23 @@ mod tests {
         assert_eq!(renders(vcx), open, "a frame for Settings re-rendered the screen");
         assert_eq!(pieces(), held, "replayed: no glass piece hidden or made");
 
-        // Output in a terminal behind Settings: the screen renders, its
-        // parts replay.
+        // Output in a terminal behind Settings: the screen renders. Its
+        // parts weren't drawn in the frame before (the screen was replayed
+        // whole), so what they kept is stale and they render once; while
+        // the terminal keeps printing, they replay.
         term.update(vcx, |_, cx| cx.notify());
         vcx.run_until_parked();
         let (screen_n, side, top) = renders(vcx);
         assert_eq!(screen_n, open.0 + 1, "the terminal's frame draws the screen");
-        assert_eq!((side, top), (open.1, open.2), "and replays its parts");
-        assert_eq!(pieces(), held);
+        assert_eq!((side, top), (open.1 + 1, open.2 + 1), "a part replayed a frame it wasn't drawn in");
+        term.update(vcx, |_, cx| cx.notify());
+        vcx.run_until_parked();
+        let (screen_n, side, top) = {
+            let again = renders(vcx);
+            assert_eq!(again, (screen_n + 1, side, top), "the next terminal frame replays the parts");
+            again
+        };
+        assert_eq!(pieces().0, held.0);
 
         // A change in the screen behind Settings: it shows.
         let store = first.read_with(vcx, |v, _| match &v.content {

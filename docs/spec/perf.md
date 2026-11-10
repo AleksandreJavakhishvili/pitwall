@@ -429,8 +429,14 @@ screen (a terminal's output behind Settings' scrim) renders the screen,
 and its parts and other terminals still replay: a cached view that
 renders again normally renders every cached view inside it, and
 `ViewElement::keep_inner_caches` (a GPUI patch,
-`third_party/zed/PATCHES.md`) keeps them. Closed, the screen draws every
-frame again, as before (it takes the keyboard back when nothing has it).
+`third_party/zed/PATCHES.md`) keeps them. A part replays only what it
+drew or replayed in the frame before: after a frame that replayed the
+screen whole (a Settings scroll step) its parts weren't visited and what
+they kept indexes an older frame, so the next frame that renders the
+screen renders them once, and they replay again from the frame after
+(replaying the stale ranges crashed the app; `Window::frame_serial`,
+also in PATCHES.md). Closed, the screen draws every frame again, as
+before (it takes the keyboard back when nothing has it).
 A replayed screen keeps its Liquid Glass pieces, its working-dot rings,
 its hitboxes (the web preview's placement) and its tooltips.
 
