@@ -2,6 +2,14 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Much less CPU with many worktrees: Pitwall checks every worktree for changes about once a minute, and each git it started cost 50–100 ms of kernel time. Programs are now started by their full path, which the OS launches directly (about 30× less kernel time while git runs).
+- Review's file list scrolls smoothly with hundreds of changed files: only the rows on screen are built, and scrolling the list no longer redraws the diff.
+- Settings scrolls smoothly too, and the main screen is no longer redrawn behind Settings, About or the palette while they are open.
+
 ## [0.5.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.1) - 2026-11-10
 
 ### Highlights
