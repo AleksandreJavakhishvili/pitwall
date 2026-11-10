@@ -2,12 +2,37 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.5.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.1) - 2026-11-10
 
 ### Highlights
 
 - Smoother scrolling on macOS 26: Pitwall now runs on Zed's current GPUI, which paces frames with the display (`CAMetalDisplayLink`) instead of waiting up to a frame and a half for each drawable.
 - The sidebar draws only the rows on screen, so scrolling a long list of agents and worktrees no longer rebuilds every row on each frame (about 3× less work per frame).
+
+### Fixes
+
+- **app:** The windows preview's key names and window proc on new gpui ([`219cc36`](https://github.com/AleksandreJavakhishvili/pitwall/commit/219cc3693afeedd92c0fb9f199e214bca73504c6))
+- **app:** New clippy lints in the windows and linux code ([`ee0f42a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ee0f42a50721554768b8c549ceb3d1a292044131))
+
+### Performance
+
+- **app:** Derive worktrees by agent when the list changes ([`f6dea2c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f6dea2c7a58e61c61a7cfa09cef80b82a9b670a1))
+- **app:** Draw only the sidebar rows on screen ([`05663ae`](https://github.com/AleksandreJavakhishvili/pitwall/commit/05663aeef592b246738228de3a11b0d609e417ae))
+
+### Refactors
+
+- **app:** Port the app and terminal view to the new gpui ([`d08f7d7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d08f7d7a76c20ca6abfad3e58da0210b8376abec))
+
+### Documentation
+
+- Gpui vendored from zed, its licences and patches ([`de28d38`](https://github.com/AleksandreJavakhishvili/pitwall/commit/de28d385955fb3bc113fbe6b0b1e615f253da04f))
+- Highlights for 0.5.1 ([`d702236`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d7022367feff40afd20cc0ebe8361e2dc3e51dbf))
+
+### Chores
+
+- **deps:** Rust 1.98.1 ([`f7028c7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f7028c719610fc2ccce61472a3cb67b8300ef8b4))
+- **gpui:** Vendor gpui from zed's repository ([`73b451d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/73b451dfa425168f68b30ea0d067882ba155acb7))
+
 
 ## [0.5.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.0) - 2026-11-08
 
