@@ -212,6 +212,9 @@ pub struct PeersModel {
     /// Online machines when discovery last ran: it runs again when one
     /// more comes online.
     probed: BTreeSet<String>,
+    /// Discoveries started (tests).
+    #[cfg(test)]
+    pub discoveries: usize,
 }
 
 impl EventEmitter<PeersEvent> for PeersModel {}
@@ -235,6 +238,8 @@ impl PeersModel {
             busy: BTreeSet::new(),
             error: None,
             probed: BTreeSet::new(),
+            #[cfg(test)]
+            discoveries: 0,
         };
         m.read();
         m
@@ -269,6 +274,7 @@ impl PeersModel {
                 let was_showing = m.settings.show;
                 m.take(snap);
                 if m.settings.show && !was_showing {
+                    m.discover_error = None;
                     m.check(cx);
                 }
                 cx.notify();
@@ -320,8 +326,18 @@ impl PeersModel {
         self.probed.clear();
         if self.settings.show {
             self.found = None;
+            // A failed discovery is tried again only when asked: here.
+            self.discover_error = None;
         }
         self.check(cx);
+    }
+
+    /// Settings → Peers looks for the machines' Pitwall by itself: showing,
+    /// nothing found yet, none running, and the last one didn't fail (after
+    /// a failure only Refresh, or turning showing on, tries again; else
+    /// each redraw would start another).
+    pub fn wants_discovery(&self) -> bool {
+        self.settings.show && self.found.is_none() && self.discover_error.is_none() && !self.discovering
     }
 
     /// Look for the user's machines running a Pitwall that shares (probes
@@ -329,6 +345,10 @@ impl PeersModel {
     /// new ones get their one offer.
     pub fn discover(&mut self, offer: bool, cx: &mut Context<Self>) {
         self.discovering = true;
+        #[cfg(test)]
+        {
+            self.discoveries += 1;
+        }
         cx.notify();
         let peers = self.peers.clone();
         let run = cx.background_executor().spawn(async move { peers.discover() });
@@ -361,6 +381,9 @@ impl PeersModel {
 
     /// Change the switches or the port.
     pub fn set_settings(&mut self, s: PeerSettings, cx: &mut Context<Self>) {
+        if s.show && !self.settings.show {
+            self.discover_error = None;
+        }
         self.settings = s;
         cx.notify();
         self.call("settings", cx, move |p| p.set_settings(s).map(|_| ()));
