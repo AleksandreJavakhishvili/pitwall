@@ -174,6 +174,10 @@ What the GPUI app does with it (`pitwall-app`: `host.rs`, `peers/`,
   "Pair again" after an identity change, or Unpair; Refresh asks Tailscale
   again (not its cached status) and probes again while showing; "Can see
   this Mac" (viewers, Revoke: disconnects now); recent activity (audit).
+  While showing, the page discovers by itself once when nothing was found
+  yet; a discovery that failed (Tailscale down, say) shows its error and
+  is tried again only by Refresh or by turning showing on (before, every
+  redraw started another, which never stopped).
 - **Offers.** No probing while showing is off. While it is off and
   Tailscale lists other machines of this user, the sidebar shows one card:
   "studio is on your Tailscale. Show their Pitwall agents here, read-only?"
