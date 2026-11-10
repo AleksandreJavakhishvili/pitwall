@@ -411,6 +411,29 @@ GPUI from Zed commit `58e29b6` (`third_party/zed/`,
 [gpui/licensing.md](gpui/licensing.md)). The numbers above were taken on
 0.2.2; to do: re-run the bench and the memory pass on the new GPUI.
 
+## GPUI: the main screen under an overlay (2026-11)
+
+Since the screen's parts (`main_screen/part.rs`), the main screen itself is
+drawn on every frame of its window and only its big pieces (sidebar, top
+bar, right panel, Wall / Review) and its terminals are cached views (a
+ring frame renders the screen and replays those). In GPUI a notified view
+dirties every view above it, so a frame for anything in the window drew
+the screen: scrolling Settings re-ran the screen's render, layout and
+paint behind it, ~45 % of each frame's draw (10–13 ms p95 against 8.3 ms
+at 120 Hz).
+
+While an overlay is open (Settings, About, onboarding, the palette, an
+approval) the screen is a cached view as well (`ui/mod.rs`): a frame for
+the overlay alone replays the whole screen. A frame for something in the
+screen (a terminal's output behind Settings' scrim) renders the screen,
+and its parts and other terminals still replay: a cached view that
+renders again normally renders every cached view inside it, and
+`ViewElement::keep_inner_caches` (a GPUI patch,
+`third_party/zed/PATCHES.md`) keeps them. Closed, the screen draws every
+frame again, as before (it takes the keyboard back when nothing has it).
+A replayed screen keeps its Liquid Glass pieces, its working-dot rings,
+its hitboxes (the web preview's placement) and its tooltips.
+
 ## GPUI port: memory pass (2026-10-09)
 
 Standard load: 15 made-up TUI agents (`scripts/tui-agent.py`: claude,
