@@ -27,7 +27,7 @@ use pitwall_proto::{AgentView, Status};
 use crate::kit::{icon, InputEvent, TextInput, MONO_FONT};
 use super::menu::MenuItem;
 use super::model::{
-    base_key, by_machine, by_machine_account, in_order, initials, machine_level, reorder, section_of, summarize, with_paired, with_projects, AccountSection,
+    base_key, by_machine, by_machine_account, in_order, initials, machine_level, reorder, section_of, with_paired, with_projects, AccountSection,
     MachineSection,
 };
 use super::workspace::SidebarGroup;
@@ -109,6 +109,7 @@ impl MainScreen {
             None => 0,
         };
         self.cursor = Some(rows[next].clone());
+        self.side.reveal(&rows[next]);
         cx.notify();
     }
 
@@ -123,62 +124,7 @@ impl MainScreen {
         if mode == SidebarMode::Rail {
             return self.render_rail(agents, t, cx).into_any_element();
         }
-        let focused = self.focused_agent_id();
-        let kb = self.sidebar_focus.is_focused(window);
-        let mut index = 0usize;
-        let mut list: Vec<AnyElement> = Vec::new();
-        let sections = self.machine_sections(agents, cx);
-        // This Mac alone: no machine level, as before there were others.
-        let level = machine_level(&sections);
-        for (mi, m) in sections.iter().enumerate() {
-            if level {
-                let collapsed = self.ui.collapsed.contains(&m.key);
-                if mi > 0 {
-                    list.push(div().h(px(8.)).flex_none().into_any_element());
-                }
-                list.push(self.machine_head(m, collapsed, t, cx));
-                let all = m.agents();
-                let quiet = if collapsed {
-                    index += all.len();
-                    (!all.is_empty()).then(|| summarize(&all))
-                } else if m.groups.is_empty() && m.accounts.is_empty() {
-                    // A paired machine with nothing to show.
-                    let connected = m.link.as_ref().is_some_and(|l| l.state == pitwall_proto::peer::LinkState::Connected);
-                    Some(if connected { "No agents running" } else { "Its agents show once it's reachable" }.to_string())
-                } else {
-                    None
-                };
-                if let Some(q) = quiet {
-                    list.push(div().pl(px(32.)).pr(px(14.)).pb(px(6.)).text_size(px(12.)).text_color(t.text_4).child(q).into_any_element());
-                }
-                if collapsed {
-                    continue;
-                }
-            }
-            list.extend(self.render_groups(&m.groups, &mut index, &focused, kb, t, cx));
-            for (si, sec) in m.accounts.iter().enumerate() {
-                let collapsed = self.ui.collapsed.contains(&sec.key);
-                if si > 0 {
-                    list.push(div().h(px(6.)).flex_none().into_any_element());
-                }
-                list.push(self.account_head(sec, collapsed, m.home, t, cx).into_any_element());
-                if collapsed {
-                    index += sec.agents;
-                } else {
-                    // Its projects sit a step in, under the account.
-                    let rows = self.render_groups(&sec.groups, &mut index, &focused, kb, t, cx);
-                    list.push(div().pl(px(10.)).flex().flex_col().children(rows).into_any_element());
-                }
-            }
-        }
-        let any = !sections.is_empty();
-        let mut elsewhere: Vec<AnyElement> = self.render_elsewhere(t, cx).into_iter().collect();
-        elsewhere.extend(self.render_peers(t, cx));
-        if any && !elsewhere.is_empty() {
-            list.push(div().h(px(4.)).flex_none().into_any_element());
-        }
-        list.extend(elsewhere);
-
+        let list = self.side_list(t, window, cx);
         div()
             .id("sidebar")
             .key_context("PwSidebar")
@@ -206,23 +152,9 @@ impl MainScreen {
             })
             .border_r_1()
             .border_color(t.line)
-            .child(
-                crate::kit::scroll_area("sidebar-scroll-area", t, move |h| {
-                    div()
-                        .id("sidebar-scroll")
-                        .track_scroll(h)
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .pt(px(6.))
-                        .pb(px(8.))
-                        .children(list)
-                        .into_any_element()
-                })
-                .fill()
-                .flex_1()
-                .min_h_0(),
-            )
+            // Only the rows on screen are built (side_list.rs); its
+            // padding is rows of its own.
+            .child(crate::kit::vlist_fill("sidebar-scroll-area", self.side.state(), t, list).flex_1().min_h_0())
             .child(
                 div()
                     .flex()
@@ -292,95 +224,7 @@ impl MainScreen {
             .into_any_element()
     }
 
-    /// Project groups and their agent rows (`index`: rows so far).
-    fn render_groups(
-        &mut self,
-        groups: &[ProjectGroup],
-        index: &mut usize,
-        focused: &Option<String>,
-        kb: bool,
-        t: &Theme,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let mut list: Vec<AnyElement> = Vec::new();
-        for (gi, g) in groups.iter().enumerate() {
-            let collapsed = self.ui.collapsed.contains(&g.key);
-            let start = *index;
-            *index += g.agents.len();
-            // `.project-group + .project-group { margin-top: 4px }`
-            if gi > 0 {
-                list.push(div().h(px(4.)).flex_none().into_any_element());
-            }
-            list.push(self.project_head(g, collapsed, t, cx).into_any_element());
-            if g.agents.is_empty() {
-                if !collapsed {
-                    let project = g.project.clone();
-                    // `.project-empty`: one quiet dashed row where an agent
-                    // row would be; the whole row opens New agent.
-                    let group = SharedString::from(format!("project-empty-{}", g.key));
-                    list.push(
-                        div()
-                            .id(SharedString::from(format!("empty-{}", g.key)))
-                            .group(group.clone())
-                            .mx(px(6.))
-                            .mb(px(4.))
-                            .h(px(32.))
-                            .px(px(9.))
-                            .flex()
-                            .items_center()
-                            .gap(px(7.))
-                            .rounded(RADIUS)
-                            .border_1()
-                            .border_dashed()
-                            .border_color(t.line_strong)
-                            .text_size(px(12.5))
-                            .text_color(t.text_3)
-                            .cursor_pointer()
-                            .hover_text(t.text, |s| s.border_color(t.text_4).bg(t.surface_2))
-                            .tooltip(tooltip("New agent in this project"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_new_agent(Some(project.clone()), window, cx)
-                            }))
-                            .child(icon("plus", 12., t.text_3).group_hover_text(group, t.text, |s| s))
-                            .child("New agent")
-                            .child(
-                                div()
-                                    .ml_auto()
-                                    .text_size(px(11.5))
-                                    .text_color(t.text_4)
-                                    .child("No agents yet"),
-                            )
-                            .into_any_element(),
-                    );
-                }
-            } else if collapsed {
-                list.push(
-                    div()
-                        .pl(px(32.))
-                        .pr(px(14.))
-                        .pb(px(6.))
-                        .text_size(px(12.))
-                        .text_color(t.text_3)
-                        .child(summarize(&g.agents))
-                        .into_any_element(),
-                );
-            } else {
-                for (i, a) in g.agents.iter().enumerate() {
-                    let selected = focused.as_deref() == Some(a.id.as_str());
-                    let cursor = kb && self.cursor.as_deref() == Some(a.id.as_str());
-                    list.push(
-                        self.agent_row(a, &g.key, start + i, selected, cursor, g.can_create, t, cx)
-                            .into_any_element(),
-                    );
-                    list.extend(self.wt_agent(a, t, cx));
-                }
-                list.extend(self.wt_others(&g.key, &g.agents, t, cx));
-            }
-        }
-        list
-    }
-
-    fn project_head(
+    pub(super) fn project_head(
         &self,
         g: &ProjectGroup,
         collapsed: bool,
@@ -559,7 +403,7 @@ impl MainScreen {
     /// its name and what it is (this Mac, an agw machine, or another
     /// machine's Pitwall: how the link is, view only), needs-you and agent
     /// counts; folds what is on it.
-    fn machine_head(&self, m: &MachineSection, collapsed: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn machine_head(&self, m: &MachineSection, collapsed: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let key = m.key.clone();
         let (agents, blocked) = (m.agents().len(), m.blocked());
         div()
@@ -636,7 +480,7 @@ impl MainScreen {
     /// projects; right-click for its menu.
     /// On another machine than this Mac (`home`), accounts aren't dragged
     /// or dropped on; another machine's Pitwall's have no menu either.
-    fn account_head(&self, sec: &AccountSection, collapsed: bool, home: bool, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn account_head(&self, sec: &AccountSection, collapsed: bool, home: bool, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
         let default = sec.account == pitwall_core::accounts::DEFAULT;
         let peer = sec.peer_name.is_some();
         let (name, sub) = if let Some(n) = &sec.peer_name {
@@ -916,7 +760,7 @@ impl MainScreen {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn agent_row(
+    pub(super) fn agent_row(
         &self,
         a: &AgentView,
         group: &str,
