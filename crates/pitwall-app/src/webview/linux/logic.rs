@@ -128,7 +128,7 @@ pub fn cairo_to_rgba(data: &[u8], width: usize, height: usize, stride: usize, op
         let Some(line) = data.get(start..start + width * 4) else {
             break;
         };
-        for px in line.chunks_exact(4) {
+        for px in line.as_chunks::<4>().0 {
             let (b, g, r) = (px[0], px[1], px[2]);
             let a = if opaque { 255 } else { px[3] };
             let straight = |c: u8| match a {

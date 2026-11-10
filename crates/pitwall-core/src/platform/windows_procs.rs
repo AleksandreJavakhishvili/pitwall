@@ -99,7 +99,7 @@ fn command_line(pid: u32) -> Option<String> {
     if len == 0 || len % 2 != 0 || header + len > buf.len() {
         return None;
     }
-    let units: Vec<u16> = buf[header..header + len].chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect();
+    let units: Vec<u16> = buf[header..header + len].as_chunks::<2>().0.iter().map(|c| u16::from_ne_bytes(*c)).collect();
     Some(String::from_utf16_lossy(&units))
 }
 
