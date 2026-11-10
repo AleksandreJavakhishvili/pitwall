@@ -45,7 +45,7 @@ fn jsonl_newest_first(dir: &Path) -> Vec<(PathBuf, u64)> {
             (p, t)
         })
         .collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.sort_by_key(|a| std::cmp::Reverse(a.1));
     v
 }
 
@@ -88,7 +88,7 @@ fn codex_recent_in(root: &Path) -> Vec<(PathBuf, u64)> {
         }
     }
     let mut files: Vec<(PathBuf, u64)> = days.iter().flat_map(|d| jsonl_newest_first(d)).collect();
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|a| std::cmp::Reverse(a.1));
     files.truncate(MAX_CODEX_FILES);
     files
 }

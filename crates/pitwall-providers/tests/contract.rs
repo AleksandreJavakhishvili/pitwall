@@ -91,7 +91,7 @@ impl Local {
         let ws = dir.path().join("ws");
         std::fs::create_dir_all(&ws).unwrap();
         // Short socket paths: Unix sockets have a small path limit.
-        let run = std::env::temp_dir().join(format!("pwc-{}", &uuid_ish()));
+        let run = std::env::temp_dir().join(format!("pwc-{}", uuid_ish()));
         std::fs::create_dir_all(&run).unwrap();
         let provider = Arc::new(LocalProvider::new(LocalConfig {
             hold_dir: run.join("hold"),
