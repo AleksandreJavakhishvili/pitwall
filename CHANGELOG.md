@@ -2,13 +2,31 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.5.2](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.2) - 2026-11-10
 
 ### Highlights
 
 - Much less CPU with many worktrees: Pitwall checks every worktree for changes about once a minute, and each git it started cost 50–100 ms of kernel time. Programs are now started by their full path, which the OS launches directly (about 30× less kernel time while git runs).
 - Review's file list scrolls smoothly with hundreds of changed files: only the rows on screen are built, and scrolling the list no longer redraws the diff.
 - Settings scrolls smoothly too, and the main screen is no longer redrawn behind Settings, About or the palette while they are open.
+
+### Fixes
+
+- **app:** Don't rediscover peers on every redraw after a failure ([`78778b0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/78778b0a06a983a4fc81325f53294a4b9d1ce477))
+- **gpui:** A cached view replays only the frame before ([`b39f65c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b39f65c039bdd15b31f28b88d3e0f15a5310aef0))
+
+### Performance
+
+- **app:** Let a cached view keep the caches inside it ([`288583e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/288583ed6d6b4d717cfaaf3a341fc4576066adef))
+- **app:** Replay the main screen under an overlay ([`b0d0791`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b0d07913e493ab5bc34e7877435a20eaee124922))
+- **app:** Build only the settings parts on screen when scrolling ([`5dc0d54`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5dc0d54d38302bf42f4d1a92143419bc3a389619))
+- **core:** Start programs by their full path ([`22814dc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/22814dc2e493ced2676d1a6aa2d65c36602426ea))
+- **app:** Draw only the review list's rows on screen ([`4d3219c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4d3219c13238b4f430ccec9c93fa63aab05912e0))
+
+### Documentation
+
+- Highlights for 0.5.2 ([`6479c60`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6479c60306257651c400c902b9a63c6a16686133))
+
 
 ## [0.5.1](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.1) - 2026-11-10
 
