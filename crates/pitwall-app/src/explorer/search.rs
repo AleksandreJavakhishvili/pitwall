@@ -509,7 +509,7 @@ impl Render for SearchPane {
                 range.map(|ix| this.render_row(ix, cx)).collect::<Vec<_>>()
             }),
         )
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .size_full()
         .px(px(4.))
         .pb(px(12.));

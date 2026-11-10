@@ -24,7 +24,7 @@ use alacritty_terminal::term::{Term, TermMode};
 use gpui::{
     actions, div, prelude::*, px, App, Bounds, ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle,
     Focusable, InputHandler, KeyBinding, KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, Task, UTF16Selection, Window,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollEvent, Task, UTF16Selection, Window,
 };
 
 use crate::element::{GridLayout, RenderCache, RenderStats, TermElement, TermFont, SCROLLBAR_W};
@@ -190,8 +190,7 @@ impl TileClock {
                         let _ = view.update(cx, |_, cx| cx.notify());
                     }
                     !empty
-                })
-                .unwrap_or(false);
+                });
             if !alive {
                 break;
             }
@@ -606,7 +605,7 @@ impl TerminalView {
     }
 
     fn on_modifiers_changed(&mut self, ev: &ModifiersChangedEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let held = ev.modifiers.secondary();
+        let held = ev.modifiers.secondary(cx);
         if held != self.cmd_held {
             self.cmd_held = held;
             if !held && self.link.take().is_some() {
@@ -707,7 +706,7 @@ impl TerminalView {
         self.scroll_by(Scroll::Bottom, cx);
     }
 
-    fn on_scroll(&mut self, ev: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_scroll(&mut self, ev: &ScrollEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.interactive() {
             return;
         }
@@ -755,7 +754,7 @@ impl TerminalView {
         if !self.interactive() {
             return;
         }
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         let layout = *self.layout.borrow();
         // Scrollbar.
         if button == MouseButton::Left && self.settings.scrollbar {
@@ -773,7 +772,7 @@ impl TerminalView {
             }
         }
         // ⌘-click (Ctrl-click off macOS) opens a link.
-        if button == MouseButton::Left && ev.modifiers.secondary() {
+        if button == MouseButton::Left && ev.modifiers.secondary(cx) {
             let checking = self.update_link(ev.position, cx);
             match self.link.as_ref().map(|(_, l)| l.clone()) {
                 Some(Link::Url(uri)) => return cx.open_url(&uri),
@@ -893,7 +892,7 @@ impl TerminalView {
                 }
             }
         }
-        self.cmd_held = ev.modifiers.secondary();
+        self.cmd_held = ev.modifiers.secondary(cx);
         if self.cmd_held {
             self.update_link(ev.position, cx);
         } else if self.link.take().is_some() {
@@ -1050,7 +1049,7 @@ impl TerminalView {
     fn toggle_search(&mut self, _: &ToggleSearch, window: &mut Window, cx: &mut Context<Self>) {
         if self.search.take().is_none() {
             self.search = Some(SearchState { query: String::new(), regex: None, current: None, error: false });
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
         }
         cx.notify();
     }
@@ -1346,7 +1345,7 @@ impl Render for TerminalView {
                 .track_focus(&self.focus)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .on_modifiers_changed(cx.listener(Self::on_modifiers_changed))
-                .on_scroll_wheel(cx.listener(Self::on_scroll))
+                .on_scroll(cx.listener(Self::on_scroll))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|v, e, w, cx| v.on_mouse_down(MouseButton::Left, e, w, cx)),
@@ -1569,7 +1568,7 @@ mod tests {
                 layout.origin.y + px(0.5 * layout.cell_h),
             )
         };
-        let cmd = Modifiers::secondary_key();
+        let cmd = cx.update(|_, cx| Modifiers::secondary_key(cx));
         // Hover with ⌘ held: checked off the main thread, then underlined.
         cx.simulate_mouse_move(at(8), None, cmd);
         cx.run_until_parked();
@@ -1611,7 +1610,8 @@ mod tests {
         cx.run_until_parked();
         let layout = view.read_with(cx, |v, _| *v.layout.borrow());
         let pos = gpui::point(layout.origin.x + px(5.5 * layout.cell_w), layout.origin.y + px(0.5 * layout.cell_h));
-        cx.simulate_click(pos, Modifiers::secondary_key());
+        let cmd = cx.update(|_, cx| Modifiers::secondary_key(cx));
+        cx.simulate_click(pos, cmd);
         cx.run_until_parked();
         let opened = opened.borrow().clone();
         assert_eq!(opened.len(), 1);

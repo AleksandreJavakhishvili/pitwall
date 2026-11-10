@@ -119,7 +119,7 @@ impl ReviewView {
             }
             _ => {}
         });
-        field.update(cx, |f, _| f.focus(window));
+        field.update(cx, |f, cx| f.focus(window, cx));
         self.dialog = Some(Dialog::Prompt {
             agent,
             name,
@@ -188,7 +188,7 @@ impl ReviewView {
                 _ => cx.notify(),
             },
         );
-        message.update(cx, |f, _| f.focus(window));
+        message.update(cx, |f, cx| f.focus(window, cx));
         let t2 = target.clone();
         self.dialog = Some(Dialog::Commit {
             target,
@@ -262,7 +262,7 @@ impl ReviewView {
 
     pub(super) fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dialog = None;
-        window.focus(&self.list_focus);
+        window.focus(&self.list_focus, cx);
         cx.notify();
     }
 

@@ -72,7 +72,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         ]);
     } else {
         b.push(KeyBinding::new("ctrl-shift-,", OpenSettings, None));
-        // What Ctrl+Shift+, types on Windows and Linux (gpui 0.2.2 drops the
+        // What Ctrl+Shift+, types on Windows and Linux (gpui drops the
         // Shift of a shifted symbol).
         b.push(KeyBinding::new("ctrl-<", OpenSettings, None));
     }
@@ -84,6 +84,7 @@ pub fn menus() -> Vec<Menu> {
     vec![
         Menu {
             name: "Pitwall".into(),
+            disabled: false,
             items: vec![
                 MenuItem::action("About Pitwall", About),
                 MenuItem::separator(),
@@ -101,10 +102,12 @@ pub fn menus() -> Vec<Menu> {
         },
         Menu {
             name: "File".into(),
+            disabled: false,
             items: vec![MenuItem::action("Close Window", CloseWindow)],
         },
         Menu {
             name: "Edit".into(),
+            disabled: false,
             items: vec![
                 MenuItem::os_action("Undo", Undo, OsAction::Undo),
                 MenuItem::os_action("Redo", Redo, OsAction::Redo),
@@ -117,10 +120,12 @@ pub fn menus() -> Vec<Menu> {
         },
         Menu {
             name: "View".into(),
+            disabled: false,
             items: vec![MenuItem::action("Enter Full Screen", ToggleFullScreen)],
         },
         Menu {
             name: "Window".into(),
+            disabled: false,
             items: vec![
                 MenuItem::action("Minimize", Minimize),
                 MenuItem::action("Zoom", Zoom),

@@ -258,7 +258,7 @@ impl Render for QuickOpen {
                     .collect::<Vec<_>>()
             }),
         )
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .h(px((self.hits.len().min(11) as f32) * ROW_H));
         let foot = |text: SharedString| {
             div()

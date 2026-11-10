@@ -146,6 +146,9 @@ mod live {
     /// to `peers/` apply live.
     #[gpui::test]
     fn the_laptop_shows_studios_agents_live(cx: &mut TestAppContext) {
+        // A real thread wakes the test scheduler; allow it.
+        cx.executor().allow_parking();
+
         let world = FakeWorld::new();
         world.add("nLAPTOP", "laptop", "alice@example.com").add("nSTUDIO", "studio", "alice@example.com");
         let (sdir, ldir) = (TempDir::new("app-peer-studio"), TempDir::new("app-peer-laptop"));

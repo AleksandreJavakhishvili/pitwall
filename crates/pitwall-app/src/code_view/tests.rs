@@ -24,7 +24,7 @@ fn setup(cx: &mut TestAppContext) -> (Entity<CodeView>, &mut VisualTestContext) 
     });
     let (host, cx) = cx.add_window_view(|_, cx| Host(cx.new(CodeView::new)));
     let view = host.read_with(cx, |h, _| h.0.clone());
-    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
     (view, cx)
 }
 

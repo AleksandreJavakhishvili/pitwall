@@ -14,6 +14,7 @@
 //! through to its owner's key bindings.
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     actions, div, fill, point, prelude::*, px, relative, size, App, Bounds, ClipboardItem, Context,
@@ -73,25 +74,23 @@ const CONTEXT: &str = "PwTextInput";
 pub fn bindings() -> Vec<KeyBinding> {
     let c = Some(CONTEXT);
     let mac = cfg!(target_os = "macos");
-    let m = |k: &str| {
-        if mac {
-            format!("cmd-{k}")
-        } else {
-            format!("ctrl-{k}")
-        }
-    };
-    let w = |k: &str| {
-        if mac {
-            format!("alt-{k}")
-        } else {
-            format!("ctrl-{k}")
-        }
-    };
+    // `KeyBinding::new` takes `&'static str` keystrokes: build them with
+    // `concat!` so both platform spellings are literals.
+    macro_rules! m {
+        ($k:literal) => {
+            if mac { concat!("cmd-", $k) } else { concat!("ctrl-", $k) }
+        };
+    }
+    macro_rules! w {
+        ($k:literal) => {
+            if mac { concat!("alt-", $k) } else { concat!("ctrl-", $k) }
+        };
+    }
     let mut b = vec![
         KeyBinding::new("backspace", Backspace, c),
         KeyBinding::new("shift-backspace", Backspace, c),
         KeyBinding::new("delete", Delete, c),
-        KeyBinding::new(&w("backspace"), WordBackspace, c),
+        KeyBinding::new(w!("backspace"), WordBackspace, c),
         KeyBinding::new("left", Left, c),
         KeyBinding::new("right", Right, c),
         KeyBinding::new("up", Up, c),
@@ -100,20 +99,20 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-right", SelectRight, c),
         KeyBinding::new("shift-up", SelectUp, c),
         KeyBinding::new("shift-down", SelectDown, c),
-        KeyBinding::new(&w("left"), WordLeft, c),
-        KeyBinding::new(&w("right"), WordRight, c),
-        KeyBinding::new(&w("shift-left"), SelectWordLeft, c),
-        KeyBinding::new(&w("shift-right"), SelectWordRight, c),
+        KeyBinding::new(w!("left"), WordLeft, c),
+        KeyBinding::new(w!("right"), WordRight, c),
+        KeyBinding::new(w!("shift-left"), SelectWordLeft, c),
+        KeyBinding::new(w!("shift-right"), SelectWordRight, c),
         KeyBinding::new("home", Home, c),
         KeyBinding::new("end", End, c),
         KeyBinding::new("shift-home", SelectHome, c),
         KeyBinding::new("shift-end", SelectEnd, c),
-        KeyBinding::new(&m("a"), SelectAll, c),
-        KeyBinding::new(&m("c"), Copy, c),
-        KeyBinding::new(&m("x"), Cut, c),
-        KeyBinding::new(&m("v"), Paste, c),
-        KeyBinding::new(&m("z"), Undo, c),
-        KeyBinding::new(&m("shift-z"), Redo, c),
+        KeyBinding::new(m!("a"), SelectAll, c),
+        KeyBinding::new(m!("c"), Copy, c),
+        KeyBinding::new(m!("x"), Cut, c),
+        KeyBinding::new(m!("v"), Paste, c),
+        KeyBinding::new(m!("z"), Undo, c),
+        KeyBinding::new(m!("shift-z"), Redo, c),
         KeyBinding::new("enter", Enter, c),
         KeyBinding::new("shift-enter", ShiftEnter, c),
         KeyBinding::new("cmd-enter", Submit, c),
@@ -166,8 +165,9 @@ impl EventEmitter<TextFieldEvent> for TextInput {}
 struct Laid {
     bounds: Bounds<Pixels>,
     /// One per logical line: its byte start in the content, its top (px,
-    /// relative to the text origin) and its wrapped layout.
-    lines: Vec<(usize, Pixels, WrappedLine)>,
+    /// relative to the text origin) and its wrapped layout (shared with
+    /// the paint: `WrappedLine` is not `Clone`).
+    lines: Rc<Vec<(usize, Pixels, WrappedLine)>>,
     line_height: Pixels,
 }
 
@@ -345,14 +345,14 @@ impl TextInput {
         &self.content[self.selected.clone()]
     }
 
-    pub fn focus(&self, window: &mut Window) {
-        window.focus(&self.focus);
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        window.focus(&self.focus, cx);
     }
 
     /// Focus it with everything selected (typing replaces the old text).
     pub fn focus_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.select_all_text(cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
     }
 
     pub fn is_focused(&self, window: &Window) -> bool {
@@ -668,7 +668,7 @@ impl TextInput {
     }
 
     fn on_mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         let at = self.offset_at_window(e.position);
         if e.click_count >= 2 {
             let (s, end) = if e.click_count == 2 {
@@ -900,13 +900,6 @@ struct Field {
     input: Entity<TextInput>,
 }
 
-impl IntoElement for Field {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 struct Prepared {
     lines: Vec<(usize, Pixels, WrappedLine)>,
     line_height: Pixels,
@@ -1036,7 +1029,7 @@ impl Element for Field {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
-        let lines = std::mem::take(&mut prep.lines);
+        let lines = Rc::new(std::mem::take(&mut prep.lines));
         let lh = prep.line_height;
         // Remember the layout first: positions below use it.
         self.input.update(cx, |f, _| {
@@ -1082,7 +1075,7 @@ impl Element for Field {
         if !sel.is_empty() && !empty {
             let sel_color = t.focus.opacity(0.5);
             let mut rects = Vec::new();
-            for (start, top, line) in &lines {
+            for (start, top, line) in lines.iter() {
                 let end = start + line.len();
                 if sel.end < *start || sel.start > end {
                     continue;
@@ -1121,7 +1114,7 @@ impl Element for Field {
             });
         }
         window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
-            for (_, top, line) in &lines {
+            for (_, top, line) in lines.iter() {
                 let _ = line.paint(
                     origin + point(px(0.), *top),
                     lh,

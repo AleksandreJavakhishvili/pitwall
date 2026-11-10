@@ -162,8 +162,8 @@ impl Viewer {
                     cx,
                 )
             }),
-            cx.subscribe_in(&search, window, |this, _, _: &Blurred, window, _| {
-                window.focus(&this.focus)
+            cx.subscribe_in(&search, window, |this, _, _: &Blurred, window, cx| {
+                window.focus(&this.focus, cx)
             }),
             cx.observe(&tree, |_, _, cx| cx.notify()),
             cx.observe(&store, |_, _, cx| cx.notify()),
@@ -222,7 +222,7 @@ impl Viewer {
         if self.pane == Pane::Search && pane == Some(Pane::Search) {
             self.search.update(cx, |s, cx| s.focus_query(window, cx));
         } else {
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
         }
         cx.notify();
     }
@@ -684,8 +684,8 @@ impl Viewer {
                     .track_focus(&focus)
                     .when(ring, |d| d.child(div().absolute().inset_0().border_1().border_color(t.focus)))
                     .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-                    .on_action(|_: &NextTab, window, _| window.focus_next())
-                    .on_action(|_: &PrevTab, window, _| window.focus_prev())
+                    .on_action(|_: &NextTab, window, cx| window.focus_next(cx))
+                    .on_action(|_: &PrevTab, window, cx| window.focus_prev(cx))
                     .on_action(cx.listener(move |this, _: &PickTab, _, cx| this.select(p4.clone(), cx)))
                     .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(p1.clone(), cx)))
@@ -942,8 +942,8 @@ impl Render for Viewer {
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::back))
-            .on_action(|_: &NextTab, window, _| window.focus_next())
-            .on_action(|_: &PrevTab, window, _| window.focus_prev())
+            .on_action(|_: &NextTab, window, cx| window.focus_next(cx))
+            .on_action(|_: &PrevTab, window, cx| window.focus_prev(cx))
             .flex_1()
             .min_w_0()
             .h_full()

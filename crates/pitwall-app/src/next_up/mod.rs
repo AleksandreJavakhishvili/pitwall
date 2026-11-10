@@ -420,7 +420,7 @@ impl NextUp {
                     .border_color(if focused { t.text_3 } else { t.line_strong })
                     .text_size(px(COMPOSE_SIZE))
                     .line_height(px(COMPOSE_LINE))
-                    .on_click(move |_, window, cx| field.read(cx).focus(window))
+                    .on_click(move |_, window, cx| field.update(cx, |f, cx| f.focus(window, cx)))
                     .child(self.field.clone())
                     .child(resize_grip("queue-grip", t.text_4)),
             )

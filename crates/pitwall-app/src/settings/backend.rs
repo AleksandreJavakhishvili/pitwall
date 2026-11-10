@@ -155,7 +155,7 @@ pub fn attach(backend: Arc<AppSettings>, cx: &mut App) {
     };
     cx.spawn(async move |cx| {
         while let Some(change) = rx.next().await {
-            let _ = cx.update(|cx| apply(change, cx));
+            cx.update(|cx| apply(change, cx));
         }
     })
     .detach();

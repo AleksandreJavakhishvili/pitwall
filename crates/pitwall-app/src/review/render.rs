@@ -5,8 +5,8 @@
 use crate::kit::Ellipsis as _;
 use crate::kit::HoverText as _;
 use gpui::{
-    anchored, deferred, div, point, prelude::*, px, relative, AnyElement, App, ClickEvent, Context,
-    Corner, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
+    anchored, deferred, div, point, prelude::*, px, relative, Anchor, AnyElement, App, ClickEvent,
+    Context, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
 };
 
 use pitwall_proto::{AgentView, FileStatus};
@@ -1086,7 +1086,7 @@ impl ReviewView {
                             .key_context("RvComposer")
                             .on_action(cx.listener(|v, _: &CancelComment, window, cx| {
                                 v.composer = None;
-                                window.focus(&v.code.focus_handle(cx));
+                                window.focus(&v.code.focus_handle(cx), cx);
                                 cx.notify();
                             }))
                             .occlude()
@@ -1303,7 +1303,7 @@ impl ReviewView {
             sel = sel.child(
                 deferred(
                     anchored()
-                        .anchor(Corner::TopLeft)
+                        .anchor(Anchor::TopLeft)
                         .position(point(px(0.), px(30.)))
                         .position_mode(gpui::AnchoredPositionMode::Local)
                         .snap_to_window()

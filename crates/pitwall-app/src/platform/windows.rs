@@ -128,7 +128,7 @@ pub fn setup_tray(cx: &mut App) -> bool {
     }));
     cx.spawn(async move |cx: &mut AsyncApp| {
         while let Some(c) = rx.next().await {
-            let _ = cx.update(|cx| match c {
+            cx.update(|cx| match c {
                 TrayCommand::Show => cx.dispatch_action(&ShowMain),
                 TrayCommand::Settings => cx.dispatch_action(&OpenSettings),
                 TrayCommand::Quit => cx.dispatch_action(&Quit),

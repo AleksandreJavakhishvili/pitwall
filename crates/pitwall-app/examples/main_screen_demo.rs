@@ -15,9 +15,7 @@
 //! - `DEMO_LOOK=glass` Glass (with `PITWALL_GLASS=lite|liquid` for the tier)
 //! - `DEMO_MOTION=0` Reduce motion
 
-use gpui::{
-    px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
-};
+use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 
 use pitwall_app::agents::AgentStore;
 use pitwall_app::main_screen::{self, demo, MainScreen};
@@ -31,7 +29,7 @@ fn main() {
             Some((w.parse().ok()?, h.parse().ok()?))
         })
         .unwrap_or((1600.0_f32, 1000.0_f32));
-    Application::new()
+    gpui_platform::application()
         .with_assets(pitwall_app::kit::Assets)
         .run(move |cx: &mut App| {
             let mode = match std::env::var("DEMO_THEME").as_deref() {

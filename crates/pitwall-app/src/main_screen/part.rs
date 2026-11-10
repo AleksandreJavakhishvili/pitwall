@@ -170,11 +170,12 @@ pub fn cached(_cx: &App) -> bool {
 }
 
 /// `part` as a cached child laid out with `style` (its outer box: the
-/// part's root element fills it).
+/// part's root element fills it). `Entity::cached` is a cached
+/// `ViewElement`: its last prepaint and paint are replayed until the part is
+/// notified (or its bounds, content mask, text style or opacity change, or
+/// the window refreshes).
 pub(super) fn slot(part: &Entity<Part>, style: StyleRefinement) -> AnyElement {
-    gpui::AnyView::from(part.clone())
-        .cached(style)
-        .into_any_element()
+    part.clone().cached(style).into_any_element()
 }
 
 impl Render for Part {

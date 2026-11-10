@@ -348,10 +348,11 @@ impl Render for Layer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if std::mem::take(&mut self.focus_next_render) {
             // Settings: its page list, for ↑/↓.
-            match &self.settings {
-                Some(s) => window.focus(&s.read(cx).focus),
-                None => window.focus(&self.focus),
-            }
+            let focus = match &self.settings {
+                Some(s) => s.read(cx).focus.clone(),
+                None => self.focus.clone(),
+            };
+            window.focus(&focus, cx);
         }
         // Hides the native glass pieces their view drew this frame without
         // (the layer draws every frame; the screen may be a replayed cache).

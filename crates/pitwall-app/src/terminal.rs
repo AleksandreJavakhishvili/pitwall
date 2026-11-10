@@ -247,14 +247,11 @@ pub fn init(store: &Entity<AgentStore>, cx: &mut App) {
         cx.background_executor()
             .timer(pitwall_term_view::terminal::FREEZE_AFTER)
             .await;
-        let alive = cx.update(|cx| {
+        cx.update(|cx| {
             if let Some(t) = cx.try_global::<Terminals>() {
                 t.entries.values().for_each(|e| e.terminal.freeze_if_unseen());
             }
         });
-        if alive.is_err() {
-            break;
-        }
     })
     .detach();
     crate::main_screen::set_terminal_slot(cx, element);
@@ -367,7 +364,7 @@ fn element(args: &TerminalArgs, window: &mut Window, cx: &mut App) -> AnyElement
     // sidebar, a menu, a field) has the keys.
     let handle = view.read(cx).focus_handle(cx);
     if args.focused && args.screen_focused && !handle.is_focused(window) {
-        window.focus(&handle);
+        window.focus(&handle, cx);
     }
     if handle.is_focused(window) || (args.focused && args.screen_focused) {
         if let Some(e) = cx.global_mut::<Terminals>().entries.get_mut(&a.id) {
@@ -436,12 +433,21 @@ mod tests {
 
     #[test]
     fn app_shortcuts_stay_the_apps() {
+        // Spelled for the OS this is built for, as `unparse` did before it
+        // took the OS.
+        let os = if cfg!(target_os = "macos") {
+            gpui::OperatingSystem::Mac
+        } else if cfg!(target_os = "windows") {
+            gpui::OperatingSystem::Windows
+        } else {
+            gpui::OperatingSystem::Linux
+        };
         let keys: Vec<String> = bindings()
             .iter()
             .map(|b| {
                 b.keystrokes()
                     .iter()
-                    .map(|k| k.unparse())
+                    .map(|k| k.unparse(os))
                     .collect::<Vec<_>>()
                     .join(" ")
             })
@@ -503,7 +509,7 @@ mod tests {
         let (pane, cx) = cx.add_window_view(|window, cx| {
             Pane(cx.new(|cx| TerminalView::new(terminal, ViewMode::Interactive, settings(13.), window, cx)))
         });
-        cx.update(|window, cx| window.focus(&pane.read(cx).0.focus_handle(cx)));
+        cx.update(|window, cx| window.focus(&pane.read(cx).0.focus_handle(cx), cx));
         cx.simulate_keystrokes("cmd-v");
         assert_eq!(&*rec.0.lock().unwrap(), b"one\rtwo");
     }

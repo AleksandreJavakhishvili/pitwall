@@ -63,7 +63,7 @@ pub fn attach(backend: Arc<AppWorkspace>, cx: &mut App) {
     };
     cx.spawn(async move |cx| {
         while let Some(job) = rx.next().await {
-            let _ = cx.update(job);
+            cx.update(job);
         }
     })
     .detach();

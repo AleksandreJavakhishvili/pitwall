@@ -21,7 +21,7 @@ use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
 use gpui::{
     fill, point, px, quad, size, App, BorderStyle, Bounds, ContentMask, Corners, Edges, Element, ElementId, Entity,
     Font, FontFeatures, FontId, FontStyle as GFontStyle, FontWeight, GlobalElementId, GlyphId, Hitbox, HitboxBehavior,
-    Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, Point, Rgba, SharedString, StrikethroughStyle, Style,
+    Hsla, InspectorElementId, LayoutId, Pixels, Point, Rgba, SharedString, StrikethroughStyle, Style, TextAlign,
     UnderlineStyle, Window,
 };
 
@@ -359,13 +359,6 @@ pub(crate) struct Prepaint {
     background: Hsla,
     scrollbar: Option<Bounds<Pixels>>,
     scale: f32,
-}
-
-impl IntoElement for TermElement {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 /// Row spans covered by a range of grid points: `(viewport row, start col, end col exclusive)`.
@@ -797,8 +790,8 @@ impl Element for TermElement {
                 strikethrough: None,
             };
             let line = window.text_system().shape_line(text.clone().into(), px(m.font_size), &[run], None);
-            let _ = line.paint_background(point(px(x), px(y)), px(m.cell_h), window, cx);
-            let _ = line.paint(point(px(x), px(y)), px(m.cell_h), window, cx);
+            let _ = line.paint_background(point(px(x), px(y)), px(m.cell_h), TextAlign::Left, None, window, cx);
+            let _ = line.paint(point(px(x), px(y)), px(m.cell_h), TextAlign::Left, None, window, cx);
         }
     }
 }

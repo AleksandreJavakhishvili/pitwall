@@ -211,7 +211,7 @@ impl MainScreen {
     pub(super) fn close_preview(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(p) = self.previews.panes.remove(agent) {
             if p.focus.contains_focused(window, cx) {
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
             }
             cx.notify();
         }
@@ -425,7 +425,7 @@ impl MainScreen {
             WebEvent::Focused => {
                 p.keys = true;
                 let f = p.focus.clone();
-                window.focus(&f);
+                window.focus(&f, cx);
             }
             WebEvent::Shortcut(_) => {}
         }
@@ -440,7 +440,7 @@ impl MainScreen {
                 v.blur();
             }
             if p.focus.contains_focused(window, cx) {
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
             }
         }
     }

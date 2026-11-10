@@ -349,9 +349,9 @@ impl Conv {
         if self.skip.is_some() {
             return;
         }
-        if self.pre.is_some() {
+        if let Some(pre) = self.pre.as_mut() {
             if name == "br" {
-                self.pre.as_mut().expect("pre").push('\n');
+                pre.push('\n');
             }
             return;
         }

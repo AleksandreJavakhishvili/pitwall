@@ -69,7 +69,7 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) {
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         self.menu = Some(CtxMenu {
             at,
             items,
@@ -91,7 +91,7 @@ impl MainScreen {
             return;
         };
         self.menu = None;
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         run(self, window, cx);
         cx.notify();
     }

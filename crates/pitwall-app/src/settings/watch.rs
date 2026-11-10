@@ -59,9 +59,7 @@ fn watch(path: PathBuf, written: std::sync::Arc<std::sync::Mutex<Option<String>>
             if ours {
                 continue;
             }
-            if cx.update(|cx| external(&text, cx)).is_err() {
-                break;
-            }
+            cx.update(|cx| external(&text, cx));
         }
     })
     .detach();

@@ -340,7 +340,7 @@ impl ReviewView {
         // Opening Review reads everything now.
         v.refresh_all(cx);
         v.start_polling(cx);
-        window.focus(&v.list_focus);
+        window.focus(&v.list_focus, cx);
         v
     }
 
@@ -832,7 +832,7 @@ impl ReviewView {
         }
         self.load_tasks(cx);
         self.sync_diff(cx);
-        window.focus(&self.list_focus);
+        window.focus(&self.list_focus, cx);
         cx.notify();
     }
 
@@ -1149,7 +1149,7 @@ impl ReviewView {
             InputEvent::Cancel => this.cancel_comment(window, cx),
             _ => cx.notify(),
         });
-        field.update(cx, |f, _| f.focus(window));
+        field.update(cx, |f, cx| f.focus(window, cx));
         self.composer = Some(Composer {
             line,
             path,
@@ -1173,13 +1173,13 @@ impl ReviewView {
         let id = a.id.clone();
         Comments::add(cx, &id, c.path.clone(), c.line, text);
         self.composer = None;
-        window.focus(&self.code.focus_handle(cx));
+        window.focus(&self.code.focus_handle(cx), cx);
         cx.notify();
     }
 
     fn cancel_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer = None;
-        window.focus(&self.code.focus_handle(cx));
+        window.focus(&self.code.focus_handle(cx), cx);
         cx.notify();
     }
 

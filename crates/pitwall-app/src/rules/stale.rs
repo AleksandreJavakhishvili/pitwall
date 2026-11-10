@@ -198,12 +198,12 @@ pub fn reapply_all<V: 'static>(
     });
     cx.spawn(async move |cx| {
         let (out, views) = task.await;
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             for v in views {
                 crate::agents::patch(v, cx);
             }
         });
-        let _ = poll.update(cx, |p, cx| {
+        poll.update(cx, |p, cx| {
             for id in &ids {
                 p.busy.remove(id);
             }
@@ -337,7 +337,7 @@ fn apply<V: 'static>(
         .spawn(async move { b.apply(&agent, false).map(|_| ()) });
     cx.spawn(async move |cx| {
         let r = task.await;
-        let _ = poll.update(cx, |p, cx| {
+        poll.update(cx, |p, cx| {
             p.busy.remove(&id);
             p.changed(cx);
             p.refresh(cx);

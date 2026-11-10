@@ -37,13 +37,13 @@ impl WallRoute {
             cx.subscribe_in(screen, window, |this, _, e: &ScreenEvent, window, cx| {
                 if let ScreenEvent::RouteChanged(r) = e {
                     if *r == Route::Wall {
-                        window.focus(&this.wall.focus_handle(cx));
+                        window.focus(&this.wall.focus_handle(cx), cx);
                     } else {
                         this.wall.update(cx, |w, _| w.stop_watching());
                         // Hidden, it can't keep the keyboard: let it go so
                         // the main screen takes it back when it draws.
                         if this.wall.focus_handle(cx).contains_focused(window, cx) {
-                            window.blur();
+                            window.blur(cx);
                         }
                     }
                 }

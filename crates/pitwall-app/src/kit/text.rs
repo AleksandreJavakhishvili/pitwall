@@ -1,5 +1,5 @@
 //! Text with CSS `letter-spacing` and the label faces (`.label`,
-//! `.status-word`, chips). GPUI 0.2.2 text runs have no tracking, so
+//! `.status-word`, chips). GPUI text runs have no tracking, so
 //! [`Tracked`] places each character at its measured advance plus the gap,
 //! as browsers do: the box is exactly as wide as the browser's. Font, size
 //! and colour come from the inherited text style, so the usual `Div`
@@ -7,7 +7,7 @@
 
 use gpui::{
     div, point, prelude::*, px, App, Bounds, Div, Element, ElementId, FontWeight, GlobalElementId,
-    Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, SharedString, Style, Styled, TextRun,
+    Hsla, InspectorElementId, LayoutId, Pixels, SharedString, Style, Styled, TextAlign, TextRun,
     Window,
 };
 
@@ -28,24 +28,18 @@ impl<E: Styled + Sized> Ellipsis for E {}
 
 /// One line of text cut with "…" to the width it gets (CSS `white-space:
 /// nowrap; overflow: hidden; text-overflow: ellipsis`). gpui 0.2.2's
-/// `truncate()` measures a text once, before a flex row shrinks it, and
-/// never cuts it; a one-line clamp keeps the smallest width it was ever
-/// given. This measures the whole line, shrinks freely, and cuts at paint
-/// time. Font, size and colour come from the inherited text style.
+/// `truncate()` measured a text once, before a flex row shrank it, and
+/// never cut it; a one-line clamp kept the smallest width it was ever
+/// given. Current gpui re-truncates on every measure (not checked against
+/// every row here), but this stays: it measures the whole line, shrinks
+/// freely, and cuts at paint time. Font, size and colour come from the
+/// inherited text style.
 pub fn one_line(text: impl Into<SharedString>) -> OneLine {
     OneLine { text: text.into() }
 }
 
 pub struct OneLine {
     text: SharedString,
-}
-
-impl IntoElement for OneLine {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl Element for OneLine {
@@ -117,20 +111,30 @@ impl Element for OneLine {
         let style = window.text_style();
         let rem = window.rem_size();
         let size = style.font_size.to_pixels(rem);
-        let mut runs = vec![style.to_run(self.text.len())];
+        let runs = vec![style.to_run(self.text.len())];
         let ts = window.text_system().clone();
         let full = ts.shape_line(self.text.clone(), size, &runs, None);
         let line = if full.width > bounds.size.width + px(0.5) {
-            let cut = cx
-                .text_system()
-                .line_wrapper(style.font(), size)
-                .truncate_line(self.text.clone(), bounds.size.width, "…", &mut runs);
+            let (cut, runs) = cx.text_system().line_wrapper(style.font(), size).truncate_line(
+                self.text.clone(),
+                bounds.size.width,
+                "…",
+                &runs,
+                gpui::TruncateFrom::End,
+            );
             ts.shape_line(cut, size, &runs, None)
         } else {
             full
         };
         window.with_content_mask(Some(gpui::ContentMask { bounds }), |window| {
-            let _ = line.paint(bounds.origin, bounds.size.height, window, cx);
+            let _ = line.paint(
+                bounds.origin,
+                bounds.size.height,
+                TextAlign::Left,
+                None,
+                window,
+                cx,
+            );
         });
     }
 }
@@ -138,9 +142,10 @@ impl Element for OneLine {
 /// A wrapping paragraph (CSS `white-space: normal`) that breaks lines only
 /// where a browser does: after spaces, after a hyphen or a dash between
 /// words, and inside a word only when the word alone is wider than the
-/// line. gpui 0.2.2's wrapper also breaks before any punctuation, which
-/// leaves a lone ")" or "." on the next line. Font, size, line height and
-/// colour come from the inherited text style; [`rich`] sets runs.
+/// line. gpui's wrapper also breaks before punctuation it doesn't count as
+/// part of a word (")", "!", "?", ";", quotes), which leaves a lone ")" on
+/// the next line. Font, size, line height and colour come from the
+/// inherited text style; [`rich`] sets runs.
 pub fn para(text: impl Into<SharedString>) -> Para {
     Para {
         text: text.into(),
@@ -195,11 +200,14 @@ pub fn rich(parts: &[(&str, Span)], color: Hsla) -> Para {
     }
 }
 
-/// gpui 0.2.2's `layout_line` merges a run into the one before it when
-/// only the font differs (it compares the colour and decorations, not the
+/// gpui 0.2.2's `layout_line` merged a run into the one before it when
+/// only the font differed (it compared the colour and decorations, not the
 /// font), so a mono or bold part of a line came out in the first part's
 /// font. Neighbours with different fonts get a colour one 10 000th of
-/// lightness apart, which no screen shows but keeps their fonts.
+/// lightness apart, which no screen shows but keeps their fonts. Current
+/// gpui compares the resolved font too (`TextSystem::font_runs`), so this
+/// is belt and braces; tests can't check it (their text system has one
+/// font).
 fn distinct_fonts(runs: &mut [TextRun]) {
     for i in 1..runs.len() {
         let (a, b) = runs.split_at_mut(i);
@@ -331,14 +339,6 @@ fn slice_runs(
 
 pub struct ParaLayout {
     lines: std::rc::Rc<std::cell::RefCell<Vec<std::ops::Range<usize>>>>,
-}
-
-impl IntoElement for Para {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl Element for Para {
@@ -477,7 +477,7 @@ impl Element for Para {
                 );
                 let origin = point(x, bounds.top() + line_h * i as f32);
                 x += line.width;
-                let _ = line.paint(origin, line_h, window, cx);
+                let _ = line.paint(origin, line_h, TextAlign::Left, None, window, cx);
                 at += len;
             }
         }
@@ -503,14 +503,6 @@ impl Tracked {
 pub struct TrackedLayout {
     chars: Vec<(char, f32)>,
     gap: f32,
-}
-
-impl IntoElement for Tracked {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl Element for Tracked {
@@ -616,7 +608,14 @@ impl Element for Tracked {
                     strikethrough: None,
                 };
                 let line = window.text_system().shape_line(s, size, &[run], None);
-                let _ = line.paint(point(x, bounds.top()), bounds.size.height, window, cx);
+                let _ = line.paint(
+                    point(x, bounds.top()),
+                    bounds.size.height,
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
             }
             x += px(w + layout.gap);
         }

@@ -419,7 +419,7 @@ impl RulesSection {
         for i in [&self.skill_name, &self.skill_desc, &self.skill_body] {
             i.update(cx, |i, cx| i.set_text("", cx));
         }
-        window.focus(&self.skill_name.focus_handle(cx));
+        window.focus(&self.skill_name.focus_handle(cx), cx);
         self.skill_error = None;
         self.skill_form = true;
         cx.notify();
@@ -484,7 +484,7 @@ impl RulesSection {
             Editing::Set(s) => (s.name.clone(), s.rule_ids.clone()),
         };
         self.set_name.update(cx, |i, cx| i.set_text(&name, cx));
-        window.focus(&self.set_name.focus_handle(cx));
+        window.focus(&self.set_name.focus_handle(cx), cx);
         self.picked = picked;
         self.editing = Some(e);
         cx.notify();

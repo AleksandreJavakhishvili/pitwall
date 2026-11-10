@@ -1,7 +1,7 @@
 //! The view in a window: scrolling, layout, selecting and copying.
 
 use gpui::{
-    point, size, Bounds, Entity, Modifiers, MouseButton, ScrollDelta, ScrollWheelEvent,
+    point, size, Bounds, Entity, Modifiers, MouseButton, ScrollDelta, ScrollEvent,
     TestAppContext, VisualTestContext,
 };
 
@@ -42,10 +42,11 @@ fn setup<'a>(
 }
 
 fn draw(cx: &mut VisualTestContext) {
+    // A test app draws its dirty windows when effects flush. (A keystroke
+    // would also draw, but puts the window in keyboard modality, where GPUI
+    // stops reporting hover, so a link would not take the click.)
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
-    // A keystroke nothing binds makes the window draw.
-    cx.simulate_keystrokes("f12");
 }
 
 fn block(cx: &mut VisualTestContext, i: usize) -> Option<Bounds<Pixels>> {
@@ -176,10 +177,10 @@ fn wide_code_and_tables_scroll_sideways(cx: &mut TestAppContext) {
     let handles = view.read_with(cx, |v, _| v.hscroll.clone());
     assert_eq!(handles.len(), 2);
     for (h, what) in handles.iter().zip(["code", "table"]) {
-        assert!(h.max_offset().width > px(100.), "{what} scrolls: {:?}", h.max_offset());
+        assert!(h.max_offset().x > px(100.), "{what} scrolls: {:?}", h.max_offset());
         let at = h.bounds().center();
         cx.simulate_mouse_move(at, None, Modifiers::none());
-        cx.simulate_event(ScrollWheelEvent {
+        cx.simulate_event(ScrollEvent {
             position: at,
             delta: ScrollDelta::Pixels(point(px(-120.), px(0.))),
             ..Default::default()
@@ -227,18 +228,18 @@ fn long_documents_scroll_to_their_end(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, 900., &long_doc());
     check_layout(&view, cx, "long");
     let scroll = view.read_with(cx, |v, _| v.scroll.clone());
-    let max = scroll.max_offset().height;
+    let max = scroll.max_offset().y;
     assert!(max > px(1000.), "{max:?}");
     let at = point(px(400.), px(300.));
     cx.simulate_mouse_move(at, None, Modifiers::none());
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: at,
         delta: ScrollDelta::Pixels(point(px(0.), px(-200.))),
         ..Default::default()
     });
     assert_eq!(scroll.offset().y, px(-200.));
     // At the end, the last paragraph is in sight.
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: at,
         delta: ScrollDelta::Pixels(point(px(0.), px(-100000.))),
         ..Default::default()

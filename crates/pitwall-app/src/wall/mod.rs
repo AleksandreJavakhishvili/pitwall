@@ -174,7 +174,7 @@ impl WallView {
             cx.notify();
         })];
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         let mut w = WallView {
             store,
             source,
@@ -444,7 +444,7 @@ impl WallView {
         };
         self.set_selected(Some(next), cx);
         self.reveal_selected();
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 

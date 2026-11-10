@@ -56,5 +56,5 @@ pub fn scrolling(id: impl Into<gpui::ElementId>, body: Div, t: &Theme) -> super:
             .into_any_element()
     })
     .min_h_0()
-    .flex_shrink()
+    .flex_shrink_1()
 }

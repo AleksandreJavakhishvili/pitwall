@@ -83,6 +83,7 @@ fn ghost_chip(t: &Theme) -> gpui::Div {
             offset: gpui::point(px(0.), px(6.)),
             blur_radius: px(20.),
             spread_radius: px(0.),
+            inset: false,
         }])
         .opacity(0.95)
         .whitespace_nowrap()
@@ -786,18 +787,18 @@ impl MainScreen {
                         this.rename = None;
                         let id = sid.clone();
                         this.update_ui(|s| s.rename_space(&id, &name), cx);
-                        window.focus(&this.focus);
+                        window.focus(&this.focus, cx);
                     }
                 }
                 InputEvent::Cancel => {
                     this.rename = None;
-                    window.focus(&this.focus);
+                    window.focus(&this.focus, cx);
                     cx.notify();
                 }
                 InputEvent::Changed => {}
             },
         ));
-        window.focus(&input.focus_handle(cx));
+        window.focus(&input.focus_handle(cx), cx);
         self.rename = Some((id.to_string(), input));
         cx.notify();
     }
@@ -856,7 +857,7 @@ impl MainScreen {
             );
         }
         self.changes_follow(cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 }

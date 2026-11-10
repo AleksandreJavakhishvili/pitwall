@@ -8,9 +8,9 @@ use std::ops::Range;
 
 use gpui::{
     anchored, canvas, deferred, div, fill, pattern_slash, point, prelude::*, px, quad, size,
-    AnyElement, App, Bounds, Context, Corner, CursorStyle, DispatchPhase, Entity, FontWeight,
+    Anchor, AnyElement, App, Bounds, Context, CursorStyle, DispatchPhase, Entity, FontWeight,
     Hitbox, HitboxBehavior, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PaintQuad, Pixels, Point, ScrollWheelEvent, ShapedLine, SharedString, TextRun, Window,
+    PaintQuad, Pixels, Point, ScrollEvent, ShapedLine, SharedString, TextAlign, TextRun, Window,
 };
 
 use super::rows::{Layout, Row, Side, FOLD_H, LINE_H};
@@ -254,7 +254,7 @@ impl Frame {
                     window.paint_quad(q);
                 }
                 for (line, origin) in &layer.lines {
-                    let _ = line.paint(*origin, LINE_HEIGHT, window, cx);
+                    let _ = line.paint(*origin, LINE_HEIGHT, TextAlign::Left, None, window, cx);
                 }
                 for q in layer.over {
                     window.paint_quad(q);
@@ -877,7 +877,7 @@ impl CodeView {
     }
 
     fn mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.readonly_at = None;
         if self.menu.take().is_some() {
             cx.notify();
@@ -1186,7 +1186,7 @@ impl CodeView {
         }
     }
 
-    fn scroll_wheel(&mut self, e: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    fn scroll_wheel(&mut self, e: &ScrollEvent, cx: &mut Context<Self>) {
         let mut d = e.delta.pixel_delta(LINE_HEIGHT);
         if e.modifiers.shift && d.x == px(0.) {
             d = point(d.y, px(0.));
@@ -1296,7 +1296,7 @@ pub(super) fn canvas_for(view: Entity<CodeView>, colors: Colors) -> impl IntoEle
                     }
                 });
             }
-            window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
+            window.on_mouse_event(move |e: &ScrollEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.should_handle_scroll(window) {
                     view.update(cx, |v, cx| v.scroll_wheel(e, cx));
                     cx.stop_propagation();
@@ -1596,7 +1596,7 @@ pub(super) fn overlays(
             deferred(
                 anchored()
                     .position(menu.at)
-                    .anchor(Corner::TopLeft)
+                    .anchor(Anchor::TopLeft)
                     .snap_to_window()
                     .child(list),
             )

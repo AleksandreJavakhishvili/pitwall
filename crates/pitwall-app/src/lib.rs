@@ -43,7 +43,7 @@ pub mod windows;
 use std::path::PathBuf;
 
 use gpui::{
-    px, size, App, AppContext, Application, Bounds, Global, TitlebarOptions,
+    px, size, App, AppContext, Bounds, Global, TitlebarOptions,
     WindowBounds, WindowHandle, WindowOptions,
 };
 
@@ -85,7 +85,7 @@ pub fn run() {
     let _probe =
         pitwall_core::shell::adopt_login_path(chosen.as_ref().ok().map(Paths::login_path_file));
 
-    let app = Application::new().with_assets(kit::Assets);
+    let app = gpui_platform::application().with_assets(kit::Assets);
     // macOS: closing the window keeps the app (and the Dock icon); the Dock
     // brings the window back. Elsewhere the last window quits (the Windows
     // tray arrives in phase 7).
@@ -200,7 +200,7 @@ pub fn run() {
             async {}
         })
         .detach();
-        cx.on_window_closed(|cx| {
+        cx.on_window_closed(|cx, _closed| {
             // Only the main window's closing forgets it (a secondary one
             // closing leaves it open).
             let main = cx.global::<AppState>().main;
@@ -337,7 +337,7 @@ fn quit_and_stop_agents(_: &QuitAndStopAgents, cx: &mut App) {
         .spawn(async move { pitwall_core::engine::lifecycle::stop_all(&engine) });
     cx.spawn(async move |cx| {
         stopping.await;
-        let _ = cx.update(|cx| cx.quit());
+        cx.update(|cx| cx.quit());
     })
     .detach();
 }

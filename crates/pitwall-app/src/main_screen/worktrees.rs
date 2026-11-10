@@ -629,9 +629,9 @@ impl MainScreen {
                 }),
             )
             .child(icon("branch", 12., t.text_2))
-            // Wrapping text clamped to one line: gpui 0.2.2 keeps the first
-            // (unbounded) measure of `nowrap` text, so `truncate()` never
-            // ellipsizes in a flexible row.
+            // One line cut with "…" by `kit::one_line` (see there): gpui
+            // 0.2.2's `truncate()` kept the first (unbounded) measure of
+            // `nowrap` text, so it never ellipsized in a flexible row.
             .child(
                 div()
                     .flex_1()

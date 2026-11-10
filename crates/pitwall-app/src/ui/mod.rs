@@ -101,7 +101,7 @@ impl MainView {
             },
         ));
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         let screen = match &content {
             Content::Live { store, .. } => {
                 let store = store.clone();
@@ -247,7 +247,7 @@ impl MainView {
             return;
         };
         let mut saved = window_state::Saved::from_bounds(window.window_bounds());
-        // gpui 0.2.2 on macOS reports the frame (title bar included) but opens
+        // gpui on macOS reports the frame (title bar included) but opens
         // windows with that size as their content: save the content size, or
         // the window grows by a title bar on every launch. Other OSes: to be
         // checked with the per-OS window work (phase 1).
@@ -398,7 +398,7 @@ fn explorer_seams(
                     // (a focus left on a viewer no longer drawn reaches
                     // nothing: ⌘P and the rest stop working).
                     if !open && e.read(cx).viewer_has_focus(window, cx) {
-                        window.blur();
+                        window.blur(cx);
                     }
                     if open {
                         s.set_route(Route::Explorer, cx);

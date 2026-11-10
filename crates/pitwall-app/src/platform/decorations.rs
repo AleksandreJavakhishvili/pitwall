@@ -40,8 +40,9 @@ const CORNER_GRAB: f32 = 20.;
 /// What a new window asks for (`WindowOptions::window_decorations`).
 ///
 /// Linux on Wayland: server-side when the compositor has the decoration
-/// protocol, client-side otherwise (gpui 0.2.2 would otherwise report
-/// server-side there although nothing draws a frame). X11: server-side.
+/// protocol, client-side otherwise (gpui 0.2.2 reported server-side there
+/// although nothing drew a frame; gpui now falls back to client-side by
+/// itself, so the probe only makes the choice explicit). X11: server-side.
 /// Debug builds: `PITWALL_DECORATIONS=client|server` overrides.
 pub fn request() -> Option<WindowDecorations> {
     #[cfg(target_os = "linux")]
@@ -187,6 +188,7 @@ pub fn frame(root: Stateful<Div>, window: &mut Window, cx: &mut App) -> AnyEleme
                 offset: gpui::point(px(0.), px(2.)),
                 blur_radius: px(8.),
                 spread_radius: px(0.),
+                inset: false,
             }])
         });
     div()

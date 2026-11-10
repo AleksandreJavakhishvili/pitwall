@@ -18,21 +18,23 @@ cargo test -p pitwall-term-view
 
 ## GPUI source
 
-**crates.io `gpui = "=0.2.2"`** (published 2025-10-22). It is the newest
-crates.io release on 2026-10-08, so no Zed git rev is used. It is
-Apache-2.0, and so are its `gpui_*` helper crates.
+**Zed's GPUI, vendored** in `third_party/zed/` from Zed commit
+`58e29b637c8670770817245e05e08bd9bd19b408` (2026-11-09), the same GPUI as
+`pitwall-app` ([third_party/zed/README.md](../../third_party/zed/README.md)).
+crates.io stops at `gpui` 0.2.2, so the workspace patches `gpui` to the
+vendored copy (`gpui = "=0.2.2"` here resolves to it). The crate also
+depends on `gpui_platform` (platform backends; `gpui_platform::application()`
+starts the examples). All Apache-2.0. Needs Rust 1.98.1
+(`rust-toolchain.toml`).
 
-- Feature `runtime_shaders`: the Metal shaders are compiled at startup. This
-  lets the crate build without Xcode's separate Metal toolchain (Xcode 26
-  doesn't install it). A release build could drop the feature once CI has
-  `xcodebuild -downloadComponent MetalToolchain`.
-- On macOS gpui pins `core-foundation = "=0.10.0"`. That moves the whole
-  workspace, Tauri included, from 0.10.1 to 0.10.0 in `Cargo.lock`
-  (`toml` 0.8.2 → 0.8.23 and `proc-macro-crate` 2.0.2 → 2.0.0 move too). The
-  workspace tests and clippy pass with it.
-- On Linux, gpui needs system libraries that CI doesn't install yet: xkbcommon
-  (+x11), wayland, xcb, fontconfig/freetype and vulkan headers. Only macOS was
-  built here.
+- Feature `runtime-shaders` (`gpui_platform/runtime_shaders`): the Metal
+  shaders are compiled at startup. This lets the crate build without
+  Xcode's separate Metal toolchain (Xcode 26 doesn't install it). Release
+  bundles turn it off and precompile them
+  ([docs/spec/gpui/packaging.md](../../docs/spec/gpui/packaging.md)).
+- On Linux, GPUI draws through wgpu (Vulkan, or OpenGL as the fallback) and
+  needs system libraries: xkbcommon (+x11), wayland, xcb,
+  fontconfig/freetype and vulkan.
 
 ## Use
 
@@ -255,18 +257,19 @@ These numbers are not like for like:
 
 | Dependency | Licence | Use |
 |---|---|---|
-| gpui 0.2.2 (+ gpui-macros, gpui_collections, gpui_util, gpui_sum_tree, gpui_refineable, gpui_media, gpui_http_client, gpui_semantic_version, gpui_util_macros) | Apache-2.0 | UI framework |
+| gpui, gpui_platform (vendored from Zed `58e29b6`, with gpui_macos, gpui_apple, gpui_windows, gpui_linux, gpui_wgpu, gpui_macros, gpui_util, gpui_shared_string, refineable, collections, sum_tree, scheduler, http_client, ztracing, …) | Apache-2.0 | UI framework |
 | alacritty_terminal 0.26 (+ vte 0.15) | Apache-2.0 (vte: Apache-2.0 OR MIT) | emulator (already in the workspace) |
 | futures 0.3 | MIT OR Apache-2.0 | change signals |
 | portable-pty 0.9 (optional, `pty`) | MIT | local PTY (already in the workspace) |
 | pitwall-hold (optional, `holder`) | Apache-2.0 (this repo) | holder adapter |
 | libc 0.2 (dev) | MIT OR Apache-2.0 | bench measurements |
 
-The whole tree of this crate (516 crates on aarch64-apple-darwin) is
-permissive: MIT and/or Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0,
-CC0-1.0, Unlicense and BSL-1.0 options. It also has two MPL-2.0 crates:
-`cbindgen`, a build-time code generator used by gpui's build script, and one
-that was already in the workspace. No GPL, LGPL or AGPL. No Zed `terminal`
+The whole tree of this crate (about 350 crates on aarch64-apple-darwin,
+dev dependencies included) is permissive: MIT and/or Apache-2.0, BSD-2/3,
+Zlib, Unicode-3.0, 0BSD, Unlicense and BSL-1.0 options. It also has two
+MPL-2.0 crates: `cbindgen`, a build-time code generator used by
+`gpui_apple`'s build script, and `option-ext` (through `dirs-sys`, from
+Zed's font-kit fork), which was already in the workspace. No GPL, LGPL or AGPL. No Zed `terminal`
 or `terminal_view`.
 
 ## Postponed (in-house work, not dropped)
@@ -297,7 +300,9 @@ or `terminal_view`.
   should ship the static TTFs and call `register_fonts`; until then Menlo is
   used. Bold synthesis for fonts without a bold face isn't done either.
 - **Emoji and curly underline** sizing: tune to match xterm (see above).
-- **Accessibility.** GPUI 0.2.2 has no accessibility tree.
+- **Accessibility.** The view sets no accessibility roles or labels. GPUI
+  has an AccessKit tree now (`.role(..)`, `.aria_label(..)`); a terminal
+  would also need its text exposed.
 - **Linux primary selection** (middle-click paste) and copy-on-select by
   default (`ViewSettings::copy_on_select` exists, off by default).
 - **Wall tile details.**
@@ -307,5 +312,5 @@ or `terminal_view`.
     size actions.
 - **Other platforms.** Only macOS was built and run here. Linux and Windows
   aren't built or tested yet, and Linux CI needs gpui's system libraries.
-- **Release shaders.** Precompiled Metal shaders (drop `runtime_shaders`)
+- **Release shaders.** Precompiled Metal shaders (drop `runtime-shaders`)
   need the Metal toolchain on the build machine.

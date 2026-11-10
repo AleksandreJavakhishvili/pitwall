@@ -11,7 +11,7 @@
 //! - `DEMO_DOWN=3` move the selection down this many rows
 
 use gpui::{
-    div, prelude::*, px, size, App, AppContext, Application, Bounds, Context, Entity, IntoElement,
+    div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, IntoElement,
     Render, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 
@@ -44,7 +44,7 @@ fn main() {
             Some((w.parse().ok()?, h.parse().ok()?))
         })
         .unwrap_or((1400.0_f32, 900.0_f32));
-    Application::new()
+    gpui_platform::application()
         .with_assets(pitwall_app::kit::Assets)
         .run(move |cx: &mut App| {
             let mode = match std::env::var("DEMO_THEME").as_deref() {
