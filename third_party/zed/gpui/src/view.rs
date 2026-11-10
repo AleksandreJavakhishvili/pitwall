@@ -267,6 +267,8 @@ pub struct ViewElement<V: View> {
     view: Option<V>,
     entity_id: Option<EntityId>,
     cached_style: Option<StyleRefinement>,
+    /// Pitwall patch: see [`ViewElement::keep_inner_caches`].
+    keep_inner_caches: bool,
     #[cfg(feature = "profiler")]
     view_type_name: &'static str,
     #[cfg(debug_assertions)]
@@ -289,6 +291,7 @@ impl<V: View> ViewElement<V> {
         ViewElement {
             entity_id,
             cached_style: None,
+            keep_inner_caches: false,
             #[cfg(feature = "profiler")]
             view_type_name,
             view: Some(view),
@@ -308,6 +311,16 @@ impl<V: View> ViewElement<V> {
     /// entity-backed by construction.
     pub(crate) fn cached(mut self, style: StyleRefinement) -> Self {
         self.cached_style = Some(style);
+        self
+    }
+
+    /// Pitwall patch: when this cached view renders again, the cached views
+    /// inside it that weren't notified still replay their last frame, as
+    /// they do inside an uncached view. By default a cached view that
+    /// renders again renders every cached view inside it too, as
+    /// [`Window::refresh`] does. A window refresh still renders them all.
+    pub fn keep_inner_caches(mut self) -> Self {
+        self.keep_inner_caches = true;
         self
     }
 }
@@ -411,6 +424,7 @@ impl<V: View> Element for ViewElement<V> {
             let start = window.window_profiler.begin_view();
             let prepainted = prepaint_view(
                 entity_id,
+                self.keep_inner_caches,
                 global_id,
                 bounds,
                 element,
@@ -518,6 +532,7 @@ fn request_layout_component(
 #[inline(never)]
 fn prepaint_view(
     entity_id: EntityId,
+    keep_inner_caches: bool,
     global_id: Option<&GlobalElementId>,
     bounds: Bounds<Pixels>,
     element: &mut Option<AnyElement>,
@@ -559,7 +574,9 @@ fn prepaint_view(
                     return (None, element_state);
                 }
 
-                let refreshing = mem::replace(&mut window.refreshing, true);
+                // Pitwall patch: `keep_inner_caches` leaves the flag as it is.
+                let refreshing = window.refreshing;
+                window.refreshing = refreshing || !keep_inner_caches;
                 let prepaint_start = window.prepaint_index();
                 let (element, accessed_entities) = cx.detect_accessed_entities(|cx| {
                     let mut element = render(window, cx);
