@@ -28,7 +28,7 @@ use gpui::{
 
 use pitwall_core::engine::Task as AgentTask;
 use pitwall_core::vcs::git::FileChange;
-use pitwall_proto::{AgentView, ProjectWorktrees};
+use pitwall_proto::AgentView;
 
 use crate::agents::{group_by_project, AgentStore, ProjectGroup};
 use crate::kit::{InputEvent, TextInput};
@@ -170,7 +170,7 @@ pub struct ReviewView {
     task_scope: HashMap<String, Option<String>>,
     tasks: Vec<AgentTask>,
     tasks_for: Option<String>,
-    projects: Vec<ProjectWorktrees>,
+    projects: model::Worktrees,
     /// The window's worktree list, shared with the sidebar and Changes.
     wt_list: Entity<crate::main_screen::wt_list::WorktreeList>,
     wt_open: HashSet<String>,
@@ -302,7 +302,7 @@ impl ReviewView {
             task_scope: HashMap::new(),
             tasks: Vec::new(),
             tasks_for: None,
-            projects,
+            projects: model::Worktrees::new(projects),
             wt_list,
             wt_open: HashSet::new(),
             wt_files: HashMap::new(),
@@ -534,8 +534,7 @@ impl ReviewView {
     /// The window's list changed.
     fn worktrees_taken(&mut self, cx: &mut Context<Self>) {
         let projects = self.wt_list.read(cx).projects.clone();
-        if self.projects != projects {
-            self.projects = projects;
+        if self.projects.set(projects) {
             // A shown worktree that left the list: nothing.
             if let Sel::Worktree { key, .. } = &self.sel {
                 if !self.projects.is_empty() && self.wt_ref(key).is_none() {
