@@ -4,54 +4,69 @@ Pitwall is Apache-2.0. The GPUI app may only use permissively licensed
 crates (MIT, Apache-2.0, BSD, ISC, Zlib, CC0, Unicode and the like; MPL-2.0
 only as a build tool, never linked). The rules:
 
-- From Zed, only the `gpui` crate and its own sub-crates published with it
-  (`gpui_*`, `gpui-macros`, all Apache-2.0). Zed's other crates (`ui`,
+- From Zed, only `gpui` and the Apache-2.0 crates it needs, vendored in
+  `third_party/zed/` (listed below). Zed's other crates (`ui`,
   `theme`, `editor`, `terminal`, `terminal_view`, `workspace`, `picker`,
   `menu`, `settings`, …) are **GPL-3.0**: never a dependency, never a source
   to copy or paraphrase. What they would provide is built in-house
   ([in-house.md](in-house.md)).
 - Every new dependency is checked before it lands, and this file is
-  updated (the table at the end is generated from `cargo metadata`; see
-  "Re-checking").
+  updated (the crate tables are generated from `cargo tree` / `cargo
+  metadata`; see "Re-checking").
 
 ## The GPUI version
 
-**Choice: `gpui = "=0.2.2"` from crates.io** (published by Zed's crates.io
-team, 2025-10-22, Apache-2.0), pinned exactly in
-`crates/pitwall-app/Cargo.toml`.
+**Choice: Zed's GPUI, vendored** in `third_party/zed/` from Zed commit
+`58e29b637c8670770817245e05e08bd9bd19b408` (2026-11-09): `gpui` and the 20
+crates it needs from Zed's repository (`gpui_platform`, `gpui_macos`,
+`gpui_apple`, `gpui_windows`, `gpui_linux`, `gpui_wgpu`, `gpui_web`,
+`gpui_ios`, `gpui_macros`, `gpui_util`, `gpui_shared_string`, `refineable`,
+`collections`, `sum_tree`, `scheduler`, `http_client`, `bench_metrics`,
+`ztracing`, `ztracing_macro`, `zlog`), all Apache-2.0
+([third_party/zed/README.md](../../../third_party/zed/README.md)).
 
-- It is the newest `gpui` release on crates.io. A crates.io release means
-  reproducible builds, no git dependency and a published licence per crate.
-- `pitwall-term-view` (built in parallel) pins the same `=0.2.2`. Two GPUI
-  versions in one app are impossible (their types differ), so the two
-  crates always move together.
-- It is a year behind Zed's main branch. Alternatives, if 0.2.2 blocks
-  something:
-  1. **A pinned Zed git rev**, using only `crates/gpui` (and the Apache-2.0
-     sub-crates it needs) via `gpui = { git = "https://github.com/zed-industries/zed", rev = "<sha>" }`.
-     Cargo resolves only the crates gpui depends on; still check that no GPL
-     crate enters `Cargo.lock`.
-  2. **`gpui-pre`** (Apache-2.0): weekly crates.io snapshots of Zed's gpui
-     (0.3.8 = zed@279fe07, 2026-10-05), published by a third party (the
-     `gpui-component` maintainer), not by Zed. Newer API, but an unofficial
-     channel; would need its own review of each snapshot.
-  Decision point: start of phase 1 and phase 2 (text input, terminal),
-  together with `pitwall-term-view`.
-- gpui's `runtime_shaders` feature is on by default in `pitwall-app` (no
-  Metal toolchain needed to build; [packaging.md](packaging.md)).
+- The workspace `Cargo.toml` points `gpui` there with `[patch.crates-io]`,
+  so `gpui = "=0.2.2"` in the crates' manifests resolves to the vendored
+  copy (its manifest still says 0.2.2). `pitwall-app` and
+  `pitwall-term-view` also depend on `gpui_platform` by path (it provides
+  `gpui_platform::application()`). The vendored crates are excluded from
+  the workspace (`exclude = ["third_party"]`): their tests and lints aren't
+  run.
+- Why: crates.io stops at `gpui` 0.2.2 (2025-10-22), a year behind Zed. On
+  macOS 26 with M-series chips 0.2.2 blocked the main thread in
+  `-[CAMetalLayer nextDrawable]` (~33 ms a frame: 30 fps, laggy input and
+  scrolling). Zed fixed it with `CAMetalDisplayLink` (Zed PR #65472), which
+  this GPUI has, along with a year of other fixes.
+- Pitwall's changes are in
+  [third_party/zed/PATCHES.md](../../../third_party/zed/PATCHES.md). Of the
+  patches Pitwall made to 0.2.2, four are upstream now and two are
+  re-applied.
+- Rust 1.98.1 (`rust-toolchain.toml`), which this GPUI needs.
+- `pitwall-term-view` uses the same GPUI. Two GPUI versions in one app are
+  impossible (their types differ), so the two crates always move together.
+- Only the Zed crates listed above. Updating means re-vendoring at a newer
+  commit and re-applying PATCHES.md (README there); check the new tree's
+  licences the same way (below) and that no GPL crate enters `Cargo.lock`.
+- The platform crates' `runtime_shaders` feature (through `gpui_platform`)
+  is on by default in `pitwall-app` (no Metal toolchain needed to build;
+  [packaging.md](packaging.md)).
+
+Before the upgrade Pitwall pinned crates.io `gpui = "=0.2.2"` with patches
+in `third_party/gpui`. The alternatives considered then were a Zed git rev
+and `gpui-pre` (third-party weekly crates.io snapshots of Zed's gpui);
+vendoring a Zed commit keeps the build off a git dependency for GPUI itself
+and lets Pitwall patch it.
 
 ## gpui-component
 
 `gpui-component` (Longbridge, Apache-2.0) is a component library for GPUI.
 
-| Release | GPUI it builds on | Usable with the pin |
+| Release | GPUI it builds on | Usable |
 |---|---|---|
-| 0.3.x – 0.5.1 (Oct 2025 – Feb 2026) | `gpui ^0.2.2` (crates.io) | yes |
+| 0.3.x – 0.5.1 (Oct 2025 – Feb 2026) | `gpui ^0.2.2` (crates.io) | no: the patch gives it the vendored GPUI, whose API differs |
 | 0.6.0 – 0.7.1 (Sep – Oct 2026) | `gpui-pre ^0.3` | no (would bring a second GPUI) |
 
-Not used in phase 0. Phase 1 may take components from 0.5.1 after checking
-its full dependency tree the same way (it pulls tree-sitter grammars,
-`markdown`, `lsp-types`, … some optional).
+Not used: the kit is built in-house ([in-house.md](in-house.md)).
 
 ## Candidate crates named in the spec
 
@@ -92,19 +107,68 @@ Points worth knowing:
 Fonts (Inter, Barlow Condensed, JetBrains Mono, OFL-1.1) and the Material
 Icon Theme subset (MIT) are already in `LICENSES/`.
 
+## The GPUI upgrade (Zed 58e29b6, 2026-11)
+
+Moving from crates.io 0.2.2 to the vendored GPUI added 127 crates (all
+targets, `pitwall-app` over normal and build edges, against the previous
+`Cargo.lock`). All are permissive; none is GPL, LGPL or AGPL-only. Points
+worth knowing:
+
+- The vendored Zed crates (`gpui_*`, `refineable`, `collections`,
+  `sum_tree`, `scheduler`, `http_client`, `ztracing`, …) are Apache-2.0.
+- Linux draws through `wgpu` (MIT OR Apache-2.0, `gpui_wgpu`; Vulkan,
+  OpenGL as the fallback) instead of `blade`. `wgpu` and `naga` come from
+  a git revision of gfx-rs/wgpu that Zed pins, not crates.io. macOS draws
+  with Metal (`gpui_apple`), Windows with DirectX (`gpui_windows`); neither
+  links `wgpu`.
+- Zed's forks are git dependencies at pinned revisions now:
+  `zed-font-kit` (all targets), `zed-xim` and `oo7` (Linux). Their
+  upstreams' licences are unchanged (MIT, MIT OR Apache-2.0).
+- AccessKit (`accesskit`, `accesskit_macos`, `accesskit_windows`,
+  `accesskit_unix` and the `atspi` crates on Linux: MIT OR Apache-2.0):
+  GPUI's accessibility tree.
+- ICU4X 2 (`icu_*`, `zerovec`, `yoke`, `tinystr`: Unicode-3.0): gpui
+  uses `icu_segmenter` for text segmentation.
+- Still MPL-2.0: `cbindgen` (build-time, `gpui_apple`'s build script) and
+  `option-ext` (through `dirs-sys`, from `zed-font-kit`; already in the
+  tree before the upgrade).
+- `xattr` 0.2 is gone, so the `libc < 0.2.190` cap in
+  `crates/pitwall-app/Cargo.toml` (below) may no longer be needed.
+- `core-foundation` is no longer pinned `=0.10.0` by gpui (the lock still
+  has 0.10.0).
+
+| Licence | Count | Crates |
+|---|---|---|
+| MIT OR Apache-2.0 | 37 | accesskit 0.24.1, accesskit_atspi_common 0.19.1, accesskit_consumer 0.38.0, accesskit_macos 0.26.3, accesskit_unix 0.22.1, accesskit_windows 0.34.0, allocator-api2 0.2.21, cosmic-text 0.19.0, dirs 6.0.0, dirs-sys 0.5.0, document-features 0.2.12, enumn 0.1.14, font-types 0.11.3, gpu-allocator 0.28.0, hash32 0.3.1, hashbrown 0.16.1, heapless 0.9.3, litrs 1.0.1, naga 30.0.0, naga-types 30.0.0, pastey 0.2.3, polycool 0.4.0, presser 0.3.1, read-fonts 0.37.0, renderdoc-sys 1.1.0, roxmltree 0.21.2, serde_bytes 0.11.19, skrifa 0.40.0, smol_str 0.3.7, wgpu 30.0.0, wgpu-core 30.0.0, wgpu-core-deps-linux-android-bsd 30.0.0, wgpu-hal 30.0.0, wgpu-naga-bridge 30.0.0, wgpu-sync 30.0.0, wgpu-types 30.0.0, windows-registry 0.6.1 |
+| MIT | 29 | ashpd 0.13.13, calloop 0.14.5, calloop-wayland-source 0.4.1, convert_case 0.10.0, derive_more 2.1.1, derive_more-impl 2.1.1, harfrust 0.5.2, imagesize 0.14.0, objc-sys 0.3.5, objc2 0.5.3, objc2-app-kit 0.2.2, objc2-foundation 0.2.2, oo7 0.6.0, ordered-float 5.5.1, phf 0.13.1, phf_generator 0.13.1, phf_macros 0.13.1, phf_shared 0.13.1, spin 0.10.1, strum 0.28.0, strum_macros 0.28.0, taffy 0.15.0, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, which 8.0.6, xim-parser 0.2.1, zbus-lockstep 0.5.2, zbus-lockstep-macros 0.5.2, zbus_xml 5.2.1 |
+| Apache-2.0 | 19 | codespan-reporting 0.13.1, collections 0.1.0, derive_refineable 0.1.0, gpui_apple 0.1.0, gpui_linux 0.1.0, gpui_macos 0.1.0, gpui_macros 0.1.0, gpui_platform 0.1.0, gpui_shared_string 0.1.0, gpui_util 0.1.0, gpui_wgpu 0.1.0, gpui_windows 0.1.0, http_client 0.1.0, refineable 0.1.0, scheduler 0.1.0, spirv 0.4.0+sdk-1.4.341.0, sum_tree 0.1.0, ztracing 0.1.0, ztracing_macro 0.1.0 |
+| Unicode-3.0 | 15 | icu_collections 2.4.0, icu_locale_core 2.4.0, icu_locale_fallback 2.4.0, icu_locale_fallback_data 2.4.0, icu_normalizer 2.4.0, icu_normalizer_data 2.4.0, icu_properties 2.4.0, icu_properties_data 2.4.0, icu_provider 2.4.0, icu_segmenter 2.4.0, icu_segmenter_data 2.4.0, tinystr 0.8.5, yoke 0.8.4, zerovec 0.11.9, zerovec-derive 0.11.7 |
+| Apache-2.0 OR MIT | 13 | atspi 0.29.0, atspi-common 0.13.0, atspi-proxies 0.13.0, bit-set 0.11.1, bit-vec 0.10.1, ctor 1.0.13, kurbo 0.13.1, linebender_resource_handle 0.1.1, link-section 0.19.3, linktime-proc-macro 0.2.3, resvg 0.46.0, svgtypes 0.16.2, usvg 0.46.0 |
+| Zlib OR Apache-2.0 OR MIT | 5 | objc2-core-text 0.3.2, objc2-core-video 0.3.2, objc2-security 0.3.2, objc2-uniform-type-identifiers 0.3.2, objc2-user-notifications 0.3.2 |
+| Apache-2.0 OR MIT OR Zlib | 2 | macro_rules_attribute 0.2.3, macro_rules_attribute-proc_macro 0.2.3 |
+| Apache-2.0/MIT | 2 | flume 0.12.0, pollster 0.4.0 |
+| MIT/Apache-2.0 | 2 | num-bigint-dig 0.9.1, unicode-properties 0.1.3 |
+| BSD-2-Clause OR MIT OR Apache-2.0 | 1 | mach2 0.6.0 |
+| MIT OR Apache-2.0 OR Zlib | 1 | glow 0.18.0 |
+| Zlib | 1 | foldhash 0.2.0 |
+
+`gpui` itself keeps the name and version 0.2.2, so it isn't in the table.
+
 ## Re-checking
 
 ```sh
 # licences of everything pitwall-app links, per target
 for t in aarch64-apple-darwin x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
-  cargo metadata --format-version 1 --filter-platform $t
-done
+  cargo tree -p pitwall-app -e normal,build --target $t --prefix none --format '{p}|{l}'
+done | sort -u
 ```
 
-Walk `resolve.nodes` from `pitwall-app` over normal and build edges, read
-each package's `license`, and diff against the table below. Anything not
-clearly permissive is discussed before it lands. A `cargo-deny` config is a
-good follow-up once the Tauri app is gone.
+Diff the licences against the tables here. `cargo tree` resolves features
+per package; `cargo metadata` unifies them across the workspace (dev
+dependencies included), so walking its `resolve.nodes` also lists crates
+the app doesn't link (`criterion`, `proptest`, … through test-only
+features). Anything not clearly permissive is discussed before it lands.
+There is no `cargo-deny` config yet; one is a good follow-up.
 
 ## Appendix: new crates by licence (phase 0)
 

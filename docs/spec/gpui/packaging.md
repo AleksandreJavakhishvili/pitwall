@@ -38,8 +38,8 @@ sidecars (a nested cargo build would run twice per workspace build):
 
 GPUI compiles its Metal shaders at build time with Xcode's `metal` tool,
 which Xcode 26 ships as a separate download (`xcodebuild -downloadComponent
-MetalToolchain`). `pitwall-app` turns on gpui's `runtime_shaders` by default
-(feature `runtime-shaders`), so `cargo build`, tests and clippy need no Metal
+MetalToolchain`). `pitwall-app` turns on `runtime_shaders` in
+`gpui_platform` by default (feature `runtime-shaders`), so `cargo build`, tests and clippy need no Metal
 toolchain; shaders compile when the first window opens (a few ms). Release
 builds use `--no-default-features` (precompiled shaders) with the toolchain
 installed on the CI runner: `release.yml` checks `xcrun -sdk macosx metal
@@ -49,8 +49,10 @@ holds no Metal source (`using namespace metal;` is only embedded with
 runtime shaders). The `.metallib` is architecture-independent, so one
 toolchain serves both halves of the universal build. Locally without the
 toolchain, `scripts/package-app.sh --runtime-shaders` makes a test bundle. Windows compiles HLSL with `fxc.exe` from the
-Windows SDK at build time (gpui's build script finds it; `GPUI_FXC_PATH`
-overrides). Linux uses WGSL through blade/Vulkan, checked at build time.
+Windows SDK at build time (`gpui_windows`'s build script finds it;
+`GPUI_FXC_PATH` overrides). Linux draws through wgpu (`gpui_wgpu`: Vulkan,
+or OpenGL as the fallback) with WGSL shaders compiled when the renderer
+starts.
 
 ## Bundles
 

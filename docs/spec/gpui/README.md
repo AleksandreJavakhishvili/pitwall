@@ -74,11 +74,11 @@ Later phases add `platform/` (badge, tray, notifications, glass, single
 instance), `kit/` (the in-house component set, [in-house.md](in-house.md))
 and one module per screen (`ui/wall`, `ui/review`, `ui/explorer`, …).
 
-Dependencies: `gpui` (Apache-2.0, pinned `=0.2.2`), `futures` (the bridge
-channel), `serde`/`serde_json`, and Pitwall's own crates. `gpui-component`
-is Apache-2.0 and allowed; its releases up to 0.5.1 build on gpui 0.2.2,
-later ones on a different GPUI (`gpui-pre`). It is not used in phase 0;
-phase 1 decides per component ([in-house.md](in-house.md), [licensing.md](licensing.md)).
+Dependencies: `gpui` and `gpui_platform` (Apache-2.0, Zed's GPUI vendored
+in `third_party/zed/` at Zed commit `58e29b6`, 2026-11-09), `futures` (the
+bridge channel), `serde`/`serde_json`, and Pitwall's own crates.
+`gpui-component` is Apache-2.0 and allowed, but no release builds on this
+GPUI; the kit is in-house ([in-house.md](in-house.md), [licensing.md](licensing.md)).
 
 ### Hosting the engine
 
@@ -192,7 +192,7 @@ Writes are debounced and done on the background executor, atomically
 
 - Main window: title, 1400×900 default, 640×480 minimum, bounds saved
   0.5 s after the last move or resize to `app-windows.json` and restored if
-  still on a connected display (done). gpui 0.2.2 on macOS reports the frame
+  still on a connected display (done). GPUI on macOS reports the frame
   but opens with that size as content, so the content size is saved.
 - Closing main: macOS keeps the app (Dock reopens it); Linux quits;
   Windows hides to the tray once the tray exists (phase 7). Same as
@@ -203,25 +203,28 @@ Writes are debounced and done on the background executor, atomically
 ## Accessibility gap
 
 The web view gives the current UI an accessibility tree for free (ARIA
-labels, roles, focus order). **GPUI 0.2.2 exposes none**: VoiceOver,
-Narrator and Orca see an empty window. Plan:
+labels, roles, focus order). GPUI 0.2.2 exposed none: VoiceOver, Narrator
+and Orca saw an empty window. **GPUI at the vendored commit has one**: it
+integrates AccessKit (macOS, Windows, and AT-SPI on Linux), and elements
+take `.role(..)`, `.aria_label(..)`, `.aria_description(..)` and friends
+(`gpui/src/_accessibility.rs`). Pitwall doesn't set them yet. Plan:
 
 1. Keyboard-complete from phase 1: every action reachable without a mouse,
    visible focus rings, logical tab order (`tab_index`, focus handles).
 2. Contrast, text scaling (respect the OS text size), Reduce motion and
    Reduce transparency in phase 6.
-3. A screen-reader bridge in phase 8: either Zed upstream's work, if it
-   lands in a gpui release, or an in-house AccessKit (MIT/Apache-2.0)
-   adapter fed from Pitwall's own view tree (roles and labels declared next
-   to each component in `kit/`). Prototype it on macOS first.
+3. A screen-reader bridge: GPUI's AccessKit integration (above), with
+   roles and labels declared next to each component in `kit/`. Try it on
+   macOS first.
 4. The switch (phase 9) needs a decision: ship with step 3 done, or accept a
    documented, time-boxed regression. Open question for the maintainer.
 
 ## Website demo
 
 The website (`website/`) embeds the React UI built against the browser mock
-(`src/mock*.ts`, `src/lib/demoBridge.ts`, `?demo=1`). GPUI has no web
-target, so the demo keeps that React build. Since the switch the React code
+(`src/mock*.ts`, `src/lib/demoBridge.ts`, `?demo=1`). GPUI 0.2.2 had no
+web target (the vendored GPUI has a wasm backend, `gpui_web`, not tried),
+so the demo keeps that React build. Since the switch the React code
 is demo-only (no Tauri imports; [src/README.md](../../../src/README.md)),
 frozen except to follow visible changes; screenshots come from the GPUI app.
 
@@ -247,12 +250,12 @@ OSes and the app usable for that slice in a separate `PITWALL_HOME`.
 
 | Risk | Mitigation |
 |---|---|
-| **GPUI API churn**: crates.io `gpui` is 0.2.2 (Oct 2025); Zed's main moves weekly | Pin `=0.2.2` exactly; one upgrade per phase at most, in its own commit; `pitwall-term-view` and `pitwall-app` move together (one gpui in the workspace) |
-| GPUI releases on crates.io stall | Fall back to a pinned Zed git rev (gpui crate only), or the `gpui-pre` snapshots; [licensing.md](licensing.md) |
+| **GPUI API churn**: crates.io stops at `gpui` 0.2.2 (Oct 2025); Zed's main moves weekly | GPUI vendored from one Zed commit (`third_party/zed/`); an upgrade is a re-vendor in its own commit, with Pitwall's patches re-applied (`third_party/zed/PATCHES.md`); `pitwall-term-view` and `pitwall-app` move together (one gpui in the workspace) |
+| Vendored GPUI drifts from Zed | Re-vendor when a fix is needed (as for frame pacing on macOS 26, [licensing.md](licensing.md)); keep PATCHES.md short so re-applying stays cheap |
 | **Licensing**: accidental GPL code or dependency | Only `gpui` from Zed; licence of every new dependency recorded in licensing.md and reviewed on lockfile changes; clean-room rule for in-house components |
 | Accessibility regression | Plan above; decision before phase 9 |
 | Platform gaps in GPUI (badge, tray, notifications, vibrancy) | Small in-house platform modules ([platform.md](platform.md)) |
-| Build cost: GPUI adds ~400 crates; Linux needs X11/Wayland/Vulkan dev packages | CI caches (WebKitGTK and Tauri's ~180 crates went with the switch) |
+| Build cost: GPUI adds ~400 crates and needs Rust 1.98.1; Linux needs X11/Wayland/Vulkan dev packages | CI caches (WebKitGTK and Tauri's ~180 crates went with the switch) |
 | Two apps on one data folder | `home.rs` guard: refuses while another Pitwall answers on the folder's CLI socket |
 | Text input, IME, selection quality | Built and tested in phase 1 before any screen depends on it |
 

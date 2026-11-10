@@ -113,7 +113,7 @@ Need: an agent started a dev server; open it without copying the address.
   it (menu, popover, palette, dialog, toast, tooltip) overlaps it, it is
   swapped for a snapshot of itself drawn in its place, and comes back when
   the overlay goes (a GPUI patch reports the frame's hitboxes in paint
-  order: `third_party/gpui/PATCHES.md`).
+  order: `third_party/zed/PATCHES.md`).
 - Keyboard: a click into the page gives it the keys; Pitwall's shortcuts
   still work from there (dispatched from the preview; the page keeps copy,
   paste, cut, select all, undo, redo). Esc (after the page has it too), a

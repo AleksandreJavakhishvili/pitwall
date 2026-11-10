@@ -134,7 +134,7 @@ marks terminal items. Section 36 lists each component once.
 
 ## 7. Drag and drop (agents)
 
-- [ ] Pointer-driven DnD (not HTML5), 5 px threshold, floating ghost label, Esc cancels, window blur cancels (`src/lib/dnd.ts`) [in-house: drag and drop] BLOCKED: gpui 0.2.2 starts a drag after its private 2 px DRAG_THRESHOLD; 5 px is not settable
+- [ ] Pointer-driven DnD (not HTML5), 5 px threshold, floating ghost label, Esc cancels, window blur cancels (`src/lib/dnd.ts`) [in-house: drag and drop] BLOCKED: GPUI (at the vendored commit, as in 0.2.2) starts a drag after its private 2 px `DRAG_THRESHOLD` (`gpui/src/elements/div.rs`); 5 px is not settable without a GPUI patch
 - [x] Drag sources: sidebar rows, rail items, pane headers, chips, Wall tiles (`src/lib/dnd.ts`) [in-house: drag and drop]
 - [x] Drop targets: pane (left/right/top/bottom split zone or centre, edge 28 %), space area (auto-place), space tab, "+" tab (new space) (`src/lib/dnd.ts`, `src/layout/tree.ts`) [in-house: drag and drop]
 - [x] Drop preview overlay on the pane: "Split <side>", "Swap", "Show here", "No room · adds as a chip" (`src/components/PaneView.tsx`) [in-house: drag and drop]
