@@ -13,7 +13,7 @@ use std::sync::{Arc, OnceLock};
 use gpui::{
     canvas, fill, font, outline, point, prelude::*, px, size, App, BorderStyle, Bounds, Font,
     FontFeatures, FontStyle, FontWeight, Hsla, Pixels, Point, ShapedLine, SharedString,
-    StrikethroughStyle, TextRun, UnderlineStyle, Window,
+    StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, Window,
 };
 
 use super::screen::{resolve, Row, Screen, TermColors};
@@ -70,7 +70,7 @@ pub fn screen_view(screen: &Screen, opts: ScreenOpts) -> impl IntoElement {
                 window.paint_quad(fill(b, c));
             }
             for (origin, line) in p.lines {
-                let _ = line.paint(origin, p.line_h, window, cx);
+                let _ = line.paint(origin, p.line_h, TextAlign::Left, None, window, cx);
             }
             for (b, c) in p.decorations {
                 window.paint_quad(fill(b, c));
@@ -207,9 +207,10 @@ fn prepaint(
             if left + seg.col as f32 * cell_w >= right_limit {
                 break;
             }
-            // One shaped line per stretch of one font face: gpui 0.2.2 on
-            // macOS draws every run of a line in the first run's face when
-            // the faces are bundled fonts (bold would come out regular).
+            // One shaped line per stretch of one font face. gpui 0.2.2
+            // merged same-coloured runs into the first run's face (bold came
+            // out regular); gpui compares the resolved font now
+            // (`TextSystem::font_runs`), but the split is harmless and kept.
             let force = (!seg.single).then_some(px(cell_w));
             let mut col = seg.col as f32;
             let mut start_col = col;

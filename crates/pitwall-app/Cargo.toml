@@ -16,13 +16,16 @@ path = "src/main.rs"
 # Release bundles turn it off (`--no-default-features`) for precompiled
 # shaders (docs/spec/gpui/packaging.md).
 default = ["runtime-shaders"]
-runtime-shaders = ["gpui/runtime_shaders", "pitwall-term-view/runtime-shaders"]
+runtime-shaders = ["gpui_platform/runtime_shaders", "pitwall-term-view/runtime-shaders"]
 
 [dependencies]
-# Zed's UI framework, Apache-2.0. Pinned exactly: GPUI's API changes between
-# releases (docs/spec/gpui/README.md "Version and licensing"). Only `gpui`
-# itself: Zed's other crates (terminal, editor, ui, workspace, …) are GPL-3.0.
+# Zed's UI framework, Apache-2.0, vendored from Zed's repository at one
+# commit (the workspace patches it to third_party/zed/gpui; see
+# docs/spec/gpui/licensing.md). Only GPUI and the Apache-2.0 crates it needs:
+# Zed's other crates (terminal, editor, ui, workspace, …) are GPL-3.0.
 gpui = "=0.2.2"
+# GPUI's platform backends (macOS, Windows, Linux), vendored with it.
+gpui_platform = { path = "../../third_party/zed/gpui_platform", features = ["font-kit", "wayland", "x11"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The engine-to-UI event channel (MIT OR Apache-2.0; already in the tree via gpui).
@@ -131,11 +134,6 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 # Asking the Wayland compositor whether it draws window decorations
 # (platform/decorations.rs). MIT; already in the tree via gpui.
 wayland-client = "0.31"
-# Not used directly: a cap for `cargo update`. libc 0.2.190 dropped Linux's
-# deprecated `ENOATTR`, which xattr 0.2.3 (gpui -> gpui_http_client ->
-# zed-async-tar) still names, so gpui stops compiling on Linux. Lift the
-# cap once gpui no longer pulls xattr 0.2. (MIT OR Apache-2.0.)
-libc = ">=0.2.150, <0.2.190"
 # The in-app preview loads WebKitGTK, GTK 3, cairo and Xlib at run time
 # (webview/linux.rs), so Pitwall starts where they aren't installed. ISC;
 # already in the tree via gpui (ash, wayland's dlib).
@@ -143,5 +141,6 @@ libloading = "0.8"
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", features = ["test-support"] }
+gpui_platform = { path = "../../third_party/zed/gpui_platform", features = ["test-support"] }
 pitwall-core = { path = "../pitwall-core", features = ["testing"] }
 pitwall-peer = { path = "../pitwall-peer", features = ["testing"] }

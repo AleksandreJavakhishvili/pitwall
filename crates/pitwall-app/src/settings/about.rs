@@ -25,8 +25,12 @@ pub fn version_label() -> String {
         VERSION.to_string()
     }
 }
-/// The GPUI release this build pins (Cargo.toml `gpui = "=0.2.2"`).
+/// The GPUI this build uses: Zed's, vendored in `third_party/zed` at the
+/// commit its README names (crates.io stopped at 0.2.2, which is still the
+/// crate's version and what Cargo.toml's `gpui = "=0.2.2"` patches over).
 pub const GPUI_VERSION: &str = "0.2.2";
+/// The Zed commit `third_party/zed` is vendored from (short hash).
+pub const GPUI_ZED_COMMIT: &str = "58e29b6";
 
 /// The facts, as (label, value) rows.
 pub fn facts(cx: &App) -> Vec<(&'static str, String)> {
@@ -65,7 +69,10 @@ pub fn facts(cx: &App) -> Vec<(&'static str, String)> {
                 std::env::consts::OS
             ),
         ),
-        ("UI", format!("GPUI {GPUI_VERSION} · {renderer}")),
+        (
+            "UI",
+            format!("GPUI {GPUI_VERSION} (Zed {GPUI_ZED_COMMIT}) · {renderer}"),
+        ),
         ("Look", material),
         ("Data folder", data),
     ]
@@ -201,6 +208,11 @@ mod tests {
         assert!(
             toml.contains(&format!("gpui = \"={GPUI_VERSION}\"")),
             "update GPUI_VERSION"
+        );
+        let vendored = include_str!("../../../../third_party/zed/README.md");
+        assert!(
+            vendored.contains(&format!("`{GPUI_ZED_COMMIT}")),
+            "update GPUI_ZED_COMMIT"
         );
     }
 }

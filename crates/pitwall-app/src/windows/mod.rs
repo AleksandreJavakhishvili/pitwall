@@ -103,7 +103,7 @@ fn state(cx: &mut App) -> &mut Windows {
 /// `windows.json` lives, and how to open the main window.
 pub fn init(content: Content, root: Option<PathBuf>, show_main: ShowMain, cx: &mut App) {
     cx.set_global(Windows::new(Some(content), root, Some(show_main)));
-    cx.on_window_closed(closed).detach();
+    cx.on_window_closed(|cx, _| closed(cx)).detach();
     cx.on_app_quit(|cx| {
         let w = state(cx);
         w.quitting = true;
@@ -569,7 +569,7 @@ pub fn debug_hook(cx: &mut App) {
         cx.background_executor()
             .timer(Duration::from_millis(1500))
             .await;
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             let Some(store) = (match &state(cx).content {
                 Some(Content::Live { store }) => Some(store.clone()),
                 _ => None,
@@ -614,7 +614,7 @@ pub fn debug_hook(cx: &mut App) {
         cx.background_executor()
             .timer(Duration::from_millis(500))
             .await;
-        let _ = cx.update(|cx| {
+        cx.update(|cx| {
             let active = cx.active_window().map(|w| w.window_id());
             let w = state(cx);
             let label = w
@@ -743,14 +743,12 @@ fn schedule_save(cx: &mut App) {
         cx.background_executor()
             .timer(Duration::from_millis(500))
             .await;
-        let entries = cx.update(|cx| state(cx).entries.clone()).ok();
-        if let Some(entries) = entries {
-            let write = cx
-                .background_executor()
-                .spawn(async move { file::save(&root, &entries) });
-            if let Err(e) = write.await {
-                eprintln!("pitwall: could not save windows: {e}");
-            }
+        let entries = cx.update(|cx| state(cx).entries.clone());
+        let write = cx
+            .background_executor()
+            .spawn(async move { file::save(&root, &entries) });
+        if let Err(e) = write.await {
+            eprintln!("pitwall: could not save windows: {e}");
         }
     });
     state(cx).save = Some(task);

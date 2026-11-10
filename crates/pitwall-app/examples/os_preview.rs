@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    div, point, prelude::*, px, size, App, Application, Bounds, Context, Entity, IntoElement,
+    div, point, prelude::*, px, size, App, Bounds, Context, Entity, IntoElement,
     Render, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 
@@ -122,7 +122,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(20);
     let no_dialog = args.iter().any(|a| a == "panel");
-    Application::new()
+    gpui_platform::application()
         .with_assets(pitwall_app::kit::Assets)
         .run(move |cx: &mut App| {
         cx.set_global(Theme::for_mode(if light { Mode::Light } else { Mode::Dark }));
@@ -196,7 +196,7 @@ fn main() {
         cx.activate(true);
         cx.spawn(async move |cx| {
             cx.background_executor().timer(Duration::from_secs(secs)).await;
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 platform::set_badge(0, cx);
                 cx.quit()
             });

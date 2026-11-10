@@ -20,8 +20,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    actions, anchored, canvas, deferred, div, img, point, prelude::*, px, relative, AnyElement,
-    App, ClipboardItem, Context, Corner, Div, ElementId, FocusHandle, Focusable, FontStyle,
+    actions, anchored, canvas, deferred, div, img, point, prelude::*, px, relative, Anchor,
+    AnyElement, App, ClipboardItem, Context, Div, ElementId, FocusHandle, Focusable, FontStyle,
     FontWeight, Hsla, InteractiveText, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, ObjectFit, Pixels, Point, ScrollHandle, SharedString, StrikethroughStyle,
     StyledText, Task, TextRun, UnderlineStyle, Window,
@@ -50,10 +50,15 @@ const CONTEXT: &str = "MarkdownView";
 /// Key bindings of the Preview (call once at start).
 pub fn register(cx: &mut App) {
     let c = Some(CONTEXT);
-    let m = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+    // `KeyBinding::new` takes `&'static str`.
+    let (select_all, copy) = if cfg!(target_os = "macos") {
+        ("cmd-a", "cmd-c")
+    } else {
+        ("ctrl-a", "ctrl-c")
+    };
     cx.bind_keys([
-        KeyBinding::new(&format!("{m}-a"), SelectAll, c),
-        KeyBinding::new(&format!("{m}-c"), Copy, c),
+        KeyBinding::new(select_all, SelectAll, c),
+        KeyBinding::new(copy, Copy, c),
         KeyBinding::new("escape", Cancel, c),
     ]);
 }
@@ -200,7 +205,7 @@ impl MarkdownView {
     }
 
     fn mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         self.menu = None;
         let Some(p) = select::hit(&self.pieces, e.position) else {
             self.set_sel(None);
@@ -231,7 +236,7 @@ impl MarkdownView {
             px(0.)
         };
         if dy != px(0.) {
-            let max = self.scroll.max_offset().height;
+            let max = self.scroll.max_offset().y;
             let mut o = self.scroll.offset();
             o.y = (o.y + dy).clamp(-max, px(0.));
             self.scroll.set_offset(o);
@@ -316,7 +321,7 @@ impl MarkdownView {
         deferred(
             anchored()
                 .position(at)
-                .anchor(Corner::TopLeft)
+                .anchor(Anchor::TopLeft)
                 .snap_to_window()
                 .child(list),
         )
@@ -400,7 +405,7 @@ impl Render for MarkdownView {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(|v, e: &MouseDownEvent, window, cx| {
-                    window.focus(&v.focus);
+                    window.focus(&v.focus, cx);
                     v.menu = Some(e.position);
                     cx.notify();
                 }),

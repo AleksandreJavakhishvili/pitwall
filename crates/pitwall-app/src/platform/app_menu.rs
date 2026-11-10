@@ -6,7 +6,7 @@
 
 use crate::kit::HoverText;
 use gpui::{
-    anchored, deferred, div, prelude::*, px, Action, Context, Corner, IntoElement, Render,
+    anchored, deferred, div, prelude::*, px, Action, Anchor, Context, IntoElement, Render,
     SharedString, Window,
 };
 
@@ -132,7 +132,7 @@ impl Render for AppMenu {
             }
             root = root.child(deferred(
                 anchored()
-                    .anchor(Corner::TopLeft)
+                    .anchor(Anchor::TopLeft)
                     .offset(gpui::point(px(0.), px(24.)))
                     .child(list),
             ));

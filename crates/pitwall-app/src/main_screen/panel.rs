@@ -303,7 +303,7 @@ impl MainScreen {
                 );
         }
         if !a.caps.diff {
-            return div().flex_grow().flex_shrink_0().flex().flex_col().child(head).child(hint(
+            return div().flex_grow_1().flex_shrink_0().flex().flex_col().child(head).child(hint(
                 "Not a git repository — Pitwall can't track changes in this folder.".into(),
             ));
         }
@@ -446,7 +446,7 @@ impl MainScreen {
         // `.panel-grow` (flex: 1 0 auto): a long list grows the panel,
         // which scrolls as a whole (`.right { overflow-y: auto }`).
         div()
-            .flex_grow()
+            .flex_grow_1()
             .flex_shrink_0()
             .flex()
             .flex_col()
@@ -619,7 +619,7 @@ impl MainScreen {
                         d.child(
                             div()
                                 .min_w_0()
-                                .flex_shrink()
+                                .flex_shrink_1()
                                 .ellipsis()
                                 .font_family(MONO_FONT)
                                 .text_size(px(11.))
@@ -686,7 +686,7 @@ impl MainScreen {
                     .overflow_hidden()
                     .child(
                         div()
-                            .flex_shrink()
+                            .flex_shrink_1()
                             .min_w_0()
                             .ellipsis()
                             .text_color(t.text_3)

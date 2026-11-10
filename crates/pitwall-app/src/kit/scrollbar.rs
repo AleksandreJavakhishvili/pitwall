@@ -18,7 +18,7 @@ use gpui::{
     div, point, prelude::*, px, quad, size, App, Axis, Bounds, BorderStyle, Corners, CursorStyle,
     DispatchPhase, Element, ElementId, GlobalElementId, Hitbox, HitboxBehavior, Hsla,
     InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, ScrollHandle, ScrollWheelEvent, Style, Window,
+    MouseUpEvent, Pixels, ScrollHandle, ScrollEvent, Style, Window,
 };
 
 use crate::theme::Theme;
@@ -185,13 +185,6 @@ impl Styled for ScrollArea {
     }
 }
 
-impl IntoElement for ScrollArea {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for ScrollArea {
     type RequestLayoutState = gpui::AnyElement;
     type PrepaintState = ();
@@ -290,22 +283,15 @@ impl Scrollbar {
 
     fn overflows(&self) -> bool {
         let m = self.handle.max_offset();
-        // gpui 0.2.2 measures a scroll container with no children as its
-        // own size, then adds the padding: it "overflows" by its padding.
+        // gpui measures a scroll container with no children as its own
+        // size, then adds the padding: it "overflows" by its padding.
         if !self.list && self.handle.children_count() == 0 {
             return false;
         }
         match self.axis {
-            Axis::Vertical => m.height > px(0.),
-            Axis::Horizontal => m.width > px(0.),
+            Axis::Vertical => m.y > px(0.),
+            Axis::Horizontal => m.x > px(0.),
         }
-    }
-}
-
-impl IntoElement for Scrollbar {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
     }
 }
 
@@ -404,9 +390,9 @@ impl Element for Scrollbar {
             let view_b = handle.bounds();
             let max = handle.max_offset();
             let (view, max) = if vertical {
-                (f32::from(view_b.size.height), f32::from(max.height))
+                (f32::from(view_b.size.height), f32::from(max.y))
             } else {
-                (f32::from(view_b.size.width), f32::from(max.width))
+                (f32::from(view_b.size.width), f32::from(max.x))
             };
             let off = handle.offset();
             let off = -f32::from(if vertical { off.y } else { off.x });
@@ -499,7 +485,7 @@ impl Element for Scrollbar {
             }
         });
         let hitbox = pre.hitbox.clone();
-        window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, _| {
+        window.on_mouse_event(move |e: &ScrollEvent, phase, window, _| {
             if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                 return;
             }

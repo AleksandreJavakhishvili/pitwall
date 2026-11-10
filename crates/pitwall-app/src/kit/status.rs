@@ -147,6 +147,7 @@ fn glyph_body(s: Status, t: &Theme, size: GlyphSize, m: GlyphMotion) -> Div {
                                 offset: point(px(0.), px(0.)),
                                 blur_radius: px(8.),
                                 spread_radius: px(0.),
+                                inset: false,
                             }]),
                     )
                     .child(triangle(color, w))
@@ -266,6 +267,7 @@ pub fn text_glow(child: impl IntoElement, glow: Hsla, blur: f32) -> Div {
                     offset: point(px(0.), px(0.)),
                     blur_radius: px(blur),
                     spread_radius: px(0.),
+                    inset: false,
                 }]),
         )
         .child(child)

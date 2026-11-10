@@ -41,7 +41,7 @@ fn open(
     let terminal = Terminal::new(rec.clone(), TermSize::new(80, 24), TerminalConfig::default());
     let t = terminal.clone();
     let (view, cx) = cx.add_window_view(|window, cx| TerminalView::new(t, ViewMode::Interactive, settings, window, cx));
-    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
     cx.update(|window, _| window.activate_window());
     cx.run_until_parked();
     rec.take(); // focus report etc.
@@ -58,7 +58,7 @@ fn open_mirror(cx: &mut TestAppContext) -> (Entity<TerminalView>, Terminal, Reco
     let (view, cx) = cx.add_window_view(|window, cx| {
         TerminalView::new(t, ViewMode::Mirror { min_scale: 0.5 }, ViewSettings::default(), window, cx)
     });
-    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
     cx.update(|window, _| window.activate_window());
     cx.run_until_parked();
     (view, terminal, rec, cx)
@@ -70,15 +70,15 @@ fn a_mirror_sends_the_program_nothing(cx: &mut TestAppContext) {
     // Programs that ask for focus, mouse and bracketed paste reports.
     t.feed().push(b"\x1b[?1004h\x1b[?1000h\x1b[?1006h\x1b[?2004h$ ");
     cx.run_until_parked();
-    cx.update(|window, _| window.blur());
-    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.update(|window, cx| window.blur(cx));
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
     cx.simulate_input("ls");
     cx.simulate_keystrokes("enter ctrl-c up escape");
     cx.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("rm -rf ~".into())));
     cx.simulate_keystrokes("cmd-v cmd-k");
     let at = center(&view, cx, 2, 1);
     cx.simulate_click(at, gpui::Modifiers::none());
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: at,
         delta: gpui::ScrollDelta::Lines(gpui::point(0.0, -2.0)),
         ..Default::default()
@@ -270,7 +270,7 @@ fn wheel_scrolls_back_and_typing_returns(cx: &mut TestAppContext) {
     }
     cx.run_until_parked();
     let at = center(&view, cx, 1, 1);
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: at,
         delta: gpui::ScrollDelta::Lines(gpui::point(0.0, 3.0)),
         ..Default::default()
@@ -282,7 +282,7 @@ fn wheel_scrolls_back_and_typing_returns(cx: &mut TestAppContext) {
     // On the alternate screen the wheel sends arrows (pagers, editors).
     t.feed().push(b"\x1b[?1049h");
     cx.run_until_parked();
-    cx.simulate_event(gpui::ScrollWheelEvent {
+    cx.simulate_event(gpui::ScrollEvent {
         position: at,
         delta: gpui::ScrollDelta::Lines(gpui::point(0.0, -2.0)),
         ..Default::default()
@@ -295,10 +295,10 @@ fn focus_reports_when_asked(cx: &mut TestAppContext) {
     let (view, t, rec, cx) = open(cx, ViewSettings::default());
     t.feed().push(b"\x1b[?1004h");
     cx.run_until_parked();
-    cx.update(|window, _| window.blur());
+    cx.update(|window, cx| window.blur(cx));
     cx.run_until_parked();
     assert_eq!(rec.take(), "\x1b[O");
-    cx.update(|window, cx| window.focus(&view.focus_handle(cx)));
+    cx.update(|window, cx| window.focus(&view.focus_handle(cx), cx));
     cx.run_until_parked();
     assert_eq!(rec.take(), "\x1b[I");
 }

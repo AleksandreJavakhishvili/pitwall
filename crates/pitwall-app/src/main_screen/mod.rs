@@ -265,40 +265,59 @@ impl EventEmitter<ScreenEvent> for MainScreen {}
 /// The app's key bindings for the main screen (`HostInfo::shortcuts`: ⌘ on
 /// macOS, Ctrl+Shift elsewhere, so plain Ctrl stays the terminal's).
 pub fn bindings() -> Vec<KeyBinding> {
+    // `KeyBinding::new` takes `&'static str`: the prefixes are joined at
+    // compile time.
+    #[cfg(target_os = "macos")]
+    macro_rules! p {
+        ($k:literal) => {
+            concat!("cmd-", $k)
+        };
+    }
+    #[cfg(target_os = "macos")]
+    macro_rules! s {
+        ($k:literal) => {
+            concat!("cmd-shift-", $k)
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    macro_rules! p {
+        ($k:literal) => {
+            concat!("ctrl-shift-", $k)
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    macro_rules! s {
+        ($k:literal) => {
+            concat!("ctrl-shift-alt-", $k)
+        };
+    }
     let mac = cfg!(target_os = "macos");
-    let (m, ms) = if mac {
-        ("cmd-", "cmd-shift-")
-    } else {
-        ("ctrl-shift-", "ctrl-shift-alt-")
-    };
-    let p = |key: &str| format!("{m}{key}");
-    let s = |key: &str| format!("{ms}{key}");
     let mut b = vec![
-        KeyBinding::new(&p("k"), OpenPalette, None),
-        KeyBinding::new(&p("n"), NewAgent, None),
-        KeyBinding::new(&p("t"), NewTerminal, None),
-        KeyBinding::new(&s("t"), NewTerminalAt, None),
-        KeyBinding::new(&p("j"), JumpNextBlocked, None),
-        KeyBinding::new(&p("b"), ToggleSidebar, None),
-        KeyBinding::new(&p("."), ToggleDetails, None),
-        KeyBinding::new(&p("e"), ToggleWall, None),
-        KeyBinding::new(&p("r"), ToggleReview, None),
-        KeyBinding::new(&s("r"), RefreshChanges, None),
-        KeyBinding::new(&s("n"), MoveSpaceToWindow, None),
-        KeyBinding::new(&p("enter"), ToggleMaximize, None),
-        KeyBinding::new(&p("="), FontBigger, None),
-        KeyBinding::new(&p("+"), FontBigger, None),
-        KeyBinding::new(&p("-"), FontSmaller, None),
-        KeyBinding::new(&p("0"), FontReset, None),
-        KeyBinding::new(&p("1"), SelectAgent1, None),
-        KeyBinding::new(&p("2"), SelectAgent2, None),
-        KeyBinding::new(&p("3"), SelectAgent3, None),
-        KeyBinding::new(&p("4"), SelectAgent4, None),
-        KeyBinding::new(&p("5"), SelectAgent5, None),
-        KeyBinding::new(&p("6"), SelectAgent6, None),
-        KeyBinding::new(&p("7"), SelectAgent7, None),
-        KeyBinding::new(&p("8"), SelectAgent8, None),
-        KeyBinding::new(&p("9"), SelectAgent9, None),
+        KeyBinding::new(p!("k"), OpenPalette, None),
+        KeyBinding::new(p!("n"), NewAgent, None),
+        KeyBinding::new(p!("t"), NewTerminal, None),
+        KeyBinding::new(s!("t"), NewTerminalAt, None),
+        KeyBinding::new(p!("j"), JumpNextBlocked, None),
+        KeyBinding::new(p!("b"), ToggleSidebar, None),
+        KeyBinding::new(p!("."), ToggleDetails, None),
+        KeyBinding::new(p!("e"), ToggleWall, None),
+        KeyBinding::new(p!("r"), ToggleReview, None),
+        KeyBinding::new(s!("r"), RefreshChanges, None),
+        KeyBinding::new(s!("n"), MoveSpaceToWindow, None),
+        KeyBinding::new(p!("enter"), ToggleMaximize, None),
+        KeyBinding::new(p!("="), FontBigger, None),
+        KeyBinding::new(p!("+"), FontBigger, None),
+        KeyBinding::new(p!("-"), FontSmaller, None),
+        KeyBinding::new(p!("0"), FontReset, None),
+        KeyBinding::new(p!("1"), SelectAgent1, None),
+        KeyBinding::new(p!("2"), SelectAgent2, None),
+        KeyBinding::new(p!("3"), SelectAgent3, None),
+        KeyBinding::new(p!("4"), SelectAgent4, None),
+        KeyBinding::new(p!("5"), SelectAgent5, None),
+        KeyBinding::new(p!("6"), SelectAgent6, None),
+        KeyBinding::new(p!("7"), SelectAgent7, None),
+        KeyBinding::new(p!("8"), SelectAgent8, None),
+        KeyBinding::new(p!("9"), SelectAgent9, None),
     ];
     if !mac {
         b.extend(shifted_symbols());
@@ -313,7 +332,7 @@ pub fn bindings() -> Vec<KeyBinding> {
     b
 }
 
-/// Windows and Linux: gpui 0.2.2 reports Shift with a symbol or digit as the
+/// Windows and Linux: gpui reports Shift with a symbol or digit as the
 /// shifted character without Shift (Ctrl+Shift+1 arrives as `ctrl-!`), so
 /// the Ctrl+Shift shortcuts on those keys are bound by what they type too
 /// (US layout), plus the numpad's + and −.
@@ -510,7 +529,7 @@ impl MainScreen {
             .map(|e| e.projects().list())
             .unwrap_or_default();
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let accounts = crate::accounts::model(cx);
         let subs = vec![
@@ -552,7 +571,7 @@ impl MainScreen {
                         this.end_space_drag(cx);
                     }
                     if this.menu.take().is_some() {
-                        window.focus(&this.focus);
+                        window.focus(&this.focus, cx);
                     }
                     cx.notify();
                 }
@@ -874,7 +893,7 @@ impl MainScreen {
         }
         self.last_selected = Some(id.to_string());
         self.changes_follow(cx);
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.emit(ScreenEvent::AgentShown(id.to_string()));
         cx.notify();
     }
@@ -1408,7 +1427,7 @@ impl MainScreen {
 
     fn close_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.modal = None;
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 
@@ -1550,7 +1569,7 @@ impl MainScreen {
             .spawn(async move { pitwall_core::engine::lifecycle::restart(&engine, &id, size) });
         cx.spawn(async move |this, cx| match task.await {
             Ok(view) => {
-                let _ = cx.update(|cx| crate::agents::patch(view, cx));
+                cx.update(|cx| crate::agents::patch(view, cx));
             }
             Err(e) => {
                 let _ = this.update(cx, |s, cx| s.failed("restart", e, cx));
@@ -1693,7 +1712,7 @@ impl MainScreen {
             Ok(view) => {
                 let resumed = view.status != pitwall_proto::Status::Stopped;
                 let agent = view.name.clone();
-                let _ = cx.update(|cx| crate::agents::patch(view, cx));
+                cx.update(|cx| crate::agents::patch(view, cx));
                 let _ = this.update(cx, |s, cx| {
                     let detail = resumed.then(|| format!("{agent} picked up its conversation there"));
                     s.toast(Toast::info(&format!("{agent} now runs on {name}"), detail), cx)
@@ -1778,7 +1797,7 @@ impl Render for MainScreen {
         // A dialog, menu or overlay that had the keyboard closed: the screen
         // takes it back (and passes it on to the focused pane's terminal).
         if window.focused(cx).is_none() {
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
         }
         let bp = Self::breakpoint(window);
         // Drawers close when the window grows past their breakpoint.

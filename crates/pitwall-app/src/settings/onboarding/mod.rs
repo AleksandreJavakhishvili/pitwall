@@ -809,7 +809,7 @@ struct Paint {
     t: Theme,
     motion: bool,
     narrow: bool,
-    /// The results column's width. Set explicitly: GPUI 0.2.2 can keep a
+    /// The results column's width. Set explicitly: GPUI can keep a
     /// paragraph shaped for a wider intrinsic-size pass than the width it
     /// lays out at (text then runs past the column).
     results_w: gpui::Pixels,
@@ -2372,7 +2372,7 @@ impl Render for Onboarding {
                     .id("onb-scroll")
                     .track_scroll(&self.scroll)
                     // The sticky checklist follows the scroll.
-                    .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
+                    .on_scroll(cx.listener(|_, _, _, cx| cx.notify()))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()

@@ -228,7 +228,7 @@ impl Palette {
             Run::Fill(text) => {
                 // The cursor ends up after "name: ", ready for the prompt.
                 self.set_query(&text, cx);
-                window.focus(&self.input.focus_handle(cx));
+                window.focus(&self.input.focus_handle(cx), cx);
             }
         }
     }
@@ -279,7 +279,7 @@ fn glyph(g: SharedString, color: gpui::Hsla) -> gpui::Div {
 
 /// `.pal-label`: the spans on one line, cut with an ellipsis.
 fn label(spans: &[Span], t: &Theme) -> impl IntoElement {
-    let piece = |d: gpui::Div| d.flex_shrink().min_w_0().ellipsis();
+    let piece = |d: gpui::Div| d.flex_shrink_1().min_w_0().ellipsis();
     div()
         .flex_1()
         .min_w_0()
@@ -358,7 +358,7 @@ impl Render for Palette {
                     .collect::<Vec<_>>()
             }),
         )
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .h(px((n as f32 * ROW_H).min(list_max)));
 
         let panel = div()
@@ -537,7 +537,7 @@ impl PaletteHost {
         // The palette's own subscription goes with it.
         self._subs.truncate(usize::from(self.screen.is_some()));
         if let Some(f) = self.restore.take() {
-            window.focus(&f);
+            window.focus(&f, cx);
         }
         cx.notify();
     }

@@ -2,8 +2,8 @@
 //! with the same durations and easings.
 //!
 //! - [`enter`]: an element's opening animation ([`Fx`]: dialogs, the
-//!   palette, menus, toasts, drawers, scrims, route cross-fades). GPUI 0.2.2
-//!   has no transforms: the shift is a paint offset (layout never moves)
+//!   palette, menus, toasts, drawers, scrims, route cross-fades). GPUI has no
+//!   element transforms (only SVGs rotate and scale): the shift is a paint offset (layout never moves)
 //!   and the scale is drawn on the element's own surface (background,
 //!   border and shadow shrink about the centre; the content only fades).
 //! - [`pulse_dot`]: the working dot's pulse (Flat) or ring (Glass), the one
@@ -283,7 +283,7 @@ impl Skin {
                     ..s.clone()
                 })
                 .collect();
-            window.paint_shadows(b, radii, &shadows);
+            window.paint_drop_shadows(b, radii, &shadows);
         }
         let bg = self
             .bg
@@ -331,14 +331,6 @@ pub struct Enter<E> {
     id: ElementId,
     child: Option<E>,
     fx: Fx,
-}
-
-impl<E: IntoElement + Styled + 'static> IntoElement for Enter<E> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl<E: IntoElement + Styled + 'static> Element for Enter<E> {
@@ -430,14 +422,6 @@ pub struct Transformed<E> {
 pub struct TransformedLayout {
     child: AnyElement,
     skin: Option<(Skin, f32)>,
-}
-
-impl<E: IntoElement + Styled + 'static> IntoElement for Transformed<E> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl<E: IntoElement + Styled + 'static> Element for Transformed<E> {
@@ -583,14 +567,6 @@ pub struct PulseDot {
     color: Hsla,
     glass: bool,
     still: bool,
-}
-
-impl IntoElement for PulseDot {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 /// A circle of `d` px centred on `c`, a ring `w` px wide when given.
@@ -791,13 +767,6 @@ pub struct PulseScope {
     off: bool,
 }
 
-impl IntoElement for PulseScope {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for PulseScope {
     type RequestLayoutState = AnyElement;
     type PrepaintState = ();
@@ -921,14 +890,6 @@ impl TweenState {
         } else {
             (lerp(self.from, self.to, ease.at(t)), true)
         }
-    }
-}
-
-impl<F: FnOnce(f32) -> AnyElement + 'static> IntoElement for Tween<F> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
     }
 }
 
@@ -1084,14 +1045,6 @@ impl<T: Blend> ManyState<T> {
     }
 }
 
-impl<T: Blend, F: FnOnce(&[T]) -> AnyElement + 'static> IntoElement for TweenMany<T, F> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl<T: Blend, F: FnOnce(&[T]) -> AnyElement + 'static> Element for TweenMany<T, F> {
     type RequestLayoutState = AnyElement;
     type PrepaintState = ();
@@ -1189,14 +1142,6 @@ pub struct Keyframes {
     dur: Duration,
     times: u32,
     f: Option<Box<dyn FnOnce(f32) -> AnyElement>>,
-}
-
-impl IntoElement for Keyframes {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl Element for Keyframes {
@@ -1372,14 +1317,6 @@ pub struct PressSkin {
     skin: Skin,
 }
 
-impl IntoElement for PressSkin {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for PressSkin {
     type RequestLayoutState = ();
     type PrepaintState = ();
@@ -1442,14 +1379,6 @@ pub fn sheen(color: Hsla) -> Sheen {
 
 pub struct Sheen {
     color: Hsla,
-}
-
-impl IntoElement for Sheen {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
 }
 
 impl Element for Sheen {

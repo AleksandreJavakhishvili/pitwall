@@ -373,7 +373,7 @@ fn the_main_screen_opens_review_scoped_and_esc_leaves(cx: &mut TestAppContext) {
     });
 
     // Esc in the list leaves Review: back to the space, Review closed.
-    view.update_in(cx, |v, window, _| window.focus(&v.list_focus));
+    view.update_in(cx, |v, window, cx| window.focus(&v.list_focus, cx));
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
     assert_eq!(screen.read_with(cx, |s, _| s.route()), Route::Space);
@@ -544,7 +544,7 @@ fn a_long_preview_scrolls(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let body = cx.debug_bounds("rv-md-body").unwrap();
     let wheel = |dy: f32, cx: &mut VisualTestContext| {
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: body.center(),
             delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(dy))),
             ..Default::default()

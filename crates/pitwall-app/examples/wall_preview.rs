@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use gpui::{px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
+use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
 use serde::Deserialize;
 
 use pitwall_app::agents::AgentStore;
@@ -68,7 +68,7 @@ fn main() {
     );
     let app_width = arg("--app-width");
     let dark = std::env::args().any(|a| a == "--dark");
-    Application::new()
+    gpui_platform::application()
         .with_assets(pitwall_app::kit::Assets)
         .run(move |cx: &mut App| {
         cx.set_global(if dark { Theme::dark() } else { Theme::light() });

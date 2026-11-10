@@ -1,6 +1,8 @@
 //! The Windows backend of [`super::WebView`]: WebView2 (Edge's engine, part
 //! of Windows 10/11), a controller hosted in the GPUI window's HWND (its
-//! child window sits above GPUI's drawing: see `third_party/gpui/PATCHES.md`).
+//! child window sits above GPUI's drawing: gpui creates its DirectComposition
+//! target behind child windows, `CreateTargetForHwnd(hwnd, false)`; see
+//! `third_party/zed/PATCHES.md`).
 //!
 //! WebView2 creates its environment and controller asynchronously: the view
 //! is returned at once and what it is asked meanwhile waits in

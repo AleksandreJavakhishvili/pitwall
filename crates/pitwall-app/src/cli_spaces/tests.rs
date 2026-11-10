@@ -44,6 +44,9 @@ fn spaces_change_through_the_ui_store(cx: &mut TestAppContext) {
 /// The server's thread asks; the main thread answers.
 #[gpui::test]
 fn requests_from_the_server_thread_run_on_the_main_thread(cx: &mut TestAppContext) {
+    // A real thread wakes the test scheduler; allow it.
+    cx.executor().allow_parking();
+
     let b = AppWorkspace::new();
     cx.update(|cx| {
         crate::ui_state::store(cx);

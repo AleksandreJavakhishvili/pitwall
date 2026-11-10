@@ -1,23 +1,25 @@
 //! Hover colours that keep the text's own style.
 //!
-//! gpui 0.2.2 merges a hover (or group-hover) style into the element's style
+//! gpui 0.2.2 merged a hover (or group-hover) style into the element's style
 //! field by field, except the text style: a hover that sets `text_color`
-//! replaces the element's whole text style, so its font family, size,
-//! weight and line height fall back to the parent's while the pointer is
+//! replaced the element's whole text style, so its font family, size,
+//! weight and line height fell back to the parent's while the pointer is
 //! over it (labels lose Barlow Condensed and their tracking, buttons change
 //! size). [`HoverText`] sets the colour on a copy of the element's own text
 //! style instead. Call it after the element's text styles.
+//!
+//! Current gpui refines the text style field by field as well (it is a
+//! `#[refineable]` field now), so the copy is no longer needed for that;
+//! it is kept as one place for the hover probes the tests rely on.
 
 use gpui::{Hsla, InteractiveElement, SharedString, StyleRefinement, Styled, TextStyleRefinement};
 
-fn keep(mut s: StyleRefinement, base: Option<TextStyleRefinement>, color: Hsla) -> StyleRefinement {
-    let mut text = base.unwrap_or_default();
+fn keep(mut s: StyleRefinement, base: TextStyleRefinement, color: Hsla) -> StyleRefinement {
+    let mut text = base;
     // What the hover itself adds to the text (an underline) goes on top.
-    if let Some(extra) = s.text.take() {
-        gpui::Refineable::refine(&mut text, &extra);
-    }
+    gpui::Refineable::refine(&mut text, &s.text);
     text.color = Some(color);
-    s.text = Some(text);
+    s.text = text;
     s
 }
 
@@ -55,8 +57,9 @@ pub mod probe {
     use gpui::{point, px, Bounds, Modifiers, Pixels, StyleRefinement, VisualTestContext};
 
     /// A hover style may change how an element is painted, never its box or
-    /// its text: gpui replaces the whole text style with a hover's (the font
-    /// falls back to the parent's), so text changes must keep it.
+    /// its text: text changes go through `hover_text`, which keeps the
+    /// element's own text style (gpui 0.2.2 replaced it with the hover's;
+    /// gpui now merges it field by field, but the rule keeps one path).
     pub fn paint_only(r: &StyleRefinement) {
         let d = StyleRefinement::default();
         assert_eq!(
@@ -188,12 +191,12 @@ pub trait HoverText: InteractiveElement + Styled + Sized {
     fn hover_underline(mut self) -> Self {
         let base = self.style().text.clone();
         probed(self).hover(move |mut s| {
-            let mut text = base.clone().unwrap_or_default();
+            let mut text = base.clone();
             text.underline = Some(gpui::UnderlineStyle {
                 thickness: gpui::px(1.),
                 ..Default::default()
             });
-            s.text = Some(text);
+            s.text = text;
             s
         })
     }
@@ -246,14 +249,14 @@ mod tests {
 
     #[test]
     fn a_hover_colour_keeps_font_size_and_weight() {
-        let base = Some(TextStyleRefinement {
+        let base = TextStyleRefinement {
             font_family: Some("Barlow Condensed".into()),
             font_size: Some(px(12.).into()),
             font_weight: Some(FontWeight::SEMIBOLD),
             ..Default::default()
-        });
+        };
         let normal = Style {
-            text: base.clone().unwrap(),
+            text: base.clone(),
             ..Default::default()
         };
         let mut hovered = normal.clone();
@@ -344,10 +347,10 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_plain_group_hover_loses_the_font(cx: &mut TestAppContext) {
-        // The gpui 0.2.2 behaviour HoverText works around: if this starts
-        // failing, gpui merges text styles now and HoverText can go.
+    fn a_plain_group_hover_keeps_the_font_too(cx: &mut TestAppContext) {
+        // gpui 0.2.2 lost the font here (what HoverText worked around);
+        // gpui now merges hover text styles field by field.
         let (before, after) = paint_hovered(false, cx);
-        assert_ne!(after.family, before.family);
+        assert_eq!(after.family, before.family);
     }
 }

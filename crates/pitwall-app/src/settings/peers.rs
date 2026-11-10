@@ -486,7 +486,7 @@ mod tests {
 mod window_tests {
     use std::sync::Arc;
 
-    use gpui::{AppContext as _, Modifiers, TestAppContext, VisualTestContext};
+    use gpui::{Modifiers, TestAppContext, VisualTestContext};
     use pitwall_core::testing::TempDir;
     use pitwall_peer::fake::FakeWorld;
     use pitwall_peer::{NullPeerSink, Peers, PeersConfig};

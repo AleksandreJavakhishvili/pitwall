@@ -192,7 +192,7 @@ impl MainScreen {
             }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, _| window.focus(&this.sidebar_focus)),
+                cx.listener(|this, _, window, cx| window.focus(&this.sidebar_focus, cx)),
             )
             .w(SIDEBAR_W)
             .h_full()
@@ -852,7 +852,7 @@ impl MainScreen {
             InputEvent::Blur => this.finish_agent_rename(false, window, cx),
             InputEvent::Cancel => {
                 this.agent_rename = None;
-                window.focus(&this.focus);
+                window.focus(&this.focus, cx);
                 cx.notify();
             }
             InputEvent::Changed => {
@@ -862,7 +862,7 @@ impl MainScreen {
                 }
             }
         });
-        window.focus(&input.focus_handle(cx));
+        window.focus(&input.focus_handle(cx), cx);
         self.agent_rename = Some(AgentRenaming { id: id.to_string(), input, error: None, _sub: sub });
         cx.notify();
     }
@@ -876,7 +876,7 @@ impl MainScreen {
         let current = self.store.read(cx).agents.iter().find(|a| a.id == r.id).map(|a| a.name.clone());
         if current.as_deref() == Some(typed.trim()) {
             self.agent_rename = None;
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
             cx.notify();
             return;
         }
@@ -888,7 +888,7 @@ impl MainScreen {
             Ok(view) => {
                 self.agent_rename = None;
                 crate::agents::patch(view, cx);
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
             }
             Err(e) if keep => r.error = Some(e),
             Err(_) => self.agent_rename = None,
@@ -1038,6 +1038,7 @@ impl MainScreen {
                                 offset: gpui::point(px(0.), px(0.)),
                                 blur_radius: px(18.),
                                 spread_radius: px(-4.),
+                                inset: false,
                             }])
                             .opacity(o)
                             .into_any_element()

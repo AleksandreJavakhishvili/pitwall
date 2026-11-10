@@ -615,7 +615,7 @@ fn under_liquid_glass_the_sidebar_scrolls_alone_and_parts_keep_their_glass(cx: &
     let at = gpui::point(gpui::px(120.), gpui::px(400.));
     cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
     for _ in 0..3 {
-        cx.simulate_event(gpui::ScrollWheelEvent {
+        cx.simulate_event(gpui::ScrollEvent {
             position: at,
             delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-80.))),
             ..Default::default()

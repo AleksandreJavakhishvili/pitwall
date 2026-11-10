@@ -267,7 +267,7 @@ impl NewAgentDialog {
                 }),
             );
         }
-        window.focus(&name.focus_handle(cx));
+        window.focus(&name.focus_handle(cx), cx);
         let rules = cx.new(crate::rules::field::RulesField::new);
         subs.push(cx.observe(&rules, |_, _, cx| cx.notify()));
         let mut d = NewAgentDialog {
@@ -417,6 +417,7 @@ impl NewAgentDialog {
                     offset: gpui::point(px(0.), px(0.)),
                     blur_radius: px(0.),
                     spread_radius: px(0.5),
+                    inset: false,
                 }])
             })
             .when(!installed, |d| d.opacity(0.45))
@@ -886,7 +887,7 @@ impl NewAgentDialog {
                 self.suggest(window, cx);
             }
         }
-        window.focus(&self.name.focus_handle(cx));
+        window.focus(&self.name.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -910,13 +911,13 @@ impl NewAgentDialog {
         self.open = Some(Open::Project);
         self.pick_active = 0;
         self.query.update(cx, |i, cx| i.set_text("", cx));
-        window.focus(&self.query.focus_handle(cx));
+        window.focus(&self.query.focus_handle(cx), cx);
         cx.notify();
     }
 
     fn close_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open = None;
-        window.focus(&self.name.focus_handle(cx));
+        window.focus(&self.name.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -1353,7 +1354,7 @@ impl Render for NewAgentDialog {
                             .into_any_element()
                     })
                     .min_h_0()
-                    .flex_shrink(),
+                    .flex_shrink_1(),
                 )
                 .child(
                     foot(&t)
@@ -1623,7 +1624,7 @@ impl ProjectAccountsDialog {
 
     fn start_adding(&mut self, kind: &str, window: &mut Window, cx: &mut Context<Self>) {
         let input = cx.new(|cx| TextInput::new(cx, "", "Work"));
-        window.focus(&input.focus_handle(cx));
+        window.focus(&input.focus_handle(cx), cx);
         self._subs.push(cx.subscribe_in(&input, window, |this, _, e: &InputEvent, _, cx| match e {
             InputEvent::Submit => this.create(cx),
             InputEvent::Cancel => {
@@ -1910,7 +1911,7 @@ impl TerminalDialog {
         cx: &mut Context<Self>,
     ) -> TerminalDialog {
         let input = cx.new(|cx| TextInput::new(cx, &initial, "~/code/project").mono());
-        window.focus(&input.focus_handle(cx));
+        window.focus(&input.focus_handle(cx), cx);
         let subs =
             vec![
                 cx.subscribe_in(&input, window, |this, _, e: &InputEvent, _, cx| match e {
@@ -2401,7 +2402,7 @@ impl DiffDialog {
                 }
             });
         });
-        window.focus(&code.focus_handle(cx));
+        window.focus(&code.focus_handle(cx), cx);
         DiffDialog {
             agent,
             file,
@@ -2598,16 +2599,15 @@ mod new_agent_tests {
         d.read_with(vcx, |d, cx| assert_eq!(d.project_path(cx), "/work/api-gateway"));
     }
 
-    /// "Choose folder…" asks the system for a folder (the test platform has
-    /// no picker: it panics there, which is the proof).
+    /// "Choose folder…" asks the system for a folder.
     #[gpui::test]
-    #[should_panic(expected = "not implemented")]
     fn choose_folder_opens_the_system_picker(cx: &mut TestAppContext) {
         let (d, vcx) = dialog(cx);
         d.update_in(vcx, |d, window, cx| {
             d.open_picker(window, cx);
             d.apply_pick(Pick::Choose, window, cx)
         });
+        assert!(vcx.did_prompt_for_paths());
     }
 
     #[gpui::test]

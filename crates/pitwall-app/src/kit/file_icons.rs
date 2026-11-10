@@ -3,7 +3,7 @@
 //! (`src/lib/fileIcons.ts`, `src/lib/fileIcons.map.json`,
 //! `src/assets/file-icons/`), embedded in the binary and drawn in colour
 //! (the explorer's tree, quick open, Review's file lists). Every coloured
-//! SVG goes through [`svg_image`], which carries gpui 0.2.2's red/blue fix.
+//! SVG goes through [`svg_image`].
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -77,48 +77,13 @@ fn image(name: &str) -> Arc<Image> {
         .clone()
 }
 
-/// `#rrggbb` / `#rgb` colours with red and blue swapped. gpui 0.2.2 hands
-/// a rendered SVG's RGBA pixels to a BGRA texture without converting them
-/// (other image formats are converted), so colours come out with red and
-/// blue exchanged; swapping them in the source first cancels that out.
-pub fn swap_red_blue(svg: &str) -> String {
-    let b = svg.as_bytes();
-    let mut out = String::with_capacity(svg.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'#' {
-            let run = b[i + 1..]
-                .iter()
-                .take_while(|c| c.is_ascii_hexdigit())
-                .count();
-            let next_ok = b
-                .get(i + 1 + run)
-                .is_none_or(|c| !c.is_ascii_alphanumeric());
-            if next_ok && (run == 6 || run == 3) {
-                let h = &svg[i + 1..i + 1 + run];
-                let n = run / 3;
-                out.push('#');
-                out.push_str(&h[2 * n..3 * n]);
-                out.push_str(&h[n..2 * n]);
-                out.push_str(&h[..n]);
-                i += 1 + run;
-                continue;
-            }
-        }
-        let c = svg[i..].chars().next().unwrap_or_default();
-        out.push(c);
-        i += c.len_utf8();
-    }
-    out
-}
-
-/// A coloured SVG as an image for `img()`, colours fixed for gpui 0.2.2
-/// ([`swap_red_blue`]). Cache the result: each call decodes again.
+/// A coloured SVG as an image for `img()`. GPUI rasterises it and converts
+/// the pixels to the BGRA its textures expect (gpui's `SvgRenderer::
+/// render_parsed`), so the SVG's colours go in as written. (gpui 0.2.2
+/// skipped that conversion for SVG; Pitwall used to swap red and blue in
+/// the source to cancel it out.) Cache the result: each call decodes again.
 pub fn svg_image(svg: &str) -> Arc<Image> {
-    Arc::new(Image::from_bytes(
-        ImageFormat::Svg,
-        swap_red_blue(svg).into_bytes(),
-    ))
+    Arc::new(Image::from_bytes(ImageFormat::Svg, svg.as_bytes().to_vec()))
 }
 
 /// A file's icon, `size` points square.
@@ -693,12 +658,17 @@ mod tests {
         assert_eq!(folder_icon_name("whatever", true), "folder-open");
     }
 
+    /// The rendered SVG reaches the texture as BGRA with its colours as
+    /// written: red stays red (a red/blue swap in the source, as gpui
+    /// 0.2.2 needed, would come out blue here).
     #[test]
-    fn red_and_blue_swap_in_svg_colours() {
-        assert_eq!(
-            swap_red_blue(r##"<p fill="#ff7043"/><p fill="#a0f"/><p fill="url(#a)"/>"##),
-            r##"<p fill="#4370ff"/><p fill="#f0a"/><p fill="url(#a)"/>"##
-        );
+    fn svg_colours_render_unswapped() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="#ff7043"/></svg>"##;
+        let image = svg_image(svg)
+            .to_image_data(gpui::SvgRenderer::new(Arc::new(())))
+            .expect("svg renders");
+        let bgra = image.as_bytes(0).expect("one frame");
+        assert_eq!(&bgra[..4], &[0x43, 0x70, 0xff, 0xff]);
     }
 
     #[test]

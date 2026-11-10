@@ -748,7 +748,7 @@ impl Theme {
     }
 
     /// Surfaces floating over terminals (dialogs, menus, toasts). The web
-    /// view frosts these with `backdrop-filter`; GPUI 0.2.2 can't blur what
+    /// view frosts these with `backdrop-filter`; GPUI can't blur what
     /// the app itself draws (the native material only sees what is behind
     /// the window), so they are solid, as glass.css does for the lite tier
     /// (`--g-float: var(--raised)`), with the glass hairlines and pill buttons.
@@ -783,6 +783,7 @@ impl Theme {
             offset: point(px(0.), y),
             blur_radius: blur,
             spread_radius: px(0.),
+            inset: false,
         }]
     }
 
@@ -806,6 +807,7 @@ impl Theme {
             offset: point(px(0.), px(0.)),
             blur_radius: px(0.),
             spread_radius: px(1.),
+            inset: false,
         }
     }
 
@@ -816,6 +818,7 @@ impl Theme {
             offset: point(px(0.), px(0.)),
             blur_radius: px(blur),
             spread_radius: px(spread),
+            inset: false,
         }]
     }
 

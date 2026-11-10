@@ -1,9 +1,10 @@
 //! Is a window on screen? The React app pauses every poll while
 //! `document.hidden` (the window minimised, hidden or fully covered) and
-//! catches up when it shows again (`src/lib/freshness.ts`). GPUI 0.2.2 has
-//! no visibility event, so this asks the OS: macOS the window's occlusion
-//! state, Windows whether it is shown and not minimised. Linux can't tell
-//! (Wayland doesn't say): a window counts as visible there.
+//! catches up when it shows again (`src/lib/freshness.ts`). This asks the
+//! OS: macOS the window's occlusion state, Windows whether it is shown and
+//! not minimised. Linux: a window counts as visible. (Written for gpui
+//! 0.2.2, which had no visibility state; gpui now has `Window::is_visible`
+//! and `observe_window_visibility`, which could replace this.)
 
 use std::time::Duration;
 
@@ -31,10 +32,10 @@ pub fn any_visible(cx: &mut App) -> bool {
 /// covered, and catch up within a second of it showing.
 pub async fn until_any_visible(cx: &mut AsyncApp) {
     loop {
-        match cx.update(any_visible) {
-            Ok(true) | Err(_) => return,
-            Ok(false) => cx.background_executor().timer(RECHECK).await,
+        if cx.update(any_visible) {
+            return;
         }
+        cx.background_executor().timer(RECHECK).await;
     }
 }
 

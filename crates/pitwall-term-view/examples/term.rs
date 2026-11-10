@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable, KeyBinding, Window, WindowBounds,
+    div, prelude::*, px, size, App, Bounds, Context, Entity, Focusable, KeyBinding, Window, WindowBounds,
     WindowOptions,
 };
 use pitwall_term_view::pty::LocalPty;
@@ -64,7 +64,7 @@ fn args() -> Args {
 
 fn main() {
     let args = args();
-    Application::new().run(move |cx: &mut App| {
+    gpui_platform::application().run(move |cx: &mut App| {
         cx.bind_keys(default_key_bindings());
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -96,7 +96,7 @@ fn main() {
                 window.set_window_title("Terminal");
                 let term =
                     cx.new(|cx| TerminalView::new(terminal.clone(), ViewMode::Interactive, settings, window, cx));
-                window.focus(&term.read(cx).focus_handle(cx));
+                window.focus(&term.read(cx).focus_handle(cx), cx);
                 if let Some(text) = typed {
                     let t = terminal.clone();
                     cx.spawn(async move |cx| {

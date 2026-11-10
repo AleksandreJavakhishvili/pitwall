@@ -79,8 +79,7 @@ pub fn agent_name_for<'a>(project_path: &str, taken: impl IntoIterator<Item = &'
     let used: HashSet<&str> = taken.into_iter().collect();
     let last = project_path
         .split(['/', '\\'])
-        .filter(|s| !s.is_empty())
-        .next_back()
+        .rfind(|s| !s.is_empty())
         .unwrap_or("agent")
         .to_lowercase();
     // Runs of anything else become one "-".

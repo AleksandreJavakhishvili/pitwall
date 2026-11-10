@@ -66,7 +66,7 @@ pub fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyView> {
     dialog.read(cx).pending(cx)?;
     let focus = dialog.read(cx).focus.clone();
     if window.is_window_active() && !focus.contains_focused(window, cx) {
-        window.focus(&focus);
+        window.focus(&focus, cx);
     }
     Some(dialog.into())
 }
@@ -314,12 +314,14 @@ impl Render for ApprovalDialog {
                             offset: gpui::point(px(0.), px(18.)),
                             blur_radius: px(50.),
                             spread_radius: px(0.),
+                            inset: false,
                         },
                         gpui::BoxShadow {
                             color: t.amber.opacity(0.3),
                             offset: gpui::point(px(0.), px(0.)),
                             blur_radius: px(0.),
                             spread_radius: px(1.),
+                            inset: false,
                         },
                         gpui::BoxShadow {
                             color: t
@@ -328,6 +330,7 @@ impl Render for ApprovalDialog {
                             offset: gpui::point(px(0.), px(0.)),
                             blur_radius: px(14.),
                             spread_radius: px(-6.),
+                            inset: false,
                         },
                     ])
                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -455,6 +458,9 @@ mod tests {
     /// through the bridge, shows in a window, and Allow lets it through.
     #[gpui::test]
     fn a_waiting_request_is_allowed_from_the_window(cx: &mut TestAppContext) {
+        // A real thread wakes the test scheduler; allow it.
+        cx.executor().allow_parking();
+
         cx.update(|cx| {
             cx.set_global(Theme::dark());
             cx.bind_keys(crate::menu::bindings());

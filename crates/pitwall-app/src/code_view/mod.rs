@@ -100,22 +100,34 @@ pub fn register(cx: &mut App) {
 }
 
 pub fn bindings() -> Vec<KeyBinding> {
+    // `KeyBinding::new` takes `&'static str`: the prefixes are joined at
+    // compile time (`m!`: ⌘ / Ctrl, `w!`: word moves, ⌥ / Ctrl).
+    #[cfg(target_os = "macos")]
+    macro_rules! m {
+        ($k:literal) => {
+            concat!("cmd-", $k)
+        };
+    }
+    #[cfg(target_os = "macos")]
+    macro_rules! w {
+        ($k:literal) => {
+            concat!("alt-", $k)
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    macro_rules! m {
+        ($k:literal) => {
+            concat!("ctrl-", $k)
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    macro_rules! w {
+        ($k:literal) => {
+            concat!("ctrl-", $k)
+        };
+    }
     let c = Some(CONTEXT);
     let mac = cfg!(target_os = "macos");
-    let m = |k: &str| {
-        if mac {
-            format!("cmd-{k}")
-        } else {
-            format!("ctrl-{k}")
-        }
-    };
-    let w = |k: &str| {
-        if mac {
-            format!("alt-{k}")
-        } else {
-            format!("ctrl-{k}")
-        }
-    };
     let mut b = vec![
         KeyBinding::new("up", MoveUp, c),
         KeyBinding::new("down", MoveDown, c),
@@ -125,10 +137,10 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-down", SelectDown, c),
         KeyBinding::new("shift-left", SelectLeft, c),
         KeyBinding::new("shift-right", SelectRight, c),
-        KeyBinding::new(&w("left"), WordLeft, c),
-        KeyBinding::new(&w("right"), WordRight, c),
-        KeyBinding::new(&w("shift-left"), SelectWordLeft, c),
-        KeyBinding::new(&w("shift-right"), SelectWordRight, c),
+        KeyBinding::new(w!("left"), WordLeft, c),
+        KeyBinding::new(w!("right"), WordRight, c),
+        KeyBinding::new(w!("shift-left"), SelectWordLeft, c),
+        KeyBinding::new(w!("shift-right"), SelectWordRight, c),
         KeyBinding::new("home", LineStart, c),
         KeyBinding::new("end", LineEnd, c),
         KeyBinding::new("shift-home", SelectLineStart, c),
@@ -137,13 +149,13 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("pagedown", PageDown, c),
         KeyBinding::new("shift-pageup", SelectPageUp, c),
         KeyBinding::new("shift-pagedown", SelectPageDown, c),
-        KeyBinding::new(&m("a"), SelectAll, c),
-        KeyBinding::new(&m("c"), Copy, c),
-        KeyBinding::new(&m("f"), Find, c),
+        KeyBinding::new(m!("a"), SelectAll, c),
+        KeyBinding::new(m!("c"), Copy, c),
+        KeyBinding::new(m!("f"), Find, c),
         KeyBinding::new("f3", FindNext, c),
         KeyBinding::new("shift-f3", FindPrevious, c),
-        KeyBinding::new(&m("g"), FindNext, c),
-        KeyBinding::new(&m("shift-g"), FindPrevious, c),
+        KeyBinding::new(m!("g"), FindNext, c),
+        KeyBinding::new(m!("shift-g"), FindPrevious, c),
         KeyBinding::new("f7", NextChange, c),
         KeyBinding::new("shift-f7", PreviousChange, c),
         KeyBinding::new("alt-f5", NextChange, c),
@@ -840,7 +852,7 @@ impl CodeView {
                     t.replace_text(&s, cx);
                 }
                 t.select_all_text(cx);
-                t.focus(window);
+                t.focus(window, cx);
             });
             return;
         }
@@ -880,7 +892,7 @@ impl CodeView {
         field.update(cx, |t, cx| {
             t.replace_text(&seed_text, cx);
             t.select_all_text(cx);
-            t.focus(window);
+            t.focus(window, cx);
         });
         self.refind();
         cx.notify();
@@ -973,7 +985,7 @@ impl CodeView {
             if self.scroll_y > px(0.) {
                 self.scroll_y = (self.scroll_y - px(paint::FIND_ZONE)).max(px(0.));
             }
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
             cx.notify();
         }
     }

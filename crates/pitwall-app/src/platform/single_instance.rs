@@ -102,7 +102,7 @@ pub fn serve(root: &Path, cx: &mut App) {
     }
     cx.spawn(async move |cx: &mut AsyncApp| {
         while rx.next().await.is_some() {
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 cx.activate(true);
                 cx.dispatch_action(&ShowMain);
             });

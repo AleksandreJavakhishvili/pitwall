@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::*, px, size, AnyView, App, Application, Bounds, Context, Element, Entity, GlobalElementId,
+    div, prelude::*, px, size, AnyView, App, Bounds, Context, Element, Entity, GlobalElementId,
     InspectorElementId, LayoutId, Pixels, StyleRefinement, Window, WindowBounds, WindowOptions,
 };
 use pitwall_term_view::pty::LocalPty;
@@ -64,13 +64,6 @@ struct Frames {
 }
 
 struct FrameEnd(Rc<RefCell<Frames>>);
-
-impl IntoElement for FrameEnd {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
 
 impl Element for FrameEnd {
     type RequestLayoutState = ();
@@ -133,7 +126,7 @@ impl Render for Wall {
         let w = 100.0 / self.per_row as f32;
         for t in &self.tiles {
             let view: AnyView = t.clone().into();
-            let view = if self.cache { view.cached(StyleRefinement::default().size_full()) } else { view };
+            let view = if self.cache { view.cached(StyleRefinement::default().size_full()).into_any_element() } else { view.into_any_element() };
             grid = grid.child(div().w(gpui::relative(w / 100.0)).h(gpui::relative(0.25)).p(px(2.0)).child(view));
         }
         grid.child(FrameEnd(self.frames.clone()))
@@ -214,7 +207,7 @@ fn pct(v: &mut [u64], p: f64) -> u64 {
 fn main() {
     let o = opts();
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../../scripts/tui-agent.py");
-    Application::new().run(move |cx: &mut App| {
+    gpui_platform::application().run(move |cx: &mut App| {
         let size0 = TermSize::new(o.cols, o.rows);
         let mut terminals = Vec::new();
         let mut pids = Vec::new();
@@ -319,7 +312,7 @@ fn main() {
             for pid in &pids {
                 stop(*pid);
             }
-            let _ = cx.update(|cx| cx.quit());
+            cx.update(|cx| cx.quit());
         })
         .detach();
     });

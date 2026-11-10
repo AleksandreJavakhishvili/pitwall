@@ -291,7 +291,7 @@ impl TreeView {
             })
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .on_click(cx.listener(move |this, _, window, cx| {
-                window.focus(&this.focus);
+                window.focus(&this.focus, cx);
                 this.activate(&path, kind, cx);
             }))
             .tooltip(move |_, cx| tooltip_view(title.clone(), cx))
@@ -355,7 +355,7 @@ impl Render for TreeView {
                     .collect::<Vec<_>>()
             }),
         )
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .size_full()
         .px(px(4.))
         .pb(px(12.));

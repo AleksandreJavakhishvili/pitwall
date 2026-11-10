@@ -99,6 +99,7 @@ fn ring_shadows(ring: Hsla, glow: Option<Hsla>) -> Vec<BoxShadow> {
         offset: gpui::point(px(0.), px(0.)),
         blur_radius: px(0.),
         spread_radius: px(1.),
+        inset: false,
     }];
     if let Some(color) = glow {
         v.push(BoxShadow {
@@ -107,6 +108,7 @@ fn ring_shadows(ring: Hsla, glow: Option<Hsla>) -> Vec<BoxShadow> {
             // CSS blur radius = 2 sigma; gpui's is the sigma.
             blur_radius: px(13.),
             spread_radius: px(-6.),
+            inset: false,
         });
     }
     v
@@ -193,7 +195,7 @@ impl Render for WallTile {
                 d.child(
                     div()
                         .min_w_0()
-                        .flex_shrink()
+                        .flex_shrink_1()
                         .ellipsis()
                         .font_family(kit::MONO_FONT)
                         .text_size(px(11.5))

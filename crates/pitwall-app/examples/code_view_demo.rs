@@ -2,7 +2,7 @@
 //! `cargo run -p pitwall-app --example code_view_demo [-- unified|file|light]`.
 
 use gpui::{
-    div, point, prelude::*, px, size, App, Application, Bounds, Context, Entity, Focusable, Window,
+    div, point, prelude::*, px, size, App, Bounds, Context, Entity, Focusable, Window,
     WindowBounds, WindowOptions,
 };
 
@@ -103,7 +103,7 @@ impl Render for Demo {
 
 fn main() {
     let arg = std::env::args().nth(1).unwrap_or_default();
-    Application::new().run(move |cx: &mut App| {
+    gpui_platform::application().run(move |cx: &mut App| {
         let mode = if arg == "light" {
             Mode::Light
         } else {
@@ -134,7 +134,7 @@ fn main() {
                     );
                     v
                 });
-                window.focus(&view.focus_handle(cx));
+                window.focus(&view.focus_handle(cx), cx);
                 cx.new(|_| Demo { view })
             },
         )

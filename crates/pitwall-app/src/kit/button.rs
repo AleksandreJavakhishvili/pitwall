@@ -141,6 +141,7 @@ pub fn button(id: impl Into<ElementId>, kind: BtnKind, disabled: bool, t: &Theme
                         offset: gpui::point(px(0.), px(6.)),
                         blur_radius: px(18.),
                         spread_radius: px(-8.),
+                        inset: false,
                     }])
                 })
                 .when(hover_ok, |d| d.hover_probed(move |s| s.bg(hover)));

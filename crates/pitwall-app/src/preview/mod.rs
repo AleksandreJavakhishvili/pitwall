@@ -271,7 +271,7 @@ pub fn surface(
         move |bounds, _, window, _| {
             window.paint_quad(gpui::fill(bounds, bg));
             if let Some(Some(image)) = &picture {
-                let _ = window.paint_image(bounds, Default::default(), image.clone(), 0, false);
+                let _ = window.paint_image(bounds, bounds, Default::default(), image.clone(), 0, false);
             }
         },
     )
@@ -284,7 +284,7 @@ pub fn to_image(s: Snapshot) -> Option<Arc<RenderImage>> {
     if s.width == 0 || s.height == 0 || data.len() != (s.width * s.height * 4) as usize {
         return None;
     }
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     let buffer = image::RgbaImage::from_raw(s.width, s.height, data)?;

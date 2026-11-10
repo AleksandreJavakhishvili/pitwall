@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, px, size, App, AppContext, Application, Bounds, Context, Entity, Render,
+    div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, Render,
     Window, WindowBounds, WindowOptions,
 };
 
@@ -83,7 +83,7 @@ fn main() {
     let h = Harness::new(vec![rec]);
     let engine = h.engine.clone();
 
-    Application::new()
+    gpui_platform::application()
         .with_assets(pitwall_app::kit::Assets)
         .run(move |cx: &mut App| {
         cx.set_global(Theme::for_mode(Mode::for_appearance(

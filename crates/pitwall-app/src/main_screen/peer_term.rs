@@ -559,6 +559,8 @@ mod tests {
 
     #[gpui::test]
     fn a_peer_agents_pane_shows_its_terminal_live_and_view_only(cx: &mut TestAppContext) {
+        // The fake peer streams from a real thread.
+        cx.executor().allow_parking();
         let (s, view, cx) = screen(cx);
         view.update_in(cx, |m, window, cx| m.show_agent(ID, window, cx));
         until(cx, "the snapshot is on screen", |cx| text(cx).contains("hello from studio"));

@@ -253,7 +253,7 @@ impl SettingsView {
             data::set_page(cx, page);
             self.scroll.set_offset(gpui::point(px(0.), px(0.)));
         }
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         cx.notify();
     }
 

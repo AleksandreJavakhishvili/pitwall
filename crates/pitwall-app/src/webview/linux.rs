@@ -138,7 +138,7 @@ async fn pump(cx: &mut AsyncApp) {
         }
         let open = PUMP.with_borrow_mut(|p| std::mem::take(&mut p.open));
         if !open.is_empty() {
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 for url in &open {
                     crate::platform::files::open_url(cx, url);
                 }
