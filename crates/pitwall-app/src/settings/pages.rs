@@ -11,7 +11,7 @@ use gpui::{div, prelude::*, px, AnyElement, App, ClipboardItem, Context, Div, Fo
 use pitwall_core::permissions::Access;
 use pitwall_proto::settings::Page;
 
-use super::view::{keys, SettingsEvent, SettingsView};
+use super::view::{keys, Part, SettingsEvent, SettingsView};
 use super::widgets::Ui;
 use super::{about, permissions, prefs, set_prefs, ExtraSections};
 use crate::kit::{tooltip, BtnKind, SegItem};
@@ -65,39 +65,63 @@ pub const LICENSE: &str = "https://github.com/AleksandreJavakhishvili/pitwall/bl
 pub const THIRD_PARTY: &str = "https://github.com/AleksandreJavakhishvili/pitwall/tree/main/LICENSES";
 
 impl SettingsView {
-    /// The sections of `page`.
-    pub(super) fn page(&mut self, page: Page, ui: &Ui, window: &mut Window, cx: &mut Context<Self>) -> Vec<Div> {
+    /// The parts of `page`: what builds each section (cheap; a part is
+    /// built only when the list draws or measures it).
+    pub(super) fn page(&mut self, page: Page, cx: &mut Context<Self>) -> Vec<Part> {
+        fn any(d: Div) -> AnyElement {
+            d.into_any_element()
+        }
         match page {
             Page::General => {
-                let mut v: Vec<Div> = self.projects(ui, cx).into_iter().collect();
-                v.push(Self::grouping(ui, cx));
-                v.push(Self::elsewhere(ui, cx));
-                v.push(self.cli(ui, cx));
+                let mut v = Vec::new();
+                if self.live {
+                    v.push(Part::section("projects", |s, ui, _, cx| s.projects(ui, cx).map_or_else(|| div().into_any_element(), any)));
+                }
+                v.push(Part::section("grouping", |_, ui, _, cx| any(Self::grouping(ui, cx))));
+                v.push(Part::section("elsewhere", |_, ui, _, cx| any(Self::elsewhere(ui, cx))));
+                v.push(Part::section("cli", |s, ui, _, cx| any(s.cli(ui, cx))));
                 v
             }
-            Page::Agents => {
-                let codex = self.codex(ui, cx);
-                let engineer = self.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx);
-                vec![Self::claude(ui), codex, Self::tool_updates(ui, cx), engineer]
-            }
-            Page::Accounts => vec![self.accounts_section(ui, cx), self.git_section(ui, cx)],
+            Page::Agents => vec![
+                Part::section("claude", |_, ui, _, _| any(Self::claude(ui))),
+                Part::section("codex", |s, ui, _, cx| any(s.codex(ui, cx))),
+                Part::section("tool-updates", |_, ui, _, cx| any(Self::tool_updates(ui, cx))),
+                Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
+            ],
+            Page::Accounts => vec![
+                Part::section("accounts", |s, ui, _, cx| any(s.accounts_section(ui, cx))),
+                Part::section("git", |s, ui, _, cx| any(s.git_section(ui, cx))),
+            ],
             Page::Rules => {
-                let extra: Vec<AnyElement> = cx
-                    .try_global::<ExtraSections>()
-                    .map(|s| s.0.clone())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|f| f(window, cx))
-                    .collect();
+                let extra = cx.try_global::<ExtraSections>().map(|s| s.0.clone()).unwrap_or_default();
                 if extra.is_empty() {
-                    return vec![section().child(crate::kit::muted("Rules need Pitwall's engine, which isn't running.", &ui.t))];
+                    return vec![Part::section("rules-off", |_, ui, _, _| {
+                        any(section().child(crate::kit::muted("Rules need Pitwall's engine, which isn't running.", &ui.t)))
+                    })];
                 }
-                extra.into_iter().map(|e| div().flex().flex_col().child(e)).collect()
+                extra
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, f)| Part::section(("rules", i), move |_, _, window, cx| any(div().flex().flex_col().child(f(window, cx)))))
+                    .collect()
             }
-            Page::Appearance => vec![Self::appearance_section(ui, cx), Self::tiles(ui, cx)],
-            Page::FolderAccess => self.folder_access(ui, cx),
-            Page::Peers => self.peers_page(ui, cx),
-            Page::About => vec![Self::about(ui, cx)],
+            Page::Appearance => vec![
+                Part::section("appearance", |_, ui, _, cx| any(Self::appearance_section(ui, cx))),
+                Part::section("tiles", |_, ui, _, cx| any(Self::tiles(ui, cx))),
+            ],
+            Page::FolderAccess => {
+                if self.perms.as_ref().is_some_and(|s| !s.applies) {
+                    return vec![Part::section("fda-none", |_, ui, _, _| {
+                        any(section().child(crate::kit::muted("This system doesn't guard folders the way macOS does: Pitwall reads your projects without asking.", &ui.t)))
+                    })];
+                }
+                vec![
+                    Part::section("prompts", |s, ui, _, cx| any(s.folder_prompts(ui, cx))),
+                    Part::section("fda", |s, ui, _, cx| any(s.full_disk_access(ui, cx))),
+                ]
+            }
+            Page::Peers => self.peers_parts(cx),
+            Page::About => vec![Part::section("about", |_, ui, _, cx| any(Self::about(ui, cx)))],
         }
     }
 
@@ -455,20 +479,21 @@ impl SettingsView {
 
     /// Folder access: macOS's per-folder prompts are the normal path; Full
     /// Disk Access is an advanced option with an honest warning.
-    fn folder_access(&self, ui: &Ui, cx: &mut Context<Self>) -> Vec<Div> {
-        let s = self.perms.as_ref();
-        if s.is_some_and(|s| !s.applies) {
-            return vec![section().child(crate::kit::muted("This system doesn't guard folders the way macOS does: Pitwall reads your projects without asking.", &ui.t))];
-        }
-        let granted = s.is_some_and(|s| s.full_disk_access == Access::Granted);
-        let prompts = section()
+    fn folder_prompts(&self, ui: &Ui, _: &mut Context<Self>) -> Div {
+        let granted = self.perms.as_ref().is_some_and(|s| s.full_disk_access == Access::Granted);
+        section()
             .child(head(ui, "Ask per folder").child(if granted {
                 crate::kit::chip_tone("not needed now", crate::kit::Tone::Subtle, &ui.t)
             } else {
                 crate::kit::chip_tone("recommended", crate::kit::Tone::Ok, &ui.t)
             }))
             .child(crate::kit::muted("macOS asks “Pitwall would like to access…” the first time Pitwall or an agent reads a project in Desktop, Documents or Downloads: at most three prompts, once each. Projects anywhere else never prompt.", &ui.t))
-            .child(crate::kit::hint("Answered “Don't Allow” by mistake? Turn Pitwall on in System Settings → Privacy & Security → Files & Folders.", &ui.t));
+            .child(crate::kit::hint("Answered “Don't Allow” by mistake? Turn Pitwall on in System Settings → Privacy & Security → Files & Folders.", &ui.t))
+    }
+
+    fn full_disk_access(&self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let s = self.perms.as_ref();
+        let granted = s.is_some_and(|s| s.full_disk_access == Access::Granted);
         let (text, tone) = permissions::badge(s);
         let mut fda = section()
             .child(div().flex().items_center().child(crate::kit::label("Advanced", ui.t.text_3, 11.5)))
@@ -510,7 +535,7 @@ impl SettingsView {
                 );
             }
         }
-        vec![prompts, fda]
+        fda
     }
 
     fn about(ui: &Ui, cx: &mut Context<Self>) -> Div {
