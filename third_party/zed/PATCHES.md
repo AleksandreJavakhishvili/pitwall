@@ -19,6 +19,15 @@ Every change Pitwall makes to the vendored crates (README.md) is marked
   a tooltip) covers it (`crates/pitwall-app/src/main_screen/preview.rs`,
   `peer_term.rs`). GPUI has no equivalent.
 
+- `gpui/src/view.rs` — `ViewElement::keep_inner_caches`: a cached view
+  that renders again leaves the cached views inside it that weren't
+  notified to replay their last frame, as they do inside an uncached view
+  (GPUI renders them all, as a window refresh does). The main screen is
+  a cached view while an overlay is open over it (Settings, the palette);
+  a terminal's frame behind it then renders the screen without
+  re-rendering its sidebar, top bar and other terminals
+  (`crates/pitwall-app/src/ui/mod.rs`, docs/spec/perf.md).
+
 ## Now upstream (dropped)
 
 Patches Pitwall made to GPUI 0.2.2 (crates.io) that Zed's GPUI has since
