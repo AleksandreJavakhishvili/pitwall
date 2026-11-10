@@ -448,3 +448,33 @@ build.
   at any window size and frame rate, and gives it back ~2 s after the
   last frame. The drawables scale with the window.
 - Holders (`pitwall-hold`, separate processes) are ~2.5 MB each.
+
+## Settings: scrolling a page (2026-11)
+
+Scrolling a Settings page (Peers, measured with `sample`) took 10–13 ms a
+frame at p95, worst 30–79 ms, against 8.3 ms at 120 Hz. A scroll step in
+a scroll container notifies the view that draws it, so each step ran
+`SettingsView::render` again: every row of the page was built, laid out
+and painted, off-screen ones too (~30 % of the frame; the main screen
+redrawn behind the overlay was most of the rest).
+
+- A page is a list of parts (`settings::view::Part`: a section, or a row
+  continuing one, such as each machine, viewer and audit line on Peers)
+  drawn by `gpui::list`. A part is a closure that builds it; making the
+  list of parts is cheap, and a part is built only when the list draws or
+  measures it, so a scroll step builds only the parts on screen.
+- The list is drawn in a view of its own (`PageBody`): a scroll step
+  (wheel or scrollbar) notifies it, not `SettingsView`. A notify of
+  `SettingsView` itself (its state, or a model it observes) is a change:
+  every part is measured again then. Parts that come or go are spliced in
+  by key; a new page starts at its top.
+- Each part has a focus handle (not a tab stop; focusing it gives focus
+  back to the page list), so a part whose field has focus (the port,
+  account and identity forms) stays drawn while scrolled out of view, as
+  `gpui::list` does for focused items: the field keeps focus and typing.
+- Settings now shows the app's scrollbar (`kit::vlist_fill`).
+- Not done: caching parts as views. A cached view's key includes its
+  origin, so a part moving with the scroll always misses.
+- Tests: `settings::peers::window_tests` (a scroll step builds at most the
+  ~20 parts on screen of a 40-machine page and keeps the page following
+  its model; the port field keeps focus scrolled away and back).
