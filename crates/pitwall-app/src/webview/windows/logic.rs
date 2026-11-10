@@ -228,7 +228,7 @@ mod tests {
                 (v, _) => char::from_u32(v as u32)?.to_string(),
             })
         })
-        .map(|k| k.unparse())
+        .map(|k| k.unparse(gpui::OperatingSystem::Windows))
     }
 
     #[test]

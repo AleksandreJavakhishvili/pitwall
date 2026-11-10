@@ -894,7 +894,7 @@ fn focus_follows_clicks(hwnd: HWND) {
     // Known before ours is in, so every message finds it.
     let gpui = unsafe { std::mem::transmute::<isize, WNDPROC>(gpui) };
     GPUI_PROCS.with_borrow_mut(|p| p.insert(key, gpui));
-    unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, take_focus_on_click as usize as isize) };
+    unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, take_focus_on_click as *const () as usize as isize) };
 }
 
 unsafe extern "system" fn take_focus_on_click(
