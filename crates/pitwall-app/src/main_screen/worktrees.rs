@@ -31,7 +31,9 @@ use pitwall_proto::{AgentView, ProjectWorktrees, WorktreeVia};
 use crate::kit::{
     button, chevron, chip_tone, diffstat, hint, icon, tooltip, BtnKind, HoverText, Tone, MONO_FONT,
 };
-use crate::review::model::{find_worktree, other_worktrees, worktrees_by_agent, WtRef};
+use crate::review::model::{find_worktree, other_worktrees, Worktrees, WtRef};
+#[cfg(test)]
+use crate::review::model::worktrees_by_agent;
 use crate::review::ops;
 use crate::theme::{Theme, RADIUS_SM};
 
@@ -53,7 +55,8 @@ struct Files {
 /// The window's worktree list and what the sidebar shows of it.
 #[derive(Default)]
 pub struct WtState {
-    pub projects: Vec<ProjectWorktrees>,
+    /// The list, with its worktrees by agent derived as it is set.
+    pub projects: Worktrees,
     /// Expanded lists: agent ids, and [`others_key`] of project groups.
     open: HashSet<String>,
     /// Changes of the rows shown, by worktree key.
@@ -185,8 +188,7 @@ impl MainScreen {
     /// The window's list changed: take it and read the shown rows' changes.
     pub(super) fn wt_taken(&mut self, cx: &mut Context<Self>) {
         let list = self.wt_list_entity.read(cx).projects.clone();
-        if self.wt.projects != list {
-            self.wt.projects = list;
+        if self.wt.projects.set(list) {
             self.wt_load_files(false, cx);
         }
         cx.notify();
@@ -197,7 +199,7 @@ impl MainScreen {
     pub fn demo_worktrees(&mut self, open: bool, cx: &mut Context<Self>) {
         let agents = self.agents(cx).to_vec();
         let (list, files) = demo_list(&agents);
-        self.wt.projects = list.clone();
+        self.wt.projects.set(list.clone());
         self.wt_list_entity.update(cx, |l, cx| l.set(list, cx));
         for (key, f) in files {
             self.wt.files.insert(
@@ -252,7 +254,7 @@ impl MainScreen {
     /// The worktrees shown now (in expanded lists of visible groups).
     fn wt_shown(&self, cx: &Context<Self>) -> Vec<WtRef> {
         let agents = self.agents(cx);
-        let by_agent = worktrees_by_agent(&self.wt.projects);
+        let by_agent = self.wt.projects.by_agent();
         let mut out = Vec::new();
         for g in self.sidebar_groups_for_wt(agents) {
             if self.ui.collapsed.contains(&g.0) {
@@ -453,8 +455,7 @@ impl MainScreen {
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let by_agent = worktrees_by_agent(&self.wt.projects);
-        let refs = self.with_work(by_agent.get(&a.id).cloned().unwrap_or_default(), cx);
+        let refs = self.with_work(self.wt.projects.of_agent(&a.id).to_vec(), cx);
         if refs.is_empty() {
             return vec![];
         }
@@ -519,10 +520,7 @@ impl MainScreen {
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let refs = worktrees_by_agent(&self.wt.projects)
-            .get(&a.id)
-            .cloned()
-            .map(|r| self.with_work(r, cx))
+        let refs = Some(self.with_work(self.wt.projects.of_agent(&a.id).to_vec(), cx))
             .filter(|r| !r.is_empty())?;
         let key = panel_key(&a.id);
         let open = self.wt.open.contains(&key);

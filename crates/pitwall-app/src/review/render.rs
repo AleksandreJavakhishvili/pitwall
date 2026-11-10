@@ -42,7 +42,7 @@ pub(super) fn list_file_rows(v: &ReviewView, cx: &App) -> Vec<(String, String)> 
             }
         }
     };
-    let by_agent = model::worktrees_by_agent(&v.projects);
+    let by_agent = v.projects.by_agent();
     for g in &v.groups {
         for a in &g.agents {
             if v.collapsed.contains(&a.id) {
@@ -193,7 +193,7 @@ impl ReviewView {
                 .into_any_element(),
             );
         }
-        let by_agent = model::worktrees_by_agent(&self.projects);
+        let by_agent = self.projects.by_agent();
         let list_focused = self.list_focus.is_focused(window);
         // Worktrees folded away (or shown on request), counted.
         let mut tally = Tally::default();
