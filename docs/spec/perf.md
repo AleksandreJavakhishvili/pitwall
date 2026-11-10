@@ -507,3 +507,32 @@ redrawn behind the overlay was most of the rest).
 - Tests: `settings::peers::window_tests` (a scroll step builds at most the
   ~20 parts on screen of a 40-machine page and keeps the page following
   its model; the port field keeps focus scrolled away and back).
+
+## Review: scrolling the list (2026-11)
+
+Showing a worktree (or an agent) with hundreds of changed files made the
+list on the left slow to scroll: it was one tall scroll container, and a
+scroll step notifies the view that draws it, so each step ran
+`ReviewView::render` again and built and laid out every row of every open
+tree (a folder or file row has a tooltip, a hover and a click), the bar
+and the main pane with them. Worktrees here hold 560–780 changed files.
+
+- The list is flat rows (`review::list::Row`: an agent's or worktree's
+  heading, the note under it, one folder or file of its tree, comments,
+  gaps and hairlines) drawn by `gpui::list`: a row is built only when the
+  list draws or measures it, so a scroll step builds only the rows on
+  screen.
+- The list is drawn in a view of its own (`ListBody`): a scroll step
+  (wheel or scrollbar) notifies it, not `ReviewView`, so the diff isn't
+  drawn again either.
+- The rows are made again when Review is drawn and compared with the last
+  ones by what they are: rows that came or went (a tree opened, a folder
+  folded) are spliced in, rows whose height may have changed (a note's
+  text, the comments' count) are measured again, the rest keep their
+  heights. Picking a file changes no row's height: nothing is measured.
+- Each row is measured once when it first shows (`measure_all`), so the
+  scrollbar is right from the start; a tree of 800 files costs that once,
+  when it opens, not on every step.
+- Tests: `review::tests::a_long_list_builds_only_the_rows_on_screen` (400
+  files: a scroll step builds at most the rows on screen, picking a file
+  no more than those).

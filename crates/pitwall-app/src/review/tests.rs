@@ -630,3 +630,56 @@ fn agents_sharing_a_folder_are_told_their_changes_may_mix(cx: &mut TestAppContex
         assert!(v.shared_note(&c, true, cx).is_none());
     });
 }
+
+/// An agent with hundreds of changed files: a scroll step builds only the
+/// file rows on screen (not all 400), and picking a file measures no row
+/// again.
+#[gpui::test]
+fn a_long_list_builds_only_the_rows_on_screen(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("README.md", "# x\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let mut rec = record("agent-1", r.path());
+    rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]));
+    let h = Harness::new(vec![rec]);
+    for i in 0..400 {
+        r.write(&format!("f{i:03}.txt"), "new\n");
+    }
+
+    let (view, cx) = open(cx, &h);
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(700.)));
+    cx.run_until_parked();
+    view.read_with(cx, |v, _| assert_eq!(v.files["agent-1"].len(), 400));
+    let built = |cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.rv.tree_rows);
+    assert!(built(cx) >= 400, "each row is measured once at first: {}", built(cx));
+
+    // A row is as wide as the list (less its scrollbar's gutter).
+    let row = cx.debug_bounds("rv-tree-row").expect("a file row is drawn");
+    assert!(row.size.width > gpui::px(270.) && row.size.width <= gpui::px(300.), "{row:?}");
+    assert_eq!(row.size.height, gpui::px(23.));
+
+    let at = gpui::point(gpui::px(120.), gpui::px(400.));
+    cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    for step in 0..3 {
+        let before = built(cx);
+        cx.simulate_event(gpui::ScrollEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-230.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        let n = built(cx) - before;
+        assert!(n > 0 && n <= 60, "step {step}: {n} file rows built");
+    }
+    // Scrolled: the first files are off screen, later ones are drawn.
+    let top = view.read_with(cx, |v, _| v.rv.state.logical_scroll_top().item_ix);
+    assert!(top > 20, "the list scrolled: row {top} is at its top");
+
+    // Picking another file draws the rows on screen, no more.
+    let before = built(cx);
+    view.update_in(cx, |v, window, cx| v.select_file("agent-1", "f200.txt", window, cx));
+    cx.run_until_parked();
+    let n = built(cx) - before;
+    assert!(n <= 120, "picking a file built {n} file rows");
+}
