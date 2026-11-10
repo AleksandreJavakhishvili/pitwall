@@ -225,6 +225,12 @@ pub fn default_login_shell() -> String {
         .clone()
 }
 
+/// Unix only (`unix.rs`): Windows starts a bare name the same way as a
+/// full path.
+pub fn on_path(_program: &str, _path: &str) -> Option<String> {
+    None
+}
+
 /// Where `program` is installed: `where.exe` with the fresh PATH, preferring
 /// what Windows can start directly (`.exe`, `.cmd`, …) over extensionless
 /// npm shims meant for bash.
