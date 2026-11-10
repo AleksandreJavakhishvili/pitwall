@@ -401,6 +401,16 @@ printing a line every 0.5 s, window on screen, app process only):
 - To do: a full `--counts 1,5,15,20` run on a quiet machine to fill the
   budgets table for GPUI (memory, cold start, Wall, Review).
 
+## GPUI upgrade: frame pacing (2026-11)
+
+On macOS 26 with M-series chips, crates.io GPUI 0.2.2 blocked the main
+thread in `-[CAMetalLayer nextDrawable]` for ~33 ms a frame: the app was
+capped at 30 fps and input and scrolling lagged. Zed fixed it by pacing
+frames with `CAMetalDisplayLink` (Zed PR #65472), so Pitwall now vendors
+GPUI from Zed commit `58e29b6` (`third_party/zed/`,
+[gpui/licensing.md](gpui/licensing.md)). The numbers above were taken on
+0.2.2; to do: re-run the bench and the memory pass on the new GPUI.
+
 ## GPUI port: memory pass (2026-10-09)
 
 Standard load: 15 made-up TUI agents (`scripts/tui-agent.py`: claude,

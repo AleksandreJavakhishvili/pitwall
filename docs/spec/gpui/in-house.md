@@ -8,17 +8,17 @@ written here, **clean-room**: from GPUI's public API, its docs and examples
 (Apache-2.0), and Pitwall's own React UI as the behavioural spec. **No
 feature is dropped for licensing reasons.**
 
-`gpui-component` (Apache-2.0) is allowed. Releases up to 0.5.1 build on
-the crates.io `gpui` 0.2.2 Pitwall pins; 0.6 and later build on `gpui-pre`
-([licensing.md](licensing.md)). Phase 1 decides per component whether to
-take it from `gpui-component` 0.5.1 (after a licence check of that release's
-whole dependency tree) or write it here; the table below is the plan when
-written here, and the behaviour spec either way.
+`gpui-component` (Apache-2.0) is allowed, but none of its releases builds
+on the GPUI Pitwall vendors (Zed commit `58e29b6`): up to 0.5.1 they target
+crates.io `gpui` 0.2.2, from 0.6 `gpui-pre` ([licensing.md](licensing.md)).
+The components are written here; the table below is the plan and the
+behaviour spec.
 
 Components live in `crates/pitwall-app/src/kit/` (one file each), styled
 only through `theme.rs` tokens, each with `TestAppContext` /
 `VisualTestContext` tests and, from phase 8, accessibility roles and labels
-next to it (README "Accessibility gap").
+next to it (GPUI's `.role(..)` / `.aria_label(..)`, README "Accessibility
+gap").
 
 | Component | Design note | Needed by (inventory) | Phase |
 |---|---|---|---|
