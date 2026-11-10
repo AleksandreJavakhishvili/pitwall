@@ -11,6 +11,7 @@
 
 pub mod comments;
 mod dialogs;
+mod list;
 mod mount;
 pub mod model;
 pub mod ops;
@@ -145,7 +146,8 @@ pub struct ReviewView {
     store: Entity<AgentStore>,
     focus: FocusHandle,
     list_focus: FocusHandle,
-    list_scroll: gpui::ScrollHandle,
+    /// The list's rows and scroll state.
+    rv: list::RvList,
     prompt_scroll: gpui::ScrollHandle,
     space: Space,
     focused_agent: Option<String>,
@@ -284,7 +286,7 @@ impl ReviewView {
             store,
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
-            list_scroll: gpui::ScrollHandle::new(),
+            rv: list::RvList::new(cx),
             prompt_scroll: gpui::ScrollHandle::new(),
             space,
             focused_agent,

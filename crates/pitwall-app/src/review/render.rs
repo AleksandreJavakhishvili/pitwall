@@ -12,6 +12,7 @@ use gpui::{
 use pitwall_proto::{AgentView, FileStatus};
 
 use super::comments::Comments;
+use super::list::Row;
 use super::model::{self, Breadth, TreeRow, WtRef};
 use super::{
     Back, CancelComment, DiffState, NextFile, OpenFile, PreviousFile, RefreshChanges, ReviewView,
@@ -177,90 +178,11 @@ impl ReviewView {
 
     // ── the list ────────────────────────────────────────────────────────
 
-    fn list(&self, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut col: Vec<AnyElement> = Vec::new();
-        if self.ordered.is_empty() {
-            col.push(
-                hint(
-                    if self.hidden > 0 {
-                        "No agents with changes to review."
-                    } else {
-                        "No agents yet."
-                    },
-                    t,
-                )
-                .p(px(16.))
-                .into_any_element(),
-            );
-        }
-        let by_agent = self.projects.by_agent();
-        let list_focused = self.list_focus.is_focused(window);
-        // Worktrees folded away (or shown on request), counted.
-        let mut tally = Tally::default();
-        for (gi, g) in self.groups.iter().enumerate() {
-            let mut group = div()
-                .flex()
-                .flex_col()
-                .when(gi > 0, |d| d.border_t_1().border_color(t.line_strong));
-            for (ai, a) in g.agents.iter().enumerate() {
-                let wts = self.sift(by_agent.get(&a.id).cloned().unwrap_or_default(), &mut tally, cx);
-                group = group.child(self.agent_section(a, ai > 0, &wts, list_focused, t, cx));
-            }
-            let ids: Vec<&str> = g.agents.iter().map(|a| a.id.as_str()).collect();
-            // Narrowed to one agent: not the project's other worktrees.
-            let others = if self.agent_only {
-                Vec::new()
-            } else {
-                self.sift(model::other_worktrees(&self.projects, &ids), &mut tally, cx)
-            };
-            if !others.is_empty() {
-                let mut o = div()
-                    .flex()
-                    .flex_col()
-                    .border_t_1()
-                    .border_color(t.line)
-                    .pt(px(4.))
-                    .child(
-                        div()
-                            .pt(px(6.))
-                            .pr(px(10.))
-                            .pb(px(2.))
-                            .pl(px(12.))
-                            .child(kit::label(
-                                format!("Other worktrees · {}", kit::project_name(&g.display)),
-                                t.text_3,
-                                12.,
-                            )),
-                    );
-                for r in &others {
-                    o = o.child(self.worktree_section(r, list_focused, t, cx));
-                }
-                group = group.child(o);
-            }
-            col.push(group.into_any_element());
-        }
-        let folds = self.fold_lines(&tally, t, cx);
-        if !folds.is_empty() {
-            col.push(div().flex().flex_col().gap(px(6.)).px(px(12.)).py(px(8.)).children(folds).into_any_element());
-        }
-        if self.hidden > 0 && !self.ordered.is_empty() {
-            let who = if self.hidden == 1 {
-                "1 agent works".to_string()
-            } else {
-                format!("{} agents work", self.hidden)
-            };
-            col.push(
-                hint(
-                    format!("{who} outside a git repository — no changes to review."),
-                    t,
-                )
-                .p(px(16.))
-                .into_any_element(),
-            );
-        }
-        let list = div()
+    /// The list: its rows are drawn by `gpui::list` in a view of its own
+    /// (`super::list`), so a scroll step builds only the rows on screen.
+    fn list(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
             .id("rv-list")
-            .track_scroll(&self.list_scroll)
             .key_context("ReviewList")
             .track_focus(&self.list_focus)
             .on_action(cx.listener(|v, _: &PreviousFile, _, cx| v.move_cursor(-1, cx)))
@@ -270,21 +192,66 @@ impl ReviewView {
                     v.select_file(&owner, &path, window, cx);
                 }
             }))
-            .size_full()
-            .overflow_y_scroll()
-            .pt(px(4.))
-            .pb(px(16.))
-            .flex()
-            .flex_col()
-            .children(col);
-        kit::vscroll_fill("rv-list-bar", &self.list_scroll, t, list)
             .w(px(LIST_W))
             .min_w(px(220.))
             .flex_none()
             .h_full()
+            .flex()
+            .flex_col()
             .border_r_1()
             .border_color(t.line)
             .bg(t.surface)
+            .child(self.rv.body.clone())
+    }
+
+    /// Row `ix` of the list (`super::list::Row`), built when on screen.
+    pub(super) fn list_row(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(e) = self.rv.rows.get(ix).cloned() else {
+            return div().into_any_element();
+        };
+        let t = &theme(cx).clone();
+        let focused = self.list_focus.is_focused(window);
+        let (el, rail): (AnyElement, bool) = match e.row {
+            Row::Gap { h, rail } => (div().h(px(h)).into_any_element(), rail),
+            Row::Rule { strong } => {
+                (div().h(px(1.)).bg(if strong { t.line_strong } else { t.line }).into_any_element(), false)
+            }
+            Row::Hint(text) => (hint(text, t).p(px(16.)).into_any_element(), false),
+            Row::Agent(a) => (self.agent_head(&a, t, cx).into_any_element(), false),
+            Row::AgentNotes(a) => (self.agent_notes(&a, t, cx).into_any_element(), false),
+            Row::Comments(a) => (self.agent_comments(&a, t, cx).into_any_element(), false),
+            Row::Tree { owner, row, n, rail } => {
+                #[cfg(test)]
+                {
+                    self.rv.tree_rows += 1;
+                }
+                let el = self.tree_row(&owner, row, n, focused, t, cx);
+                (div().pl(px(12.)).pr(px(6.)).child(el).debug_selector(|| "rv-tree-row".into()).into_any_element(), rail)
+            }
+            Row::Worktree { r, rail } => (self.worktree_head(&r, t, cx).into_any_element(), rail),
+            Row::WorktreeNote { r, rail } => (self.worktree_note(&r, t, cx).into_any_element(), rail),
+            Row::Others(display) => (
+                div()
+                    .pt(px(6.))
+                    .pr(px(10.))
+                    .pb(px(2.))
+                    .pl(px(12.))
+                    .child(kit::label(format!("Other worktrees · {}", kit::project_name(&display)), t.text_3, 12.))
+                    .into_any_element(),
+                false,
+            ),
+            Row::Folds => {
+                let tally = self.rv.tally.clone();
+                let folds = self.fold_lines(&tally, t, cx);
+                (div().flex().flex_col().gap(px(6.)).px(px(12.)).py(px(8.)).children(folds).into_any_element(), false)
+            }
+        };
+        if rail {
+            // The line that joins an agent's worktrees.
+            div().ml(px(18.)).border_l_1().border_color(t.line).child(el).into_any_element()
+        } else {
+            el
+        }
     }
 
     fn chevron_toggle(id: SharedString, open: bool, size: f32, t: &Theme) -> gpui::Stateful<Div> {
@@ -300,25 +267,15 @@ impl ReviewView {
             .child(kit::chevron("chev", open, size, t.text_4))
     }
 
-    fn agent_section(
-        &self,
-        a: &AgentView,
-        border: bool,
-        wts: &[WtRef],
-        list_focused: bool,
-        t: &Theme,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// An agent's heading: its fold, name, branch and line counts.
+    fn agent_head(&self, a: &AgentView, t: &Theme, cx: &mut Context<Self>) -> Div {
         let list = self.files.get(&a.id);
-        let err = self.errors.get(&a.id);
         let open = !self.collapsed.contains(&a.id);
         let current = matches!(&self.sel, Sel::Agent { id, .. } if id == &a.id);
-        let scoped = self.task_scope.get(&a.id).cloned().flatten().is_some();
-        let comments = Comments::for_agent(cx, &a.id);
         let (added, removed) = list.map(|l| model::diffstat(l)).unwrap_or((0, 0));
         let id = a.id.clone();
         let group: SharedString = format!("rv-agent-name-{}", a.id).into();
-        let head = div()
+        div()
             .flex()
             .items_center()
             .gap(px(4.))
@@ -379,164 +336,98 @@ impl ReviewView {
             )
             .when(list.is_some_and(|l| !l.is_empty()), |d| {
                 d.child(kit::diffstat(added, removed, t))
-            });
+            })
+    }
+
+    /// Under an agent's heading: "this task only", then an error, "Reading
+    /// git…" or "No changes."
+    fn agent_notes(&self, a: &AgentView, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let list = self.files.get(&a.id);
+        let scoped = self.task_scope.get(&a.id).cloned().flatten().is_some();
+        let pad = |d: Div| d.pt(px(2.)).pr(px(14.)).pb(px(4.)).pl(px(34.));
         let mut body = div().flex().flex_col();
-        if open {
-            if scoped {
-                body = body.child(
-                    div()
-                        .ml(px(34.))
-                        .mb(px(2.))
-                        .child(kit::label_t("this task only", t.text_3, 10.5, 0.1)),
-                );
-            }
-            if let Some(e) = err {
-                let id = id.clone();
-                body = body.child(
-                    self.fresh_error(
-                        e,
-                        "",
-                        t,
-                        cx.listener(move |v, _, _, cx| v.refresh_agent(&id, cx)),
-                    )
-                    .pt(px(2.))
-                    .pr(px(14.))
-                    .pb(px(4.))
-                    .pl(px(34.)),
-                );
-            } else if list.is_none() {
-                body = body.child(
-                    hint("Reading git…", t)
-                        .pt(px(2.))
-                        .pr(px(14.))
-                        .pb(px(4.))
-                        .pl(px(34.)),
-                );
-            } else if list.is_some_and(|l| l.is_empty()) {
-                body = body.child(
-                    hint(
-                        if scoped {
-                            "No changes in this task."
-                        } else {
-                            "No changes."
-                        },
-                        t,
-                    )
-                    .pt(px(2.))
-                    .pr(px(14.))
-                    .pb(px(4.))
-                    .pl(px(34.)),
-                );
-            }
-            if let Some(l) = list.filter(|l| !l.is_empty()) {
-                let sel_path = match &self.sel {
-                    Sel::Agent { id: s, path } if s == &a.id => path.clone(),
-                    _ => None,
-                };
-                let counts = comments
-                    .iter()
-                    .fold(std::collections::HashMap::new(), |mut m, c| {
-                        *m.entry(c.path.clone()).or_insert(0usize) += 1;
-                        m
-                    });
-                body = body.child(self.file_tree(
-                    &a.id,
-                    l,
-                    sel_path.as_deref(),
-                    &counts,
-                    list_focused,
-                    t,
-                    cx,
-                ));
-            }
-            if !comments.is_empty() {
-                let mut ul = div()
-                    .flex()
-                    .flex_col()
-                    .mt(px(6.))
-                    .mx(px(6.))
-                    .ml(px(18.))
-                    .pt(px(4.))
-                    .border_t_1()
-                    .border_dashed()
-                    .border_color(t.line_strong);
-                for c in comments {
-                    let (agent, c2, cid) = (a.id.clone(), c.clone(), c.id);
-                    let agent2 = a.id.clone();
-                    ul = ul.child(
-                        div()
-                            .flex()
-                            .items_start()
-                            .gap(px(2.))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("rv-c-{}", c.id)))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(1.))
-                                    .px(px(8.))
-                                    .py(px(4.))
-                                    .rounded(RADIUS_SM)
-                                    .cursor_pointer()
-                                    .hover_probed(|s| s.bg(t.surface_3))
-                                    .tooltip(|_, cx| {
-                                        kit::tooltip_view("Show in diff".to_string(), cx)
-                                    })
-                                    .on_click(cx.listener(move |v, _, window, cx| {
-                                        v.reveal_comment(&agent, &c2, window, cx)
-                                    }))
-                                    .child(
-                                        mono().text_size(px(10.5)).text_color(t.text_3).child(
-                                            format!("{}:{}", model::split_path(&c.path).1, c.line),
-                                        ),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(t.text_2)
-                                            .ellipsis()
-                                            .child(crate::kit::one_line(c.text.clone())),
-                                    ),
-                            )
-                            .child(
-                                kit::icon_btn(
-                                    SharedString::from(format!("rv-cx-{}", c.id)),
-                                    "x",
-                                    "Delete comment",
-                                    true,
-                                    t,
-                                )
-                                .on_click(cx.listener(
-                                    move |_, _, _, cx| Comments::remove(cx, &agent2, cid),
-                                )),
-                            ),
-                    );
-                }
-                body = body.child(ul);
-            }
-            if !wts.is_empty() {
-                let mut box_ = div()
-                    .flex()
-                    .flex_col()
-                    .ml(px(18.))
-                    .border_l_1()
-                    .border_color(t.line);
-                for r in wts {
-                    box_ = box_.child(self.worktree_section(r, list_focused, t, cx));
-                }
-                body = body.child(box_);
-            }
+        if scoped {
+            body = body.child(div().ml(px(34.)).mb(px(2.)).child(kit::label_t("this task only", t.text_3, 10.5, 0.1)));
         }
-        div()
+        if let Some(e) = self.errors.get(&a.id) {
+            let id = a.id.clone();
+            body = body.child(pad(self.fresh_error(e, "", t, cx.listener(move |v, _, _, cx| v.refresh_agent(&id, cx)))));
+        } else if list.is_none() {
+            body = body.child(pad(hint("Reading git…", t)));
+        } else if list.is_some_and(|l| l.is_empty()) {
+            body = body.child(pad(hint(if scoped { "No changes in this task." } else { "No changes." }, t)));
+        }
+        body
+    }
+
+    /// An agent's comments, under its files.
+    fn agent_comments(&self, a: &AgentView, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let comments = Comments::for_agent(cx, &a.id);
+        let mut ul = div()
             .flex()
             .flex_col()
-            .pt(px(2.))
-            .pb(px(6.))
-            .when(border, |d| d.border_t_1().border_color(t.line))
-            .child(head)
-            .child(body)
+            .mt(px(6.))
+            .mx(px(6.))
+            .ml(px(18.))
+            .pt(px(4.))
+            .border_t_1()
+            .border_dashed()
+            .border_color(t.line_strong);
+        for c in comments {
+            let (agent, c2, cid) = (a.id.clone(), c.clone(), c.id);
+            let agent2 = a.id.clone();
+            ul = ul.child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("rv-c-{}", c.id)))
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .px(px(8.))
+                            .py(px(4.))
+                            .rounded(RADIUS_SM)
+                            .cursor_pointer()
+                            .hover_probed(|s| s.bg(t.surface_3))
+                            .tooltip(|_, cx| {
+                                kit::tooltip_view("Show in diff".to_string(), cx)
+                            })
+                            .on_click(cx.listener(move |v, _, window, cx| {
+                                v.reveal_comment(&agent, &c2, window, cx)
+                            }))
+                            .child(
+                                mono().text_size(px(10.5)).text_color(t.text_3).child(
+                                    format!("{}:{}", model::split_path(&c.path).1, c.line),
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(t.text_2)
+                                    .ellipsis()
+                                    .child(crate::kit::one_line(c.text.clone())),
+                            ),
+                    )
+                    .child(
+                        kit::icon_btn(
+                            SharedString::from(format!("rv-cx-{}", c.id)),
+                            "x",
+                            "Delete comment",
+                            true,
+                            t,
+                        )
+                        .on_click(cx.listener(
+                            move |_, _, _, cx| Comments::remove(cx, &agent2, cid),
+                        )),
+                    ),
+            );
+        }
+        ul
     }
 
     fn fresh_error(
@@ -572,158 +463,153 @@ impl ReviewView {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn file_tree(
+    /// One folder or file of `owner`'s tree (`n`: comments on the file).
+    fn tree_row(
         &self,
         owner: &str,
-        files: &[pitwall_core::vcs::git::FileChange],
-        selected: Option<&str>,
-        counts: &std::collections::HashMap<String, usize>,
+        r: TreeRow,
+        n: usize,
         list_focused: bool,
         t: &Theme,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let tree = model::build_tree(files);
-        let closed = |d: &str| self.closed_dirs.contains(&format!("{owner}\u{1}{d}"));
-        let rows = model::visible_rows(&tree, &closed);
-        let mut out = div().flex().flex_col().pl(px(12.)).pr(px(6.));
-        for r in rows {
-            match r {
-                TreeRow::Dir {
-                    path,
-                    name,
-                    depth,
-                    open,
-                } => {
-                    let key = format!("{owner}\u{1}{path}");
-                    out = out.child(
-                        mono()
-                            .id(SharedString::from(format!("rv-d-{key}")))
+    ) -> AnyElement {
+        let selected = match &self.sel {
+            Sel::Agent { id, path } if id == owner => path.as_deref(),
+            Sel::Worktree { key, path } if key == owner => path.as_deref(),
+            _ => None,
+        };
+        match r {
+            TreeRow::Dir {
+                path,
+                name,
+                depth,
+                open,
+            } => {
+                let key = format!("{owner}\u{1}{path}");
+                mono()
+                    .id(SharedString::from(format!("rv-d-{key}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .w_full()
+                    .pl(px(6. + depth as f32 * 12.))
+                    .pr(px(8.))
+                    .py(px(3.))
+                    .rounded(RADIUS_SM)
+                    .text_size(px(12.))
+                    .line_height(px(17.))
+                    .cursor_pointer()
+                    .hover_probed(|s| s.bg(t.surface_3))
+                    .tooltip({
+                        let p = path.clone();
+                        move |_, cx| kit::tooltip_view(p.clone(), cx)
+                    })
+                    .on_click(cx.listener(move |v, _, _, cx| {
+                        if !v.closed_dirs.remove(&key) {
+                            v.closed_dirs.insert(key.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .w(px(10.))
+                            .flex_none()
+                            .child(kit::chevron("chev", open, 10., t.text_4)),
+                    )
+                    .child(kit::folder_icon(&path, open, 16.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .ellipsis()
+                            .text_color(t.text_2)
+                            .child(crate::kit::one_line(name)),
+                    )
+                    .into_any_element()
+            }
+            TreeRow::File {
+                path,
+                name,
+                depth,
+                file,
+            } => {
+                let is_sel = selected == Some(path.as_str());
+                let is_cursor = list_focused
+                    && self
+                        .cursor
+                        .as_ref()
+                        .is_some_and(|(o, p)| o == owner && p == &path);
+                let status = model::file_status(&file);
+                let (o, p) = (owner.to_string(), path.clone());
+                mono()
+                    .id(SharedString::from(format!("rv-f-{owner}\u{1}{path}")))
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .w_full()
+                    .pl(px(6. + depth as f32 * 12.))
+                    .pr(px(8.))
+                    .py(px(3.))
+                    .rounded(RADIUS_SM)
+                    .text_size(px(12.))
+                    .line_height(px(17.))
+                    .cursor_pointer()
+                    .when(is_sel, |d| d.bg(t.surface_3))
+                    .when(!is_sel, |d| d.hover_probed(|s| s.bg(t.surface_3)))
+                    .when(is_cursor, |d| d.border_1().border_color(t.focus))
+                    .tooltip({
+                        let p = path.clone();
+                        move |_, cx| kit::tooltip_view(p.clone(), cx)
+                    })
+                    .on_click(cx.listener(move |v, _, window, cx| {
+                        v.select_file(&o, &p, window, cx)
+                    }))
+                    .when(is_sel, |d| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .top_0()
+                                .bottom_0()
+                                .w(px(2.))
+                                .bg(t.text_2),
+                        )
+                    })
+                    .child(div().w(px(10.)).flex_none())
+                    .child(kit::file_icon(&path, 16.).mr(px(-2.)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .ellipsis()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(t.text)
+                            .when(status == FileStatus::D, |d| d.line_through())
+                            .child(crate::kit::one_line(name)),
+                    )
+                    .when(n > 0, |d| d.child(kit::count_badge(n, t)))
+                    .child(
+                        div()
                             .flex()
+                            .flex_none()
                             .items_center()
-                            .gap(px(6.))
-                            .w_full()
-                            .pl(px(6. + depth as f32 * 12.))
-                            .pr(px(8.))
-                            .py(px(3.))
-                            .rounded(RADIUS_SM)
-                            .text_size(px(12.))
-                            .line_height(px(17.))
-                            .cursor_pointer()
-                            .hover_probed(|s| s.bg(t.surface_3))
-                            .tooltip({
-                                let p = path.clone();
-                                move |_, cx| kit::tooltip_view(p.clone(), cx)
+                            .gap(px(8.))
+                            .ml_auto()
+                            .child(if file.binary {
+                                kit::chip_subtle("bin", t)
+                            } else {
+                                kit::diffstat_inline(file.added, file.removed, t)
                             })
-                            .on_click(cx.listener(move |v, _, _, cx| {
-                                if !v.closed_dirs.remove(&key) {
-                                    v.closed_dirs.insert(key.clone());
-                                }
-                                cx.notify();
-                            }))
-                            .child(
-                                div()
-                                    .w(px(10.))
-                                    .flex_none()
-                                    .child(kit::chevron("chev", open, 10., t.text_4)),
-                            )
-                            .child(kit::folder_icon(&path, open, 16.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .ellipsis()
-                                    .text_color(t.text_2)
-                                    .child(crate::kit::one_line(name)),
-                            ),
-                    );
-                }
-                TreeRow::File {
-                    path,
-                    name,
-                    depth,
-                    file,
-                } => {
-                    let is_sel = selected == Some(path.as_str());
-                    let is_cursor = list_focused
-                        && self
-                            .cursor
-                            .as_ref()
-                            .is_some_and(|(o, p)| o == owner && p == &path);
-                    let status = model::file_status(&file);
-                    let n = counts.get(&path).copied().unwrap_or(0);
-                    let (o, p) = (owner.to_string(), path.clone());
-                    out = out.child(
-                        mono()
-                            .id(SharedString::from(format!("rv-f-{owner}\u{1}{path}")))
-                            .relative()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .w_full()
-                            .pl(px(6. + depth as f32 * 12.))
-                            .pr(px(8.))
-                            .py(px(3.))
-                            .rounded(RADIUS_SM)
-                            .text_size(px(12.))
-                            .line_height(px(17.))
-                            .cursor_pointer()
-                            .when(is_sel, |d| d.bg(t.surface_3))
-                            .when(!is_sel, |d| d.hover_probed(|s| s.bg(t.surface_3)))
-                            .when(is_cursor, |d| d.border_1().border_color(t.focus))
-                            .tooltip({
-                                let p = path.clone();
-                                move |_, cx| kit::tooltip_view(p.clone(), cx)
-                            })
-                            .on_click(cx.listener(move |v, _, window, cx| {
-                                v.select_file(&o, &p, window, cx)
-                            }))
-                            .when(is_sel, |d| {
-                                d.child(
-                                    div()
-                                        .absolute()
-                                        .left_0()
-                                        .top_0()
-                                        .bottom_0()
-                                        .w(px(2.))
-                                        .bg(t.text_2),
-                                )
-                            })
-                            .child(div().w(px(10.)).flex_none())
-                            .child(kit::file_icon(&path, 16.).mr(px(-2.)))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .ellipsis()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(t.text)
-                                    .when(status == FileStatus::D, |d| d.line_through())
-                                    .child(crate::kit::one_line(name)),
-                            )
-                            .when(n > 0, |d| d.child(kit::count_badge(n, t)))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_none()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .ml_auto()
-                                    .child(if file.binary {
-                                        kit::chip_subtle("bin", t)
-                                    } else {
-                                        kit::diffstat_inline(file.added, file.removed, t)
-                                    })
-                                    .child(kit::status_letter(status, t)),
-                            ),
-                    );
-                }
+                            .child(kit::status_letter(status, t)),
+                    )
+                    .into_any_element()
             }
         }
-        out
     }
 
     /// The worktrees of `list` that are listed now, counting the rest.
-    fn sift(&self, list: Vec<WtRef>, tally: &mut Tally, cx: &App) -> Vec<WtRef> {
+    pub(super) fn sift(&self, list: Vec<WtRef>, tally: &mut Tally, cx: &App) -> Vec<WtRef> {
         let now = super::now_ms();
         let work = self.wt_list.read(cx);
         list.into_iter()
@@ -800,13 +686,8 @@ impl ReviewView {
         out
     }
 
-    fn worktree_section(
-        &self,
-        r: &WtRef,
-        list_focused: bool,
-        t: &Theme,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// A worktree's heading: its fold, name, branch and line counts.
+    fn worktree_head(&self, r: &WtRef, t: &Theme, cx: &mut Context<Self>) -> Div {
         let key = r.key();
         let open = self.wt_open.contains(&key);
         let current = matches!(&self.sel, Sel::Worktree { key: k, .. } if k == &key);
@@ -823,7 +704,7 @@ impl ReviewView {
                 _ => String::new(),
             }
         );
-        let head = div()
+        div()
             .flex()
             .items_center()
             .gap(px(4.))
@@ -893,60 +774,39 @@ impl ReviewView {
                         v.load_worktree_files(&key, cx);
                     }),
                 ))
-            });
+            })
+    }
+
+    /// Under an open worktree's heading, in place of its files: its folder
+    /// is gone, an error, "Reading git…" or no changes.
+    fn worktree_note(&self, r: &WtRef, t: &Theme, cx: &mut Context<Self>) -> Div {
+        let key = r.key();
+        let wt = &r.wt;
+        let pad = |d: Div| d.pt(px(2.)).pr(px(14.)).pb(px(4.)).pl(px(34.));
         let mut body = div().flex().flex_col();
-        if open {
-            let pad = |d: Div| d.pt(px(2.)).pr(px(14.)).pb(px(4.)).pl(px(34.));
-            if !wt.caps.diff {
-                body = body.child(pad(hint("Its folder is gone.", t)));
-            }
-            match files {
-                Some(Err(e)) => {
-                    let key = key.clone();
-                    body = body.child(pad(self.fresh_error(
-                        e,
-                        "",
-                        t,
-                        cx.listener(move |v, _, _, cx| v.load_worktree_files(&key, cx)),
-                    )));
-                }
-                None if wt.caps.diff => body = body.child(pad(hint("Reading git…", t))),
-                Some(Ok(l)) if l.is_empty() => {
-                    body = body.child(pad(hint(
-                        format!(
-                            "No changes against {}",
-                            r.target
-                                .clone()
-                                .unwrap_or_else(|| "the project's branch".into())
-                        ),
-                        t,
-                    )))
-                }
-                Some(Ok(l)) => {
-                    let sel_path = match &self.sel {
-                        Sel::Worktree { key: k, path } if k == &key => path.clone(),
-                        _ => None,
-                    };
-                    body = body.child(self.file_tree(
-                        &key,
-                        l,
-                        sel_path.as_deref(),
-                        &Default::default(),
-                        list_focused,
-                        t,
-                        cx,
-                    ));
-                }
-                None => {}
-            }
+        if !wt.caps.diff {
+            body = body.child(pad(hint("Its folder is gone.", t)));
         }
-        div()
-            .flex()
-            .flex_col()
-            .pt(px(2.))
-            .pb(px(6.))
-            .child(head)
-            .child(body)
+        match self.wt_files.get(&key) {
+            Some(Err(e)) => {
+                let key = key.clone();
+                body = body.child(pad(self.fresh_error(
+                    e,
+                    "",
+                    t,
+                    cx.listener(move |v, _, _, cx| v.load_worktree_files(&key, cx)),
+                )));
+            }
+            None if wt.caps.diff => body = body.child(pad(hint("Reading git…", t))),
+            Some(Ok(l)) if l.is_empty() => {
+                body = body.child(pad(hint(
+                    format!("No changes against {}", r.target.clone().unwrap_or_else(|| "the project's branch".into())),
+                    t,
+                )))
+            }
+            _ => {}
+        }
+        body
     }
 
     // ── the main pane ───────────────────────────────────────────────────
@@ -1663,6 +1523,7 @@ impl ReviewView {
 impl Render for ReviewView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.take_pending_conflict(window, cx);
+        self.list_sync(cx);
         let t = theme(cx).clone();
         let main: AnyElement = if let Some((r, _)) = self.wt_sel() {
             self.worktree_main(&r, &t, cx).into_any_element()
@@ -1731,7 +1592,7 @@ impl Render for ReviewView {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.list(&t, window, cx))
+                    .child(self.list(&t, cx))
                     .child(
                         div()
                             .flex_1()
@@ -1747,14 +1608,14 @@ impl Render for ReviewView {
 }
 
 /// Worktrees folded away in one render.
-#[derive(Default)]
-struct Tally {
+#[derive(Default, Clone)]
+pub(super) struct Tally {
     /// Without changes or deleted.
-    quiet: usize,
+    pub(super) quiet: usize,
     /// Deleted (prunable), and the projects they're in.
-    gone: usize,
-    gone_in: std::collections::BTreeSet<String>,
+    pub(super) gone: usize,
+    pub(super) gone_in: std::collections::BTreeSet<String>,
     /// Not worked in lately, and how many of those have changes.
-    old: usize,
-    old_work: usize,
+    pub(super) old: usize,
+    pub(super) old_work: usize,
 }
