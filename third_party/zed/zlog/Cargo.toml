@@ -1,0 +1,21 @@
+# Written for Pitwall from Zed's crates/zlog/Cargo.toml (workspace values
+# filled in); see ../README.md.
+[package]
+name = "zlog"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[lib]
+path = "src/zlog.rs"
+doctest = false
+
+[features]
+default = []
+
+[dependencies]
+collections = { path = "../collections" }
+chrono = { version = "0.4", features = ["std", "serde"] }
+log = { version = "0.4", default-features = false, features = ["std", "kv_unstable_std"] }
+anyhow = "1.0.86"

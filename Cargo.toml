@@ -1,6 +1,9 @@
 # Cargo workspace (architecture.md §1, migration step 0).
 [workspace]
 resolver = "2"
+# Vendored crates (third_party/zed/README.md) are dependencies, not members:
+# their own tests and lints aren't ours to run.
+exclude = ["third_party"]
 members = ["crates/pitwall-core", "crates/pitwall-detect", "crates/pitwall-hold", "crates/pitwall-providers", "crates/pitwall-proto", "crates/pitwall-client", "crates/pitwall-daemon", "crates/pitwall-peer", "crates/pitwall-cli", "crates/pitwall-hook", "crates/pitwall-app", "crates/pitwall-term-view"]
 
 # Profiles only take effect at the workspace root.
@@ -23,7 +26,8 @@ inherits = "release"
 debug = "line-tables-only"
 strip = false
 
-# GPUI 0.2.2 with a small memory patch to its macOS Metal renderer
-# (third_party/gpui/PATCHES.md).
+# GPUI from Zed's repository (third_party/zed/README.md): not on crates.io
+# since 0.2.2, so its crates are vendored, with Pitwall's patches
+# (third_party/zed/PATCHES.md).
 [patch.crates-io]
-gpui = { path = "third_party/gpui" }
+gpui = { path = "third_party/zed/gpui" }
