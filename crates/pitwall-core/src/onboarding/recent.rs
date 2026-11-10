@@ -57,7 +57,7 @@ pub fn recent_projects(pitwall: &Paths, limit: usize) -> Vec<RecentProject> {
                 .unwrap_or(0),
         });
     }
-    found.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+    found.sort_by_key(|a| std::cmp::Reverse(a.last_used));
     // Worktrees older Pitwall versions made show up here too; they aren't projects.
     let worktrees = pitwall.legacy_worktrees_dir().to_string_lossy().into_owned();
     found.retain(|p| !p.path.starts_with(&worktrees));

@@ -380,7 +380,7 @@ impl Found {
             })
             .collect();
         // Recent first; untimed (editor recents) keep their own order after.
-        list.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+        list.sort_by_key(|a| std::cmp::Reverse(a.last_used));
         list.truncate(MAX_PROJECTS);
         list
     }
@@ -439,7 +439,7 @@ fn jsonl_files(dir: &Path) -> Vec<(PathBuf, u64)> {
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("jsonl"))
         .filter_map(|e| Some((e.path(), mtime_ms(&e.metadata().ok()?))))
         .collect();
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|a| std::cmp::Reverse(a.1));
     files
 }
 
@@ -472,7 +472,7 @@ fn discover() -> Found {
     // Codex: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
     let mut codex_files = Vec::new();
     collect_jsonl(&home.join(".codex").join("sessions"), 4, &mut codex_files);
-    codex_files.sort_by(|a, b| b.1.cmp(&a.1));
+    codex_files.sort_by_key(|a| std::cmp::Reverse(a.1));
     codex_files.truncate(MAX_CODEX_FILES);
     let mut per_cwd: HashMap<String, usize> = HashMap::new();
     for (file, t) in codex_files {
@@ -825,7 +825,7 @@ fn conversations(candidates: &[(&'static str, PathBuf, u64)], folders: &Folders)
             })
         })
         .collect();
-    out.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+    out.sort_by_key(|a| std::cmp::Reverse(a.last_used));
     cap_conversations(out)
 }
 
@@ -1087,7 +1087,7 @@ mod tests {
             c.outside_project = true;
             list.push(c);
         }
-        list.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+        list.sort_by_key(|a| std::cmp::Reverse(a.last_used));
         let capped = cap_conversations(list);
         assert_eq!(capped.iter().filter(|c| c.outside_project).count(), MAX_OUTSIDE_CONVERSATIONS);
         assert_eq!(capped.iter().filter(|c| !c.outside_project).count(), MAX_CONVERSATIONS);

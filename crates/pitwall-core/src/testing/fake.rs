@@ -232,7 +232,7 @@ impl FakeTermCtl {
     /// Drop every attachment without ending the process (a tmux client
     /// going away).
     pub fn drop_links(&self) {
-        let conns: Vec<_> = lock(&self.0.st).conns.drain(..).collect();
+        let conns = std::mem::take(&mut lock(&self.0.st).conns);
         for c in conns {
             c.end();
         }

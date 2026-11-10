@@ -77,7 +77,7 @@ pub fn off_env(kinds: &[AgentKind]) -> Vec<(String, String)> {
 
 /// The last non-empty line of `text`.
 fn last_line(text: &str) -> String {
-    text.lines().map(str::trim).filter(|l| !l.is_empty()).next_back().unwrap_or_default().chars().take(200).collect()
+    text.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or_default().chars().take(200).collect()
 }
 
 impl Engine {
