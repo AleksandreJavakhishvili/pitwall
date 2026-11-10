@@ -638,3 +638,73 @@ fn under_liquid_glass_the_sidebar_scrolls_alone_and_parts_keep_their_glass(cx: &
     assert!(!pieces().contains(&"sidebar"), "{:?}", pieces());
     assert!(pieces().contains(&"topbar"));
 }
+
+/// A long sidebar: a scroll step builds only the rows on screen (not all
+/// 200), and showing an agent far down scrolls its row into view.
+#[gpui::test]
+fn a_long_sidebar_builds_only_the_rows_on_screen(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        init(cx);
+    });
+    let store = cx.new(|_| {
+        AgentStore::new((0..200).map(|i| agent(&format!("a{i}"), &format!("/work/p{}", i % 4), "idle", i, true)).collect())
+    });
+    let s = store.clone();
+    let (view, cx) = cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), window, cx));
+    cx.simulate_resize(gpui::size(px(1500.), px(900.)));
+    cx.run_until_parked();
+    let built = |cx: &mut VisualTestContext| view.read_with(cx, |s, _| s.side.agent_rows);
+    let first = built(cx);
+    assert!(first >= 200, "each row is measured once at first: {first}");
+
+    let at = gpui::point(px(120.), px(400.));
+    cx.simulate_mouse_move(at, None, gpui::Modifiers::none());
+    let top = drawn_at(cx, "row-body-a28".into());
+    for step in 0..3 {
+        let before = built(cx);
+        cx.simulate_event(gpui::ScrollEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(-80.))),
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        let n = built(cx) - before;
+        assert!(n > 0 && n <= 30, "step {step}: {n} agent rows built");
+    }
+    let moved = drawn_at(cx, "row-body-a28".into());
+    assert_eq!(moved.top(), top.top() - px(240.), "scrolled by three steps");
+
+    // An agent off screen needs you: its row alone is measured again.
+    let before = built(cx);
+    store.update(cx, |s, cx| {
+        let a = s.agents.iter_mut().find(|a| a.id == "a199").unwrap();
+        a.status = pitwall_proto::Status::Blocked;
+        a.status_detail = Some("Allow Bash?".into());
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let n = built(cx) - before;
+    assert!(n > 0 && n <= 31, "a store change built {n} agent rows");
+
+    // The last agent, far below: shown, its row comes into view.
+    let last = view.read_with(cx, |s, cx| s.ordered(cx).last().unwrap().id.clone());
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds(Box::leak(format!("row-body-{last}").into_boxed_str())).is_none(), "off screen");
+    view.update_in(cx, |s, window, cx| s.show_agent(&last, window, cx));
+    cx.run_until_parked();
+    let row = drawn_at(cx, format!("row-body-{last}"));
+    let h = cx.update(|window, _| window.viewport_size().height);
+    assert!(row.top() >= TOPBAR_HEIGHT && row.bottom() <= h, "{row:?} in view");
+
+    // ↑ from there walks back up; the cursor's row stays in view.
+    view.update_in(cx, |s, window, cx| window.focus(&s.sidebar_focus, cx));
+    for _ in 0..30 {
+        cx.dispatch_action(SelectPrev);
+    }
+    cx.run_until_parked();
+    let cur = view.read_with(cx, |s, _| s.cursor.clone().unwrap());
+    let row = drawn_at(cx, format!("row-body-{cur}"));
+    assert!(row.top() >= TOPBAR_HEIGHT && row.bottom() <= h, "{cur}: {row:?} in view");
+}

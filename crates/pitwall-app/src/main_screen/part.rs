@@ -193,9 +193,10 @@ impl Render for Part {
                 // Each places its own Liquid Glass piece, as the screen
                 // does for them without parts.
                 PartKind::Sidebar => {
-                    let agents = s.agents(cx).to_vec();
                     let slab = crate::theme::panel(&t, cx);
-                    let bar = s.render_sidebar(SidebarMode::Full, &agents, &slab, window, cx);
+                    // Full, it reads the agents itself, when they change
+                    // (not on each scroll step).
+                    let bar = s.render_sidebar(SidebarMode::Full, &[], &slab, window, cx);
                     crate::kit::chrome_panel("sidebar", bar, cx)
                 }
                 PartKind::Topbar => {
