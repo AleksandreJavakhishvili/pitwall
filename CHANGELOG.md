@@ -2,6 +2,13 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
+## Unreleased
+
+### Highlights
+
+- Smoother scrolling on macOS 26: Pitwall now runs on Zed's current GPUI, which paces frames with the display (`CAMetalDisplayLink`) instead of waiting up to a frame and a half for each drawable.
+- The sidebar draws only the rows on screen, so scrolling a long list of agents and worktrees no longer rebuilds every row on each frame (about 3× less work per frame).
+
 ## [0.5.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.0) - 2026-11-08
 
 ### Highlights
