@@ -30,7 +30,12 @@ impl Exec for LocalExec {
     fn run(&self, cmd: &Cmd) -> Result<Out> {
         let (program, args) = cmd.argv.split_first().ok_or("empty command")?;
         super::assert_off_ui(program);
-        let mut c = Command::new(program);
+        // The PATH it will run with (the command's own, else the app's),
+        // and the program on it (`platform::on_path`: why).
+        let path = cmd.env.iter().rev().find(|(k, _)| *k == "PATH").map(|(_, v)| v.to_string());
+        let path = path.or_else(crate::shell::spawn_path);
+        let found = path.as_deref().and_then(|p| platform::on_path(program, p));
+        let mut c = Command::new(found.as_deref().unwrap_or(program));
         platform::hide_console(&mut c);
         c.args(args)
             .stdin(if cmd.stdin.is_some() { Stdio::piped() } else { Stdio::null() })

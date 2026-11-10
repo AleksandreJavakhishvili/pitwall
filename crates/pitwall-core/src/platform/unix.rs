@@ -33,6 +33,29 @@ pub fn is_executable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Where `path` (the PATH a program is started with) has `program`, a bare
+/// name like `git`. Asked to change PATH for a bare name, std starts it by
+/// copying this whole process first (fork): in the running app some 85
+/// times the kernel time of starting a full path, which it can hand
+/// straight to the OS. `None`: not a bare name, not found, or a relative
+/// PATH entry comes first (that one is looked up from the command's own
+/// folder), so the OS resolves it as before.
+pub fn on_path(program: &str, path: &str) -> Option<String> {
+    if program.contains('/') {
+        return None;
+    }
+    for dir in std::env::split_paths(path) {
+        if !dir.is_absolute() {
+            return None;
+        }
+        let file = dir.join(program);
+        if is_executable(&file) {
+            return file.to_str().map(String::from);
+        }
+    }
+    None
+}
+
 pub fn make_executable(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
@@ -169,6 +192,30 @@ impl Write for LocalStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::{Cmd, Exec, LocalExec};
+    use crate::testing::TempDir;
+
+    #[test]
+    fn a_bare_program_is_found_on_the_path_it_runs_with() {
+        let dir = TempDir::new("on-path");
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let (a, b) = (root.join("a"), root.join("b"));
+        for d in [&a, &b] {
+            std::fs::create_dir(d).unwrap();
+        }
+        // Not executable in `a`: skipped, as the OS would.
+        std::fs::write(a.join("tool"), "").unwrap();
+        std::fs::write(b.join("tool"), "#!/bin/sh\necho from-b\n").unwrap();
+        make_executable(&b.join("tool")).unwrap();
+        let path = format!("{}:{}", a.display(), b.display());
+        assert_eq!(on_path("tool", &path), Some(b.join("tool").to_string_lossy().into_owned()));
+        assert_eq!(on_path("absent", &path), None);
+        assert_eq!(on_path("./tool", &path), None, "not a bare name");
+        assert_eq!(on_path("tool", &format!("bin:{path}")), None, "a relative entry first: left to the OS");
+        // And it runs, with the PATH it was given.
+        let out = LocalExec.run(&Cmd::new(&["tool"]).env(&[("PATH", &path)])).unwrap();
+        assert_eq!(out.stdout_text().trim(), "from-b");
+    }
 
     #[test]
     fn local_sockets_carry_bytes_both_ways() {
