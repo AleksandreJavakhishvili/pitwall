@@ -356,6 +356,47 @@ pub fn worktrees_by_agent(projects: &[ProjectWorktrees]) -> HashMap<String, Vec<
     out
 }
 
+/// A worktree list and its [`worktrees_by_agent`], derived once when the
+/// list is set rather than on every render. Reads as the list itself.
+#[derive(Debug, Default)]
+pub struct Worktrees {
+    projects: Vec<ProjectWorktrees>,
+    by_agent: HashMap<String, Vec<WtRef>>,
+}
+
+impl Worktrees {
+    pub fn new(projects: Vec<ProjectWorktrees>) -> Self {
+        let by_agent = worktrees_by_agent(&projects);
+        Self { projects, by_agent }
+    }
+
+    /// Take `projects` (and derive anew) when it differs; whether it did.
+    pub fn set(&mut self, projects: Vec<ProjectWorktrees>) -> bool {
+        if self.projects == projects {
+            return false;
+        }
+        *self = Self::new(projects);
+        true
+    }
+
+    /// [`worktrees_by_agent`] of the list.
+    pub fn by_agent(&self) -> &HashMap<String, Vec<WtRef>> {
+        &self.by_agent
+    }
+
+    /// The worktrees `agent` has besides its own folder (none: empty).
+    pub fn of_agent(&self, agent: &str) -> &[WtRef] {
+        self.by_agent.get(agent).map(Vec::as_slice).unwrap_or_default()
+    }
+}
+
+impl std::ops::Deref for Worktrees {
+    type Target = [ProjectWorktrees];
+    fn deref(&self) -> &[ProjectWorktrees] {
+        &self.projects
+    }
+}
+
 /// A project's worktrees of no agent, for the group holding any of `ids`.
 pub fn other_worktrees(projects: &[ProjectWorktrees], ids: &[&str]) -> Vec<WtRef> {
     let mut out: Vec<WtRef> = projects
@@ -608,6 +649,59 @@ mod tests {
         };
         let names: Vec<String> = other_worktrees(&[p], &["x"]).into_iter().map(|r| r.wt.name).collect();
         assert_eq!(names, ["new", "old", "a", "b"], "last worked in first; never seen last, by name");
+    }
+
+    #[test]
+    fn cached_worktrees_by_agent_follow_the_list() {
+        let of = |agent: &str, name: &str, via: WorktreeVia| {
+            let mut w = wt(name, Some(name.len() as u64), false).wt;
+            w.agent_id = Some(agent.into());
+            w.via = via;
+            w
+        };
+        let project = |worktrees: Vec<WorktreeView>| ProjectWorktrees {
+            id: "p".into(),
+            repo: "/r".into(),
+            repo_display: "~/r".into(),
+            branch: Some("main".into()),
+            machine: pitwall_proto::MachineView {
+                provider: "local".into(),
+                id: "this-mac".into(),
+                label: "This Mac".into(),
+                can_create: true,
+                link: None,
+            },
+            agent_ids: vec!["x".into(), "y".into()],
+            worktrees,
+            error: None,
+        };
+        let mut c = Worktrees::default();
+        assert!(c.by_agent().is_empty() && c.of_agent("x").is_empty());
+
+        let first = vec![project(vec![
+            of("x", "own", WorktreeVia::Own),
+            of("x", "a", WorktreeVia::WorkedIn),
+        ])];
+        assert!(c.set(first.clone()));
+        assert_eq!(c.by_agent(), &worktrees_by_agent(&first));
+        assert_eq!(c.of_agent("x").len(), 1);
+        assert_eq!(&*c, first.as_slice());
+        assert!(!c.set(first.clone()), "the same list: nothing changes");
+
+        let second = vec![project(vec![
+            of("x", "a", WorktreeVia::WorkedIn),
+            of("x", "bb", WorktreeVia::Process),
+            of("y", "c", WorktreeVia::WorkedIn),
+        ])];
+        assert!(c.set(second.clone()));
+        assert_eq!(c.by_agent(), &worktrees_by_agent(&second));
+        let names: Vec<&str> = c.of_agent("x").iter().map(|r| r.wt.name.as_str()).collect();
+        assert_eq!(names, ["bb", "a"]);
+        assert_eq!(c.of_agent("y").len(), 1);
+
+        assert!(c.set(Vec::new()));
+        assert!(c.by_agent().is_empty() && c.is_empty());
+        assert_eq!(Worktrees::new(second.clone()).by_agent(), &worktrees_by_agent(&second));
     }
 
     #[test]
