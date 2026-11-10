@@ -30,6 +30,7 @@ mod part;
 pub mod peer_term;
 mod peers;
 mod preview;
+mod side_list;
 mod sidebar;
 mod space;
 mod strip;
@@ -484,6 +485,8 @@ pub struct MainScreen {
     drop_hint: Option<(String, Option<tree::Side>)>,
     /// Where a drag over the sidebar would land.
     side_drop: Option<sidebar::SideDrop>,
+    /// The sidebar's rows as a virtual list.
+    side: side_list::SideList,
     /// A space tab being dragged (out to a new window).
     space_drag: Option<topbar::SpaceDragState>,
     /// A space tab dragged in another window would land here (its name).
@@ -533,6 +536,9 @@ impl MainScreen {
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let accounts = crate::accounts::model(cx);
         let subs = vec![
+            // Any change of the screen: the sidebar's rows are made again
+            // (a scroll step of its list alone keeps them).
+            cx.observe_self(|this, _| this.side.invalidate()),
             // The screen draws from the store: it re-renders itself (it is
             // a cached view; its window doesn't redraw it for a model).
             cx.observe(&store, |this, _, cx| {
@@ -620,6 +626,7 @@ impl MainScreen {
             divider: None,
             drop_hint: None,
             side_drop: None,
+            side: side_list::SideList::new(),
             space_drag: None,
             space_incoming: None,
             cursor: None,
@@ -847,6 +854,7 @@ impl MainScreen {
         self.set_route(Route::Space, cx);
         self.overlay_sidebar = false;
         self.cursor = Some(id.to_string());
+        self.side.reveal(id);
         match self.ui.locate(id) {
             Some(loc) if loc.window == self.label => {
                 self.active = loc.space_id.clone();

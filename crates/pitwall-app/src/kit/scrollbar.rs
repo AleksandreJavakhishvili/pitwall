@@ -9,7 +9,8 @@
 //! same [`ScrollHandle`]: `vscroll(&handle, &t, div().id(..).track_scroll(&handle)
 //! .overflow_y_scroll()...)`. The returned wrapper takes the sizing the scroll
 //! container used to have (`flex_1`, `min_h_0`, `max_h_full`…). For a
-//! `uniform_list`, pass `handle.0.borrow().base_handle.clone()`.
+//! `uniform_list`, pass `handle.0.borrow().base_handle.clone()`; for a
+//! variable-height `list`, use [`vlist_fill`] with its `ListState`.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -90,6 +91,17 @@ pub fn vscroll_list_fill(
     let mut bar = Scrollbar::new(id, base, Axis::Vertical, t.line_strong);
     bar.list = true;
     frame(true, content.into_any_element(), bar)
+}
+
+/// [`vscroll_fill`] for a `gpui::list` drawn from `state` (it keeps its
+/// own scroll offset, in items).
+pub fn vlist_fill(
+    id: impl Into<ElementId>,
+    state: &gpui::ListState,
+    t: &Theme,
+    content: impl IntoElement,
+) -> gpui::Div {
+    frame(true, content.into_any_element(), Scrollbar::for_list(id, state.clone(), t.line_strong))
 }
 
 /// A vertical scroll area: `content` (the scroll container tracking
@@ -265,9 +277,69 @@ pub fn offset_for(track: f32, len: f32, max: f32, start: f32) -> f32 {
     (start / (track - len)).clamp(0., 1.) * max
 }
 
+/// What a [`Scrollbar`] scrolls: a scroll container's handle, or a
+/// `gpui::list`'s state.
+#[derive(Clone)]
+enum Source {
+    Div(ScrollHandle),
+    List(gpui::ListState),
+}
+
+impl Source {
+    fn max_offset(&self) -> gpui::Point<Pixels> {
+        match self {
+            Source::Div(h) => h.max_offset(),
+            Source::List(l) => l.max_offset_for_scrollbar(),
+        }
+    }
+
+    /// How far it is scrolled (negative, as `ScrollHandle::offset`).
+    fn offset(&self) -> gpui::Point<Pixels> {
+        match self {
+            Source::Div(h) => h.offset(),
+            Source::List(l) => l.scroll_px_offset_for_scrollbar(),
+        }
+    }
+
+    fn bounds(&self) -> Bounds<Pixels> {
+        match self {
+            Source::Div(h) => h.bounds(),
+            Source::List(l) => l.viewport_bounds(),
+        }
+    }
+
+    fn set_offset(&self, p: gpui::Point<Pixels>) {
+        match self {
+            Source::Div(h) => h.set_offset(p),
+            Source::List(l) => l.set_offset_from_scrollbar(p),
+        }
+    }
+
+    /// The thumb is grabbed or let go: a list keeps its height meanwhile
+    /// (rows measured as they come into view don't move the thumb).
+    fn dragging(&self, on: bool) {
+        if let Source::List(l) = self {
+            if on {
+                l.scrollbar_drag_started();
+            } else if l.is_scrollbar_dragging() {
+                l.scrollbar_drag_ended();
+            }
+        }
+    }
+
+    /// Draw the new offset: a list draws its rows again in its view
+    /// (`view`); a scroll container's offset is read at the next frame.
+    fn redraw(&self, view: gpui::EntityId, window: &mut Window, cx: &mut App) {
+        match self {
+            Source::Div(_) => window.refresh(),
+            Source::List(_) => cx.notify(view),
+        }
+    }
+}
+
 pub struct Scrollbar {
     id: ElementId,
-    handle: ScrollHandle,
+    handle: Source,
     axis: Axis,
     color: Hsla,
     /// The handle is a `uniform_list`'s (it records no children).
@@ -278,14 +350,19 @@ pub struct Scrollbar {
 
 impl Scrollbar {
     pub fn new(id: impl Into<ElementId>, handle: ScrollHandle, axis: Axis, color: Hsla) -> Self {
-        Scrollbar { id: id.into(), handle, axis, color, list: false, fill: false }
+        Scrollbar { id: id.into(), handle: Source::Div(handle), axis, color, list: false, fill: false }
+    }
+
+    /// The vertical scrollbar of a `gpui::list` drawn from `state`.
+    pub fn for_list(id: impl Into<ElementId>, state: gpui::ListState, color: Hsla) -> Self {
+        Scrollbar { id: id.into(), handle: Source::List(state), axis: Axis::Vertical, color, list: true, fill: false }
     }
 
     fn overflows(&self) -> bool {
         let m = self.handle.max_offset();
         // gpui measures a scroll container with no children as its own
         // size, then adds the padding: it "overflows" by its padding.
-        if !self.list && self.handle.children_count() == 0 {
+        if matches!(&self.handle, Source::Div(h) if !self.list && h.children_count() == 0) {
             return false;
         }
         match self.axis {
@@ -435,10 +512,11 @@ impl Element for Scrollbar {
                 handle.set_offset(if vertical { point(o.x, v) } else { point(v, o.y) });
             }
         };
+        let owner = window.current_view();
         let hitbox = pre.hitbox.clone();
         let st = pre.state.clone();
         {
-            let (set, geom) = (set.clone(), geom.clone());
+            let (set, geom, src) = (set.clone(), geom.clone(), self.handle.clone());
             window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
                 if phase != DispatchPhase::Bubble
                     || e.button != MouseButton::Left
@@ -450,6 +528,7 @@ impl Element for Scrollbar {
                 let at = along(e.position) - start;
                 if at >= s && at <= s + len {
                     st.grab.set(Some(at - s));
+                    src.dragging(true);
                 } else {
                     // A click on the track pages towards it.
                     let cur = offset_for(track, len, max, s);
@@ -457,35 +536,38 @@ impl Element for Scrollbar {
                     set(if at < s { cur - page } else { cur + page }.clamp(0., max));
                 }
                 cx.stop_propagation();
-                window.refresh();
+                src.redraw(owner, window, cx);
             });
         }
         let hitbox = pre.hitbox.clone();
         let st = pre.state.clone();
         {
-            let (set, geom) = (set.clone(), geom.clone());
-            window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, _| {
+            let (set, geom, src) = (set.clone(), geom.clone(), self.handle.clone());
+            window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
                 let Some(grab) = st.grab.get() else { return };
                 if phase != DispatchPhase::Bubble {
                     return;
                 }
                 if e.pressed_button != Some(MouseButton::Left) {
                     st.grab.set(None);
+                    src.dragging(false);
                     return;
                 }
                 let (start, track, _, len, max, _) = geom(hitbox.bounds);
                 set(offset_for(track, len, max, along(e.position) - start - grab));
-                window.refresh();
+                src.redraw(owner, window, cx);
             });
         }
         let st = pre.state.clone();
+        let src = self.handle.clone();
         window.on_mouse_event(move |_: &MouseUpEvent, phase, _, _| {
-            if phase == DispatchPhase::Bubble {
-                st.grab.set(None);
+            if phase == DispatchPhase::Bubble && st.grab.take().is_some() {
+                src.dragging(false);
             }
         });
         let hitbox = pre.hitbox.clone();
-        window.on_mouse_event(move |e: &ScrollEvent, phase, window, _| {
+        let src = self.handle.clone();
+        window.on_mouse_event(move |e: &ScrollEvent, phase, window, cx| {
             if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                 return;
             }
@@ -493,7 +575,7 @@ impl Element for Scrollbar {
             let d = e.delta.pixel_delta(px(20.));
             let d = f32::from(if vertical { d.y } else { d.x });
             set((offset_for(track, len, max, s) - d).clamp(0., max));
-            window.refresh();
+            src.redraw(owner, window, cx);
         });
     }
 }
