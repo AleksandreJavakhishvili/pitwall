@@ -454,6 +454,10 @@ impl Render for MainView {
             None => root,
         };
         let root = crate::palette::on_actions(root, &self.palette);
+        let approvals = crate::approvals::overlay(window, cx);
+        // Settings, About, onboarding, the palette or an approval over the
+        // screen.
+        let over = self.layer.read(cx).is_open() || self.palette.read(cx).is_open() || approvals.is_some();
         let root = match &self.content {
             Content::Refused(r) => root.child(Self::refused(r, &t)),
             // The screen draws itself every frame, but its big pieces
@@ -461,17 +465,27 @@ impl Render for MainView {
             // terminals are cached views: a frame for one terminal or for
             // the working dots' rings (the pulse layer) replays the rest
             // (main_screen/part.rs).
+            // With an overlay open the screen is a cached view as well: a
+            // frame for the overlay alone (a Settings scroll step) replays
+            // the whole screen, and a frame for something in the screen (a
+            // terminal) renders the screen, whose parts and other
+            // terminals still replay (`keep_inner_caches`). Closed, the
+            // screen draws every frame again (it takes the keyboard back
+            // when nothing has it).
             // Without parts (PITWALL_PERF_NO_PARTS) the screen itself is
             // the cached view. Under Liquid Glass each part places its own
-            // glass piece (kit::glass).
+            // glass piece (kit::glass); a replayed view keeps its pieces.
             Content::Live { .. } => root
                 .children(self.screen.clone().map(|s| {
-                    if crate::main_screen::parts_cached(cx) {
-                        s.into_any_element()
+                    let parts = crate::main_screen::parts_cached(cx);
+                    if parts && !over {
+                        return s.into_any_element();
+                    }
+                    let cached = gpui::AnyView::from(s).cached(gpui::StyleRefinement::default().size_full());
+                    if parts {
+                        cached.keep_inner_caches().into_any_element()
                     } else {
-                        gpui::AnyView::from(s)
-                            .cached(gpui::StyleRefinement::default().size_full())
-                            .into_any_element()
+                        cached.into_any_element()
                     }
                 }))
                 .child(self.pulses.clone())
@@ -480,7 +494,7 @@ impl Render for MainView {
         let root = root
             .child(self.layer.clone())
             .child(self.palette.clone())
-            .children(crate::approvals::overlay(window, cx))
+            .children(approvals)
             .children(crate::frame_stats::probe());
         crate::platform::decorations::frame(root, window, cx)
     }
@@ -853,6 +867,129 @@ mod tests {
         assert_eq!(shown, all);
         assert_eq!(counts.made, made.made, "shown again, not made again");
         assert_eq!(counts.reshown, made.reshown + 1);
+    }
+
+    /// A view that stands in for a terminal in the pane body.
+    struct FakeTerm;
+
+    impl Render for FakeTerm {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full()
+        }
+    }
+
+    /// Settings open over the screen: a frame for Settings alone (a scroll
+    /// step) replays the whole screen; output in a terminal behind it
+    /// renders the screen again, whose parts still replay; a change in
+    /// the screen shows behind Settings; closed, the screen draws every
+    /// frame again. Under Liquid Glass the chrome's pieces hold throughout.
+    fn settings_over_the_screen(glass: bool, cx: &mut TestAppContext) {
+        use crate::platform::glass::regions;
+        use std::cell::Cell;
+        use std::rc::Rc;
+        // The fake terminal in the first window only (one view, one window).
+        let term = cx.new(|_| FakeTerm);
+        let in_window: Rc<Cell<Option<WindowId>>> = Rc::new(Cell::new(None));
+        let (t, w) = (term.clone(), in_window.clone());
+        cx.update(|cx| {
+            crate::main_screen::set_terminal_slot(cx, move |_, window, _| {
+                if w.get() == Some(window.window_handle().window_id()) {
+                    gpui::AnyView::from(t.clone())
+                        .cached(gpui::StyleRefinement::default().flex_1())
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
+                }
+            })
+        });
+        let (first, _second, vcx) = two_windows(cx, glass);
+        vcx.simulate_resize(gpui::size(px(1500.), px(900.)));
+        let wid = vcx.update(|window, _| window.window_handle().window_id());
+        in_window.set(Some(wid));
+        let screen = first.read_with(vcx, |v, _| v.screen.clone().unwrap());
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        vcx.run_until_parked();
+        let renders = |vcx: &mut VisualTestContext| screen.read_with(vcx, |s, cx| s.renders(cx));
+        let pieces = || regions::of(wid);
+
+        // No overlay: a frame for anything draws the screen (not its parts).
+        let before = renders(vcx);
+        first.update(vcx, |v, cx| v.layer.update(cx, |_, cx| cx.notify()));
+        vcx.run_until_parked();
+        let (screen_n, side, top) = renders(vcx);
+        assert!(screen_n > before.0, "{before:?}");
+        assert_eq!((side, top), (before.1, before.2));
+
+        first.update(vcx, |v, cx| v.open_settings(cx));
+        vcx.run_until_parked();
+        assert!(first.read_with(vcx, |v, cx| v.layer.read(cx).is_open()));
+        let open = renders(vcx);
+        let held = pieces();
+        if glass {
+            assert_eq!(held.0, vec!["right-panel", "sidebar", "topbar"]);
+        }
+
+        // Settings scrolls (each step notifies its view): the screen replays.
+        for _ in 0..3 {
+            first.update(vcx, |v, cx| v.layer.update(cx, |_, cx| cx.notify()));
+            vcx.run_until_parked();
+        }
+        assert_eq!(renders(vcx), open, "a frame for Settings re-rendered the screen");
+        assert_eq!(pieces(), held, "replayed: no glass piece hidden or made");
+
+        // Output in a terminal behind Settings: the screen renders, its
+        // parts replay.
+        term.update(vcx, |_, cx| cx.notify());
+        vcx.run_until_parked();
+        let (screen_n, side, top) = renders(vcx);
+        assert_eq!(screen_n, open.0 + 1, "the terminal's frame draws the screen");
+        assert_eq!((side, top), (open.1, open.2), "and replays its parts");
+        assert_eq!(pieces(), held);
+
+        // A change in the screen behind Settings: it shows.
+        let store = first.read_with(vcx, |v, _| match &v.content {
+            Content::Live { store } => store.clone(),
+            Content::Refused(_) => unreachable!(),
+        });
+        store.update(vcx, |s, cx| {
+            s.agents[0].status = pitwall_proto::Status::Working;
+            cx.notify();
+        });
+        vcx.run_until_parked();
+        let changed = renders(vcx);
+        assert!(changed.0 > screen_n && changed.1 > side && changed.2 > top, "{open:?} -> {changed:?}");
+        assert_eq!(pieces().0, held.0);
+
+        // Closed: the screen draws every frame again.
+        first.update(vcx, |v, cx| v.layer.update(cx, |l, cx| l.close(cx)));
+        vcx.run_until_parked();
+        let closed = renders(vcx);
+        assert!(closed.0 > changed.0);
+        first.update(vcx, |v, cx| v.layer.update(cx, |_, cx| cx.notify()));
+        vcx.run_until_parked();
+        assert_eq!(renders(vcx).0, closed.0 + 1);
+        assert_eq!(pieces().0, held.0);
+
+        // The palette is an overlay too: typing in it replays the screen.
+        first.update_in(vcx, |v, window, cx| v.palette.update(cx, |p, cx| p.open(window, cx)));
+        vcx.run_until_parked();
+        let palette = renders(vcx);
+        for _ in 0..2 {
+            first.update(vcx, |v, cx| v.palette.update(cx, |_, cx| cx.notify()));
+            vcx.run_until_parked();
+        }
+        assert_eq!(renders(vcx), palette, "a frame for the palette re-rendered the screen");
+        assert_eq!(pieces().0, held.0);
+    }
+
+    #[gpui::test]
+    fn settings_over_the_screen_flat(cx: &mut TestAppContext) {
+        settings_over_the_screen(false, cx);
+    }
+
+    #[gpui::test]
+    fn settings_over_the_screen_glass(cx: &mut TestAppContext) {
+        settings_over_the_screen(true, cx);
     }
 
     #[gpui::test]

@@ -515,6 +515,9 @@ pub struct MainScreen {
     parts: Option<part::Parts>,
     /// Agents' in-app previews (preview.rs).
     previews: preview::Previews,
+    /// How often it rendered (tests).
+    #[cfg(test)]
+    renders: usize,
     _subs: Vec<Subscription>,
 }
 
@@ -643,6 +646,8 @@ impl MainScreen {
             _poll_elsewhere: None,
             parts: None,
             previews: Default::default(),
+            #[cfg(test)]
+            renders: 0,
             _subs: subs,
         };
         screen.start_elsewhere(cx);
@@ -1446,6 +1451,14 @@ impl MainScreen {
         self.file_rows.borrow().iter().map(|(_, _, f)| f.path.clone()).collect()
     }
 
+    /// How often the screen rendered, and its sidebar and top bar parts
+    /// (tests).
+    #[cfg(test)]
+    pub(crate) fn renders(&self, cx: &App) -> (usize, usize, usize) {
+        let p = self.parts.as_ref().expect("parts");
+        (self.renders, p.sidebar.read(cx).renders, p.topbar.read(cx).renders)
+    }
+
     /// The open diff (tests).
     #[cfg(test)]
     pub(crate) fn diff_dialog(&self) -> Option<Entity<DiffDialog>> {
@@ -1795,6 +1808,10 @@ impl MainScreen {
 
 impl Render for MainScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(test)]
+        {
+            self.renders += 1;
+        }
         // A change made while this window was being opened reached the
         // store before this screen's observer was active: catch up.
         let store = crate::ui_state::store(cx);
