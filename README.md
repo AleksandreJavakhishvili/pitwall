@@ -44,6 +44,7 @@
 | Area | What you get |
 |---|---|
 | **Status** | Flags for needs you, done, working, idle, exited and stopped. From hooks when the agent offers them (Claude Code per launch, Codex opt-in), else its screen matched against per-agent rules, else output activity. Native notifications when the window isn't focused. |
+| **Answer from anywhere** | While you're in another app and an agent's screen asks something, a small Pitwall tile floats over your desktop (every Space, full-screen apps too). Click it for a card per agent with the live terminal rows that ask, and Accept / Reject for plain yes/no prompts (Accept all when several ask). Click a card's terminal to answer with the keyboard instead. Drag it anywhere; turn it off in Settings → General. |
 | **Wall** `⌘E` | Every live terminal at once, grouped by project, the ones that need you first. View-only; click a tile to take over. |
 | **Next up** `⌘.` | Queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it. |
 | **Review** `⌘R` | What each agent changed, per task. Comment on lines and send them back as one prompt; commit and merge only when you click. |
