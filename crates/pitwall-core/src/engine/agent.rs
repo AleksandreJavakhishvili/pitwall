@@ -50,6 +50,9 @@ pub struct Agent {
     pub hook: Option<(HookState, Option<String>)>,
     pub screen_state: Option<pitwall_detect::Detected>,
     pub screen_detail: Option<String>,
+    /// The screen shows a prompt: its text, and the keys for a yes/no.
+    pub screen_excerpt: Option<String>,
+    pub screen_answer: Option<pitwall_detect::Answer>,
     pub detect_seq: u64,
     pub branch: Option<String>,
     pub added: u32,
@@ -125,6 +128,8 @@ impl Agent {
             hook: None,
             screen_state: None,
             screen_detail: None,
+            screen_excerpt: None,
+            screen_answer: None,
             detect_seq: u64::MAX,
             branch: None,
             added: 0,
@@ -169,6 +174,8 @@ impl Agent {
         self.hook = None;
         self.screen_state = None;
         self.screen_detail = None;
+        self.screen_excerpt = None;
+        self.screen_answer = None;
         self.detect_seq = u64::MAX;
         self.git_wanted = true;
         self.git_every = 0;
@@ -237,6 +244,21 @@ impl Agent {
         }
     }
 
+    /// What it asks, while it is blocked and its screen shows the prompt
+    /// (hooks can say "blocked" a moment before the dialog is drawn).
+    pub fn ask(&self) -> Option<pitwall_proto::AskView> {
+        if self.status != Status::Blocked || self.screen_state != Some(pitwall_detect::Detected::Blocked) {
+            return None;
+        }
+        let text = self.screen_excerpt.clone()?;
+        let answer = self.screen_answer.as_ref();
+        Some(pitwall_proto::AskView {
+            text,
+            accept: answer.is_some(),
+            reject: answer.is_some_and(|a| a.reject.is_some()),
+        })
+    }
+
     pub fn view(&self) -> AgentView {
         let r = &self.rec;
         let loc = r.locator();
@@ -283,6 +305,7 @@ impl Agent {
             status: self.status,
             status_source: self.source,
             status_detail: self.detail.clone(),
+            ask: self.ask(),
             running: self.running(),
             cols,
             rows,

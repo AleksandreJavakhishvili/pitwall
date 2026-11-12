@@ -123,9 +123,12 @@ struct Folded {
 /// Pure bookkeeping (under the registry lock): no I/O.
 fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
     let mut out = Folded::default();
+    let prev_ask = a.ask();
     if let Some((d, seq)) = obs.detection {
         a.screen_state = d.state;
         a.screen_detail = d.detail;
+        a.screen_excerpt = d.excerpt;
+        a.screen_answer = d.answer;
         a.detect_seq = seq;
     }
     let prev = (a.status, a.source, a.detail.clone());
@@ -142,7 +145,7 @@ fn fold(a: &mut Agent, obs: Observation, now: u64) -> Folded {
             Source::Activity => None,
         };
     }
-    if (a.status, a.source, a.detail.clone()) != prev {
+    if (a.status, a.source, a.detail.clone()) != prev || a.ask() != prev_ask {
         out.changed = true;
     }
     if a.preview != obs.preview || a.preview_seen != obs.preview_seen {
@@ -521,6 +524,43 @@ mod tests {
 
         a.hook = Some((HookState::Done, None));
         assert_eq!(fold(&mut a, live(0), 11_000).alert.map(|x| x.reason), Some("done"));
+    }
+
+    #[test]
+    fn a_blocked_agent_shows_what_its_screen_asks() {
+        use pitwall_detect::{Answer, Detected, Detection};
+        let asks = |text: &str, answer: Option<Answer>| Observation {
+            detection: Some((
+                Detection { state: Some(Detected::Blocked), detail: Some("Do you want to proceed?".into()), answer, excerpt: Some(text.into()) },
+                7,
+            )),
+            ..live(0)
+        };
+        let yes_no = Some(Answer { accept: "1".into(), reject: Some("\u{1b}".into()) });
+        let mut a = agent();
+        // Hooks say blocked before the dialog is drawn: nothing to show yet.
+        a.hook = Some((HookState::Blocked, Some("Permission: Bash".into())));
+        assert!(fold(&mut a, live(0), 1_000).changed);
+        assert_eq!(a.view().ask, None);
+        // The dialog is on screen: its text, and both answers.
+        assert!(fold(&mut a, asks("touch a.txt", yes_no.clone()), 1_400).changed);
+        let ask = a.view().ask.expect("ask");
+        assert_eq!((ask.text.as_str(), ask.accept, ask.reject), ("touch a.txt", true, true));
+        assert!(!fold(&mut a, asks("touch a.txt", yes_no.clone()), 1_800).changed, "the same prompt again");
+        // The next prompt has the same hint: still a change for the UI.
+        assert!(fold(&mut a, asks("rm -rf build", yes_no), 2_200).changed);
+        // No key for "no"; then not a yes/no at all.
+        fold(&mut a, asks("deploy?", Some(Answer { accept: "\r".into(), reject: None })), 2_600);
+        let ask = a.view().ask.expect("ask");
+        assert!(ask.accept && !ask.reject);
+        fold(&mut a, asks("Which color?", None), 3_000);
+        let ask = a.view().ask.expect("ask");
+        assert!(!ask.accept && !ask.reject);
+        // Answered: working again, nothing asked.
+        a.hook = Some((HookState::Working, None));
+        let idle = Observation { detection: Some((Detection { state: Some(Detected::Working), ..Default::default() }, 8)), ..live(0) };
+        assert!(fold(&mut a, idle, 3_400).changed);
+        assert_eq!(a.view().ask, None);
     }
 
     #[test]

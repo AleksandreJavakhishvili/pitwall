@@ -136,6 +136,8 @@ fn reset_signals(a: &mut Agent, now: u64) {
     a.hook = None;
     a.screen_state = None;
     a.screen_detail = None;
+    a.screen_excerpt = None;
+    a.screen_answer = None;
     a.detect_seq = u64::MAX;
     a.turn_active = false;
     if !matches!(a.status, Status::Stopped | Status::Exited) {
