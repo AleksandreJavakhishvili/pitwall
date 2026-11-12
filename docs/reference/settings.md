@@ -29,6 +29,15 @@ How the sidebar groups agents: by project, or by account (the Claude Code or Cod
 - **Stored in:** `ui.json` → `sidebarGroup`
 - **When an agent changes it:** applies directly
 
+### `general.floatingPrompts`
+
+While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `floatingPrompts`
+- **When an agent changes it:** applies directly
+
 ### `general.cliTool`
 
 The `pitwall` command-line tool is installed (a link in a folder on PATH). true installs it; delete the link to remove it.

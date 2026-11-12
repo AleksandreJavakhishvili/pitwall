@@ -137,6 +137,13 @@ fn metrics(family: &Font, font_size: Pixels, window: &Window) -> (f32, f32) {
     (w, cell_height(h, window.scale_factor()))
 }
 
+/// The height of a row of a screen drawn at `font_size` unscaled.
+pub fn row_height(font_size: f32, window: &mut Window) -> f32 {
+    let mut base = font(MONO);
+    base.features = FontFeatures::disable_ligatures();
+    metrics(&base, px(font_size), window).1
+}
+
 /// xterm's cell height for a character `h` px high at `dpr` (RenderDimensions).
 pub fn cell_height(h: f32, dpr: f32) -> f32 {
     ((h * dpr).ceil() * LINE_HEIGHT).floor() / dpr

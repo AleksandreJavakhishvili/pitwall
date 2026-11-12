@@ -126,6 +126,103 @@ fn pitwall_in_front(cx: &App) -> bool {
     }
 }
 
+/// The user is in Pitwall: it is the app in front (macOS: the active
+/// app, whichever of its windows; elsewhere: one of its main windows is
+/// the active window). The floating control, which never becomes the
+/// active window, doesn't count.
+pub fn app_in_front(cx: &App) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = cx;
+        macos::app_active()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        cx.active_window().is_some_and(|w| w.downcast::<crate::ui::MainView>().is_some())
+    }
+}
+
+/// Give the floating control a new size, keeping the corner it sits on:
+/// its bottom right on macOS (it opens upward and to the left), its top
+/// left elsewhere (the caller opens it again when its width changes).
+pub fn resize_float(window: &mut Window, size: gpui::Size<gpui::Pixels>, cx: &mut App) {
+    // Test windows have no native view (their handle panics).
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::resize_from_bottom_right(window, size.width.into(), size.height.into(), cx);
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = cx;
+        window.resize(size);
+    }
+}
+
+/// The floating control draws its own shadow (none from the system) and
+/// never takes the keyboard from the app the user is in.
+pub fn float_setup(window: &mut Window) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::no_shadow(window);
+        macos::never_key(window);
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = window;
+}
+
+/// The floating control takes the keyboard (the user clicked a terminal
+/// in it), without Pitwall coming forward.
+pub fn float_take_keys(window: &mut Window) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::take_keys(window);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = window;
+}
+
+/// Move the floating control with the pointer until the button is
+/// released (called once the press has travelled far enough).
+pub fn float_drag(window: &mut Window, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::drag_with_pointer(window, cx);
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = cx;
+        window.start_window_move();
+    }
+}
+
+/// What the system says about Pitwall being active, for the floating
+/// control's log (macOS: `NSApplication.isActive`, which is not what
+/// [`app_in_front`] goes by).
+pub fn app_active_raw() -> bool {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::ns_app_active()
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        false
+    }
+}
+
+/// Debug builds on macOS: a left click in `window` at (`x`, `y`) from
+/// its top left, delivered as AppKit delivers one (in this process only).
+pub fn debug_click(window: &mut Window, x: f32, y: f32, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::debug_click(window, x, y, cx);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = (window, x, y, cx);
+}
+
+/// The pointer over the floating control: the pointing hand over what
+/// takes a click, the arrow otherwise. macOS only: the control shows while
+/// another app is active, where GPUI's cursor styles (which follow the
+/// active app's key window) don't apply. Elsewhere GPUI's do.
+pub fn float_cursor(pointing: bool) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::set_cursor(pointing);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = pointing;
+}
+
 /// Show `count` agents needing the user on the Dock / taskbar / launcher.
 pub fn set_badge(count: usize, cx: &mut App) {
     state(cx).blocked = count;

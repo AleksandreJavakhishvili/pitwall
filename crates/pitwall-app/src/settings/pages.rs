@@ -79,6 +79,7 @@ impl SettingsView {
                 }
                 v.push(Part::section("grouping", |_, ui, _, cx| any(Self::grouping(ui, cx))));
                 v.push(Part::section("elsewhere", |_, ui, _, cx| any(Self::elsewhere(ui, cx))));
+                v.push(Part::section("floating", |_, ui, _, cx| any(Self::floating(ui, cx))));
                 v.push(Part::section("cli", |s, ui, _, cx| any(s.cli(ui, cx))));
                 v
             }
@@ -184,6 +185,37 @@ impl SettingsView {
                         .child(crate::kit::hint("A sidebar group with Claude Code, Codex and other agents running in other terminal apps (checked every ~10 s, read-only), each with “Bring in”.", &ui.t)),
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(show, false, 14., &ui.t))),
+        )
+    }
+
+    /// `general.floatingPrompts`: the floating "needs you" control.
+    fn floating(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::float::KEY);
+        let on = crate::float::enabled(cx);
+        section().child(
+            div()
+                .id("floating-prompts")
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Show a floating control when an agent needs you"))
+                        .child(crate::kit::hint("While Pitwall isn’t in front, a small control floats above your other apps, on every desktop. It lists the agents waiting on you, with Accept and Reject for a yes-or-no prompt and Open for anything else.", &ui.t)),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
     }
 

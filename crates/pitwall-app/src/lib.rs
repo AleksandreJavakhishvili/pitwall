@@ -12,6 +12,7 @@ pub mod approvals;
 pub mod bridge;
 pub mod cli_spaces;
 pub mod explorer;
+pub mod float;
 pub mod frame_stats;
 pub mod code_view;
 pub mod engineer;
@@ -161,6 +162,20 @@ pub fn run() {
         engineer::register(cx, engine.as_ref());
         if let Some(e) = engine.clone() {
             follow_tool_updates(e, cx);
+        }
+        // The floating "needs you" control (after `ui_state`: its setting).
+        if let (Some(e), Content::Live { store }) = (engine.clone(), cx.global::<AppState>().content.clone()) {
+            float::init(
+                &store,
+                std::sync::Arc::new({
+                    let e = e.clone();
+                    move |id, accept, seen| pitwall_core::engine::input::answer(&e, id, accept, seen)
+                }),
+                std::sync::Arc::new(move |id, keys| pitwall_core::engine::input::write_input_bytes(&e, id, keys)),
+                std::sync::Arc::new(windows::show_agent),
+                cx,
+            );
+            float::debug_hook(cx);
         }
         rules::init(cx, engine);
 

@@ -361,6 +361,27 @@ fn show_space_in(label: &str, space: &str, cx: &mut App) {
     });
 }
 
+/// Bring Pitwall forward on `agent`: the window that has it (main when
+/// none does) is activated and shows it. For callers outside any window
+/// (the floating control).
+pub fn show_agent(agent: &str, cx: &mut App) {
+    let label = crate::ui_state::get(cx).locate(agent).map_or_else(|| MAIN.to_string(), |loc| loc.window);
+    let agent = agent.to_string();
+    cx.defer(move |cx| {
+        let Some(handle) = window_for(&label, cx) else {
+            return;
+        };
+        cx.activate(true);
+        let _ = handle.update(cx, |view, window, cx| {
+            crate::platform::unhide(window);
+            window.activate_window();
+            if let Some(screen) = view.screen.clone() {
+                screen.update(cx, |s, cx| s.show_agent(&agent, window, cx));
+            }
+        });
+    });
+}
+
 /// An agent was shown in window `from`; when it lives in another window,
 /// that window comes forward and focuses it (`focusRequest` + `focus_window`).
 fn route_agent(from: &str, agent: &str, cx: &mut App) {
