@@ -19,6 +19,9 @@ fn fixture(name: &str) -> (String, Option<String>) {
         "claude_blocked_bash" => include_str!("fixtures/claude_blocked_bash.txt"),
         "claude_blocked_bash_moved" => include_str!("fixtures/claude_blocked_bash_moved.txt"),
         "claude_blocked_question" => include_str!("fixtures/claude_blocked_question.txt"),
+        "claude_blocked_bash_2322" => include_str!("fixtures/claude_blocked_bash_2322.txt"),
+        "claude_blocked_write" => include_str!("fixtures/claude_blocked_write.txt"),
+        "codex_blocked_approval_0160" => include_str!("fixtures/codex_blocked_approval_0160.txt"),
         "codex_trust" => include_str!("fixtures/codex_trust.txt"),
         "codex_update" => include_str!("fixtures/codex_update.txt"),
         "codex_hooks_review" => include_str!("fixtures/codex_hooks_review.txt"),
@@ -494,4 +497,105 @@ fn reference_doc_names_every_key_and_region() {
             assert!(named, "docs/reference/detection.md doesn't describe `{w}` (used in {kind}.toml)");
         }
     }
+}
+
+// --- Answers: yes/no prompts and their keys ----------------------------------
+
+fn keys(accept: &str, reject: &str) -> Option<Answer> {
+    Some(Answer { accept: accept.into(), reject: Some(reject.into()) })
+}
+
+#[test]
+fn claude_permission_prompts_have_an_answer() {
+    // "1" and Esc were typed into Claude Code v2.1.322 on the two newest
+    // screens: the command ran, the write was rejected.
+    for name in ["claude_blocked_bash", "claude_blocked_bash_moved", "claude_blocked_bash_2322", "claude_blocked_write"] {
+        let d = check("claude", name, Some(Blocked));
+        assert_eq!(d.answer, keys("1", "\u{1b}"), "{name}");
+        assert_eq!(check_screen_only("claude", name, Some(Blocked)).answer, d.answer, "{name}");
+    }
+    let d = check("claude", "claude_blocked_write", Some(Blocked));
+    assert_eq!(d.detail.as_deref(), Some("Do you want to create note.txt?"));
+}
+
+#[test]
+fn claude_questions_and_trust_have_no_answer() {
+    for name in ["claude_blocked_question", "claude_trust"] {
+        assert_eq!(check("claude", name, Some(Blocked)).answer, None, "{name}");
+    }
+    // Not blocked: nothing to answer, whatever the screen says.
+    for name in ["claude_idle_fresh", "claude_idle_after_question", "claude_working_tool"] {
+        let (screen, title) = fixture(name);
+        let d = builtin("claude", &screen, title.as_deref());
+        assert_eq!((d.answer, d.excerpt), (None, None), "{name}");
+    }
+}
+
+#[test]
+fn claude_a_question_answered_yes_or_no_is_not_a_permission() {
+    // An AskUserQuestion whose options read like a permission prompt:
+    // "Enter to select" marks it as a question.
+    let (screen, _) = fixture("claude_blocked_question");
+    let screen = screen.replace("1. Red", "1. Yes").replace("2. Blue", "2. No");
+    let d = builtin("claude", &screen, None);
+    assert_eq!((d.state, d.answer), (Some(Blocked), None));
+}
+
+#[test]
+fn claude_an_old_prompt_in_the_scrollback_is_not_answered() {
+    // The text of an answered permission prompt above a live question.
+    let (old, _) = fixture("claude_blocked_bash_2322");
+    let (live, _) = fixture("claude_blocked_question");
+    let old: Vec<&str> = old.lines().filter(|l| !l.trim().is_empty()).collect();
+    let screen = format!("{}\n{live}", old[old.len() - 8..].join("\n"));
+    let d = builtin("claude", &screen, None);
+    assert_eq!((d.state, d.answer), (Some(Blocked), None));
+}
+
+#[test]
+fn codex_approval_has_an_answer() {
+    // "y" and Esc were typed into Codex CLI v0.160.1 on the newest screen:
+    // the command ran, and was cancelled.
+    for name in ["codex_blocked_approval", "codex_blocked_approval_0160"] {
+        let d = check("codex", name, Some(Blocked));
+        assert_eq!(d.answer, keys("y", "\u{1b}"), "{name}");
+        assert_eq!(check_screen_only("codex", name, Some(Blocked)).answer, d.answer, "{name}");
+    }
+    for name in ["codex_trust", "codex_update", "codex_hooks_review"] {
+        assert_eq!(check("codex", name, Some(Blocked)).answer, None, "{name}");
+    }
+}
+
+#[test]
+fn the_excerpt_is_the_prompt_without_its_frame() {
+    let d = check("claude", "claude_blocked_bash_2322", Some(Blocked));
+    let text = d.excerpt.unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines.contains(&"touch made_by_test.txt"), "{text}");
+    assert!(lines.contains(&"Do you want to proceed?"), "{text}");
+    assert!(lines.contains(&"\u{276f} 1. Yes"), "{text}");
+    assert_eq!(lines.last(), Some(&"Esc to cancel · Tab to amend"));
+    assert!(!text.contains('\u{254c}') && !text.contains('\u{2500}'), "no rule lines: {text}");
+    assert!(lines.len() <= EXCERPT_LINES);
+
+    let d = check("codex", "codex_blocked_approval_0160", Some(Blocked));
+    let text = d.excerpt.unwrap();
+    // Codex draws no rule above its dialog: `excerpt_start` finds its top.
+    assert_eq!(text.lines().next(), Some("  Would you like to run the following command?"), "{text}");
+    assert!(text.lines().any(|l| l == "  $ touch made_by_codex.txt"), "{text}");
+    assert!(text.lines().any(|l| l == "\u{203a} 1. Yes, proceed (y)"), "{text}");
+}
+
+#[test]
+fn answers_need_keys_and_a_gate() {
+    let rules = "[[rules]]\nid = \"b\"\nstate = \"blocked\"\ncontains = [\"ok?\"]\n";
+    let parse = |answers: &str| RuleSet::parse(&format!("{rules}{answers}")).map(|_| ()).unwrap_err();
+    assert!(parse("[[answers]]\nid = \"a\"\naccept = \"y\"\n").contains("needs a gate"));
+    assert!(parse("[[answers]]\nid = \"a\"\naccept = \"\"\ncontains = [\"ok?\"]\n").contains("empty keys"));
+    assert!(parse("[[answers]]\nid = \"a\"\naccept = \"y\"\nreject = \"\"\ncontains = [\"ok?\"]\n").contains("empty keys"));
+    assert!(parse("[[answers]]\nid = \"a\"\ncontains = [\"ok?\"]\n").contains("accept"));
+    // A prompt with no key for "no" is accepted only.
+    let set = RuleSet::parse(&format!("{rules}[[answers]]\nid = \"a\"\naccept = \"y\"\ncontains = [\"ok?\"]\n")).unwrap();
+    let d = set.evaluate("ok?", "");
+    assert_eq!(d.answer, Some(Answer { accept: "y".into(), reject: None }));
 }

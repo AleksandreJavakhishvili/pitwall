@@ -63,3 +63,16 @@ priority = 0
 # Herdr treats a recognised agent with no working/blocked evidence as idle.
 region = "bottom_non_empty_lines(1)"
 regex = ['\S']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Not checked against a running opencode (not installed when written): its
+# permission dialog offers "Allow once", "Allow always" and "Reject", with
+# "Allow once" selected when it opens; Enter confirms, Esc rejects.
+[[answers]]
+id = "permission"
+region = "bottom_non_empty_lines(25)"
+contains = ["△ permission required", "allow once", "reject", "enter confirm"]
+accept = "\r"
+reject = "\u001b"

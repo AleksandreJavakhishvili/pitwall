@@ -70,3 +70,23 @@ priority = 0
 # Herdr treats a recognised agent with no working/blocked evidence as idle.
 region = "bottom_non_empty_lines(1)"
 regex = ['\S']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Not checked against a running Copilot CLI (not installed when written):
+# Enter takes the highlighted option, so an answer is given only while the
+# cursor is on "1. Yes" and a "No" option is listed; Esc cancels.
+[[answers]]
+id = "permission"
+region = "bottom_non_empty_lines(20)"
+line_regex = [
+  '(?i)^[\s│]*[❯›>]\s*1\.\s*Yes[\s│]*$',
+  '(?i)^[\s│]*[2-9]\.\s*No\b',
+]
+any = [
+  { contains = ["esc to cancel"] },
+  { contains = ["esc cancel"] },
+]
+accept = "\r"
+reject = "\u001b"

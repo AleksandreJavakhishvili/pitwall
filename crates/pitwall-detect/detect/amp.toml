@@ -90,3 +90,15 @@ priority = 0
 # Herdr treats a recognised agent with no working/blocked evidence as idle.
 region = "bottom_non_empty_lines(1)"
 regex = ['\S']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Not checked against a running Amp (not installed when written): its
+# approval list opens on "Approve", which Enter takes. No key is known for
+# "no", so there is no `reject`: the user opens the agent to deny.
+[[answers]]
+id = "approval"
+region = "bottom_non_empty_lines(20)"
+contains = ["approve", "deny with feedback"]
+accept = "\r"

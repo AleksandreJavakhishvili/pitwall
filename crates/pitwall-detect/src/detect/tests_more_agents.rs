@@ -390,3 +390,66 @@ fn aider_states() {
         Some(Idle)
     );
 }
+
+// --- Answers: yes/no prompts and their keys ----------------------------------
+
+fn answer(kind: &str, screen: &str) -> Option<(String, Option<String>)> {
+    builtin(kind, screen, None).answer.map(|a| (a.accept, a.reject))
+}
+
+fn keys(accept: &str, reject: &str) -> Option<(String, Option<String>)> {
+    Some((accept.into(), Some(reject.into())))
+}
+
+#[test]
+fn yes_no_prompts_have_their_keys() {
+    const ESC: &str = "\u{1b}";
+    assert_eq!(answer("gemini", GEMINI_APPLY), keys("1", ESC));
+    assert_eq!(answer("gemini", GEMINI_SHELL), keys("1", ESC));
+    assert_eq!(answer("qwen", QWEN_CONFIRM), keys("1", ESC));
+    assert_eq!(answer("cursor", CURSOR_RUN), keys("y", "n"));
+    assert_eq!(answer("cursor", CURSOR_WRITE), keys("y", "n"));
+    assert_eq!(answer("copilot", COPILOT_APPROVAL), keys("\r", ESC));
+    assert_eq!(answer("opencode", OPENCODE_PERMISSION), keys("\r", ESC));
+    // Amp: no key known for "no".
+    assert_eq!(answer("amp", AMP_APPROVAL), Some(("\r".into(), None)));
+    let aider = "> add the parser\n\nAdd src/parser.rs to the chat? (Y)es/(N)o/(D)on't ask again [Yes]:";
+    assert_eq!(answer("aider", aider), keys("y\r", "n\r"));
+}
+
+#[test]
+fn other_screens_have_no_answer() {
+    // Trust dialogs are not a yes/no.
+    assert_eq!(builtin("qwen", QWEN_TRUST, None).state, Some(Blocked));
+    assert_eq!(answer("qwen", QWEN_TRUST), None);
+    // Copilot takes the highlighted option on Enter: no answer once the
+    // cursor left "1. Yes".
+    let moved = COPILOT_APPROVAL.replace("\u{276f} 1. Yes ", "  1. Yes ").replace("  2. Yes, and", "\u{276f} 2. Yes, and");
+    assert_ne!(moved, COPILOT_APPROVAL);
+    assert_eq!(builtin("copilot", &moved, None).state, Some(Blocked));
+    assert_eq!(answer("copilot", &moved), None);
+    // Idle and working screens.
+    for (kind, screen) in [
+        ("gemini", GEMINI_IDLE),
+        ("gemini", GEMINI_WORKING),
+        ("opencode", OPENCODE_IDLE),
+        ("cursor", CURSOR_WORKING),
+        ("copilot", COPILOT_IDLE),
+        ("qwen", QWEN_WORKING),
+        ("amp", AMP_IDLE),
+    ] {
+        assert_eq!(answer(kind, screen), None, "{kind}");
+        assert_eq!(builtin(kind, screen, None).excerpt, None, "{kind}");
+    }
+}
+
+#[test]
+fn a_boxed_dialogs_excerpt_drops_the_box() {
+    let text = builtin("gemini", GEMINI_SHELL, None).excerpt.unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "?  Shell cargo test (run the tests)");
+    assert!(lines.contains(&"Allow execution of: 'cargo'?"), "{text}");
+    assert!(lines.contains(&"\u{25cf} 1. Yes, allow once"), "{text}");
+    assert!(lines.contains(&"  3. No, suggest changes (esc)"), "{text}");
+    assert!(!text.contains('\u{2502}') && !text.contains('\u{256d}'), "{text}");
+}

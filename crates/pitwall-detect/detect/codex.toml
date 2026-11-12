@@ -25,6 +25,10 @@ detail_line = [
   '^\s*([^\s›•\d$][^\n]*\?)\s*$',
 ]
 
+# Where a prompt starts, for the text shown outside the terminal: Codex
+# draws no line above its approval dialog, which opens with its question.
+excerpt_start = ['^\s*(?:Would you like to|Do you want to|Allow) \S']
+
 # --- Title (set by Codex itself) -------------------------------------------
 
 [[rules]]
@@ -166,3 +170,19 @@ priority = 90
 region = "current_prompt_line"
 line_regex = ['^›']
 not = [{ line_regex = ['^›\s*\d+\.'] }]
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Checked live against Codex CLI v0.160.1: "y" approves once (the dialog
+# names the key: "Yes, proceed (y)"); Esc is its "No" ("(esc)").
+[[answers]]
+id = "approval"
+region = "bottom_non_empty_lines(8)"
+contains = ["press enter to confirm or esc to cancel"]
+line_regex = [
+  '^\s*›?\s*1\.\s*Yes\b.*\(y\)\s*$',
+  '^\s*›?\s*[2-9]\.\s*No\b.*\(esc\)\s*$',
+]
+accept = "y"
+reject = "\u001b"
