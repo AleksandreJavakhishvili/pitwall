@@ -177,6 +177,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "general.floatingPrompts",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else.",
+        page: Page::General,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "floatingPrompts", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "general.cliTool",
         kind: Kind::Bool,
         default: DefaultValue::Bool(false),
