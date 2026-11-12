@@ -134,3 +134,20 @@ priority = 0
 # Herdr treats a recognised agent with no working/blocked evidence as idle.
 region = "bottom_non_empty_lines(1)"
 regex = ['\S']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Not checked against a running Qwen Code (not installed when written): its
+# tool confirmation is Gemini CLI's, a numbered list where "1" is "Yes,
+# allow once" and the "No" option names Esc. A dialog that looks different
+# matches nothing, and the user opens the agent instead.
+[[answers]]
+id = "tool_confirmation"
+region = "bottom_non_empty_lines(20)"
+line_regex = [
+  '(?i)^[\s│]*[●❯›>]?\s*1\.\s*Yes,\s*allow once\b',
+  '(?i)^[\s│]*[●❯›>]?\s*[2-9]\.\s*No\b.*\(esc\)',
+]
+accept = "1"
+reject = "\u001b"

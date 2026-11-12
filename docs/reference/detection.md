@@ -74,6 +74,8 @@ Rules are tried from the highest `priority` down, and the first one that matches
 | `version` | string | Optional. Free text, for your own tracking. |
 | `detail_line` | list of regexes | Optional. Patterns for the hint shown next to a blocked agent, used by every rule that has neither `detail` nor its own `detail_line`. |
 | `rules` | list of tables | The rules, written as `[[rules]]` tables. |
+| `excerpt_start` | list of regexes | Optional. Marks the first line of a prompt on a blocked screen, for the text shown in the floating control. The lowest matching line within the last 40 lines is the start. Without a match the prompt starts below the last `────` line that has at least three lines under it, else it is the last 14 non-empty lines. |
+| `answers` | list of tables | Optional. Yes/no prompts and the keys that answer them, written as `[[answers]]` tables (see [Answering a prompt](#answering-a-prompt)). |
 
 ## Rule keys
 
@@ -117,6 +119,36 @@ Typos are errors: an unknown key in a rule or gate makes the whole file invalid,
 ## Hints for blocked agents
 
 A blocked agent can show a short hint, like the question it asks. With `detail` on the rule, that text is shown. Otherwise Pitwall searches the last 30 non-empty lines from the bottom up, trying each `detail_line` pattern in order, and shows the first match: capture group 1 when the pattern has one, else the whole match, cut to 160 characters.
+
+## Answering a prompt
+
+When an agent waits on a plain yes or no, such as a permission prompt, Pitwall can answer it for you from outside the terminal: the **Accept** and **Reject** buttons of the floating "needs you" control (Settings → General). An `[[answers]]` table says what such a prompt looks like and which keys answer it:
+
+```toml
+[[answers]]
+id = "permission"
+region = "after_last_horizontal_rule"
+line_regex = ['(?i)^\s*❯?\s*1\.\s*Yes\s*$', '(?i)^\s*❯?\s*[2-9]\.\s*No\b']
+not = [{ contains = ["enter to select"] }]
+accept = "1"
+reject = "\u001b"
+```
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `id` | string | required | The answer's name, shown in error messages. |
+| `region` | string | `screen` | Which part of the screen it looks at. |
+| `contains`, `regex`, `line_regex`, `all`, `any`, `not` | | | The gate, as in a rule. At least one of `contains`, `regex`, `line_regex`, `all` or `any` is required. |
+| `accept` | string | required | The keys typed for yes. |
+| `reject` | string | none | The keys typed for no. Without it, only Accept is offered. |
+
+- Answers are looked at only when a `blocked` rule matched. The first table, in file order, whose gate matches wins.
+- A blocked screen that matches none has no answer, and the user opens the agent instead. That is the right outcome for a question with several options, a form or a trust dialog.
+- Keys are typed as they are written. Use a double-quoted string for control keys: `"\r"` is Enter, `"\u001b"` is Esc.
+- Prefer a key that means the same wherever the cursor is, such as a number or a letter the prompt names (`(y)`). When only Enter works, match the cursor on the first option, so a moved cursor gives no answer.
+- Before typing, Pitwall reads the screen again and types only if the same prompt is still shown.
+
+The bundled answers for Claude Code and Codex were checked by typing the keys into the running agents. The others are written from each agent's interface and are marked as unchecked in their files.
 
 ## Regions
 

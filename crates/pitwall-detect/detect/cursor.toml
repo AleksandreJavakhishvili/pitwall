@@ -80,3 +80,21 @@ priority = 0
 # Herdr treats a recognised agent with no working/blocked evidence as idle.
 region = "bottom_non_empty_lines(1)"
 regex = ['\S']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Not checked against a running Cursor Agent CLI: the dialog names its own
+# keys ("Run (once) (y)", "Proceed (y)", "Skip (esc or n)", "Keep (n)"), so
+# an answer is given only when both labels are on screen.
+[[answers]]
+id = "approval"
+region = "bottom_non_empty_lines(20)"
+contains = ["(y)"]
+any = [
+  { contains = ["skip (esc or n)"] },
+  { contains = ["esc or n or p"] },
+  { contains = ["keep (n)"] },
+]
+accept = "y"
+reject = "n"

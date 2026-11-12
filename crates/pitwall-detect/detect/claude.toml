@@ -248,3 +248,25 @@ state = "idle"
 priority = 250
 region = "title"
 regex = ['^\x{2733} ']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Checked live against Claude Code v2.1.322 (Bash and Write prompts): "1"
+# picks "1. Yes" wherever the cursor is; Esc cancels and the tool call is
+# rejected. Questions (AskUserQuestion: "Enter to select") and the folder
+# trust dialog ("Enter to confirm") are not yes/no: no answer.
+[[answers]]
+id = "permission"
+region = "after_last_horizontal_rule"
+line_regex = [
+  '(?i)^\s*❯?\s*1\.\s*Yes\s*$',
+  '(?i)^\s*❯?\s*[2-9]\.\s*No\b',
+  '(?i)^\s*Esc to cancel\b',
+]
+not = [
+  { contains = ["enter to select"] },
+  { contains = ["enter to confirm"] },
+]
+accept = "1"
+reject = "\u001b"

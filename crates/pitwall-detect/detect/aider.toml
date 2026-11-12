@@ -39,3 +39,15 @@ state = "idle"
 priority = 100
 region = "bottom_non_empty_lines(1)"
 line_regex = ['^(?:[a-z][\w-]*(?: multi)?|multi)?>(?: |$)']
+
+# --- Answers: yes/no prompts Pitwall can answer for the user ---------------
+# (the keys behind Accept / Reject outside the terminal; see src/detect.rs)
+
+# Aider's confirmation is one line read with Enter: "(Y)es/(N)o [Yes]:".
+# Not checked against a running Aider (not installed when written).
+[[answers]]
+id = "confirm"
+region = "bottom_non_empty_lines(1)"
+line_regex = ['\(Y\)es/\(N\)o.*\[(?:Yes|No)\]:']
+accept = "y\r"
+reject = "n\r"

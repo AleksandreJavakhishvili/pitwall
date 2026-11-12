@@ -26,6 +26,24 @@
 //! detail_line = ['...']     # optional; overrides the file-level `detail_line`
 //! ```
 //!
+//! Answers: a blocked screen that is a plain yes/no (a permission prompt)
+//! can be answered from outside the terminal. Each `[[answers]]` entry is a
+//! gate over a region, like a rule, and the keys to type:
+//!
+//! ```toml
+//! [[answers]]
+//! id = "permission"
+//! region = "bottom_non_empty_lines(30)"
+//! line_regex = ['(?i)^\s*❯?\s*1\.\s*yes\b']
+//! accept = "1"              # typed to say yes
+//! reject = "\u001b"         # typed to say no (optional)
+//! ```
+//!
+//! They are looked at only when a `blocked` rule matched; the first entry
+//! (in file order) whose gate matches wins. A blocked screen that matches
+//! none (a question with several options, a form) has no answer: the user
+//! opens the agent.
+//!
 //! A matching `unknown` rule stops evaluation and yields no state (used for
 //! viewers/menus where the screen says nothing about the agent's status).
 //!
@@ -51,6 +69,19 @@ pub enum Detected {
 pub struct Detection {
     pub state: Option<Detected>,
     pub detail: Option<String>,
+    /// Blocked on a plain yes/no: the keys that answer it.
+    pub answer: Option<Answer>,
+    /// Blocked: the bottom of the screen (what is being asked), for showing
+    /// the prompt outside the terminal.
+    pub excerpt: Option<String>,
+}
+
+/// The keys that answer a yes/no prompt, typed into the agent's terminal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answer {
+    pub accept: String,
+    /// `None`: the prompt has no single key for "no".
+    pub reject: Option<String>,
 }
 
 /// kind_id is "claude" | "codex" | "shell" | "custom" | user-defined.
@@ -174,6 +205,36 @@ struct RuleFile {
     detail_line: Vec<String>,
     #[serde(default)]
     rules: Vec<RuleDef>,
+    /// Yes/no prompts and the keys that answer them.
+    #[serde(default)]
+    answers: Vec<AnswerDef>,
+    /// Where a prompt starts on a blocked screen (its first line), for the
+    /// excerpt shown outside the terminal.
+    #[serde(default)]
+    excerpt_start: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnswerDef {
+    id: String,
+    #[serde(default = "default_region")]
+    region: String,
+    accept: String,
+    #[serde(default)]
+    reject: Option<String>,
+    #[serde(default)]
+    contains: Vec<String>,
+    #[serde(default)]
+    regex: Vec<String>,
+    #[serde(default)]
+    line_regex: Vec<String>,
+    #[serde(default)]
+    all: Vec<GateDef>,
+    #[serde(default)]
+    any: Vec<GateDef>,
+    #[serde(default, rename = "not")]
+    not_: Vec<GateDef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,6 +301,14 @@ struct GateDef {
 
 struct RuleSet {
     rules: Vec<Rule>,
+    answers: Vec<AnswerRule>,
+    excerpt_start: Vec<Regex>,
+}
+
+struct AnswerRule {
+    region: Region,
+    gate: Gate,
+    answer: Answer,
 }
 
 struct Rule {
@@ -265,6 +334,14 @@ struct Gate {
 const MAX_GATE_DEPTH: usize = 8;
 const DETAIL_SEARCH_LINES: usize = 30;
 const MAX_DETAIL_CHARS: usize = 160;
+/// The excerpt of a blocked screen: this many of its last non-empty lines,
+/// each cut to this many characters.
+const EXCERPT_LINES: usize = 14;
+const MAX_EXCERPT_CHARS: usize = 120;
+/// A `────` line ends the excerpt only once it has this many lines.
+const EXCERPT_MIN_LINES: usize = 3;
+/// How far up from the bottom an `excerpt_start` line is looked for.
+const EXCERPT_SEARCH_LINES: usize = 40;
 
 impl RuleSet {
     fn parse(src: &str) -> Result<RuleSet, String> {
@@ -277,7 +354,19 @@ impl RuleSet {
         }
         // Stable: equal priorities keep file order.
         rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
-        Ok(RuleSet { rules })
+        let mut answers = Vec::with_capacity(file.answers.len());
+        for def in file.answers {
+            answers.push(AnswerRule::compile(def)?);
+        }
+        Ok(RuleSet { rules, answers, excerpt_start: compile_regexes(&file.excerpt_start)? })
+    }
+
+    /// The keys for the yes/no prompt on `screen`, if it shows one.
+    fn answer(&self, screen: &str, title: &str) -> Option<Answer> {
+        self.answers.iter().find_map(|a| {
+            let text = a.region.select(screen, title);
+            a.gate.matches(text, &text.to_lowercase()).then(|| a.answer.clone())
+        })
     }
 
     fn evaluate(&self, screen: &str, title: &str) -> Detection {
@@ -293,12 +382,12 @@ impl RuleSet {
                 StateDef::Idle => Detected::Idle,
                 StateDef::Unknown => return Detection::default(),
             };
-            let detail = (state == Detected::Blocked)
-                .then(|| rule.detail(screen))
-                .flatten();
+            let blocked = state == Detected::Blocked;
             return Detection {
                 state: Some(state),
-                detail,
+                detail: blocked.then(|| rule.detail(screen)).flatten(),
+                answer: blocked.then(|| self.answer(screen, title)).flatten(),
+                excerpt: blocked.then(|| excerpt(screen, &self.excerpt_start)).flatten(),
             };
         }
         Detection::default()
@@ -359,6 +448,83 @@ impl Rule {
         }
         None
     }
+}
+
+impl AnswerRule {
+    fn compile(def: AnswerDef) -> Result<AnswerRule, String> {
+        let ctx = |e: String| format!("answer {}: {e}", def.id);
+        if def.accept.is_empty() || def.reject.as_deref() == Some("") {
+            return Err(ctx("empty keys".into()));
+        }
+        let region = Region::parse(&def.region).map_err(ctx)?;
+        let top = GateDef {
+            contains: def.contains,
+            regex: def.regex,
+            line_regex: def.line_regex,
+            all: def.all,
+            any: def.any,
+            not_: def.not_,
+        };
+        // A gate that matches everything would answer any blocked screen.
+        if top.contains.is_empty() && top.regex.is_empty() && top.line_regex.is_empty() && top.all.is_empty() && top.any.is_empty() {
+            return Err(ctx("needs a gate (contains, regex, line_regex, all or any)".into()));
+        }
+        let gate = Gate::compile(&top, 0).map_err(ctx)?;
+        Ok(AnswerRule { region, gate, answer: Answer { accept: def.accept, reject: def.reject } })
+    }
+}
+
+/// The last non-empty lines of a blocked screen, as shown, without the
+/// frame around a dialog (border lines, box edges) and trailing spaces,
+/// and without the conversation above the dialog where a rule marks it.
+///
+/// `starts`: the kind's `excerpt_start` patterns. The lowest line near the
+/// bottom that matches one is the prompt's first line.
+fn excerpt(screen: &str, starts: &[Regex]) -> Option<String> {
+    let edge = |c: char| matches!(c, '\u{2500}'..='\u{257F}');
+    let all: Vec<&str> = screen.lines().collect();
+    let from = all.len().saturating_sub(EXCERPT_SEARCH_LINES);
+    let start = (from..all.len()).rev().find(|i| starts.iter().any(|re| re.is_match(all[*i])));
+    let mut lines: Vec<String> = Vec::new();
+    for (i, l) in all.iter().enumerate().rev() {
+        if start.is_some_and(|s| i < s) {
+            break;
+        }
+        // A `────` line above a few lines of text is where the dialog
+        // starts (Claude Code): what is above it is the conversation.
+        if start.is_none() && is_horizontal_rule(l) && lines.len() >= EXCERPT_MIN_LINES {
+            break;
+        }
+        if is_border(l) {
+            continue;
+        }
+        // A box's left edge becomes a space so its text keeps its column.
+        let l = l.trim_end().trim_end_matches(edge).trim_end();
+        let lead = l.len() - l.trim_start_matches(|c: char| c == ' ' || edge(c)).len();
+        let pad = l[..lead].chars().count();
+        lines.push(truncate(&format!("{}{}", " ".repeat(pad), &l[lead..]), MAX_EXCERPT_CHARS));
+        // Without a known first line, the bottom of the screen is the prompt.
+        if start.is_none() && lines.len() == EXCERPT_LINES {
+            break;
+        }
+    }
+    // From a known first line, a long prompt keeps its top (what is asked;
+    // the options below it are the buttons).
+    if lines.len() > EXCERPT_LINES {
+        lines.drain(..lines.len() - EXCERPT_LINES);
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    lines.reverse();
+    // Drop the indent the lines share.
+    let indent = lines.iter().map(|l| l.chars().take_while(|c| *c == ' ').count()).min().unwrap_or(0);
+    Some(lines.iter().map(|l| &l[indent..]).collect::<Vec<_>>().join("\n"))
+}
+
+/// A line that only draws a rule or a box edge (no text).
+fn is_border(line: &str) -> bool {
+    line.trim().chars().all(|c| matches!(c, '\u{2500}'..='\u{257F}' | '-' | '=' | '_' | ' '))
 }
 
 impl Gate {
