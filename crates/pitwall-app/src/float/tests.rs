@@ -338,10 +338,7 @@ fn a_card_shows_the_rows_of_the_terminal_that_ask(cx: &mut TestAppContext) {
     let accept = v.debug_bounds("float-accept-api").unwrap();
     assert!(accept.origin.y + accept.size.height <= px(dims(cx).1));
 
-    // Keys go nowhere until the terminal is clicked; then to its agent.
-    v.simulate_keystrokes("down");
-    assert!(calls.typed.lock().unwrap().is_empty());
-    click(&mut v, "float-term-api");
+    // Opened: keys go to the first card's agent, with no click before.
     v.simulate_keystrokes("down enter 2 escape");
     let typed = calls.typed.lock().unwrap().clone();
     assert_eq!(typed.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["api"; 4]);
@@ -351,8 +348,13 @@ fn a_card_shows_the_rows_of_the_terminal_that_ask(cx: &mut TestAppContext) {
     click(&mut v, "float-collapse");
     let _ = window(cx);
     assert!(fake.watching.lock().unwrap().is_empty());
+    // Closed, keys go nowhere; opened again, to the agent once more.
+    window(cx).simulate_keystrokes("down");
+    assert_eq!(calls.typed.lock().unwrap().len(), 4);
     click(&mut window(cx), "float-puck");
     assert_eq!(*fake.watching.lock().unwrap(), ["api"]);
+    window(cx).simulate_keystrokes("enter");
+    assert_eq!(calls.typed.lock().unwrap().len(), 5);
     set_agents(&store, vec![agent("api", "working", None)], cx);
     assert!(!up(cx) && fake.watching.lock().unwrap().is_empty());
 }

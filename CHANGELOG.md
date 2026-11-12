@@ -7,7 +7,7 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 ### Highlights
 
 - Answer agents without going back to Pitwall. While you're in another app and an agent asks something, a small Pitwall tile floats over your desktop, on every Space and over full-screen apps. Click it and each asking agent gets a card showing the live part of its terminal that holds the prompt, with Accept and Reject for plain yes/no prompts, Accept all when several ask, and Open for anything else.
-- Click a card's terminal to answer with the keyboard instead: arrows, Enter, Esc and text go to that agent as they would in its pane, and Pitwall still doesn't come forward. The wheel scrolls its screen.
+- Or answer with the keyboard: once the cards are open, arrows, Enter, Esc and text go to the first card's agent as they would in its pane (click another card's terminal to type there), and Pitwall still doesn't come forward. The wheel scrolls its screen.
 - Nothing is typed blind: Pitwall reads the agent's screen again before it sends a key, and sends nothing if the prompt is no longer the one you saw.
 - The tile can be dragged anywhere and stays there. Settings → General → "Show a floating control when an agent needs you" turns it off.
 - Accept and Reject keys were checked against Claude Code and Codex; the ones for Gemini, Qwen, Cursor, Copilot, OpenCode, Amp and aider are written from their prompts and not yet checked against the real CLIs. Tested on macOS; Linux and Windows builds have the control but it has not been run there.
