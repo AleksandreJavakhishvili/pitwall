@@ -91,6 +91,32 @@ pub fn write_input_bytes(engine: &Shared, agent_id: &str, data: &[u8]) -> Res<()
     }
 }
 
+/// Answer the yes/no prompt on the agent's screen (a permission prompt) by
+/// typing its keys: `accept` for yes, else no. For answering outside the
+/// terminal, where what the user saw may be out of date: the screen is
+/// read again, and nothing is typed unless it still shows `seen`
+/// ([`pitwall_proto::AskView::text`]) and that prompt has the answer.
+pub fn answer(engine: &Shared, agent_id: &str, accept: bool, seen: &str) -> Res<()> {
+    let host = engine.host(agent_id)?;
+    let kind = engine.with(agent_id, |a| a.kind().to_string())?;
+    let (text, title) = host.screen_text();
+    let d = pitwall_detect::detect(&kind, &text, title.as_deref());
+    if d.state != Some(pitwall_detect::Detected::Blocked) {
+        return Err("it no longer asks anything".into());
+    }
+    if d.excerpt.as_deref() != Some(seen) {
+        return Err("its prompt changed".into());
+    }
+    let keys = match (d.answer, accept) {
+        (Some(a), true) => a.accept,
+        (Some(a), false) => a.reject.ok_or("this prompt has no key for no: open the agent")?,
+        (None, _) => return Err("this prompt can't be answered from here: open the agent".into()),
+    };
+    host.touch_input();
+    host.write(keys.as_bytes())?;
+    Ok(())
+}
+
 /// The size the UI shows the agent at. Recorded even with no process
 /// (stopped, or mid-restart) so the next start uses it.
 pub fn resize(engine: &Engine, agent_id: &str, cols: u16, rows: u16) -> Res<()> {
@@ -165,5 +191,71 @@ mod tests {
         assert_eq!((e.views()[0].cols, e.views()[0].rows), (90, 30));
         assert_eq!(e.records()[0].term_size(), Some((90, 30)));
         assert!(resize(e, "ghost", 90, 30).is_err());
+        assert_eq!(answer(e, "a", true, "x").unwrap_err(), "agent is not running");
+    }
+
+    /// A Claude Code permission prompt as it draws one (detect's fixtures).
+    const PROMPT: &str = "\u{23fa} Bash(touch a.txt)\r\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\r\n Bash command\r\n   touch a.txt\r\n Do you want to proceed?\r\n \u{276f} 1. Yes\r\n   2. No\r\n\r\n Esc to cancel \u{b7} Tab to amend";
+
+    /// Agent "a" running Claude Code in a fake terminal showing `screen`.
+    fn showing(screen: &str) -> (Harness, crate::testing::FakeTermCtl, String) {
+        use crate::provider::TermSize;
+        use crate::term::TermHost;
+        let h = Harness::new(vec![record("a", "/tmp")]);
+        let (term, ctl) = crate::testing::FakeTerm::new(TermSize::new(80, 24), None);
+        let host = TermHost::new(Box::new(term), TermSize::new(80, 24), crate::testing::ManualClock::new(1));
+        ctl.output(screen.as_bytes());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !host.screen_text().0.contains("Esc to cancel") && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let (text, title) = host.screen_text();
+        let seen = pitwall_detect::detect("claude", &text, title.as_deref()).excerpt.unwrap_or_default();
+        h.engine
+            .with("a", |a| {
+                a.rec.kind = "claude".into();
+                a.host = Some(host);
+            })
+            .unwrap();
+        (h, ctl, seen)
+    }
+
+    fn typed(ctl: &crate::testing::FakeTermCtl, want: &[u8]) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while ctl.input() != want && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        ctl.input() == want
+    }
+
+    #[test]
+    fn a_yes_no_prompt_is_answered_with_its_keys() {
+        let (h, ctl, seen) = showing(PROMPT);
+        assert!(seen.contains("touch a.txt") && seen.ends_with("Tab to amend"), "{seen}");
+        answer(&h.engine, "a", true, &seen).unwrap();
+        assert!(typed(&ctl, b"1"), "accept types 1: {:?}", ctl.input());
+
+        let (h, ctl, seen) = showing(PROMPT);
+        answer(&h.engine, "a", false, &seen).unwrap();
+        assert!(typed(&ctl, b"\x1b"), "reject types Esc: {:?}", ctl.input());
+    }
+
+    #[test]
+    fn nothing_is_typed_when_the_prompt_is_not_the_one_seen() {
+        // Another prompt took its place since the user looked.
+        let (h, ctl, seen) = showing(PROMPT);
+        let other = seen.replace("touch a.txt", "rm -rf build");
+        assert_eq!(answer(&h.engine, "a", true, &other).unwrap_err(), "its prompt changed");
+        // A question with several options: blocked, but not a yes/no.
+        let question = "\u{2500}\u{2500}\u{2500}\u{2500}\r\nWhich color?\r\n\u{276f} 1. Red\r\n  2. Blue\r\n\u{2500}\u{2500}\u{2500}\u{2500}\r\n  3. Chat about this\r\n\r\nEnter to select \u{b7} \u{2191}/\u{2193} to navigate \u{b7} Esc to cancel";
+        let (h2, ctl2, seen2) = showing(question);
+        assert!(!seen2.is_empty());
+        assert!(answer(&h2.engine, "a", true, &seen2).unwrap_err().contains("can't be answered from here"));
+        // The prompt is gone: the agent is at its prompt box again.
+        let idle = "\u{2500}\u{2500}\u{2500}\u{2500}\r\n\u{276f} \r\n\u{2500}\u{2500}\u{2500}\u{2500}\r\n  ? for shortcuts  Esc to cancel";
+        let (h3, ctl3, _) = showing(idle);
+        assert_eq!(answer(&h3.engine, "a", true, &seen).unwrap_err(), "it no longer asks anything");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(ctl.input().is_empty() && ctl2.input().is_empty() && ctl3.input().is_empty());
     }
 }

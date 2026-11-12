@@ -87,6 +87,19 @@ pub struct MachineView {
     pub link: Option<crate::peer::LinkView>,
 }
 
+/// What a blocked agent asks, read from its screen, for showing and
+/// answering it outside its terminal (the floating "needs you" control).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AskView {
+    /// The bottom of its screen: the prompt as the agent drew it.
+    pub text: String,
+    /// A plain yes/no Pitwall knows the key for (docs/reference/detection.md,
+    /// "Answering a prompt"). Neither: open the agent to answer.
+    pub accept: bool,
+    pub reject: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentView {
@@ -138,6 +151,9 @@ pub struct AgentView {
     pub status: Status,
     pub status_source: Source,
     pub status_detail: Option<String>,
+    /// Blocked, and its screen shows the prompt: what it asks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask: Option<AskView>,
     pub running: bool,
     /// Current PTY size.
     pub cols: u16,
