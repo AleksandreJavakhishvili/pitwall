@@ -25,11 +25,23 @@ const motionIO =
   new IntersectionObserver((entries) => {
     for (const e of entries) e.target.classList.toggle("motion-off", !e.isIntersecting);
   });
-if (motionIO) for (const el of document.querySelectorAll("[data-demo], .board-wrap, .lanes")) motionIO.observe(el);
+if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], .board-wrap, .lanes")) motionIO.observe(el);
+
+// The floating-control loop (index.html: [data-float], site.css: .fl-*) is drawn at
+// 960x600 and scaled to its frame; phones show its right 632 px, where the control is.
+// The loop itself is CSS keyframes, so the two pauses above cover it.
+const float = document.querySelector("[data-float]");
+if (float) {
+  const scene = float.querySelector(".fl-scene");
+  const narrow = matchMedia("(max-width: 600px)");
+  const fit = () => scene.style.setProperty("--s", (float.clientWidth / (narrow.matches ? 632 : 960)).toFixed(4));
+  new ResizeObserver(fit).observe(float);
+  fit();
+}
 
 // Sections and cards below the fold fade and rise in as they arrive. Nothing already
 // on screen is hidden, and with reduced motion nothing is hidden at all.
-const REVEAL = ".pit-panel, .closing .wrap, .dl, .lane, .release, .board-wrap, .table-scroll, .callout, .keys";
+const REVEAL = ".away .wrap, .pit-panel, .closing .wrap, .dl, .lane, .release, .board-wrap, .table-scroll, .callout, .keys";
 if (!reduceMotion.matches && "IntersectionObserver" in window) {
   const io = new IntersectionObserver(
     (entries) => {

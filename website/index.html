@@ -109,6 +109,68 @@
       </div>
     </section>
 
+    <section class="away" aria-labelledby="away-h">
+      <div class="wrap">
+        <div class="away-copy">
+          <h2 id="away-h">Stay in your editor. <span class="dim">Answer from there.</span></h2>
+          <p>When an agent asks for permission while you're in another app, a small Pitwall tile appears over your desktop. Click it to read each prompt as the terminal shows it, then accept or reject right there. Drag it wherever suits you; when nothing is waiting, it's gone.</p>
+        </div>
+        <!-- Decorative: a loop of the floating control over someone else's app (site.css: .fl-*). The copy above says what it shows. -->
+        <div class="fl-stage glass" data-float aria-hidden="true">
+          <div class="fl-scene">
+            <div class="fl-menubar"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="fl-win">
+              <div class="fl-win-bar"><span class="fl-dots"><i></i><i></i><i></i></span><span class="fl-win-title">totals.ts</span></div>
+              <div class="fl-win-side"><i style="--x:0;--w:52"></i><i style="--x:1;--w:64"></i><i style="--x:1;--w:48"></i><i style="--x:1;--w:72"></i><i style="--x:0;--w:44"></i><i style="--x:1;--w:58"></i><i style="--x:1;--w:66"></i><i style="--x:2;--w:50"></i><i style="--x:2;--w:62"></i><i style="--x:0;--w:40"></i><i style="--x:1;--w:54"></i></div>
+              <div class="fl-win-tabs"><span class="on">totals.ts</span><span>cart.ts</span><span>totals.test.ts</span></div>
+              <div class="fl-code"><i style="--x:0;--w:22" class="k"></i><i style="--x:0;--w:34"></i><i style="--x:0;--w:0"></i><i style="--x:0;--w:44" class="k"></i><i style="--x:1;--w:30"></i><i style="--x:1;--w:52"></i><i style="--x:2;--w:38"></i><i style="--x:2;--w:26" class="k"></i><i style="--x:1;--w:8"></i><i style="--x:0;--w:0"></i><i style="--x:1;--w:40"></i><i style="--x:2;--w:56"></i><i style="--x:2;--w:33"></i><i style="--x:3;--w:24" class="k"></i><i style="--x:2;--w:10"></i><i style="--x:1;--w:18"></i><i style="--x:0;--w:6"></i><i style="--x:0;--w:0"></i><i style="--x:0;--w:36" class="k"></i><i style="--x:1;--w:48"></i><i style="--x:1;--w:28"></i><i style="--x:0;--w:6"></i><i class="fl-caret"></i></div>
+            </div>
+
+            <div class="fl-tile"><span class="fl-tile-face"><svg class="mark" viewBox="7 7 50 50" width="24" height="24"><defs><mask id="mk-t" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-t)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg></span><span class="fl-badge">2</span></div>
+
+            <div class="fl-panel">
+              <i class="fl-shadow"></i>
+              <div class="fl-clip"><div class="fl-card fl-card-1">
+                <div class="fl-card-head"><svg class="fl-logo" viewBox="0 0 14 14" width="14" height="14"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b><span>Do you want to proceed?</span></div>
+                <div class="fl-term">
+                  <span class="t">Bash command</span>
+                  <span class="d">Run the orders tests</span>
+                  <i class="fl-hr"></i>
+                  <span>pnpm test orders</span>
+                  <i class="fl-hr"></i>
+                  <span>Permission rule <b>Bash</b> requires confirmation for this command.</span>
+                  <span class="d">/permissions to update rules</span>
+                </div>
+                <div class="fl-btns"><span class="fl-btn fl-accept fl-a1"><b>Accept</b><b class="fl-sent">Sent</b></span><span class="fl-btn">Reject</span><span class="fl-btn fl-open">Open</span></div>
+              </div></div>
+              <div class="fl-card fl-card-2">
+                <div class="fl-card-head"><svg class="fl-logo" viewBox="0 0 14 14" width="14" height="14"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>docs</b><span>Do you want to create notes.md?</span></div>
+                <div class="fl-term">
+                  <span class="t">Create file</span>
+                  <span class="d">notes.md</span>
+                  <i class="fl-hr"></i>
+                  <span> 1 # Release notes</span>
+                  <span> 2 Orders: retry a timed-out request up to three times.</span>
+                  <span> 3 Checkout: totals round per line, not per cart.</span>
+                  <i class="fl-hr"></i>
+                </div>
+                <div class="fl-btns"><span class="fl-btn fl-accept fl-a2"><b>Accept</b><b class="fl-sent">Sent</b></span><span class="fl-btn">Reject</span><span class="fl-btn fl-open">Open</span></div>
+              </div>
+              <div class="fl-cap">
+                <svg class="mark" viewBox="7 7 50 50" width="20" height="20"><defs><mask id="mk-p" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-p)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
+                <span class="fl-title"><span class="fl-title-2">2 agents need you</span><span class="fl-title-1">docs needs you</span></span>
+                <span class="fl-all">Accept all</span>
+                <svg class="fl-chev" viewBox="0 0 14 14" width="14" height="14"><path d="M3.5 5.5 7 9l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+
+            <i class="fl-ping fl-ping-1"></i><i class="fl-ping fl-ping-2"></i><i class="fl-ping fl-ping-3"></i>
+            <svg class="fl-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="pit" aria-label="Details">
       <div class="wrap">
         <div class="pit-panel">
