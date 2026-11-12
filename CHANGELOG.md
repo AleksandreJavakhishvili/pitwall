@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.6.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.6.0) - 2026-11-12
 
 ### Highlights
 
@@ -11,6 +11,18 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - Nothing is typed blind: Pitwall reads the agent's screen again before it sends a key, and sends nothing if the prompt is no longer the one you saw.
 - The tile can be dragged anywhere and stays there. Settings → General → "Show a floating control when an agent needs you" turns it off.
 - Accept and Reject keys were checked against Claude Code and Codex; the ones for Gemini, Qwen, Cursor, Copilot, OpenCode, Amp and aider are written from their prompts and not yet checked against the real CLIs. Tested on macOS; Linux and Windows builds have the control but it has not been run there.
+
+### Features
+
+- **detect:** The keys that answer a yes/no prompt ([`b8c9cc9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b8c9cc9293379076c05870352306af9acfb065b7))
+- **core:** What a blocked agent asks, and answering it ([`80d81d9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/80d81d9e007f0b05cf77133a90867126d71adb61))
+- **app:** Answer agents from a floating control ([`079384b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/079384ba6f33224ac9c743fe4ab62c977ac3d98d))
+- **app:** The opened control has the keyboard right away ([`5a12795`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5a127953a00665a3631105ed2fe7e487387a4865))
+
+### Documentation
+
+- Highlights for 0.6.0 ([`41a3114`](https://github.com/AleksandreJavakhishvili/pitwall/commit/41a311468911a3687185c5e23fa0a7dbcfc0046c))
+
 
 ## [0.5.2](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.5.2) - 2026-11-10
 
