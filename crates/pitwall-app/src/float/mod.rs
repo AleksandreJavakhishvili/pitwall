@@ -115,6 +115,9 @@ pub struct Float {
     watch: Option<Task<()>>,
     /// Opening a window failed (a platform without pop-ups): don't retry.
     unsupported: bool,
+    /// The cards were just opened: the window takes the keyboard when it
+    /// next draws.
+    grab: bool,
 }
 
 impl Global for Float {}
@@ -145,6 +148,7 @@ pub fn init(store: &Entity<AgentStore>, answer: Answerer, typer: Typer, open: Op
         hot: HashSet::new(),
         watch: None,
         unsupported: false,
+        grab: false,
     });
     cx.observe(store, |_, cx| sync(cx)).detach();
     let ui = crate::ui_state::store(cx);
@@ -369,9 +373,14 @@ fn sync_later(cx: &mut App) {
 
 /// Open or close the cards.
 fn toggle(cx: &mut App) {
+    // Opened: the keyboard goes to the first card's terminal right away,
+    // so arrows and Enter answer it with no click in between.
+    let first = model::shown(&items(cx)).iter().find(|i| i.local).map(|i| i.id.clone());
     let f = cx.global_mut::<Float>();
     f.expanded = !f.expanded;
     let open = f.expanded;
+    f.typing = first.filter(|_| open);
+    f.grab = open && f.typing.is_some();
     log(|| format!("toggle: cards {}", if open { "open" } else { "closed" }));
     sync_later(cx);
 }
@@ -977,9 +986,14 @@ impl FloatView {
 }
 
 impl Render for FloatView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         let list = items(cx);
+        if cx.try_global::<Float>().is_some_and(|f| f.grab) {
+            cx.global_mut::<Float>().grab = false;
+            window.focus(&self.focus, cx);
+            crate::platform::float_take_keys(window);
+        }
         let root = div()
             .id("float")
             .track_focus(&self.focus)
