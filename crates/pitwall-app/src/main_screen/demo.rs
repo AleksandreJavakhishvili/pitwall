@@ -327,10 +327,13 @@ impl MainScreen {
                 self.elsewhere.bring = self.elsewhere.rows.first().cloned();
                 cx.notify();
             }
-            "menu" => {
+            // `menu`, or `menu <x> <y>`: the first agent's menu (there).
+            w if w == "menu" || w.starts_with("menu ") => {
+                let mut at = w.split_whitespace().skip(1).filter_map(|v| v.parse::<f32>().ok());
+                let at = at.next().zip(at.next());
                 let agents = self.agents(cx).to_vec();
                 if let Some(a) = agents.first() {
-                    self.demo_agent_menu(a, window, cx);
+                    self.demo_agent_menu(a, at, window, cx);
                 }
             }
             _ => {}

@@ -467,6 +467,8 @@ pub struct MainScreen {
     drawer_open: bool,
     modal: Option<Modal>,
     menu: Option<CtxMenu>,
+    /// Counts the menus opened (see `CtxMenu::serial`).
+    menu_serial: usize,
     rename: Option<(String, Entity<TextInput>)>,
     /// An agent's name being edited in its sidebar row.
     agent_rename: Option<sidebar::AgentRenaming>,
@@ -571,8 +573,10 @@ impl MainScreen {
             cx.observe(&accounts, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 // Leaving the window cancels a drag and closes a popup menu
-                // (`dnd.ts` and `Menu.tsx` listen for `blur`).
-                if !window.is_window_active() {
+                // (`dnd.ts` and `Menu.tsx` listen for `blur`). Not when the
+                // keyboard went to this window's own glass pop-up (its
+                // menu, the palette): the user is still here.
+                if !crate::kit::pop::active(window) {
                     if cx.has_active_drag() {
                         cx.stop_active_drag(window);
                         this.drop_hint = None;
@@ -618,6 +622,7 @@ impl MainScreen {
             drawer_open: false,
             modal: None,
             menu: None,
+            menu_serial: 0,
             rename: None,
             agent_rename: None,
             projects,

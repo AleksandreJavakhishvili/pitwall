@@ -32,6 +32,88 @@ fn screen(
     (view, store, cx)
 }
 
+/// Liquid Glass with floating surfaces as glass pop-ups (`kit::pop`).
+fn liquid_glass(cx: &mut VisualTestContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    cx.update(|_, cx| {
+        let ap = Appearance::resolve(
+            Inputs { look: Look::Glass, ..Inputs::default() },
+            gpui::WindowAppearance::Dark,
+            GlassOffer::Liquid,
+            OsPrefs::default(),
+        );
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+}
+
+/// The window's glass pop-ups.
+fn pops(cx: &mut VisualTestContext) -> Vec<gpui::AnyWindowHandle> {
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let all = cx.windows();
+    crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == parent)
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect()
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_menu_is_a_pop_up_with_the_keyboard(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    liquid_glass(cx);
+    let a = view.read_with(cx, |s, cx| s.agents(cx)[0].clone());
+    cx.run_until_parked();
+    let before = cx.update(|window, cx| window.focused(cx));
+    view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the menu's pop-up");
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before, "the window's own focus stays where it was");
+    assert_eq!(view.read_with(cx, |s, _| s.menu_labels()), ["Open terminal here", "Rename…", "Remove agent…"]);
+    // The screen's window is still its own: GPUI gives an entity the
+    // window that last touched it while drawing, and the pop-up doesn't.
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+
+    // ↓ and Enter in the pop-up: "Rename…" runs in the screen's window.
+    cx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(SelectNext), cx)).unwrap();
+    cx.run_until_parked();
+    cx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(Confirm), cx)).unwrap();
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| {
+        assert!(s.menu.is_none());
+        assert!(s.agent_rename.is_some(), "renaming, in the sidebar");
+    });
+    assert!(pops(cx).is_empty());
+
+    // Esc closes it.
+    view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
+    cx.run_until_parked();
+    let first = pops(cx);
+    cx.update_window(first[0], |_, window, cx| window.dispatch_action(Box::new(Dismiss), cx)).unwrap();
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| assert!(s.menu.is_none()));
+    assert!(pops(cx).is_empty());
+
+    // A menu that closes late (it lost the keyboard to the click that
+    // opened the next one) leaves the next one open.
+    view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
+    cx.run_until_parked();
+    let first = pops(cx);
+    let old = first[0];
+    view.update_in(cx, |s, window, cx| {
+        s.demo_agent_menu(&a, Some((300., 200.)), window, cx);
+        old.update(cx, |_, window, cx| window.dispatch_action(Box::new(Dismiss), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| assert!(s.menu.is_some(), "the second menu is open"));
+    let second = pops(cx);
+    assert_eq!(second.len(), 1);
+    assert_ne!(second[0].window_id(), first[0].window_id());
+}
+
 #[gpui::test]
 fn first_run_places_the_first_agent_and_shows_on_click(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
@@ -219,7 +301,7 @@ fn hovering_never_moves_anything(cx: &mut TestAppContext) {
 
     view.update_in(cx, |s, window, cx| {
         let a = s.agents(cx)[0].clone();
-        s.demo_agent_menu(&a, window, cx);
+        s.demo_agent_menu(&a, None, window, cx);
     });
     cx.run_until_parked();
     probe::assert_hover_keeps_layout(cx, "agent menu");
@@ -524,7 +606,7 @@ fn renaming_an_agent_shows_a_bad_name_in_place_and_esc_cancels(cx: &mut TestAppC
 fn a_renamed_agent_can_go_back_to_its_session_title(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
     let labels = |view: &Entity<MainScreen>, cx: &mut VisualTestContext, a: AgentView| {
-        view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, window, cx));
+        view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
         view.read_with(cx, |s, _| s.menu_labels())
     };
     let mut a = agent("api", "/work/alpha", "idle", 1, true);
