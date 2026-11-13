@@ -11,6 +11,7 @@ Being worked on.
 
 - **Signed builds.** Apple and Windows code signing, so macOS and Windows stop warning on first launch and macOS stops asking for folder access again after every update.
 - **Windows out of preview.** Windows builds ship since 0.1.1 and pass CI; next is running them day to day on real PCs and fixing what turns up.
+- **The floating control, checked everywhere.** Answering from the floating control shipped in 0.6.0, tested on macOS with Claude Code and Codex. Next: check the Accept and Reject keys against the other CLIs (Gemini, Qwen, Cursor, Copilot, OpenCode, Amp, aider) and run the control on Linux and Windows.
 
 ## Next
 
@@ -28,14 +29,25 @@ Ideas we want, not scheduled yet.
 
 ## Recently shipped
 
-0.2.0 rebuilt Pitwall as a native Rust app on GPUI, Zed's GPU-accelerated UI
-framework, with no web view: the same design, shortcuts and agents with a
-fraction of the CPU and less memory, native glass (Liquid Glass on macOS 26,
-Mica on Windows 11), and the Race Engineer, an optional agent that knows
-Pitwall's command line and agw and sets things up when you ask.
+0.6.0: answer agents without going back to Pitwall. While you're in another app, a
+small tile floats over your desktop; open it for a card per asking agent with the
+live part of its terminal, Accept and Reject for yes/no prompts, and the keyboard
+for anything else.
 
-The first release, 0.1.0, for macOS and Linux: a read-only code explorer
-(file tree, quick open, search), a Changes panel that matches `git status`, Review
-scoped to the current project, git refreshes when files change, and a lighter
-Review and Wall. 0.1.1 added Windows builds as a preview, and link previews for the
-website. Everything is in the [changelog](CHANGELOG.md).
+0.5: Settings → Accounts shows every agent login with its plan's limits and usage
+next to your git identities, agents can tell Pitwall which worktrees they work in
+(`pitwall agent track`), Review shows only the agent's own work, and Pitwall uses
+much less CPU with many worktrees and scrolls smoothly in long lists.
+
+0.4.0: watch another of your machines' agents live, view only, with the sidebar
+grouped by machine and Settings → Peers listing them all.
+
+0.3.0: more than one login for Claude Code and Codex, git identities per project,
+a sidebar you arrange by dragging, a preview of a dev server beside its terminal,
+rules and skills copied into the project, and your other machines' agents in the
+sidebar over Tailscale.
+
+0.2.0 rebuilt Pitwall as a native Rust app on GPUI, Zed's GPU-accelerated UI
+framework, with no web view, and added the Race Engineer. 0.1 was the first
+release, for macOS and Linux, with Windows builds as a preview from 0.1.1.
+Everything is in the [changelog](CHANGELOG.md).
