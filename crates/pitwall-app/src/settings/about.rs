@@ -111,12 +111,11 @@ pub fn board(t: &crate::theme::Theme) -> gpui::Div {
 }
 
 pub fn render(
-    _window: &mut Window,
+    window: &mut Window,
     cx: &App,
     on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let ap = appearance(cx);
-    let ui = Ui::new(ap.theme().float());
+    let ui = Ui::new(crate::kit::pop::theme_in(window, cx));
     let t = ui.t.clone();
     let facts = facts(cx);
     let text = as_text(&facts);

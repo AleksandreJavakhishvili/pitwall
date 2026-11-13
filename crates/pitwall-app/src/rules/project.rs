@@ -19,7 +19,7 @@ use pitwall_core::rules::{RuleFile, RuleSet};
 use pitwall_proto::{ProjectRuleState, ProjectRuleUpdate, ProjectRulesStatus};
 
 use crate::kit::{self, BtnKind, Tone};
-use crate::theme::{appearance, Theme, RADIUS};
+use crate::theme::{Theme, RADIUS};
 
 use super::widgets::{check_row, mini};
 use super::{call, rule_label, skill_label};
@@ -621,8 +621,8 @@ impl ProjectPanel {
 }
 
 impl Render for ProjectPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = appearance(cx).theme().float();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = kit::pop::theme_in(window, cx);
         let body = div()
             .flex()
             .flex_col()

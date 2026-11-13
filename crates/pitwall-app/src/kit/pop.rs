@@ -30,6 +30,17 @@
 //! gets that window: [`pick`] closes the pop-up and runs the rest in the
 //! parent window.
 //!
+//! A pop-up is a window like any other to what is drawn in it: an anchor
+//! there opens a pop-up of the pop-up (a dialog's select, a menu in it).
+//! The outer one stays open while one in it has the keyboard, and closes
+//! with it when the keyboard then goes to neither; closing a pop-up closes
+//! those in it; Esc and a press outside reach the innermost only.
+//!
+//! A dialog ([`Anchor::modal`]) is centred in its parent window and stays
+//! until its owner closes it, Esc, or a press on its backdrop: the
+//! keyboard going to another app doesn't close it, and it takes it back
+//! when its parent gets it.
+//!
 //! One rule for what is built ([`Build`]): it must not read or update,
 //! while it is built and drawn, an entity that the parent window draws.
 //! GPUI gives every entity one window, the one that last touched it while
@@ -63,6 +74,9 @@ pub const PAD: f32 = 24.;
 pub const MENU_RADIUS: f32 = 8.;
 /// The gap kept to the screen's edges.
 const MARGIN: f32 = 4.;
+/// The gap a dialog keeps to its parent window's edges (the padding of
+/// the backdrop it is drawn in elsewhere).
+pub const MODAL_GUTTER: f32 = 24.;
 /// How much of the theme's own surface is laid over the glass (see
 /// `float::GLASS_FILL_OPEN`: text straight on glass can't be read over a
 /// white page).
@@ -119,6 +133,23 @@ pub fn theme(cx: &App) -> Theme {
     t
 }
 
+/// `window` is a glass pop-up: what is drawn in it is on glass.
+pub fn is_pop(window: &Window) -> bool {
+    parent_of(window).is_some()
+}
+
+/// The viewport of the window the dialog `window` is over (`None`: it
+/// isn't a dialog's pop-up). For what sizes itself to the window.
+pub fn modal_viewport(window: &Window) -> Option<Size<Pixels>> {
+    OPEN.with_borrow(|all| all.get(&id_of(window)).and_then(|e| e.shared.borrow().modal))
+}
+
+/// The theme a floating surface's content draws with in `window`: a
+/// pop-up's ([`theme`]), or the window's floating one.
+pub fn theme_in(window: &Window, cx: &App) -> Theme {
+    if is_pop(window) { theme(cx) } else { theme::theme(cx).float() }
+}
+
 /// Where a panel of `size` goes that should have its top left at `at`:
 /// there, moved (and, when it is larger than the screen, cut) to stay
 /// `margin` inside `area`. All in the parent window's coordinates.
@@ -134,6 +165,12 @@ pub fn place(at: Point<Pixels>, size: Size<Pixels>, area: Option<Bounds<Pixels>>
     let (x, w) = fit(at.x, size.width, a.origin.x, a.size.width);
     let (y, h) = fit(at.y, size.height, a.origin.y, a.size.height);
     Bounds::new(point(x, y), gpui::size(w, h))
+}
+
+/// Where a dialog of `size` goes in a parent `viewport`: its centre.
+pub fn centred(viewport: Size<Pixels>, size: Size<Pixels>) -> Point<Pixels> {
+    // On whole points: half of one blurs every hairline in it.
+    point(((viewport.width - size.width) / 2.).floor(), ((viewport.height - size.height) / 2.).floor())
 }
 
 /// Why a pop-up closes by itself.
@@ -165,6 +202,8 @@ struct Shared {
     /// The owner has heard of that. An anchor it still draws after it
     /// did wants its surface open: it gets a new pop-up.
     told: bool,
+    /// A dialog (see [`Anchor::modal`]): the parent's viewport.
+    modal: Option<Size<Pixels>>,
 }
 
 struct Entry {
@@ -192,6 +231,46 @@ pub fn parent_of(window: &Window) -> Option<AnyWindowHandle> {
 pub fn over(window: &Window) -> bool {
     let id = id_of(window);
     OPEN.with_borrow(|all| all.values().any(|e| e.parent.window_id() == id))
+}
+
+/// The pop-ups of the window `id` (not those in them).
+fn children_of(id: WindowId) -> Vec<WindowId> {
+    OPEN.with_borrow(|all| all.iter().filter(|(_, e)| e.parent.window_id() == id).map(|(c, _)| *c).collect())
+}
+
+/// The window with this id, while it is open.
+fn handle_of(id: WindowId, cx: &App) -> Option<AnyWindowHandle> {
+    cx.windows().into_iter().find(|w| w.window_id() == id)
+}
+
+/// The innermost open pop-up (one with none in it), and the outermost
+/// (one of a window that isn't a pop-up): what [`debug`] drives.
+fn innermost() -> Option<WindowId> {
+    OPEN.with_borrow(|all| all.keys().find(|id| !all.values().any(|e| e.parent.window_id() == **id)).copied())
+}
+
+fn outermost() -> Option<WindowId> {
+    OPEN.with_borrow(|all| all.iter().find(|(_, e)| !all.contains_key(&e.parent.window_id())).map(|(id, _)| *id))
+}
+
+/// Whether a pop-up that lost the keyboard stays: a dialog does, and so
+/// does one with a pop-up of its own open (which took it).
+pub fn keeps_without_keys(modal: bool, has_child: bool) -> bool {
+    modal || has_child
+}
+
+/// The pop-up `id` had a pop-up that closed because the keyboard left it.
+/// If it didn't come here, it left this one too: it closes the same way
+/// (a dialog stays).
+fn lost_through_child(id: WindowId, cx: &mut App) {
+    let view = OPEN.with_borrow(|all| all.get(&id).and_then(|e| e.shared.borrow().view.clone()));
+    let (Some(view), Some(handle)) = (view.and_then(|v| v.upgrade()), handle_of(id, cx)) else { return };
+    let _ = handle.update(cx, |_, window, cx| {
+        let modal = view.read(cx).shared.borrow().modal.is_some();
+        if !platform::pop_has_keys(window, cx) && !keeps_without_keys(modal, over(window)) {
+            view.update(cx, |v, cx| v.dismiss(Close::LostKeys, window, cx));
+        }
+    });
 }
 
 /// `window` is the one the user is in: it is active, or one of its own
@@ -227,6 +306,14 @@ pub fn pick(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut Window, &mut 
 
 /// Close the pop-up `window` (nothing when it isn't one, or is closed).
 fn shut(window: &mut Window, cx: &mut App) -> Option<Rc<RefCell<Shared>>> {
+    // Those in it first (their owners are in this one: nobody to tell).
+    for child in children_of(id_of(window)) {
+        if let Some(child) = handle_of(child, cx) {
+            let _ = child.update(cx, |_, window, cx| {
+                shut(window, cx);
+            });
+        }
+    }
     let entry = OPEN.with_borrow_mut(|all| all.remove(&id_of(window)))?;
     entry.shared.borrow_mut().closed = true;
     platform::glass::slab(window, None);
@@ -262,7 +349,13 @@ pub fn debug(cmd: &str, cx: &mut App) {
         }
         return;
     }
-    let Some(id) = OPEN.with_borrow(|all| all.keys().next().copied()) else {
+    // `outer <what>`: the outermost pop-up (a dialog under its select);
+    // else the innermost.
+    let (cmd, id) = match cmd.strip_prefix("outer ") {
+        Some(rest) => (rest, outermost()),
+        None => (cmd, innermost()),
+    };
+    let Some(id) = id else {
         eprintln!("pitwall-pop: debug {cmd}: no pop-up is open");
         return;
     };
@@ -288,7 +381,8 @@ pub fn debug(cmd: &str, cx: &mut App) {
         }
         _ => {
             let placed = OPEN.with_borrow(|all| all.get(&id).and_then(|e| e.placed.get()));
-            eprintln!("pitwall-pop: state: placed {placed:?}, gpui active {}, {}", window.is_window_active(), platform::pop_debug(window));
+            let open = OPEN.with_borrow(|all| all.len());
+            eprintln!("pitwall-pop: state: {open} open, placed {placed:?}, gpui active {}, {}", window.is_window_active(), platform::pop_debug(window));
         }
     });
 }
@@ -306,12 +400,26 @@ struct Held {
 pub struct Anchor {
     id: ElementId,
     pop: Option<Pop>,
+    modal: Option<Size<Pixels>>,
+}
+
+impl Anchor {
+    /// A dialog's body, over its backdrop in a parent window whose
+    /// content is `viewport`: centred in it (24 px in from its edges,
+    /// and laid out in less when it doesn't fit), wherever the anchor is.
+    /// It stays when the keyboard goes elsewhere (another app; the parent
+    /// closes it on a press on its backdrop) and takes the keyboard back
+    /// when the parent gets it.
+    pub fn modal(mut self, viewport: Size<Pixels>) -> Anchor {
+        self.modal = Some(viewport);
+        self
+    }
 }
 
 /// The pop-up `pop` is open while this is drawn. Give it a place of no
 /// size where the surface's top left should be (or set [`Pop::at`]).
 pub fn anchor(id: impl Into<ElementId>, pop: Pop) -> Anchor {
-    Anchor { id: id.into(), pop: Some(pop) }
+    Anchor { id: id.into(), pop: Some(pop), modal: None }
 }
 
 impl Element for Anchor {
@@ -348,6 +456,7 @@ impl Element for Anchor {
         let (Some(id), Some(pop)) = (id, self.pop.take()) else { return };
         let at = pop.at.unwrap_or(bounds.origin);
         let parent = window.window_handle();
+        let modal = self.modal;
         window.with_element_state::<Held, _>(id, |held, _| {
             // Closed, the owner knows, and here it is drawn again.
             let again = |h: &Held| {
@@ -360,6 +469,7 @@ impl Element for Anchor {
                         let mut s = held.shared.borrow_mut();
                         s.pop = pop;
                         s.at = at;
+                        s.modal = modal;
                         s.view.as_ref().and_then(|v| v.upgrade())
                     };
                     // Drawn again: so is the pop-up, with what it holds now.
@@ -369,7 +479,7 @@ impl Element for Anchor {
                     held
                 }
                 None => {
-                    let shared = Rc::new(RefCell::new(Shared { pop, at, view: None, closed: false, told: false }));
+                    let shared = Rc::new(RefCell::new(Shared { pop, at, view: None, closed: false, told: false, modal }));
                     let token = cx.new(|_| Token);
                     let (s, weak, asked) = (shared.clone(), token.downgrade(), std::time::Instant::now());
                     // Once this frame is drawn: a window can't be opened
@@ -434,7 +544,10 @@ fn open(
         view
     });
     match opened {
-        Ok(_) => log(|| format!("opened in {:.1} ms (its window made and drawn once)", asked.elapsed().as_secs_f64() * 1e3)),
+        Ok(_) => {
+            log(|| format!("opened in {:.1} ms (its window made and drawn once)", asked.elapsed().as_secs_f64() * 1e3));
+            watch_parent(&shared, parent, cx);
+        }
         Err(e) => {
             // Nothing to show it in: the owner hears it closed.
             eprintln!("pitwall: no pop-up window on this system: {e}");
@@ -447,6 +560,15 @@ fn open(
             shared.borrow_mut().told = true;
         }
     }
+}
+
+/// A new pop-up hears when its parent window gets the keyboard (a dialog
+/// takes it back: see [`PopView::parent_active`]).
+fn watch_parent(shared: &Rc<RefCell<Shared>>, parent: AnyWindowHandle, cx: &mut App) {
+    let Some(view) = shared.borrow().view.as_ref().and_then(|v| v.upgrade()) else { return };
+    let _ = parent.update(cx, |_, parent, cx| {
+        view.update(cx, |v, cx| v._parent = Some(cx.observe_window_activation(parent, PopView::parent_active)));
+    });
 }
 
 /// The pop-up window's content: the panel on the glass, and in it what
@@ -463,6 +585,8 @@ pub struct PopView {
     /// It has had the keyboard (see [`closes_on_keys`]).
     had_keys: bool,
     _subs: [Subscription; 3],
+    /// The parent window's activation (see [`watch_parent`]).
+    _parent: Option<Subscription>,
 }
 
 impl PopView {
@@ -483,7 +607,7 @@ impl PopView {
             cx.observe_window_activation(window, |this, window, cx| {
                 let has = window.is_window_active();
                 log(|| format!("has the keyboard: {has}"));
-                if closes_on_keys(this.had_keys, has) {
+                if closes_on_keys(this.had_keys, has) && !this.keeps(window) {
                     this.dismiss(Close::LostKeys, window, cx);
                 }
                 this.had_keys |= has;
@@ -499,7 +623,31 @@ impl PopView {
             focused: None,
             had_keys: false,
             _subs: subs,
+            _parent: None,
         }
+    }
+
+    /// It stays though the keyboard left it (see [`keeps_without_keys`]).
+    fn keeps(&self, window: &Window) -> bool {
+        keeps_without_keys(self.shared.borrow().modal.is_some(), over(window))
+    }
+
+    /// The parent window got or lost the keyboard. A dialog over it takes
+    /// it: the user came back to the window (from another app, or by a
+    /// press on its title bar), and what they type is for the dialog.
+    fn parent_active(&mut self, parent: &mut Window, cx: &mut Context<Self>) {
+        if !parent.is_window_active() || self.shared.borrow().modal.is_none() {
+            return;
+        }
+        let shared = self.shared.clone();
+        // Once the parent has handled what brought it the keyboard (a
+        // press on the backdrop closes the dialog).
+        cx.defer(move |cx| {
+            let me = OPEN.with_borrow(|all| all.iter().find(|(_, e)| Rc::ptr_eq(&e.shared, &shared)).map(|(id, _)| *id));
+            if let Some(me) = me.and_then(|id| handle_of(id, cx)) {
+                let _ = me.update(cx, |_, window, cx| platform::pop_keys(window, cx));
+            }
+        });
     }
 
     /// Close, and tell the owner (in the parent window, once this event
@@ -515,6 +663,10 @@ impl PopView {
         cx.defer(move |cx| {
             let _ = parent.update(cx, |_, window, cx| on(window, cx));
             shared.borrow_mut().told = true;
+            // The pop-up it was in: the keyboard may have left that too.
+            if why == Close::LostKeys {
+                lost_through_child(parent.window_id(), cx);
+            }
         });
     }
 }
@@ -531,6 +683,9 @@ impl Render for PopView {
             (s.pop.build.clone(), s.pop.radius, s.pop.focus.clone())
         };
         platform::glass::slab(window, Some(platform::glass::Slab { inset: PAD, radius, mode: t.mode }));
+        if self.shared.borrow().modal.is_some() {
+            platform::pop_modal(window);
+        }
         let want = focus.unwrap_or_else(|| self.focus.clone());
         if self.focused.as_ref() != Some(&want) {
             window.focus(&want, cx);
@@ -610,6 +765,9 @@ impl Element for Measured {
         let Some(child) = self.child.as_mut() else { return };
         let at = self.shared.borrow().at;
         let area = platform::pop_area(&self.native, at);
+        // A dialog: in the parent's viewport, not the screen.
+        let modal = self.shared.borrow().modal;
+        let area = modal.map(|v| Bounds::new(point(px(0.), px(0.)), v).inset(px(MODAL_GUTTER - MARGIN))).or(area);
         let free = size(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
         let mut content = child.layout_as_root(free, window, cx);
         // Larger than the screen: laid out again in what there is.
@@ -622,6 +780,7 @@ impl Element for Measured {
             content = child.layout_as_root(space, window, cx);
             content = size(content.width.min(room.width.max(px(0.))), content.height.min(room.height.max(px(0.))));
         }
+        let at = modal.map_or(at, |v| centred(v, content));
         // The window: the panel (kept on the screen) and the clear space
         // around it (which may leave the screen).
         let frame = place(at, content, area, px(MARGIN)).dilate(px(PAD));
@@ -916,5 +1075,214 @@ mod tests {
         r.set(None);
         cx.update(|window, cx| pick(window, cx, move |window, _| r.set(Some(id_of(window)))));
         assert_eq!(ran.get(), Some(parent));
+    }
+
+    #[test]
+    fn a_dialog_or_a_pop_up_with_one_of_its_own_stays_without_the_keyboard() {
+        assert!(!keeps_without_keys(false, false), "a menu closes");
+        assert!(keeps_without_keys(false, true), "its own pop-up took the keyboard");
+        assert!(keeps_without_keys(true, false), "a dialog: another app took it");
+        assert!(keeps_without_keys(true, true));
+    }
+
+    #[test]
+    fn a_dialog_is_centred_on_whole_points() {
+        let view = size(px(1000.), px(701.));
+        assert_eq!(centred(view, size(px(440.), px(200.))), point(px(280.), px(250.)));
+    }
+
+    /// A surface with a surface of its own in it (`inner`), as a dialog
+    /// with a select: `modal` makes the outer one a dialog.
+    struct Nest {
+        open: bool,
+        inner: Rc<Cell<bool>>,
+        modal: bool,
+        dismissed: usize,
+        inner_dismissed: Rc<Cell<usize>>,
+    }
+
+    impl Render for Nest {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.weak_entity();
+            let (inner, inner_dismissed) = (self.inner.clone(), self.inner_dismissed.clone());
+            // Built from values: the pop-up must not read its owner.
+            let build: Build = Rc::new(move |_, _| {
+                let (open, told) = (inner.clone(), inner_dismissed.clone());
+                let pop = Pop {
+                    at: None,
+                    radius: 6.,
+                    focus: None,
+                    build: Rc::new(|_, _| div().w(px(60.)).h(px(20.)).into_any_element()),
+                    on_dismiss: Rc::new(move |_, _| {
+                        open.set(false);
+                        told.set(told.get() + 1);
+                    }),
+                };
+                div()
+                    .w(px(200.))
+                    .h(px(100.))
+                    .when(inner.get(), |d| d.child(div().absolute().left(px(10.)).top(px(40.)).child(anchor("inner", pop))))
+                    .into_any_element()
+            });
+            let pop = Pop {
+                at: None,
+                radius: 6.,
+                focus: None,
+                build,
+                on_dismiss: Rc::new(move |_, cx| {
+                    let _ = this.update(cx, |o, cx| {
+                        o.open = false;
+                        o.dismissed += 1;
+                        cx.notify();
+                    });
+                }),
+            };
+            let a = anchor("outer", pop);
+            let a = if self.modal { a.modal(window.viewport_size()) } else { a };
+            div().size_full().when(self.open, |d| d.child(div().absolute().left(px(40.)).top(px(30.)).child(a)))
+        }
+    }
+
+    /// The pop-ups of the window `of`.
+    fn pops_of(of: WindowId, cx: &mut VisualTestContext) -> Vec<AnyWindowHandle> {
+        let all = cx.windows();
+        open_pops().into_iter().filter(|(_, p, _)| p.window_id() == of).filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied()).collect()
+    }
+
+    /// An open surface with its inner one open: (owner, outer, inner).
+    fn nest(modal: bool, cx: &mut TestAppContext) -> (Entity<Nest>, AnyWindowHandle, AnyWindowHandle, &mut VisualTestContext) {
+        liquid(cx, crate::theme::Look::Glass);
+        cx.update(|cx| cx.set_global(TestHosted));
+        let (view, cx) = cx.add_window_view(|_, _| Nest {
+            open: true,
+            inner: Rc::new(Cell::new(false)),
+            modal,
+            dismissed: 0,
+            inner_dismissed: Rc::new(Cell::new(0)),
+        });
+        cx.run_until_parked();
+        let outer = pops(cx)[0].0;
+        cx.update_window(outer, |_, window, _| window.activate_window()).unwrap();
+        cx.run_until_parked();
+        // Its own surface opens and takes the keyboard.
+        view.read_with(cx, |n, _| n.inner.set(true));
+        cx.update_window(outer, |_, window, _| window.refresh()).unwrap();
+        cx.run_until_parked();
+        let inner = pops_of(outer.window_id(), cx);
+        assert_eq!(inner.len(), 1, "a pop-up of the pop-up");
+        cx.update_window(inner[0], |_, window, _| window.activate_window()).unwrap();
+        cx.run_until_parked();
+        (view, outer, inner[0], cx)
+    }
+
+    #[gpui::test]
+    fn a_pop_up_stays_while_one_in_it_has_the_keyboard(cx: &mut TestAppContext) {
+        let (view, outer, inner, cx) = nest(false, cx);
+        assert_eq!(pops(cx).len(), 1, "the outer one lost the keyboard to its own and stays");
+        assert_eq!(open_pops().len(), 2);
+        cx.update(|window, _| assert!(active(window), "the window is still the one the user is in"));
+        // Where the inner one is: in the outer one's coordinates.
+        let at = open_pops().into_iter().find(|(id, ..)| *id == inner.window_id()).unwrap().2.unwrap();
+        assert_eq!(at, b(10. + PAD - PAD, 40. + PAD - PAD, 60. + 2. * PAD, 20. + 2. * PAD));
+        // Esc: the innermost only, told in the outer one's window.
+        cx.update_window(inner, |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+        cx.run_until_parked();
+        assert!(pops_of(outer.window_id(), cx).is_empty());
+        assert_eq!(pops(cx).len(), 1);
+        assert_eq!(view.read_with(cx, |n, _| (n.inner_dismissed.get(), n.dismissed)), (1, 0));
+    }
+
+    #[gpui::test]
+    fn the_keyboard_back_in_the_outer_pop_up_closes_the_inner_one_only(cx: &mut TestAppContext) {
+        let (view, outer, _, cx) = nest(false, cx);
+        // A press in the outer one.
+        cx.update_window(outer, |_, window, _| window.activate_window()).unwrap();
+        cx.run_until_parked();
+        assert!(pops_of(outer.window_id(), cx).is_empty());
+        assert_eq!(pops(cx).len(), 1);
+        assert_eq!(view.read_with(cx, |n, _| (n.inner_dismissed.get(), n.dismissed)), (1, 0));
+    }
+
+    #[gpui::test]
+    fn the_keyboard_leaving_both_closes_both(cx: &mut TestAppContext) {
+        let (view, _, _, cx) = nest(false, cx);
+        // A press in the window under them.
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        assert!(open_pops().is_empty());
+        assert_eq!(view.read_with(cx, |n, _| (n.inner_dismissed.get(), n.dismissed, n.open)), (1, 1, false));
+    }
+
+    #[gpui::test]
+    fn closing_a_pop_up_closes_those_in_it(cx: &mut TestAppContext) {
+        let (view, outer, _, cx) = nest(false, cx);
+        // Esc in the outer one (as when its owner's window sends it).
+        cx.update_window(outer, |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+        cx.run_until_parked();
+        assert!(open_pops().is_empty());
+        assert_eq!(view.read_with(cx, |n, _| (n.inner_dismissed.get(), n.dismissed)), (0, 1), "the inner one's owner went with it");
+        // And when the owner stops drawing the outer one.
+        let (view, _, _, cx) = nest(false, cx);
+        view.update(cx, |n, cx| {
+            n.open = false;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        // (The test platform draws at the end of an update: what the
+        // frame let go of is released in the next.)
+        cx.update(|_, _| {});
+        cx.run_until_parked();
+        assert!(open_pops().is_empty());
+        assert_eq!(view.read_with(cx, |n, _| n.dismissed), 0);
+    }
+
+    #[gpui::test]
+    fn a_dialog_is_centred_and_keeps_through_the_keyboard_leaving(cx: &mut TestAppContext) {
+        let (view, outer, inner, cx) = nest(true, cx);
+        // Centred in the window (not at its anchor), with its clear space.
+        let v = cx.update(|window, _| window.viewport_size());
+        let at = pops(cx)[0].1.unwrap();
+        let want = centred(v, size(px(200.), px(100.)));
+        assert_eq!(at, Bounds::new(want, size(px(200.), px(100.))).dilate(px(PAD)));
+        // The keyboard goes to the window under it (the user comes back
+        // from another app): its select closes, the dialog stays and has
+        // the keyboard again.
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        assert!(pops_of(outer.window_id(), cx).is_empty(), "{inner:?} closed");
+        assert_eq!(pops(cx).len(), 1, "the dialog stays");
+        assert_eq!(view.read_with(cx, |n, _| (n.inner_dismissed.get(), n.dismissed)), (1, 0));
+        cx.update_window(outer, |_, window, _| assert!(window.is_window_active(), "and takes the keyboard back")).unwrap();
+        // Esc closes it.
+        cx.update_window(outer, |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+        cx.run_until_parked();
+        assert!(open_pops().is_empty());
+        assert_eq!(view.read_with(cx, |n, _| (n.dismissed, n.open)), (1, false));
+    }
+
+    #[gpui::test]
+    fn a_dialog_larger_than_its_window_is_laid_out_in_what_there_is(cx: &mut TestAppContext) {
+        struct Tall;
+        impl Render for Tall {
+            fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let pop = Pop {
+                    at: None,
+                    radius: 6.,
+                    focus: None,
+                    build: Rc::new(|_, _| div().w(px(300.)).h(px(5000.)).max_h_full().into_any_element()),
+                    on_dismiss: Rc::new(|_, _| {}),
+                };
+                div().size_full().child(anchor("tall", pop).modal(window.viewport_size()))
+            }
+        }
+        liquid(cx, crate::theme::Look::Glass);
+        cx.update(|cx| cx.set_global(TestHosted));
+        let (_, cx) = cx.add_window_view(|_, _| Tall);
+        cx.run_until_parked();
+        let v = cx.update(|window, _| window.viewport_size());
+        let at = pops(cx)[0].1.unwrap();
+        let g = px(MODAL_GUTTER);
+        assert_eq!(at.size.height, v.height - g * 2. + px(2. * PAD), "24 px from the window's edges");
+        assert_eq!(at.origin.y, g - px(PAD));
     }
 }

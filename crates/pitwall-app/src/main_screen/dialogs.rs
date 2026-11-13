@@ -20,6 +20,7 @@ use pitwall_core::vcs::git::FileChange;
 use pitwall_core::Shared;
 use pitwall_proto::{AgentView, CreateForm, FieldInput, ProviderMachines};
 
+use crate::kit::pop;
 use crate::kit::{icon, MONO_FONT};
 use super::model::{name_problem, split_path, suggest_name};
 use crate::kit::{InputEvent, TextInput};
@@ -30,7 +31,7 @@ use super::MainScreen;
 use crate::theme::{self, Theme, RADIUS};
 
 /// A choice action in a select.
-type Run = Box<dyn Fn(&mut Window, &mut App)>;
+type Run = std::rc::Rc<dyn Fn(&mut Window, &mut App)>;
 /// A select option: label, chosen, action.
 type Choice = (SharedString, bool, Run);
 
@@ -49,6 +50,7 @@ pub enum DialogEvent {
 }
 
 /// The modal frame: backdrop, box, title with ✕ (`Modal.tsx`).
+#[allow(clippy::too_many_arguments)]
 fn frame(
     title: Option<&str>,
     width: f32,
@@ -56,13 +58,21 @@ fn frame(
     motion: bool,
     on_close: impl Fn(&mut Window, &mut App) + 'static,
     body: impl IntoElement,
+    window: &Window,
+    cx: &App,
 ) -> AnyElement {
     let m = crate::kit::Modal::new("modal", width, on_close).motion(motion);
     match title {
         Some(title) => m.title(title.to_string()),
         None => m,
     }
-    .render(t, body)
+    .render_in(window, cx, t, body)
+}
+
+/// The theme a dialog that is a view draws with: its pop-up's under
+/// Liquid Glass, else the window's.
+fn dialog_theme(window: &Window, cx: &App) -> Theme {
+    if pop::is_pop(window) { crate::kit::modal::on_glass(theme::theme(cx)) } else { theme::theme(cx).clone() }
 }
 
 fn field_label(text: &str, t: &Theme) -> impl IntoElement {
@@ -93,9 +103,49 @@ fn select_box(
     t: &Theme,
     on_toggle: impl Fn(&mut Window, &mut App) + 'static,
     options: Vec<Choice>,
+    cx: &App,
 ) -> impl IntoElement {
+    let on_toggle = std::rc::Rc::new(on_toggle);
+    let hosted = pop::hosted(cx);
+    let close = on_toggle.clone();
+    let list_id = SharedString::from(format!("{id}-list"));
     div()
         .relative()
+        // Under Liquid Glass the list is a glass pop-up (of the dialog's).
+        .when(open && hosted, |d| {
+            let options: std::rc::Rc<[Choice]> = options.iter().map(|(text, on, run)| (text.clone(), *on, run.clone())).collect();
+            let build: pop::Build = std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+                let t = pop::theme(cx);
+                div()
+                    .id("select-list")
+                    .min_w(px(300.))
+                    .max_h(px(260.))
+                    .overflow_y_scroll()
+                    .p(px(4.))
+                    .children(options.iter().enumerate().map(|(i, (text, on, run))| {
+                        let (run, hover) = (run.clone(), t.surface_3);
+                        div()
+                            .id(("opt", i))
+                            .px(px(8.))
+                            .py(px(6.))
+                            .rounded(px(4.))
+                            .text_size(px(13.))
+                            .when(*on, |d| d.bg(hover))
+                            .hover_probed(move |s| s.bg(hover))
+                            .cursor_pointer()
+                            // It closes, and the choice is made in the dialog's window.
+                            .on_click(move |_, window, cx| {
+                                let run = run.clone();
+                                pop::pick(window, cx, move |window, cx| run(window, cx))
+                            })
+                            .child(text.clone())
+                    }))
+                    .into_any_element()
+            });
+            let on_dismiss: pop::OnDismiss = std::rc::Rc::new(move |window: &mut Window, cx: &mut App| close(window, cx));
+            let spec = pop::Pop { at: None, radius: pop::MENU_RADIUS, focus: None, build, on_dismiss };
+            d.child(div().absolute().left_0().top(px(38.)).child(pop::anchor(list_id.clone(), spec)))
+        })
         .child(
             div()
                 .id(SharedString::from(id.to_string()))
@@ -119,7 +169,7 @@ fn select_box(
                     gpui::Transformation::rotate(gpui::radians(std::f32::consts::FRAC_PI_2)),
                 )),
         )
-        .when(open, |d| {
+        .when(open && !hosted, |d| {
             let id = id.to_string();
             d.child(deferred(
                 anchored().snap_to_window_with_margin(px(8.)).child(
@@ -806,7 +856,8 @@ impl NewAgentDialog {
                 .tooltip(crate::kit::tooltip("Settings → Accounts"))
                 .on_click(cx.listener(|_, _, window, cx| {
                     cx.emit(DialogEvent::Close);
-                    window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                    // (From a pop-up: in the window it is over.)
+                    pop::pick(window, cx, |window, cx| window.dispatch_action(Box::new(crate::menu::OpenSettings), cx));
                 }))
                 .child("+ Add")
                 .into_any_element(),
@@ -963,7 +1014,7 @@ fn is_windows_abs(p: &str) -> bool {
 
 impl Render for NewAgentDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).clone();
+        let t = dialog_theme(window, cx);
         let folder = self.folder();
         let (name_err, project_err, _, _) = self.problems(cx);
         let valid = self.valid(cx);
@@ -995,7 +1046,7 @@ impl Render for NewAgentDialog {
                 .iter()
                 .map(|tg| {
                     let (e, key) = (entity.clone(), tg.key.clone());
-                    let run: Run = Box::new(move |window, cx| {
+                    let run: Run = std::rc::Rc::new(move |window, cx| {
                         e.update(cx, |d, cx| d.choose_target(key.clone(), window, cx))
                     });
                     (
@@ -1022,6 +1073,7 @@ impl Render for NewAgentDialog {
                         &t,
                         toggle(Open::Target),
                         options,
+                        cx,
                     ))
                     .when(self.form_loading, |d| {
                         d.child(hint(format!("Reading what {label_text} has…"), &t))
@@ -1144,7 +1196,7 @@ impl Render for NewAgentDialog {
                                     Some(d) => format!("{} — {d}", c.label),
                                     None => c.label.clone(),
                                 };
-                                let run: Run = Box::new(move |_, cx| {
+                                let run: Run = std::rc::Rc::new(move |_, cx| {
                                     e.update(cx, |d, cx| {
                                         d.chosen.insert(fid.clone(), v.clone());
                                         d.open = None;
@@ -1161,6 +1213,7 @@ impl Render for NewAgentDialog {
                             &t,
                             toggle(Open::Field(i)),
                             options,
+                            cx,
                         )
                         .into_any_element()
                     }
@@ -1370,6 +1423,8 @@ impl Render for NewAgentDialog {
                                 .child(kbd_on_primary(if cfg!(target_os = "macos") { "⌘↵" } else { "Ctrl↵" }, &t)),
                         ),
                 ),
+            window,
+            cx,
         )
     }
 }
@@ -1436,21 +1491,85 @@ impl NewAgentDialog {
             .child(icon("chevron", 12., t.text_3).with_transformation(gpui::Transformation::rotate(
                 gpui::radians(std::f32::consts::FRAC_PI_2),
             )));
+        let hosted = pop::hosted(cx);
         div()
             .flex()
             .flex_col()
             .child(trigger)
-            .when(open, |d| d.child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(self.picker(t, cx)))))
+            .when(open && !hosted, |d| d.child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(self.picker(t, cx)))))
+            // Under Liquid Glass: a glass pop-up (of the dialog's), built
+            // from what the picker shows now; its search is drawn there only.
+            .when(open && hosted, |d| {
+                let view = std::rc::Rc::new(self.picker_view(cx));
+                let this = cx.weak_entity();
+                let build: pop::Build = std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+                    picker_content(&view, &pop::theme(cx)).into_any_element()
+                });
+                let on_dismiss: pop::OnDismiss = std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |d, cx| {
+                        if d.open == Some(Open::Project) {
+                            d.close_picker(window, cx);
+                        }
+                    });
+                });
+                let focus = Some(self.query.focus_handle(cx));
+                let spec = pop::Pop { at: None, radius: f32::from(RADIUS), focus, build, on_dismiss };
+                d.relative().child(div().absolute().left_0().top(px(48.)).child(pop::anchor("na-picker-pop", spec)))
+            })
             .into_any_element()
     }
 
-    fn picker(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    /// What the picker shows now.
+    fn picker_view(&self, cx: &mut Context<Self>) -> PickerView {
         let picks = self.picks(cx);
-        let active = self.pick_active.min(picks.len().saturating_sub(1));
-        let count = picks.len();
-        let rows = picks.into_iter().enumerate().map(|(i, p)| {
+        PickerView {
+            active: self.pick_active.min(picks.len().saturating_sub(1)),
+            empty: picks.len() == 1 && !self.query.read(cx).text().trim().is_empty(),
+            picks,
+            recents: self.recents.clone(),
+            project: self.project.clone(),
+            query: self.query.clone(),
+            this: cx.weak_entity(),
+        }
+    }
+
+    /// The picker in the dialog's window, under the field.
+    fn picker(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        picker_content(&self.picker_view(cx), t)
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            // Below the field (an anchored box starts where its parent does).
+            .mt(px(48.))
+            .rounded(RADIUS)
+            .bg(t.raised)
+            .border_1()
+            .border_color(t.line_strong)
+            .shadow_lg()
+            .overflow_hidden()
+            .into_any_element()
+    }
+}
+
+/// The project picker's content, as values: it is drawn in the dialog's
+/// window, or in a pop-up of its own.
+struct PickerView {
+    picks: Vec<Pick>,
+    active: usize,
+    /// Something is typed and nothing matches.
+    empty: bool,
+    recents: Vec<(String, String)>,
+    project: Option<String>,
+    query: Entity<TextInput>,
+    this: gpui::WeakEntity<NewAgentDialog>,
+}
+
+/// The picker: the search, the rows, the hint (without its surface).
+fn picker_content(v: &PickerView, t: &Theme) -> gpui::Stateful<gpui::Div> {
+    {
+        let active = v.active;
+        let rows = v.picks.iter().cloned().enumerate().map(|(i, p)| {
             let on = i == active;
-            let current = matches!(&p, Pick::Recent(r) if self.recents.get(*r).map(|x| &x.0) == self.project.as_ref());
+            let current = matches!(&p, Pick::Recent(r) if v.recents.get(*r).map(|x| &x.0) == v.project.as_ref());
             let row = div()
                 .id(("na-pick", i))
                 .debug_selector(move || format!("na-pick-{i}"))
@@ -1481,7 +1600,7 @@ impl NewAgentDialog {
                             .child(crate::kit::one_line(path.clone())),
                     ),
                 Pick::Recent(r) => {
-                    let (path, display) = self.recents[*r].clone();
+                    let (path, display) = v.recents[*r].clone();
                     row.child(div().w(px(14.)).flex_none().when(current, |d| d.child(icon("check", 14., t.text_2))))
                         .child(
                             div()
@@ -1503,26 +1622,31 @@ impl NewAgentDialog {
                         )
                 }
             };
-            row.on_click(cx.listener(move |d, _, window, cx| d.apply_pick(p.clone(), window, cx)))
-                .into_any_element()
+            // (In a pop-up: it closes, and the pick is made in the dialog's window.)
+            let this = v.this.clone();
+            row.on_click(move |_, window, cx| {
+                let (this, p) = (this.clone(), p.clone());
+                pop::pick(window, cx, move |window, cx| {
+                    let _ = this.update(cx, |d, cx| d.apply_pick(p, window, cx));
+                })
+            })
+            .into_any_element()
         });
-        let empty = count == 1 && !self.query.read(cx).text().trim().is_empty();
+        let (empty, this) = (v.empty, v.this.clone());
         div()
             .id("na-picker")
-            .occlude()
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .capture_key_down(cx.listener(|d, ev: &gpui::KeyDownEvent, _, cx| {
-                let n = d.picks(cx).len();
-                match ev.keystroke.key.as_str() {
-                    "down" => d.pick_active = (d.pick_active + 1).min(n.saturating_sub(1)),
-                    "up" => d.pick_active = d.pick_active.saturating_sub(1),
-                    _ => return,
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }))
-            // Below the field (an anchored box starts where its parent does).
-            .mt(px(48.))
+            .capture_key_down(move |ev: &gpui::KeyDownEvent, _, cx| {
+                let _ = this.update(cx, |d, cx| {
+                    let n = d.picks(cx).len();
+                    match ev.keystroke.key.as_str() {
+                        "down" => d.pick_active = (d.pick_active + 1).min(n.saturating_sub(1)),
+                        "up" => d.pick_active = d.pick_active.saturating_sub(1),
+                        _ => return,
+                    }
+                    cx.stop_propagation();
+                    cx.notify();
+                });
+            })
             .w(px(484.))
             .max_h(px(360.))
             // (Drawn later, outside the dialog: nothing inherited.)
@@ -1530,12 +1654,6 @@ impl NewAgentDialog {
             .font_family(crate::kit::UI_FONT)
             .flex()
             .flex_col()
-            .rounded(RADIUS)
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line_strong)
-            .shadow_lg()
-            .overflow_hidden()
             .child(
                 div()
                     .flex()
@@ -1546,7 +1664,7 @@ impl NewAgentDialog {
                     .border_b_1()
                     .border_color(t.line)
                     .child(icon("search", 14., t.text_3))
-                    .child(div().flex_1().child(self.query.clone())),
+                    .child(div().flex_1().child(v.query.clone())),
             )
             .child(
                 div()
@@ -1571,7 +1689,6 @@ impl NewAgentDialog {
                     .text_color(t.text_3)
                     .child("↑↓ to move · ↵ to pick · or drop a folder from Finder on this dialog"),
             )
-            .into_any_element()
     }
 }
 
@@ -1840,8 +1957,8 @@ impl ProjectAccountsDialog {
 }
 
 impl Render for ProjectAccountsDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).clone();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = dialog_theme(window, cx);
         let project = folder_name(&self.project).to_string();
         let kinds = crate::accounts::model(cx).read(cx).kinds();
         let rows: Vec<AnyElement> = kinds.iter().enumerate().map(|(n, k)| self.kind_row(k, n, &t, cx)).collect();
@@ -1888,6 +2005,8 @@ impl Render for ProjectAccountsDialog {
                                 .child("Done"),
                         ),
                 ),
+            window,
+            cx,
         )
     }
 }
@@ -1959,12 +2078,11 @@ impl TerminalDialog {
 
 impl Render for TerminalDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).clone();
+        let t = dialog_theme(window, cx);
         let typed = self.input.read(cx).text().to_string();
         let ok = Self::valid(typed.trim());
         let list = self.matches(&typed);
         let close = cx.entity();
-        let _ = window;
         frame(
             Some("New terminal"),
             480.,
@@ -2067,6 +2185,8 @@ impl Render for TerminalDialog {
                                 .child(kbd_on_primary("↵", &t)),
                         ),
                 ),
+            window,
+            cx,
         )
     }
 }
@@ -2127,12 +2247,94 @@ impl MainScreen {
         cx.notify();
     }
 
-    fn render_remove(&mut self, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn render_remove(&mut self, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let Some(super::Modal::Remove(r)) = &self.modal else {
             return None;
         };
         let a = self.agents(cx).iter().find(|a| a.id == r.agent)?.clone();
         let (wt, busy) = (r.delete_worktree, r.busy);
+        // Drawn from these values (under Liquid Glass, in a pop-up).
+        let this = cx.weak_entity();
+        let close = this.clone();
+        let modal = crate::kit::Modal::new("modal", 440., move |window, cx| {
+            let _ = close.update(cx, |s, cx| s.close_modal(window, cx));
+        })
+        .title(format!("Remove {}", a.name))
+        .motion(crate::theme::motion_on(cx));
+        Some(modal.show(None, t, window, cx, move |t, _, _| remove_body(&a, wt, busy, t, &this)))
+    }
+
+    pub(super) fn render_modal(
+        &mut self,
+        t: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        // Under Liquid Glass a dialog that is a view is drawn by its
+        // pop-up alone (see `pop::Build`): nothing here reads it.
+        if pop::hosted(cx) {
+            let view: Option<gpui::AnyView> = match &self.modal {
+                Some(super::Modal::NewAgent(d)) => Some(d.clone().into()),
+                Some(super::Modal::Terminal(d)) => Some(d.clone().into()),
+                Some(super::Modal::Diff(d)) => Some(d.clone().into()),
+                Some(super::Modal::ProjectAccounts(d)) => Some(d.clone().into()),
+                _ => None,
+            };
+            if let Some(view) = view {
+                let this = cx.weak_entity();
+                let on_close: crate::kit::OnClose = std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |s, cx| s.close_modal(window, cx));
+                });
+                let build: pop::Build = std::rc::Rc::new(move |_: &mut Window, _: &mut App| view.clone().into_any_element());
+                let backdrop = crate::kit::modal::backdrop("modal", self.modal_focus.clone(), on_close, window, cx, build);
+                let rows = match (&self.modal, self.diff_shown.clone()) {
+                    (Some(super::Modal::Diff(_)), Some(shown)) => self.diff_row_targets(shown, t, cx),
+                    _ => vec![],
+                };
+                return Some(div().absolute().inset_0().child(backdrop).children(rows).into_any_element());
+            }
+        }
+        match &self.modal {
+            None => None,
+            Some(super::Modal::NewAgent(d)) => Some(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(d.clone())
+                    .into_any_element(),
+            ),
+            Some(super::Modal::Terminal(d)) => Some(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(d.clone())
+                    .into_any_element(),
+            ),
+            Some(super::Modal::Diff(d)) => {
+                let shown = {
+                    let (agent, path, stage) = d.read(cx).shows();
+                    (agent.to_string(), path.to_string(), stage)
+                };
+                Some(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .child(d.clone())
+                        .children(self.diff_row_targets(shown, t, cx))
+                        .into_any_element(),
+                )
+            }
+            Some(super::Modal::ProjectAccounts(d)) => Some(div().absolute().inset_0().child(d.clone()).into_any_element()),
+            Some(super::Modal::Remove(_)) => self.render_remove(t, window, cx),
+            Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, window, cx),
+        }
+    }
+}
+
+/// What is in the "Remove <agent>" dialog.
+fn remove_body(a: &AgentView, wt: bool, busy: bool, t: &Theme, this: &gpui::WeakEntity<MainScreen>) -> AnyElement {
+    use crate::kit::modal::{leaver, listener};
+    {
         let text = if a.caps.remove_keeps_session {
             format!(
                 "Pitwall stops tracking {}. Its session on {} is left as it is{}; you can add it again from Settings → Scan again.",
@@ -2150,7 +2352,6 @@ impl MainScreen {
                 }
             )
         };
-        let entity = cx.entity();
         let body = body()
             .child(div().line_height(px(19.)).child(text))
             .when(a.caps.remove_worktree, |d| {
@@ -2161,7 +2362,7 @@ impl MainScreen {
                         .items_start()
                         .gap(px(10.))
                         .cursor_pointer()
-                        .on_click(cx.listener(|s, _, _, cx| {
+                        .on_click(listener(this, |s, _, cx| {
                             if let Some(super::Modal::Remove(r)) = s.modal.as_mut() {
                                 r.delete_worktree = !r.delete_worktree;
                             }
@@ -2220,73 +2421,25 @@ impl MainScreen {
         } else {
             "Remove"
         };
-        let close = entity.clone();
-        Some(
-            frame(
-                Some(&format!("Remove {}", a.name)),
-                440.,
-                t,
-                crate::theme::motion_on(cx),
-                move |window, cx| close.update(cx, |s, cx| s.close_modal(window, cx)),
-                div().flex().flex_col().min_h_0().child(crate::kit::dialog::scrolling("rm-body", body, t)).child(
-                    foot(t)
-                        .child(
-                            button("rm-cancel", BtnKind::Ghost, false, t)
-                                .on_click(cx.listener(|s, _, window, cx| s.close_modal(window, cx)))
-                                .child("Cancel"),
-                        )
-                        .child(
-                            button("rm-go", BtnKind::Danger, busy, t)
-                                .on_click(cx.listener(|s, _, _, cx| s.remove_now(cx)))
-                                .child(label_text),
-                        ),
-                ),
+        div()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .child(crate::kit::dialog::scrolling("rm-body", body, t))
+            .child(
+                foot(t)
+                    .child(
+                        button("rm-cancel", BtnKind::Ghost, false, t)
+                            .on_click(leaver(this, |s, window, cx| s.close_modal(window, cx)))
+                            .child("Cancel"),
+                    )
+                    .child(
+                        button("rm-go", BtnKind::Danger, busy, t)
+                            .on_click(listener(this, |s, _, cx| s.remove_now(cx)))
+                            .child(label_text),
+                    ),
             )
-            .into_any_element(),
-        )
-    }
-
-    pub(super) fn render_modal(
-        &mut self,
-        t: &Theme,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let _ = window;
-        match &self.modal {
-            None => None,
-            Some(super::Modal::NewAgent(d)) => Some(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .child(d.clone())
-                    .into_any_element(),
-            ),
-            Some(super::Modal::Terminal(d)) => Some(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .child(d.clone())
-                    .into_any_element(),
-            ),
-            Some(super::Modal::Diff(d)) => {
-                let shown = {
-                    let (agent, path, stage) = d.read(cx).shows();
-                    (agent.to_string(), path.to_string(), stage)
-                };
-                Some(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .child(d.clone())
-                        .children(self.diff_row_targets(shown, t, cx))
-                        .into_any_element(),
-                )
-            }
-            Some(super::Modal::ProjectAccounts(d)) => Some(div().absolute().inset_0().child(d.clone()).into_any_element()),
-            Some(super::Modal::Remove(_)) => self.render_remove(t, cx),
-            Some(super::Modal::RemoveWorktree(_)) => self.render_remove_worktree(t, cx),
-        }
+            .into_any_element()
     }
 }
 
@@ -2450,10 +2603,12 @@ impl DiffDialog {
 
 impl Render for DiffDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).clone();
+        let t = dialog_theme(window, cx);
         let (dir, base) = split_path(&self.file.path);
         let status = crate::kit::file_status(&self.file);
-        let height = (f32::from(window.viewport_size().height) * 0.88).min(1000.);
+        // (In a pop-up: of the window it is over.)
+        let viewport = pop::modal_viewport(window).unwrap_or_else(|| window.viewport_size());
+        let height = (f32::from(viewport.height) * 0.88).min(1000.);
         let head = div()
             .flex()
             .items_center()
@@ -2550,6 +2705,8 @@ impl Render for DiffDialog {
                     .bg(t.term_bg)
                     .child(content),
             ),
+            window,
+            cx,
         )
     }
 }

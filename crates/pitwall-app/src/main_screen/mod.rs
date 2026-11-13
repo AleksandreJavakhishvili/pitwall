@@ -466,6 +466,12 @@ pub struct MainScreen {
     overlay_sidebar: bool,
     drawer_open: bool,
     modal: Option<Modal>,
+    /// What has the keyboard in the open dialog when it opens (its
+    /// pop-up under Liquid Glass gives it the keyboard there).
+    modal_focus: Option<gpui::FocusHandle>,
+    /// What the open diff shows (`DiffDialog::shows`), for the Changes
+    /// rows over its backdrop without reading the dialog.
+    diff_shown: Option<(String, String, Option<pitwall_core::engine::changes::Stage>)>,
     menu: Option<CtxMenu>,
     /// Counts the menus opened (see `CtxMenu::serial`).
     menu_serial: usize,
@@ -621,6 +627,8 @@ impl MainScreen {
             overlay_sidebar: false,
             drawer_open: false,
             modal: None,
+            modal_focus: None,
+            diff_shown: None,
             menu: None,
             menu_serial: 0,
             rename: None,
@@ -1342,6 +1350,7 @@ impl MainScreen {
             },
         ));
         self.modal = Some(Modal::NewAgent(dialog));
+        self.modal_focus = window.focused(cx);
         self.menu = None;
         cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
@@ -1369,6 +1378,7 @@ impl MainScreen {
             },
         ));
         self.modal = Some(Modal::Terminal(dialog));
+        self.modal_focus = window.focused(cx);
         cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
@@ -1382,6 +1392,7 @@ impl MainScreen {
             this.dialog_event(e.clone(), window, cx)
         }));
         self.modal = Some(Modal::ProjectAccounts(dialog));
+        self.modal_focus = None;
         self.menu = None;
         cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
@@ -1414,7 +1425,12 @@ impl MainScreen {
                 this.dialog_event(e.clone(), window, cx)
             },
         ));
+        self.diff_shown = Some({
+            let (agent, path, stage) = dialog.read(cx).shows();
+            (agent.to_string(), path.to_string(), stage)
+        });
         self.modal = Some(Modal::Diff(dialog));
+        self.modal_focus = window.focused(cx);
         cx.emit(ScreenEvent::ModalOpened);
         cx.notify();
     }
@@ -2110,7 +2126,7 @@ impl Render for MainScreen {
             })
             .child(self.render_toasts(&float, cx))
             .children(self.render_modal(&t, window, cx))
-            .children(self.render_bring_in(&t, cx))
+            .children(self.render_bring_in(&t, window, cx))
             .children(self.render_menu(&float, cx))
             .child(self.space_drag_watch(cx));
         // Its working dots hand their rings to the window's pulse layer,
