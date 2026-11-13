@@ -54,9 +54,10 @@ use gpui::{
 use crate::platform::{self, PopParent};
 use crate::theme::{self, Theme};
 
-/// Clear space around the panel inside its window, for the hairline
-/// around it and the glass's own edge. A press there is a press outside.
-pub const PAD: f32 = 8.;
+/// Clear space around the panel inside its window: room for the glass's
+/// own soft shadow to fade out (cut short, it shows as a box around the
+/// panel on a light window). A press there is a press outside.
+pub const PAD: f32 = 24.;
 /// A menu's corners on glass (its rows' 4 px inside its 4 px of padding;
 /// the window's own menus are a little rounder still).
 pub const MENU_RADIUS: f32 = 8.;
@@ -612,7 +613,7 @@ impl Element for Measured {
         let free = size(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
         let mut content = child.layout_as_root(free, window, cx);
         // Larger than the screen: laid out again in what there is.
-        let room = area.map(|a| size(a.size.width - px(2. * (MARGIN + PAD)), a.size.height - px(2. * (MARGIN + PAD))));
+        let room = area.map(|a| size(a.size.width - px(2. * MARGIN), a.size.height - px(2. * MARGIN)));
         if let Some(room) = room.filter(|r| content.width > r.width || content.height > r.height) {
             let cut = |len: Pixels, room: Pixels| {
                 if len > room { AvailableSpace::Definite(room.max(px(0.))) } else { AvailableSpace::MaxContent }
@@ -621,8 +622,9 @@ impl Element for Measured {
             content = child.layout_as_root(space, window, cx);
             content = size(content.width.min(room.width.max(px(0.))), content.height.min(room.height.max(px(0.))));
         }
-        // The window: the panel and the clear space around it.
-        let frame = place(at - point(px(PAD), px(PAD)), content + size(px(2. * PAD), px(2. * PAD)), area, px(MARGIN));
+        // The window: the panel (kept on the screen) and the clear space
+        // around it (which may leave the screen).
+        let frame = place(at, content, area, px(MARGIN)).dilate(px(PAD));
         if self.placed.get() != Some(frame) {
             let first = self.placed.replace(Some(frame)).is_none();
             log(|| format!("{} at {frame:?}", if first { "shown" } else { "moved" }));
@@ -834,6 +836,60 @@ mod tests {
         cx.run_until_parked();
         assert!(pops(cx).is_empty());
         assert_eq!(view.read_with(cx, |o, _| (o.open, o.dismissed)), (false, 1));
+    }
+
+    /// The kit's select, open, with what was picked and whether it closed.
+    struct Select {
+        picked: Rc<Cell<Option<(usize, WindowId)>>>,
+        closed: Rc<Cell<bool>>,
+    }
+
+    impl Render for Select {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let (picked, closed) = (self.picked.clone(), self.closed.clone());
+            let items = vec![("One".into(), true), ("Two".into(), false)];
+            div().size_full().child(div().relative().child(crate::kit::select_menu(
+                "select",
+                items,
+                &theme::theme(cx).clone(),
+                Rc::new(move |i, window, _| picked.set(Some((i, id_of(window))))),
+                Rc::new(move |_, _| closed.set(true)),
+            )))
+        }
+    }
+
+    #[gpui::test]
+    fn the_kits_select_opens_in_a_pop_up_and_picks_in_its_window(cx: &mut TestAppContext) {
+        liquid(cx, crate::theme::Look::Glass);
+        cx.update(|cx| cx.set_global(TestHosted));
+        let (picked, closed) = (Rc::new(Cell::new(None)), Rc::new(Cell::new(false)));
+        let (view, cx) = cx.add_window_view(|_, _| Select { picked: picked.clone(), closed: closed.clone() });
+        cx.run_until_parked();
+        let open = pops(cx);
+        assert_eq!(open.len(), 1, "the options are a pop-up");
+        // Under the trigger (28 px), at the select's left edge.
+        let at = open[0].1.unwrap();
+        assert_eq!(at.origin, point(px(-PAD), px(28. - PAD)));
+        // A click on the second option (rows are 4 px in, some 28 px tall).
+        let parent = cx.update(|window, _| id_of(window));
+        cx.update_window(open[0].0, |_, window, cx| {
+            let position = point(px(PAD + 30.), px(PAD + 4. + 40.));
+            let (button, modifiers) = (gpui::MouseButton::Left, gpui::Modifiers::default());
+            window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position, button, modifiers, click_count: 1 }), cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        assert_eq!(picked.get(), Some((1, parent)), "the pick runs in the select's window");
+        assert!(!closed.get(), "a pick is not a dismissal");
+        assert!(pops(cx).is_empty());
+        // Esc in a pop-up (this owner draws its select again: a new one).
+        view.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        let again = pops(cx)[0].0;
+        cx.update_window(again, |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+        cx.run_until_parked();
+        assert!(closed.get(), "Esc closes a select in a pop-up");
     }
 
     #[gpui::test]
