@@ -252,6 +252,15 @@ pub fn debug(cmd: &str, cx: &mut App) {
     if !cfg!(debug_assertions) {
         return;
     }
+    // `under <x> <y>`: a click in the first window that is not a pop-up.
+    if let Some(rest) = cmd.strip_prefix("under ") {
+        let mut at = rest.split_whitespace().filter_map(|v| v.parse::<f32>().ok());
+        let under = cx.windows().into_iter().find(|w| !OPEN.with_borrow(|all| all.contains_key(&w.window_id())));
+        if let (Some(x), Some(y), Some(under)) = (at.next(), at.next(), under) {
+            let _ = under.update(cx, |_, window, cx| platform::debug_click(window, x, y, cx));
+        }
+        return;
+    }
     let Some(id) = OPEN.with_borrow(|all| all.keys().next().copied()) else {
         eprintln!("pitwall-pop: debug {cmd}: no pop-up is open");
         return;
