@@ -211,3 +211,80 @@ fn folded_regions_open_for_reveal(cx: &mut TestAppContext) {
         "unfolded to show it"
     );
 }
+
+/// Liquid Glass with floating surfaces as glass pop-ups (`kit::pop`).
+fn liquid_glass(cx: &mut VisualTestContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    cx.update(|_, cx| {
+        let inputs = Inputs { look: Look::Glass, ..Inputs::default() };
+        let ap = Appearance::resolve(inputs, gpui::WindowAppearance::Dark, GlassOffer::Liquid, OsPrefs::default());
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+}
+
+/// The window's glass pop-ups.
+fn pops(cx: &mut VisualTestContext) -> Vec<gpui::AnyWindowHandle> {
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let all = cx.windows();
+    crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == parent)
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect()
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_context_menu_is_a_pop_up_with_the_keyboard(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    cx.update(|_, cx| crate::menu::register(cx));
+    liquid_glass(cx);
+    let asked = std::rc::Rc::new(std::cell::Cell::new(None));
+    let got = asked.clone();
+    let _sub = cx.update(|_, cx| {
+        cx.subscribe(&view, move |_, e: &CodeViewEvent, _| {
+            if let CodeViewEvent::Comment { line } = e {
+                got.set(Some(*line));
+            }
+        })
+    });
+    view.update(cx, |v, cx| {
+        v.set_commentable(true, cx);
+        v.set_diff("x.rs", OLD.into(), NEW.into(), cx);
+    });
+    cx.run_until_parked();
+    draw(cx);
+    let open = |cx: &mut VisualTestContext| {
+        view.update(cx, |v, cx| {
+            v.sel = Some(Selection::caret(Side::New, Pos::new(3, 0)));
+            v.menu = Some(Menu { at: gpui::point(px(120.), px(80.)), line: Some(3), active: None, focus: cx.focus_handle() });
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let open = pops(cx);
+        assert_eq!(open.len(), 1, "the menu's pop-up");
+        open[0]
+    };
+    let key = |menu: gpui::AnyWindowHandle, key: &'static str, cx: &mut VisualTestContext| {
+        let key = gpui::Keystroke::parse(key).unwrap();
+        cx.update_window(menu, |_, window, cx| window.dispatch_keystroke(key, cx)).unwrap();
+        cx.run_until_parked();
+    };
+    let menu = open(cx);
+    // Enter with no row chosen does nothing; ↓ then Enter runs the first
+    // ("Add review comment"), in the view's window.
+    key(menu, "enter", cx);
+    assert!(view.read_with(cx, |v, _| v.menu.is_some()));
+    key(menu, "down", cx);
+    assert_eq!(view.read_with(cx, |v, _| v.menu.as_ref().and_then(|m| m.active)), Some(0));
+    key(menu, "enter", cx);
+    assert_eq!(asked.get(), Some(3));
+    assert!(view.read_with(cx, |v, _| v.menu.is_none()));
+    assert!(pops(cx).is_empty());
+    // Esc closes it.
+    let menu = open(cx);
+    key(menu, "escape", cx);
+    assert!(view.read_with(cx, |v, _| v.menu.is_none()));
+    assert!(pops(cx).is_empty());
+}

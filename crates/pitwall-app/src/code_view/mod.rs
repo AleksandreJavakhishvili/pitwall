@@ -277,6 +277,8 @@ struct Menu {
     /// The modified file's line it was opened on (`None` on the original).
     line: Option<usize>,
     active: Option<usize>,
+    /// Its own focus, when it is a pop-up (which has the keyboard).
+    focus: FocusHandle,
 }
 
 #[derive(Debug, Clone, Copy)]
