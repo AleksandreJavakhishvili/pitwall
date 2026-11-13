@@ -293,6 +293,61 @@ pub fn pop_close(window: &mut Window, cx: &mut App) {
     let _ = (window, cx);
 }
 
+/// Put the passive pop-up `window` (`kit::passive`) at `rect` of its
+/// parent's content and show it above the parent, without the keyboard.
+pub fn passive_place(window: &mut Window, parent: &PopParent, rect: gpui::Bounds<gpui::Pixels>, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::passive_place(
+        window,
+        &parent.0,
+        (rect.origin.x.into(), rect.origin.y.into(), rect.size.width.into(), rect.size.height.into()),
+        cx,
+    );
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = (parent, cx);
+        window.resize(rect.size);
+    }
+}
+
+/// Whether the mouse goes through the passive pop-up `window` to what is
+/// under it (else it takes clicks, its clear parts too).
+pub fn passive_through(window: &mut Window, through: bool) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::passive_through(window, through);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = (window, through);
+}
+
+/// Where the pointer is in `window`'s coordinates, whether or not the
+/// window gets the mouse's events. `None` where that isn't known.
+pub fn passive_pointer(window: &mut Window) -> Option<gpui::Point<gpui::Pixels>> {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::passive_pointer(window).map(|(x, y)| gpui::point(gpui::px(x), gpui::px(y)))
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = window;
+        None
+    }
+}
+
+/// What the system says about the passive pop-up `window`, and which
+/// window a press at `at` (from its top left) would go to, for
+/// `kit::passive::debug`.
+pub fn passive_debug(window: &mut Window, at: Option<(f32, f32)>) -> String {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::passive_debug(window, at)
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = (window, at);
+        String::new()
+    }
+}
+
 /// Debug builds on macOS: a left click in `window` at (`x`, `y`) from
 /// its top left, delivered as AppKit delivers one (in this process only).
 pub fn debug_click(window: &mut Window, x: f32, y: f32, cx: &mut App) {
