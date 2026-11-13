@@ -2417,6 +2417,16 @@ impl DiffDialog {
         (&self.agent.id, &self.file.path, super::panel::stage_of(&self.file))
     }
 
+    /// Demo only: a review comment on line `line` (0-based) of the new
+    /// file, to look at its hover.
+    #[doc(hidden)]
+    pub fn demo_comment(&mut self, line: usize, text: &str, cx: &mut Context<Self>) {
+        self.code.update(cx, |c, cx| {
+            c.set_commentable(true, cx);
+            c.set_comments([(line, text.to_string())], cx);
+        });
+    }
+
     /// Show these two versions of the file (`None`: it isn't there).
     pub fn set_versions(
         &mut self,

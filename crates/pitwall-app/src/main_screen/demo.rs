@@ -293,14 +293,18 @@ impl MainScreen {
                 let folder = w["project-accounts ".len()..].trim().to_string();
                 self.open_project_accounts(folder, window, cx);
             }
-            "diff" => {
+            // (`diff-comment`: with a review comment on a line.)
+            "diff" | "diff-comment" => {
                 if let Some(a) = self.selected(cx) {
                     if let Some(f) = changes(&a.name).into_iter().next() {
                         self.open_diff(a, f, window, cx);
                         if let Some(super::Modal::Diff(d)) = &self.modal {
                             d.update(cx, |d, cx| {
                                 let (old, new) = sides(DIFF);
-                                d.set_versions(Some(old), Some(new), cx)
+                                d.set_versions(Some(old), Some(new), cx);
+                                if what == "diff-comment" {
+                                    d.demo_comment(7, "Advance the fake clock rather than computing a later date.", cx);
+                                }
                             });
                         }
                     }

@@ -167,6 +167,81 @@ fn copies_the_selection_or_the_line(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn under_liquid_glass_the_read_only_hint_is_a_pop_up(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    cx.update(|_, cx| crate::kit::passive::test_glass(cx));
+    let open = |cx: &mut VisualTestContext| cx.update(|window, cx| crate::kit::passive::test_over(window, cx).len());
+    view.update(cx, |v, cx| v.set_diff("x.rs", OLD.into(), NEW.into(), cx));
+    cx.run_until_parked();
+    draw(cx);
+    assert_eq!(open(cx), 0);
+    view.update(cx, |v, _| v.sel = Some(Selection::caret(Side::New, Pos::new(0, 0))));
+    cx.simulate_keystrokes("x");
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.readonly_at.is_some()));
+    assert_eq!(open(cx), 1, "the hint, above the window");
+    cx.simulate_keystrokes("escape");
+    crate::kit::passive::test_draw(cx);
+    assert_eq!(open(cx), 0);
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_context_menu_is_a_pop_up_with_the_keys(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    cx.update(|_, cx| crate::kit::passive::test_glass(cx));
+    view.update(cx, |v, cx| {
+        v.set_commentable(true, cx);
+        v.set_diff("x.rs", OLD.into(), NEW.into(), cx);
+    });
+    cx.run_until_parked();
+    draw(cx);
+    let pops = |cx: &mut VisualTestContext| {
+        let all = cx.windows();
+        let open = crate::kit::pop::open_pops().into_iter();
+        open.filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied()).collect::<Vec<_>>()
+    };
+    let open = |view: &Entity<CodeView>, cx: &mut VisualTestContext| {
+        view.update(cx, |v, cx| {
+            v.menu = Some(Menu { at: gpui::point(px(120.), px(60.)), line: Some(3), active: None });
+            cx.notify();
+        });
+        draw(cx);
+        let open = pops(cx);
+        assert_eq!(open.len(), 1, "the menu's pop-up");
+        open[0]
+    };
+    let key = |pop: gpui::AnyWindowHandle, key: &'static str, cx: &mut VisualTestContext| {
+        let k = gpui::Keystroke::parse(key).unwrap();
+        cx.update_window(pop, |_, window, cx| window.dispatch_keystroke(k, cx)).unwrap();
+        cx.run_until_parked();
+    };
+    let said = std::rc::Rc::new(std::cell::Cell::new(None));
+    let s = said.clone();
+    let _sub = cx.update(|_, cx| {
+        cx.subscribe(&view, move |_, e: &CodeViewEvent, _| {
+            if let CodeViewEvent::Comment { line } = e {
+                s.set(Some(*line));
+            }
+        })
+    });
+    // ↓ and Enter in the pop-up: the first item, on the menu's line.
+    let pop = open(&view, cx);
+    key(pop, "down", cx);
+    assert_eq!(view.read_with(cx, |v, _| v.menu.as_ref().and_then(|m| m.active)), Some(0));
+    key(pop, "enter", cx);
+    draw(cx);
+    assert_eq!(said.get(), Some(3), "Add review comment");
+    assert!(view.read_with(cx, |v, _| v.menu.is_none()));
+    assert!(pops(cx).is_empty());
+    // Esc closes it.
+    let pop = open(&view, cx);
+    cx.update_window(pop, |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.menu.is_none()));
+    assert!(pops(cx).is_empty());
+}
+
+#[gpui::test]
 fn typing_says_read_only_and_comments_join(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     view.update(cx, |v, cx| {

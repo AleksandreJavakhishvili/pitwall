@@ -289,6 +289,8 @@ enum Drag {
 
 pub struct CodeView {
     focus: FocusHandle,
+    /// Has the keyboard in the context menu's pop-up (Liquid Glass).
+    menu_focus: FocusHandle,
     content: Option<Content>,
     layout: Layout,
     /// Collapse unchanged regions in diffs.
@@ -330,6 +332,7 @@ impl CodeView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         CodeView {
             focus: cx.focus_handle(),
+            menu_focus: cx.focus_handle(),
             content: None,
             layout: Layout::Split,
             fold: true,
@@ -1222,6 +1225,25 @@ impl CodeView {
             }
             cx.stop_propagation();
             cx.notify();
+        }
+    }
+
+    /// A key in the context menu's pop-up (which has the keyboard there):
+    /// what the view's own keys do with the menu open.
+    fn menu_key(&mut self, key: &str, cx: &mut Context<Self>) {
+        match key {
+            "down" => {
+                self.menu_step(1, cx);
+            }
+            "up" => {
+                self.menu_step(-1, cx);
+            }
+            "enter" | "space" => {
+                if let Some(a) = self.menu.as_ref().and_then(|m| m.active) {
+                    self.run_menu(a, cx);
+                }
+            }
+            _ => {}
         }
     }
 
