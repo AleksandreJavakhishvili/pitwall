@@ -236,6 +236,7 @@ impl MainView {
                     l.close(cx)
                 }
             }),
+            "about" => self.layer.update(cx, |l, cx| if on { l.open_about(cx) } else { l.close(cx) }),
             // The window off screen and back (its GPU memory is released).
             "hidden" => {
                 if on {
@@ -548,6 +549,57 @@ mod tests {
             assert!(v.layer.read(cx).is_open());
             assert!(!v.palette.read(cx).is_open(), "the palette closed");
         });
+    }
+
+    /// Under Liquid Glass with pop-ups Settings and About are each one
+    /// over their backdrop, drawn there alone; Esc in it closes them.
+    #[gpui::test]
+    fn under_liquid_glass_settings_and_about_are_pop_ups(cx: &mut TestAppContext) {
+        use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+        cx.update(|cx| {
+            crate::kit::init(cx);
+            crate::settings::init(cx, None, None);
+            crate::palette::init(cx);
+            let ap = Appearance::resolve(
+                Inputs { look: Look::Glass, ..Inputs::default() },
+                gpui::WindowAppearance::Dark,
+                GlassOffer::Liquid,
+                OsPrefs::default(),
+            );
+            cx.set_global(ap.theme());
+            cx.set_global(ap);
+            cx.set_global(crate::kit::pop::TestHosted);
+        });
+        let refused = Content::Refused(Refusal::InUse { root: "/nowhere".into() });
+        let (view, vcx) = cx.add_window_view(move |window, cx| MainView::new(refused, None, window, cx));
+        let vcx: &mut VisualTestContext = vcx;
+        vcx.run_until_parked();
+        let parent = vcx.update(|window, _| window.window_handle().window_id());
+        let pops = |vcx: &mut VisualTestContext| {
+            let all = vcx.windows();
+            crate::kit::pop::open_pops()
+                .into_iter()
+                .filter(|(_, p, _)| p.window_id() == parent)
+                .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+                .collect::<Vec<_>>()
+        };
+        let before = vcx.update(|window, cx| window.focused(cx));
+        for about in [false, true] {
+            view.update_in(vcx, |v, _, cx| if about { v.open_about(cx) } else { v.open_settings(cx) });
+            vcx.run_until_parked();
+            let open = pops(vcx);
+            assert_eq!(open.len(), 1, "its pop-up (about: {about})");
+            assert!(view.read_with(vcx, |v, cx| v.layer.read(cx).is_open()));
+            assert_eq!(vcx.update(|window, cx| window.focused(cx)), before, "the window's own focus stays where it was");
+            if !about {
+                // The keyboard is in its page list, in the pop-up.
+                vcx.update_window(open[0], |_, window, cx| assert!(window.focused(cx).is_some(), "the page list has the keyboard")).unwrap();
+            }
+            vcx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+            vcx.run_until_parked();
+            assert!(!view.read_with(vcx, |v, cx| v.layer.read(cx).is_open()), "Esc closed it (about: {about})");
+            assert!(pops(vcx).is_empty());
+        }
     }
 
     /// Quick open's shortcut on this OS (`explorer::bindings`).

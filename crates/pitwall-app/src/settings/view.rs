@@ -32,7 +32,7 @@ use super::permissions::POLL;
 use super::widgets::Ui;
 use super::{data, SettingsHost};
 use crate::kit::{tooltip, BtnKind, HoverText as _};
-use crate::theme::{appearance, RADIUS_SM};
+use crate::theme::RADIUS_SM;
 
 actions!(pw_settings, [PrevPage, NextPage]);
 
@@ -102,8 +102,8 @@ pub struct PageBody {
 }
 
 impl Render for PageBody {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = appearance(cx).theme().float();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = crate::kit::pop::theme_in(window, cx);
         let view = self.view.clone();
         let list = gpui::list(self.list.clone(), move |ix, window, cx| {
             view.update(cx, |v, cx| v.part(ix, window, cx))
@@ -423,7 +423,7 @@ impl SettingsView {
 
     /// List item `ix`: the page's title, a part, or the room under them.
     fn part(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let ui = Ui::new(appearance(cx).theme().float());
+        let ui = Ui::new(crate::kit::pop::theme_in(window, cx));
         let t = ui.t.clone();
         let n = self.parts.len();
         let el = if ix == 0 {
@@ -526,8 +526,7 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let ap = appearance(cx);
-        let ui = Ui::new(ap.theme().float());
+        let ui = Ui::new(crate::kit::pop::theme_in(window, cx));
         let t = ui.t.clone();
         let page = data::page(cx);
         let head = div()
