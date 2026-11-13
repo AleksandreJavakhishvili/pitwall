@@ -7,10 +7,10 @@ use crate::kit::Ellipsis as _;
 use std::time::Duration;
 
 use crate::kit::HoverText;
-use gpui::{div, prelude::*, px, Context, FontWeight, IntoElement, SharedString, Task};
+use gpui::{div, prelude::*, px, Context, FontWeight, IntoElement, SharedString, Task, WeakEntity, Window};
 
 use super::model::{strip, Tone};
-use crate::kit::{kbd, label_t};
+use crate::kit::{kbd, label_t, passive};
 use super::{Breakpoint, MainScreen};
 use crate::theme::{Theme, RADIUS_LG};
 
@@ -337,117 +337,185 @@ impl MainScreen {
 
     pub(super) fn render_toasts(&mut self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         // `.toasts`: 320 px, 14 px from the right, 12 px above the strip.
-        div()
-            .absolute()
-            .right(px(14.))
-            .bottom(px(STRIP_H + 12.))
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .w(px(320.))
-            .children(self.toasts.iter().map(|toast| {
-                let (glyph, color) = match toast.tone {
-                    ToastTone::Blocked => ("▲", t.amber),
-                    ToastTone::Done => ("⚑", t.flag),
-                    ToastTone::Error => ("✕", t.red),
-                    ToastTone::Info => ("●", t.text_3),
-                };
-                let id = toast.id;
-                let agent = toast.agent.clone();
-                let opens_settings = toast.opens_settings;
-                let blocked = toast.tone == ToastTone::Blocked;
-                let mut shadow = t.drop_shadow();
-                if blocked {
-                    shadow.extend(t.amber_glow(22., -6.));
-                }
-                // `.toast`: padding 10 8 10 12 around a 1 px ring (the
-                // border here, so 1 px less padding).
-                let el = div()
-                    .id(("toast", id as usize))
-                    .flex()
-                    .items_start()
-                    .gap(px(10.))
-                    .pt(px(9.))
-                    .pb(px(9.))
-                    .pl(px(11.))
-                    .pr(px(7.))
-                    .rounded(RADIUS_LG)
-                    .bg(t.raised)
-                    .border_1()
-                    .border_color(if blocked {
-                        t.amber.opacity(0.55)
-                    } else {
-                        t.line_strong
-                    })
-                    .shadow(shadow)
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(px(14.))
-                            .flex()
-                            .justify_center()
-                            .text_color(color)
-                            .map(|d| {
-                                if toast.tone == ToastTone::Info {
-                                    d.mt(px(3.)).text_size(px(9.))
-                                } else {
-                                    d.mt(px(1.))
-                                }
-                            })
-                            .child(glyph),
-                    )
-                    .child(
-                        div()
-                            .id(("toast-body", id as usize))
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.toasts.retain(|t| t.id != id);
-                                if let Some(a) = &agent {
-                                    this.show_agent(a, window, cx);
-                                }
-                                if opens_settings {
-                                    window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
-                                }
-                                cx.notify();
-                            }))
-                            .child(
-                                label_t(toast.title.clone(), t.text, 13.5, 0.08)
-                                    .font_weight(FontWeight::BOLD),
-                            )
-                            .when_some(toast.detail.clone(), |d, det| {
-                                d.child(div().text_size(px(12.)).text_color(t.text_2).child(det))
-                            })
-                            .when(!toast.actions.is_empty(), |d| {
-                                d.child(div().flex().gap(px(6.)).pt(px(6.)).children(toast.actions.iter().enumerate().map(|(i, a)| {
-                                    let run = a.run.clone();
-                                    let kind = if a.primary { crate::kit::BtnKind::Small } else { crate::kit::BtnKind::GhostSm };
-                                    crate::kit::text_button(("toast-act", id as usize * 8 + i), a.label.clone(), kind, false, t)
-                                        .debug_selector(move || format!("toast-act-{i}"))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            this.toasts.retain(|t| t.id != id);
-                                            run(cx);
-                                            cx.notify();
-                                        }))
-                                })))
-                            }),
-                    )
-                    .child(
-                        crate::kit::glyph_btn(("toast-x", id as usize), "✕", t)
-                            .size(px(22.))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.toasts.retain(|t| t.id != id);
-                                cx.notify();
-                            })),
-                    );
-                crate::kit::motion::enter(("toast-in", id as usize), crate::kit::motion::Fx::TOAST, el)
-            }))
+        let place = div().absolute().right(px(14.)).bottom(px(STRIP_H + 12.));
+        let shown: Vec<Shown> = self.toasts.iter().map(Shown::of).collect();
+        let screen = cx.weak_entity();
+        if !crate::kit::pop::hosted(cx) {
+            return place.child(stack(&shown, t, &screen, false));
+        }
+        // Under Liquid Glass the stack is a pop-up above the window,
+        // hanging from the same corner; its window draws it from these
+        // values (nothing of the screen is read there).
+        if shown.is_empty() {
+            return place;
+        }
+        let stamp = shown.iter().fold(shown.len() as u64, |h, s| h.wrapping_mul(31).wrapping_add(s.id));
+        let build: passive::Build = std::rc::Rc::new(move |_, cx| {
+            stack(&shown, &passive::theme(cx), &screen, true).into_any_element()
+        });
+        place.child(passive::anchor("toasts", passive::Passive { at: None, pin: (1., 1.), clicks: true, stamp, build }))
     }
+}
+
+/// What a toast's button runs.
+type Run = std::rc::Rc<dyn Fn(&mut gpui::App)>;
+
+/// What a toast shows, as values: its stack may be drawn by a pop-up's
+/// window, which must not read the screen (`kit::passive`).
+#[derive(Clone)]
+struct Shown {
+    id: u64,
+    tone: ToastTone,
+    title: SharedString,
+    detail: Option<SharedString>,
+    agent: Option<String>,
+    opens_settings: bool,
+    /// Label, primary, what it runs.
+    actions: Vec<(SharedString, bool, Run)>,
+}
+
+impl Shown {
+    fn of(t: &Toast) -> Shown {
+        Shown {
+            id: t.id,
+            tone: t.tone,
+            title: t.title.clone(),
+            detail: t.detail.clone(),
+            agent: t.agent.clone(),
+            opens_settings: t.opens_settings,
+            actions: t.actions.iter().map(|a| (a.label.clone(), a.primary, a.run.clone())).collect(),
+        }
+    }
+}
+
+/// Change the screen from a toast's handler, in the screen's own window
+/// (the handler may run in the stack's pop-up). `inner`: a button on the
+/// toast, whose click isn't one on the toast.
+fn on_screen(
+    screen: &WeakEntity<MainScreen>,
+    inner: bool,
+    f: impl Fn(&mut MainScreen, &mut Window, &mut Context<MainScreen>) + 'static,
+) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static {
+    let (screen, f) = (screen.clone(), std::rc::Rc::new(f));
+    move |_, window, cx| {
+        if inner {
+            cx.stop_propagation();
+        }
+        let (screen, f) = (screen.clone(), f.clone());
+        passive::in_parent(window, cx, move |window, cx| {
+            let _ = screen.update(cx, |this, cx| {
+                f(this, window, cx);
+                cx.notify();
+            });
+        });
+    }
+}
+
+/// The stack of toasts, oldest on top. `glass`: in its pop-up, each toast
+/// a piece of glass (no shadow or glow of ours: they would show through
+/// it).
+fn stack(shown: &[Shown], t: &Theme, screen: &WeakEntity<MainScreen>, glass: bool) -> gpui::Div {
+    div().flex().flex_col().gap(px(8.)).w(px(320.)).children(shown.iter().map(|toast| {
+        let (glyph, color) = match toast.tone {
+            ToastTone::Blocked => ("▲", t.amber),
+            ToastTone::Done => ("⚑", t.flag),
+            ToastTone::Error => ("✕", t.red),
+            ToastTone::Info => ("●", t.text_3),
+        };
+        let id = toast.id;
+        let agent = toast.agent.clone();
+        let opens_settings = toast.opens_settings;
+        let blocked = toast.tone == ToastTone::Blocked;
+        let line = if glass { t.g.line_strong } else { t.line_strong };
+        // `.toast`: padding 10 8 10 12 around a 1 px ring (the
+        // border here, so 1 px less padding).
+        let el = div()
+            .id(("toast", id as usize))
+            .flex()
+            .items_start()
+            .gap(px(10.))
+            .pt(px(9.))
+            .pb(px(9.))
+            .pl(px(11.))
+            .pr(px(7.))
+            .rounded(RADIUS_LG)
+            .border_1()
+            .border_color(if blocked { t.amber.opacity(0.55) } else { line })
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(14.))
+                    .flex()
+                    .justify_center()
+                    .text_color(color)
+                    .map(|d| {
+                        if toast.tone == ToastTone::Info {
+                            d.mt(px(3.)).text_size(px(9.))
+                        } else {
+                            d.mt(px(1.))
+                        }
+                    })
+                    .child(glyph),
+            )
+            .child(
+                div()
+                    .id(("toast-body", id as usize))
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .cursor_pointer()
+                    // (GPUI's cursors are the key window's: a pop-up
+                    // tells the system itself.)
+                    .when(glass, |d| d.on_hover(|over, _, _| crate::platform::float_cursor(*over)))
+                    .on_click(on_screen(screen, false, move |this, window, cx| {
+                        this.toasts.retain(|t| t.id != id);
+                        if let Some(a) = &agent {
+                            this.show_agent(a, window, cx);
+                        }
+                        if opens_settings {
+                            window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                        }
+                    }))
+                    .child(label_t(toast.title.clone(), t.text, 13.5, 0.08).font_weight(FontWeight::BOLD))
+                    .when_some(toast.detail.clone(), |d, det| {
+                        d.child(div().text_size(px(12.)).text_color(t.text_2).child(det))
+                    })
+                    .when(!toast.actions.is_empty(), |d| {
+                        d.child(div().flex().gap(px(6.)).pt(px(6.)).children(toast.actions.iter().enumerate().map(
+                            |(i, (label, primary, run))| {
+                                let run = run.clone();
+                                let kind = if *primary { crate::kit::BtnKind::Small } else { crate::kit::BtnKind::GhostSm };
+                                crate::kit::text_button(("toast-act", id as usize * 8 + i), label.clone(), kind, false, t)
+                                    .debug_selector(move || format!("toast-act-{i}"))
+                                    .on_click(on_screen(screen, true, move |this, _, cx| {
+                                        this.toasts.retain(|t| t.id != id);
+                                        run(cx);
+                                    }))
+                            },
+                        )))
+                    }),
+            )
+            .child(
+                crate::kit::glyph_btn(("toast-x", id as usize), "✕", t)
+                    .size(px(22.))
+                    .on_click(on_screen(screen, false, move |this, _, _| this.toasts.retain(|t| t.id != id))),
+            );
+        let fx = crate::kit::motion::Fx::TOAST;
+        if glass {
+            // The toast's own border is its hairline.
+            return passive::panel(RADIUS_LG.into(), el)
+                .ring(gpui::transparent_black())
+                .enter(("toast-in", id as usize), fx)
+                .into_any_element();
+        }
+        let mut shadow = t.drop_shadow();
+        if blocked {
+            shadow.extend(t.amber_glow(22., -6.));
+        }
+        crate::kit::motion::enter(("toast-in", id as usize), fx, el.bg(t.raised).shadow(shadow)).into_any_element()
+    }))
 }
 
 /// A macOS privacy refusal in an error's text (`isAccessError`:

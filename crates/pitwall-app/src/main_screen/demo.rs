@@ -322,6 +322,32 @@ impl MainScreen {
                     self.toast(t, cx);
                 }
             }
+            // `toast <kind>`: one toast of that kind (the first agent's);
+            // `toast clear`: none.
+            w if w.starts_with("toast ") => {
+                use super::strip::{Toast, ToastAction};
+                let (id, name) = self.agents(cx).first().map(|a| (a.id.clone(), a.name.clone())).unwrap_or_default();
+                let toast = match w["toast ".len()..].trim() {
+                    "blocked" => {
+                        let mut t = Toast::blocked(format!("{name} needs you"), id);
+                        t.detail = Some("Bash: pnpm test --run src/cart".into());
+                        t
+                    }
+                    "done" => Toast::done(format!("{name} is done"), id),
+                    "error" => Toast::error("Couldn't open the worktree".into(), "fatal: not a git repository".into()),
+                    "ask" => {
+                        let act = |label: &str, primary| ToastAction { label: label.to_string().into(), primary, run: std::rc::Rc::new(|_| eprintln!("pitwall-demo: toast answered")) };
+                        Toast::ask("demo".into(), "studio is on your tailnet".into(), Some("Show its agents here?".into()), vec![act("Show", true), act("Not now", false)])
+                    }
+                    "clear" => {
+                        self.toasts.clear();
+                        cx.notify();
+                        return;
+                    }
+                    _ => Toast::info("The All space stays in the main window", Some("Other spaces can move to a window of their own.".into())),
+                };
+                self.toast(toast, cx);
+            }
             "bring" => {
                 self.demo_elsewhere(cx);
                 self.elsewhere.bring = self.elsewhere.rows.first().cloned();

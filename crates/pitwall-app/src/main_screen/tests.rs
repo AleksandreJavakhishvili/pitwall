@@ -115,6 +115,54 @@ fn under_liquid_glass_the_menu_is_a_pop_up_with_the_keyboard(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn under_liquid_glass_the_toasts_are_one_pop_up_without_the_keyboard(cx: &mut TestAppContext) {
+    use crate::kit::pop::PAD;
+    let (view, _, cx) = screen(cx);
+    liquid_glass(cx);
+    cx.run_until_parked();
+    let open = |cx: &mut VisualTestContext| cx.update(|window, cx| crate::kit::passive::test_over(window, cx));
+    assert!(open(cx).is_empty(), "no toast: no pop-up");
+    let before = cx.update(|window, cx| window.focused(cx));
+    let id = view.read_with(cx, |s, cx| s.agents(cx)[1].id.clone());
+    view.update(cx, |s, cx| {
+        s.toast(Toast::info("Saved", None), cx);
+        s.toast(Toast::done("web is done".into(), id.clone()), cx);
+    });
+    crate::kit::passive::test_draw(cx);
+    let stack = open(cx);
+    assert_eq!(stack.len(), 1, "one window for the whole stack");
+    assert!(pops(cx).is_empty(), "and not one that takes the keyboard");
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before);
+    cx.update(|window, _| assert!(!crate::kit::pop::over(window)));
+    // The screen's window is still its own.
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+
+    let click = |x: f32, y: f32, cx: &mut VisualTestContext| {
+        cx.update_window(stack[0], |_, window, cx| {
+            let position = gpui::point(px(x), px(y));
+            let (button, modifiers) = (gpui::MouseButton::Left, gpui::Modifiers::default());
+            window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position, button, modifiers, click_count: 1 }), cx);
+        })
+        .unwrap();
+        crate::kit::passive::test_draw(cx);
+    };
+    // The first toast's text (wherever its opening has moved it to by
+    // now): it goes, having nothing to show.
+    click(PAD + 100., PAD + 20., cx);
+    assert_eq!(view.read_with(cx, |s, _| s.toast_titles()), ["web is done"]);
+    assert_eq!(open(cx).len(), 1, "the same pop-up, with what is left");
+    // The other one's text, now on top: its agent shows, in the screen's window.
+    click(PAD + 100., PAD + 20., cx);
+    view.read_with(cx, |s, _| {
+        assert!(s.toast_titles().is_empty());
+        assert_eq!(s.cursor.as_deref(), Some(id.as_str()), "a click jumps to the agent");
+    });
+    assert!(open(cx).is_empty(), "the last toast went: so did the pop-up");
+}
+
+#[gpui::test]
 fn first_run_places_the_first_agent_and_shows_on_click(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
     view.update(cx, |s, _| {
