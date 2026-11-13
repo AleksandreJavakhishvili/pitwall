@@ -24,6 +24,15 @@ use gpui::{Bounds, Pixels};
 use crate::theme::{GlassOffer, GlassTier, OsPrefs};
 use crate::theme::Mode;
 
+/// A window that is one slab of native glass ([`slab`]).
+#[derive(Clone, Copy)]
+pub struct Slab {
+    /// How far in from the window's edges it sits.
+    pub inset: f32,
+    pub radius: f32,
+    pub mode: Mode,
+}
+
 /// The best this OS offers without an override.
 pub fn default_offer() -> GlassOffer {
     if cfg!(target_os = "macos") {
@@ -63,7 +72,7 @@ pub fn background_for(tier: Option<GlassTier>) -> WindowBackgroundAppearance {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{apply, drop_owner, liquid_available, os_prefs, sweep_regions, sync_region};
+pub use mac::{apply, drop_owner, liquid_available, os_prefs, slab, sweep_regions, sync_region};
 
 #[cfg(windows)]
 pub use win::{apply, os_prefs};
@@ -72,6 +81,10 @@ pub use win::{apply, os_prefs};
 pub fn liquid_available() -> bool {
     false
 }
+
+/// No native glass slab here.
+#[cfg(not(target_os = "macos"))]
+pub fn slab(_: &Window, _: Option<Slab>) {}
 
 /// No native pieces here: only the bookkeeping (what tests read).
 #[cfg(not(target_os = "macos"))]
@@ -463,6 +476,61 @@ mod mac {
                 _ => {}
             }
             let _ = gpui_view;
+        });
+    }
+
+    thread_local! {
+        static SLABS: RefCell<HashMap<WindowId, Retained<NSGlassEffectView>>> = RefCell::new(HashMap::new());
+    }
+
+    /// A small window that is one slab of Liquid Glass (the floating
+    /// control): a glass piece under GPUI's view, `inset` in from the
+    /// window's edges and following its size. It bends and blurs whatever
+    /// is behind the window, other apps included. `None` takes it away (do
+    /// that before the window closes). GPUI paints over it: leave the
+    /// window clear, or lay a translucent fill of the theme's own colour
+    /// (the glass takes its lightness from what is behind it, so content
+    /// drawn straight on it can't be read over a white page).
+    pub fn slab(window: &Window, glass: Option<super::Slab>) {
+        let wid = Window::window_handle(window).window_id();
+        let Some(super::Slab { inset, radius, mode }) = glass.filter(|_| liquid_available()) else {
+            if let Some(v) = SLABS.with_borrow_mut(|all| all.remove(&wid)) {
+                v.removeFromSuperview();
+            }
+            return;
+        };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some((gpui_view, content)) = views(window) else {
+            return;
+        };
+        SLABS.with_borrow_mut(|all| {
+            let v = all.entry(wid).or_insert_with(|| {
+                let b = content.bounds();
+                let inset = f64::from(inset);
+                let frame = NSRect::new(
+                    NSPoint::new(inset, inset),
+                    NSSize::new((b.size.width - 2. * inset).max(0.), (b.size.height - 2. * inset).max(0.)),
+                );
+                let v = new_glass(mtm, frame);
+                v.setAutoresizingMask(
+                    NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                content.addSubview_positioned_relativeTo(&v, NSWindowOrderingMode::Below, Some(&gpui_view));
+                v
+            });
+            if v.cornerRadius() != f64::from(radius) {
+                v.setCornerRadius(f64::from(radius));
+            }
+            // SAFETY: AppKit's appearance name constants.
+            let name = unsafe {
+                match mode {
+                    Mode::Dark => NSAppearanceNameDarkAqua,
+                    Mode::Light => NSAppearanceNameAqua,
+                }
+            };
+            v.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
         });
     }
 
