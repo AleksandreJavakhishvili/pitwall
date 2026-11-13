@@ -258,6 +258,14 @@ impl MainView {
             });
             return;
         }
+        // `notice <text>`: the explorer's notice, to look at.
+        if let Some(text) = cmd.strip_prefix("notice ") {
+            if let Some(e) = &self.explorer {
+                let text = text.trim().to_string();
+                e.update(cx, |e, cx| e.demo_notice(text, cx));
+            }
+            return;
+        }
         let mut words = cmd.split_whitespace();
         let (Some(what), arg) = (words.next(), words.next()) else {
             return;
