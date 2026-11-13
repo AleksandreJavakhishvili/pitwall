@@ -288,6 +288,15 @@ impl MainScreen {
                 }
             }
             "terminal" => self.open_terminal_dialog(window, cx),
+            // `review-prompt`, `review-discard`: Review's dialogs (in Review).
+            w if w.starts_with("review-") => {
+                let route = self.route_view_of(super::Route::Review).and_then(|v| v.downcast::<crate::review::ReviewRoute>().ok());
+                let view = route.and_then(|r| r.read(cx).view().cloned());
+                if let Some(view) = view {
+                    let what = w["review-".len()..].to_string();
+                    view.update(cx, |v, cx| v.demo_dialog(&what, window, cx));
+                }
+            }
             // `project-accounts <folder>`: that project's Accounts… dialog.
             w if w.starts_with("project-accounts ") => {
                 let folder = w["project-accounts ".len()..].trim().to_string();

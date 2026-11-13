@@ -683,3 +683,60 @@ fn a_long_list_builds_only_the_rows_on_screen(cx: &mut TestAppContext) {
     let n = built(cx) - before;
     assert!(n <= 120, "picking a file built {n} file rows");
 }
+
+/// Under Liquid Glass with pop-ups a Review dialog's box is one: its
+/// text field takes typing there, and Esc in it closes the dialog.
+#[gpui::test]
+fn under_liquid_glass_a_dialog_is_a_pop_up_with_its_text_field(cx: &mut TestAppContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    let r = Repo::new();
+    r.write("a.txt", "1\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let h = Harness::new(vec![record("agent-2", r.path())]);
+    let (view, cx) = open(cx, &h);
+    cx.update(|_, cx| {
+        crate::kit::init(cx);
+        let ap = Appearance::resolve(
+            Inputs { look: Look::Glass, ..Inputs::default() },
+            gpui::WindowAppearance::Dark,
+            GlassOffer::Liquid,
+            OsPrefs::default(),
+        );
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let pops = |cx: &mut VisualTestContext| {
+        let all = cx.windows();
+        crate::kit::pop::open_pops()
+            .into_iter()
+            .filter(|(_, p, _)| p.window_id() == parent)
+            .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+            .collect::<Vec<_>>()
+    };
+    view.update_in(cx, |v, window, cx| v.demo_dialog("prompt", window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the dialog's pop-up");
+    let field = view.read_with(cx, |v, _| match v.dialog.as_ref() {
+        Some(Dialog::Prompt { field, .. }) => field.clone(),
+        _ => panic!("the prompt dialog"),
+    });
+    let before = field.read_with(cx, |f, _| f.text().to_string());
+    cx.update_window(open[0], |_, window, cx| {
+        for k in ["o", "k"] {
+            window.dispatch_keystroke(gpui::Keystroke::parse(k).unwrap(), cx);
+        }
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(field.read_with(cx, |f, _| f.text().to_string()), format!("{before}ok"), "typed in the pop-up");
+    // The dialog is still Review's, in Review's window.
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+    cx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.dialog.is_none()), "Esc closed it");
+    assert!(pops(cx).is_empty());
+}
