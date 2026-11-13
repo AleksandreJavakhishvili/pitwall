@@ -298,13 +298,47 @@ pub fn pop_parent(window: &gpui::Window) -> Option<PopParent> {
     ns_window(window).map(PopParent)
 }
 
-/// A new pop-up: no shadow or title bar line of the system's.
+/// A new pop-up: no shadow or title bar line of the system's, and never
+/// the main window.
 #[cfg_attr(test, allow(dead_code))]
 pub fn pop_setup(window: &gpui::Window) {
     no_shadow(window);
     if let Some(w) = ns_window(window) {
+        pops_never_main();
         POPS.with_borrow_mut(|all| all.insert(pop_key(&w)));
     }
+}
+
+/// A pop-up takes the keyboard without becoming the main window: its
+/// parent stays that, and keeps its active look (title bar, traffic
+/// lights). GPUI's windows all answer yes to `canBecomeMainWindow`, and
+/// AppKit makes a window that can be main the main one when it becomes
+/// key. So the answer of GPUI's panel class (pop-ups are panels) is
+/// replaced, once, by one that says no for a window in [`POPS`] and yes
+/// for any other, as before. (Not a subclass set on the pop-up: AppKit
+/// observes its windows by key path, which changing an object's class
+/// breaks.)
+fn pops_never_main() {
+    use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
+    use objc2::sel;
+    use std::sync::Once;
+    extern "C-unwind" fn can_be_main(this: &AnyObject, _: Sel) -> Bool {
+        let pop = POPS.with_borrow(|all| all.contains(&(std::ptr::from_ref(this) as usize)));
+        Bool::new(!pop)
+    }
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let Some(method) = AnyClass::get(c"GPUIPanel").and_then(|c| c.instance_method(sel!(canBecomeMainWindow))) else {
+            return;
+        };
+        // SAFETY: the same signature as the method it replaces (no
+        // arguments, a BOOL back); called by AppKit on the main thread,
+        // where `POPS` lives.
+        unsafe {
+            let imp: Imp = std::mem::transmute(can_be_main as extern "C-unwind" fn(&AnyObject, Sel) -> Bool);
+            method.set_implementation(imp);
+        }
+    });
 }
 
 /// The parent's content area on screen (AppKit's coordinates: from the
