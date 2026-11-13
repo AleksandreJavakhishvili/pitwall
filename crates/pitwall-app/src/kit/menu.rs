@@ -14,15 +14,13 @@ use super::icons::icon;
 /// `.menu`: the panel (draw with [`Theme::float`]); open it with
 /// [`super::motion::Fx::MENU`].
 pub fn menu_panel(t: &Theme) -> Div {
-    div()
-        .min_w(px(190.))
-        .p(px(4.))
-        .flex()
-        .flex_col()
-        .font_family(UI_FONT)
-        .rounded(RADIUS)
-        .bg(t.raised)
-        .shadow(t.float_shadow())
+    menu_body().rounded(RADIUS).bg(t.raised).shadow(t.float_shadow())
+}
+
+/// The panel without its surface: a menu in a glass pop-up
+/// ([`super::pop`]), which is the surface.
+pub fn menu_body() -> Div {
+    div().min_w(px(190.)).p(px(4.)).flex().flex_col().font_family(UI_FONT)
 }
 
 /// `.menu-item`: icon (or an empty 16 px column), label, optional hint.

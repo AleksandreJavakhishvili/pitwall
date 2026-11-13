@@ -240,7 +240,7 @@ impl MainScreen {
                 }
             });
         });
-        let spec = pop::Pop { at: Some(m.at), radius: f32::from(RADIUS), focus: Some(m.focus.clone()), build, on_dismiss };
+        let spec = pop::Pop { at: Some(m.at), radius: pop::MENU_RADIUS, focus: Some(m.focus.clone()), build, on_dismiss };
         Some(pop::anchor(("ctx-menu-pop", serial), spec).into_any_element())
     }
 

@@ -57,6 +57,9 @@ use crate::theme::{self, Theme};
 /// Clear space around the panel inside its window, for the hairline
 /// around it and the glass's own edge. A press there is a press outside.
 pub const PAD: f32 = 8.;
+/// A menu's corners on glass (its rows' 4 px inside its 4 px of padding;
+/// the window's own menus are a little rounder still).
+pub const MENU_RADIUS: f32 = 8.;
 /// The gap kept to the screen's edges.
 const MARGIN: f32 = 4.;
 /// How much of the theme's own surface is laid over the glass (see
@@ -156,8 +159,11 @@ struct Shared {
     at: Point<Pixels>,
     view: Option<WeakEntity<PopView>>,
     /// Closed (dismissed, or a row was picked) while its anchor may still
-    /// be drawn: not opened again for this anchor.
+    /// be drawn.
     closed: bool,
+    /// The owner has heard of that. An anchor it still draws after it
+    /// did wants its surface open: it gets a new pop-up.
+    told: bool,
 }
 
 struct Entry {
@@ -207,21 +213,25 @@ pub fn pick(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut Window, &mut 
     match parent_of(window) {
         None => f(window, cx),
         Some(parent) => {
-            shut(window, cx);
+            let shared = shut(window, cx);
             cx.defer(move |cx| {
                 let _ = parent.update(cx, |_, window, cx| f(window, cx));
+                if let Some(s) = shared {
+                    s.borrow_mut().told = true;
+                }
             });
         }
     }
 }
 
 /// Close the pop-up `window` (nothing when it isn't one, or is closed).
-fn shut(window: &mut Window, cx: &mut App) {
-    let Some(entry) = OPEN.with_borrow_mut(|all| all.remove(&id_of(window))) else { return };
+fn shut(window: &mut Window, cx: &mut App) -> Option<Rc<RefCell<Shared>>> {
+    let entry = OPEN.with_borrow_mut(|all| all.remove(&id_of(window)))?;
     entry.shared.borrow_mut().closed = true;
     platform::glass::slab(window, None);
     platform::pop_close(window, cx);
     window.remove_window();
+    Some(entry.shared)
 }
 
 /// `PITWALL_POP_LOG=1`: how long a pop-up takes to open, on stderr.
@@ -329,7 +339,12 @@ impl Element for Anchor {
         let at = pop.at.unwrap_or(bounds.origin);
         let parent = window.window_handle();
         window.with_element_state::<Held, _>(id, |held, _| {
-            let held = match held {
+            // Closed, the owner knows, and here it is drawn again.
+            let again = |h: &Held| {
+                let s = h.shared.borrow();
+                s.closed && s.told
+            };
+            let held = match held.filter(|h| !again(h)) {
                 Some(held) => {
                     let view = {
                         let mut s = held.shared.borrow_mut();
@@ -344,7 +359,7 @@ impl Element for Anchor {
                     held
                 }
                 None => {
-                    let shared = Rc::new(RefCell::new(Shared { pop, at, view: None, closed: false }));
+                    let shared = Rc::new(RefCell::new(Shared { pop, at, view: None, closed: false, told: false }));
                     let token = cx.new(|_| Token);
                     let (s, weak, asked) = (shared.clone(), token.downgrade(), std::time::Instant::now());
                     // Once this frame is drawn: a window can't be opened
@@ -419,6 +434,7 @@ fn open(
                 s.pop.on_dismiss.clone()
             };
             let _ = parent.update(cx, |_, window, cx| on(window, cx));
+            shared.borrow_mut().told = true;
         }
     }
 }
@@ -451,7 +467,9 @@ impl PopView {
     ) -> PopView {
         let subs = [
             // The anchor isn't drawn any more.
-            cx.observe_release_in(token, window, |_, _, window, cx| shut(window, cx)),
+            cx.observe_release_in(token, window, |_, _, window, cx| {
+                shut(window, cx);
+            }),
             cx.observe_window_activation(window, |this, window, cx| {
                 let has = window.is_window_active();
                 log(|| format!("has the keyboard: {has}"));
@@ -482,10 +500,11 @@ impl PopView {
         }
         log(|| format!("closed: {why:?}"));
         let on = self.shared.borrow().pop.on_dismiss.clone();
-        let parent = self.parent;
+        let (parent, shared) = (self.parent, self.shared.clone());
         shut(window, cx);
         cx.defer(move |cx| {
             let _ = parent.update(cx, |_, window, cx| on(window, cx));
+            shared.borrow_mut().told = true;
         });
     }
 }
@@ -820,6 +839,13 @@ mod tests {
         assert_eq!(ran.get(), Some(parent));
         assert!(pops(cx).is_empty(), "closed, though its anchor is still drawn");
         assert_eq!(view.read_with(cx, |o, _| o.dismissed), 0, "a pick is not a dismissal");
+        // An owner that keeps its surface open after a pick (it draws the
+        // anchor again) gets a new pop-up.
+        view.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        let again = pops(cx);
+        assert_eq!(again.len(), 1);
+        assert_ne!(again[0].0.window_id(), pop.window_id());
         // Drawn in the window itself (not hosted): the pick runs there, now.
         let r = ran.clone();
         r.set(None);
