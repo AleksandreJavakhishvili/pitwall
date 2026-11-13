@@ -35,6 +35,7 @@ pub mod logos;
 pub mod menu;
 pub mod modal;
 pub mod motion;
+pub mod passive;
 pub mod pop;
 pub mod scm;
 pub mod scrollbar;

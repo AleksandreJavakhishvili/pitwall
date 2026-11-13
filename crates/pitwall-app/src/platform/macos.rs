@@ -460,6 +460,119 @@ pub fn pop_close(window: &gpui::Window, cx: &mut gpui::App) {
     .detach();
 }
 
+/// Put a passive pop-up (`kit::passive`: a toast stack, a tooltip, a
+/// hover) at (`x`, `y`, `width`, `height`) of its parent's content and
+/// show it as the parent's child. Unlike [`pop_place`] it never takes the
+/// keyboard: it is a panel that becomes key only if needed, and nothing
+/// in it needs it (what the mouse does in it: [`passive_through`]). It
+/// sits at its parent's level, on its parent's Space, and stays when the
+/// app isn't the active one: it is part of the window, not a thing above
+/// the others.
+#[cfg_attr(test, allow(dead_code))]
+pub fn passive_place(window: &gpui::Window, parent: &PopParent, (x, y, width, height): (f32, f32, f32, f32), cx: &mut gpui::App) {
+    use objc2_app_kit::{NSWindowCollectionBehavior, NSWindowOrderingMode, NSWindowStyleMask};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let Some(w) = ns_window(window) else { return };
+    never_key(window);
+    let parent = parent.0.clone();
+    cx.spawn(async move |_| {
+        if !POPS.with_borrow(|all| all.contains(&pop_key(&w))) {
+            return;
+        }
+        let c = content_rect(&parent);
+        let frame = NSRect::new(
+            NSPoint::new(c.origin.x + f64::from(x), c.origin.y + c.size.height - f64::from(y) - f64::from(height)),
+            NSSize::new(f64::from(width), f64::from(height)),
+        );
+        // (See `pop_place` for the bare style.)
+        let bare = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
+        if w.styleMask() != bare {
+            w.setStyleMask(bare);
+        }
+        if w.hidesOnDeactivate() {
+            w.setHidesOnDeactivate(false);
+        }
+        // GPUI's pop-ups float above every app, on every Space.
+        if w.level() != parent.level() {
+            w.setLevel(parent.level());
+        }
+        let spaces = parent.collectionBehavior() & NSWindowCollectionBehavior::CanJoinAllSpaces;
+        let behavior = NSWindowCollectionBehavior::FullScreenAuxiliary | spaces;
+        if w.collectionBehavior() != behavior {
+            w.setCollectionBehavior(behavior);
+        }
+        if w.frame() != frame {
+            w.setFrame_display(frame, true);
+        }
+        if w.parentWindow().is_none() {
+            // SAFETY: both are live windows, on the main thread; the
+            // parent lets go of its child in `pop_close`.
+            unsafe { parent.addChildWindow_ordered(&w, NSWindowOrderingMode::Above) };
+        }
+    })
+    .detach();
+}
+
+/// Whether the mouse goes through a passive pop-up to what is under it
+/// (the window server asks nothing of the app for a window that ignores
+/// the mouse: its clear parts would take clicks otherwise).
+#[cfg_attr(test, allow(dead_code))]
+pub fn passive_through(window: &gpui::Window, through: bool) {
+    if let Some(w) = ns_window(window) {
+        if w.ignoresMouseEvents() != through {
+            w.setIgnoresMouseEvents(through);
+        }
+    }
+}
+
+/// Where the pointer is, in points from the window's top left (it may be
+/// outside it, and the window needn't get the mouse's events).
+#[cfg_attr(test, allow(dead_code))]
+pub fn passive_pointer(window: &gpui::Window) -> Option<(f32, f32)> {
+    let w = ns_window(window)?;
+    let (at, f) = (objc2_app_kit::NSEvent::mouseLocation(), w.frame());
+    Some(((at.x - f.origin.x) as f32, (f.origin.y + f.size.height - at.y) as f32))
+}
+
+/// What AppKit says about a passive pop-up, for `kit::passive::debug`:
+/// [`pop_debug`], and which window a press at (`x`, `y`) of it (points
+/// from its top left) would go to.
+#[cfg_attr(test, allow(dead_code))]
+pub fn passive_debug(window: &gpui::Window, at: Option<(f32, f32)>) -> String {
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSPoint;
+    let Some(w) = ns_window(window) else { return "no native window".into() };
+    let mut out = format!(
+        "{}, ignores the mouse {}, hides when inactive {}",
+        pop_debug(window),
+        w.ignoresMouseEvents(),
+        w.hidesOnDeactivate()
+    );
+    if let Some((x, y)) = at {
+        let f = w.frame();
+        let p = NSPoint::new(f.origin.x + f64::from(x), f.origin.y + f.size.height - f64::from(y));
+        // SAFETY: an NSWindow class method and a property, on the main thread.
+        let (hit, own, parent): (isize, isize, isize) = unsafe {
+            let hit = msg_send![class!(NSWindow), windowNumberAtPoint: p, belowWindowWithWindowNumber: 0isize];
+            let own = msg_send![&*w, windowNumber];
+            let parent = match w.parentWindow() {
+                Some(p) => msg_send![&*p, windowNumber],
+                None => 0,
+            };
+            (hit, own, parent)
+        };
+        let who = if hit == own {
+            "the pop-up"
+        } else if hit == parent {
+            "its parent"
+        } else {
+            "another window"
+        };
+        out.push_str(&format!(", a press at ({x}, {y}) goes to {who}"));
+    }
+    out
+}
+
 /// Bounce the Dock icon until the app is activated (a new approval).
 pub fn request_attention() {
     if let Some(app) = app() {

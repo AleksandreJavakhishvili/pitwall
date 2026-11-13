@@ -236,6 +236,71 @@ impl MainView {
             crate::kit::pop::debug(what.trim(), cx);
             return;
         }
+        // `passive <what>`: look at the open passive pop-ups (toasts,
+        // tooltips, hovers: `kit::passive::debug`).
+        if let Some(what) = cmd.strip_prefix("passive ") {
+            crate::kit::passive::debug(what.trim(), cx);
+            return;
+        }
+        // Debug builds, `hover <x> <y>`: the pointer moves there, as far
+        // as this window knows (its tooltips and hovers, to look at; no
+        // pointer moves on the screen).
+        if let Some(at) = cmd.strip_prefix("hover ").filter(|_| cfg!(debug_assertions)) {
+            let mut at = at.split_whitespace().filter_map(|v| v.parse::<f32>().ok());
+            if let (Some(x), Some(y)) = (at.next(), at.next()) {
+                window.defer(cx, move |window, cx| {
+                    let event = gpui::MouseMoveEvent {
+                        position: gpui::point(gpui::px(x), gpui::px(y)),
+                        pressed_button: None,
+                        modifiers: gpui::Modifiers::default(),
+                    };
+                    window.dispatch_event(gpui::PlatformInput::MouseMove(event), cx);
+                });
+            }
+            return;
+        }
+        // Debug builds, `rclick <x> <y>`: a right click there, as far as
+        // this window knows (a context menu, to look at).
+        if let Some(at) = cmd.strip_prefix("rclick ").filter(|_| cfg!(debug_assertions)) {
+            let mut at = at.split_whitespace().filter_map(|v| v.parse::<f32>().ok());
+            if let (Some(x), Some(y)) = (at.next(), at.next()) {
+                window.defer(cx, move |window, cx| {
+                    let position = gpui::point(gpui::px(x), gpui::px(y));
+                    let (button, modifiers) = (gpui::MouseButton::Right, gpui::Modifiers::default());
+                    let down = gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false };
+                    window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                    let up = gpui::MouseUpEvent { position, button, modifiers, click_count: 1 };
+                    window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+                });
+            }
+            return;
+        }
+        // Debug builds, `key <keystroke>…`: keys to what has the keyboard
+        // in this window (through GPUI's dispatch: nothing is typed on
+        // the screen).
+        if let Some(keys) = cmd.strip_prefix("key ").filter(|_| cfg!(debug_assertions)) {
+            let keys: Vec<_> = keys
+                .split_whitespace()
+                .filter_map(|k| gpui::Keystroke::parse_with_os(k, gpui::OperatingSystem::Mac).ok())
+                .collect();
+            window.defer(cx, move |window, cx| {
+                for mut k in keys {
+                    if k.key.chars().count() == 1 && !k.modifiers.modified() {
+                        k.key_char = Some(k.key.clone());
+                    }
+                    window.dispatch_keystroke(k, cx);
+                }
+            });
+            return;
+        }
+        // `notice <text>`: the explorer's notice, to look at.
+        if let Some(text) = cmd.strip_prefix("notice ") {
+            if let Some(e) = &self.explorer {
+                let text = text.trim().to_string();
+                e.update(cx, |e, cx| e.demo_notice(text, cx));
+            }
+            return;
+        }
         let mut words = cmd.split_whitespace();
         let (Some(what), arg) = (words.next(), words.next()) else {
             return;

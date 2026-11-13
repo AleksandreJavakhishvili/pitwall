@@ -33,6 +33,24 @@ pub struct Slab {
     pub mode: Mode,
 }
 
+/// One piece of native glass in a window that holds several ([`pieces`]):
+/// a toast in the stack's window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Piece {
+    /// In the window, from its top left.
+    pub bounds: gpui::Bounds<gpui::Pixels>,
+    pub radius: f32,
+    /// 0..=1: fading in with what is drawn on it.
+    pub alpha: f32,
+}
+
+#[cfg(target_os = "macos")]
+pub use mac::pieces;
+
+/// No native glass pieces here.
+#[cfg(not(target_os = "macos"))]
+pub fn pieces(_: &Window, _: &[Piece], _: f32, _: Mode) {}
+
 /// The best this OS offers without an override.
 pub fn default_offer() -> GlassOffer {
     if cfg!(target_os = "macos") {
@@ -531,6 +549,73 @@ mod mac {
                 }
             };
             v.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
+        });
+    }
+
+    thread_local! {
+        static PIECES: RefCell<HashMap<WindowId, Vec<Retained<NSGlassEffectView>>>> = RefCell::new(HashMap::new());
+    }
+
+    /// A small clear window with any number of Liquid Glass pieces under
+    /// GPUI's view (a stack of toasts; a tooltip is a stack of one):
+    /// exactly `pieces` after the call, so none takes them all away (do
+    /// that before the window closes). `height` is the window's height
+    /// the bounds were laid out for (it may be on its way to that size:
+    /// the pieces keep their distance to the bottom edge meanwhile).
+    /// GPUI paints over them as over a [`slab`].
+    pub fn pieces(window: &Window, pieces: &[super::Piece], height: f32, mode: Mode) {
+        let wid = Window::window_handle(window).window_id();
+        if pieces.is_empty() || !liquid_available() {
+            if let Some(all) = PIECES.with_borrow_mut(|all| all.remove(&wid)) {
+                for v in all {
+                    v.removeFromSuperview();
+                }
+            }
+            return;
+        }
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some((gpui_view, content)) = views(window) else {
+            return;
+        };
+        // SAFETY: AppKit's appearance name constants.
+        let name = unsafe {
+            match mode {
+                Mode::Dark => NSAppearanceNameDarkAqua,
+                Mode::Light => NSAppearanceNameAqua,
+            }
+        };
+        let appearance = NSAppearance::appearanceNamed(name);
+        PIECES.with_borrow_mut(|all| {
+            let views = all.entry(wid).or_default();
+            for v in views.drain(pieces.len().min(views.len())..) {
+                v.removeFromSuperview();
+            }
+            for (i, p) in pieces.iter().enumerate() {
+                let b = p.bounds;
+                let frame = NSRect::new(
+                    NSPoint::new(f64::from(f32::from(b.origin.x)), f64::from(height - f32::from(b.origin.y + b.size.height))),
+                    NSSize::new(f64::from(f32::from(b.size.width)), f64::from(f32::from(b.size.height))),
+                );
+                if i == views.len() {
+                    let v = new_glass(mtm, frame);
+                    content.addSubview_positioned_relativeTo(&v, NSWindowOrderingMode::Below, Some(&gpui_view));
+                    views.push(v);
+                }
+                let v = &views[i];
+                if v.frame() != frame {
+                    v.setFrame(frame);
+                }
+                if v.cornerRadius() != f64::from(p.radius) {
+                    v.setCornerRadius(f64::from(p.radius));
+                }
+                let alpha = f64::from(p.alpha.clamp(0., 1.));
+                if v.alphaValue() != alpha {
+                    v.setAlphaValue(alpha);
+                }
+                v.setAppearance(appearance.as_deref());
+            }
         });
     }
 

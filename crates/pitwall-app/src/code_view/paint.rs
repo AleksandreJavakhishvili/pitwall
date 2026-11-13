@@ -961,7 +961,6 @@ impl CodeView {
                         at: e.position,
                         line,
                         active: None,
-                        focus: cx.focus_handle(),
                     });
                     cx.notify();
                     return;
@@ -1499,9 +1498,41 @@ pub(super) fn overlays(
         );
     }
 
+    // Under Liquid Glass the hover and the hint are glass pop-ups above
+    // the window (`kit::passive`), at the same places; clicks go through
+    // them as they do here.
+    let hosted = crate::kit::pop::hosted(cx);
+    let pop_up = |id: &'static str,
+                  (left, top): (Pixels, Pixels),
+                  ring: Option<Hsla>,
+                  text: SharedString,
+                  body: fn() -> gpui::Div| {
+        use crate::kit::passive;
+        let stamp = passive::stamp_of(&text);
+        let build: passive::Build = std::rc::Rc::new(move |_, cx| {
+            let body = body().text_color(passive::theme(cx).text).child(text.clone());
+            let panel = passive::panel(3., body);
+            match ring {
+                Some(ring) => panel.ring(ring),
+                None => panel,
+            }
+            .into_any_element()
+        });
+        let spec = passive::Passive { at: None, pin: (0., 0.), clicks: false, stamp, build };
+        div().absolute().left(left).top(top).child(passive::anchor(id, spec)).into_any_element()
+    };
+
     // The comment's text, next to its mark.
     if let Some((line, at)) = v.hover_comment {
-        if let Some(text) = v.comments.get(&line) {
+        if let Some(text) = v.comments.get(&line).filter(|_| hosted) {
+            out.push(pop_up(
+                "code-comment-pop",
+                (at.x - origin.x, at.y - origin.y - px(LINE_H / 2. + 1.)),
+                None,
+                text.clone().into(),
+                || ui_text().max_w(px(500.)).px(px(8.)).py(px(3.)).text_size(px(13.)).line_height(px(19.)),
+            ));
+        } else if let Some(text) = v.comments.get(&line) {
             out.push(
                 ui_text()
                     .absolute()
@@ -1525,7 +1556,15 @@ pub(super) fn overlays(
     }
 
     // "Read-only…" where the cursor is.
-    if let Some(at) = v.readonly_at {
+    if let Some(at) = v.readonly_at.filter(|_| hosted) {
+        out.push(pop_up(
+            "code-readonly-pop",
+            ((at.x - origin.x - px(6.)).max(px(0.)), (at.y - origin.y - px(26.)).max(px(0.))),
+            Some(c.focus),
+            v.readonly_text.clone(),
+            || ui_text().px(px(8.)).py(px(2.)).text_size(px(12.)),
+        ));
+    } else if let Some(at) = v.readonly_at {
         out.push(
             ui_text()
                 .absolute()
@@ -1543,73 +1582,135 @@ pub(super) fn overlays(
         );
     }
 
-    // The context menu. Under Liquid Glass: a glass pop-up above the
-    // window (`kit::pop`), with the keyboard: ↑/↓, ⏎ and Esc work in it.
-    // (A view that is itself in a pop-up draws its menu there.)
-    if let Some(menu) = v.menu.as_ref() {
+    // The context menu. Under Liquid Glass: a glass pop-up with the
+    // keyboard (`kit::pop`), built from what the menu holds now; its
+    // handlers reach the view when they run.
+    if let Some(menu) = v.menu.as_ref().filter(|_| hosted) {
+        use crate::kit::pop;
         let items = menu_items(menu.line.is_some() && v.commentable);
-        let (at, active, this) = (menu.at, menu.active, cx.weak_entity());
-        if crate::kit::pop::hosted(cx) && crate::kit::pop::parent_of(window).is_none() {
-            let (closer, focus) = (this.clone(), menu.focus.clone());
-            let build: crate::kit::pop::Build = std::rc::Rc::new(move |_: &mut Window, cx: &mut gpui::App| {
-                let hover = crate::kit::pop::theme(cx).surface_3;
-                let keys = this.clone();
-                menu_rows(&items, active, hover, hover, &this)
+        let (active, focus, view) = (menu.active, v.menu_focus.clone(), cx.weak_entity());
+        let build: pop::Build = {
+            let focus = focus.clone();
+            std::rc::Rc::new(move |_, cx| {
+                let t = pop::theme(cx);
+                let keys = view.clone();
+                let mut list = ui_text()
+                    .id("code-menu")
                     .track_focus(&focus)
-                    .on_key_down(move |e, window, cx| {
-                        let step = match e.keystroke.key.as_str() {
-                            "down" => 1,
-                            "up" => -1,
-                            "enter" | "space" => {
-                                let (keys, Some(a)) = (keys.clone(), active) else { return };
-                                return crate::kit::pop::pick(window, cx, move |_, cx| {
-                                    let _ = keys.update(cx, |v, cx| v.run_menu(a, cx));
-                                });
-                            }
-                            _ => return,
-                        };
+                    .on_key_down(move |e: &gpui::KeyDownEvent, _, cx| {
+                        let _ = keys.update(cx, |v, cx| v.menu_key(e.keystroke.key.as_str(), cx));
                         cx.stop_propagation();
-                        let _ = keys.update(cx, |v, cx| v.menu_step(step, cx));
                     })
-                    .into_any_element()
-            });
-            // Esc, a press outside, the keyboard gone elsewhere (not the
-            // right click that opened the menu again at another place).
-            let on_dismiss: crate::kit::pop::OnDismiss = std::rc::Rc::new(move |_: &mut Window, cx: &mut gpui::App| {
-                let _ = closer.update(cx, |v, cx| {
-                    if v.menu.as_ref().is_some_and(|m| m.at == at) {
-                        v.menu = None;
+                    .min_w(px(180.))
+                    .py(px(4.))
+                    .text_color(t.text)
+                    .text_size(px(13.));
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 && items[i - 1] == MenuItem::Comment {
+                        list = list.child(div().my(px(4.)).mx(px(8.)).h(px(1.)).bg(t.g.line_strong));
                     }
-                    cx.notify();
-                });
+                    let label = match item {
+                        MenuItem::Comment => "Add review comment",
+                        MenuItem::Copy => "Copy",
+                    };
+                    let (over, run) = (view.clone(), view.clone());
+                    list = list.child(
+                        div()
+                            .id(("code-menu-item", i))
+                            .mx(px(4.))
+                            .px(px(10.))
+                            .h(px(24.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(3.))
+                            .cursor_pointer()
+                            .when(active == Some(i), |d| d.bg(t.surface_3))
+                            .on_hover(move |h: &bool, _, cx| {
+                                let _ = over.update(cx, |v, cx| {
+                                    if let Some(m) = v.menu.as_mut() {
+                                        m.active = h.then_some(i);
+                                        cx.notify();
+                                    }
+                                });
+                            })
+                            .on_click(move |_, _, cx| {
+                                let _ = run.update(cx, |v, cx| v.run_menu(i, cx));
+                            })
+                            .child(label),
+                    );
+                }
+                list.into_any_element()
+            })
+        };
+        let closed = cx.weak_entity();
+        let on_dismiss: pop::OnDismiss = std::rc::Rc::new(move |_, cx| {
+            let _ = closed.update(cx, |v, cx| {
+                v.menu = None;
+                cx.notify();
             });
-            let pop = crate::kit::pop::Pop {
-                at: Some(at),
-                radius: crate::kit::pop::MENU_RADIUS,
-                focus: Some(menu.focus.clone()),
-                build,
-                on_dismiss,
+        });
+        let spec = pop::Pop { at: Some(menu.at), radius: pop::MENU_RADIUS, focus: Some(focus), build, on_dismiss };
+        out.push(div().absolute().child(pop::anchor("code-menu-pop", spec)).into_any_element());
+    } else if let Some(menu) = v.menu.as_ref() {
+        let items = menu_items(menu.line.is_some() && v.commentable);
+        let mut list = ui_text()
+            .id("code-menu")
+            .occlude()
+            .min_w(px(180.))
+            .py(px(4.))
+            .bg(c.menu_bg)
+            .text_color(c.menu_fg)
+            .text_size(px(13.))
+            .rounded(px(5.))
+            .border_1()
+            .border_color(c.widget_border)
+            .shadow_lg()
+            .on_mouse_down_out(cx.listener(|v, _, _, cx| {
+                v.menu = None;
+                cx.notify();
+            }));
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 && items[i - 1] == MenuItem::Comment {
+                list = list.child(div().my(px(4.)).mx(px(8.)).h(px(1.)).bg(c.menu_sep));
+            }
+            let label = match item {
+                MenuItem::Comment => "Add review comment",
+                MenuItem::Copy => "Copy",
             };
-            out.push(crate::kit::pop::anchor("code-menu-pop", pop).into_any_element());
-        } else {
-            let list = menu_rows(&items, active, c.menu_sel, c.menu_sep, &this)
-                .occlude()
-                .bg(c.menu_bg)
-                .text_color(c.menu_fg)
-                .rounded(px(5.))
-                .border_1()
-                .border_color(c.widget_border)
-                .shadow_lg()
-                .on_mouse_down_out(cx.listener(|v, _, _, cx| {
-                    v.menu = None;
-                    cx.notify();
-                }));
-            out.push(
-                deferred(anchored().position(at).anchor(Anchor::TopLeft).snap_to_window().child(list))
-                    .with_priority(10)
-                    .into_any_element(),
+            let active = menu.active == Some(i);
+            list = list.child(
+                div()
+                    .id(("code-menu-item", i))
+                    .mx(px(4.))
+                    .px(px(10.))
+                    .h(px(24.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(3.))
+                    .cursor_pointer()
+                    .when(active, |d| d.bg(c.menu_sel))
+                    .on_hover(cx.listener(move |v, h: &bool, _, cx| {
+                        if let Some(m) = v.menu.as_mut() {
+                            m.active = h.then_some(i);
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |v, _, _, cx| v.run_menu(i, cx)))
+                    .child(label),
             );
         }
+        out.push(
+            deferred(
+                anchored()
+                    .position(menu.at)
+                    .anchor(Anchor::TopLeft)
+                    .snap_to_window()
+                    .child(list),
+            )
+            .with_priority(10)
+            .into_any_element(),
+        );
     }
     let _ = t;
     out
@@ -1618,57 +1719,4 @@ pub(super) fn overlays(
 /// A tooltip (the kit's).
 pub(crate) fn tooltip(text: &'static str, cx: &mut App) -> gpui::AnyView {
     crate::kit::tooltip_view(text, cx)
-}
-
-/// The context menu's rows: its content, drawn in the view's window or in
-/// the menu's glass pop-up. `this` is only touched when the pointer moves
-/// over a row or one is chosen (from a pop-up: once it has closed, in the
-/// view's window).
-fn menu_rows(
-    items: &[MenuItem],
-    active: Option<usize>,
-    sel: gpui::Hsla,
-    sep: gpui::Hsla,
-    this: &gpui::WeakEntity<CodeView>,
-) -> gpui::Stateful<gpui::Div> {
-    let mut list = ui_text().id("code-menu").min_w(px(180.)).py(px(4.)).text_size(px(13.));
-    for (i, item) in items.iter().enumerate() {
-        if i > 0 && items[i - 1] == MenuItem::Comment {
-            list = list.child(div().my(px(4.)).mx(px(8.)).h(px(1.)).bg(sep));
-        }
-        let label = match item {
-            MenuItem::Comment => "Add review comment",
-            MenuItem::Copy => "Copy",
-        };
-        let (over, run) = (this.clone(), this.clone());
-        list = list.child(
-            div()
-                .id(("code-menu-item", i))
-                .mx(px(4.))
-                .px(px(10.))
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .rounded(px(3.))
-                .cursor_pointer()
-                .when(active == Some(i), |d| d.bg(sel))
-                .on_hover(move |h: &bool, _, cx| {
-                    let _ = over.update(cx, |v, cx| {
-                        if let Some(m) = v.menu.as_mut() {
-                            m.active = h.then_some(i);
-                            cx.notify();
-                        }
-                    });
-                })
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(move |_, window, cx| {
-                    let run = run.clone();
-                    crate::kit::pop::pick(window, cx, move |_, cx| {
-                        let _ = run.update(cx, |v, cx| v.run_menu(i, cx));
-                    })
-                })
-                .child(label),
-        );
-    }
-    list
 }
