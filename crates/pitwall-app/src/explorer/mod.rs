@@ -140,6 +140,8 @@ pub struct Explorer {
     /// The agent whose viewer is shown in the main area.
     open: Option<String>,
     quick: Option<Entity<QuickOpen>>,
+    /// Quick open's input (a pop-up gives it the keyboard).
+    quick_input: Option<gpui::FocusHandle>,
     recents: HashMap<String, Vec<String>>,
     notice: Option<SharedString>,
     notice_task: Option<Task<()>>,
@@ -192,6 +194,7 @@ impl Explorer {
             viewers: HashMap::new(),
             open: None,
             quick: None,
+            quick_input: None,
             recents: HashMap::new(),
             notice: None,
             notice_task: None,
@@ -548,6 +551,7 @@ impl Explorer {
             },
         );
         sub.detach();
+        self.quick_input = Some(quick.focus_handle(cx));
         self.quick = Some(quick);
         cx.emit(ExplorerEvent::QuickOpened);
         cx.notify();
@@ -588,14 +592,16 @@ impl Explorer {
 }
 
 impl Render for Explorer {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
         if let Some(q) = &self.quick {
-            return div()
-                .absolute()
-                .inset_0()
-                .child(q.clone())
-                .into_any_element();
+            let over = div().absolute().inset_0();
+            // Under Liquid Glass: the scrim here, the panel in a pop-up.
+            return match self.quick_input.clone().filter(|_| crate::kit::pop::hosted(cx)) {
+                Some(input) => over.child(QuickOpen::hosted(q, input, window, cx)),
+                None => over.child(q.clone()),
+            }
+            .into_any_element();
         }
         match &self.notice {
             Some(n) => div()

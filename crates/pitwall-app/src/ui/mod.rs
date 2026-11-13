@@ -223,6 +223,12 @@ impl MainView {
                     p.close(window, cx)
                 }
             }),
+            // ⌘P's quick open, to look at.
+            "quick" => {
+                if let Some(e) = &self.explorer {
+                    e.update(cx, |e, cx| if on { e.go_to_file(window, cx) } else { e.close_quick(cx) });
+                }
+            }
             "settings" => self.layer.update(cx, |l, cx| {
                 if on {
                     l.open_settings(cx)
@@ -1024,5 +1030,69 @@ mod tests {
     #[gpui::test]
     fn quick_open_shows_the_picked_file_glass(cx: &mut TestAppContext) {
         quick_open_shows_the_file(true, cx);
+    }
+
+    /// Under Liquid Glass with pop-ups: quick open's panel is one, with
+    /// the keyboard; a pick opens the file in the window, Esc and ⌘K
+    /// close it.
+    #[gpui::test]
+    fn under_liquid_glass_quick_open_is_a_pop_up_with_the_keyboard(cx: &mut TestAppContext) {
+        let (first, _second, vcx) = two_windows(cx, true);
+        vcx.update(|_, cx| cx.set_global(crate::kit::pop::TestHosted));
+        let (screen, explorer) = first.read_with(vcx, |v, _| (v.screen.clone().unwrap(), v.explorer.clone().unwrap()));
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        vcx.run_until_parked();
+        let pops = |vcx: &mut VisualTestContext| {
+            let parent = vcx.update(|window, _| window.window_handle().window_id());
+            let all = vcx.windows();
+            crate::kit::pop::open_pops()
+                .into_iter()
+                .filter(|(_, p, _)| p.window_id() == parent)
+                .filter_map(|(id, _, at)| Some((*all.iter().find(|w| w.window_id() == id)?, at?)))
+                .collect::<Vec<_>>()
+        };
+        let keys = |pop: gpui::AnyWindowHandle, keys: &'static str, vcx: &mut VisualTestContext| {
+            vcx.update_window(pop, |_, window, cx| {
+                for k in keys.split(' ') {
+                    window.dispatch_keystroke(gpui::Keystroke::parse(k).unwrap(), cx);
+                }
+            })
+            .unwrap();
+            vcx.run_until_parked();
+        };
+        assert!(pops(vcx).is_empty());
+        vcx.simulate_keystrokes(GO_TO_FILE);
+        vcx.run_until_parked();
+        let open = pops(vcx);
+        assert_eq!(open.len(), 1, "the panel is a pop-up");
+        let (pop, at) = open[0];
+        // Centred, 12% down the window (with the pop-up's clear space).
+        let view = vcx.update(|window, _| window.viewport_size());
+        let pad = px(crate::kit::pop::PAD);
+        assert_eq!(at.size.width, px(600.) + pad * 2.);
+        assert_eq!(at.origin, gpui::point((view.width - px(600.)) / 2. - pad, view.height * 0.12 - pad));
+        keys(pop, "m a i n", vcx);
+        keys(pop, "enter", vcx);
+        assert!(pops(vcx).is_empty());
+        assert!(!explorer.read_with(vcx, |e, _| e.quick_open_shown()));
+        assert_eq!(screen.read_with(vcx, |s, _| s.route()), crate::main_screen::Route::Explorer);
+        assert!(vcx.debug_bounds("ex-code").is_some(), "the file's text is drawn in the window");
+        // The keyboard is the window's again: ⌘P, then Esc in the pop-up.
+        vcx.simulate_keystrokes(GO_TO_FILE);
+        vcx.run_until_parked();
+        let pop = pops(vcx)[0].0;
+        keys(pop, "escape", vcx);
+        assert!(pops(vcx).is_empty());
+        assert!(!explorer.read_with(vcx, |e, _| e.quick_open_shown()));
+        // And a press on the scrim (the window has the keyboard again).
+        vcx.simulate_keystrokes(GO_TO_FILE);
+        vcx.run_until_parked();
+        let pop = pops(vcx)[0].0;
+        vcx.update_window(pop, |_, window, _| window.activate_window()).unwrap();
+        vcx.run_until_parked();
+        vcx.update(|window, _| window.activate_window());
+        vcx.run_until_parked();
+        assert!(pops(vcx).is_empty());
+        assert!(!explorer.read_with(vcx, |e, _| e.quick_open_shown()));
     }
 }

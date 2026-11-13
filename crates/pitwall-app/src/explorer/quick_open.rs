@@ -1,6 +1,10 @@
 //! ⌘P: a palette-style fuzzy file picker over the agent's files
 //! (`list_all_files`, ignore files respected), filtered here (a port of
 //! `QuickOpen.tsx`). An empty query lists recently opened files first.
+//!
+//! Under Liquid Glass the panel is a glass pop-up above the window
+//! (`kit::pop`): the explorer draws the scrim and the pop-up's anchor
+//! ([`QuickOpen::hosted`]), and the pop-up's window alone draws this.
 
 use crate::kit::Ellipsis as _;
 use std::ops::Range;
@@ -18,7 +22,7 @@ use crate::kit::file_icons::file_icon;
 use crate::kit::{InputEvent, TextInput};
 use super::logic::{char_positions_to_byte_ranges, quick_open, split_path, QuickHit};
 use super::source::{Res, Source};
-use crate::kit::kbd;
+use crate::kit::{kbd, pop};
 use crate::theme::{self, RADIUS};
 
 actions!(explorer_quick_open, [Prev, Next, Pick, Close]);
@@ -51,8 +55,15 @@ pub struct QuickOpen {
     active: usize,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
+    /// Drawn in a glass pop-up, which is the surface.
+    in_pop: bool,
     _subs: Vec<Subscription>,
 }
+
+/// The panel: its width, its corners, and how far down the window it starts.
+const WIDTH: f32 = 600.;
+const RADIUS_PANEL: f32 = 12.;
+const TOP: f32 = 0.12;
 
 impl EventEmitter<QuickOpenEvent> for QuickOpen {}
 
@@ -81,7 +92,10 @@ impl QuickOpen {
             this.active = 0;
             this.filter(cx);
         })];
-        input.update(cx, |i, cx| i.focus_all(window, cx));
+        // (A pop-up has the keyboard in its own window.)
+        if !pop::hosted(cx) {
+            input.update(cx, |i, cx| i.focus_all(window, cx));
+        }
         let load = cx
             .background_executor()
             .spawn(async move { source.list_all_files(&agent_id) });
@@ -102,8 +116,38 @@ impl QuickOpen {
             active: 0,
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
+            in_pop: false,
             _subs: subs,
         }
+    }
+
+    /// Quick open as a glass pop-up: the scrim with the pop-up's anchor,
+    /// for the window `quick` is open in. `input` is its input's focus.
+    /// (Nothing here reads `quick`: its pop-up's window alone draws it,
+    /// see `pop::Build`.)
+    pub fn hosted(quick: &Entity<QuickOpen>, input: FocusHandle, window: &Window, cx: &App) -> impl IntoElement {
+        let view = window.viewport_size();
+        let at = gpui::point((view.width - px(WIDTH)) / 2., view.height * TOP);
+        let (drawn, dismissed, pressed) = (quick.clone(), quick.downgrade(), quick.downgrade());
+        let build: pop::Build = std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+            drawn.update(cx, |q, _| q.in_pop = true);
+            drawn.clone().into_any_element()
+        });
+        let on_dismiss: pop::OnDismiss = std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+            let _ = dismissed.update(cx, |_, cx| cx.emit(QuickOpenEvent::Dismissed));
+        });
+        let spec = pop::Pop { at: Some(at), radius: RADIUS_PANEL, focus: Some(input), build, on_dismiss };
+        let backdrop = div()
+            .id("ex-quick-backdrop")
+            .occlude()
+            .absolute()
+            .inset_0()
+            .bg(theme::theme(cx).scrim())
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                let _ = pressed.update(cx, |_, cx| cx.emit(QuickOpenEvent::Dismissed));
+            })
+            .child(pop::anchor(("ex-quick-pop", quick.entity_id()), spec));
+        crate::kit::scrim_in("ex-quick-fade", backdrop)
     }
 
     pub fn set_query(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -159,9 +203,10 @@ pub fn marked(text: &str, ranges: Vec<Range<usize>>, hit: Hsla) -> StyledText {
 
 impl Render for QuickOpen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).clone();
+        let in_pop = self.in_pop;
+        let t = if in_pop { pop::theme(cx) } else { theme::theme(cx).clone() };
         let backdrop = t.scrim();
-        let top = window.viewport_size().height * 0.12;
+        let top = window.viewport_size().height * TOP;
         let note = |text: String, color| {
             div()
                 .px(px(14.))
@@ -191,7 +236,7 @@ impl Render for QuickOpen {
             "ex-quick",
             hits.len(),
             cx.processor(move |_, range: Range<usize>, _, cx| {
-                let t = theme::theme(cx).clone();
+                let t = if in_pop { pop::theme(cx) } else { theme::theme(cx).clone() };
                 range
                     .map(|ix| {
                         let h = &hits[ix];
@@ -295,13 +340,10 @@ impl Render for QuickOpen {
                     .on_action(cx.listener(Self::pick))
                     .on_action(cx.listener(Self::close))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .w(px(600.))
+                    .w(px(WIDTH))
                     .max_h(px(520.))
                     .flex()
                     .flex_col()
-                    .rounded(px(12.))
-                    .bg(t.raised)
-                    .shadow(t.float_shadow())
                     .overflow_hidden()
                     .child(
                         div()
@@ -344,12 +386,16 @@ impl Render for QuickOpen {
                                     .child(crate::kit::one_line(format!("opens in the viewer · {}", self.cwd_display))),
                             ),
                     );
+        if in_pop {
+            return panel.into_any_element();
+        }
+        let panel = panel.rounded(px(RADIUS_PANEL)).bg(t.raised).shadow(t.float_shadow());
         let panel = if theme::motion_on(cx) {
             crate::kit::motion::enter("ex-quick-in", crate::kit::motion::Fx::PALETTE, panel)
                 .into_any_element()
         } else {
             panel.into_any_element()
         };
-        crate::kit::scrim_in("ex-quick-fade", backdrop.child(panel))
+        crate::kit::scrim_in("ex-quick-fade", backdrop.child(panel)).into_any_element()
     }
 }
