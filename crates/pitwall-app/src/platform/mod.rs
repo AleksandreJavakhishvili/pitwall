@@ -203,6 +203,96 @@ pub fn app_active_raw() -> bool {
     }
 }
 
+/// The window a glass pop-up (`crate::kit::pop`) belongs to, as the OS
+/// knows it.
+pub struct PopParent(#[cfg(all(target_os = "macos", not(test)))] macos::PopParent);
+
+/// Whether floating surfaces can be windows of their own here (a
+/// transparent child window with the system's glass behind it): macOS.
+pub fn pop_supported() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// `window` as a pop-up's parent. `None`: it has no native window.
+pub fn pop_parent(window: &Window) -> Option<PopParent> {
+    // Test windows have no native view (their handle panics).
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::pop_parent(window).map(PopParent)
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = window;
+        Some(PopParent())
+    }
+}
+
+/// A new pop-up window: nothing of the system's is drawn around it.
+pub fn pop_setup(window: &mut Window) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::pop_setup(window);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = window;
+}
+
+/// The usable area of the screen that shows the point `at` of the
+/// parent's content, in the parent's own coordinates (they may be
+/// negative: the screen starts left of and above the window). `None`
+/// where that isn't known (the pop-up is then placed as asked).
+pub fn pop_area(parent: &PopParent, at: gpui::Point<gpui::Pixels>) -> Option<gpui::Bounds<gpui::Pixels>> {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        use gpui::{point, px, size};
+        let (x, y, w, h) = macos::pop_area(&parent.0, at.x.into(), at.y.into())?;
+        Some(gpui::Bounds::new(point(px(x), px(y)), size(px(w), px(h))))
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = (parent, at);
+        None
+    }
+}
+
+/// Put the pop-up `window` at `rect` of its parent's content, show it
+/// above the parent (it then moves with it) and give it the keyboard.
+pub fn pop_place(window: &mut Window, parent: &PopParent, rect: gpui::Bounds<gpui::Pixels>, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::pop_place(
+        window,
+        &parent.0,
+        (rect.origin.x.into(), rect.origin.y.into(), rect.size.width.into(), rect.size.height.into()),
+        cx,
+    );
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = (parent, cx);
+        window.resize(rect.size);
+    }
+}
+
+/// What the system says about the pop-up `window` (its frame, who has
+/// the keyboard, which window is the main one), for `kit::pop::debug`.
+pub fn pop_debug(window: &mut Window) -> String {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::pop_debug(window)
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = window;
+        String::new()
+    }
+}
+
+/// The pop-up `window` is about to close: the parent takes the keyboard
+/// back if the pop-up had it.
+pub fn pop_close(window: &mut Window, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::pop_close(window, cx);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = (window, cx);
+}
+
 /// Debug builds on macOS: a left click in `window` at (`x`, `y`) from
 /// its top left, delivered as AppKit delivers one (in this process only).
 pub fn debug_click(window: &mut Window, x: f32, y: f32, cx: &mut App) {

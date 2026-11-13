@@ -196,6 +196,11 @@ impl MainView {
             }
             return;
         }
+        // `pop <what>`: drive the open glass pop-up (`kit::pop::debug`).
+        if let Some(what) = cmd.strip_prefix("pop ") {
+            crate::kit::pop::debug(what.trim(), cx);
+            return;
+        }
         let mut words = cmd.split_whitespace();
         let (Some(what), arg) = (words.next(), words.next()) else {
             return;

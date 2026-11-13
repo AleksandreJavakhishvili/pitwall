@@ -279,6 +279,153 @@ fn allow_cursor_in_background() {
     });
 }
 
+/// The window a glass pop-up (`kit::pop`) belongs to, kept while it is open.
+#[cfg_attr(test, allow(dead_code))]
+pub struct PopParent(objc2::rc::Retained<objc2_app_kit::NSWindow>);
+
+thread_local! {
+    /// The pop-ups that are open (their `NSWindow`s): what was asked of
+    /// one before it closed and runs after is dropped.
+    static POPS: std::cell::RefCell<std::collections::HashSet<usize>> = std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+fn pop_key(w: &objc2_app_kit::NSWindow) -> usize {
+    std::ptr::from_ref(w) as usize
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_parent(window: &gpui::Window) -> Option<PopParent> {
+    ns_window(window).map(PopParent)
+}
+
+/// A new pop-up: no shadow or title bar line of the system's.
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_setup(window: &gpui::Window) {
+    no_shadow(window);
+    if let Some(w) = ns_window(window) {
+        POPS.with_borrow_mut(|all| all.insert(pop_key(&w)));
+    }
+}
+
+/// The parent's content area on screen (AppKit's coordinates: from the
+/// bottom left).
+fn content_rect(w: &objc2_app_kit::NSWindow) -> objc2_foundation::NSRect {
+    w.contentRectForFrameRect(w.frame())
+}
+
+/// The usable area (no menu bar, no Dock) of the screen that shows the
+/// point (`x`, `y`) of the parent's content, in the parent's own
+/// coordinates (points from its content's top left, y down): (x, y,
+/// width, height). The parent's own screen when the point is on none.
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_area(parent: &PopParent, x: f32, y: f32) -> Option<(f32, f32, f32, f32)> {
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::NSPoint;
+    let mtm = MainThreadMarker::new()?;
+    let c = content_rect(&parent.0);
+    let top = c.origin.y + c.size.height;
+    let at = NSPoint::new(c.origin.x + f64::from(x), top - f64::from(y));
+    let inside = |r: objc2_foundation::NSRect| {
+        at.x >= r.origin.x && at.x < r.origin.x + r.size.width && at.y >= r.origin.y && at.y < r.origin.y + r.size.height
+    };
+    let screen = NSScreen::screens(mtm).iter().find(|s| inside(s.frame())).or_else(|| parent.0.screen())?;
+    let v = screen.visibleFrame();
+    Some((
+        (v.origin.x - c.origin.x) as f32,
+        (top - (v.origin.y + v.size.height)) as f32,
+        v.size.width as f32,
+        v.size.height as f32,
+    ))
+}
+
+/// Put a pop-up at (`x`, `y`, `width`, `height`) of its parent's content
+/// (points from its top left, y down), show it as the parent's child (it
+/// moves with it and stays above it) and give it the keyboard; Pitwall's
+/// window stays the main one, so it keeps its active look. Done once the
+/// caller has returned: AppKit tells GPUI about the frame and the keyboard
+/// while they are set, and GPUI can't hear it during an update.
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_place(window: &gpui::Window, parent: &PopParent, (x, y, width, height): (f32, f32, f32, f32), cx: &mut gpui::App) {
+    use objc2_app_kit::{NSWindowOrderingMode, NSWindowStyleMask};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let Some(w) = ns_window(window) else { return };
+    let parent = parent.0.clone();
+    cx.spawn(async move |_| {
+        if !POPS.with_borrow(|all| all.contains(&pop_key(&w))) {
+            return;
+        }
+        let c = content_rect(&parent);
+        let frame = NSRect::new(
+            NSPoint::new(c.origin.x + f64::from(x), c.origin.y + c.size.height - f64::from(y) - f64::from(height)),
+            NSSize::new(f64::from(width), f64::from(height)),
+        );
+        // GPUI's pop-ups are titled windows with the content under the
+        // title bar; the system draws a rim of light along the top of one
+        // that has the keyboard. A bare panel has none. (Here, not in
+        // `pop_setup`: the window is laid out again when its style changes.)
+        let bare = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
+        if w.styleMask() != bare {
+            w.setStyleMask(bare);
+        }
+        if w.frame() != frame {
+            w.setFrame_display(frame, true);
+        }
+        if w.parentWindow().is_none() {
+            // SAFETY: both are live windows, on the main thread; the
+            // parent lets go of its child in `pop_close`.
+            unsafe { parent.addChildWindow_ordered(&w, NSWindowOrderingMode::Above) };
+        }
+        if !w.isKeyWindow() {
+            w.makeKeyWindow();
+        }
+    })
+    .detach();
+}
+
+/// What AppKit says about a pop-up, for `kit::pop::debug`.
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_debug(window: &gpui::Window) -> String {
+    let Some(w) = ns_window(window) else { return "no native window".into() };
+    let f = w.frame();
+    let parent = w.parentWindow();
+    format!(
+        "frame ({}, {}) {}×{}, visible {}, key {}, style {:#x}, shadow {}, level {}, parent: {}, app active {}",
+        f.origin.x,
+        f.origin.y,
+        f.size.width,
+        f.size.height,
+        w.isVisible(),
+        w.isKeyWindow(),
+        w.styleMask().0,
+        w.hasShadow(),
+        w.level(),
+        parent.map_or("none".to_string(), |p| {
+            let pf = p.frame();
+            format!("main {}, key {}, frame ({}, {}) {}×{}", p.isMainWindow(), p.isKeyWindow(), pf.origin.x, pf.origin.y, pf.size.width, pf.size.height)
+        }),
+        ns_app_active(),
+    )
+}
+
+/// A pop-up is closing: it leaves its parent, which gets the keyboard
+/// back if the pop-up had it. (After the caller has returned, as
+/// [`pop_place`].)
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_close(window: &gpui::Window, cx: &mut gpui::App) {
+    let Some(w) = ns_window(window) else { return };
+    POPS.with_borrow_mut(|all| all.remove(&pop_key(&w)));
+    let had_keys = w.isKeyWindow();
+    cx.spawn(async move |_| {
+        let Some(parent) = w.parentWindow() else { return };
+        parent.removeChildWindow(&w);
+        w.orderOut(None);
+        if had_keys && parent.isVisible() {
+            parent.makeKeyWindow();
+        }
+    })
+    .detach();
+}
+
 /// Bounce the Dock icon until the app is activated (a new approval).
 pub fn request_attention() {
     if let Some(app) = app() {
