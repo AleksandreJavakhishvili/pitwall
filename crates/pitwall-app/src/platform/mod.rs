@@ -293,6 +293,41 @@ pub fn pop_close(window: &mut Window, cx: &mut App) {
     let _ = (window, cx);
 }
 
+/// The pop-up `window` is a dialog (`kit::pop::Anchor::modal`): it stays
+/// on screen while another app is the active one.
+pub fn pop_modal(window: &mut Window) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::pop_modal(window);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = window;
+}
+
+/// Give the pop-up `window` the keyboard (a dialog whose parent window
+/// got it).
+pub fn pop_keys(window: &mut Window, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::pop_keys(window, cx);
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = cx;
+        window.activate_window();
+    }
+}
+
+/// The pop-up `window` has the keyboard right now (as the system says:
+/// GPUI hears of a change a moment later).
+pub fn pop_has_keys(window: &mut Window, cx: &App) -> bool {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        let _ = cx;
+        macos::pop_has_keys(window)
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        cx.active_window().is_some_and(|w| w.window_id() == window.window_handle().window_id())
+    }
+}
+
 /// Debug builds on macOS: a left click in `window` at (`x`, `y`) from
 /// its top left, delivered as AppKit delivers one (in this process only).
 pub fn debug_click(window: &mut Window, x: f32, y: f32, cx: &mut App) {

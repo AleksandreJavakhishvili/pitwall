@@ -375,11 +375,52 @@ pub fn pop_place(window: &gpui::Window, parent: &PopParent, (x, y, width, height
             // parent lets go of its child in `pop_close`.
             unsafe { parent.addChildWindow_ordered(&w, NSWindowOrderingMode::Above) };
         }
+        // A pop-up of its own has the keyboard (a dialog that grew under
+        // its open select): it stays there.
+        if pop_inner_has_keys(&w) {
+            return;
+        }
         if !w.isKeyWindow() {
             w.makeKeyWindow();
         }
     })
     .detach();
+}
+
+/// One of the pop-ups in `w` (its child windows, and theirs) is the key
+/// window.
+fn pop_inner_has_keys(w: &objc2_app_kit::NSWindow) -> bool {
+    w.childWindows().is_some_and(|all| all.iter().any(|c| c.isKeyWindow() || pop_inner_has_keys(&c)))
+}
+
+/// A dialog's pop-up: a panel leaves the screen while its app isn't the
+/// active one; a dialog stays over its window.
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_modal(window: &gpui::Window) {
+    if let Some(w) = ns_window(window) {
+        if w.hidesOnDeactivate() {
+            w.setHidesOnDeactivate(false);
+        }
+    }
+}
+
+/// Give a pop-up the keyboard. (After the caller has returned, as
+/// [`pop_place`].)
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_keys(window: &gpui::Window, cx: &mut gpui::App) {
+    let Some(w) = ns_window(window) else { return };
+    cx.spawn(async move |_| {
+        if POPS.with_borrow(|all| all.contains(&pop_key(&w))) && w.isVisible() && !w.isKeyWindow() {
+            w.makeKeyWindow();
+        }
+    })
+    .detach();
+}
+
+/// A pop-up is the key window.
+#[cfg_attr(test, allow(dead_code))]
+pub fn pop_has_keys(window: &gpui::Window) -> bool {
+    ns_window(window).is_some_and(|w| w.isKeyWindow())
 }
 
 /// What AppKit says about a pop-up, for `kit::pop::debug`.
