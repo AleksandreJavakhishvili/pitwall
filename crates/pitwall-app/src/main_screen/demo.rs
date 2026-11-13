@@ -288,19 +288,32 @@ impl MainScreen {
                 }
             }
             "terminal" => self.open_terminal_dialog(window, cx),
+            // `review-prompt`, `review-discard`: Review's dialogs (in Review).
+            w if w.starts_with("review-") => {
+                let route = self.route_view_of(super::Route::Review).and_then(|v| v.downcast::<crate::review::ReviewRoute>().ok());
+                let view = route.and_then(|r| r.read(cx).view().cloned());
+                if let Some(view) = view {
+                    let what = w["review-".len()..].to_string();
+                    view.update(cx, |v, cx| v.demo_dialog(&what, window, cx));
+                }
+            }
             // `project-accounts <folder>`: that project's Accounts… dialog.
             w if w.starts_with("project-accounts ") => {
                 let folder = w["project-accounts ".len()..].trim().to_string();
                 self.open_project_accounts(folder, window, cx);
             }
-            "diff" => {
+            // (`diff-comment`: with a review comment on a line.)
+            "diff" | "diff-comment" => {
                 if let Some(a) = self.selected(cx) {
                     if let Some(f) = changes(&a.name).into_iter().next() {
                         self.open_diff(a, f, window, cx);
                         if let Some(super::Modal::Diff(d)) = &self.modal {
                             d.update(cx, |d, cx| {
                                 let (old, new) = sides(DIFF);
-                                d.set_versions(Some(old), Some(new), cx)
+                                d.set_versions(Some(old), Some(new), cx);
+                                if what == "diff-comment" {
+                                    d.demo_comment(7, "Advance the fake clock rather than computing a later date.", cx);
+                                }
                             });
                         }
                     }
@@ -322,15 +335,44 @@ impl MainScreen {
                     self.toast(t, cx);
                 }
             }
+            // `toast <kind>`: one toast of that kind (the first agent's);
+            // `toast clear`: none.
+            w if w.starts_with("toast ") => {
+                use super::strip::{Toast, ToastAction};
+                let (id, name) = self.agents(cx).first().map(|a| (a.id.clone(), a.name.clone())).unwrap_or_default();
+                let toast = match w["toast ".len()..].trim() {
+                    "blocked" => {
+                        let mut t = Toast::blocked(format!("{name} needs you"), id);
+                        t.detail = Some("Bash: pnpm test --run src/cart".into());
+                        t
+                    }
+                    "done" => Toast::done(format!("{name} is done"), id),
+                    "error" => Toast::error("Couldn't open the worktree".into(), "fatal: not a git repository".into()),
+                    "ask" => {
+                        let act = |label: &str, primary| ToastAction { label: label.to_string().into(), primary, run: std::rc::Rc::new(|_| eprintln!("pitwall-demo: toast answered")) };
+                        Toast::ask("demo".into(), "studio is on your tailnet".into(), Some("Show its agents here?".into()), vec![act("Show", true), act("Not now", false)])
+                    }
+                    "clear" => {
+                        self.toasts.clear();
+                        cx.notify();
+                        return;
+                    }
+                    _ => Toast::info("The All space stays in the main window", Some("Other spaces can move to a window of their own.".into())),
+                };
+                self.toast(toast, cx);
+            }
             "bring" => {
                 self.demo_elsewhere(cx);
                 self.elsewhere.bring = self.elsewhere.rows.first().cloned();
                 cx.notify();
             }
-            "menu" => {
+            // `menu`, or `menu <x> <y>`: the first agent's menu (there).
+            w if w == "menu" || w.starts_with("menu ") => {
+                let mut at = w.split_whitespace().skip(1).filter_map(|v| v.parse::<f32>().ok());
+                let at = at.next().zip(at.next());
                 let agents = self.agents(cx).to_vec();
                 if let Some(a) = agents.first() {
-                    self.demo_agent_menu(a, window, cx);
+                    self.demo_agent_menu(a, at, window, cx);
                 }
             }
             _ => {}

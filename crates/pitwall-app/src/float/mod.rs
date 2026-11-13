@@ -270,7 +270,10 @@ pub fn sync(cx: &mut App) {
     let f = cx.global_mut::<Float>();
     if !want {
         if let Some(w) = f.window.take() {
-            let _ = w.update(cx, |_, window, _| window.remove_window());
+            let _ = w.update(cx, |_, window, _| {
+                crate::platform::glass::slab(window, None);
+                window.remove_window()
+            });
             cool(cx);
             log(|| {
                 let (on, front, raw) = (enabled(cx), in_front(cx), crate::platform::app_active_raw());
@@ -287,7 +290,10 @@ pub fn sync(cx: &mut App) {
         // cards); a change of height alone keeps its top where it is.
         Some(w) if old.0 != new.0 && !GROWS_UP && !cfg!(test) => {
             f.window = None;
-            let _ = w.update(cx, |_, window, _| window.remove_window());
+            let _ = w.update(cx, |_, window, _| {
+                crate::platform::glass::slab(window, None);
+                window.remove_window()
+            });
             cool(cx);
             cx.defer(open_window);
         }
@@ -562,10 +568,26 @@ fn drag_handle<E: InteractiveElement>(e: E) -> E {
     .on_mouse_up(MouseButton::Left, |_, _, _| PRESS.set(None))
 }
 
+/// How much of the theme's own surface is laid over the glass: enough
+/// for the mark and the text to read over a white page or a dark one,
+/// little enough that what is behind still shows through.
+const GLASS_FILL: f32 = 0.58;
+/// The opened panel holds text: a little more of it.
+const GLASS_FILL_OPEN: f32 = 0.72;
+
+/// Corners of the tile and of the opened panel.
+const PUCK_RADIUS: f32 = 13.;
+const PANEL_RADIUS: f32 = 12.;
+
 /// The control's own shadow, small enough for the [`PAD`] around it, and
 /// the hairline around it.
-fn shadow(t: &Theme) -> Vec<gpui::BoxShadow> {
+fn shadow(t: &Theme, liquid: bool) -> Vec<gpui::BoxShadow> {
     let line = if t.is_glass() { t.g.line_strong } else { t.line_strong };
+    // On the system's glass only the hairline: a shadow of ours would show
+    // through the glass as a dark smudge inside it.
+    if liquid {
+        return vec![t.ring(line)];
+    }
     vec![
         gpui::BoxShadow { color: gpui::black().opacity(0.30), offset: point(px(0.), px(3.)), blur_radius: px(10.), spread_radius: px(0.), inset: false },
         t.ring(line),
@@ -689,7 +711,7 @@ impl FloatView {
 
     /// Collapsed: a tile with the Pitwall mark, and how many agents ask on
     /// its corner.
-    fn puck(count: usize, t: &Theme) -> impl IntoElement {
+    fn puck(count: usize, fill: Option<gpui::Hsla>, t: &Theme) -> impl IntoElement {
         let tile = div()
             .id("float-puck")
             .debug_selector(|| "float-puck".into())
@@ -697,9 +719,9 @@ impl FloatView {
             .left(px(PAD))
             .top(px(PAD))
             .size(px(PUCK))
-            .rounded(px(13.))
-            .bg(t.raised)
-            .shadow(shadow(t))
+            .rounded(px(PUCK_RADIUS))
+            .bg(fill.unwrap_or(t.raised))
+            .shadow(shadow(t, fill.is_some()))
             .flex()
             .items_center()
             .justify_center()
@@ -721,6 +743,8 @@ impl FloatView {
             .px(px(5.))
             .rounded_full()
             .bg(t.amber)
+            // A dark rim, so it reads as a badge on the tile over anything.
+            .shadow(vec![gpui::BoxShadow { color: gpui::black().opacity(0.55), offset: point(px(0.), px(0.)), blur_radius: px(0.), spread_radius: px(1.5), inset: false }])
             .flex()
             .items_center()
             .justify_center()
@@ -741,14 +765,16 @@ impl FloatView {
             .debug_selector(|| "float-collapse".into())
             .flex_none()
             .size(px(24.))
-            .rounded(px(6.))
+            .rounded_full()
+            .bg(t.surface_2)
             .flex()
             .items_center()
             .justify_center()
             .cursor_pointer()
             .hover(|d| d.bg(t.surface_3))
             .on_click(|_, _, cx| toggle(cx))
-            .child(kit::chevron_at(true, 14., t.text_3));
+            // Minimize: back to the tile.
+            .child(div().w(px(10.)).h(px(1.5)).rounded_full().bg(t.text_2));
         div()
             .id("float-header")
             .debug_selector(|| "float-header".into())
@@ -987,8 +1013,24 @@ impl FloatView {
 
 impl Render for FloatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).clone();
         let list = items(cx);
+        let expanded = cx.try_global::<Float>().is_some_and(|f| f.expanded) && !list.is_empty();
+        // Liquid Glass: the control is a slab of the system's own glass
+        // over whatever the user is in; nothing of ours is painted behind
+        // its content (terminals stay opaque).
+        let liquid = theme::glass_regions(cx);
+        let mut t = theme::theme(cx).clone();
+        if liquid {
+            // Dim text is too dim on glass over a bright page: each step
+            // of it one brighter.
+            t.text_3 = t.text_2;
+            t.text_2 = t.text;
+        }
+        let radius = if expanded { PANEL_RADIUS } else { PUCK_RADIUS };
+        // The theme's own surface, thinly, over the glass.
+        let fill = liquid.then(|| t.raised.opacity(if expanded { GLASS_FILL_OPEN } else { GLASS_FILL }));
+        let slab = crate::platform::glass::Slab { inset: PAD, radius, mode: t.mode };
+        crate::platform::glass::slab(window, (liquid && !list.is_empty()).then_some(slab));
         if cx.try_global::<Float>().is_some_and(|f| f.grab) {
             cx.global_mut::<Float>().grab = false;
             window.focus(&self.focus, cx);
@@ -1007,7 +1049,6 @@ impl Render for FloatView {
             .text_size(px(13.))
             .line_height(gpui::relative(kit::BODY_LINE_HEIGHT))
             .text_color(t.text);
-        let expanded = cx.try_global::<Float>().is_some_and(|f| f.expanded) && !list.is_empty();
         let max_lines = model::max_lines(list.len());
         // The screens of this machine's agents that have a card.
         let cards = if expanded { model::shown(&list) } else { &[] };
@@ -1027,7 +1068,7 @@ impl Render for FloatView {
             return root;
         }
         if !expanded {
-            return root.child(Self::puck(list.len(), &t));
+            return root.child(Self::puck(list.len(), fill, &t));
         }
         let rule = || div().h(px(RULE)).flex_none().bg(t.line);
         let mut panel = div()
@@ -1036,8 +1077,8 @@ impl Render for FloatView {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(px(12.))
-            .bg(t.raised)
+            .rounded(px(PANEL_RADIUS))
+            .bg(fill.unwrap_or(t.raised))
             .border_1()
             .border_color(t.line_strong)
             .child(Self::header(&list, f, &t));
@@ -1054,7 +1095,7 @@ impl Render for FloatView {
             panel = panel.child(rule()).child(Self::more(&list, &t));
         }
         // The panel's own shadow, in the clear space around it.
-        root.p(px(PAD)).child(div().size_full().rounded(px(12.)).shadow(shadow(&t)).child(drag_handle(panel)))
+        root.p(px(PAD)).child(div().size_full().rounded(px(PANEL_RADIUS)).shadow(shadow(&t, liquid)).child(drag_handle(panel)))
     }
 }
 

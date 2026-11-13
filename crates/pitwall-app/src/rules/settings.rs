@@ -22,7 +22,7 @@ use pitwall_core::rules::{
 };
 
 use crate::kit::{self, BtnKind, InputEvent, TextInput, Tone};
-use crate::theme::{appearance, Theme, RADIUS_SM};
+use crate::theme::{Theme, RADIUS_SM};
 
 use super::widgets::{self, check_row, list, mini, rich, row, Span};
 use super::{call, rule_label, skill_label};
@@ -1469,8 +1469,8 @@ impl RulesSection {
 }
 
 impl Render for RulesSection {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = appearance(cx).theme().float();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = kit::pop::theme_in(window, cx);
         let mut sec = div()
             .flex()
             .flex_col()

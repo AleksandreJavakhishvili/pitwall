@@ -1,5 +1,9 @@
 //! The palette itself (`CommandPalette.tsx` in a `Modal variant="palette"`,
 //! `overlays.css` `.palette*`) and the per-window host that opens it.
+//!
+//! Under Liquid Glass the panel is a glass pop-up above the window
+//! (`kit::pop`): the host draws the scrim and the pop-up's anchor, and the
+//! palette is drawn by the pop-up's window alone.
 
 use crate::kit::Ellipsis as _;
 use std::rc::Rc;
@@ -59,6 +63,9 @@ pub struct Palette {
     focus: FocusHandle,
     /// Names this opening's animation (it plays once per opening).
     serial: usize,
+    /// In a glass pop-up: the size of the window it is over (the panel
+    /// is sized by it).
+    room: Option<(f32, f32)>,
     _subs: Vec<Subscription>,
 }
 
@@ -102,7 +109,10 @@ impl Palette {
                 this.refresh(cx);
             }));
         }
-        input.update(cx, |i, cx| i.focus_all(window, cx));
+        // (A pop-up has the keyboard in its own window, see `PaletteHost`.)
+        if !kit::pop::hosted(cx) {
+            input.update(cx, |i, cx| i.focus_all(window, cx));
+        }
         let state = screen
             .as_ref()
             .map(|s| s.read(cx).command_state(cx))
@@ -118,6 +128,7 @@ impl Palette {
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
             serial,
+            room: None,
             _subs: subs,
         };
         p.refresh(cx);
@@ -317,9 +328,10 @@ fn hint(h: &Hint, t: &Theme) -> AnyElement {
 
 impl Render for Palette {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme::theme(cx).float();
+        let t = if self.room.is_some() { kit::pop::theme(cx) } else { theme::theme(cx).float() };
         let motion = theme::motion_on(cx);
-        let vh = f32::from(window.viewport_size().height);
+        let room = self.room;
+        let vh = room.map_or(f32::from(window.viewport_size().height), |r| r.1);
         let rows = self.rows.clone();
         let active = self.active();
         let n = rows.len();
@@ -327,8 +339,8 @@ impl Render for Palette {
         let list = uniform_list(
             "palette-list",
             n,
-            cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
-                let t = theme::theme(cx).float();
+            cx.processor(move |this: &mut Palette, range: std::ops::Range<usize>, _, cx| {
+                let t = if this.room.is_some() { kit::pop::theme(cx) } else { theme::theme(cx).float() };
                 range
                     .map(|ix| {
                         let row = &rows[ix];
@@ -372,15 +384,8 @@ impl Render for Palette {
             // ⌘K again closes it (React: the shortcut toggles).
             .on_action(cx.listener(|_, _: &OpenPalette, _, cx| cx.emit(PaletteEvent::Dismiss)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .occlude()
-            .w(px(WIDTH))
-            .max_w_full()
-            .max_h_full()
             .flex()
             .flex_col()
-            .rounded(px(12.))
-            .bg(t.raised)
-            .shadow(t.float_shadow())
             .overflow_hidden()
             .font_family(kit::UI_FONT)
             .text_size(px(13.))
@@ -418,6 +423,18 @@ impl Render for Palette {
                         ))
                     }),
             );
+        // In a pop-up, which is the surface and has the scrim under it.
+        if let Some((vw, _)) = room {
+            return panel.w(px(width_in(vw))).into_any_element();
+        }
+        let panel = panel
+            .occlude()
+            .w(px(WIDTH))
+            .max_w_full()
+            .max_h_full()
+            .rounded(px(RADIUS_PANEL))
+            .bg(t.raised)
+            .shadow(t.float_shadow());
         // (Reduce motion: `enter` keeps the fade alone.)
         let panel: AnyElement = kit::motion::enter(
             ElementId::NamedInteger("palette-open".into(), self.serial as u64),
@@ -432,8 +449,8 @@ impl Render for Palette {
             .occlude()
             .absolute()
             .inset_0()
-            .p(px(24.))
-            .pt(px(vh * 0.12))
+            .p(px(GUTTER))
+            .pt(px(vh * TOP))
             .flex()
             .justify_center()
             .items_start()
@@ -447,7 +464,19 @@ impl Render for Palette {
             ElementId::NamedInteger("palette-fade".into(), self.serial as u64),
             backdrop,
         )
+        .into_any_element()
     }
+}
+
+/// The panel's corners.
+const RADIUS_PANEL: f32 = 12.;
+/// The backdrop's padding, and how far down the window the panel starts.
+const GUTTER: f32 = 24.;
+const TOP: f32 = 0.12;
+
+/// The panel's width in a window `vw` wide.
+fn width_in(vw: f32) -> f32 {
+    WIDTH.min(vw - 2. * GUTTER).max(0.)
 }
 
 /// One per window: opens the palette on [`ScreenEvent::OpenPalette`] (⌘K,
@@ -457,6 +486,8 @@ pub struct PaletteHost {
     screen: Option<Entity<MainScreen>>,
     explorer: Option<WeakEntity<Explorer>>,
     palette: Option<Entity<Palette>>,
+    /// The open palette's input (a pop-up gives it the keyboard).
+    input: Option<FocusHandle>,
     restore: Option<FocusHandle>,
     serial: usize,
     _subs: Vec<Subscription>,
@@ -483,6 +514,7 @@ impl PaletteHost {
             screen,
             explorer: explorer.map(|e| e.downgrade()),
             palette: None,
+            input: None,
             restore: None,
             serial: 0,
             _subs: subs,
@@ -525,6 +557,7 @@ impl PaletteHost {
                 }
             },
         ));
+        self.input = Some(palette.focus_handle(cx));
         self.palette = Some(palette);
         cx.emit(PaletteHostEvent::Opened);
         cx.notify();
@@ -534,6 +567,7 @@ impl PaletteHost {
         if self.palette.take().is_none() {
             return;
         }
+        self.input = None;
         // The palette's own subscription goes with it.
         self._subs.truncate(usize::from(self.screen.is_some()));
         if let Some(f) = self.restore.take() {
@@ -544,11 +578,35 @@ impl PaletteHost {
 }
 
 impl Render for PaletteHost {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        match &self.palette {
-            Some(p) => p.clone().into_any_element(),
-            None => div().into_any_element(),
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let Some(palette) = self.palette.clone() else { return div().into_any_element() };
+        if !kit::pop::hosted(cx) {
+            return palette.into_any_element();
         }
+        // The panel is a glass pop-up, at the place the backdrop would
+        // give it. Its window alone draws the palette (see `pop::Build`):
+        // nothing here reads it.
+        let view = window.viewport_size();
+        let (vw, vh) = (f32::from(view.width), f32::from(view.height));
+        let at = gpui::point(px((vw - width_in(vw)) / 2.), px(vh * TOP));
+        let build: kit::pop::Build = Rc::new(move |_: &mut Window, cx: &mut App| {
+            palette.update(cx, |p, _| p.room = Some((vw, vh)));
+            palette.clone().into_any_element()
+        });
+        let host = cx.weak_entity();
+        let on_dismiss: kit::pop::OnDismiss = Rc::new(move |window: &mut Window, cx: &mut App| {
+            let _ = host.update(cx, |h, cx| h.close(window, cx));
+        });
+        let pop = kit::pop::Pop { at: Some(at), radius: RADIUS_PANEL, focus: self.input.clone(), build, on_dismiss };
+        let backdrop = div()
+            .id("palette-backdrop")
+            .occlude()
+            .absolute()
+            .inset_0()
+            .bg(theme::theme(cx).float().scrim())
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.close(window, cx)))
+            .child(kit::pop::anchor(("palette-pop", self.serial), pop));
+        kit::scrim_in(ElementId::NamedInteger("palette-fade".into(), self.serial as u64), backdrop).into_any_element()
     }
 }
 

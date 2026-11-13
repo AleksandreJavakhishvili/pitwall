@@ -40,6 +40,23 @@ fn setup(
 }
 
 #[gpui::test]
+async fn under_liquid_glass_a_notice_is_a_pop_up(cx: &mut TestAppContext) {
+    let (_, explorer, cx) = setup(cx, vec![], FakeSource::new(&[]));
+    cx.update(|_, cx| crate::kit::passive::test_glass(cx));
+    let open = |cx: &mut VisualTestContext| cx.update(|window, cx| crate::kit::passive::test_over(window, cx).len());
+    cx.run_until_parked();
+    assert_eq!(open(cx), 0);
+    cx.update(|window, cx| explorer.update(cx, |e, cx| e.go_to_file(window, cx)));
+    cx.run_until_parked();
+    assert_eq!(explorer.read_with(cx, |e, _| e.notice().map(str::to_string)).as_deref(), Some("Focus an agent to browse its files"));
+    assert_eq!(open(cx), 1, "the notice, above the window");
+    // It goes after its time, and its pop-up with it.
+    cx.executor().advance_clock(std::time::Duration::from_secs(3));
+    crate::kit::passive::test_draw(cx);
+    assert_eq!(open(cx), 0);
+}
+
+#[gpui::test]
 async fn shortcuts_say_why_they_cannot_run(cx: &mut TestAppContext) {
     let mut plain = agent("vm", "/srv/x", "idle", 0, false);
     plain.name = "builder".into();

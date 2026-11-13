@@ -4,6 +4,8 @@
 
 use crate::kit::Ellipsis as _;
 use crate::kit::HoverText as _;
+use std::rc::Rc;
+
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, relative, Anchor, AnyElement, App, ClickEvent,
     Context, Div, Focusable, FontWeight, IntoElement, MouseButton, SharedString, Window,
@@ -1095,82 +1097,68 @@ impl ReviewView {
             )
             .child(kit::icon("chevron-down", 12., t.text_3));
         if open {
-            let id = a.id.clone();
-            let mut menu = div()
-                .id("rv-scope-menu")
-                .occlude()
-                .min_w(px(260.))
-                .max_w(px(560.))
-                .max_h(px(360.))
-                .overflow_y_scroll()
-                .py(px(4.))
-                .bg(t.raised)
-                .border_1()
-                .border_color(t.line_strong)
-                .rounded(RADIUS)
-                .shadow_lg()
-                .text_size(px(12.))
-                .on_mouse_down_out(cx.listener(|v, _, _, cx| {
-                    v.task_menu = false;
-                    cx.notify();
-                }));
-            let item = |key: String, label: String, enabled: bool, chosen: bool| {
-                div()
-                    .id(SharedString::from(format!("rv-task-{key}")))
-                    .mx(px(4.))
-                    .px(px(8.))
-                    .h(px(24.))
-                    .flex()
-                    .items_center()
-                    .rounded(RADIUS_SM)
-                    .text_color(if enabled { t.text } else { t.text_4 })
-                    .when(chosen, |d| d.bg(t.surface_3))
-                    .when(enabled, |d| d.cursor_pointer().hover_probed(|s| s.bg(t.surface_3)))
-                    .child(div().ellipsis().child(crate::kit::one_line(label)))
-            };
-            {
-                let id = id.clone();
-                menu = menu.child(
-                    item(
-                        "all".into(),
-                        format!("All changes · {}", a.name),
-                        true,
-                        task.is_none(),
-                    )
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |v, _, _, cx| v.set_task(&id, None, cx))),
-                );
-            }
-            for (n, x) in numbered.iter().rev() {
+            // The rows as values: all the changes, then the tasks, newest first.
+            let mut rows = vec![TaskRow {
+                key: "all".into(),
+                label: format!("All changes · {}", a.name),
+                enabled: true,
+                chosen: task.is_none(),
+                task: None,
+            }];
+            rows.extend(numbered.iter().rev().map(|(n, x)| {
                 let enabled = x.start_tree.is_some();
-                let label = format!(
-                    "{}{}",
-                    model::task_label(x, *n, &model::clock),
-                    if enabled { "" } else { " (snapshot pending)" }
-                );
-                let (id, tid) = (id.clone(), x.id.clone());
-                let chosen = task == Some(&x.id);
-                menu = menu.child(
-                    item(x.id.clone(), label, enabled, chosen)
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .when(enabled, |d| {
-                            d.on_click(cx.listener(move |v, _, _, cx| {
-                                v.set_task(&id, Some(tid.clone()), cx)
-                            }))
-                        }),
-                );
-            }
-            sel = sel.child(
-                deferred(
-                    anchored()
-                        .anchor(Anchor::TopLeft)
-                        .position(point(px(0.), px(30.)))
-                        .position_mode(gpui::AnchoredPositionMode::Local)
-                        .snap_to_window()
-                        .child(menu),
+                TaskRow {
+                    key: x.id.clone(),
+                    label: format!(
+                        "{}{}",
+                        model::task_label(x, *n, &model::clock),
+                        if enabled { "" } else { " (snapshot pending)" }
+                    ),
+                    enabled,
+                    chosen: task == Some(&x.id),
+                    task: Some(x.id.clone()),
+                }
+            }));
+            let (rows, id, this): (Rc<[TaskRow]>, _, _) = (rows.into(), a.id.clone(), cx.weak_entity());
+            // Under Liquid Glass: a glass pop-up above the window, built
+            // from these values (`kit::pop`); Esc closes it there.
+            sel = if kit::pop::hosted(cx) {
+                let closer = this.clone();
+                let build: kit::pop::Build = Rc::new(move |_: &mut Window, cx: &mut App| {
+                    task_rows(&rows, &kit::pop::theme(cx), &id, &this).into_any_element()
+                });
+                let on_dismiss: kit::pop::OnDismiss = Rc::new(move |_: &mut Window, cx: &mut App| {
+                    let _ = closer.update(cx, |v, cx| {
+                        v.task_menu = false;
+                        cx.notify();
+                    });
+                });
+                let pop = kit::pop::Pop { at: None, radius: kit::pop::MENU_RADIUS, focus: None, build, on_dismiss };
+                sel.child(div().absolute().left_0().top(px(30.)).child(kit::pop::anchor("rv-scope-pop", pop)))
+            } else {
+                let menu = task_rows(&rows, t, &id, &this)
+                    .occlude()
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.line_strong)
+                    .rounded(RADIUS)
+                    .shadow_lg()
+                    .on_mouse_down_out(cx.listener(|v, _, _, cx| {
+                        v.task_menu = false;
+                        cx.notify();
+                    }));
+                sel.child(
+                    deferred(
+                        anchored()
+                            .anchor(Anchor::TopLeft)
+                            .position(point(px(0.), px(30.)))
+                            .position_mode(gpui::AnchoredPositionMode::Local)
+                            .snap_to_window()
+                            .child(menu),
+                    )
+                    .with_priority(5),
                 )
-                .with_priority(5),
-            );
+            };
         }
         sel
     }
@@ -1618,4 +1606,54 @@ pub(super) struct Tally {
     /// Not worked in lately, and how many of those have changes.
     pub(super) old: usize,
     pub(super) old_work: usize,
+}
+
+/// One row of the task dropdown, as plain values.
+struct TaskRow {
+    key: String,
+    label: String,
+    enabled: bool,
+    chosen: bool,
+    /// `None`: all the agent's changes.
+    task: Option<String>,
+}
+
+/// The task dropdown's rows: its content, drawn in Review's window or in
+/// the dropdown's glass pop-up. `this` is only touched when a row is
+/// chosen (from a pop-up: once it has closed, in Review's window).
+fn task_rows(rows: &[TaskRow], t: &Theme, agent: &str, this: &gpui::WeakEntity<ReviewView>) -> gpui::Stateful<Div> {
+    let hover = t.surface_3;
+    let rows = rows.iter().map(|r| {
+        let (this, agent, task) = (this.clone(), agent.to_string(), r.task.clone());
+        div()
+            .id(SharedString::from(format!("rv-task-{}", r.key)))
+            .mx(px(4.))
+            .px(px(8.))
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .rounded(RADIUS_SM)
+            .text_color(if r.enabled { t.text } else { t.text_4 })
+            .when(r.chosen, |d| d.bg(hover))
+            .when(r.enabled, |d| d.cursor_pointer().hover_probed(move |s| s.bg(hover)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .when(r.enabled, |d| {
+                d.on_click(move |_, window, cx| {
+                    let (this, agent, task) = (this.clone(), agent.clone(), task.clone());
+                    kit::pop::pick(window, cx, move |_, cx| {
+                        let _ = this.update(cx, |v, cx| v.set_task(&agent, task, cx));
+                    })
+                })
+            })
+            .child(div().ellipsis().child(crate::kit::one_line(r.label.clone())))
+    });
+    div()
+        .id("rv-scope-menu")
+        .min_w(px(260.))
+        .max_w(px(560.))
+        .max_h(px(360.))
+        .overflow_y_scroll()
+        .py(px(4.))
+        .text_size(px(12.))
+        .children(rows)
 }

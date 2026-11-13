@@ -180,6 +180,9 @@ pub struct Layer {
     onboarding: Option<Entity<Onboarding>>,
     about: bool,
     focus: FocusHandle,
+    /// Settings' own (its page list), kept here: under Liquid Glass
+    /// Settings is drawn by its pop-up alone, and nothing here reads it.
+    settings_focus: Option<FocusHandle>,
     focus_next_render: bool,
     _subs: Vec<Subscription>,
 }
@@ -196,6 +199,7 @@ impl Layer {
             onboarding: None,
             about: false,
             focus: cx.focus_handle(),
+            settings_focus: None,
             focus_next_render: false,
             _subs: Vec::new(),
         };
@@ -249,6 +253,7 @@ impl Layer {
                 }
             });
             self._subs.push(sub);
+            self.settings_focus = Some(view.read(cx).focus.clone());
             self.settings = Some(view);
         }
         self.focus_next_render = true;
@@ -346,11 +351,14 @@ impl Layer {
 
 impl Render for Layer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if std::mem::take(&mut self.focus_next_render) {
+        // Under Liquid Glass Settings and About are glass pop-ups over
+        // their backdrop: the pop-up has the keyboard, not this window.
+        let hosted = crate::kit::pop::hosted(cx) && self.onboarding.is_none();
+        if std::mem::take(&mut self.focus_next_render) && !hosted {
             // Settings: its page list, for ↑/↓.
-            let focus = match &self.settings {
-                Some(s) => s.read(cx).focus.clone(),
-                None => self.focus.clone(),
+            let focus = match (&self.settings, &self.settings_focus) {
+                (Some(_), Some(focus)) => focus.clone(),
+                _ => self.focus.clone(),
             };
             window.focus(&focus, cx);
         }
@@ -368,6 +376,38 @@ impl Render for Layer {
             .child(sweeper);
         if let Some(onb) = &self.onboarding {
             return root.child(onb.clone());
+        }
+        if hosted && (self.settings.is_some() || self.about) {
+            let this = cx.entity().downgrade();
+            let on_close: crate::kit::OnClose = std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |l, cx| l.close(cx));
+            });
+            let close = on_close.clone();
+            let (id, focus, build): (_, _, crate::kit::pop::Build) = match self.settings.clone() {
+                // Drawn there only (see `pop::Build`).
+                Some(s) => (
+                    "settings",
+                    self.settings_focus.clone(),
+                    std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                        let (t, close) = (crate::kit::pop::theme(cx), close.clone());
+                        crate::kit::Modal::new("settings", view::WIDTH, move |window, cx| close(window, cx))
+                            .render_in(window, cx, &t, s.clone())
+                    }),
+                ),
+                None => (
+                    "about",
+                    None,
+                    std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                        let (t, close, shut) = (crate::kit::pop::theme(cx), close.clone(), close.clone());
+                        let body = about::render(window, cx, move |_, window, cx| {
+                            let shut = shut.clone();
+                            crate::kit::pop::pick(window, cx, move |window, cx| shut(window, cx))
+                        });
+                        crate::kit::Modal::new("about", 400., move |window, cx| close(window, cx)).render_in(window, cx, &t, body)
+                    }),
+                ),
+            };
+            return root.child(crate::kit::modal::backdrop(id, focus, on_close, window, cx, build));
         }
         if let Some(s) = self.settings.clone() {
             let modal = self.modal("settings", view::WIDTH, s.into_any_element(), cx);

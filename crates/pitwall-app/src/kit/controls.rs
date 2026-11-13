@@ -228,7 +228,8 @@ pub fn select_trigger(
 }
 
 /// The open dropdown under its trigger (put both in a `relative` box):
-/// `on_pick(index)`, `on_close` on a click outside.
+/// `on_pick(index)`, `on_close` on a click outside. Under Liquid Glass it
+/// is a glass pop-up above the window (`kit::pop`); Esc closes it there.
 pub fn select_menu(
     id: impl Into<ElementId>,
     items: Vec<(SharedString, bool)>,
@@ -236,41 +237,70 @@ pub fn select_menu(
     on_pick: OnPick,
     on_close: OnClose,
 ) -> impl IntoElement {
-    let t = t.float();
-    let id = id.into();
-    div().absolute().left_0().top(px(28.)).child(deferred(
-        anchored().snap_to_window().child(
+    SelectMenu { id: id.into(), items: items.into(), t: t.float(), on_pick, on_close }
+}
+
+/// [`select_menu`], which knows where it is drawn once it has the app.
+#[derive(IntoElement)]
+struct SelectMenu {
+    id: ElementId,
+    items: Rc<[(SharedString, bool)]>,
+    t: Theme,
+    on_pick: OnPick,
+    on_close: OnClose,
+}
+
+/// The options, with the dropdown's size and scrolling.
+fn select_rows(id: ElementId, items: &[(SharedString, bool)], t: &Theme, on_pick: &OnPick) -> Stateful<Div> {
+    div().id(id).min_w(px(180.)).max_h(px(320.)).overflow_y_scroll().p(px(4.)).children(items.iter().enumerate().map(
+        |(i, (label, on))| {
+            let (pick, on) = (on_pick.clone(), *on);
+            let hover = t.surface_3;
             div()
-                .id(id)
-                .occlude()
-                .min_w(px(180.))
-                .max_h(px(320.))
-                .overflow_y_scroll()
-                .p(px(4.))
-                .rounded(RADIUS)
-                .bg(t.raised)
-                .border_1()
-                .border_color(t.line_strong)
-                .shadow_lg()
-                .on_mouse_down_out(move |_, window, cx| on_close(window, cx))
-                .children(items.into_iter().enumerate().map(|(i, (label, on))| {
-                    let pick = on_pick.clone();
-                    let hover = t.surface_3;
-                    div()
-                        .id(i)
-                        .px(px(8.))
-                        .py(px(5.))
-                        .rounded(RADIUS_SM)
-                        .text_size(px(12.))
-                        .text_color(if on { t.text } else { t.text_2 })
-                        .when(on, |d| d.font_weight(FontWeight::MEDIUM))
-                        .cursor_pointer()
-                        .hover_probed(move |s| s.bg(hover))
-                        .on_click(move |_, window, cx| pick(i, window, cx))
-                        .child(label)
-                })),
-        ),
+                .id(i)
+                .px(px(8.))
+                .py(px(5.))
+                .rounded(RADIUS_SM)
+                .text_size(px(12.))
+                .text_color(if on { t.text } else { t.text_2 })
+                .when(on, |d| d.font_weight(FontWeight::MEDIUM))
+                .cursor_pointer()
+                .hover_probed(move |s| s.bg(hover))
+                // (In a pop-up: it closes, and the pick runs in the window.)
+                .on_click(move |_, window, cx| {
+                    let pick = pick.clone();
+                    super::pop::pick(window, cx, move |window, cx| pick(i, window, cx))
+                })
+                .child(label.clone())
+        },
     ))
+}
+
+impl RenderOnce for SelectMenu {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let SelectMenu { id, items, t, on_pick, on_close } = self;
+        let place = div().absolute().left_0().top(px(28.));
+        if super::pop::hosted(cx) {
+            let rows = id.clone();
+            let build: super::pop::Build = Rc::new(move |_: &mut Window, cx: &mut App| {
+                select_rows(rows.clone(), &items, &super::pop::theme(cx), &on_pick).into_any_element()
+            });
+            let pop = super::pop::Pop { at: None, radius: super::pop::MENU_RADIUS, focus: None, build, on_dismiss: on_close };
+            return place.child(super::pop::anchor(id, pop));
+        }
+        place.child(deferred(
+            anchored().snap_to_window().child(
+                select_rows(id, &items, &t, &on_pick)
+                    .occlude()
+                    .rounded(RADIUS)
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.line_strong)
+                    .shadow_lg()
+                    .on_mouse_down_out(move |_, window, cx| on_close(window, cx)),
+            ),
+        ))
+    }
 }
 
 /// The spinning ring (`onb-spin`, `fresh-spin`): a faint track with a

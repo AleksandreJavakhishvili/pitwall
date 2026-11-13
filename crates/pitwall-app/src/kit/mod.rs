@@ -35,6 +35,8 @@ pub mod logos;
 pub mod menu;
 pub mod modal;
 pub mod motion;
+pub mod passive;
+pub mod pop;
 pub mod scm;
 pub mod scrollbar;
 pub mod status;
@@ -59,7 +61,7 @@ pub use glass::{chrome_panel, chrome_width, glass_region, region_sweeper, PANEL_
 pub use icons::{chevron, chevron_at, icon, Assets};
 pub use logos::agent_logo;
 pub use input::{InputEvent, TextFieldEvent, TextInput};
-pub use menu::{menu_item, menu_panel};
+pub use menu::{menu_body, menu_item, menu_panel};
 pub use modal::{scrim_in, Modal};
 pub use scm::{
     count_badge, diffstat_inline, file_status, status_letter, status_letter_text, status_title,

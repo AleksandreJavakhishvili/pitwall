@@ -197,6 +197,42 @@ pub fn groups(sets: &[&RuleSet]) -> Vec<(&'static str, Vec<usize>)> {
         .collect()
 }
 
+/// One line of the dropdown.
+enum Row {
+    /// A group's title.
+    Head(&'static str),
+    /// "No extra rules" (`id` is `None`) or a rule set.
+    Set { key: usize, label: SharedString, on: bool, id: Option<String> },
+}
+
+/// The dropdown's rows in `panel`: picking one sets the field's choice
+/// (from a pop-up: once it has closed, in the field's window).
+fn menu(
+    panel: gpui::Div,
+    rows: &[Row],
+    t: &crate::theme::Theme,
+    field: &gpui::WeakEntity<RulesField>,
+) -> gpui::Stateful<gpui::Div> {
+    panel.id("na-rules-menu").max_h(px(320.)).overflow_y_scroll().children(rows.iter().map(|row| match row {
+        Row::Head(heading) => kit::label(*heading, t.text_3, 11.).px(px(8.)).pt(px(8.)).pb(px(2.)).into_any_element(),
+        Row::Set { key, label, on, id } => {
+            let (field, id) = (field.clone(), id.clone());
+            kit::menu_item(("na-rules-item", *key), if *on { "check" } else { "" }, label.clone(), None, false, t)
+                .on_click(move |_, window, cx| {
+                    let (field, id) = (field.clone(), id.clone());
+                    kit::pop::pick(window, cx, move |_, cx| {
+                        let _ = field.update(cx, |f, cx| {
+                            f.choice.rule_set_id = id;
+                            f.open = false;
+                            cx.notify();
+                        });
+                    })
+                })
+                .into_any_element()
+        }
+    }))
+}
+
 impl Render for RulesField {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(sets) = self.sets.clone().filter(|_| self.visible()) else {
@@ -247,70 +283,52 @@ impl Render for RulesField {
             widgets::on_pick(|_, _, _| {}),
             widgets::on_close(|_, _| {}),
         );
-        let pick = move |id: Option<String>| {
-            let e = e2.clone();
-            move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
-                let id = id.clone();
-                let _ = e.update(cx, |f, cx| {
-                    f.choice.rule_set_id = id;
-                    f.open = false;
-                    cx.notify();
-                });
-            }
-        };
-        let item = |key: usize, label: String, on: bool| {
-            kit::menu_item(
-                ("na-rules-item", key),
-                if on { "check" } else { "" },
-                label,
-                None,
-                false,
-                &t,
-            )
-        };
-        let mut menu = kit::menu_panel(&t)
-            .id("na-rules-menu")
-            .occlude()
-            .max_h(px(320.))
-            .overflow_y_scroll()
-            .border_1()
-            .border_color(t.line_strong)
-            .on_mouse_down_out(move |_, _, cx| {
-                let _ = e3.update(cx, |f, cx| {
-                    f.open = false;
-                    cx.notify();
-                });
-            })
-            .child(
-                item(0, none_label.to_string(), self.choice.rule_set_id.is_none())
-                    .on_click(pick(None)),
-            );
+        // The dropdown, as values: it is also drawn in a glass pop-up,
+        // whose window must not touch this field while it draws.
+        let mut rows = vec![Row::Set {
+            key: 0,
+            label: none_label.into(),
+            on: self.choice.rule_set_id.is_none(),
+            id: None,
+        }];
         for (heading, idx) in groups(&offered) {
-            menu = menu.child(
-                kit::label(heading, t.text_3, 11.)
-                    .px(px(8.))
-                    .pt(px(8.))
-                    .pb(px(2.)),
-            );
+            rows.push(Row::Head(heading));
             for i in idx {
                 let s = offered[i];
                 let on = self.choice.rule_set_id.as_ref() == Some(&s.id);
-                menu = menu.child(item(i + 1, set_label(s), on).on_click(pick(Some(s.id.clone()))));
+                rows.push(Row::Set { key: i + 1, label: set_label(s).into(), on, id: Some(s.id.clone()) });
             }
         }
-        let select = div()
-            .relative()
-            .w_full()
-            .child(trigger)
-            .when(self.open, |d| {
-                d.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .top(px(36.))
-                        .child(deferred(anchored().snap_to_window().child(menu))),
-                )
+        let close: kit::OnClose = std::rc::Rc::new(move |_, cx| {
+            let _ = e3.update(cx, |f, cx| {
+                f.open = false;
+                cx.notify();
             });
+        });
+        let place = div().absolute().left_0().top(px(36.));
+        let menu = if !self.open {
+            None
+        } else if kit::pop::hosted(cx) {
+            let build: kit::pop::Build = std::rc::Rc::new(move |_: &mut Window, cx: &mut gpui::App| {
+                menu(kit::menu_body(), &rows, &kit::pop::theme(cx), &e2).into_any_element()
+            });
+            let pop = kit::pop::Pop {
+                at: None,
+                radius: kit::pop::MENU_RADIUS,
+                focus: None,
+                build,
+                on_dismiss: close,
+            };
+            Some(place.child(kit::pop::anchor("na-rules-pop", pop)))
+        } else {
+            let menu = menu(kit::menu_panel(&t), &rows, &t, &e2)
+                .occlude()
+                .border_1()
+                .border_color(t.line_strong)
+                .on_mouse_down_out(move |_, window, cx| close(window, cx));
+            Some(place.child(deferred(anchored().snap_to_window().child(menu))))
+        };
+        let select = div().relative().w_full().child(trigger).children(menu);
         let hint = Self::hint(
             project_name.as_deref(),
             self.choice.rule_set_id.is_some(),

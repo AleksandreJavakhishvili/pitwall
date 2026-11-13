@@ -196,6 +196,111 @@ impl MainView {
             }
             return;
         }
+        // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
+        // builds): the app made the active one or not, what the system
+        // says of its windows (on stderr), a click in this window.
+        if let Some(what) = cmd.strip_prefix("app ").filter(|_| cfg!(debug_assertions)) {
+            let mut words = what.split_whitespace();
+            match words.next() {
+                Some("activate") => {
+                    crate::platform::debug_app("front");
+                    cx.activate(true);
+                    window.activate_window();
+                }
+                Some(button @ ("click" | "rclick")) => {
+                    let mut at = words.filter_map(|v| v.parse::<f32>().ok());
+                    match (at.next(), at.next()) {
+                        (Some(x), Some(y)) if button == "click" => crate::platform::debug_click(window, x, y, cx),
+                        // (An event AppKit makes without a device has no
+                        // button number: GPUI's own event, once this
+                        // update is done. From the window's top, as `click`.)
+                        (Some(x), Some(y)) => window.defer(cx, move |window, cx| {
+                            let bar = window.bounds().size.height - window.viewport_size().height;
+                            let position = gpui::point(gpui::px(x), gpui::px(y) - bar);
+                            let (button, modifiers) = (gpui::MouseButton::Right, gpui::Modifiers::default());
+                            let down = gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false };
+                            window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                            let up = gpui::MouseUpEvent { position, button, modifiers, click_count: 1 };
+                            window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+                        }),
+                        _ => {}
+                    }
+                }
+                Some(what) => eprintln!("pitwall-debug: app {what}: {}", crate::platform::debug_app(what)),
+                None => {}
+            }
+            return;
+        }
+        // `pop <what>`: drive the open glass pop-up (`kit::pop::debug`).
+        if let Some(what) = cmd.strip_prefix("pop ") {
+            crate::kit::pop::debug(what.trim(), cx);
+            return;
+        }
+        // `passive <what>`: look at the open passive pop-ups (toasts,
+        // tooltips, hovers: `kit::passive::debug`).
+        if let Some(what) = cmd.strip_prefix("passive ") {
+            crate::kit::passive::debug(what.trim(), cx);
+            return;
+        }
+        // Debug builds, `hover <x> <y>`: the pointer moves there, as far
+        // as this window knows (its tooltips and hovers, to look at; no
+        // pointer moves on the screen).
+        if let Some(at) = cmd.strip_prefix("hover ").filter(|_| cfg!(debug_assertions)) {
+            let mut at = at.split_whitespace().filter_map(|v| v.parse::<f32>().ok());
+            if let (Some(x), Some(y)) = (at.next(), at.next()) {
+                window.defer(cx, move |window, cx| {
+                    let event = gpui::MouseMoveEvent {
+                        position: gpui::point(gpui::px(x), gpui::px(y)),
+                        pressed_button: None,
+                        modifiers: gpui::Modifiers::default(),
+                    };
+                    window.dispatch_event(gpui::PlatformInput::MouseMove(event), cx);
+                });
+            }
+            return;
+        }
+        // Debug builds, `rclick <x> <y>`: a right click there, as far as
+        // this window knows (a context menu, to look at).
+        if let Some(at) = cmd.strip_prefix("rclick ").filter(|_| cfg!(debug_assertions)) {
+            let mut at = at.split_whitespace().filter_map(|v| v.parse::<f32>().ok());
+            if let (Some(x), Some(y)) = (at.next(), at.next()) {
+                window.defer(cx, move |window, cx| {
+                    let position = gpui::point(gpui::px(x), gpui::px(y));
+                    let (button, modifiers) = (gpui::MouseButton::Right, gpui::Modifiers::default());
+                    let down = gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false };
+                    window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                    let up = gpui::MouseUpEvent { position, button, modifiers, click_count: 1 };
+                    window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+                });
+            }
+            return;
+        }
+        // Debug builds, `key <keystroke>…`: keys to what has the keyboard
+        // in this window (through GPUI's dispatch: nothing is typed on
+        // the screen).
+        if let Some(keys) = cmd.strip_prefix("key ").filter(|_| cfg!(debug_assertions)) {
+            let keys: Vec<_> = keys
+                .split_whitespace()
+                .filter_map(|k| gpui::Keystroke::parse_with_os(k, gpui::OperatingSystem::Mac).ok())
+                .collect();
+            window.defer(cx, move |window, cx| {
+                for mut k in keys {
+                    if k.key.chars().count() == 1 && !k.modifiers.modified() {
+                        k.key_char = Some(k.key.clone());
+                    }
+                    window.dispatch_keystroke(k, cx);
+                }
+            });
+            return;
+        }
+        // `notice <text>`: the explorer's notice, to look at.
+        if let Some(text) = cmd.strip_prefix("notice ") {
+            if let Some(e) = &self.explorer {
+                let text = text.trim().to_string();
+                e.update(cx, |e, cx| e.demo_notice(text, cx));
+            }
+            return;
+        }
         let mut words = cmd.split_whitespace();
         let (Some(what), arg) = (words.next(), words.next()) else {
             return;
@@ -218,6 +323,12 @@ impl MainView {
                     p.close(window, cx)
                 }
             }),
+            // ⌘P's quick open, to look at.
+            "quick" => {
+                if let Some(e) = &self.explorer {
+                    e.update(cx, |e, cx| if on { e.go_to_file(window, cx) } else { e.close_quick(cx) });
+                }
+            }
             "settings" => self.layer.update(cx, |l, cx| {
                 if on {
                     l.open_settings(cx)
@@ -225,6 +336,7 @@ impl MainView {
                     l.close(cx)
                 }
             }),
+            "about" => self.layer.update(cx, |l, cx| if on { l.open_about(cx) } else { l.close(cx) }),
             // The window off screen and back (its GPU memory is released).
             "hidden" => {
                 if on {
@@ -537,6 +649,57 @@ mod tests {
             assert!(v.layer.read(cx).is_open());
             assert!(!v.palette.read(cx).is_open(), "the palette closed");
         });
+    }
+
+    /// Under Liquid Glass with pop-ups Settings and About are each one
+    /// over their backdrop, drawn there alone; Esc in it closes them.
+    #[gpui::test]
+    fn under_liquid_glass_settings_and_about_are_pop_ups(cx: &mut TestAppContext) {
+        use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+        cx.update(|cx| {
+            crate::kit::init(cx);
+            crate::settings::init(cx, None, None);
+            crate::palette::init(cx);
+            let ap = Appearance::resolve(
+                Inputs { look: Look::Glass, ..Inputs::default() },
+                gpui::WindowAppearance::Dark,
+                GlassOffer::Liquid,
+                OsPrefs::default(),
+            );
+            cx.set_global(ap.theme());
+            cx.set_global(ap);
+            cx.set_global(crate::kit::pop::TestHosted);
+        });
+        let refused = Content::Refused(Refusal::InUse { root: "/nowhere".into() });
+        let (view, vcx) = cx.add_window_view(move |window, cx| MainView::new(refused, None, window, cx));
+        let vcx: &mut VisualTestContext = vcx;
+        vcx.run_until_parked();
+        let parent = vcx.update(|window, _| window.window_handle().window_id());
+        let pops = |vcx: &mut VisualTestContext| {
+            let all = vcx.windows();
+            crate::kit::pop::open_pops()
+                .into_iter()
+                .filter(|(_, p, _)| p.window_id() == parent)
+                .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+                .collect::<Vec<_>>()
+        };
+        let before = vcx.update(|window, cx| window.focused(cx));
+        for about in [false, true] {
+            view.update_in(vcx, |v, _, cx| if about { v.open_about(cx) } else { v.open_settings(cx) });
+            vcx.run_until_parked();
+            let open = pops(vcx);
+            assert_eq!(open.len(), 1, "its pop-up (about: {about})");
+            assert!(view.read_with(vcx, |v, cx| v.layer.read(cx).is_open()));
+            assert_eq!(vcx.update(|window, cx| window.focused(cx)), before, "the window's own focus stays where it was");
+            if !about {
+                // The keyboard is in its page list, in the pop-up.
+                vcx.update_window(open[0], |_, window, cx| assert!(window.focused(cx).is_some(), "the page list has the keyboard")).unwrap();
+            }
+            vcx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+            vcx.run_until_parked();
+            assert!(!view.read_with(vcx, |v, cx| v.layer.read(cx).is_open()), "Esc closed it (about: {about})");
+            assert!(pops(vcx).is_empty());
+        }
     }
 
     /// Quick open's shortcut on this OS (`explorer::bindings`).
@@ -1019,5 +1182,69 @@ mod tests {
     #[gpui::test]
     fn quick_open_shows_the_picked_file_glass(cx: &mut TestAppContext) {
         quick_open_shows_the_file(true, cx);
+    }
+
+    /// Under Liquid Glass with pop-ups: quick open's panel is one, with
+    /// the keyboard; a pick opens the file in the window, Esc and ⌘K
+    /// close it.
+    #[gpui::test]
+    fn under_liquid_glass_quick_open_is_a_pop_up_with_the_keyboard(cx: &mut TestAppContext) {
+        let (first, _second, vcx) = two_windows(cx, true);
+        vcx.update(|_, cx| cx.set_global(crate::kit::pop::TestHosted));
+        let (screen, explorer) = first.read_with(vcx, |v, _| (v.screen.clone().unwrap(), v.explorer.clone().unwrap()));
+        screen.update_in(vcx, |s, window, cx| s.show_agent("a1", window, cx));
+        vcx.run_until_parked();
+        let pops = |vcx: &mut VisualTestContext| {
+            let parent = vcx.update(|window, _| window.window_handle().window_id());
+            let all = vcx.windows();
+            crate::kit::pop::open_pops()
+                .into_iter()
+                .filter(|(_, p, _)| p.window_id() == parent)
+                .filter_map(|(id, _, at)| Some((*all.iter().find(|w| w.window_id() == id)?, at?)))
+                .collect::<Vec<_>>()
+        };
+        let keys = |pop: gpui::AnyWindowHandle, keys: &'static str, vcx: &mut VisualTestContext| {
+            vcx.update_window(pop, |_, window, cx| {
+                for k in keys.split(' ') {
+                    window.dispatch_keystroke(gpui::Keystroke::parse(k).unwrap(), cx);
+                }
+            })
+            .unwrap();
+            vcx.run_until_parked();
+        };
+        assert!(pops(vcx).is_empty());
+        vcx.simulate_keystrokes(GO_TO_FILE);
+        vcx.run_until_parked();
+        let open = pops(vcx);
+        assert_eq!(open.len(), 1, "the panel is a pop-up");
+        let (pop, at) = open[0];
+        // Centred, 12% down the window (with the pop-up's clear space).
+        let view = vcx.update(|window, _| window.viewport_size());
+        let pad = px(crate::kit::pop::PAD);
+        assert_eq!(at.size.width, px(600.) + pad * 2.);
+        assert_eq!(at.origin, gpui::point((view.width - px(600.)) / 2. - pad, view.height * 0.12 - pad));
+        keys(pop, "m a i n", vcx);
+        keys(pop, "enter", vcx);
+        assert!(pops(vcx).is_empty());
+        assert!(!explorer.read_with(vcx, |e, _| e.quick_open_shown()));
+        assert_eq!(screen.read_with(vcx, |s, _| s.route()), crate::main_screen::Route::Explorer);
+        assert!(vcx.debug_bounds("ex-code").is_some(), "the file's text is drawn in the window");
+        // The keyboard is the window's again: ⌘P, then Esc in the pop-up.
+        vcx.simulate_keystrokes(GO_TO_FILE);
+        vcx.run_until_parked();
+        let pop = pops(vcx)[0].0;
+        keys(pop, "escape", vcx);
+        assert!(pops(vcx).is_empty());
+        assert!(!explorer.read_with(vcx, |e, _| e.quick_open_shown()));
+        // And a press on the scrim (the window has the keyboard again).
+        vcx.simulate_keystrokes(GO_TO_FILE);
+        vcx.run_until_parked();
+        let pop = pops(vcx)[0].0;
+        vcx.update_window(pop, |_, window, _| window.activate_window()).unwrap();
+        vcx.run_until_parked();
+        vcx.update(|window, _| window.activate_window());
+        vcx.run_until_parked();
+        assert!(pops(vcx).is_empty());
+        assert!(!explorer.read_with(vcx, |e, _| e.quick_open_shown()));
     }
 }

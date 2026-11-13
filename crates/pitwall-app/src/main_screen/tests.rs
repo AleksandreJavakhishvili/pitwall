@@ -32,6 +32,136 @@ fn screen(
     (view, store, cx)
 }
 
+/// Liquid Glass with floating surfaces as glass pop-ups (`kit::pop`).
+fn liquid_glass(cx: &mut VisualTestContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    cx.update(|_, cx| {
+        let ap = Appearance::resolve(
+            Inputs { look: Look::Glass, ..Inputs::default() },
+            gpui::WindowAppearance::Dark,
+            GlassOffer::Liquid,
+            OsPrefs::default(),
+        );
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+}
+
+/// The window's glass pop-ups.
+fn pops(cx: &mut VisualTestContext) -> Vec<gpui::AnyWindowHandle> {
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let all = cx.windows();
+    crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == parent)
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect()
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_menu_is_a_pop_up_with_the_keyboard(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    liquid_glass(cx);
+    let a = view.read_with(cx, |s, cx| s.agents(cx)[0].clone());
+    cx.run_until_parked();
+    let before = cx.update(|window, cx| window.focused(cx));
+    view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the menu's pop-up");
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before, "the window's own focus stays where it was");
+    assert_eq!(view.read_with(cx, |s, _| s.menu_labels()), ["Open terminal here", "Rename…", "Remove agent…"]);
+    // The screen's window is still its own: GPUI gives an entity the
+    // window that last touched it while drawing, and the pop-up doesn't.
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+
+    // ↓ and Enter in the pop-up: "Rename…" runs in the screen's window.
+    cx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(SelectNext), cx)).unwrap();
+    cx.run_until_parked();
+    cx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(Confirm), cx)).unwrap();
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| {
+        assert!(s.menu.is_none());
+        assert!(s.agent_rename.is_some(), "renaming, in the sidebar");
+    });
+    assert!(pops(cx).is_empty());
+
+    // Esc closes it.
+    view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
+    cx.run_until_parked();
+    let first = pops(cx);
+    cx.update_window(first[0], |_, window, cx| window.dispatch_action(Box::new(Dismiss), cx)).unwrap();
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| assert!(s.menu.is_none()));
+    assert!(pops(cx).is_empty());
+
+    // A menu that closes late (it lost the keyboard to the click that
+    // opened the next one) leaves the next one open.
+    view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
+    cx.run_until_parked();
+    let first = pops(cx);
+    let old = first[0];
+    view.update_in(cx, |s, window, cx| {
+        s.demo_agent_menu(&a, Some((300., 200.)), window, cx);
+        old.update(cx, |_, window, cx| window.dispatch_action(Box::new(Dismiss), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    view.read_with(cx, |s, _| assert!(s.menu.is_some(), "the second menu is open"));
+    let second = pops(cx);
+    assert_eq!(second.len(), 1);
+    assert_ne!(second[0].window_id(), first[0].window_id());
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_toasts_are_one_pop_up_without_the_keyboard(cx: &mut TestAppContext) {
+    use crate::kit::pop::PAD;
+    let (view, _, cx) = screen(cx);
+    liquid_glass(cx);
+    cx.run_until_parked();
+    let open = |cx: &mut VisualTestContext| cx.update(|window, cx| crate::kit::passive::test_over(window, cx));
+    assert!(open(cx).is_empty(), "no toast: no pop-up");
+    let before = cx.update(|window, cx| window.focused(cx));
+    let id = view.read_with(cx, |s, cx| s.agents(cx)[1].id.clone());
+    view.update(cx, |s, cx| {
+        s.toast(Toast::info("Saved", None), cx);
+        s.toast(Toast::done("web is done".into(), id.clone()), cx);
+    });
+    crate::kit::passive::test_draw(cx);
+    let stack = open(cx);
+    assert_eq!(stack.len(), 1, "one window for the whole stack");
+    assert!(pops(cx).is_empty(), "and not one that takes the keyboard");
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before);
+    cx.update(|window, _| assert!(!crate::kit::pop::over(window)));
+    // The screen's window is still its own.
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+
+    let click = |x: f32, y: f32, cx: &mut VisualTestContext| {
+        cx.update_window(stack[0], |_, window, cx| {
+            let position = gpui::point(px(x), px(y));
+            let (button, modifiers) = (gpui::MouseButton::Left, gpui::Modifiers::default());
+            window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false }), cx);
+            window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position, button, modifiers, click_count: 1 }), cx);
+        })
+        .unwrap();
+        crate::kit::passive::test_draw(cx);
+    };
+    // The first toast's text (wherever its opening has moved it to by
+    // now): it goes, having nothing to show.
+    click(PAD + 100., PAD + 20., cx);
+    assert_eq!(view.read_with(cx, |s, _| s.toast_titles()), ["web is done"]);
+    assert_eq!(open(cx).len(), 1, "the same pop-up, with what is left");
+    // The other one's text, now on top: its agent shows, in the screen's window.
+    click(PAD + 100., PAD + 20., cx);
+    view.read_with(cx, |s, _| {
+        assert!(s.toast_titles().is_empty());
+        assert_eq!(s.cursor.as_deref(), Some(id.as_str()), "a click jumps to the agent");
+    });
+    assert!(open(cx).is_empty(), "the last toast went: so did the pop-up");
+}
+
 #[gpui::test]
 fn first_run_places_the_first_agent_and_shows_on_click(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
@@ -219,7 +349,7 @@ fn hovering_never_moves_anything(cx: &mut TestAppContext) {
 
     view.update_in(cx, |s, window, cx| {
         let a = s.agents(cx)[0].clone();
-        s.demo_agent_menu(&a, window, cx);
+        s.demo_agent_menu(&a, None, window, cx);
     });
     cx.run_until_parked();
     probe::assert_hover_keeps_layout(cx, "agent menu");
@@ -524,7 +654,7 @@ fn renaming_an_agent_shows_a_bad_name_in_place_and_esc_cancels(cx: &mut TestAppC
 fn a_renamed_agent_can_go_back_to_its_session_title(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
     let labels = |view: &Entity<MainScreen>, cx: &mut VisualTestContext, a: AgentView| {
-        view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, window, cx));
+        view.update_in(cx, |s, window, cx| s.demo_agent_menu(&a, None, window, cx));
         view.read_with(cx, |s, _| s.menu_labels())
     };
     let mut a = agent("api", "/work/alpha", "idle", 1, true);
@@ -707,4 +837,78 @@ fn a_long_sidebar_builds_only_the_rows_on_screen(cx: &mut TestAppContext) {
     let cur = view.read_with(cx, |s, _| s.cursor.clone().unwrap());
     let row = drawn_at(cx, format!("row-body-{cur}"));
     assert!(row.top() >= TOPBAR_HEIGHT && row.bottom() <= h, "{cur}: {row:?} in view");
+}
+
+/// Under Liquid Glass with pop-ups a dialog's box is one, over its
+/// backdrop: the window's own focus stays, Esc in it closes the dialog,
+/// and a picker in the dialog is a pop-up of the dialog's.
+#[gpui::test]
+fn under_liquid_glass_a_dialog_is_a_pop_up_over_its_backdrop(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    liquid_glass(cx);
+    cx.run_until_parked();
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let before = cx.update(|window, cx| window.focused(cx));
+    let esc = |pop: gpui::AnyWindowHandle, cx: &mut VisualTestContext| {
+        cx.update_window(pop, |_, window, cx| window.dispatch_action(Box::new(Dismiss), cx)).unwrap();
+        cx.run_until_parked();
+    };
+
+    // One drawn from values ("Remove agent").
+    let a = view.read_with(cx, |s, cx| s.agents(cx)[0].clone());
+    view.update_in(cx, |s, _, cx| s.open_remove(&a.id, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the dialog's pop-up");
+    assert!(view.read_with(cx, |s, _| matches!(s.modal, Some(Modal::Remove(_)))));
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before, "the window's own focus stays where it was");
+    // A dialog: in the middle of the window.
+    let (size, at) = (cx.update(|window, _| window.viewport_size()), crate::kit::pop::open_pops()[0].2.unwrap());
+    assert!(
+        (at.center().x - size.width / 2.).abs() <= px(1.) && (at.center().y - size.height / 2.).abs() <= px(1.),
+        "{at:?} in {size:?}"
+    );
+    esc(open[0], cx);
+    assert!(view.read_with(cx, |s, _| s.modal.is_none()));
+    assert!(pops(cx).is_empty());
+
+    // One that is a view ("New terminal"): its pop-up alone draws it,
+    // and the screen's window is still its own.
+    view.update_in(cx, |s, window, cx| s.open_terminal_dialog(window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1);
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+    let dialog = view.read_with(cx, |s, _| match &s.modal {
+        Some(Modal::Terminal(d)) => d.clone(),
+        _ => panic!("the terminal dialog"),
+    });
+    assert_eq!(
+        dialog.update_in(cx, |_, window, _| window.window_handle().window_id()),
+        open[0].window_id(),
+        "drawn in its pop-up"
+    );
+    esc(open[0], cx);
+    assert!(view.read_with(cx, |s, _| s.modal.is_none()));
+    assert!(pops(cx).is_empty());
+
+    // "New agent" with its project picker open: a pop-up of the dialog's.
+    view.update_in(cx, |s, window, cx| s.demo_open("new-agent-picker", window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1);
+    let all = cx.windows();
+    let inner: Vec<_> = crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == open[0].window_id())
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect();
+    assert_eq!(inner.len(), 1, "the picker, in the dialog");
+    // Esc: the picker only, then the dialog.
+    esc(inner[0], cx);
+    assert_eq!(crate::kit::pop::open_pops().len(), 1);
+    assert!(view.read_with(cx, |s, _| matches!(s.modal, Some(Modal::NewAgent(_)))));
+    esc(open[0], cx);
+    assert!(view.read_with(cx, |s, _| s.modal.is_none()));
+    assert!(crate::kit::pop::open_pops().is_empty());
 }

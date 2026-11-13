@@ -4,8 +4,8 @@
 //! Commit / Commit & merge, Remove worktree.
 
 use gpui::{
-    anchored, deferred, div, point, prelude::*, px, AnyElement, AppContext, Context, Div, Entity,
-    FontWeight, Subscription, Window,
+    anchored, deferred, div, point, prelude::*, px, AnyElement, App, AppContext, Context, Div, Entity,
+    Focusable, FontWeight, Subscription, WeakEntity, Window,
 };
 
 use pitwall_core::review::{MergeResult, MergeStatus};
@@ -17,6 +17,7 @@ use super::model::{self, WtRef};
 use super::ops::{self, CommitOutcome, CommitTarget};
 use super::{CloseDialog, ReviewView};
 use crate::kit::dialog::{body, foot, form_error};
+use crate::kit::modal::{leaver, listener};
 use crate::kit::{self, BtnKind as Btn, InputEvent, TextInput, MONO_FONT};
 use crate::theme::{Theme, RADIUS};
 
@@ -64,7 +65,105 @@ pub(super) enum Dialog {
     },
 }
 
+impl Dialog {
+    /// Its values as they are now, for a dialog drawn from them in a
+    /// pop-up (see `kit::pop::Build`); the text field is the same one.
+    fn values(&self) -> Dialog {
+        let none = || Subscription::new(|| {});
+        match self {
+            Dialog::Discard { agent, agent_name, cwd, file, scoped, busy, error } => Dialog::Discard {
+                agent: agent.clone(),
+                agent_name: agent_name.clone(),
+                cwd: cwd.clone(),
+                file: file.clone(),
+                scoped: *scoped,
+                busy: *busy,
+                error: error.clone(),
+            },
+            Dialog::Prompt { agent, name, running, busy_status, title, intro, conflict, field, clears_comments, busy, error, .. } => {
+                Dialog::Prompt {
+                    agent: agent.clone(),
+                    name: name.clone(),
+                    running: *running,
+                    busy_status: *busy_status,
+                    title: title.clone(),
+                    intro: intro.clone(),
+                    conflict: conflict.clone(),
+                    field: field.clone(),
+                    clears_comments: *clears_comments,
+                    busy: *busy,
+                    error: error.clone(),
+                    _sub: none(),
+                }
+            }
+            Dialog::Commit { target, for_worktree, status, message, also_merge, busy, error, .. } => Dialog::Commit {
+                target: target.clone(),
+                for_worktree: *for_worktree,
+                status: status.clone(),
+                message: message.clone(),
+                also_merge: *also_merge,
+                busy: *busy,
+                error: error.clone(),
+                _sub: none(),
+            },
+            Dialog::Remove { r, busy, error } => Dialog::Remove { r: r.clone(), busy: *busy, error: error.clone() },
+        }
+    }
+}
+
 impl ReviewView {
+    /// Debug builds, from the bench hook (`demo review-prompt`, `demo
+    /// review-discard`): one of Review's dialogs for the selected agent,
+    /// to look at.
+    pub fn demo_dialog(&mut self, what: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // (With no agent to review: made-up ones.)
+        let (agent, name, cwd) = match self.agent_sel() {
+            Some((a, _, _)) => (a.id.clone(), a.name.clone(), a.cwd_display.clone()),
+            None => ("demo".to_string(), "orders".to_string(), "~/code/orders".to_string()),
+        };
+        self.dialog = match what {
+            "prompt" => {
+                let field = cx.new(|cx| TextInput::new(cx, "src/main.rs:3\n  two should be 2", "").multiline(5).mono());
+                field.update(cx, |f, cx| f.focus(window, cx));
+                Some(Dialog::Prompt {
+                    agent,
+                    name: name.clone(),
+                    running: true,
+                    busy_status: false,
+                    title: format!("Send comments · {name}"),
+                    intro: Some(format!("Edit freely — this exact text is what {name} receives.")),
+                    conflict: None,
+                    field,
+                    clears_comments: false,
+                    busy: false,
+                    error: None,
+                    _sub: Subscription::new(|| {}),
+                })
+            }
+            "discard" => Some(Dialog::Discard {
+                agent,
+                agent_name: name,
+                cwd,
+                file: FileChange {
+                    path: "src/main.rs".into(),
+                    added: 2,
+                    removed: 1,
+                    untracked: false,
+                    binary: false,
+                    status: None,
+                    repo: None,
+                    branch: None,
+                    parts: None,
+                },
+                scoped: false,
+                busy: false,
+                error: None,
+            }),
+            _ => return,
+        };
+        cx.notify();
+    }
+
     pub(super) fn open_discard(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let Some((a, Some(f), task)) = self.agent_sel() else {
             return;
@@ -457,19 +556,14 @@ impl ReviewView {
     }
 
     // ── drawing ────────────────────────────────────────────────────────
+}
 
-    pub(super) fn render_dialog(
-        &mut self,
-        t: &Theme,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        self.follow_prompt_agent(cx);
-        let (title, width, body, foot): (String, f32, Div, Div) = match self
-            .dialog
-            .as_ref()
-            .expect("dialog")
-        {
+/// A dialog's title, width, body and buttons, from its values: drawn in
+/// Review's window, or (under Liquid Glass) in the dialog's pop-up, where
+/// the handlers reach Review when they run.
+fn dialog_parts(dialog: &Dialog, t: &Theme, this: &WeakEntity<ReviewView>, cx: &App) -> (String, f32, Div, Div) {
+    {
+        match dialog {
             Dialog::Discard {
                 agent_name,
                 cwd,
@@ -502,13 +596,13 @@ impl ReviewView {
                         .child(
                             kit::button("dlg-cancel", Btn::Ghost, false, t)
                                 .child("Cancel")
-                                .on_click(cx.listener(|v, _, w, cx| v.close_dialog(w, cx))),
+                                .on_click(leaver(this, |v, w, cx| v.close_dialog(w, cx))),
                         )
                         .child(
                             kit::button("dlg-discard", Btn::Danger, busy, t)
                                 .child(if busy { "Discarding…" } else { "Discard" })
                                 .when(!busy, |d| {
-                                    d.on_click(cx.listener(|v, _, _, cx| v.run_discard(cx)))
+                                    d.on_click(listener(this, |v, _, cx| v.run_discard(cx)))
                                 }),
                         ),
                 )
@@ -540,20 +634,20 @@ impl ReviewView {
                 let mut f = foot(t).child(
                     kit::button("dlg-cancel", Btn::Ghost, false, t)
                         .child("Cancel")
-                        .on_click(cx.listener(|v, _, w, cx| v.close_dialog(w, cx))),
+                        .on_click(leaver(this, |v, w, cx| v.close_dialog(w, cx))),
                 );
                 let now_btn = |id: &'static str, kind: Btn, label: &'static str| {
                     kit::button(id, kind, !enabled, t)
                         .child(label)
                         .when(enabled, |d| {
-                            d.on_click(cx.listener(|v, _, _, cx| v.send_prompt(true, cx)))
+                            d.on_click(listener(this, |v, _, cx| v.send_prompt(true, cx)))
                         })
                 };
                 let queue_btn = |id: &'static str, kind: Btn| {
                     kit::button(id, kind, !enabled, t)
                         .child("Add to Next up")
                         .when(enabled, |d| {
-                            d.on_click(cx.listener(|v, _, _, cx| v.send_prompt(false, cx)))
+                            d.on_click(listener(this, |v, _, cx| v.send_prompt(false, cx)))
                         })
                 };
                 if queue_first {
@@ -683,7 +777,7 @@ impl ReviewView {
                                     .child(kit::checkbox_box(checked, false, 14., t))
                                     .child(format!("Then merge {branch} into {into}"))
                                     .when(can, |d| {
-                                        d.on_click(cx.listener(|v, _, _, cx| {
+                                        d.on_click(listener(this, |v, _, cx| {
                                             if let Some(Dialog::Commit { also_merge, .. }) =
                                                 v.dialog.as_mut()
                                             {
@@ -750,13 +844,13 @@ impl ReviewView {
                         .child(
                             kit::button("dlg-cancel", Btn::Ghost, false, t)
                                 .child("Cancel")
-                                .on_click(cx.listener(|v, _, w, cx| v.close_dialog(w, cx))),
+                                .on_click(leaver(this, |v, w, cx| v.close_dialog(w, cx))),
                         )
                         .child(
                             kit::button("dlg-commit", Btn::Primary, !enabled, t)
                                 .child(label)
                                 .when(enabled, |d| {
-                                    d.on_click(cx.listener(|v, _, w, cx| v.run_commit(w, cx)))
+                                    d.on_click(listener(this, |v, w, cx| v.run_commit(w, cx)))
                                 }),
                         ),
                 )
@@ -802,7 +896,7 @@ impl ReviewView {
                 let mut f = foot(t).child(
                     kit::button("dlg-cancel", Btn::Ghost, false, t)
                         .child("Cancel")
-                        .on_click(cx.listener(|v, _, w, cx| v.close_dialog(w, cx))),
+                        .on_click(leaver(this, |v, w, cx| v.close_dialog(w, cx))),
                 );
                 if wt.caps.remove {
                     f = f.child(
@@ -813,13 +907,75 @@ impl ReviewView {
                                 "Remove worktree"
                             })
                             .when(!busy, |d| {
-                                d.on_click(cx.listener(|v, _, _, cx| v.run_remove(cx)))
+                                d.on_click(listener(this, |v, _, cx| v.run_remove(cx)))
                             }),
                     );
                 }
                 (format!("Remove worktree {}", wt.name), 460., b, f)
             }
-        };
+        }
+    }
+}
+
+impl ReviewView {
+    pub(super) fn render_dialog(
+        &mut self,
+        t: &Theme,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        self.follow_prompt_agent(cx);
+        let this = cx.weak_entity();
+        let dialog = self.dialog.as_ref().expect("dialog");
+        // Over the whole window, not only Review's area.
+        let size = window.viewport_size();
+        if kit::pop::hosted(cx) {
+            // The box is a glass pop-up, drawn from the dialog's values
+            // as they are now; its text field is drawn there only.
+            let (dialog, t) = (std::rc::Rc::new(dialog.values()), t.clone());
+            let focus = match &*dialog {
+                Dialog::Prompt { field, .. } => Some(field.focus_handle(cx)),
+                Dialog::Commit { message, .. } => Some(message.focus_handle(cx)),
+                _ => None,
+            };
+            let me = this.clone();
+            let on_close: kit::OnClose = std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                let _ = me.update(cx, |v, cx| v.close_dialog(window, cx));
+            });
+            let close = on_close.clone();
+            let build: kit::pop::Build = std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                let t = kit::modal::on_glass(&t);
+                let (title, width, body, foot) = dialog_parts(&dialog, &t, &this, cx);
+                let close = close.clone();
+                let modal = kit::Modal::new("rv-modal", width, move |window, cx| close(window, cx)).title(title).render_in(
+                    window,
+                    cx,
+                    &t,
+                    div().flex().flex_col().min_h_0().child(kit::dialog::scrolling("rv-modal-body", body, &t)).child(foot),
+                );
+                div()
+                    .key_context("RvDialog")
+                    .on_action(leaver::<_, CloseDialog>(&this, |v, w, cx| v.close_dialog(w, cx)))
+                    .text_size(px(13.))
+                    .text_color(t.text)
+                    .child(modal)
+                    .into_any_element()
+            });
+            return deferred(
+                anchored().position(point(px(0.), px(0.))).child(
+                    div()
+                        .id("rv-dialog")
+                        .occlude()
+                        .relative()
+                        .w(size.width)
+                        .h(size.height)
+                        .child(kit::modal::backdrop("rv-modal", focus, on_close, window, cx, build)),
+                ),
+            )
+            .with_priority(20)
+            .into_any_element();
+        }
+        let (title, width, body, foot) = dialog_parts(dialog, t, &this, cx);
         let me = cx.entity().downgrade();
         let modal = kit::Modal::new("rv-modal", width, move |window, cx| {
             let _ = me.update(cx, |v, cx| v.close_dialog(window, cx));
@@ -827,8 +983,6 @@ impl ReviewView {
         .title(title)
         .motion(crate::theme::motion_on(cx))
         .render(t, div().flex().flex_col().min_h_0().child(kit::dialog::scrolling("rv-modal-body", body, t)).child(foot));
-        // Over the whole window, not only Review's area.
-        let size = window.viewport_size();
         deferred(
             anchored().position(point(px(0.), px(0.))).child(
                 div()

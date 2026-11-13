@@ -97,6 +97,8 @@ pub struct MarkdownView {
     selecting: Rc<Cell<bool>>,
     /// The context menu, where it opened.
     menu: Option<Point<Pixels>>,
+    /// The menu's own focus, when it is a pop-up (which has the keyboard).
+    menu_focus: FocusHandle,
     generation: u64,
     _load: Option<Task<()>>,
 }
@@ -120,6 +122,7 @@ impl MarkdownView {
             dragging: false,
             selecting: Rc::default(),
             menu: None,
+            menu_focus: cx.focus_handle(),
             generation: 0,
             _load: None,
         }
@@ -275,33 +278,35 @@ impl MarkdownView {
     }
 
     /// The right-click menu: Copy, Select All.
-    fn menu(&self, at: Point<Pixels>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    /// Under Liquid Glass it is a glass pop-up above the window
+    /// (`kit::pop`), with the keyboard: Esc closes it, ⌘C and ⌘A work in it.
+    fn menu(&self, at: Point<Pixels>, t: &Theme, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let c = Colors::for_theme(t);
         let has_sel = self.sel.is_some_and(|s| !s.is_empty());
-        let item = |id: &'static str, label: &'static str, on: bool| {
-            div()
-                .id(id)
-                .debug_selector(move || id.into())
-                .mx(px(4.))
-                .px(px(10.))
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .rounded(px(3.))
-                .when(on, |d| d.cursor_pointer().hover(|d| d.bg(c.menu_sel)))
-                .when(!on, |d| d.opacity(0.5))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(label)
-        };
-        let list = div()
-            .id("md-menu")
+        let this = cx.weak_entity();
+        // (A Preview that is itself in a pop-up draws its menu there.)
+        if kit::pop::hosted(cx) && kit::pop::parent_of(window).is_none() {
+            let (closer, focus) = (this.clone(), self.menu_focus.clone());
+            let build: kit::pop::Build = Rc::new(move |_: &mut Window, cx: &mut App| {
+                menu_rows(has_sel, kit::pop::theme(cx).surface_3, &this).track_focus(&focus).into_any_element()
+            });
+            // Esc, a press outside, the keyboard gone elsewhere (not the
+            // right click that opened the menu again at another place).
+            let on_dismiss: kit::pop::OnDismiss = Rc::new(move |_: &mut Window, cx: &mut App| {
+                let _ = closer.update(cx, |v, cx| {
+                    if v.menu == Some(at) {
+                        v.menu = None;
+                    }
+                    cx.notify();
+                });
+            });
+            let pop = kit::pop::Pop { at: Some(at), radius: kit::pop::MENU_RADIUS, focus: Some(self.menu_focus.clone()), build, on_dismiss };
+            return kit::pop::anchor("md-menu-pop", pop).into_any_element();
+        }
+        let list = menu_rows(has_sel, c.menu_sel, &this)
             .occlude()
-            .min_w(px(180.))
-            .py(px(4.))
             .bg(c.menu_bg)
             .text_color(c.menu_fg)
-            .font_family(UI_FONT)
-            .text_size(px(13.))
             .rounded(px(5.))
             .border_1()
             .border_color(c.widget_border)
@@ -309,15 +314,7 @@ impl MarkdownView {
             .on_mouse_down_out(cx.listener(|v, _, _, cx| {
                 v.menu = None;
                 cx.notify();
-            }))
-            .child(
-                item("md-menu-copy", "Copy", has_sel)
-                    .on_click(cx.listener(|v, _, w, cx| v.copy(&Copy, w, cx))),
-            )
-            .child(
-                item("md-menu-all", "Select All", true)
-                    .on_click(cx.listener(|v, _, w, cx| v.select_all(&SelectAll, w, cx))),
-            );
+            }));
         deferred(
             anchored()
                 .position(at)
@@ -330,8 +327,50 @@ impl MarkdownView {
     }
 }
 
+/// The context menu's rows: its content, drawn in the Preview's window or
+/// in the menu's glass pop-up. `this` is only touched when a row is chosen
+/// (from a pop-up: once it has closed, in the Preview's window).
+fn menu_rows(has_sel: bool, hover: Hsla, this: &gpui::WeakEntity<MarkdownView>) -> gpui::Stateful<Div> {
+    fn run(this: &gpui::WeakEntity<MarkdownView>, all: bool, window: &mut Window, cx: &mut App) {
+        let this = this.clone();
+        kit::pop::pick(window, cx, move |window, cx| {
+            let _ = this.update(cx, |v, cx| if all { v.select_all(&SelectAll, window, cx) } else { v.copy(&Copy, window, cx) });
+        });
+    }
+    let item = |id: &'static str, label: &'static str, on: bool, all: bool| {
+        let this = this.clone();
+        div()
+            .id(id)
+            .debug_selector(move || id.into())
+            .mx(px(4.))
+            .px(px(10.))
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .rounded(px(3.))
+            .when(on, |d| d.cursor_pointer().hover(|d| d.bg(hover)))
+            .when(!on, |d| d.opacity(0.5))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, window, cx| run(&this, all, window, cx))
+            .child(label)
+    };
+    let (copy, all) = (this.clone(), this.clone());
+    div()
+        .id("md-menu")
+        // (The app menu's Copy and Select All, when the menu is a pop-up
+        // and has the keyboard.)
+        .on_action(move |_: &crate::menu::Copy, window, cx| run(&copy, false, window, cx))
+        .on_action(move |_: &crate::menu::SelectAll, window, cx| run(&all, true, window, cx))
+        .min_w(px(180.))
+        .py(px(4.))
+        .font_family(UI_FONT)
+        .text_size(px(13.))
+        .child(item("md-menu-copy", "Copy", has_sel, false))
+        .child(item("md-menu-all", "Select All", true, true))
+}
+
 impl Render for MarkdownView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx).clone();
         let Some(doc) = self.doc.clone() else {
             self.pieces.clear();
@@ -454,7 +493,7 @@ impl Render for MarkdownView {
         )
         .absolute()
         .size_0();
-        let menu = self.menu.map(|at| self.menu(at, &t, cx));
+        let menu = self.menu.map(|at| self.menu(at, &t, window, cx));
         kit::vscroll_fill("md-bar", &self.scroll, &t, body)
             .id("md-preview")
             .key_context(CONTEXT)

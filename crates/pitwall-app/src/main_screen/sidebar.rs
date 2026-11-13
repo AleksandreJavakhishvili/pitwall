@@ -749,14 +749,16 @@ impl MainScreen {
         cx.notify();
     }
 
-    /// Demo only: the agent menu next to the sidebar.
+    /// Demo only: the agent menu next to the sidebar (or at `at`).
     pub(super) fn demo_agent_menu(
         &mut self,
         a: &AgentView,
+        at: Option<(f32, f32)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.agent_menu(a, true, point(px(150.), px(120.)), window, cx);
+        let (x, y) = at.unwrap_or((150., 120.));
+        self.agent_menu(a, true, point(px(x), px(y)), window, cx);
     }
 
     #[allow(clippy::too_many_arguments)]

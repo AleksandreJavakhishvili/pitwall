@@ -309,3 +309,115 @@ fn hovering_rows_moves_nothing(cx: &mut TestAppContext) {
     let n = crate::kit::hover::probe::assert_hover_keeps_layout(cx, "palette");
     assert!(n >= 10, "only {n} rows hovered");
 }
+
+/// Liquid Glass, with pop-ups in tests.
+fn liquid_glass(cx: &mut VisualTestContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    cx.update(|_, cx| {
+        let ap = Appearance::resolve(
+            Inputs { look: Look::Glass, ..Inputs::default() },
+            gpui::WindowAppearance::Dark,
+            GlassOffer::Liquid,
+            OsPrefs::default(),
+        );
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+}
+
+/// The test window's pop-ups, with where they were put.
+fn pops(cx: &mut VisualTestContext) -> Vec<(gpui::AnyWindowHandle, Option<gpui::Bounds<gpui::Pixels>>)> {
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let all = cx.windows();
+    crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == parent)
+        .filter_map(|(id, _, at)| Some((*all.iter().find(|w| w.window_id() == id)?, at)))
+        .collect()
+}
+
+/// Keys pressed in a pop-up.
+fn keys_in(pop: gpui::AnyWindowHandle, keys: &'static str, cx: &mut VisualTestContext) {
+    cx.update_window(pop, |_, window, cx| {
+        for k in keys.split(' ') {
+            window.dispatch_keystroke(gpui::Keystroke::parse(k).unwrap(), cx);
+        }
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_panel_is_a_pop_up_with_the_keyboard(cx: &mut TestAppContext) {
+    use gpui::{px, Focusable as _};
+    let (root, cx) = window(cx);
+    liquid_glass(cx);
+    cx.run_until_parked();
+    assert!(pops(cx).is_empty());
+    cx.dispatch_action(OpenPalette);
+    cx.run_until_parked();
+    let p = palette(&root, cx).expect("⌘K opens it");
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the panel is a pop-up");
+    let (pop, at) = (open[0].0, open[0].1.expect("placed"));
+    // Where the backdrop would centre it, 12% down the window.
+    let view = cx.update(|window, _| window.viewport_size());
+    let pad = px(crate::kit::pop::PAD);
+    assert_eq!(at.size.width, px(super::view::WIDTH) + pad * 2.);
+    assert_eq!(at.origin.x, (view.width - px(super::view::WIDTH)) / 2. - pad);
+    assert_eq!(at.origin.y, view.height * 0.12 - pad);
+    // The keyboard is in the pop-up, on the input; the window's own
+    // focus stays where it was.
+    cx.update_window(pop, |_, window, cx| assert!(p.focus_handle(cx).is_focused(window))).unwrap();
+    cx.update(|window, cx| assert!(!p.focus_handle(cx).is_focused(window)));
+    keys_in(pop, "d o c s", cx);
+    p.read_with(cx, |p, cx| {
+        assert_eq!(p.query(cx), "docs");
+        assert_eq!(ids(p.rows()), ["go-docs", "remove-docs", "q-docs"]);
+    });
+    keys_in(pop, "down", cx);
+    p.read_with(cx, |p, _| assert_eq!(p.active(), 1));
+    keys_in(pop, "up", cx);
+    // The list is shorter: the pop-up follows its content.
+    let shorter = pops(cx)[0].1.unwrap();
+    assert!(shorter.size.height < at.size.height);
+    assert_eq!(shorter.origin, at.origin);
+    // ↵ runs the row in the window, with the pop-up gone.
+    keys_in(pop, "enter", cx);
+    assert!(palette(&root, cx).is_none(), "running a row closes it");
+    assert!(pops(cx).is_empty());
+    root.read_with(cx, |r, cx| assert_eq!(r.screen.read(cx).focused_agent_id().as_deref(), Some("docs")));
+
+    // "Queue for…" fills the input and stays open, the keyboard still in it.
+    cx.dispatch_action(OpenPalette);
+    cx.run_until_parked();
+    let p = palette(&root, cx).unwrap();
+    let pop = pops(cx)[0].0;
+    p.update(cx, |p, cx| p.set_query("queue web", cx));
+    keys_in(pop, "enter", cx);
+    p.read_with(cx, |p, cx| assert_eq!(p.query(cx), "web: "));
+    assert_eq!(pops(cx).len(), 1);
+    cx.update_window(pop, |_, window, cx| assert!(p.focus_handle(cx).is_focused(window))).unwrap();
+    // Esc closes it; so does ⌘K, from the pop-up.
+    keys_in(pop, "escape", cx);
+    assert!(palette(&root, cx).is_none(), "Esc closes it");
+    assert!(pops(cx).is_empty());
+    cx.dispatch_action(OpenPalette);
+    cx.run_until_parked();
+    let pop = pops(cx)[0].0;
+    cx.update_window(pop, |_, window, cx| window.dispatch_action(Box::new(OpenPalette), cx)).unwrap();
+    cx.run_until_parked();
+    assert!(palette(&root, cx).is_none(), "⌘K again closes it");
+    assert!(pops(cx).is_empty());
+    // A press on the scrim: the window has the keyboard again.
+    cx.dispatch_action(OpenPalette);
+    cx.run_until_parked();
+    let pop = pops(cx)[0].0;
+    cx.update_window(pop, |_, window, _| window.activate_window()).unwrap();
+    cx.run_until_parked();
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    assert!(palette(&root, cx).is_none(), "a press outside closes it");
+    assert!(pops(cx).is_empty());
+}

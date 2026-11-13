@@ -683,3 +683,125 @@ fn a_long_list_builds_only_the_rows_on_screen(cx: &mut TestAppContext) {
     let n = built(cx) - before;
     assert!(n <= 120, "picking a file built {n} file rows");
 }
+
+/// Liquid Glass with floating surfaces as glass pop-ups (`kit::pop`).
+fn liquid_glass(cx: &mut VisualTestContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    cx.update(|_, cx| {
+        let inputs = Inputs { look: Look::Glass, ..Inputs::default() };
+        let ap = Appearance::resolve(inputs, gpui::WindowAppearance::Dark, GlassOffer::Liquid, OsPrefs::default());
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+}
+
+/// The window's glass pop-ups.
+fn pops(cx: &mut VisualTestContext) -> Vec<gpui::AnyWindowHandle> {
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let all = cx.windows();
+    crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == parent)
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect()
+}
+
+#[gpui::test]
+fn under_liquid_glass_the_task_dropdown_is_a_pop_up(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("a.txt", "1\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    r.write("a.txt", "2\n");
+    let h = Harness::new(vec![record("agent-1", r.path())]);
+    let (view, cx) = open(cx, &h);
+    cx.update(|_, cx| crate::menu::register(cx));
+    liquid_glass(cx);
+    let open = |cx: &mut VisualTestContext| {
+        view.update(cx, |v, cx| {
+            v.task_menu = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let open = pops(cx);
+        assert_eq!(open.len(), 1, "the dropdown's pop-up");
+        open[0]
+    };
+    // A click on "All changes" (the first row: 4 px in, 24 px tall)
+    // chooses it in Review's window and closes the dropdown.
+    let menu = open(cx);
+    cx.update_window(menu, |_, window, cx| {
+        let position = gpui::point(gpui::px(crate::kit::pop::PAD + 40.), gpui::px(crate::kit::pop::PAD + 16.));
+        let (button, modifiers) = (gpui::MouseButton::Left, gpui::Modifiers::default());
+        window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false }), cx);
+        window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position, button, modifiers, click_count: 1 }), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| !v.task_menu));
+    assert!(pops(cx).is_empty());
+    // Esc closes it.
+    let menu = open(cx);
+    cx.update_window(menu, |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| !v.task_menu));
+    assert!(pops(cx).is_empty());
+}
+
+/// Under Liquid Glass with pop-ups a Review dialog's box is one: its
+/// text field takes typing there, and Esc in it closes the dialog.
+#[gpui::test]
+fn under_liquid_glass_a_dialog_is_a_pop_up_with_its_text_field(cx: &mut TestAppContext) {
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    let r = Repo::new();
+    r.write("a.txt", "1\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let h = Harness::new(vec![record("agent-2", r.path())]);
+    let (view, cx) = open(cx, &h);
+    cx.update(|_, cx| {
+        crate::kit::init(cx);
+        let ap = Appearance::resolve(
+            Inputs { look: Look::Glass, ..Inputs::default() },
+            gpui::WindowAppearance::Dark,
+            GlassOffer::Liquid,
+            OsPrefs::default(),
+        );
+        cx.set_global(ap.theme());
+        cx.set_global(ap);
+        cx.set_global(crate::kit::pop::TestHosted);
+    });
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let pops = |cx: &mut VisualTestContext| {
+        let all = cx.windows();
+        crate::kit::pop::open_pops()
+            .into_iter()
+            .filter(|(_, p, _)| p.window_id() == parent)
+            .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+            .collect::<Vec<_>>()
+    };
+    view.update_in(cx, |v, window, cx| v.demo_dialog("prompt", window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the dialog's pop-up");
+    let field = view.read_with(cx, |v, _| match v.dialog.as_ref() {
+        Some(Dialog::Prompt { field, .. }) => field.clone(),
+        _ => panic!("the prompt dialog"),
+    });
+    let before = field.read_with(cx, |f, _| f.text().to_string());
+    cx.update_window(open[0], |_, window, cx| {
+        for k in ["o", "k"] {
+            window.dispatch_keystroke(gpui::Keystroke::parse(k).unwrap(), cx);
+        }
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(field.read_with(cx, |f, _| f.text().to_string()), format!("{before}ok"), "typed in the pop-up");
+    // The dialog is still Review's, in Review's window.
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+    cx.update_window(open[0], |_, window, cx| window.dispatch_action(Box::new(crate::menu::Dismiss), cx)).unwrap();
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.dialog.is_none()), "Esc closed it");
+    assert!(pops(cx).is_empty());
+}
