@@ -302,6 +302,22 @@ pub fn debug_click(window: &mut Window, x: f32, y: f32, cx: &mut App) {
     let _ = (window, x, y, cx);
 }
 
+/// Debug builds on macOS: `front` notes the app the user is in,
+/// `deactivate` gives it its place back (as when the user goes to another
+/// app); anything else only reports.
+/// What the system then says of the app and its windows.
+pub fn debug_app(what: &str) -> String {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        macos::debug_app(what)
+    }
+    #[cfg(any(not(target_os = "macos"), test))]
+    {
+        let _ = what;
+        String::new()
+    }
+}
+
 /// The pointer over the floating control: the pointing hand over what
 /// takes a click, the arrow otherwise. macOS only: the control shows while
 /// another app is active, where GPUI's cursor styles (which follow the

@@ -28,6 +28,14 @@ pub fn visible() -> bool {
     enabled() && std::env::var_os("PITWALL_BENCH_VISIBLE").is_some_and(|v| v == "1")
 }
 
+/// Debug builds: `PITWALL_DEBUG_CMD=1` reads `bench-cmd` in an app that
+/// is otherwise as ever (an ordinary window where it was last), to drive
+/// it for checks and screenshots without synthetic input. It doesn't come
+/// to the front by itself (`app activate` does that).
+pub fn debug_cmds() -> bool {
+    cfg!(debug_assertions) && std::env::var_os("PITWALL_DEBUG_CMD").is_some_and(|v| v == "1")
+}
+
 /// Where a bench window goes: far off the left edge of any display.
 pub const OFF_SCREEN: (f32, f32) = (-20_000., 0.);
 
@@ -60,7 +68,7 @@ pub fn prepare() {
 /// Watch `bench-cmd` and write `bench-ready` (call once the main window is
 /// open).
 pub fn start(main: WindowHandle<MainView>, root: PathBuf, started: Instant, cx: &mut App) {
-    if !enabled() {
+    if !enabled() && !debug_cmds() {
         return;
     }
     cx.spawn(async move |cx: &mut AsyncApp| {

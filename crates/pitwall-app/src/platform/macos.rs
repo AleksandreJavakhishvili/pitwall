@@ -519,3 +519,59 @@ pub fn two_drawables(window: &gpui::Window) {
         }
     }
 }
+
+thread_local! {
+    /// Debug builds: the app that was in front when `debug_app("front")`
+    /// was asked, to give its place back.
+    static WAS_FRONT: std::cell::RefCell<Option<objc2::rc::Retained<objc2_app_kit::NSRunningApplication>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Debug builds: `front` notes the app the user is in (before this one is
+/// activated for a check), `deactivate` gives that app its place back (as
+/// when the user goes to another app; this app is hidden when none was
+/// noted), `above` lifts the app's windows over floating ones; then what
+/// AppKit says of the app and of its windows that are on screen.
+#[cfg_attr(test, allow(dead_code))]
+pub fn debug_app(what: &str) -> String {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSWorkspace};
+    let Some(app) = app() else { return "not on the main thread".into() };
+    if what == "front" && !app.isActive() {
+        WAS_FRONT.set(NSWorkspace::sharedWorkspace().frontmostApplication());
+    }
+    // `above`: the app's ordinary windows above other apps' floating ones
+    // (test instances side by side), to be seen in a screenshot.
+    if what == "above" {
+        for w in app.windows().iter().filter(|w| w.isVisible() && w.parentWindow().is_none()) {
+            w.setLevel(102);
+        }
+    }
+    if what == "deactivate" {
+        match WAS_FRONT.take() {
+            Some(other) => {
+                other.activateWithOptions(NSApplicationActivationOptions::empty());
+            }
+            None => app.hide(None),
+        }
+    }
+    let windows: Vec<String> = app
+        .windows()
+        .iter()
+        .filter(|w| w.isVisible())
+        .map(|w| {
+            let f = w.frame();
+            format!(
+                "[#{} ({}, {}) {}×{} key {} main {} child {}]",
+                w.windowNumber(),
+                f.origin.x,
+                f.origin.y,
+                f.size.width,
+                f.size.height,
+                w.isKeyWindow(),
+                w.isMainWindow(),
+                w.parentWindow().is_some()
+            )
+        })
+        .collect();
+    format!("active {}, menu bar ours {}, windows {}", app.isActive(), app_active(), windows.join(" "))
+}

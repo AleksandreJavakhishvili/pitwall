@@ -196,6 +196,41 @@ impl MainView {
             }
             return;
         }
+        // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
+        // builds): the app made the active one or not, what the system
+        // says of its windows (on stderr), a click in this window.
+        if let Some(what) = cmd.strip_prefix("app ").filter(|_| cfg!(debug_assertions)) {
+            let mut words = what.split_whitespace();
+            match words.next() {
+                Some("activate") => {
+                    crate::platform::debug_app("front");
+                    cx.activate(true);
+                    window.activate_window();
+                }
+                Some(button @ ("click" | "rclick")) => {
+                    let mut at = words.filter_map(|v| v.parse::<f32>().ok());
+                    match (at.next(), at.next()) {
+                        (Some(x), Some(y)) if button == "click" => crate::platform::debug_click(window, x, y, cx),
+                        // (An event AppKit makes without a device has no
+                        // button number: GPUI's own event, once this
+                        // update is done. From the window's top, as `click`.)
+                        (Some(x), Some(y)) => window.defer(cx, move |window, cx| {
+                            let bar = window.bounds().size.height - window.viewport_size().height;
+                            let position = gpui::point(gpui::px(x), gpui::px(y) - bar);
+                            let (button, modifiers) = (gpui::MouseButton::Right, gpui::Modifiers::default());
+                            let down = gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false };
+                            window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                            let up = gpui::MouseUpEvent { position, button, modifiers, click_count: 1 };
+                            window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+                        }),
+                        _ => {}
+                    }
+                }
+                Some(what) => eprintln!("pitwall-debug: app {what}: {}", crate::platform::debug_app(what)),
+                None => {}
+            }
+            return;
+        }
         // `pop <what>`: drive the open glass pop-up (`kit::pop::debug`).
         if let Some(what) = cmd.strip_prefix("pop ") {
             crate::kit::pop::debug(what.trim(), cx);

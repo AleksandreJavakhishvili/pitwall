@@ -244,7 +244,15 @@ pub fn run() {
                 bench::start(main, root, started, cx);
             }
         } else {
-            cx.activate(true);
+            if bench::debug_cmds() {
+                if let Some(root) = cx.global::<AppState>().root.clone() {
+                    bench::start(main, root, started, cx);
+                }
+            }
+            // (Driven by commands: in front only when one says so.)
+            if !bench::debug_cmds() {
+                cx.activate(true);
+            }
         }
     });
 }
