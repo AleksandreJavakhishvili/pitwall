@@ -706,13 +706,35 @@ impl MainScreen {
     pub(super) fn render_remove_worktree(
         &mut self,
         t: &Theme,
+        window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let Some(Modal::RemoveWorktree(r)) = &self.modal else {
             return None;
         };
         let busy = r.busy;
-        let w = find_worktree(&self.wt.projects, &r.project_id, &r.path)?.wt;
+        let w = find_worktree(&self.wt.projects, &r.project_id, &r.path)?.wt.clone();
+        // Drawn from these values (under Liquid Glass, in a pop-up).
+        let this = cx.weak_entity();
+        let entity = cx.entity();
+        let modal = crate::kit::Modal::new("remove-worktree", 460., move |window, cx| {
+            entity.update(cx, |s, cx| s.close_modal(window, cx))
+        })
+        .title(format!("Remove worktree {}", w.name))
+        .motion(crate::theme::motion_on(cx));
+        Some(modal.show(None, t, window, cx, move |t, _, _| remove_worktree_body(&w, busy, t, &this)))
+    }
+}
+
+/// What is in the "Remove worktree" dialog.
+fn remove_worktree_body(
+    w: &pitwall_proto::WorktreeView,
+    busy: bool,
+    t: &Theme,
+    this: &gpui::WeakEntity<MainScreen>,
+) -> AnyElement {
+    use crate::kit::modal::{leaver, listener};
+    {
         let ft = t.float();
         let mono = |s: String| div().font_family(MONO_FONT).child(s);
         let body = crate::kit::dialog::body()
@@ -749,18 +771,17 @@ impl MainScreen {
                     d.child(hint(why, &ft).text_color(ft.red))
                 }
             });
-        let entity = cx.entity();
         let foot = crate::kit::dialog::foot(&ft)
             .child(
                 button("rmwt-cancel", BtnKind::Ghost, false, &ft)
-                    .on_click(cx.listener(|s, _, window, cx| s.close_modal(window, cx)))
+                    .on_click(leaver(this, |s, window, cx| s.close_modal(window, cx)))
                     .child("Cancel"),
             )
             .when(w.caps.remove, |d| {
                 d.child(
                     button("rmwt-go", BtnKind::Danger, busy, &ft)
                         .when(!busy, |b| {
-                            b.on_click(cx.listener(|s, _, _, cx| s.remove_worktree_now(cx)))
+                            b.on_click(listener(this, |s, _, cx| s.remove_worktree_now(cx)))
                         })
                         .child(if busy {
                             "Removing…"
@@ -769,14 +790,7 @@ impl MainScreen {
                         }),
                 )
             });
-        Some(
-            crate::kit::Modal::new("remove-worktree", 460., move |window, cx| {
-                entity.update(cx, |s, cx| s.close_modal(window, cx))
-            })
-            .title(format!("Remove worktree {}", w.name))
-            .motion(crate::theme::motion_on(cx))
-            .render(t, div().flex().flex_col().min_h_0().child(crate::kit::dialog::scrolling("rmwt-body", body, t)).child(foot)),
-        )
+        div().flex().flex_col().min_h_0().child(crate::kit::dialog::scrolling("rmwt-body", body, t)).child(foot).into_any_element()
     }
 }
 

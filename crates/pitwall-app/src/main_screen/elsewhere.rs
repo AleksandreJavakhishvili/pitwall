@@ -269,11 +269,30 @@ impl MainScreen {
     pub(super) fn render_bring_in(
         &mut self,
         t: &Theme,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let r = self.elsewhere.bring.clone()?;
         let busy = self.elsewhere.busy;
         let close = cx.entity().downgrade();
+        // Drawn from these values (under Liquid Glass, in a pop-up).
+        let this = close.clone();
+        let modal = Modal::new("bring-in", 460., move |_, cx| {
+            let _ = close.update(cx, |s, cx| {
+                s.elsewhere.bring = None;
+                cx.notify();
+            });
+        })
+        .title("Bring into Pitwall")
+        .motion(crate::theme::motion_on(cx));
+        Some(modal.show(None, t, window, cx, move |t, _, _| bring_in_body(&r, busy, t, &this)))
+    }
+}
+
+/// What is in the "Bring into Pitwall" dialog.
+fn bring_in_body(r: &RunningAgent, busy: bool, t: &Theme, this: &gpui::WeakEntity<MainScreen>) -> AnyElement {
+    use crate::kit::modal::listener;
+    {
         let body = div()
             .flex()
             .flex_col()
@@ -321,7 +340,7 @@ impl MainScreen {
                 crate::kit::dialog::foot(t)
                     .child(
                         text_button("bring-cancel", "Cancel", BtnKind::Ghost, false, t).on_click(
-                            cx.listener(|this, _, _, cx| {
+                            listener(this, |this, _, cx| {
                                 this.elsewhere.bring = None;
                                 cx.notify();
                             }),
@@ -335,22 +354,14 @@ impl MainScreen {
                             busy,
                             t,
                         )
-                        .on_click(cx.listener(move |this, _, window, cx| this.bring_in(window, cx))),
+                        .on_click(listener(this, |this, window, cx| this.bring_in(window, cx))),
                     ),
             );
-        Some(
-            Modal::new("bring-in", 460., move |_, cx| {
-                let _ = close.update(cx, |s, cx| {
-                    s.elsewhere.bring = None;
-                    cx.notify();
-                });
-            })
-            .title("Bring into Pitwall")
-            .motion(crate::theme::motion_on(cx))
-            .render(t, body),
-        )
+        body.into_any_element()
     }
+}
 
+impl MainScreen {
     fn bring_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (Some(engine), Some(r)) = (self.engine.clone(), self.elsewhere.bring.clone()) else {
             return;

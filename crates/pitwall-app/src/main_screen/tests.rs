@@ -790,3 +790,77 @@ fn a_long_sidebar_builds_only_the_rows_on_screen(cx: &mut TestAppContext) {
     let row = drawn_at(cx, format!("row-body-{cur}"));
     assert!(row.top() >= TOPBAR_HEIGHT && row.bottom() <= h, "{cur}: {row:?} in view");
 }
+
+/// Under Liquid Glass with pop-ups a dialog's box is one, over its
+/// backdrop: the window's own focus stays, Esc in it closes the dialog,
+/// and a picker in the dialog is a pop-up of the dialog's.
+#[gpui::test]
+fn under_liquid_glass_a_dialog_is_a_pop_up_over_its_backdrop(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    liquid_glass(cx);
+    cx.run_until_parked();
+    let parent = cx.update(|window, _| window.window_handle().window_id());
+    let before = cx.update(|window, cx| window.focused(cx));
+    let esc = |pop: gpui::AnyWindowHandle, cx: &mut VisualTestContext| {
+        cx.update_window(pop, |_, window, cx| window.dispatch_action(Box::new(Dismiss), cx)).unwrap();
+        cx.run_until_parked();
+    };
+
+    // One drawn from values ("Remove agent").
+    let a = view.read_with(cx, |s, cx| s.agents(cx)[0].clone());
+    view.update_in(cx, |s, _, cx| s.open_remove(&a.id, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the dialog's pop-up");
+    assert!(view.read_with(cx, |s, _| matches!(s.modal, Some(Modal::Remove(_)))));
+    assert_eq!(cx.update(|window, cx| window.focused(cx)), before, "the window's own focus stays where it was");
+    // A dialog: in the middle of the window.
+    let (size, at) = (cx.update(|window, _| window.viewport_size()), crate::kit::pop::open_pops()[0].2.unwrap());
+    assert!(
+        (at.center().x - size.width / 2.).abs() <= px(1.) && (at.center().y - size.height / 2.).abs() <= px(1.),
+        "{at:?} in {size:?}"
+    );
+    esc(open[0], cx);
+    assert!(view.read_with(cx, |s, _| s.modal.is_none()));
+    assert!(pops(cx).is_empty());
+
+    // One that is a view ("New terminal"): its pop-up alone draws it,
+    // and the screen's window is still its own.
+    view.update_in(cx, |s, window, cx| s.open_terminal_dialog(window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1);
+    assert_eq!(view.update_in(cx, |_, window, _| window.window_handle().window_id()), parent);
+    let dialog = view.read_with(cx, |s, _| match &s.modal {
+        Some(Modal::Terminal(d)) => d.clone(),
+        _ => panic!("the terminal dialog"),
+    });
+    assert_eq!(
+        dialog.update_in(cx, |_, window, _| window.window_handle().window_id()),
+        open[0].window_id(),
+        "drawn in its pop-up"
+    );
+    esc(open[0], cx);
+    assert!(view.read_with(cx, |s, _| s.modal.is_none()));
+    assert!(pops(cx).is_empty());
+
+    // "New agent" with its project picker open: a pop-up of the dialog's.
+    view.update_in(cx, |s, window, cx| s.demo_open("new-agent-picker", window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1);
+    let all = cx.windows();
+    let inner: Vec<_> = crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == open[0].window_id())
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect();
+    assert_eq!(inner.len(), 1, "the picker, in the dialog");
+    // Esc: the picker only, then the dialog.
+    esc(inner[0], cx);
+    assert_eq!(crate::kit::pop::open_pops().len(), 1);
+    assert!(view.read_with(cx, |s, _| matches!(s.modal, Some(Modal::NewAgent(_)))));
+    esc(open[0], cx);
+    assert!(view.read_with(cx, |s, _| s.modal.is_none()));
+    assert!(crate::kit::pop::open_pops().is_empty());
+}
