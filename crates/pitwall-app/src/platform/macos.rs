@@ -222,22 +222,73 @@ pub fn debug_click(window: &gpui::Window, x: f32, y: f32, cx: &mut gpui::App) {
     .detach();
 }
 
-/// Set the pointer: the pointing hand or the arrow. For a window shown
-/// while another app is active (the floating control): AppKit's cursor
-/// rects, which GPUI uses, only work for the active app's key window.
+/// Resize the floating control with the pointer until the left button is
+/// released: `moved` hears the pointer's travel from where it was when
+/// this was called, in screen points with y down, `done` the release.
+/// Polled, as [`drag_with_pointer`] is and for the same reason (the window
+/// belongs to an app that isn't active); and from the screen's pointer,
+/// since the window changes under it.
 #[cfg_attr(test, allow(dead_code))]
-pub fn set_cursor(pointing: bool) {
-    use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send};
+pub fn resize_with_pointer(
+    window: &gpui::Window,
+    cx: &mut gpui::App,
+    mut moved: impl FnMut(f32, f32, &mut gpui::App) + 'static,
+    done: impl FnOnce(&mut gpui::App) + 'static,
+) {
+    use objc2_app_kit::NSEvent;
+    if ns_window(window).is_none() {
+        done(cx);
+        return;
+    }
+    let from = NSEvent::mouseLocation();
+    cx.spawn(async move |cx| {
+        let mut last = (0., 0.);
+        // At most a minute, as a drag.
+        for _ in 0..7500 {
+            if NSEvent::pressedMouseButtons() & 1 == 0 {
+                break;
+            }
+            let at = NSEvent::mouseLocation();
+            // AppKit's y goes up.
+            let by = ((at.x - from.x) as f32, (from.y - at.y) as f32);
+            if by != last {
+                last = by;
+                cx.update(|cx| moved(by.0, by.1, cx));
+            }
+            cx.background_executor().timer(std::time::Duration::from_millis(8)).await;
+        }
+        cx.update(done);
+    })
+    .detach();
+}
+
+/// Set the pointer for a window shown while another app is active (the
+/// floating control): AppKit's cursor rects, which GPUI uses, only work
+/// for the active app's key window.
+#[cfg_attr(test, allow(dead_code))]
+pub fn set_cursor(kind: super::FloatCursor) {
+    use super::FloatCursor;
+    use objc2::runtime::{AnyObject, Sel};
+    use objc2::{class, msg_send, sel};
     if MainThreadMarker::new().is_none() {
         return;
     }
     allow_cursor_in_background();
-    // SAFETY: NSCursor class methods returning a shared cursor, and its
-    // `set`, on the main thread.
+    let name: Sel = match kind {
+        FloatCursor::Arrow => sel!(arrowCursor),
+        FloatCursor::Pointing => sel!(pointingHandCursor),
+        FloatCursor::ResizeLeftRight => sel!(resizeLeftRightCursor),
+        FloatCursor::ResizeUpDown => sel!(resizeUpDownCursor),
+        // AppKit's own window corner cursor (GPUI uses it too); it has no
+        // public name, so it is asked whether it has it.
+        FloatCursor::ResizeDiagonal => sel!(_windowResizeNorthWestSouthEastCursor),
+    };
+    // SAFETY: NSCursor class methods returning a shared cursor (checked
+    // to exist first), and its `set`, on the main thread.
     unsafe {
-        let cursor: *mut AnyObject =
-            if pointing { msg_send![class!(NSCursor), pointingHandCursor] } else { msg_send![class!(NSCursor), arrowCursor] };
+        let class = class!(NSCursor);
+        let has: bool = msg_send![class, respondsToSelector: name];
+        let cursor: *mut AnyObject = if has { msg_send![class, performSelector: name] } else { msg_send![class, arrowCursor] };
         if !cursor.is_null() {
             let _: () = msg_send![cursor, set];
         }

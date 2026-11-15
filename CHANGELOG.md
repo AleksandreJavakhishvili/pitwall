@@ -8,6 +8,7 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 
 - Real Liquid Glass for everything that floats, on macOS 26 with the Glass look: context menus, dropdowns, the command palette, quick open, dialogs, Settings, About, toasts, tooltips and the code view's hovers are now the system's own glass, bending and blurring the terminals behind them. Each lives in a small window of its own, because the system's glass can't see what Pitwall draws in the same window. Flat, older macOS, Windows and Linux look and behave as before.
 - The floating "needs you" control is Liquid Glass too, with a thin layer of the theme's colour so it reads over a white page as well as a dark one, and a minimize button on the opened cards.
+- Resize the floating "needs you" control's opened cards with the mouse: drag the left edge to make them wider (the prompt wraps to fit), the top edge (the bottom on Windows and Linux) to show more rows of each agent's terminal, including what is above a short prompt, or the corner for both. The size is kept, also the next time Pitwall starts, and a double click on an edge goes back to the default.
 - On glass, menus, the palette and dialogs open without their animation, and app shortcuts wait until the menu or dialog is closed.
 
 ## [0.6.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.6.0) - 2026-11-12

@@ -408,15 +408,48 @@ pub fn debug_app(what: &str) -> String {
     }
 }
 
-/// The pointer over the floating control: the pointing hand over what
-/// takes a click, the arrow otherwise. macOS only: the control shows while
-/// another app is active, where GPUI's cursor styles (which follow the
-/// active app's key window) don't apply. Elsewhere GPUI's do.
-pub fn float_cursor(pointing: bool) {
+/// Resize the floating control with the pointer: from the press until the
+/// left button is released, `moved` hears how far the pointer is from
+/// where it was pressed, in screen points (down and right are positive),
+/// each time that changes, and `done` once it is let go. The pointer's
+/// place on the screen, not in the window: the window changes size and
+/// place under it. `false` where that isn't done here (not macOS): the
+/// caller follows the window's own mouse events instead.
+pub fn float_resize(window: &mut Window, cx: &mut App, moved: impl FnMut(f32, f32, &mut App) + 'static, done: impl FnOnce(&mut App) + 'static) -> bool {
     #[cfg(all(target_os = "macos", not(test)))]
-    macos::set_cursor(pointing);
+    {
+        macos::resize_with_pointer(window, cx, moved, done);
+        true
+    }
     #[cfg(any(not(target_os = "macos"), test))]
-    let _ = pointing;
+    {
+        let _ = (window, cx, moved, done);
+        false
+    }
+}
+
+/// The pointer shapes the floating control asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloatCursor {
+    Arrow,
+    /// Over what takes a click.
+    Pointing,
+    /// Over an edge that resizes: its left or right, its top or bottom,
+    /// and the corner (on macOS the top left, where the diagonal runs from
+    /// top left to bottom right).
+    ResizeLeftRight,
+    ResizeUpDown,
+    ResizeDiagonal,
+}
+
+/// The pointer over the floating control. macOS only: the control shows
+/// while another app is active, where GPUI's cursor styles (which follow
+/// the active app's key window) don't apply. Elsewhere GPUI's do.
+pub fn float_cursor(cursor: FloatCursor) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::set_cursor(cursor);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = cursor;
 }
 
 /// Show `count` agents needing the user on the Dock / taskbar / launcher.
