@@ -10,8 +10,11 @@ use pitwall_proto::{AgentView, AskView, Status};
 pub const PAD: f32 = 14.;
 /// Collapsed: a tile with the Pitwall mark, the count on its corner.
 pub const PUCK: f32 = 46.;
-/// The window's width with the cards open.
+/// The panel's width with the cards open, until the user drags its edge
+/// (then [`Shape::width`], between [`MIN_WIDTH`] and [`MAX_WIDTH`]).
 pub const WIDTH: f32 = 600.;
+pub const MIN_WIDTH: f32 = 420.;
+pub const MAX_WIDTH: f32 = 1100.;
 /// The header: the mark, the count, "Accept all", and the toggle.
 pub const HEADER_H: f32 = 44.;
 /// A card's first row: the agent and what it wants.
@@ -38,12 +41,55 @@ pub const RULE: f32 = 1.;
 
 /// Agents shown as cards; the rest are counted ("+2 more").
 pub const MAX_CARDS: usize = 3;
-/// Characters of the prompt per line: what fits [`WIDTH`] in its font.
+/// Characters of the prompt per line: what fits [`WIDTH`] in its font
+/// (a wider or narrower panel scales it, [`wrap_cols`]).
 pub const WRAP_COLS: usize = 86;
 /// Rows of the prompt shown when one agent asks, and when several do; a
-/// longer prompt keeps its top.
+/// longer prompt keeps its top. The user can drag that between
+/// [`MIN_ROWS`] and [`MAX_ROWS`] (rows when one asks; see [`max_lines`]).
 pub const LINES_ALONE: usize = 16;
 pub const LINES_SHARED: usize = 7;
+pub const MIN_ROWS: usize = 3;
+pub const MAX_ROWS: usize = 40;
+
+/// The size the user gave the open panel by dragging its edges: its width,
+/// and the rows a card shows when one agent asks (`None`: the default,
+/// and a short prompt shows only itself; set, a card shows that many rows
+/// of its terminal, the ones above a short prompt too, so that making it
+/// taller always shows more).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shape {
+    pub width: f32,
+    pub rows: Option<usize>,
+}
+
+impl Default for Shape {
+    fn default() -> Self {
+        Shape { width: WIDTH, rows: None }
+    }
+}
+
+impl Shape {
+    /// Rows of prompt a card shows when `count` agents ask.
+    pub fn max_lines(&self, count: usize) -> usize {
+        max_lines(count, self.rows.unwrap_or(LINES_ALONE))
+    }
+
+    /// Characters of prompt text per line.
+    pub fn cols(&self) -> usize {
+        wrap_cols(self.width)
+    }
+
+    /// A card fills its rows with the terminal above a short prompt.
+    pub fn fill(&self) -> bool {
+        self.rows.is_some()
+    }
+}
+
+/// Characters of the prompt per line in a panel `width` wide.
+pub fn wrap_cols(width: f32) -> usize {
+    ((WRAP_COLS as f32 * width / WIDTH).floor() as usize).max(1)
+}
 
 /// An agent that needs the user.
 #[derive(Debug, Clone, PartialEq)]
@@ -70,11 +116,12 @@ impl Item {
         self.local && self.ask.accept && self.ask.reject
     }
 
-    /// The prompt's lines as shown, at most `max`. A yes/no loses its
-    /// list of choices: the buttons under it are those.
-    pub fn lines(&self, max: usize) -> Vec<String> {
+    /// The prompt's lines as shown, at most `max`, of at most `cols`
+    /// characters. A yes/no loses its list of choices: the buttons under
+    /// it are those.
+    pub fn lines(&self, max: usize, cols: usize) -> Vec<String> {
         let text = if self.ask.accept { without_choices(&self.ask.text) } else { self.ask.text.clone() };
-        wrap(&text, WRAP_COLS, max)
+        wrap(&text, cols, max)
     }
 }
 
@@ -119,12 +166,24 @@ pub fn title(items: &[Item]) -> String {
     }
 }
 
-/// Lines of prompt a card shows when `count` agents ask.
-pub fn max_lines(count: usize) -> usize {
+/// Lines of prompt a card shows when `count` agents ask, `alone` when one
+/// does: several share in the default's proportion ([`LINES_SHARED`] of
+/// [`LINES_ALONE`]), at least [`MIN_ROWS`].
+pub fn max_lines(count: usize, alone: usize) -> usize {
     if count <= 1 {
-        LINES_ALONE
+        alone
     } else {
-        LINES_SHARED
+        ((alone * LINES_SHARED) as f32 / LINES_ALONE as f32).round().max(MIN_ROWS as f32) as usize
+    }
+}
+
+/// The rows when one agent asks that give each card `per_card` rows when
+/// `count` do (the other way round of [`max_lines`]).
+pub fn alone_for(count: usize, per_card: usize) -> usize {
+    if count <= 1 {
+        per_card
+    } else {
+        ((per_card * LINES_ALONE) as f32 / LINES_SHARED as f32).round() as usize
     }
 }
 
@@ -181,10 +240,11 @@ pub fn wrap(text: &str, cols: usize, max: usize) -> Vec<String> {
     out
 }
 
-/// Rows of prompt a card shows: its terminal's (`rows`) when it has the
-/// screen, else its text's, at most `max`.
-pub fn lines_shown(item: &Item, max: usize, rows: Option<usize>) -> usize {
-    rows.map_or_else(|| item.lines(max).len(), |r| r.clamp(1, max))
+/// Rows of prompt a card shows when `count` agents ask: its terminal's
+/// (`rows`) when it has the screen, else its text's, at most the shape's.
+pub fn lines_shown(item: &Item, count: usize, shape: Shape, rows: Option<TermRows>) -> usize {
+    let max = shape.max_lines(count);
+    rows.map_or_else(|| item.lines(max, shape.cols()).len(), |r| r.shown(max, shape.fill()))
 }
 
 /// Whether a card has a line under its buttons: an error, or why there
@@ -197,14 +257,53 @@ pub fn has_note(item: &Item, error: bool) -> bool {
 /// into `rows` (each row's text), at most `max` of them: from the row the
 /// prompt (`ask`, as the rules cut it out of the screen) starts on to the
 /// last row that draws anything. A prompt longer than `max` keeps its top;
-/// one that can't be found gives the last `max` rows.
-pub fn term_span(rows: &[String], ask: &str, max: usize) -> Option<(usize, usize)> {
-    let end = rows.iter().rposition(|r| !r.trim().is_empty())? + 1;
-    let first = ask.lines().map(str::trim).find(|l| !l.is_empty());
-    let start = first
-        .and_then(|l| rows[..end].iter().rposition(|r| r.contains(l)))
-        .unwrap_or_else(|| end.saturating_sub(max));
-    Some((start, end.min(start + max.max(1))))
+/// one that can't be found gives the last `max` rows. With `fill`, a
+/// shorter prompt has the rows above it shown too, up to `max`.
+pub fn term_span(rows: &[String], ask: &str, max: usize, fill: bool) -> Option<(usize, usize)> {
+    Some(TermRows::find(rows, ask)?.span(max, fill))
+}
+
+/// Where an agent's prompt is on its screen: the rows above it, and its
+/// own (from the row it starts on to the last row that draws anything).
+/// Kept in [`super::Float`] so the window's height follows a new maximum
+/// at once, before the card is drawn again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TermRows {
+    pub above: usize,
+    pub prompt: usize,
+    /// The prompt was found (else all that is drawn counts as its rows).
+    pub found: bool,
+}
+
+impl TermRows {
+    /// Where the prompt is in `rows` (each row's text); `None` when
+    /// nothing is drawn.
+    pub fn find(rows: &[String], ask: &str) -> Option<TermRows> {
+        let end = rows.iter().rposition(|r| !r.trim().is_empty())? + 1;
+        let first = ask.lines().map(str::trim).find(|l| !l.is_empty());
+        Some(match first.and_then(|l| rows[..end].iter().rposition(|r| r.contains(l))) {
+            Some(start) => TermRows { above: start, prompt: end - start, found: true },
+            None => TermRows { above: 0, prompt: end, found: false },
+        })
+    }
+
+    /// How many rows a card shows of them, at most `max`; with `fill`,
+    /// rows above a shorter prompt too.
+    pub fn shown(self, max: usize, fill: bool) -> usize {
+        let have = if fill { self.above + self.prompt } else { self.prompt };
+        have.clamp(1, max.max(1))
+    }
+
+    /// Those rows, as `(start, end)` into the screen: a prompt longer than
+    /// them keeps its top, else they end at the last row drawn.
+    pub fn span(self, max: usize, fill: bool) -> (usize, usize) {
+        let (n, end) = (self.shown(max, fill), self.above + self.prompt);
+        if self.found && self.prompt > n {
+            (self.above, self.above + n)
+        } else {
+            (end.saturating_sub(n), end)
+        }
+    }
 }
 
 /// A card's height with `lines` rows of prompt.
@@ -213,25 +312,25 @@ pub fn card_height(lines: usize, note: bool) -> f32 {
     GAP + CARD_HEAD + text + BUTTONS_H + if note { NOTE_H } else { 0. } + GAP
 }
 
-/// The window's size: the mark alone, or the cards under the header,
-/// and [`PAD`] around either.
-/// `error`: whether an agent's last answer failed. `rows`: the rows of its
-/// terminal a card shows, when it has the agent's screen (else its
-/// prompt's text is shown, wrapped).
-pub fn size(items: &[Item], expanded: bool, error: &dyn Fn(&str) -> bool, rows: &dyn Fn(&str) -> Option<usize>) -> (f32, f32) {
-    let (w, h) = content_size(items, expanded, error, rows);
+/// The window's size: the mark alone, or the cards under the header (in
+/// the user's `shape`), and [`PAD`] around either.
+/// `error`: whether an agent's last answer failed. `rows`: where the
+/// prompt is on its terminal, when a card has the agent's screen (else
+/// its prompt's text is shown, wrapped).
+pub fn size(items: &[Item], expanded: bool, shape: Shape, error: &dyn Fn(&str) -> bool, rows: &dyn Fn(&str) -> Option<TermRows>) -> (f32, f32) {
+    let (w, h) = content_size(items, expanded, shape, error, rows);
     (w + 2. * PAD, h + 2. * PAD)
 }
 
 /// What is drawn, without the clear space around it.
-pub fn content_size(items: &[Item], expanded: bool, error: &dyn Fn(&str) -> bool, rows: &dyn Fn(&str) -> Option<usize>) -> (f32, f32) {
+pub fn content_size(items: &[Item], expanded: bool, shape: Shape, error: &dyn Fn(&str) -> bool, rows: &dyn Fn(&str) -> Option<TermRows>) -> (f32, f32) {
     if !expanded || items.is_empty() {
         return (PUCK, PUCK);
     }
-    let max = max_lines(items.len());
-    let cards: f32 = shown(items).iter().map(|i| RULE + card_height(lines_shown(i, max, rows(&i.id)), has_note(i, error(&i.id)))).sum();
+    let count = items.len();
+    let cards: f32 = shown(items).iter().map(|i| RULE + card_height(lines_shown(i, count, shape, rows(&i.id)), has_note(i, error(&i.id)))).sum();
     let more = if items.len() > MAX_CARDS { RULE + MORE_H } else { 0. };
-    (WIDTH, HEADER_H + cards + more + BORDER)
+    (shape.width, HEADER_H + cards + more + BORDER)
 }
 
 #[cfg(test)]
@@ -254,8 +353,15 @@ pub(crate) mod tests {
         false
     }
 
-    fn no_rows(_: &str) -> Option<usize> {
+    fn no_rows(_: &str) -> Option<TermRows> {
         None
+    }
+
+    const DEF: Shape = Shape { width: WIDTH, rows: None };
+
+    /// A prompt `prompt` rows tall with `above` rows of the screen over it.
+    fn at(above: usize, prompt: usize) -> TermRows {
+        TermRows { above, prompt, found: true }
     }
 
     #[test]
@@ -286,7 +392,7 @@ pub(crate) mod tests {
         let list = items(&[far]);
         assert!(!list[0].local && !list[0].can_accept() && !list[0].can_reject());
         // Its prompt is still shown.
-        assert_eq!(list[0].lines(9), ["rm -rf build"]);
+        assert_eq!(list[0].lines(9, WRAP_COLS), ["rm -rf build"]);
         assert!(acceptable(&list).is_empty());
     }
 
@@ -303,14 +409,14 @@ pub(crate) mod tests {
     fn a_yes_no_is_shown_without_its_choices() {
         let bash = "Bash command\n  touch a.txt\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n\nEsc to cancel · Tab to amend";
         let list = items(&[agent("api", "blocked", Some((bash, true, true)))]);
-        assert_eq!(list[0].lines(9), ["Bash command", "  touch a.txt", "", "Do you want to proceed?"]);
+        assert_eq!(list[0].lines(9, WRAP_COLS), ["Bash command", "  touch a.txt", "", "Do you want to proceed?"]);
         // A question keeps its choices: they are what is asked.
         let q = "Which color?\n❯ 1. Red\n  2. Blue";
         let list = items(&[agent("docs", "blocked", Some((q, false, false)))]);
-        assert_eq!(list[0].lines(9), ["Which color?", "❯ 1. Red", "  2. Blue"]);
+        assert_eq!(list[0].lines(9, WRAP_COLS), ["Which color?", "❯ 1. Red", "  2. Blue"]);
         // Nothing but choices: kept.
         let list = items(&[agent("x", "blocked", Some(("1. Yes\n2. No", true, true)))]);
-        assert_eq!(list[0].lines(9), ["1. Yes", "2. No"]);
+        assert_eq!(list[0].lines(9, WRAP_COLS), ["1. Yes", "2. No"]);
         // "1.5 GB" is not a choice.
         assert_eq!(without_choices("Download\n1.5 GB?"), "Download\n1.5 GB?");
     }
@@ -332,32 +438,32 @@ pub(crate) mod tests {
     #[test]
     fn the_window_is_as_large_as_what_it_shows() {
         let one = items(&[agent("api", "blocked", Some(("touch a.txt\nDo you want to proceed?", true, true)))]);
-        assert_eq!(content_size(&one, false, &no_error, &no_rows), (PUCK, PUCK));
-        assert_eq!(content_size(&[], true, &no_error, &no_rows), (PUCK, PUCK));
-        assert_eq!(size(&one, false, &no_error, &no_rows), (PUCK + 2. * PAD, PUCK + 2. * PAD));
+        assert_eq!(content_size(&one, false, DEF, &no_error, &no_rows), (PUCK, PUCK));
+        assert_eq!(content_size(&[], true, DEF, &no_error, &no_rows), (PUCK, PUCK));
+        assert_eq!(size(&one, false, DEF, &no_error, &no_rows), (PUCK + 2. * PAD, PUCK + 2. * PAD));
         let card = GAP + CARD_HEAD + (2. * LINE_H + BOX_PAD + GAP) + BUTTONS_H + GAP;
-        assert_eq!(content_size(&one, true, &no_error, &no_rows), (WIDTH, HEADER_H + RULE + card + BORDER));
-        assert_eq!(content_size(&one, true, &|_| true, &no_rows).1, HEADER_H + RULE + card + NOTE_H + BORDER, "an error takes a line");
+        assert_eq!(content_size(&one, true, DEF, &no_error, &no_rows), (WIDTH, HEADER_H + RULE + card + BORDER));
+        assert_eq!(content_size(&one, true, DEF, &|_| true, &no_rows).1, HEADER_H + RULE + card + NOTE_H + BORDER, "an error takes a line");
 
         // A question: a line says to open the agent.
         let q = items(&[agent("docs", "blocked", Some(("Which?", false, false)))]);
-        assert_eq!(card_height(lines_shown(&q[0], 9, None), has_note(&q[0], false)), GAP + CARD_HEAD + (LINE_H + BOX_PAD + GAP) + BUTTONS_H + NOTE_H + GAP);
+        assert_eq!(card_height(lines_shown(&q[0], 1, DEF, None), has_note(&q[0], false)), GAP + CARD_HEAD + (LINE_H + BOX_PAD + GAP) + BUTTONS_H + NOTE_H + GAP);
 
         // Several: every card at once, each with a shorter prompt.
         let long = (0..30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
         let alone = items(&[agent("a", "blocked", Some((&long, true, true)))]);
-        assert_eq!(alone[0].lines(max_lines(1)).len(), LINES_ALONE);
+        assert_eq!(alone[0].lines(max_lines(1, LINES_ALONE), WRAP_COLS).len(), LINES_ALONE);
         let many: Vec<AgentView> = (0..5).map(|i| agent(&format!("a{i}"), "blocked", Some((&long, true, true)))).collect();
         let many = items(&many);
         assert_eq!(shown(&many).len(), MAX_CARDS);
-        let card = card_height(lines_shown(&many[0], LINES_SHARED, None), false);
+        let card = card_height(lines_shown(&many[0], many.len(), DEF, None), false);
         assert_eq!(card, GAP + CARD_HEAD + (LINES_SHARED as f32 * LINE_H + BOX_PAD + GAP) + BUTTONS_H + GAP);
-        assert_eq!(content_size(&many, true, &no_error, &no_rows), (WIDTH, HEADER_H + 3. * (RULE + card) + RULE + MORE_H + BORDER));
+        assert_eq!(content_size(&many, true, DEF, &no_error, &no_rows), (WIDTH, HEADER_H + 3. * (RULE + card) + RULE + MORE_H + BORDER));
 
         // A card that has its agent's screen is as tall as the rows it shows.
-        let with = content_size(&one, true, &no_error, &|_| Some(6));
+        let with = content_size(&one, true, DEF, &no_error, &|_| Some(at(10, 6)));
         assert_eq!(with.1, HEADER_H + RULE + card_height(6, false) + BORDER);
-        assert_eq!(content_size(&one, true, &no_error, &|_| Some(99)).1, HEADER_H + RULE + card_height(LINES_ALONE, false) + BORDER);
+        assert_eq!(content_size(&one, true, DEF, &no_error, &|_| Some(at(0, 99))).1, HEADER_H + RULE + card_height(LINES_ALONE, false) + BORDER);
     }
 
     #[test]
@@ -381,15 +487,63 @@ pub(crate) mod tests {
         ]);
         let ask = "Bash command\n  touch a.txt\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel";
         // From the prompt's first line to the last row drawn.
-        assert_eq!(term_span(&screen, ask, 18), Some((3, 12)));
+        assert_eq!(term_span(&screen, ask, 18, false), Some((3, 12)));
         // Too long: its top is kept.
-        assert_eq!(term_span(&screen, ask, 4), Some((3, 7)));
+        assert_eq!(term_span(&screen, ask, 4, false), Some((3, 7)));
         // Not found (the screen moved on): the last rows.
-        assert_eq!(term_span(&screen, "Something else", 5), Some((7, 12)));
+        assert_eq!(term_span(&screen, "Something else", 5, false), Some((7, 12)));
         // The same line twice: the lower one is the prompt.
         let twice = rows(&["Bash command", "old output", "Bash command", "  ls"]);
-        assert_eq!(term_span(&twice, "Bash command\n  ls", 9), Some((2, 4)));
-        assert_eq!(term_span(&rows(&["", " "]), ask, 9), None);
-        assert_eq!(term_span(&[], ask, 9), None);
+        assert_eq!(term_span(&twice, "Bash command\n  ls", 9, false), Some((2, 4)));
+        assert_eq!(term_span(&rows(&["", " "]), ask, 9, false), None);
+        assert_eq!(term_span(&[], ask, 9, false), None);
+
+        // Made taller by the user: the rows above a short prompt fill the
+        // card, up to the screen's top; a long prompt still keeps its top.
+        assert_eq!(term_span(&screen, ask, 11, true), Some((1, 12)));
+        assert_eq!(term_span(&screen, ask, 18, true), Some((0, 12)));
+        assert_eq!(term_span(&screen, ask, 4, true), Some((3, 7)));
+        assert_eq!(term_span(&screen, "Something else", 5, true), Some((7, 12)));
+        let found = TermRows::find(&screen, ask).unwrap();
+        assert_eq!(found, at(3, 9));
+        assert_eq!((found.shown(18, false), found.shown(18, true), found.shown(4, true)), (9, 12, 4));
+    }
+
+    #[test]
+    fn the_user_can_make_it_wider_and_taller() {
+        let text = (0..30).map(|i| format!("line {i} {}", "word ".repeat(20))).collect::<Vec<_>>().join("\n");
+        let one = items(&[agent("api", "blocked", Some((&text, true, true)))]);
+        // Wider: its width, and the prompt's text wraps at what fits it.
+        let wide = Shape { width: 900., rows: None };
+        assert_eq!(content_size(&one, true, wide, &no_error, &no_rows).0, 900.);
+        assert_eq!(size(&one, true, wide, &no_error, &no_rows).0, 900. + 2. * PAD);
+        assert_eq!(wrap_cols(WIDTH), WRAP_COLS);
+        assert_eq!(wrap_cols(900.), 129);
+        assert_eq!(wrap_cols(MIN_WIDTH), 60);
+        assert!(one[0].lines(99, wide.cols()).iter().all(|l| l.chars().count() <= 129));
+        assert!(one[0].lines(99, wide.cols()).len() < one[0].lines(99, DEF.cols()).len(), "fewer lines when wider");
+        // The mark alone doesn't change.
+        assert_eq!(content_size(&one, false, wide, &no_error, &no_rows), (PUCK, PUCK));
+
+        // Taller: more rows of prompt, of text or of terminal.
+        let tall = Shape { width: WIDTH, rows: Some(24) };
+        assert_eq!(lines_shown(&one[0], 1, tall, None), 24);
+        let h = |s: Shape, rows: Option<TermRows>| content_size(&one, true, s, &no_error, &|_| rows).1;
+        assert_eq!(h(tall, None) - h(DEF, None), 8. * LINE_H, "8 rows more");
+        // A short prompt on its screen: the default shows the prompt alone,
+        // a size the user set shows the rows above it too.
+        assert_eq!(h(DEF, Some(at(30, 5))), HEADER_H + RULE + card_height(5, false) + BORDER);
+        assert_eq!(h(tall, Some(at(30, 5))), HEADER_H + RULE + card_height(24, false) + BORDER);
+        assert_eq!(h(tall, Some(at(10, 5))), HEADER_H + RULE + card_height(15, false) + BORDER, "no more than the screen has");
+
+        // Several share in the same proportion; the default is unchanged.
+        assert_eq!((max_lines(1, LINES_ALONE), max_lines(3, LINES_ALONE)), (LINES_ALONE, LINES_SHARED));
+        assert_eq!(max_lines(3, 32), 14);
+        assert_eq!(max_lines(3, MIN_ROWS), MIN_ROWS, "never fewer than the least");
+        // Each card's rows back to the rows when one asks, and again.
+        for per in MIN_ROWS..=17 {
+            assert_eq!(max_lines(3, alone_for(3, per)), per, "{per}");
+            assert_eq!(alone_for(1, per), per);
+        }
     }
 }

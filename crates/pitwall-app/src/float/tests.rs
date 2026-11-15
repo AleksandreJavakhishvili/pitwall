@@ -268,7 +268,7 @@ fn everything_drawn_fits_the_window(cx: &mut TestAppContext) {
     click(&mut v, "float-puck");
     let (w, h) = dims(cx);
     let list = cx.update(|cx| items(cx));
-    assert_eq!((w, h), model::size(&list, true, &|_| false, &|_| None));
+    assert_eq!((w, h), model::size(&list, true, model::Shape::default(), &|_| false, &|_| None));
     assert_eq!(w, model::WIDTH + 2. * model::PAD);
     let mut v = window(cx);
     for what in [
@@ -357,4 +357,192 @@ fn a_card_shows_the_rows_of_the_terminal_that_ask(cx: &mut TestAppContext) {
     assert_eq!(calls.typed.lock().unwrap().len(), 5);
     set_agents(&store, vec![agent("api", "working", None)], cx);
     assert!(!up(cx) && fake.watching.lock().unwrap().is_empty());
+}
+
+/// Drag what `what` draws (a resize edge) by `dx`, `dy` as the pointer
+/// would: press, move in a few steps with the button held, release.
+fn drag(v: &mut VisualTestContext, what: &'static str, dx: f32, dy: f32) {
+    let b = v.debug_bounds(what).unwrap_or_else(|| panic!("{what} is drawn"));
+    let at = b.center();
+    v.simulate_mouse_down(at, MouseButton::Left, Modifiers::default());
+    for k in [0.25, 0.5, 1.] {
+        v.simulate_mouse_move(at + point(px(dx * k), px(dy * k)), MouseButton::Left, Modifiers::default());
+        v.run_until_parked();
+    }
+    v.simulate_mouse_up(at + point(px(dx), px(dy)), MouseButton::Left, Modifiers::default());
+    v.run_until_parked();
+    let (w, h) = v.update(|_, cx| cx.global::<Float>().size);
+    v.simulate_resize(size(px(w), px(h)));
+    v.run_until_parked();
+}
+
+fn double_click(v: &mut VisualTestContext, what: &'static str) {
+    let at = v.debug_bounds(what).unwrap_or_else(|| panic!("{what} is drawn")).center();
+    for count in [1, 2] {
+        v.simulate_event(gpui::MouseDownEvent { position: at, modifiers: Modifiers::default(), button: MouseButton::Left, click_count: count, first_mouse: false });
+        v.simulate_event(gpui::MouseUpEvent { position: at, modifiers: Modifiers::default(), button: MouseButton::Left, click_count: count });
+        v.run_until_parked();
+    }
+    let (w, h) = v.update(|_, cx| cx.global::<Float>().size);
+    v.simulate_resize(size(px(w), px(h)));
+    v.run_until_parked();
+}
+
+fn user_size(cx: &mut TestAppContext) -> (Option<f32>, Option<usize>) {
+    cx.update(|cx| {
+        let f = cx.global::<Float>();
+        (f.width, f.rows)
+    })
+}
+
+/// A prompt longer than any card shows.
+fn long_prompt() -> String {
+    (0..60).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n")
+}
+
+#[gpui::test]
+fn its_edges_resize_the_open_panel(cx: &mut TestAppContext) {
+    let long = long_prompt();
+    let (_store, _) = setup(vec![agent("api", "blocked", Some((&long, true, true)))], None, cx);
+    let mut v = window(cx);
+    assert!(v.debug_bounds("float-resize-side").is_none(), "the mark alone doesn't resize");
+    click(&mut v, "float-puck");
+    let (w0, h0) = dims(cx);
+    assert_eq!(w0, model::WIDTH + 2. * model::PAD);
+    let mut v = window(cx);
+    // The edges straddle the panel's: in the clear space and over it.
+    let side = v.debug_bounds("float-resize-side").unwrap();
+    assert!(side.origin.x < px(model::PAD) && side.origin.x + side.size.width > px(model::PAD));
+
+    // Its left edge, 150 to the left: that much wider, as tall.
+    drag(&mut v, "float-resize-side", -150., 0.);
+    assert_eq!(user_size(cx), (Some(model::WIDTH + 150.), None));
+    assert_eq!(dims(cx), (w0 + 150., h0));
+    assert!(cx.update(|cx| cx.global::<Float>().resize.is_none()), "over at the release");
+    assert!(PRESS.get().is_none() && !DRAGGED.get(), "a press on an edge doesn't move the window");
+    let mut v = window(cx);
+    let header = v.debug_bounds("float-header").unwrap();
+    assert_eq!(header.size.width, px(model::WIDTH + 150. - model::BORDER), "the panel fills the new width");
+
+    // The edge across from the anchored end, 4 rows further out: 4 rows
+    // more (up on macOS, where it is anchored at the bottom).
+    let out = if GROWS_UP { -1. } else { 1. };
+    drag(&mut v, "float-resize-end", 0., out * 4. * LINE_H);
+    assert_eq!(user_size(cx), (Some(model::WIDTH + 150.), Some(model::LINES_ALONE + 4)));
+    assert_eq!(dims(cx), (w0 + 150., h0 + 4. * LINE_H));
+    let mut v = window(cx);
+    let prompt = v.debug_bounds("float-prompt-api").unwrap();
+    assert_eq!(prompt.size.height, px((model::LINES_ALONE + 4) as f32 * LINE_H + BOX_PAD));
+
+    // The corner: both at once.
+    drag(&mut v, "float-resize-corner", -50., out * 2. * LINE_H);
+    assert_eq!(user_size(cx), (Some(model::WIDTH + 200.), Some(model::LINES_ALONE + 6)));
+    let resized = dims(cx);
+    assert_eq!(resized, (w0 + 200., h0 + 6. * LINE_H));
+
+    // Closed to the mark and opened again: the same size.
+    let mut v = window(cx);
+    click(&mut v, "float-collapse");
+    assert_eq!(dims(cx), (model::PUCK + 2. * model::PAD, model::PUCK + 2. * model::PAD), "the mark doesn't change");
+    click(&mut window(cx), "float-puck");
+    assert_eq!(dims(cx), resized);
+
+    // A double click on an edge: back to the default size.
+    let mut v = window(cx);
+    double_click(&mut v, "float-resize-side");
+    assert_eq!(user_size(cx), (None, None));
+    assert_eq!(dims(cx), (w0, h0));
+}
+
+#[gpui::test]
+fn a_resize_stays_within_its_bounds(cx: &mut TestAppContext) {
+    let long = long_prompt();
+    let (_store, _) = setup(vec![agent("api", "blocked", Some((&long, true, true)))], None, cx);
+    click(&mut window(cx), "float-puck");
+    let out = if GROWS_UP { -1. } else { 1. };
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-side", 2000., 0.);
+    assert_eq!(user_size(cx).0, Some(model::MIN_WIDTH));
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-side", -5000., 0.);
+    let widest = user_size(cx).0.unwrap();
+    assert!(widest <= model::MAX_WIDTH && widest > model::WIDTH, "{widest}");
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-end", 0., -out * 100. * LINE_H);
+    assert_eq!(user_size(cx).1, Some(model::MIN_ROWS));
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-end", 0., out * 100. * LINE_H);
+    let rows = user_size(cx).1.unwrap();
+    assert!(rows <= model::MAX_ROWS && rows > model::LINES_ALONE, "{rows}");
+    // And the window still fits the screen.
+    let area = cx.update(|cx| cx.primary_display().unwrap().visible_bounds());
+    assert!(dims(cx).1 <= f32::from(area.size.height));
+}
+
+#[gpui::test]
+fn several_cards_share_a_height_drag(cx: &mut TestAppContext) {
+    let long = long_prompt();
+    let agents = (0..3).map(|i| agent(&format!("a{i}"), "blocked", Some((long.as_str(), true, true)))).collect();
+    let (_store, _) = setup(agents, None, cx);
+    click(&mut window(cx), "float-puck");
+    let h0 = dims(cx).1;
+    let out = if GROWS_UP { -1. } else { 1. };
+    // Three cards, 6 rows of travel: 2 rows more each.
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-end", 0., out * 6. * LINE_H);
+    assert_eq!(dims(cx).1, h0 + 6. * LINE_H);
+    assert_eq!(cx.update(|cx| shape(cx.global::<Float>()).max_lines(3)), model::LINES_SHARED + 2);
+}
+
+#[gpui::test]
+fn a_taller_card_shows_the_terminal_above_a_short_prompt(cx: &mut TestAppContext) {
+    use pitwall_proto::{ScreenFrame, ScreenLine, ScreenRun};
+    // 3 rows of output over a 9-row prompt.
+    let rows = ["⏺ I'll create it.", "", "────────", " Bash command", "", "   touch a.txt", "", " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "", " Esc to cancel", "", ""];
+    let frame = ScreenFrame {
+        cols: 120,
+        rows: rows.len() as u16,
+        cursor: None,
+        full: true,
+        lines: rows.iter().enumerate().map(|(i, r)| ScreenLine(i as u16, vec![ScreenRun(r.to_string(), 0, 0, 0)])).collect(),
+    };
+    cx.update(|cx| cx.set_global(Screens(Arc::new(Fake { frame, watching: Mutex::new(Vec::new()) }))));
+    let (_store, _) = setup(vec![agent("api", "blocked", Some((BASH, true, true)))], None, cx);
+    click(&mut window(cx), "float-puck");
+    let mut v = window(cx);
+    let h0 = dims(cx).1;
+    assert_eq!(v.debug_bounds("float-term-api").unwrap().size.height, px(9. * LINE_H + BOX_PAD), "the default: the prompt alone");
+    // One row taller than the default's 16: the 3 rows above the prompt
+    // come in, and no more (the screen has none).
+    let out = if GROWS_UP { -1. } else { 1. };
+    drag(&mut v, "float-resize-end", 0., out * LINE_H);
+    let mut v = window(cx);
+    assert_eq!(v.debug_bounds("float-term-api").unwrap().size.height, px(12. * LINE_H + BOX_PAD));
+    assert_eq!(dims(cx).1, h0 + 3. * LINE_H, "the window is sized for them");
+}
+
+#[gpui::test]
+fn the_size_is_kept_with_the_place(cx: &mut TestAppContext) {
+    let dir = std::env::temp_dir().join(format!("pitwall-float-test-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let file = place_file(&dir);
+    // A file from before the size was kept: its place alone.
+    std::fs::write(&file, r#"{"x":900.0,"y":500.0}"#).unwrap();
+    assert_eq!(load_place(&file), Some(Place { anchor: Some(point(px(900.), px(500.))), width: None, rows: None }));
+
+    let long = long_prompt();
+    let (_store, _) = setup(vec![agent("api", "blocked", Some((&long, true, true)))], None, cx);
+    cx.update(|cx| cx.global_mut::<Float>().file = Some(file.clone()));
+    click(&mut window(cx), "float-puck");
+    let mut v = window(cx);
+    drag(&mut v, "float-resize-corner", -100., if GROWS_UP { -3. } else { 3. } * LINE_H);
+    let kept = load_place(&file).unwrap();
+    assert_eq!((kept.width, kept.rows), (Some(model::WIDTH + 100.), Some(model::LINES_ALONE + 3)));
+    // Reset: the size goes, the place stays.
+    double_click(&mut window(cx), "float-resize-corner");
+    let kept = load_place(&file).unwrap();
+    assert_eq!((kept.width, kept.rows), (None, None));
+    assert_eq!(kept.anchor.is_some(), cx.update(|cx| cx.global::<Float>().anchor.is_some()));
+    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_dir(&dir);
 }

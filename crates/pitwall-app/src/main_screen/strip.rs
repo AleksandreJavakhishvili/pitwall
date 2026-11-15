@@ -468,7 +468,10 @@ fn stack(shown: &[Shown], t: &Theme, screen: &WeakEntity<MainScreen>, glass: boo
                     .cursor_pointer()
                     // (GPUI's cursors are the key window's: a pop-up
                     // tells the system itself.)
-                    .when(glass, |d| d.on_hover(|over, _, _| crate::platform::float_cursor(*over)))
+                    .when(glass, |d| d.on_hover(|over, _, _| {
+                        use crate::platform::FloatCursor;
+                        crate::platform::float_cursor(if *over { FloatCursor::Pointing } else { FloatCursor::Arrow })
+                    }))
                     .on_click(on_screen(screen, false, move |this, window, cx| {
                         this.toasts.retain(|t| t.id != id);
                         if let Some(a) = &agent {
