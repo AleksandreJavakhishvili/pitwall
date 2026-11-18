@@ -37,6 +37,17 @@ pub fn cli_bin(data_root: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "the command-line tool (pitwall-cli) is missing next to the app".into())
 }
 
+/// The CLI agents run as their MCP server (`pitwall-cli mcp`): a copy in
+/// the data folder (`~/.pitwall/bin/pitwall-cli`), refreshed when the
+/// shipped one changes. The path goes into each agent's launch command,
+/// which outlives the app's place: an app bundle that is moved, updated
+/// or deleted would leave agents (and conversations resumed later) with a
+/// server that no longer starts. Blocking (it may copy the file).
+pub fn mcp_cli(data_root: &Path) -> Result<PathBuf, String> {
+    let shipped = cli_bin(data_root)?;
+    Ok(super::sidecar::stable_copy(&shipped, &data_root.join("bin")))
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CliDir {

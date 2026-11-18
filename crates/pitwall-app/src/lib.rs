@@ -355,7 +355,12 @@ fn root_for_cli(cx: &App) -> Option<PathBuf> {
 /// Pitwall's MCP server (the shipped `pitwall-cli mcp`), and `viewer.open`
 /// refuses while it is off.
 fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>, cx: &mut App) {
-    engine.set_cli_bin(root.and_then(|r| platform::cli_install::cli_bin(&r).ok()));
+    // The stable copy (`~/.pitwall/bin/pitwall-cli`), made off the UI
+    // thread; agents started before it is there start without the server.
+    if let Some(r) = root {
+        let e = engine.clone();
+        cx.background_spawn(async move { e.set_cli_bin(platform::cli_install::mcp_cli(&r).ok()) }).detach();
+    }
     engine.set_show_files(crate::explorer::show::enabled(cx));
     let store = ui_state::store(cx);
     cx.observe(&store, move |_, cx| engine.set_show_files(crate::explorer::show::enabled(cx))).detach();
