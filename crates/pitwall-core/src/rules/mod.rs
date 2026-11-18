@@ -273,9 +273,9 @@ pub fn show_files_rule_text(cli: &str) -> String {
     format!(
         "---\ntargets: [\"*\"]\ndescription: \"Show the user files in Pitwall\"\n---\n\
 # Showing files in Pitwall\n\n\
-This session runs inside Pitwall. When the user asks to see a file, a folder or an image (\"open it\", \"show me that\"), run:\n\n\
+This session runs inside Pitwall. When the user asks to see a file, a folder or an image (\"open it\", \"show me that\"), run:\n\n```sh\n\
     {cli} open <file>[:line[:column]] [more files]\n\
-    {cli} open --folder <folder>\n\n\
+    {cli} open --folder <folder>\n```\n\n\
 It shows them in Pitwall's read-only file viewer, beside this terminal or in a window of its own (`--where beside|window`), and says where. Only when the user asks; it changes nothing.\n"
     )
 }
