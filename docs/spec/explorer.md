@@ -160,9 +160,10 @@ fixes, not an IDE.
   as reads), atomically: a temporary file in the same folder, the file's
   permissions copied, renamed over it. `base` is the text as read: when the
   file on disk differs, nothing is written and the viewer asks.
-- **Unsaved changes**: a dot on the tab. Closing the tab, the pane beside
-  the terminal or the window, "Open in window", "Dock beside terminal" and
-  quitting Pitwall ask first: Save / Don't Save / Cancel.
+- **Unsaved changes**: a dot on the tab. Closing the tab, a files tile or
+  the window and quitting Pitwall ask first: Save / Don't Save / Cancel.
+  Moving the files (a drag, "Open in window", "Dock…", "Move…") asks
+  nothing: the same viewer moves, its edits with it.
 - **Changed on disk** (the agent edited it): with nothing unsaved it is read
   again quietly. With unsaved changes neither side is overwritten: a bar
   offers **Keep mine** (a save then writes over what is on disk),
@@ -170,6 +171,21 @@ fixes, not an IDE.
   on disk against the edits). A save that finds the file changed since it
   was read writes nothing and shows the same bar ("Save mine").
 - **Markdown**: edited in Code; Preview follows the edits.
+- **Where agents' files show** (`show_files` / `show_folder`, `pitwall
+  open`): one viewer per agent, in one of two places. A **files tile** is a
+  slot of its own in the space's layout (a pane with `files` in `ui.json`,
+  a peer of the terminal tiles; never a split inside a terminal's tile),
+  on the side of a terminal's slot `where` names (right by default; `of`:
+  another agent's terminal). It resizes with the dividers, folds after
+  terminals when room runs out (it is drawn down to 240×160), and is kept
+  with what it had open (`dockedFiles`), opened again after a restart. A
+  **window** of its own (`where: window`). The grip drags either into any
+  Pitwall window's layout: a side of a tile, an empty tile, the middle of a
+  terminal's tile (a slot on its longer side) or an edge of the main area
+  (a column or row); a tile let go outside every Pitwall window becomes a
+  window there. The pointer is followed on the screen (macOS); elsewhere
+  "Move…" / "Dock…" list the same places. A later call adds tabs wherever
+  the files are; a place named that isn't where they are moves them.
 - **Agents** can't write through Pitwall: `show_files` / `show_folder` and
   `pitwall open` only display, and nothing is sent to an agent when the user
   saves.

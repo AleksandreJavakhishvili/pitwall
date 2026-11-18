@@ -166,13 +166,17 @@ at once in every window.
 ## Showing the user files
 
 ```bash
-pitwall open src/main.rs:42 README.md --agent api   # tabs beside api's terminal (at a line, marked)
+pitwall open src/main.rs:42 README.md --agent api   # tabs in a files tile right of api's terminal (at a line, marked)
 pitwall open --folder src --agent api               # a folder as a tree, with git status
 pitwall open --root fix/login --agent api           # a whole worktree (by folder name or branch)
 ```
 
-A window of its own unless the user docked it beside the agent's terminal
-(`--where beside|window` picks); Pitwall doesn't come forward over another app. Any folder on this
+A files tile is a slot of its own in the space's layout, next to the
+terminal slots: right of the agent's terminal unless `--where left|above|below`
+says otherwise (`--of web`: next to another agent's terminal), or a window of
+its own with `--where window`. Later calls add tabs wherever it is (the user
+may have dragged it elsewhere or out to a window); naming a place moves it.
+Pitwall doesn't come forward over another app. Any folder on this
 computer can be shown. Agents Pitwall starts (Claude Code, Codex) have the
 same as MCP tools (`show_files`, `show_folder`). Off with
 `agents.showFiles false` (then `open` refuses).
