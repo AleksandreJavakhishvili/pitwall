@@ -134,8 +134,16 @@ impl CodeView {
 
     /// What typing says when the file can't be edited.
     pub fn set_readonly_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.readonly_text = text.into();
-        cx.notify();
+        let text = text.into();
+        if self.readonly_text != text {
+            self.readonly_text = text;
+            cx.notify();
+        }
+    }
+
+    /// Editing is wanted ([`CodeView::set_editable`]).
+    pub fn wants_editing(&self) -> bool {
+        self.editable
     }
 
     // ── positions ───────────────────────────────────────────────────────

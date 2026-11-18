@@ -180,8 +180,9 @@ pub fn run() {
         }
         rules::init(cx, engine);
 
-        cx.on_action(|_: &Quit, cx| cx.quit());
-        cx.on_action(quit_and_stop_agents);
+        // Unsaved edits in a file viewer: asked about first.
+        cx.on_action(|_: &Quit, cx| explorer::unsaved::quit_guarded(cx, |cx| cx.quit()));
+        cx.on_action(|_: &QuitAndStopAgents, cx| explorer::unsaved::quit_guarded(cx, quit_and_stop_agents));
         // These run deferred: dispatched from inside the window (a button,
         // a key), the window is being updated and can't be reached yet.
         cx.on_action(|_: &ShowMain, cx| {
@@ -366,7 +367,7 @@ fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>
     cx.observe(&store, move |_, cx| engine.set_show_files(crate::explorer::show::enabled(cx))).detach();
 }
 
-fn quit_and_stop_agents(_: &QuitAndStopAgents, cx: &mut App) {
+fn quit_and_stop_agents(cx: &mut App) {
     let Some(engine) = cx
         .global::<AppState>()
         .host

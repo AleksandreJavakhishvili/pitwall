@@ -227,6 +227,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "agents.editFiles",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB. Files of agents on other machines, images, binary and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "agentsEditFiles", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "agents.showFilesGemini",
         kind: Kind::Bool,
         default: DefaultValue::Bool(false),

@@ -76,6 +76,15 @@ Agents can show you files, folders and images in Pitwall's file viewer when you 
 - **Stored in:** `ui.json` → `agentsShowFiles`
 - **When an agent changes it:** applies directly
 
+### `agents.editFiles`
+
+You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB. Files of agents on other machines, images, binary and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsEditFiles`
+- **When an agent changes it:** applies directly
+
 ### `agents.showFilesGemini`
 
 Pitwall's `pitwall` MCP server is in Gemini CLI's ~/.gemini/settings.json, so Gemini agents can show you files (Gemini has no per-launch way). Only Pitwall's entry is added or taken out; the rest of the file stays as it is, and a backup is kept next to it. true adds it, false takes it out.

@@ -29,6 +29,7 @@ pub mod source;
 pub mod tree;
 pub mod tree_view;
 pub mod viewer;
+pub mod unsaved;
 pub mod widgets;
 pub mod window;
 

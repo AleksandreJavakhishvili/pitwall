@@ -39,6 +39,13 @@ pub trait Source: Send + Sync + 'static {
     fn read_outside_image(&self, path: &str) -> Res<Vec<u8>> {
         core::read_local_image(path)
     }
+    /// The user saves `text` they edited over `path` (`base`: the file as
+    /// it was read; it changed since: nothing written). Files of agents on
+    /// this computer and `path:` folders only; agents never reach this.
+    fn write_file(&self, agent_id: &str, path: &str, text: &str, base: Option<&str>) -> Res<core::Saved> {
+        let _ = (agent_id, text, base);
+        Err(format!("{path} can't be saved here"))
+    }
 }
 
 /// What the viewer reads is named by a key: an agent's id (its folder, on
@@ -93,6 +100,12 @@ impl Source for EngineSource {
             None => core::read_image(&self.0, agent_id, path),
         }
     }
+    fn write_file(&self, agent_id: &str, path: &str, text: &str, base: Option<&str>) -> Res<core::Saved> {
+        match root_of_key(agent_id) {
+            Some(root) => core::local::write_file(root, path, text, base),
+            None => core::write_file(&self.0, agent_id, path, text, base),
+        }
+    }
 }
 
 /// The app's explorer backend (set once the engine is hosted).
@@ -141,6 +154,10 @@ pub mod fake {
         pub ignored: Mutex<Vec<String>>,
         pub lists: AtomicUsize,
         pub cancels: AtomicUsize,
+        /// Saves written.
+        pub writes: AtomicUsize,
+        /// Saving is refused (another machine's agent, say).
+        pub refuse_writes: std::sync::atomic::AtomicBool,
     }
 
     impl FakeSource {
@@ -270,6 +287,20 @@ pub mod fake {
         fn read_image(&self, _: &str, path: &str) -> Res<Vec<u8>> {
             let files = self.files.lock().unwrap();
             files.get(path).map(|t| t.as_bytes().to_vec()).ok_or(format!("{path}: not found"))
+        }
+
+        fn write_file(&self, _: &str, path: &str, text: &str, base: Option<&str>) -> Res<pitwall_core::explorer::Saved> {
+            if self.refuse_writes.load(Ordering::SeqCst) {
+                return Err("Files of agents on another machine can't be edited here.".into());
+            }
+            let mut files = self.files.lock().unwrap();
+            let now = files.get(path).ok_or(format!("{path}: not found"))?;
+            if base.is_some_and(|b| b != now) {
+                return Ok(pitwall_core::explorer::Saved::ChangedOnDisk);
+            }
+            files.insert(path.to_string(), text.to_string());
+            self.writes.fetch_add(1, Ordering::SeqCst);
+            Ok(pitwall_core::explorer::Saved::Written)
         }
     }
 

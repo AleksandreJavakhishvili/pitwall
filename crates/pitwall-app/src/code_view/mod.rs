@@ -380,6 +380,9 @@ pub struct CodeView {
     edit: Option<edit::Editing>,
     /// Scroll sideways to the caret at the next paint (after an edit).
     caret_x: bool,
+    /// Drawn again when the keyboard comes or goes (the caret, and the
+    /// input handler registered while it has the keyboard).
+    _focus_subs: Vec<Subscription>,
     _load: Option<Task<()>>,
 }
 
@@ -422,6 +425,7 @@ impl CodeView {
             editable: false,
             edit: None,
             caret_x: false,
+            _focus_subs: Vec::new(),
             _load: None,
         }
     }
@@ -1428,6 +1432,12 @@ impl CodeView {
 impl Render for CodeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_pending_reveal();
+        if self._focus_subs.is_empty() {
+            self._focus_subs = vec![
+                cx.on_focus(&self.focus, window, |_, _, cx| cx.notify()),
+                cx.on_blur(&self.focus, window, |_, _, cx| cx.notify()),
+            ];
+        }
         let t = crate::theme::theme(cx).clone();
         let colors = style::Colors::for_theme(&t);
         let this = cx.entity();

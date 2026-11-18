@@ -87,6 +87,9 @@ impl ViewerWindow {
                 break;
             }
         });
+        // Closing it with unsaved changes asks first.
+        let me = cx.entity().downgrade();
+        super::viewer::guard_window_close(window, cx, move |cx| me.upgrade().map(|w| w.read(cx).viewer.clone()));
         let mut w = ViewerWindow { agent, key, viewer, source, store, pinned: false, save: None, _poll: poll, _subs: subs };
         w.recheck_dock(cx);
         w

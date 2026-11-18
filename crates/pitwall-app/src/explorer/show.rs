@@ -42,6 +42,17 @@ pub fn enabled(cx: &App) -> bool {
         .unwrap_or(true)
 }
 
+/// The setting that lets the user edit files in the viewer.
+pub const EDIT_SETTING: &str = "agents.editFiles";
+
+/// Editing in the viewer is on (unless turned off).
+pub fn edit_enabled(cx: &App) -> bool {
+    pitwall_proto::settings::find(EDIT_SETTING)
+        .and_then(|def| crate::settings::data::value(&crate::ui_state::get(cx), def))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
 /// A line (1-based) and the columns on it to mark.
 pub type At = (u32, Option<(usize, usize)>);
 

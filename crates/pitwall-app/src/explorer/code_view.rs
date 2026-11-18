@@ -1,10 +1,13 @@
-//! The seam where a file's text is drawn: [`code_view`], Review's
-//! read-only [`CodeView`] (`crate::code_view`): syntax highlighting, bracket
-//! colours, indent guides, selection and copy, Find (⌘F), the target line
-//! revealed with a search hit selected. One view per open file, so each tab
-//! keeps its scroll position and selection.
+//! The seam where a file's text is drawn: [`FileCode`], Review's
+//! [`CodeView`] (`crate::code_view`): syntax highlighting, bracket colours,
+//! indent guides, selection and copy, Find (⌘F), the target line revealed
+//! with a search hit selected, and editing when the viewer allows it. One
+//! view per open file, kept by the viewer's document, so each tab keeps its
+//! scroll position, selection and unsaved edits.
 
-use gpui::{div, prelude::*, AnyElement, App, AppContext, ElementId, Entity, SharedString, Window};
+use std::cell::{Cell, RefCell};
+
+use gpui::{div, prelude::*, AnyElement, App, AppContext, Entity, SharedString};
 
 use crate::code_view::{CodeView, Side};
 
@@ -18,13 +21,17 @@ pub struct Target {
     pub nonce: u64,
 }
 
-/// What the viewer keeps for one file between frames.
-struct ViewState {
-    code: Entity<CodeView>,
-    /// The text shown (by identity: the viewer shares one `SharedString`
-    /// per read).
-    text_id: (usize, usize),
-    shown_nonce: Option<u64>,
+/// One open file's view, kept by the viewer for as long as the tab.
+pub struct FileCode {
+    pub code: Entity<CodeView>,
+    /// The text shown (the same again keeps the view as it is).
+    text: RefCell<Option<SharedString>>,
+    shown_nonce: Cell<Option<u64>>,
+}
+
+/// The same text: the same string shared (cheap), else equal.
+fn same(a: &SharedString, b: &SharedString) -> bool {
+    a.len() == b.len() && (a.as_ptr() == b.as_ptr() || a == b)
 }
 
 #[cfg(test)]
@@ -62,57 +69,52 @@ pub fn mark(text: &str, line: u32, cols: Option<(usize, usize)>) -> Option<std::
     }
 }
 
-/// One file's text, read-only: `path` names it (and keys its view),
-/// `text` is the whole file, `target` the line to show.
-pub fn code_view(
-    path: &str,
-    text: &SharedString,
-    target: Option<&Target>,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let id = (text.as_ptr() as usize, text.len());
-    let state = window.use_keyed_state(
-        ElementId::Name(format!("ex-code:{path}").into()),
-        cx,
-        |_, cx| ViewState {
-            code: cx.new(CodeView::new),
-            text_id: (0, usize::MAX),
-            shown_nonce: None,
-        },
-    );
-    #[cfg(test)]
-    SHOWN.with(|m| m.borrow_mut().insert(path.to_string(), state.read(cx).code.downgrade()));
-    let (code, load, reveal) = state.update(cx, |s, _| {
-        let load = s.text_id != id;
-        s.text_id = id;
-        let reveal = target.filter(|tg| s.shown_nonce != Some(tg.nonce)).cloned();
-        if let Some(tg) = &reveal {
-            s.shown_nonce = Some(tg.nonce);
-        }
-        (s.code.clone(), load, reveal)
-    });
-    if load || reveal.is_some() {
-        let (path, text) = (path.to_string(), text.clone());
-        code.update(cx, |c, cx| {
-            if load {
-                c.set_file(&path, text.to_string(), cx);
-            }
-            if let Some(tg) = reveal {
-                let cols = mark(&text, tg.line, tg.cols);
-                c.reveal(Side::New, tg.line.max(1) as usize - 1, cols, cx);
-            }
-        });
+impl FileCode {
+    pub fn new(cx: &mut App) -> FileCode {
+        FileCode { code: cx.new(CodeView::new), text: RefCell::new(None), shown_nonce: Cell::new(None) }
     }
-    div()
-        .id("ex-code")
-        .debug_selector(|| "ex-code".into())
-        .size_full()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .child(code)
-        .into_any_element()
+
+    /// `text` is what the view holds already (just saved from it): no
+    /// reload when it is drawn next.
+    pub fn adopt(&self, text: &SharedString) {
+        *self.text.borrow_mut() = Some(text.clone());
+    }
+
+    /// `path`'s `text` (the whole file), `target` the line to show. A new
+    /// text is loaded; the same keeps the view as it is.
+    pub fn element(&self, path: &str, text: &SharedString, target: Option<&Target>, cx: &mut App) -> AnyElement {
+        #[cfg(test)]
+        SHOWN.with(|m| m.borrow_mut().insert(path.to_string(), self.code.downgrade()));
+        let load = !self.text.borrow().as_ref().is_some_and(|t| same(t, text));
+        if load {
+            *self.text.borrow_mut() = Some(text.clone());
+        }
+        let reveal = target.filter(|tg| self.shown_nonce.get() != Some(tg.nonce)).cloned();
+        if let Some(tg) = &reveal {
+            self.shown_nonce.set(Some(tg.nonce));
+        }
+        if load || reveal.is_some() {
+            let (path, text) = (path.to_string(), text.clone());
+            self.code.update(cx, |c, cx| {
+                if load {
+                    c.set_file(&path, text.to_string(), cx);
+                }
+                if let Some(tg) = reveal {
+                    let cols = mark(&text, tg.line, tg.cols);
+                    c.reveal(Side::New, tg.line.max(1) as usize - 1, cols, cx);
+                }
+            });
+        }
+        div()
+            .id("ex-code")
+            .debug_selector(|| "ex-code".into())
+            .size_full()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(self.code.clone())
+            .into_any_element()
+    }
 }
 
 #[cfg(test)]

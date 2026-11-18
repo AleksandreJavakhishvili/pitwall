@@ -169,7 +169,7 @@ async fn the_viewer_opens_text_binary_and_large_files(cx: &mut TestAppContext) {
         );
     });
 
-    // Changed on disk: a quiet re-read offers the newer text.
+    // Changed on disk with nothing unsaved: read again quietly.
     src.files
         .lock()
         .unwrap()
@@ -179,7 +179,7 @@ async fn the_viewer_opens_text_binary_and_large_files(cx: &mut TestAppContext) {
     viewer.read_with(cx, |v, _| assert_eq!(v.active(), Some("docs/ანგარიში.md")));
     viewer.update(cx, |v, cx| v.recheck(cx));
     cx.run_until_parked();
-    viewer.read_with(cx, |v, _| assert!(v.is_stale()));
+    viewer.read_with(cx, |v, _| assert!(!v.is_stale() && v.shows_text("docs/ანგარიში.md", "ახალი\n")));
 
     explorer.update(cx, |e, cx| e.close_viewer(cx));
     explorer.read_with(cx, |e, _| assert!(!e.viewer_open()));
@@ -264,4 +264,339 @@ async fn markdown_files_preview_in_the_viewer(cx: &mut TestAppContext) {
     viewer.read_with(cx, |v, _| {
         assert!(v.md_text().is_none() && !v.showing_preview(), "code stays code")
     });
+}
+
+// ── editing in the viewer ───────────────────────────────────────────────
+
+const SAVE: &str = if cfg!(target_os = "macos") { "cmd-s" } else { "ctrl-s" };
+
+/// A viewer over `files` of agent `agent`, in a window of its own.
+fn edit_setup<'a>(
+    cx: &'a mut TestAppContext,
+    agent: pitwall_proto::AgentView,
+    files: &[(&str, &str)],
+) -> (Entity<viewer::Viewer>, Arc<FakeSource>, &'a mut VisualTestContext) {
+    let src = FakeSource::new(files);
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::code_view::register(cx);
+        cx.bind_keys(viewer::bindings());
+    });
+    let store = cx.new(|_| AgentStore::new(vec![agent.clone()]));
+    let source: Arc<dyn Source> = src.clone();
+    let id = agent.id.clone();
+    let (viewer, cx) = cx.add_window_view(move |window, cx| {
+        let tree = cx.new(|_| super::tree::TreeModel::new(source.clone(), id.clone(), false));
+        viewer::Viewer::new(source, store, id, tree, window, cx)
+    });
+    (viewer, src, cx)
+}
+
+fn redraw(cx: &mut VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    // (A key nothing binds makes the test window draw.)
+    cx.simulate_keystrokes("f12");
+    cx.run_until_parked();
+}
+
+/// Open `path` and put the keyboard in its text, the caret at its end of
+/// line `line`.
+fn open_for_typing(viewer: &Entity<viewer::Viewer>, path: &str, line: usize, cx: &mut VisualTestContext) -> Entity<crate::code_view::CodeView> {
+    viewer.update(cx, |v, cx| v.open(path.into(), Some((line as u32 + 1, None)), cx));
+    redraw(cx);
+    let code = super::code_view::shown(path).expect("the file is drawn");
+    cx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(code.read(cx), cx), cx));
+    redraw(cx);
+    code.update(cx, |c, cx| {
+        let s = c.selection().unwrap();
+        c.reveal(crate::code_view::Side::New, line, Some(s.head.col..s.head.col.max(s.anchor.col)), cx);
+    });
+    cx.simulate_keystrokes("end");
+    code
+}
+
+fn on_disk(src: &FakeSource, path: &str) -> String {
+    src.files.lock().unwrap()[path].clone()
+}
+
+/// Typing marks the tab, ⌘S writes the file (its CRLF kept) through the
+/// source and clears the mark; nothing goes anywhere else.
+#[gpui::test]
+async fn edits_are_saved_with_the_save_key(cx: &mut TestAppContext) {
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("src/ფაილი.rs", "fn a() {\r\n    1\r\n}\r\n")]);
+    let code = open_for_typing(&viewer, "src/ფაილი.rs", 1, cx);
+    assert!(code.read_with(cx, |c, _| c.is_editing()));
+    cx.simulate_input("2");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("ბ");
+    redraw(cx);
+    viewer.read_with(cx, |v, cx| assert_eq!(v.unsaved(cx), ["src/ფაილი.rs"]));
+    assert!(cx.debug_bounds("ex-tab-dirty-0").is_some(), "the tab shows the dot");
+    cx.simulate_keystrokes(SAVE);
+    redraw(cx);
+    assert_eq!(on_disk(&src, "src/ფაილი.rs"), "fn a() {\r\n    12\r\n    ბ\r\n}\r\n");
+    assert_eq!(src.writes.load(Ordering::SeqCst), 1);
+    viewer.read_with(cx, |v, cx| assert!(v.unsaved(cx).is_empty()));
+    assert!(cx.debug_bounds("ex-tab-dirty-0").is_none());
+    // Saved: the undo history stays (the view wasn't read again).
+    assert!(code.read_with(cx, |c, _| c.is_editing() && c.text().unwrap().contains('ბ')));
+    let undo = if cfg!(target_os = "macos") { "cmd-z" } else { "ctrl-z" };
+    cx.simulate_keystrokes(undo);
+    redraw(cx);
+    viewer.read_with(cx, |v, cx| assert_eq!(v.unsaved(cx).len(), 1, "undone past the save: unsaved again"));
+}
+
+/// Another machine's agent, a file outside the folder, a file that isn't
+/// UTF-8, an image, and the setting off: read-only, the header says why.
+#[gpui::test]
+async fn files_that_cannot_be_edited_say_why(cx: &mut TestAppContext) {
+    let mut far = agent("vm", "/srv/x", "idle", 0, false);
+    far.caps = AgentCaps { explorer: true, review: true, ..AgentCaps::default() };
+    let (viewer, src, cx) = edit_setup(cx, far, &[("a.txt", "x\n")]);
+    let code = open_for_typing(&viewer, "a.txt", 0, cx);
+    assert!(!code.read_with(cx, |c, _| c.is_editing()));
+    let why = cx.debug_bounds("ex-read-only");
+    assert!(why.is_some(), "the header says it is read-only");
+    cx.simulate_keystrokes("x");
+    assert_eq!(on_disk(&src, "a.txt"), "x\n");
+    assert!(code.read_with(cx, |c, _| c.text().is_none()));
+}
+
+#[gpui::test]
+async fn the_setting_turns_editing_off(cx: &mut TestAppContext) {
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "x\n")]);
+    let code = open_for_typing(&viewer, "a.txt", 0, cx);
+    assert!(code.read_with(cx, |c, _| c.is_editing()));
+    assert!(cx.debug_bounds("ex-read-only").is_none());
+    let def = pitwall_proto::settings::find(super::show::EDIT_SETTING).unwrap();
+    cx.update(|_, cx| crate::ui_state::update(cx, |s| *s = crate::settings::data::with(s, def, &serde_json::Value::Bool(false))));
+    redraw(cx);
+    assert!(!cx.update(|_, cx| super::show::edit_enabled(cx)));
+    assert!(!code.read_with(cx, |c, _| c.is_editing()));
+    assert!(cx.debug_bounds("ex-read-only").is_some());
+    cx.update(|_, cx| crate::ui_state::update(cx, |s| *s = crate::settings::data::with(s, def, &serde_json::Value::Bool(true))));
+    redraw(cx);
+    assert!(code.read_with(cx, |c, _| c.is_editing()));
+}
+
+/// Closing a tab with unsaved changes asks: Cancel keeps it, Don't Save
+/// drops the edits, Save writes them first.
+#[gpui::test]
+async fn closing_a_tab_asks_about_unsaved_changes(cx: &mut TestAppContext) {
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n"), ("b.txt", "b\n")]);
+    open_for_typing(&viewer, "a.txt", 0, cx);
+    cx.simulate_input("1");
+    let close = |cx: &mut VisualTestContext, path: &str| {
+        let p = path.to_string();
+        cx.update(|window, cx| viewer.update(cx, |v, cx| v.request_close_tab(&p, window, cx)));
+        cx.run_until_parked();
+    };
+    close(cx, "a.txt");
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    viewer.read_with(cx, |v, _| assert!(v.tabs().contains(&"a.txt".to_string())));
+
+    close(cx, "a.txt");
+    cx.simulate_prompt_answer("Save");
+    cx.run_until_parked();
+    assert_eq!(on_disk(&src, "a.txt"), "a1\n");
+    viewer.read_with(cx, |v, _| assert!(!v.tabs().contains(&"a.txt".to_string())));
+
+    open_for_typing(&viewer, "b.txt", 0, cx);
+    cx.simulate_input("2");
+    close(cx, "b.txt");
+    cx.simulate_prompt_answer("Don't Save");
+    cx.run_until_parked();
+    assert_eq!(on_disk(&src, "b.txt"), "b\n");
+    viewer.read_with(cx, |v, _| assert!(v.tabs().is_empty()));
+    // A clean tab closes without asking.
+    open_for_typing(&viewer, "b.txt", 0, cx);
+    close(cx, "b.txt");
+    assert!(!cx.has_pending_prompt());
+    viewer.read_with(cx, |v, _| assert!(v.tabs().is_empty()));
+}
+
+/// The pane's Close, "Open in window" and the window's "Dock" only go
+/// once unsaved changes are answered for; so does closing the window.
+#[gpui::test]
+async fn closing_the_pane_or_window_asks_too(cx: &mut TestAppContext) {
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = events.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
+            let name = match e {
+                viewer::ViewerEvent::Close => "close",
+                viewer::ViewerEvent::Undock => "undock",
+                viewer::ViewerEvent::Dock => "dock",
+                _ => return,
+            };
+            seen.lock().unwrap().push(name);
+        })
+        .detach()
+    });
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Beside, Some("a1".into()), cx));
+    open_for_typing(&viewer, "a.txt", 0, cx);
+    cx.simulate_input("!");
+    redraw(cx);
+    // The pane's buttons, clicked.
+    for (button, answer) in [("ex-close-beside", "Cancel"), ("ex-undock", "Cancel")] {
+        let at = cx.debug_bounds(button).expect(button).center();
+        cx.simulate_click(at, gpui::Modifiers::none());
+        cx.run_until_parked();
+        assert!(cx.has_pending_prompt(), "{button}");
+        cx.simulate_prompt_answer(answer);
+        cx.run_until_parked();
+    }
+    assert!(events.lock().unwrap().is_empty(), "cancelled: nothing happens");
+    let at = cx.debug_bounds("ex-undock").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Save");
+    cx.run_until_parked();
+    assert_eq!(on_disk(&src, "a.txt"), "a!\n");
+    assert_eq!(*events.lock().unwrap(), ["undock"]);
+
+    // In a window of its own: Dock, and the window's close button.
+    viewer.update(cx, |v, cx| {
+        v.set_host(viewer::Host::Window, Some("a1".into()), cx);
+        v.set_can_dock(true, cx);
+    });
+    cx.simulate_input("?");
+    redraw(cx);
+    let at = cx.debug_bounds("ex-dock").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Don't Save");
+    cx.run_until_parked();
+    assert_eq!(*events.lock().unwrap(), ["undock", "dock"]);
+    assert_eq!(on_disk(&src, "a.txt"), "a!\n", "not saved");
+
+    let v = viewer.downgrade();
+    cx.update(|window, cx| viewer::guard_window_close(window, cx, move |_| v.upgrade()));
+    // Still unsaved (Don't Save only let the dock go on): closing asks.
+    assert!(!cx.simulate_close(), "kept open while it asks");
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    assert_eq!(on_disk(&src, "a.txt"), "a!\n");
+}
+
+/// Quitting with unsaved changes anywhere asks first; Save writes them
+/// and then quits, Cancel doesn't quit.
+#[gpui::test]
+async fn quitting_asks_about_unsaved_changes(cx: &mut TestAppContext) {
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    open_for_typing(&viewer, "a.txt", 0, cx);
+    cx.simulate_input("q");
+    let quit = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let try_quit = |cx: &mut VisualTestContext| {
+        let q = quit.clone();
+        cx.update(|_, cx| super::unsaved::quit_guarded(cx, move |_| {
+            q.fetch_add(1, Ordering::SeqCst);
+        }));
+        cx.run_until_parked();
+    };
+    try_quit(cx);
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    assert_eq!(quit.load(Ordering::SeqCst), 0);
+    try_quit(cx);
+    cx.simulate_prompt_answer("Save");
+    cx.run_until_parked();
+    assert_eq!(quit.load(Ordering::SeqCst), 1);
+    assert_eq!(on_disk(&src, "a.txt"), "aq\n");
+    // Nothing unsaved: quits at once.
+    try_quit(cx);
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(quit.load(Ordering::SeqCst), 2);
+}
+
+/// The agent changes the file: with nothing unsaved it is read again
+/// quietly (caret kept); with unsaved changes a bar offers Keep mine, Take
+/// theirs and Show difference, and a save over it asks first.
+#[gpui::test]
+async fn changes_on_disk_never_overwrite_either_side(cx: &mut TestAppContext) {
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "one\ntwo\nthree\n")]);
+    let code = open_for_typing(&viewer, "a.txt", 2, cx);
+    let agent_writes = |text: &str| {
+        src.files.lock().unwrap().insert("a.txt".into(), text.into());
+    };
+    // Nothing unsaved: quietly, caret where it was.
+    agent_writes("one\ntwo\nthree!\n");
+    viewer.update(cx, |v, cx| v.recheck(cx));
+    redraw(cx);
+    assert!(viewer.read_with(cx, |v, _| !v.is_stale()));
+    assert_eq!(code.read_with(cx, |c, _| c.text()).as_deref(), Some("one\ntwo\nthree!\n"));
+    assert_eq!(code.read_with(cx, |c, _| c.selection().map(|s| s.head.line)), Some(2));
+
+    // Unsaved changes: the bar; nothing replaced.
+    cx.simulate_input("X");
+    agent_writes("one\nTWO\nthree!\n");
+    viewer.update(cx, |v, cx| v.recheck(cx));
+    redraw(cx);
+    assert!(viewer.read_with(cx, |v, _| v.is_stale()));
+    assert!(cx.debug_bounds("ex-changed-on-disk").is_some());
+    assert_eq!(code.read_with(cx, |c, _| c.text()).as_deref(), Some("one\ntwo\nthreeX!\n"));
+    // Show difference: disk against mine.
+    let at = cx.debug_bounds("ex-show-difference").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-difference").is_some());
+    let at = cx.debug_bounds("ex-show-difference").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-difference").is_none());
+    // Keep mine: the bar goes; the next save writes over what was seen.
+    let at = cx.debug_bounds("ex-keep-mine").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(!viewer.read_with(cx, |v, _| v.is_stale()));
+    assert_eq!(on_disk(&src, "a.txt"), "one\nTWO\nthree!\n", "keeping isn't saving");
+    cx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(code.read(cx), cx), cx));
+    cx.simulate_keystrokes(SAVE);
+    redraw(cx);
+    assert_eq!(on_disk(&src, "a.txt"), "one\ntwo\nthreeX!\n");
+
+    // A save over a file changed since: nothing written, the bar asks;
+    // Take theirs replaces the edits.
+    cx.simulate_input("Y");
+    agent_writes("theirs\n");
+    cx.simulate_keystrokes(SAVE);
+    redraw(cx);
+    assert_eq!(on_disk(&src, "a.txt"), "theirs\n");
+    assert!(viewer.read_with(cx, |v, _| v.is_stale()));
+    assert!(cx.debug_bounds("ex-changed-on-disk").is_some());
+    let at = cx.debug_bounds("ex-reload").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert_eq!(code.read_with(cx, |c, _| c.text()).as_deref(), Some("theirs\n"));
+    viewer.read_with(cx, |v, cx| assert!(v.unsaved(cx).is_empty()));
+    assert!(cx.debug_bounds("ex-changed-on-disk").is_none());
+
+    // Again, and "Save mine" this time: written over theirs, as asked.
+    cx.simulate_input("Z");
+    agent_writes("theirs 2\n");
+    cx.simulate_keystrokes(SAVE);
+    redraw(cx);
+    let at = cx.debug_bounds("ex-keep-mine").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert_eq!(on_disk(&src, "a.txt"), code.read_with(cx, |c, _| c.text()).unwrap());
+    viewer.read_with(cx, |v, cx| assert!(v.unsaved(cx).is_empty()));
+}
+
+/// A Markdown file's Preview follows the edits.
+#[gpui::test]
+async fn the_markdown_preview_follows_the_edits(cx: &mut TestAppContext) {
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("README.md", "# Title\n")]);
+    open_for_typing(&viewer, "README.md", 0, cx);
+    cx.simulate_input(" two");
+    redraw(cx);
+    let md = viewer.read_with(cx, |v, _| v.md_text().map(|(_, t)| t.to_string()));
+    assert_eq!(md.as_deref(), Some("# Title two\n"));
 }

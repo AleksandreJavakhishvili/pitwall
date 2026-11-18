@@ -88,6 +88,7 @@ impl SettingsView {
                 Part::section("codex", |s, ui, _, cx| any(s.codex(ui, cx))),
                 Part::section("tool-updates", |_, ui, _, cx| any(Self::tool_updates(ui, cx))),
                 Part::section("show-files", |s, ui, _, cx| any(s.show_files(ui, cx))),
+                Part::section("edit-files", |_, ui, _, cx| any(Self::edit_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
             Page::Accounts => vec![
@@ -224,6 +225,38 @@ impl SettingsView {
         section()
             .child(head(ui, "Claude Code").child(crate::kit::chip_tone("automatic", crate::kit::Tone::Ok, &ui.t)))
             .child(crate::kit::muted("Hooks are passed per launch. Your ~/.claude settings are never edited.", &ui.t))
+    }
+
+    /// `agents.editFiles`: the user edits files in the viewer.
+    fn edit_files(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::explorer::show::EDIT_SETTING);
+        let on = crate::explorer::show::edit_enabled(cx);
+        section().child(
+            div()
+                .id("edit-files")
+                .debug_selector(|| "edit-files".into())
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Edit files in the viewer"))
+                        .child(crate::kit::hint(crate::kit::keys("Quick fixes while you read: edit text files of agents on this computer and save them with ⌘S. Agents can’t write through Pitwall. Off: the viewer is read-only.", false), &ui.t)),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
+        )
     }
 
     /// `agents.showFiles`: agents can show the user files in Pitwall; how
