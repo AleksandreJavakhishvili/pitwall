@@ -234,10 +234,12 @@ impl MainScreen {
                             )
                             .when_some(r.title.as_ref().and(r.cwd_display.clone()), |d, c| {
                                 d.child(
-                                    // Shrinks only once the kind is gone.
+                                    // Shrinks only once the kind is gone (it
+                                    // grows from nothing), down to an ellipsis:
+                                    // not past the row's "Bring in" in a
+                                    // narrow sidebar.
                                     div()
-                                        .flex_shrink_0()
-                                        .max_w_full()
+                                        .min_w_0()
                                         .ellipsis()
                                         .font_family(MONO_FONT)
                                         .text_size(px(11.))

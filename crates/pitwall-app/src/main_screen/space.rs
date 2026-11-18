@@ -31,7 +31,6 @@ use crate::theme::{Theme, RADIUS, RADIUS_LG};
 
 /// Minimum share per side when dragging a divider.
 const MIN_FRAC: f64 = 0.08;
-const DIVIDER: f32 = 6.;
 
 impl MainScreen {
     pub(super) fn render_center(
@@ -467,23 +466,9 @@ impl MainScreen {
                         let split = id.clone();
                         let initial = sizes.clone();
                         let index = i - 1;
+                        let active = self.divider.as_ref().is_some_and(|d| d.split == *id && d.index == index);
                         kids.push(
-                            div()
-                                .id(SharedString::from(format!("div-{id}-{i}")))
-                                .flex_none()
-                                .when(row, |d| d.w(px(DIVIDER)).h_full().cursor_col_resize())
-                                .when(!row, |d| d.h(px(DIVIDER)).w_full().cursor_row_resize())
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .group("divider")
-                                .child(
-                                    div()
-                                        .rounded(px(2.))
-                                        .when(row, |d| d.w(px(2.)).h(gpui::relative(0.4)))
-                                        .when(!row, |d| d.h(px(2.)).w(gpui::relative(0.4)))
-                                        .group_hover_probed("divider", |s| s.bg(t.text_4)),
-                                )
+                            crate::kit::divider(SharedString::from(format!("div-{id}-{i}")), row, active, t)
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(move |this, e: &MouseDownEvent, _, cx| {
