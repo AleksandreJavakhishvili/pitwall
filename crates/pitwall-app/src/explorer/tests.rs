@@ -39,6 +39,34 @@ fn setup(
     (store, explorer, cx)
 }
 
+/// `file:line` (an agent showing it, a ⌘-clicked path): the line is
+/// scrolled to and marked, the whole line when no column is given.
+#[gpui::test]
+async fn a_line_given_is_scrolled_to_and_marked(cx: &mut TestAppContext) {
+    let text: String = (1..=400).map(|i| format!("line number {i}\n")).collect();
+    let src = FakeSource::new(&[("src/long.rs", text.as_str())]);
+    cx.update(|cx| cx.set_global(crate::theme::Theme::dark()));
+    let store = cx.new(|_| AgentStore::new(vec![readable("a1")]));
+    let source: Arc<dyn Source> = src;
+    let (viewer, cx) = cx.add_window_view(move |window, cx| {
+        let tree = cx.new(|_| super::tree::TreeModel::new(source.clone(), "a1".into(), false));
+        viewer::Viewer::new(source, store, "a1".into(), tree, window, cx)
+    });
+    let at = |line: u32, column: Option<u32>, cx: &mut VisualTestContext| {
+        viewer.update(cx, |v, cx| v.open("src/long.rs".into(), super::file_link::target(Some(line), column), cx));
+        cx.run_until_parked();
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let code = super::code_view::shown("src/long.rs").expect("the file is drawn");
+        code.read_with(cx, |c, _| c.selection().map(|s| (s.anchor.line, s.anchor.col, s.head.col)))
+    };
+    // No column: line 300 (0-based 299) marked from its start to its end.
+    assert_eq!(at(300, None, cx), Some((299, 0, "line number 300".len())));
+    // A column: from there to the end of the word.
+    let (line, from, _) = at(12, Some(6), cx).unwrap();
+    assert_eq!((line, from), (11, 5));
+}
+
 #[gpui::test]
 async fn under_liquid_glass_a_notice_is_a_pop_up(cx: &mut TestAppContext) {
     let (_, explorer, cx) = setup(cx, vec![], FakeSource::new(&[]));

@@ -27,6 +27,18 @@ struct ViewState {
     shown_nonce: Option<u64>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Each drawn file's view (tests read its selection).
+    static SHOWN: std::cell::RefCell<std::collections::HashMap<String, gpui::WeakEntity<CodeView>>> = Default::default();
+}
+
+/// The view drawn last for `path` (tests).
+#[cfg(test)]
+pub(crate) fn shown(path: &str) -> Option<Entity<CodeView>> {
+    SHOWN.with(|m| m.borrow().get(path).and_then(|w| w.upgrade()))
+}
+
 /// The byte range of `char` columns `cols` on `line` (1-based) of `text`.
 pub fn byte_cols(text: &str, line: u32, cols: (usize, usize)) -> Option<std::ops::Range<usize>> {
     let l = text.split('\n').nth(line.max(1) as usize - 1)?;
@@ -34,6 +46,20 @@ pub fn byte_cols(text: &str, line: u32, cols: (usize, usize)) -> Option<std::ops
     let at = |c: usize| l.char_indices().nth(c).map_or(l.len(), |(i, _)| i);
     let (a, b) = (at(cols.0), at(cols.1));
     (a < b).then_some(a..b)
+}
+
+/// What to select on `line` (1-based): the columns given, else the whole
+/// line (its text, without the line break), so a line without a column is
+/// marked too. `None` for an empty line or one past the end.
+pub fn mark(text: &str, line: u32, cols: Option<(usize, usize)>) -> Option<std::ops::Range<usize>> {
+    match cols {
+        Some(c) => byte_cols(text, line, c),
+        None => {
+            let l = text.split('\n').nth(line.max(1) as usize - 1)?;
+            let l = l.strip_suffix('\r').unwrap_or(l);
+            (!l.is_empty()).then_some(0..l.len())
+        }
+    }
 }
 
 /// One file's text, read-only: `path` names it (and keys its view),
@@ -55,6 +81,8 @@ pub fn code_view(
             shown_nonce: None,
         },
     );
+    #[cfg(test)]
+    SHOWN.with(|m| m.borrow_mut().insert(path.to_string(), state.read(cx).code.downgrade()));
     let (code, load, reveal) = state.update(cx, |s, _| {
         let load = s.text_id != id;
         s.text_id = id;
@@ -71,7 +99,7 @@ pub fn code_view(
                 c.set_file(&path, text.to_string(), cx);
             }
             if let Some(tg) = reveal {
-                let cols = tg.cols.and_then(|cols| byte_cols(&text, tg.line, cols));
+                let cols = mark(&text, tg.line, tg.cols);
                 c.reveal(Side::New, tg.line.max(1) as usize - 1, cols, cx);
             }
         });
@@ -103,5 +131,15 @@ mod tests {
         assert_eq!(&"x = ბოლო"[r], "ბოლო");
         assert_eq!(byte_cols(text, 9, (0, 1)), None);
         assert_eq!(byte_cols(text, 1, (3, 3)), None);
+    }
+
+    #[test]
+    fn a_line_without_a_column_is_marked_whole() {
+        let text = "a\r\n\tfoo(bar)\n\nlast";
+        assert_eq!(mark(text, 2, None), Some(0..9));
+        assert_eq!(mark(text, 1, None), Some(0..1));
+        assert_eq!(mark(text, 3, None), None);
+        assert_eq!(mark(text, 9, None), None);
+        assert_eq!(mark(text, 2, Some((1, 4))), Some(1..4));
     }
 }
