@@ -156,6 +156,18 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     }
 }
 
+/// Set a file's permission bits (tests): Windows has none.
+#[cfg(test)]
+pub fn set_mode(_file: &Path, _mode: u32) -> io::Result<()> {
+    Ok(())
+}
+
+/// A file's permission bits (tests): Windows has none.
+#[cfg(test)]
+pub fn mode(_file: &Path) -> Option<u32> {
+    None
+}
+
 // ---------------------------------------------------------------- PATH and shell
 
 /// A string value from the registry (environment strings expanded).

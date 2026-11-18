@@ -707,11 +707,7 @@ fn saving_stays_inside_the_folder_on_this_computer() {
     w("notes.txt", b"ab\0cd");
     w("logo.png", b"png");
     let linked = crate::platform::symlink(&outside.path().join("secret.txt"), &dir.path().join("secret-link")).is_ok();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.path().join("a.txt"), std::fs::Permissions::from_mode(0o640)).unwrap();
-    }
+    crate::platform::set_mode(&dir.path().join("a.txt"), 0o640).unwrap();
     let h = Harness::new(vec![record("a", &root)]);
 
     // Another machine's agent (or one mirrored from a peer): refused.
@@ -724,10 +720,7 @@ fn saving_stays_inside_the_folder_on_this_computer() {
     let base = first.text.unwrap();
     assert_eq!(write_file(&h.engine, "a", "a.txt", "one\r\ntwo!\r\n", Some(&base)), Ok(Saved::Written));
     assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"one\r\ntwo!\r\n");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(dir.path().join("a.txt")).unwrap().permissions().mode() & 0o777;
+    if let Some(mode) = crate::platform::mode(&dir.path().join("a.txt")) {
         assert_eq!(mode, 0o640, "permissions kept");
     }
     // No temporary file left behind.
