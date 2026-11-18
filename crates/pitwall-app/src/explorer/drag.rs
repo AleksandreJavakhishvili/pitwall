@@ -154,6 +154,14 @@ pub fn debug(what: &str, cx: &mut App) {
             let tile = super::dock::holder(agent, cx);
             let window = crate::windows::viewer_window(agent, cx).is_some();
             let kept = super::dock::orphaned(agent, cx);
+            // The tree's top folder, with each entry's git status.
+            if let Some(v) = super::dock::viewer(agent, cx) {
+                let tree = v.read(cx).tree();
+                let top = tree.read(cx).state().listings.get("").map(|l| {
+                    l.entries.iter().map(|e| format!("{}{}", e.name, e.status.map(|s| format!(" {s:?}")).unwrap_or_default())).collect::<Vec<_>>()
+                });
+                say(format!("{agent}: tree {top:?}"));
+            }
             let key = super::dock::key(agent, cx)
                 .or_else(|| crate::windows::viewer_window(agent, cx).and_then(|h| h.read(cx).ok().map(|w| w.key().to_string())));
             say(format!(

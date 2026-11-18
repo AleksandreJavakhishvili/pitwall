@@ -250,6 +250,13 @@ impl MainView {
             cx.defer(move |cx| crate::explorer::drag::debug(&what, cx));
             return;
         }
+        // Debug builds, `approval allow|deny`: answers the approval shown
+        // (as its buttons do).
+        if let Some(what) = cmd.strip_prefix("approval ").filter(|_| cfg!(debug_assertions)) {
+            let allow = what.trim() == "allow";
+            cx.defer(move |cx| crate::approvals::debug_answer(allow, cx));
+            return;
+        }
         // `app activate|deactivate|state|top on|off`, `app click|rclick <x> <y>` (debug
         // builds): the app made the active one or not, what the system
         // says of its windows (on stderr), a click in this window.
