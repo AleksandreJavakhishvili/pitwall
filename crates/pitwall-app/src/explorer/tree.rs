@@ -55,6 +55,23 @@ impl TreeModel {
         &self.agent_id
     }
 
+    /// Read `agent_id`'s folder from now on (its agent was removed: the
+    /// same folder by its `path:` key): forget what was read and read it.
+    pub fn set_agent(&mut self, agent_id: String, cx: &mut Context<Self>) {
+        if self.agent_id == agent_id {
+            return;
+        }
+        self.agent_id = agent_id;
+        self.generation += 1;
+        self.refreshing = None;
+        self.state.listings.clear();
+        self.state.errors.clear();
+        self.state.loading.clear();
+        self.state.refreshing = false;
+        cx.notify();
+        self.refresh(false, cx);
+    }
+
     /// "Show ignored files" toggled: forget what was read and read again.
     pub fn set_ignored(&mut self, ignored: bool, cx: &mut Context<Self>) {
         if self.ignored == ignored {

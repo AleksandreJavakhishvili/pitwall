@@ -142,6 +142,8 @@ pub fn over(cx: &App) -> Option<(String, String, FilesSpot)> {
 ///   `y`) in Pitwall window `<window>`'s content (`out`: that far below
 ///   the main window, outside it), and let go there with `drop`.
 /// - `state <agent>`: where its files are (on stderr).
+/// - `orphan <agent> save|discard`: a removed agent's kept files' Save or
+///   Discard.
 pub fn debug(what: &str, cx: &mut App) {
     use super::dock::FilesPlace;
     use crate::main_screen::tree::Side;
@@ -151,8 +153,18 @@ pub fn debug(what: &str, cx: &mut App) {
         ["state", agent] => {
             let tile = super::dock::holder(agent, cx);
             let window = crate::windows::viewer_window(agent, cx).is_some();
-            say(format!("{agent}: tile {:?} ({}), window {window}, over {:?}", tile, super::dock::described(agent, cx), over(cx)));
+            let kept = super::dock::orphaned(agent, cx);
+            let key = super::dock::key(agent, cx)
+                .or_else(|| crate::windows::viewer_window(agent, cx).and_then(|h| h.read(cx).ok().map(|w| w.key().to_string())));
+            say(format!(
+                "{agent}: tile {:?} ({}), window {window}, key {key:?}, kept for edits {kept}, over {:?}",
+                tile,
+                super::dock::described(agent, cx),
+                over(cx)
+            ));
         }
+        ["orphan", agent, "save"] => super::dock::save_orphan(agent, cx),
+        ["orphan", agent, "discard"] => super::dock::discard_orphan(agent, cx),
         ["drag", agent, label, x, y, rest @ ..] => {
             let from = match crate::windows::viewer_window(agent, cx) {
                 Some(h) if super::dock::viewer(agent, cx).is_none() => From::Window(h),

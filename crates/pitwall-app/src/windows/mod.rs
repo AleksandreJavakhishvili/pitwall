@@ -275,6 +275,14 @@ pub fn viewer_window(agent: &str, cx: &mut App) -> Option<WindowHandle<crate::ex
     w.viewers.iter().find(|(a, _)| a == agent).map(|(_, h)| *h)
 }
 
+/// The agents with a file viewer window open.
+pub fn viewer_window_owners(cx: &mut App) -> Vec<String> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.viewers.retain(|(_, h)| live.contains(&h.window_id()));
+    w.viewers.iter().map(|(a, _)| a.clone()).collect()
+}
+
 /// Keep file viewer window `handle` as agent `agent`'s.
 pub fn add_viewer_window(agent: &str, handle: WindowHandle<crate::explorer::window::ViewerWindow>, cx: &mut App) {
     let w = state(cx);

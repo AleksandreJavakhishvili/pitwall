@@ -558,4 +558,26 @@ mod tests {
         let (l, t) = dropped(Node::pane(None), |s| FilesSpot::Take(s.space("s").unwrap().layout.id().to_string()));
         assert_eq!(whereabouts(&l, &t, None), Alone);
     }
+
+    /// After a restart, a files tile whose agent no longer exists isn't
+    /// drawn again, and nothing of it stays in `ui.json`.
+    #[test]
+    fn files_of_a_removed_agent_leave_nothing_behind() {
+        let s = state(build_preset(Preset::Two, &ids(&["a", "b"])));
+        let b = pane_of(&s, "b");
+        let (s, _) = s.dock_files("s", "gone", &FilesSpot::Tile { pane: b, side: Side::Right }, FILES_SHARE, None);
+        let (s, _) = s.dock_files("s", "a", &FilesSpot::Edge(Side::Bottom), FILES_SHARE, None);
+        let s = s.keep_files("gone", DockedFiles { key: "gone".into(), tabs: vec!["x.rs".into()], active: None });
+        let s = s.keep_files("a", DockedFiles { key: "a".into(), tabs: vec![], active: None });
+        let back: UiState = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        let next = back.clone().prune_agents(&ids(&["a", "b"]));
+        let layout = &next.space("s").unwrap().layout;
+        assert!(layout.find_files("gone").is_none() && !next.docked_files.contains_key("gone"));
+        assert!(layout.find_files("a").is_some() && next.docked_files.contains_key("a"), "a's stay");
+        assert_eq!(layout.agents(), ids(&["a", "b"]), "the gap closed, the terminals kept");
+        assert!(!serde_json::to_string(&next).unwrap().contains("gone"));
+        // One kept for unsaved edits (passed as alive) stays.
+        let kept = back.prune_agents(&ids(&["a", "b", "gone"]));
+        assert!(kept.space("s").unwrap().layout.find_files("gone").is_some());
+    }
 }

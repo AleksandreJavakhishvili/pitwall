@@ -352,6 +352,19 @@ impl Viewer {
         &self.agent_id
     }
 
+    /// Read `key` from now on: the same folder by another key (its agent
+    /// was removed and its files stay for unsaved edits). Tabs, edits and
+    /// the tree's place stay; saves go to the new key.
+    pub fn reroot(&mut self, key: String, cx: &mut Context<Self>) {
+        if self.agent_id == key {
+            return;
+        }
+        self.tree.update(cx, |t, cx| t.set_agent(key.clone(), cx));
+        self.search.update(cx, |s, cx| s.set_key(key.clone(), cx));
+        self.agent_id = key;
+        cx.notify();
+    }
+
     /// The tree it shows.
     pub fn tree(&self) -> Entity<TreeModel> {
         self.tree.clone()

@@ -203,7 +203,19 @@ impl MainScreen {
         let hint = self.drop_hint.as_ref().filter(|(p, _)| p == pane).and_then(|(_, z)| *z);
         let (move_id, drop_id) = (pane.to_string(), pane.to_string());
         let body: AnyElement = match view {
-            Some(v) => div().flex_1().min_w_0().min_h_0().flex().child(v).into_any_element(),
+            Some(v) => {
+                // Its agent was removed: kept for unsaved edits, says so.
+                let bar = crate::explorer::dock::viewer(owner, cx).and_then(|e| crate::explorer::dock::orphan_bar(owner, &e, t, cx));
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .children(bar)
+                    .child(div().flex_1().min_w_0().min_h_0().flex().child(v))
+                    .into_any_element()
+            }
             None => {
                 let o = owner.to_string();
                 div()

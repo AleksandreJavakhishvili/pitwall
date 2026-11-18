@@ -221,13 +221,20 @@ impl ViewerWindow {
         self.pinned
     }
 
-    /// The viewer reading `key` (a new one, with the window's title, when
-    /// it read another folder).
     /// What it reads now, and its viewer.
     pub fn current(&self) -> (&str, &Entity<Viewer>) {
         (&self.key, &self.viewer)
     }
 
+    /// Its viewer reads `key` now (its agent was removed: the folder it
+    /// read, kept for unsaved edits).
+    pub fn rerooted(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.key = key.to_string();
+        cx.notify();
+    }
+
+    /// The viewer reading `key` (a new one, with the window's title, when
+    /// it read another folder).
     pub fn viewer_for(&mut self, key: &str, title: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<Viewer> {
         if self.key != key {
             self.viewer.update(cx, |v, cx| v.hidden(cx));
@@ -273,7 +280,11 @@ impl Render for ViewerWindow {
             .text_size(px(13.))
             .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
-            .when(!self.moved, |d| d.child(div().flex_1().min_w_0().min_h_0().flex().bg(t.bg).child(self.viewer.clone())));
+            .flex_col()
+            .when(!self.moved, |d| {
+                d.children(super::dock::orphan_bar(&self.agent, &self.viewer, &t, cx))
+                    .child(div().flex_1().min_w_0().min_h_0().flex().bg(t.bg).child(self.viewer.clone()))
+            });
         crate::platform::decorations::frame(root, window, cx)
     }
 }

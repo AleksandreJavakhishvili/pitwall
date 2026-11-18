@@ -813,6 +813,13 @@ impl UiState {
         for a in gone {
             next = next.unplace(&a, None);
         }
+        // Files tiles of agents that are gone (`alive` holds the ones kept
+        // for unsaved edits), and what they had open.
+        let mut owners: Vec<String> = next.spaces.iter().flat_map(|s| s.layout.files_owners()).collect();
+        owners.extend(next.docked_files.keys().cloned());
+        for o in owners.into_iter().filter(|o| !alive.contains(o)) {
+            next = next.undock_files(&o).forget_files(&o);
+        }
         next.tile_font.retain(|a, _| alive.contains(a));
         for sp in &mut next.spaces {
             sp.members.retain(|m| alive.contains(m));

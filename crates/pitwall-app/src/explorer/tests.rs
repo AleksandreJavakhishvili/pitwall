@@ -2,6 +2,7 @@
 //! reason, the viewer opening files (Georgian names, binary, large), quick
 //! open's recent list, refresh when the agent's changes move.
 
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -600,6 +601,160 @@ async fn files_move_between_a_tile_and_windows_with_their_edits(cx: &mut TestApp
         assert_eq!(v.tabs(), ["a.txt", "b.txt"]);
         assert_eq!(v.active(), Some("b.txt"));
     });
+}
+
+/// An agent removed from Pitwall: its files close (the tile leaves the
+/// layout, `dockedFiles` forgets it), unless they hold unsaved edits; those
+/// stay, reading its folder on this computer, until saved or discarded.
+/// Another machine's agent leaves nothing to save here: they close. A
+/// restart (the same id) changes nothing.
+#[gpui::test]
+async fn a_removed_agents_files_close_or_stay_for_unsaved_edits(cx: &mut TestAppContext) {
+    use crate::main_screen::workspace::FilesSpot;
+    let src = FakeSource::new(&[("a.txt", "a\n")]);
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::code_view::register(cx);
+        cx.bind_keys(viewer::bindings());
+    });
+    let mut far = agent("far", "/far/away", "idle", 0, false);
+    far.caps = readable("far").caps;
+    let ids = ["clean", "edited", "far", "saved"];
+    let mut agents: Vec<_> = ids[..2].iter().map(|id| readable(id)).collect();
+    agents.push(far);
+    agents.push(readable("saved"));
+    let store = cx.new(|_| AgentStore::new(agents));
+    let source: Arc<dyn Source> = src.clone();
+    cx.update(|cx| super::dock::remember_env(Some(source.clone()), &store, cx));
+    let (holder, tcx) = cx.add_window_view(|_, _| Holder(None));
+    let mut viewers = HashMap::new();
+    for id in ids {
+        let v = tcx.update(|window, cx| super::dock::make(id, id, window, cx)).expect("readable");
+        tcx.update(|_, cx| {
+            super::dock::adopt(id, id, v.clone(), cx);
+            crate::ui_state::update(cx, |ui| {
+                let space = ui.spaces[0].id.clone();
+                *ui = ui.clone().dock_files(&space, id, &FilesSpot::Auto, 0.45, None).0;
+            });
+        });
+        viewers.insert(id, v);
+    }
+    // Unsaved edits in all but "clean" (each drawn in turn to type in);
+    // another machine's files are read-only here: none in "far".
+    for id in ["edited", "far", "saved"] {
+        let v = viewers[id].clone();
+        holder.update(tcx, |h, cx| {
+            h.0 = Some(v.clone().into());
+            cx.notify();
+        });
+        open_for_typing(&v, "a.txt", 0, tcx);
+        tcx.simulate_input("!");
+        redraw(tcx);
+        assert_eq!(v.read_with(tcx, |v, cx| v.unsaved(cx).len()), usize::from(id != "far"), "{id}");
+    }
+    let tile = |id: &str, cx: &mut VisualTestContext| cx.update(|_, cx| crate::ui_state::get(cx).files_tile(id).is_some());
+    let docked = |id: &str, cx: &mut VisualTestContext| cx.update(|_, cx| crate::ui_state::get(cx).docked_files.contains_key(id));
+    tcx.run_until_parked();
+
+    // A restart or resume: the same ids, nothing happens.
+    let all: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+    let kept = tcx.update(|_, cx| super::dock::agents_gone(&all, cx));
+    assert!(kept.is_empty());
+    for id in ids {
+        assert!(tcx.update(|_, cx| super::dock::viewer(id, cx).is_some()) && tile(id, tcx) && docked(id, tcx), "{id}");
+    }
+
+    // All removed.
+    let kept = tcx.update(|_, cx| super::dock::agents_gone(&[], cx));
+    tcx.update(|_, cx| crate::ui_state::update(cx, |ui| *ui = ui.clone().prune_agents(&kept)));
+    tcx.run_until_parked();
+    let mut sorted = kept.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["edited", "saved"], "kept for their edits; far's can't be saved here");
+    for id in ["clean", "far"] {
+        assert!(tcx.update(|_, cx| super::dock::viewer(id, cx).is_none()), "{id}");
+        assert!(!tile(id, tcx) && !docked(id, tcx), "{id}: the tile and what it had open, gone");
+    }
+    for id in ["edited", "saved"] {
+        let key = super::source::path_key("/work/alpha");
+        assert!(tile(id, tcx), "{id} stays in the layout");
+        assert_eq!(tcx.update(|_, cx| super::dock::key(id, cx)), Some(key.clone()), "read from its folder");
+        assert_eq!(viewers[id].read_with(tcx, |v, _| v.agent_id().to_string()), key);
+        assert_eq!(tcx.update(|_, cx| crate::ui_state::get(cx).docked_files[id].key.clone()), key);
+        assert!(tcx.update(|_, cx| super::dock::orphaned(id, cx)));
+        assert_eq!(viewers[id].read_with(tcx, |v, cx| v.unsaved(cx).len()), 1, "the edits are still there");
+    }
+    // Their note, with Save and Discard.
+    let v = viewers["edited"].clone();
+    let bar = tcx.update(|_, cx| super::dock::orphan_bar("edited", &v, crate::theme::theme(cx), cx).is_some());
+    assert!(bar);
+    assert!(tcx.update(|_, cx| super::dock::orphan_bar("clean", &v, crate::theme::theme(cx), cx).is_none()));
+
+    // Discard: closed, nothing written.
+    tcx.update(|_, cx| super::dock::discard_orphan("edited", cx));
+    tcx.run_until_parked();
+    assert!(!tile("edited", tcx) && !docked("edited", tcx));
+    assert!(tcx.update(|_, cx| super::dock::viewer("edited", cx).is_none() && !super::dock::orphaned("edited", cx)));
+    assert_eq!(on_disk(&src, "a.txt"), "a\n");
+    // Save: written into its folder, then closed.
+    tcx.update(|_, cx| super::dock::save_orphan("saved", cx));
+    tcx.run_until_parked();
+    assert_eq!(on_disk(&src, "a.txt"), "a!\n");
+    assert!(!tile("saved", tcx) && !docked("saved", tcx));
+    assert!(tcx.update(|_, cx| super::dock::viewer("saved", cx).is_none() && !super::dock::orphaned("saved", cx)));
+}
+
+/// The same for a window of its own: clean, it closes; with unsaved edits
+/// it stays, reading the agent's folder, until they are discarded.
+#[gpui::test]
+async fn a_removed_agents_window_closes_or_stays_for_unsaved_edits(cx: &mut TestAppContext) {
+    let src = FakeSource::new(&[("a.txt", "a\n")]);
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::code_view::register(cx);
+        cx.bind_keys(viewer::bindings());
+    });
+    let store = cx.new(|_| AgentStore::new(vec![readable("w1"), readable("w2")]));
+    let source: Arc<dyn Source> = src.clone();
+    cx.update(|cx| super::dock::remember_env(Some(source.clone()), &store, cx));
+    let mut wins = HashMap::new();
+    for id in ["w1", "w2"] {
+        let (s2, st2) = (source.clone(), store.clone());
+        let win = cx.update(|cx| {
+            let h = cx
+                .open_window(gpui::WindowOptions::default(), move |window, cx| {
+                    cx.new(|cx| super::window::ViewerWindow::new(id.into(), id.into(), None, s2, st2, window, cx))
+                })
+                .unwrap();
+            crate::windows::add_viewer_window(id, h, cx);
+            h
+        });
+        wins.insert(id, win);
+    }
+    let w2 = wins["w2"];
+    let wcx = &mut VisualTestContext::from_window(*w2, cx);
+    redraw(wcx);
+    let v2 = w2.update(wcx, |w, _, _| w.viewer().clone()).unwrap();
+    open_for_typing(&v2, "a.txt", 0, wcx);
+    wcx.simulate_input("!");
+    redraw(wcx);
+    assert_eq!(v2.read_with(wcx, |v, cx| v.unsaved(cx).len()), 1);
+    assert_eq!(wcx.update(|_, cx| crate::windows::viewer_window_owners(cx)).len(), 2);
+    // (As a Pitwall window's screen does: not from inside the viewer's window.)
+    let _ = wcx.cx.update(|cx| super::dock::agents_gone(&["w1".into(), "w2".into()], cx));
+    let kept = wcx.cx.update(|cx| super::dock::agents_gone(&[], cx));
+    wcx.run_until_parked();
+    assert_eq!(kept, ["w2"]);
+    assert!(wcx.update(|_, cx| crate::windows::viewer_window("w1", cx).is_none()), "the clean one closed");
+    assert!(wcx.update(|_, cx| crate::windows::viewer_window("w2", cx).is_some()));
+    let key = super::source::path_key("/work/alpha");
+    assert_eq!(w2.update(wcx, |w, _, _| w.key().to_string()).unwrap(), key);
+    redraw(wcx);
+    assert!(wcx.debug_bounds("files-orphan").is_some(), "the note shows in the window");
+    wcx.cx.update(|cx| super::dock::discard_orphan("w2", cx));
+    wcx.cx.run_until_parked();
+    assert!(wcx.cx.update(|cx| crate::windows::viewer_window("w2", cx).is_none()), "discarded: closed");
+    assert_eq!(on_disk(&src, "a.txt"), "a\n");
 }
 
 /// Quitting with unsaved changes anywhere asks first; Save writes them

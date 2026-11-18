@@ -193,6 +193,15 @@ fixes, not an IDE.
   along an edge of the space beside several tiles ("a column on the right
   of the space"), between two terminals that each have a whole side of it,
   or next to the terminal it shares most of an edge with.
+- **An agent removed** from Pitwall takes its files with it: its files
+  tile leaves the layout (the gap closes as for a terminal), its window
+  closes, and `dockedFiles` forgets it; a tile saved in `ui.json` for an
+  agent that no longer exists isn't drawn again after a restart. Files
+  with unsaved edits stay instead, reading the agent's folder on this
+  computer (a `path:` key), under a note that the agent was removed, with
+  Save and Discard; once saved or discarded they close the same way. An
+  agent on another machine has nothing editable here: its files just
+  close. A restart or resume keeps the agent's id: nothing happens.
 - **Which folder** an agent's files are shown from: the `root` it gives
   (a path, or a worktree of its repository by folder name or branch), else
   where it works **now**, else where it started. "Now" is the `cwd` of its

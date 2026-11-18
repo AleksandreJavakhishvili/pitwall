@@ -99,7 +99,22 @@ struct Tiles {
     /// The terminal (agent) each files tile was placed against, by owner:
     /// what its place is said from while it still touches it.
     anchors: HashMap<String, String>,
+    /// Agents seen: their names, and their folders when on this computer
+    /// (what is left of one once it is removed).
+    known: HashMap<String, (String, Option<String>)>,
+    /// Files kept open after their agent was removed, for unsaved edits.
+    orphans: HashMap<String, Orphan>,
     poll: Option<Task<()>>,
+}
+
+/// Files of a removed agent, kept for their unsaved edits.
+struct Orphan {
+    /// The agent's name.
+    name: String,
+    /// The folder they are read from now (for people).
+    folder: String,
+    /// Closes them once nothing is unsaved.
+    _sub: Subscription,
 }
 
 impl Global for Tiles {}
@@ -286,6 +301,180 @@ fn on_event(owner: &str, v: &Entity<Viewer>, e: &ViewerEvent, cx: &mut App) {
             }
         }
         ViewerEvent::Pin => {}
+    }
+}
+
+/// The agents in Pitwall now are `alive`. The files of a removed one close:
+/// its tile leaves the layout (which closes the gap, as for a terminal),
+/// its window closes, `dockedFiles` forgets it. Unless they hold unsaved
+/// edits: then they stay, reading the agent's folder on this computer (a
+/// `path:` key), with a note and Save / Discard ([`orphan_bar`]), and
+/// close once saved or discarded. An agent on another machine leaves
+/// nothing to save there: its files just close. A restart or resume keeps
+/// the agent's id, so nothing happens then. Returns the agents whose files
+/// stay so (their tiles are kept in the layout).
+pub fn agents_gone(alive: &[String], cx: &mut App) -> Vec<String> {
+    // Who is here: kept for when one goes.
+    if let Some(env) = cx.try_global::<Env>().cloned() {
+        let seen: Vec<(String, (String, Option<String>))> = env
+            .store
+            .read(cx)
+            .agents
+            .iter()
+            .map(|a| {
+                let here = a.machine.provider == pitwall_core::provider::ProviderId::LOCAL && !crate::agents::mirrored(a);
+                (a.id.clone(), (a.name.clone(), here.then(|| a.cwd.clone())))
+            })
+            .collect();
+        tiles(cx).known.extend(seen);
+    }
+    let ui = crate::ui_state::get(cx);
+    let mut owners: Vec<String> = ui.spaces.iter().flat_map(|s| s.layout.files_owners()).collect();
+    owners.extend(ui.docked_files.keys().cloned());
+    owners.extend(tiles(cx).tiles.keys().cloned());
+    owners.extend(crate::windows::viewer_window_owners(cx));
+    owners.sort();
+    owners.dedup();
+    for o in owners.iter().filter(|o| !alive.contains(o)) {
+        if tiles(cx).orphans.contains_key(o) {
+            continue;
+        }
+        if !keep_for_edits(o, alive, cx) {
+            close_everywhere(o, cx);
+        }
+    }
+    tiles(cx).orphans.keys().cloned().collect()
+}
+
+/// Removed agent `owner`'s files (tile or window) stay when they hold
+/// unsaved edits that can still be saved here. Whether they do.
+fn keep_for_edits(owner: &str, alive: &[String], cx: &mut App) -> bool {
+    let window = crate::windows::viewer_window(owner, cx);
+    let (key, v) = match tiles(cx).tiles.get(owner) {
+        Some(t) => (t.key.clone(), t.viewer.clone()),
+        None => match window.and_then(|h| h.read(cx).ok().map(|w| (w.key().to_string(), w.viewer().clone()))) {
+            Some(kv) => kv,
+            None => return false,
+        },
+    };
+    if v.read(cx).unsaved(cx).is_empty() {
+        return false;
+    }
+    let known = tiles(cx).known.clone();
+    let name = known.get(owner).map_or_else(|| owner.to_string(), |k| k.0.clone());
+    // What they read now: a folder, an agent still here, else the removed
+    // agent's folder on this computer (none: nothing to save to here).
+    let next = if super::source::root_of_key(&key).is_some() || alive.contains(&key) {
+        key.clone()
+    } else {
+        match known.get(&key).and_then(|k| k.1.clone()) {
+            Some(folder) => super::source::path_key(&folder),
+            None => return false,
+        }
+    };
+    if next != key {
+        v.update(cx, |v, cx| v.reroot(next.clone(), cx));
+        match tiles(cx).tiles.get_mut(owner) {
+            Some(t) => {
+                t.key = next.clone();
+                // (Kept in `ui.json` again, with the new key.)
+                t.kept = Opened::default();
+            }
+            None => {
+                if let Some(h) = window {
+                    let k = next.clone();
+                    let _ = h.update(cx, |w, _, cx| w.rerooted(&k, cx));
+                }
+            }
+        }
+    }
+    let folder = super::show::root_display(&next, cx);
+    let o = owner.to_string();
+    let sub = cx.observe(&v, move |v, cx| {
+        if v.read(cx).unsaved(cx).is_empty() {
+            let o = o.clone();
+            cx.defer(move |cx| {
+                if tiles(cx).orphans.remove(&o).is_some() {
+                    close_everywhere(&o, cx);
+                }
+            });
+        }
+    });
+    tiles(cx).orphans.insert(owner.to_string(), Orphan { name, folder, _sub: sub });
+    keep_open(owner, &v, cx);
+    v.update(cx, |_, cx| cx.notify());
+    true
+}
+
+/// Agent `owner`'s files closed wherever they are, and forgotten.
+fn close_everywhere(owner: &str, cx: &mut App) {
+    if let Some((_, v)) = release(owner, cx) {
+        v.update(cx, |v, cx| v.hidden(cx));
+    }
+    tiles(cx).anchors.remove(owner);
+    crate::ui_state::update(cx, |ui| *ui = ui.clone().undock_files(owner).forget_files(owner));
+    if let Some(h) = crate::windows::viewer_window(owner, cx) {
+        // (Not inside the update that found it gone.)
+        cx.defer(move |cx| {
+            let _ = h.update(cx, |_, window, _| window.remove_window());
+        });
+    }
+}
+
+/// Removed agent `owner`'s files are kept for their unsaved edits.
+pub fn orphaned(owner: &str, cx: &App) -> bool {
+    cx.try_global::<Tiles>().is_some_and(|t| t.orphans.contains_key(owner))
+}
+
+/// The note over files kept after their agent was removed, with Save
+/// (every unsaved file; they close once written) and Discard (they close,
+/// the edits dropped). `None`: not such files.
+pub fn orphan_bar(owner: &str, viewer: &Entity<Viewer>, t: &Theme, cx: &App) -> Option<AnyElement> {
+    let o = cx.try_global::<Tiles>()?.orphans.get(owner)?;
+    let text = format!(
+        "{} was removed from Pitwall. Its files stay open for your unsaved edits, read from {}: save or discard them, and they close.",
+        o.name, o.folder
+    );
+    let (save, discard) = (viewer.clone(), owner.to_string());
+    Some(
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(12.))
+            .py(px(7.))
+            .bg(t.surface_2)
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(px(12.))
+            .text_color(t.text)
+            .debug_selector(|| "files-orphan".into())
+            .child(div().flex_1().min_w_0().child(text))
+            .child(crate::kit::small_btn("files-orphan-save", "Save", t).on_click(move |_, _, cx| {
+                save.update(cx, |v, cx| v.save_all(cx)).detach();
+            }))
+            .child(crate::kit::small_btn("files-orphan-discard", "Discard", t).on_click(move |_, _, cx| discard_orphan(&discard, cx)))
+            .into_any_element(),
+    )
+}
+
+/// Discard: removed agent `owner`'s kept files close, their edits dropped.
+pub fn discard_orphan(owner: &str, cx: &mut App) {
+    if tiles(cx).orphans.remove(owner).is_some() {
+        close_everywhere(owner, cx);
+    }
+}
+
+/// Save: removed agent `owner`'s kept files written (they close once
+/// nothing is unsaved).
+pub fn save_orphan(owner: &str, cx: &mut App) {
+    let v = match tiles(cx).tiles.get(owner) {
+        Some(t) => Some(t.viewer.clone()),
+        None => crate::windows::viewer_window(owner, cx).and_then(|h| h.read(cx).ok().map(|w| w.viewer().clone())),
+    };
+    if let Some(v) = v.filter(|_| orphaned(owner, cx)) {
+        v.update(cx, |v, cx| v.save_all(cx)).detach();
     }
 }
 

@@ -517,7 +517,9 @@ pub struct MainScreen {
     wt_list_entity: Entity<wt_list::WorktreeList>,
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
-    agent_ids: Vec<String>,
+    /// The agents last seen (`None`: not yet, so the first look prunes
+    /// `ui.json` even when there are none).
+    agent_ids: Option<Vec<String>>,
     elsewhere: elsewhere::ElsewhereState,
     _poll_elsewhere: Option<Task<()>>,
     /// The big, rarely changing pieces as cached views (part.rs).
@@ -659,7 +661,7 @@ impl MainScreen {
             wt_list_entity: wt_list.clone(),
             seen_task: None,
             last_selected: None,
-            agent_ids: vec![],
+            agent_ids: None,
             elsewhere: Default::default(),
             _poll_elsewhere: None,
             parts: None,
@@ -794,12 +796,19 @@ impl MainScreen {
     fn agents_changed(&mut self, cx: &mut Context<Self>) {
         let agents = self.agents(cx).to_vec();
         let ids: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
-        if ids != self.agent_ids {
-            self.agent_ids = ids.clone();
+        let changed = match &self.agent_ids {
+            Some(before) => *before != ids,
+            None => self.engine.is_some() || !ids.is_empty(),
+        };
+        if changed {
+            self.agent_ids = Some(ids.clone());
             if let Some(e) = &self.engine {
                 self.projects = e.projects().list();
             }
-            self.update_ui(|s| s.prune_agents(&ids), cx);
+            // Files of removed agents close (or stay for unsaved edits).
+            let mut alive = ids.clone();
+            alive.extend(crate::explorer::dock::agents_gone(&ids, cx));
+            self.update_ui(|s| s.prune_agents(&alive), cx);
             // First run: the first agent goes to the All space (main window only).
             if self.label == MAIN
                 && !agents.is_empty()
