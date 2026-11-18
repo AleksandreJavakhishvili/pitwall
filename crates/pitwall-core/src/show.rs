@@ -2,7 +2,9 @@
 //! whether it is on, the MCP server the agents Pitwall starts are given,
 //! and turning what an agent asked for (`src/a.rs:42`, a folder, a
 //! worktree's name) into full paths on the agent's machine that exist.
-//! Showing them is the host's (the app's viewer). Nothing here writes.
+//! Showing them is the host's (the app's viewer). Writes only the
+//! built-in rule and, when the user asks, Pitwall's entry in a tool's MCP
+//! file.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +15,7 @@ use pitwall_proto::{OpenedFile, Skipped, ViewerOpen, ViewerShow};
 use crate::engine::Engine;
 use crate::exec::{self, Exec, FileKind};
 use crate::paths::expand_tilde_in;
+use crate::kind::{mcp_file, ShowFilesRoute};
 use crate::provider::McpWiring;
 
 /// What the engine keeps: the setting, and the `pitwall-cli` to run.
@@ -32,6 +35,13 @@ impl Engine {
     /// `agents.showFiles`, as the host follows it.
     pub fn set_show_files(&self, on: bool) {
         self.show.on.store(on, Ordering::Relaxed);
+        self.sync_show_rule();
+    }
+
+    /// The built-in rule for agents without an MCP way, in step.
+    fn sync_show_rule(&self) {
+        let cli = self.show_files_wiring().map(|m| m.command);
+        crate::rules::sync_show_files_rule(&crate::rules::Dirs::of(self.paths()), cli.as_deref());
     }
 
     pub fn show_files_on(&self) -> bool {
@@ -42,6 +52,7 @@ impl Engine {
     /// agents get no MCP server).
     pub fn set_cli_bin(&self, cli: Option<PathBuf>) {
         *self.show.cli.write().unwrap_or_else(|e| e.into_inner()) = cli;
+        self.sync_show_rule();
     }
 
     /// The MCP server for an agent starting now: none when the setting is
@@ -50,9 +61,64 @@ impl Engine {
         if !self.show_files_on() {
             return None;
         }
+        self.show_files_server()
+    }
+
+    /// The MCP server, setting or not (what goes in a tool's MCP file).
+    pub fn show_files_server(&self) -> Option<McpWiring> {
         let cli = self.show.cli.read().unwrap_or_else(|e| e.into_inner()).clone()?;
         Some(McpWiring { command: cli.to_string_lossy().into_owned(), args: vec!["mcp".into()] })
     }
+
+    /// How each agent kind gets the ability (Settings → Agents).
+    pub fn show_files_routes(&self) -> Vec<KindRoute> {
+        let server = self.show_files_server();
+        self.kinds()
+            .kinds()
+            .into_iter()
+            .map(|k| {
+                let file = k.mcp_file.as_ref();
+                KindRoute {
+                    route: k.show_files_route(),
+                    file: file.map(|f| f.path.clone()),
+                    entry: match (file, &server) {
+                        (Some(f), Some(m)) => Some(mcp_file::status_at(&mcp_file::location(f), f, m)),
+                        _ => None,
+                    },
+                    id: k.id,
+                    name: k.name,
+                }
+            })
+            .collect()
+    }
+
+    /// Add Pitwall's server to `kind`'s own MCP file, or take it out
+    /// (only when the user asks). Returns the file, as shown (`~/…`).
+    pub fn set_show_files_file(&self, kind: &str, add: bool) -> Result<String, String> {
+        let k = self.kinds().find(kind).ok_or_else(|| format!("no agent kind \"{kind}\""))?;
+        let f = k.mcp_file.as_ref().ok_or_else(|| format!("{} doesn't read Pitwall's server from a file", k.name))?;
+        let at = mcp_file::location(f);
+        if add {
+            let m = self.show_files_server().ok_or("this build has no pitwall-cli to run")?;
+            mcp_file::add_at(&at, f, &m)?;
+        } else {
+            mcp_file::remove_at(&at)?;
+        }
+        Ok(f.path.clone())
+    }
+}
+
+/// How one agent kind gets `agents.showFiles`.
+#[derive(Debug, Clone)]
+pub struct KindRoute {
+    pub id: String,
+    pub name: String,
+    pub route: ShowFilesRoute,
+    /// [`ShowFilesRoute::ConfigFile`]: the file (`~/…`).
+    pub file: Option<String>,
+    /// Pitwall's entry in it (None: no CLI to compare with). Err: the
+    /// file can't be read.
+    pub entry: Option<Result<mcp_file::Entry, String>>,
 }
 
 /// `path`, `path:line` or `path:line:col` (1-based). A path that ends in

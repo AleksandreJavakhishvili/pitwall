@@ -187,6 +187,17 @@ the agent definition's `rules_fallback` (`target`, `file`, `args`,
   when the rules went to `alt_file`, `--prompt-interactive "Read <file>
   first: …"`. A resumed conversation already has them.
 
+## The built-in show-files rule
+Kinds with no MCP way to show files (docs/reference/agents.md, "Showing
+files": today Aider) get one rule of Pitwall's own while `agents.showFiles`
+is on: `<data>/run/show-files/pitwall-show-files.md` (`targets: ["*"]`),
+telling the agent to run `pitwall-cli open` when the user asks to see
+something. It is written and removed with the setting, never put in the
+library. An agent with rules gets it staged with them (so it reaches its
+rules file, and the setting changing makes its rules stale); one without
+gets the kind's `args` pointed at the rule itself (Aider `--read <rule>`),
+only for agents on this computer.
+
 ## API
 `rules_status` → `{ available: boolean, via: "rulesync"|"npx"|null, version?: string }`,
 `list_rule_library` → `RuleFile[] {id, path, description, targets, root}`,

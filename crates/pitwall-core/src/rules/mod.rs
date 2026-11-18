@@ -256,6 +256,63 @@ impl Dirs {
     fn store(&self) -> PathBuf {
         self.base.join("rules.json")
     }
+    /// The built-in rule that tells agents without an MCP way to run
+    /// `pitwall-cli open` (there while `agents.showFiles` is on).
+    pub fn show_files_rule(&self) -> PathBuf {
+        self.base.join("run").join("show-files").join(SHOW_FILES_RULE)
+    }
+}
+
+/// The built-in rule's file name.
+pub const SHOW_FILES_RULE: &str = "pitwall-show-files.md";
+
+/// The built-in rule for agents that can only show files by running a
+/// command: `cli` is the `pitwall-cli` to run.
+pub fn show_files_rule_text(cli: &str) -> String {
+    let cli = crate::shell::quote(cli);
+    format!(
+        "---\ntargets: [\"*\"]\ndescription: \"Show the user files in Pitwall\"\n---\n\
+# Showing files in Pitwall\n\n\
+This session runs inside Pitwall. When the user asks to see a file, a folder or an image (\"open it\", \"show me that\"), run:\n\n\
+    {cli} open <file>[:line[:column]] [more files]\n\
+    {cli} open --folder <folder>\n\n\
+It shows them in Pitwall's read-only file viewer, beside this terminal or in a window of its own (`--where beside|window`), and says where. Only when the user asks; it changes nothing.\n"
+    )
+}
+
+/// Keep the built-in rule in step with the setting: written while `cli`
+/// is given (on, and a CLI to run), removed otherwise. Agents' rules that
+/// include it go stale and are reapplied as usual.
+pub fn sync_show_files_rule(dirs: &Dirs, cli: Option<&str>) {
+    let at = dirs.show_files_rule();
+    match cli {
+        Some(cli) => {
+            let text = show_files_rule_text(cli);
+            if std::fs::read_to_string(&at).ok().as_deref() != Some(text.as_str()) {
+                if let Some(dir) = at.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(&at, text);
+            }
+        }
+        None => {
+            let _ = std::fs::remove_file(&at);
+        }
+    }
+}
+
+/// For a kind that shows files through the built-in rule and is pointed at
+/// a rules file with arguments (Aider's `--read {file}`): those arguments
+/// for the built-in rule itself, when the agent has no rules file of its
+/// own holding it. Only for agents on this computer (the file is here).
+pub fn show_files_args(dirs: &Dirs, kind: &AgentKind, agent_id: &str) -> Vec<String> {
+    let at = dirs.show_files_rule();
+    let Some(fb) = kind.rules_fallback.as_ref().filter(|_| kind.show_files_route() == crate::kind::ShowFilesRoute::ShellRule) else { return vec![] };
+    if !at.is_file() || !launch_args(dirs, agent_id).is_empty() {
+        return vec![];
+    }
+    let file = at.to_string_lossy();
+    fb.args.iter().map(|a| a.replace("{file}", &file)).collect()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -347,6 +404,8 @@ pub struct AgentCtx {
     pub target: Option<String>,
     /// No rulesync target: Pitwall writes the rules itself this way.
     pub fallback: Option<RulesFallback>,
+    /// Its kind shows files through the built-in rule (no MCP way).
+    pub show_files_rule: bool,
 }
 
 impl AgentCtx {
@@ -360,6 +419,7 @@ impl AgentCtx {
             kind_name: rec.kind_name.clone(),
             target: kind.as_ref().and_then(target_for),
             fallback: kind.as_ref().and_then(fallback_for),
+            show_files_rule: kind.as_ref().is_some_and(shell_rule),
         }
     }
 
@@ -401,7 +461,18 @@ fn inputs_for(dirs: &Dirs, store: &Store, ctx: &AgentCtx, target: &str) -> apply
     let shared = set_ids(store, project_set(store, ctx).as_deref());
     let extra = set_ids(store, state.rule_set_id.as_deref());
     let lib = library::list(dirs, &store.sources);
-    apply::collect(&lib, &shared, &extra, target, Path::new(&ctx.cwd))
+    let mut inputs = apply::collect(&lib, &shared, &extra, target, Path::new(&ctx.cwd));
+    // The built-in rule rides along with the agent's own rules.
+    if ctx.show_files_rule {
+        if let Ok(content) = std::fs::read(dirs.show_files_rule()) {
+            inputs.staged.push(apply::Staged { name: SHOW_FILES_RULE.into(), content });
+        }
+    }
+    inputs
+}
+
+fn shell_rule(kind: &AgentKind) -> bool {
+    kind.show_files_route() == crate::kind::ShowFilesRoute::ShellRule
 }
 
 /// Generate this agent's rule files now. Takes effect on the next session.
@@ -503,6 +574,7 @@ pub fn on_create(
     let mut ctx = AgentCtx::from_record(rec, kinds);
     ctx.target = target_for(kind);
     ctx.fallback = fallback_for(kind);
+    ctx.show_files_rule = shell_rule(kind);
     let wants = {
         let store = read(dirs);
         rule_set_id.is_some() || project_set(&store, &ctx).is_some()

@@ -105,6 +105,18 @@ fn mcp_wiring(engine: &Engine, p: &dyn Provider) -> Option<McpWiring> {
     engine.show_files_wiring()
 }
 
+/// The arguments that point the agent at Pitwall's rules file (Aider's
+/// `--read`), else at the built-in show-files rule (for agents on this
+/// computer while `agents.showFiles` is on).
+fn rules_args(engine: &Engine, p: &dyn Provider, kind: &AgentKind, id: &str) -> Vec<String> {
+    let dirs = rules::Dirs::of(engine.paths());
+    let own = rules::launch_args(&dirs, id);
+    if !own.is_empty() || mcp_wiring(engine, p).is_none() {
+        return own;
+    }
+    rules::show_files_args(&dirs, kind, id)
+}
+
 /// The terminal of a session `p` just started (its own, or by attaching).
 fn host_of(engine: &Engine, p: &dyn Provider, started: &mut Started, size: TermSize) -> Result<Arc<TermHost>, String> {
     let io = match started.term.take() {
@@ -246,7 +258,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     }
     // Pointed at Pitwall's own rules file where its kind needs it (Aider's --read).
     let mut kind = kind;
-    kind.new_args.extend(rules::launch_args(&dirs, &rec.id));
+    kind.new_args.extend(rules_args(core, &*provider, &kind, &rec.id));
     let wt = match exec {
         Some(x) if rec.worktree_pending => Some(watch_for(x, &kind, &rec, core.now())),
         _ => None,
@@ -512,7 +524,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     let size = TermSize::from_pair(rec.term_size());
     let kind = kind_for(core, &rec.kind, rec.custom_command.as_deref())?;
     let (mut kind, mut env, _) = engineer_launch(core, rec.engineer, kind)?;
-    kind.new_args.extend(rules::launch_args(&rules::Dirs::of(core.paths()), &rec.id));
+    kind.new_args.extend(rules_args(core, &*provider, &kind, &rec.id));
     env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
     env.extend(git_identity_env(core, &*provider, &rec.cwd, &rec.project, rec.git_identity.as_deref()));
     env.extend(core.tool_update_env());
@@ -1064,6 +1076,42 @@ mod tests {
         h.provider.set_caps(crate::testing::FakeProvider::local_like());
         create(&h.engine, req("claude", &dir, false)).unwrap();
         assert!(!launched(&h).contains("--mcp-config"));
+    }
+
+    /// Aider has no MCP: it reads the built-in rule (`--read`) while the
+    /// setting is on, on this machine only; the others get their flags,
+    /// Gemini CLI and Cursor nothing at launch.
+    #[test]
+    fn agents_without_a_launch_flag_get_their_own_way() {
+        let h = Harness::new(vec![]);
+        let dir = h.dir.path().to_string_lossy().into_owned();
+        let local = ProviderCaps { local_process: true, ..crate::testing::FakeProvider::local_like() };
+        h.provider.set_caps(local);
+        h.engine.set_cli_bin(Some("/app/pitwall-cli".into()));
+        let rule = rules::Dirs::of(h.engine.paths()).show_files_rule();
+        assert!(std::fs::read_to_string(&rule).unwrap().contains("/app/pitwall-cli open"));
+        let launched = |h: &Harness| h.provider.launched().pop().unwrap().command_line;
+        let v = create(&h.engine, req("aider", &dir, false)).unwrap();
+        assert!(launched(&h).ends_with(&format!("--read {}", crate::shell::quote(&rule.to_string_lossy()))), "{}", launched(&h));
+        h.engine.set_show_files(false);
+        assert!(!rule.exists());
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(!launched(&h).contains("--read"));
+        h.engine.set_show_files(true);
+        let line = |id: &str| {
+            create(&h.engine, req(id, &dir, false)).unwrap();
+            launched(&h)
+        };
+        assert!(line("qwen").starts_with("qwen --mcp-config "));
+        assert!(line("amp").starts_with("amp --mcp-config "));
+        assert!(line("copilot").starts_with("copilot --additional-mcp-config "));
+        // opencode: nothing on its line (its server is in the environment).
+        assert_eq!(line("opencode"), "opencode");
+        assert_eq!(line("gemini"), "gemini");
+        assert_eq!(line("cursor"), "cursor-agent");
+        // Another machine's agent: the rule is this machine's file.
+        h.provider.set_caps(crate::testing::FakeProvider::local_like());
+        assert!(!line("aider").contains("--read"));
     }
 
     #[test]
