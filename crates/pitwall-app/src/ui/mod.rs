@@ -214,6 +214,26 @@ impl MainView {
             });
             return;
         }
+        // Debug builds, `files-edit <agent> <what>`: editing in the file
+        // viewer window open for the agent, through the code paths keys
+        // take (nothing is typed on the screen): `type <text>` (the input
+        // handler, as typed keys and input methods), `keys <k>…` (GPUI's key
+        // dispatch to the text, as pressed keys: enter, backspace, cmd-s,
+        // cmd-z, tab…), `goto <line> <col>` (1-based), `find <text>`,
+        // `replace-all <with>`, `close-tab`, `close-window`, `keep-mine`,
+        // `take-theirs`, `difference`, `state` (on stderr).
+        if let Some(what) = cmd.strip_prefix("files-edit ").filter(|_| cfg!(debug_assertions)) {
+            let (agent, rest) = what.split_once(' ').unwrap_or((what, ""));
+            let (agent, rest) = (agent.to_string(), rest.to_string());
+            cx.defer(move |cx| {
+                let Some(h) = crate::windows::viewer_window(&agent, cx) else {
+                    eprintln!("pitwall-debug: no file viewer window for {agent}");
+                    return;
+                };
+                let _ = h.update(cx, |w, window, cx| crate::explorer::debug_edit(w.viewer().clone(), &rest, window, cx));
+            });
+            return;
+        }
         // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
         // builds): the app made the active one or not, what the system
         // says of its windows (on stderr), a click in this window.

@@ -718,7 +718,7 @@ impl Viewer {
     }
 
     /// "Take theirs": the file on disk replaces the edits.
-    fn reload(&mut self, cx: &mut Context<Self>) {
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.clone() else {
             return;
         };
@@ -758,7 +758,7 @@ impl Viewer {
 
     /// "Keep mine": the edits stay; a save now writes over what is on
     /// disk (it was seen), and goes on when a save was waiting.
-    fn keep_mine(&mut self, cx: &mut Context<Self>) {
+    pub fn keep_mine(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.clone() else { return };
         let Some(d) = self.docs.get_mut(&active) else { return };
         let was_blocked = std::mem::take(&mut d.save_blocked);
@@ -774,7 +774,7 @@ impl Viewer {
 
     /// "Show difference": the file on disk against the edits, in place of
     /// the editor (again: back to editing).
-    fn toggle_difference(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_difference(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.clone() else { return };
         let Some(d) = self.docs.get_mut(&active) else { return };
         if d.diff.take().is_some() {
@@ -867,6 +867,30 @@ impl Viewer {
             };
             c.set_readonly_text(hint, cx);
         });
+    }
+
+    /// The active file's code view (debug commands).
+    pub fn active_code(&self) -> Option<Entity<CodeView>> {
+        let d = self.docs.get(self.active.as_ref()?)?;
+        d.code.as_ref().map(|c| c.code.clone())
+    }
+
+    /// What the debug command `files-edit … state` prints.
+    pub fn debug_state(&self, cx: &App) -> String {
+        let active = self.active.clone().unwrap_or_default();
+        let d = self.docs.get(&active);
+        let code = self.active_code();
+        format!(
+            "active={active:?} unsaved={:?} stale={} blocked={} diff={} save_error={:?} editing={} read_only={:?} text={:?}",
+            self.unsaved(cx),
+            self.is_stale(),
+            d.is_some_and(|d| d.save_blocked),
+            d.is_some_and(|d| d.diff.is_some()),
+            d.and_then(|d| d.save_error.clone()),
+            code.as_ref().is_some_and(|c| c.read(cx).is_editing()),
+            self.edit_block(&active, cx),
+            code.and_then(|c| c.read(cx).text()).map(|t| t.chars().take(160).collect::<String>()),
+        )
     }
 
     /// Files with unsaved changes.

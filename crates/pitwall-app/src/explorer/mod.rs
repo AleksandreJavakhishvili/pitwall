@@ -835,3 +835,70 @@ impl Render for Explorer {
 
 #[cfg(test)]
 mod tests;
+
+/// The `files-edit` debug command on `viewer` (in `window`): see
+/// `MainView::bench`.
+pub fn debug_edit(viewer: Entity<Viewer>, what: &str, window: &mut Window, cx: &mut App) {
+    use gpui::EntityInputHandler as _;
+    let (verb, arg) = what.split_once(' ').unwrap_or((what, ""));
+    let code = viewer.read(cx).active_code();
+    let focus_code = |window: &mut Window, cx: &mut App| {
+        if let Some(c) = &code {
+            let f = gpui::Focusable::focus_handle(c.read(cx), cx);
+            window.focus(&f, cx);
+        }
+    };
+    match verb {
+        "type" => {
+            focus_code(window, cx);
+            if let Some(c) = &code {
+                let text = arg.to_string();
+                c.update(cx, |c, cx| c.replace_text_in_range(None, &text, window, cx));
+            }
+        }
+        "keys" => {
+            focus_code(window, cx);
+            let keys: Vec<_> = arg.split_whitespace().filter_map(|k| gpui::Keystroke::parse_with_os(k, gpui::OperatingSystem::Mac).ok()).collect();
+            window.defer(cx, move |window, cx| {
+                for k in keys {
+                    window.dispatch_keystroke(k, cx);
+                }
+            });
+        }
+        "goto" => {
+            let mut n = arg.split_whitespace().filter_map(|v| v.parse::<usize>().ok());
+            if let (Some(c), Some(line), col) = (&code, n.next(), n.next().unwrap_or(1)) {
+                c.update(cx, |c, cx| c.reveal(crate::code_view::Side::New, line.max(1) - 1, Some(col.max(1) - 1..col.max(1) - 1), cx));
+            }
+            focus_code(window, cx);
+        }
+        "find" => {
+            if let Some(c) = &code {
+                let text = arg.to_string();
+                c.update(cx, |c, cx| {
+                    c.open_replace(false, window, cx);
+                    c.set_find_text(&text, window, cx);
+                });
+            }
+        }
+        "replace-all" => {
+            if let Some(c) = &code {
+                let with = arg.to_string();
+                let n = c.update(cx, |c, cx| c.replace_all(&with, cx));
+                eprintln!("pitwall-debug: replaced {n}");
+            }
+        }
+        "close-tab" => viewer.update(cx, |v, cx| {
+            if let Some(p) = v.active().map(str::to_string) {
+                v.request_close_tab(&p, window, cx);
+            }
+        }),
+        "close-window" => viewer.update(cx, |v, cx| v.guard(None, window, cx, |_, window, _| window.remove_window())),
+        "keep-mine" => viewer.update(cx, |v, cx| v.keep_mine(cx)),
+        "take-theirs" => viewer.update(cx, |v, cx| v.reload(cx)),
+        "difference" => viewer.update(cx, |v, cx| v.toggle_difference(cx)),
+        "recheck" => viewer.update(cx, |v, cx| v.recheck(cx)),
+        "state" => eprintln!("pitwall-debug: viewer {}", viewer.read(cx).debug_state(cx)),
+        _ => eprintln!("pitwall-debug: files-edit {verb}?"),
+    }
+}
