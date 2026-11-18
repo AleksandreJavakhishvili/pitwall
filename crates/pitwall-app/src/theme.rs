@@ -726,6 +726,19 @@ impl Theme {
         self.glass.is_some()
     }
 
+    /// What is drawn on a fill of `text`: a ticked box's mark, a switch's
+    /// knob when it is on, a primary button's label. Always opaque. Under
+    /// glass `bg` is the translucent well (see [`Theme::chrome`]), and a
+    /// mark drawn in it came out a faint grey on the light box, so a ticked
+    /// box looked like an empty white one.
+    pub fn on_text(&self) -> Hsla {
+        if self.is_glass() {
+            self.g.on_primary
+        } else {
+            self.bg
+        }
+    }
+
     /// This theme with the chrome's glass surfaces (glass.css "chrome:
     /// translucent surface tokens"): top bar, tabs, sidebar, right panel,
     /// status strip. Flat: unchanged.
