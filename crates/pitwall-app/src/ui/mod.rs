@@ -196,6 +196,24 @@ impl MainView {
             }
             return;
         }
+        // Debug builds, `files-window dock|pin <agent>`: that control of
+        // the file viewer window open for the agent, as if clicked.
+        if let Some(what) = cmd.strip_prefix("files-window ").filter(|_| cfg!(debug_assertions)) {
+            let mut words = what.split_whitespace();
+            let event = match words.next() {
+                Some("dock") => crate::explorer::viewer::ViewerEvent::Dock,
+                Some("pin") => crate::explorer::viewer::ViewerEvent::Pin,
+                _ => return,
+            };
+            let agent = words.next().unwrap_or_default().to_string();
+            cx.defer(move |cx| match crate::windows::viewer_window(&agent, cx) {
+                Some(h) => {
+                    let _ = h.update(cx, |w, _, cx| w.viewer().update(cx, |_, cx| cx.emit(event)));
+                }
+                None => eprintln!("pitwall-debug: no file viewer window for {agent}"),
+            });
+            return;
+        }
         // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
         // builds): the app made the active one or not, what the system
         // says of its windows (on stderr), a click in this window.
@@ -485,6 +503,14 @@ fn explorer_seams(
         });
         panel.unwrap_or_else(|| cx.new(|_| Nothing).into())
     });
+    // The viewers agents opened beside their terminals: the window's.
+    crate::main_screen::register_beside(cx, |agent, window, cx| {
+        let explorer = cx
+            .try_global::<WindowExplorers>()
+            .and_then(|w| w.0.get(&window.window_handle().window_id()))
+            .and_then(|e| e.upgrade())?;
+        explorer.read(cx).beside_view(agent)
+    });
     // The Explorer route is this window's viewer.
     let e = explorer.clone();
     let route = cx.new(|cx| {
@@ -529,6 +555,17 @@ fn explorer_seams(
                 }
                 // `MainView::one_modal` answers it.
                 ExplorerEvent::QuickOpened => {}
+                // The panes are drawn again (the screen draws every frame).
+                ExplorerEvent::BesideChanged => s1.update(cx, |_, cx| cx.notify()),
+                // "Open in window": a window of its own takes it.
+                ExplorerEvent::Undock { agent, key, opened } => {
+                    let (agent, key, opened) = (agent.clone(), key.clone(), opened.clone());
+                    cx.defer(move |cx| {
+                        if let Err(e) = crate::explorer::window::undock(&agent, &key, &opened, cx) {
+                            eprintln!("pitwall: could not open the file viewer window: {e}");
+                        }
+                    });
+                }
             }
         }),
         cx.subscribe(&s2, {
@@ -548,6 +585,11 @@ impl MainView {
     /// This window's code explorer (none when refused).
     pub fn explorer(&self) -> Option<Entity<crate::explorer::Explorer>> {
         self.explorer.clone()
+    }
+
+    /// This window's main screen (none when refused).
+    pub fn screen(&self) -> Option<Entity<crate::main_screen::MainScreen>> {
+        self.screen.clone()
     }
 }
 

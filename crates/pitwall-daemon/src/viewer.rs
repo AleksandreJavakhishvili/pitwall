@@ -7,7 +7,7 @@
 
 use serde_json::Value;
 
-use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerShow, ViewerShown};
+use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown};
 
 use crate::identity::Caller;
 use crate::server::Server;
@@ -15,9 +15,9 @@ use crate::server::Server;
 /// The host's windows. Called on connection threads; may block while the
 /// host's UI thread opens the viewer.
 pub trait ViewerBackend: Send + Sync {
-    /// Open `req` (paths already resolved and checked) in the viewer of
-    /// `req.agent_id` (or of the agent working in `req.folder`), in the
-    /// window that shows that agent.
+    /// Open `req` (paths already resolved and checked) for `req.agent_id`:
+    /// a pane beside its terminal in the window that shows it, or a window
+    /// of its own.
     fn show(&self, req: &ViewerShow) -> Result<ViewerShown, ErrorBody>;
     /// The name of agent `id` when it is one shown here from another
     /// machine (a peer's), which has no files here.
@@ -63,16 +63,22 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
     let (show, skipped) = pitwall_core::show::resolve_for(&s.engine, &agent.id, &r).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
     let shown = backend.show(&show)?;
     let name = views.iter().find(|v| v.id == shown.agent_id).map_or_else(|| agent.name.clone(), |v| v.name.clone());
+    let shown_in = match shown.place {
+        ViewerPlace::Beside => format!("a file viewer beside {name}'s terminal (window {}), showing {}", shown.window, shown.root),
+        ViewerPlace::Window => format!("a file viewer window of its own for {name}, showing {}", shown.root),
+    };
     let opened = ViewerOpened {
         agent_id: shown.agent_id,
-        agent_name: name.clone(),
+        agent_name: name,
         window: shown.window,
         in_background: shown.in_background,
         opened: show.files,
         folder: show.folder,
         skipped,
-        place: show.place,
-        shown_in: format!("{name}'s file viewer"),
+        place: shown.place,
+        asked: show.place,
+        shown_in,
+        note: shown.note,
     };
     serde_json::to_value(opened).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
 }

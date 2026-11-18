@@ -15,9 +15,9 @@ pub const TOOL_SHOW_FOLDER: &str = "show_folder";
 /// Both tools.
 pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER];
 
-/// Where the user wants it. Carried through and kept; the viewer is the
-/// one place both open in today (a pane beside the agent's terminal and a
-/// window of its own come next).
+/// Where the files show: a pane split next to the calling agent's terminal,
+/// or a window of their own. Not given: beside when the user is in Pitwall,
+/// a window when they are in another app.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewerPlace {
@@ -66,6 +66,7 @@ pub struct ViewerOpen {
     /// The caller's folder (a shell's), for relative paths without `root`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// Where (`where` on the wire). `None`: Pitwall picks.
     #[serde(default, rename = "where", skip_serializing_if = "Option::is_none")]
     pub place: Option<ViewerPlace>,
 }
@@ -108,11 +109,16 @@ pub struct ViewerOpened {
     pub folder: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<Skipped>,
-    /// The place asked for (kept with the request).
+    /// Where it opened.
     pub place: ViewerPlace,
-    /// Where it really is: today always the agent's file viewer in that
-    /// window.
+    /// Where it was asked to open (`None`: Pitwall picked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<ViewerPlace>,
+    /// Where it is, in words ("a pane beside api's terminal").
     pub shown_in: String,
+    /// Why it opened somewhere else than asked, or how Pitwall picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// What the server hands the app once paths are resolved: full paths on the
@@ -120,20 +126,33 @@ pub struct ViewerOpened {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerShow {
+    /// The agent that asked (the pane goes beside its terminal).
     pub agent_id: String,
     pub files: Vec<OpenedFile>,
     pub folder: Option<String>,
-    pub place: ViewerPlace,
+    /// The `root` asked for, resolved (a worktree, a folder).
+    #[serde(default)]
+    pub root: Option<String>,
+    /// `None`: Pitwall picks.
+    pub place: Option<ViewerPlace>,
 }
 
 /// Where the app showed a [`ViewerShow`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerShown {
-    /// The agent whose viewer it is.
+    /// The agent the viewer belongs to (the one that asked).
     pub agent_id: String,
+    /// The Pitwall window it is in, or beside (`main`, `pitwall-2`, …).
     pub window: String,
     pub in_background: bool,
+    /// Where it opened.
+    pub place: ViewerPlace,
+    /// The folder its tree shows.
+    pub root: String,
+    /// Why it opened somewhere else than asked, or how Pitwall picked.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[cfg(test)]

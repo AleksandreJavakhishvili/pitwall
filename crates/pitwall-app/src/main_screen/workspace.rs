@@ -287,6 +287,14 @@ pub struct UiState {
     /// Beside it: on the terminal's left instead of its right.
     #[serde(default, deserialize_with = "strict_true")]
     pub preview_left: bool,
+    /// A file viewer beside a terminal: its share of the pane, as last
+    /// dragged.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub files_beside: Option<f64>,
+    /// A file viewer window's place and size (logical x, y, width,
+    /// height), as last left.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub files_window: Option<[f64; 4]>,
     /// The agent kind New agent last started (picked first next time).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub new_agent_kind: Option<String>,
@@ -350,6 +358,8 @@ impl Default for UiState {
             right_open: true,
             preview_below: false,
             preview_left: false,
+            files_beside: None,
+            files_window: None,
             new_agent_kind: None,
             new_agent_accounts: BTreeMap::new(),
             rest: serde_json::Map::new(),

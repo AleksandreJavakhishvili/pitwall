@@ -38,7 +38,7 @@ impl Opener for SocketOpener {
 
 const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user, read-only; they don't give you the contents.";
 
-const WHERE: &str = "Where the user sees it: beside (next to your terminal, the default) or window (a separate window). For now both open Pitwall's file viewer.";
+const WHERE: &str = "Where the user sees it: beside (a pane split next to your terminal, in the Pitwall window that shows you) or window (a separate window, for another screen or another app). Leave it out and Pitwall picks: beside while the user is in Pitwall, a window when they are in another app. A later call adds to the same pane or window.";
 const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: your working folder.";
 
 /// `tools/list`'s tools.
@@ -50,7 +50,7 @@ pub fn tools() -> Value {
         {
             "name": TOOL_SHOW_FILES,
             "title": "Show files in Pitwall",
-            "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in Pitwall's read-only file viewer, at a line when one is given. Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
+            "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in a read-only file viewer next to your terminal (or in a window of its own), scrolled to the line and marked when one is given. Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -71,7 +71,7 @@ pub fn tools() -> Value {
         {
             "name": TOOL_SHOW_FOLDER,
             "title": "Show a folder in Pitwall",
-            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's read-only file viewer. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
+            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in a read-only file viewer next to your terminal (or in a window of its own). Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -227,7 +227,12 @@ mod tests {
             folder: req.folder.clone(),
             skipped: vec![],
             place: req.place.unwrap_or_default(),
-            shown_in: "api's file viewer".into(),
+            asked: req.place,
+            shown_in: match req.place {
+                Some(ViewerPlace::Window) => "a file viewer window of its own for api, showing /w".into(),
+                _ => "a file viewer beside api's terminal (window main), showing /w".into(),
+            },
+            note: None,
         })
     }
 
@@ -279,7 +284,7 @@ mod tests {
         assert_eq!(tools[0]["inputSchema"]["required"], json!(["paths"]));
         let r = &out[2]["result"];
         assert_eq!(r["isError"], false);
-        assert!(r["content"][0]["text"].as_str().unwrap().starts_with("Opened in api's file viewer in Pitwall (window main): /w/src/a.rs:12, /w/README.md."));
+        assert!(r["content"][0]["text"].as_str().unwrap().starts_with("Opened in a file viewer window of its own for api, showing /w in Pitwall: /w/src/a.rs:12, /w/README.md."));
         assert_eq!(r["structuredContent"]["place"], "window");
         assert_eq!(out[3], json!({"jsonrpc":"2.0","id":"x","result":{}}));
         let seen = f.seen.borrow();

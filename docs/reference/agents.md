@@ -119,7 +119,16 @@ With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, 
 | `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them. |
 | `none` | No server (the default). Gemini CLI, opencode, Cursor Agent, Copilot CLI, Qwen Code, Amp and Aider are left out for now: they have no launch-time way that doesn't edit or replace a config file, or one Pitwall has checked. |
 
-The setting applies when an agent starts: restart an agent to give it the server or take it away.
+The setting applies when an agent starts: restart an agent to give it the server or take it away. The server's command is a copy of the CLI in Pitwall's data folder (`~/.pitwall/bin/pitwall-cli`), refreshed when Pitwall starts, so agents keep it when the app is moved or updated.
+
+Where it opens (the agent can name one with `where`, `pitwall open --where`):
+
+| Place | What you get |
+|---|---|
+| `beside` | A pane split next to the agent's terminal, in the Pitwall window that shows the agent (its space comes up there if another one was shown). Drag the divider to resize it; the width is kept for the next one. The terminal keeps the keyboard until you click into the pane; Esc gives it back. **Open in window** moves the pane to a window of its own, the close button closes it. |
+| `window` | A normal window of its own, titled with the agent and the folder: move it to another screen, resize it (its place and size are kept for the next one). The pin keeps it above other apps' windows (macOS and Windows). **Dock beside terminal** moves it next to the agent's terminal. |
+
+Not named: beside while you are in Pitwall, a window while you are in another app. Pitwall never comes forward over the app you are in: the window opens without taking the keyboard. An agent no open Pitwall window shows gets a window, and its tool result says so. Later calls from the same agent add tabs to the same pane or window. A folder outside every agent's folder opens with the tree rooted at that folder (agents on this computer; another machine's agents can't show files).
 
 ## Accounts
 

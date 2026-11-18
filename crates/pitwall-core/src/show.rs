@@ -162,7 +162,7 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
             ),
         });
     }
-    let show = ViewerShow { agent_id: agent_id.to_string(), files, folder, place: req.place.unwrap_or_default() };
+    let show = ViewerShow { agent_id: agent_id.to_string(), files, folder, root, place: req.place };
     Ok((show, skipped))
 }
 
@@ -288,7 +288,7 @@ mod tests {
         let place = Place { exec: &*x, cwd: "/w/api", worktrees: &[], local: true };
         let r = ViewerOpen { folder: Some("src".into()), place: Some(pitwall_proto::ViewerPlace::Window), ..Default::default() };
         let (show, _) = resolve(&place, "a1", &r).unwrap();
-        assert_eq!((show.folder.as_deref(), show.place), (Some("/w/api/src"), pitwall_proto::ViewerPlace::Window));
+        assert_eq!((show.folder.as_deref(), show.place), (Some("/w/api/src"), Some(pitwall_proto::ViewerPlace::Window)));
         let r = ViewerOpen { folder: Some("README.md".into()), ..Default::default() };
         assert!(resolve(&place, "a1", &r).unwrap_err().contains("is a file"));
         assert!(resolve(&place, "a1", &ViewerOpen::default()).unwrap_err().contains("nothing to show"));

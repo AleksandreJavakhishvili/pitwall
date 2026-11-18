@@ -138,8 +138,28 @@ pub fn app_in_front(cx: &App) -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        cx.active_window().is_some_and(|w| w.downcast::<crate::ui::MainView>().is_some())
+        cx.active_window().is_some_and(|w| {
+            w.downcast::<crate::ui::MainView>().is_some() || w.downcast::<crate::explorer::window::ViewerWindow>().is_some()
+        })
     }
+}
+
+/// A window can be kept above other apps' windows here (a file viewer
+/// window's pin): macOS and Windows. On Linux the window manager decides
+/// that (its own window menu has it), so the viewer offers no pin there.
+pub fn can_keep_on_top() -> bool {
+    cfg!(any(target_os = "macos", windows))
+}
+
+/// Keep `window` above other windows, other apps' too (or not any more).
+/// It doesn't take the keyboard or bring Pitwall forward.
+pub fn keep_on_top(window: &Window, on: bool) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::keep_on_top(window, on);
+    #[cfg(all(windows, not(test)))]
+    windows::keep_on_top(window, on);
+    #[cfg(any(test, not(any(target_os = "macos", windows))))]
+    let _ = (window, on);
 }
 
 /// Give the floating control a new size, keeping the corner it sits on:

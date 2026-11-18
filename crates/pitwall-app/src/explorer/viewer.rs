@@ -1,5 +1,7 @@
 //! The read-only file viewer (a port of `Viewer.tsx`): the whole main area,
-//! like Review. Left: the agent's tree (same open folders as the Files tab)
+//! like Review, or (an agent showed the user files: [`Host`]) a pane beside
+//! that agent's terminal or a window of its own, each with a smaller bar.
+//! Left: the agent's tree (same open folders as the Files tab)
 //! or Search; centre: tabs of open files, a header (icon, path, change
 //! letter, size, "Copy path", "Show diff") and the text. Binary files say
 //! so; files over 2 MiB offer "Load anyway" (up to 10 MiB); an open file
@@ -66,6 +68,33 @@ pub enum ViewerEvent {
     /// A file was opened (quick open lists recent files first).
     Opened(String),
     SetIgnored(bool),
+    /// Beside a terminal: "Close".
+    Close,
+    /// Beside a terminal: "Open in window".
+    Undock,
+    /// In a window of its own: "Dock beside terminal".
+    Dock,
+    /// In a window of its own: "Keep on top" toggled.
+    Pin,
+}
+
+/// Where a viewer is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Host {
+    /// The main area (the Files tab's "Open", ⌘P, ⌘-click): "Back" leaves.
+    Main,
+    /// A pane split next to an agent's terminal.
+    Beside,
+    /// A window of its own.
+    Window,
+}
+
+/// What a viewer has open, to carry it between a pane and a window.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Opened {
+    pub tabs: Vec<String>,
+    pub active: Option<String>,
+    pub pane_files: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +152,17 @@ pub fn image_format(path: &str) -> Option<gpui::ImageFormat> {
 pub struct Viewer {
     source: Arc<dyn Source>,
     store: Entity<AgentStore>,
+    /// What it reads: an agent's id, or a folder's `path:` key.
     agent_id: String,
+    host: Host,
+    /// The agent it was opened for (beside its terminal, or its window):
+    /// its name in the bar.
+    owner: Option<String>,
+    /// In a window: kept on top of other windows.
+    pinned: bool,
+    /// In a window: a Pitwall window shows the agent ("Dock beside
+    /// terminal" can put it there).
+    can_dock: bool,
     tree: Entity<TreeModel>,
     tree_view: Entity<TreeView>,
     search: Entity<SearchPane>,
@@ -193,6 +232,10 @@ impl Viewer {
             source,
             store,
             agent_id,
+            host: Host::Main,
+            owner: None,
+            pinned: false,
+            can_dock: false,
             tree,
             tree_view,
             search,
@@ -215,6 +258,83 @@ impl Viewer {
 
     pub fn agent_id(&self) -> &str {
         &self.agent_id
+    }
+
+    /// The tree it shows.
+    pub fn tree(&self) -> Entity<TreeModel> {
+        self.tree.clone()
+    }
+
+    pub fn host(&self) -> Host {
+        self.host
+    }
+
+    /// Drawn beside a terminal or in a window, for agent `owner`.
+    pub fn set_host(&mut self, host: Host, owner: Option<String>, cx: &mut Context<Self>) {
+        self.host = host;
+        self.owner = owner;
+        cx.notify();
+    }
+
+    pub fn set_pinned(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.pinned = on;
+        cx.notify();
+    }
+
+    pub fn set_can_dock(&mut self, can: bool, cx: &mut Context<Self>) {
+        if self.can_dock != can {
+            self.can_dock = can;
+            cx.notify();
+        }
+    }
+
+    /// Its tabs, the active one and the side pane (moving it).
+    pub fn opened(&self) -> Opened {
+        Opened { tabs: self.tabs.clone(), active: self.active.clone(), pane_files: self.pane == Pane::Files }
+    }
+
+    /// Take over what another viewer had open.
+    pub fn restore(&mut self, o: &Opened, cx: &mut Context<Self>) {
+        for p in &o.tabs {
+            if !self.tabs.contains(p) {
+                self.tabs.push(p.clone());
+            }
+        }
+        if !o.pane_files {
+            self.pane = Pane::Search;
+        }
+        if let Some(a) = o.active.clone() {
+            self.select(a, cx);
+        }
+        cx.notify();
+    }
+
+    /// The folder it shows: the `path:` key's, else the agent's.
+    pub fn root(&self, cx: &App) -> Option<String> {
+        match super::source::root_of_key(&self.agent_id) {
+            Some(r) => Some(r.to_string()),
+            None => self.agent(cx).map(|a| a.cwd),
+        }
+    }
+
+    /// The folder it shows, for people (`~` for the home folder).
+    fn root_display(&self, cx: &App) -> String {
+        match super::source::root_of_key(&self.agent_id) {
+            Some(r) => pitwall_core::paths::tildify(r),
+            None => self.agent(cx).map(|a| a.cwd_display).unwrap_or_default(),
+        }
+    }
+
+    /// The files are on this computer.
+    fn local(&self, cx: &App) -> bool {
+        super::source::root_of_key(&self.agent_id).is_some()
+            || self.agent(cx).is_some_and(|a| a.machine.provider == pitwall_core::provider::ProviderId::LOCAL)
+    }
+
+    /// The scroll target (tests).
+    #[cfg(test)]
+    pub(crate) fn target_line(&self) -> Option<u32> {
+        self.target.as_ref().map(|t| t.line)
     }
 
     /// `path`'s document reads `text` (tests).
@@ -354,10 +474,7 @@ impl Viewer {
         }
         let (source, agent, p) = (self.source.clone(), self.agent_id.clone(), path.to_string());
         // On this computer: where it is here (for "Open in default app").
-        let here = self
-            .agent(cx)
-            .filter(|a| a.machine.provider == pitwall_core::provider::ProviderId::LOCAL)
-            .map(|a| absolute_path(&a.cwd, path));
+        let here = self.root(cx).filter(|_| self.local(cx)).map(|root| absolute_path(&root, path));
         let load = cx
             .background_executor()
             .spawn(async move {
@@ -537,7 +654,10 @@ impl Viewer {
     }
 
     fn back(&mut self, _: &Back, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(ViewerEvent::Exit);
+        // A window of its own has nothing to go back to.
+        if self.host != Host::Window {
+            cx.emit(ViewerEvent::Exit);
+        }
     }
 
     /// The active file's text when it can be previewed (Markdown, read,
@@ -557,13 +677,13 @@ impl Viewer {
     pub(crate) fn set_preview(&mut self, on: bool, cx: &mut Context<Self>) {
         cx.set_global(ViewerPreview(on));
         self.preview = on;
-        let a = self.agent(cx);
-        self.sync_preview(a.as_ref(), cx);
+        let root = self.root(cx);
+        self.sync_preview(root.as_deref(), cx);
         cx.notify();
     }
 
     /// The active Markdown file's text, into the Preview (when it changed).
-    fn sync_preview(&mut self, a: Option<&AgentView>, cx: &mut Context<Self>) {
+    fn sync_preview(&mut self, root: Option<&str>, cx: &mut Context<Self>) {
         let Some((path, text)) = self.md_text().filter(|_| self.preview) else {
             return;
         };
@@ -572,8 +692,8 @@ impl Viewer {
             return;
         }
         self.md_shown = Some((path.clone(), id));
-        let base = a.and_then(|a| {
-            std::path::Path::new(&absolute_path(&a.cwd, &path))
+        let base = root.and_then(|root| {
+            std::path::Path::new(&absolute_path(root, &path))
                 .parent()
                 .map(|p| p.to_path_buf())
         });
@@ -585,7 +705,102 @@ impl Viewer {
         self.store.read(cx).agent(&self.agent_id).cloned()
     }
 
-    fn bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Beside a terminal or in a window: the folder, refresh, and the way
+    /// to the other place (and close, or keep on top).
+    fn small_bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> AnyElement {
+        let tree = self.tree.read(cx).state();
+        let (refreshing, updated) = (tree.refreshing, tree.updated_at);
+        let root = self.root_display(cx);
+        let tip: SharedString = self.root(cx).unwrap_or_default().into();
+        let owner = self.owner.clone().or_else(|| a.map(|a| a.name.clone()));
+        let btn = |id: &'static str, name: &str, tip: &'static str, on: Option<bool>| {
+            crate::kit::icon_btn_state(id, name, tip, true, 13., on, t)
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        };
+        let host = self.host;
+        let can_dock = self.can_dock;
+        div()
+            .id("ex-viewer-bar")
+            .debug_selector(|| "ex-viewer-bar".into())
+            .h(px(32.))
+            .flex_none()
+            .pl(px(10.))
+            .pr(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .border_b_1()
+            .border_color(t.line)
+            .bg(t.surface)
+            .child(crate::kit::label("Files", t.text_3, 12.))
+            .when_some(owner, |d, name| {
+                d.child(div().flex_none().child(crate::kit::label(name, t.text_3, 12.).text_color(t.text)))
+            })
+            .child(
+                div()
+                    .id("ex-viewer-hint")
+                    .min_w_0()
+                    .flex_1()
+                    .ellipsis()
+                    .text_size(px(12.))
+                    .text_color(t.text_3)
+                    .tooltip(move |_, cx| tooltip_view(tip.clone(), cx))
+                    .child(crate::kit::one_line(format!("read-only · {root}"))),
+            )
+            .child(refresh_control(
+                t,
+                "ex-viewer-refresh",
+                refreshing,
+                updated,
+                now_ms(),
+                cx.listener(|this, _, _, cx| {
+                    this.tree.update(cx, |t, cx| t.refresh(false, cx));
+                    this.recheck(cx);
+                }),
+            ))
+            .map(|d| match host {
+                Host::Beside => d
+                    .child(
+                        btn("ex-undock", "window", "Open in window", None)
+                            .debug_selector(|| "ex-undock".into())
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Undock))),
+                    )
+                    .child(
+                        btn("ex-close-beside", "x", "Close (Esc gives the keyboard back to the terminal)", None)
+                            .debug_selector(|| "ex-close-beside".into())
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Close))),
+                    ),
+                _ => d
+                    .child(
+                        btn(
+                            "ex-dock",
+                            "page-right",
+                            if can_dock { "Dock beside terminal" } else { "Dock beside terminal (no Pitwall window shows this agent)" },
+                            None,
+                        )
+                        .debug_selector(|| "ex-dock".into())
+                        .when(!can_dock, |d| d.opacity(0.4))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            if can_dock {
+                                cx.emit(ViewerEvent::Dock)
+                            }
+                        })),
+                    )
+                    .when(crate::platform::can_keep_on_top(), |d| {
+                        d.child(
+                            btn("ex-pin", "pin", "Keep on top of other windows", Some(self.pinned))
+                                .debug_selector(|| "ex-pin".into())
+                                .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Pin))),
+                        )
+                    }),
+            })
+            .into_any_element()
+    }
+
+    fn bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> AnyElement {
+        if self.host != Host::Main {
+            return self.small_bar(t, a, cx);
+        }
         let tree = self.tree.read(cx).state();
         let (refreshing, updated) = (tree.refreshing, tree.updated_at);
         let cwd_tip: SharedString = a.map(|a| a.cwd.clone()).unwrap_or_default().into();
@@ -644,6 +859,7 @@ impl Viewer {
             )
             .child(small_btn("ex-viewer-back", "Back", t).child(kbd("esc", t))
 .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Exit))))
+            .into_any_element()
     }
 
     fn side(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -672,7 +888,7 @@ impl Viewer {
                 .on_click(cx.listener(move |this, _, window, cx| this.show(Some(pane), window, cx)))
         };
         div()
-            .w(px(300.))
+            .w(px(if self.host == Host::Main { 300. } else { 220. }))
             .flex_none()
             .flex()
             .flex_col()
@@ -863,10 +1079,11 @@ impl Viewer {
             .get(active)
             .and_then(|d| d.view.as_ref())
             .map(|v| size_label(v.size));
-        let cwd = a.map(|a| a.cwd.clone()).unwrap_or_default();
+        let cwd = self.root(cx).unwrap_or_default();
         let abs: SharedString = absolute_path(&cwd, active).into();
         let path_tip: SharedString = active.to_string().into();
-        let can_diff = status.is_some() && a.is_some_and(|a| a.caps.review);
+        // (Review is a Pitwall window's: not from a window of its own.)
+        let can_diff = status.is_some() && a.is_some_and(|a| a.caps.review) && self.host != Host::Window;
         let diff_path = active.to_string();
         div()
             .flex_none()
@@ -1091,7 +1308,8 @@ impl Render for Viewer {
         let t = theme::theme(cx).clone();
         let a = self.agent(cx);
         let stale = self.is_stale();
-        self.sync_preview(a.as_ref(), cx);
+        let root = self.root(cx);
+        self.sync_preview(root.as_deref(), cx);
         let active = self.active.clone();
         let pixels = self.image_pixels(window, cx);
         let body = self.body(&t, window, cx);

@@ -17,6 +17,7 @@
 //! with [`register_route`] for their views, [`TerminalSlot`] for the
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
+mod beside;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -69,6 +70,7 @@ pub use self::topbar::{AgentDrag, SpaceDrag, SpaceRelease};
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
 pub use self::part::cached as parts_cached;
+pub use self::beside::register_beside;
 
 actions!(
     main_screen,
@@ -523,6 +525,8 @@ pub struct MainScreen {
     parts: Option<part::Parts>,
     /// Agents' in-app previews (preview.rs).
     previews: preview::Previews,
+    /// Panes with a file viewer beside the terminal (beside.rs).
+    besides: beside::Besides,
     /// How often it rendered (tests).
     #[cfg(test)]
     renders: usize,
@@ -659,6 +663,7 @@ impl MainScreen {
             _poll_elsewhere: None,
             parts: None,
             previews: Default::default(),
+            besides: Default::default(),
             #[cfg(test)]
             renders: 0,
             _subs: subs,
@@ -2105,6 +2110,8 @@ impl Render for MainScreen {
             .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::divider_up))
             .on_mouse_move(cx.listener(Self::preview_drag_move))
             .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::preview_drag_up))
+            .on_mouse_move(cx.listener(Self::beside_drag_move))
+            .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::beside_drag_up))
             .relative()
             .size_full()
             .flex()

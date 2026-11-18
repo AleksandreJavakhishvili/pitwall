@@ -11,7 +11,10 @@
 //! 10 s while shown). The main view mounts three things from it: the Files
 //! panel ([`Explorer::panel`]), the viewer in the main area
 //! ([`Explorer::main_view`]) and the Explorer itself as an overlay (quick
-//! open, notices); [`on_actions`] wires the shortcuts on its root.
+//! open, notices); [`on_actions`] wires the shortcuts on its root. The
+//! screen asks it for the viewers agents opened beside their terminals
+//! ([`Explorer::beside_view`], [`show`]); a viewer in a window of its own
+//! is that window's ([`window`]).
 
 pub mod code_view;
 pub mod file_link;
@@ -27,6 +30,7 @@ pub mod tree;
 pub mod tree_view;
 pub mod viewer;
 pub mod widgets;
+pub mod window;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -44,7 +48,7 @@ use files_panel::{FilesPanel, FilesPanelEvent};
 use quick_open::{QuickOpen, QuickOpenEvent};
 pub use source::{ExplorerSource, Source};
 use tree::TreeModel;
-use viewer::{Pane, Viewer, ViewerEvent};
+use viewer::{Host, Pane, Viewer, ViewerEvent};
 
 actions!(
     explorer,
@@ -127,6 +131,19 @@ pub enum ExplorerEvent {
     ViewerToggled,
     /// Quick open (⌘P) opened: the window shows one modal at a time.
     QuickOpened,
+    /// A viewer beside a terminal opened, closed or changed folder (the
+    /// screen draws the panes again).
+    BesideChanged,
+    /// "Open in window" on the viewer beside agent `agent`'s terminal:
+    /// it moves to a window of its own, with what it had open.
+    Undock { agent: String, key: String, opened: viewer::Opened },
+}
+
+/// A viewer an agent opened beside its terminal.
+pub struct Beside {
+    pub viewer: Entity<Viewer>,
+    /// What it reads (the agent's id or a folder's `path:` key).
+    pub key: String,
 }
 
 pub struct Explorer {
@@ -138,9 +155,16 @@ pub struct Explorer {
     trees: HashMap<String, Entity<TreeModel>>,
     panels: HashMap<String, Entity<FilesPanel>>,
     viewers: HashMap<String, Entity<Viewer>>,
+    /// Viewers beside agents' terminals, by agent.
+    pub(crate) beside: HashMap<String, Beside>,
+    /// Trees of folders that aren't an agent's (`path:` keys).
+    path_trees: HashMap<String, Entity<TreeModel>>,
     /// The agent whose viewer is shown in the main area.
     open: Option<String>,
     quick: Option<Entity<QuickOpen>>,
+    /// Quick open was asked for by this viewer (beside a terminal): what
+    /// is picked opens there.
+    quick_into: Option<gpui::WeakEntity<Viewer>>,
     /// Quick open's input (a pop-up gives it the keyboard).
     quick_input: Option<gpui::FocusHandle>,
     recents: HashMap<String, Vec<String>>,
@@ -193,8 +217,11 @@ impl Explorer {
             trees: HashMap::new(),
             panels: HashMap::new(),
             viewers: HashMap::new(),
+            beside: HashMap::new(),
+            path_trees: HashMap::new(),
             open: None,
             quick: None,
+            quick_into: None,
             quick_input: None,
             recents: HashMap::new(),
             notice: None,
@@ -353,13 +380,131 @@ impl Explorer {
         ids
     }
 
-    /// Every 10 s: the shown trees read their open folders again, quietly.
+    /// Every 10 s: the shown trees read their open folders again, quietly
+    /// (the viewers beside terminals' too).
     fn poll(&mut self, cx: &mut Context<Self>) {
         for id in self.shown_agents() {
             if let Some(t) = self.trees.get(&id) {
                 t.update(cx, |t, cx| t.refresh(true, cx));
             }
         }
+        for t in self.beside_trees() {
+            t.update(cx, |t, cx| t.refresh(true, cx));
+        }
+    }
+
+    fn beside_trees(&self) -> Vec<Entity<TreeModel>> {
+        let mut out: Vec<Entity<TreeModel>> = vec![];
+        for b in self.beside.values() {
+            if let Some(t) = self.trees.get(&b.key).or_else(|| self.path_trees.get(&b.key)) {
+                if !out.iter().any(|o| o == t) {
+                    out.push(t.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// The viewer beside agent `agent`'s terminal, if one is open.
+    pub fn beside_view(&self, agent: &str) -> Option<AnyView> {
+        self.beside.get(agent).map(|b| b.viewer.clone().into())
+    }
+
+    /// Close the viewer beside `agent`'s terminal (the keyboard goes back
+    /// to the terminal when it was in it).
+    pub fn close_beside(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(b) = self.beside.remove(agent) else { return };
+        if b.viewer.focus_handle(cx).contains_focused(window, cx) {
+            window.blur(cx);
+        }
+        b.viewer.update(cx, |v, cx| v.hidden(cx));
+        self.drop_unused_path_trees();
+        cx.emit(ExplorerEvent::BesideChanged);
+        cx.notify();
+    }
+
+    fn drop_unused_path_trees(&mut self) {
+        let used: Vec<String> = self.beside.values().map(|b| b.key.clone()).collect();
+        self.path_trees.retain(|k, _| used.contains(k));
+    }
+
+    /// The tree for `key`: an agent's (shared with its Files tab), or a
+    /// folder's (made on first use).
+    fn tree_for(&mut self, key: &str, cx: &mut Context<Self>) -> Option<Entity<TreeModel>> {
+        if source::root_of_key(key).is_none() {
+            return self.tree(key, cx);
+        }
+        if let Some(t) = self.path_trees.get(key) {
+            return Some(t.clone());
+        }
+        let source = self.source.clone()?;
+        let ignored = self.show_ignored;
+        let tree = cx.new(|_| TreeModel::new(source, key.to_string(), ignored));
+        self.path_trees.insert(key.to_string(), tree.clone());
+        Some(tree)
+    }
+
+    /// The viewer beside `agent`'s terminal reading `key`: the one open
+    /// (a new one when it read another folder), made when there's none.
+    /// It doesn't take the keyboard: the terminal keeps it.
+    pub fn beside_viewer(
+        &mut self,
+        agent: &str,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<Viewer>> {
+        if let Some(b) = self.beside.get(agent).filter(|b| b.key == key) {
+            return Some(b.viewer.clone());
+        }
+        let tree = self.tree_for(key, cx)?;
+        let source = self.source.clone()?;
+        let store = self.store.clone();
+        let owner = self.store.read(cx).agent(agent).map(|a| a.name.clone());
+        let k = key.to_string();
+        let viewer = cx.new(|cx| {
+            let mut v = Viewer::new(source, store, k, tree, window, cx);
+            v.set_host(Host::Beside, owner, cx);
+            v
+        });
+        let (a, k) = (agent.to_string(), key.to_string());
+        let sub = cx.subscribe_in(&viewer, window, move |this, v, e: &ViewerEvent, window, cx| match e {
+            // Esc: the keyboard back to the terminal.
+            ViewerEvent::Exit => {
+                if v.focus_handle(cx).contains_focused(window, cx) {
+                    window.blur(cx);
+                }
+            }
+            ViewerEvent::Close => this.close_beside(&a, window, cx),
+            ViewerEvent::Undock => {
+                let opened = v.read(cx).opened();
+                this.close_beside(&a, window, cx);
+                cx.emit(ExplorerEvent::Undock { agent: a.clone(), key: k.clone(), opened });
+            }
+            ViewerEvent::QuickOpen => {
+                this.quick_into = Some(v.downgrade());
+                this.quick_open(&k, window, cx);
+            }
+            ViewerEvent::ShowDiff(path) => {
+                if source::root_of_key(&k).is_none() {
+                    cx.emit(ExplorerEvent::ShowDiff { agent_id: k.clone(), path: path.clone() })
+                }
+            }
+            ViewerEvent::Opened(path) => this.note_recent(&k, path),
+            ViewerEvent::SetIgnored(on) => this.set_ignored(*on, cx),
+            ViewerEvent::Dock | ViewerEvent::Pin => {}
+        });
+        self._subs.push(sub);
+        if let Some(old) = self.beside.insert(agent.to_string(), Beside { viewer: viewer.clone(), key: key.to_string() }) {
+            old.viewer.update(cx, |v, cx| v.hidden(cx));
+        }
+        self.drop_unused_path_trees();
+        if let Some(t) = self.trees.get(key).or_else(|| self.path_trees.get(key)) {
+            t.update(cx, |t, cx| t.refresh(false, cx));
+        }
+        cx.emit(ExplorerEvent::BesideChanged);
+        cx.notify();
+        Some(viewer)
     }
 
     /// The agents' change totals moved: their trees and open files are read
@@ -381,8 +526,20 @@ impl Explorer {
                 if let Some(v) = self.viewers.get(id) {
                     v.update(cx, |v, cx| v.recheck(cx));
                 }
+                for b in self.beside.values().filter(|b| b.key == *id) {
+                    b.viewer.update(cx, |v, cx| v.recheck(cx));
+                }
             }
         }
+        // An agent gone: the viewer beside its terminal goes with it.
+        let gone_beside: Vec<String> = self.beside.keys().filter(|id| !agents.contains_key(*id)).cloned().collect();
+        for id in gone_beside {
+            if let Some(b) = self.beside.remove(&id) {
+                b.viewer.update(cx, |v, cx| v.hidden(cx));
+            }
+            cx.emit(ExplorerEvent::BesideChanged);
+        }
+        self.drop_unused_path_trees();
         let gone: Vec<String> = self
             .trees
             .keys()
@@ -412,7 +569,7 @@ impl Explorer {
 
     fn apply_ignored(&mut self, on: bool, cx: &mut Context<Self>) {
         self.show_ignored = on;
-        for t in self.trees.values() {
+        for t in self.trees.values().chain(self.path_trees.values()) {
             t.update(cx, |t, cx| t.set_ignored(on, cx));
         }
         cx.notify();
@@ -499,6 +656,8 @@ impl Explorer {
                 }),
                 ViewerEvent::Opened(path) => this.note_recent(&agent, path),
                 ViewerEvent::SetIgnored(on) => this.set_ignored(*on, cx),
+                // (A pane's and a window's controls.)
+                ViewerEvent::Close | ViewerEvent::Undock | ViewerEvent::Dock | ViewerEvent::Pin => {}
             },
         );
         self._subs.push(sub);
@@ -517,8 +676,16 @@ impl Explorer {
         let Some(source) = self.source.clone() else {
             return;
         };
-        let Some(a) = self.store.read(cx).agent(id).cloned() else {
-            return;
+        // An agent's folder, or (beside a terminal) any folder here.
+        let (name, shown) = match source::root_of_key(id) {
+            Some(root) => (
+                root.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(root).to_string(),
+                pitwall_core::paths::tildify(root),
+            ),
+            None => match self.store.read(cx).agent(id) {
+                Some(a) => (a.name.clone(), a.cwd_display.clone()),
+                None => return,
+            },
         };
         let recent = self.recents.get(id).cloned().unwrap_or_default();
         let agent = id.to_string();
@@ -526,8 +693,8 @@ impl Explorer {
             QuickOpen::new(
                 source,
                 agent.clone(),
-                a.name.clone(),
-                a.cwd_display.clone(),
+                name,
+                shown,
                 recent,
                 window,
                 cx,
@@ -538,7 +705,14 @@ impl Explorer {
             window,
             move |this, _, e: &QuickOpenEvent, window, cx| {
                 this.quick = None;
+                let into = this.quick_into.take().and_then(|v| v.upgrade());
                 match e {
+                    // Asked for beside a terminal: it opens there.
+                    QuickOpenEvent::Picked(path) if into.is_some() => {
+                        if let Some(v) = into {
+                            v.update(cx, |v, cx| v.open(path.clone(), None, cx));
+                        }
+                    }
                     QuickOpenEvent::Picked(path) => {
                         this.open_viewer(&agent, Some(path.clone()), None, None, window, cx)
                     }

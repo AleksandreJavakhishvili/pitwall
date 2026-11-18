@@ -166,13 +166,15 @@ at once in every window.
 ## Showing the user files
 
 ```bash
-pitwall open src/main.rs:42 README.md --agent api   # tabs in api's file viewer (at a line)
+pitwall open src/main.rs:42 README.md --agent api   # tabs beside api's terminal (at a line, marked)
 pitwall open --folder src --agent api               # a folder as a tree, with git status
 pitwall open --root fix/login --agent api           # a whole worktree (by folder name or branch)
 ```
 
-Read-only, in the window that shows the agent; Pitwall doesn't come forward
-when it isn't in front. Agents Pitwall starts (Claude Code, Codex) have the
+Read-only. Beside the agent's terminal while the user is in Pitwall, a
+window of its own while they are in another app (`--where beside|window`
+picks); Pitwall doesn't come forward over another app. Any folder on this
+computer can be shown. Agents Pitwall starts (Claude Code, Codex) have the
 same as MCP tools (`show_files`, `show_folder`). Off with
 `agents.showFiles false` (then `open` refuses).
 

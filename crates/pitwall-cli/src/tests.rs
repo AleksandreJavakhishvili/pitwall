@@ -1047,7 +1047,14 @@ struct MemViewer(std::sync::Mutex<Vec<pitwall_proto::ViewerShow>>);
 impl pitwall_daemon::ViewerBackend for MemViewer {
     fn show(&self, req: &pitwall_proto::ViewerShow) -> Result<pitwall_proto::ViewerShown, pitwall_proto::ErrorBody> {
         self.0.lock().unwrap().push(req.clone());
-        Ok(pitwall_proto::ViewerShown { agent_id: req.agent_id.clone(), window: "pitwall-2".into(), in_background: true })
+        Ok(pitwall_proto::ViewerShown {
+            agent_id: req.agent_id.clone(),
+            window: "pitwall-2".into(),
+            in_background: true,
+            place: req.place.unwrap_or_default(),
+            root: "/w".into(),
+            note: None,
+        })
     }
     fn mirrored(&self, id: &str) -> Option<String> {
         (id == "peer-agent").then(|| "api on studio".into())
@@ -1087,9 +1094,9 @@ fn open_and_the_mcp_tools_end_to_end() {
     assert_eq!(o.json["opened"][1]["path"], format!("{p}/README.md"));
     assert_eq!(o.json["skipped"][0], json!({"path": format!("{p}/gone.md"), "reason": "not found"}));
     assert_eq!((o.json["window"].as_str(), o.json["place"].as_str(), o.json["inBackground"].as_bool()), (Some("pitwall-2"), Some("window"), Some(true)));
-    assert!(o.human.contains("without coming forward"), "{}", o.human);
+    assert!(o.human.contains("without taking the keyboard"), "{}", o.human);
     let shown = viewer.0.lock().unwrap().pop().unwrap();
-    assert_eq!((shown.agent_id.as_str(), shown.files.len(), shown.place), (id.as_str(), 2, pitwall_proto::ViewerPlace::Window));
+    assert_eq!((shown.agent_id.as_str(), shown.files.len(), shown.place), (id.as_str(), 2, Some(pitwall_proto::ViewerPlace::Window)));
 
     // The MCP tool: the same request, from the agent (its id from the env).
     let opener = mcp::SocketOpener { socket: socket.clone() };

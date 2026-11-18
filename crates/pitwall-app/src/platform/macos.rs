@@ -135,6 +135,18 @@ pub fn never_key(window: &gpui::Window) {
     }
 }
 
+/// Floating level (`NSFloatingWindowLevel`) or normal: a window kept above
+/// other apps' windows stays there while Pitwall isn't the active app.
+#[cfg_attr(test, allow(dead_code))]
+pub fn keep_on_top(window: &gpui::Window, on: bool) {
+    // NSNormalWindowLevel and NSFloatingWindowLevel.
+    const NORMAL: isize = 0;
+    const FLOATING: isize = 3;
+    if let Some(w) = ns_window(window) {
+        w.setLevel(if on { FLOATING } else { NORMAL });
+    }
+}
+
 /// Give a window the keyboard without bringing its app forward (the
 /// floating control, once the user clicks a terminal in it to type).
 #[cfg_attr(test, allow(dead_code))]

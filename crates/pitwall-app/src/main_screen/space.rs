@@ -660,8 +660,14 @@ impl MainScreen {
                             .when(!a.running, |d| d.child(stopped_overlay(a, t, cx)))
                         })
                         .into_any_element();
-                    // The agent's Preview beside (or below) it (preview.rs).
-                    self.with_preview(a, term, t, cx)
+                    // The agent's Preview beside (or below) it (preview.rs),
+                    // and the files it showed beside that (beside.rs).
+                    let term = self.with_preview(a, term, t, cx);
+                    if crate::agents::mirrored(a) {
+                        term
+                    } else {
+                        self.with_beside(a, term, t, window, cx)
+                    }
                 })
                 .into_any_element(),
             None => self.empty_pane(pane_id, ctx, t, cx).into_any_element(),
