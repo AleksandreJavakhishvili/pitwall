@@ -98,8 +98,10 @@ pub enum ViewerEvent {
     /// layout place picked in the "Dock…" / "Move…"
     /// menu: the files go there (moved, not closed: edits stay).
     Place(super::dock::FilesPlace),
-    /// The grip pressed: the files follow the pointer until it is let go
-    /// (into the layout of the Pitwall window under it, or out of it).
+    /// The grip pressed, or the bar (or the tab strip's empty end) pressed
+    /// and dragged: the files follow the pointer until it is let go (into
+    /// the layout of the Pitwall window under it, or out of it; a window
+    /// of its own moves with it).
     Grip,
     /// In a window of its own: "Keep on top" toggled.
     Pin,
@@ -275,6 +277,10 @@ pub struct Viewer {
     refocus: bool,
     /// The "Dock…" / "Move…" menu, open at this point of the viewer.
     place_menu: Option<gpui::Point<gpui::Pixels>>,
+    /// Where the bar (or the tab strip's empty end) was pressed: a drag
+    /// once the pointer travels [`BAR_DRAG_THRESHOLD`] from there, else a
+    /// click.
+    bar_press: Option<gpui::Point<gpui::Pixels>>,
     /// The tree column as toggled in this viewer (`None`: as kept for its
     /// kind of place, see [`column::shown`]).
     tree_open: Option<bool>,
@@ -295,6 +301,8 @@ pub struct Viewer {
 
 /// The tree column's id (its edge's drags say it).
 const SIDE: &str = "ex-side";
+/// A press on the bar travels this far (px) before it drags the files.
+pub const BAR_DRAG_THRESHOLD: f32 = 4.;
 
 /// The file viewer's Code / Preview choice for Markdown (kept for the app
 /// session; off: Code).
@@ -372,6 +380,7 @@ impl Viewer {
             md_shown: None,
             refocus: false,
             place_menu: None,
+            bar_press: None,
             tree_open: None,
             tree_drag_w: None,
             measured: Rc::default(),
@@ -1304,6 +1313,27 @@ impl Viewer {
         super::dock::menu(at, self.host == Host::Tile, self.owner.clone(), t, pick)
     }
 
+    /// A press on the bar's (or the tab strip's) empty part: the files are
+    /// dragged by it once it travels (a tile or a window; not the full
+    /// viewer). A double click doesn't start one.
+    fn arm_bar(&mut self, e: &gpui::MouseDownEvent) {
+        if self.host != Host::Main && e.click_count < 2 {
+            self.bar_press = Some(e.position);
+        }
+    }
+
+    /// The pointer moved with the bar pressed: far enough, the drag the
+    /// grip starts.
+    fn bar_moved(&mut self, e: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some(at) = self.bar_press else { return };
+        if e.pressed_button != Some(MouseButton::Left) {
+            self.bar_press = None;
+        } else if (e.position - at).magnitude() > f64::from(BAR_DRAG_THRESHOLD) {
+            self.bar_press = None;
+            cx.emit(ViewerEvent::Grip);
+        }
+    }
+
     /// The places menu is open (tests).
     #[cfg(test)]
     pub(crate) fn place_menu_open(&self) -> bool {
@@ -1333,6 +1363,9 @@ impl Viewer {
         div()
             .id("ex-viewer-bar")
             .debug_selector(|| "ex-viewer-bar".into())
+            // Its empty part drags the files (and a window of its own).
+            .when(host != Host::Main, |d| d.cursor_grab())
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &gpui::MouseDownEvent, _, _| this.arm_bar(e)))
             .h(px(36.))
             .flex_none()
             .pl(px(6.))
@@ -1345,6 +1378,7 @@ impl Viewer {
             .bg(t.surface)
             .child(
                 crate::kit::side::toggle("ex-tree-toggle", shown, "files", "⌘⇧E", t)
+                    .cursor_pointer()
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_tree(window, cx))),
             )
             // What is shown: gives way first when the bar is short.
@@ -1427,7 +1461,7 @@ impl Viewer {
                         _ => d,
                     }),
             )
-            .child(refresh_control(
+            .child(div().flex_none().debug_selector(|| "ex-viewer-refresh".into()).cursor_default().on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).child(refresh_control(
                 t,
                 "ex-viewer-refresh",
                 refreshing,
@@ -1438,7 +1472,7 @@ impl Viewer {
                     this.tree.update(cx, |t, cx| t.refresh(false, cx));
                     this.recheck(cx);
                 }),
-            ))
+            )))
             .map(|d| match host {
                 Host::Main => d
                     .child(
@@ -1745,7 +1779,20 @@ impl Viewer {
             })
             .collect();
         // The rest of the strip's line.
-        tabs.push(div().flex_1().min_w(px(8.)).h(px(32.)).border_b_1().border_color(t.line).into_any_element());
+        tabs.push(
+            div()
+                .id("ex-tabs-rest")
+                .debug_selector(|| "ex-tabs-rest".into())
+                .flex_1()
+                .min_w(px(8.))
+                .h(px(32.))
+                .border_b_1()
+                .border_color(t.line)
+                // Drags the files, as the bar does.
+                .when(self.host != Host::Main, |d| d.cursor_grab())
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, e: &gpui::MouseDownEvent, _, _| this.arm_bar(e)))
+                .into_any_element(),
+        );
         let more = self.tabs_overflow.get() || self.tabs_menu;
         let (flag, scroll, me) = (self.tabs_overflow.clone(), self.tabs_scroll.clone(), cx.entity().downgrade());
         div()
@@ -2307,6 +2354,8 @@ impl Render for Viewer {
             .flex()
             .flex_col()
             .bg(t.bg)
+            .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| this.bar_moved(e, cx)))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.bar_press = None))
             .when_some(self.place_menu, |d, at| d.child(self.place_menu_overlay(at, &t, cx)))
             .child(self.measure(self.measured.clone(), cx))
             .child(self.bar(&t, a.as_ref(), cx))

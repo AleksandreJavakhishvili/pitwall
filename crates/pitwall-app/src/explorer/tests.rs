@@ -495,6 +495,92 @@ async fn closing_asks_but_moving_keeps_the_edits(cx: &mut TestAppContext) {
     assert_eq!(on_disk(&src, "a.txt"), "a\n");
 }
 
+/// The whole bar drags the files (as the grip does), not only the grip:
+/// a press that travels past the threshold is a drag, one that doesn't is
+/// a click; the bar's controls still click and never drag; the tab strip's
+/// empty end drags too; a double click doesn't; the full viewer's bar
+/// doesn't.
+#[gpui::test]
+async fn the_bar_drags_the_files_once_a_press_travels(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, Pixels, Point};
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    let events = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = events.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
+            let name = match e {
+                viewer::ViewerEvent::Grip => "grip",
+                viewer::ViewerEvent::Undock => "undock",
+                _ => return,
+            };
+            seen.lock().unwrap().push(name.into());
+        })
+        .detach()
+    });
+    let take = |events: &Arc<std::sync::Mutex<Vec<String>>>| std::mem::take(&mut *events.lock().unwrap());
+    viewer.update(cx, |v, cx| {
+        v.set_host(viewer::Host::Tile, Some("a1".into()), cx);
+        v.open("a.txt".into(), None, cx);
+    });
+    redraw(cx);
+    let none = Modifiers::none();
+    let press = |at: Point<Pixels>, by: f32, cx: &mut VisualTestContext| {
+        cx.simulate_mouse_down(at, MouseButton::Left, none);
+        let to = gpui::point(at.x + px(by), at.y + px(by / 2.));
+        cx.simulate_mouse_move(to, MouseButton::Left, none);
+        cx.simulate_mouse_move(gpui::point(to.x + px(by), to.y), MouseButton::Left, none);
+        cx.simulate_mouse_up(gpui::point(to.x + px(by), to.y), MouseButton::Left, none);
+        cx.run_until_parked();
+    };
+    // The folder's words in the bar: empty of controls.
+    let bar = cx.debug_bounds("ex-viewer-hint").expect("the folder in the bar").center();
+    // A press that hardly moves: a click, no drag.
+    press(bar, 1., cx);
+    assert!(take(&events).is_empty(), "under the threshold: a click");
+    // Travelled: the drag the grip starts, once.
+    press(bar, 12., cx);
+    assert_eq!(take(&events), ["grip"]);
+    // Anywhere along the bar's empty part (its left end, by the toggle).
+    let b = cx.debug_bounds("ex-viewer-bar").unwrap();
+    let toggle = cx.debug_bounds("ex-tree-toggle").unwrap();
+    press(gpui::point(toggle.right() + px(3.), b.center().y), 12., cx);
+    assert_eq!(take(&events), ["grip"]);
+    // Its controls click, and don't drag.
+    for id in ["ex-tree-toggle", "ex-undock", "ex-move", "ex-viewer-refresh"] {
+        let at = cx.debug_bounds(id).unwrap_or_else(|| panic!("{id}")).center();
+        press(at, 12., cx);
+        assert!(take(&events).is_empty(), "{id} doesn't drag");
+        if viewer.read_with(cx, |v, _| v.place_menu_open()) {
+            cx.simulate_click(at, none);
+        }
+    }
+    let at = cx.debug_bounds("ex-undock").unwrap().center();
+    cx.simulate_click(at, none);
+    cx.run_until_parked();
+    assert_eq!(take(&events), ["undock"], "still clicks");
+    // The tab strip's empty end drags too.
+    let rest = cx.debug_bounds("ex-tabs-rest").expect("the strip's empty end").center();
+    press(rest, 12., cx);
+    assert_eq!(take(&events), ["grip"]);
+    // A double click on the bar: no drag.
+    cx.simulate_event(MouseDownEvent { position: bar, button: MouseButton::Left, modifiers: none, click_count: 2, first_mouse: false });
+    cx.simulate_mouse_move(gpui::point(bar.x + px(20.), bar.y), MouseButton::Left, none);
+    cx.simulate_mouse_up(gpui::point(bar.x + px(20.), bar.y), MouseButton::Left, none);
+    assert!(take(&events).is_empty(), "a double click doesn't drag");
+    // In a window of its own: the same (the window moves with it).
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Window, Some("a1".into()), cx));
+    redraw(cx);
+    let bar = cx.debug_bounds("ex-viewer-hint").unwrap().center();
+    press(bar, 12., cx);
+    assert_eq!(take(&events), ["grip"]);
+    // The full viewer: its bar doesn't drag anything.
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Main, None, cx));
+    redraw(cx);
+    let bar = cx.debug_bounds("ex-viewer-hint").unwrap().center();
+    press(bar, 12., cx);
+    assert!(take(&events).is_empty());
+}
+
 /// A window that draws a files tile's viewer (a Pitwall window's layout,
 /// for these tests).
 struct Holder(Option<gpui::AnyView>);
