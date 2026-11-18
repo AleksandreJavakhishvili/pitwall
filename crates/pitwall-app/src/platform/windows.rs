@@ -36,6 +36,8 @@ thread_local! {
 
 /// `HWND_TOPMOST` or back to `HWND_NOTOPMOST`, without moving, sizing or
 /// activating it (a file viewer window's pin).
+// Test builds have no native window to pin.
+#[cfg_attr(test, allow(dead_code))]
 pub fn keep_on_top(window: &Window, on: bool) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
