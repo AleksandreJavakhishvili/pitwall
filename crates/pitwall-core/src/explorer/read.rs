@@ -49,6 +49,7 @@ pub(super) fn read(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<File
         kind,
         text,
         lang: lang(rel).map(String::from),
+        lossy: false,
     };
     let size_of = || -> Res<u64> {
         match exec.stat(real)? {
@@ -62,7 +63,7 @@ pub(super) fn read(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<File
         let kind = if size <= MAX_IMAGE { ContentKind::Image } else { ContentKind::Binary };
         return Ok(view(size, kind, None));
     }
-    if ext(rel).is_some_and(|e| BINARY_EXT.contains(&e.as_str())) {
+    if binary_by_name(rel) {
         return Ok(view(size_of()?, ContentKind::Binary, None));
     }
     let bytes = match exec.read_file(real, max + 1) {
@@ -77,14 +78,22 @@ pub(super) fn read(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<File
         return Ok(view(size_of()?, ContentKind::TooLarge, None));
     }
     let size = bytes.len() as u64;
-    if bytes[..bytes.len().min(SNIFF)].contains(&0) {
+    if looks_binary(&bytes) {
         return Ok(view(size, ContentKind::Binary, None));
     }
-    Ok(view(
-        size,
-        ContentKind::Text,
-        Some(String::from_utf8_lossy(&bytes).into_owned()),
-    ))
+    let mut v = view(size, ContentKind::Text, Some(String::from_utf8_lossy(&bytes).into_owned()));
+    v.lossy = std::str::from_utf8(&bytes).is_err();
+    Ok(v)
+}
+
+/// Its name says it is binary (its contents are never read).
+pub fn binary_by_name(rel: &str) -> bool {
+    ext(rel).is_some_and(|e| BINARY_EXT.contains(&e.as_str()))
+}
+
+/// A NUL near the start (git's rule).
+pub fn looks_binary(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(SNIFF)].contains(&0)
 }
 
 /// A file's bytes (an image for the viewer), up to `max`.

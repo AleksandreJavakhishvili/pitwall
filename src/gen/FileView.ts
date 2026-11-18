@@ -16,4 +16,9 @@ text: string | null,
 /**
  * A language hint from its name ("rust", "typescript", …).
  */
-lang: string | null, };
+lang: string | null, 
+/**
+ * The file isn't valid UTF-8: `text` has replacement characters (the
+ * viewer doesn't edit it).
+ */
+lossy: boolean, };

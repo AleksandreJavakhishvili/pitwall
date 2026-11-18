@@ -114,6 +114,10 @@ pub struct FileView {
     pub text: Option<String>,
     /// A language hint from its name ("rust", "typescript", …).
     pub lang: Option<String>,
+    /// The file isn't valid UTF-8: `text` has replacement characters (the
+    /// viewer doesn't edit it).
+    #[serde(default)]
+    pub lossy: bool,
 }
 
 /// What to search for (`search_files`). Defaults match VS Code's: a plain,

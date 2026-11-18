@@ -231,6 +231,7 @@ pub mod fake {
                 kind,
                 text,
                 lang: None,
+                lossy: false,
             })
         }
 

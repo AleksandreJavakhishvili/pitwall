@@ -256,11 +256,11 @@ export function createExplorerMock(d: Deps): ExplorerApi {
       if (!f) throw `${path}: not found`;
       const lang = null;
       let view: FileView;
-      if (f.binary) view = { path, size: f.size ?? 0, kind: "binary", text: null, lang };
+      if (f.binary) view = { path, size: f.size ?? 0, kind: "binary", text: null, lang, lossy: false };
       else if (f.text === undefined) {
         const size = f.size ?? 0;
-        view = size > (large ? LARGE_CAP : TEXT_CAP) ? { path, size, kind: "tooLarge", text: null, lang } : { path, size, kind: "text", text: hugeText(size), lang };
-      } else view = { path, size: new TextEncoder().encode(f.text).length, kind: "text", text: f.text, lang };
+        view = size > (large ? LARGE_CAP : TEXT_CAP) ? { path, size, kind: "tooLarge", text: null, lang, lossy: false } : { path, size, kind: "text", text: hugeText(size), lang, lossy: false };
+      } else view = { path, size: new TextEncoder().encode(f.text).length, kind: "text", text: f.text, lang, lossy: false };
       return wait(view, large ? 400 : 70);
     },
     async searchFiles(agentId, q) {

@@ -1,7 +1,7 @@
-//! The read-only code explorer (docs/spec/explorer.md): list, read and
-//! search the folder an agent works in, on its machine (through its
-//! [`Exec`]). Nothing here writes to the agent's folder or starts anything
-//! but read-only commands.
+//! The code explorer (docs/spec/explorer.md): list, read and search the
+//! folder an agent works in, on its machine (through its [`Exec`]). It
+//! starts nothing but read-only commands. The one write is the user's own
+//! save from the viewer ([`write_file`]): agents on this computer only.
 //!
 //! Every path from a client is relative to the agent's folder (its "root").
 //! It is checked ([`clean`]) before anything runs, and then resolved on the
@@ -11,6 +11,7 @@
 mod read;
 mod search;
 mod tree;
+mod write;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -212,6 +213,29 @@ pub fn read_local_image(path: &str) -> Res<Vec<u8>> {
 }
 
 pub use read::{is_image, MAX_IMAGE};
+pub use write::{refused_by_name, Saved};
+
+/// Save `text` the user edited in the viewer over `path` of agent
+/// `agent_id`'s folder: only for an agent on this computer, a text file
+/// that is there (inside the folder, symlinks resolved), up to the
+/// viewer's text cap. `base`: the file as it was read; when it changed
+/// since, nothing is written ([`Saved::ChangedOnDisk`]); `None` writes
+/// over it (the user said so). Never reachable by agents (no MCP tool or
+/// command line calls it).
+pub fn write_file(engine: &Engine, agent_id: &str, path: &str, text: &str, base: Option<&str>) -> Res<Saved> {
+    let rel = clean(path)?;
+    if rel.is_empty() {
+        return Err("invalid path: a file is needed".into());
+    }
+    let local = engine.with(agent_id, |a| a.facts.provider.local_process)?;
+    if !local {
+        return Err("Files of agents on another machine can't be edited here.".into());
+    }
+    let c = ctx(engine, agent_id)?;
+    let root = c.root(engine, agent_id)?;
+    let real = c.resolve(&root, &rel)?;
+    write::write(&rel, &real, text, base)
+}
 
 /// The explorer over any folder on this machine, not an agent's: an agent
 /// asked to show a folder outside its own (the viewer beside it or in a
@@ -256,6 +280,17 @@ pub mod local {
         let (c, real_root) = ctx(root)?;
         let real = c.resolve(&real_root, &rel)?;
         read::read(&*c.exec, &rel, &real, if large { read::MAX_LARGE } else { read::MAX_TEXT })
+    }
+
+    /// [`super::write_file`] for a folder on this computer.
+    pub fn write_file(root: &str, path: &str, text: &str, base: Option<&str>) -> Res<Saved> {
+        let rel = clean(path)?;
+        if rel.is_empty() {
+            return Err("invalid path: a file is needed".into());
+        }
+        let (c, real_root) = ctx(root)?;
+        let real = c.resolve(&real_root, &rel)?;
+        write::write(&rel, &real, text, base)
     }
 
     pub fn read_image(root: &str, path: &str) -> Res<Vec<u8>> {
