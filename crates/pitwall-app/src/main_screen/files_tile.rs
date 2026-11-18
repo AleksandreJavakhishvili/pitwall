@@ -61,6 +61,9 @@ impl Boxes {
 pub struct FilesHint {
     pub owner: String,
     pub spot: FilesSpot,
+    /// Where they'd be, in the words the tile's place is said in once
+    /// there ("Files · above api's terminal").
+    pub label: String,
 }
 
 /// Along the main area's edge, this deep: its own column or row.
@@ -109,12 +112,35 @@ impl MainScreen {
             let (area, panes) = self.files_boxes.get();
             zone_at(at, area?, &panes, owner)
         });
-        let hint = spot.clone().map(|spot| FilesHint { owner: owner.to_string(), spot });
+        let same = self.files_hint.as_ref().is_some_and(|h| h.owner == owner && Some(&h.spot) == spot.as_ref());
+        if same {
+            return Some((space?, spot?));
+        }
+        let hint = match (&space, &spot) {
+            (Some(sp), Some(spot)) => Some(FilesHint { owner: owner.to_string(), spot: spot.clone(), label: self.landing_words(sp, owner, spot, cx) }),
+            _ => None,
+        };
         if self.files_hint != hint {
             self.files_hint = hint;
             cx.notify();
         }
         Some((space?, spot?))
+    }
+
+    /// Where agent `owner`'s files dropped at `spot` of space `space` would
+    /// be, said as the tile's place is said once there (the same layout
+    /// change, then [`whereabouts`](super::workspace::whereabouts)).
+    fn landing_words(&self, space: &str, owner: &str, spot: &FilesSpot, cx: &App) -> String {
+        let (next, _) = self.ui.clone().dock_files(space, owner, spot, super::workspace::FILES_SHARE, self.fit_for(space));
+        let Some((sp, pane)) = next.files_tile(owner) else { return "Files".into() };
+        let Some(layout) = next.space(&sp).map(|s| s.layout.clone()) else { return "Files".into() };
+        let anchor = match spot {
+            FilesSpot::Tile { pane, .. } => layout.leaves().into_iter().find(|p| p.id == *pane && p.files.is_none()).and_then(|p| p.agent_id),
+            _ => None,
+        };
+        let names: Vec<(String, String)> = self.agents(cx).iter().map(|a| (a.id.clone(), a.name.clone())).collect();
+        let name = |id: &str| names.iter().find(|(i, _)| i == id).map_or_else(|| id.to_string(), |(_, n)| n.clone());
+        format!("Files · {}", super::workspace::whereabouts(&layout, &pane, anchor.as_deref()).words(&name))
     }
 
     /// No files dragged over this window (any more).
@@ -141,12 +167,12 @@ impl MainScreen {
     /// The files about to land on tile `pane`.
     pub(super) fn files_pane_hint(&self, pane: &str, has_head: bool, t: &Theme) -> Option<AnyElement> {
         let h = self.files_hint.as_ref()?;
-        let (zone, text) = match &h.spot {
-            FilesSpot::Tile { pane: p, side } if p == pane => (Some(*side), format!("Files {}", side_word(*side))),
-            FilesSpot::Take(p) if p == pane => (None, "Files here".into()),
+        let zone = match &h.spot {
+            FilesSpot::Tile { pane: p, side } if p == pane => Some(*side),
+            FilesSpot::Take(p) if p == pane => None,
             _ => return None,
         };
-        Some(indicator(zone, &text, if has_head { 38. } else { 6. }, t))
+        Some(indicator(zone, &h.label, if has_head { 38. } else { 6. }, t))
     }
 
     /// The files about to land along an edge of the main area.
@@ -161,13 +187,7 @@ impl MainScreen {
             Side::Top => el.left_0().right_0().top_0().h(gpui::relative(share)),
             Side::Bottom => el.left_0().right_0().bottom_0().h(gpui::relative(share)),
         };
-        let text = match side {
-            Side::Left => "Files · a column on the left",
-            Side::Right => "Files · a column on the right",
-            Side::Top => "Files · a row along the top",
-            Side::Bottom => "Files · a row along the bottom",
-        };
-        Some(el.debug_selector(|| "files-drop-edge".into()).child(indicator(None, text, 0., t)).into_any_element())
+        Some(el.debug_selector(|| "files-drop-edge".into()).child(indicator(None, &h.label, 0., t)).into_any_element())
     }
 
     /// Tile `pane` showing agent `owner`'s files.

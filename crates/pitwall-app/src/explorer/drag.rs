@@ -172,7 +172,11 @@ pub fn debug(what: &str, cx: &mut App) {
                 }
             };
             let landing = hover(agent, at, cx);
-            say(format!("{agent} over {at:?}: {landing:?}"));
+            // What the drop preview says.
+            let preview = crate::windows::main_window(label, cx)
+                .and_then(|h| h.update(cx, |view, _, cx| view.screen().and_then(|s| s.read(cx).files_hint().map(|h| h.label.clone()))).ok())
+                .flatten();
+            say(format!("{agent} over {at:?}: {landing:?}, preview {preview:?}"));
             if rest.first() == Some(&"drop") {
                 match finish(agent, at, from, cx) {
                     Ok(r) => say(format!("{agent} dropped: {r:?}")),

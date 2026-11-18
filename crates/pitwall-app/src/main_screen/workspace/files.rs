@@ -188,10 +188,123 @@ pub fn keep_files_tiles(old: &Node, new: Node) -> Node {
     out
 }
 
+/// Where a files tile is, as the user would say it (the tool's answer,
+/// the drop preview, Move… all use [`whereabouts`] and [`Whereabouts::words`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Whereabouts {
+    /// On that side of an agent's terminal.
+    Next(Side, String),
+    /// Between two terminals: the left (or upper) one first.
+    Between(String, String),
+    /// A column or row of its own along that edge of the space.
+    Edge(Side),
+    /// No terminal beside it.
+    Alone,
+}
+
+impl Whereabouts {
+    /// In words, with agents' names from `name`: "right of api's terminal",
+    /// "a column on the right of the space".
+    pub fn words(&self, name: &dyn Fn(&str) -> String) -> String {
+        match self {
+            Whereabouts::Next(side, a) => {
+                let rel = match side {
+                    Side::Right => "right of",
+                    Side::Left => "left of",
+                    Side::Top => "above",
+                    Side::Bottom => "below",
+                };
+                format!("{rel} {}'s terminal", name(a))
+            }
+            Whereabouts::Between(a, b) => format!("between {}'s and {}'s terminals", name(a), name(b)),
+            Whereabouts::Edge(Side::Right) => "a column on the right of the space".into(),
+            Whereabouts::Edge(Side::Left) => "a column on the left of the space".into(),
+            Whereabouts::Edge(Side::Top) => "a row along the top of the space".into(),
+            Whereabouts::Edge(Side::Bottom) => "a row along the bottom of the space".into(),
+            Whereabouts::Alone => "on its own in the layout".into(),
+        }
+    }
+}
+
+/// Where tile `pane` of `layout` is, from the tiles as they are laid out
+/// (never their order in the tree): next to `anchor`'s terminal when it was
+/// placed against it and still touches it; else a column or row along an
+/// edge of the space (unless one terminal has all of its inner side);
+/// else between two terminals that each have all of one side of it; else
+/// next to the terminal it shares most of an edge with.
+pub fn whereabouts(layout: &Node, pane: &str, anchor: Option<&str>) -> Whereabouts {
+    const E: f64 = 1e-6;
+    let rects = tree::pane_rects(layout, tree::Rect { x: 0., y: 0., w: 1., h: 1. });
+    let Some(me) = rects.iter().find(|(id, _)| id == pane).map(|(_, r)| *r) else { return Whereabouts::Alone };
+    let leaves = layout.leaves();
+    let terminal = |id: &str| leaves.iter().find(|p| p.id == id && p.files.is_none()).and_then(|p| p.agent_id.clone());
+    // Every tile sharing an edge with it: (tile, the side of that tile it
+    // is on, how long the shared edge is).
+    let touching: Vec<(&str, Side, f64)> = rects
+        .iter()
+        .filter(|(id, _)| id != pane)
+        .filter_map(|(id, r)| {
+            let along_y = (me.y + me.h).min(r.y + r.h) - me.y.max(r.y);
+            let along_x = (me.x + me.w).min(r.x + r.w) - me.x.max(r.x);
+            let side = if (me.x - (r.x + r.w)).abs() < E && along_y > E {
+                (Side::Right, along_y)
+            } else if (me.x + me.w - r.x).abs() < E && along_y > E {
+                (Side::Left, along_y)
+            } else if (me.y - (r.y + r.h)).abs() < E && along_x > E {
+                (Side::Bottom, along_x)
+            } else if (me.y + me.h - r.y).abs() < E && along_x > E {
+                (Side::Top, along_x)
+            } else {
+                return None;
+            };
+            Some((id.as_str(), side.0, side.1))
+        })
+        .collect();
+    let terminals: Vec<(String, Side, f64)> = touching.iter().filter_map(|(id, s, l)| Some((terminal(id)?, *s, *l))).collect();
+    if let Some((a, s, _)) = anchor.and_then(|a| terminals.iter().find(|(t, _, _)| t == a)) {
+        return Whereabouts::Next(*s, a.clone());
+    }
+    // Along an edge, all the way: a column or row of its own, unless one
+    // tile has all of its inner side (then it is that one's neighbour).
+    let edges = [
+        (Side::Right, (me.x + me.w - 1.).abs() < E && me.h > 1. - E),
+        (Side::Left, me.x.abs() < E && me.h > 1. - E),
+        (Side::Bottom, (me.y + me.h - 1.).abs() < E && me.w > 1. - E),
+        (Side::Top, me.y.abs() < E && me.w > 1. - E),
+    ];
+    for (side, along) in edges {
+        if along && touching.iter().filter(|(_, s, _)| *s == side).count() > 1 {
+            return Whereabouts::Edge(side);
+        }
+    }
+    // A terminal with all of one side of it, on the side `of` of it.
+    let whole = |of: Side| {
+        let len = if matches!(of, Side::Left | Side::Right) { me.h } else { me.w };
+        terminals.iter().find(|(_, s, l)| *s == of && (l - len).abs() < E).map(|(t, _, _)| t.clone())
+    };
+    if let (Some(a), Some(b)) = (whole(Side::Right), whole(Side::Left)) {
+        return Whereabouts::Between(a, b);
+    }
+    if let (Some(a), Some(b)) = (whole(Side::Bottom), whole(Side::Top)) {
+        return Whereabouts::Between(a, b);
+    }
+    // The terminal it shares most of an edge with (beside before above).
+    let rank = |s: Side| match s {
+        Side::Right => 0,
+        Side::Left => 1,
+        Side::Bottom => 2,
+        Side::Top => 3,
+    };
+    terminals
+        .iter()
+        .min_by(|a, b| b.2.total_cmp(&a.2).then(rank(a.1).cmp(&rank(b.1))))
+        .map_or(Whereabouts::Alone, |(t, s, _)| Whereabouts::Next(*s, t.clone()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::main_screen::tree::{build_preset, Dir, Preset};
+    use crate::main_screen::tree::{build_grid, build_preset, Dir, Preset};
     use crate::main_screen::workspace::{SpaceKind, MAIN};
 
     fn ids(v: &[&str]) -> Vec<String> {
@@ -369,5 +482,80 @@ mod tests {
         json["filesBeside"] = serde_json::json!(0.4);
         let back = UiState::sanitize(json);
         assert!(serde_json::to_value(&back).unwrap().get("filesBeside").is_none());
+    }
+
+    /// `layout` in space "s" with "f"'s files dropped at `spot`: the
+    /// layout and the files tile.
+    fn dropped(layout: Node, spot: impl Fn(&UiState) -> FilesSpot) -> (Node, String) {
+        let s = state(layout);
+        let spot = spot(&s);
+        let (s, tile) = s.dock_files("s", "f", &spot, FILES_SHARE, None);
+        (s.space("s").unwrap().layout.clone(), tile.unwrap())
+    }
+
+    fn said(w: &Whereabouts) -> String {
+        w.words(&|id: &str| id.to_string())
+    }
+
+    #[test]
+    fn a_tile_is_said_next_to_the_terminal_it_was_placed_against() {
+        use Whereabouts::*;
+        for side in [Side::Right, Side::Left, Side::Top, Side::Bottom] {
+            let (l, tile) = dropped(build_preset(Preset::Two, &ids(&["a", "b"])), |s| FilesSpot::Tile { pane: pane_of(s, "b"), side });
+            assert_eq!(whereabouts(&l, &tile, Some("b")), Next(side, "b".into()), "{side:?}");
+        }
+        // From the tiles alone (after a restart: no anchor kept).
+        let two = || build_preset(Preset::Two, &ids(&["a", "b"]));
+        let (l, t) = dropped(two(), |s| FilesSpot::Tile { pane: pane_of(s, "b"), side: Side::Right });
+        assert_eq!(said(&whereabouts(&l, &t, None)), "right of b's terminal");
+        let (l, t) = dropped(two(), |s| FilesSpot::Tile { pane: pane_of(s, "b"), side: Side::Top });
+        assert_eq!(said(&whereabouts(&l, &t, None)), "above b's terminal");
+        let (l, t) = dropped(two(), |s| FilesSpot::Tile { pane: pane_of(s, "a"), side: Side::Bottom });
+        assert_eq!(said(&whereabouts(&l, &t, None)), "below a's terminal");
+        // An anchor it no longer touches: said from the tiles.
+        let (l, t) = dropped(two(), |s| FilesSpot::Tile { pane: pane_of(s, "b"), side: Side::Right });
+        assert_eq!(whereabouts(&l, &t, Some("a")), Next(Side::Right, "b".into()));
+    }
+
+    /// The case that was said wrong: dropped above demo (under docs), it
+    /// was "below docs's terminal" from the order in the tree.
+    #[test]
+    fn dropped_above_demo_is_above_demo() {
+        let docs = Node::pane(Some("docs".into()));
+        let col = tree::split_with(&docs, docs.id(), Side::Bottom, &Node::pane(Some("demo".into())), 0.5);
+        let (l, t) = dropped(col, |s| FilesSpot::Tile { pane: pane_of(s, "demo"), side: Side::Top });
+        assert_eq!(said(&whereabouts(&l, &t, Some("demo"))), "above demo's terminal");
+        // Without the anchor: between the two, each having a whole side.
+        assert_eq!(said(&whereabouts(&l, &t, None)), "between docs's and demo's terminals");
+    }
+
+    #[test]
+    fn between_two_terminals_nested_splits_and_edges() {
+        use Whereabouts::*;
+        // [a | files | b]: between them.
+        let (l, t) = dropped(build_preset(Preset::Two, &ids(&["a", "b"])), |s| FilesSpot::Tile { pane: pane_of(s, "b"), side: Side::Left });
+        assert_eq!(whereabouts(&l, &t, None), Between("a".into(), "b".into()));
+        assert_eq!(said(&whereabouts(&l, &t, None)), "between a's and b's terminals");
+        // A 2×2 grid, the files right of d (bottom right, in a nested row):
+        // right of d, not of b above it.
+        let grid = || build_grid(&[2, 2], &ids(&["a", "b", "c", "d"]));
+        let (l, t) = dropped(grid(), |s| FilesSpot::Tile { pane: pane_of(s, "d"), side: Side::Right });
+        assert_eq!(whereabouts(&l, &t, None), Next(Side::Right, "d".into()));
+        let (l, t) = dropped(grid(), |s| FilesSpot::Tile { pane: pane_of(s, "a"), side: Side::Bottom });
+        assert_eq!(whereabouts(&l, &t, None), Between("a".into(), "c".into()));
+        // A column along the right edge, beside two terminals: an edge
+        // column; a row along the bottom likewise.
+        let (l, t) = dropped(grid(), |_| FilesSpot::Edge(Side::Right));
+        assert_eq!(said(&whereabouts(&l, &t, None)), "a column on the right of the space");
+        let (l, t) = dropped(grid(), |_| FilesSpot::Edge(Side::Bottom));
+        assert_eq!(said(&whereabouts(&l, &t, None)), "a row along the bottom of the space");
+        let (l, t) = dropped(grid(), |_| FilesSpot::Edge(Side::Left));
+        assert_eq!(whereabouts(&l, &t, None), Edge(Side::Left));
+        // Along the edge but beside one terminal only: that terminal's.
+        let (l, t) = dropped(build_preset(Preset::Two, &ids(&["a", "b"])), |_| FilesSpot::Edge(Side::Right));
+        assert_eq!(whereabouts(&l, &t, None), Next(Side::Right, "b".into()));
+        // Nothing beside it but an empty tile.
+        let (l, t) = dropped(Node::pane(None), |s| FilesSpot::Take(s.space("s").unwrap().layout.id().to_string()));
+        assert_eq!(whereabouts(&l, &t, None), Alone);
     }
 }

@@ -233,7 +233,7 @@ mod tests {
             asked: req.place,
             shown_in: match req.place {
                 Some(ViewerPlace::Window) => "a file viewer window of its own for api, showing /w".into(),
-                _ => "a files tile right of api's terminal in space Main (window main), showing /w".into(),
+                _ => "a files tile in space Main (window main), right of api's terminal, showing /w".into(),
             },
             note: None,
         })

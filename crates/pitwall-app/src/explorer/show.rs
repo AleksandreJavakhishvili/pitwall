@@ -271,9 +271,7 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
 /// Agent `agent`'s files tile is on side `side` of agent `anchor`'s
 /// terminal already.
 fn next_to(agent: &str, side: Side, anchor: &str, cx: &App) -> bool {
-    let ui = crate::ui_state::get(cx);
-    let Some((space, pane)) = ui.files_tile(agent) else { return false };
-    ui.space(&space).and_then(|sp| dock::neighbour(&sp.layout, &pane)) == Some((side, anchor.to_string()))
+    dock::whereabouts_of(agent, cx) == Some(crate::main_screen::workspace::Whereabouts::Next(side, anchor.to_string()))
 }
 
 /// Agent `agent`'s tile's viewer, reading `key` (a new one in the tile when

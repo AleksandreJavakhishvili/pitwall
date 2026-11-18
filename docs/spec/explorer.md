@@ -186,6 +186,13 @@ fixes, not an IDE.
   window there. The pointer is followed on the screen (macOS); elsewhere
   "Move…" / "Dock…" list the same places. A later call adds tabs wherever
   the files are; a place named that isn't where they are moves them.
+  Where a tile is, is said one way everywhere (the tool's answer, the drop
+  preview, `files-place state`): next to the terminal it was placed
+  against while it still touches it ("above demo's terminal"); else from
+  the tiles as laid out, never their order in the tree: a column or row
+  along an edge of the space beside several tiles ("a column on the right
+  of the space"), between two terminals that each have a whole side of it,
+  or next to the terminal it shares most of an edge with.
 - **Which folder** an agent's files are shown from: the `root` it gives
   (a path, or a worktree of its repository by folder name or branch), else
   where it works **now**, else where it started. "Now" is the `cwd` of its

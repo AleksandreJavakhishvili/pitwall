@@ -145,8 +145,8 @@ pub struct ViewerOpened {
     /// Where it was asked to open (`None`: Pitwall picked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<ViewerPlace>,
-    /// Where it is, in words ("a files tile right of api's terminal in
-    /// space Main (window main)").
+    /// Where it is, in words ("a files tile in space Main (window main),
+    /// above api's terminal"; "…, a column on the right of the space").
     pub shown_in: String,
     /// Why it opened somewhere else than asked, or how Pitwall picked.
     #[serde(default, skip_serializing_if = "Option::is_none")]

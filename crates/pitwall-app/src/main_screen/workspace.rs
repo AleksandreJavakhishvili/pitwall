@@ -19,7 +19,7 @@ use super::tree::{
 };
 
 mod files;
-pub use files::{keep_files_tiles, DockedFiles, FilesSpot, EDGE_SHARE, FILES_SHARE};
+pub use files::{keep_files_tiles, whereabouts, DockedFiles, FilesSpot, Whereabouts, EDGE_SHARE, FILES_SHARE};
 
 pub const MAIN: &str = "main";
 pub const ALL_SPACE: &str = "all";

@@ -22,7 +22,7 @@ use super::tree::TreeModel;
 use super::viewer::{Host, Opened, Viewer, ViewerEvent};
 use crate::agents::AgentStore;
 use crate::main_screen::tree::Side;
-use crate::main_screen::workspace::{DockedFiles, FilesSpot, FILES_SHARE};
+use crate::main_screen::workspace::{whereabouts, DockedFiles, FilesSpot, Whereabouts, FILES_SHARE};
 use crate::theme::Theme;
 use crate::ui::MainView;
 
@@ -96,6 +96,9 @@ struct Tile {
 #[derive(Default)]
 struct Tiles {
     tiles: HashMap<String, Tile>,
+    /// The terminal (agent) each files tile was placed against, by owner:
+    /// what its place is said from while it still touches it.
+    anchors: HashMap<String, String>,
     poll: Option<Task<()>>,
 }
 
@@ -379,6 +382,18 @@ pub fn dock(owner: &str, label: &str, space: &str, spot: &FilesSpot, new_key: Op
         .update(cx, |view, _, cx| view.screen().and_then(|s| s.read(cx).fit_for(space)))
         .ok()
         .flatten();
+    // The terminal it is placed against, if any (its place is said from it).
+    let anchor = match spot {
+        FilesSpot::Tile { pane, .. } => crate::ui_state::get(cx)
+            .space(space)
+            .and_then(|sp| sp.layout.leaves().into_iter().find(|p| p.id == *pane && p.files.is_none()))
+            .and_then(|p| p.agent_id),
+        _ => None,
+    };
+    match anchor {
+        Some(a) => tiles(cx).anchors.insert(owner.to_string(), a),
+        None => tiles(cx).anchors.remove(owner),
+    };
     let mut placed = None;
     crate::ui_state::update(cx, |ui| {
         let (next, tile) = ui.clone().dock_files(space, owner, spot, share, fit);
@@ -430,53 +445,33 @@ pub fn place(owner: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> 
     Ok(described(owner, cx))
 }
 
-/// Where agent `owner`'s files tile is, in words.
+/// Where agent `owner`'s files tile is, in words ("a files tile in space
+/// Main (window main), above api's terminal").
 pub fn described(owner: &str, cx: &App) -> String {
     let ui = crate::ui_state::get(cx);
     let Some((space, pane)) = ui.files_tile(owner) else { return "nowhere".into() };
     let Some(sp) = ui.space(&space) else { return "nowhere".into() };
-    let name = |id: &str| -> String {
-        cx.try_global::<Env>()
-            .and_then(|e| e.store.read(cx).agent(id).map(|a| a.name.clone()))
-            .unwrap_or_else(|| id.to_string())
-    };
-    let next = neighbour(&sp.layout, &pane).map(|(side, agent)| {
-        let rel = match side {
-            Side::Right => "right of",
-            Side::Left => "left of",
-            Side::Top => "above",
-            Side::Bottom => "below",
-        };
-        format!("{rel} {}'s terminal", name(&agent))
-    });
-    let at = next.unwrap_or_else(|| "in the layout".into());
-    format!("a files tile {at} in space {} (window {})", sp.name, ui.window_of_space(&space))
+    let at = whereabouts(&sp.layout, &pane, anchor(owner, cx).as_deref()).words(&|id: &str| agent_name(id, cx));
+    format!("a files tile in space {} (window {}), {at}", sp.name, ui.window_of_space(&space))
 }
 
-/// The terminal tile next to tile `pane` in its split, and which side of
-/// it the tile is on.
-pub fn neighbour(layout: &crate::main_screen::tree::Node, pane: &str) -> Option<(Side, String)> {
-    use crate::main_screen::tree::{Dir, Node};
-    fn rec(n: &Node, pane: &str) -> Option<(Side, String)> {
-        let Node::Split { dir, children, .. } = n else { return None };
-        if let Some(i) = children.iter().position(|c| c.id() == pane) {
-            let first_agent = |c: &Node, last: bool| {
-                let ls = c.leaves();
-                let it: Box<dyn Iterator<Item = _>> = if last { Box::new(ls.into_iter().rev()) } else { Box::new(ls.into_iter()) };
-                it.filter_map(|p| p.agent_id).next()
-            };
-            // The one before it: the tile is right of / below it.
-            if let Some(a) = i.checked_sub(1).and_then(|j| first_agent(&children[j], true)) {
-                return Some((if *dir == Dir::Row { Side::Right } else { Side::Bottom }, a));
-            }
-            if let Some(a) = children.get(i + 1).and_then(|c| first_agent(c, false)) {
-                return Some((if *dir == Dir::Row { Side::Left } else { Side::Top }, a));
-            }
-            return None;
-        }
-        children.iter().find_map(|c| rec(c, pane))
-    }
-    rec(layout, pane)
+/// Where agent `owner`'s files tile is (see [`whereabouts`]).
+pub fn whereabouts_of(owner: &str, cx: &App) -> Option<Whereabouts> {
+    let ui = crate::ui_state::get(cx);
+    let (space, pane) = ui.files_tile(owner)?;
+    Some(whereabouts(&ui.space(&space)?.layout, &pane, anchor(owner, cx).as_deref()))
+}
+
+/// The terminal agent `owner`'s files tile was placed against.
+fn anchor(owner: &str, cx: &App) -> Option<String> {
+    cx.try_global::<Tiles>()?.anchors.get(owner).cloned()
+}
+
+/// Agent `id`'s name (its id when unknown).
+pub fn agent_name(id: &str, cx: &App) -> String {
+    cx.try_global::<Env>()
+        .and_then(|e| e.store.read(cx).agent(id).map(|a| a.name.clone()))
+        .unwrap_or_else(|| id.to_string())
 }
 
 /// The "Dock…" (in a window) / "Move…" (a tile) menu at `at`: `pick` hears
@@ -528,22 +523,4 @@ pub fn menu(
     )
     .with_priority(2)
     .into_any_element()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::main_screen::tree::{build_preset, Node, Preset};
-
-    #[test]
-    fn where_a_tile_is_said_from_its_neighbour() {
-        let t = build_preset(Preset::Two, &["a".into(), "b".into()]);
-        let b = t.find_by_agent("b").unwrap().id;
-        let a = t.find_by_agent("a").unwrap().id;
-        let files = Node::files_pane("a");
-        let right = crate::main_screen::tree::split_with(&t, &b, Side::Right, &files, 0.4);
-        assert_eq!(neighbour(&right, files.id()), Some((Side::Right, "b".to_string())));
-        let above = crate::main_screen::tree::split_with(&t, &a, Side::Top, &files, 0.4);
-        assert_eq!(neighbour(&above, files.id()), Some((Side::Top, "a".to_string())));
-    }
 }
