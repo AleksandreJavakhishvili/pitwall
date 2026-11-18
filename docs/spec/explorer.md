@@ -1,10 +1,11 @@
-# Code explorer (read-only)
+# Code explorer
 
 Browse, read and search the files of the folder an agent works in, the way
-VS Code's Explorer and Search do, without leaving Pitwall. **Strictly
-read-only**: the user never edits files here (agents do). There is no typing
-into a file, save, create, rename, move or delete, and no "Open in editor"
-(dropped: the user doesn't edit files). "Copy path" is the one way out.
+VS Code's Explorer and Search do, without leaving Pitwall. Agents do the
+work; the user can make **quick fixes while reading** (see "Editing"
+below): type in a text file and save it. It is not an IDE: there is no
+create, rename, move or delete, no "Open in editor", and agents never get a
+way to write through it. "Copy path" is the one way out.
 
 Status: built (backend, API and UI).
 
@@ -30,8 +31,9 @@ Status: built (backend, API and UI).
   change letter, size, "Copy path" and, for a changed file, "Show diff",
   which opens Review on that agent and file. Binary files say so; files over
   2 MiB say "Large file · 3.3 MB · not opened" with **Load anyway** (up to
-  10 MiB). An open file that changed on disk shows "Changed on disk since it
-  was opened · Reload".
+  10 MiB). An open file that changed on disk is read again quietly (the
+  view keeps its scroll position and caret) unless it has unsaved changes
+  (see "Editing").
 - **⌘P quick open**: a palette-style fuzzy file picker over the agent's files
   (`list_all_files`, ignores respected), filtered in the UI (`lib/explorer.ts`
   `quickOpen`: file-name substrings first, then word starts and runs; an
@@ -127,8 +129,50 @@ Status: built (backend, API and UI).
   100 000 paths for quick open) and search (above). Search arguments are
   passed as argv after `--` / `-e`, never through a shell. Globs are passed
   to the tool (rg `-g`, git `:(glob)` pathspecs).
-- Read-only. The explorer calls only `ls-files`, `diff`, `grep`, `rg`,
-  `real_path`, `stat`, `list_dir` and `read_file`. It starts nothing else.
+- The explorer calls only `ls-files`, `diff`, `grep`, `rg`, `real_path`,
+  `stat`, `list_dir` and `read_file`. It starts nothing else. The one write
+  is the user's own save (`write_file`, below).
+
+## Editing
+
+On by default (`agents.editFiles`; off: the viewer is read-only). Quick
+fixes, not an IDE.
+
+- **What can be edited**: a text file of an agent on this computer
+  (`ProviderCaps::local_process`; never another machine's agent, nor one
+  shown here from a peer) or of a folder on this computer (a `path:` root),
+  valid UTF-8, up to 2 MiB, inside the folder. Images, binary files, files
+  over 2 MiB (also when loaded anyway), files that aren't UTF-8 and ⌘-clicked
+  files outside the folder stay read-only, and the header says why
+  ("Read-only · on another machine"); typing says so too.
+- **The editor** (`code_view/edit.rs`, `buffer.rs`): caret, typing and input
+  methods (composition, any script; measured by the shaper), selection by
+  mouse (double and triple click) and keys, cut/copy/paste, undo and redo in
+  steps (a typing run, a composition, a paste, a whole Replace All), Tab and
+  Shift-Tab in the file's own indentation (over every selected line), Enter
+  keeping the line's indentation, Find plus Replace and Replace All (⌥⌘F /
+  Ctrl+H; `$1` in a regular expression). Each line keeps its own line break
+  and the final newline stays as it was; new line breaks take the file's
+  own. An edit re-lays out only the lines it touched; highlighting is redone
+  in the background 150 ms after typing stops. Diffs stay read-only.
+- **Saving**: ⌘S / Ctrl+S. `write_file(agent, path, text, base)` writes only
+  an existing file inside the resolved root (symlinks followed and checked,
+  as reads), atomically: a temporary file in the same folder, the file's
+  permissions copied, renamed over it. `base` is the text as read: when the
+  file on disk differs, nothing is written and the viewer asks.
+- **Unsaved changes**: a dot on the tab. Closing the tab, the pane beside
+  the terminal or the window, "Open in window", "Dock beside terminal" and
+  quitting Pitwall ask first: Save / Don't Save / Cancel.
+- **Changed on disk** (the agent edited it): with nothing unsaved it is read
+  again quietly. With unsaved changes neither side is overwritten: a bar
+  offers **Keep mine** (a save then writes over what is on disk),
+  **Take theirs** (the edits are dropped) and **Show difference** (the file
+  on disk against the edits). A save that finds the file changed since it
+  was read writes nothing and shows the same bar ("Save mine").
+- **Markdown**: edited in Code; Preview follows the edits.
+- **Agents** can't write through Pitwall: `show_files` / `show_folder` and
+  `pitwall open` only display, and nothing is sent to an agent when the user
+  saves.
 
 ## Capabilities
 - `AgentCaps.explorer` = provider `exec` (it works outside git repos too).
