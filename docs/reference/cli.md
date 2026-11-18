@@ -86,7 +86,7 @@ These work with every command.
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
 - [`peers`](#peers): Your other machines' Pitwalls over Tailscale (read-only): see their agents here. Only machines of your own Tailscale user; works on Pitwall's data folder directly, without the app
-- [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (read-only): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens beside the agent's terminal while you are in Pitwall, in a window of its own while you are in another app, without bringing Pitwall forward. Off with `agents.showFiles`
+- [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens beside the agent's terminal while you are in Pitwall, in a window of its own while you are in another app, without bringing Pitwall forward. Off with `agents.showFiles`
 - [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files` and `show_folder` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
 
@@ -1085,7 +1085,7 @@ pitwall peers set [OPTIONS]
 
 ## open
 
-Show files or a folder to the user in Pitwall's file viewer (read-only): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens beside the agent's terminal while you are in Pitwall, in a window of its own while you are in another app, without bringing Pitwall forward. Off with `agents.showFiles`.
+Show files or a folder to the user in Pitwall's file viewer (it only displays; the user may edit and save there): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens beside the agent's terminal while you are in Pitwall, in a window of its own while you are in another app, without bringing Pitwall forward. Off with `agents.showFiles`.
 
 ```bash
 pitwall open [OPTIONS] [FILE]...

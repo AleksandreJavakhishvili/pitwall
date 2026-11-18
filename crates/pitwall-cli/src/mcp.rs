@@ -36,7 +36,7 @@ impl Opener for SocketOpener {
     }
 }
 
-const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user, read-only; they don't give you the contents.";
+const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you.";
 
 const WHERE: &str = "Where the user sees it: beside (a pane split next to your terminal, in the Pitwall window that shows you) or window (a separate window, for another screen or another app). Leave it out and Pitwall picks: beside while the user is in Pitwall, a window when they are in another app. A later call adds to the same pane or window.";
 const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: your working folder.";
@@ -50,7 +50,7 @@ pub fn tools() -> Value {
         {
             "name": TOOL_SHOW_FILES,
             "title": "Show files in Pitwall",
-            "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in a read-only file viewer next to your terminal (or in a window of its own), scrolled to the line and marked when one is given. Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
+            "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in Pitwall's file viewer next to your terminal (or in a window of its own), scrolled to the line and marked when one is given. It only displays: it gives you no contents and no way to change files (the user may edit and save there themselves; nothing comes back to you). Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -71,7 +71,7 @@ pub fn tools() -> Value {
         {
             "name": TOOL_SHOW_FOLDER,
             "title": "Show a folder in Pitwall",
-            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in a read-only file viewer next to your terminal (or in a window of its own). Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
+            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's file viewer next to your terminal (or in a window of its own). It only displays. Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

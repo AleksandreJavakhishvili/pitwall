@@ -276,7 +276,7 @@ pub fn show_files_rule_text(cli: &str) -> String {
 This session runs inside Pitwall. When the user asks to see a file, a folder or an image (\"open it\", \"show me that\"), run:\n\n```sh\n\
     {cli} open <file>[:line[:column]] [more files]\n\
     {cli} open --folder <folder>\n```\n\n\
-It shows them in Pitwall's read-only file viewer, beside this terminal or in a window of its own (`--where beside|window`), and says where. Only when the user asks; it changes nothing.\n"
+It shows them in Pitwall's file viewer, beside this terminal or in a window of its own (`--where beside|window`), and says where. Only when the user asks; it changes nothing and gives you nothing back.\n"
     )
 }
 

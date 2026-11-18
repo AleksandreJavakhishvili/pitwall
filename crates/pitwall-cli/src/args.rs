@@ -63,9 +63,10 @@ pub enum Command {
     /// Pitwall's data folder directly, without the app.
     #[command(subcommand)]
     Peers(PeersCmd),
-    /// Show files or a folder to the user in Pitwall's file viewer
-    /// (read-only): files as tabs (`path:line[:col]` opens at a line), a
-    /// folder or a whole worktree as a tree with each file's git status.
+    /// Show files or a folder to the user in Pitwall's file viewer (it
+    /// only displays; the user may edit and save there): files as tabs
+    /// (`path:line[:col]` opens at a line), a folder or a whole worktree as
+    /// a tree with each file's git status.
     /// Opens beside the agent's terminal while you are in Pitwall, in a
     /// window of its own while you are in another app, without bringing
     /// Pitwall forward. Off with `agents.showFiles`.
