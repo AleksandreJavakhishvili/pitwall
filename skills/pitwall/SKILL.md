@@ -181,6 +181,12 @@ computer can be shown. Agents Pitwall starts (Claude Code, Codex) have the
 same as MCP tools (`show_files`, `show_folder`). Off with
 `agents.showFiles false` (then `open` refuses).
 
+Without `--root`, files come from the folder the agent works in now (where
+its hooks last said it was, so a worktree it entered mid-session), shown in
+the git worktree that holds it, with that worktree's branch and status. When
+you work in another worktree than the one you started in, give `--root`
+(its path) to be sure.
+
 ## Projects
 
 ```bash

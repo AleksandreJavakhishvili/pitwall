@@ -36,11 +36,11 @@ impl Opener for SocketOpener {
     }
 }
 
-const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you.";
+const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's.";
 
 const WHERE: &str = "Where the user sees it: right, left, above or below (a files tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default) or window (a separate window of its own, when the user asks for it separately). Leave it out unless the user says where: a later call then adds to the same files view wherever it is (the user may have moved it, or popped it out to a window); naming a place moves it there. The user can drag it between the layout and a window either way.";
 const OF: &str = "Whose terminal `where` is next to: another agent in the same Pitwall space, by name (\"put it above the web terminal\"). Default: yours.";
-const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: your working folder.";
+const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: the folder you work in now, as far as Pitwall can tell (else the one you started in); when you work in another worktree or folder than the one you started in, give its path here.";
 
 /// `tools/list`'s tools.
 pub fn tools() -> Value {
@@ -77,7 +77,7 @@ pub fn tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "folder": { "type": "string", "description": "The folder to show: absolute, or relative to root. Leave it out to show root itself (or your working folder)." },
+                    "folder": { "type": "string", "description": "The folder to show: absolute, or relative to root. Leave it out to show root itself (or the folder you work in now)." },
                     "root": { "type": "string", "description": ROOT },
                     "where": { "type": "string", "enum": ["right", "left", "above", "below", "window"], "description": WHERE },
                     "of": { "type": "string", "description": OF }

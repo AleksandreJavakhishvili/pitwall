@@ -585,6 +585,14 @@ fn explorer_seams(
                     review.update(cx, |r, cx| r.open_at(Some(focus), window, cx));
                     s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
                 }
+                // Review on that worktree's file (a folder Review lists).
+                ExplorerEvent::ShowWorktreeDiff { root, path } => {
+                    let list = crate::main_screen::wt_list::WorktreeList::of(window, cx);
+                    let Some((project_id, wt)) = worktree_at(&list.read(cx).projects, root) else { return };
+                    let focus = crate::review::Focus::Worktree { project_id, path: wt, file: Some(path.clone()) };
+                    review.update(cx, |r, cx| r.open_at(Some(focus), window, cx));
+                    s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
+                }
                 // `MainView::one_modal` answers it.
                 ExplorerEvent::QuickOpened => {}
             }
@@ -680,6 +688,14 @@ impl Render for MainView {
             .children(crate::frame_stats::probe());
         crate::platform::decorations::frame(root, window, cx)
     }
+}
+
+/// The listed worktree whose folder is `root`: (its project's id, its path).
+fn worktree_at(projects: &[pitwall_proto::ProjectWorktrees], root: &str) -> Option<(String, String)> {
+    let root = root.trim_end_matches('/');
+    projects
+        .iter()
+        .find_map(|p| p.worktrees.iter().find(|w| w.path.trim_end_matches('/') == root).map(|w| (p.id.clone(), w.path.clone())))
 }
 
 #[cfg(test)]

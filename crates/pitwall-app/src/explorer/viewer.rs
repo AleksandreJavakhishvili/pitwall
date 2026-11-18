@@ -1541,7 +1541,10 @@ impl Viewer {
         let read_only = self.docs.get(active).and_then(|d| d.view.as_ref()).and_then(|_| self.edit_block(active, cx));
         let saving = self.docs.get(active).is_some_and(|d| d.saving);
         // (Review is a Pitwall window's: not from a window of its own.)
-        let can_diff = status.is_some() && a.is_some_and(|a| a.caps.review) && self.host != Host::Window;
+        // (A folder of its own: Review on its worktree, when it lists it.)
+        let can_diff = status.is_some()
+            && (a.is_some_and(|a| a.caps.review) || super::source::root_of_key(&self.agent_id).is_some())
+            && self.host != Host::Window;
         let diff_path = active.to_string();
         div()
             .flex_none()

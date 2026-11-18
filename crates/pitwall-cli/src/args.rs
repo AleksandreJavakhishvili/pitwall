@@ -509,7 +509,8 @@ pub struct OpenArgs {
     #[arg(long, value_name = "DIR")]
     pub folder: Option<String>,
     /// What relative paths are in: a folder, or a worktree of the agent's
-    /// repository by its folder name or branch.
+    /// repository by its folder name or branch. Default: this folder, shown
+    /// in the git worktree it is in.
     #[arg(long, value_name = "DIR|WORKTREE")]
     pub root: Option<String>,
     /// Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this

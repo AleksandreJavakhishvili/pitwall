@@ -92,8 +92,8 @@ pub fn register(cx: &mut App) {
 pub enum Focus {
     /// An agent (and one of its files).
     Agent { id: String, path: Option<String> },
-    /// One worktree of a project.
-    Worktree { project_id: String, path: String },
+    /// One worktree of a project (and one of its files).
+    Worktree { project_id: String, path: String, file: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,7 +361,7 @@ impl ReviewView {
                     }
                 }
             }
-            Some(Focus::Worktree { project_id, path }) => {
+            Some(Focus::Worktree { project_id, path, file }) => {
                 let key = model::wt_key(&project_id, &path);
                 self.extra = self
                     .projects
@@ -370,7 +370,7 @@ impl ReviewView {
                     .map(|p| p.agent_ids.clone())
                     .unwrap_or_default();
                 self.wt_open.insert(key.clone());
-                self.sel = Sel::Worktree { key, path: None };
+                self.sel = Sel::Worktree { key, path: file };
                 // A worktree is the project's: list the project around it.
                 if self.breadth == Breadth::Agent {
                     self.breadth = Breadth::Space;

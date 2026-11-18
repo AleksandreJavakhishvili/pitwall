@@ -160,7 +160,7 @@ impl ReviewRoute {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_at(Some(Focus::Worktree { project_id, path }), window, cx);
+        self.open_at(Some(Focus::Worktree { project_id, path, file: None }), window, cx);
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {

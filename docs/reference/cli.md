@@ -1098,7 +1098,7 @@ pitwall open [OPTIONS] [FILE]...
 | Option | |
 |---|---|
 | `--folder <DIR>` | A folder to show as a tree (relative to --root, default: this folder). With only --root, that folder is shown. |
-| `--root <DIR\|WORKTREE>` | What relative paths are in: a folder, or a worktree of the agent's repository by its folder name or branch. |
+| `--root <DIR\|WORKTREE>` | What relative paths are in: a folder, or a worktree of the agent's repository by its folder name or branch. Default: this folder, shown in the git worktree it is in. |
 | `--agent <AGENT>` | Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this runs in). |
 | `--where <PLACE>` | right, left, above or below (a files tile on that side of the agent's terminal, in the Pitwall window that shows it) or window (a window of its own). Default: where the agent's files are already, else right. (beside: right.). |
 | `--of <AGENT>` | With --where: next to this agent's terminal (id or name, in the same space) instead. |

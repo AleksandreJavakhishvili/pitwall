@@ -119,6 +119,8 @@ With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, 
 3. **Shell command via a rule**: no MCP at all. A built-in rule tells the agent to run `pitwall-cli open`.
 4. **Not available**: a plain terminal, or a kind of your own with none of the above.
 
+Files are shown from the folder the agent works in **now**: the `root` it gives, else where its hooks last said it works (so a worktree Claude Code entered mid-session), else the folder it said it works in (`pitwall agent track`) or its process's, else where it started. The tree is the git worktree holding that folder, with that worktree's own branch and git status; a removed worktree is reported as gone. Agents are told to give `root` when they work in another worktree than the one they started in.
+
 | `mcp` | What it does |
 |---|---|
 | `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and the two tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`) in the `--settings` Pitwall passes, so they don't ask each time. |

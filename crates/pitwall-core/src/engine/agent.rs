@@ -93,6 +93,11 @@ pub struct Agent {
     /// `rec.cwd` resolved on its machine (symlinks, letter case), for
     /// matching worktree paths; (cwd it was resolved from, result).
     pub real_cwd: Option<(String, String)>,
+    /// The folder its latest hook said it works in (the payload's `cwd`):
+    /// it follows the agent into a worktree it enters mid-session or a
+    /// folder it moves to, where `rec.cwd` stays where it started. Not
+    /// kept across Pitwall runs (the next hook says it again).
+    pub hook_cwd: Option<String>,
     /// Its conversation's title should be read again (titles.rs): set on
     /// the events that can change it, cleared when the ticker reads it.
     pub title_wanted: bool,
@@ -151,6 +156,7 @@ impl Agent {
             hook_session: None,
             shell_used: false,
             real_cwd: None,
+            hook_cwd: None,
             // Titles may have changed while Pitwall wasn't running.
             title_wanted: rec_has_session,
             preview: Vec::new(),

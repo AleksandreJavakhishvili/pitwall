@@ -130,6 +130,9 @@ pub fn on_actions<E: InteractiveElement>(el: E, explorer: &Entity<Explorer>) -> 
 pub enum ExplorerEvent {
     /// "Show diff": open Review on this agent and file (Review's seam).
     ShowDiff { agent_id: String, path: String },
+    /// "Show diff" in a viewer reading a folder of its own (`path:`, a
+    /// worktree an agent works in now): Review on that worktree and file.
+    ShowWorktreeDiff { root: String, path: String },
     /// The viewer opened or closed (the right panel hides while it shows).
     ViewerToggled,
     /// Quick open (⌘P) opened: the window shows one modal at a time.
@@ -531,11 +534,13 @@ impl Explorer {
         self.quick_open(key, window, cx);
     }
 
-    /// "Show diff" in a files tile reading `key` (an agent's folder only).
+    /// "Show diff" in a files tile reading `key`: Review on the agent's
+    /// file, or on the worktree a `path:` key reads.
     pub(crate) fn show_diff_of(&mut self, key: &str, path: &str, cx: &mut Context<Self>) {
-        if source::root_of_key(key).is_none() {
-            cx.emit(ExplorerEvent::ShowDiff { agent_id: key.to_string(), path: path.to_string() });
-        }
+        cx.emit(match source::root_of_key(key) {
+            None => ExplorerEvent::ShowDiff { agent_id: key.to_string(), path: path.to_string() },
+            Some(root) => ExplorerEvent::ShowWorktreeDiff { root: root.to_string(), path: path.to_string() },
+        });
     }
 
     /// A file opened in a files tile reading `key` (quick open lists it

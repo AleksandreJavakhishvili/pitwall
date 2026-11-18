@@ -223,6 +223,11 @@ impl ViewerWindow {
 
     /// The viewer reading `key` (a new one, with the window's title, when
     /// it read another folder).
+    /// What it reads now, and its viewer.
+    pub fn current(&self) -> (&str, &Entity<Viewer>) {
+        (&self.key, &self.viewer)
+    }
+
     pub fn viewer_for(&mut self, key: &str, title: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<Viewer> {
         if self.key != key {
             self.viewer.update(cx, |v, cx| v.hidden(cx));

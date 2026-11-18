@@ -186,6 +186,25 @@ fixes, not an IDE.
   window there. The pointer is followed on the screen (macOS); elsewhere
   "Move…" / "Dock…" list the same places. A later call adds tabs wherever
   the files are; a place named that isn't where they are moves them.
+- **Which folder** an agent's files are shown from: the `root` it gives
+  (a path, or a worktree of its repository by folder name or branch), else
+  where it works **now**, else where it started. "Now" is the `cwd` of its
+  latest hook (it follows Claude Code into a worktree it enters
+  mid-session), else the newest folder it said it works in (`pitwall agent
+  track`), else its process's folder where the provider can tell (a shell
+  the user `cd`s in); the hook's is kept in memory only, so after a
+  restart it is known again from the next hook. Relative paths are taken
+  from that folder itself; the tree shows the git worktree holding it
+  (its own branch, index and status, read with `git -C` there), unless that
+  is the worktree the agent started in (then its own folder, as always). A
+  folder that is gone (a removed worktree) is an error that says so,
+  never a quiet fallback to the start folder. A files view already showing
+  another root for that agent is replaced by the new one: tabs whose file
+  is there under the new root by the same path stay open (the same file in
+  the other worktree), the rest close; while it has unsaved edits the call
+  is refused, telling the agent the user has to save or discard first.
+  Agents are told (tool descriptions, server instructions) to give `root`
+  when they work in another worktree than the one they started in.
 - **Agents** can't write through Pitwall: `show_files` / `show_folder` and
   `pitwall open` only display, and nothing is sent to an agent when the user
   saves.

@@ -324,7 +324,10 @@ pub fn on_hook(engine: &Engine, id: &str, payload: &serde_json::Value) {
         }
     }
     let now = crate::clock::unix_ms();
-    let new = engine.with(id, |a| places.iter().fold(false, |new, p| crate::model::WorkedIn::note(&mut a.rec.worked_in, p, now) | new));
+    let new = engine.with(id, |a| {
+        a.hook_cwd = Some(places[0].clone()).filter(|c| !c.is_empty());
+        places.iter().fold(false, |new, p| crate::model::WorkedIn::note(&mut a.rec.worked_in, p, now) | new)
+    });
     if new == Ok(true) {
         engine.changed(true);
     }

@@ -531,3 +531,21 @@ fn tracking_keeps_the_newest_first_and_untracking_forgets() {
     let w = by_name(&projects[0], "proc");
     assert_eq!((w.agent_id.as_deref(), w.via), (Some(a.as_str()), WorktreeVia::Tracked));
 }
+
+#[test]
+fn where_an_agent_works_now_follows_its_hooks() {
+    let x = fake();
+    let h = Harness::with_exec(vec![claude_at("a", "/r")], x.clone());
+    let now = || crate::show::working_folder(&h.engine, "a");
+    assert_eq!(now(), None, "nothing said yet: only where it started");
+    crate::worktrees::track(&h.engine, "a", "/r/.claude/worktrees/w", true).unwrap();
+    assert_eq!(now().as_deref(), Some("/r/.claude/worktrees/w"), "the folder it said it works in");
+    // It entered another worktree mid-session: its hooks say so, and win.
+    let hook = |cwd: &str| h.engine.ingest_hook("a", &serde_json::json!({"hook_event_name": "PreToolUse", "cwd": cwd}));
+    hook("/r/.claude/worktrees/other/");
+    assert_eq!(now().as_deref(), Some("/r/.claude/worktrees/other"));
+    hook("/r");
+    assert_eq!(now().as_deref(), Some("/r"), "and back");
+    let start = h.engine.agents().iter().find(|a| a.rec.id == "a").unwrap().rec.cwd.clone();
+    assert_eq!(start, "/r", "where it started stays as it was");
+}

@@ -82,49 +82,23 @@ pub fn plan(req: &ViewerShow, agents: &[AgentView]) -> Result<Plan, ErrorBody> {
         return Err(ErrorBody::new(code::UNSUPPORTED, format!("{} runs on another machine: Pitwall can't show its files", agent.name)));
     }
     let local = agent.machine.provider == pitwall_core::provider::ProviderId::LOCAL;
-    let mut key = agent.id.clone();
-    let mut root = root_of(agent);
-    let mut folder = None;
-    if let Some(f) = req.folder.as_deref().map(Path::new) {
-        match rel_in(&root, f) {
-            Some(rel) => folder = Some(rel),
-            None => {
-                // The agent working there (the deepest folder that holds it).
-                let there = agents
-                    .iter()
-                    .filter(|o| !crate::agents::mirrored(o) && o.machine.provider == agent.machine.provider && o.machine.id == agent.machine.id)
-                    .filter(|o| o.caps.explorer)
-                    .filter_map(|o| {
-                        let r = root_of(o);
-                        rel_in(&r, f).map(|rel| (o, r, rel))
-                    })
-                    .max_by_key(|(_, r, _)| r.as_os_str().len());
-                match there {
-                    Some((o, r, rel)) => {
-                        key = o.id.clone();
-                        root = r;
-                        folder = Some(rel);
-                    }
-                    // Any folder on this computer.
-                    None if local => {
-                        key = path_key(&f.to_string_lossy());
-                        root = f.to_path_buf();
-                        folder = Some(String::new());
-                    }
-                    None => {
-                        return Err(ErrorBody::new(
-                            code::UNSUPPORTED,
-                            format!(
-                                "{} is outside {}'s folder and no agent in Pitwall works there; on another computer the viewer shows agents' folders (its files can still be shown one by one)",
-                                f.display(),
-                                agent.name
-                            ),
-                        ))
-                    }
-                }
-            }
-        }
-    }
+    // The viewer's folder: the root the server settled on (asked for, or
+    // the worktree the agent works in now), else the folder asked for.
+    let wanted = req.root.as_deref().or(req.folder.as_deref()).map(Path::new);
+    let (key, root, rel) = match wanted {
+        None => (agent.id.clone(), root_of(agent), None),
+        Some(f) => viewer_of(agent, f, agents, local)?,
+    };
+    let folder = match (req.folder.as_deref().map(Path::new), req.root.is_some()) {
+        (None, _) => None,
+        (Some(_), false) => rel,
+        (Some(f), true) => rel_in(&root, f),
+    };
+    // A folder outside the root (asked for by its full path): its own viewer.
+    let (key, root, folder) = match req.folder.as_deref().map(Path::new) {
+        Some(f) if folder.is_none() => viewer_of(agent, f, agents, local)?,
+        _ => (key, root, folder),
+    };
     if root_of_key(&key).is_none() && !agents.iter().any(|a| a.id == key && a.caps.explorer) {
         return Err(ErrorBody::new(code::UNSUPPORTED, format!("{}'s files can't be read from here", agent.name)));
     }
@@ -276,13 +250,21 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
     };
     handle
         .update(cx, |w, window, cx| {
+            let (key, old) = w.current();
+            let carry = (key != plan.key.as_str()).then(|| replacing(old, &name, &plan.root, cx)).transpose().map_err(err)?;
             let v = w.viewer_for(&plan.key, &title, window, cx);
-            v.update(cx, |v, cx| apply(v, &plan, cx));
+            v.update(cx, |v, cx| {
+                if let Some(c) = &carry {
+                    v.restore(c, cx);
+                }
+                apply(v, &plan, cx);
+            });
             if in_front {
                 window.activate_window();
             }
+            Ok(())
         })
-        .map_err(|_| ErrorBody::new(code::OTHER, "the file viewer window went away"))?;
+        .map_err(|_| ErrorBody::new(code::OTHER, "the file viewer window went away"))??;
     Ok(ViewerShown { agent_id: agent.to_string(), window: title, in_background: !in_front, place: ViewerPlace::Window, at: None, root, note })
 }
 
@@ -300,14 +282,56 @@ fn tile_viewer(agent: &str, key: &str, cx: &mut App) -> Result<Entity<Viewer>, S
     if let Some(v) = dock::viewer(agent, cx).filter(|_| dock::key(agent, cx).as_deref() == Some(key)) {
         return Ok(v);
     }
+    let name = agent_name(agent, cx).unwrap_or_else(|| agent.to_string());
+    let root = super::source::root_of_key(key).map(PathBuf::from).or_else(|| {
+        live_store(cx).and_then(|s| s.read(cx).agent(key).map(root_of))
+    });
+    let carry = match (dock::viewer(agent, cx), root) {
+        (Some(old), Some(root)) => Some(replacing(&old, &name, &root, cx)?),
+        _ => None,
+    };
     let (label, _, _) = dock::holder(agent, cx).ok_or("no files tile")?;
     let h = crate::windows::main_window(&label, cx).ok_or("that Pitwall window is gone")?;
     let v = h
         .update(cx, |_, window, cx| dock::make(agent, key, window, cx))
         .map_err(|_| "that Pitwall window is gone")?
         .ok_or("its files can't be read from here")?;
+    if let Some(c) = &carry {
+        v.update(cx, |v, cx| v.restore(c, cx));
+    }
     dock::adopt(agent, key, v.clone(), cx);
     Ok(v)
+}
+
+/// A viewer showing another folder for agent `name` (another worktree,
+/// say) is about to give way to one showing `root`: refused while it has
+/// unsaved edits (they'd be lost). Otherwise its tabs that are there under
+/// `root` too, by the same path, carry over (the same file in the other
+/// worktree); the rest close.
+fn replacing(old: &Entity<Viewer>, name: &str, root: &Path, cx: &App) -> Result<super::viewer::Opened, String> {
+    let v = old.read(cx);
+    let unsaved = v.unsaved(cx);
+    if !unsaved.is_empty() {
+        return Err(format!(
+            "{name}'s files view shows {} with unsaved edits ({}): the user has to save or discard them before it shows {}",
+            v.root(cx).map(|r| pitwall_core::paths::tildify(&r)).unwrap_or_default(),
+            unsaved.join(", "),
+            pitwall_core::paths::tildify(&root.to_string_lossy())
+        ));
+    }
+    Ok(carried(&v.opened(), root))
+}
+
+/// The tabs of `o` that name a file under `root` (relative ones by the
+/// same path there).
+fn carried(o: &super::viewer::Opened, root: &Path) -> super::viewer::Opened {
+    let there = |t: &String| {
+        let p = Path::new(t);
+        (if p.is_absolute() { p.to_path_buf() } else { root.join(p) }).is_file()
+    };
+    let tabs: Vec<String> = o.tabs.iter().filter(|t| there(t)).cloned().collect();
+    let active = o.active.clone().filter(|a| tabs.contains(a));
+    super::viewer::Opened { tabs, active, pane_files: o.pane_files }
 }
 
 /// Agent `id`'s name when it is shown here from another machine.
@@ -315,6 +339,38 @@ pub fn mirrored(id: &str, cx: &App) -> Option<String> {
     let store = live_store(cx)?;
     let s = store.read(cx);
     s.agents.iter().find(|a| (a.id == id || a.name.eq_ignore_ascii_case(id)) && crate::agents::mirrored(a)).map(|a| a.name.clone())
+}
+
+/// Which viewer shows folder `f` for `agent`: its own (when `f` is in its
+/// folder), else the agent's working there (the deepest folder that holds
+/// it), else `f` itself on this computer. With `f` relative to that root.
+fn viewer_of(agent: &AgentView, f: &Path, agents: &[AgentView], local: bool) -> Result<(String, PathBuf, Option<String>), ErrorBody> {
+    let root = root_of(agent);
+    if let Some(rel) = rel_in(&root, f) {
+        return Ok((agent.id.clone(), root, Some(rel)));
+    }
+    let there = agents
+        .iter()
+        .filter(|o| !crate::agents::mirrored(o) && o.machine.provider == agent.machine.provider && o.machine.id == agent.machine.id)
+        .filter(|o| o.caps.explorer)
+        .filter_map(|o| {
+            let r = root_of(o);
+            rel_in(&r, f).map(|rel| (o, r, rel))
+        })
+        .max_by_key(|(_, r, _)| r.as_os_str().len());
+    match there {
+        Some((o, r, rel)) => Ok((o.id.clone(), r, Some(rel))),
+        // Any folder on this computer.
+        None if local => Ok((path_key(&f.to_string_lossy()), f.to_path_buf(), Some(String::new()))),
+        None => Err(ErrorBody::new(
+            code::UNSUPPORTED,
+            format!(
+                "{} is outside {}'s folder and no agent in Pitwall works there; on another computer the viewer shows agents' folders (its files can still be shown one by one)",
+                f.display(),
+                agent.name
+            ),
+        )),
+    }
 }
 
 /// `a`'s folder as the server's resolved paths spell it: links followed on
@@ -424,6 +480,40 @@ mod tests {
         assert!(crate::agents::mirrored(&far[0]));
         let e = plan(&req(Some(d.at("elsewhere")), vec![]), &far).unwrap_err();
         assert!(e.message.contains("another machine"), "{}", e.message);
+    }
+
+    /// The server settled on another worktree (asked for, or where the
+    /// agent works now): the viewer reads that worktree (its tree, its git
+    /// state), not the folder the agent started in.
+    #[test]
+    fn a_root_is_the_folder_the_viewer_reads() {
+        let d = Dirs::new("root");
+        let agents = d.agents();
+        let file = |p: &str| OpenedFile { path: d.at(p), line: None, column: None };
+        let rooted = |root: &str, folder: Option<String>, files| ViewerShow { root: Some(d.at(root)), ..req(folder, files) };
+        // Nobody else works in `elsewhere`: that folder, read on its own.
+        let p = plan(&rooted("elsewhere", None, vec![file("elsewhere/docs/x.md")]), &agents).unwrap();
+        assert_eq!((p.key, p.folder), (path_key(&d.at("elsewhere")), None));
+        assert_eq!(p.files, vec![("docs/x.md".to_string(), None)]);
+        // Where a2 works: a2's; a folder in it, revealed.
+        let p = plan(&rooted("api-fix", Some(d.at("api-fix/lib")), vec![]), &agents).unwrap();
+        assert_eq!((p.key.as_str(), p.folder.as_deref()), ("a2", Some("lib")));
+        // Its own folder (or one in it): as without a root.
+        let p = plan(&rooted("api/src", None, vec![file("api/src/a.rs")]), &agents).unwrap();
+        assert_eq!((p.key.as_str(), p.files[0].0.as_str()), ("a1", "src/a.rs"));
+    }
+
+    #[test]
+    fn tabs_carry_over_to_another_worktree_when_the_file_is_there() {
+        let d = Dirs::new("carry");
+        std::fs::write(d.root.join("api-fix/lib/x.rs"), "x").unwrap();
+        let o = super::super::viewer::Opened {
+            tabs: vec!["lib/x.rs".into(), "src/only-here.rs".into(), d.at("elsewhere/docs")],
+            active: Some("src/only-here.rs".into()),
+            pane_files: true,
+        };
+        let c = carried(&o, &d.root.join("api-fix"));
+        assert_eq!((c.tabs, c.active), (vec!["lib/x.rs".to_string()], None));
     }
 
     /// A later call adds to the agent's files tile: the same viewer, one
