@@ -207,7 +207,8 @@ pub fn active_or_main(cx: &mut App) -> Option<WindowHandle<MainView>> {
 }
 
 /// The open Pitwall window that shows agent `agent` in one of its spaces
-/// (of several, the frontmost): where files go beside its terminal. `None`
+/// (of several, the frontmost): where its files tile goes, next to its
+/// terminal's slot. `None`
 /// when no open window shows it. Nothing is opened or activated here.
 pub fn showing(agent: &str, cx: &mut App) -> Option<(String, WindowHandle<MainView>)> {
     let ui = crate::ui_state::get(cx);
@@ -230,6 +231,34 @@ pub fn showing(agent: &str, cx: &mut App) -> Option<(String, WindowHandle<MainVi
     let label = frontmost_showing(&order, &showing)?.to_string();
     let handle = state(cx).handle(&label)?;
     Some((label, handle))
+}
+
+/// The open Pitwall window `label`.
+pub fn main_window(label: &str, cx: &mut App) -> Option<WindowHandle<MainView>> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    state(cx).handle(label).filter(|h| live.contains(&h.window_id()))
+}
+
+/// The open Pitwall windows front to back, with their frames (only those
+/// that can take a drop: shown, on this Space).
+pub fn frames_front_to_back(cx: &mut App) -> Vec<(String, WindowHandle<MainView>, Bounds<Pixels>)> {
+    let Some(w) = cx.try_global::<Windows>() else { return vec![] };
+    let open = w.open.clone();
+    let ids: Vec<(String, WindowId)> = open.iter().map(|(l, h)| (l.clone(), h.window_id())).collect();
+    let stack = cx.window_stack().map(|s| s.iter().map(|w| w.window_id()).collect());
+    let active = cx.active_window().map(|w| w.window_id());
+    let mut out = vec![];
+    for label in front_to_back(&ids, stack, active) {
+        let Some((_, h)) = open.iter().find(|(l, _)| *l == label) else { continue };
+        let frame = h
+            .update(cx, |_, w, _| (cfg!(test) || crate::platform::visible::window_visible(w)).then(|| w.bounds()))
+            .ok()
+            .flatten();
+        if let Some(f) = frame {
+            out.push((label, *h, f));
+        }
+    }
+    out
 }
 
 /// [`showing`]'s choice among the open windows `order` (front to back):

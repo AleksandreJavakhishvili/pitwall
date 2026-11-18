@@ -1,7 +1,8 @@
-//! Unsaved edits across the app's file viewers (the full viewer, the panes
-//! beside terminals, the windows of their own): quitting Pitwall asks
-//! first (Save / Don't Save / Cancel), as closing a tab, a pane or a
-//! window does in the viewer itself.
+//! Unsaved edits across the app's file viewers (the full viewer, the files
+//! tiles in the layout, the windows of their own): quitting Pitwall asks
+//! first (Save / Don't Save / Cancel), as closing a tab, a tile or a
+//! window does in the viewer itself. Moving files between a tile and a
+//! window asks nothing: the same viewer moves.
 
 use gpui::{App, Entity, Global, WeakEntity};
 

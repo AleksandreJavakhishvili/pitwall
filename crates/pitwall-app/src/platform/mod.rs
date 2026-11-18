@@ -448,6 +448,17 @@ pub fn float_resize(window: &mut Window, cx: &mut App, moved: impl FnMut(f32, f3
     }
 }
 
+/// Follow the pointer, pressed in `window`, until it is let go, across
+/// windows and outside them (files dragged into a Pitwall window's layout:
+/// `crate::explorer::drag`): `moved` hears how far it is from where it
+/// was pressed, in points (y down), `done` that it was let go. Polled on
+/// macOS, as [`float_resize`] is (the drag is not this window's once it
+/// leaves it). `false` where that isn't done here (not macOS): the caller
+/// offers the "Dock…" menu instead.
+pub fn track_pointer(window: &mut Window, cx: &mut App, moved: impl FnMut(f32, f32, &mut App) + 'static, done: impl FnOnce(&mut App) + 'static) -> bool {
+    float_resize(window, cx, moved, done)
+}
+
 /// The pointer shapes the floating control asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatCursor {

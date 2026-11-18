@@ -516,11 +516,16 @@ pub struct OpenArgs {
     /// runs in).
     #[arg(long, value_name = "AGENT")]
     pub agent: Option<String>,
-    /// beside (a pane next to the agent's terminal, in the Pitwall window
-    /// that shows it) or window (a window of its own). Default: window,
-    /// or beside if the files are docked there already.
-    #[arg(long = "where", value_name = "PLACE", value_parser = ["beside", "window"])]
+    /// right, left, above or below (a files tile on that side of the
+    /// agent's terminal, in the Pitwall window that shows it) or window (a
+    /// window of its own). Default: where the agent's files are already,
+    /// else right. (beside: right.)
+    #[arg(long = "where", value_name = "PLACE", value_parser = ["right", "left", "above", "below", "window", "beside"])]
     pub place: Option<String>,
+    /// With --where: next to this agent's terminal (id or name, in the same
+    /// space) instead.
+    #[arg(long, value_name = "AGENT")]
+    pub of: Option<String>,
 }
 
 #[derive(Debug, Args, PartialEq)]
@@ -758,11 +763,14 @@ mod tests {
                 root: Some("fix/login".into()),
                 agent: Some("api".into()),
                 place: Some("window".into()),
+                of: None,
             })
         );
         let Command::Open(o) = parse(&["open", "--folder", "src"]).unwrap().command else { panic!() };
         assert_eq!((o.folder.as_deref(), o.files.len(), o.place), (Some("src"), 0, None));
-        assert!(parse(&["open", "a", "--where", "tab"]).is_err(), "beside or window");
+        assert!(parse(&["open", "a", "--where", "tab"]).is_err(), "right, left, above, below or window");
+        let Command::Open(o) = parse(&["open", "a", "--where", "above", "--of", "web"]).unwrap().command else { panic!() };
+        assert_eq!((o.place.as_deref(), o.of.as_deref()), (Some("above"), Some("web")));
         assert_eq!(parse(&["mcp"]).unwrap().command, Command::Mcp);
         let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(

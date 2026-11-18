@@ -1052,6 +1052,7 @@ impl pitwall_daemon::ViewerBackend for MemViewer {
             window: "pitwall-2".into(),
             in_background: true,
             place: req.place.unwrap_or_default(),
+            at: None,
             root: "/w".into(),
             note: None,
         })

@@ -38,7 +38,8 @@ impl Opener for SocketOpener {
 
 const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you.";
 
-const WHERE: &str = "Where the user sees it: window (a separate window of its own, the default) or beside (a pane split next to your terminal, in the Pitwall window that shows you). Leave it out unless the user says where: it then opens in a window, or beside the terminal if the user docked it there. A later call adds to the same pane or window.";
+const WHERE: &str = "Where the user sees it: right, left, above or below (a files tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default) or window (a separate window of its own, when the user asks for it separately). Leave it out unless the user says where: a later call then adds to the same files view wherever it is (the user may have moved it, or popped it out to a window); naming a place moves it there. The user can drag it between the layout and a window either way.";
+const OF: &str = "Whose terminal `where` is next to: another agent in the same Pitwall space, by name (\"put it above the web terminal\"). Default: yours.";
 const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: your working folder.";
 
 /// `tools/list`'s tools.
@@ -50,7 +51,7 @@ pub fn tools() -> Value {
         {
             "name": TOOL_SHOW_FILES,
             "title": "Show files in Pitwall",
-            "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in Pitwall's file viewer next to your terminal (or in a window of its own), scrolled to the line and marked when one is given. It only displays: it gives you no contents and no way to change files (the user may edit and save there themselves; nothing comes back to you). Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
+            "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in Pitwall's file viewer, a tile next to your terminal in Pitwall's layout (or a window of its own), scrolled to the line and marked when one is given. It only displays: it gives you no contents and no way to change files (the user may edit and save there themselves; nothing comes back to you). Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -61,7 +62,8 @@ pub fn tools() -> Value {
                         "description": "Files to open: absolute, or relative to root. Add :line or :line:column to open at a position (src/main.rs:42)."
                     },
                     "root": { "type": "string", "description": ROOT },
-                    "where": { "type": "string", "enum": ["beside", "window"], "description": WHERE }
+                    "where": { "type": "string", "enum": ["right", "left", "above", "below", "window"], "description": WHERE },
+                    "of": { "type": "string", "description": OF }
                 },
                 "required": ["paths"],
                 "additionalProperties": false
@@ -71,13 +73,14 @@ pub fn tools() -> Value {
         {
             "name": TOOL_SHOW_FOLDER,
             "title": "Show a folder in Pitwall",
-            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's file viewer next to your terminal (or in a window of its own). It only displays. Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
+            "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's file viewer, a tile next to your terminal in Pitwall's layout (or a window of its own). It only displays. Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "folder": { "type": "string", "description": "The folder to show: absolute, or relative to root. Leave it out to show root itself (or your working folder)." },
                     "root": { "type": "string", "description": ROOT },
-                    "where": { "type": "string", "enum": ["beside", "window"], "description": WHERE }
+                    "where": { "type": "string", "enum": ["right", "left", "above", "below", "window"], "description": WHERE },
+                    "of": { "type": "string", "description": OF }
                 },
                 "additionalProperties": false
             },
@@ -99,9 +102,9 @@ pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Viewer
     };
     let place = match text("where")? {
         None => None,
-        Some(w) => Some(ViewerPlace::parse(&w).ok_or_else(|| format!("`where` is beside or window, not {w}"))?),
+        Some(w) => Some(ViewerPlace::parse(&w).ok_or_else(|| format!("`where` is right, left, above, below or window, not {w}"))?),
     };
-    let mut req = ViewerOpen { agent_id: agent, root: text("root")?, place, ..Default::default() };
+    let mut req = ViewerOpen { agent_id: agent, root: text("root")?, place, of: text("of")?, ..Default::default() };
     match tool {
         TOOL_SHOW_FILES => {
             let paths = match args.get("paths") {
@@ -230,7 +233,7 @@ mod tests {
             asked: req.place,
             shown_in: match req.place {
                 Some(ViewerPlace::Window) => "a file viewer window of its own for api, showing /w".into(),
-                _ => "a file viewer beside api's terminal (window main), showing /w".into(),
+                _ => "a files tile right of api's terminal in space Main (window main), showing /w".into(),
             },
             note: None,
         })
@@ -327,7 +330,7 @@ mod tests {
         let ok = fake(opened);
         assert!(text(&ok, call("show_files", json!({}))).contains("`paths` is required"));
         assert!(text(&ok, call("show_files", json!({"paths":[]}))).contains("empty"));
-        assert!(text(&ok, call("show_files", json!({"paths":["a"],"where":"tab"}))).contains("beside or window"));
+        assert!(text(&ok, call("show_files", json!({"paths":["a"],"where":"tab"}))).contains("right, left, above, below or window"));
         assert!(text(&ok, call("rm_rf", json!({}))).contains("no tool"));
         assert!(ok.seen.borrow().is_empty(), "nothing bad reaches Pitwall");
     }

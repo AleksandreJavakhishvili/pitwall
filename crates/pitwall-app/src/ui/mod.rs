@@ -201,7 +201,7 @@ impl MainView {
         if let Some(what) = cmd.strip_prefix("files-window ").filter(|_| cfg!(debug_assertions)) {
             let mut words = what.split_whitespace();
             let event = match words.next() {
-                Some("dock") => crate::explorer::viewer::ViewerEvent::Dock,
+                Some("dock") => crate::explorer::viewer::ViewerEvent::Place(crate::explorer::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right)),
                 Some("pin") => crate::explorer::viewer::ViewerEvent::Pin,
                 _ => return,
             };
@@ -222,19 +222,35 @@ impl MainView {
         // cmd-z, tab…), `goto <line> <col>` (1-based), `find <text>`,
         // `replace-all <with>`, `close-tab`, `close-window`, `keep-mine`,
         // `take-theirs`, `difference`, `state` (on stderr).
+        // (A files tile's viewer when the agent has no window.)
         if let Some(what) = cmd.strip_prefix("files-edit ").filter(|_| cfg!(debug_assertions)) {
             let (agent, rest) = what.split_once(' ').unwrap_or((what, ""));
             let (agent, rest) = (agent.to_string(), rest.to_string());
             cx.defer(move |cx| {
-                let Some(h) = crate::windows::viewer_window(&agent, cx) else {
-                    eprintln!("pitwall-debug: no file viewer window for {agent}");
+                if let Some(h) = crate::windows::viewer_window(&agent, cx) {
+                    let _ = h.update(cx, |w, window, cx| crate::explorer::debug_edit(w.viewer().clone(), &rest, window, cx));
                     return;
-                };
-                let _ = h.update(cx, |w, window, cx| crate::explorer::debug_edit(w.viewer().clone(), &rest, window, cx));
+                }
+                let tile = crate::explorer::dock::viewer(&agent, cx).zip(
+                    crate::explorer::dock::holder(&agent, cx).and_then(|(label, _, _)| crate::windows::main_window(&label, cx)),
+                );
+                match tile {
+                    Some((v, h)) => {
+                        let _ = h.update(cx, |_, window, cx| crate::explorer::debug_edit(v, &rest, window, cx));
+                    }
+                    None => eprintln!("pitwall-debug: no file viewer for {agent}"),
+                }
             });
             return;
         }
-        // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
+        // Debug builds, `files-place …`: moving files between the layout
+        // and windows (`crate::explorer::drag::debug`).
+        if let Some(what) = cmd.strip_prefix("files-place ").filter(|_| cfg!(debug_assertions)) {
+            let what = what.to_string();
+            cx.defer(move |cx| crate::explorer::drag::debug(&what, cx));
+            return;
+        }
+        // `app activate|deactivate|state|top on|off`, `app click|rclick <x> <y>` (debug
         // builds): the app made the active one or not, what the system
         // says of its windows (on stderr), a click in this window.
         if let Some(what) = cmd.strip_prefix("app ").filter(|_| cfg!(debug_assertions)) {
@@ -264,6 +280,10 @@ impl MainView {
                         _ => {}
                     }
                 }
+                // `app top on|off`: this window kept on top or not (a level
+                // change has AppKit draw it, for screenshots, without
+                // activating Pitwall).
+                Some("top") => crate::platform::keep_on_top(window, words.next() == Some("on")),
                 Some(what) => eprintln!("pitwall-debug: app {what}: {}", crate::platform::debug_app(what)),
                 None => {}
             }
@@ -523,14 +543,6 @@ fn explorer_seams(
         });
         panel.unwrap_or_else(|| cx.new(|_| Nothing).into())
     });
-    // The viewers agents opened beside their terminals: the window's.
-    crate::main_screen::register_beside(cx, |agent, window, cx| {
-        let explorer = cx
-            .try_global::<WindowExplorers>()
-            .and_then(|w| w.0.get(&window.window_handle().window_id()))
-            .and_then(|e| e.upgrade())?;
-        explorer.read(cx).beside_view(agent)
-    });
     // The Explorer route is this window's viewer.
     let e = explorer.clone();
     let route = cx.new(|cx| {
@@ -575,17 +587,6 @@ fn explorer_seams(
                 }
                 // `MainView::one_modal` answers it.
                 ExplorerEvent::QuickOpened => {}
-                // The panes are drawn again (the screen draws every frame).
-                ExplorerEvent::BesideChanged => s1.update(cx, |_, cx| cx.notify()),
-                // "Open in window": a window of its own takes it.
-                ExplorerEvent::Undock { agent, key, opened } => {
-                    let (agent, key, opened) = (agent.clone(), key.clone(), opened.clone());
-                    cx.defer(move |cx| {
-                        if let Err(e) = crate::explorer::window::undock(&agent, &key, &opened, cx) {
-                            eprintln!("pitwall: could not open the file viewer window: {e}");
-                        }
-                    });
-                }
             }
         }),
         cx.subscribe(&s2, {

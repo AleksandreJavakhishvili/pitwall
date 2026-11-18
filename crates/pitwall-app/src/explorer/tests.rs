@@ -419,71 +419,187 @@ async fn closing_a_tab_asks_about_unsaved_changes(cx: &mut TestAppContext) {
     viewer.read_with(cx, |v, _| assert!(v.tabs().is_empty()));
 }
 
-/// The pane's Close, "Open in window" and the window's "Dock" only go
-/// once unsaved changes are answered for; so does closing the window.
+/// A files tile's Close only goes once unsaved changes are answered for;
+/// so does closing the window. Moving the files ("Open in window", the
+/// places menu, "Dock right of the terminal") asks nothing: the same viewer
+/// moves, its edits with it.
 #[gpui::test]
-async fn closing_the_pane_or_window_asks_too(cx: &mut TestAppContext) {
+async fn closing_asks_but_moving_keeps_the_edits(cx: &mut TestAppContext) {
     let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
     let events = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = events.clone();
     cx.update(|_, cx| {
         cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
             let name = match e {
-                viewer::ViewerEvent::Close => "close",
-                viewer::ViewerEvent::Undock => "undock",
-                viewer::ViewerEvent::Dock => "dock",
+                viewer::ViewerEvent::Close => "close".to_string(),
+                viewer::ViewerEvent::Undock => "undock".to_string(),
+                viewer::ViewerEvent::Place(p) => format!("{p:?}"),
                 _ => return,
             };
             seen.lock().unwrap().push(name);
         })
         .detach()
     });
-    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Beside, Some("a1".into()), cx));
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Tile, Some("a1".into()), cx));
     open_for_typing(&viewer, "a.txt", 0, cx);
     cx.simulate_input("!");
     redraw(cx);
-    // The pane's buttons, clicked.
-    for (button, answer) in [("ex-close-beside", "Cancel"), ("ex-undock", "Cancel")] {
-        let at = cx.debug_bounds(button).expect(button).center();
-        cx.simulate_click(at, gpui::Modifiers::none());
-        cx.run_until_parked();
-        assert!(cx.has_pending_prompt(), "{button}");
-        cx.simulate_prompt_answer(answer);
-        cx.run_until_parked();
-    }
+    // Close, cancelled: nothing happens.
+    let at = cx.debug_bounds("ex-close-tile").expect("close").center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
     assert!(events.lock().unwrap().is_empty(), "cancelled: nothing happens");
+    // "Open in window": at once, unsaved still.
     let at = cx.debug_bounds("ex-undock").unwrap().center();
     cx.simulate_click(at, gpui::Modifiers::none());
     cx.run_until_parked();
-    cx.simulate_prompt_answer("Save");
-    cx.run_until_parked();
-    assert_eq!(on_disk(&src, "a.txt"), "a!\n");
+    assert!(!cx.has_pending_prompt());
     assert_eq!(*events.lock().unwrap(), ["undock"]);
+    assert!(viewer.read_with(cx, |v, cx| v.unsaved(cx).len()) == 1);
+    // "Move…": the places, one picked.
+    let at = cx.debug_bounds("ex-move").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(viewer.read_with(cx, |v, _| v.place_menu_open()));
+    let at = cx.debug_bounds("files-place-2").expect("above").center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(!viewer.read_with(cx, |v, _| v.place_menu_open()));
+    assert_eq!(events.lock().unwrap().last().map(String::as_str), Some("Next(Top)"));
 
-    // In a window of its own: Dock, and the window's close button.
+    // In a window of its own: "Dock right of the terminal", at once.
     viewer.update(cx, |v, cx| {
         v.set_host(viewer::Host::Window, Some("a1".into()), cx);
         v.set_can_dock(true, cx);
     });
-    cx.simulate_input("?");
     redraw(cx);
     let at = cx.debug_bounds("ex-dock").unwrap().center();
     cx.simulate_click(at, gpui::Modifiers::none());
     cx.run_until_parked();
-    cx.simulate_prompt_answer("Don't Save");
-    cx.run_until_parked();
-    assert_eq!(*events.lock().unwrap(), ["undock", "dock"]);
-    assert_eq!(on_disk(&src, "a.txt"), "a!\n", "not saved");
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(events.lock().unwrap().last().map(String::as_str), Some("Next(Right)"));
+    assert_eq!(on_disk(&src, "a.txt"), "a\n", "not saved: still unsaved");
 
     let v = viewer.downgrade();
     cx.update(|window, cx| viewer::guard_window_close(window, cx, move |_| v.upgrade()));
-    // Still unsaved (Don't Save only let the dock go on): closing asks.
+    // Closing the window asks.
     assert!(!cx.simulate_close(), "kept open while it asks");
     cx.run_until_parked();
     assert!(cx.has_pending_prompt());
     cx.simulate_prompt_answer("Cancel");
     cx.run_until_parked();
-    assert_eq!(on_disk(&src, "a.txt"), "a!\n");
+    assert_eq!(on_disk(&src, "a.txt"), "a\n");
+}
+
+/// A window that draws a files tile's viewer (a Pitwall window's layout,
+/// for these tests).
+struct Holder(Option<gpui::AnyView>);
+
+impl gpui::Render for Holder {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        use gpui::{div, ParentElement, Styled};
+        div().size_full().flex().children(self.0.clone())
+    }
+}
+
+/// One viewer per agent moves between a files tile and windows of its
+/// own, as the same viewer: tabs and unsaved edits go with it, nothing
+/// asks, nothing is written. What the tile has open is kept in `ui.json`
+/// and opened again when the tile is drawn after a restart.
+#[gpui::test]
+async fn files_move_between_a_tile_and_windows_with_their_edits(cx: &mut TestAppContext) {
+    let src = FakeSource::new(&[("a.txt", "a\n"), ("b.txt", "b\n")]);
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::code_view::register(cx);
+        cx.bind_keys(viewer::bindings());
+    });
+    let store = cx.new(|_| AgentStore::new(vec![readable("a1")]));
+    let source: Arc<dyn Source> = src.clone();
+    cx.update(|cx| super::dock::remember_env(Some(source.clone()), &store, cx));
+
+    // A tile in one Pitwall window.
+    let (holder, tile_cx) = cx.add_window_view(|_, _| Holder(None));
+    let viewer = tile_cx.update(|window, cx| super::dock::make("a1", "a1", window, cx)).expect("readable");
+    tile_cx.update(|_, cx| super::dock::adopt("a1", "a1", viewer.clone(), cx));
+    holder.update(tile_cx, |h, cx| {
+        h.0 = Some(viewer.clone().into());
+        cx.notify();
+    });
+    viewer.read_with(tile_cx, |v, _| assert_eq!(v.host(), viewer::Host::Tile));
+    open_for_typing(&viewer, "a.txt", 0, tile_cx);
+    tile_cx.simulate_input("!");
+    redraw(tile_cx);
+    assert_eq!(viewer.read_with(tile_cx, |v, cx| v.unsaved(cx).len()), 1);
+    // What it has open is kept.
+    let kept = tile_cx.update(|_, cx| crate::ui_state::get(cx).docked_files.get("a1").cloned()).expect("kept");
+    assert_eq!((kept.key.as_str(), kept.tabs.clone(), kept.active.as_deref()), ("a1", vec!["a.txt".to_string()], Some("a.txt")));
+
+    // Out to a window of its own: the same viewer, still unsaved.
+    let (key, moved) = tile_cx.update(|_, cx| super::dock::release("a1", cx)).expect("a tile");
+    assert_eq!((key.as_str(), &moved), ("a1", &viewer));
+    holder.update(tile_cx, |h, cx| {
+        h.0 = None;
+        cx.notify();
+    });
+    let (s2, st2) = (source.clone(), store.clone());
+    let v2 = viewer.clone();
+    let win = tile_cx.update(|_, cx| {
+        cx.open_window(gpui::WindowOptions::default(), move |window, cx| {
+            cx.new(|cx| super::window::ViewerWindow::new("a1".into(), "a1".into(), Some(v2), s2, st2, window, cx))
+        })
+        .unwrap()
+    });
+    let win_cx = &mut VisualTestContext::from_window(*win, tile_cx);
+    redraw(win_cx);
+    viewer.read_with(win_cx, |v, cx| {
+        assert_eq!(v.host(), viewer::Host::Window);
+        assert_eq!(v.tabs(), ["a.txt"]);
+        assert_eq!(v.unsaved(cx).len(), 1);
+    });
+    assert!(!win_cx.has_pending_prompt(), "a move asks nothing");
+    // The edit goes on in its new window.
+    open_for_typing(&viewer, "a.txt", 0, win_cx);
+    win_cx.simulate_input("?");
+    redraw(win_cx);
+
+    // Back into a tile (a drop, the menu): the window's viewer moves.
+    let back = win.update(win_cx, |w, _, cx| w.take_viewer(cx)).unwrap();
+    assert_eq!(back, viewer);
+    win_cx.update(|_, cx| super::dock::adopt("a1", "a1", back.clone(), cx));
+    // The window closes without asking: its viewer went.
+    assert!(win_cx.simulate_close(), "closed at once");
+    win_cx.run_until_parked();
+    assert!(!win_cx.has_pending_prompt());
+    holder.update(tile_cx, |h, cx| {
+        h.0 = Some(viewer.clone().into());
+        cx.notify();
+    });
+    redraw(tile_cx);
+    viewer.read_with(tile_cx, |v, cx| {
+        assert_eq!(v.host(), viewer::Host::Tile);
+        assert_eq!(v.unsaved(cx).len(), 1);
+        let state = v.debug_state(cx);
+        assert!(state.contains(r#"text=Some("a!?\n")"#), "{state}");
+    });
+    assert_eq!(on_disk(&src, "a.txt"), "a\n", "nothing written");
+
+    // After a restart: the tile is drawn again from what was kept.
+    viewer.update(tile_cx, |v, cx| v.open("b.txt".into(), None, cx));
+    tile_cx.run_until_parked();
+    tile_cx.update(|_, cx| {
+        super::dock::release("a1", cx);
+    });
+    let again = tile_cx.update(|window, cx| super::dock::view_for("a1", window, cx)).expect("made again");
+    let again = again.downcast::<viewer::Viewer>().unwrap();
+    assert_ne!(again, viewer);
+    again.read_with(tile_cx, |v, _| {
+        assert_eq!(v.tabs(), ["a.txt", "b.txt"]);
+        assert_eq!(v.active(), Some("b.txt"));
+    });
 }
 
 /// Quitting with unsaved changes anywhere asks first; Save writes them

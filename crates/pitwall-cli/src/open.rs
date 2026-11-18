@@ -23,6 +23,7 @@ pub fn request(a: &OpenArgs, cwd: &Path) -> ViewerOpen {
         root: a.root.clone(),
         cwd: Some(cwd.to_string_lossy().into_owned()),
         place: a.place.as_deref().and_then(ViewerPlace::parse),
+        of: a.of.clone(),
     }
 }
 
@@ -51,8 +52,8 @@ pub fn text(o: &ViewerOpened) -> String {
     }
     if o.in_background {
         s.push_str(match o.place {
-            ViewerPlace::Beside => "Pitwall isn't in front, so it opened there without coming forward; the user sees it when they switch to Pitwall.\n",
             ViewerPlace::Window => "The user is in another app: the window opened behind it without taking the keyboard.\n",
+            _ => "Pitwall isn't in front, so it opened there without coming forward; the user sees it when they switch to Pitwall.\n",
         });
     }
     if !o.skipped.is_empty() {
@@ -78,7 +79,7 @@ mod tests {
             folder: None,
             skipped: vec![Skipped { path: "b.rs".into(), reason: "not found".into() }],
             place: ViewerPlace::Window,
-            asked: Some(ViewerPlace::Beside),
+            asked: Some(ViewerPlace::Right),
             shown_in: "a file viewer window of its own for api, showing /w".into(),
             note: Some("api isn't shown in any Pitwall window, so it opened in a window of its own.".into()),
         };

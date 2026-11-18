@@ -16,7 +16,8 @@ use crate::server::Server;
 /// host's UI thread opens the viewer.
 pub trait ViewerBackend: Send + Sync {
     /// Open `req` (paths already resolved and checked) for `req.agent_id`:
-    /// a pane beside its terminal in the window that shows it, or a window
+    /// a files tile next to its terminal's slot in the layout of the window
+    /// that shows it, or a window
     /// of its own.
     fn show(&self, req: &ViewerShow) -> Result<ViewerShown, ErrorBody>;
     /// The name of agent `id` when it is one shown here from another
@@ -60,12 +61,23 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
         }
         return Err(ErrorBody::new(code::NOT_FOUND, format!("no agent \"{key}\" in Pitwall (see `pitwall agent list`)")));
     };
-    let (show, skipped) = pitwall_core::show::resolve_for(&s.engine, &agent.id, &r).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
+    // `of`: another agent's terminal to put the files next to.
+    let of = match r.of.as_deref().map(str::trim).filter(|o| !o.is_empty()) {
+        None => None,
+        Some(o) => {
+            let named: Vec<_> = views.iter().filter(|v| v.name.eq_ignore_ascii_case(o)).collect();
+            let found = views.iter().find(|v| v.id == o).or((named.len() == 1).then(|| named[0]));
+            Some(found.map(|v| v.id.clone()).ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("no agent \"{o}\" in Pitwall for `of` (see `pitwall agent list`)")))?)
+        }
+    };
+    let (mut show, skipped) = pitwall_core::show::resolve_for(&s.engine, &agent.id, &r).map_err(|e| ErrorBody::new(code::NOT_FOUND, e))?;
+    show.of = of;
     let shown = backend.show(&show)?;
     let name = views.iter().find(|v| v.id == shown.agent_id).map_or_else(|| agent.name.clone(), |v| v.name.clone());
-    let shown_in = match shown.place {
-        ViewerPlace::Beside => format!("a file viewer beside {name}'s terminal (window {}), showing {}", shown.window, shown.root),
-        ViewerPlace::Window => format!("a file viewer window of its own for {name}, showing {}", shown.root),
+    let shown_in = match (shown.place, &shown.at) {
+        (ViewerPlace::Window, _) => format!("a file viewer window of its own for {name}, showing {}", shown.root),
+        (_, Some(at)) => format!("{at}, showing {}", shown.root),
+        (_, None) => format!("a files tile next to {name}'s terminal (window {}), showing {}", shown.window, shown.root),
     };
     let opened = ViewerOpened {
         agent_id: shown.agent_id,

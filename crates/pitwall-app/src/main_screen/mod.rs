@@ -17,7 +17,7 @@
 //! with [`register_route`] for their views, [`TerminalSlot`] for the
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
-mod beside;
+mod files_tile;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -70,7 +70,6 @@ pub use self::topbar::{AgentDrag, SpaceDrag, SpaceRelease};
 use self::workspace::{UiState, ALL_SPACE, MAIN};
 pub use self::commands::CommandState;
 pub use self::part::cached as parts_cached;
-pub use self::beside::register_beside;
 
 actions!(
     main_screen,
@@ -525,8 +524,10 @@ pub struct MainScreen {
     parts: Option<part::Parts>,
     /// Agents' in-app previews (preview.rs).
     previews: preview::Previews,
-    /// Panes with a file viewer beside the terminal (beside.rs).
-    besides: beside::Besides,
+    /// Where dragged files would land (`files_tile.rs`), and the boxes
+    /// the last frame drew (to find it).
+    files_hint: Option<files_tile::FilesHint>,
+    files_boxes: files_tile::Boxes,
     /// How often it rendered (tests).
     #[cfg(test)]
     renders: usize,
@@ -663,7 +664,8 @@ impl MainScreen {
             _poll_elsewhere: None,
             parts: None,
             previews: Default::default(),
-            besides: Default::default(),
+            files_hint: None,
+            files_boxes: Default::default(),
             #[cfg(test)]
             renders: 0,
             _subs: subs,
@@ -999,6 +1001,16 @@ impl MainScreen {
     }
 
     /// The active space's area and tile minimum (for drops and Auto grid).
+    /// Space `space`'s fit in this window's main area (files placed there:
+    /// `crate::explorer::dock`).
+    pub fn fit_for(&self, space: &str) -> Option<workspace::Fit> {
+        let (sp, area) = (self.ui.space(space)?, self.area?);
+        Some(workspace::Fit {
+            area: (f32::from(area.width) as f64, f32::from(area.height) as f64),
+            min: workspace::fold_min(self.ui.density_of(sp), self.ui.font_size),
+        })
+    }
+
     fn fit(&self) -> Option<workspace::Fit> {
         let (sp, area) = (self.active_space()?, self.area?);
         Some(workspace::Fit {
@@ -1024,7 +1036,7 @@ impl MainScreen {
             .focused_pane_id
             .as_ref()
             .and_then(|f| leaves.iter().find(|p| &p.id == f));
-        let target = leaves.iter().find(|p| p.agent_id.is_none()).or(focused);
+        let target = leaves.iter().find(|p| p.is_empty()).or(focused);
         let in_pane = |p: Option<&tree::Pane>| {
             p.and_then(|p| p.agent_id.as_deref())
                 .and_then(|id| crate::terminal::size_of(id, cx))
@@ -2110,8 +2122,6 @@ impl Render for MainScreen {
             .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::divider_up))
             .on_mouse_move(cx.listener(Self::preview_drag_move))
             .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::preview_drag_up))
-            .on_mouse_move(cx.listener(Self::beside_drag_move))
-            .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::beside_drag_up))
             .relative()
             .size_full()
             .flex()

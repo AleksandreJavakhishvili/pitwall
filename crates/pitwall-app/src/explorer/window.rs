@@ -1,13 +1,16 @@
 //! A file viewer in a window of its own: an agent showed the user files
-//! with `where: window` (or while the user was in another app), or the
-//! user chose "Open in window" on the viewer beside a terminal. A normal
+//! with `where: window` (or no Pitwall window shows it), or the user chose
+//! "Open in window" on a files tile, or dragged the tile out. A normal
 //! OS window (moved, resized, minimised like any other; not kept on top
 //! unless pinned), titled with the agent and the folder, with Pitwall's
 //! chrome (theme, glass, the menu bar on Windows and Linux). Its place and
 //! size are kept in `ui.json` (`filesWindow`) for the next one. The
 //! window is the agent's: [`crate::windows::viewer_window`] finds it for
-//! the agent's next call. "Dock beside terminal" moves what it has open to
-//! the pane beside the agent's terminal and closes it.
+//! the agent's next call. Its grip drags it into a Pitwall window's layout
+//! (`super::drag`), "Dock…" puts it in a layout slot from a menu and
+//! "Dock right of the terminal" in the slot right of the agent's terminal:
+//! the same viewer moves into a files tile (`super::dock`), unsaved edits
+//! and all, and the window closes.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +22,7 @@ use gpui::{
 
 use super::source::{ExplorerSource, Source};
 use super::tree::TreeModel;
-use super::viewer::{Host, Opened, Viewer, ViewerEvent};
+use super::viewer::{Host, Viewer, ViewerEvent};
 use crate::agents::AgentStore;
 
 /// A new window's size when none was kept.
@@ -38,6 +41,11 @@ pub struct ViewerWindow {
     store: Entity<AgentStore>,
     pinned: bool,
     save: Option<Task<()>>,
+    /// The viewer's events (dropped with the viewer when it moves out).
+    viewer_sub: Option<Subscription>,
+    /// Its viewer moved out (the window is closing).
+    moved: bool,
+    handle: Option<WindowHandle<ViewerWindow>>,
     _poll: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -62,8 +70,20 @@ pub fn placement(kept: Option<[f64; 4]>, nth: usize, screens: &[Bounds<gpui::Pix
 }
 
 impl ViewerWindow {
-    pub fn new(agent: String, key: String, source: Arc<dyn Source>, store: Entity<AgentStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let viewer = Self::make_viewer(&agent, &key, &source, &store, window, cx);
+    /// `viewer`: one moved in (a files tile's); `None`: a new one.
+    pub fn new(
+        agent: String,
+        key: String,
+        viewer: Option<Entity<Viewer>>,
+        source: Arc<dyn Source>,
+        store: Entity<AgentStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let viewer = match viewer {
+            Some(v) => v,
+            None => Self::make_viewer(&key, &source, &store, window, cx),
+        };
         let ui = crate::ui_state::store(cx);
         let subs = vec![
             cx.observe_window_appearance(window, |_, window, cx| {
@@ -89,38 +109,77 @@ impl ViewerWindow {
         });
         // Closing it with unsaved changes asks first.
         let me = cx.entity().downgrade();
-        super::viewer::guard_window_close(window, cx, move |cx| me.upgrade().map(|w| w.read(cx).viewer.clone()));
-        let mut w = ViewerWindow { agent, key, viewer, source, store, pinned: false, save: None, _poll: poll, _subs: subs };
+        super::viewer::guard_window_close(window, cx, move |cx| me.upgrade().filter(|w| !w.read(cx).moved).map(|w| w.read(cx).viewer.clone()));
+        let handle = window.window_handle().downcast::<ViewerWindow>();
+        let mut w = ViewerWindow {
+            agent,
+            key,
+            viewer: viewer.clone(),
+            source,
+            store,
+            pinned: false,
+            save: None,
+            viewer_sub: None,
+            moved: false,
+            handle,
+            _poll: poll,
+            _subs: subs,
+        };
+        w.hold(viewer, cx);
         w.recheck_dock(cx);
         w
     }
 
-    fn make_viewer(
-        agent: &str,
-        key: &str,
-        source: &Arc<dyn Source>,
-        store: &Entity<AgentStore>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<Viewer> {
+    fn make_viewer(key: &str, source: &Arc<dyn Source>, store: &Entity<AgentStore>, window: &mut Window, cx: &mut Context<Self>) -> Entity<Viewer> {
         let ignored = crate::ui_state::get(cx).explorer_show_ignored;
         let tree = cx.new(|_| TreeModel::new(source.clone(), key.to_string(), ignored));
         tree.update(cx, |t, cx| t.refresh(false, cx));
-        let owner = store.read(cx).agent(agent).map(|a| a.name.clone());
         let (source, store, k) = (source.clone(), store.clone(), key.to_string());
-        let viewer = cx.new(|cx| {
-            let mut v = Viewer::new(source, store, k, tree, window, cx);
+        cx.new(|cx| Viewer::new(source, store, k, tree, window, cx))
+    }
+
+    /// Show `viewer` (made here or moved in) and hear its controls.
+    fn hold(&mut self, viewer: Entity<Viewer>, cx: &mut Context<Self>) {
+        let owner = self.store.read(cx).agent(&self.agent).map(|a| a.name.clone());
+        let pinned = self.pinned;
+        viewer.update(cx, |v, cx| {
             v.set_host(Host::Window, owner, cx);
-            v
+            v.set_pinned(pinned, cx);
         });
-        cx.subscribe_in(&viewer, window, |this, v, e: &ViewerEvent, window, cx| match e {
+        let me = cx.entity().downgrade();
+        let agent = self.agent.clone();
+        self.viewer_sub = Some(cx.subscribe(&viewer, move |this, v, e: &ViewerEvent, cx| match e {
             ViewerEvent::Pin => {
                 this.pinned = !this.pinned;
-                crate::platform::keep_on_top(window, this.pinned);
                 let on = this.pinned;
+                let me = me.clone();
+                // (The window is needed: after this update.)
+                cx.defer(move |cx| {
+                    if let Some(w) = me.upgrade() {
+                        let h = w.read(cx).handle;
+                        if let Some(h) = h {
+                            let _ = h.update(cx, |_, window, _| crate::platform::keep_on_top(window, on));
+                        }
+                    }
+                });
                 v.update(cx, |v, cx| v.set_pinned(on, cx));
             }
-            ViewerEvent::Dock => this.dock(window, cx),
+            ViewerEvent::Place(p) => {
+                let (p, agent) = (*p, agent.clone());
+                cx.defer(move |cx| {
+                    if let Err(e) = super::dock::place(&agent, p, None, cx) {
+                        eprintln!("pitwall: could not dock the file viewer: {e}");
+                    }
+                });
+            }
+            ViewerEvent::Grip => {
+                if let Some(h) = this.handle {
+                    let agent = agent.clone();
+                    cx.defer(move |cx| {
+                        let _ = h.update(cx, |_, window, cx| super::drag::start(&agent, super::drag::From::Window(h), window, cx));
+                    });
+                }
+            }
             ViewerEvent::SetIgnored(on) => {
                 let on = *on;
                 v.read(cx).tree().update(cx, |t, cx| t.set_ignored(on, cx));
@@ -132,9 +191,18 @@ impl ViewerWindow {
             | ViewerEvent::QuickOpen
             | ViewerEvent::ShowDiff(_)
             | ViewerEvent::Opened(_) => {}
-        })
-        .detach();
-        viewer
+        }));
+        self.viewer = viewer;
+        cx.notify();
+    }
+
+    /// Its viewer, moving out (into a files tile): the window closes next,
+    /// without asking about unsaved edits (they go with the viewer).
+    pub fn take_viewer(&mut self, cx: &mut Context<Self>) -> Entity<Viewer> {
+        self.viewer_sub = None;
+        self.moved = true;
+        cx.notify();
+        self.viewer.clone()
     }
 
     pub fn agent(&self) -> &str {
@@ -159,9 +227,8 @@ impl ViewerWindow {
         if self.key != key {
             self.viewer.update(cx, |v, cx| v.hidden(cx));
             self.key = key.to_string();
-            self.viewer = Self::make_viewer(&self.agent, key, &self.source, &self.store, window, cx);
-            let on = self.pinned;
-            self.viewer.update(cx, |v, cx| v.set_pinned(on, cx));
+            let v = Self::make_viewer(key, &self.source, &self.store, window, cx);
+            self.hold(v, cx);
             self.recheck_dock(cx);
         }
         window.set_window_title(title);
@@ -172,21 +239,6 @@ impl ViewerWindow {
     fn recheck_dock(&mut self, cx: &mut Context<Self>) {
         let can = crate::windows::showing(&self.agent, cx).is_some();
         self.viewer.update(cx, |v, cx| v.set_can_dock(can, cx));
-    }
-
-    /// "Dock beside terminal": what it has open goes beside the agent's
-    /// terminal, and the window closes.
-    fn dock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (agent, key, opened) = (self.agent.clone(), self.key.clone(), self.viewer.read(cx).opened());
-        let me = window.window_handle();
-        cx.defer(move |cx| {
-            match super::show::dock_beside(&agent, &key, &opened, cx) {
-                Ok(()) => {
-                    let _ = me.update(cx, |_, window, _| window.remove_window());
-                }
-                Err(e) => eprintln!("pitwall: could not dock the file viewer: {}", e.message),
-            }
-        });
     }
 
     /// Kept for the next window, half a second after the last change.
@@ -216,7 +268,7 @@ impl Render for ViewerWindow {
             .text_size(px(13.))
             .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
-            .child(div().flex_1().min_w_0().min_h_0().flex().bg(t.bg).child(self.viewer.clone()));
+            .when(!self.moved, |d| d.child(div().flex_1().min_w_0().min_h_0().flex().bg(t.bg).child(self.viewer.clone())));
         crate::platform::decorations::frame(root, window, cx)
     }
 }
@@ -225,6 +277,26 @@ impl Render for ViewerWindow {
 /// keyboard only when `focus` (Pitwall is the app in front); otherwise it
 /// is ordered in without activating Pitwall.
 pub fn open(agent: &str, key: &str, title: String, focus: bool, cx: &mut App) -> Result<WindowHandle<ViewerWindow>, String> {
+    open_at(agent, key, title, None, None, focus, cx)
+}
+
+/// [`open`] with `viewer` moved in (a files tile's), its top left at `at`
+/// on screen (a tile dragged out) or where the last window was.
+pub fn open_with(agent: &str, key: &str, viewer: Option<Entity<Viewer>>, at: Option<gpui::Point<gpui::Pixels>>, focus: bool, cx: &mut App) -> Result<WindowHandle<ViewerWindow>, String> {
+    let name = super::show::agent_name(agent, cx).unwrap_or_else(|| agent.to_string());
+    let title = title(&name, &super::show::root_display(key, cx));
+    open_at(agent, key, title, viewer, at, focus, cx)
+}
+
+fn open_at(
+    agent: &str,
+    key: &str,
+    title: String,
+    viewer: Option<Entity<Viewer>>,
+    at: Option<gpui::Point<gpui::Pixels>>,
+    focus: bool,
+    cx: &mut App,
+) -> Result<WindowHandle<ViewerWindow>, String> {
     let source = cx.try_global::<ExplorerSource>().map(|s| s.0.clone()).ok_or("no file source")?;
     let store = match &cx.try_global::<crate::AppState>().ok_or("no app state")?.content {
         crate::ui::Content::Live { store } => store.clone(),
@@ -233,9 +305,14 @@ pub fn open(agent: &str, key: &str, title: String, focus: bool, cx: &mut App) ->
     let nth = crate::windows::viewer_windows(cx);
     let screens: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
     let kept = crate::ui_state::get(cx).files_window;
-    let bounds = match placement(kept, nth, &screens) {
-        Some(b) => WindowBounds::Windowed(b),
-        None => {
+    let bounds = match (placement(kept, nth, &screens), at) {
+        // Where a tile was let go (whole on the screen it was let go on).
+        (b, Some(at)) => {
+            let size = b.map_or(size(px(DEFAULT_SIZE.0), px(DEFAULT_SIZE.1)), |b| b.size);
+            WindowBounds::Windowed(Bounds::new(dropped_at(at, size, &screens), size))
+        }
+        (Some(b), None) => WindowBounds::Windowed(b),
+        (None, None) => {
             let b = Bounds::centered(None, size(px(DEFAULT_SIZE.0), px(DEFAULT_SIZE.1)), cx);
             WindowBounds::Windowed(Bounds::new(point(b.origin.x + px(CASCADE * nth as f32), b.origin.y + px(CASCADE * nth as f32)), b.size))
         }
@@ -254,39 +331,25 @@ pub fn open(agent: &str, key: &str, title: String, focus: bool, cx: &mut App) ->
     let handle = cx
         .open_window(options, move |window, cx| {
             crate::platform::lean_renderer(window);
-            cx.new(|cx| ViewerWindow::new(a, k, source, store, window, cx))
+            cx.new(|cx| ViewerWindow::new(a, k, viewer, source, store, window, cx))
         })
         .map_err(|e| e.to_string())?;
     crate::windows::add_viewer_window(agent, handle, cx);
     Ok(handle)
 }
 
-/// Move what the pane beside agent `agent`'s terminal had open into a
-/// window of its own ("Open in window"), which comes forward while Pitwall
-/// is in front.
-pub fn undock(agent: &str, key: &str, opened: &Opened, cx: &mut App) -> Result<(), String> {
-    let name = crate::explorer::show::agent_name(agent, cx).unwrap_or_else(|| agent.to_string());
-    let root = super::show::root_display(key, cx);
-    let title = title(&name, &root);
-    let handle = match crate::windows::viewer_window(agent, cx) {
-        Some(h) => h,
-        None => {
-            let front = crate::platform::app_in_front(cx);
-            open(agent, key, title.clone(), front, cx)?
-        }
+/// A window of `size` let go at `at`: whole on the screen holding `at`
+/// (else the nearest one).
+pub fn dropped_at(at: gpui::Point<gpui::Pixels>, size: gpui::Size<gpui::Pixels>, screens: &[Bounds<gpui::Pixels>]) -> gpui::Point<gpui::Pixels> {
+    let dist = |b: &Bounds<gpui::Pixels>| {
+        let dx = f32::from((b.left() - at.x).max(at.x - b.right()).max(px(0.)));
+        let dy = f32::from((b.top() - at.y).max(at.y - b.bottom()).max(px(0.)));
+        dx * dx + dy * dy
     };
-    handle
-        .update(cx, |w, window, cx| {
-            let v = w.viewer_for(key, &title, window, cx);
-            v.update(cx, |v, cx| v.restore(opened, cx));
-            // (The user clicked in Pitwall: it is in front, and the window
-            // comes forward among its windows. Never over another app.)
-            if crate::platform::app_in_front(cx) {
-                window.activate_window();
-            }
-            v.update(cx, |v, cx| v.show(None, window, cx));
-        })
-        .map_err(|e| e.to_string())
+    match screens.iter().min_by(|a, b| dist(a).total_cmp(&dist(b))) {
+        Some(screen) => crate::windows::fit_on(at, size, *screen),
+        None => at,
+    }
 }
 
 #[cfg(test)]
@@ -306,6 +369,19 @@ mod tests {
         assert_eq!(placement(Some([3000., 100., 800., 600.]), 0, &[screen]), None);
         assert_eq!(placement(Some([100., 100., 80., 60.]), 0, &[screen]), None);
         assert_eq!(placement(None, 0, &[screen]), None);
+    }
+
+    #[test]
+    fn a_tile_let_go_outside_opens_whole_on_that_screen() {
+        let a = Bounds::new(point(px(0.), px(0.)), size(px(1600.), px(1000.)));
+        let b = Bounds::new(point(px(1600.), px(0.)), size(px(1200.), px(800.)));
+        let s = size(px(800.), px(600.));
+        // Inside a screen: there.
+        assert_eq!(dropped_at(point(px(100.), px(50.)), s, &[a, b]), point(px(100.), px(50.)));
+        // Near a screen's corner: moved in to be whole.
+        assert_eq!(dropped_at(point(px(1500.), px(900.)), s, &[a, b]), point(px(800.), px(400.)));
+        // Off every screen: onto the nearest one.
+        assert_eq!(dropped_at(point(px(3500.), px(100.)), s, &[a, b]), point(px(2000.), px(100.)));
     }
 
     #[test]

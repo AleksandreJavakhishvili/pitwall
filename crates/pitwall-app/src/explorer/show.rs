@@ -1,21 +1,22 @@
 //! An agent shows the user files (`viewer.open`: `pitwall open`, the
 //! `pitwall` MCP server). The server has resolved the paths on the agent's
-//! machine; here they open in a read-only viewer, in one of two places:
+//! machine; here they open in the agent's file viewer, in one of two
+//! places:
 //!
-//! - beside: a pane split next to the agent's terminal, in the Pitwall
-//!   window that shows the agent (`crate::windows::showing`; its space is
-//!   brought up in that window when another one was shown). The terminal
-//!   keeps the keyboard.
-//! - window: a window of its own (`super::window`), the agent's: its next
-//!   call adds to it.
+//! - a files tile in the layout of the Pitwall window that shows the
+//!   agent (`crate::windows::showing`), a peer of the terminal tiles: right
+//!   (the default), left, above or below the agent's terminal, or of the
+//!   terminal `of` names (`super::dock`). Its space is brought up in that
+//!   window when another one was shown. The terminal keeps the keyboard.
+//! - window: a window of its own (`super::window`).
 //!
-//! The agent may name one; else a window of its own (the user asked for a
-//! regular window, not a pane inside the one they work in), unless the
-//! agent's files already sit beside its terminal and the user is in
-//! Pitwall (they docked them there). Beside an agent no open
-//! window shows falls back to a window, and the answer says so. Pitwall
-//! comes forward only when it already is in front: from another app, the
-//! window is ordered in without taking the keyboard.
+//! One viewer per agent: a later call adds tabs to it wherever it is (a
+//! tile the user moved, a window they popped it out to); a place named
+//! that isn't where it is moves it there, as the same viewer (its unsaved
+//! edits too). A tile for an agent no open window shows falls back to a
+//! window, and the answer says so. Pitwall comes forward only when it
+//! already is in front: from another app, a window is ordered in without
+//! taking the keyboard.
 //!
 //! What is read: the agent's folder; a folder inside another agent's on
 //! the same machine, that agent's; any other folder on this computer,
@@ -23,14 +24,15 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{App, Context, Window};
+use gpui::{App, Context, Entity};
 
 use pitwall_proto::{code, AgentView, ErrorBody, ViewerPlace, ViewerShow, ViewerShown};
 
 use super::file_link::{relative_to, target};
 use super::source::{path_key, root_of_key};
-use super::viewer::{Opened, Viewer};
-use super::Explorer;
+use super::dock::{self, FilesPlace};
+use super::viewer::Viewer;
+use crate::main_screen::tree::Side;
 
 /// The setting that turns it on and off.
 pub const SETTING: &str = "agents.showFiles";
@@ -137,17 +139,38 @@ pub fn plan(req: &ViewerShow, agents: &[AgentView]) -> Result<Plan, ErrorBody> {
     Ok(Plan { key, root, files, folder })
 }
 
-/// Where it opens. Named: there. Else a window of its own, unless the
-/// agent's files are beside its terminal already (the user docked them),
-/// it has no window, and the user is in Pitwall to see the pane.
-pub fn placement(asked: Option<ViewerPlace>, in_front: bool, has_beside: bool, has_window: bool) -> ViewerPlace {
-    if let Some(p) = asked {
-        return p;
+/// Where agent `agent`'s files go for `asked`: a window, or a tile on
+/// that side of a terminal. `None`: where they are (`tile` a tile, `window`
+/// a window), else a tile right of the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Goal {
+    /// Add to the tile where it is.
+    Tile,
+    /// Add to the window where it is.
+    InWindow,
+    /// A tile on that side of the terminal (moved there if elsewhere).
+    Next(Side),
+    /// A window of its own (the tile popped out if there is one).
+    Window,
+}
+
+/// See [`Goal`].
+pub fn goal(asked: Option<ViewerPlace>, tile: bool, window: bool) -> Goal {
+    match asked {
+        Some(ViewerPlace::Window) => Goal::Window,
+        Some(p) => Goal::Next(side_of(p)),
+        None if tile => Goal::Tile,
+        None if window => Goal::InWindow,
+        None => Goal::Next(Side::Right),
     }
-    if in_front && has_beside && !has_window {
-        ViewerPlace::Beside
-    } else {
-        ViewerPlace::Window
+}
+
+fn side_of(p: ViewerPlace) -> Side {
+    match p {
+        ViewerPlace::Left => Side::Left,
+        ViewerPlace::Above => Side::Top,
+        ViewerPlace::Below => Side::Bottom,
+        _ => Side::Right,
     }
 }
 
@@ -193,52 +216,63 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
     let agents = store.read(cx).agents.clone();
     let plan = plan(req, &agents)?;
     let agent = req.agent_id.as_str();
-    let name = agents.iter().find(|a| a.id == agent).map_or(agent.to_string(), |a| a.name.clone());
+    let name_of = |id: &str| agents.iter().find(|a| a.id == id).map_or(id.to_string(), |a| a.name.clone());
+    let name = name_of(agent);
     let in_front = crate::platform::app_in_front(cx);
-    let showing = crate::windows::showing(agent, cx);
-    let has_beside = showing
-        .as_ref()
-        .and_then(|(_, h)| h.read(cx).ok())
-        .and_then(|v| v.explorer())
-        .is_some_and(|e| e.read(cx).beside.contains_key(agent));
-    let has_window = crate::windows::viewer_window(agent, cx).is_some();
-    let mut note = None;
+    let tile = dock::holder(agent, cx).is_some() && dock::viewer(agent, cx).is_some();
+    let window = crate::windows::viewer_window(agent, cx).is_some();
     let root = plan.root.to_string_lossy().into_owned();
-    if placement(req.place, in_front, has_beside, has_window) == ViewerPlace::Beside {
-        match showing {
-            Some((label, handle)) => {
-                handle
-                    .update(cx, |view, window, cx| {
-                        let explorer = view
-                            .explorer()
-                            .ok_or_else(|| ErrorBody::new(code::UNSUPPORTED, "this Pitwall window has no file viewer"))?;
-                        if let Some(s) = view.screen() {
-                            s.update(cx, |s, cx| s.reveal_pane_of(agent, cx));
-                        }
-                        // In front already: that window comes forward. Not:
-                        // nothing is (the user is in another app).
-                        if in_front {
-                            window.activate_window();
-                        }
-                        explorer.update(cx, |e, cx| e.show_beside(agent, &plan, window, cx))
-                    })
-                    .map_err(|_| ErrorBody::new(code::OTHER, "the Pitwall window went away"))??;
-                return Ok(ViewerShown {
-                    agent_id: agent.to_string(),
-                    window: label,
-                    in_background: !in_front,
-                    place: ViewerPlace::Beside,
-                    root,
-                    note,
-                });
+    let mut note = None;
+    let goal = goal(req.place, tile, window);
+    let err = |e: String| ErrorBody::new(code::OTHER, e);
+    let tiled = match goal {
+        Goal::Tile => Some(tile_viewer(agent, &plan.key, cx).map_err(err)?),
+        Goal::Next(side) => {
+            let of = req.of.as_deref().filter(|o| *o != agent);
+            match dock::spot_for(agent, FilesPlace::Next(side), of, cx) {
+                Ok((label, space, spot)) => {
+                    // Where it is already: added to, not moved.
+                    let there = tile && next_to(agent, side, of.unwrap_or(agent), cx);
+                    if !there {
+                        dock::dock(agent, &label, &space, &spot, Some(&plan.key), cx).map_err(err)?;
+                    }
+                    Some(tile_viewer(agent, &plan.key, cx).map_err(err)?)
+                }
+                Err(_) => {
+                    let whose = of.map_or_else(|| name.clone(), name_of);
+                    note = Some(format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
+                    None
+                }
             }
-            None => note = Some(format!("{name} isn't shown in any open Pitwall window, so it opened in a window of its own.")),
         }
+        Goal::InWindow | Goal::Window => None,
+    };
+    if let Some(v) = tiled {
+        v.update(cx, |v, cx| apply(v, &plan, cx));
+        let (label, _, _) = dock::holder(agent, cx).unwrap_or_default();
+        // In front already: that window comes forward. Not: nothing does
+        // (the user is in another app). The keyboard stays where it is.
+        if in_front {
+            if let Some(h) = crate::windows::main_window(&label, cx) {
+                let _ = h.update(cx, |_, window, _| window.activate_window());
+            }
+        }
+        return Ok(ViewerShown {
+            agent_id: agent.to_string(),
+            window: label,
+            in_background: !in_front,
+            place: req.place.filter(|p| p.is_tile()).unwrap_or_default(),
+            at: Some(dock::described(agent, cx)),
+            root,
+            note,
+        });
     }
     let title = super::window::title(&name, &root_display(&plan.key, cx));
     let handle = match crate::windows::viewer_window(agent, cx) {
         Some(h) => h,
-        None => super::window::open(agent, &plan.key, title.clone(), in_front, cx).map_err(|e| ErrorBody::new(code::OTHER, e))?,
+        // The tile's viewer (popped out), else a new one.
+        None if dock::viewer(agent, cx).is_some() => dock::pop_out(agent, None, cx).map_err(err)?,
+        None => super::window::open(agent, &plan.key, title.clone(), in_front, cx).map_err(err)?,
     };
     handle
         .update(cx, |w, window, cx| {
@@ -249,34 +283,31 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
             }
         })
         .map_err(|_| ErrorBody::new(code::OTHER, "the file viewer window went away"))?;
-    Ok(ViewerShown { agent_id: agent.to_string(), window: title, in_background: !in_front, place: ViewerPlace::Window, root, note })
+    Ok(ViewerShown { agent_id: agent.to_string(), window: title, in_background: !in_front, place: ViewerPlace::Window, at: None, root, note })
 }
 
-/// "Dock beside terminal": what a viewer window had open, beside agent
-/// `agent`'s terminal in the window that shows it (which comes forward
-/// while Pitwall is in front).
-pub fn dock_beside(agent: &str, key: &str, opened: &Opened, cx: &mut App) -> Result<(), ErrorBody> {
-    let (_, handle) = crate::windows::showing(agent, cx)
-        .ok_or_else(|| ErrorBody::new(code::UNSUPPORTED, "no Pitwall window shows this agent"))?;
-    handle
-        .update(cx, |view, window, cx| {
-            let explorer = view.explorer().ok_or_else(|| ErrorBody::new(code::UNSUPPORTED, "no file viewer"))?;
-            if let Some(s) = view.screen() {
-                s.update(cx, |s, cx| s.reveal_pane_of(agent, cx));
-            }
-            if crate::platform::app_in_front(cx) {
-                window.activate_window();
-            }
-            let v = explorer
-                .update(cx, |e, cx| e.beside_viewer(agent, key, window, cx))
-                .ok_or_else(|| ErrorBody::new(code::UNSUPPORTED, "its files can't be read from here"))?;
-            v.update(cx, |v, cx| {
-                v.restore(opened, cx);
-                v.show(None, window, cx);
-            });
-            Ok(())
-        })
-        .map_err(|_| ErrorBody::new(code::OTHER, "the Pitwall window went away"))?
+/// Agent `agent`'s files tile is on side `side` of agent `anchor`'s
+/// terminal already.
+fn next_to(agent: &str, side: Side, anchor: &str, cx: &App) -> bool {
+    let ui = crate::ui_state::get(cx);
+    let Some((space, pane)) = ui.files_tile(agent) else { return false };
+    ui.space(&space).and_then(|sp| dock::neighbour(&sp.layout, &pane)) == Some((side, anchor.to_string()))
+}
+
+/// Agent `agent`'s tile's viewer, reading `key` (a new one in the tile when
+/// it read another folder).
+fn tile_viewer(agent: &str, key: &str, cx: &mut App) -> Result<Entity<Viewer>, String> {
+    if let Some(v) = dock::viewer(agent, cx).filter(|_| dock::key(agent, cx).as_deref() == Some(key)) {
+        return Ok(v);
+    }
+    let (label, _, _) = dock::holder(agent, cx).ok_or("no files tile")?;
+    let h = crate::windows::main_window(&label, cx).ok_or("that Pitwall window is gone")?;
+    let v = h
+        .update(cx, |_, window, cx| dock::make(agent, key, window, cx))
+        .map_err(|_| "that Pitwall window is gone")?
+        .ok_or("its files can't be read from here")?;
+    dock::adopt(agent, key, v.clone(), cx);
+    Ok(v)
 }
 
 /// Agent `id`'s name when it is shown here from another machine.
@@ -305,28 +336,9 @@ fn rel_in(root: &Path, path: &Path) -> Option<String> {
     relative_to(root, path)
 }
 
-impl Explorer {
-    /// Show `plan` beside agent `agent`'s terminal (the pane reused, or
-    /// made). The keyboard stays where it is.
-    pub fn show_beside(&mut self, agent: &str, plan: &Plan, window: &mut Window, cx: &mut Context<Self>) -> Result<(), ErrorBody> {
-        let viewer = self
-            .beside_viewer(agent, &plan.key, window, cx)
-            .ok_or_else(|| ErrorBody::new(code::UNSUPPORTED, "its files can't be read from here"))?;
-        viewer.update(cx, |v, cx| apply(v, plan, cx));
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use gpui::{AppContext, TestAppContext};
-
     use super::*;
-    use crate::agents::AgentStore;
-    use crate::explorer::source::{fake::FakeSource, Source};
-    use crate::explorer::viewer::Host;
     use pitwall_proto::OpenedFile;
 
     struct Dirs {
@@ -362,25 +374,23 @@ mod tests {
     }
 
     fn req(folder: Option<String>, files: Vec<OpenedFile>) -> ViewerShow {
-        ViewerShow { agent_id: "a1".into(), files, folder, root: None, place: None }
+        ViewerShow { agent_id: "a1".into(), files, folder, root: None, place: None, of: None }
     }
 
     #[test]
-    fn a_window_unless_named_or_docked() {
+    fn a_tile_right_of_the_terminal_unless_named_or_already_open() {
         use ViewerPlace::*;
-        // Not named: a window of its own, wherever the user is.
-        assert_eq!(placement(None, true, false, false), Window);
-        assert_eq!(placement(None, false, false, false), Window);
-        // Named: there.
-        assert_eq!(placement(Some(Window), true, true, false), Window);
-        assert_eq!(placement(Some(Beside), false, false, false), Beside);
-        // Docked beside the terminal by the user: there again.
-        assert_eq!(placement(None, true, true, false), Beside);
-        // A window is open too: the window.
-        assert_eq!(placement(None, true, false, true), Window);
-        assert_eq!(placement(None, true, true, true), Window);
-        // From another app the pane beside wouldn't be seen: a window.
-        assert_eq!(placement(None, false, true, false), Window);
+        // Nothing open, nothing named: a tile right of the terminal.
+        assert_eq!(goal(None, false, false), Goal::Next(Side::Right));
+        // Open already: added to where it is (a tile, a window).
+        assert_eq!(goal(None, true, false), Goal::Tile);
+        assert_eq!(goal(None, false, true), Goal::InWindow);
+        // Named: there (moved there if it was elsewhere).
+        assert_eq!(goal(Some(Window), true, false), Goal::Window);
+        assert_eq!(goal(Some(Above), false, true), Goal::Next(Side::Top));
+        assert_eq!(goal(Some(Below), true, false), Goal::Next(Side::Bottom));
+        assert_eq!(goal(Some(Left), false, false), Goal::Next(Side::Left));
+        assert_eq!(goal(Some(Right), true, true), Goal::Next(Side::Right));
     }
 
     #[test]
@@ -416,82 +426,43 @@ mod tests {
         assert!(e.message.contains("another machine"), "{}", e.message);
     }
 
-    fn explorer_with<'a>(
-        d: &Dirs,
-        cx: &'a mut TestAppContext,
-    ) -> (gpui::Entity<Explorer>, &'a mut gpui::VisualTestContext) {
+    /// A later call adds to the agent's files tile: the same viewer, one
+    /// more tab, the folder opened; it never takes the keyboard.
+    #[gpui::test]
+    async fn later_calls_add_to_the_same_files_tile(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext;
+        let d = Dirs::new("tile");
         let agents = d.agents();
         cx.update(|cx| cx.set_global(crate::theme::Theme::dark()));
-        let store = cx.new(|_| AgentStore::new(agents));
-        let source: Arc<dyn Source> = FakeSource::new(&[("src/a.rs", "a\n"), ("README.md", "# r\n"), ("lib/b.rs", "b\n")]);
-        cx.add_window_view(move |_, cx| Explorer::with_source(Some(source), store, cx))
-    }
-
-    #[gpui::test]
-    async fn the_pane_beside_is_reused_and_keeps_the_keyboard_away(cx: &mut TestAppContext) {
-        let d = Dirs::new("beside");
-        let agents = d.agents();
-        let (explorer, cx) = explorer_with(&d, cx);
+        let store = cx.new(|_| crate::agents::AgentStore::new(agents.clone()));
+        let source: std::sync::Arc<dyn crate::explorer::source::Source> =
+            crate::explorer::source::fake::FakeSource::new(&[("src/a.rs", "a\n"), ("README.md", "# r\n")]);
+        cx.update(|cx| dock::remember_env(Some(source), &store, cx));
+        let (_, cx) = cx.add_window_view(|_, _| gpui::Empty);
+        let v = cx.update(|window, cx| dock::make("a1", "a1", window, cx)).unwrap();
+        cx.update(|_, cx| dock::adopt("a1", "a1", v.clone(), cx));
         let file = |p: &str, line| OpenedFile { path: d.at(p), line, column: None };
 
         let p = plan(&req(None, vec![file("api/src/a.rs", Some(4)), file("api/README.md", None)]), &agents).unwrap();
-        cx.update(|window, cx| explorer.update(cx, |e, cx| e.show_beside("a1", &p, window, cx))).unwrap();
+        let got = cx.update(|_, cx| tile_viewer("a1", &p.key, cx)).unwrap();
+        assert_eq!(got, v);
+        got.update(cx, |v, cx| apply(v, &p, cx));
         cx.run_until_parked();
-        let viewer = explorer.read_with(cx, |e, _| {
-            // Beside, not the main area.
-            assert!(!e.viewer_open());
-            e.beside["a1"].viewer.clone()
-        });
-        viewer.read_with(cx, |v, _| {
-            assert_eq!(v.host(), Host::Beside);
+        v.read_with(cx, |v, _| {
             assert_eq!(v.tabs(), ["src/a.rs", "README.md"]);
             assert_eq!(v.active(), Some("src/a.rs"));
             assert_eq!(v.target_line(), Some(4));
         });
-        // It didn't take the keyboard.
-        cx.update(|window, cx| assert!(!gpui::Focusable::focus_handle(viewer.read(cx), cx).contains_focused(window, cx)));
+        cx.update(|window, cx| assert!(!gpui::Focusable::focus_handle(v.read(cx), cx).contains_focused(window, cx)));
 
-        // The next call: the same pane, one more tab, the folder opened.
         let p = plan(&req(Some(d.at("api/src")), vec![file("api/src/a.rs", None)]), &agents).unwrap();
-        cx.update(|window, cx| explorer.update(cx, |e, cx| e.show_beside("a1", &p, window, cx))).unwrap();
+        let got = cx.update(|_, cx| tile_viewer("a1", &p.key, cx)).unwrap();
+        assert_eq!(got, v);
+        got.update(cx, |v, cx| apply(v, &p, cx));
         cx.run_until_parked();
-        explorer.read_with(cx, |e, _| assert_eq!(e.beside["a1"].viewer, viewer));
-        viewer.read_with(cx, |v, cx| {
+        v.read_with(cx, |v, cx| {
             assert_eq!(v.tabs().len(), 2);
             assert!(v.tree_is_open("src", cx));
         });
-
-        // A folder outside every agent's: a pane rooted there.
-        let p = plan(&req(Some(d.at("elsewhere")), vec![]), &agents).unwrap();
-        cx.update(|window, cx| explorer.update(cx, |e, cx| e.show_beside("a1", &p, window, cx))).unwrap();
-        cx.run_until_parked();
-        let there = explorer.read_with(cx, |e, _| {
-            assert_eq!(e.beside["a1"].key, path_key(&d.at("elsewhere")));
-            e.beside["a1"].viewer.clone()
-        });
-        assert_ne!(there, viewer);
-        there.read_with(cx, |v, cx| assert_eq!(v.root(cx), Some(d.at("elsewhere"))));
-
-        // "Open in window": the pane goes, what it had open goes with it.
-        let undocked = Arc::new(std::sync::Mutex::new(None));
-        let got = undocked.clone();
-        cx.update(|_, cx| {
-            cx.subscribe(&explorer, move |_, e: &crate::explorer::ExplorerEvent, _| {
-                if let crate::explorer::ExplorerEvent::Undock { agent, key, opened } = e {
-                    *got.lock().unwrap() = Some((agent.clone(), key.clone(), opened.clone()));
-                }
-            })
-            .detach();
-        });
-        there.update(cx, |v, cx| {
-            v.open("docs/x.md".into(), None, cx);
-            cx.emit(crate::explorer::viewer::ViewerEvent::Undock);
-        });
-        cx.run_until_parked();
-        explorer.read_with(cx, |e, _| assert!(!e.beside.contains_key("a1")));
-        let (agent, key, opened) = undocked.lock().unwrap().clone().unwrap();
-        assert_eq!((agent.as_str(), key), ("a1", path_key(&d.at("elsewhere"))));
-        assert_eq!(opened.tabs, ["docs/x.md"]);
-        assert_eq!(opened.active.as_deref(), Some("docs/x.md"));
     }
 }

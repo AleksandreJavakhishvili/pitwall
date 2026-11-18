@@ -1,5 +1,7 @@
 //! The tiling model of a space: a tree of row/col splits whose leaves are
-//! panes, each showing at most one agent (a port of `src/layout/tree.ts`).
+//! panes, each showing at most one agent (a port of `src/layout/tree.ts`),
+//! or an agent's files (a files tile: `files`, the agent whose file viewer
+//! it shows; one per agent across every space).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -25,7 +27,7 @@ pub enum Side {
     Bottom,
 }
 
-/// A node of the layout tree (`{type:"pane",id,agentId}` /
+/// A node of the layout tree (`{type:"pane",id,agentId,files?}` /
 /// `{type:"split",id,dir,children,sizes}` in `ui.json`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -34,6 +36,10 @@ pub enum Node {
         id: String,
         #[serde(rename = "agentId")]
         agent_id: Option<String>,
+        /// A files tile: the agent whose file viewer it shows (no agent
+        /// then).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<String>,
     },
     Split {
         id: String,
@@ -49,6 +55,15 @@ pub enum Node {
 pub struct Pane {
     pub id: String,
     pub agent_id: Option<String>,
+    /// A files tile: whose files.
+    pub files: Option<String>,
+}
+
+impl Pane {
+    /// Shows nothing (an agent can go there).
+    pub fn is_empty(&self) -> bool {
+        self.agent_id.is_none() && self.files.is_none()
+    }
 }
 
 /// Fixed tilings ("3" is 1 big + 2 stacked; "CxR" is C columns × R rows) and
@@ -170,7 +185,27 @@ impl Node {
         Node::Pane {
             id: new_id("pane"),
             agent_id,
+            files: None,
         }
+    }
+
+    /// A files tile for agent `owner`'s files.
+    pub fn files_pane(owner: &str) -> Node {
+        Node::Pane {
+            id: new_id("pane"),
+            agent_id: None,
+            files: Some(owner.to_string()),
+        }
+    }
+
+    /// The files tile of agent `owner`, if there is one.
+    pub fn find_files(&self, owner: &str) -> Option<Pane> {
+        self.leaves().into_iter().find(|p| p.files.as_deref() == Some(owner))
+    }
+
+    /// Owners of the files tiles, in reading order.
+    pub fn files_owners(&self) -> Vec<String> {
+        self.leaves().into_iter().filter_map(|p| p.files).collect()
     }
 
     pub fn id(&self) -> &str {
@@ -188,9 +223,10 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id } => out.push(Pane {
+            Node::Pane { id, agent_id, files } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
+                files: files.clone(),
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -227,10 +263,12 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id } => Node::Pane {
-                id: id.clone(),
-                agent_id: f(id, agent_id),
-            },
+            Node::Pane { id, agent_id, files } => {
+                let agent_id = f(id, agent_id);
+                // An agent put in a files tile takes it.
+                let files = if agent_id.is_some() { None } else { files.clone() };
+                Node::Pane { id: id.clone(), agent_id, files }
+            }
             Node::Split {
                 id,
                 dir,
@@ -376,32 +414,37 @@ pub fn split_pane(node: &Node, pane_id: &str, side: Side, agent: Option<&str>) -
             }
         }
     }
+    let fresh = Node::pane(agent.map(str::to_string));
+    let fresh_id = fresh.id().to_string();
+    (split_with(&tree, pane_id, side, &fresh, 0.5), fresh_id)
+}
+
+/// Split pane `pane_id` with `fresh` on `side`, `fresh` taking `share` of
+/// the pane (a split of the same direction takes it in among its children).
+pub fn split_with(node: &Node, pane_id: &str, side: Side, fresh: &Node, share: f64) -> Node {
+    let tree = node.clone();
     let dir = match side {
         Side::Left | Side::Right => Dir::Row,
         Side::Top | Side::Bottom => Dir::Col,
     };
     let before = matches!(side, Side::Left | Side::Top);
-    let fresh_id = new_id("pane");
-    let fresh = Node::Pane {
-        id: fresh_id.clone(),
-        agent_id: agent.map(str::to_string),
-    };
-    fn rec(n: &Node, pane_id: &str, dir: Dir, before: bool, fresh: &Node) -> Node {
+    let share = share.clamp(0.05, 0.95);
+    fn rec(n: &Node, pane_id: &str, dir: Dir, before: bool, fresh: &Node, share: f64) -> Node {
         match n {
             Node::Pane { id, .. } => {
                 if id != pane_id {
                     return n.clone();
                 }
-                let children = if before {
-                    vec![fresh.clone(), n.clone()]
+                let (children, sizes) = if before {
+                    (vec![fresh.clone(), n.clone()], vec![share, 1. - share])
                 } else {
-                    vec![n.clone(), fresh.clone()]
+                    (vec![n.clone(), fresh.clone()], vec![1. - share, share])
                 };
                 Node::Split {
                     id: new_id("split"),
                     dir,
                     children,
-                    sizes: vec![0.5, 0.5],
+                    sizes,
                 }
             }
             Node::Split {
@@ -414,11 +457,11 @@ pub fn split_pane(node: &Node, pane_id: &str, side: Side, agent: Option<&str>) -
                     .iter()
                     .position(|c| matches!(c, Node::Pane { id, .. } if id == pane_id));
                 if let (Some(idx), true) = (idx, *d == dir) {
-                    let half = sizes[idx] / 2.0;
+                    let (theirs, ours) = (sizes[idx] * (1. - share), sizes[idx] * share);
                     let mut kids = children.clone();
                     let mut fr = sizes.clone();
                     kids.insert(if before { idx } else { idx + 1 }, fresh.clone());
-                    fr.splice(idx..=idx, [half, half]);
+                    fr.splice(idx..=idx, if before { [ours, theirs] } else { [theirs, ours] });
                     return Node::Split {
                         id: id.clone(),
                         dir: *d,
@@ -431,15 +474,30 @@ pub fn split_pane(node: &Node, pane_id: &str, side: Side, agent: Option<&str>) -
                     dir: *d,
                     children: children
                         .iter()
-                        .map(|c| rec(c, pane_id, dir, before, fresh))
+                        .map(|c| rec(c, pane_id, dir, before, fresh, share))
                         .collect(),
                     sizes: sizes.clone(),
                 }
             }
         }
     }
-    let out = normalize(Some(rec(&tree, pane_id, dir, before, &fresh))).unwrap_or(tree);
-    (out, fresh_id)
+    normalize(Some(rec(&tree, pane_id, dir, before, fresh, share))).unwrap_or(tree)
+}
+
+/// `fresh` along edge `side` of the whole layout (a column or row of its
+/// own), taking `share` of it.
+pub fn wrap_edge(node: &Node, side: Side, fresh: &Node, share: f64) -> Node {
+    let dir = match side {
+        Side::Left | Side::Right => Dir::Row,
+        Side::Top | Side::Bottom => Dir::Col,
+    };
+    let share = share.clamp(0.05, 0.95);
+    let (children, sizes) = if matches!(side, Side::Left | Side::Top) {
+        (vec![fresh.clone(), node.clone()], vec![share, 1. - share])
+    } else {
+        (vec![node.clone(), fresh.clone()], vec![1. - share, share])
+    };
+    normalize(Some(Node::Split { id: new_id("split"), dir, children, sizes })).unwrap_or_else(|| node.clone())
 }
 
 /// Replace one split's sizes (committing a divider drag).
@@ -657,7 +715,11 @@ pub fn available_presets(area: Option<(f64, f64)>, min: MinSize) -> Vec<Preset> 
     }
 }
 
-/// Render-time fit: fold panes smaller than `min` (the last offender in
+/// The smallest a files tile is drawn (a tree or a tab still readable).
+pub const FILES_MIN: (f64, f64) = (240.0, 160.0);
+
+/// Render-time fit: fold panes smaller than `min` (a files tile: smaller
+/// than [`FILES_MIN`]; the last offender in
 /// reading order first, empty ones before filled ones, `keep` last) until
 /// everything fits; one pane always stays. Returns the tree to draw and the
 /// folded panes.
@@ -688,9 +750,13 @@ pub fn fit_layout(
         let bad: Vec<&Pane> = ls
             .iter()
             .filter(|p| {
-                rects
-                    .get(&p.id)
-                    .is_some_and(|r| r.w < min.min_w || r.h < min.min_h)
+                // A files tile holds less than a terminal's cells.
+                let (w, h) = if p.files.is_some() {
+                    (min.min_w.min(FILES_MIN.0), min.min_h.min(FILES_MIN.1))
+                } else {
+                    (min.min_w, min.min_h)
+                };
+                rects.get(&p.id).is_some_and(|r| r.w < w || r.h < h)
             })
             .collect();
         if bad.is_empty() {
@@ -699,7 +765,8 @@ pub fn fit_layout(
         let order: Vec<&Pane> = bad.into_iter().rev().collect();
         let victim = order
             .iter()
-            .find(|p| Some(p.id.as_str()) != keep && p.agent_id.is_none())
+            .find(|p| Some(p.id.as_str()) != keep && p.is_empty())
+            .or_else(|| order.iter().find(|p| Some(p.id.as_str()) != keep && p.files.is_none()))
             .or_else(|| order.iter().find(|p| Some(p.id.as_str()) != keep))
             .unwrap_or(&order[0]);
         let victim = (*victim).clone();
@@ -809,5 +876,22 @@ mod tests {
         assert_eq!(drop_zone(0.1, 0.5), Some(Side::Left));
         assert_eq!(drop_zone(0.5, 0.95), Some(Side::Bottom));
         assert_eq!(drop_zone(0.5, 0.5), None);
+    }
+
+    #[test]
+    fn a_files_tile_is_drawn_smaller_than_a_terminal() {
+        let min = MinSize { min_w: 400.0, min_h: 200.0 };
+        let t = build_preset(Preset::Two, &ids(&["a", "b"]));
+        let b = t.find_by_agent("b").unwrap().id;
+        let files = Node::files_pane("a");
+        let t = split_with(&t, &b, Side::Right, &files, 0.3);
+        // 1000 wide: a 500, b 350, the files 150 (too small even for
+        // files): the files fold, b stays.
+        let (_, hidden) = fit_layout(&t, (1000.0, 500.0), min, None);
+        assert_eq!(hidden.iter().map(|p| p.files.is_some()).collect::<Vec<_>>(), [false, true]);
+        // 1700 wide: the files 255 (a files tile's size), b 595: all stay.
+        let (fit, hidden) = fit_layout(&t, (1700.0, 500.0), min, None);
+        assert!(hidden.is_empty(), "{hidden:?}");
+        assert!(fit.find_files("a").is_some());
     }
 }

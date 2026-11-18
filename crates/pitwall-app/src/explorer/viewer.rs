@@ -1,6 +1,7 @@
 //! The file viewer (a port of `Viewer.tsx`): the whole main area,
-//! like Review, or (an agent showed the user files: [`Host`]) a pane beside
-//! that agent's terminal or a window of its own, each with a smaller bar.
+//! like Review, or (an agent showed the user files: [`Host`]) a files tile
+//! of its own in a Pitwall window's layout, next to the terminal tiles, or
+//! a window of its own, each with a smaller bar.
 //! Left: the agent's tree (same open folders as the Files tab)
 //! or Search; centre: tabs of open files, a header (icon, path, change
 //! letter, size, "Copy path", "Show diff") and the text. Binary files say
@@ -81,12 +82,17 @@ pub enum ViewerEvent {
     /// A file was opened (quick open lists recent files first).
     Opened(String),
     SetIgnored(bool),
-    /// Beside a terminal: "Close".
+    /// A files tile: "Close".
     Close,
-    /// Beside a terminal: "Open in window".
+    /// A files tile: "Open in window".
     Undock,
-    /// In a window of its own: "Dock beside terminal".
-    Dock,
+    /// "Dock right of the terminal" (the layout slot on its right), or a
+    /// layout place picked in the "Dock…" / "Move…"
+    /// menu: the files go there (moved, not closed: edits stay).
+    Place(super::dock::FilesPlace),
+    /// The grip pressed: the files follow the pointer until it is let go
+    /// (into the layout of the Pitwall window under it, or out of it).
+    Grip,
     /// In a window of its own: "Keep on top" toggled.
     Pin,
 }
@@ -96,8 +102,9 @@ pub enum ViewerEvent {
 pub enum Host {
     /// The main area (the Files tab's "Open", ⌘P, ⌘-click): "Back" leaves.
     Main,
-    /// A pane split next to an agent's terminal.
-    Beside,
+    /// A files tile in a Pitwall window's layout (a peer of the terminal
+    /// tiles: `main_screen::tree`, `super::dock`).
+    Tile,
     /// A window of its own.
     Window,
 }
@@ -226,13 +233,13 @@ pub struct Viewer {
     /// What it reads: an agent's id, or a folder's `path:` key.
     agent_id: String,
     host: Host,
-    /// The agent it was opened for (beside its terminal, or its window):
+    /// The agent it was opened for (its files tile, or its window):
     /// its name in the bar.
     owner: Option<String>,
     /// In a window: kept on top of other windows.
     pinned: bool,
-    /// In a window: a Pitwall window shows the agent ("Dock beside
-    /// terminal" can put it there).
+    /// In a window: a Pitwall window shows the agent ("Dock right of the
+    /// terminal" can put it in the layout slot there).
     can_dock: bool,
     tree: Entity<TreeModel>,
     tree_view: Entity<TreeView>,
@@ -253,6 +260,11 @@ pub struct Viewer {
     pub(crate) md: Entity<MarkdownView>,
     /// What the Preview was given: the path and its text (by identity).
     md_shown: Option<(String, (usize, usize))>,
+    /// The search field let the keyboard go: it comes back here at the
+    /// next draw (in whichever window the viewer is in now).
+    refocus: bool,
+    /// The "Dock…" / "Move…" menu, open at this point of the viewer.
+    place_menu: Option<gpui::Point<gpui::Pixels>>,
     _subs: Vec<Subscription>,
 }
 
@@ -280,6 +292,7 @@ impl Viewer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Viewer {
+        let _ = window;
         let tree_view = cx.new(|cx| TreeView::new(tree.clone(), cx));
         let ui = crate::ui_state::store(cx);
         let search = cx.new(|cx| SearchPane::new(source.clone(), agent_id.clone(), cx));
@@ -294,8 +307,10 @@ impl Viewer {
                     cx,
                 )
             }),
-            cx.subscribe_in(&search, window, |this, _, _: &Blurred, window, cx| {
-                window.focus(&this.focus, cx)
+            // (Not bound to a window: the viewer moves between windows.)
+            cx.subscribe(&search, |this, _, _: &Blurred, cx| {
+                this.refocus = true;
+                cx.notify();
             }),
             cx.observe(&tree, |_, _, cx| cx.notify()),
             cx.observe(&store, |_, _, cx| cx.notify()),
@@ -327,6 +342,8 @@ impl Viewer {
             preview: cx.try_global::<ViewerPreview>().is_some_and(|p| p.0),
             md: cx.new(MarkdownView::new),
             md_shown: None,
+            refocus: false,
+            place_menu: None,
             _subs: subs,
         }
     }
@@ -344,7 +361,7 @@ impl Viewer {
         self.host
     }
 
-    /// Drawn beside a terminal or in a window, for agent `owner`.
+    /// Drawn in a files tile or a window, for agent `owner`.
     pub fn set_host(&mut self, host: Host, owner: Option<String>, cx: &mut Context<Self>) {
         self.host = host;
         self.owner = owner;
@@ -1087,7 +1104,52 @@ impl Viewer {
         self.store.read(cx).agent(&self.agent_id).cloned()
     }
 
-    /// Beside a terminal or in a window: the folder, refresh, and the way
+    /// The grip: pressed, the files follow the pointer ([`ViewerEvent::Grip`]).
+    fn grip(&self, t: &Theme, tip: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::kit::icon_btn_state("ex-grip", "grip", tip, true, 13., None, t)
+            .debug_selector(|| "ex-grip".into())
+            .cursor_grab()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|_, _, _, cx| {
+                    cx.stop_propagation();
+                    cx.emit(ViewerEvent::Grip);
+                }),
+            )
+    }
+
+    /// "Dock…" / "Move…": the places menu ([`super::dock::menu`]).
+    fn place_menu_btn(&self, t: &Theme, id: &'static str, tip: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::kit::icon_btn_state(id, "grid", tip, true, 13., Some(self.place_menu.is_some()), t)
+            .debug_selector(move || id.into())
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, e: &gpui::ClickEvent, _, cx| {
+                this.place_menu = if this.place_menu.is_some() { None } else { Some(e.position()) };
+                cx.notify();
+            }))
+    }
+
+    fn place_menu_overlay(&self, at: gpui::Point<gpui::Pixels>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let me = cx.entity().downgrade();
+        let pick = move |p: Option<super::dock::FilesPlace>, cx: &mut App| {
+            let _ = me.update(cx, |this, cx| {
+                this.place_menu = None;
+                if let Some(p) = p {
+                    cx.emit(ViewerEvent::Place(p));
+                }
+                cx.notify();
+            });
+        };
+        super::dock::menu(at, self.host == Host::Tile, self.owner.clone(), t, pick)
+    }
+
+    /// The places menu is open (tests).
+    #[cfg(test)]
+    pub(crate) fn place_menu_open(&self) -> bool {
+        self.place_menu.is_some()
+    }
+
+    /// A files tile or a window: the folder, refresh, and the way
     /// to the other place (and close, or keep on top).
     fn small_bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> AnyElement {
         let tree = self.tree.read(cx).state();
@@ -1142,30 +1204,34 @@ impl Viewer {
                 }),
             ))
             .map(|d| match host {
-                Host::Beside => d
+                Host::Tile => d
+                    .child(self.grip(t, "Drag to move it in the layout, or out of the window to open it in a window", cx))
+                    .child(self.place_menu_btn(t, "ex-move", "Move…", cx))
                     .child(
                         btn("ex-undock", "window", "Open in window", None)
                             .debug_selector(|| "ex-undock".into())
-                            .on_click(cx.listener(|this, _, window, cx| this.guard(None, window, cx, |_, _, cx| cx.emit(ViewerEvent::Undock)))),
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Undock))),
                     )
                     .child(
-                        btn("ex-close-beside", "x", "Close (Esc gives the keyboard back to the terminal)", None)
-                            .debug_selector(|| "ex-close-beside".into())
+                        btn("ex-close-tile", "x", "Close (Esc gives the keyboard back to the terminal)", None)
+                            .debug_selector(|| "ex-close-tile".into())
                             .on_click(cx.listener(|this, _, window, cx| this.guard(None, window, cx, |_, _, cx| cx.emit(ViewerEvent::Close)))),
                     ),
                 _ => d
+                    .when(can_dock, |d| d.child(self.grip(t, "Drag into a Pitwall window to place it in the layout", cx)))
+                    .when(can_dock, |d| d.child(self.place_menu_btn(t, "ex-dock-menu", "Dock…", cx)))
                     .child(
                         btn(
                             "ex-dock",
                             "page-right",
-                            if can_dock { "Dock beside terminal" } else { "Dock beside terminal (no Pitwall window shows this agent)" },
+                            if can_dock { "Dock right of the terminal (a slot in the layout)" } else { "Dock right of the terminal (no Pitwall window shows this agent)" },
                             None,
                         )
                         .debug_selector(|| "ex-dock".into())
                         .when(!can_dock, |d| d.opacity(0.4))
-                        .on_click(cx.listener(move |this, _, window, cx| {
+                        .on_click(cx.listener(move |_, _, _, cx| {
                             if can_dock {
-                                this.guard(None, window, cx, |_, _, cx| cx.emit(ViewerEvent::Dock))
+                                cx.emit(ViewerEvent::Place(super::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right)))
                             }
                         })),
                     )
@@ -1716,6 +1782,9 @@ impl Viewer {
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme::theme(cx).clone();
+        if std::mem::take(&mut self.refocus) {
+            window.focus(&self.focus, cx);
+        }
         let a = self.agent(cx);
         let stale = self.is_stale();
         let root = self.root(cx);
@@ -1753,6 +1822,7 @@ impl Render for Viewer {
             .flex()
             .flex_col()
             .bg(t.bg)
+            .when_some(self.place_menu, |d, at| d.child(self.place_menu_overlay(at, &t, cx)))
             .child(self.bar(&t, a.as_ref(), cx))
             .child(
                 div()

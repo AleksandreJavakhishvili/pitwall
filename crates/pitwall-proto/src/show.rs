@@ -15,23 +15,41 @@ pub const TOOL_SHOW_FOLDER: &str = "show_folder";
 /// Both tools.
 pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER];
 
-/// Where the files show: a pane split next to the calling agent's terminal,
-/// or a window of their own. Not given: beside when the user is in Pitwall,
-/// a window when they are in another app.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// Where the files show: a tile in the layout of the Pitwall window showing
+/// the calling agent, on that side of its terminal (or of the terminal
+/// `of` names), or a window of their own. Not given: right of the
+/// terminal. `beside` is read as `right`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewerPlace {
-    /// Next to the calling agent's terminal.
+    /// A tile right of the terminal.
     #[default]
-    Beside,
+    Right,
+    Left,
+    Above,
+    Below,
     /// A window of its own.
     Window,
 }
 
+// By hand: the words [`ViewerPlace::parse`] takes (`beside` among them).
+impl<'de> Deserialize<'de> for ViewerPlace {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        ViewerPlace::parse(&s).ok_or_else(|| serde::de::Error::unknown_variant(&s, ViewerPlace::WORDS))
+    }
+}
+
 impl ViewerPlace {
+    /// Every word `where` takes, as the tools list them.
+    pub const WORDS: &'static [&'static str] = &["right", "left", "above", "below", "window"];
+
     pub fn parse(s: &str) -> Option<ViewerPlace> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "beside" => Some(ViewerPlace::Beside),
+            "right" | "beside" => Some(ViewerPlace::Right),
+            "left" => Some(ViewerPlace::Left),
+            "above" | "top" => Some(ViewerPlace::Above),
+            "below" | "bottom" => Some(ViewerPlace::Below),
             "window" => Some(ViewerPlace::Window),
             _ => None,
         }
@@ -39,9 +57,17 @@ impl ViewerPlace {
 
     pub fn word(self) -> &'static str {
         match self {
-            ViewerPlace::Beside => "beside",
+            ViewerPlace::Right => "right",
+            ViewerPlace::Left => "left",
+            ViewerPlace::Above => "above",
+            ViewerPlace::Below => "below",
             ViewerPlace::Window => "window",
         }
+    }
+
+    /// A tile in the layout (not a window).
+    pub fn is_tile(self) -> bool {
+        self != ViewerPlace::Window
     }
 }
 
@@ -66,9 +92,14 @@ pub struct ViewerOpen {
     /// The caller's folder (a shell's), for relative paths without `root`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    /// Where (`where` on the wire). `None`: Pitwall picks.
+    /// Where (`where` on the wire). `None`: right of the terminal, or
+    /// where the agent's files already are.
     #[serde(default, rename = "where", skip_serializing_if = "Option::is_none")]
     pub place: Option<ViewerPlace>,
+    /// Whose terminal `where` is next to (an agent's id or name, in the
+    /// same space). Default: the caller's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub of: Option<String>,
 }
 
 /// One file as it was opened.
@@ -114,7 +145,8 @@ pub struct ViewerOpened {
     /// Where it was asked to open (`None`: Pitwall picked).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<ViewerPlace>,
-    /// Where it is, in words ("a pane beside api's terminal").
+    /// Where it is, in words ("a files tile right of api's terminal in
+    /// space Main (window main)").
     pub shown_in: String,
     /// Why it opened somewhere else than asked, or how Pitwall picked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,7 +158,7 @@ pub struct ViewerOpened {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerShow {
-    /// The agent that asked (the pane goes beside its terminal).
+    /// The agent that asked (its files tile goes next to its terminal).
     pub agent_id: String,
     pub files: Vec<OpenedFile>,
     pub folder: Option<String>,
@@ -135,6 +167,9 @@ pub struct ViewerShow {
     pub root: Option<String>,
     /// `None`: Pitwall picks.
     pub place: Option<ViewerPlace>,
+    /// The agent whose terminal `place` is next to (resolved id).
+    #[serde(default)]
+    pub of: Option<String>,
 }
 
 /// Where the app showed a [`ViewerShow`].
@@ -143,11 +178,15 @@ pub struct ViewerShow {
 pub struct ViewerShown {
     /// The agent the viewer belongs to (the one that asked).
     pub agent_id: String,
-    /// The Pitwall window it is in, or beside (`main`, `pitwall-2`, …).
+    /// The Pitwall window its tile is in (`main`, `pitwall-2`, …).
     pub window: String,
     pub in_background: bool,
     /// Where it opened.
     pub place: ViewerPlace,
+    /// Where it is, in words (a tile: next to whose terminal, in which
+    /// space and window).
+    #[serde(default)]
+    pub at: Option<String>,
     /// The folder its tree shows.
     pub root: String,
     /// Why it opened somewhere else than asked, or how Pitwall picked.
@@ -167,7 +206,15 @@ mod tests {
         assert_eq!(v, json!({"files": ["a.rs:3"], "where": "window"}));
         assert_eq!(serde_json::from_value::<ViewerOpen>(v).unwrap(), r);
         assert_eq!(serde_json::from_value::<ViewerOpen>(json!({})).unwrap(), ViewerOpen::default());
-        assert_eq!(ViewerPlace::parse(" Beside "), Some(ViewerPlace::Beside));
+        assert_eq!(ViewerPlace::parse(" Beside "), Some(ViewerPlace::Right));
+        assert_eq!(ViewerPlace::parse("above"), Some(ViewerPlace::Above));
         assert_eq!(ViewerPlace::parse("tab"), None);
+        // `beside` (the old word) still reads as right.
+        assert_eq!(serde_json::from_value::<ViewerOpen>(json!({"where": "beside"})).unwrap().place, Some(ViewerPlace::Right));
+        let r = ViewerOpen { place: Some(ViewerPlace::Below), of: Some("web".into()), ..Default::default() };
+        assert_eq!(serde_json::to_value(&r).unwrap(), json!({"where": "below", "of": "web"}));
+        for w in ViewerPlace::WORDS {
+            assert_eq!(ViewerPlace::parse(w).map(ViewerPlace::word), Some(*w));
+        }
     }
 }

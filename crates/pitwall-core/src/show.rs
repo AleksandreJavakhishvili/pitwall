@@ -228,7 +228,7 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
             ),
         });
     }
-    let show = ViewerShow { agent_id: agent_id.to_string(), files, folder, root, place: req.place };
+    let show = ViewerShow { agent_id: agent_id.to_string(), files, folder, root, place: req.place, of: None };
     Ok((show, skipped))
 }
 
