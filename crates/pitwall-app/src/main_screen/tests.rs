@@ -912,3 +912,90 @@ fn under_liquid_glass_a_dialog_is_a_pop_up_over_its_backdrop(cx: &mut TestAppCon
     assert!(view.read_with(cx, |s, _| s.modal.is_none()));
     assert!(crate::kit::pop::open_pops().is_empty());
 }
+
+/// A click on `input` where it was drawn in `window`, then `text` typed
+/// there: GPUI's key dispatch first, then the field's text input, as
+/// AppKit's key handling does it.
+fn click_and_type(window: gpui::AnyWindowHandle, input: &Entity<crate::kit::TextInput>, text: &str, cx: &mut VisualTestContext) {
+    // A pop-up's window takes its content's size (AppKit's part, not in
+    // tests): a press outside its panel would close it.
+    let placed = crate::kit::pop::open_pops().into_iter().find(|(id, _, _)| *id == window.window_id()).and_then(|p| p.2);
+    if let Some(placed) = placed {
+        cx.simulate_window_resize(window, placed.size);
+        cx.run_until_parked();
+    }
+    let at = input.read_with(cx, |i, _| i.drawn_bounds()).expect("the field is drawn").center();
+    cx.update_window(window, |_, window, cx| {
+        // Somewhere else had the keyboard: the click is what gives it.
+        window.blur(cx);
+        let (button, modifiers) = (gpui::MouseButton::Left, gpui::Modifiers::default());
+        let down = gpui::MouseDownEvent { position: at, button, modifiers, click_count: 1, first_mouse: false };
+        window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+        let up = gpui::MouseUpEvent { position: at, button, modifiers, click_count: 1 };
+        window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        assert!(input.read(cx).is_focused(window), "the click focused the field");
+        for c in text.chars() {
+            let k = gpui::Keystroke { modifiers: Default::default(), key: c.to_string(), key_char: Some(c.to_string()) };
+            window.dispatch_keystroke(k, cx);
+        }
+    })
+    .unwrap();
+    cx.run_until_parked();
+}
+
+/// New agent's name takes what is typed, in the window (Flat) and in the
+/// dialog's glass pop-up (Liquid Glass), and so does the project search in
+/// the picker's pop-up of its own. (That the pop-up's native window hands
+/// key presses to GPUI at all is AppKit's part: `platform::macos`
+/// `keys_to_view`, which tests don't reach.)
+#[gpui::test]
+fn new_agent_takes_a_typed_name_flat_and_on_glass(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    cx.run_until_parked();
+    let dialog = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |s, _| match &s.modal {
+            Some(Modal::NewAgent(d)) => d.clone(),
+            _ => panic!("New agent"),
+        })
+    };
+    let main = cx.update(|window, _| window.window_handle());
+
+    // Flat: in the window.
+    view.update_in(cx, |s, window, cx| s.open_new_agent(None, window, cx));
+    cx.run_until_parked();
+    let name = dialog(&view, cx).read_with(cx, |d, _| d.name_input());
+    click_and_type(main, &name, "scout", cx);
+    assert_eq!(name.read_with(cx, |i, _| i.text().to_string()), "scout");
+    view.update_in(cx, |s, window, cx| s.close_modal(window, cx));
+    cx.run_until_parked();
+
+    // Liquid Glass: in the dialog's pop-up.
+    liquid_glass(cx);
+    cx.run_until_parked();
+    view.update_in(cx, |s, window, cx| s.open_new_agent(None, window, cx));
+    cx.run_until_parked();
+    let open = pops(cx);
+    assert_eq!(open.len(), 1, "the dialog's pop-up");
+    let d = dialog(&view, cx);
+    let name = d.read_with(cx, |d, _| d.name_input());
+    click_and_type(open[0], &name, "pilot", cx);
+    assert_eq!(name.read_with(cx, |i, _| i.text().to_string()), "pilot");
+
+    // The project search, in the picker's pop-up in the dialog's.
+    d.update_in(cx, |d, window, cx| d.demo_open_picker(window, cx));
+    cx.run_until_parked();
+    let all = cx.windows();
+    let inner: Vec<_> = crate::kit::pop::open_pops()
+        .into_iter()
+        .filter(|(_, p, _)| p.window_id() == open[0].window_id())
+        .filter_map(|(id, _, _)| all.iter().find(|w| w.window_id() == id).copied())
+        .collect();
+    assert_eq!(inner.len(), 1, "the picker");
+    let query = d.read_with(cx, |d, _| d.query_input());
+    click_and_type(inner[0], &query, "api", cx);
+    assert_eq!(query.read_with(cx, |i, _| i.text().to_string()), "api");
+}

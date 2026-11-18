@@ -293,6 +293,12 @@ impl MainView {
             });
             return;
         }
+        // Debug builds, `nstype <text>`: typed into this window as AppKit
+        // delivers keys (`platform::debug_type`).
+        if let Some(text) = cmd.strip_prefix("nstype ").filter(|_| cfg!(debug_assertions)) {
+            crate::platform::debug_type(window, text, cx);
+            return;
+        }
         // `notice <text>`: the explorer's notice, to look at.
         if let Some(text) = cmd.strip_prefix("notice ") {
             if let Some(e) = &self.explorer {

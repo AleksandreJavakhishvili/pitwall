@@ -359,6 +359,12 @@ impl TextInput {
         self.focus.is_focused(window)
     }
 
+    /// Where its text was last drawn (tests: a click on it).
+    #[cfg(test)]
+    pub(crate) fn drawn_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.laid.as_ref().map(|l| l.bounds)
+    }
+
     fn passes_keys(&self) -> bool {
         self.frame == Frame::Bare
     }
