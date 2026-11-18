@@ -95,6 +95,10 @@ pub enum ContentKind {
     /// Over the size cap (2 MiB, or 10 MiB when asked for); not
     /// transferred.
     TooLarge,
+    /// An image the viewer can draw (PNG, JPEG, GIF, WebP, SVG) and within
+    /// the image cap (10 MiB). Not transferred here: the viewer reads its
+    /// bytes itself.
+    Image,
 }
 
 /// One file for the viewer (`read_file`).

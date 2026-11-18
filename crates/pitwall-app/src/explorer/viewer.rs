@@ -885,7 +885,8 @@ impl Viewer {
                 .into_any_element();
         };
         match v.kind {
-            ContentKind::Binary => center(t)
+            // (Images are drawn in a later change; until then, like binary.)
+            ContentKind::Binary | ContentKind::Image => center(t)
                 .child(format!("Binary file · {} · not shown", size_label(v.size)))
                 .into_any_element(),
             ContentKind::TooLarge => {

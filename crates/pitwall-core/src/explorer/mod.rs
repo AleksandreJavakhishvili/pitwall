@@ -196,6 +196,23 @@ pub fn read_local_file(path: &str, large: bool) -> Res<FileView> {
     read::read(&crate::exec::LocalExec, path, path, max)
 }
 
+/// An image's bytes for the viewer (up to [`read::MAX_IMAGE`]).
+pub fn read_image(engine: &Engine, agent_id: &str, path: &str) -> Res<Vec<u8>> {
+    let rel = clean(path)?;
+    let c = ctx(engine, agent_id)?;
+    let root = c.root(engine, agent_id)?;
+    let real = c.resolve(&root, &rel)?;
+    read::read_bytes(&*c.exec, &rel, &real, read::MAX_IMAGE)
+}
+
+/// [`read_image`] for a file on this machine by its absolute path (the
+/// app's alone, as [`read_local_file`]).
+pub fn read_local_image(path: &str) -> Res<Vec<u8>> {
+    read::read_bytes(&crate::exec::LocalExec, path, path, read::MAX_IMAGE)
+}
+
+pub use read::{is_image, MAX_IMAGE};
+
 /// Search the agent's folder (ripgrep, else `git grep`). A new search for
 /// the same agent cancels the one still running.
 pub fn search(engine: &Engine, agent_id: &str, query: &SearchQuery) -> Res<SearchResult> {

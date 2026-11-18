@@ -9,6 +9,9 @@ use crate::exec::{Exec, FileKind};
 pub const MAX_TEXT: u64 = 2 * 1024 * 1024;
 /// The cap when the user asks for a larger file anyway ("Load anyway").
 pub const MAX_LARGE: u64 = 10 * 1024 * 1024;
+/// Images the viewer draws are read up to this size; larger ones are
+/// binary.
+pub const MAX_IMAGE: u64 = 10 * 1024 * 1024;
 /// A NUL in this many first bytes makes a file binary (git's rule).
 const SNIFF: usize = 8000;
 
@@ -21,6 +24,14 @@ const BINARY_EXT: &[&str] = &[
     "eot", "mp3", "mp4", "m4a", "mov", "avi", "mkv", "webm", "wav", "flac", "ogg", "sqlite", "db",
     "pyc",
 ];
+
+/// Images the viewer draws (contents read separately, [`read_bytes`]).
+pub const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
+
+/// `name` is an image the viewer draws.
+pub fn is_image(name: &str) -> bool {
+    ext(name).is_some_and(|e| IMAGE_EXT.contains(&e.as_str()))
+}
 
 fn ext(name: &str) -> Option<String> {
     let base = name.rsplit('/').next().unwrap_or(name);
@@ -46,6 +57,11 @@ pub(super) fn read(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<File
             None => Err(format!("{rel}: not found")),
         }
     };
+    if is_image(rel) {
+        let size = size_of()?;
+        let kind = if size <= MAX_IMAGE { ContentKind::Image } else { ContentKind::Binary };
+        return Ok(view(size, kind, None));
+    }
     if ext(rel).is_some_and(|e| BINARY_EXT.contains(&e.as_str())) {
         return Ok(view(size_of()?, ContentKind::Binary, None));
     }
@@ -69,6 +85,16 @@ pub(super) fn read(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<File
         ContentKind::Text,
         Some(String::from_utf8_lossy(&bytes).into_owned()),
     ))
+}
+
+/// A file's bytes (an image for the viewer), up to `max`.
+pub(super) fn read_bytes(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<Vec<u8>> {
+    match exec.read_file(real, max + 1) {
+        Ok(Some(b)) if b.len() as u64 > max => Err(format!("{rel}: larger than {} MiB", max / (1024 * 1024))),
+        Ok(Some(b)) => Ok(b),
+        Ok(None) => Err(format!("{rel}: not found")),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// A language id for the viewer's highlighter, from the file name.
@@ -182,7 +208,7 @@ mod tests {
             "shown with a replacement character, as VS Code does"
         );
         let p = read_text(&*x, "logo.png", "/r/logo.png").unwrap();
-        assert_eq!((p.kind, p.size), (ContentKind::Binary, 18));
+        assert_eq!((p.kind, p.size, p.text), (ContentKind::Image, 18, None), "drawn by the viewer, not sent as text");
         assert_eq!(x.calls().len(), 0);
         let b = read_text(&*x, "big.log", "/r/big.log").unwrap();
         assert_eq!(
@@ -196,6 +222,20 @@ mod tests {
             "Load anyway reads up to 10 MiB"
         );
         assert_eq!(read_text(&*x, "sub", "/r/sub").unwrap_err(), "sub: is a folder");
+        assert_eq!(read_bytes(&*x, "logo.png", "/r/logo.png", MAX_IMAGE).unwrap(), b"\x89PNG not even read");
+        assert!(read_bytes(&*x, "logo.png", "/r/logo.png", 4).unwrap_err().contains("larger"));
+    }
+
+    #[test]
+    fn images_and_their_cap() {
+        let x = FakeExec::new();
+        x.file("/r/a.SVG", b"<svg/>")
+            .file("/r/huge.webp", &vec![0u8; MAX_IMAGE as usize + 1])
+            .file("/r/clip.mp4", b"x");
+        assert_eq!(read_text(&*x, "a.SVG", "/r/a.SVG").unwrap().kind, ContentKind::Image);
+        assert_eq!(read_text(&*x, "huge.webp", "/r/huge.webp").unwrap().kind, ContentKind::Binary, "over the cap");
+        assert_eq!(read_text(&*x, "clip.mp4", "/r/clip.mp4").unwrap().kind, ContentKind::Binary);
+        assert!(is_image("x/y.JPeG") && !is_image("x/y.pdf") && !is_image("png"));
         assert_eq!(read_text(&*x, "gone", "/r/gone").unwrap_err(), "gone: not found");
     }
 
