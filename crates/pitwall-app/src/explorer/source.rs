@@ -41,27 +41,57 @@ pub trait Source: Send + Sync + 'static {
     }
 }
 
+/// What the viewer reads is named by a key: an agent's id (its folder, on
+/// its machine), or `path:` and a folder on this computer (an agent asked
+/// to show a folder outside every agent's: `core::explorer::local`).
+pub const PATH_KEY: &str = "path:";
+
+/// The key of folder `root` on this computer.
+pub fn path_key(root: &str) -> String {
+    format!("{PATH_KEY}{root}")
+}
+
+/// The folder a `path:` key names (`None`: an agent's id).
+pub fn root_of_key(key: &str) -> Option<&str> {
+    key.strip_prefix(PATH_KEY)
+}
+
 /// The hosted engine.
 pub struct EngineSource(pub Shared);
 
 impl Source for EngineSource {
     fn list_files(&self, agent_id: &str, dir: &str, ignored: bool) -> Res<DirListing> {
-        core::list_files(&self.0, agent_id, dir, ignored)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::list_files(root, dir, ignored),
+            None => core::list_files(&self.0, agent_id, dir, ignored),
+        }
     }
     fn list_all_files(&self, agent_id: &str) -> Res<FileIndex> {
-        core::list_all_files(&self.0, agent_id)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::list_all_files(root),
+            None => core::list_all_files(&self.0, agent_id),
+        }
     }
     fn read_file(&self, agent_id: &str, path: &str, large: bool) -> Res<FileView> {
-        core::read_file(&self.0, agent_id, path, large)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::read_file(root, path, large),
+            None => core::read_file(&self.0, agent_id, path, large),
+        }
     }
     fn search(&self, agent_id: &str, query: &SearchQuery) -> Res<SearchResult> {
-        core::search(&self.0, agent_id, query)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::search(&self.0, agent_id, root, query),
+            None => core::search(&self.0, agent_id, query),
+        }
     }
     fn cancel_search(&self, agent_id: &str) {
         core::cancel_search(&self.0, agent_id)
     }
     fn read_image(&self, agent_id: &str, path: &str) -> Res<Vec<u8>> {
-        core::read_image(&self.0, agent_id, path)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::read_image(root, path),
+            None => core::read_image(&self.0, agent_id, path),
+        }
     }
 }
 

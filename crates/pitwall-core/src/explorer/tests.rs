@@ -662,3 +662,30 @@ fn caps_follow_the_provider() {
         .contains("can't read files"));
     assert!(list_files(&h.engine, "ghost", "", false).is_err());
 }
+
+/// Any folder on this machine (an agent asked to show one outside its
+/// own): listed, read and searched with the same checks as an agent's.
+#[test]
+fn any_local_folder_is_read_like_an_agents() {
+    let dir = TempDir::new("ex-local");
+    let root = dir.path().join("notes");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("sub/a.md"), "# hello\nneedle here\n").unwrap();
+    std::fs::write(dir.path().join("secret.txt"), "no").unwrap();
+    let root = root.to_string_lossy().into_owned();
+    let top = local::list_files(&root, "", false).unwrap();
+    assert_eq!(top.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["sub"]);
+    let sub = local::list_files(&root, "sub", false).unwrap();
+    assert_eq!(sub.entries[0].name, "a.md");
+    let f = local::read_file(&root, "sub/a.md", false).unwrap();
+    assert_eq!(f.text.as_deref(), Some("# hello\nneedle here\n"));
+    assert!(local::read_file(&root, "../secret.txt", false).is_err(), "nothing above it");
+    assert_eq!(local::list_all_files(&root).unwrap().files, ["sub/a.md"]);
+    let h = Harness::new(vec![]);
+    // ripgrep when this machine has it (else it says what it needs).
+    match local::search(&h.engine, "path:x", &root, &q("needle")) {
+        Ok(found) => assert_eq!(found.files, 1, "{found:?}"),
+        Err(e) => assert!(e.contains("ripgrep"), "{e}"),
+    }
+    assert!(local::list_files("/no/such/folder", "", false).is_err());
+}
