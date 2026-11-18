@@ -15,7 +15,7 @@
 //!   [`logos`]: the agent kinds' logos.
 //! - [`text`]: letter-spaced labels; [`status`]: status glyphs and words.
 //! - [`button`], [`chip`], [`controls`] (checkbox, toggle, radio, seg,
-//!   select, spinner), [`tooltip`], [`menu`], [`modal`], [`input`] (the
+//!   select, spinner), [`divider`] (the resize bar), [`tooltip`], [`menu`], [`modal`], [`input`] (the
 //!   text field, IME included), [`glass`] (Liquid Glass regions).
 
 pub mod brand;
@@ -23,6 +23,7 @@ pub mod button;
 pub mod chip;
 pub mod controls;
 pub mod dialog;
+pub mod divider;
 pub mod edit;
 pub mod file_icons;
 pub mod fresh;
@@ -39,6 +40,7 @@ pub mod passive;
 pub mod pop;
 pub mod scm;
 pub mod scrollbar;
+pub mod side;
 pub mod status;
 pub mod text;
 pub mod tooltip;
@@ -46,7 +48,7 @@ pub mod tooltip;
 pub use brand::brand_mark;
 pub use button::{
     accent_button, btn_radius, button, glyph_btn, icon_btn, icon_btn_state, kbd, kbd_on_primary,
-    keys, keys_for, on_primary, small_btn, text_button, BtnKind,
+    keys, keys_for, on_primary, small_btn, text_button, tool_btn, BtnKind,
 };
 pub use chip::{chip, chip_sm, chip_subtle, chip_tone, Tone};
 pub use controls::{
@@ -54,6 +56,7 @@ pub use controls::{
     OnClose, OnPick, SegItem,
 };
 pub use file_icons::{file_icon, folder_icon, svg_image};
+pub use divider::divider;
 pub use fresh::{fresh_note, refresh_control, updated_label};
 pub use fonts::{BODY_LINE_HEIGHT, LABEL_FONT, MONO_FONT, UI_FONT, WEIGHT_550, WEIGHT_650};
 pub use hover::HoverText;
