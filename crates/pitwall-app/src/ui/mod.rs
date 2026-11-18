@@ -544,6 +544,13 @@ fn explorer_seams(
     ]
 }
 
+impl MainView {
+    /// This window's code explorer (none when refused).
+    pub fn explorer(&self) -> Option<Entity<crate::explorer::Explorer>> {
+        self.explorer.clone()
+    }
+}
+
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::frame_stats::render_started();

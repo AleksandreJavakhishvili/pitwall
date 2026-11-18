@@ -44,6 +44,12 @@ pub fn reveal(cx: &App, path: &Path) {
     cx.reveal_path(path);
 }
 
+/// Open a file with the app the system uses for it (the viewer's "Open in
+/// default app" for files it doesn't show).
+pub fn open_in_default_app(cx: &App, path: &Path) {
+    cx.open_with_system(path);
+}
+
 /// Open a URL with the system (links, System Settings panes).
 pub fn open_url(cx: &App, url: &str) {
     cx.open_url(url);

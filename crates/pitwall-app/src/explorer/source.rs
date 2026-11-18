@@ -32,6 +32,13 @@ pub trait Source: Send + Sync + 'static {
     fn read_outside(&self, path: &str, large: bool) -> Res<FileView> {
         core::read_local_file(path, large)
     }
+    /// An image's bytes (one `read_file` said is an image).
+    fn read_image(&self, agent_id: &str, path: &str) -> Res<Vec<u8>>;
+    /// [`read_image`](Self::read_image) for a file outside the agent's
+    /// folder, on this machine.
+    fn read_outside_image(&self, path: &str) -> Res<Vec<u8>> {
+        core::read_local_image(path)
+    }
 }
 
 /// The hosted engine.
@@ -52,6 +59,9 @@ impl Source for EngineSource {
     }
     fn cancel_search(&self, agent_id: &str) {
         core::cancel_search(&self.0, agent_id)
+    }
+    fn read_image(&self, agent_id: &str, path: &str) -> Res<Vec<u8>> {
+        core::read_image(&self.0, agent_id, path)
     }
 }
 
@@ -176,7 +186,9 @@ pub mod fake {
             let text = files.get(path).ok_or(format!("{path}: not found"))?;
             let size = text.len() as u64;
             let cap = if large { LARGE_CAP } else { TEXT_CAP };
-            let (kind, text) = if text.contains('\0') {
+            let (kind, text) = if pitwall_core::explorer::is_image(path) {
+                (ContentKind::Image, None)
+            } else if text.contains('\0') {
                 (ContentKind::Binary, None)
             } else if size > cap {
                 (ContentKind::TooLarge, None)
@@ -222,6 +234,11 @@ pub mod fake {
 
         fn cancel_search(&self, _: &str) {
             self.cancels.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn read_image(&self, _: &str, path: &str) -> Res<Vec<u8>> {
+            let files = self.files.lock().unwrap();
+            files.get(path).map(|t| t.as_bytes().to_vec()).ok_or(format!("{path}: not found"))
         }
     }
 

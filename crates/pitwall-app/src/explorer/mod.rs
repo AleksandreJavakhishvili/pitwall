@@ -21,6 +21,7 @@ pub mod files_panel;
 pub mod logic;
 pub mod quick_open;
 pub mod search;
+pub mod show;
 pub mod source;
 pub mod tree;
 pub mod tree_view;

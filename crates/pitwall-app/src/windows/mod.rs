@@ -198,6 +198,48 @@ pub fn active_or_main(cx: &mut App) -> Option<WindowHandle<MainView>> {
     Some(show(cx))
 }
 
+/// The window to show agent `agent`'s files in: the one that shows it (of
+/// several, the frontmost), else the active Pitwall window, else the
+/// frontmost one, else main (opened when it was closed). Nothing is
+/// activated here.
+pub fn for_agent(agent: &str, cx: &mut App) -> Option<(String, WindowHandle<MainView>)> {
+    let ui = crate::ui_state::get(cx);
+    let showing: Vec<String> = ui
+        .spaces
+        .iter()
+        .filter(|sp| sp.layout.find_by_agent(agent).is_some())
+        .map(|sp| ui.window_of_space(&sp.id).to_string())
+        .collect();
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let open: Vec<(String, WindowId)> = state(cx)
+        .open
+        .iter()
+        .filter(|(_, h)| live.contains(&h.window_id()))
+        .map(|(l, h)| (l.clone(), h.window_id()))
+        .collect();
+    let stack = cx.window_stack().map(|s| s.iter().map(|w| w.window_id()).collect());
+    let active = cx.active_window().map(|w| w.window_id());
+    let order = front_to_back(&open, stack, active);
+    let label = pick_window(&order, &showing, open.iter().find(|(_, id)| Some(*id) == active).map(|(l, _)| l.as_str()))
+        .unwrap_or(MAIN)
+        .to_string();
+    let handle = window_for(&label, cx)?;
+    let label = state(cx).open.iter().find(|(_, h)| h.window_id() == handle.window_id()).map_or(label, |(l, _)| l.clone());
+    Some((label, handle))
+}
+
+/// [`for_agent`]'s choice among the open windows `order` (front to back):
+/// the frontmost of those `showing` the agent, else the `active` one, else
+/// the frontmost.
+pub(crate) fn pick_window<'a>(order: &'a [String], showing: &[String], active: Option<&'a str>) -> Option<&'a str> {
+    order
+        .iter()
+        .find(|l| showing.contains(l))
+        .map(String::as_str)
+        .or(active)
+        .or(order.first().map(String::as_str))
+}
+
 /// Move `space` out of window `from` into a new window
 /// (`moveSpaceToNewWindow`). "All" stays in main.
 pub fn move_to_new_window(space: &str, from: &str, cx: &mut App) {

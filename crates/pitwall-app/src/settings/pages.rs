@@ -87,6 +87,7 @@ impl SettingsView {
                 Part::section("claude", |_, ui, _, _| any(Self::claude(ui))),
                 Part::section("codex", |s, ui, _, cx| any(s.codex(ui, cx))),
                 Part::section("tool-updates", |_, ui, _, cx| any(Self::tool_updates(ui, cx))),
+                Part::section("show-files", |_, ui, _, cx| any(Self::show_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
             Page::Accounts => vec![
@@ -223,6 +224,37 @@ impl SettingsView {
         section()
             .child(head(ui, "Claude Code").child(crate::kit::chip_tone("automatic", crate::kit::Tone::Ok, &ui.t)))
             .child(crate::kit::muted("Hooks are passed per launch. Your ~/.claude settings are never edited.", &ui.t))
+    }
+
+    /// `agents.showFiles`: agents can show the user files in Pitwall.
+    fn show_files(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::explorer::show::SETTING);
+        let on = crate::explorer::show::enabled(cx);
+        section().child(
+            div()
+                .id("show-files")
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Agents can show you files"))
+                        .child(crate::kit::hint("Ask an agent to open a file, a folder or an image and it shows up in Pitwall’s file viewer. Pitwall gives the Claude Code and Codex agents it starts its own MCP server, per launch (your config files aren’t edited). Applies when an agent starts.", &ui.t)),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
+        )
     }
 
     /// `agents.updateTools`: Pitwall updates the agent tools, one at a time.

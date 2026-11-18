@@ -79,6 +79,7 @@ async fn the_viewer_opens_text_binary_and_large_files(cx: &mut TestAppContext) {
     let src = FakeSource::new(&[
         ("docs/ანგარიში.md", "სათაური\nline two\n"),
         ("img/logo.png", "\u{0}PNG"),
+        ("bin/tool", "\u{0}ELF"),
         ("dump.json", big.as_str()),
     ]);
     let (_, explorer, cx) = setup(cx, vec![readable("a1")], src.clone());
@@ -108,10 +109,18 @@ async fn the_viewer_opens_text_binary_and_large_files(cx: &mut TestAppContext) {
         assert!(e.trees["a1"].read(cx).is_open("docs"));
     });
 
+    // An image: its bytes read for drawing it.
     open("img/logo.png", cx);
     viewer.read_with(cx, |v, _| {
-        assert_eq!(v.doc_kind("img/logo.png"), Some(ContentKind::Binary))
+        assert_eq!(v.doc_kind("img/logo.png"), Some(ContentKind::Image));
+        assert!(v.image_loaded("img/logo.png"));
     });
+    open("bin/tool", cx);
+    viewer.read_with(cx, |v, _| {
+        assert_eq!(v.doc_kind("bin/tool"), Some(ContentKind::Binary));
+        assert!(!v.image_loaded("bin/tool"));
+    });
+    viewer.update(cx, |v, cx| v.close_tab("bin/tool", cx));
 
     open("dump.json", cx);
     viewer.read_with(cx, |v, _| {
@@ -128,7 +137,7 @@ async fn the_viewer_opens_text_binary_and_large_files(cx: &mut TestAppContext) {
     explorer.read_with(cx, |e, _| {
         assert_eq!(
             e.recents["a1"][..2],
-            ["dump.json".to_string(), "img/logo.png".to_string()]
+            ["dump.json".to_string(), "bin/tool".to_string()]
         );
     });
 

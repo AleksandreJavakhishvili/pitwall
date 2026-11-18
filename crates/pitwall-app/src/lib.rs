@@ -161,7 +161,8 @@ pub fn run() {
         }
         engineer::register(cx, engine.as_ref());
         if let Some(e) = engine.clone() {
-            follow_tool_updates(e, cx);
+            follow_tool_updates(e.clone(), cx);
+            follow_show_files(e, root_for_cli(cx), cx);
         }
         // The floating "needs you" control (after `ui_state`: its setting).
         if let (Some(e), Content::Live { store }) = (engine.clone(), cx.global::<AppState>().content.clone()) {
@@ -343,6 +344,21 @@ fn follow_tool_updates(engine: pitwall_core::engine::Shared, cx: &mut App) {
     engine.set_tool_updates(on(cx));
     let store = ui_state::store(cx);
     cx.observe(&store, move |_, cx| engine.set_tool_updates(on(cx))).detach();
+}
+
+/// The data folder (for the stable copy of the shipped CLI).
+fn root_for_cli(cx: &App) -> Option<PathBuf> {
+    cx.global::<AppState>().root.clone()
+}
+
+/// `agents.showFiles`, followed live: agents started while it is on get
+/// Pitwall's MCP server (the shipped `pitwall-cli mcp`), and `viewer.open`
+/// refuses while it is off.
+fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>, cx: &mut App) {
+    engine.set_cli_bin(root.and_then(|r| platform::cli_install::cli_bin(&r).ok()));
+    engine.set_show_files(crate::explorer::show::enabled(cx));
+    let store = ui_state::store(cx);
+    cx.observe(&store, move |_, cx| engine.set_show_files(crate::explorer::show::enabled(cx))).detach();
 }
 
 fn quit_and_stop_agents(_: &QuitAndStopAgents, cx: &mut App) {

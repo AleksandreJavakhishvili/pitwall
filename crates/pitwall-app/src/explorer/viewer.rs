@@ -4,8 +4,10 @@
 //! letter, size, "Copy path", "Show diff") and the text. Binary files say
 //! so; files over 2 MiB offer "Load anyway" (up to 10 MiB); an open file
 //! that changed on disk offers "Reload"; Markdown files switch between
-//! Code and a formatted Preview ([`crate::markdown_view`]). Nothing here
-//! can change a file.
+//! Code and a formatted Preview ([`crate::markdown_view`]); images (PNG,
+//! JPEG, GIF, WebP, SVG, up to 10 MiB) are drawn fitted to the pane with
+//! their pixel size in the header; other binary files on this computer
+//! offer "Open in default app". Nothing here can change a file.
 
 use crate::kit::Ellipsis as _;
 use std::collections::HashMap;
@@ -97,6 +99,25 @@ struct Doc {
     loading: bool,
     /// Read again and different: what's on disk now (shown on "Reload").
     newer: Option<Loaded>,
+    /// An image's bytes, once read (`ContentKind::Image`).
+    image: Option<Arc<gpui::Image>>,
+    /// Why its bytes couldn't be read.
+    image_error: Option<String>,
+    /// The file is on this computer, here ("Open in default app").
+    local: Option<std::path::PathBuf>,
+}
+
+/// GPUI's format for an image the viewer draws (by its name).
+pub fn image_format(path: &str) -> Option<gpui::ImageFormat> {
+    let ext = path.rsplit('/').next()?.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => gpui::ImageFormat::Png,
+        "jpg" | "jpeg" => gpui::ImageFormat::Jpeg,
+        "gif" => gpui::ImageFormat::Gif,
+        "webp" => gpui::ImageFormat::Webp,
+        "svg" => gpui::ImageFormat::Svg,
+        _ => return None,
+    })
 }
 
 pub struct Viewer {
@@ -277,6 +298,27 @@ impl Viewer {
         cx.notify();
     }
 
+    /// Show folder `dir` (relative; "" = the root) opened and selected in
+    /// the tree (an agent asked to show it).
+    pub fn reveal_folder(&mut self, dir: &str, cx: &mut Context<Self>) {
+        self.pane = Pane::Files;
+        if dir.is_empty() {
+            return;
+        }
+        self.tree.update(cx, |t, cx| {
+            t.reveal(dir, cx);
+            t.expand(dir, cx);
+        });
+        let dir = dir.to_string();
+        self.tree_view.update(cx, |v, cx| v.set_selected(Some(dir), cx));
+        cx.notify();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tree_is_open(&self, dir: &str, cx: &App) -> bool {
+        self.tree.read(cx).is_open(dir)
+    }
+
     /// Close a tab (its document is dropped).
     pub fn close_tab(&mut self, path: &str, cx: &mut Context<Self>) {
         let Some(i) = self.tabs.iter().position(|p| p == path) else {
@@ -311,35 +353,50 @@ impl Viewer {
             d.newer = None;
         }
         let (source, agent, p) = (self.source.clone(), self.agent_id.clone(), path.to_string());
+        // On this computer: where it is here (for "Open in default app").
+        let here = self
+            .agent(cx)
+            .filter(|a| a.machine.provider == pitwall_core::provider::ProviderId::LOCAL)
+            .map(|a| absolute_path(&a.cwd, path));
         let load = cx
             .background_executor()
             .spawn(async move {
-                if super::logic::outside(&p) {
+                let res = if super::logic::outside(&p) {
                     source.read_outside(&p, large)
                 } else {
                     source.read_file(&agent, &p, large)
-                }
+                };
+                let here = here.map(std::path::PathBuf::from).filter(|h| h.is_file());
+                (res, here)
             });
         let path = path.to_string();
         cx.spawn(async move |this, cx| {
-            let res: Res<FileView> = load.await;
+            let (res, here): (Res<FileView>, _) = load.await;
             let _ = this.update(cx, |this, cx| {
-                this.read_done(path, quiet, res, cx);
+                this.read_done(path, quiet, res, here, cx);
             });
         })
         .detach();
         cx.notify();
     }
 
-    fn read_done(&mut self, path: String, quiet: bool, res: Res<FileView>, cx: &mut Context<Self>) {
+    fn read_done(
+        &mut self,
+        path: String,
+        quiet: bool,
+        res: Res<FileView>,
+        here: Option<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         // Closed meanwhile: dropped.
         if !self.tabs.contains(&path) {
             return;
         }
-        let d = self.docs.entry(path).or_default();
+        let d = self.docs.entry(path.clone()).or_default();
         match res {
             Ok(v) => {
                 let v = Loaded::from(v);
+                let image = v.kind == ContentKind::Image;
                 if quiet && d.view.is_some() {
                     if d.view.as_ref() != Some(&v) {
                         d.newer = Some(v);
@@ -347,8 +404,12 @@ impl Viewer {
                 } else {
                     *d = Doc {
                         view: Some(v),
+                        local: here,
                         ..Doc::default()
                     };
+                    if image {
+                        self.read_image(&path, cx);
+                    }
                 }
             }
             Err(e) => {
@@ -361,6 +422,46 @@ impl Viewer {
             }
         }
         cx.notify();
+    }
+
+    /// An image's bytes, for drawing it.
+    fn read_image(&mut self, path: &str, cx: &mut Context<Self>) {
+        let (source, agent, p) = (self.source.clone(), self.agent_id.clone(), path.to_string());
+        let load = cx.background_executor().spawn(async move {
+            if super::logic::outside(&p) {
+                source.read_outside_image(&p)
+            } else {
+                source.read_image(&agent, &p)
+            }
+        });
+        let path = path.to_string();
+        cx.spawn(async move |this, cx| {
+            let res = load.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(d) = this.docs.get_mut(&path) else { return };
+                match (res, image_format(&path)) {
+                    (Ok(bytes), Some(f)) => d.image = Some(Arc::new(gpui::Image::from_bytes(f, bytes))),
+                    (Ok(_), None) => d.image_error = Some("not an image the viewer draws".into()),
+                    (Err(e), _) => d.image_error = Some(e),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The shown image's bytes are read (tests).
+    #[cfg(test)]
+    pub fn image_loaded(&self, path: &str) -> bool {
+        self.docs.get(path).is_some_and(|d| d.image.is_some())
+    }
+
+    /// The active image's size in pixels, once drawn.
+    fn image_pixels(&self, window: &mut Window, cx: &mut App) -> Option<(i32, i32)> {
+        let image = self.docs.get(self.active.as_ref()?)?.image.clone()?;
+        let r = image.get_render_image(window, cx)?;
+        let s = r.size(0);
+        Some((s.width.0, s.height.0))
     }
 
     /// ↻, ⌘⇧R, the agent's changes moving: the shown file read again
@@ -404,10 +505,17 @@ impl Viewer {
         let Some(active) = self.active.clone() else {
             return;
         };
+        let mut image = false;
         if let Some(d) = self.docs.get_mut(&active) {
             if let Some(n) = d.newer.take() {
+                image = n.kind == ContentKind::Image;
                 d.view = Some(n);
+                d.image = None;
+                d.image_error = None;
             }
+        }
+        if image {
+            self.read_image(&active, cx);
         }
         cx.notify();
     }
@@ -740,6 +848,7 @@ impl Viewer {
         t: &Theme,
         a: Option<&AgentView>,
         active: &str,
+        pixels: Option<(i32, i32)>,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let status = self
@@ -797,6 +906,17 @@ impl Viewer {
                     ),
             )
             .when_some(status, |d, s| d.child(status_mark(t, "ex-head-status", s)))
+            .when_some(pixels, |d, (w, h)| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .debug_selector(|| "ex-image-pixels".into())
+                        .font_family(MONO_FONT)
+                        .text_size(px(11.))
+                        .text_color(t.text_3)
+                        .child(format!("{w} × {h} px")),
+                )
+            })
             .when_some(size, |d, s| {
                 d.child(
                     div()
@@ -884,11 +1004,53 @@ impl Viewer {
                 .child("Reading…")
                 .into_any_element();
         };
+        let here = doc.and_then(|d| d.local.clone());
         match v.kind {
-            // (Images are drawn in a later change; until then, like binary.)
-            ContentKind::Binary | ContentKind::Image => center(t)
-                .child(format!("Binary file · {} · not shown", size_label(v.size)))
-                .into_any_element(),
+            ContentKind::Binary => {
+                let what = if image_format(&active).is_some() {
+                    format!("Image · {} · larger than {} · not shown", size_label(v.size), size_label(pitwall_core::explorer::MAX_IMAGE))
+                } else {
+                    format!("Binary file · {} · not shown", size_label(v.size))
+                };
+                center(t)
+                    .child(what)
+                    .when_some(here, |d, here| {
+                        d.child(
+                            small_btn("ex-open-default", "Open in default app", t)
+                                .on_click(cx.listener(move |_, _, _, cx| crate::platform::files::open_in_default_app(cx, &here)))
+                                .tooltip(|_, cx| tooltip_view("Open it with the app your system uses for it", cx)),
+                        )
+                    })
+                    .into_any_element()
+            }
+            ContentKind::Image => match doc.and_then(|d| d.image.clone()) {
+                Some(image) => {
+                    let err = t.text_3;
+                    div()
+                        .id("ex-image")
+                        .debug_selector(|| "ex-image".into())
+                        .flex_1()
+                        .min_h_0()
+                        .size_full()
+                        .p(px(16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            gpui::img(gpui::ImageSource::Image(image))
+                                .size_full()
+                                .object_fit(gpui::ObjectFit::ScaleDown)
+                                .with_fallback(move || {
+                                    div().text_size(px(12.5)).text_color(err).child("This image can't be drawn").into_any_element()
+                                }),
+                        )
+                        .into_any_element()
+                }
+                None => match doc.and_then(|d| d.image_error.clone()) {
+                    Some(e) => center(t).child(format!("Couldn't read the image: {e}")).into_any_element(),
+                    None => center(t).child("Reading…").into_any_element(),
+                },
+            },
             ContentKind::TooLarge => {
                 let loading = doc.is_some_and(|d| d.loading);
                 let path = active.clone();
@@ -931,6 +1093,7 @@ impl Render for Viewer {
         let stale = self.is_stale();
         self.sync_preview(a.as_ref(), cx);
         let active = self.active.clone();
+        let pixels = self.image_pixels(window, cx);
         let body = self.body(&t, window, cx);
         let tabs = self.tabs.clone();
         self.tab_focus.retain(|p, _| tabs.contains(p));
@@ -966,7 +1129,7 @@ impl Render for Viewer {
                             .flex_col()
                             .bg(t.term_bg)
                             .when(!self.tabs.is_empty(), |d| d.child(self.tabs_row(&t, window, cx)))
-                            .when_some(active, |d, p| d.child(self.head(&t, a.as_ref(), &p, cx)))
+                            .when_some(active, |d, p| d.child(self.head(&t, a.as_ref(), &p, pixels, cx)))
                             .when(stale, |d| {
                                 d.child(
                                     div()

@@ -158,6 +158,20 @@ pub fn move_agent(agent: &str, space: &str, cx: &mut App) -> Answer {
     current(&id, cx)
 }
 
+/// `viewer.open` (`crate::explorer::show`), on the main thread like the
+/// spaces.
+impl pitwall_daemon::ViewerBackend for AppWorkspace {
+    fn show(&self, req: &pitwall_proto::ViewerShow) -> Result<pitwall_proto::ViewerShown, ErrorBody> {
+        let req = req.clone();
+        self.on_main(move |cx| crate::explorer::show::show(&req, cx))
+    }
+
+    fn mirrored(&self, id: &str) -> Option<String> {
+        let id = id.to_string();
+        self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()
+    }
+}
+
 impl WorkspaceBackend for AppWorkspace {
     fn spaces(&self) -> Result<Vec<SpaceView>, ErrorBody> {
         self.on_main(|cx| Ok(views(&crate::ui_state::get(cx))))
