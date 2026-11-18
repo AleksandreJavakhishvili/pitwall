@@ -8,7 +8,7 @@ use std::rc::Rc;
 use crate::kit::HoverText;
 use gpui::{
     anchored, canvas, deferred, div, point, prelude::*, px, AnimationExt, AnyElement, App,
-    ClickEvent, Div, ElementId, FontWeight, IntoElement, PathBuilder, SharedString, Stateful,
+    ClickEvent, Div, ElementId, FontWeight, Hsla, IntoElement, PathBuilder, SharedString, Stateful,
     Window,
 };
 
@@ -28,8 +28,22 @@ pub fn check(checked: bool, t: &Theme) -> Div {
     checkbox_box(checked, false, 14., t)
 }
 
+/// A checkbox's colours, `(fill, edge, mark)`. Ticked: filled with the
+/// text colour (the design's accent) with an opaque mark on it
+/// ([`Theme::on_text`]). Not ticked: an outline in text-3 on the surface
+/// colour (text-4 was under 3:1 against dark surfaces, too faint for a
+/// control's edge).
+pub fn check_colors(checked: bool, t: &Theme) -> (Hsla, Hsla, Hsla) {
+    if checked {
+        (t.text, t.text, t.on_text())
+    } else {
+        (t.bg, t.text_3, t.on_text())
+    }
+}
+
 /// A checkbox square of `size` px; `disabled` dims it.
 pub fn checkbox_box(checked: bool, disabled: bool, size: f32, t: &Theme) -> Div {
+    let (fill, edge, mark) = check_colors(checked, t);
     div()
         .flex_none()
         .size(px(size))
@@ -38,10 +52,10 @@ pub fn checkbox_box(checked: bool, disabled: bool, size: f32, t: &Theme) -> Div 
         .flex()
         .items_center()
         .justify_center()
-        .border_color(if checked { t.text } else { t.text_4 })
-        .bg(if checked { t.text } else { t.bg })
+        .border_color(edge)
+        .bg(fill)
         .when(disabled, |d| d.opacity(0.45))
-        .when(checked, |d| d.child(icon("check", size - 4., t.bg)))
+        .when(checked, |d| d.child(icon("check", size - 4., mark)))
 }
 
 /// `.ex-check` and the like: a small labelled checkbox (12 px box, 11.5 px
@@ -54,6 +68,7 @@ pub fn checkbox(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let hover = t.text_2;
+    let (fill, edge, mark) = check_colors(on, t);
     div()
         .id(id)
         .flex()
@@ -73,9 +88,9 @@ pub fn checkbox(
                 .justify_center()
                 .rounded(px(3.))
                 .border_1()
-                .border_color(if on { t.text_2 } else { t.text_4 })
-                .bg(if on { t.text_2 } else { t.raised })
-                .when(on, |d| d.child(icon("check", 10., t.raised))),
+                .border_color(edge)
+                .bg(fill)
+                .when(on, |d| d.child(icon("check", 10., mark))),
         )
         .child(label.into())
         .on_click(on_click)
@@ -86,7 +101,7 @@ pub fn checkbox(
 pub fn toggle(id: impl Into<ElementId>, on: bool, t: &Theme) -> Stateful<Div> {
     use super::motion::{mix, tween, Ease, TOGGLE};
     let (track_off, track_on) = (t.surface_3, t.text);
-    let (knob_off, knob_on) = (t.text_3, t.bg);
+    let (knob_off, knob_on) = (t.text_3, t.on_text());
     div()
         .id(id)
         .flex_none()
@@ -126,7 +141,7 @@ pub fn radio(checked: bool, t: &Theme) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .border_color(if checked { t.text } else { t.text_4 })
+        .border_color(if checked { t.text } else { t.text_3 })
         .when(checked, |d| {
             d.child(div().size(px(6.)).rounded_full().bg(t.text))
         })
@@ -555,4 +570,113 @@ pub fn segments(t: &Theme) -> Div {
         .border_color(t.line_strong)
         .rounded(RADIUS)
         .overflow_hidden()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{Appearance, GlassOffer, Inputs, Look, OsPrefs};
+    use gpui::{Rgba, WindowAppearance};
+
+    /// `top` laid over `under` (straight alpha).
+    fn over(top: Hsla, under: Rgba) -> Rgba {
+        let t = top.to_rgb();
+        let a = t.a;
+        Rgba { r: t.r * a + under.r * (1. - a), g: t.g * a + under.g * (1. - a), b: t.b * a + under.b * (1. - a), a: 1. }
+    }
+
+    fn luminance(c: Rgba) -> f32 {
+        let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+        0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+
+    /// WCAG's contrast ratio.
+    fn contrast(a: Rgba, b: Rgba) -> f32 {
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    fn glass(os: WindowAppearance, look: Look, more_contrast: bool) -> Theme {
+        let prefs = OsPrefs { increase_contrast: more_contrast, ..OsPrefs::default() };
+        Appearance::resolve(Inputs { look, ..Inputs::default() }, os, GlassOffer::Liquid, prefs).theme()
+    }
+
+    /// Every theme a control is drawn with: dark and light; Flat, Glass
+    /// and Glass with the OS's Increase contrast; the window's tokens, the
+    /// chrome's, a floating surface's and a dialog's on its glass pop-up.
+    fn themes() -> Vec<(String, Theme)> {
+        let mut out = vec![];
+        for (os, mode) in [(WindowAppearance::Dark, "dark"), (WindowAppearance::Light, "light")] {
+            for (look, more, name) in [(Look::Flat, false, "flat"), (Look::Glass, false, "glass"), (Look::Glass, true, "glass+contrast")] {
+                let t = glass(os, look, more);
+                out.push((format!("{mode} {name}"), t.clone()));
+                out.push((format!("{mode} {name} chrome"), t.chrome()));
+                out.push((format!("{mode} {name} float"), t.float()));
+                out.push((format!("{mode} {name} dialog"), super::super::modal::on_glass(&t.float())));
+            }
+        }
+        out
+    }
+
+    /// What a translucent surface shows through: the mode's own page.
+    fn behind(t: &Theme) -> Rgba {
+        Theme::for_mode(t.mode).bg.to_rgb()
+    }
+
+    /// Ticked, unticked and disabled boxes (and the switch) are told apart
+    /// in every theme: the mark on the fill, the fill and the edges on the
+    /// surface, at WCAG's ratios for text (4.5) and for a control (3).
+    #[test]
+    fn ticked_and_unticked_boxes_differ_in_every_theme() {
+        let mut bad = vec![];
+        for (name, t) in themes() {
+            assert!(t.on_text().a >= 1., "{name}: the mark is opaque");
+            for (sname, s) in [("bg", t.bg), ("surface", t.surface), ("surface-2", t.surface_2), ("raised", t.raised)] {
+                let surface = over(s, behind(&t));
+                let (on_fill, on_edge, mark) = check_colors(true, &t);
+                let (off_fill, off_edge, _) = check_colors(false, &t);
+                let on_fill = over(on_fill, surface);
+                let off_fill = over(off_fill, surface);
+                let checks = [
+                    ("mark on the ticked fill", contrast(over(mark, on_fill), on_fill), 4.5),
+                    ("ticked fill on the surface", contrast(on_fill, surface), 3.),
+                    ("ticked edge on the surface", contrast(over(on_edge, surface), surface), 3.),
+                    ("unticked edge on the surface", contrast(over(off_edge, surface), surface), 3.),
+                    ("unticked edge on its fill", contrast(over(off_edge, off_fill), off_fill), 3.),
+                    ("ticked fill against the unticked one", contrast(on_fill, off_fill), 3.),
+                    // Disabled (dimmed to 0.45): still told apart.
+                    ("disabled ticked fill on the surface", contrast(over(t.text.opacity(0.45), surface), surface), 2.),
+                ];
+                for (what, ratio, min) in checks {
+                    if ratio < min {
+                        bad.push(format!("{name} on {sname}: {what} {ratio:.2} < {min}"));
+                    }
+                }
+                // The switch: its knob on the track, on and off.
+                let track_on = over(t.text, surface);
+                let ratio = contrast(over(t.on_text(), track_on), track_on);
+                if ratio < 4.5 {
+                    bad.push(format!("{name} on {sname}: the switch's knob when on {ratio:.2}"));
+                }
+                let track_off = over(t.surface_3, surface);
+                let ratio = contrast(over(t.text_3, track_off), track_off);
+                if ratio < 3. {
+                    bad.push(format!("{name} on {sname}: the switch's knob when off {ratio:.2}"));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// The bug: under glass a ticked box's mark was `bg`, there the well's
+    /// translucent black, and it came out a faint grey on the light fill.
+    #[test]
+    fn the_mark_is_not_the_glass_well() {
+        for os in [WindowAppearance::Dark, WindowAppearance::Light] {
+            let t = glass(os, Look::Glass, false).chrome();
+            let (_, _, mark) = check_colors(true, &t);
+            assert_ne!(mark, t.bg);
+            assert_eq!(mark, t.g.on_primary);
+        }
+    }
 }

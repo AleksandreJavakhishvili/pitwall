@@ -744,18 +744,21 @@ impl Draw<'_> {
     fn item(&mut self, it: &Item, n: Option<u64>, depth: usize) -> Div {
         let t = self.t;
         let marker: AnyElement = match (it.task, n) {
-            (Some(on), _) => div()
-                .mt(px(5.))
-                .size(px(13.))
-                .rounded(px(3.))
-                .border_1()
-                .border_color(if on { t.text_2 } else { t.line_strong })
-                .when(on, |d| d.bg(t.text_2))
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(on, |d| d.child(kit::icon("check", 11., t.bg)))
-                .into_any_element(),
+            (Some(on), _) => {
+                let (fill, edge, mark) = kit::check_colors(on, t);
+                div()
+                    .mt(px(5.))
+                    .size(px(13.))
+                    .rounded(px(3.))
+                    .border_1()
+                    .border_color(edge)
+                    .when(on, |d| d.bg(fill))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(on, |d| d.child(kit::icon("check", 11., mark)))
+                    .into_any_element()
+            }
             (None, Some(n)) => div()
                 .text_color(t.text_3)
                 .child(format!("{n}."))

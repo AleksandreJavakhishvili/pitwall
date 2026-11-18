@@ -39,7 +39,7 @@ use crate::kit::{
 use super::strip::Toast;
 use super::{Confirm, MainScreen, Move, SelectNext, SelectPrev, SidebarMode};
 use crate::agents::{group_by_project, status_word, ProjectGroup};
-use crate::theme::{Theme, RADIUS, SIDEBAR_W};
+use crate::theme::{Theme, RADIUS};
 
 /// An agent's name being edited in its sidebar row, and why the last try
 /// failed.
@@ -124,6 +124,8 @@ impl MainScreen {
         if mode == SidebarMode::Rail {
             return self.render_rail(agents, t, cx).into_any_element();
         }
+        let width = self.sidebar_width(window);
+        self.side_drawn_w = f32::from(width);
         let list = self.side_list(t, window, cx);
         div()
             .id("sidebar")
@@ -140,7 +142,7 @@ impl MainScreen {
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| window.focus(&this.sidebar_focus, cx)),
             )
-            .w(SIDEBAR_W)
+            .w(width)
             .h_full()
             .flex_none()
             .flex()
@@ -224,6 +226,12 @@ impl MainScreen {
             .into_any_element()
     }
 
+    /// How many letters of a project's name fit its heading tracked (22 at
+    /// the default width); a longer name is one run that ends with "…".
+    fn head_label_chars(&self) -> usize {
+        ((self.side_drawn_w - 92.) / 8.).max(6.) as usize
+    }
+
     pub(super) fn project_head(
         &self,
         g: &ProjectGroup,
@@ -302,7 +310,7 @@ impl MainScreen {
                                 crate::kit::project_name(&g.display).to_string(),
                                 t.text_3,
                                 12.,
-                                22,
+                                self.head_label_chars(),
                             )
                                 .group_hover_text("project-head", t.text_2, |s| s),
                         ),

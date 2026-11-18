@@ -40,7 +40,6 @@ use crate::webview::{self, Options, Snapshot, WebEvent, WebView};
 /// The terminal's share of the pane at first.
 const SPLIT: f32 = 0.5;
 const MIN_SHARE: f32 = 0.15;
-const DIVIDER: f32 = 6.;
 const TOOLBAR_H: f32 = 30.;
 
 /// What the views send the screen: their callbacks run outside any GPUI
@@ -516,11 +515,11 @@ impl MainScreen {
             c
         };
         let id = a.id.clone();
-        let divider = div()
-            .id(SharedString::from(format!("preview-divider-{}", a.id)))
-            .flex_none()
-            .when(row, |d| d.w(px(DIVIDER)).h_full().cursor_col_resize().border_l_1())
-            .when(!row, |d| d.h(px(DIVIDER)).w_full().cursor_row_resize().border_t_1())
+        let dragged = self.previews.drag.as_ref().is_some_and(|d| d.agent == a.id);
+        // The page's edge stays drawn: a page may be as light as the bar.
+        let divider = crate::kit::divider(SharedString::from(format!("preview-divider-{}", a.id)), row, dragged, t)
+            .when(row, |d| d.border_l_1())
+            .when(!row, |d| d.border_t_1())
             .border_color(t.line)
             .bg(t.surface)
             .on_mouse_down(

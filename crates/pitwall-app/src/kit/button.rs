@@ -64,11 +64,7 @@ pub fn kbd_on_primary(label: &str, t: &Theme) -> Div {
 
 /// The text colour on a primary button.
 pub fn on_primary(t: &Theme) -> gpui::Hsla {
-    if t.is_glass() {
-        t.g.on_primary
-    } else {
-        t.bg
-    }
+    t.on_text()
 }
 
 /// The CSS button kinds.

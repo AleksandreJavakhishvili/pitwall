@@ -88,8 +88,24 @@ pub const RADIUS_SM: Pixels = px(4.);
 pub const RADIUS: Pixels = px(6.);
 pub const RADIUS_LG: Pixels = px(10.);
 pub const TOPBAR_H: Pixels = px(44.);
+/// The sidebar's width until its edge is dragged (and after a double click
+/// on it).
 pub const SIDEBAR_W: Pixels = px(268.);
+/// Narrower, an agent row's name and status no longer share a line.
+pub const SIDEBAR_MIN_W: f32 = 200.;
+/// Wider than this it only takes room from the terminals, however big the
+/// window (and never more than half of it: [`sidebar_width`]).
+pub const SIDEBAR_MAX_W: f32 = 640.;
 pub const RIGHT_W: Pixels = px(320.);
+
+/// The sidebar's width: the user's (`None`: [`SIDEBAR_W`]) within its
+/// range, and at most half the window's `viewport` width (a narrower
+/// window shrinks it for now; the user's width comes back when it grows).
+pub fn sidebar_width(user: Option<f32>, viewport: f32) -> Pixels {
+    let w = user.filter(|w| w.is_finite()).unwrap_or(f32::from(SIDEBAR_W));
+    let max = (viewport / 2.).clamp(SIDEBAR_MIN_W, SIDEBAR_MAX_W);
+    px(w.clamp(SIDEBAR_MIN_W, max).round())
+}
 
 /// `#rrggbb` + alpha (CSS `rgba(r, g, b, a)`).
 fn a(hex: u32, alpha: f32) -> Hsla {
@@ -724,6 +740,19 @@ impl Theme {
     /// Glass is on (pill buttons, translucent chrome).
     pub fn is_glass(&self) -> bool {
         self.glass.is_some()
+    }
+
+    /// What is drawn on a fill of `text`: a ticked box's mark, a switch's
+    /// knob when it is on, a primary button's label. Always opaque. Under
+    /// glass `bg` is the translucent well (see [`Theme::chrome`]), and a
+    /// mark drawn in it came out a faint grey on the light box, so a ticked
+    /// box looked like an empty white one.
+    pub fn on_text(&self) -> Hsla {
+        if self.is_glass() {
+            self.g.on_primary
+        } else {
+            self.bg
+        }
     }
 
     /// This theme with the chrome's glass surfaces (glass.css "chrome:

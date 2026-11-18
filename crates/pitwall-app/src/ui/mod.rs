@@ -310,6 +310,14 @@ impl MainView {
             }
             return;
         }
+        // Debug builds, `sidebar <px>|reset`: the sidebar's edge dragged to
+        // that width (or double-clicked), as the mouse does it.
+        if let Some(arg) = cmd.strip_prefix("sidebar ").filter(|_| cfg!(debug_assertions)) {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.debug_sidebar(arg.trim(), window, cx));
+            }
+            return;
+        }
         // `pop <what>`: drive the open glass pop-up (`kit::pop::debug`).
         if let Some(what) = cmd.strip_prefix("pop ") {
             crate::kit::pop::debug(what.trim(), cx);
@@ -370,6 +378,12 @@ impl MainView {
                     window.dispatch_keystroke(k, cx);
                 }
             });
+            return;
+        }
+        // Debug builds, `nstype <text>`: typed into this window as AppKit
+        // delivers keys (`platform::debug_type`).
+        if let Some(text) = cmd.strip_prefix("nstype ").filter(|_| cfg!(debug_assertions)) {
+            crate::platform::debug_type(window, text, cx);
             return;
         }
         // `notice <text>`: the explorer's notice, to look at.

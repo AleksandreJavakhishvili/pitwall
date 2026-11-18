@@ -412,6 +412,18 @@ pub fn debug_click(window: &mut Window, x: f32, y: f32, cx: &mut App) {
     let _ = (window, x, y, cx);
 }
 
+/// Debug builds on macOS: `text` typed into `window`, each character a
+/// key press as AppKit delivers one to it (`-[NSWindow sendEvent:]`, so
+/// through the view's key handling and the text input system to the
+/// focused field). In this process only: nothing is posted to the system.
+/// Lower-case letters, digits and space.
+pub fn debug_type(window: &mut Window, text: &str, cx: &mut App) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::debug_type(window, text, cx);
+    #[cfg(any(not(target_os = "macos"), test))]
+    let _ = (window, text, cx);
+}
+
 /// Debug builds on macOS: `front` notes the app the user is in,
 /// `deactivate` gives it its place back (as when the user goes to another
 /// app); anything else only reports.
