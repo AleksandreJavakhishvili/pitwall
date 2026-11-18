@@ -4,10 +4,15 @@
 //! machine (`pitwall_core::show`); the host's [`ViewerBackend`] shows them
 //! in the right window. Nothing here asks the user: it only shows things,
 //! read-only, in Pitwall.
+//!
+//! The agents' `pitwall` MCP tools are served here too (`mcp.tools`,
+//! `mcp.call`): their MCP servers outlive updates, so they pass the tools
+//! through instead of carrying their own.
 
 use serde_json::Value;
 
-use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown};
+use pitwall_proto::mcp::{self, McpCall, McpCalled, McpTools};
+use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, VIEWER_PROTO};
 
 use crate::identity::Caller;
 use crate::server::Server;
@@ -30,7 +35,61 @@ type Res = Result<Value, ErrorBody>;
 /// What to say when `agents.showFiles` is off.
 pub const OFF: &str = "Showing files is turned off in Pitwall (Settings → Agents → “Agents can show you files”, or `pitwall settings set agents.showFiles true`). Nothing was opened.";
 
+/// `viewer.open`'s params, read: one this Pitwall can't read because the
+/// asker is newer (a `where` it doesn't know yet) says so plainly.
+pub fn params(p: Value) -> Result<ViewerOpen, ErrorBody> {
+    let newer = p.get("proto").and_then(Value::as_u64).is_some_and(|v| v > u64::from(VIEWER_PROTO));
+    serde_json::from_value(p).map_err(|e| {
+        if newer {
+            ErrorBody::new(code::BAD_PARAMS, format!("This Pitwall is older than its command-line tool ({e}): quit Pitwall and open it again to update it. Nothing was opened."))
+        } else {
+            ErrorBody::new(code::BAD_PARAMS, e.to_string())
+        }
+    })
+}
+
 pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
+    let first = r.proto.is_none();
+    let mut o = show(s, caller, r)?;
+    if first {
+        // Asked in the first shape (a CLI or an agent's tool server from
+        // before `proto`, still running): answered in its words, which it
+        // reads strictly (`beside` or `window`), or it would report what
+        // opened as an error.
+        fn word(p: &str) -> String {
+            let w = if p == ViewerPlace::Window.word() { "window" } else { "beside" };
+            w.to_string()
+        }
+        o.place = word(&o.place);
+        o.asked = o.asked.as_deref().map(word);
+    }
+    serde_json::to_value(o).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+}
+
+/// `mcp.tools`: this Pitwall's tools.
+pub fn mcp_tools() -> Res {
+    serde_json::to_value(mcp::own()).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+}
+
+/// `mcp.call`: a tool call, checked against this Pitwall's tools and
+/// answered as the agent sees it (a failure is a tool error that says why).
+pub fn mcp_call(s: &Server, caller: &Caller, c: McpCall) -> Res {
+    let result = match mcp::request(&c.name, &c.arguments, c.agent.clone()) {
+        Err(e) => mcp::result(&format!("Nothing was opened: {e}"), None, true),
+        Ok(req) => match show(s, caller, req) {
+            Ok(o) => {
+                let text = o.text.clone().unwrap_or_else(|| mcp::text(&o));
+                mcp::result(&text, serde_json::to_value(&o).ok(), false)
+            }
+            Err(e) if e.code == code::OFF => mcp::result(&e.message, None, true),
+            Err(e) => mcp::result(&format!("Nothing was opened: {}", e.message), None, true),
+        },
+    };
+    let McpTools { stamp, .. } = mcp::own();
+    serde_json::to_value(McpCalled { result, stamp }).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+}
+
+fn show(s: &Server, caller: &Caller, r: ViewerOpen) -> Result<ViewerOpened, ErrorBody> {
     let Some(backend) = s.viewer.as_deref() else {
         return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to show files in"));
     };
@@ -79,7 +138,8 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
         (_, Some(at)) => format!("{at}, showing {}", shown.root),
         (_, None) => format!("a files tile next to {name}'s terminal (window {}), showing {}", shown.window, shown.root),
     };
-    let opened = ViewerOpened {
+    let mut opened = ViewerOpened {
+        proto: VIEWER_PROTO,
         agent_id: shown.agent_id,
         agent_name: name,
         window: shown.window,
@@ -87,10 +147,12 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
         opened: show.files,
         folder: show.folder,
         skipped,
-        place: shown.place,
-        asked: show.place,
+        place: shown.place.word().into(),
+        asked: show.place.map(|p| p.word().into()),
         shown_in,
         note: shown.note,
+        text: None,
     };
-    serde_json::to_value(opened).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+    opened.text = Some(mcp::text(&opened));
+    Ok(opened)
 }

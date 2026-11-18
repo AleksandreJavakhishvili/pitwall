@@ -142,6 +142,13 @@ pub mod method {
     /// files as tabs, or a folder as a tree, in an agent's viewer (the
     /// `pitwall open` command and the agents' `pitwall` MCP server).
     pub const VIEWER_OPEN: &str = "viewer.open";
+    /// (`caps::MCP`) → [`McpTools`](crate::mcp::McpTools): the agents'
+    /// `pitwall` MCP tools as this Pitwall has them (`pitwall-cli mcp`
+    /// passes them on, so an agent started before an update gets them).
+    pub const MCP_TOOLS: &str = "mcp.tools";
+    /// [`McpCall`](crate::mcp::McpCall) → [`McpCalled`](crate::mcp::McpCalled):
+    /// one of those tools called, checked and answered here.
+    pub const MCP_CALL: &str = "mcp.call";
 
     // Events (`caps::EVENTS`).
     /// [`EventsSubscribe`](crate::EventsSubscribe) →
@@ -166,6 +173,8 @@ pub mod caps {
     pub const EVENTS: &str = "events";
     /// `viewer.open` (a Pitwall with windows: the app).
     pub const VIEWER: &str = "viewer";
+    /// `mcp.tools` and `mcp.call` (with `viewer`).
+    pub const MCP: &str = "mcp";
 }
 
 /// Server-pushed events: `{"event":"…","data":…}`.

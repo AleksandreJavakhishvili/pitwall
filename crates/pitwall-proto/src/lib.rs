@@ -13,6 +13,7 @@
 //! - [`pipe`]: the Windows named pipe for a socket path.
 //! - [`settings`]: the settings registry (keys, types, defaults, schema).
 //! - [`show`]: agents showing files and folders to the user (`viewer.open`).
+//! - [`mcp`]: the agents' `pitwall` MCP tools, served by Pitwall (`mcp.*`).
 //!
 //! Serde only: no sockets, no engine.
 
@@ -21,6 +22,7 @@ pub mod create;
 pub mod explorer;
 pub mod frame;
 pub mod manage;
+pub mod mcp;
 pub mod msg;
 pub mod peer;
 pub mod pipe;
