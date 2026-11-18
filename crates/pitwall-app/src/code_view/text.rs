@@ -27,7 +27,7 @@ pub struct Line {
 }
 
 impl Line {
-    fn new(src: &str, tab_size: usize) -> Line {
+    pub(crate) fn new(src: &str, tab_size: usize) -> Line {
         let src = src.strip_suffix('\r').unwrap_or(src);
         let mut text = String::with_capacity(src.len());
         let mut tabs = Vec::new();

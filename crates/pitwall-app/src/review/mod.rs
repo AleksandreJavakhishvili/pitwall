@@ -275,6 +275,7 @@ impl ReviewView {
                 match e {
                     CodeViewEvent::Comment { line } => this.start_comment(*line + 1, window, cx),
                     CodeViewEvent::Loaded => this.sync_preview(cx),
+                    CodeViewEvent::Edited | CodeViewEvent::Save => {}
                 }
             }),
             cx.observe_global::<Comments>(|this, cx| {

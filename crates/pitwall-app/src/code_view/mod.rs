@@ -12,12 +12,17 @@
 //! case / whole word / regex / in selection, collapsed unchanged regions,
 //! next/previous change, an overview ruler and overlay scrollbars, an
 //! optional comment gutter (it emits [`CodeViewEvent::Comment`]) and the
-//! "Read-only" hint when typing. All text is UTF-8 and measured by the
+//! "Read-only" hint when typing. A single file can be edited
+//! ([`CodeView::set_editable`], `edit.rs`): typing and input methods,
+//! undo, indent, cut and paste, Find and Replace; ⌘S asks the owner to
+//! save ([`CodeViewEvent::Save`]). All text is UTF-8 and measured by the
 //! shaper, so any script (Georgian included) lines up.
 //!
 //! Lines in this API are 0-based; what the user sees is 1-based.
 
+pub mod buffer;
 pub mod diff;
+mod edit;
 pub mod find;
 mod brackets;
 pub mod highlight;
@@ -89,10 +94,29 @@ actions!(
         PreviousChange,
         /// Esc: close the menu, the read-only hint or Find.
         Cancel,
+        // Editing (bound only while the file can be edited).
+        Backspace,
+        Delete,
+        DeleteWordLeft,
+        DeleteWordRight,
+        DeleteToLineStart,
+        Newline,
+        Indent,
+        Outdent,
+        Cut,
+        Paste,
+        Undo,
+        Redo,
+        /// ⌘S / Ctrl+S: the owner saves ([`CodeViewEvent::Save`]).
+        Save,
+        /// ⌥⌘F / Ctrl+H: Find with Replace.
+        Replace,
     ]
 );
 
 const CONTEXT: &str = "CodeView";
+/// The view while its file can be edited.
+const EDITING: &str = "CodeView && editable";
 
 /// Key bindings of the view and its text fields (call once at start).
 pub fn register(cx: &mut App) {
@@ -162,6 +186,32 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-alt-f5", PreviousChange, c),
         KeyBinding::new("escape", Cancel, c),
     ];
+    let e = Some(EDITING);
+    b.extend([
+        KeyBinding::new("backspace", Backspace, e),
+        KeyBinding::new("shift-backspace", Backspace, e),
+        KeyBinding::new("delete", Delete, e),
+        KeyBinding::new(w!("backspace"), DeleteWordLeft, e),
+        KeyBinding::new(w!("delete"), DeleteWordRight, e),
+        KeyBinding::new("enter", Newline, e),
+        KeyBinding::new("shift-enter", Newline, e),
+        KeyBinding::new("tab", Indent, e),
+        KeyBinding::new("shift-tab", Outdent, e),
+        KeyBinding::new(m!("x"), Cut, e),
+        KeyBinding::new(m!("v"), Paste, e),
+        KeyBinding::new(m!("z"), Undo, e),
+        KeyBinding::new(m!("shift-z"), Redo, e),
+        KeyBinding::new(m!("s"), Save, e),
+    ]);
+    if mac {
+        b.extend([
+            KeyBinding::new("cmd-backspace", DeleteToLineStart, e),
+            KeyBinding::new("cmd-alt-f", Replace, e),
+            KeyBinding::new("ctrl-h", Backspace, e),
+        ]);
+    } else {
+        b.extend([KeyBinding::new("ctrl-y", Redo, e), KeyBinding::new("ctrl-h", Replace, e)]);
+    }
     if mac {
         b.extend([
             KeyBinding::new("cmd-up", DocStart, c),
@@ -192,6 +242,10 @@ pub enum CodeViewEvent {
     Comment { line: usize },
     /// New content is laid out (after `set_file` / `set_diff`).
     Loaded,
+    /// The text was edited (or undone, or saved: [`CodeView::is_dirty`]).
+    Edited,
+    /// ⌘S: save the text ([`CodeView::text`]).
+    Save,
 }
 
 impl EventEmitter<CodeViewEvent> for CodeView {}
@@ -269,6 +323,8 @@ struct FindState {
     side: Side,
     /// Where typing starts looking (the selection when Find opened).
     origin: Pos,
+    /// The Replace field (editing only).
+    replace: Option<(Entity<TextInput>, Subscription)>,
     _sub: Subscription,
 }
 
@@ -319,6 +375,11 @@ pub struct CodeView {
     generation: u64,
     /// Esc with nothing to close propagates ([`CodeView::set_escape_passes`]).
     escape_passes: bool,
+    /// Editing is wanted (a single file only).
+    editable: bool,
+    edit: Option<edit::Editing>,
+    /// Scroll sideways to the caret at the next paint (after an edit).
+    caret_x: bool,
     _load: Option<Task<()>>,
 }
 
@@ -358,14 +419,34 @@ impl CodeView {
             loading: false,
             generation: 0,
             escape_passes: false,
+            editable: false,
+            edit: None,
+            caret_x: false,
             _load: None,
         }
     }
 
     // ── content ─────────────────────────────────────────────────────────
 
-    /// Show one file, read-only.
+    /// Show one file (editable after [`CodeView::set_editable`]). Its own
+    /// text again, as the buffer holds it (just saved), keeps the edits'
+    /// history; another text replaces the buffer.
     pub fn set_file(&mut self, path: &str, text: String, cx: &mut Context<Self>) {
+        let same = self.content.as_ref().is_some_and(|c| c.path.as_ref() == path && !c.is_diff);
+        if same && self.edit.as_ref().is_some_and(|e| e.buf.text() == text) {
+            if self.is_dirty() || self.content.as_ref().is_some_and(|c| *c.new_text != *text) {
+                self.mark_saved(&text, cx);
+            }
+            return;
+        }
+        if self.edit.is_some() {
+            // Changed underneath: the shown lines no longer match the
+            // text read, so it is laid out again.
+            self.edit = None;
+            if let Some(c) = self.content.as_mut() {
+                c.new_text = Arc::from("\u{0}");
+            }
+        }
         self.load(path, String::new(), text, false, cx);
     }
 
@@ -492,6 +573,8 @@ impl CodeView {
         }
         self.content = Some(content);
         self.loading = false;
+        self.edit = None;
+        self.start_editing();
         self.rebuild_rows();
         if let Some(s) = self.sel {
             // Keep the selection inside the new text.
@@ -706,10 +789,9 @@ impl CodeView {
     }
 
     fn top_pad(&self) -> Pixels {
-        if self.find.is_some() {
-            px(paint::FIND_ZONE)
-        } else {
-            px(0.)
+        match &self.find {
+            Some(f) => px(paint::find_zone(f.replace.is_some())),
+            None => px(0.),
         }
     }
 
@@ -886,11 +968,12 @@ impl CodeView {
             within: None,
             side,
             origin,
+            replace: None,
             _sub: sub,
         });
         // The zone above the first line: keep what is shown in place.
         if self.scroll_y > px(0.) {
-            self.scroll_y += px(paint::FIND_ZONE);
+            self.scroll_y += px(paint::find_zone(false));
         }
         field.update(cx, |t, cx| {
             t.replace_text(&seed_text, cx);
@@ -983,10 +1066,75 @@ impl CodeView {
         cx.notify();
     }
 
-    pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.find.take().is_some() {
+    /// Find with its Replace row open (editing only), the Replace field
+    /// taking the keyboard when `focus_replace`.
+    pub fn open_replace(&mut self, focus_replace: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.edit.is_none() {
+            return;
+        }
+        if self.find.is_none() {
+            self.find_action(&Find, window, cx);
+        }
+        let Some(f) = self.find.as_mut() else { return };
+        if f.replace.is_none() {
+            let field = cx.new(|cx| TextInput::new(cx, "", "Replace").plain());
+            let sub = cx.subscribe_in(&field, window, |this, field, e: &InputEvent, window, cx| match e {
+                InputEvent::Submit => {
+                    let with = field.read(cx).text().to_string();
+                    this.replace_one(&with, cx);
+                }
+                InputEvent::SubmitShift => {
+                    let with = field.read(cx).text().to_string();
+                    this.replace_all(&with, cx);
+                }
+                InputEvent::Cancel => this.close_find(window, cx),
+                InputEvent::Changed | InputEvent::Blur => {}
+            });
+            f.replace = Some((field, sub));
             if self.scroll_y > px(0.) {
-                self.scroll_y = (self.scroll_y - px(paint::FIND_ZONE)).max(px(0.));
+                self.scroll_y += px(paint::find_zone(true) - paint::find_zone(false));
+            }
+        }
+        if focus_replace {
+            if let Some((field, _)) = self.find.as_ref().and_then(|f| f.replace.as_ref()) {
+                field.update(cx, |t, cx| t.focus(window, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Close the Replace row (Find stays).
+    pub(crate) fn close_replace(&mut self, cx: &mut Context<Self>) {
+        if let Some(f) = self.find.as_mut() {
+            if f.replace.take().is_some() && self.scroll_y > px(0.) {
+                self.scroll_y = (self.scroll_y - px(paint::find_zone(true) - paint::find_zone(false))).max(px(0.));
+            }
+        }
+        cx.notify();
+    }
+
+    /// The Replace field's text (tests, debug).
+    pub fn replace_text(&self, cx: &App) -> Option<String> {
+        self.find.as_ref()?.replace.as_ref().map(|(f, _)| f.read(cx).text().to_string())
+    }
+
+    /// Set the Find query's text (tests, debug).
+    pub fn set_find_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.find.is_none() {
+            self.find_action(&Find, window, cx);
+        }
+        if let Some(f) = self.find.as_ref() {
+            let field = f.field.clone();
+            field.update(cx, |t, cx| t.replace_text(text, cx));
+        }
+        let t = text.to_string();
+        self.set_query(|q| q.text = t, true, cx);
+    }
+
+    pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(f) = self.find.take() {
+            if self.scroll_y > px(0.) {
+                self.scroll_y = (self.scroll_y - px(paint::find_zone(f.replace.is_some()))).max(px(0.));
             }
             window.focus(&self.focus, cx);
             cx.notify();
@@ -1212,6 +1360,10 @@ impl CodeView {
         if (m.platform || m.control || m.alt || m.function) && !cut_or_paste {
             return;
         }
+        if self.edit.is_some() {
+            // Typed text reaches the view through its input handler.
+            return;
+        }
         let typing = k.key_char.as_ref().is_some_and(|c| !c.is_empty())
             || matches!(k.key.as_str(), "backspace" | "delete" | "enter" | "tab");
         if typing || cut_or_paste {
@@ -1279,9 +1431,10 @@ impl Render for CodeView {
         let t = crate::theme::theme(cx).clone();
         let colors = style::Colors::for_theme(&t);
         let this = cx.entity();
+        let key_context = if self.edit.is_some() { "CodeView editable" } else { CONTEXT };
         let mut root = div()
             .id("code-view")
-            .key_context(CONTEXT)
+            .key_context(key_context)
             .track_focus(&self.focus)
             .relative()
             .size_full()
@@ -1435,6 +1588,31 @@ impl Render for CodeView {
                 v.go_change(false, cx);
             }))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(|v, _: &Backspace, _, cx| v.backspace(cx)))
+            .on_action(cx.listener(|v, _: &Delete, _, cx| v.delete_forward(cx)))
+            .on_action(cx.listener(|v, _: &DeleteWordLeft, _, cx| v.delete_word_left(cx)))
+            .on_action(cx.listener(|v, _: &DeleteWordRight, _, cx| v.delete_word_right(cx)))
+            .on_action(cx.listener(|v, _: &DeleteToLineStart, _, cx| v.delete_to_line_start(cx)))
+            .on_action(cx.listener(|v, _: &Newline, _, cx| v.newline(cx)))
+            .on_action(cx.listener(|v, _: &Indent, _, cx| v.indent(cx)))
+            .on_action(cx.listener(|v, _: &Outdent, _, cx| v.outdent(cx)))
+            .on_action(cx.listener(|v, _: &Cut, _, cx| v.cut(cx)))
+            .on_action(cx.listener(|v, _: &Paste, _, cx| v.paste(cx)))
+            .on_action(cx.listener(|v, _: &Undo, _, cx| v.undo(cx)))
+            .on_action(cx.listener(|v, _: &Redo, _, cx| v.redo(cx)))
+            .on_action(cx.listener(|v, _: &Replace, w, cx| v.open_replace(true, w, cx)))
+            .on_action(cx.listener(|v, _: &Save, _, cx| {
+                if v.edit.is_some() {
+                    cx.emit(CodeViewEvent::Save)
+                }
+            }))
+            .when(self.edit.is_some(), |d| {
+                // The menu bar's Edit items (macOS) reach the view as these.
+                d.on_action(cx.listener(|v, _: &crate::menu::Undo, _, cx| v.undo(cx)))
+                    .on_action(cx.listener(|v, _: &crate::menu::Redo, _, cx| v.redo(cx)))
+                    .on_action(cx.listener(|v, _: &crate::menu::Cut, _, cx| v.cut(cx)))
+                    .on_action(cx.listener(|v, _: &crate::menu::Paste, _, cx| v.paste(cx)))
+            })
             .child(paint::canvas_for(this, colors.clone()));
         if self.content.is_none() && self.loading {
             root = root.child(

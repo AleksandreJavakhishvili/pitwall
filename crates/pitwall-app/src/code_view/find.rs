@@ -24,6 +24,18 @@ impl Query {
         self.text.is_empty()
     }
 
+    /// What replacing `matched` (one match of this query) with `with`
+    /// gives: `$1`, `${name}` expanded for a regular expression.
+    pub fn expand(&self, matched: &str, with: &str) -> String {
+        if !self.regex {
+            return with.to_string();
+        }
+        match self.compile() {
+            Ok(re) => re.replacen(matched, 1, with).into_owned(),
+            Err(_) => with.to_string(),
+        }
+    }
+
     fn compile(&self) -> Result<Regex, String> {
         let pat = if self.regex {
             self.text.clone()
