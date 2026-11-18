@@ -17,6 +17,12 @@ pub enum FilesSpot {
     Edge(Side),
     /// In empty tile `pane`.
     Take(String),
+    /// In tile `pane`'s place, as big and where it is: a terminal's tile
+    /// (the terminal leaves the layout as when its tile is closed: the
+    /// agent keeps running and stays in the sidebar), an empty tile (as
+    /// [`FilesSpot::Take`]), or another agent's files tile in the same
+    /// space (the two swap places).
+    Replace(String),
     /// A tile of its own wherever there is most room (an empty tile first).
     Auto,
 }
@@ -69,7 +75,7 @@ impl UiState {
         let Some(sp) = self.space(space_id) else { return (self, None) };
         let own = sp.layout.find_files(owner).map(|p| p.id);
         let target_ok = match spot {
-            FilesSpot::Tile { pane, .. } | FilesSpot::Take(pane) => {
+            FilesSpot::Tile { pane, .. } | FilesSpot::Take(pane) | FilesSpot::Replace(pane) => {
                 own.as_deref() != Some(pane.as_str()) && sp.layout.find_pane(pane).is_some()
             }
             FilesSpot::Edge(_) | FilesSpot::Auto => true,
@@ -80,6 +86,23 @@ impl UiState {
         if let FilesSpot::Take(pane) = spot {
             if !sp.layout.find_pane(pane).is_some_and(|p| p.is_empty()) {
                 return (self, None);
+            }
+        }
+        if let FilesSpot::Replace(pane) = spot {
+            let target = sp.layout.find_pane(pane);
+            if let Some(other) = target.as_ref().and_then(|p| p.files.clone()) {
+                // Another agent's files: they swap places, when both are
+                // in this space (else nothing: theirs would have nowhere
+                // to go).
+                let Some(mine) = own else { return (self, None) };
+                let theirs = pane.clone();
+                let next = self.map_space(space_id, |mut sp| {
+                    sp.layout = show_files(&sp.layout, &mine, &other);
+                    sp.layout = show_files(&sp.layout, &theirs, owner);
+                    sp.maximized_pane_id = None;
+                    sp.tidy()
+                });
+                return (next, Some(theirs));
             }
         }
         let next = self.undock_files(owner);
@@ -93,14 +116,21 @@ impl UiState {
                 FilesSpot::Tile { pane, side } => tree::split_with(&sp.layout, pane, *side, &fresh, share),
                 FilesSpot::Edge(_) if only_empty => fresh.clone(),
                 FilesSpot::Edge(side) => tree::wrap_edge(&sp.layout, *side, &fresh, share.min(EDGE_SHARE)),
-                FilesSpot::Take(pane) => {
+                FilesSpot::Take(pane) | FilesSpot::Replace(pane) => {
                     placed = Some(pane.clone());
-                    take(&sp.layout, pane, owner)
+                    // A terminal it replaces stays one of the space's
+                    // agents (shown again from its chip or the sidebar).
+                    if let Some(gone) = sp.layout.find_pane(pane).and_then(|p| p.agent_id) {
+                        if sp.kind == super::SpaceKind::Custom && !sp.members.contains(&gone) {
+                            sp.members.push(gone);
+                        }
+                    }
+                    show_files(&sp.layout, pane, owner)
                 }
                 FilesSpot::Auto => match sp.layout.leaves().into_iter().find(|p| p.is_empty()) {
                     Some(empty) => {
                         placed = Some(empty.id.clone());
-                        take(&sp.layout, &empty.id, owner)
+                        show_files(&sp.layout, &empty.id, owner)
                     }
                     None => {
                         let (at, side) = auto_spot(&sp.layout, fit);
@@ -109,8 +139,9 @@ impl UiState {
                 },
             };
             // Tiles it squeezed until they fold: its row (or column) shared
-            // evenly instead, when that folds fewer.
-            if let Some(tile) = placed.as_deref() {
+            // evenly instead, when that folds fewer. (In a tile's place:
+            // its size, as it was.)
+            if let Some(tile) = placed.as_deref().filter(|_| !matches!(spot, FilesSpot::Replace(_))) {
                 sp.layout = roomier(&before, sp.layout, tile, fit);
             }
             sp.maximized_pane_id = None;
@@ -159,8 +190,9 @@ fn parent_split(n: &Node, id: &str) -> Option<(String, usize)> {
     children.iter().find_map(|c| parent_split(c, id))
 }
 
-/// `layout` with empty tile `pane` showing `owner`'s files.
-fn take(layout: &Node, pane: &str, owner: &str) -> Node {
+/// `layout` with tile `pane` showing `owner`'s files (whatever it showed
+/// leaves the layout; the tile keeps its id, place and size).
+fn show_files(layout: &Node, pane: &str, owner: &str) -> Node {
     fn rec(n: &Node, pane: &str, owner: &str) -> Node {
         match n {
             Node::Pane { id, .. } if id == pane => Node::Pane { id: id.clone(), agent_id: None, files: Some(owner.to_string()) },
@@ -579,5 +611,132 @@ mod tests {
         // One kept for unsaved edits (passed as alive) stays.
         let kept = back.prune_agents(&ids(&["a", "b", "gone"]));
         assert!(kept.space("s").unwrap().layout.find_files("gone").is_some());
+    }
+
+    /// Every split has a size for each child, summing to 1, and at least
+    /// two children; no tile id twice; each terminal and files tile once.
+    fn assert_valid(layout: &Node) {
+        fn rec(n: &Node, seen: &mut Vec<String>) {
+            match n {
+                Node::Pane { id, .. } => {
+                    assert!(!seen.contains(id), "tile {id} twice");
+                    seen.push(id.clone());
+                }
+                Node::Split { children, sizes, .. } => {
+                    assert!(children.len() >= 2, "a split of {} children", children.len());
+                    assert_eq!(children.len(), sizes.len());
+                    assert!((sizes.iter().sum::<f64>() - 1.0).abs() < 1e-6, "{sizes:?}");
+                    for c in children {
+                        rec(c, seen);
+                    }
+                }
+            }
+        }
+        if let Node::Split { .. } = layout {
+            rec(layout, &mut Vec::new());
+        }
+        let mut agents = layout.agents();
+        let n = agents.len();
+        agents.sort();
+        agents.dedup();
+        assert_eq!(agents.len(), n, "a terminal twice");
+        let mut owners = layout.files_owners();
+        let n = owners.len();
+        owners.dedup();
+        assert_eq!(owners.len(), n, "files twice");
+    }
+
+    /// Each tile's place and size on a 1×1 area.
+    fn rects(layout: &Node) -> Vec<(String, (f64, f64, f64, f64))> {
+        tree::pane_rects(layout, tree::Rect { x: 0., y: 0., w: 1., h: 1. }).into_iter().map(|(id, r)| (id, (r.x, r.y, r.w, r.h))).collect()
+    }
+
+    #[test]
+    fn files_replace_a_terminal_in_its_place() {
+        let s = state(build_preset(Preset::G2x2, &ids(&["a", "b", "c", "d"])));
+        let b = pane_of(&s, "b");
+        let before = rects(&s.space("s").unwrap().layout);
+        let (s, tile) = s.dock_files("s", "a", &FilesSpot::Replace(b.clone()), 0.45, None);
+        let sp = s.space("s").unwrap();
+        // The same tile, the same place and size: b's terminal is out.
+        assert_eq!(tile.as_deref(), Some(b.as_str()));
+        assert_eq!(sp.layout.find_files("a").unwrap().id, b);
+        assert_eq!(rects(&sp.layout), before);
+        assert!(sp.layout.find_by_agent("b").is_none());
+        assert_eq!(sp.layout.agents().len(), 3);
+        // b stays a member of the space (as a closed tile's agent does).
+        assert!(sp.members.contains(&"b".to_string()));
+        assert_valid(&sp.layout);
+        // Its own terminal: the same.
+        let s2 = state(build_preset(Preset::Two, &ids(&["a", "b"])));
+        let a = pane_of(&s2, "a");
+        let (s2, tile) = s2.dock_files("s", "a", &FilesSpot::Replace(a.clone()), 0.45, None);
+        assert_eq!(tile.as_deref(), Some(a.as_str()));
+        assert_eq!(s2.space("s").unwrap().layout.agents(), ids(&["b"]));
+        // An empty tile: taken, as before.
+        let s3 = state(build_preset(Preset::G2x2, &ids(&["a"])));
+        let empty = s3.space("s").unwrap().layout.leaves().into_iter().find(|p| p.is_empty()).unwrap().id;
+        let (s3, tile) = s3.dock_files("s", "a", &FilesSpot::Replace(empty.clone()), 0.45, None);
+        assert_eq!(tile, Some(empty));
+        assert_valid(&s3.space("s").unwrap().layout);
+    }
+
+    #[test]
+    fn a_replaced_terminal_comes_back_and_the_layout_stays_whole() {
+        let s = state(build_preset(Preset::G2x2, &ids(&["a", "b", "c", "d"])));
+        let b = pane_of(&s, "b");
+        // Files right of c first, then onto b's terminal (moved there).
+        let c = pane_of(&s, "c");
+        let (s, _) = s.dock_files("s", "a", &FilesSpot::Tile { pane: c, side: Side::Right }, 0.45, None);
+        assert_valid(&s.space("s").unwrap().layout);
+        let (s, tile) = s.dock_files("s", "a", &FilesSpot::Replace(b.clone()), 0.45, None);
+        assert_eq!(tile.as_deref(), Some(b.as_str()));
+        let layout = s.space("s").unwrap().layout.clone();
+        assert_valid(&layout);
+        assert_eq!(layout.files_owners(), ids(&["a"]));
+        assert_eq!(layout.leaves().len(), 4);
+        // b shown again (the sidebar): beside the files, never over them.
+        let focused = s.space("s").unwrap().focused_pane_id.clone();
+        let s = s.focus_pane("s", &b).place_agent("s", "b", None, None);
+        let layout = s.space("s").unwrap().layout.clone();
+        assert_valid(&layout);
+        assert!(layout.find_by_agent("b").is_some());
+        assert_eq!(layout.find_files("a").unwrap().id, b);
+        let _ = focused;
+        // The files moved along an edge, then out to a window.
+        let (s, _) = s.dock_files("s", "a", &FilesSpot::Edge(Side::Bottom), 0.45, None);
+        assert_valid(&s.space("s").unwrap().layout);
+        let s = s.undock_files("a");
+        let layout = s.space("s").unwrap().layout.clone();
+        assert_valid(&layout);
+        assert!(layout.files_owners().is_empty());
+        let mut agents = layout.agents();
+        agents.sort();
+        assert_eq!(agents, ids(&["a", "b", "c", "d"]));
+        assert!(layout.leaves().iter().all(|p| p.agent_id.is_some() || p.is_empty()));
+    }
+
+    #[test]
+    fn files_dropped_on_other_files_swap_places_in_one_space() {
+        let s = state(build_preset(Preset::Three, &ids(&["a", "b", "c"])));
+        let (b, c) = (pane_of(&s, "b"), pane_of(&s, "c"));
+        let (s, fa) = s.dock_files("s", "a", &FilesSpot::Tile { pane: b, side: Side::Right }, 0.45, None);
+        let (s, fz) = s.dock_files("s", "z", &FilesSpot::Tile { pane: c, side: Side::Bottom }, 0.45, None);
+        let (fa, fz) = (fa.unwrap(), fz.unwrap());
+        let before = rects(&s.space("s").unwrap().layout);
+        let (s, tile) = s.dock_files("s", "a", &FilesSpot::Replace(fz.clone()), 0.45, None);
+        let layout = s.space("s").unwrap().layout.clone();
+        assert_eq!(tile.as_deref(), Some(fz.as_str()));
+        assert_eq!(layout.find_files("a").unwrap().id, fz);
+        assert_eq!(layout.find_files("z").unwrap().id, fa);
+        assert_eq!(rects(&layout), before, "the tiles stay as they were");
+        assert_valid(&layout);
+        // Files not in this space: nothing (the others would have nowhere to go).
+        let (s2, tile) = s.clone().dock_files("s", "w", &FilesSpot::Replace(fz.clone()), 0.45, None);
+        assert_eq!(tile, None);
+        assert_eq!(s2.space("s").unwrap().layout, layout);
+        // Its own tile: nothing.
+        let (_, tile) = s.dock_files("s", "a", &FilesSpot::Replace(fz), 0.45, None);
+        assert_eq!(tile, None);
     }
 }

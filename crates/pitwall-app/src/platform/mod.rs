@@ -202,11 +202,23 @@ pub fn float_take_keys(window: &mut Window) {
 pub fn float_drag(window: &mut Window, cx: &mut App) {
     #[cfg(all(target_os = "macos", not(test)))]
     macos::drag_with_pointer(window, cx);
-    #[cfg(any(not(target_os = "macos"), test))]
+    #[cfg(all(not(target_os = "macos"), not(test)))]
     {
         let _ = cx;
         window.start_window_move();
     }
+    // (Tests: counted, since a test window can't be moved.)
+    #[cfg(test)]
+    {
+        let _ = (window, cx);
+        FLOAT_DRAGS.with(|n| n.set(n.get() + 1));
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times [`float_drag`] was asked for (tests).
+    pub static FLOAT_DRAGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// What the system says about Pitwall being active, for the floating

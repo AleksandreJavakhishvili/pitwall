@@ -176,10 +176,10 @@ impl ViewerWindow {
                 });
                 v.update(cx, |v, cx| v.set_pinned(on, cx));
             }
-            ViewerEvent::Place(p) => {
-                let (p, agent) = (*p, agent.clone());
+            ViewerEvent::Place(p, of) => {
+                let (p, of, agent) = (*p, of.clone(), agent.clone());
                 cx.defer(move |cx| {
-                    if let Err(e) = super::dock::place(&agent, p, None, cx) {
+                    if let Err(e) = super::dock::place(&agent, p, of.as_deref(), cx) {
                         eprintln!("pitwall: could not dock the file viewer: {e}");
                     }
                 });

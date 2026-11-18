@@ -38,6 +38,10 @@ pub enum FilesPlace {
     Own,
     /// A window of its own.
     Window,
+    /// In a terminal's tile's place (the files' agent's, unless another
+    /// is named): as big and where it is; the terminal leaves the layout
+    /// and keeps running.
+    Replace,
 }
 
 impl FilesPlace {
@@ -54,6 +58,7 @@ impl FilesPlace {
             FilesPlace::Edge(Side::Bottom) => "Row along the bottom".into(),
             FilesPlace::Own => "Tile of its own".into(),
             FilesPlace::Window => "Window of its own".into(),
+            FilesPlace::Replace => format!("Replace {agent}'s terminal"),
         }
     }
 
@@ -63,6 +68,7 @@ impl FilesPlace {
             FilesPlace::Next(Side::Top | Side::Bottom) | FilesPlace::Edge(Side::Top | Side::Bottom) => "page-below",
             FilesPlace::Own => "grid",
             FilesPlace::Window => "window",
+            FilesPlace::Replace => "terminal",
             _ => "page-right",
         }
     }
@@ -257,10 +263,10 @@ fn on_event(owner: &str, v: &Entity<Viewer>, e: &ViewerEvent, cx: &mut App) {
                 eprintln!("pitwall: could not open the file viewer window: {e}");
             }
         }),
-        ViewerEvent::Place(p) => {
-            let p = *p;
+        ViewerEvent::Place(p, of) => {
+            let (p, of) = (*p, of.clone());
             cx.defer(move |cx| {
-                if let Err(e) = place(&owner, p, None, cx) {
+                if let Err(e) = place(&owner, p, of.as_deref(), cx) {
                     eprintln!("pitwall: could not move the files: {e}");
                 }
             })
@@ -500,10 +506,14 @@ pub fn spot_for(owner: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) 
     };
     match place {
         FilesPlace::Window => Err("a window is not a spot in the layout".into()),
-        FilesPlace::Next(side) => {
+        FilesPlace::Next(_) | FilesPlace::Replace => {
             let (label, _) = crate::windows::showing(anchor, cx).ok_or_else(|| "no open Pitwall window shows that terminal".to_string())?;
             let (space, pane) = in_window(&label, anchor).ok_or_else(|| "no open Pitwall window shows that terminal".to_string())?;
-            Ok((label, space, FilesSpot::Tile { pane, side }))
+            let spot = match place {
+                FilesPlace::Next(side) => FilesSpot::Tile { pane, side },
+                _ => FilesSpot::Replace(pane),
+            };
+            Ok((label, space, spot))
         }
         FilesPlace::Edge(_) | FilesPlace::Own => {
             // Where the files are now; else the space showing the agent.
@@ -624,8 +634,59 @@ pub fn place(owner: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> 
         return Ok("a window of its own".into());
     }
     let (label, space, spot) = spot_for(owner, place, of, cx)?;
+    let gone = replaced_by(&space, &spot, cx);
     dock(owner, &label, &space, &spot, None, cx)?;
-    Ok(described(owner, cx))
+    Ok(with_replaced(described(owner, cx), gone.as_deref(), cx))
+}
+
+/// The terminal (agent) files put at `spot` of space `space` would
+/// replace.
+pub fn replaced_by(space: &str, spot: &FilesSpot, cx: &App) -> Option<String> {
+    let FilesSpot::Replace(pane) = spot else { return None };
+    crate::ui_state::get(cx).space(space)?.layout.find_pane(pane)?.agent_id
+}
+
+/// `at` (where the files are, in words), saying that agent `gone`'s
+/// terminal left the layout for them, if it did.
+pub fn with_replaced(at: String, gone: Option<&str>, cx: &App) -> String {
+    match gone {
+        Some(a) => format!("{at}, in place of {}'s terminal (it keeps running; it is in the sidebar)", agent_name(a, cx)),
+        None => at,
+    }
+}
+
+/// The agents whose terminals agent `owner`'s files could replace: those
+/// in the space its files tile is in, else in the space showing its
+/// terminal; its own first. `(id, name)`.
+pub fn replaceable(owner: &str, cx: &mut App) -> Vec<(String, String)> {
+    let ui = crate::ui_state::get(cx);
+    let space = match ui.files_tile(owner) {
+        Some((space, _)) => Some(space),
+        None => crate::windows::showing(owner, cx).and_then(|(label, _)| {
+            ui.spaces
+                .iter()
+                .filter(|sp| ui.window_of_space(&sp.id) == label)
+                .find(|sp| sp.layout.find_by_agent(owner).is_some())
+                .map(|sp| sp.id.clone())
+        }),
+    };
+    let Some(sp) = space.and_then(|s| ui.space(&s).cloned()) else { return Vec::new() };
+    let mut agents = sp.layout.agents();
+    agents.sort_by_key(|a| a != owner);
+    agents.into_iter().map(|a| {
+        let name = agent_name(&a, cx);
+        (a, name)
+    }).collect()
+}
+
+/// The agent whose files `v` shows (a files tile's or a window's).
+pub fn owner_of(v: &Entity<Viewer>, cx: &mut App) -> Option<String> {
+    if let Some(o) = cx.try_global::<Tiles>().and_then(|t| t.tiles.iter().find(|(_, t)| t.viewer == *v).map(|(o, _)| o.clone())) {
+        return Some(o);
+    }
+    crate::windows::viewer_window_owners(cx).into_iter().find(|o| {
+        crate::windows::viewer_window(o, cx).and_then(|h| h.read(cx).ok().map(|w| w.viewer() == v)).unwrap_or(false)
+    })
 }
 
 /// Where agent `owner`'s files tile is, in words ("a files tile in space
@@ -658,13 +719,15 @@ pub fn agent_name(id: &str, cx: &App) -> String {
 }
 
 /// The "Dock…" (in a window) / "Move…" (a tile) menu at `at`: `pick` hears
-/// the place (`None`: dismissed).
+/// the place and whose terminal (`None`: dismissed). `replace`: the
+/// terminals the files can take the place of, `(id, name)`.
 pub fn menu(
     at: Point<Pixels>,
     tile: bool,
     agent: Option<String>,
+    replace: Vec<(String, String)>,
     t: &Theme,
-    pick: impl Fn(Option<FilesPlace>, &mut App) + Clone + 'static,
+    pick: impl Fn(Option<(FilesPlace, Option<String>)>, &mut App) + Clone + 'static,
 ) -> AnyElement {
     let agent = agent.unwrap_or_else(|| "the agent".into());
     let mut places = vec![
@@ -680,11 +743,19 @@ pub fn menu(
         places.push(FilesPlace::Window);
     }
     let dismiss = pick.clone();
+    let pick2 = pick.clone();
     let rows = places.into_iter().enumerate().map(move |(i, p)| {
         let pick = pick.clone();
         crate::kit::menu::menu_item(("files-place", i), p.icon(), p.label(&agent), None, false, t)
             .debug_selector(move || format!("files-place-{i}"))
-            .on_click(move |_, _, cx| pick(Some(p), cx))
+            .on_click(move |_, _, cx| pick(Some((p, None)), cx))
+    });
+    // In a terminal's place (it keeps running).
+    let replace_rows = replace.into_iter().enumerate().map(move |(i, (id, name))| {
+        let pick = pick2.clone();
+        crate::kit::menu::menu_item(("files-replace", i), FilesPlace::Replace.icon(), FilesPlace::Replace.label(&name), Some("keeps running".into()), false, t)
+            .debug_selector(move || format!("files-replace-{i}"))
+            .on_click(move |_, _, cx| pick(Some((FilesPlace::Replace, Some(id.clone()))), cx))
     });
     deferred(
         anchored().position(at).snap_to_window().child(
@@ -701,6 +772,7 @@ pub fn menu(
                         .child(if tile { "Move the files" } else { "Place the files in the layout" }),
                 )
                 .children(rows)
+                .children(replace_rows)
                 .on_mouse_down_out(move |_, _, cx| dismiss(None, cx)),
         ),
     )

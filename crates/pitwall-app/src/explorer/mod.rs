@@ -533,7 +533,7 @@ impl Explorer {
                 ViewerEvent::Opened(path) => this.note_recent(&agent, path),
                 ViewerEvent::SetIgnored(on) => this.set_ignored(*on, cx),
                 // (A tile's and a window's controls.)
-                ViewerEvent::Close | ViewerEvent::Undock | ViewerEvent::Place(_) | ViewerEvent::Grip | ViewerEvent::Pin => {}
+                ViewerEvent::Close | ViewerEvent::Undock | ViewerEvent::Place(..) | ViewerEvent::Grip | ViewerEvent::Pin => {}
             },
         );
         self._subs.push(sub);

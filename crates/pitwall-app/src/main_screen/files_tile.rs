@@ -1,10 +1,15 @@
 //! A files tile in the space's layout (a pane with `files`: an agent's file
 //! viewer, `crate::explorer::dock`), and where files dragged over this
-//! window would land: around any tile (splitting it), along an edge of the
-//! main area (a column or row of its own), or in an empty tile; the middle
-//! of a terminal's tile splits it along its longer side. Drawn as an agent being dragged
-//! is (`drop_indicator`'s look); found from the boxes the last frame drew,
-//! since the drag comes from another window (`crate::explorer::drag`).
+//! window would land: a band along each side of a tile (a new tile on that
+//! side, splitting it), along an edge of the main area (a column or row of
+//! its own), an empty tile (taken), and the rest of a terminal's tile, most
+//! of it: the files take that tile's place, as big and where it is, and the
+//! terminal leaves the layout (the agent keeps running). In the middle of
+//! another agent's files tile in the same space the two swap places. Drawn
+//! as an agent being dragged is (`drop_indicator`'s look): the part a new
+//! tile would take, or the whole tile, more strongly, for a replace. Found
+//! from the boxes the last frame drew, since the drag comes from another
+//! window (`crate::explorer::drag`).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -68,6 +73,29 @@ pub struct FilesHint {
 
 /// Along the main area's edge, this deep: its own column or row.
 const EDGE_BAND: f32 = 24.;
+/// Along a tile's side, this share of its width (or height) means "a new
+/// tile on that side", kept between these depths; the rest of the tile,
+/// its middle, means "in its place".
+const SIDE_BAND: f32 = 0.2;
+const SIDE_BAND_MIN: f32 = 28.;
+const SIDE_BAND_MAX: f32 = 64.;
+
+/// The side of tile `b` whose band `at` is in (`None`: its middle).
+pub fn side_band(at: Point<Pixels>, b: Bounds<Pixels>) -> Option<Side> {
+    let (w, h) = (f32::from(b.size.width), f32::from(b.size.height));
+    let band = |len: f32| (len * SIDE_BAND).clamp(SIDE_BAND_MIN, SIDE_BAND_MAX).min(len / 2.);
+    let sides = [
+        (Side::Left, f32::from(at.x - b.left()), band(w)),
+        (Side::Right, f32::from(b.right() - at.x), band(w)),
+        (Side::Top, f32::from(at.y - b.top()), band(h)),
+        (Side::Bottom, f32::from(b.bottom() - at.y), band(h)),
+    ];
+    sides
+        .into_iter()
+        .filter(|(_, d, band)| d < band)
+        .min_by(|a, b| (a.1 / a.2).total_cmp(&(b.1 / b.2)))
+        .map(|(side, _, _)| side)
+}
 
 /// Where files of agent `owner` dropped at `at` land: see the module.
 pub fn zone_at(at: Point<Pixels>, area: Bounds<Pixels>, panes: &[PaneBox], owner: &str) -> Option<FilesSpot> {
@@ -85,18 +113,14 @@ pub fn zone_at(at: Point<Pixels>, area: Bounds<Pixels>, panes: &[PaneBox], owner
         return Some(FilesSpot::Edge(side));
     }
     let (id, b, kind) = panes.iter().find(|(_, b, _)| b.contains(&at))?;
-    let fx = f32::from(at.x - b.left()) / f32::from(b.size.width).max(1.);
-    let fy = f32::from(at.y - b.top()) / f32::from(b.size.height).max(1.);
+    // (Its own files tile here: another's can swap places with it.)
+    let own_here = panes.iter().any(|(_, _, k)| matches!(k, Kind::Files(o) if o == owner));
     match kind {
         Kind::Files(o) if o == owner => None,
         Kind::Empty => Some(FilesSpot::Take(id.clone())),
-        _ => match tree::drop_zone(fx as f64, fy as f64) {
+        _ => match side_band(at, *b) {
             Some(side) => Some(FilesSpot::Tile { pane: id.clone(), side }),
-            // The middle of a terminal's: split along its longer side.
-            None if *kind == Kind::Agent => {
-                let side = if b.size.width >= b.size.height { Side::Right } else { Side::Bottom };
-                Some(FilesSpot::Tile { pane: id.clone(), side })
-            }
+            None if *kind == Kind::Agent || own_here => Some(FilesSpot::Replace(id.clone())),
             None => None,
         },
     }
@@ -131,6 +155,16 @@ impl MainScreen {
     /// be, said as the tile's place is said once there (the same layout
     /// change, then [`whereabouts`](super::workspace::whereabouts)).
     fn landing_words(&self, space: &str, owner: &str, spot: &FilesSpot, cx: &App) -> String {
+        let names: Vec<(String, String)> = self.agents(cx).iter().map(|a| (a.id.clone(), a.name.clone())).collect();
+        let name = |id: &str| names.iter().find(|(i, _)| i == id).map_or_else(|| id.to_string(), |(_, n)| n.clone());
+        // In a tile's place: what leaves it, said plainly.
+        if let FilesSpot::Replace(pane) = spot {
+            match self.ui.space(space).and_then(|sp| sp.layout.find_pane(pane)) {
+                Some(p) if p.files.is_some() => return format!("Files swap places with {}'s files", name(p.files.as_deref().unwrap_or_default())),
+                Some(p) if p.agent_id.is_some() => return format!("Files replace {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
+                _ => {}
+            }
+        }
         let (next, _) = self.ui.clone().dock_files(space, owner, spot, super::workspace::FILES_SHARE, self.fit_for(space));
         let Some((sp, pane)) = next.files_tile(owner) else { return "Files".into() };
         let Some(layout) = next.space(&sp).map(|s| s.layout.clone()) else { return "Files".into() };
@@ -138,8 +172,6 @@ impl MainScreen {
             FilesSpot::Tile { pane, .. } => layout.leaves().into_iter().find(|p| p.id == *pane && p.files.is_none()).and_then(|p| p.agent_id),
             _ => None,
         };
-        let names: Vec<(String, String)> = self.agents(cx).iter().map(|a| (a.id.clone(), a.name.clone())).collect();
-        let name = |id: &str| names.iter().find(|(i, _)| i == id).map_or_else(|| id.to_string(), |(_, n)| n.clone());
         format!("Files · {}", super::workspace::whereabouts(&layout, &pane, anchor.as_deref()).words(&name))
     }
 
@@ -167,12 +199,13 @@ impl MainScreen {
     /// The files about to land on tile `pane`.
     pub(super) fn files_pane_hint(&self, pane: &str, has_head: bool, t: &Theme) -> Option<AnyElement> {
         let h = self.files_hint.as_ref()?;
-        let zone = match &h.spot {
-            FilesSpot::Tile { pane: p, side } if p == pane => Some(*side),
-            FilesSpot::Take(p) if p == pane => None,
+        let (zone, replace) = match &h.spot {
+            FilesSpot::Tile { pane: p, side } if p == pane => (Some(*side), false),
+            FilesSpot::Take(p) if p == pane => (None, false),
+            FilesSpot::Replace(p) if p == pane => (None, true),
             _ => return None,
         };
-        Some(indicator(zone, &h.label, if has_head { 38. } else { 6. }, t))
+        Some(indicator(zone, &h.label, if has_head { 38. } else { 6. }, replace, t))
     }
 
     /// The files about to land along an edge of the main area.
@@ -187,7 +220,7 @@ impl MainScreen {
             Side::Top => el.left_0().right_0().top_0().h(gpui::relative(share)),
             Side::Bottom => el.left_0().right_0().bottom_0().h(gpui::relative(share)),
         };
-        Some(el.debug_selector(|| "files-drop-edge".into()).child(indicator(None, &h.label, 0., t)).into_any_element())
+        Some(el.debug_selector(|| "files-drop-edge".into()).child(indicator(None, &h.label, 0., false, t)).into_any_element())
     }
 
     /// Tile `pane` showing agent `owner`'s files.
@@ -277,7 +310,7 @@ impl MainScreen {
                 }
             }))
             .child(body)
-            .when_some(hint, |d, zone| d.child(indicator(Some(zone), &format!("Split {}", side_word(zone)), 6., t)))
+            .when_some(hint, |d, zone| d.child(indicator(Some(zone), &format!("Split {}", side_word(zone)), 6., false, t)))
             .children(self.files_pane_hint(pane, false, t))
             .into_any_element()
     }
@@ -293,8 +326,9 @@ fn side_word(s: Side) -> &'static str {
 }
 
 /// `drop_indicator`'s look: the part of the tile (or area) that `zone`
-/// takes (`None`: all of it), with `text`.
-fn indicator(zone: Option<Side>, text: &str, top: f32, t: &Theme) -> AnyElement {
+/// takes (`None`: all of it), with `text`. `replace`: the files take the
+/// tile's place (what is in it leaves): the whole tile, more strongly.
+fn indicator(zone: Option<Side>, text: &str, top: f32, replace: bool, t: &Theme) -> AnyElement {
     let (l, tp, r, b) = match zone {
         None => (0., 0., 0., 0.),
         Some(Side::Left) => (0., 0., 0.5, 0.),
@@ -302,7 +336,7 @@ fn indicator(zone: Option<Side>, text: &str, top: f32, t: &Theme) -> AnyElement 
         Some(Side::Top) => (0., 0., 0., 0.5),
         Some(Side::Bottom) => (0., 0.5, 0., 0.),
     };
-    let (bg, ring) = (t.text.opacity(0.10), t.text.opacity(0.45));
+    let (bg, ring) = if replace { (t.text.opacity(0.22), t.text.opacity(0.85)) } else { (t.text.opacity(0.10), t.text.opacity(0.45)) };
     let label = div()
         .px(px(9.))
         .py(px(3.))
@@ -316,7 +350,7 @@ fn indicator(zone: Option<Side>, text: &str, top: f32, t: &Theme) -> AnyElement 
         .left(px(6.))
         .right(px(6.))
         .bottom(px(6.))
-        .debug_selector(|| "files-drop-indicator".into())
+        .debug_selector(move || if replace { "files-drop-replace".into() } else { "files-drop-indicator".into() })
         .child(
             div()
                 .absolute()
@@ -358,18 +392,44 @@ mod tests {
         assert_eq!(at(5., 300., "x"), Some(FilesSpot::Edge(Side::Left)));
         assert_eq!(at(995., 100., "x"), Some(FilesSpot::Edge(Side::Right)));
         assert_eq!(at(250., 590., "x"), Some(FilesSpot::Edge(Side::Bottom)));
-        // A terminal's sides split it, and so does its middle.
-        assert_eq!(at(400., 300., "x"), Some(FilesSpot::Tile { pane: "a".into(), side: Side::Right }));
+        // A terminal's side bands split it (64 px deep at most here)…
+        assert_eq!(at(450., 300., "x"), Some(FilesSpot::Tile { pane: "a".into(), side: Side::Right }));
         assert_eq!(at(250., 60., "x"), Some(FilesSpot::Tile { pane: "a".into(), side: Side::Top }));
-        // (Taller than wide: split below.)
-        assert_eq!(at(250., 300., "x"), Some(FilesSpot::Tile { pane: "a".into(), side: Side::Bottom }));
-        // An empty tile: taken.
+        // …and all the rest of it is its place: replaced.
+        assert_eq!(at(250., 300., "x"), Some(FilesSpot::Replace("a".into())));
+        assert_eq!(at(400., 300., "x"), Some(FilesSpot::Replace("a".into())));
+        assert_eq!(at(120., 100., "x"), Some(FilesSpot::Replace("a".into())));
+        // An empty tile: taken, anywhere in it.
         assert_eq!(at(750., 150., "x"), Some(FilesSpot::Take("e".into())));
-        // Over its own tile: nothing; over another agent's files: its sides.
+        assert_eq!(at(970., 150., "x"), Some(FilesSpot::Take("e".into())));
+        // Over its own tile: nothing; over another agent's files: its sides,
+        // and its middle swaps them when its own are in this space.
         assert_eq!(at(750., 450., "x"), None);
-        assert_eq!(at(560., 450., "y"), Some(FilesSpot::Tile { pane: "f".into(), side: Side::Left }));
+        assert_eq!(at(540., 450., "y"), Some(FilesSpot::Tile { pane: "f".into(), side: Side::Left }));
         assert_eq!(at(750., 450., "y"), None);
+        let mut with_y = panes.clone();
+        with_y[1].2 = Kind::Files("y".into());
+        assert_eq!(zone_at(point(px(750.), px(450.)), area, &with_y, "y"), Some(FilesSpot::Replace("f".into())));
         // Outside the area.
         assert_eq!(at(1200., 300., "x"), None);
+    }
+
+    #[test]
+    fn side_bands_are_a_fifth_of_a_tile_between_28_and_64_px() {
+        let tile = b(0., 0., 1000., 100.);
+        let at = |x, y| side_band(point(px(x), px(y)), tile);
+        // Wide: 64 px bands left and right; short: 28 px top and bottom.
+        assert_eq!(at(63., 50.), Some(Side::Left));
+        assert_eq!(at(65., 50.), None);
+        assert_eq!(at(940., 50.), Some(Side::Right));
+        assert_eq!(at(500., 27.), Some(Side::Top));
+        assert_eq!(at(500., 29.), None);
+        assert_eq!(at(500., 75.), Some(Side::Bottom));
+        // A corner: the side it is relatively nearer.
+        assert_eq!(at(10., 20.), Some(Side::Left));
+        // A small tile: never more than half of it.
+        let small = b(0., 0., 40., 40.);
+        assert_eq!(side_band(point(px(20.), px(20.)), small), None);
+        assert_eq!(side_band(point(px(5.), px(20.)), small), Some(Side::Left));
     }
 }

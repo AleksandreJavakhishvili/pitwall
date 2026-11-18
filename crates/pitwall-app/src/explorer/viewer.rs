@@ -97,7 +97,7 @@ pub enum ViewerEvent {
     /// "Dock right of the terminal" (the layout slot on its right), or a
     /// layout place picked in the "Dock…" / "Move…"
     /// menu: the files go there (moved, not closed: edits stay).
-    Place(super::dock::FilesPlace),
+    Place(super::dock::FilesPlace, Option<String>),
     /// The grip pressed, or the bar (or the tab strip's empty end) pressed
     /// and dragged: the files follow the pointer until it is let go (into
     /// the layout of the Pitwall window under it, or out of it; a window
@@ -275,8 +275,9 @@ pub struct Viewer {
     /// The search field let the keyboard go: it comes back here at the
     /// next draw (in whichever window the viewer is in now).
     refocus: bool,
-    /// The "Dock…" / "Move…" menu, open at this point of the viewer.
-    place_menu: Option<gpui::Point<gpui::Pixels>>,
+    /// The "Dock…" / "Move…" menu, open at this point of the viewer, with
+    /// the terminals the files could replace (`(id, name)`).
+    place_menu: Option<(gpui::Point<gpui::Pixels>, Vec<Terminal>)>,
     /// Where the bar (or the tab strip's empty end) was pressed: a drag
     /// once the pointer travels [`BAR_DRAG_THRESHOLD`] from there, else a
     /// click.
@@ -298,6 +299,9 @@ pub struct Viewer {
     tabs_scrolled_to: Option<String>,
     _subs: Vec<Subscription>,
 }
+
+/// A terminal the files could take the place of: its agent's id and name.
+type Terminal = (String, String);
 
 /// The tree column's id (its edge's drags say it).
 const SIDE: &str = "ex-side";
@@ -1294,23 +1298,30 @@ impl Viewer {
             .debug_selector(move || id.into())
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, e: &gpui::ClickEvent, _, cx| {
-                this.place_menu = if this.place_menu.is_some() { None } else { Some(e.position()) };
+                this.place_menu = match this.place_menu {
+                    Some(_) => None,
+                    None => {
+                        let me = cx.entity();
+                        let replace = super::dock::owner_of(&me, cx).map(|o| super::dock::replaceable(&o, cx)).unwrap_or_default();
+                        Some((e.position(), replace))
+                    }
+                };
                 cx.notify();
             }))
     }
 
-    fn place_menu_overlay(&self, at: gpui::Point<gpui::Pixels>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn place_menu_overlay(&self, at: gpui::Point<gpui::Pixels>, replace: Vec<(String, String)>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let me = cx.entity().downgrade();
-        let pick = move |p: Option<super::dock::FilesPlace>, cx: &mut App| {
+        let pick = move |p: Option<(super::dock::FilesPlace, Option<String>)>, cx: &mut App| {
             let _ = me.update(cx, |this, cx| {
                 this.place_menu = None;
-                if let Some(p) = p {
-                    cx.emit(ViewerEvent::Place(p));
+                if let Some((p, of)) = p {
+                    cx.emit(ViewerEvent::Place(p, of));
                 }
                 cx.notify();
             });
         };
-        super::dock::menu(at, self.host == Host::Tile, self.owner.clone(), t, pick)
+        super::dock::menu(at, self.host == Host::Tile, self.owner.clone(), replace, t, pick)
     }
 
     /// A press on the bar's (or the tab strip's) empty part: the files are
@@ -1519,7 +1530,7 @@ impl Viewer {
                         .when(!can_dock, |d| d.opacity(0.45))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             if can_dock {
-                                cx.emit(ViewerEvent::Place(super::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right)))
+                                cx.emit(ViewerEvent::Place(super::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right), None))
                             }
                         })),
                     ))
@@ -2356,7 +2367,7 @@ impl Render for Viewer {
             .bg(t.bg)
             .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| this.bar_moved(e, cx)))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.bar_press = None))
-            .when_some(self.place_menu, |d, at| d.child(self.place_menu_overlay(at, &t, cx)))
+            .when_some(self.place_menu.clone(), |d, (at, replace)| d.child(self.place_menu_overlay(at, replace, &t, cx)))
             .child(self.measure(self.measured.clone(), cx))
             .child(self.bar(&t, a.as_ref(), cx))
             .child(

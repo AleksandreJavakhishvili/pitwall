@@ -176,15 +176,25 @@ fixes, not an IDE.
   slot of its own in the space's layout (a pane with `files` in `ui.json`,
   a peer of the terminal tiles; never a split inside a terminal's tile),
   on the side of a terminal's slot `where` names (right by default; `of`:
-  another agent's terminal). It resizes with the dividers, folds after
+  another agent's terminal), or in that slot's place (`where: replace`). It resizes with the dividers, folds after
   terminals when room runs out (it is drawn down to 240×160), and is kept
   with what it had open (`dockedFiles`), opened again after a restart. A
-  **window** of its own (`where: window`). The grip drags either into any
-  Pitwall window's layout: a side of a tile, an empty tile, the middle of a
-  terminal's tile (a slot on its longer side) or an edge of the main area
-  (a column or row); a tile let go outside every Pitwall window becomes a
-  window there. The pointer is followed on the screen (macOS); elsewhere
-  "Move…" / "Dock…" list the same places. A later call adds tabs wherever
+  **window** of its own (`where: window`). The bar drags either (anywhere
+  on it but its controls, and the tab strip's empty end; the grip is its
+  hint): a press that travels 4 px is a drag, one that doesn't a click, a
+  double click nothing; in a window the window moves with it. Into any
+  Pitwall window's layout: a band along a side of a tile (a fifth of it,
+  28 to 64 px: a new slot on that side), an empty tile, the rest of a
+  terminal's tile (its place: the files take its slot as big and where it
+  is, and the terminal leaves the layout as when its tile is closed, its
+  agent running, shown again from the sidebar or a chip; the preview
+  fills the whole tile, more strongly, and says "Files replace api's
+  terminal (it keeps running)"), the middle of another agent's files tile
+  (the two swap places when both are in that space; else only its side
+  bands) or an edge of the main area (a column or row); a tile let go
+  outside every Pitwall window becomes a window there. The pointer is followed on the screen (macOS); elsewhere
+  "Move…" / "Dock…" list the same places, with "Replace …'s terminal" for
+  each terminal in the files' space (their own first). A later call adds tabs wherever
   the files are; a place named that isn't where they are moves them.
   Both draw the viewer's one bar (tree toggle, agent, folder, branch); the
   grip and "Move…" / "Dock…" sit in its slot for a place's controls, then

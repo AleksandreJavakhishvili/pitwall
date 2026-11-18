@@ -508,3 +508,173 @@ fn esc_clears_the_other_windows_highlight(cx: &mut TestAppContext) {
         assert_eq!(crate::ui_state::get(cx).window_of_space(&space), MAIN);
     });
 }
+
+/// Each split has a size for each child, summing to 1, and two children
+/// or more; no tile, terminal or files tile twice.
+fn assert_whole(layout: &crate::main_screen::tree::Node) {
+    use crate::main_screen::tree::Node;
+    fn rec(n: &Node, seen: &mut Vec<String>) {
+        match n {
+            Node::Pane { id, .. } => {
+                assert!(!seen.contains(id), "tile {id} twice");
+                seen.push(id.clone());
+            }
+            Node::Split { children, sizes, .. } => {
+                assert!(children.len() >= 2);
+                assert_eq!(children.len(), sizes.len());
+                assert!((sizes.iter().sum::<f64>() - 1.0).abs() < 1e-6, "{sizes:?}");
+                children.iter().for_each(|c| rec(c, seen));
+            }
+        }
+    }
+    rec(layout, &mut Vec::new());
+    let mut a = layout.agents();
+    let n = a.len();
+    a.sort();
+    a.dedup();
+    assert_eq!(a.len(), n, "a terminal twice");
+}
+
+/// Files put in a terminal's place (the tool's `where: replace`, the
+/// "Replace …'s terminal" menu entry): the same tile, place and size; the
+/// terminal leaves the layout but its agent is still there, and comes back
+/// when shown (beside the files); kept in `ui.json`; the layout stays whole
+/// through moving the files and popping them out. A files window's bar
+/// drags it as the grip does.
+#[gpui::test]
+fn files_replace_a_terminal_that_comes_back_when_shown(cx: &mut TestAppContext) {
+    use crate::explorer::dock::{self, FilesPlace};
+    use crate::main_screen::tree::{self, Side};
+    use pitwall_proto::show::{OpenedFile, ViewerPlace, ViewerShow};
+    let dir = std::env::temp_dir().join(format!("pw-files-replace-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(dir.join("api")).unwrap();
+    std::fs::write(dir.join("api/a.txt"), "a\n").unwrap();
+    // (Its real path: the temporary folder may be behind a link.)
+    let api_dir = dir.join("api").canonicalize().unwrap().to_string_lossy().into_owned();
+    let store = cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::main_screen::init(cx);
+        crate::code_view::register(cx);
+        crate::ui_state::init(Some(home.clone()), cx);
+        let mut agents = vec![agent("api", &api_dir, "idle", 1, true), agent("web", &api_dir, "idle", 2, true)];
+        for a in &mut agents {
+            a.caps.explorer = true;
+        }
+        let store = cx.new(|_| AgentStore::new(agents));
+        cx.set_global(Main(None, store.clone()));
+        cx.set_global(crate::AppState { host: None, content: Content::Live { store: store.clone() }, root: None, main: None });
+        let source: std::sync::Arc<dyn crate::explorer::source::Source> = crate::explorer::source::fake::FakeSource::new(&[("a.txt", "a\n")]);
+        cx.set_global(crate::explorer::source::ExplorerSource(source.clone()));
+        crate::explorer::dock::remember_env(Some(source), &store, cx);
+        init(Content::Live { store: store.clone() }, Some(home.clone()), show_main, cx);
+        show_main(cx);
+        restore(cx);
+        store
+    });
+    cx.run_until_parked();
+    // A space in main: api's terminal, web's right of it.
+    let space = cx.update(|cx| {
+        let (ui, id) = crate::ui_state::get(cx).create_custom_space(MAIN);
+        let ui = ui.place_agent(&id, "api", None, None).place_agent(&id, "web", None, Some(Side::Right));
+        crate::ui_state::update(cx, |s| *s = ui);
+        screen_of(MAIN, cx).update(cx, |s, cx| s.show_space(&id, cx));
+        id
+    });
+    cx.run_until_parked();
+    let layout = |cx: &mut TestAppContext| cx.update(|cx| crate::ui_state::get(cx).space(&space).unwrap().layout.clone());
+    let rects = |l: &tree::Node| tree::pane_rects(l, tree::Rect { x: 0., y: 0., w: 1., h: 1. }).into_iter().map(|(id, r)| (id, (r.x, r.y, r.w, r.h))).collect::<Vec<_>>();
+    let before = layout(cx);
+    let web_pane = before.find_by_agent("web").unwrap().id;
+
+    // The tool, asked for the files instead of web's terminal.
+    let req = ViewerShow {
+        agent_id: "api".into(),
+        files: vec![OpenedFile { path: format!("{api_dir}/a.txt"), line: None, column: None }],
+        folder: None,
+        root: None,
+        place: Some(ViewerPlace::Replace),
+        of: Some("web".into()),
+    };
+    let shown = cx.update(|cx| crate::explorer::show::show(&req, cx)).expect("shown");
+    cx.run_until_parked();
+    let at = shown.at.unwrap_or_default();
+    assert!(at.contains("in place of web's terminal (it keeps running"), "{at}");
+    let after = layout(cx);
+    assert_eq!(after.find_files("api").map(|p| p.id), Some(web_pane.clone()), "web's tile, now the files'");
+    assert!(after.find_by_agent("web").is_none());
+    assert_eq!(rects(&after), rects(&before), "the same place and size");
+    assert_whole(&after);
+    assert!(cx.update(|cx| store.read(cx).agent("web").is_some_and(|a| a.running)), "web is still there");
+    // The same again: added to, not moved.
+    let again = cx.update(|cx| crate::explorer::show::show(&req, cx)).expect("again");
+    assert_eq!(again.place, ViewerPlace::Replace);
+    assert_eq!(layout(cx), after);
+
+    // Kept in ui.json for the next start.
+    cx.executor().advance_clock(Duration::from_millis(600));
+    cx.run_until_parked();
+    let kept: crate::main_screen::workspace::UiState = serde_json::from_str(&std::fs::read_to_string(home.join("ui.json")).unwrap()).unwrap();
+    assert_eq!(kept.files_tile("api"), Some((space.clone(), web_pane.clone())));
+    assert!(kept.space(&space).unwrap().layout.find_by_agent("web").is_none());
+    assert_eq!(kept.docked_files["api"].tabs, ["a.txt"]);
+
+    // web shown again (the sidebar): beside the files, never over them.
+    let h = cx.update(|cx| state(cx).handle(MAIN).unwrap());
+    h.update(cx, |view, window, cx| view.screen.clone().unwrap().update(cx, |s, cx| s.show_agent("web", window, cx))).unwrap();
+    cx.run_until_parked();
+    let back = layout(cx);
+    assert!(back.find_by_agent("web").is_some());
+    assert_eq!(back.find_files("api").map(|p| p.id), Some(web_pane.clone()));
+    assert_whole(&back);
+
+    // The menu's entries: its own terminal first; picked, as a click does.
+    let names = cx.update(|cx| dock::replaceable("api", cx));
+    assert_eq!(names, [("api".to_string(), "api".to_string()), ("web".to_string(), "web".to_string())]);
+    let api_pane = back.find_by_agent("api").unwrap().id;
+    // (As its row in the Move… menu does: `explorer::tests` clicks it.)
+    let v = cx.update(|cx| dock::viewer("api", cx)).expect("its tile's viewer");
+    v.update(cx, |_, cx| cx.emit(crate::explorer::viewer::ViewerEvent::Place(FilesPlace::Replace, Some("api".into()))));
+    cx.run_until_parked();
+    let own = layout(cx);
+    assert_eq!(own.find_files("api").map(|p| p.id), Some(api_pane));
+    assert!(own.find_by_agent("api").is_none() && own.find_by_agent("web").is_some());
+    assert_whole(&own);
+
+    // Moved along an edge, then out to a window: still whole.
+    cx.update(|cx| dock::place("api", FilesPlace::Edge(Side::Bottom), None, cx)).expect("moved");
+    cx.run_until_parked();
+    assert_whole(&layout(cx));
+    cx.update(|cx| dock::place("api", FilesPlace::Window, None, cx)).expect("popped out");
+    cx.run_until_parked();
+    let out = layout(cx);
+    assert_whole(&out);
+    assert!(out.files_owners().is_empty());
+    assert_eq!(out.agents(), ["web"]);
+    // api comes back like any terminal not in the space (into the
+    // focused tile, as always).
+    h.update(cx, |view, window, cx| view.screen.clone().unwrap().update(cx, |s, cx| s.show_agent("api", window, cx))).unwrap();
+    cx.run_until_parked();
+    assert!(layout(cx).find_by_agent("api").is_some());
+    assert_whole(&layout(cx));
+
+    // The files window's bar: pressed and dragged, as its grip (the window
+    // moves; let go over no layout, it stays a window).
+    let w = cx.update(|cx| crate::windows::viewer_window("api", cx)).expect("a files window");
+    let wcx = &mut gpui::VisualTestContext::from_window(*w, cx);
+    wcx.run_until_parked();
+    wcx.update(|window, _| window.refresh());
+    wcx.run_until_parked();
+    let bar = wcx.debug_bounds("ex-viewer-hint").expect("its bar").center();
+    let drags = crate::platform::FLOAT_DRAGS.with(|n| n.get());
+    wcx.simulate_mouse_down(bar, gpui::MouseButton::Left, gpui::Modifiers::none());
+    wcx.simulate_mouse_move(gpui::point(bar.x + gpui::px(14.), bar.y), gpui::MouseButton::Left, gpui::Modifiers::none());
+    wcx.simulate_mouse_up(gpui::point(bar.x + gpui::px(14.), bar.y), gpui::MouseButton::Left, gpui::Modifiers::none());
+    wcx.run_until_parked();
+    assert_eq!(crate::platform::FLOAT_DRAGS.with(|n| n.get()), drags + 1, "the window moves with the pointer");
+    assert!(wcx.cx.update(|cx| crate::windows::viewer_window("api", cx).is_some()));
+    assert!(wcx.cx.update(|cx| crate::ui_state::get(cx).files_tile("api").is_none()));
+    let _ = std::fs::remove_dir_all(&dir);
+}

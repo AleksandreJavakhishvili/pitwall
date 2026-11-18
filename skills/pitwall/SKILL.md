@@ -173,8 +173,10 @@ pitwall open --root fix/login --agent api           # a whole worktree (by folde
 
 A files tile is a slot of its own in the space's layout, next to the
 terminal slots: right of the agent's terminal unless `--where left|above|below`
-says otherwise (`--of web`: next to another agent's terminal), or a window of
-its own with `--where window`. Later calls add tabs wherever it is (the user
+says otherwise (`--of web`: next to another agent's terminal), in that
+terminal's slot with `--where replace` (only when the user wants the files
+instead of the terminal: it leaves the layout and keeps running), or a window
+of its own with `--where window`. Later calls add tabs wherever it is (the user
 may have dragged it elsewhere or out to a window); naming a place moves it.
 Pitwall doesn't come forward over another app. Any folder on this
 computer can be shown. Agents Pitwall starts (Claude Code, Codex) have the

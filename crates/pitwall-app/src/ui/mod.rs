@@ -201,7 +201,7 @@ impl MainView {
         if let Some(what) = cmd.strip_prefix("files-window ").filter(|_| cfg!(debug_assertions)) {
             let mut words = what.split_whitespace();
             let event = match words.next() {
-                Some("dock") => crate::explorer::viewer::ViewerEvent::Place(crate::explorer::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right)),
+                Some("dock") => crate::explorer::viewer::ViewerEvent::Place(crate::explorer::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right), None),
                 Some("pin") => crate::explorer::viewer::ViewerEvent::Pin,
                 _ => return,
             };
