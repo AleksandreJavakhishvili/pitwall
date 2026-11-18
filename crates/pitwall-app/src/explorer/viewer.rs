@@ -1972,7 +1972,6 @@ impl Viewer {
     /// No file open: what can be done from here.
     fn empty(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let shown = self.tree_shown(cx);
-        let window = self.host == Host::Window;
         let row = |id: &'static str, label: &'static str, key: Option<&str>, t: &Theme| {
             let hover = t.surface_3;
             div()
@@ -2012,12 +2011,9 @@ impl Viewer {
                     .mb(px(12.))
                     .child(if shown { "Pick one in the tree, or:" } else { "Find one:" }),
             )
-            // (A window of its own has no quick open.)
-            .when(!window, |d| {
-                d.child(row("ex-empty-goto", "Go to file", Some("⌘P"), t).on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen))))
-            })
+            .child(row("ex-empty-goto", "Go to file", Some("⌘P"), t).on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen))))
             .child(
-                row("ex-empty-search", "Search in files", (!window).then_some("⌘⇧F"), t)
+                row("ex-empty-search", "Search in files", Some("⌘⇧F"), t)
                     .on_click(cx.listener(|this, _, window, cx| this.show(Some(Pane::Search), window, cx))),
             )
             .when(!shown, |d| {

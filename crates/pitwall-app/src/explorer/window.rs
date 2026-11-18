@@ -10,19 +10,21 @@
 //! (`super::drag`), "Dock…" puts it in a layout slot from a menu and
 //! "Dock right of the terminal" in the slot right of the agent's terminal:
 //! the same viewer moves into a files tile (`super::dock`), unsaved edits
-//! and all, and the window closes.
+//! and all, and the window closes. ⌘P (Go to file) and ⌘⇧F (Search in
+//! files) work in it as in a Pitwall window, on the folder it shows.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    div, point, prelude::*, px, size, App, Bounds, Context, Entity, Subscription, Task,
+    div, point, prelude::*, px, size, App, Bounds, Context, Entity, Focusable, Subscription, Task,
     TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 
+use super::quick_open::{QuickOpen, QuickOpenEvent};
 use super::source::{ExplorerSource, Source};
 use super::tree::TreeModel;
-use super::viewer::{Host, Viewer, ViewerEvent};
+use super::viewer::{Host, Pane, Viewer, ViewerEvent};
 use crate::agents::AgentStore;
 
 /// A new window's size when none was kept.
@@ -46,6 +48,8 @@ pub struct ViewerWindow {
     /// Its viewer moved out (the window is closing).
     moved: bool,
     handle: Option<WindowHandle<ViewerWindow>>,
+    /// ⌘P's picker, open over the viewer (and what it says).
+    quick: Option<(Entity<QuickOpen>, Subscription)>,
     _poll: Task<()>,
     _subs: Vec<Subscription>,
 }
@@ -129,6 +133,7 @@ impl ViewerWindow {
             viewer_sub: None,
             moved: false,
             handle,
+            quick: None,
             _poll: poll,
             _subs: subs,
         };
@@ -192,10 +197,17 @@ impl ViewerWindow {
                 v.read(cx).tree().update(cx, |t, cx| t.set_ignored(on, cx));
                 crate::ui_state::update(cx, |s| s.explorer_show_ignored = on);
             }
+            // "Go to file" in its empty state.
+            ViewerEvent::QuickOpen => {
+                if let Some(h) = this.handle {
+                    cx.defer(move |cx| {
+                        let _ = h.update(cx, |w, window, cx| w.quick_open(window, cx));
+                    });
+                }
+            }
             ViewerEvent::Exit
             | ViewerEvent::Close
             | ViewerEvent::Undock
-            | ViewerEvent::QuickOpen
             | ViewerEvent::ShowDiff(_)
             | ViewerEvent::Opened(_) => {}
         }));
@@ -255,6 +267,46 @@ impl ViewerWindow {
         self.viewer.clone()
     }
 
+    /// ⌘P / "Go to file": a picker over the folder it shows; the file
+    /// picked opens in its viewer. Its open tabs come first, the last
+    /// first.
+    pub fn quick_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.moved {
+            return;
+        }
+        let name = match super::source::root_of_key(&self.key) {
+            Some(root) => root.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(root).to_string(),
+            None => super::show::agent_name(&self.key, cx).unwrap_or_else(|| self.key.clone()),
+        };
+        let shown = super::show::root_display(&self.key, cx);
+        let recent: Vec<String> = self.viewer.read(cx).tabs().iter().rev().cloned().collect();
+        let (source, key) = (self.source.clone(), self.key.clone());
+        let quick = cx.new(|cx| QuickOpen::new(source, key, name, shown, recent, window, cx));
+        let sub = cx.subscribe_in(&quick, window, |this, _, e: &QuickOpenEvent, window, cx| {
+            this.quick = None;
+            let v = this.viewer.clone();
+            match e {
+                QuickOpenEvent::Picked(p) => v.update(cx, |v, cx| v.open(p.clone(), None, cx)),
+                QuickOpenEvent::Dismissed => {}
+            }
+            window.focus(&v.focus_handle(cx), cx);
+            cx.notify();
+        });
+        self.quick = Some((quick, sub));
+        cx.notify();
+    }
+
+    /// ⌘P's picker is open (tests).
+    #[cfg(test)]
+    pub(crate) fn quick_open_shown(&self) -> bool {
+        self.quick.is_some()
+    }
+
+    /// ⌘⇧F / "Search in files": the viewer's Search.
+    fn search_in_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.viewer.update(cx, |v, cx| v.show(Some(Pane::Search), window, cx));
+    }
+
     fn recheck_dock(&mut self, cx: &mut Context<Self>) {
         let can = crate::windows::showing(&self.agent, cx).is_some();
         self.viewer.update(cx, |v, cx| v.set_can_dock(can, cx));
@@ -288,9 +340,21 @@ impl Render for ViewerWindow {
             .line_height(gpui::relative(crate::kit::BODY_LINE_HEIGHT))
             .text_color(t.text)
             .flex_col()
+            .on_action(cx.listener(|this, _: &super::GoToFile, window, cx| this.quick_open(window, cx)))
+            .on_action(cx.listener(|this, _: &super::SearchInFiles, window, cx| this.search_in_files(window, cx)))
             .when(!self.moved, |d| {
                 d.children(super::dock::orphan_bar(&self.agent, &self.viewer, &t, cx))
                     .child(div().flex_1().min_w_0().min_h_0().flex().bg(t.bg).child(self.viewer.clone()))
+            })
+            .when_some(self.quick.as_ref().map(|(q, _)| q.clone()).filter(|_| !self.moved), |d, q| {
+                let over = div().absolute().inset_0();
+                // Under Liquid Glass: the scrim here, the picker in a pop-up.
+                d.child(if crate::kit::pop::hosted(cx) {
+                    let input = q.focus_handle(cx);
+                    over.child(QuickOpen::hosted(&q, input, window, cx)).into_any_element()
+                } else {
+                    over.child(q).into_any_element()
+                })
             });
         crate::platform::decorations::frame(root, window, cx)
     }

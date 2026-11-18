@@ -757,6 +757,55 @@ async fn a_removed_agents_window_closes_or_stays_for_unsaved_edits(cx: &mut Test
     assert_eq!(on_disk(&src, "a.txt"), "a\n");
 }
 
+/// A files window has Go to file (its empty state, ⌘P) and Search in
+/// files (⌘⇧F) on the folder it shows, as a Pitwall window does.
+#[gpui::test]
+async fn a_files_window_goes_to_a_file_and_searches(cx: &mut TestAppContext) {
+    let src = FakeSource::new(&[("a.txt", "a\n"), ("sub/b.txt", "b\n")]);
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::code_view::register(cx);
+        cx.bind_keys(viewer::bindings());
+        cx.bind_keys(super::bindings());
+        cx.bind_keys(super::quick_open::bindings());
+    });
+    let store = cx.new(|_| AgentStore::new(vec![readable("w1")]));
+    let source: Arc<dyn Source> = src.clone();
+    let win = cx.update(|cx| {
+        cx.open_window(gpui::WindowOptions::default(), move |window, cx| {
+            cx.new(|cx| super::window::ViewerWindow::new("w1".into(), "w1".into(), None, source, store, window, cx))
+        })
+        .unwrap()
+    });
+    let wcx = &mut VisualTestContext::from_window(*win, cx);
+    redraw(wcx);
+    let v = win.update(wcx, |w, _, _| w.viewer().clone()).unwrap();
+    // No file open: Go to file is offered, and opens the picker.
+    let at = wcx.debug_bounds("ex-empty-goto").expect("offered in a window too").center();
+    wcx.simulate_click(at, gpui::Modifiers::none());
+    wcx.run_until_parked();
+    assert!(win.update(wcx, |w, _, _| w.quick_open_shown()).unwrap());
+    wcx.simulate_input("b.txt");
+    wcx.run_until_parked();
+    wcx.simulate_keystrokes("enter");
+    wcx.run_until_parked();
+    assert!(!win.update(wcx, |w, _, _| w.quick_open_shown()).unwrap(), "closed once picked");
+    assert_eq!(v.read_with(wcx, |v, _| v.opened().active), Some("sub/b.txt".into()), "opened in its viewer");
+    // ⌘P again, then Escape: closed, nothing else opened.
+    redraw(wcx);
+    wcx.dispatch_action(super::GoToFile);
+    wcx.run_until_parked();
+    assert!(win.update(wcx, |w, _, _| w.quick_open_shown()).unwrap());
+    wcx.simulate_keystrokes("escape");
+    wcx.run_until_parked();
+    assert!(!win.update(wcx, |w, _, _| w.quick_open_shown()).unwrap());
+    assert_eq!(v.read_with(wcx, |v, _| v.opened().tabs.len()), 1);
+    // ⌘⇧F: the viewer's Search.
+    wcx.dispatch_action(super::SearchInFiles);
+    wcx.run_until_parked();
+    assert!(!v.read_with(wcx, |v, _| v.opened().pane_files), "on Search");
+}
+
 /// Quitting with unsaved changes anywhere asks first; Save writes them
 /// and then quits, Cancel doesn't quit.
 #[gpui::test]

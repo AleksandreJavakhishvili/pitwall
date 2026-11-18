@@ -190,7 +190,8 @@ fixes, not an IDE.
   grip and "Move…" / "Dock…" sit in its slot for a place's controls, then
   "Open in window" and Close (a tile) or Dock and Pin (a window). Each
   keeps its own tree column (`filesTree.tile`, `filesTree.window`; the
-  tile's was `beside` and is still read).
+  tile's was `beside` and is still read). ⌘P (Go to file) and ⇧⌘F
+  (Search) work in a files window too, on the folder it shows.
   Where a tile is, is said one way everywhere (the tool's answer, the drop
   preview, `files-place state`): next to the terminal it was placed
   against while it still touches it ("above demo's terminal"); else from
