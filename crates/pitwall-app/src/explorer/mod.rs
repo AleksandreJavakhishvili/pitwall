@@ -17,8 +17,10 @@
 //! is that window's ([`window`]).
 
 pub mod code_view;
+pub mod column;
 pub mod file_link;
 pub mod files_panel;
+pub mod image_view;
 
 
 pub mod logic;
@@ -613,6 +615,18 @@ impl Explorer {
         cx.notify();
     }
 
+    /// Debug builds: agent `id`'s viewer beside its terminal, or (`main`)
+    /// its full viewer, opened if it isn't.
+    pub fn debug_viewer(&mut self, id: &str, main: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<Viewer>> {
+        if !main {
+            return self.beside.get(id).map(|b| b.viewer.clone());
+        }
+        if self.open.as_deref() != Some(id) {
+            self.open_viewer(id, None, None, None, window, cx);
+        }
+        self.viewers.get(id).cloned()
+    }
+
     /// Whether one of its viewers (shown, or closed but still on screen
     /// until the next frame) has the keyboard.
     pub fn viewer_has_focus(&self, window: &Window, cx: &App) -> bool {
@@ -898,6 +912,24 @@ pub fn debug_edit(viewer: Entity<Viewer>, what: &str, window: &mut Window, cx: &
         "take-theirs" => viewer.update(cx, |v, cx| v.reload(cx)),
         "difference" => viewer.update(cx, |v, cx| v.toggle_difference(cx)),
         "recheck" => viewer.update(cx, |v, cx| v.recheck(cx)),
+        // The tree column: `tree` toggles it (as ⌘⇧E), `tree on|off`,
+        // `tree-width <px>` (as dragged and let go).
+        "tree" => viewer.update(cx, |v, cx| match arg {
+            "on" => v.set_tree(true, window, cx),
+            "off" => v.set_tree(false, window, cx),
+            _ => v.toggle_tree(window, cx),
+        }),
+        "tree-width" => viewer.update(cx, |v, cx| {
+            if let Ok(w) = arg.trim().parse::<f32>() {
+                v.debug_tree_width(w, cx);
+            }
+        }),
+        // An image's zoom: `zoom fit|100|in|out`.
+        "zoom" => viewer.update(cx, |v, cx| v.debug_zoom(arg.trim(), cx)),
+        "open" => viewer.update(cx, |v, cx| v.open(arg.trim().to_string(), None, cx)),
+        "search" => viewer.update(cx, |v, cx| v.show(Some(Pane::Search), window, cx)),
+        // The window in front of Pitwall's others (to look at it).
+        "front" => window.activate_window(),
         "state" => eprintln!("pitwall-debug: viewer {}", viewer.read(cx).debug_state(cx)),
         _ => eprintln!("pitwall-debug: files-edit {verb}?"),
     }

@@ -42,9 +42,16 @@ pub struct ViewerWindow {
     _subs: Vec<Subscription>,
 }
 
-/// What a window title says.
+/// What a window title says: the agent and the folder's name (the whole
+/// folder is in the viewer's bar, shortened, with the full path on hover;
+/// the title, also in the Window menu and Mission Control, stays short).
 pub fn title(agent_name: &str, root_display: &str) -> String {
-    format!("{agent_name} — {root_display} — Pitwall files")
+    let folder = root_display.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or_default();
+    if folder.is_empty() || folder == agent_name {
+        format!("{agent_name} — Files")
+    } else {
+        format!("{agent_name} — {folder} — Files")
+    }
 }
 
 /// Where a new window goes: the kept place (when it is still on a screen)
@@ -310,6 +317,9 @@ mod tests {
 
     #[test]
     fn the_title_names_the_agent_and_the_folder() {
-        assert_eq!(title("api", "~/code/api"), "api — ~/code/api — Pitwall files");
+        assert_eq!(title("api", "~/code/api"), "api — Files");
+        assert_eq!(title("fix-login", "~/code/api/.worktrees/login"), "fix-login — login — Files");
+        assert_eq!(title("demo", "/private/tmp/x/scratchpad/s2/demo/"), "demo — Files");
+        assert_eq!(title("w", "C:\\code\\app"), "w — app — Files");
     }
 }

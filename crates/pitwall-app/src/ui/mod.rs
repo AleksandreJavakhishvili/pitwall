@@ -234,6 +234,20 @@ impl MainView {
             });
             return;
         }
+        // Debug builds, `files-debug beside|main <agent> <what>`: as
+        // `files-edit`, on the viewer beside the agent's terminal or its
+        // full viewer in this window.
+        if let Some(what) = cmd.strip_prefix("files-debug ").filter(|_| cfg!(debug_assertions)) {
+            let mut words = what.splitn(3, ' ');
+            let (place, agent, rest) = (words.next().unwrap_or_default(), words.next().unwrap_or_default(), words.next().unwrap_or_default());
+            let Some(explorer) = self.explorer.clone() else { return };
+            let viewer = explorer.update(cx, |e, cx| e.debug_viewer(agent, place == "main", window, cx));
+            match viewer {
+                Some(v) => crate::explorer::debug_edit(v, rest, window, cx),
+                None => eprintln!("pitwall-debug: no {place} viewer for {agent}"),
+            }
+            return;
+        }
         // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
         // builds): the app made the active one or not, what the system
         // says of its windows (on stderr), a click in this window.

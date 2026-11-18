@@ -509,10 +509,80 @@ pub fn ago(now_ms: u64, then_ms: u64) -> String {
     }
 }
 
+/// A folder as the viewer's header names it: `display` (already with `~`
+/// for the home folder) in at most `max` characters, keeping its first
+/// part and as many of its last as fit (`~/…/pitwall/demo`): the end of a
+/// path says which folder it is, the start where it lives. A last part
+/// that alone is too long loses its middle.
+pub fn short_path(display: &str, max: usize) -> String {
+    let max = max.max(8);
+    if display.chars().count() <= max {
+        return display.to_string();
+    }
+    let parts: Vec<&str> = display.split('/').collect();
+    // "/private/tmp/…": the first part is "" (the root) and the next one.
+    let head_n = if parts.first() == Some(&"") { 2 } else { 1 };
+    if parts.len() <= head_n + 1 {
+        return elide_middle(display, max);
+    }
+    let head = parts[..head_n.min(parts.len())].join("/");
+    let tail_parts = &parts[head_n.min(parts.len())..];
+    let len = |s: &str| s.chars().count();
+    let mut tail: Vec<&str> = Vec::new();
+    for p in tail_parts.iter().rev() {
+        let mut next = tail.clone();
+        next.insert(0, p);
+        let candidate = format!("{head}/…/{}", next.join("/"));
+        if len(&candidate) > max && !tail.is_empty() {
+            break;
+        }
+        tail = next;
+    }
+    let out = format!("{head}/…/{}", tail.join("/"));
+    if len(&out) <= max {
+        return out;
+    }
+    // The last part alone doesn't fit: its middle goes.
+    let last = tail_parts.last().copied().unwrap_or(display);
+    elide_middle(last, max)
+}
+
+/// `text` in at most `max` characters, its middle replaced by "…".
+pub fn elide_middle(text: &str, max: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max {
+        return text.to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let front = keep.div_ceil(2);
+    let back = keep - front;
+    let mut s: String = chars[..front].iter().collect();
+    s.push('…');
+    s.extend(&chars[chars.len() - back..]);
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pitwall_core::explorer::MatchRange;
+
+    #[test]
+    fn a_long_folder_keeps_its_start_and_its_end() {
+        assert_eq!(short_path("~/code/api", 40), "~/code/api");
+        assert_eq!(short_path("~/Desktop/Projects/pitwall/.claude/worktrees/agent-a08/target/pw-demo", 32), "~/…/agent-a08/target/pw-demo");
+        assert_eq!(short_path("/private/tmp/claude-501/x/scratchpad/s2/demo", 24), "/private/…/s2/demo");
+        // Only the last part, shortened in its middle.
+        let s = short_path("/private/tmp/a-very-long-folder-name-that-goes-on-and-on", 20);
+        assert_eq!(s.chars().count(), 20);
+        assert!(s.starts_with("a-very") && s.ends_with("and-on") && s.contains('…'), "{s}");
+        // At least the last part, even past `max` while it fits alone.
+        assert_eq!(short_path("~/aaaaaaaaaa/bbbbbbbbbb/cccccccccc", 16), "~/…/cccccccccc");
+        // No folders to drop (a Windows path, one long name).
+        assert_eq!(short_path("C:\\Users\\someone\\code\\project", 12).chars().count(), 12);
+        assert_eq!(elide_middle("abcdef", 10), "abcdef");
+        assert_eq!(elide_middle("abcdefghij", 5), "ab…ij");
+    }
 
     fn files() -> Vec<String> {
         [
