@@ -38,7 +38,7 @@ impl Opener for SocketOpener {
 
 const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you.";
 
-const WHERE: &str = "Where the user sees it: beside (a pane split next to your terminal, in the Pitwall window that shows you) or window (a separate window, for another screen or another app). Leave it out and Pitwall picks: beside while the user is in Pitwall, a window when they are in another app. A later call adds to the same pane or window.";
+const WHERE: &str = "Where the user sees it: window (a separate window of its own, the default) or beside (a pane split next to your terminal, in the Pitwall window that shows you). Leave it out unless the user says where: it then opens in a window, or beside the terminal if the user docked it there. A later call adds to the same pane or window.";
 const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: your working folder.";
 
 /// `tools/list`'s tools.

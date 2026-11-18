@@ -171,9 +171,8 @@ pitwall open --folder src --agent api               # a folder as a tree, with g
 pitwall open --root fix/login --agent api           # a whole worktree (by folder name or branch)
 ```
 
-Read-only. Beside the agent's terminal while the user is in Pitwall, a
-window of its own while they are in another app (`--where beside|window`
-picks); Pitwall doesn't come forward over another app. Any folder on this
+A window of its own unless the user docked it beside the agent's terminal
+(`--where beside|window` picks); Pitwall doesn't come forward over another app. Any folder on this
 computer can be shown. Agents Pitwall starts (Claude Code, Codex) have the
 same as MCP tools (`show_files`, `show_folder`). Off with
 `agents.showFiles false` (then `open` refuses).

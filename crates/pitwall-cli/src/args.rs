@@ -67,9 +67,9 @@ pub enum Command {
     /// only displays; the user may edit and save there): files as tabs
     /// (`path:line[:col]` opens at a line), a folder or a whole worktree as
     /// a tree with each file's git status.
-    /// Opens beside the agent's terminal while you are in Pitwall, in a
-    /// window of its own while you are in another app, without bringing
-    /// Pitwall forward. Off with `agents.showFiles`.
+    /// Opens in a window of its own (beside the agent's terminal if you
+    /// docked it there), without bringing Pitwall forward over another
+    /// app. Off with `agents.showFiles`.
     Open(OpenArgs),
     /// Run Pitwall's MCP server on stdin/stdout (its tools `show_files` and
     /// `show_folder` do what `open` does). Pitwall adds it to the agents it
@@ -517,8 +517,8 @@ pub struct OpenArgs {
     #[arg(long, value_name = "AGENT")]
     pub agent: Option<String>,
     /// beside (a pane next to the agent's terminal, in the Pitwall window
-    /// that shows it) or window (a window of its own). Default: beside
-    /// while you are in Pitwall, window while you are in another app.
+    /// that shows it) or window (a window of its own). Default: window,
+    /// or beside if the files are docked there already.
     #[arg(long = "where", value_name = "PLACE", value_parser = ["beside", "window"])]
     pub place: Option<String>,
 }

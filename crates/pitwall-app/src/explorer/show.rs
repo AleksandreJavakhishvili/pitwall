@@ -9,9 +9,10 @@
 //! - window: a window of its own (`super::window`), the agent's: its next
 //!   call adds to it.
 //!
-//! The agent may name one; else beside while the user is in Pitwall and a
-//! window while they are in another app (a window already open for the
-//! agent is used again while in Pitwall too). Beside an agent no open
+//! The agent may name one; else a window of its own (the user asked for a
+//! regular window, not a pane inside the one they work in), unless the
+//! agent's files already sit beside its terminal and the user is in
+//! Pitwall (they docked them there). Beside an agent no open
 //! window shows falls back to a window, and the answer says so. Pitwall
 //! comes forward only when it already is in front: from another app, the
 //! window is ordered in without taking the keyboard.
@@ -136,14 +137,14 @@ pub fn plan(req: &ViewerShow, agents: &[AgentView]) -> Result<Plan, ErrorBody> {
     Ok(Plan { key, root, files, folder })
 }
 
-/// Where it opens. Named: there. Else, in Pitwall: beside, unless the
-/// agent has a window open and nothing beside its terminal (the user moved
-/// it there); in another app: a window.
+/// Where it opens. Named: there. Else a window of its own, unless the
+/// agent's files are beside its terminal already (the user docked them),
+/// it has no window, and the user is in Pitwall to see the pane.
 pub fn placement(asked: Option<ViewerPlace>, in_front: bool, has_beside: bool, has_window: bool) -> ViewerPlace {
     if let Some(p) = asked {
         return p;
     }
-    if in_front && !(has_window && !has_beside) {
+    if in_front && has_beside && !has_window {
         ViewerPlace::Beside
     } else {
         ViewerPlace::Window
@@ -365,17 +366,19 @@ mod tests {
     }
 
     #[test]
-    fn beside_in_pitwall_a_window_from_another_app() {
+    fn a_window_unless_named_or_docked() {
         use ViewerPlace::*;
-        // Not named: where the user is.
-        assert_eq!(placement(None, true, false, false), Beside);
+        // Not named: a window of its own, wherever the user is.
+        assert_eq!(placement(None, true, false, false), Window);
         assert_eq!(placement(None, false, false, false), Window);
         // Named: there.
-        assert_eq!(placement(Some(Window), true, false, false), Window);
+        assert_eq!(placement(Some(Window), true, true, false), Window);
         assert_eq!(placement(Some(Beside), false, false, false), Beside);
-        // Already in a window of its own (moved there): that one again.
+        // Docked beside the terminal by the user: there again.
+        assert_eq!(placement(None, true, true, false), Beside);
+        // A window is open too: the window.
         assert_eq!(placement(None, true, false, true), Window);
-        assert_eq!(placement(None, true, true, true), Beside);
+        assert_eq!(placement(None, true, true, true), Window);
         // From another app the pane beside wouldn't be seen: a window.
         assert_eq!(placement(None, false, true, false), Window);
     }
