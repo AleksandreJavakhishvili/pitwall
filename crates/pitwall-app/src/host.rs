@@ -108,6 +108,8 @@ impl Host {
             version: env!("CARGO_PKG_VERSION").into(),
             settings: Some(settings.clone()),
             workspace: Some(workspace.clone()),
+            // (The app shows files in a later change.)
+            viewer: None,
             events: Some(hub),
         };
         let server = match pitwall_daemon::serve(engine.clone(), approvals.clone(), identify, cfg) {

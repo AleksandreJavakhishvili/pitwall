@@ -163,6 +163,19 @@ pitwall space move "API work" --to-window main    # or an open window's label: p
 The "All" space can't be renamed and stays in the main window. Changes show
 at once in every window.
 
+## Showing the user files
+
+```bash
+pitwall open src/main.rs:42 README.md --agent api   # tabs in api's file viewer (at a line)
+pitwall open --folder src --agent api               # a folder as a tree, with git status
+pitwall open --root fix/login --agent api           # a whole worktree (by folder name or branch)
+```
+
+Read-only, in the window that shows the agent; Pitwall doesn't come forward
+when it isn't in front. Agents Pitwall starts (Claude Code, Codex) have the
+same as MCP tools (`show_files`, `show_folder`). Off with
+`agents.showFiles false` (then `open` refuses).
+
 ## Projects
 
 ```bash

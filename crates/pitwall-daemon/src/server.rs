@@ -22,8 +22,8 @@ use crate::{methods, platform};
 /// How long a client may take to say hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// What this server offers (`welcome.caps`; plus `settings` with a
-/// settings backend, `spaces` with a workspace backend and `events` with an
-/// event hub).
+/// settings backend, `spaces` with a workspace backend, `viewer` with a
+/// viewer backend and `events` with an event hub).
 pub const CAPS: &[&str] = &[caps::AGENTS, caps::SESSIONS, caps::APPROVALS, caps::MANAGE];
 
 pub struct Config {
@@ -35,6 +35,8 @@ pub struct Config {
     pub settings: Option<Arc<dyn crate::SettingsBackend>>,
     /// Where `space.*` and `agent.move` arrange spaces (`None`: not offered).
     pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
+    /// Where `viewer.open` shows files (`None`: not offered).
+    pub viewer: Option<Arc<dyn crate::ViewerBackend>>,
     /// The engine's event sink, when events go out over the socket
     /// (`None`: `events.subscribe` is not offered).
     pub events: Option<Arc<Hub>>,
@@ -47,6 +49,7 @@ pub struct Server {
     pub identify: Arc<dyn Identify>,
     pub settings: Option<Arc<dyn crate::SettingsBackend>>,
     pub workspace: Option<Arc<dyn crate::WorkspaceBackend>>,
+    pub viewer: Option<Arc<dyn crate::ViewerBackend>>,
     pub events: Option<Arc<Hub>>,
     caps: Vec<&'static str>,
     instance: String,
@@ -103,12 +106,16 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
     if cfg.events.is_some() {
         offered.push(caps::EVENTS);
     }
+    if cfg.viewer.is_some() {
+        offered.push(caps::VIEWER);
+    }
     let server = Arc::new(Server {
         engine,
         approvals,
         identify,
         settings: cfg.settings,
         workspace: cfg.workspace,
+        viewer: cfg.viewer,
         events: cfg.events,
         caps: offered,
         instance: uuid::Uuid::new_v4().to_string(),

@@ -1,5 +1,6 @@
 //! `pitwall`: set up and manage Pitwall from a terminal — agents, sessions,
-//! queues, spaces, projects, rules, review, settings and peers.
+//! queues, spaces, projects, rules, review, settings and peers — and show
+//! the user files (`open`, and the `mcp` server agents get).
 //!
 //! Output is JSON on stdout (the call's result); `--human` prints text.
 //! Errors are `{"error":{"code","message"}}` on stderr. Exit status: 0 ok,
@@ -11,6 +12,8 @@
 mod args;
 mod events;
 mod manage;
+mod mcp;
+mod open;
 mod peers;
 mod render;
 #[cfg(test)]
@@ -156,6 +159,12 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         }
         Command::Settings(_) | Command::Peers(_) => unreachable!("handled above"),
         Command::Events(_) => unreachable!("streamed by main (events::follow)"),
+        Command::Mcp => unreachable!("served by main (mcp::serve)"),
+        Command::Open(a) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+            let opened = open::open(&mut c, &open::request(a, &cwd))?;
+            out(&opened, open::text(&opened))
+        }
         Command::Agent(a) => manage::agent_cmd(a, &mut c)?,
         Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
         Command::Space(sp) => manage::space_cmd(sp, &mut c)?,
@@ -238,6 +247,16 @@ fn main() -> ExitCode {
         return match peers::watch(name, *count, &pitwall_client::data_dir(), cli.human, &mut std::io::stdout().lock()) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => report(&e, cli.human),
+        };
+    }
+    if let Command::Mcp = &cli.command {
+        let opener = mcp::SocketOpener { socket: socket.clone() };
+        return match mcp::serve(&opener, std::io::stdin().lock(), &mut std::io::stdout().lock()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("pitwall mcp: {e}");
+                ExitCode::from(1)
+            }
         };
     }
     if let Command::Events(a) = &cli.command {

@@ -99,6 +99,9 @@ pub struct Place<'a> {
     pub cwd: &'a str,
     /// Worktrees of the agent's repository: (folder, its name, branch).
     pub worktrees: &'a [(String, String, Option<String>)],
+    /// The agent runs on this machine. Elsewhere only its own folder can
+    /// be shown (the viewer reads other files from this disk).
+    pub local: bool,
 }
 
 /// `req`'s files and folder as full, resolved paths that exist on the
@@ -113,6 +116,9 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
         Some(r) => Some(root_of(place, home, req.cwd.as_deref(), r)?),
     };
     let base = root.clone().or_else(|| req.cwd.clone().filter(|c| absolute(c))).unwrap_or_else(|| place.cwd.to_string());
+    // Elsewhere: only inside the agent's folder.
+    let fence = (!place.local).then(|| x.real_path(place.cwd).unwrap_or_else(|_| place.cwd.to_string()));
+    let fenced = |p: &str| fence.as_deref().is_some_and(|root| !crate::explorer::inside(root, p));
     let mut skipped = vec![];
     let mut files = vec![];
     for spec in req.files.iter().filter(|s| !s.trim().is_empty()) {
@@ -125,6 +131,7 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
         };
         match real {
             Ok(r) if is_dir(x, &r) => skipped.push(Skipped { path: spec.clone(), reason: "is a folder (show it as a folder)".into() }),
+            Ok(r) if fenced(&r) => skipped.push(Skipped { path: spec.clone(), reason: "outside the agent's folder, on another machine".into() }),
             Ok(r) => files.push(OpenedFile { path: r, line, column }),
             Err(why) => skipped.push(Skipped { path: spec.clone(), reason: why }),
         }
@@ -143,6 +150,9 @@ pub fn resolve(place: &Place, agent_id: &str, req: &ViewerOpen) -> Result<(Viewe
         (None, Some(r)) if req.files.is_empty() => Some(r.clone()),
         _ => None,
     };
+    if let Some(f) = folder.as_deref().filter(|f| fenced(f)) {
+        return Err(format!("{f} is outside the agent's folder, on another machine: only its own folder can be shown"));
+    }
     if files.is_empty() && folder.is_none() {
         return Err(match skipped.as_slice() {
             [] => "nothing to show: give files or a folder".into(),
@@ -193,7 +203,7 @@ fn root_of(place: &Place, home: Option<&str>, cwd: Option<&str>, r: &str) -> Res
 /// repository's worktrees. Blocking (asks the machine).
 pub fn resolve_for(engine: &Engine, agent_id: &str, req: &ViewerOpen) -> Result<(ViewerShow, Vec<Skipped>), String> {
     crate::exec::assert_off_ui("show::resolve_for");
-    let (cwd, can_read) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.facts.provider.exec))?;
+    let (cwd, can_read, local) = engine.with(agent_id, |a| (a.rec.cwd.clone(), a.facts.provider.exec, a.facts.provider.local_process))?;
     if !can_read {
         return Err("Pitwall can't read files where this agent runs".into());
     }
@@ -207,7 +217,7 @@ pub fn resolve_for(engine: &Engine, agent_id: &str, req: &ViewerOpen) -> Result<
             .collect(),
         None => vec![],
     };
-    resolve(&Place { exec: &*x, cwd: &cwd, worktrees: &worktrees }, agent_id, req)
+    resolve(&Place { exec: &*x, cwd: &cwd, worktrees: &worktrees, local }, agent_id, req)
 }
 
 #[cfg(test)]
@@ -246,7 +256,7 @@ mod tests {
     fn files_are_found_from_the_agents_folder() {
         let x = fake();
         let wt = vec![("/w/api-fix".to_string(), "api-fix".to_string(), Some("fix/login".to_string()))];
-        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &wt };
+        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &wt, local: true };
         let (show, skipped) = resolve(&place, "a1", &req(&["src/a.rs:3:2", "/w/api/README.md", "nope.rs", "src", "odd:12"])).unwrap();
         let paths: Vec<_> = show.files.iter().map(|f| (f.path.as_str(), f.line, f.column)).collect();
         assert_eq!(paths, vec![("/w/api/src/a.rs", Some(3), Some(2)), ("/w/api/README.md", None, None), ("/w/api/odd:12", None, None)]);
@@ -259,7 +269,7 @@ mod tests {
     fn a_root_is_a_path_or_a_worktree_name() {
         let x = fake();
         let wt = vec![("/w/api-fix".to_string(), "api-fix".to_string(), Some("fix/login".to_string()))];
-        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &wt };
+        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &wt, local: true };
         // "Show me the source of worktree fix/login": its folder as a tree.
         let r = ViewerOpen { root: Some("fix/login".into()), ..Default::default() };
         assert_eq!(resolve(&place, "a1", &r).unwrap().0.folder.as_deref(), Some("/w/api-fix"));
@@ -275,7 +285,7 @@ mod tests {
     #[test]
     fn folders_and_nothing_at_all() {
         let x = fake();
-        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &[] };
+        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &[], local: true };
         let r = ViewerOpen { folder: Some("src".into()), place: Some(pitwall_proto::ViewerPlace::Window), ..Default::default() };
         let (show, _) = resolve(&place, "a1", &r).unwrap();
         assert_eq!((show.folder.as_deref(), show.place), (Some("/w/api/src"), pitwall_proto::ViewerPlace::Window));
@@ -287,5 +297,16 @@ mod tests {
         // A shell's folder for relative paths.
         let r = ViewerOpen { files: vec!["a.rs".into()], cwd: Some("/w/api/src".into()), ..Default::default() };
         assert_eq!(resolve(&place, "a1", &r).unwrap().0.files[0].path, "/w/api/src/a.rs");
+    }
+
+    #[test]
+    fn elsewhere_only_the_agents_own_folder() {
+        let x = fake();
+        let place = Place { exec: &*x, cwd: "/w/api", worktrees: &[], local: false };
+        let (show, skipped) = resolve(&place, "a1", &req(&["src/a.rs", "/w/api-fix/b.rs"])).unwrap();
+        assert_eq!(show.files.len(), 1);
+        assert!(skipped[0].reason.contains("another machine"));
+        let r = ViewerOpen { folder: Some("/w/api-fix".into()), ..Default::default() };
+        assert!(resolve(&place, "a1", &r).unwrap_err().contains("another machine"));
     }
 }

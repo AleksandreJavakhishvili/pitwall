@@ -13,6 +13,7 @@
 //! - [`manage`]: stop/restart/remove/rename/status/wait, queues, projects,
 //!   rules, review.
 //! - [`workspace`]: `space.*` over the host's [`WorkspaceBackend`].
+//! - [`viewer`]: `viewer.open` over the host's [`ViewerBackend`].
 
 pub mod approvals;
 pub mod events;
@@ -22,6 +23,7 @@ pub mod methods;
 mod platform;
 pub mod server;
 pub mod settings;
+pub mod viewer;
 pub mod workspace;
 
 pub use approvals::{Approvals, Decision};
@@ -29,5 +31,6 @@ pub use events::Hub;
 pub use identity::{Caller, Identify, ProcessIdentity};
 pub use server::{serve, Config, Handle};
 pub use settings::SettingsBackend;
+pub use viewer::ViewerBackend;
 pub use workspace::WorkspaceBackend;
 

@@ -86,6 +86,8 @@ These work with every command.
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
 - [`peers`](#peers): Your other machines' Pitwalls over Tailscale (read-only): see their agents here. Only machines of your own Tailscale user; works on Pitwall's data folder directly, without the app
+- [`open`](#open): Show files or a folder to the user in Pitwall's file viewer (read-only): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in the window that shows the agent, without bringing Pitwall forward when it isn't. Off with `agents.showFiles`
+- [`mcp`](#mcp): Run Pitwall's MCP server on stdin/stdout (its tools `show_files` and `show_folder` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it
 - [`events`](#events): Follow Pitwall as it changes: the agent list, agents that need you (blocked) or finished (done), and how many are blocked. The current list and count come first. Prints one JSON event per line until stopped (or --count)
 
 ## agent
@@ -1079,6 +1081,35 @@ pitwall peers set [OPTIONS]
 | `--share <ON\|OFF>` | "Let my other machines see this Pitwall's agents" (on/off). |
 | `--show <ON\|OFF>` | "Show agents from my other machines" (on/off). |
 | `--port <PORT>` | The port this Pitwall listens on and reaches others on (47420). |
+
+
+## open
+
+Show files or a folder to the user in Pitwall's file viewer (read-only): files as tabs (`path:line[:col]` opens at a line), a folder or a whole worktree as a tree with each file's git status. Opens in the window that shows the agent, without bringing Pitwall forward when it isn't. Off with `agents.showFiles`.
+
+```bash
+pitwall open [OPTIONS] [FILE]...
+```
+
+| Argument | |
+|---|---|
+| `FILE` (optional) | Files to open: absolute, or relative to --root (default: this folder). `src/main.rs:42` or `src/main.rs:42:7` opens at that line. |
+
+| Option | |
+|---|---|
+| `--folder <DIR>` | A folder to show as a tree (relative to --root, default: this folder). With only --root, that folder is shown. |
+| `--root <DIR\|WORKTREE>` | What relative paths are in: a folder, or a worktree of the agent's repository by its folder name or branch. |
+| `--agent <AGENT>` | Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this runs in). |
+| `--where <PLACE>` | beside (next to the agent's terminal) or window (a separate one). Both open the agent's file viewer for now. |
+
+
+## mcp
+
+Run Pitwall's MCP server on stdin/stdout (its tools `show_files` and `show_folder` do what `open` does). Pitwall adds it to the agents it starts; any MCP client can run it.
+
+```bash
+pitwall mcp [OPTIONS]
+```
 
 
 ## events

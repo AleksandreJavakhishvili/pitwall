@@ -152,6 +152,8 @@ pub mod code {
     pub const APPROVAL_TIMEOUT: &str = "approval_timeout";
     /// `agent.wait` gave up before the agent got there.
     pub const TIMEOUT: &str = "timeout";
+    /// The user turned this off in Pitwall's settings.
+    pub const OFF: &str = "off";
     pub const OTHER: &str = "other";
 }
 
