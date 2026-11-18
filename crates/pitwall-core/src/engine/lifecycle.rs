@@ -1051,7 +1051,7 @@ mod tests {
         assert!(h.engine.show_files_on(), "on by default");
         let v = create(&h.engine, req("claude", &dir, false)).unwrap();
         let line = launched(&h);
-        assert!(line.contains(r#"--mcp-config '{"mcpServers":{"pitwall":{"args":["mcp"],"command":"/app/pitwall-cli"}}}'"#), "{line}");
+        assert!(line.contains(r#"--mcp-config '{"mcpServers":{"pitwall":{"command":"/app/pitwall-cli","args":["mcp"]}}}'"#), "{line}");
         // Off: the next start has none (agents already running keep theirs
         // until they restart).
         h.engine.set_show_files(false);

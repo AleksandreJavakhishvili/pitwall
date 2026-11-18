@@ -55,7 +55,7 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
         if let Some(name) = backend.mirrored(key) {
             return Err(ErrorBody::new(
                 code::UNSUPPORTED,
-                format!("{name} runs on another machine and is only shown here, read-only: Pitwall can't show its files. Nothing was opened."),
+                format!("{name} runs on another machine and is only shown here, read-only: Pitwall can't show its files"),
             ));
         }
         return Err(ErrorBody::new(code::NOT_FOUND, format!("no agent \"{key}\" in Pitwall (see `pitwall agent list`)")));

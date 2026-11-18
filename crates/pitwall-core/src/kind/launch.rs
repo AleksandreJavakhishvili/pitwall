@@ -86,12 +86,17 @@ pub fn plan(
 
 /// `claude --mcp-config`'s JSON: the one stdio server.
 pub fn claude_mcp_json(m: &McpWiring) -> String {
-    let mut servers = serde_json::Map::new();
-    servers.insert(
-        pitwall_proto::show::MCP_SERVER.into(),
-        serde_json::json!({ "command": m.command, "args": m.args }),
-    );
-    serde_json::json!({ "mcpServers": servers }).to_string()
+    // Spelled out, so the keys keep this order whichever way serde_json
+    // was built (`preserve_order` or not).
+    fn text(v: &impl serde::Serialize) -> String {
+        serde_json::to_string(v).unwrap_or_default()
+    }
+    format!(
+        r#"{{"mcpServers":{{{}:{{"command":{},"args":{}}}}}}}"#,
+        text(&pitwall_proto::show::MCP_SERVER),
+        text(&m.command),
+        text(&m.args),
+    )
 }
 
 /// `codex -c` overrides defining the server (values are TOML).
@@ -242,7 +247,7 @@ mod tests {
         // in the --settings that also carries the hooks.
         let p = plan(&claude(), None, false, "sh '/h'", Some(&m), None);
         let line = &p.command_line;
-        let json = r#"{"mcpServers":{"pitwall":{"args":["mcp"],"command":"/Apps/Pit wall/pitwall-cli"}}}"#;
+        let json = r#"{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}}"#;
         assert!(line.contains(&format!(" --mcp-config '{json}' --settings '")), "{line}");
         assert!(line.contains(r#""permissions":{"allow":["mcp__pitwall__show_files","mcp__pitwall__show_folder"]}"#), "{line}");
         assert!(line.contains(r#""hooks":{"#), "{line}");
