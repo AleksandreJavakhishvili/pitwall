@@ -290,7 +290,7 @@ mod tests {
         let cwd = workdir(&paths);
         let line = |id: &str, resume: Option<&str>| {
             let l = k.launch(&paths, &builtin(id), Some("/usr/bin".into())).unwrap();
-            plan(&l.kind, resume, resume.is_some(), "sh '/h'", None).command_line
+            plan(&l.kind, resume, resume.is_some(), "sh '/h'", None, None).command_line
         };
         // Claude Code: its hooks and session id as always, plus a pointer.
         let c = line("claude", None);
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(line("qwen", Some("q")), "qwen --resume q");
         // A custom command runs as written.
         let custom = k.launch(&paths, &crate::kind::custom_kind("my-agent --fast"), None).unwrap();
-        assert_eq!(plan(&custom.kind, None, false, "", None).command_line, "my-agent --fast");
+        assert_eq!(plan(&custom.kind, None, false, "", None, None).command_line, "my-agent --fast");
     }
 
     #[test]

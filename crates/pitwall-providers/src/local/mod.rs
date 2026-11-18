@@ -89,7 +89,7 @@ impl LocalProvider {
             LaunchIntent::Resume(id) => (Some(id.as_str()), true),
         };
         let hook = spec.hooks.as_ref().map_or("", |h| h.command.as_str());
-        let plan = launch::plan(spec.kind, session_id, resume, hook, spec.worktree);
+        let plan = launch::plan(spec.kind, session_id, resume, hook, spec.mcp.as_ref(), spec.worktree);
         let socket = self.socket(&loc);
         let term = hold::spawn(hold::Spawn {
             agent_id: spec.agent,
@@ -281,6 +281,7 @@ mod tests {
                 worktree: None,
                 size: TermSize::DEFAULT,
                 hooks: None,
+                mcp: None,
                 env: &[],
             },
         };

@@ -67,6 +67,7 @@ pub fn shell_kind() -> AgentKind {
         resume_args: vec!["-c".into(), "echo resumed:{session_id}; exec /bin/sh -i".into()],
         assign_session_id: false,
         hooks: crate::kind::HookMode::None,
+        mcp: crate::kind::McpMode::None,
         rulesync_target: None,
         rules_fallback: None,
         worktree_args: vec![],
@@ -125,7 +126,7 @@ fn host_of(p: &dyn Provider, started: Started, size: TermSize) -> Arc<TermHost> 
 }
 
 fn launch<'a>(agent: &'a str, kind: &'a AgentKind, cwd: &'a str, intent: LaunchIntent, size: TermSize) -> LaunchSpec<'a> {
-    LaunchSpec { agent, kind, cwd, intent, worktree: None, size, hooks: None, env: &[] }
+    LaunchSpec { agent, kind, cwd, intent, worktree: None, size, hooks: None, mcp: None, env: &[] }
 }
 
 /// Run the whole contract against `h`'s provider. Panics on the first

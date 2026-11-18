@@ -88,6 +88,8 @@ pub struct Engine {
     shown: Mutex<std::collections::HashMap<u64, String>>,
     /// Agent tools Pitwall keeps up to date (crate::tool_updates).
     pub(crate) tool_updates: crate::tool_updates::ToolUpdates,
+    /// Agents showing files to the user (crate::show).
+    pub(crate) show: crate::show::State,
 }
 
 pub type Shared = Arc<Engine>;
@@ -117,6 +119,7 @@ impl Engine {
             git_flights: Default::default(),
             shown: Default::default(),
             tool_updates: Default::default(),
+            show: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
             engineer: Default::default(),

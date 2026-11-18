@@ -498,7 +498,7 @@ impl FakeProvider {
             }
         };
         let hook = spec.hooks.as_ref().map_or("", |h| h.command.as_str());
-        let plan = launch::plan(spec.kind, session_id, resume, hook, spec.worktree);
+        let plan = launch::plan(spec.kind, session_id, resume, hook, spec.mcp.as_ref(), spec.worktree);
         let proc = Proc::new(spec.size, true);
         if plan.resumed {
             proc.output(format!("resumed:{}\r\n", plan.session_id.as_deref().unwrap_or("")).as_bytes());

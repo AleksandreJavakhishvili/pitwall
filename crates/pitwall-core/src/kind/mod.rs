@@ -21,6 +21,23 @@ pub enum HookMode {
     None,
 }
 
+/// How Pitwall's `pitwall` MCP server (`agents.showFiles`) is given to the
+/// agent at launch, with the tool's own documented launch-time setting; the
+/// user's config files are never edited.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum McpMode {
+    /// `claude --mcp-config '<json>'` (added to the user's own servers),
+    /// with the tools allowed in the `--settings` Pitwall passes.
+    ClaudeConfig,
+    /// `codex -c mcp_servers.pitwall.command=… -c mcp_servers.pitwall.args=…`
+    /// (config overrides for this run).
+    CodexConfig,
+    /// The tool has no safe launch-time way: no server.
+    #[default]
+    None,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentKind {
     pub id: String,
@@ -33,6 +50,9 @@ pub struct AgentKind {
     #[serde(default)]
     pub assign_session_id: bool,
     pub hooks: HookMode,
+    /// How the `pitwall` MCP server is added at launch (none: it isn't).
+    #[serde(default)]
+    pub mcp: McpMode,
     /// rulesync `--targets` id used when applying rules (e.g. "claudecode").
     #[serde(default)]
     pub rulesync_target: Option<String>,
@@ -163,6 +183,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         resume_args: vec![],
         assign_session_id: false,
         hooks: HookMode::None,
+        mcp: McpMode::None,
         rulesync_target: None,
         rules_fallback: None,
         worktree_args: vec![],

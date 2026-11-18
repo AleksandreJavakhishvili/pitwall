@@ -47,6 +47,7 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `resume_args` | list of strings | `[]` | Arguments added to continue a conversation. Empty: the kind can't resume, and Restart starts fresh. |
 | `assign_session_id` | boolean | `false` | Pitwall picks a new conversation id (a UUID) for each fresh start and fills it into `{session_id}` in `new_args`. |
 | `hooks` | string | required | How the agent reports its status: `claude-settings`, `codex-global` or `none` (see [Hooks](#hooks)). |
+| `mcp` | string | `none` | How the agent gets Pitwall's `pitwall` MCP server, which lets it show you files in Pitwall: `claude-config`, `codex-config` or `none` (see [Showing files](#showing-files)). |
 | `rulesync_target` | string | none | The [rulesync](https://github.com/dyoshikawa/rulesync) target written when rules are applied for this kind (`claudecode`, `codexcli`, `cursor`, …). None: New agent doesn't offer rules for it, unless `rules_fallback` is set. |
 | `rules_fallback` | table | none | For a tool rulesync has no target for: Pitwall writes the rules into one file itself (see [Rules without rulesync](#rules-without-rulesync)). Ignored when `rulesync_target` is set. |
 | `worktree_args` | list of strings | `[]` | The agent's own "work in a new git worktree" flag, added when New agent's **Separate worktree** is ticked. `{name}` becomes a name Pitwall picks. Empty: no worktree option for this kind. Only for agents on this computer. |
@@ -77,7 +78,8 @@ Pitwall builds one command line and runs it with your login shell (`$SHELL -l -i
 1. `command`.
 2. When resuming a known conversation and `resume_args` isn't empty: `resume_args`. Otherwise `new_args` (with a new id when `assign_session_id = true`), then the `rules_fallback` arguments for the file that holds the agent's rules, if any.
 3. On a fresh start with **Separate worktree** ticked: `worktree_args`.
-4. With `hooks = "claude-settings"`: `--settings '<json>'` carrying Pitwall's hooks.
+4. With `mcp = "claude-config"` and **Agents can show you files** on: `--mcp-config '<json>'` (`mcp = "codex-config"` puts its `-c` overrides right after `command` instead).
+5. With `hooks = "claude-settings"`: `--settings '<json>'` carrying Pitwall's hooks (and, with the MCP server, the rule that allows its two tools).
 
 For example, the bundled Claude Code definition starts `claude --session-id <uuid> --settings '…'` and resumes with `claude --resume <uuid> --settings '…'`.
 
@@ -106,6 +108,18 @@ The bundled Gemini CLI definition writes `GEMINI.md` (which Gemini reads by itse
 | `none` | No hooks. Status comes from [detection rules](detection.md), then output activity. |
 
 Both hook modes are tied to the Claude Code and Codex hook formats. A kind of your own normally uses `none`.
+
+## Showing files
+
+With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), every agent Pitwall starts on this computer gets Pitwall's MCP server, `pitwall-cli mcp`, so it can open files, folders and images in Pitwall's file viewer when you ask it to ("open that file for me"). The server has two tools, `show_files` and `show_folder`; `pitwall open` does the same from a shell. It is added in the tool's own documented launch-time way, so your config files are never edited:
+
+| Value | What it does |
+|---|---|
+| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and the two tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`) in the `--settings` Pitwall passes, so they don't ask each time. |
+| `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them. |
+| `none` | No server (the default). Gemini CLI, opencode, Cursor Agent, Copilot CLI, Qwen Code, Amp and Aider are left out for now: they have no launch-time way that doesn't edit or replace a config file, or one Pitwall has checked. |
+
+The setting applies when an agent starts: restart an agent to give it the server or take it away.
 
 ## Accounts
 

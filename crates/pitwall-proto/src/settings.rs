@@ -217,6 +217,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "agents.showFiles",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server (Claude Code and Codex, added per launch; your own config files are never edited), and `pitwall open` does the same from a shell. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.",
+        page: Page::Agents,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "agentsShowFiles", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "engineer.agent",
         kind: Kind::Text { max: 64 },
         default: DefaultValue::Str("auto"),

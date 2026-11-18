@@ -8,6 +8,10 @@ new_args = ["--session-id", "{session_id}"]
 resume_args = ["--resume", "{session_id}"]
 assign_session_id = true
 hooks = "claude-settings"
+# Pitwall's `pitwall` MCP server (show files in Pitwall, agents.showFiles):
+# `--mcp-config '<json>'` per launch, added to the user's own servers
+# (code.claude.com/docs/en/cli-reference).
+mcp = "claude-config"
 # rulesync target used when applying rules (docs/spec/rules.md).
 rulesync_target = "claudecode"
 # `claude --worktree [name]` (-w): Claude creates and enters its own worktree.

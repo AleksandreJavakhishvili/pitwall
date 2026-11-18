@@ -31,6 +31,7 @@ pub mod provider;
 pub mod review;
 pub mod rules;
 pub mod shell;
+pub mod show;
 pub mod store;
 pub mod term;
 pub mod tool_updates;

@@ -67,6 +67,15 @@ Pitwall keeps agent tools up to date itself (claude update, at startup and every
 - **Stored in:** `ui.json` → `noToolUpdates` (the opposite: `true` there means `false` here)
 - **When an agent changes it:** applies directly
 
+### `agents.showFiles`
+
+Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server (Claude Code and Codex, added per launch; your own config files are never edited), and `pitwall open` does the same from a shell. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsShowFiles`
+- **When an agent changes it:** applies directly
+
 ### `engineer.agent`
 
 What the Race Engineer (Pitwall's optional assistant) runs on: auto (Claude Code if installed, else the first installed agent), an agent id from New agent (claude, codex, gemini, opencode, aider, …) or custom (engineer.command). Applies the next time it starts.

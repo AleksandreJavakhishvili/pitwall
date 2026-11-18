@@ -15,7 +15,7 @@ use crate::model::{size_of, AdoptSessionRequest, AgentRecord, AgentView, CreateA
 use crate::onboarding::project_list;
 use crate::paths::expand_tilde_in;
 use crate::provider::{
-    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Machine, MachineId, NativeState, Provider,
+    CreateSpec, HookTransport, HookWiring, LaunchIntent, LaunchSpec, Locator, Machine, MachineId, McpWiring, NativeState, Provider,
     ProviderId, Started, TermSize,
 };
 use crate::rules;
@@ -93,6 +93,16 @@ fn watch_for(exec: &dyn Exec, kind: &AgentKind, rec: &AgentRecord, now: u64) -> 
 /// How hooks reach Pitwall from an agent of `p`, if they can.
 fn hook_wiring(engine: &Engine, p: &dyn Provider) -> Option<HookWiring> {
     (p.caps().hooks != HookTransport::None).then(|| HookWiring { command: hooks::hook_command(engine.paths()) })
+}
+
+/// Pitwall's `pitwall` MCP server for an agent of `p` (`agents.showFiles`):
+/// only where the agent's process runs on this machine, since the server
+/// is this machine's `pitwall-cli`.
+fn mcp_wiring(engine: &Engine, p: &dyn Provider) -> Option<McpWiring> {
+    if !p.caps().local_process {
+        return None;
+    }
+    engine.show_files_wiring()
 }
 
 /// The terminal of a session `p` just started (its own, or by attaching).
@@ -258,6 +268,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
             worktree: wt.as_ref().map(|(n, _)| n.as_str()),
             size,
             hooks: hook_wiring(core, &*provider),
+            mcp: mcp_wiring(core, &*provider),
             env: &env,
         },
     })?;
@@ -323,6 +334,7 @@ fn create_on_platform(
             worktree: None,
             size: term_size,
             hooks: hook_wiring(core, &*provider),
+            mcp: None,
             env: &[],
         },
     })?;
@@ -522,12 +534,13 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         _ => LaunchIntent::Fresh,
     };
     let hooks = hook_wiring(core, &*provider);
+    let mcp = mcp_wiring(core, &*provider);
     // A terminal that last ran an agent the user started in it: the shell
     // starts and continues that agent inside it (docs/spec/terminals.md §3).
     let inner = match &rec.inner_agent {
         Some(m) if caps.custom_command && rec.kind == super::terminals::TERMINAL_KIND => core.kinds().find(&m.kind).map(|agent| {
             let hook = hooks.as_ref().map_or("", |h| h.command.as_str());
-            kind::launch::then_shell(&kind, &agent, m.session_id.as_deref(), caps.resume, hook)
+            kind::launch::then_shell(&kind, &agent, m.session_id.as_deref(), caps.resume, hook, mcp.as_ref())
         }),
         _ => None,
     };
@@ -548,6 +561,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
         worktree: wt.as_ref().map(|(n, _)| n.as_str()),
         size,
         hooks,
+        mcp,
         env: &env,
     };
     let mut started = provider.start(&loc, &launch)?;
@@ -1019,6 +1033,37 @@ mod tests {
         let v = create(&h.engine, req("claude", &dir, false)).unwrap();
         assert!(!v.caps.diff && !v.caps.rules && !v.caps.hooks && !v.caps.remove_worktree);
         assert!(!h.provider.launched().pop().unwrap().command_line.contains("--settings"), "no hooks to wire");
+    }
+
+    /// `agents.showFiles`: the MCP server is added when an agent starts,
+    /// only while it is on, with a CLI to run, for a process on this machine.
+    #[test]
+    fn the_show_files_server_follows_the_setting() {
+        let h = Harness::new(vec![]);
+        let dir = h.dir.path().to_string_lossy().into_owned();
+        let local = ProviderCaps { local_process: true, ..crate::testing::FakeProvider::local_like() };
+        h.provider.set_caps(local);
+        let launched = |h: &Harness| h.provider.launched().pop().unwrap().command_line;
+        // No CLI shipped: nothing to add.
+        create(&h.engine, req("claude", &dir, false)).unwrap();
+        assert!(!launched(&h).contains("--mcp-config"));
+        h.engine.set_cli_bin(Some("/app/pitwall-cli".into()));
+        assert!(h.engine.show_files_on(), "on by default");
+        let v = create(&h.engine, req("claude", &dir, false)).unwrap();
+        let line = launched(&h);
+        assert!(line.contains(r#"--mcp-config '{"mcpServers":{"pitwall":{"args":["mcp"],"command":"/app/pitwall-cli"}}}'"#), "{line}");
+        // Off: the next start has none (agents already running keep theirs
+        // until they restart).
+        h.engine.set_show_files(false);
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(!launched(&h).contains("--mcp-config"));
+        h.engine.set_show_files(true);
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(launched(&h).contains("--mcp-config"));
+        // Another machine's process: the server is this machine's program.
+        h.provider.set_caps(crate::testing::FakeProvider::local_like());
+        create(&h.engine, req("claude", &dir, false)).unwrap();
+        assert!(!launched(&h).contains("--mcp-config"));
     }
 
     #[test]

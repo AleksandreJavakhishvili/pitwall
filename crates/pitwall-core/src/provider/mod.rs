@@ -298,6 +298,17 @@ pub struct HookWiring {
     pub command: String,
 }
 
+/// Pitwall's MCP server for an agent (`agents.showFiles`): the program
+/// the agent starts as a stdio MCP server, added per launch the way its
+/// kind says ([`McpMode`](crate::kind::McpMode)).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpWiring {
+    /// The `pitwall-cli` Pitwall ships (a full path).
+    pub command: String,
+    /// `["mcp"]`.
+    pub args: Vec<String>,
+}
+
 /// What to run, for `create` and `start`. Providers that launch a command
 /// themselves turn it into a command line with
 /// [`launch::plan`](crate::kind::launch::plan); providers whose platform owns
@@ -314,6 +325,10 @@ pub struct LaunchSpec<'a> {
     pub worktree: Option<&'a str>,
     pub size: TermSize,
     pub hooks: Option<HookWiring>,
+    /// Pitwall's MCP server, when it is on and the agent runs on this
+    /// machine; providers that launch a command themselves pass it to
+    /// [`launch::plan`](crate::kind::launch::plan).
+    pub mcp: Option<McpWiring>,
     /// Added to the program's environment, over Pitwall's own (the Race
     /// Engineer's PATH with the `pitwall` CLI first). Providers that launch
     /// a process themselves (local) pass it on; platforms that own the
