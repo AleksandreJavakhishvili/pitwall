@@ -871,3 +871,171 @@ async fn the_markdown_preview_follows_the_edits(cx: &mut TestAppContext) {
     let md = viewer.read_with(cx, |v, _| v.md_text().map(|(_, t)| t.to_string()));
     assert_eq!(md.as_deref(), Some("# Title two\n"));
 }
+
+const TOGGLE_TREE: &str = if cfg!(target_os = "macos") { "cmd-shift-e" } else { "ctrl-shift-alt-e" };
+
+fn kept_tree(cx: &mut VisualTestContext) -> super::column::FilesTree {
+    cx.update(|_, cx| crate::ui_state::get(cx).files_tree)
+}
+
+fn tree_shown(viewer: &Entity<viewer::Viewer>, cx: &mut VisualTestContext) -> bool {
+    viewer.read_with(cx, |v, cx| v.tree_shown(cx))
+}
+
+/// The tree column hides and shows with its button and ⌘⇧E, and each
+/// kind of place keeps its own choice.
+#[gpui::test]
+async fn the_file_tree_hides_and_each_place_keeps_its_choice(cx: &mut TestAppContext) {
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(800.)));
+    viewer.update(cx, |v, cx| {
+        v.set_host(viewer::Host::Window, Some("a1".into()), cx);
+        v.open("a.txt".into(), None, cx);
+    });
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx), "shown at first");
+    assert!(cx.debug_bounds("ex-side").is_some());
+
+    // The bar's button.
+    let at = cx.debug_bounds("ex-tree-toggle").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(!tree_shown(&viewer, cx));
+    assert_eq!(kept_tree(cx).window.open, Some(false));
+    assert_eq!(kept_tree(cx).tile.open, None, "only for windows");
+
+    // The shortcut, with the keyboard in the viewer.
+    cx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(viewer.read(cx), cx), cx));
+    cx.simulate_keystrokes(TOGGLE_TREE);
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx));
+    assert_eq!(kept_tree(cx).window.open, Some(true));
+    cx.simulate_keystrokes(TOGGLE_TREE);
+    redraw(cx);
+    assert!(!tree_shown(&viewer, cx));
+
+    // In a files tile it was never hidden: shown there (a wide tile).
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Tile, Some("a1".into()), cx));
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx));
+    // In a window again: hidden, as kept.
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Window, Some("a1".into()), cx));
+    redraw(cx);
+    assert!(!tree_shown(&viewer, cx));
+}
+
+/// Hidden, the file has the viewer's whole width, and Go to file (⌘P) and
+/// Search in files still work.
+#[gpui::test]
+async fn with_the_tree_hidden_the_file_has_the_width(cx: &mut TestAppContext) {
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(800.)));
+    let quick = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen = quick.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
+            if matches!(e, viewer::ViewerEvent::QuickOpen) {
+                seen.store(true, Ordering::SeqCst);
+            }
+        })
+        .detach()
+    });
+    redraw(cx);
+    let at = cx.debug_bounds("ex-tree-toggle").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    // (The column slides out, in real time.)
+    for _ in 0..4 {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        redraw(cx);
+    }
+    assert!(cx.debug_bounds("ex-side").is_none(), "gone once it has slid out");
+    // No file open: the empty view offers the tree back, and Go to file.
+    assert!(cx.debug_bounds("ex-empty-tree").is_some());
+    let at = cx.debug_bounds("ex-viewer-goto").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(quick.load(Ordering::SeqCst), "Go to file still asks for quick open");
+    // Search in files brings the column back, on Search.
+    let at = cx.debug_bounds("ex-empty-search").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx));
+    assert_eq!(kept_tree(cx).main.open, Some(false), "for now: what is kept doesn't change");
+}
+
+/// A pane too narrow for the tree and a file starts with the tree hidden;
+/// the user can still show it, and it stays.
+#[gpui::test]
+async fn a_narrow_pane_starts_with_the_tree_hidden(cx: &mut TestAppContext) {
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Tile, Some("a1".into()), cx));
+    cx.simulate_resize(gpui::size(gpui::px(480.), gpui::px(700.)));
+    redraw(cx);
+    assert!(!tree_shown(&viewer, cx), "narrow: hidden");
+    let at = cx.debug_bounds("ex-tree-toggle").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx), "shown when asked");
+    cx.simulate_resize(gpui::size(gpui::px(460.), gpui::px(700.)));
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx), "and it stays");
+    // Wider: the kept choice (shown).
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(700.)));
+    redraw(cx);
+    assert!(tree_shown(&viewer, cx));
+}
+
+/// The column's edge drags its width, kept for the kind of place, within
+/// limits that leave the file its room; a double click resets it.
+#[gpui::test]
+async fn the_tree_column_width_is_dragged_and_kept(cx: &mut TestAppContext) {
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("a.txt", "a\n")]);
+    cx.simulate_resize(gpui::size(gpui::px(1000.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Window, Some("a1".into()), cx));
+    redraw(cx);
+    let w = |viewer: &Entity<viewer::Viewer>, cx: &mut VisualTestContext| viewer.read_with(cx, |v, cx| v.tree_width(cx));
+    assert_eq!(w(&viewer, cx), super::column::default_width(viewer::Host::Window));
+    // Dragged with the mouse from its edge.
+    let edge = cx.debug_bounds("ex-side-edge").unwrap().center();
+    cx.simulate_mouse_down(edge, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(gpui::point(edge.x + gpui::px(20.), edge.y), Some(gpui::MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_move(gpui::point(edge.x + gpui::px(60.), edge.y), Some(gpui::MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_up(gpui::point(edge.x + gpui::px(60.), edge.y), gpui::MouseButton::Left, gpui::Modifiers::none());
+    redraw(cx);
+    let dragged = w(&viewer, cx);
+    assert!((dragged - 292.).abs() < 4., "{dragged}");
+    assert_eq!(kept_tree(cx).window.width.map(|w| w.round()), Some(dragged.round()));
+    // Too wide: no wider than the limit…
+    viewer.update(cx, |v, cx| v.debug_tree_width(900., cx));
+    redraw(cx);
+    assert_eq!(w(&viewer, cx), super::column::MAX_W);
+    // …and in a smaller window, the file keeps 380.
+    cx.simulate_resize(gpui::size(gpui::px(700.), gpui::px(700.)));
+    redraw(cx);
+    assert_eq!(w(&viewer, cx), 700. - super::column::MIN_FILE_W);
+    viewer.update(cx, |v, cx| v.debug_tree_width(20., cx));
+    assert_eq!(w(&viewer, cx), super::column::MIN_W);
+    // A double click on the edge: the default again.
+    viewer.update(cx, |v, cx| v.reset_tree_width(cx));
+    redraw(cx);
+    assert_eq!(w(&viewer, cx), super::column::default_width(viewer::Host::Window));
+    assert_eq!(kept_tree(cx).window.width, None);
+}
+
+/// The bar names the folder shortened from the middle, with the whole
+/// path on hover.
+#[gpui::test]
+async fn the_bar_names_the_folder_briefly(cx: &mut TestAppContext) {
+    let mut a = readable("a1");
+    a.cwd = "/Users/someone/Desktop/Projects/pitwall/.claude/worktrees/agent-a0829081/target/pw-demo".into();
+    a.cwd_display = "~/Desktop/Projects/pitwall/.claude/worktrees/agent-a0829081/target/pw-demo".into();
+    a.branch = Some("feat/viewer".into());
+    let (viewer, _src, cx) = edit_setup(cx, a, &[("a.txt", "a\n")]);
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| v.set_host(viewer::Host::Window, Some("a1".into()), cx));
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-viewer-hint").is_some());
+    let shown = super::logic::short_path("~/Desktop/Projects/pitwall/.claude/worktrees/agent-a0829081/target/pw-demo", 48);
+    assert_eq!(shown, "~/…/worktrees/agent-a0829081/target/pw-demo");
+    assert!(cx.debug_bounds("ex-viewer-branch").is_some(), "the branch of an agent's folder");
+}

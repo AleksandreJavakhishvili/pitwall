@@ -436,25 +436,19 @@ pub fn orphan_bar(owner: &str, viewer: &Entity<Viewer>, t: &Theme, cx: &App) -> 
         o.name, o.folder
     );
     let (save, discard) = (viewer.clone(), owner.to_string());
+    // (The look of the viewer's changed-on-disk bar.)
     Some(
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(12.))
-            .py(px(7.))
-            .bg(t.surface_2)
-            .border_b_1()
-            .border_color(t.line)
-            .text_size(px(12.))
-            .text_color(t.text)
-            .debug_selector(|| "files-orphan".into())
-            .child(div().flex_1().min_w_0().child(text))
-            .child(crate::kit::small_btn("files-orphan-save", "Save", t).on_click(move |_, _, cx| {
-                save.update(cx, |v, cx| v.save_all(cx)).detach();
-            }))
-            .child(crate::kit::small_btn("files-orphan-discard", "Discard", t).on_click(move |_, _, cx| discard_orphan(&discard, cx)))
+        Viewer::notice("files-orphan", true, text.into(), t)
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap(px(6.))
+                    .child(crate::kit::small_btn("files-orphan-save", "Save", t).on_click(move |_, _, cx| {
+                        save.update(cx, |v, cx| v.save_all(cx)).detach();
+                    }))
+                    .child(crate::kit::small_btn("files-orphan-discard", "Discard", t).on_click(move |_, _, cx| discard_orphan(&discard, cx))),
+            )
             .into_any_element(),
     )
 }

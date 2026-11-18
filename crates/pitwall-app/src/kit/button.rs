@@ -296,6 +296,46 @@ pub fn icon_btn_state(
         .when(!tip.is_empty(), |d| d.tooltip(tooltip(tip)))
 }
 
+/// A bar's labelled tool button (24 px): a small icon and a short word,
+/// muted, surface-3 on hover; `pressed` keeps it filled while on (a
+/// window kept on top). For a bar's controls that an icon alone doesn't
+/// explain.
+pub fn tool_btn(
+    id: impl Into<SharedString>,
+    icon_name: &str,
+    label: impl Into<SharedString>,
+    tip: impl Into<SharedString>,
+    pressed: bool,
+    t: &Theme,
+) -> Stateful<Div> {
+    let tip: SharedString = tip.into();
+    let id: SharedString = id.into();
+    let group = SharedString::from(format!("tbtn-{id}"));
+    let (fg, hover_fg, hover_bg) = (if pressed { t.text } else { t.text_3 }, t.text, t.surface_3);
+    let id = ElementId::Name(id);
+    let pressing = motion::press_scale(motion::press_key(&id)).is_some();
+    let el = div()
+        .id(id.clone())
+        .group(group.clone())
+        .h(px(24.))
+        .px(px(7.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .rounded(RADIUS)
+        .whitespace_nowrap()
+        .text_size(px(12.))
+        .text_color(fg)
+        .when(pressed, |d| d.bg(hover_bg))
+        .cursor_pointer()
+        .when(!pressing, |d| d.hover_text(hover_fg, move |s| s.bg(hover_bg)));
+    motion::pressable(el, &id, false, motion::Skin::new(Some(hover_bg), None, RADIUS))
+        .child(icon(icon_name, 13., fg).group_hover_text(group, hover_fg, move |s| s))
+        .child(label.into())
+        .when(!tip.is_empty(), |d| d.tooltip(tooltip(tip)))
+}
+
 /// An icon button showing a text glyph instead of an icon (rare).
 pub fn glyph_btn(id: impl Into<ElementId>, glyph: &'static str, t: &Theme) -> Stateful<Div> {
     let (fg, bg) = (t.text, t.surface_3);

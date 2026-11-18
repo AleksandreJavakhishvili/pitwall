@@ -186,6 +186,11 @@ fixes, not an IDE.
   window there. The pointer is followed on the screen (macOS); elsewhere
   "Move…" / "Dock…" list the same places. A later call adds tabs wherever
   the files are; a place named that isn't where they are moves them.
+  Both draw the viewer's one bar (tree toggle, agent, folder, branch); the
+  grip and "Move…" / "Dock…" sit in its slot for a place's controls, then
+  "Open in window" and Close (a tile) or Dock and Pin (a window). Each
+  keeps its own tree column (`filesTree.tile`, `filesTree.window`; the
+  tile's was `beside` and is still read).
   Where a tile is, is said one way everywhere (the tool's answer, the drop
   preview, `files-place state`): next to the terminal it was placed
   against while it still touches it ("above demo's terminal"); else from

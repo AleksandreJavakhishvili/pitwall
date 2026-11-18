@@ -23,37 +23,44 @@
 //! read-only. Agents can't write through this: only the user saves.
 
 use crate::kit::Ellipsis as _;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::kit::HoverText;
 use gpui::{
-    actions, div, prelude::*, px, AnyElement, App, ClipboardItem, Context, Entity, EventEmitter,
-    FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton, PromptLevel, SharedString,
-    Subscription, Task, Window,
+    actions, canvas, div, prelude::*, px, AnyElement, App, ClipboardItem, Context, Entity,
+    EventEmitter, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton, Pixels,
+    PromptLevel, ScrollHandle, SharedString, Size, Subscription, Task, Window,
 };
 
 use pitwall_core::explorer::{ContentKind, FileView, Saved};
-use pitwall_proto::{AgentView, FileStatus};
+use pitwall_proto::AgentView;
 
 use super::code_view::{FileCode, Target};
 use crate::code_view::{CodeView, CodeViewEvent};
 use crate::kit::file_icons::file_icon;
-use super::logic::{absolute_path, size_label, split_path};
+use super::column;
+use super::image_view::{self, Zoom};
+use super::logic::{absolute_path, short_path, size_label, split_path};
 use super::search::{Blurred, OpenHit, SearchPane};
 use super::source::{Res, Source, LARGE_CAP, TEXT_CAP};
 use super::tree::{now_ms, TreeModel};
 use super::tree_view::{OpenFile, TreeView};
 use super::widgets::{refresh_control, status_mark};
-use crate::kit::{
-    button, checkbox, icon, kbd, keys, small_btn, tooltip_view, BtnKind, MONO_FONT,
-};
+use crate::kit::{icon, icon_btn_state, kbd, keys, small_btn, tool_btn, tooltip_view, MONO_FONT};
 use crate::agents::AgentStore;
 use crate::markdown_view::{model::is_markdown, MarkdownView, MAX_PREVIEW_BYTES};
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
 
-actions!(explorer_viewer, [Back, NextTab, PrevTab, PickTab, SaveFile]);
+actions!(explorer_viewer, [Back, NextTab, PrevTab, PickTab, SaveFile, ToggleTree]);
+
+/// Hide or show the file tree (⌘⇧E, as VS Code's Explorer; ⌘B is
+/// Pitwall's own sidebar). On Windows and Linux Ctrl+Shift+Alt+E, as the
+/// app's other ⌘⇧ shortcuts.
+const TOGGLE_TREE_KEY: &str = if cfg!(target_os = "macos") { "cmd-shift-e" } else { "ctrl-shift-alt-e" };
 
 pub const CONTEXT: &str = "ExplorerViewer";
 /// A focused file tab (`.ex-tab`, `tabIndex=0`).
@@ -72,6 +79,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("space", PickTab, tab),
         // ⌘S with the keyboard anywhere in the viewer saves the open file.
         KeyBinding::new(if cfg!(target_os = "macos") { "cmd-s" } else { "ctrl-s" }, SaveFile, Some(CONTEXT)),
+        KeyBinding::new(TOGGLE_TREE_KEY, ToggleTree, Some(CONTEXT)),
     ]
 }
 
@@ -171,6 +179,8 @@ struct Doc {
     diff: Option<Entity<CodeView>>,
     /// The edited text, for the Markdown Preview (by its version).
     live: Option<(u64, SharedString)>,
+    /// An image's zoom.
+    zoom: Zoom,
 }
 
 impl Doc {
@@ -265,8 +275,26 @@ pub struct Viewer {
     refocus: bool,
     /// The "Dock…" / "Move…" menu, open at this point of the viewer.
     place_menu: Option<gpui::Point<gpui::Pixels>>,
+    /// The tree column as toggled in this viewer (`None`: as kept for its
+    /// kind of place, see [`column::shown`]).
+    tree_open: Option<bool>,
+    /// The column's width while its edge is dragged.
+    tree_drag_w: Option<f32>,
+    /// The viewer's size and the image pane's, as last laid out.
+    measured: Rc<Cell<Option<Size<Pixels>>>>,
+    image_area: Rc<Cell<Option<Size<Pixels>>>>,
+    /// The tab strip: scrolled to the active tab; more tabs than fit
+    /// (`tabs_overflow`) offer a list of them all (`tabs_menu`).
+    tabs_scroll: ScrollHandle,
+    tabs_overflow: Rc<Cell<bool>>,
+    tabs_menu: bool,
+    /// The tab last scrolled into view.
+    tabs_scrolled_to: Option<String>,
     _subs: Vec<Subscription>,
 }
+
+/// The tree column's id (its edge's drags say it).
+const SIDE: &str = "ex-side";
 
 /// The file viewer's Code / Preview choice for Markdown (kept for the app
 /// session; off: Code).
@@ -344,6 +372,14 @@ impl Viewer {
             md_shown: None,
             refocus: false,
             place_menu: None,
+            tree_open: None,
+            tree_drag_w: None,
+            measured: Rc::default(),
+            image_area: Rc::default(),
+            tabs_scroll: ScrollHandle::new(),
+            tabs_overflow: Rc::default(),
+            tabs_menu: false,
+            tabs_scrolled_to: None,
             _subs: subs,
         }
     }
@@ -376,6 +412,10 @@ impl Viewer {
 
     /// Drawn in a files tile or a window, for agent `owner`.
     pub fn set_host(&mut self, host: Host, owner: Option<String>, cx: &mut Context<Self>) {
+        if self.host != host {
+            // Another kind of place: its own kept column.
+            self.tree_open = None;
+        }
         self.host = host;
         self.owner = owner;
         cx.notify();
@@ -460,10 +500,111 @@ impl Viewer {
         &self.tabs
     }
 
+    // ── the tree column ─────────────────────────────────────────────────
+
+    /// What `ui.json` keeps of the column for this viewer's kind of place.
+    fn kept_column(&self, cx: &App) -> column::Column {
+        cx.try_global::<crate::ui_state::UiHandle>()
+            .map(|h| h.0.read(cx).state.files_tree.get(self.host))
+            .unwrap_or_default()
+    }
+
+    /// The viewer's width, as last laid out.
+    fn viewer_w(&self) -> Option<f32> {
+        self.measured.get().map(|s| f32::from(s.width))
+    }
+
+    /// The file tree column is shown.
+    pub fn tree_shown(&self, cx: &App) -> bool {
+        column::shown(self.tree_open, self.kept_column(cx), self.host, self.viewer_w())
+    }
+
+    /// The column's width now.
+    pub fn tree_width(&self, cx: &App) -> f32 {
+        match self.tree_drag_w {
+            Some(w) => column::clamp_width(w, self.viewer_w()),
+            None => column::width(self.kept_column(cx), self.host, self.viewer_w()),
+        }
+    }
+
+    /// Hide or show the tree (and keep that for this kind of place). The
+    /// keyboard, when it was in the tree, goes to the viewer.
+    pub fn toggle_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let on = !self.tree_shown(cx);
+        self.set_tree(on, window, cx);
+    }
+
+    pub fn set_tree(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !on && !self.focus.is_focused(window) && self.focus.contains_focused(window, cx) {
+            let in_file = self.active_code().is_some_and(|c| c.read(cx).focus_handle(cx).contains_focused(window, cx));
+            if !in_file {
+                window.focus(&self.focus, cx);
+            }
+        }
+        self.tree_open = Some(on);
+        let host = self.host;
+        crate::ui_state::update(cx, |s| s.files_tree.get_mut(host).open = Some(on));
+        cx.notify();
+    }
+
+    /// The column dragged to `w` (kept on release).
+    fn drag_tree(&mut self, w: f32, cx: &mut Context<Self>) {
+        self.tree_drag_w = Some(column::clamp_width(w, self.viewer_w()));
+        cx.notify();
+    }
+
+    fn keep_tree_width(&mut self, cx: &mut Context<Self>) {
+        if let Some(w) = self.tree_drag_w.take() {
+            let (host, w) = (self.host, column::clamp_width(w, self.viewer_w()));
+            crate::ui_state::update(cx, |s| s.files_tree.get_mut(host).width = Some(w));
+            cx.notify();
+        }
+    }
+
+    /// Debug builds: the column's edge dragged to `w` and let go.
+    pub fn debug_tree_width(&mut self, w: f32, cx: &mut Context<Self>) {
+        self.drag_tree(w, cx);
+        self.keep_tree_width(cx);
+    }
+
+    /// Debug builds: an image's zoom (`fit`, `100`, `in`, `out`).
+    pub fn debug_zoom(&mut self, what: &str, cx: &mut Context<Self>) {
+        let now = self.active.as_ref().and_then(|p| self.docs.get(p)).map(|d| d.zoom).unwrap_or_default();
+        let s = match now {
+            Zoom::Fit => 1.,
+            Zoom::Scale(s) => s,
+        };
+        let z = match what {
+            "fit" => Zoom::Fit,
+            "100" => Zoom::Scale(1.),
+            "in" => Zoom::Scale(image_view::zoom_in(s)),
+            "out" => Zoom::Scale(image_view::zoom_out(s)),
+            _ => return,
+        };
+        self.set_zoom(z, cx);
+    }
+
+    /// A double click on the column's edge: its default width again.
+    pub(crate) fn reset_tree_width(&mut self, cx: &mut Context<Self>) {
+        self.tree_drag_w = None;
+        let host = self.host;
+        crate::ui_state::update(cx, |s| s.files_tree.get_mut(host).width = None);
+        cx.notify();
+    }
+
+    /// Laid out at `size`: a change of width can show or hide the tree (a
+    /// narrow pane) and re-clamps its width.
+    fn measure(&self, cell: Rc<Cell<Option<Size<Pixels>>>>, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::kit::side::measure(cell, cx.entity().downgrade())
+    }
+
     /// Shown (again): focus it, or the search field.
     pub fn show(&mut self, pane: Option<Pane>, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(p) = pane {
             self.pane = p;
+            // Asked for Explorer or Search: the column shows (in this
+            // viewer only; what is kept doesn't change).
+            self.tree_open = Some(true);
         }
         if self.pane == Pane::Search && pane == Some(Pane::Search) {
             self.search.update(cx, |s, cx| s.focus_query(window, cx));
@@ -528,6 +669,8 @@ impl Viewer {
     /// the tree (an agent asked to show it).
     pub fn reveal_folder(&mut self, dir: &str, cx: &mut Context<Self>) {
         self.pane = Pane::Files;
+        // A folder was asked for: the tree shows it, even in a narrow pane.
+        self.tree_open = Some(true);
         if dir.is_empty() {
             return;
         }
@@ -725,6 +868,7 @@ impl Viewer {
 
     pub fn search_for(&mut self, query: &str, cx: &mut Context<Self>) {
         self.pane = Pane::Search;
+        self.tree_open = Some(true);
         self.search.update(cx, |s, cx| s.set_query(query, cx));
         cx.notify();
     }
@@ -911,7 +1055,11 @@ impl Viewer {
         let d = self.docs.get(&active);
         let code = self.active_code();
         format!(
-            "active={active:?} unsaved={:?} stale={} blocked={} diff={} save_error={:?} editing={} read_only={:?} text={:?}",
+            "active={active:?} tree={} tree_w={} viewer_w={:?} zoom={:?} unsaved={:?} stale={} blocked={} diff={} save_error={:?} editing={} read_only={:?} text={:?}",
+            self.tree_shown(cx),
+            self.tree_width(cx),
+            self.viewer_w(),
+            d.map(|d| d.zoom),
             self.unsaved(cx),
             self.is_stale(),
             d.is_some_and(|d| d.save_blocked),
@@ -1119,7 +1267,7 @@ impl Viewer {
 
     /// The grip: pressed, the files follow the pointer ([`ViewerEvent::Grip`]).
     fn grip(&self, t: &Theme, tip: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
-        crate::kit::icon_btn_state("ex-grip", "grip", tip, true, 13., None, t)
+        crate::kit::icon_btn("ex-grip", "grip", tip, true, t)
             .debug_selector(|| "ex-grip".into())
             .cursor_grab()
             .on_mouse_down(
@@ -1132,8 +1280,8 @@ impl Viewer {
     }
 
     /// "Dock…" / "Move…": the places menu ([`super::dock::menu`]).
-    fn place_menu_btn(&self, t: &Theme, id: &'static str, tip: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
-        crate::kit::icon_btn_state(id, "grid", tip, true, 13., Some(self.place_menu.is_some()), t)
+    fn place_menu_btn(&self, t: &Theme, id: &'static str, label: &'static str, tip: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
+        tool_btn(id, "grid", label, tip, self.place_menu.is_some(), t)
             .debug_selector(move || id.into())
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, e: &gpui::ClickEvent, _, cx| {
@@ -1162,54 +1310,129 @@ impl Viewer {
         self.place_menu.is_some()
     }
 
-    /// A files tile or a window: the folder, refresh, and the way
-    /// to the other place (and close, or keep on top).
-    fn small_bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> AnyElement {
+    /// The bar over the viewer, the same in every place it is drawn: the
+    /// tree's toggle; what is shown (the agent, its folder shortened from
+    /// the middle, its branch); room for a place's own controls
+    /// (`ex-bar-slot`); refresh; and the place's way out (Back; Open in
+    /// window and Close in a files tile; Dock and Pin in a window).
+    fn bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> AnyElement {
+        let host = self.host;
         let tree = self.tree.read(cx).state();
         let (refreshing, updated) = (tree.refreshing, tree.updated_at);
-        let root = self.root_display(cx);
-        let tip: SharedString = self.root(cx).unwrap_or_default().into();
-        let owner = self.owner.clone().or_else(|| a.map(|a| a.name.clone()));
-        let btn = |id: &'static str, name: &str, tip: &'static str, on: Option<bool>| {
-            crate::kit::icon_btn_state(id, name, tip, true, 13., on, t)
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        };
-        let host = self.host;
+        let shown = self.tree_shown(cx);
+        let wide = self.viewer_w().is_none_or(|w| w >= 640.);
+        let root_full: SharedString = self.root(cx).unwrap_or_default().into();
+        let root = short_path(&self.root_display(cx), if wide { 48 } else { 26 });
+        // The agent's name, except in its own files tile (whose terminal's header
+        // says it).
+        let named = a.filter(|a| host != Host::Tile || self.owner.as_deref() != Some(a.name.as_str()));
+        let branch = a.and_then(|a| a.branch.clone()).filter(|_| super::source::root_of_key(&self.agent_id).is_none());
         let can_dock = self.can_dock;
-        let editable = super::show::edit_enabled(cx) && self.local(cx) && !a.is_some_and(crate::agents::mirrored);
+        let sep = || div().flex_none().w(px(1.)).h(px(16.)).mx(px(2.)).bg(t.line);
+        let stop = |d: gpui::Stateful<gpui::Div>| d.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
         div()
             .id("ex-viewer-bar")
             .debug_selector(|| "ex-viewer-bar".into())
-            .h(px(32.))
+            .h(px(36.))
             .flex_none()
-            .pl(px(10.))
-            .pr(px(4.))
+            .pl(px(6.))
+            .pr(px(6.))
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(px(6.))
             .border_b_1()
             .border_color(t.line)
             .bg(t.surface)
-            .child(crate::kit::label("Files", t.text_3, 12.))
-            .when_some(owner, |d, name| {
-                d.child(div().flex_none().child(crate::kit::label(name, t.text_3, 12.).text_color(t.text)))
-            })
+            .child(
+                crate::kit::side::toggle("ex-tree-toggle", shown, "files", "⌘⇧E", t)
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_tree(window, cx))),
+            )
+            // What is shown: gives way first when the bar is short.
             .child(
                 div()
-                    .id("ex-viewer-hint")
+                    .id("ex-viewer-what")
                     .min_w_0()
                     .flex_1()
-                    .ellipsis()
-                    .text_size(px(12.))
-                    .text_color(t.text_3)
-                    .tooltip(move |_, cx| tooltip_view(tip.clone(), cx))
-                    .child(crate::kit::one_line(if editable { root } else { format!("read-only · {root}") })),
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .pl(px(2.))
+                    .when(host != Host::Window, |d| d.child(crate::kit::label("Files", t.text_3, 12.)))
+                    .when_some(named, |d, a| {
+                        d.child(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(crate::kit::glyph(a.status, t, true))
+                                .child(
+                                    div()
+                                        .text_size(px(12.5))
+                                        .font_weight(crate::kit::WEIGHT_550)
+                                        .text_color(t.text)
+                                        .child(crate::kit::one_line(a.name.clone())),
+                                ),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id("ex-viewer-hint")
+                            .debug_selector(|| "ex-viewer-hint".into())
+                            .min_w_0()
+                            .flex_shrink(1.)
+                            .ellipsis()
+                            .font_family(MONO_FONT)
+                            .text_size(px(11.5))
+                            .text_color(t.text_3)
+                            .tooltip(move |_, cx| tooltip_view(root_full.clone(), cx))
+                            .child(crate::kit::one_line(root)),
+                    )
+                    .when_some(branch, |d, b| {
+                        d.child(
+                            div()
+                                .id("ex-viewer-branch")
+                            .debug_selector(|| "ex-viewer-branch".into())
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .min_w_0()
+                                .font_family(MONO_FONT)
+                                .text_size(px(11.5))
+                                .text_color(t.text_3)
+                                .tooltip(tooltip_text(format!("On branch {b}")))
+                                .child(icon("branch", 12., t.text_4))
+                                .child(div().min_w_0().ellipsis().child(crate::kit::one_line(b))),
+                        )
+                    }),
+            )
+            // A place's own controls (dragging the viewer elsewhere, a
+            // dock menu) go here.
+            .child(
+                div()
+                    .id("ex-bar-slot")
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .map(|d| match host {
+                        Host::Tile => d
+                            .child(self.grip(t, "Drag to move it in the layout, or out of the window to open it in a window", cx))
+                            .child(self.place_menu_btn(t, "ex-move", "Move…", "Move it in the layout, or to a window", cx)),
+                        Host::Window if can_dock => d
+                            .child(self.grip(t, "Drag into a Pitwall window to place it in the layout", cx))
+                            .child(self.place_menu_btn(t, "ex-dock-menu", "Dock…", "Place it in the layout of the window that shows the agent", cx)),
+                        _ => d,
+                    }),
             )
             .child(refresh_control(
                 t,
                 "ex-viewer-refresh",
                 refreshing,
-                updated,
+                // A files tile's bar is short: only ↻.
+                updated.filter(|_| host != Host::Tile && wide),
                 now_ms(),
                 cx.listener(|this, _, _, cx| {
                     this.tree.update(cx, |t, cx| t.refresh(false, cx));
@@ -1217,141 +1440,89 @@ impl Viewer {
                 }),
             ))
             .map(|d| match host {
-                Host::Tile => d
-                    .child(self.grip(t, "Drag to move it in the layout, or out of the window to open it in a window", cx))
-                    .child(self.place_menu_btn(t, "ex-move", "Move…", cx))
+                Host::Main => d
                     .child(
-                        btn("ex-undock", "window", "Open in window", None)
-                            .debug_selector(|| "ex-undock".into())
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Undock))),
+                        small_btn("ex-viewer-goto", "Go to file", t)
+                            .debug_selector(|| "ex-viewer-goto".into())
+                            .child(kbd(&keys("⌘P", false), t))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen)))
+                            .tooltip(|_, cx| tooltip_view(keys("Go to file (⌘P)", false), cx)),
                     )
                     .child(
-                        btn("ex-close-tile", "x", "Close (Esc gives the keyboard back to the terminal)", None)
+                        small_btn("ex-viewer-back", "Back", t)
+                            .child(kbd("esc", t))
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Exit))),
+                    ),
+                Host::Tile => d
+                    .child(sep())
+                    .child(stop(
+                        crate::kit::icon_btn("ex-undock", "window", "Open in a window of its own", true, t)
+                            .debug_selector(|| "ex-undock".into())
+                            // (Moving keeps unsaved edits: nothing to ask.)
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Undock))),
+                    ))
+                    .child(stop(
+                        crate::kit::icon_btn("ex-close-tile", "x", "Close (Esc gives the keyboard back to the terminal)", true, t)
                             .debug_selector(|| "ex-close-tile".into())
                             .on_click(cx.listener(|this, _, window, cx| this.guard(None, window, cx, |_, _, cx| cx.emit(ViewerEvent::Close)))),
-                    ),
-                _ => d
-                    .when(can_dock, |d| d.child(self.grip(t, "Drag into a Pitwall window to place it in the layout", cx)))
-                    .when(can_dock, |d| d.child(self.place_menu_btn(t, "ex-dock-menu", "Dock…", cx)))
-                    .child(
-                        btn(
+                    )),
+                Host::Window => d
+                    .child(sep())
+                    .child(stop(
+                        tool_btn(
                             "ex-dock",
                             "page-right",
-                            if can_dock { "Dock right of the terminal (a slot in the layout)" } else { "Dock right of the terminal (no Pitwall window shows this agent)" },
-                            None,
+                            "Dock",
+                            if can_dock {
+                                "Dock right of the agent's terminal (a slot in the layout)"
+                            } else {
+                                "Dock right of the agent's terminal (no Pitwall window shows this agent)"
+                            },
+                            false,
+                            t,
                         )
                         .debug_selector(|| "ex-dock".into())
-                        .when(!can_dock, |d| d.opacity(0.4))
+                        .when(!can_dock, |d| d.opacity(0.45))
                         .on_click(cx.listener(move |_, _, _, cx| {
                             if can_dock {
                                 cx.emit(ViewerEvent::Place(super::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right)))
                             }
                         })),
-                    )
+                    ))
                     .when(crate::platform::can_keep_on_top(), |d| {
-                        d.child(
-                            btn("ex-pin", "pin", "Keep on top of other windows", Some(self.pinned))
-                                .debug_selector(|| "ex-pin".into())
-                                .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Pin))),
-                        )
+                        let pinned = self.pinned;
+                        d.child(stop(
+                            tool_btn(
+                                "ex-pin",
+                                "pin",
+                                if pinned { "On top" } else { "Pin" },
+                                if pinned { "Kept on top of other windows: click to let it go behind them" } else { "Keep on top of other windows" },
+                                pinned,
+                                t,
+                            )
+                            .debug_selector(|| "ex-pin".into())
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Pin))),
+                        ))
                     }),
             })
             .into_any_element()
     }
 
-    fn bar(&self, t: &Theme, a: Option<&AgentView>, cx: &mut Context<Self>) -> AnyElement {
-        if self.host != Host::Main {
-            return self.small_bar(t, a, cx);
-        }
-        let tree = self.tree.read(cx).state();
-        let (refreshing, updated) = (tree.refreshing, tree.updated_at);
-        let cwd_tip: SharedString = a.map(|a| a.cwd.clone()).unwrap_or_default().into();
-        let editable = super::show::edit_enabled(cx) && self.local(cx) && !a.is_some_and(crate::agents::mirrored);
-        div()
-            .id("ex-viewer-bar")
-            .h(px(32.))
-            .flex_none()
-            .pl(px(12.))
-            .pr(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .border_b_1()
-            .border_color(t.line)
-            .child(crate::kit::label("Files", t.text_3, 12.))
-            .when_some(a, |d, a| {
-                d.child(
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(7.))
-                        // `<StatusGlyph size="sm">`.
-                        .child(crate::kit::glyph(a.status, t, true))
-                        .child(crate::kit::label(a.name.clone(), t.text_3, 12.).text_color(t.text)),
-                )
-                .child(
-                    div()
-                        .id("ex-viewer-hint")
-                        .min_w_0()
-                        .ellipsis()
-                        .text_size(px(12.))
-                        .text_color(t.text_3)
-                        .tooltip(move |_, cx| tooltip_view(cwd_tip.clone(), cx))
-                        .child(crate::kit::one_line(if editable { a.cwd_display.clone() } else { format!("read-only · {}", a.cwd_display) })),
-                )
-            })
-            .child(div().flex_1())
-            .child(refresh_control(
-                t,
-                "ex-viewer-refresh",
-                refreshing,
-                updated,
-                now_ms(),
-                cx.listener(|this, _, _, cx| {
-                    this.tree.update(cx, |t, cx| t.refresh(false, cx));
-                    this.recheck(cx);
-                }),
-            ))
-            .child(
-                small_btn("ex-viewer-goto", "Go to file", t).child(kbd(&keys("⌘P", false), t))
-.on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen)))
-                .tooltip(|_, cx| {
-                    tooltip_view(keys("Go to file (⌘P)", false), cx)
-                }),
-            )
-            .child(small_btn("ex-viewer-back", "Back", t).child(kbd("esc", t))
-.on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::Exit))))
-            .into_any_element()
-    }
-
-    fn side(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The tree column: Explorer / Search and the "Ignored" switch over the
+    /// tree or the search; its right edge drags its width.
+    fn side(&self, t: &Theme, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let ignored = self.tree.read(cx).ignored();
-        let seg = |id: &'static str,
-                   text: &'static str,
-                   on: bool,
-                   pane: Pane,
-                   first: bool,
-                   cx: &mut Context<Self>| {
-            let hover = t.text_2;
-            div()
-                .id(id)
-                .h(px(24.))
-                .px(px(9.))
-                .flex()
-                .items_center()
-                .text_size(px(11.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .cursor_pointer()
-                .text_color(if on { t.text } else { t.text_3 })
-                .when(on, |d| d.bg(t.surface_3))
-                .when(!first, |d| d.border_l_1().border_color(t.line_strong))
-                .when(!on, |d| d.hover_text(hover, move |s| s))
-                .child(text)
+        let seg = |id: &'static str, text: &'static str, pane: Pane, first: bool, cx: &mut Context<Self>| {
+            crate::kit::segment(id, text.into(), self.pane == pane, first, t)
+                .when(self.pane != pane, |d| d.hover_text(t.text_2, move |s| s))
                 .on_click(cx.listener(move |this, _, window, cx| this.show(Some(pane), window, cx)))
         };
         div()
-            .w(px(if self.host == Host::Main { 300. } else { 220. }))
+            .id(SIDE)
+            .debug_selector(|| SIDE.into())
+            .relative()
+            .w(px(width))
+            .h_full()
             .flex_none()
             .flex()
             .flex_col()
@@ -1362,52 +1533,30 @@ impl Viewer {
             .child(
                 div()
                     .flex_none()
+                    .h(px(36.))
                     .flex()
                     .items_center()
-                    .gap(px(8.))
-                    .pl(px(12.))
-                    .pr(px(10.))
-                    .pt(px(8.))
-                    .pb(px(6.))
+                    .gap(px(4.))
+                    .pl(px(8.))
+                    .pr(px(4.))
                     .child(
-                        div()
-                            .flex()
-                            .rounded(RADIUS)
-                            .border_1()
-                            .border_color(t.line_strong)
-                            .overflow_hidden()
-                            .child(seg(
-                                "ex-seg-files",
-                                "EXPLORER",
-                                self.pane == Pane::Files,
-                                Pane::Files,
-                                true,
-                                cx,
-                            ))
-                            .child(
-                                seg(
-                                    "ex-seg-search",
-                                    "SEARCH",
-                                    self.pane == Pane::Search,
-                                    Pane::Search,
-                                    false,
-                                    cx,
-                                )
-                                .tooltip(|_, cx| {
-                                    tooltip_view(keys("Search in files (⌘⇧F)", false)
-                                        , cx)
-                                }),
-                            ),
+                        crate::kit::segments(t)
+                            .child(seg("ex-seg-files", "Explorer", Pane::Files, true, cx))
+                            .child(seg("ex-seg-search", "Search", Pane::Search, false, cx).tooltip(|_, cx| tooltip_view(keys("Search in files (⌘⇧F)", false), cx))),
                     )
                     .child(div().flex_1())
                     .when(self.pane == Pane::Files, |d| {
                         d.child(
-                            checkbox("ex-viewer-ignored", ignored, "Ignored", t, cx.listener(move |_, _, _, cx| {
-                                    cx.emit(ViewerEvent::SetIgnored(!ignored))
-                                }))
-                            .tooltip(|_, cx| {
-                                tooltip_view("Also list what .gitignore leaves out (dimmed)", cx)
-                            }),
+                            icon_btn_state(
+                                "ex-viewer-ignored",
+                                "eye",
+                                if ignored { "Hide what .gitignore leaves out" } else { "Also list what .gitignore leaves out (dimmed)" },
+                                true,
+                                13.,
+                                Some(ignored),
+                                t,
+                            )
+                            .on_click(cx.listener(move |_, _, _, cx| cx.emit(ViewerEvent::SetIgnored(!ignored)))),
                         )
                     }),
             )
@@ -1415,57 +1564,126 @@ impl Viewer {
                 Pane::Files => self.tree_view.clone().into_any_element(),
                 Pane::Search => self.search.clone().into_any_element(),
             })
+            // The edge: drag for the width, double-click for the default.
+            .child({
+                let me = cx.entity().downgrade();
+                crate::kit::side::edge(SIDE, self.tree_drag_w.is_some(), t, move |_, cx| {
+                    let _ = me.update(cx, |v, cx| v.reset_tree_width(cx));
+                })
+            })
+    }
+
+    /// More tabs than fit: a button listing them all.
+    fn tabs_more(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.tabs_menu;
+        let me = cx.entity().downgrade();
+        let close: crate::kit::OnClose = Rc::new(move |_, cx| {
+            let _ = me.update(cx, |v, cx| {
+                v.tabs_menu = false;
+                cx.notify();
+            });
+        });
+        // The list, as values: it may be drawn in a glass pop-up, whose
+        // window must not touch this viewer while it draws.
+        let rows: Rc<Vec<TabRow>> = Rc::new(
+            self.tabs
+                .iter()
+                .map(|p| TabRow {
+                    path: p.clone(),
+                    on: self.active.as_deref() == Some(p.as_str()),
+                    dirty: self.docs.get(p).is_some_and(|d| d.dirty(cx)),
+                })
+                .collect(),
+        );
+        let me = cx.entity().downgrade();
+        let place = div().absolute().right_0().top(px(32.));
+        let menu = if !open {
+            None
+        } else if crate::kit::pop::hosted(cx) {
+            let build: crate::kit::pop::Build = Rc::new(move |_: &mut Window, cx: &mut App| {
+                crate::kit::menu_body().children(tab_rows(&rows, &crate::kit::pop::theme(cx), &me)).into_any_element()
+            });
+            let pop = crate::kit::pop::Pop { at: None, radius: crate::kit::pop::MENU_RADIUS, focus: None, build, on_dismiss: close };
+            Some(place.child(crate::kit::pop::anchor("ex-tabs-pop", pop)).into_any_element())
+        } else {
+            let ft = t.float();
+            let rows = tab_rows(&rows, &ft, &me);
+            let menu = crate::kit::menu_panel(&ft)
+                .id("ex-tabs-menu")
+                .max_h(px(360.))
+                .overflow_y_scroll()
+                .occlude()
+                .border_1()
+                .border_color(ft.line_strong)
+                .children(rows)
+                .on_mouse_down_out(move |_, window, cx| close(window, cx));
+            Some(place.child(gpui::deferred(gpui::anchored().snap_to_window().child(menu))).into_any_element())
+        };
+        div()
+            .relative()
+            .flex_none()
+            .h_full()
+            .px(px(4.))
+            .flex()
+            .items_center()
+            .border_l_1()
+            .border_b_1()
+            .border_color(t.line)
+            .child(
+                icon_btn_state("ex-tabs-more", "chevron-down", format!("All {} open files", self.tabs.len()), true, 13., Some(open), t)
+                    .debug_selector(|| "ex-tabs-more".into())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.tabs_menu = !this.tabs_menu;
+                        cx.notify();
+                    })),
+            )
+            .children(menu)
+            .into_any_element()
     }
 
     fn tabs_row(&self, t: &Theme, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tree = self.tree.read(cx).state();
-        let tabs: Vec<AnyElement> = self
+        let mut tabs: Vec<AnyElement> = self
             .tabs
             .iter()
             .enumerate()
             .map(|(i, p)| {
                 let selected = self.active.as_deref() == Some(p.as_str());
-                let status = tree.find_entry(p).and_then(|e| e.status);
-                let green = matches!(status, Some(FileStatus::A | FileStatus::U));
                 let (p1, p2, p3) = (p.clone(), p.clone(), p.clone());
                 let title: SharedString = p.clone().into();
-                let hover = t.text_2;
                 let focus = self.tab_focus.get(p).cloned().unwrap_or_else(|| cx.focus_handle());
                 let ring = focus.is_focused(window);
                 let p4 = p.clone();
-                let close_hover = t.surface_3;
-                let close_text = t.text;
+                let (close_hover, close_text, hover_bg) = (t.surface_3, t.text, t.surface_2);
                 let dirty = self.docs.get(p).is_some_and(|d| d.dirty(cx));
+                let close_group = SharedString::from(format!("ex-tab-x-{i}"));
                 div()
                     .id(("ex-tab", i))
                     .group("ex-tab")
                     .relative()
                     .h(px(32.))
-                    .max_w(px(240.))
+                    .min_w(px(72.))
+                    .max_w(px(220.))
                     .flex_none()
                     .flex()
                     .items_center()
                     .gap(px(6.))
                     .pl(px(10.))
-                    .pr(px(4.))
+                    .pr(px(5.))
                     .border_r_1()
                     .border_color(t.line)
                     .font_family(MONO_FONT)
                     .text_size(px(12.))
                     .cursor_pointer()
                     .text_color(if selected { t.text } else { t.text_3 })
-                    .when(selected, |d| {
-                        d.bg(t.term_bg).child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .right_0()
-                                .h(px(1.))
-                                .bg(t.text_2),
-                        )
+                    // The open tab is the file's own surface: no line under
+                    // it, a mark over it.
+                    .map(|d| {
+                        if selected {
+                            d.bg(t.term_bg).child(div().absolute().top_0().left_0().right_0().h(px(2.)).bg(t.text_2))
+                        } else {
+                            d.border_b_1().hover_text(t.text_2, move |s| s.bg(hover_bg))
+                        }
                     })
-                    .when(!selected, |d| d.hover_text(hover, move |s| s))
                     // Keyboard focus: a 1 px ring inside (`.ex-tab:focus-visible`);
                     // a click shows the file without taking the keys.
                     .key_context(TAB_CONTEXT)
@@ -1482,31 +1700,41 @@ impl Viewer {
                         cx.listener(move |this, _, window, cx| this.request_close_tab(&p2, window, cx)),
                     )
                     .child(file_icon(p, 14.))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .ellipsis()
-                            .when(green, |d| d.text_color(t.green))
-                            .child(crate::kit::one_line(split_path(p).1.to_string())),
-                    )
+                    .child(div().min_w_0().flex_1().ellipsis().child(crate::kit::one_line(split_path(p).1.to_string())))
+                    // Close: shown on the open tab and on hover; a file
+                    // with unsaved changes shows a dot there instead, which
+                    // turns into the ✕ under the pointer.
                     .child(
                         div()
                             .id(("ex-tab-close", i))
+                            .group(close_group.clone())
+                            .relative()
                             .size(px(18.))
+                            .flex_none()
                             .flex()
                             .items_center()
                             .justify_center()
                             .rounded(RADIUS_SM)
-                            .when(!selected && !dirty, |d| {
-                                d.invisible().group_hover_probed("ex-tab", |s| s.visible())
-                            })
+                            .when(!selected && !dirty, |d| d.invisible().group_hover_probed("ex-tab", |s| s.visible()))
                             .hover_text(close_text, move |s| s.bg(close_hover))
                             .tooltip(move |_, cx| tooltip_view(if dirty { "Unsaved changes · Close" } else { "Close" }, cx))
                             .when(dirty, |d| d.debug_selector(move || format!("ex-tab-dirty-{i}")))
-                            .child(if dirty {
-                                div().size(px(8.)).rounded_full().bg(t.text_2).into_any_element()
-                            } else {
-                                icon("x", 11., t.text_3).into_any_element()
+                            .map(|d| {
+                                if dirty {
+                                    d.child(
+                                        div()
+                                            .absolute()
+                                            .inset_0()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .group_hover_probed(close_group.clone(), |s| s.invisible())
+                                            .child(div().size(px(7.)).rounded_full().bg(t.text_2)),
+                                    )
+                                    .child(icon("x", 11., t.text_3).invisible().group_hover_probed(close_group.clone(), |s| s.visible()))
+                                } else {
+                                    d.child(icon("x", 11., t.text_3))
+                                }
                             })
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 cx.stop_propagation();
@@ -1516,53 +1744,104 @@ impl Viewer {
                     .into_any_element()
             })
             .collect();
+        // The rest of the strip's line.
+        tabs.push(div().flex_1().min_w(px(8.)).h(px(32.)).border_b_1().border_color(t.line).into_any_element());
+        let more = self.tabs_overflow.get() || self.tabs_menu;
+        let (flag, scroll, me) = (self.tabs_overflow.clone(), self.tabs_scroll.clone(), cx.entity().downgrade());
         div()
-            .id("ex-tabs")
+            .relative()
             .h(px(32.))
             .flex_none()
             .flex()
-            .overflow_x_scroll()
             .bg(t.surface)
-            .border_b_1()
-            .border_color(t.line)
-            .children(tabs)
+            .child(
+                div()
+                    .id("ex-tabs")
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .overflow_x_scroll()
+                    .track_scroll(&self.tabs_scroll)
+                    .children(tabs),
+            )
+            // After the strip is laid out: does it scroll? (Then the list
+            // button shows, on the next frame.)
+            .child(
+                canvas(
+                    move |_, _, cx| {
+                        let over = scroll.max_offset().x > px(0.5);
+                        if flag.get() != over {
+                            flag.set(over);
+                            let me = me.clone();
+                            cx.defer(move |cx| {
+                                let _ = me.update(cx, |_, cx| cx.notify());
+                            });
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_0(),
+            )
+            .when(more, |d| d.child(self.tabs_more(t, cx)))
     }
 
-    fn head(
-        &self,
-        t: &Theme,
-        a: Option<&AgentView>,
-        active: &str,
-        pixels: Option<(i32, i32)>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let status = self
-            .tree
-            .read(cx)
-            .state()
-            .find_entry(active)
-            .and_then(|e| e.status);
+    /// A strip under the file's header that asks or tells something about
+    /// it: an icon in the strip's tone, the words, and what to do. (Also
+    /// over a removed agent's kept files: `super::dock::orphan_bar`.)
+    pub(crate) fn notice(id: &'static str, warn: bool, text: SharedString, t: &Theme) -> gpui::Stateful<gpui::Div> {
+        let (fg, bg) = if warn { (t.amber, t.amber_soft) } else { (t.red, t.red_soft) };
+        div()
+            .id(id)
+            .debug_selector(move || id.into())
+            .flex_none()
+            .min_h(px(34.))
+            .px(px(12.))
+            .py(px(4.))
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(8.))
+            .border_b_1()
+            .border_color(t.line)
+            .bg(bg)
+            .text_size(px(12.))
+            .text_color(t.text)
+            .child(icon("alert", 14., fg))
+            .child(div().flex_1().min_w(px(160.)).child(crate::kit::para(text)))
+    }
+
+    fn head(&self, t: &Theme, a: Option<&AgentView>, active: &str, pixels: Option<(i32, i32)>, cx: &mut Context<Self>) -> impl IntoElement {
+        let status = self.tree.read(cx).state().find_entry(active).and_then(|e| e.status);
         let (dir, base) = split_path(active);
-        let size = self
-            .docs
-            .get(active)
-            .and_then(|d| d.view.as_ref())
-            .map(|v| size_label(v.size));
+        let doc = self.docs.get(active);
+        let view = doc.and_then(|d| d.view.as_ref());
+        let size = view.map(|v| size_label(v.size));
+        let is_text = view.is_some_and(|v| v.kind == ContentKind::Text);
         let cwd = self.root(cx).unwrap_or_default();
         let abs: SharedString = absolute_path(&cwd, active).into();
         let path_tip: SharedString = active.to_string().into();
-        let read_only = self.docs.get(active).and_then(|d| d.view.as_ref()).and_then(|_| self.edit_block(active, cx));
-        let saving = self.docs.get(active).is_some_and(|d| d.saving);
+        // Read-only, and why: only where editing could be expected (an
+        // image or a binary file says what it is already).
+        let read_only = view.filter(|_| is_text).and_then(|_| self.edit_block(active, cx));
+        let saving = doc.is_some_and(|d| d.saving);
+        let dirty = doc.is_some_and(|d| d.dirty(cx));
         // (Review is a Pitwall window's: not from a window of its own.)
         // (A folder of its own: Review on its worktree, when it lists it.)
         let can_diff = status.is_some()
             && (a.is_some_and(|a| a.caps.review) || super::source::root_of_key(&self.agent_id).is_some())
             && self.host != Host::Window;
         let diff_path = active.to_string();
+        // The file's side of the viewer is short (a files tile).
+        let tree_w = if self.tree_shown(cx) { self.tree_width(cx) } else { 0. };
+        let narrow = self.viewer_w().is_some_and(|w| w - tree_w < 520.);
+        let meta = |s: String| div().flex_none().font_family(MONO_FONT).text_size(px(11.)).text_color(t.text_3).child(s);
+        let zoom = (pixels.is_some() && doc.is_some_and(|d| d.image.is_some())).then(|| doc.map(|d| d.zoom).unwrap_or_default());
         div()
             .flex_none()
+            .h(px(36.))
             .px(px(12.))
-            .py(px(7.))
             .flex()
             .items_center()
             .gap(px(10.))
@@ -1581,88 +1860,173 @@ impl Viewer {
                     .font_family(MONO_FONT)
                     .text_size(px(12.))
                     .tooltip(move |_, cx| tooltip_view(path_tip.clone(), cx))
-                    .child(
-                        div()
-                            .flex_none()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(t.text)
-                            .child(base.to_string()),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_color(t.text_3)
-                            .ellipsis()
-                            .child(crate::kit::one_line(dir.to_string())),
-                    ),
+                    .child(div().flex_none().font_weight(FontWeight::SEMIBOLD).text_color(t.text).child(base.to_string()))
+                    .child(div().min_w_0().text_color(t.text_3).ellipsis().child(crate::kit::one_line(dir.trim_end_matches('/').to_string()))),
             )
             .when_some(status, |d, s| d.child(status_mark(t, "ex-head-status", s)))
-            .when_some(pixels, |d, (w, h)| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .debug_selector(|| "ex-image-pixels".into())
-                        .font_family(MONO_FONT)
-                        .text_size(px(11.))
-                        .text_color(t.text_3)
-                        .child(format!("{w} × {h} px")),
-                )
-            })
-            .when_some(size, |d, s| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .font_family(MONO_FONT)
-                        .text_size(px(11.))
-                        .text_color(t.text_3)
-                        .child(s),
-                )
-            })
+            .when_some(pixels.filter(|_| !narrow), |d, (w, h)| d.child(meta(format!("{w} × {h} px")).debug_selector(|| "ex-image-pixels".into())))
+            .when_some(size.filter(|_| !narrow), |d, s| d.child(meta(s)))
+            .when(dirty && !saving, |d| d.child(meta("edited".into())))
+            .when(saving, |d| d.child(meta("saving…".into())))
             .when_some(read_only, |d, why| {
                 d.child(
                     div()
                         .id("ex-read-only")
                         .debug_selector(|| "ex-read-only".into())
                         .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .h(px(20.))
+                        .px(px(6.))
+                        .rounded(RADIUS_SM)
+                        .bg(t.surface_2)
                         .text_size(px(11.))
                         .text_color(t.text_3)
-                        .child(format!("Read-only · {why}")),
+                        .tooltip(tooltip_text(format!("Read-only: {why}")))
+                        .child(icon("lock", 11., t.text_3))
+                        .child(if narrow { "Read-only".to_string() } else { format!("Read-only · {why}") }),
                 )
             })
-            .when(saving, |d| d.child(div().flex_none().text_size(px(11.)).text_color(t.text_3).child("Saving…")))
             .child(div().flex_1())
+            .when_some(zoom, |d, zoom| d.child(self.zoom_controls(zoom, pixels, t, cx)))
             .when(self.md_text().is_some(), |d| {
                 let on = self.preview;
                 d.child(
                     crate::kit::segments(t)
                         .debug_selector(|| "ex-md-switch".into())
-                        .child(
-                            crate::kit::segment("ex-md-code", "Code".into(), !on, true, t)
-                                .on_click(cx.listener(|v, _, _, cx| v.set_preview(false, cx))),
-                        )
-                        .child(
-                            crate::kit::segment("ex-md-preview", "Preview".into(), on, false, t)
-                                .on_click(cx.listener(|v, _, _, cx| v.set_preview(true, cx))),
-                        ),
+                        .child(crate::kit::segment("ex-md-code", "Code".into(), !on, true, t).on_click(cx.listener(|v, _, _, cx| v.set_preview(false, cx))))
+                        .child(crate::kit::segment("ex-md-preview", "Preview".into(), on, false, t).on_click(cx.listener(|v, _, _, cx| v.set_preview(true, cx)))),
                 )
             })
             .child(
-                button("ex-copy-path", BtnKind::GhostSm, false, t).gap(px(6.)).child(icon("copy", 13., t.text_2)).child(if self.copied { "Copied" } else { "Copy path" })
-.on_click(cx.listener(move |this, _, _, cx| this.copy_path(&cwd, cx)))
-                .tooltip(move |_, cx| tooltip_view(abs.clone(), cx)),
+                tool_btn("ex-copy-path", "copy", if self.copied { "Copied" } else if narrow { "" } else { "Copy path" }, String::new(), false, t)
+                    .on_click(cx.listener(move |this, _, _, cx| this.copy_path(&cwd, cx)))
+                    .tooltip(move |_, cx| tooltip_view(format!("Copy {abs}"), cx)),
             )
             .when(can_diff, |d| {
                 d.child(
-                    button("ex-show-diff", BtnKind::GhostSm, false, t).gap(px(6.)).child(icon("review", 13., t.text_2)).child("Show diff")
-.on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(ViewerEvent::ShowDiff(diff_path.clone()))
-                        }))
-                    .tooltip(|_, cx| tooltip_view("This file's changes, in Review", cx)),
+                    tool_btn("ex-show-diff", "review", if narrow { "" } else { "Show diff" }, String::new(), false, t)
+                        .on_click(cx.listener(move |_, _, _, cx| cx.emit(ViewerEvent::ShowDiff(diff_path.clone()))))
+                        .tooltip(|_, cx| tooltip_view("This file's changes, in Review", cx)),
                 )
             })
     }
 
-    fn body(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    /// An image's Fit / 100 % and − / + (and the zoom it is at).
+    fn zoom_controls(&self, zoom: Zoom, pixels: Option<(i32, i32)>, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let now = self.image_scale(zoom, pixels);
+        let fit = zoom == Zoom::Fit;
+        let actual = !fit && (now - 1.).abs() < 1e-3;
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .debug_selector(|| "ex-image-zoom".into())
+            .child(
+                crate::kit::icon_btn("ex-zoom-out", "minus", "Zoom out", true, t)
+                    .on_click(cx.listener(move |v, _, _, cx| v.set_zoom(Zoom::Scale(image_view::zoom_out(now)), cx))),
+            )
+            .child(
+                div()
+                    .w(px(40.))
+                    .flex()
+                    .justify_center()
+                    .font_family(MONO_FONT)
+                    .text_size(px(11.))
+                    .text_color(t.text_2)
+                    .debug_selector(|| "ex-zoom-level".into())
+                    .child(image_view::percent(now)),
+            )
+            .child(
+                crate::kit::icon_btn("ex-zoom-in", "plus", "Zoom in", true, t)
+                    .on_click(cx.listener(move |v, _, _, cx| v.set_zoom(Zoom::Scale(image_view::zoom_in(now)), cx))),
+            )
+            .child(
+                crate::kit::segments(t)
+                    .child(crate::kit::segment("ex-zoom-fit", "Fit".into(), fit, true, t).on_click(cx.listener(|v, _, _, cx| v.set_zoom(Zoom::Fit, cx))))
+                    .child(crate::kit::segment("ex-zoom-100", "100%".into(), actual, false, t).on_click(cx.listener(|v, _, _, cx| v.set_zoom(Zoom::Scale(1.), cx)))),
+            )
+    }
+
+    /// The scale the active image is drawn at.
+    fn image_scale(&self, zoom: Zoom, pixels: Option<(i32, i32)>) -> f32 {
+        let (Some((w, h)), Some(area)) = (pixels, self.image_area.get()) else {
+            return match zoom {
+                Zoom::Fit => 1.,
+                Zoom::Scale(s) => s,
+            };
+        };
+        image_view::scale(zoom, (w as f32, h as f32), (f32::from(area.width), f32::from(area.height)))
+    }
+
+    pub fn set_zoom(&mut self, zoom: Zoom, cx: &mut Context<Self>) {
+        let Some(active) = self.active.clone() else { return };
+        if let Some(d) = self.docs.get_mut(&active) {
+            d.zoom = zoom;
+        }
+        cx.notify();
+    }
+
+    /// No file open: what can be done from here.
+    fn empty(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let shown = self.tree_shown(cx);
+        let window = self.host == Host::Window;
+        let row = |id: &'static str, label: &'static str, key: Option<&str>, t: &Theme| {
+            let hover = t.surface_3;
+            div()
+                .id(id)
+                .w(px(240.))
+                .h(px(28.))
+                .px(px(8.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .rounded(RADIUS)
+                .cursor_pointer()
+                .text_size(px(12.5))
+                .text_color(t.text_2)
+                .hover_text(t.text, move |s| s.bg(hover))
+                // (After the hover, which tests mark with their own.)
+                .debug_selector(move || id.into())
+                .child(div().flex_1().child(label))
+                .when_some(key, |d, k| d.child(kbd(k, t)))
+        };
+        div()
+            .id("ex-empty")
+            .debug_selector(|| "ex-empty".into())
+            .flex_1()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(2.))
+            .child(icon("file", 28., t.text_4).mb(px(10.)))
+            .child(div().text_size(px(13.)).text_color(t.text_2).mb(px(2.)).child("No file open"))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(t.text_3)
+                    .mb(px(12.))
+                    .child(if shown { "Pick one in the tree, or:" } else { "Find one:" }),
+            )
+            // (A window of its own has no quick open.)
+            .when(!window, |d| {
+                d.child(row("ex-empty-goto", "Go to file", Some("⌘P"), t).on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen))))
+            })
+            .child(
+                row("ex-empty-search", "Search in files", (!window).then_some("⌘⇧F"), t)
+                    .on_click(cx.listener(|this, _, window, cx| this.show(Some(Pane::Search), window, cx))),
+            )
+            .when(!shown, |d| {
+                d.child(row("ex-empty-tree", "Show the file tree", Some("⌘⇧E"), t).on_click(cx.listener(|this, _, window, cx| this.set_tree(true, window, cx))))
+            })
+            .into_any_element()
+    }
+
+    fn body(&self, t: &Theme, pixels: Option<(i32, i32)>, cx: &mut Context<Self>) -> AnyElement {
         let center = |t: &Theme| {
             div()
                 .flex_1()
@@ -1675,48 +2039,36 @@ impl Viewer {
                 .text_color(t.text_3)
         };
         let Some(active) = self.active.clone() else {
-            return center(t)
-                .child("Pick a file on the left")
-                .child(small_btn("ex-empty-goto", "Go to file", t).child(kbd(&keys("⌘P", false), t))
-.on_click(cx.listener(|_, _, _, cx| cx.emit(ViewerEvent::QuickOpen))))
-                .into_any_element();
+            return self.empty(t, cx);
         };
         let doc = self.docs.get(&active);
         if let Some(e) = doc.and_then(|d| d.error.clone()) {
             let path = active.clone();
-            return div()
-                .p(px(14.))
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .text_size(px(12.))
-                .text_color(t.red)
-                .child(format!(
-                    "Couldn't read {active}: {}",
-                    e.lines().next().unwrap_or_default()
-                ))
-                .child(small_btn("ex-retry", "Retry", t)
-.on_click(cx.listener(move |this, _, _, cx| this.read(&path, false, false, cx))))
+            return center(t)
+                .child(icon("alert", 20., t.red))
+                .child(
+                    div()
+                        .max_w(px(420.))
+                        .text_color(t.text_2)
+                        .child(crate::kit::para(format!("Couldn't read {}: {}", split_path(&active).1, e.lines().next().unwrap_or_default()))),
+                )
+                .child(small_btn("ex-retry", "Retry", t).on_click(cx.listener(move |this, _, _, cx| this.read(&path, false, false, cx))))
                 .into_any_element();
         }
         let Some(v) = doc.and_then(|d| d.view.clone()) else {
-            return div()
-                .p(px(14.))
-                .text_size(px(12.))
-                .text_color(t.text_3)
-                .child("Reading…")
-                .into_any_element();
+            return center(t).child("Reading…").into_any_element();
         };
         let here = doc.and_then(|d| d.local.clone());
         match v.kind {
             ContentKind::Binary => {
                 let what = if image_format(&active).is_some() {
-                    format!("Image · {} · larger than {} · not shown", size_label(v.size), size_label(pitwall_core::explorer::MAX_IMAGE))
+                    format!("An image of {}, larger than {}: not shown here", size_label(v.size), size_label(pitwall_core::explorer::MAX_IMAGE))
                 } else {
-                    format!("Binary file · {} · not shown", size_label(v.size))
+                    format!("A binary file of {}: not shown here", size_label(v.size))
                 };
                 center(t)
-                    .child(what)
+                    .child(file_icon(&active, 28.))
+                    .child(div().text_color(t.text_2).child(what))
                     .when_some(here, |d, here| {
                         d.child(
                             small_btn("ex-open-default", "Open in default app", t)
@@ -1727,28 +2079,7 @@ impl Viewer {
                     .into_any_element()
             }
             ContentKind::Image => match doc.and_then(|d| d.image.clone()) {
-                Some(image) => {
-                    let err = t.text_3;
-                    div()
-                        .id("ex-image")
-                        .debug_selector(|| "ex-image".into())
-                        .flex_1()
-                        .min_h_0()
-                        .size_full()
-                        .p(px(16.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            gpui::img(gpui::ImageSource::Image(image))
-                                .size_full()
-                                .object_fit(gpui::ObjectFit::ScaleDown)
-                                .with_fallback(move || {
-                                    div().text_size(px(12.5)).text_color(err).child("This image can't be drawn").into_any_element()
-                                }),
-                        )
-                        .into_any_element()
-                }
+                Some(image) => self.image(image, doc.map(|d| d.zoom).unwrap_or_default(), pixels, t, cx),
                 None => match doc.and_then(|d| d.image_error.clone()) {
                     Some(e) => center(t).child(format!("Couldn't read the image: {e}")).into_any_element(),
                     None => center(t).child("Reading…").into_any_element(),
@@ -1758,20 +2089,14 @@ impl Viewer {
                 let loading = doc.is_some_and(|d| d.loading);
                 let path = active.clone();
                 center(t)
-                    .child(format!("Large file · {} · not opened", size_label(v.size)))
+                    .child(file_icon(&active, 28.))
+                    .child(div().text_color(t.text_2).child(format!("A large file of {}: not opened yet", size_label(v.size))))
                     .child(if v.size <= LARGE_CAP {
                         small_btn("ex-load-anyway", if loading { "Reading…" } else { "Load anyway" }, t)
-.on_click(cx.listener(move |this, _, _, cx| this.load_anyway(&path, cx)))
-                        .into_any_element()
-                    } else {
-                        div()
-                            .text_size(px(11.5))
-                            .text_color(t.text_4)
-                            .child(format!(
-                                "Files over {} aren't shown.",
-                                size_label(LARGE_CAP)
-                            ))
+                            .on_click(cx.listener(move |this, _, _, cx| this.load_anyway(&path, cx)))
                             .into_any_element()
+                    } else {
+                        div().text_size(px(11.5)).text_color(t.text_4).child(format!("Files over {} aren't shown.", size_label(LARGE_CAP))).into_any_element()
                     })
                     .into_any_element()
             }
@@ -1793,6 +2118,145 @@ impl Viewer {
             }
         }
     }
+
+    /// The image at its zoom, centred while smaller than the pane and
+    /// scrolled when larger, over a checkerboard where it is transparent.
+    /// A double click goes between Fit and 100 %.
+    fn image(&self, image: Arc<gpui::Image>, zoom: Zoom, pixels: Option<(i32, i32)>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let err = t.text_3;
+        let picture = || {
+            gpui::img(gpui::ImageSource::Image(image.clone()))
+                .size_full()
+                .object_fit(gpui::ObjectFit::Fill)
+                .with_fallback(move || div().text_size(px(12.5)).text_color(err).child("This image can't be drawn").into_any_element())
+        };
+        let measured = self.image_area.get().is_some();
+        let inner = match pixels.filter(|_| measured) {
+            Some((w, h)) => {
+                let s = self.image_scale(zoom, pixels);
+                let (dw, dh) = ((w as f32 * s).max(1.), (h as f32 * s).max(1.));
+                div()
+                    .relative()
+                    .flex_none()
+                    .w(px(dw))
+                    .h(px(dh))
+                    .border_1()
+                    .border_color(t.line)
+                    .child(image_view::checkerboard(t.surface, t.surface_3).absolute().inset_0())
+                    .child(picture())
+                    .into_any_element()
+            }
+            // Not laid out yet (a frame): fitted by the image itself.
+            None => div().size_full().child(picture().object_fit(gpui::ObjectFit::ScaleDown)).into_any_element(),
+        };
+        let fit = zoom == Zoom::Fit;
+        div()
+            .id("ex-image")
+            .debug_selector(|| "ex-image".into())
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .size_full()
+            .bg(t.surface_2)
+            .child(self.measure(self.image_area.clone(), cx))
+            .child(
+                div()
+                    .id("ex-image-scroll")
+                    .size_full()
+                    .overflow_scroll()
+                    .on_click(cx.listener(move |v, e: &gpui::ClickEvent, _, cx| {
+                        if e.click_count() == 2 {
+                            v.set_zoom(if fit { Zoom::Scale(1.) } else { Zoom::Fit }, cx);
+                        }
+                    }))
+                    .child(div().min_w_full().min_h_full().p(px(image_view::PAD)).flex().items_center().justify_center().child(inner)),
+            )
+            .into_any_element()
+    }
+
+    /// The changed-on-disk question, the save error, under the header.
+    fn notices(&self, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(d) = self.active.as_ref().and_then(|p| self.docs.get(p)) else { return Vec::new() };
+        let (blocked, diffing) = (d.save_blocked, d.diff.is_some());
+        let mut out = Vec::new();
+        if d.newer.is_some() || blocked {
+            let text = if blocked {
+                "Changed on disk since it was read: saving would overwrite it."
+            } else {
+                "Changed on disk. You have unsaved changes."
+            };
+            out.push(
+                Self::notice("ex-changed-on-disk", true, text.into(), t)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .gap(px(6.))
+                            .child(
+                                small_btn("ex-keep-mine", if blocked { "Save mine" } else { "Keep mine" }, t)
+                                    .debug_selector(|| "ex-keep-mine".into())
+                                    .tooltip(|_, cx| tooltip_view("Keep your changes; saving writes them over the file on disk", cx))
+                                    .on_click(cx.listener(|this, _, _, cx| this.keep_mine(cx))),
+                            )
+                            .child(
+                                small_btn("ex-reload", "Take theirs", t)
+                                    .debug_selector(|| "ex-reload".into())
+                                    .tooltip(|_, cx| tooltip_view("Drop your changes and show the file on disk", cx))
+                                    .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+                            )
+                            .child(
+                                small_btn("ex-show-difference", if diffing { "Hide difference" } else { "Show difference" }, t)
+                                    .debug_selector(|| "ex-show-difference".into())
+                                    .tooltip(|_, cx| tooltip_view("The file on disk against your changes", cx))
+                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_difference(cx))),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        if let Some(e) = d.save_error.clone() {
+            out.push(Self::notice("ex-save-error", false, format!("Couldn't save: {}", e.lines().next().unwrap_or_default()).into(), t).into_any_element());
+        }
+        out
+    }
+}
+
+/// One open file in the list of tabs.
+struct TabRow {
+    path: String,
+    on: bool,
+    dirty: bool,
+}
+
+/// The list of tabs' rows: picking one shows it (from a pop-up: once it
+/// has closed, in the viewer's window).
+fn tab_rows(rows: &[TabRow], t: &Theme, viewer: &gpui::WeakEntity<Viewer>) -> Vec<AnyElement> {
+    rows.iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let (dir, base) = split_path(&r.path);
+            let hint = (!dir.is_empty()).then(|| SharedString::from(dir.trim_end_matches('/').to_string()));
+            let (viewer, p) = (viewer.clone(), r.path.clone());
+            crate::kit::menu_item(("ex-tab-item", i), if r.on { "check" } else { "" }, base.to_string(), hint, false, t)
+                .when(r.dirty, |d| d.child(div().size(px(7.)).rounded_full().bg(t.text_2)))
+                .on_click(move |_, window, cx| {
+                    let (viewer, p) = (viewer.clone(), p.clone());
+                    crate::kit::pop::pick(window, cx, move |_, cx| {
+                        let _ = viewer.update(cx, |v, cx| {
+                            v.tabs_menu = false;
+                            v.select(p, cx);
+                        });
+                    })
+                })
+                .into_any_element()
+        })
+        .collect()
+}
+
+/// A tooltip with `text`.
+fn tooltip_text(text: String) -> impl Fn(&mut Window, &mut App) -> gpui::AnyView + 'static {
+    let text: SharedString = text.into();
+    move |_, cx| tooltip_view(text.clone(), cx)
 }
 
 impl Render for Viewer {
@@ -1802,23 +2266,30 @@ impl Render for Viewer {
             window.focus(&self.focus, cx);
         }
         let a = self.agent(cx);
-        let stale = self.is_stale();
         let root = self.root(cx);
         self.sync_preview(root.as_deref(), cx);
         self.ensure_code(cx);
         let active = self.active.clone();
         let pixels = self.image_pixels(window, cx);
-        let body = self.body(&t, cx);
-        let (blocked, diffing, save_error) = active
-            .as_ref()
-            .and_then(|p| self.docs.get(p))
-            .map_or((false, false, None), |d| (d.save_blocked, d.diff.is_some(), d.save_error.clone()));
-        let stale = stale || blocked;
+        let body = self.body(&t, pixels, cx);
         let tabs = self.tabs.clone();
         self.tab_focus.retain(|p, _| tabs.contains(p));
         for p in tabs {
             self.tab_focus.entry(p).or_insert_with(|| cx.focus_handle().tab_stop(true));
         }
+        // A tab newly shown comes into view (once: the strip can be
+        // scrolled away from it).
+        if self.tabs_scrolled_to != active {
+            if let Some(i) = active.as_ref().and_then(|a| self.tabs.iter().position(|p| p == a)) {
+                self.tabs_scroll.scroll_to_item(i);
+            }
+            self.tabs_scrolled_to = active.clone();
+        }
+        let shown = self.tree_shown(cx);
+        let width = self.tree_width(cx);
+        let dragging = self.tree_drag_w.is_some();
+        let notices = self.notices(&t, cx);
+        let side = self.side(&t, width, cx).into_any_element();
         div()
             .id("ex-viewer")
             .debug_selector(|| "ex-viewer".into())
@@ -1830,8 +2301,10 @@ impl Render for Viewer {
                     this.save(&p, cx).detach();
                 }
             }))
+            .on_action(cx.listener(|this, _: &ToggleTree, window, cx| this.toggle_tree(window, cx)))
             .on_action(|_: &NextTab, window, cx| window.focus_next(cx))
             .on_action(|_: &PrevTab, window, cx| window.focus_prev(cx))
+            .relative()
             .flex_1()
             .min_w_0()
             .h_full()
@@ -1839,13 +2312,21 @@ impl Render for Viewer {
             .flex_col()
             .bg(t.bg)
             .when_some(self.place_menu, |d, at| d.child(self.place_menu_overlay(at, &t, cx)))
+            .child(self.measure(self.measured.clone(), cx))
             .child(self.bar(&t, a.as_ref(), cx))
             .child(
                 div()
+                    .id("ex-viewer-main")
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.side(&t, cx))
+                    .on_drag_move(cx.listener(|this, e: &gpui::DragMoveEvent<crate::kit::side::SideDrag>, _, cx| {
+                        if e.drag(cx).0 == SIDE {
+                            this.drag_tree(crate::kit::side::dragged_width(e), cx)
+                        }
+                    }))
+                    .on_drop(cx.listener(|this, _: &crate::kit::side::SideDrag, _, cx| this.keep_tree_width(cx)))
+                    .child(crate::kit::side::column(SIDE, shown, width, dragging, side))
                     .child(
                         div()
                             .flex_1()
@@ -1855,59 +2336,7 @@ impl Render for Viewer {
                             .bg(t.term_bg)
                             .when(!self.tabs.is_empty(), |d| d.child(self.tabs_row(&t, window, cx)))
                             .when_some(active, |d, p| d.child(self.head(&t, a.as_ref(), &p, pixels, cx)))
-                            .when(stale, |d| {
-                                d.child(
-                                    div()
-                                        .flex_none()
-                                        .px(px(12.))
-                                        .py(px(5.))
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(10.))
-                                        .border_b_1()
-                                        .border_color(t.line)
-                                        .bg(t.amber_soft)
-                                        .text_size(px(12.))
-                                        .text_color(t.text_2)
-                                        .debug_selector(|| "ex-changed-on-disk".into())
-                                        .child(if blocked {
-                                            "Changed on disk since it was read: saving would overwrite it."
-                                        } else {
-                                            "Changed on disk. You have unsaved changes."
-                                        })
-                                        .child(small_btn("ex-keep-mine", if blocked { "Save mine" } else { "Keep mine" }, &t)
-                                            .debug_selector(|| "ex-keep-mine".into())
-                                            .tooltip(|_, cx| tooltip_view("Keep your changes; saving writes them over the file on disk", cx))
-                                            .on_click(cx.listener(|this, _, _, cx| this.keep_mine(cx))))
-                                        .child(small_btn("ex-reload", "Take theirs", &t)
-                                            .debug_selector(|| "ex-reload".into())
-                                            .tooltip(|_, cx| tooltip_view("Drop your changes and show the file on disk", cx))
-                                            .on_click(cx.listener(|this, _, _, cx| this.reload(cx))))
-                                        .child(small_btn("ex-show-difference", if diffing { "Hide difference" } else { "Show difference" }, &t)
-                                            .debug_selector(|| "ex-show-difference".into())
-                                            .tooltip(|_, cx| tooltip_view("The file on disk against your changes", cx))
-                                            .on_click(cx.listener(|this, _, _, cx| this.toggle_difference(cx)))),
-                                )
-                            })
-                            .when_some(save_error, |d, e| {
-                                d.child(
-                                    div()
-                                        .id("ex-save-error")
-                                        .debug_selector(|| "ex-save-error".into())
-                                        .flex_none()
-                                        .px(px(12.))
-                                        .py(px(5.))
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(10.))
-                                        .border_b_1()
-                                        .border_color(t.line)
-                                        .bg(t.red_soft)
-                                        .text_size(px(12.))
-                                        .text_color(t.red)
-                                        .child(format!("Couldn't save: {}", e.lines().next().unwrap_or_default())),
-                                )
-                            })
+                            .children(notices)
                             .child(div().flex_1().min_h_0().flex().flex_col().child(body)),
                     ),
             )

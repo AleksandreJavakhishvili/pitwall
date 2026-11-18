@@ -16,6 +16,7 @@ mod mount;
 pub mod model;
 pub mod ops;
 mod render;
+mod side;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -59,6 +60,8 @@ actions!(
         CancelComment,
         /// Esc in a dialog.
         CloseDialog,
+        /// ⌘⇧E: hide or show the list of changes.
+        ToggleList,
     ]
 );
 
@@ -79,6 +82,7 @@ pub fn register(cx: &mut App) {
             Some("Review"),
         ),
         KeyBinding::new("escape", Back, Some("Review")),
+        KeyBinding::new(if mac { "cmd-shift-e" } else { "ctrl-shift-alt-e" }, ToggleList, Some("Review")),
         KeyBinding::new("up", PreviousFile, Some("ReviewList")),
         KeyBinding::new("down", NextFile, Some("ReviewList")),
         KeyBinding::new("enter", OpenFile, Some("ReviewList")),
@@ -146,6 +150,8 @@ pub struct ReviewView {
     store: Entity<AgentStore>,
     focus: FocusHandle,
     list_focus: FocusHandle,
+    /// The list column: toggled, dragged, Review's width.
+    side: side::ListSide,
     /// The list's rows and scroll state.
     rv: list::RvList,
     prompt_scroll: gpui::ScrollHandle,
@@ -287,6 +293,7 @@ impl ReviewView {
             store,
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
+            side: side::ListSide::default(),
             rv: list::RvList::new(cx),
             prompt_scroll: gpui::ScrollHandle::new(),
             space,

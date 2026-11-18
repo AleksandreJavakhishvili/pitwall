@@ -263,6 +263,13 @@ pub struct UiState {
     /// the file, so it costs it nothing.
     #[serde(default, deserialize_with = "strict_true")]
     pub explorer_show_ignored: bool,
+    /// The file viewer's tree column, shown or hidden and its width, for
+    /// each kind of place a viewer is drawn in (`crate::explorer::column`).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "crate::explorer::column::FilesTree::is_empty")]
+    pub files_tree: crate::explorer::column::FilesTree,
+    /// Review's list of changes, shown or hidden and its width.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "crate::kit::side::SideState::is_empty")]
+    pub review_list: crate::kit::side::SideState,
     /// Review: diffs side by side (`true`) or inline; unset until chosen
     /// (`crate::review::ops` then reads the old `review.json`). The Tauri
     /// app keeps it in localStorage (`pitwall.review.sideBySide`).
@@ -353,6 +360,8 @@ impl Default for UiState {
             look: Default::default(),
             reduce_motion: false,
             explorer_show_ignored: false,
+            files_tree: Default::default(),
+            review_list: Default::default(),
             review_side_by_side: None,
             right_files: false,
             sidebar_collapsed: false,

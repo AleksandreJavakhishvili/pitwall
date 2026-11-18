@@ -18,12 +18,12 @@ use super::list::Row;
 use super::model::{self, Breadth, TreeRow, WtRef};
 use super::{
     Back, CancelComment, DiffState, NextFile, OpenFile, PreviousFile, RefreshChanges, ReviewView,
-    Sel,
+    Sel, ToggleList,
 };
+use super::side::LIST;
 use crate::kit::{self, BtnKind, MONO_FONT};
 use crate::theme::{theme, Theme, RADIUS, RADIUS_LG, RADIUS_SM};
 
-const LIST_W: f32 = 300.;
 
 /// ⌘↵ / Ctrl+↵ (the text input's submit keys).
 pub(super) const SUBMIT_KEYS: &str = if cfg!(target_os = "macos") {
@@ -107,6 +107,10 @@ impl ReviewView {
             .pr(px(8.))
             .border_b_1()
             .border_color(t.line)
+            .child(
+                kit::side::toggle("rv-list-toggle", self.list_shown(cx), "the list", "⌘⇧E", t)
+                    .on_click(cx.listener(|v, _, window, cx| v.toggle_list(window, cx))),
+            )
             .child(kit::label("Review", t.text_3, 12.))
             .child(
                 hint(
@@ -182,9 +186,12 @@ impl ReviewView {
 
     /// The list: its rows are drawn by `gpui::list` in a view of its own
     /// (`super::list`), so a scroll step builds only the rows on screen.
-    fn list(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+    fn list(&self, t: &Theme, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        let me = cx.entity().downgrade();
         div()
-            .id("rv-list")
+            .id(LIST)
+            .debug_selector(|| LIST.into())
+            .relative()
             .key_context("ReviewList")
             .track_focus(&self.list_focus)
             .on_action(cx.listener(|v, _: &PreviousFile, _, cx| v.move_cursor(-1, cx)))
@@ -194,8 +201,7 @@ impl ReviewView {
                     v.select_file(&owner, &path, window, cx);
                 }
             }))
-            .w(px(LIST_W))
-            .min_w(px(220.))
+            .w(px(width))
             .flex_none()
             .h_full()
             .flex()
@@ -204,6 +210,10 @@ impl ReviewView {
             .border_color(t.line)
             .bg(t.surface)
             .child(self.rv.body.clone())
+            // The edge: drag for the width, double-click for the default.
+            .child(kit::side::edge(LIST, self.list_dragging(), t, move |_, cx| {
+                let _ = me.update(cx, |v, cx| v.reset_list_width(cx));
+            }))
     }
 
     /// Row `ix` of the list (`super::list::Row`), built when on screen.
@@ -1533,6 +1543,8 @@ impl Render for ReviewView {
             .dialog
             .is_some()
             .then(|| self.render_dialog(&t, window, cx));
+        let (list_shown, list_w) = (self.list_shown(cx), self.list_width(cx));
+        let list = self.list(&t, list_w, cx).into_any_element();
         div()
             .id("review")
             .key_context("Review")
@@ -1552,6 +1564,9 @@ impl Render for ReviewView {
                 }
             }))
             .on_action(cx.listener(|v, _: &RefreshChanges, _, cx| v.refresh_all(cx)))
+            .on_action(cx.listener(|v, _: &ToggleList, window, cx| v.toggle_list(window, cx)))
+            .relative()
+            .child(kit::side::measure(self.side.measured.clone(), cx.entity().downgrade()))
             .size_full()
             .flex()
             .flex_col()
@@ -1577,10 +1592,17 @@ impl Render for ReviewView {
             })
             .child(
                 div()
+                    .id("rv-main-row")
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.list(&t, cx))
+                    .on_drag_move(cx.listener(|v, e: &gpui::DragMoveEvent<kit::side::SideDrag>, _, cx| {
+                        if e.drag(cx).0 == LIST {
+                            v.drag_list(kit::side::dragged_width(e), cx)
+                        }
+                    }))
+                    .on_drop(cx.listener(|v, _: &kit::side::SideDrag, _, cx| v.keep_list_width(cx)))
+                    .child(kit::side::column(LIST, list_shown, list_w, self.list_dragging(), list))
                     .child(
                         div()
                             .flex_1()

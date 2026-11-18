@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use gpui::{
     actions, div, prelude::*, px, uniform_list, App, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, FontWeight, KeyBinding, MouseButton, ScrollStrategy, SharedString, Subscription,
+    Focusable, KeyBinding, MouseButton, ScrollStrategy, SharedString, Subscription,
     UniformListScrollHandle, Window,
 };
 
@@ -313,9 +313,9 @@ impl TreeView {
                     .ellipsis()
                     .opacity(dim)
                     .when(is_dir, |d| d.text_color(t.text_2))
-                    .when(!is_dir, |d| {
-                        d.text_color(t.text).font_weight(FontWeight::SEMIBOLD)
-                    })
+                    // Files and folders in one weight (bold files made
+                    // the tree loud); folders a step quieter.
+                    .when(!is_dir, |d| d.text_color(t.text))
                     .when(e.status == Some(pitwall_proto::FileStatus::D), |d| {
                         d.line_through()
                     })
