@@ -87,7 +87,7 @@ impl SettingsView {
                 Part::section("claude", |_, ui, _, _| any(Self::claude(ui))),
                 Part::section("codex", |s, ui, _, cx| any(s.codex(ui, cx))),
                 Part::section("tool-updates", |_, ui, _, cx| any(Self::tool_updates(ui, cx))),
-                Part::section("show-files", |_, ui, _, cx| any(Self::show_files(ui, cx))),
+                Part::section("show-files", |s, ui, _, cx| any(s.show_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
             Page::Accounts => vec![
@@ -226,10 +226,16 @@ impl SettingsView {
             .child(crate::kit::muted("Hooks are passed per launch. Your ~/.claude settings are never edited.", &ui.t))
     }
 
-    /// `agents.showFiles`: agents can show the user files in Pitwall.
-    fn show_files(ui: &Ui, cx: &mut Context<Self>) -> Div {
+    /// `agents.showFiles`: agents can show the user files in Pitwall; how
+    /// each kind gets it, and the MCP files Pitwall adds itself to only
+    /// when asked.
+    fn show_files(&self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         let def = pitwall_proto::settings::find(crate::explorer::show::SETTING);
         let on = crate::explorer::show::enabled(cx);
+        let mut routes = div().flex().flex_col().gap(px(6.));
+        for r in &self.show_routes {
+            routes = routes.child(self.show_route(r, ui, cx));
+        }
         section().child(
             div()
                 .id("show-files")
@@ -251,10 +257,93 @@ impl SettingsView {
                         .flex_col()
                         .gap(px(2.))
                         .child(head(ui, "Agents can show you files"))
-                        .child(crate::kit::hint("Ask an agent to open a file, a folder or an image and it shows up in Pitwall’s file viewer. Pitwall gives the Claude Code and Codex agents it starts its own MCP server, per launch (your config files aren’t edited). Applies when an agent starts.", &ui.t)),
+                        .child(crate::kit::hint("Ask an agent to open a file, a folder or an image and it shows up in Pitwall’s file viewer. Each kind gets it its own way, below; per-launch ways never edit your config files. Applies when an agent starts.", &ui.t)),
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
+        .child(routes)
+    }
+
+    /// One agent kind's way of showing files.
+    fn show_route(&self, r: &pitwall_core::show::KindRoute, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        use pitwall_core::kind::{mcp_file::Entry, ShowFilesRoute};
+        let (what, tone) = match r.route {
+            ShowFilesRoute::Launch => ("MCP at launch", crate::kit::Tone::Ok),
+            ShowFilesRoute::ConfigFile => ("MCP via its config", crate::kit::Tone::Plain),
+            ShowFilesRoute::ShellRule => ("shell command via a rule", crate::kit::Tone::Plain),
+            ShowFilesRoute::None => ("not available", crate::kit::Tone::Subtle),
+        };
+        let line = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(div().flex_1().min_w_0().text_color(ui.t.text).child(r.name.clone()))
+            .child(crate::kit::chip_tone(what, tone, &ui.t));
+        let mut out = div().flex().flex_col().gap(px(6.)).child(line);
+        let Some(file) = r.file.clone().filter(|_| r.route == ShowFilesRoute::ConfigFile) else { return out };
+        let added = matches!(r.entry, Some(Ok(Entry::Added) | Ok(Entry::Stale)));
+        let mut controls = div().flex().items_center().gap(px(8.)).child(crate::kit::mono_text(file.clone(), &ui.t));
+        match &r.entry {
+            Some(Err(e)) => controls = controls.child(crate::kit::hint(format!("can't be read: {e}"), &ui.t)),
+            Some(Ok(Entry::Stale)) => controls = controls.child(crate::kit::chip_tone("added, older command", crate::kit::Tone::Warn, &ui.t)),
+            Some(Ok(Entry::Added)) => controls = controls.child(crate::kit::chip_tone("added", crate::kit::Tone::Ok, &ui.t)),
+            _ => {}
+        }
+        let id = r.id.clone();
+        let confirming = self.show_confirm.as_deref() == Some(r.id.as_str());
+        if r.entry.is_some() && !confirming {
+            let kind = id.clone();
+            controls = controls.child(if added {
+                crate::kit::text_button(SharedString::from(format!("show-file-remove-{id}")), "Remove", BtnKind::Small, self.show_busy, &ui.t)
+                    .on_click(cx.listener(move |v, _, _, cx| {
+                        if !v.show_busy {
+                            v.set_show_file(kind.clone(), false, cx)
+                        }
+                    }))
+            } else {
+                crate::kit::text_button(SharedString::from(format!("show-file-add-{id}")), "Add Pitwall to it…", BtnKind::Small, false, &ui.t).on_click(
+                    cx.listener(move |v, _, _, cx| {
+                        v.show_confirm = Some(kind.clone());
+                        cx.notify();
+                    }),
+                )
+            });
+        }
+        out = out.child(controls);
+        if confirming {
+            let (yes, no) = (id.clone(), id.clone());
+            out = out.child(
+                ui.confirm_box()
+                    .child(div().flex().gap(px(4.)).child("This edits").child(div().font_family(crate::kit::MONO_FONT).text_size(px(12.)).child(file)).child(":"))
+                    .child(ui.list(
+                        vec![
+                            format!("Only Pitwall’s “pitwall” MCP server is added; the rest of the file stays as it is ({} reads it in every session, inside Pitwall or not).", r.name).into_any_element(),
+                            "A backup of the file is kept next to it.".into_any_element(),
+                            "Remove takes the entry out again.".into_any_element(),
+                        ],
+                        false,
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .child(
+                                crate::kit::text_button(SharedString::from(format!("show-file-yes-{yes}")), if self.show_busy { "Adding…" } else { "Add" }, BtnKind::Primary, self.show_busy, &ui.t)
+                                    .on_click(cx.listener(move |v, _, _, cx| {
+                                        if !v.show_busy {
+                                            v.set_show_file(yes.clone(), true, cx)
+                                        }
+                                    })),
+                            )
+                            .child(crate::kit::text_button(SharedString::from(format!("show-file-no-{no}")), "Cancel", BtnKind::Ghost, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
+                                v.show_confirm = None;
+                                cx.notify();
+                            }))),
+                    )
+                    .text_color(ui.t.text),
+            );
+        }
+        out
     }
 
     /// `agents.updateTools`: Pitwall updates the agent tools, one at a time.

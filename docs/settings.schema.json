@@ -5,7 +5,7 @@
   "properties": {
     "agentsShowFiles": {
       "default": true,
-      "description": "`agents.showFiles`: Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server (Claude Code and Codex, added per launch; your own config files are never edited), and `pitwall open` does the same from a shell. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.",
+      "description": "`agents.showFiles`: Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server per launch where the tool has a way (Claude Code, Codex, Copilot CLI, Qwen Code, Amp, opencode; your own config files are never edited), Aider gets a rule to run `pitwall-cli open`, and `pitwall open` does the same from a shell. Gemini CLI and Cursor Agent only read their own MCP files: see agents.showFilesGemini and agents.showFilesCursor. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.",
       "type": "boolean"
     },
     "density": {

@@ -78,6 +78,11 @@ impl AppSettings {
     fn outside_value(&self, s: &'static Setting) -> Result<Value, String> {
         Ok(Value::Bool(match s.key {
             "agents.codexHooks" => pitwall_core::hooks::codex_status(self.engine()?.paths()).installed,
+            key @ ("agents.showFilesGemini" | "agents.showFilesCursor") => {
+                let id = file_kind(key);
+                let route = self.engine()?.show_files_routes().into_iter().find(|r| r.id == id).ok_or_else(|| format!("no {id} agent kind"))?;
+                matches!(route.entry, Some(Ok(pitwall_core::kind::mcp_file::Entry::Added)))
+            }
             "general.cliTool" => cli_install::current().installed.is_some(),
             "rules.allowNpx" => pitwall_core::rules::status(&pitwall_core::rules::Dirs::of(self.engine()?.paths())).npx_allowed,
             other => return Err(format!("{other} isn't known to this Pitwall")),
@@ -88,6 +93,7 @@ impl AppSettings {
         let on = v.as_bool().unwrap_or(false);
         match s.key {
             "agents.codexHooks" => pitwall_core::hooks::install_codex(self.engine()?.paths()).map(|_| ()),
+            key @ ("agents.showFilesGemini" | "agents.showFilesCursor") => self.engine()?.set_show_files_file(file_kind(key), on).map(|_| ()),
             "general.cliTool" => {
                 let st = cli_install::current();
                 if st.bin.is_none() {
@@ -106,6 +112,15 @@ impl AppSettings {
                 .map_err(|e| e.to_string()),
             other => Err(format!("{other} isn't known to this Pitwall")),
         }
+    }
+}
+
+/// The agent kind an `agents.showFiles<Kind>` setting is for.
+fn file_kind(key: &str) -> &'static str {
+    if key.ends_with("Gemini") {
+        "gemini"
+    } else {
+        "cursor"
     }
 }
 

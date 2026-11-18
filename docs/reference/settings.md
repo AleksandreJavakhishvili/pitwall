@@ -69,12 +69,30 @@ Pitwall keeps agent tools up to date itself (claude update, at startup and every
 
 ### `agents.showFiles`
 
-Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server (Claude Code and Codex, added per launch; your own config files are never edited), and `pitwall open` does the same from a shell. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.
+Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server per launch where the tool has a way (Claude Code, Codex, Copilot CLI, Qwen Code, Amp, opencode; your own config files are never edited), Aider gets a rule to run `pitwall-cli open`, and `pitwall open` does the same from a shell. Gemini CLI and Cursor Agent only read their own MCP files: see agents.showFilesGemini and agents.showFilesCursor. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.
 
 - **Values:** true or false
 - **Default:** `true`
 - **Stored in:** `ui.json` → `agentsShowFiles`
 - **When an agent changes it:** applies directly
+
+### `agents.showFilesGemini`
+
+Pitwall's `pitwall` MCP server is in Gemini CLI's ~/.gemini/settings.json, so Gemini agents can show you files (Gemini has no per-launch way). Only Pitwall's entry is added or taken out; the rest of the file stays as it is, and a backup is kept next to it. true adds it, false takes it out.
+
+- **Values:** true or false
+- **Default:** `false`
+- **Stored in:** kept by Pitwall, outside `ui.json`
+- **When an agent changes it:** asks you in Pitwall first
+
+### `agents.showFilesCursor`
+
+Pitwall's `pitwall` MCP server is in Cursor's ~/.cursor/mcp.json, so Cursor Agent agents can show you files (Cursor Agent has no per-launch way). Only Pitwall's entry is added or taken out; the rest of the file stays as it is, and a backup is kept next to it. true adds it, false takes it out.
+
+- **Values:** true or false
+- **Default:** `false`
+- **Stored in:** kept by Pitwall, outside `ui.json`
+- **When an agent changes it:** asks you in Pitwall first
 
 ### `engineer.agent`
 
