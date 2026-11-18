@@ -1,6 +1,13 @@
 //! `viewer.open`: an agent (or the user's own `pitwall open`) shows files
 //! and folders to the user in Pitwall's viewer. The `pitwall` MCP server
-//! Pitwall gives the agents it starts is a thin wrapper over this call.
+//! Pitwall gives the agents it starts is a thin wrapper over this call
+//! ([`crate::mcp`]).
+//!
+//! A CLI, or an agent's MCP server, may be older or newer than the Pitwall
+//! it talks to (they outlive updates): both sides say their
+//! [`VIEWER_PROTO`], answers are read leniently (a place or a field one
+//! side doesn't know never turns something that opened into an error), and
+//! Pitwall sends its own words for what it did (`text`).
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -14,6 +21,10 @@ pub const TOOL_SHOW_FILES: &str = "show_files";
 pub const TOOL_SHOW_FOLDER: &str = "show_folder";
 /// Both tools.
 pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER];
+
+/// `viewer.open`'s shape: 1 had `beside` and `window` only (no `proto` on
+/// the wire); 2 has the sides, `replace`, `of`, and `text` in the answer.
+pub const VIEWER_PROTO: u32 = 2;
 
 /// Where the files show: a tile in the layout of the Pitwall window showing
 /// the calling agent, on that side of its terminal (or of the terminal
@@ -106,6 +117,9 @@ pub struct ViewerOpen {
     /// same space). Default: the caller's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub of: Option<String>,
+    /// The asker's [`VIEWER_PROTO`] (`None`: 1, the first shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proto: Option<u32>,
 }
 
 /// One file as it was opened.
@@ -128,10 +142,14 @@ pub struct Skipped {
     pub reason: String,
 }
 
-/// What `viewer.open` did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+/// What `viewer.open` did. Every field has a default and places are plain
+/// words, so an answer from an older or newer Pitwall is always read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ViewerOpened {
+    /// The answering Pitwall's [`VIEWER_PROTO`] (0: the first shape, which
+    /// didn't say).
+    pub proto: u32,
     /// The agent whose viewer shows it (the caller's, or the agent working
     /// in the folder asked for).
     pub agent_id: String,
@@ -142,21 +160,26 @@ pub struct ViewerOpened {
     /// forward.
     pub in_background: bool,
     pub opened: Vec<OpenedFile>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub skipped: Vec<Skipped>,
-    /// Where it opened.
-    pub place: ViewerPlace,
+    /// Where it opened: a [`ViewerPlace`] word (one a newer Pitwall has
+    /// that this build doesn't is kept as it came).
+    pub place: String,
     /// Where it was asked to open (`None`: Pitwall picked).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub asked: Option<ViewerPlace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asked: Option<String>,
     /// Where it is, in words ("a files tile in space Main (window main),
     /// above api's terminal"; "…, a column on the right of the space").
     pub shown_in: String,
     /// Why it opened somewhere else than asked, or how Pitwall picked.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// What it did, in Pitwall's own words (what `pitwall open` prints and
+    /// the tools answer), so an older CLI says what a newer Pitwall did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// What the server hands the app once paths are resolved: full paths on the

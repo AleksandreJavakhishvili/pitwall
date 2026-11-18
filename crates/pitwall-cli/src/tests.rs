@@ -1099,12 +1099,26 @@ fn open_and_the_mcp_tools_end_to_end() {
     let shown = viewer.0.lock().unwrap().pop().unwrap();
     assert_eq!((shown.agent_id.as_str(), shown.files.len(), shown.place), (id.as_str(), 2, Some(pitwall_proto::ViewerPlace::Window)));
 
-    // The MCP tool: the same request, from the agent (its id from the env).
-    let opener = mcp::SocketOpener { socket: socket.clone() };
-    let call = |name: &str, args: serde_json::Value, agent: Option<&str>| mcp::call(&opener, &json!({"name": name, "arguments": args}), agent.map(String::from));
+    // The answer says its shape and has Pitwall's own words.
+    assert_eq!(o.json["proto"], pitwall_proto::VIEWER_PROTO);
+    assert_eq!(o.json["text"].as_str(), Some(o.human.as_str()));
+
+    // The MCP tools: served by Pitwall (`mcp.*`) through the proxy, the
+    // same request from the agent (its id from the env).
+    let up = mcp::SocketUpstream { socket: socket.clone() };
+    use mcp::Upstream as _;
+    assert_eq!(up.tools().unwrap(), pitwall_proto::mcp::own(), "Pitwall's tools");
+    let proxies = [mcp::Proxy::new(&up, Some(id.clone())), mcp::Proxy::new(&up, None)];
+    let call = |name: &str, args: serde_json::Value, agent: Option<&str>| proxies[usize::from(agent.is_none())].call(&json!({"name": name, "arguments": args})).0;
     let r = call("show_files", json!({"paths": ["src/a.rs:9", "README.md"]}), Some(&id));
     assert_eq!(r["isError"], false, "{r}");
     assert_eq!(r["structuredContent"]["opened"][0]["path"], format!("{p}/src/a.rs"), "relative to the agent's folder");
+    assert_eq!(r["content"][0]["text"].as_str(), r["structuredContent"]["text"].as_str().map(str::trim_end), "Pitwall's words");
+    let r = call("show_files", json!({"paths": ["README.md"], "where": "replace", "of": "api"}), Some(&id));
+    assert_eq!(viewer.0.lock().unwrap().last().unwrap().place, Some(pitwall_proto::ViewerPlace::Replace));
+    assert_eq!(r["structuredContent"]["place"], "replace");
+    let r = call("show_files", json!({"paths": ["README.md"], "where": "tab"}), Some(&id));
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("`where` is right, left"), "checked by Pitwall: {r}");
     let r = call("show_folder", json!({"folder": "src"}), Some(&id));
     assert_eq!(r["structuredContent"]["folder"], format!("{p}/src"));
     let r = call("show_folder", json!({}), Some(&id));
@@ -1125,7 +1139,27 @@ fn open_and_the_mcp_tools_end_to_end() {
     assert_eq!(failure(&e).0["error"]["code"], "off");
     let r = call("show_files", json!({"paths": ["README.md"]}), Some(&id));
     assert!(r["content"][0]["text"].as_str().unwrap().contains("agents.showFiles true"), "{r}");
-    assert_eq!(viewer.0.lock().unwrap().len(), 3, "nothing shown while off");
+    assert_eq!(viewer.0.lock().unwrap().len(), 4, "nothing shown while off");
+
+    // A newer CLI asking for a place this Pitwall doesn't know: said
+    // plainly, not as a parser's error.
+    let mut c = pitwall_client::Client::connect(&socket).unwrap();
+    engine.set_show_files(true);
+    let e = c.call(pitwall_proto::method::VIEWER_OPEN, json!({"agentId": id, "files": [a], "where": "floating", "proto": 99})).unwrap_err();
+    assert!(e.to_string().starts_with("This Pitwall is older than its command-line tool"), "{e}");
+    let e = c.call(pitwall_proto::method::VIEWER_OPEN, json!({"agentId": id, "files": [a], "where": "floating"})).unwrap_err();
+    assert!(e.to_string().contains("unknown variant `floating`"), "an old one's mistake stays its own: {e}");
+    // Asked in the first shape (no `proto`: a tool server from the first
+    // install, still running): answered in its words, `beside` or
+    // `window`, which it reads strictly.
+    let v = c.call(pitwall_proto::method::VIEWER_OPEN, json!({"agentId": id, "files": [a]})).unwrap();
+    assert_eq!((v["place"].as_str(), v["asked"].as_str()), (Some("beside"), None));
+    let v = c.call(pitwall_proto::method::VIEWER_OPEN, json!({"agentId": id, "files": [a], "where": "beside"})).unwrap();
+    assert_eq!((v["place"].as_str(), v["asked"].as_str()), (Some("beside"), Some("beside")));
+    let v = c.call(pitwall_proto::method::VIEWER_OPEN, json!({"agentId": id, "files": [a], "where": "window"})).unwrap();
+    assert_eq!(v["place"], "window");
+    let v = c.call(pitwall_proto::method::VIEWER_OPEN, json!({"agentId": id, "files": [a], "proto": 2})).unwrap();
+    assert_eq!(v["place"], "right", "a later one gets today's words");
 
     // Pitwall not running.
     server.stop();

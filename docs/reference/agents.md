@@ -152,6 +152,8 @@ The bundled kinds:
 
 The setting applies when an agent starts: restart an agent to give it the server or take it away. The server's command is a copy of the CLI in Pitwall's data folder (`~/.pitwall/bin/pitwall-cli`), refreshed when Pitwall starts, so agents keep it when the app is moved or updated.
 
+The server lives as long as its agent, so it often outlasts an update of Pitwall. It doesn't carry the tools itself: their list, the instructions and every call go to the running Pitwall, which checks and answers them, so an agent started before an update uses the updated tools. When Pitwall's tools change (updated and restarted), the server tells the agent to read them again (MCP's `tools/list_changed`; it notices on the next call, or within about 20 seconds). Pitwall not running, or older than the server: the server's own copy of the tools, and a call says Pitwall isn't running, or that Pitwall is older and should be restarted. An answer it can't fully read (from a newer Pitwall) still says what opened; a call is only reported as failed when nothing was opened. `pitwall open` reads answers the same way. A server from before this (it says no `proto` when it asks) is answered in the words it knows, `beside` or `window`, until its agent restarts.
+
 Where it opens (the agent can name one with `where`, `pitwall open --where`):
 
 | Place | What you get |

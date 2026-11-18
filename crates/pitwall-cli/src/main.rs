@@ -162,8 +162,8 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Mcp => unreachable!("served by main (mcp::serve)"),
         Command::Open(a) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-            let opened = open::open(&mut c, &open::request(a, &cwd))?;
-            out(&opened, open::text(&opened))
+            let (opened, text) = open::open(&mut c, &open::request(a, &cwd))?;
+            out(&opened, text)
         }
         Command::Agent(a) => manage::agent_cmd(a, &mut c)?,
         Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
@@ -250,8 +250,9 @@ fn main() -> ExitCode {
         };
     }
     if let Command::Mcp = &cli.command {
-        let opener = mcp::SocketOpener { socket: socket.clone() };
-        return match mcp::serve(&opener, std::io::stdin().lock(), &mut std::io::stdout().lock()) {
+        let up = mcp::SocketUpstream { socket: socket.clone() };
+        let proxy = mcp::Proxy::new(&up, open::env_agent());
+        return match mcp::serve(&proxy, std::io::stdin().lock(), &mut std::io::stdout(), Some(mcp::WATCH_EVERY)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("pitwall mcp: {e}");
