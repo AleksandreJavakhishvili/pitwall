@@ -94,14 +94,32 @@ pub fn resize_from_bottom_right(window: &gpui::Window, width: f32, height: f32, 
 
 /// The window behind a GPUI window.
 fn ns_window(window: &gpui::Window) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
+    gpui_view(window)?.window()
+}
+
+/// GPUI's own view in the window (a subview of the content view): the
+/// one that turns key presses into text for the focused field.
+fn gpui_view(window: &gpui::Window) -> Option<objc2::rc::Retained<objc2_app_kit::NSView>> {
     use objc2::rc::Retained;
-    use objc2_app_kit::NSView;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let handle = HasWindowHandle::window_handle(window).ok()?;
     let RawWindowHandle::AppKit(h) = handle.as_raw() else { return None };
     // SAFETY: GPUI hands out its live NSView; we only retain it.
-    let view: Option<Retained<NSView>> = unsafe { Retained::retain(h.ns_view.as_ptr().cast()) };
-    view?.window()
+    unsafe { Retained::retain(h.ns_view.as_ptr().cast()) }
+}
+
+/// Key presses in `w` go to GPUI's view again. AppKit sends a key press
+/// to the window's first responder; GPUI makes its view that when it
+/// opens the window, and a change of style mask makes AppKit hand it back
+/// to the window itself. A pop-up gets its bare style after that, so
+/// without this the keys reached the window and stopped there: a dialog's
+/// field focused in GPUI never got a character (shortcuts still worked,
+/// AppKit offers those to every view).
+fn keys_to_view(w: &objc2_app_kit::NSWindow, view: &objc2_app_kit::NSView) {
+    let on_view = w.firstResponder().is_some_and(|r| std::ptr::eq(std::ptr::from_ref(&*r).cast::<()>(), std::ptr::from_ref(view).cast()));
+    if !on_view {
+        w.makeFirstResponder(Some(view));
+    }
 }
 
 /// No system shadow or frame line around a window that draws its own
@@ -215,6 +233,77 @@ pub fn debug_click(window: &gpui::Window, x: f32, y: f32, cx: &mut gpui::App) {
                 ];
                 if !event.is_null() {
                     let _: () = msg_send![&*w, sendEvent: event];
+                }
+            }
+        }
+    })
+    .detach();
+}
+
+/// Debug builds: see `platform::debug_type`.
+#[cfg_attr(test, allow(dead_code))]
+pub fn debug_type(window: &gpui::Window, text: &str, cx: &mut gpui::App) {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_app_kit::{NSEventModifierFlags, NSEventType};
+    use objc2_foundation::{NSPoint, NSString};
+    // The ANSI key codes (Carbon's `kVK_ANSI_*`).
+    fn code(c: char) -> Option<u16> {
+        const LETTERS: &str = "asdfhgzxcv_bqweryt";
+        if let Some(i) = LETTERS.find(c).filter(|_| c != '_') {
+            return Some(i as u16);
+        }
+        Some(match c {
+            'o' => 31,
+            'u' => 32,
+            'i' => 34,
+            'p' => 35,
+            'l' => 37,
+            'j' => 38,
+            'k' => 40,
+            'n' => 45,
+            'm' => 46,
+            '1' => 18,
+            '2' => 19,
+            '3' => 20,
+            '4' => 21,
+            '6' => 22,
+            '5' => 23,
+            '9' => 25,
+            '7' => 26,
+            '8' => 28,
+            '0' => 29,
+            ' ' => 49,
+            _ => return None,
+        })
+    }
+    let Some(w) = ns_window(window) else { return };
+    let keys: Vec<(char, u16)> = text.chars().filter_map(|c| code(c).map(|k| (c, k))).collect();
+    // After the caller's update: GPUI handles the events as it does real ones.
+    cx.spawn(async move |_| {
+        for (c, key) in keys {
+            let chars = NSString::from_str(&c.to_string());
+            for kind in [NSEventType::KeyDown, NSEventType::KeyUp] {
+                // SAFETY: the documented NSEvent constructor and NSWindow
+                // methods, with their argument types, on the main thread.
+                unsafe {
+                    let number: isize = msg_send![&*w, windowNumber];
+                    let event: *mut AnyObject = msg_send![
+                        class!(NSEvent),
+                        keyEventWithType: kind,
+                        location: NSPoint::new(0., 0.),
+                        modifierFlags: NSEventModifierFlags::empty(),
+                        timestamp: 0f64,
+                        windowNumber: number,
+                        context: std::ptr::null_mut::<AnyObject>(),
+                        characters: &*chars,
+                        charactersIgnoringModifiers: &*chars,
+                        isARepeat: false,
+                        keyCode: key
+                    ];
+                    if !event.is_null() {
+                        let _: () = msg_send![&*w, sendEvent: event];
+                    }
                 }
             }
         }
@@ -433,7 +522,8 @@ pub fn pop_area(parent: &PopParent, x: f32, y: f32) -> Option<(f32, f32, f32, f3
 pub fn pop_place(window: &gpui::Window, parent: &PopParent, (x, y, width, height): (f32, f32, f32, f32), cx: &mut gpui::App) {
     use objc2_app_kit::{NSWindowOrderingMode, NSWindowStyleMask};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
-    let Some(w) = ns_window(window) else { return };
+    let Some(view) = gpui_view(window) else { return };
+    let Some(w) = view.window() else { return };
     let parent = parent.0.clone();
     cx.spawn(async move |_| {
         if !POPS.with_borrow(|all| all.contains(&pop_key(&w))) {
@@ -452,6 +542,7 @@ pub fn pop_place(window: &gpui::Window, parent: &PopParent, (x, y, width, height
         if w.styleMask() != bare {
             w.setStyleMask(bare);
         }
+        keys_to_view(&w, &view);
         if w.frame() != frame {
             w.setFrame_display(frame, true);
         }
@@ -493,9 +584,11 @@ pub fn pop_modal(window: &gpui::Window) {
 /// [`pop_place`].)
 #[cfg_attr(test, allow(dead_code))]
 pub fn pop_keys(window: &gpui::Window, cx: &mut gpui::App) {
-    let Some(w) = ns_window(window) else { return };
+    let Some(view) = gpui_view(window) else { return };
+    let Some(w) = view.window() else { return };
     cx.spawn(async move |_| {
         if POPS.with_borrow(|all| all.contains(&pop_key(&w))) && w.isVisible() && !w.isKeyWindow() {
+            keys_to_view(&w, &view);
             w.makeKeyWindow();
         }
     })
@@ -514,8 +607,10 @@ pub fn pop_debug(window: &gpui::Window) -> String {
     let Some(w) = ns_window(window) else { return "no native window".into() };
     let f = w.frame();
     let parent = w.parentWindow();
+    let responder = w.firstResponder().map_or("none".to_string(), |r| r.class().name().to_string_lossy().into_owned());
+    let content = w.contentView().map_or("none".to_string(), |v| v.class().name().to_string_lossy().into_owned());
     format!(
-        "frame ({}, {}) {}×{}, visible {}, key {}, style {:#x}, shadow {}, level {}, parent: {}, app active {}",
+        "first responder {responder}, content {content}, frame ({}, {}) {}×{}, visible {}, key {}, style {:#x}, shadow {}, level {}, parent: {}, app active {}",
         f.origin.x,
         f.origin.y,
         f.size.width,

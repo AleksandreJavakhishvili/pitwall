@@ -373,6 +373,9 @@ pub fn debug(cmd: &str, cx: &mut App) {
                 window.dispatch_keystroke(k, cx);
             }
         }
+        // `nstype <text>`: typed as AppKit delivers keys to the window
+        // (through its text input system, not GPUI's dispatch alone).
+        "nstype" => platform::debug_type(window, rest, cx),
         "click" => {
             let mut at = rest.split_whitespace().filter_map(|v| v.parse::<f32>().ok());
             if let (Some(x), Some(y)) = (at.next(), at.next()) {
@@ -382,7 +385,12 @@ pub fn debug(cmd: &str, cx: &mut App) {
         _ => {
             let placed = OPEN.with_borrow(|all| all.get(&id).and_then(|e| e.placed.get()));
             let open = OPEN.with_borrow(|all| all.len());
-            eprintln!("pitwall-pop: state: {open} open, placed {placed:?}, gpui active {}, {}", window.is_window_active(), platform::pop_debug(window));
+            let focused = window.focused(cx).map(|f| format!("{f:?}"));
+            eprintln!(
+                "pitwall-pop: state: {open} open, placed {placed:?}, gpui active {}, focused {focused:?}, {}",
+                window.is_window_active(),
+                platform::pop_debug(window)
+            );
         }
     });
 }

@@ -426,6 +426,18 @@ impl NewAgentDialog {
         cx.notify();
     }
 
+    /// The name field (tests).
+    #[cfg(test)]
+    pub(crate) fn name_input(&self) -> Entity<TextInput> {
+        self.name.clone()
+    }
+
+    /// The project picker's search (tests).
+    #[cfg(test)]
+    pub(crate) fn query_input(&self) -> Entity<TextInput> {
+        self.query.clone()
+    }
+
     /// Demo only: the project picker open.
     pub fn demo_open_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open = None;
