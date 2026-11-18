@@ -6,6 +6,8 @@ use crate::{hooks, shell};
 
 pub struct Plan {
     pub command_line: String,
+    /// Added to the program's environment (opencode's inline config).
+    pub env: Vec<(String, String)>,
     /// Session id the launched process will use (if known up front).
     pub session_id: Option<String>,
     pub resumed: bool,
@@ -36,9 +38,20 @@ pub fn plan(
         }
     };
     let mut line = kind.command.trim().to_string();
-    // Codex: config overrides go before its own arguments (`codex -c … resume <id>`).
-    if let (Some(m), McpMode::CodexConfig) = (mcp, kind.mcp) {
-        for arg in codex_mcp_args(m) {
+    let mut env = vec![];
+    if let Some(m) = mcp {
+        if kind.mcp == McpMode::OpencodeEnv {
+            env.push(("OPENCODE_CONFIG_CONTENT".to_string(), opencode_mcp_json(m)));
+        }
+    }
+    // Before the kind's own arguments, as top-level options (`codex -c …
+    // resume <id>`, `amp --mcp-config … threads continue <id>`).
+    if let Some(m) = mcp {
+        let flags = match kind.mcp {
+            McpMode::CodexConfig => codex_mcp_args(m),
+            mode => mcp_flags(mode, m),
+        };
+        for arg in flags {
             line.push(' ');
             line.push_str(&shell::quote(&arg));
         }
@@ -79,9 +92,73 @@ pub fn plan(
     }
     Plan {
         command_line: line,
+        env,
         session_id,
         resumed,
     }
+}
+
+/// The server as `{"<name>":{"command":…,"args":[…]}}`'s inner object,
+/// with `extra` fields after them, keys in this order however serde_json
+/// was built.
+fn server_json(m: &McpWiring, extra: &[(&str, String)]) -> String {
+    let mut s = format!(r#"{{"command":{},"args":{}"#, text(&m.command), text(&m.args));
+    for (k, v) in extra {
+        s.push_str(&format!(",{}:{v}", text(k)));
+    }
+    s.push('}');
+    s
+}
+
+fn text(v: &impl serde::Serialize) -> String {
+    serde_json::to_string(v).unwrap_or_default()
+}
+
+/// The tool's own launch flags for the server (Copilot CLI, Qwen Code,
+/// Amp). Claude Code's and Codex's are built elsewhere; opencode's is in
+/// the environment.
+pub fn mcp_flags(mode: McpMode, m: &McpWiring) -> Vec<String> {
+    let name = pitwall_proto::show::MCP_SERVER;
+    let tools = || pitwall_proto::show::TOOLS.iter().map(|t| format!("mcp__{name}__{t}"));
+    match mode {
+        // `type: local` and all its tools (Copilot's file format), and the
+        // server's tools allowed: they only show the user files.
+        McpMode::CopilotConfig => vec![
+            "--additional-mcp-config".into(),
+            format!(
+                r#"{{"mcpServers":{{{}:{}}}}}"#,
+                text(&name),
+                server_json(m, &[("type", text(&"local")), ("tools", text(&["*"]))])
+            ),
+            "--allow-tool".into(),
+            name.to_string(),
+        ],
+        McpMode::QwenConfig => {
+            let mut v = vec!["--mcp-config".into(), format!(r#"{{"mcpServers":{{{}:{}}}}}"#, text(&name), server_json(m, &[]))];
+            for t in tools() {
+                v.push("--allowed-tools".into());
+                v.push(t);
+            }
+            v
+        }
+        // A plain map of servers.
+        McpMode::AmpConfig => vec!["--mcp-config".into(), format!(r#"{{{}:{}}}"#, text(&name), server_json(m, &[]))],
+        _ => vec![],
+    }
+}
+
+/// `OPENCODE_CONFIG_CONTENT`: the server as opencode's `mcp` entry (one
+/// command array), its tools allowed.
+pub fn opencode_mcp_json(m: &McpWiring) -> String {
+    let name = pitwall_proto::show::MCP_SERVER;
+    let mut command = vec![m.command.clone()];
+    command.extend(m.args.iter().cloned());
+    format!(
+        r#"{{"mcp":{{{}:{{"type":"local","command":{},"enabled":true}}}},"permission":{{{}:"allow"}}}}"#,
+        text(&name),
+        text(&command),
+        text(&format!("{name}_*")),
+    )
 }
 
 /// `claude --mcp-config`'s JSON: the one stdio server.
@@ -125,7 +202,12 @@ pub fn then_shell(
     hook_command: &str,
     mcp: Option<&McpWiring>,
 ) -> (AgentKind, Plan) {
-    let inner = plan(agent, session_id, resume, hook_command, mcp, None);
+    let mut inner = plan(agent, session_id, resume, hook_command, mcp, None);
+    if !inner.env.is_empty() {
+        // Only for the agent, not the shell after it.
+        let vars: Vec<String> = inner.env.iter().map(|(k, v)| shell::quote(&format!("{k}={v}"))).collect();
+        inner.command_line = format!("env {} {}", vars.join(" "), inner.command_line);
+    }
     let after = plan(shell, None, false, "", None, None);
     let kind = AgentKind {
         id: shell.id.clone(),
@@ -146,6 +228,7 @@ pub fn then_shell(
         icon: None,
         update_command: None,
         update_off_env: Default::default(),
+        mcp_file: None,
     };
     (kind, inner)
 }
@@ -263,11 +346,51 @@ mod tests {
             r#"codex -c 'mcp_servers.pitwall.command="/Apps/Pit wall/pitwall-cli"' -c 'mcp_servers.pitwall.args=["mcp"]' resume s1"#
         );
         // Kinds without a safe launch-time way: nothing added.
-        for src in [include_str!("../../agents/gemini.toml"), include_str!("../../agents/shell.toml"), include_str!("../../agents/opencode.toml")] {
+        for src in [
+            include_str!("../../agents/gemini.toml"),
+            include_str!("../../agents/shell.toml"),
+            include_str!("../../agents/cursor.toml"),
+            include_str!("../../agents/aider.toml"),
+        ] {
             let k = kind(src);
             assert_eq!(k.mcp, McpMode::None);
-            assert_eq!(plan(&k, None, false, "x", Some(&m), None).command_line, plan(&k, None, false, "x", None, None).command_line);
+            let with = plan(&k, None, false, "x", Some(&m), None);
+            assert_eq!(with.command_line, plan(&k, None, false, "x", None, None).command_line);
+            assert!(with.env.is_empty());
         }
+        // Copilot CLI: --additional-mcp-config (augments its own file) and
+        // the server's tools allowed, before --resume.
+        let copilot = kind(include_str!("../../agents/copilot.toml"));
+        let p = plan(&copilot, Some("s1"), true, "x", Some(&m), None);
+        assert_eq!(
+            p.command_line,
+            r#"copilot --additional-mcp-config '{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"],"type":"local","tools":["*"]}}}' --allow-tool pitwall --resume=s1"#
+        );
+        // Qwen Code: --mcp-config, each tool allowed.
+        let p = plan(&kind(include_str!("../../agents/qwen.toml")), None, false, "x", Some(&m), None);
+        assert_eq!(
+            p.command_line,
+            r#"qwen --mcp-config '{"mcpServers":{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder"#
+        );
+        // Amp: a plain map of servers, before `threads continue <id>`.
+        let p = plan(&kind(include_str!("../../agents/amp.toml")), Some("T-1"), true, "x", Some(&m), None);
+        assert_eq!(p.command_line, r#"amp --mcp-config '{"pitwall":{"command":"/Apps/Pit wall/pitwall-cli","args":["mcp"]}}' threads continue T-1"#);
+        // opencode: its inline config, in the environment only.
+        let opencode = kind(include_str!("../../agents/opencode.toml"));
+        let p = plan(&opencode, None, false, "x", Some(&m), None);
+        assert_eq!(p.command_line, "opencode");
+        assert_eq!(
+            p.env,
+            vec![(
+                "OPENCODE_CONFIG_CONTENT".to_string(),
+                r#"{"mcp":{"pitwall":{"type":"local","command":["/Apps/Pit wall/pitwall-cli","mcp"],"enabled":true}},"permission":{"pitwall_*":"allow"}}"#.to_string()
+            )]
+        );
+        assert!(plan(&opencode, None, false, "x", None, None).env.is_empty());
+        // A terminal continuing opencode: for the agent only, on its line.
+        let shell = kind(include_str!("../../agents/shell.toml"));
+        let (k, _) = then_shell(&shell, &opencode, None, false, "x", Some(&m));
+        assert!(k.command.contains("env 'OPENCODE_CONFIG_CONTENT={\"mcp\""), "{}", k.command);
         // Off (no wiring): as before.
         assert!(!plan(&claude(), None, false, "x", None, None).command_line.contains("mcp"));
         // A terminal continuing Claude Code passes it on.

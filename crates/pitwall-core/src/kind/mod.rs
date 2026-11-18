@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod launch;
+pub mod mcp_file;
 
 use std::path::Path;
 
@@ -23,7 +24,8 @@ pub enum HookMode {
 
 /// How Pitwall's `pitwall` MCP server (`agents.showFiles`) is given to the
 /// agent at launch, with the tool's own documented launch-time setting; the
-/// user's config files are never edited.
+/// user's config files are never edited this way. Each adds to the user's
+/// own servers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum McpMode {
@@ -33,8 +35,50 @@ pub enum McpMode {
     /// `codex -c mcp_servers.pitwall.command=… -c mcp_servers.pitwall.args=…`
     /// (config overrides for this run).
     CodexConfig,
-    /// The tool has no safe launch-time way: no server.
+    /// `copilot --additional-mcp-config '<json>' --allow-tool pitwall`
+    /// (augments ~/.copilot/mcp-config.json; the server's tools allowed).
+    CopilotConfig,
+    /// `qwen --mcp-config '<json>' --allowed-tools mcp__pitwall__…`
+    /// (merged with the user's and the project's servers).
+    QwenConfig,
+    /// `amp --mcp-config '<json>'` (merged; servers given this way need
+    /// no approval).
+    AmpConfig,
+    /// `OPENCODE_CONFIG_CONTENT='<json>'` in the environment: opencode's
+    /// inline config, merged with the user's and the project's.
+    OpencodeEnv,
+    /// The tool has no safe launch-time way: no server at launch (see
+    /// [`AgentKind::mcp_file`] for the opt-in alternative).
     #[default]
+    None,
+}
+
+/// A tool without a launch-time way that reads its MCP servers from a
+/// file: the user can let Pitwall add its own entry there (Settings →
+/// Agents, `pitwall show-files add`), never silently.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpFile {
+    /// The JSON file (`~/` is the home folder), with a top-level
+    /// `mcpServers` object.
+    pub path: String,
+    /// Fields added to Pitwall's entry next to `command` and `args`
+    /// (Gemini CLI's `trust = true`, Cursor's `type = "stdio"`).
+    #[serde(default)]
+    pub entry: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+/// How a kind gets `agents.showFiles`, in order of preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShowFilesRoute {
+    /// Pitwall's MCP server, added at each launch ([`McpMode`]).
+    Launch,
+    /// Pitwall's MCP server, in the tool's own MCP file, once the user
+    /// lets Pitwall add it ([`McpFile`]).
+    ConfigFile,
+    /// No MCP: a built-in rule tells the agent to run `pitwall-cli open`.
+    ShellRule,
+    /// Not available (a plain terminal, or no way to tell the tool).
     None,
 }
 
@@ -53,6 +97,10 @@ pub struct AgentKind {
     /// How the `pitwall` MCP server is added at launch (none: it isn't).
     #[serde(default)]
     pub mcp: McpMode,
+    /// No launch-time way: the MCP file Pitwall may add its entry to, when
+    /// the user asks.
+    #[serde(default)]
+    pub mcp_file: Option<McpFile>,
     /// rulesync `--targets` id used when applying rules (e.g. "claudecode").
     #[serde(default)]
     pub rulesync_target: Option<String>,
@@ -123,6 +171,22 @@ pub struct RulesFallback {
 }
 
 impl AgentKind {
+    /// How this kind gets `agents.showFiles`: an MCP server at launch, in
+    /// its MCP file (when the user allows), else a rule saying to run
+    /// `pitwall-cli open` for kinds that take rules; plain terminals get
+    /// nothing.
+    pub fn show_files_route(&self) -> ShowFilesRoute {
+        if self.mcp != McpMode::None {
+            ShowFilesRoute::Launch
+        } else if self.mcp_file.is_some() {
+            ShowFilesRoute::ConfigFile
+        } else if self.id != "shell" && (self.rulesync_target.is_some() || self.rules_fallback.is_some()) {
+            ShowFilesRoute::ShellRule
+        } else {
+            ShowFilesRoute::None
+        }
+    }
+
     /// This kind is what a platform calls `name` (its id or an alias,
     /// ignoring case).
     pub fn answers_to(&self, name: &str) -> bool {
@@ -194,6 +258,7 @@ pub fn custom_kind(command: &str) -> AgentKind {
         icon: Some("terminal".into()),
         update_command: None,
         update_off_env: Default::default(),
+        mcp_file: None,
     }
 }
 

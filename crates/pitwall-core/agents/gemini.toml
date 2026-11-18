@@ -32,3 +32,11 @@ target = "geminicli"
 file = "GEMINI.md"
 alt_file = ".gemini/pitwall-rules.md"
 alt_args = ["--prompt-interactive", "Read {file} first: it holds the rules for working in this project. Follow them, then wait for my request."]
+
+# No launch-time way to add an MCP server (gemini-cli docs): Pitwall adds
+# its `pitwall` server to ~/.gemini/settings.json only when the user asks
+# (Settings → Agents, `pitwall-cli show-files add gemini`), trusted so its
+# tools don't ask (docs/tools/mcp-server.md; from docs, not run).
+[mcp_file]
+path = "~/.gemini/settings.json"
+entry = { trust = true }

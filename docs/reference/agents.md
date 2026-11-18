@@ -47,7 +47,8 @@ Save it as `~/.pitwall/agents/drift.toml` (on macOS; see the table above for oth
 | `resume_args` | list of strings | `[]` | Arguments added to continue a conversation. Empty: the kind can't resume, and Restart starts fresh. |
 | `assign_session_id` | boolean | `false` | Pitwall picks a new conversation id (a UUID) for each fresh start and fills it into `{session_id}` in `new_args`. |
 | `hooks` | string | required | How the agent reports its status: `claude-settings`, `codex-global` or `none` (see [Hooks](#hooks)). |
-| `mcp` | string | `none` | How the agent gets Pitwall's `pitwall` MCP server, which lets it show you files in Pitwall: `claude-config`, `codex-config` or `none` (see [Showing files](#showing-files)). |
+| `mcp` | string | `none` | How the agent gets Pitwall's `pitwall` MCP server at launch, which lets it show you files in Pitwall: `claude-config`, `codex-config`, `copilot-config`, `qwen-config`, `amp-config`, `opencode-env` or `none` (see [Showing files](#showing-files)). |
+| `mcp_file` | table | none | For a tool with no launch-time way: the MCP file Pitwall may add its server to when you ask, `path` (a JSON file with `mcpServers`; `~/` is your home folder) and `entry` (fields added next to `command` and `args`, like `{ trust = true }`). See [Showing files](#showing-files). |
 | `rulesync_target` | string | none | The [rulesync](https://github.com/dyoshikawa/rulesync) target written when rules are applied for this kind (`claudecode`, `codexcli`, `cursor`, …). None: New agent doesn't offer rules for it, unless `rules_fallback` is set. |
 | `rules_fallback` | table | none | For a tool rulesync has no target for: Pitwall writes the rules into one file itself (see [Rules without rulesync](#rules-without-rulesync)). Ignored when `rulesync_target` is set. |
 | `worktree_args` | list of strings | `[]` | The agent's own "work in a new git worktree" flag, added when New agent's **Separate worktree** is ticked. `{name}` becomes a name Pitwall picks. Empty: no worktree option for this kind. Only for agents on this computer. |
@@ -78,7 +79,7 @@ Pitwall builds one command line and runs it with your login shell (`$SHELL -l -i
 1. `command`.
 2. When resuming a known conversation and `resume_args` isn't empty: `resume_args`. Otherwise `new_args` (with a new id when `assign_session_id = true`), then the `rules_fallback` arguments for the file that holds the agent's rules, if any.
 3. On a fresh start with **Separate worktree** ticked: `worktree_args`.
-4. With `mcp = "claude-config"` and **Agents can show you files** on: `--mcp-config '<json>'` (`mcp = "codex-config"` puts its `-c` overrides right after `command` instead).
+4. With **Agents can show you files** on, the `mcp` way: `claude-config` adds `--mcp-config '<json>'` here; `codex-config`, `copilot-config`, `qwen-config` and `amp-config` put their flags right after `command` instead, before the kind's own arguments; `opencode-env` adds nothing to the line (it's in the environment).
 5. With `hooks = "claude-settings"`: `--settings '<json>'` carrying Pitwall's hooks (and, with the MCP server, the rule that allows its two tools).
 
 For example, the bundled Claude Code definition starts `claude --session-id <uuid> --settings '…'` and resumes with `claude --resume <uuid> --settings '…'`.
@@ -111,13 +112,41 @@ Both hook modes are tied to the Claude Code and Codex hook formats. A kind of yo
 
 ## Showing files
 
-With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), every agent Pitwall starts on this computer gets Pitwall's MCP server, `pitwall-cli mcp`, so it can open files, folders and images in Pitwall's file viewer when you ask it to ("open that file for me"). The server has two tools, `show_files` and `show_folder`; `pitwall open` does the same from a shell. It is added in the tool's own documented launch-time way, so your config files are never edited:
+With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), agents Pitwall starts on this computer can open files, folders and images in Pitwall's file viewer when you ask them to ("open that file for me"). Pitwall's MCP server, `pitwall-cli mcp`, has two tools, `show_files` and `show_folder`; `pitwall open` does the same from a shell. Each kind gets it the best way its tool has, in this order, and Settings → Agents lists which:
 
-| Value | What it does |
+1. **MCP at launch** (`mcp`): added in the tool's own documented launch-time way, which adds to your own servers, so your config files are never edited.
+2. **MCP via its config** (`mcp_file`): the tool only reads servers from its own file. Pitwall adds its entry there only when you ask, and takes it out again the same way.
+3. **Shell command via a rule**: no MCP at all. A built-in rule tells the agent to run `pitwall-cli open`.
+4. **Not available**: a plain terminal, or a kind of your own with none of the above.
+
+| `mcp` | What it does |
 |---|---|
 | `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and the two tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`) in the `--settings` Pitwall passes, so they don't ask each time. |
 | `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them. |
-| `none` | No server (the default). Gemini CLI, opencode, Cursor Agent, Copilot CLI, Qwen Code, Amp and Aider are left out for now: they have no launch-time way that doesn't edit or replace a config file, or one Pitwall has checked. |
+| `copilot-config` | `copilot --additional-mcp-config '{"mcpServers":{"pitwall":{…,"type":"local","tools":["*"]}}}' --allow-tool pitwall`: augments `~/.copilot/mcp-config.json` for this run, and the server's tools are allowed. |
+| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder`: merged with your and the project's servers. |
+| `amp-config` | `amp --mcp-config '{"pitwall":…}'`: merged with your servers; Amp doesn't ask to approve servers given this way. |
+| `opencode-env` | `OPENCODE_CONFIG_CONTENT='{"mcp":{"pitwall":{"type":"local","command":[…],"enabled":true}},"permission":{"pitwall_*":"allow"}}'` in the agent's environment: opencode's inline config, merged with your and the project's. |
+| `none` | No server at launch (the default). |
+
+The bundled kinds:
+
+| Kind | Way | What Pitwall uses | Checked against |
+|---|---|---|---|
+| Claude Code | MCP at launch | `--mcp-config`, tools allowed in `--settings` | the installed `claude`, run |
+| Codex | MCP at launch | `-c mcp_servers.pitwall.…` | the installed `codex`, run |
+| Copilot CLI | MCP at launch | `--additional-mcp-config`, `--allow-tool pitwall` | GitHub's CLI command reference (not run) |
+| Qwen Code | MCP at launch | `--mcp-config`, `--allowed-tools` | Qwen Code's options and source (not run) |
+| Amp | MCP at launch | `--mcp-config` | ampcode.com MCP docs (not run) |
+| opencode | MCP at launch | `OPENCODE_CONFIG_CONTENT` | opencode's config docs (v1; not run) |
+| Gemini CLI | MCP via its config | `~/.gemini/settings.json`, with `"trust": true` so its tools don't ask | gemini-cli docs (not run) |
+| Cursor Agent | MCP via its config | `~/.cursor/mcp.json`, with `"type": "stdio"`; each tool call asks unless you allow `Mcp(pitwall:*)` in Cursor's CLI permissions | `cursor-agent --help` (it has no MCP flag) and cursor.com docs |
+| Aider | Shell command via a rule | the rule, read with `--read` | Aider's options (it has no MCP) |
+| Terminal | Not available | | |
+
+**MCP via its config.** Settings → Agents shows the file next to the kind, with **Add Pitwall to it…**; `pitwall settings set agents.showFilesGemini true` (or `agents.showFilesCursor`) does the same and asks you in Pitwall first. Only Pitwall's `pitwall` entry is added (an older one is brought up to date): the change is made in the file's text, so everything else stays byte for byte, and a backup is kept next to it (`settings.json.pitwall-backup`). **Remove** (or `false`) takes the entry out again, and `mcpServers` too when Pitwall added it. Nothing is added until you ask. The tool then reads the server in every session, also outside Pitwall: its tools can't show anything there. The file is the one in your home folder, not an account's own folder (Settings → Accounts).
+
+**Shell command via a rule.** While the setting is on, Pitwall keeps a short built-in rule (`~/.pitwall/run/show-files/pitwall-show-files.md`) that tells the agent to run `pitwall-cli open <file>[:line[:column]]` or `pitwall-cli open --folder <folder>` when you ask to see something. An agent with rules gets it with them, in its rules file (and its rules count as changed when the setting changes, to reapply); one without gets the rule itself (Aider: `--read <rule>`). Aider suggests the command and asks you before it runs it, as for any shell command. Kinds that can't run shell commands get nothing.
 
 The setting applies when an agent starts: restart an agent to give it the server or take it away. The server's command is a copy of the CLI in Pitwall's data folder (`~/.pitwall/bin/pitwall-cli`), refreshed when Pitwall starts, so agents keep it when the app is moved or updated.
 

@@ -78,6 +78,7 @@ pub fn shell_kind() -> AgentKind {
         icon: None,
         update_command: None,
         update_off_env: Default::default(),
+        mcp_file: None,
     }
 }
 

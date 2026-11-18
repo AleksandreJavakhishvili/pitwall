@@ -11,6 +11,11 @@ new_args = []
 resume_args = ["--resume={session_id}"]
 assign_session_id = false
 hooks = "none"
+# Pitwall's `pitwall` MCP server (agents.showFiles): `--additional-mcp-config
+# '<json>'` per launch, which augments ~/.copilot/mcp-config.json, and
+# `--allow-tool pitwall` for its tools (docs.github.com, Copilot CLI command
+# reference; from docs, not run).
+mcp = "copilot-config"
 rulesync_target = "copilotcli"
 # Accounts: each login lives in its own folder (Settings → Accounts).
 # COPILOT_HOME replaces ~/.copilot: settings, sessions and the logged-in

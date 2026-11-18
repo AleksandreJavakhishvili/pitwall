@@ -11,6 +11,11 @@ new_args = []
 resume_args = ["--resume", "{session_id}"]
 assign_session_id = false
 hooks = "none"
+# Pitwall's `pitwall` MCP server (agents.showFiles): `--mcp-config '<json>'`
+# per launch, merged with the user's and the project's servers, and
+# `--allowed-tools` for its tools (Qwen Code's top-level options and
+# mcpServers.ts; from docs and source, not run).
+mcp = "qwen-config"
 rulesync_target = "qwencode"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "qwen"

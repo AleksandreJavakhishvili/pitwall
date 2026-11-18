@@ -13,3 +13,11 @@ hooks = "none"
 rulesync_target = "cursor"
 # The logo shown before its name (docs/reference/agents.md).
 icon = "cursor"
+# No launch-time way to add an MCP server (`cursor-agent --help` 2025.09.18,
+# cursor.com/docs/cli): Pitwall adds its `pitwall` server to
+# ~/.cursor/mcp.json only when the user asks (Settings → Agents,
+# `pitwall-cli show-files add cursor`). Global servers load without asking;
+# each tool call still asks unless the user allows `Mcp(pitwall:*)`.
+[mcp_file]
+path = "~/.cursor/mcp.json"
+entry = { type = "stdio" }
