@@ -196,6 +196,81 @@ impl MainView {
             }
             return;
         }
+        // Debug builds, `files-window dock|pin <agent>`: that control of
+        // the file viewer window open for the agent, as if clicked.
+        if let Some(what) = cmd.strip_prefix("files-window ").filter(|_| cfg!(debug_assertions)) {
+            let mut words = what.split_whitespace();
+            let event = match words.next() {
+                Some("dock") => crate::explorer::viewer::ViewerEvent::Place(crate::explorer::dock::FilesPlace::Next(crate::main_screen::tree::Side::Right)),
+                Some("pin") => crate::explorer::viewer::ViewerEvent::Pin,
+                _ => return,
+            };
+            let agent = words.next().unwrap_or_default().to_string();
+            cx.defer(move |cx| match crate::windows::viewer_window(&agent, cx) {
+                Some(h) => {
+                    let _ = h.update(cx, |w, _, cx| w.viewer().update(cx, |_, cx| cx.emit(event)));
+                }
+                None => eprintln!("pitwall-debug: no file viewer window for {agent}"),
+            });
+            return;
+        }
+        // Debug builds, `files-edit <agent> <what>`: editing in the file
+        // viewer window open for the agent, through the code paths keys
+        // take (nothing is typed on the screen): `type <text>` (the input
+        // handler, as typed keys and input methods), `keys <k>…` (GPUI's key
+        // dispatch to the text, as pressed keys: enter, backspace, cmd-s,
+        // cmd-z, tab…), `goto <line> <col>` (1-based), `find <text>`,
+        // `replace-all <with>`, `close-tab`, `close-window`, `keep-mine`,
+        // `take-theirs`, `difference`, `state` (on stderr).
+        // (A files tile's viewer when the agent has no window.)
+        if let Some(what) = cmd.strip_prefix("files-edit ").filter(|_| cfg!(debug_assertions)) {
+            let (agent, rest) = what.split_once(' ').unwrap_or((what, ""));
+            let (agent, rest) = (agent.to_string(), rest.to_string());
+            cx.defer(move |cx| {
+                if let Some(h) = crate::windows::viewer_window(&agent, cx) {
+                    let _ = h.update(cx, |w, window, cx| crate::explorer::debug_edit(w.viewer().clone(), &rest, window, cx));
+                    return;
+                }
+                let tile = crate::explorer::dock::viewer(&agent, cx).zip(
+                    crate::explorer::dock::holder(&agent, cx).and_then(|(label, _, _)| crate::windows::main_window(&label, cx)),
+                );
+                match tile {
+                    Some((v, h)) => {
+                        let _ = h.update(cx, |_, window, cx| crate::explorer::debug_edit(v, &rest, window, cx));
+                    }
+                    None => eprintln!("pitwall-debug: no file viewer for {agent}"),
+                }
+            });
+            return;
+        }
+        // Debug builds, `files-place …`: moving files between the layout
+        // and windows (`crate::explorer::drag::debug`).
+        if let Some(what) = cmd.strip_prefix("files-place ").filter(|_| cfg!(debug_assertions)) {
+            let what = what.to_string();
+            cx.defer(move |cx| crate::explorer::drag::debug(&what, cx));
+            return;
+        }
+        // Debug builds, `approval allow|deny`: answers the approval shown
+        // (as its buttons do).
+        if let Some(what) = cmd.strip_prefix("approval ").filter(|_| cfg!(debug_assertions)) {
+            let allow = what.trim() == "allow";
+            cx.defer(move |cx| crate::approvals::debug_answer(allow, cx));
+            return;
+        }
+        // Debug builds, `files-debug tile|main <agent> <what>`: as
+        // `files-edit`, on the agent's files tile's viewer or its full
+        // viewer in this window.
+        if let Some(what) = cmd.strip_prefix("files-debug ").filter(|_| cfg!(debug_assertions)) {
+            let mut words = what.splitn(3, ' ');
+            let (place, agent, rest) = (words.next().unwrap_or_default(), words.next().unwrap_or_default(), words.next().unwrap_or_default());
+            let Some(explorer) = self.explorer.clone() else { return };
+            let viewer = explorer.update(cx, |e, cx| e.debug_viewer(agent, place == "main", window, cx));
+            match viewer {
+                Some(v) => crate::explorer::debug_edit(v, rest, window, cx),
+                None => eprintln!("pitwall-debug: no {place} viewer for {agent}"),
+            }
+            return;
+        }
         // `app activate|deactivate|state`, `app click|rclick <x> <y>` (debug
         // builds): the app made the active one or not, what the system
         // says of its windows (on stderr), a click in this window.
@@ -226,6 +301,10 @@ impl MainView {
                         _ => {}
                     }
                 }
+                // `app top on|off`: this window kept on top or not (a level
+                // change has AppKit draw it, for screenshots, without
+                // activating Pitwall).
+                Some("top") => crate::platform::keep_on_top(window, words.next() == Some("on")),
                 Some(what) => eprintln!("pitwall-debug: app {what}: {}", crate::platform::debug_app(what)),
                 None => {}
             }
@@ -541,6 +620,14 @@ fn explorer_seams(
                     review.update(cx, |r, cx| r.open_at(Some(focus), window, cx));
                     s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
                 }
+                // Review on that worktree's file (a folder Review lists).
+                ExplorerEvent::ShowWorktreeDiff { root, path } => {
+                    let list = crate::main_screen::wt_list::WorktreeList::of(window, cx);
+                    let Some((project_id, wt)) = worktree_at(&list.read(cx).projects, root) else { return };
+                    let focus = crate::review::Focus::Worktree { project_id, path: wt, file: Some(path.clone()) };
+                    review.update(cx, |r, cx| r.open_at(Some(focus), window, cx));
+                    s1.update(cx, |s, cx| s.set_route(Route::Review, cx))
+                }
                 // `MainView::one_modal` answers it.
                 ExplorerEvent::QuickOpened => {}
             }
@@ -556,6 +643,18 @@ fn explorer_seams(
             }
         }),
     ]
+}
+
+impl MainView {
+    /// This window's code explorer (none when refused).
+    pub fn explorer(&self) -> Option<Entity<crate::explorer::Explorer>> {
+        self.explorer.clone()
+    }
+
+    /// This window's main screen (none when refused).
+    pub fn screen(&self) -> Option<Entity<crate::main_screen::MainScreen>> {
+        self.screen.clone()
+    }
 }
 
 impl Render for MainView {
@@ -624,6 +723,14 @@ impl Render for MainView {
             .children(crate::frame_stats::probe());
         crate::platform::decorations::frame(root, window, cx)
     }
+}
+
+/// The listed worktree whose folder is `root`: (its project's id, its path).
+fn worktree_at(projects: &[pitwall_proto::ProjectWorktrees], root: &str) -> Option<(String, String)> {
+    let root = root.trim_end_matches('/');
+    projects
+        .iter()
+        .find_map(|p| p.worktrees.iter().find(|w| w.path.trim_end_matches('/') == root).map(|w| (p.id.clone(), w.path.clone())))
 }
 
 #[cfg(test)]

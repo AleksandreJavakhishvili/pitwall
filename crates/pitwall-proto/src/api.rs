@@ -137,6 +137,12 @@ pub mod method {
     /// [`AgentMove`](crate::AgentMove) → `SpaceView` (the space it is in now)
     pub const AGENT_MOVE: &str = "agent.move";
 
+    // Showing files to the user (`caps::VIEWER`: a Pitwall with windows).
+    /// [`ViewerOpen`](crate::ViewerOpen) → [`ViewerOpened`](crate::ViewerOpened):
+    /// files as tabs, or a folder as a tree, in an agent's viewer (the
+    /// `pitwall open` command and the agents' `pitwall` MCP server).
+    pub const VIEWER_OPEN: &str = "viewer.open";
+
     // Events (`caps::EVENTS`).
     /// [`EventsSubscribe`](crate::EventsSubscribe) →
     /// [`EventsSubscribed`](crate::EventsSubscribed); then the connection
@@ -158,6 +164,8 @@ pub mod caps {
     pub const SPACES: &str = "spaces";
     /// `events.subscribe` (a Pitwall whose engine reports to the server).
     pub const EVENTS: &str = "events";
+    /// `viewer.open` (a Pitwall with windows: the app).
+    pub const VIEWER: &str = "viewer";
 }
 
 /// Server-pushed events: `{"event":"…","data":…}`.

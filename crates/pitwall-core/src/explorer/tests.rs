@@ -662,3 +662,105 @@ fn caps_follow_the_provider() {
         .contains("can't read files"));
     assert!(list_files(&h.engine, "ghost", "", false).is_err());
 }
+
+/// Any folder on this machine (an agent asked to show one outside its
+/// own): listed, read and searched with the same checks as an agent's.
+#[test]
+fn any_local_folder_is_read_like_an_agents() {
+    let dir = TempDir::new("ex-local");
+    let root = dir.path().join("notes");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("sub/a.md"), "# hello\nneedle here\n").unwrap();
+    std::fs::write(dir.path().join("secret.txt"), "no").unwrap();
+    let root = root.to_string_lossy().into_owned();
+    let top = local::list_files(&root, "", false).unwrap();
+    assert_eq!(top.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["sub"]);
+    let sub = local::list_files(&root, "sub", false).unwrap();
+    assert_eq!(sub.entries[0].name, "a.md");
+    let f = local::read_file(&root, "sub/a.md", false).unwrap();
+    assert_eq!(f.text.as_deref(), Some("# hello\nneedle here\n"));
+    assert!(local::read_file(&root, "../secret.txt", false).is_err(), "nothing above it");
+    assert_eq!(local::list_all_files(&root).unwrap().files, ["sub/a.md"]);
+    let h = Harness::new(vec![]);
+    // ripgrep when this machine has it (else it says what it needs).
+    match local::search(&h.engine, "path:x", &root, &q("needle")) {
+        Ok(found) => assert_eq!(found.files, 1, "{found:?}"),
+        Err(e) => assert!(e.contains("ripgrep"), "{e}"),
+    }
+    assert!(local::list_files("/no/such/folder", "", false).is_err());
+}
+
+/// The user's save from the viewer: in place, atomically, permissions
+/// kept, line endings as given; never over a file changed since it was
+/// read, never outside the folder, never for another machine's agent.
+#[test]
+fn saving_stays_inside_the_folder_on_this_computer() {
+    let outside = TempDir::new("outside-w");
+    std::fs::write(outside.path().join("secret.txt"), "secret").unwrap();
+    let dir = TempDir::new("save");
+    let root = dir.path().to_string_lossy().into_owned();
+    let w = |p: &str, b: &[u8]| std::fs::write(dir.path().join(p), b).unwrap();
+    w("a.txt", b"one\r\ntwo\r\n");
+    w("big.txt", &vec![b'x'; read::MAX_TEXT as usize + 1]);
+    w("latin1.txt", b"caf\xe9\n");
+    w("blob.dat", b"ab\0cd");
+    w("notes.txt", b"ab\0cd");
+    w("logo.png", b"png");
+    let linked = crate::platform::symlink(&outside.path().join("secret.txt"), &dir.path().join("secret-link")).is_ok();
+    crate::platform::set_mode(&dir.path().join("a.txt"), 0o640).unwrap();
+    let h = Harness::new(vec![record("a", &root)]);
+
+    // Another machine's agent (or one mirrored from a peer): refused.
+    let err = write_file(&h.engine, "a", "a.txt", "x", None).unwrap_err();
+    assert!(err.contains("another machine"), "{err}");
+    h.engine.with("a", |a| a.facts.provider.local_process = true).unwrap();
+
+    let first = read_file(&h.engine, "a", "a.txt", false).unwrap();
+    assert!(!first.lossy);
+    let base = first.text.unwrap();
+    assert_eq!(write_file(&h.engine, "a", "a.txt", "one\r\ntwo!\r\n", Some(&base)), Ok(Saved::Written));
+    assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"one\r\ntwo!\r\n");
+    if let Some(mode) = crate::platform::mode(&dir.path().join("a.txt")) {
+        assert_eq!(mode, 0o640, "permissions kept");
+    }
+    // No temporary file left behind.
+    let names: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert!(!names.iter().any(|n| n.ends_with(".tmp")), "{names:?}");
+
+    // Changed on disk since it was read: nothing written, unless forced.
+    w("a.txt", b"theirs\n");
+    assert_eq!(write_file(&h.engine, "a", "a.txt", "mine\n", Some(&base)), Ok(Saved::ChangedOnDisk));
+    assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"theirs\n");
+    assert_eq!(write_file(&h.engine, "a", "a.txt", "mine\n", None), Ok(Saved::Written));
+    assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"mine\n");
+
+    for (p, why) in [
+        ("../x.txt", "invalid path"),
+        ("big.txt", "too large"),
+        ("latin1.txt", "not UTF-8"),
+        ("blob.dat", "binary"),
+        ("notes.txt", "binary"),
+        ("logo.png", "images"),
+        ("new.txt", "not found"),
+    ] {
+        let err = write_file(&h.engine, "a", p, "x", None).unwrap_err();
+        assert!(err.contains(why), "{p}: {err}");
+    }
+    assert!(!dir.path().join("new.txt").exists(), "nothing is created");
+    assert!(read_file(&h.engine, "a", "latin1.txt", false).unwrap().lossy);
+    if linked {
+        let err = write_file(&h.engine, "a", "secret-link", "x", None).unwrap_err();
+        assert!(err.contains("outside the agent's folder"), "{err}");
+        assert_eq!(std::fs::read_to_string(outside.path().join("secret.txt")).unwrap(), "secret");
+    }
+    // Too large a text to save.
+    let err = write_file(&h.engine, "a", "a.txt", &"y".repeat(read::MAX_TEXT as usize + 1), None).unwrap_err();
+    assert!(err.contains("too large"), "{err}");
+
+    // A folder on this computer (`path:`): the same rules.
+    assert_eq!(local::write_file(&root, "a.txt", "local\n", None), Ok(Saved::Written));
+    assert_eq!(std::fs::read(dir.path().join("a.txt")).unwrap(), b"local\n");
+    if linked {
+        assert!(local::write_file(&root, "secret-link", "x", None).unwrap_err().contains("outside"));
+    }
+}

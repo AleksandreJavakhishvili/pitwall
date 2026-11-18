@@ -1,7 +1,7 @@
 //! The view as an entity in a window: loading, layouts, find, reveal,
 //! keys and copying.
 
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{Entity, EntityInputHandler as _, TestAppContext, VisualTestContext};
 
 use super::*;
 use crate::theme::Theme;
@@ -285,4 +285,209 @@ fn folded_regions_open_for_reveal(cx: &mut TestAppContext) {
         view.read_with(cx, |v, _| v.rows.row_of(Side::New, 5).is_some()),
         "unfolded to show it"
     );
+}
+
+fn editable<'a>(cx: &'a mut TestAppContext, path: &str, text: &str) -> (Entity<CodeView>, &'a mut VisualTestContext) {
+    let (view, cx) = setup(cx);
+    let (p, t) = (path.to_string(), text.to_string());
+    view.update(cx, |v, cx| {
+        v.set_editable(true, cx);
+        v.set_file(&p, t, cx);
+    });
+    cx.run_until_parked();
+    draw(cx);
+    (view, cx)
+}
+
+fn text_of(view: &Entity<CodeView>, cx: &mut VisualTestContext) -> String {
+    view.read_with(cx, |v, _| v.text().unwrap())
+}
+
+fn caret(view: &Entity<CodeView>, line: usize, col: usize, cx: &mut VisualTestContext) {
+    view.update(cx, |v, cx| {
+        v.sel = Some(Selection::caret(Side::New, Pos::new(line, col)));
+        cx.notify();
+    });
+}
+
+/// Typing through the input handler (as the keyboard and input methods
+/// do), Enter keeping the indent, Backspace by grapheme, undo as one step,
+/// the file's CRLF line breaks and final newline kept.
+#[gpui::test]
+fn typing_edits_the_file_and_keeps_its_line_breaks(cx: &mut TestAppContext) {
+    let (view, cx) = editable(cx, "src/a.rs", "fn a() {\r\n    x\r\n}\r\n");
+    assert!(view.read_with(cx, |v, _| v.is_editing() && !v.is_dirty()));
+    caret(&view, 1, 5, cx);
+    cx.simulate_input("y");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("z");
+    assert_eq!(text_of(&view, cx), "fn a() {\r\n    xy\r\n    z\r\n}\r\n");
+    assert!(view.read_with(cx, |v, _| v.is_dirty()));
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text_of(&view, cx), "fn a() {\r\n    xy\r\n    \r\n}\r\n");
+    // Undo: the backspace, then Enter + typing.
+    let undo = if cfg!(target_os = "macos") { "cmd-z" } else { "ctrl-z" };
+    cx.simulate_keystrokes(undo);
+    assert_eq!(text_of(&view, cx), "fn a() {\r\n    xy\r\n    z\r\n}\r\n");
+    cx.simulate_keystrokes(undo);
+    cx.simulate_keystrokes(undo);
+    cx.simulate_keystrokes(undo);
+    assert_eq!(text_of(&view, cx), "fn a() {\r\n    x\r\n}\r\n");
+    assert!(!view.read_with(cx, |v, _| v.is_dirty()), "back to the file as read");
+    let redo = if cfg!(target_os = "macos") { "cmd-shift-z" } else { "ctrl-y" };
+    cx.simulate_keystrokes(redo);
+    assert_eq!(text_of(&view, cx), "fn a() {\r\n    xy\r\n}\r\n");
+}
+
+/// Georgian (three bytes a letter) and a combining mark: the caret moves
+/// and deletes whole graphemes; an input method's composition is one step.
+#[gpui::test]
+fn georgian_combining_marks_and_composition(cx: &mut TestAppContext) {
+    let (view, cx) = editable(cx, "notes.txt", "გამარჯობა\n");
+    caret(&view, 0, "გამარჯობა".len(), cx);
+    cx.simulate_input(" e\u{301}");
+    assert_eq!(text_of(&view, cx), "გამარჯობა e\u{301}\n");
+    cx.simulate_keystrokes("backspace");
+    assert_eq!(text_of(&view, cx), "გამარჯობა \n", "e and its accent go together");
+    caret(&view, 0, 3, cx);
+    cx.simulate_keystrokes("shift-right");
+    assert_eq!(view.read_with(cx, |v, _| v.selection().map(|s| (s.anchor.col, s.head.col))), Some((3, 6)));
+    cx.simulate_input("ო");
+    assert_eq!(text_of(&view, cx), "გომარჯობა \n");
+    // Composition: marked text replaced as it changes, then committed.
+    caret(&view, 0, 0, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |v, cx| {
+            v.replace_and_mark_text_in_range(None, "k", None, window, cx);
+            assert_eq!(v.marked_text_range(window, cx), Some(0..1));
+            v.replace_and_mark_text_in_range(None, "ká", None, window, cx);
+            v.replace_text_in_range(None, "ქ", window, cx);
+            assert_eq!(v.marked_text_range(window, cx), None);
+        })
+    });
+    assert_eq!(text_of(&view, cx), "ქგომარჯობა \n");
+    let undo = if cfg!(target_os = "macos") { "cmd-z" } else { "ctrl-z" };
+    cx.simulate_keystrokes(undo);
+    assert_eq!(text_of(&view, cx), "გომარჯობა \n", "the whole composition undone at once");
+}
+
+/// Tab and Shift-Tab use the file's indentation (tabs here), over every
+/// selected line; cut and paste go through the clipboard.
+#[gpui::test]
+fn indent_cut_and_paste(cx: &mut TestAppContext) {
+    let (view, cx) = editable(cx, "x.go", "func a() {\n\tb()\n\tc()\n}\n");
+    view.update(cx, |v, cx| {
+        v.sel = Some(Selection { side: Side::New, anchor: Pos::new(1, 0), head: Pos::new(2, 5) });
+        cx.notify();
+    });
+    cx.simulate_keystrokes("tab");
+    assert_eq!(text_of(&view, cx), "func a() {\n\t\tb()\n\t\tc()\n}\n");
+    cx.simulate_keystrokes("shift-tab shift-tab");
+    assert_eq!(text_of(&view, cx), "func a() {\nb()\nc()\n}\n");
+    caret(&view, 1, 0, cx);
+    let (cut, paste) = if cfg!(target_os = "macos") { ("cmd-x", "cmd-v") } else { ("ctrl-x", "ctrl-v") };
+    cx.simulate_keystrokes(cut);
+    assert_eq!(text_of(&view, cx), "func a() {\nc()\n}\n", "nothing selected: the line");
+    assert_eq!(cx.read_from_clipboard().and_then(|c| c.text()).as_deref(), Some("b()\n"));
+    caret(&view, 2, 0, cx);
+    cx.simulate_keystrokes(paste);
+    assert_eq!(text_of(&view, cx), "func a() {\nc()\nb()\n}\n");
+}
+
+/// Find, then Replace one and Replace All (one undo step); a regular
+/// expression's groups are expanded.
+#[gpui::test]
+fn replace_and_replace_all(cx: &mut TestAppContext) {
+    let (view, cx) = editable(cx, "a.txt", "cat bat\ncat\nრა cat\n");
+    cx.update(|window, cx| {
+        view.update(cx, |v, cx| {
+            v.open_replace(false, window, cx);
+            v.set_find_text("cat", window, cx);
+        })
+    });
+    view.update(cx, |v, cx| v.replace_one("dog", cx));
+    assert_eq!(text_of(&view, cx), "dog bat\ncat\nრა cat\n");
+    let n = view.update(cx, |v, cx| v.replace_all("cow", cx));
+    assert_eq!(n, 2);
+    assert_eq!(text_of(&view, cx), "dog bat\ncow\nრა cow\n");
+    let undo = if cfg!(target_os = "macos") { "cmd-z" } else { "ctrl-z" };
+    cx.simulate_keystrokes(undo);
+    assert_eq!(text_of(&view, cx), "dog bat\ncat\nრა cat\n", "Replace All is one step");
+    cx.update(|window, cx| {
+        view.update(cx, |v, cx| {
+            v.set_query(|q| q.regex = true, false, cx);
+            v.set_find_text("(\\w)at", window, cx);
+        })
+    });
+    let n = view.update(cx, |v, cx| v.replace_all("${1}ot", cx));
+    assert_eq!(n, 3);
+    assert_eq!(text_of(&view, cx), "dog bot\ncot\nრა cot\n");
+}
+
+/// ⌘S asks the owner; once saved the same text keeps the history, and a
+/// different one (the file changed on disk) replaces the buffer.
+#[gpui::test]
+fn save_is_asked_and_a_reload_replaces_the_buffer(cx: &mut TestAppContext) {
+    let (view, cx) = editable(cx, "a.txt", "one\n");
+    let saves = std::rc::Rc::new(std::cell::Cell::new(0));
+    let s = saves.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&view, move |_, e: &CodeViewEvent, _| {
+            if *e == CodeViewEvent::Save {
+                s.set(s.get() + 1)
+            }
+        })
+        .detach()
+    });
+    caret(&view, 0, 3, cx);
+    cx.simulate_input("!");
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") { "cmd-s" } else { "ctrl-s" });
+    assert_eq!(saves.get(), 1);
+    view.update(cx, |v, cx| v.set_file("a.txt", "one!\n".into(), cx));
+    assert!(view.read_with(cx, |v, _| !v.is_dirty() && v.edit.as_ref().unwrap().buf.can_undo()));
+    // The agent changed it: the new text, clean, caret kept in range.
+    view.update(cx, |v, cx| v.set_file("a.txt", "two\nthree\n".into(), cx));
+    cx.run_until_parked();
+    assert_eq!(text_of(&view, cx), "two\nthree\n");
+    assert!(view.read_with(cx, |v, _| !v.is_dirty() && !v.edit.as_ref().unwrap().buf.can_undo()));
+    // Turned off: read-only again, typing says so.
+    view.update(cx, |v, cx| v.set_editable(false, cx));
+    cx.run_until_parked();
+    draw(cx);
+    cx.simulate_keystrokes("x");
+    assert!(view.read_with(cx, |v, _| v.text().is_none() && v.readonly_at.is_some()));
+}
+
+/// Diffs stay read-only even with editing on.
+#[gpui::test]
+fn diffs_are_not_edited(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    view.update(cx, |v, cx| {
+        v.set_editable(true, cx);
+        v.set_diff("x.rs", OLD.into(), NEW.into(), cx);
+    });
+    cx.run_until_parked();
+    draw(cx);
+    assert!(!view.read_with(cx, |v, _| v.is_editing()));
+}
+
+/// A large file: each keystroke changes only its line (no re-highlight of
+/// the whole file until typing pauses).
+#[gpui::test]
+fn typing_in_a_large_file_touches_only_its_line(cx: &mut TestAppContext) {
+    let text: String = (0..20_000).map(|i| format!("let v{i} = {i};\n")).collect();
+    let (view, cx) = editable(cx, "big.rs", &text);
+    cx.executor().advance_clock(std::time::Duration::from_secs(1));
+    cx.run_until_parked();
+    let hl_before = view.read_with(cx, |v, _| v.content.as_ref().unwrap().new_hl.len());
+    caret(&view, 10_000, 0, cx);
+    cx.simulate_input("x");
+    view.read_with(cx, |v, _| {
+        let c = v.content.as_ref().unwrap();
+        assert_eq!(c.new.lines[10_000].text.as_ref(), "xlet v10000 = 10000;");
+        assert_eq!(c.new_hl.len(), hl_before, "spans kept, shifted on the line");
+    });
+    cx.executor().advance_clock(std::time::Duration::from_secs(1));
+    cx.run_until_parked();
+    assert!(text_of(&view, cx).contains("xlet v10000"));
 }

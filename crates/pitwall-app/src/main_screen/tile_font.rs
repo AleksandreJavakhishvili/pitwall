@@ -50,6 +50,7 @@ mod tests {
         Node::Pane {
             id: id.into(),
             agent_id: Some(agent.into()),
+            files: None,
         }
     }
 
@@ -77,6 +78,7 @@ mod tests {
         let empty = Node::Pane {
             id: "p1".into(),
             agent_id: None,
+            files: None,
         };
         assert!(auto_fonts(&empty, (800., 600.), Density::Dense, 13.).is_empty());
     }

@@ -95,6 +95,10 @@ pub enum ContentKind {
     /// Over the size cap (2 MiB, or 10 MiB when asked for); not
     /// transferred.
     TooLarge,
+    /// An image the viewer can draw (PNG, JPEG, GIF, WebP, SVG) and within
+    /// the image cap (10 MiB). Not transferred here: the viewer reads its
+    /// bytes itself.
+    Image,
 }
 
 /// One file for the viewer (`read_file`).
@@ -110,6 +114,10 @@ pub struct FileView {
     pub text: Option<String>,
     /// A language hint from its name ("rust", "typescript", …).
     pub lang: Option<String>,
+    /// The file isn't valid UTF-8: `text` has replacement characters (the
+    /// viewer doesn't edit it).
+    #[serde(default)]
+    pub lossy: bool,
 }
 
 /// What to search for (`search_files`). Defaults match VS Code's: a plain,

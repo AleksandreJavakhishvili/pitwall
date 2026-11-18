@@ -7,6 +7,11 @@ new_args = []
 resume_args = ["resume", "{session_id}"]
 assign_session_id = false
 hooks = "codex-global"
+# Pitwall's `pitwall` MCP server (show files in Pitwall, agents.showFiles):
+# `-c mcp_servers.pitwall.command=… -c mcp_servers.pitwall.args=…`, config
+# overrides for this run only (`codex --help`; learn.chatgpt.com
+# docs/extend/mcp). ~/.codex/config.toml is not edited.
+mcp = "codex-config"
 # rulesync target used when applying rules (docs/spec/rules.md).
 rulesync_target = "codexcli"
 # `codex --worktree`: a new Codex-managed worktree (the flag takes no name).

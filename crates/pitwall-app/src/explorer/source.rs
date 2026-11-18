@@ -32,6 +32,35 @@ pub trait Source: Send + Sync + 'static {
     fn read_outside(&self, path: &str, large: bool) -> Res<FileView> {
         core::read_local_file(path, large)
     }
+    /// An image's bytes (one `read_file` said is an image).
+    fn read_image(&self, agent_id: &str, path: &str) -> Res<Vec<u8>>;
+    /// [`read_image`](Self::read_image) for a file outside the agent's
+    /// folder, on this machine.
+    fn read_outside_image(&self, path: &str) -> Res<Vec<u8>> {
+        core::read_local_image(path)
+    }
+    /// The user saves `text` they edited over `path` (`base`: the file as
+    /// it was read; it changed since: nothing written). Files of agents on
+    /// this computer and `path:` folders only; agents never reach this.
+    fn write_file(&self, agent_id: &str, path: &str, text: &str, base: Option<&str>) -> Res<core::Saved> {
+        let _ = (agent_id, text, base);
+        Err(format!("{path} can't be saved here"))
+    }
+}
+
+/// What the viewer reads is named by a key: an agent's id (its folder, on
+/// its machine), or `path:` and a folder on this computer (an agent asked
+/// to show a folder outside every agent's: `core::explorer::local`).
+pub const PATH_KEY: &str = "path:";
+
+/// The key of folder `root` on this computer.
+pub fn path_key(root: &str) -> String {
+    format!("{PATH_KEY}{root}")
+}
+
+/// The folder a `path:` key names (`None`: an agent's id).
+pub fn root_of_key(key: &str) -> Option<&str> {
+    key.strip_prefix(PATH_KEY)
 }
 
 /// The hosted engine.
@@ -39,19 +68,43 @@ pub struct EngineSource(pub Shared);
 
 impl Source for EngineSource {
     fn list_files(&self, agent_id: &str, dir: &str, ignored: bool) -> Res<DirListing> {
-        core::list_files(&self.0, agent_id, dir, ignored)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::list_files(root, dir, ignored),
+            None => core::list_files(&self.0, agent_id, dir, ignored),
+        }
     }
     fn list_all_files(&self, agent_id: &str) -> Res<FileIndex> {
-        core::list_all_files(&self.0, agent_id)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::list_all_files(root),
+            None => core::list_all_files(&self.0, agent_id),
+        }
     }
     fn read_file(&self, agent_id: &str, path: &str, large: bool) -> Res<FileView> {
-        core::read_file(&self.0, agent_id, path, large)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::read_file(root, path, large),
+            None => core::read_file(&self.0, agent_id, path, large),
+        }
     }
     fn search(&self, agent_id: &str, query: &SearchQuery) -> Res<SearchResult> {
-        core::search(&self.0, agent_id, query)
+        match root_of_key(agent_id) {
+            Some(root) => core::local::search(&self.0, agent_id, root, query),
+            None => core::search(&self.0, agent_id, query),
+        }
     }
     fn cancel_search(&self, agent_id: &str) {
         core::cancel_search(&self.0, agent_id)
+    }
+    fn read_image(&self, agent_id: &str, path: &str) -> Res<Vec<u8>> {
+        match root_of_key(agent_id) {
+            Some(root) => core::local::read_image(root, path),
+            None => core::read_image(&self.0, agent_id, path),
+        }
+    }
+    fn write_file(&self, agent_id: &str, path: &str, text: &str, base: Option<&str>) -> Res<core::Saved> {
+        match root_of_key(agent_id) {
+            Some(root) => core::local::write_file(root, path, text, base),
+            None => core::write_file(&self.0, agent_id, path, text, base),
+        }
     }
 }
 
@@ -101,6 +154,10 @@ pub mod fake {
         pub ignored: Mutex<Vec<String>>,
         pub lists: AtomicUsize,
         pub cancels: AtomicUsize,
+        /// Saves written.
+        pub writes: AtomicUsize,
+        /// Saving is refused (another machine's agent, say).
+        pub refuse_writes: std::sync::atomic::AtomicBool,
     }
 
     impl FakeSource {
@@ -176,7 +233,9 @@ pub mod fake {
             let text = files.get(path).ok_or(format!("{path}: not found"))?;
             let size = text.len() as u64;
             let cap = if large { LARGE_CAP } else { TEXT_CAP };
-            let (kind, text) = if text.contains('\0') {
+            let (kind, text) = if pitwall_core::explorer::is_image(path) {
+                (ContentKind::Image, None)
+            } else if text.contains('\0') {
                 (ContentKind::Binary, None)
             } else if size > cap {
                 (ContentKind::TooLarge, None)
@@ -189,6 +248,7 @@ pub mod fake {
                 kind,
                 text,
                 lang: None,
+                lossy: false,
             })
         }
 
@@ -222,6 +282,25 @@ pub mod fake {
 
         fn cancel_search(&self, _: &str) {
             self.cancels.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn read_image(&self, _: &str, path: &str) -> Res<Vec<u8>> {
+            let files = self.files.lock().unwrap();
+            files.get(path).map(|t| t.as_bytes().to_vec()).ok_or(format!("{path}: not found"))
+        }
+
+        fn write_file(&self, _: &str, path: &str, text: &str, base: Option<&str>) -> Res<pitwall_core::explorer::Saved> {
+            if self.refuse_writes.load(Ordering::SeqCst) {
+                return Err("Files of agents on another machine can't be edited here.".into());
+            }
+            let mut files = self.files.lock().unwrap();
+            let now = files.get(path).ok_or(format!("{path}: not found"))?;
+            if base.is_some_and(|b| b != now) {
+                return Ok(pitwall_core::explorer::Saved::ChangedOnDisk);
+            }
+            files.insert(path.to_string(), text.to_string());
+            self.writes.fetch_add(1, Ordering::SeqCst);
+            Ok(pitwall_core::explorer::Saved::Written)
         }
     }
 

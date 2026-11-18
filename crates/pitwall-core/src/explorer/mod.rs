@@ -1,7 +1,7 @@
-//! The read-only code explorer (docs/spec/explorer.md): list, read and
-//! search the folder an agent works in, on its machine (through its
-//! [`Exec`]). Nothing here writes to the agent's folder or starts anything
-//! but read-only commands.
+//! The code explorer (docs/spec/explorer.md): list, read and search the
+//! folder an agent works in, on its machine (through its [`Exec`]). It
+//! starts nothing but read-only commands. The one write is the user's own
+//! save from the viewer ([`write_file`]): agents on this computer only.
 //!
 //! Every path from a client is relative to the agent's folder (its "root").
 //! It is checked ([`clean`]) before anything runs, and then resolved on the
@@ -11,6 +11,7 @@
 mod read;
 mod search;
 mod tree;
+mod write;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -194,6 +195,128 @@ pub fn read_file(engine: &Engine, agent_id: &str, path: &str, large: bool) -> Re
 pub fn read_local_file(path: &str, large: bool) -> Res<FileView> {
     let max = if large { read::MAX_LARGE } else { read::MAX_TEXT };
     read::read(&crate::exec::LocalExec, path, path, max)
+}
+
+/// An image's bytes for the viewer (up to [`read::MAX_IMAGE`]).
+pub fn read_image(engine: &Engine, agent_id: &str, path: &str) -> Res<Vec<u8>> {
+    let rel = clean(path)?;
+    let c = ctx(engine, agent_id)?;
+    let root = c.root(engine, agent_id)?;
+    let real = c.resolve(&root, &rel)?;
+    read::read_bytes(&*c.exec, &rel, &real, read::MAX_IMAGE)
+}
+
+/// [`read_image`] for a file on this machine by its absolute path (the
+/// app's alone, as [`read_local_file`]).
+pub fn read_local_image(path: &str) -> Res<Vec<u8>> {
+    read::read_bytes(&crate::exec::LocalExec, path, path, read::MAX_IMAGE)
+}
+
+pub use read::{is_image, MAX_IMAGE};
+pub use write::{refused_by_name, Saved};
+
+/// Save `text` the user edited in the viewer over `path` of agent
+/// `agent_id`'s folder: only for an agent on this computer, a text file
+/// that is there (inside the folder, symlinks resolved), up to the
+/// viewer's text cap. `base`: the file as it was read; when it changed
+/// since, nothing is written ([`Saved::ChangedOnDisk`]); `None` writes
+/// over it (the user said so). Never reachable by agents (no MCP tool or
+/// command line calls it).
+pub fn write_file(engine: &Engine, agent_id: &str, path: &str, text: &str, base: Option<&str>) -> Res<Saved> {
+    let rel = clean(path)?;
+    if rel.is_empty() {
+        return Err("invalid path: a file is needed".into());
+    }
+    let local = engine.with(agent_id, |a| a.facts.provider.local_process)?;
+    if !local {
+        return Err("Files of agents on another machine can't be edited here.".into());
+    }
+    let c = ctx(engine, agent_id)?;
+    let root = c.root(engine, agent_id)?;
+    let real = c.resolve(&root, &rel)?;
+    write::write(&rel, &real, text, base)
+}
+
+/// The explorer over any folder on this machine, not an agent's: an agent
+/// asked to show a folder outside its own (the viewer beside it or in a
+/// window of its own roots its tree there). The app's alone, as
+/// [`read_local_file`]; the same rules inside the folder (paths relative
+/// to it, checked, symlinks out of it refused).
+pub mod local {
+    use super::*;
+
+    /// A folder on this machine, as the agent calls see an agent's.
+    fn ctx(root: &str) -> Res<(Ctx, String)> {
+        let c = Ctx {
+            exec: Arc::new(crate::exec::LocalExec),
+            cwd: root.to_string(),
+            real_cwd: None,
+            git_repo: None,
+            machine: "local/this".into(),
+            machine_label: String::new(),
+            caps: ProviderCaps { exec: true, ..ProviderCaps::default() },
+        };
+        let real = c.exec.real_path(root).map_err(|e| format!("{root} can't be read: {e}"))?;
+        Ok((c, real))
+    }
+
+    pub fn list_files(root: &str, dir: &str, ignored: bool) -> Res<DirListing> {
+        let dir = clean(dir)?;
+        let (c, real_root) = ctx(root)?;
+        let real = c.resolve(&real_root, &dir)?;
+        tree::list(&c, &dir, &real, ignored)
+    }
+
+    pub fn list_all_files(root: &str) -> Res<FileIndex> {
+        let (c, real_root) = ctx(root)?;
+        Ok(tree::index(&c, &real_root, None).0)
+    }
+
+    pub fn read_file(root: &str, path: &str, large: bool) -> Res<FileView> {
+        let rel = clean(path)?;
+        if rel.is_empty() {
+            return Err("invalid path: a file is needed".into());
+        }
+        let (c, real_root) = ctx(root)?;
+        let real = c.resolve(&real_root, &rel)?;
+        read::read(&*c.exec, &rel, &real, if large { read::MAX_LARGE } else { read::MAX_TEXT })
+    }
+
+    /// [`super::write_file`] for a folder on this computer.
+    pub fn write_file(root: &str, path: &str, text: &str, base: Option<&str>) -> Res<Saved> {
+        let rel = clean(path)?;
+        if rel.is_empty() {
+            return Err("invalid path: a file is needed".into());
+        }
+        let (c, real_root) = ctx(root)?;
+        let real = c.resolve(&real_root, &rel)?;
+        write::write(&rel, &real, text, base)
+    }
+
+    pub fn read_image(root: &str, path: &str) -> Res<Vec<u8>> {
+        let rel = clean(path)?;
+        let (c, real_root) = ctx(root)?;
+        let real = c.resolve(&real_root, &rel)?;
+        read::read_bytes(&*c.exec, &rel, &real, read::MAX_IMAGE)
+    }
+
+    /// A search in the folder; a newer one with the same `key` cancels it.
+    pub fn search(engine: &Engine, key: &str, root: &str, query: &SearchQuery) -> Res<SearchResult> {
+        let (c, real_root) = ctx(root)?;
+        let flag = Arc::new(AtomicBool::new(false));
+        if let Some(old) = lock(&engine.explorer.searches).insert(key.to_string(), flag.clone()) {
+            old.store(true, Ordering::Relaxed);
+        }
+        let (res, _) = search::run(&c, &real_root, query, &flag, None);
+        let mut running = lock(&engine.explorer.searches);
+        if running.get(key).is_some_and(|f| Arc::ptr_eq(f, &flag)) {
+            running.remove(key);
+        }
+        if flag.load(Ordering::Relaxed) {
+            return Err(search::CANCELLED.into());
+        }
+        res
+    }
 }
 
 /// Search the agent's folder (ripgrep, else `git grep`). A new search for

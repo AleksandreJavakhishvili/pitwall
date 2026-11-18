@@ -3,6 +3,16 @@
   "additionalProperties": true,
   "description": "The settings in Pitwall's ui.json (~/.pitwall/ui.json; $PITWALL_HOME/ui.json). Pitwall applies edits live; an invalid value is reported and the last good one kept. The file also holds spaces and layouts, which are not described here. `pitwall settings list` shows every setting, including the ones kept outside this file.",
   "properties": {
+    "agentsEditFiles": {
+      "default": true,
+      "description": "`agents.editFiles`: You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB. Files of agents on other machines, images, binary and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.",
+      "type": "boolean"
+    },
+    "agentsShowFiles": {
+      "default": true,
+      "description": "`agents.showFiles`: Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server per launch where the tool has a way (Claude Code, Codex, Copilot CLI, Qwen Code, Amp, opencode; your own config files are never edited), Aider gets a rule to run `pitwall-cli open`, and `pitwall open` does the same from a shell. Gemini CLI and Cursor Agent only read their own MCP files: see agents.showFilesGemini and agents.showFilesCursor. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.",
+      "type": "boolean"
+    },
     "density": {
       "default": "compact",
       "description": "`appearance.density`: Smallest tile before extra agents fold into chips (spaces may override it).",

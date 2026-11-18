@@ -90,6 +90,20 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// Set a file's permission bits (tests).
+#[cfg(test)]
+pub fn set_mode(file: &Path, mode: u32) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode))
+}
+
+/// A file's permission bits (tests; `None` where there are none).
+#[cfg(test)]
+pub fn mode(file: &Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(file).ok().map(|m| m.permissions().mode() & 0o777)
+}
+
 // ---------------------------------------------------------------- login shell
 
 /// `$SHELL`, else the OS's default shell (`macos.rs` / `linux.rs`).

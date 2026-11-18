@@ -21,6 +21,26 @@ pub fn stable(bin: PathBuf, data_root: &Path) -> PathBuf {
     bin
 }
 
+/// `bin` copied into `dest_dir` (unchanged copies are left alone), for a
+/// path written into something that outlives this app's place: an agent's
+/// launch command (its MCP server), which must keep working when the app
+/// is moved, updated or deleted while the agent runs, or resumed later.
+/// `bin` itself when copying fails.
+pub fn stable_copy(bin: &Path, dest_dir: &Path) -> PathBuf {
+    let Some(name) = bin.file_name() else { return bin.to_path_buf() };
+    let dest = dest_dir.join(name);
+    if dest == bin {
+        return dest;
+    }
+    match copy_if_changed(bin, &dest) {
+        Ok(()) => dest,
+        Err(e) => {
+            eprintln!("pitwall: could not copy {} to {}: {e}", bin.display(), dest_dir.display());
+            bin.to_path_buf()
+        }
+    }
+}
+
 /// `bin` copied into `dest_dir` when it lives under `mount` (unchanged
 /// copies are left alone); `bin` itself otherwise or when copying fails.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -43,7 +63,6 @@ fn stabilize(bin: &Path, mount: &Path, dest_dir: &Path) -> PathBuf {
 
 /// Write `to` only when its bytes differ. Replaced by rename, so holders
 /// still running the old copy keep their (unlinked) file.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn copy_if_changed(from: &Path, to: &Path) -> io::Result<()> {
     let new = std::fs::read(from)?;
     if std::fs::read(to).ok().as_deref() == Some(&new[..]) {
@@ -65,6 +84,26 @@ fn copy_if_changed(from: &Path, to: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stable_copy_follows_the_shipped_one() {
+        let root = std::env::temp_dir().join(format!("pw-stable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let app = root.join("Pitwall.app/Contents/MacOS");
+        std::fs::create_dir_all(&app).unwrap();
+        let bin = app.join("pitwall-cli");
+        std::fs::write(&bin, "v1").unwrap();
+        let dest = root.join("data/bin");
+        assert_eq!(stable_copy(&bin, &dest), dest.join("pitwall-cli"));
+        assert_eq!(std::fs::read_to_string(dest.join("pitwall-cli")).unwrap(), "v1");
+        // The app updated: the copy follows. The app gone: the copy stays.
+        std::fs::write(&bin, "v2").unwrap();
+        stable_copy(&bin, &dest);
+        assert_eq!(std::fs::read_to_string(dest.join("pitwall-cli")).unwrap(), "v2");
+        std::fs::remove_dir_all(root.join("Pitwall.app")).unwrap();
+        assert!(dest.join("pitwall-cli").is_file());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn helpers_inside_a_mount_are_copied_out_once() {

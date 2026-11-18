@@ -11,21 +11,31 @@
 //! 10 s while shown). The main view mounts three things from it: the Files
 //! panel ([`Explorer::panel`]), the viewer in the main area
 //! ([`Explorer::main_view`]) and the Explorer itself as an overlay (quick
-//! open, notices); [`on_actions`] wires the shortcuts on its root.
+//! open, notices); [`on_actions`] wires the shortcuts on its root. The
+//! files tiles in the layout keep their viewers in [`dock`] (one per agent
+//! across windows, moved as it is between tiles and windows: [`drag`]); a
+//! viewer in a window of its own is that window's ([`window`]).
 
 pub mod code_view;
+pub mod dock;
+pub mod drag;
+pub mod column;
 pub mod file_link;
 pub mod files_panel;
+pub mod image_view;
 
 
 pub mod logic;
 pub mod quick_open;
 pub mod search;
+pub mod show;
 pub mod source;
 pub mod tree;
 pub mod tree_view;
 pub mod viewer;
+pub mod unsaved;
 pub mod widgets;
+pub mod window;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -122,6 +132,9 @@ pub fn on_actions<E: InteractiveElement>(el: E, explorer: &Entity<Explorer>) -> 
 pub enum ExplorerEvent {
     /// "Show diff": open Review on this agent and file (Review's seam).
     ShowDiff { agent_id: String, path: String },
+    /// "Show diff" in a viewer reading a folder of its own (`path:`, a
+    /// worktree an agent works in now): Review on that worktree and file.
+    ShowWorktreeDiff { root: String, path: String },
     /// The viewer opened or closed (the right panel hides while it shows).
     ViewerToggled,
     /// Quick open (⌘P) opened: the window shows one modal at a time.
@@ -140,6 +153,9 @@ pub struct Explorer {
     /// The agent whose viewer is shown in the main area.
     open: Option<String>,
     quick: Option<Entity<QuickOpen>>,
+    /// Quick open was asked for by this viewer (a files tile): what is
+    /// picked opens there.
+    quick_into: Option<gpui::WeakEntity<Viewer>>,
     /// Quick open's input (a pop-up gives it the keyboard).
     quick_input: Option<gpui::FocusHandle>,
     recents: HashMap<String, Vec<String>>,
@@ -165,6 +181,7 @@ impl Explorer {
         cx: &mut Context<Self>,
     ) -> Explorer {
         let show_ignored = crate::ui_state::get(cx).explorer_show_ignored;
+        dock::remember_env(source.clone(), &store, cx);
         let ui = crate::ui_state::store(cx);
         let subs = vec![
             cx.observe(&store, |this, _, cx| this.store_changed(cx)),
@@ -194,6 +211,7 @@ impl Explorer {
             viewers: HashMap::new(),
             open: None,
             quick: None,
+            quick_into: None,
             quick_input: None,
             recents: HashMap::new(),
             notice: None,
@@ -352,7 +370,8 @@ impl Explorer {
         ids
     }
 
-    /// Every 10 s: the shown trees read their open folders again, quietly.
+    /// Every 10 s: the shown trees read their open folders again, quietly
+    /// (files tiles' trees: [`dock`]).
     fn poll(&mut self, cx: &mut Context<Self>) {
         for id in self.shown_agents() {
             if let Some(t) = self.trees.get(&id) {
@@ -378,6 +397,9 @@ impl Explorer {
                     t.update(cx, |t, cx| t.refresh(true, cx));
                 }
                 if let Some(v) = self.viewers.get(id) {
+                    v.update(cx, |v, cx| v.recheck(cx));
+                }
+                if let Some(v) = dock::viewer(id, cx).filter(|_| dock::key(id, cx).as_deref() == Some(id.as_str())) {
                     v.update(cx, |v, cx| v.recheck(cx));
                 }
             }
@@ -454,6 +476,18 @@ impl Explorer {
         cx.notify();
     }
 
+    /// Debug builds: agent `id`'s files tile's viewer, or (`main`) its
+    /// full viewer, opened if it isn't.
+    pub fn debug_viewer(&mut self, id: &str, main: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<Viewer>> {
+        if !main {
+            return dock::viewer(id, cx);
+        }
+        if self.open.as_deref() != Some(id) {
+            self.open_viewer(id, None, None, None, window, cx);
+        }
+        self.viewers.get(id).cloned()
+    }
+
     /// Whether one of its viewers (shown, or closed but still on screen
     /// until the next frame) has the keyboard.
     pub fn viewer_has_focus(&self, window: &Window, cx: &App) -> bool {
@@ -498,11 +532,35 @@ impl Explorer {
                 }),
                 ViewerEvent::Opened(path) => this.note_recent(&agent, path),
                 ViewerEvent::SetIgnored(on) => this.set_ignored(*on, cx),
+                // (A tile's and a window's controls.)
+                ViewerEvent::Close | ViewerEvent::Undock | ViewerEvent::Place(_) | ViewerEvent::Grip | ViewerEvent::Pin => {}
             },
         );
         self._subs.push(sub);
         self.viewers.insert(id.to_string(), viewer.clone());
         Some(viewer)
+    }
+
+    /// Quick open for files tile viewer `v` reading `key`: what is picked
+    /// opens there.
+    pub(crate) fn quick_open_into(&mut self, v: &Entity<Viewer>, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.quick_into = Some(v.downgrade());
+        self.quick_open(key, window, cx);
+    }
+
+    /// "Show diff" in a files tile reading `key`: Review on the agent's
+    /// file, or on the worktree a `path:` key reads.
+    pub(crate) fn show_diff_of(&mut self, key: &str, path: &str, cx: &mut Context<Self>) {
+        cx.emit(match source::root_of_key(key) {
+            None => ExplorerEvent::ShowDiff { agent_id: key.to_string(), path: path.to_string() },
+            Some(root) => ExplorerEvent::ShowWorktreeDiff { root: root.to_string(), path: path.to_string() },
+        });
+    }
+
+    /// A file opened in a files tile reading `key` (quick open lists it
+    /// first).
+    pub(crate) fn opened_in(&mut self, key: &str, path: &str) {
+        self.note_recent(key, path);
     }
 
     fn note_recent(&mut self, id: &str, path: &str) {
@@ -516,8 +574,16 @@ impl Explorer {
         let Some(source) = self.source.clone() else {
             return;
         };
-        let Some(a) = self.store.read(cx).agent(id).cloned() else {
-            return;
+        // An agent's folder, or (a files tile) any folder here.
+        let (name, shown) = match source::root_of_key(id) {
+            Some(root) => (
+                root.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(root).to_string(),
+                pitwall_core::paths::tildify(root),
+            ),
+            None => match self.store.read(cx).agent(id) {
+                Some(a) => (a.name.clone(), a.cwd_display.clone()),
+                None => return,
+            },
         };
         let recent = self.recents.get(id).cloned().unwrap_or_default();
         let agent = id.to_string();
@@ -525,8 +591,8 @@ impl Explorer {
             QuickOpen::new(
                 source,
                 agent.clone(),
-                a.name.clone(),
-                a.cwd_display.clone(),
+                name,
+                shown,
                 recent,
                 window,
                 cx,
@@ -537,7 +603,14 @@ impl Explorer {
             window,
             move |this, _, e: &QuickOpenEvent, window, cx| {
                 this.quick = None;
+                let into = this.quick_into.take().and_then(|v| v.upgrade());
                 match e {
+                    // Asked for by a files tile: it opens there.
+                    QuickOpenEvent::Picked(path) if into.is_some() => {
+                        if let Some(v) = into {
+                            v.update(cx, |v, cx| v.open(path.clone(), None, cx));
+                        }
+                    }
                     QuickOpenEvent::Picked(path) => {
                         this.open_viewer(&agent, Some(path.clone()), None, None, window, cx)
                     }
@@ -659,3 +732,88 @@ impl Render for Explorer {
 
 #[cfg(test)]
 mod tests;
+
+/// The `files-edit` debug command on `viewer` (in `window`): see
+/// `MainView::bench`.
+pub fn debug_edit(viewer: Entity<Viewer>, what: &str, window: &mut Window, cx: &mut App) {
+    use gpui::EntityInputHandler as _;
+    let (verb, arg) = what.split_once(' ').unwrap_or((what, ""));
+    let code = viewer.read(cx).active_code();
+    let focus_code = |window: &mut Window, cx: &mut App| {
+        if let Some(c) = &code {
+            let f = gpui::Focusable::focus_handle(c.read(cx), cx);
+            window.focus(&f, cx);
+        }
+    };
+    match verb {
+        "type" => {
+            focus_code(window, cx);
+            if let Some(c) = &code {
+                let text = arg.to_string();
+                c.update(cx, |c, cx| c.replace_text_in_range(None, &text, window, cx));
+            }
+        }
+        "keys" => {
+            focus_code(window, cx);
+            let keys: Vec<_> = arg.split_whitespace().filter_map(|k| gpui::Keystroke::parse_with_os(k, gpui::OperatingSystem::Mac).ok()).collect();
+            window.defer(cx, move |window, cx| {
+                for k in keys {
+                    window.dispatch_keystroke(k, cx);
+                }
+            });
+        }
+        "goto" => {
+            let mut n = arg.split_whitespace().filter_map(|v| v.parse::<usize>().ok());
+            if let (Some(c), Some(line), col) = (&code, n.next(), n.next().unwrap_or(1)) {
+                c.update(cx, |c, cx| c.reveal(crate::code_view::Side::New, line.max(1) - 1, Some(col.max(1) - 1..col.max(1) - 1), cx));
+            }
+            focus_code(window, cx);
+        }
+        "find" => {
+            if let Some(c) = &code {
+                let text = arg.to_string();
+                c.update(cx, |c, cx| {
+                    c.open_replace(false, window, cx);
+                    c.set_find_text(&text, window, cx);
+                });
+            }
+        }
+        "replace-all" => {
+            if let Some(c) = &code {
+                let with = arg.to_string();
+                let n = c.update(cx, |c, cx| c.replace_all(&with, cx));
+                eprintln!("pitwall-debug: replaced {n}");
+            }
+        }
+        "close-tab" => viewer.update(cx, |v, cx| {
+            if let Some(p) = v.active().map(str::to_string) {
+                v.request_close_tab(&p, window, cx);
+            }
+        }),
+        "close-window" => viewer.update(cx, |v, cx| v.guard(None, window, cx, |_, window, _| window.remove_window())),
+        "keep-mine" => viewer.update(cx, |v, cx| v.keep_mine(cx)),
+        "take-theirs" => viewer.update(cx, |v, cx| v.reload(cx)),
+        "difference" => viewer.update(cx, |v, cx| v.toggle_difference(cx)),
+        "recheck" => viewer.update(cx, |v, cx| v.recheck(cx)),
+        // The tree column: `tree` toggles it (as ⌘⇧E), `tree on|off`,
+        // `tree-width <px>` (as dragged and let go).
+        "tree" => viewer.update(cx, |v, cx| match arg {
+            "on" => v.set_tree(true, window, cx),
+            "off" => v.set_tree(false, window, cx),
+            _ => v.toggle_tree(window, cx),
+        }),
+        "tree-width" => viewer.update(cx, |v, cx| {
+            if let Ok(w) = arg.trim().parse::<f32>() {
+                v.debug_tree_width(w, cx);
+            }
+        }),
+        // An image's zoom: `zoom fit|100|in|out`.
+        "zoom" => viewer.update(cx, |v, cx| v.debug_zoom(arg.trim(), cx)),
+        "open" => viewer.update(cx, |v, cx| v.open(arg.trim().to_string(), None, cx)),
+        "search" => viewer.update(cx, |v, cx| v.show(Some(Pane::Search), window, cx)),
+        // The window in front of Pitwall's others (to look at it).
+        "front" => window.activate_window(),
+        "state" => eprintln!("pitwall-debug: viewer {}", viewer.read(cx).debug_state(cx)),
+        _ => eprintln!("pitwall-debug: files-edit {verb}?"),
+    }
+}

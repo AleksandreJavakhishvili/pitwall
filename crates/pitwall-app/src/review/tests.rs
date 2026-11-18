@@ -805,3 +805,73 @@ fn under_liquid_glass_a_dialog_is_a_pop_up_with_its_text_field(cx: &mut TestAppC
     assert!(view.read_with(cx, |v, _| v.dialog.is_none()), "Esc closed it");
     assert!(pops(cx).is_empty());
 }
+
+fn redraw(cx: &mut VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+}
+
+/// The list of changes hides and shows (its button, ⌘⇧E) and the diff
+/// then has the whole width; its edge drags the width, kept with the
+/// choice; a narrow Review starts with the list hidden.
+#[gpui::test]
+fn the_list_hides_and_its_width_is_dragged(cx: &mut TestAppContext) {
+    let r = Repo::new();
+    r.write("a.txt", "a\n");
+    r.git(&["add", "-A"]);
+    r.git(&["commit", "-q", "-m", "init"]);
+    let mut rec = record("agent-1", r.path());
+    rec.base_commit = Some(r.git(&["rev-parse", "HEAD"]));
+    let h = Harness::new(vec![rec]);
+    r.write("a.txt", "b\n");
+    let (view, cx) = open(cx, &h);
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(800.)));
+    redraw(cx);
+    let shown = |view: &Entity<ReviewView>, cx: &mut VisualTestContext| view.read_with(cx, |v, cx| v.list_shown(cx));
+    let kept = |cx: &mut VisualTestContext| cx.update(|_, cx| crate::ui_state::get(cx).review_list);
+    assert!(shown(&view, cx));
+    assert_eq!(view.read_with(cx, |v, cx| v.list_width(cx)), side::LIMITS.default);
+
+    // The button.
+    let at = cx.debug_bounds("rv-list-toggle").unwrap().center();
+    cx.simulate_click(at, gpui::Modifiers::none());
+    redraw(cx);
+    assert!(!shown(&view, cx));
+    assert_eq!(kept(cx).open, Some(false));
+    for _ in 0..4 {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        redraw(cx);
+    }
+    assert!(cx.debug_bounds(side::LIST).is_none(), "slid out: the diff has the width");
+    // The action ⌘⇧E is bound to.
+    view.update_in(cx, |v, window, cx| window.focus(&v.focus, cx));
+    cx.dispatch_action(ToggleList);
+    redraw(cx);
+    assert!(shown(&view, cx));
+    assert_eq!(kept(cx).open, Some(true));
+
+    // Its edge, dragged 80 px wider and let go.
+    for _ in 0..4 {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        redraw(cx);
+    }
+    let edge = cx.debug_bounds("rv-list-edge").expect("the edge").center();
+    cx.simulate_mouse_down(edge, gpui::MouseButton::Left, gpui::Modifiers::none());
+    cx.simulate_mouse_move(gpui::point(edge.x + gpui::px(30.), edge.y), Some(gpui::MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_move(gpui::point(edge.x + gpui::px(80.), edge.y), Some(gpui::MouseButton::Left), gpui::Modifiers::none());
+    cx.simulate_mouse_up(gpui::point(edge.x + gpui::px(80.), edge.y), gpui::MouseButton::Left, gpui::Modifiers::none());
+    redraw(cx);
+    let w = view.read_with(cx, |v, cx| v.list_width(cx));
+    assert!((w - 380.).abs() < 4., "{w}");
+    assert_eq!(kept(cx).width.map(f32::round), Some(w.round()));
+    // Reset (what the edge's double click does).
+    view.update(cx, |v, cx| v.reset_list_width(cx));
+    assert_eq!(view.read_with(cx, |v, cx| v.list_width(cx)), side::LIMITS.default);
+
+    // A narrow Review: hidden at first even though kept shown.
+    view.update(cx, |v, _| v.side.open = None);
+    cx.simulate_resize(gpui::size(gpui::px(600.), gpui::px(800.)));
+    redraw(cx);
+    assert!(!shown(&view, cx));
+}

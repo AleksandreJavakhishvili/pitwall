@@ -16,6 +16,7 @@ mod mount;
 pub mod model;
 pub mod ops;
 mod render;
+mod side;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -59,6 +60,8 @@ actions!(
         CancelComment,
         /// Esc in a dialog.
         CloseDialog,
+        /// ⌘⇧E: hide or show the list of changes.
+        ToggleList,
     ]
 );
 
@@ -79,6 +82,7 @@ pub fn register(cx: &mut App) {
             Some("Review"),
         ),
         KeyBinding::new("escape", Back, Some("Review")),
+        KeyBinding::new(if mac { "cmd-shift-e" } else { "ctrl-shift-alt-e" }, ToggleList, Some("Review")),
         KeyBinding::new("up", PreviousFile, Some("ReviewList")),
         KeyBinding::new("down", NextFile, Some("ReviewList")),
         KeyBinding::new("enter", OpenFile, Some("ReviewList")),
@@ -92,8 +96,8 @@ pub fn register(cx: &mut App) {
 pub enum Focus {
     /// An agent (and one of its files).
     Agent { id: String, path: Option<String> },
-    /// One worktree of a project.
-    Worktree { project_id: String, path: String },
+    /// One worktree of a project (and one of its files).
+    Worktree { project_id: String, path: String, file: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +150,8 @@ pub struct ReviewView {
     store: Entity<AgentStore>,
     focus: FocusHandle,
     list_focus: FocusHandle,
+    /// The list column: toggled, dragged, Review's width.
+    side: side::ListSide,
     /// The list's rows and scroll state.
     rv: list::RvList,
     prompt_scroll: gpui::ScrollHandle,
@@ -275,6 +281,7 @@ impl ReviewView {
                 match e {
                     CodeViewEvent::Comment { line } => this.start_comment(*line + 1, window, cx),
                     CodeViewEvent::Loaded => this.sync_preview(cx),
+                    CodeViewEvent::Edited | CodeViewEvent::Save => {}
                 }
             }),
             cx.observe_global::<Comments>(|this, cx| {
@@ -286,6 +293,7 @@ impl ReviewView {
             store,
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle(),
+            side: side::ListSide::default(),
             rv: list::RvList::new(cx),
             prompt_scroll: gpui::ScrollHandle::new(),
             space,
@@ -360,7 +368,7 @@ impl ReviewView {
                     }
                 }
             }
-            Some(Focus::Worktree { project_id, path }) => {
+            Some(Focus::Worktree { project_id, path, file }) => {
                 let key = model::wt_key(&project_id, &path);
                 self.extra = self
                     .projects
@@ -369,7 +377,7 @@ impl ReviewView {
                     .map(|p| p.agent_ids.clone())
                     .unwrap_or_default();
                 self.wt_open.insert(key.clone());
-                self.sel = Sel::Worktree { key, path: None };
+                self.sel = Sel::Worktree { key, path: file };
                 // A worktree is the project's: list the project around it.
                 if self.breadth == Breadth::Agent {
                     self.breadth = Breadth::Space;

@@ -54,45 +54,59 @@ pub fn hook_command(paths: &Paths) -> String {
     crate::platform::hook_relay_command(&paths.hook_script())
 }
 
-/// What follows `claude --settings`: the JSON itself, or — where the login
-/// shell can't hand JSON to a program intact (PowerShell) — the path of a
-/// file holding it (Claude Code takes either).
-pub fn claude_settings_arg(command: &str) -> String {
-    let json = claude_settings_json(command);
+/// What follows a Claude Code flag that takes JSON (`--settings`,
+/// `--mcp-config`): the JSON itself, or — where the login shell can't hand
+/// JSON to a program intact (PowerShell) — the path of a file holding it,
+/// `run/<stem>-<hash>.json` (Claude Code takes either).
+pub fn json_arg(json: &str, stem: &str) -> String {
     if shell::LoginShell::current().passes_json() {
-        return json;
+        return json.to_string();
     }
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in json.bytes() {
         h ^= u64::from(b);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    let path = paths::Paths::new(paths::Paths::default_root()).root().join("run").join(format!("claude-hooks-{h:016x}.json"));
+    let path = paths::Paths::new(paths::Paths::default_root()).root().join("run").join(format!("{stem}-{h:016x}.json"));
     let write = || -> std::io::Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        if std::fs::read_to_string(&path).ok().as_deref() != Some(json.as_str()) {
-            std::fs::write(&path, &json)?;
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(json) {
+            std::fs::write(&path, json)?;
         }
         Ok(())
     };
     match write() {
         Ok(()) => path.to_string_lossy().into_owned(),
-        Err(_) => json,
+        Err(_) => json.to_string(),
     }
 }
 
 /// `claude --settings` value wiring every event to the relay script.
 pub fn claude_settings_json(command: &str) -> String {
-    let mut hooks = serde_json::Map::new();
-    for event in EVENTS {
-        hooks.insert(
-            (*event).to_string(),
-            json!([{ "hooks": [{ "type": "command", "command": command }] }]),
-        );
+    claude_settings(Some(command), &[])
+}
+
+/// `claude --settings` value: every event wired to the relay `hook`
+/// command (if any), and `allow`ed tools (Pitwall's MCP tools), which
+/// Claude Code adds to the user's own permission rules.
+pub fn claude_settings(hook: Option<&str>, allow: &[String]) -> String {
+    let mut root = serde_json::Map::new();
+    if let Some(command) = hook {
+        let mut hooks = serde_json::Map::new();
+        for event in EVENTS {
+            hooks.insert(
+                (*event).to_string(),
+                json!([{ "hooks": [{ "type": "command", "command": command }] }]),
+            );
+        }
+        root.insert("hooks".into(), Value::Object(hooks));
     }
-    json!({ "hooks": hooks }).to_string()
+    if !allow.is_empty() {
+        root.insert("permissions".into(), json!({ "allow": allow }));
+    }
+    Value::Object(root).to_string()
 }
 
 // ---------------------------------------------------------------- mapping
@@ -481,6 +495,15 @@ mod tests {
             assert_eq!(v["hooks"][e][0]["hooks"][0]["type"], "command");
             assert_eq!(v["hooks"][e][0]["hooks"][0]["command"], "sh '/x y/hook'");
         }
+    }
+
+    #[test]
+    fn claude_settings_can_allow_tools_without_hooks() {
+        let v: Value = serde_json::from_str(&claude_settings(None, &["mcp__pitwall__show_files".into()])).unwrap();
+        assert_eq!(v, json!({"permissions": {"allow": ["mcp__pitwall__show_files"]}}));
+        let v: Value = serde_json::from_str(&claude_settings(Some("h"), &["t".into()])).unwrap();
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "h");
+        assert_eq!(v["permissions"]["allow"], json!(["t"]));
     }
 
     #[test]

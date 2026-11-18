@@ -162,7 +162,7 @@ fn commands_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwc-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("c.sock");
-    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None }).unwrap();
+    let server = serve(engine, approvals.clone(), Arc::new(Outside), pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: None, events: None }).unwrap();
     let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command;
 
     let o = run(&parse(&["agent", "list"]), &socket).unwrap();
@@ -266,7 +266,7 @@ fn settings_against_a_running_pitwall() {
     let sock_dir = std::env::temp_dir().join(format!("pwcs-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("s.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()), workspace: None, events: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: Some(backend.clone()), workspace: None, viewer: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     // The file is never touched while Pitwall answers.
     let root = dir.path().join("home");
@@ -446,7 +446,7 @@ impl Host {
         } else {
             None
         };
-        let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace, events: None };
+        let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace, viewer: None, events: None };
         let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
         Host { server: Some(server), approvals, socket, sock_dir, _dir: dir }
     }
@@ -694,7 +694,7 @@ fn rule_sets_and_imports_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwcr-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("r.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
     let answer = |allow: bool| {
@@ -817,7 +817,7 @@ fn project_rules_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwcp-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("p.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
     let answer = |allow: bool| {
@@ -917,7 +917,7 @@ fn skills_end_to_end() {
     let sock_dir = std::env::temp_dir().join(format!("pwck-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("k.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: None };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: None, events: None };
     let server = serve(engine, approvals.clone(), Arc::new(Outside), cfg).unwrap();
     let go = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
     let answer = |allow: bool| {
@@ -982,7 +982,7 @@ fn events_print_one_line_each_as_they_arrive() {
     let sock_dir = std::env::temp_dir().join(format!("pwce-{}", std::process::id()));
     std::fs::create_dir_all(&sock_dir).unwrap();
     let socket = sock_dir.join("e.sock");
-    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, events: Some(hub.clone()) };
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: None, events: Some(hub.clone()) };
     let server = serve(engine, Approvals::new(Duration::from_secs(10)), Arc::new(Outside), cfg).unwrap();
     let follow = |args: &[&str], human: bool| {
         let Command::Events(a) = Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command else { panic!("events") };
@@ -1038,4 +1038,99 @@ fn peers_switches_are_kept_in_the_data_folder() {
     let o = peers::run(&off, dir.path(), false).unwrap();
     assert_eq!(o.json, json!({"share": true, "show": false, "port": 5000}));
     assert!(dir.path().join("peers/identity.key").is_file());
+}
+
+/// The app's viewer, as a test sees it: what it was asked to show.
+#[derive(Default)]
+struct MemViewer(std::sync::Mutex<Vec<pitwall_proto::ViewerShow>>);
+
+impl pitwall_daemon::ViewerBackend for MemViewer {
+    fn show(&self, req: &pitwall_proto::ViewerShow) -> Result<pitwall_proto::ViewerShown, pitwall_proto::ErrorBody> {
+        self.0.lock().unwrap().push(req.clone());
+        Ok(pitwall_proto::ViewerShown {
+            agent_id: req.agent_id.clone(),
+            window: "pitwall-2".into(),
+            in_background: true,
+            place: req.place.unwrap_or_default(),
+            at: None,
+            root: "/w".into(),
+            note: None,
+        })
+    }
+    fn mirrored(&self, id: &str) -> Option<String> {
+        (id == "peer-agent").then(|| "api on studio".into())
+    }
+}
+
+/// `pitwall open` and the MCP server's tools, against a running server:
+/// paths resolved on the agent's machine, the setting, mirrored agents.
+#[test]
+fn open_and_the_mcp_tools_end_to_end() {
+    let dir = TempDir::new("cli-open");
+    let project = dir.path().join("api");
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    std::fs::write(project.join("src/a.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(project.join("README.md"), "# api\n").unwrap();
+    let project = std::fs::canonicalize(&project).unwrap();
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let viewer = Arc::new(MemViewer::default());
+    let sock_dir = std::env::temp_dir().join(format!("pwo-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("o.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: Some(viewer.clone()), events: None };
+    let server = serve(engine.clone(), Approvals::new(Duration::from_secs(5)), Arc::new(Outside), cfg).unwrap();
+    let cli = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let p = project.to_string_lossy().into_owned();
+    let id = cli(&["agent", "new", "--kind", "claude", "--project", &p, "--name", "api"]).unwrap().json["id"].as_str().unwrap().to_string();
+
+    let a = format!("{p}/src/a.rs:3:2");
+    let o = cli(&["open", "--agent", "api", &a, &format!("{p}/README.md"), &format!("{p}/gone.md"), "--where", "window"]).unwrap();
+    assert_eq!(o.json["opened"][0], json!({"path": format!("{p}/src/a.rs"), "line": 3, "column": 2}));
+    assert_eq!(o.json["opened"][1]["path"], format!("{p}/README.md"));
+    assert_eq!(o.json["skipped"][0], json!({"path": format!("{p}/gone.md"), "reason": "not found"}));
+    assert_eq!((o.json["window"].as_str(), o.json["place"].as_str(), o.json["inBackground"].as_bool()), (Some("pitwall-2"), Some("window"), Some(true)));
+    assert!(o.human.contains("without taking the keyboard"), "{}", o.human);
+    let shown = viewer.0.lock().unwrap().pop().unwrap();
+    assert_eq!((shown.agent_id.as_str(), shown.files.len(), shown.place), (id.as_str(), 2, Some(pitwall_proto::ViewerPlace::Window)));
+
+    // The MCP tool: the same request, from the agent (its id from the env).
+    let opener = mcp::SocketOpener { socket: socket.clone() };
+    let call = |name: &str, args: serde_json::Value, agent: Option<&str>| mcp::call(&opener, &json!({"name": name, "arguments": args}), agent.map(String::from));
+    let r = call("show_files", json!({"paths": ["src/a.rs:9", "README.md"]}), Some(&id));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["opened"][0]["path"], format!("{p}/src/a.rs"), "relative to the agent's folder");
+    let r = call("show_folder", json!({"folder": "src"}), Some(&id));
+    assert_eq!(r["structuredContent"]["folder"], format!("{p}/src"));
+    let r = call("show_folder", json!({}), Some(&id));
+    assert_eq!(r["structuredContent"]["folder"], p);
+    let r = call("show_files", json!({"paths": ["nope.rs"]}), Some(&id));
+    assert_eq!(r["isError"], true);
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("nope.rs (not found)"), "{r}");
+    // Outside any agent, with no agent named: the server says so.
+    let r = call("show_files", json!({"paths": ["/etc/hosts"]}), None);
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("say whose viewer"), "{r}");
+    // Another machine's agent, shown here read-only.
+    let e = cli(&["open", "--agent", "peer-agent", "/etc/hosts"]).err().unwrap();
+    assert!(e.to_string().contains("runs on another machine"), "{e}");
+
+    // Turned off: refused, with how to turn it on.
+    engine.set_show_files(false);
+    let e = cli(&["open", "--agent", &id, &a]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "off");
+    let r = call("show_files", json!({"paths": ["README.md"]}), Some(&id));
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("agents.showFiles true"), "{r}");
+    assert_eq!(viewer.0.lock().unwrap().len(), 3, "nothing shown while off");
+
+    // Pitwall not running.
+    server.stop();
+    engine.set_show_files(true);
+    let r = call("show_files", json!({"paths": ["README.md"]}), Some(&id));
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("Pitwall isn't running"), "{r}");
+    let _ = std::fs::remove_dir_all(&sock_dir);
 }

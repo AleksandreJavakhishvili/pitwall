@@ -71,6 +71,13 @@ pub fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyView> {
     Some(dialog.into())
 }
 
+/// Answer the request shown, as its buttons do (debug builds' `approval`).
+pub fn debug_answer(allow: bool, cx: &mut App) {
+    if let Some(d) = cx.try_global::<Global_>().map(|g| g.0.clone()) {
+        d.update(cx, |d, cx| d.answer(allow, cx));
+    }
+}
+
 impl ApprovalDialog {
     pub fn new(store: Entity<AgentStore>, answer: Answerer, cx: &mut Context<Self>) -> Self {
         let mut was_empty = store.read(cx).approvals.is_empty();

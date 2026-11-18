@@ -19,6 +19,7 @@ use pitwall_proto::{AgentView, Status};
 use crate::kit::icon;
 use super::menu::MenuItem;
 use crate::kit::keys;
+use super::files_tile;
 use super::topbar::AgentDrag;
 use super::tree::{self, Dir, Node, Preset, Side};
 use crate::kit::{
@@ -133,8 +134,11 @@ impl MainScreen {
         }
 
         let me = cx.entity().downgrade();
+        let boxes = self.files_boxes.clone();
+        boxes.clear();
         let measure = canvas(
             move |bounds: Bounds<Pixels>, _, cx: &mut App| {
+                boxes.set_area(bounds);
                 let _ = me.update(cx, |s, cx| {
                     if s.area != Some(bounds.size) {
                         s.area = Some(bounds.size);
@@ -181,7 +185,8 @@ impl MainScreen {
                     .min_h_0()
                     .flex()
                     .child(measure)
-                    .child(self.render_node(&tree, &ctx, agents, t, window, cx)),
+                    .child(self.render_node(&tree, &ctx, agents, t, window, cx))
+                    .children(self.files_edge_hint(t)),
             );
 
         let _ = bp;
@@ -445,7 +450,8 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         match node {
-            Node::Pane { id, agent_id } => {
+            Node::Pane { id, files: Some(owner), .. } => self.render_files_pane(id, owner, t, window, cx),
+            Node::Pane { id, agent_id, .. } => {
                 let agent = agent_id
                     .as_ref()
                     .and_then(|a| agents.iter().find(|x| x.id == *a))
@@ -729,7 +735,9 @@ impl MainScreen {
                     .and_then(|(_, z)| z);
                 this.drop_on_pane(&drop_id, &d.id, zone, window, cx);
             }))
+            .child(self.files_measure(pane_id, if has_agent { files_tile::Kind::Agent } else { files_tile::Kind::Empty }))
             .child(body)
+            .children(self.files_pane_hint(pane_id, has_agent, t))
             .when_some(hint, |d, zone| {
                 let no_room = has_agent
                     && match (zone, ctx.sizes.get(pane_id)) {
@@ -741,7 +749,7 @@ impl MainScreen {
             })
     }
 
-    fn drop_on_pane(
+    pub(super) fn drop_on_pane(
         &mut self,
         pane: &str,
         agent: &str,

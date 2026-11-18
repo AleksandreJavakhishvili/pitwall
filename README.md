@@ -48,7 +48,7 @@
 | **Wall** `⌘E` | Every live terminal at once, grouped by project, the ones that need you first. View-only; click a tile to take over. |
 | **Next up** `⌘.` | Queue the next instruction while the agent works. It's sent when the agent is done or idle and you aren't typing in it. |
 | **Review** `⌘R` | What each agent changed, per task. Comment on lines and send them back as one prompt; commit and merge only when you click. |
-| **Files** `⌘P` `⇧⌘F` | A read-only explorer of the agent's folder: file tree, viewer, quick open and search. ⌘-click a path in a terminal to open it, even outside the folder. The Changes panel matches `git status`: staged and unstaged apart, each repository inside the folder (or linked into it) in its own collapsible section with its branch. |
+| **Files** `⌘P` `⇧⌘F` | An explorer of the agent's folder: file tree, viewer, quick open and search, with quick fixes in the viewer (⌘S saves; agents on this computer, off in Settings). ⌘-click a path in a terminal to open it, even outside the folder. The Changes panel matches `git status`: staged and unstaged apart, each repository inside the folder (or linked into it) in its own collapsible section with its branch. |
 | **Spaces and tiles** | From one pane up to 4×4, spaces in their own windows (drag a tab out or onto another window, or `⌘⇧N`), density settings for big walls. |
 | **Appearance** | Light or dark, Flat or Glass: native Liquid Glass on macOS 26, vibrancy on older macOS, Mica on Windows 11, a painted "Glass lite" elsewhere. Terminals stay opaque; Reduce transparency and Reduce motion are respected. |
 | **Terminals** `⌘T` | A plain terminal in the focused agent's folder. Start `claude` or `codex` in it and the pane becomes that agent; Restart resumes it. |

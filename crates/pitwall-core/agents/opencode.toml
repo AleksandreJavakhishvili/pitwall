@@ -13,4 +13,8 @@ new_args = []
 resume_args = ["--session", "{session_id}"]
 assign_session_id = false
 hooks = "none"
+# Pitwall's `pitwall` MCP server (agents.showFiles): OPENCODE_CONFIG_CONTENT
+# in its environment, opencode's inline config, merged with the user's and
+# the project's (opencode.ai/v1/docs/config; from docs, not run).
+mcp = "opencode-env"
 rulesync_target = "opencode"

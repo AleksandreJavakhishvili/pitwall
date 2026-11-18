@@ -67,6 +67,42 @@ Pitwall keeps agent tools up to date itself (claude update, at startup and every
 - **Stored in:** `ui.json` → `noToolUpdates` (the opposite: `true` there means `false` here)
 - **When an agent changes it:** applies directly
 
+### `agents.showFiles`
+
+Agents can show you files, folders and images in Pitwall's file viewer when you ask them to: Pitwall gives the agents it starts its `pitwall` MCP server per launch where the tool has a way (Claude Code, Codex, Copilot CLI, Qwen Code, Amp, opencode; your own config files are never edited), Aider gets a rule to run `pitwall-cli open`, and `pitwall open` does the same from a shell. Gemini CLI and Cursor Agent only read their own MCP files: see agents.showFilesGemini and agents.showFilesCursor. false: agents start without it and `pitwall open` refuses. Applies when an agent starts.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsShowFiles`
+- **When an agent changes it:** applies directly
+
+### `agents.editFiles`
+
+You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB. Files of agents on other machines, images, binary and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsEditFiles`
+- **When an agent changes it:** applies directly
+
+### `agents.showFilesGemini`
+
+Pitwall's `pitwall` MCP server is in Gemini CLI's ~/.gemini/settings.json, so Gemini agents can show you files (Gemini has no per-launch way). Only Pitwall's entry is added or taken out; the rest of the file stays as it is, and a backup is kept next to it. true adds it, false takes it out.
+
+- **Values:** true or false
+- **Default:** `false`
+- **Stored in:** kept by Pitwall, outside `ui.json`
+- **When an agent changes it:** asks you in Pitwall first
+
+### `agents.showFilesCursor`
+
+Pitwall's `pitwall` MCP server is in Cursor's ~/.cursor/mcp.json, so Cursor Agent agents can show you files (Cursor Agent has no per-launch way). Only Pitwall's entry is added or taken out; the rest of the file stays as it is, and a backup is kept next to it. true adds it, false takes it out.
+
+- **Values:** true or false
+- **Default:** `false`
+- **Stored in:** kept by Pitwall, outside `ui.json`
+- **When an agent changes it:** asks you in Pitwall first
+
 ### `engineer.agent`
 
 What the Race Engineer (Pitwall's optional assistant) runs on: auto (Claude Code if installed, else the first installed agent), an agent id from New agent (claude, codex, gemini, opencode, aider, …) or custom (engineer.command). Applies the next time it starts.

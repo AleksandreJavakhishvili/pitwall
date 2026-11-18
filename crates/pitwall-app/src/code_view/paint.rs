@@ -21,6 +21,17 @@ use crate::theme::Theme;
 
 /// Room kept above the first line while Find is open (Monaco's zone).
 pub(super) const FIND_ZONE: f32 = 33.;
+/// The Replace row under Find.
+const REPLACE_H: f32 = 30.;
+
+/// The room Find takes above the first line (with its Replace row).
+pub(super) fn find_zone(replace: bool) -> f32 {
+    if replace {
+        FIND_ZONE + REPLACE_H
+    } else {
+        FIND_ZONE
+    }
+}
 /// Extra horizontal room past the longest line.
 pub(super) const CHAR_SLACK: f32 = 30.;
 const RULER_W: f32 = 30.;
@@ -51,7 +62,7 @@ impl PaneGeom {
         })
     }
 
-    fn text_left(&self) -> Pixels {
+    pub(super) fn text_left(&self) -> Pixels {
         self.bounds.left() + self.gutter_w() + px(TEXT_PAD)
     }
 
@@ -284,6 +295,21 @@ fn col_x(line: &ShapedLine, col: usize) -> Pixels {
 }
 
 impl CodeView {
+    /// Scroll sideways the least needed to show the caret (after an edit).
+    fn caret_into_view(&mut self, g: &Geom, window: &mut Window) {
+        let Some(s) = self.sel else { return };
+        let Some(c) = self.content.as_ref() else { return };
+        let Some(line) = c.doc(s.side).lines.get(s.head.line) else { return };
+        let x = x_for(window, &line.text, s.head.col);
+        let w = g.text_w();
+        self.max_width = self.max_width.max(x + px(CHAR_SLACK));
+        if x < self.scroll_x + px(8.) {
+            self.scroll_x = (x - w / 3.).max(px(0.));
+        } else if x > self.scroll_x + w - px(CHAR_SLACK) {
+            self.scroll_x = x - w + px(CHAR_SLACK * 2.);
+        }
+    }
+
     /// Lay out the visible rows and build what to paint.
     fn prepare(
         &mut self,
@@ -295,12 +321,16 @@ impl CodeView {
         let geom = geometry(self, bounds);
         self.geom = Some(geom.clone());
         self.apply_pending_reveal();
+        if std::mem::take(&mut self.caret_x) {
+            self.caret_into_view(&geom, window);
+        }
         self.clamp_scroll();
         let mut frame = Frame::default();
         let Some(content) = self.content.clone() else {
             return frame;
         };
         let focused = self.focus.is_focused(window);
+        let marked = self.marked_shown();
         let top_pad = self.top_pad();
         let first = self.rows.row_at(f32::from(self.scroll_y - top_pad));
         let last = self
@@ -537,6 +567,13 @@ impl CodeView {
                                         size((x1 - x0).max(px(0.)), px(LINE_H)),
                                     ),
                                     color,
+                                ));
+                            }
+                            if let Some((ma, mb)) = marked.filter(|(a, b)| side == Side::New && a.line == line && b.line == line) {
+                                let (x0, x1) = (text_x + col_x(&shaped, ma.col), text_x + col_x(&shaped, mb.col));
+                                text.over.push(fill(
+                                    Bounds::new(point(x0, y + px(LINE_H - 2.)), size((x1 - x0).max(px(1.)), px(1.))),
+                                    c.cursor,
                                 ));
                             }
                             if focused
@@ -879,6 +916,9 @@ impl CodeView {
     fn mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         self.readonly_at = None;
+        if let Some(ed) = self.edit.as_mut() {
+            ed.buf.break_run();
+        }
         if self.menu.take().is_some() {
             cx.notify();
             if e.button == MouseButton::Left {
@@ -1268,9 +1308,15 @@ pub(super) fn canvas_for(view: Entity<CodeView>, colors: Colors) -> impl IntoEle
             let frame = view.update(cx, |v, cx| v.prepare(bounds, &colors, window, cx));
             (hitbox, frame)
         },
-        move |_, (hitbox, frame), window, cx| {
+        move |bounds, (hitbox, frame), window, cx| {
             frame.paint(&hitbox, window, cx);
             let view = v2;
+            // Editing: typed text and input methods come to the view.
+            let editing = view.read(cx).is_editing();
+            if editing {
+                let focus = view.read(cx).focus.clone();
+                window.handle_input(&focus, gpui::ElementInputHandler::new(bounds, view.clone()), cx);
+            }
             {
                 let (view, hitbox) = (view.clone(), hitbox.clone());
                 window.on_mouse_event(move |e: &MouseDownEvent, phase, window, cx| {
@@ -1387,6 +1433,8 @@ pub(super) fn overlays(
         let in_sel = f.within.is_some();
         let field = f.field.clone();
         let focused = field.read(cx).is_focused(window);
+        let editing = v.edit.is_some();
+        let replace = f.replace.as_ref().map(|(r, _)| r.clone());
         let button = |id: &'static str, label: &'static str, tip: &'static str, enabled: bool| {
             div()
                 .id(id)
@@ -1427,6 +1475,20 @@ pub(super) fn overlays(
                 .text_color(c.widget_fg)
                 .text_size(px(12.))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .when(editing, |d| {
+                    let open = replace.is_some();
+                    d.child(
+                        button("find-replace-toggle", if open { "⌄" } else { "›" }, "Toggle Replace", true)
+                            .w(px(16.))
+                            .on_click(cx.listener(move |v, _, w, cx| {
+                                if open {
+                                    v.close_replace(cx)
+                                } else {
+                                    v.open_replace(true, w, cx)
+                                }
+                            })),
+                    )
+                })
                 .child(
                     div()
                         .flex_1()
@@ -1496,6 +1558,61 @@ pub(super) fn overlays(
                 )
                 ).into_any_element(),
         );
+        if let Some(rfield) = replace {
+            let rfocused = rfield.read(cx).is_focused(window);
+            let (r1, r2) = (rfield.clone(), rfield.clone());
+            out.push(
+                ui_text()
+                    .id("find-replace")
+                    .occlude()
+                    .absolute()
+                    .top(px(FIND_ZONE - 4.))
+                    .left(left)
+                    .w(w)
+                    .h(px(REPLACE_H))
+                    .pl(px(23.))
+                    .pr(px(4.))
+                    .flex()
+                    .items_center()
+                    .gap(px(3.))
+                    .bg(c.widget_bg)
+                    .border_1()
+                    .border_t_0()
+                    .border_color(c.widget_border)
+                    .rounded_b(px(4.))
+                    .shadow_md()
+                    .text_color(c.widget_fg)
+                    .text_size(px(12.))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(60.))
+                            .h(px(24.))
+                            .px(px(4.))
+                            .flex()
+                            .items_center()
+                            .bg(c.input_bg)
+                            .border_1()
+                            .border_color(if rfocused { c.focus } else { c.widget_border })
+                            .rounded(px(2.))
+                            .child(div().flex_1().min_w_0().text_size(px(12.)).line_height(px(18.)).child(rfield)),
+                    )
+                    .child(
+                        button("find-replace-one", "⇢", "Replace (Enter)", total > 0).on_click(cx.listener(move |v, _, _, cx| {
+                            let with = r1.read(cx).text().to_string();
+                            v.replace_one(&with, cx);
+                        })),
+                    )
+                    .child(
+                        button("find-replace-all", "⇉", "Replace All (⇧Enter)", total > 0).on_click(cx.listener(move |v, _, _, cx| {
+                            let with = r2.read(cx).text().to_string();
+                            v.replace_all(&with, cx);
+                        })),
+                    )
+                    .into_any_element(),
+            );
+        }
     }
 
     // Under Liquid Glass the hover and the hint are glass pop-ups above

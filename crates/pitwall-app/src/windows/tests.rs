@@ -284,6 +284,18 @@ fn a_dropped_window_is_kept_on_its_display() {
 }
 
 #[test]
+fn an_agents_files_go_beside_it_in_the_window_that_shows_it() {
+    let order: Vec<String> = ["pitwall-2", MAIN, "pitwall-1"].map(String::from).to_vec();
+    let s = |l: &[&str]| l.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    // Shown in two: the frontmost of them.
+    assert_eq!(frontmost_showing(&order, &s(&[MAIN, "pitwall-1"])), Some(MAIN));
+    assert_eq!(frontmost_showing(&order, &s(&["pitwall-1"])), Some("pitwall-1"));
+    // Shown in no open window: none (it opens in a window of its own).
+    assert_eq!(frontmost_showing(&order, &s(&["pitwall-9"])), None);
+    assert_eq!(frontmost_showing(&order, &[]), None);
+}
+
+#[test]
 fn a_point_on_screen_finds_the_frontmost_window_there() {
     let frame =
         |x: f32, y: f32, w: f32, h: f32| Bounds::new(point(px(x), px(y)), size(px(w), px(h)));

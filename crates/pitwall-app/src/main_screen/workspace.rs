@@ -18,6 +18,9 @@ use super::tree::{
     MinSize, Node, Preset, Rect, Side,
 };
 
+mod files;
+pub use files::{keep_files_tiles, whereabouts, DockedFiles, FilesSpot, Whereabouts, EDGE_SHARE, FILES_SHARE};
+
 pub const MAIN: &str = "main";
 pub const ALL_SPACE: &str = "all";
 pub const DEFAULT_FONT: f64 = 13.0;
@@ -260,6 +263,13 @@ pub struct UiState {
     /// the file, so it costs it nothing.
     #[serde(default, deserialize_with = "strict_true")]
     pub explorer_show_ignored: bool,
+    /// The file viewer's tree column, shown or hidden and its width, for
+    /// each kind of place a viewer is drawn in (`crate::explorer::column`).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "crate::explorer::column::FilesTree::is_empty")]
+    pub files_tree: crate::explorer::column::FilesTree,
+    /// Review's list of changes, shown or hidden and its width.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "crate::kit::side::SideState::is_empty")]
+    pub review_list: crate::kit::side::SideState,
     /// Review: diffs side by side (`true`) or inline; unset until chosen
     /// (`crate::review::ops` then reads the old `review.json`). The Tauri
     /// app keeps it in localStorage (`pitwall.review.sideBySide`).
@@ -291,6 +301,13 @@ pub struct UiState {
     /// Beside it: on the terminal's left instead of its right.
     #[serde(default, deserialize_with = "strict_true")]
     pub preview_left: bool,
+    /// A file viewer window's place and size (logical x, y, width,
+    /// height), as last left.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub files_window: Option<[f64; 4]>,
+    /// Files tiles: what each agent's has open (by agent).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub docked_files: BTreeMap<String, DockedFiles>,
     /// The agent kind New agent last started (picked first next time).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub new_agent_kind: Option<String>,
@@ -347,6 +364,8 @@ impl Default for UiState {
             look: Default::default(),
             reduce_motion: false,
             explorer_show_ignored: false,
+            files_tree: Default::default(),
+            review_list: Default::default(),
             review_side_by_side: None,
             right_files: false,
             sidebar_collapsed: false,
@@ -355,6 +374,8 @@ impl Default for UiState {
             right_open: true,
             preview_below: false,
             preview_left: false,
+            files_window: None,
+            docked_files: BTreeMap::new(),
             new_agent_kind: None,
             new_agent_accounts: BTreeMap::new(),
             rest: serde_json::Map::new(),
@@ -408,6 +429,9 @@ impl UiState {
             })
             .unwrap_or_default();
         let mut s: UiState = serde_json::from_value(raw).unwrap_or_default();
+        // Retired: the share of a file viewer split inside a terminal's
+        // tile (files now take a layout slot of their own: `files.rs`).
+        s.rest.remove("filesBeside");
         s.spaces = spaces.into_iter().map(Space::tidy).collect();
         if !s.spaces.iter().any(|sp| sp.id == ALL_SPACE) {
             s.spaces.insert(0, UiState::default().spaces.remove(0));
@@ -521,11 +545,18 @@ impl UiState {
                 .layout
                 .leaves()
                 .into_iter()
-                .find(|p| p.agent_id.is_none());
+                .find(|p| p.is_empty());
             let target = match pane {
                 Some(p) if sp.layout.find_pane(p).is_some() => p.to_string(),
                 _ => empty.map(|p| p.id).unwrap_or(reference),
             };
+            // Never over a files tile: beside it.
+            if sp.layout.find_pane(&target).is_some_and(|p| p.files.is_some()) {
+                let (t, id) = split_pane(&sp.layout, &target, Side::Left, Some(agent));
+                sp.layout = t;
+                sp.focused_pane_id = Some(id);
+                return sp;
+            }
             if let Some(a) = already.filter(|a| a.id != target) {
                 let displaced = sp.layout.find_pane(&target).and_then(|p| p.agent_id);
                 sp.layout = sp.layout.set_pane_agent(&a.id, displaced.as_deref());
@@ -619,6 +650,7 @@ impl UiState {
             ordered.truncate(n);
             build_preset(preset, &ordered)
         };
+        let layout = keep_files_tiles(&sp.layout, layout);
         self.map_space(space_id, |mut sp| {
             sp.focused_pane_id = Some(layout.leaves()[0].id.clone());
             sp.layout = layout;
@@ -795,6 +827,13 @@ impl UiState {
         for a in gone {
             next = next.unplace(&a, None);
         }
+        // Files tiles of agents that are gone (`alive` holds the ones kept
+        // for unsaved edits), and what they had open.
+        let mut owners: Vec<String> = next.spaces.iter().flat_map(|s| s.layout.files_owners()).collect();
+        owners.extend(next.docked_files.keys().cloned());
+        for o in owners.into_iter().filter(|o| !alive.contains(o)) {
+            next = next.undock_files(&o).forget_files(&o);
+        }
         next.tile_font.retain(|a, _| alive.contains(a));
         for sp in &mut next.spaces {
             sp.members.retain(|m| alive.contains(m));
@@ -855,10 +894,10 @@ impl UiState {
         else {
             return self.drop_on_space(space_id, agent, fit);
         };
-        if target.agent_id.as_deref() == Some(agent) {
+        if target.agent_id.as_deref() == Some(agent) || (target.files.is_some() && zone.is_none()) {
             return (self, DropOutcome::Noop, Some(pane_id.to_string()));
         }
-        if zone.is_none() || target.agent_id.is_none() {
+        if zone.is_none() || target.is_empty() {
             let from = self.locate(agent);
             let displaced = target.agent_id.clone();
             let mut next = self;
@@ -949,7 +988,7 @@ impl UiState {
         }
         let next = self.clone().detach(agent, space_id);
         let layout = next.space(space_id).expect("the space").layout.clone();
-        if let Some(empty) = layout.leaves().into_iter().find(|p| p.agent_id.is_none()) {
+        if let Some(empty) = layout.leaves().into_iter().find(|p| p.is_empty()) {
             let state = next.map_space(space_id, |x| {
                 let mut x = x.with_member(agent);
                 x.layout = x.layout.set_pane_agent(&empty.id, Some(agent));

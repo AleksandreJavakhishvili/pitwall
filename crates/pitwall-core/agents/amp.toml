@@ -11,4 +11,8 @@ new_args = []
 resume_args = ["threads", "continue", "{session_id}"]
 assign_session_id = false
 hooks = "none"
+# Pitwall's `pitwall` MCP server (agents.showFiles): `--mcp-config '<json>'`
+# per launch, merged with the user's servers; servers given this way need no
+# approval (ampcode.com/docs/customize/mcp; from docs, not run).
+mcp = "amp-config"
 rulesync_target = "amp"

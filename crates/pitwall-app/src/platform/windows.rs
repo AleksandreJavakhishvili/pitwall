@@ -34,6 +34,20 @@ thread_local! {
     static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
 }
 
+/// `HWND_TOPMOST` or back to `HWND_NOTOPMOST`, without moving, sizing or
+/// activating it (a file viewer window's pin).
+pub fn keep_on_top(window: &Window, on: bool) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+    let Some(h) = hwnd(window) else { return };
+    let after = if on { HWND_TOPMOST } else { HWND_NOTOPMOST };
+    // SAFETY: a plain user32 call on the UI thread with a live HWND.
+    if let Err(e) = unsafe { SetWindowPos(h, Some(after), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) } {
+        eprintln!("pitwall: could not keep the window on top: {e}");
+    }
+}
+
 /// The window's HWND, if gpui gives one.
 pub fn hwnd(window: &Window) -> Option<HWND> {
     match HasWindowHandle::window_handle(window).ok()?.as_raw() {

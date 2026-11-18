@@ -135,6 +135,11 @@ pub struct SettingsView {
     pub(super) cli_confirm: bool,
     pub(super) cli_dir: Option<String>,
     pub(super) cli_busy: bool,
+    /// Agents → how each kind shows files; the kind whose MCP file change
+    /// is being confirmed or made.
+    pub(super) show_routes: Vec<pitwall_core::show::KindRoute>,
+    pub(super) show_confirm: Option<String>,
+    pub(super) show_busy: bool,
     pub(super) error: Option<String>,
     /// Agents → Race Engineer.
     pub(super) engineer: super::engineer::Section,
@@ -195,6 +200,9 @@ impl SettingsView {
             tasks.push(t);
         }
         tasks.push(Self::read_cli(cx));
+        if let Some(t) = Self::read_show_routes(cx) {
+            tasks.push(t);
+        }
         // Full Disk Access, live while Settings is open.
         tasks.push(cx.spawn(async move |this, cx| loop {
             let s = cx
@@ -226,6 +234,9 @@ impl SettingsView {
                 }
                 let t = Self::read_cli(cx);
                 v._tasks.push(t);
+                if let Some(t) = Self::read_show_routes(cx) {
+                    v._tasks.push(t);
+                }
             }),
         ];
         // Parts a little past the edges are measured, not drawn; each is
@@ -244,6 +255,9 @@ impl SettingsView {
             cli_confirm: false,
             cli_dir: None,
             cli_busy: false,
+            show_routes: Vec::new(),
+            show_confirm: None,
+            show_busy: false,
             error: None,
             engineer: Default::default(),
             accounts: Default::default(),
@@ -276,6 +290,46 @@ impl SettingsView {
                 cx.notify();
             });
         }))
+    }
+
+    /// How each agent kind shows files (its MCP file read off the UI
+    /// thread).
+    fn read_show_routes(cx: &mut Context<Self>) -> Option<Task<()>> {
+        let engine = cx.try_global::<SettingsHost>().and_then(|h| h.engine.clone())?;
+        let read = cx.background_executor().spawn(async move { engine.show_files_routes() });
+        Some(cx.spawn(async move |this, cx| {
+            let r = read.await;
+            let _ = this.update(cx, |v, cx| {
+                v.show_routes = r;
+                cx.notify();
+            });
+        }))
+    }
+
+    /// Add Pitwall's server to `kind`'s MCP file, or take it out.
+    pub(super) fn set_show_file(&mut self, kind: String, add: bool, cx: &mut Context<Self>) {
+        let Some(engine) = cx.try_global::<SettingsHost>().and_then(|h| h.engine.clone()) else {
+            return;
+        };
+        self.show_busy = true;
+        cx.notify();
+        let run = cx.background_executor().spawn(async move {
+            let r = engine.set_show_files_file(&kind, add);
+            (r, engine.show_files_routes())
+        });
+        cx.spawn(async move |this, cx| {
+            let (r, routes) = run.await;
+            let _ = this.update(cx, |v, cx| {
+                v.show_busy = false;
+                v.show_confirm = None;
+                v.show_routes = routes;
+                if let Err(e) = r {
+                    v.error = Some(format!("Couldn't change the MCP file: {e}"));
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The command-line tool.

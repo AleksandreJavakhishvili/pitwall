@@ -65,6 +65,7 @@ fn main_checkout_needs_confirmation() {
         kind_name: "Claude Code".into(),
         target: Some("claudecode".into()),
         fallback: None,
+        show_files_rule: false,
     };
     let err = apply_with(&dirs, None, &LocalExec, &ctx, false).unwrap_err();
     assert!(err.contains("main checkout"), "{err}");
@@ -114,6 +115,7 @@ fn ctx(f: &Fixture, target: &str) -> AgentCtx {
         kind_name: "Claude Code".into(),
         target: Some(target.into()),
         fallback: None,
+        show_files_rule: false,
     }
 }
 
@@ -257,6 +259,7 @@ fn cleanup_goes_through_the_agents_machine() {
         kind_name: "Claude Code".into(),
         target: Some("claudecode".into()),
         fallback: None,
+        show_files_rule: false,
     };
     let res = apply_with(&dirs, None, &*x, &ctx, false).unwrap();
     assert!(res.generated.is_empty());
@@ -351,6 +354,45 @@ fn aider_reads_pitwalls_file_until_rules_are_unassigned() {
     apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
     assert!(!file.exists());
     assert!(launch_args(&f.dirs, "agent-1").is_empty());
+}
+
+/// Aider has no MCP: while `agents.showFiles` is on, the built-in rule
+/// tells it to run `pitwall-cli open`: in its rules file when it has one,
+/// else by `--read` of Pitwall's own copy. Off: gone, and its rules go
+/// stale.
+#[test]
+fn aider_is_told_to_run_pitwall_open_while_showing_files_is_on() {
+    let f = fixture();
+    let kinds = crate::kind::load_kinds(Path::new("/nonexistent"));
+    let aider = kinds.iter().find(|k| k.id == "aider").unwrap();
+    assert_eq!(aider.show_files_route(), crate::kind::ShowFilesRoute::ShellRule);
+    // Off: nothing.
+    assert!(show_files_args(&f.dirs, aider, "agent-1").is_empty());
+    sync_show_files_rule(&f.dirs, Some("/h/bin/pitwall-cli"));
+    let rule = f.dirs.show_files_rule();
+    let text = std::fs::read_to_string(&rule).unwrap();
+    assert!(text.contains("/h/bin/pitwall-cli open <file>"), "{text}");
+    // No rules of its own: Pitwall's copy, read at launch.
+    assert_eq!(show_files_args(&f.dirs, aider, "agent-1"), vec!["--read".to_string(), rule.to_string_lossy().into_owned()]);
+    // Kinds with an MCP way don't get it.
+    for id in ["claude", "codex", "copilot", "opencode", "qwen", "amp", "gemini", "cursor", "shell"] {
+        let k = kinds.iter().find(|k| k.id == id).unwrap();
+        assert!(show_files_args(&f.dirs, k, "agent-1").is_empty(), "{id}");
+        assert_ne!(k.show_files_route(), crate::kind::ShowFilesRoute::ShellRule, "{id}");
+    }
+    // With rules: in its file, and the file is what it reads.
+    assign(&f, &["style.md"], &[]);
+    let c = AgentCtx { show_files_rule: true, ..fallback_ctx(&f, "aider", "Aider") };
+    apply_with(&f.dirs, None, &LocalExec, &c, false).unwrap();
+    let file = f.wt.join(".aider.pitwall-rules.md");
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(written.contains("Use tabs.") && written.contains("pitwall-cli open --folder"), "{written}");
+    assert!(!written.contains("targets:"), "front matter dropped: {written}");
+    assert!(show_files_args(&f.dirs, aider, "agent-1").is_empty(), "its own file already has it");
+    assert!(!stale(&f.dirs, &read(&f.dirs), &c));
+    sync_show_files_rule(&f.dirs, None);
+    assert!(!rule.exists());
+    assert!(stale(&f.dirs, &read(&f.dirs), &c), "turning it off is a change to reapply");
 }
 
 /// The main checkout still needs the user's OK, fallback or not.
@@ -716,6 +758,7 @@ fn main_ctx(p: &Proj) -> AgentCtx {
         kind_name: "Claude Code".into(),
         target: Some("claudecode".into()),
         fallback: None,
+        show_files_rule: false,
     }
 }
 

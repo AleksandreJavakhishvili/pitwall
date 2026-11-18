@@ -12,6 +12,7 @@
 //! - [`views`]: what clients are shown (`AgentView`, sessions, …).
 //! - [`pipe`]: the Windows named pipe for a socket path.
 //! - [`settings`]: the settings registry (keys, types, defaults, schema).
+//! - [`show`]: agents showing files and folders to the user (`viewer.open`).
 //!
 //! Serde only: no sockets, no engine.
 
@@ -24,6 +25,7 @@ pub mod msg;
 pub mod peer;
 pub mod pipe;
 pub mod settings;
+pub mod show;
 pub mod views;
 
 pub use api::*;
@@ -32,6 +34,7 @@ pub use explorer::*;
 pub use manage::*;
 pub use msg::*;
 pub use settings::{SettingKey, SettingSet, SettingView};
+pub use show::*;
 pub use views::*;
 
 /// The protocol version this build speaks.

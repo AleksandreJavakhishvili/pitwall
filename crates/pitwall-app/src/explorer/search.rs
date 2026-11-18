@@ -248,6 +248,18 @@ impl SearchPane {
     }
 
     /// Stop the running search (the Stop button, leaving the pane).
+    /// Search `agent_id`'s files from now on (the folder it read went
+    /// away: its agent was removed); what was found is dropped.
+    pub fn set_key(&mut self, agent_id: String, cx: &mut Context<Self>) {
+        self.cancel(cx);
+        self.agent_id = agent_id;
+        self.result = None;
+        self.groups = Rc::new(Vec::new());
+        self.rows = Rc::new(Vec::new());
+        self.last = None;
+        cx.notify();
+    }
+
     pub fn cancel(&mut self, cx: &mut Context<Self>) {
         if self.busy || self.running.is_some() {
             self.seq += 1;

@@ -63,6 +63,18 @@ pub enum Command {
     /// Pitwall's data folder directly, without the app.
     #[command(subcommand)]
     Peers(PeersCmd),
+    /// Show files or a folder to the user in Pitwall's file viewer (it
+    /// only displays; the user may edit and save there): files as tabs
+    /// (`path:line[:col]` opens at a line), a folder or a whole worktree as
+    /// a tree with each file's git status.
+    /// Opens in a window of its own (beside the agent's terminal if you
+    /// docked it there), without bringing Pitwall forward over another
+    /// app. Off with `agents.showFiles`.
+    Open(OpenArgs),
+    /// Run Pitwall's MCP server on stdin/stdout (its tools `show_files` and
+    /// `show_folder` do what `open` does). Pitwall adds it to the agents it
+    /// starts; any MCP client can run it.
+    Mcp,
     /// Follow Pitwall as it changes: the agent list, agents that need you
     /// (blocked) or finished (done), and how many are blocked. The current
     /// list and count come first. Prints one JSON event per line until
@@ -487,6 +499,37 @@ pub enum ReviewCmd {
 }
 
 #[derive(Debug, Args, PartialEq)]
+pub struct OpenArgs {
+    /// Files to open: absolute, or relative to --root (default: this
+    /// folder). `src/main.rs:42` or `src/main.rs:42:7` opens at that line.
+    #[arg(value_name = "FILE")]
+    pub files: Vec<String>,
+    /// A folder to show as a tree (relative to --root, default: this
+    /// folder). With only --root, that folder is shown.
+    #[arg(long, value_name = "DIR")]
+    pub folder: Option<String>,
+    /// What relative paths are in: a folder, or a worktree of the agent's
+    /// repository by its folder name or branch. Default: this folder, shown
+    /// in the git worktree it is in.
+    #[arg(long, value_name = "DIR|WORKTREE")]
+    pub root: Option<String>,
+    /// Whose viewer (id or name; default: $PITWALL_AGENT_ID, the agent this
+    /// runs in).
+    #[arg(long, value_name = "AGENT")]
+    pub agent: Option<String>,
+    /// right, left, above or below (a files tile on that side of the
+    /// agent's terminal, in the Pitwall window that shows it) or window (a
+    /// window of its own). Default: where the agent's files are already,
+    /// else right. (beside: right.)
+    #[arg(long = "where", value_name = "PLACE", value_parser = ["right", "left", "above", "below", "window", "beside"])]
+    pub place: Option<String>,
+    /// With --where: next to this agent's terminal (id or name, in the same
+    /// space) instead.
+    #[arg(long, value_name = "AGENT")]
+    pub of: Option<String>,
+}
+
+#[derive(Debug, Args, PartialEq)]
 pub struct WaitArgs {
     /// The agent (id or name).
     pub agent: String,
@@ -713,6 +756,23 @@ mod tests {
     #[test]
     fn parses_every_command() {
         assert_eq!(parse(&["agent", "list"]).unwrap().command, Command::Agent(AgentCmd::List));
+        assert_eq!(
+            parse(&["open", "src/a.rs:42:7", "README.md", "--root", "fix/login", "--where", "window", "--agent", "api"]).unwrap().command,
+            Command::Open(OpenArgs {
+                files: vec!["src/a.rs:42:7".into(), "README.md".into()],
+                folder: None,
+                root: Some("fix/login".into()),
+                agent: Some("api".into()),
+                place: Some("window".into()),
+                of: None,
+            })
+        );
+        let Command::Open(o) = parse(&["open", "--folder", "src"]).unwrap().command else { panic!() };
+        assert_eq!((o.folder.as_deref(), o.files.len(), o.place), (Some("src"), 0, None));
+        assert!(parse(&["open", "a", "--where", "tab"]).is_err(), "right, left, above, below or window");
+        let Command::Open(o) = parse(&["open", "a", "--where", "above", "--of", "web"]).unwrap().command else { panic!() };
+        assert_eq!((o.place.as_deref(), o.of.as_deref()), (Some("above"), Some("web")));
+        assert_eq!(parse(&["mcp"]).unwrap().command, Command::Mcp);
         let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(
             c.command,

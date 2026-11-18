@@ -63,6 +63,15 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("page-right", "M3 4.5h14v11H3zM10 4.5v11M10 7.5h7"),
     ("page-left", "M3 4.5h14v11H3zM10 4.5v11M3 7.5h7"),
     ("page-below", "M3 4.5h14v11H3zM3 10h14M3 12.5h14"),
+    // Kept on top of other windows (a file viewer window).
+    ("pin", "M7.5 3h5M8.5 3v4.5L6 10.5h8L11.5 7.5V3M10 10.5V17"),
+    // Pressed and dragged: a files view moves into or out of the layout.
+    ("grip", "M7.5 5v.01M12.5 5v.01M7.5 10v.01M12.5 10v.01M7.5 15v.01M12.5 15v.01"),
+    // The file viewer: zoom out of an image, a file that can't be edited,
+    // a file changed on disk or not saved.
+    ("minus", "M4 10h12"),
+    ("lock", "M5.5 9h9v7.5h-9zM7.5 9V6.5a2.5 2.5 0 0 1 5 0V9"),
+    ("alert", "M10 3.5 17 16H3zM10 8.5v3.5M10 14h.01"),
 ];
 
 fn icon_path(name: &str) -> Option<&'static str> {

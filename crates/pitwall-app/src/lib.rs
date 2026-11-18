@@ -161,7 +161,8 @@ pub fn run() {
         }
         engineer::register(cx, engine.as_ref());
         if let Some(e) = engine.clone() {
-            follow_tool_updates(e, cx);
+            follow_tool_updates(e.clone(), cx);
+            follow_show_files(e, root_for_cli(cx), cx);
         }
         // The floating "needs you" control (after `ui_state`: its setting).
         if let (Some(e), Content::Live { store }) = (engine.clone(), cx.global::<AppState>().content.clone()) {
@@ -179,8 +180,9 @@ pub fn run() {
         }
         rules::init(cx, engine);
 
-        cx.on_action(|_: &Quit, cx| cx.quit());
-        cx.on_action(quit_and_stop_agents);
+        // Unsaved edits in a file viewer: asked about first.
+        cx.on_action(|_: &Quit, cx| explorer::unsaved::quit_guarded(cx, |cx| cx.quit()));
+        cx.on_action(|_: &QuitAndStopAgents, cx| explorer::unsaved::quit_guarded(cx, quit_and_stop_agents));
         // These run deferred: dispatched from inside the window (a button,
         // a key), the window is being updated and can't be reached yet.
         cx.on_action(|_: &ShowMain, cx| {
@@ -345,7 +347,27 @@ fn follow_tool_updates(engine: pitwall_core::engine::Shared, cx: &mut App) {
     cx.observe(&store, move |_, cx| engine.set_tool_updates(on(cx))).detach();
 }
 
-fn quit_and_stop_agents(_: &QuitAndStopAgents, cx: &mut App) {
+/// The data folder (for the stable copy of the shipped CLI).
+fn root_for_cli(cx: &App) -> Option<PathBuf> {
+    cx.global::<AppState>().root.clone()
+}
+
+/// `agents.showFiles`, followed live: agents started while it is on get
+/// Pitwall's MCP server (the shipped `pitwall-cli mcp`), and `viewer.open`
+/// refuses while it is off.
+fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>, cx: &mut App) {
+    // The stable copy (`~/.pitwall/bin/pitwall-cli`), made off the UI
+    // thread; agents started before it is there start without the server.
+    if let Some(r) = root {
+        let e = engine.clone();
+        cx.background_spawn(async move { e.set_cli_bin(platform::cli_install::mcp_cli(&r).ok()) }).detach();
+    }
+    engine.set_show_files(crate::explorer::show::enabled(cx));
+    let store = ui_state::store(cx);
+    cx.observe(&store, move |_, cx| engine.set_show_files(crate::explorer::show::enabled(cx))).detach();
+}
+
+fn quit_and_stop_agents(cx: &mut App) {
     let Some(engine) = cx
         .global::<AppState>()
         .host

@@ -138,8 +138,28 @@ pub fn app_in_front(cx: &App) -> bool {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        cx.active_window().is_some_and(|w| w.downcast::<crate::ui::MainView>().is_some())
+        cx.active_window().is_some_and(|w| {
+            w.downcast::<crate::ui::MainView>().is_some() || w.downcast::<crate::explorer::window::ViewerWindow>().is_some()
+        })
     }
+}
+
+/// A window can be kept above other apps' windows here (a file viewer
+/// window's pin): macOS and Windows. On Linux the window manager decides
+/// that (its own window menu has it), so the viewer offers no pin there.
+pub fn can_keep_on_top() -> bool {
+    cfg!(any(target_os = "macos", windows))
+}
+
+/// Keep `window` above other windows, other apps' too (or not any more).
+/// It doesn't take the keyboard or bring Pitwall forward.
+pub fn keep_on_top(window: &Window, on: bool) {
+    #[cfg(all(target_os = "macos", not(test)))]
+    macos::keep_on_top(window, on);
+    #[cfg(all(windows, not(test)))]
+    windows::keep_on_top(window, on);
+    #[cfg(any(test, not(any(target_os = "macos", windows))))]
+    let _ = (window, on);
 }
 
 /// Give the floating control a new size, keeping the corner it sits on:
@@ -438,6 +458,17 @@ pub fn float_resize(window: &mut Window, cx: &mut App, moved: impl FnMut(f32, f3
         let _ = (window, cx, moved, done);
         false
     }
+}
+
+/// Follow the pointer, pressed in `window`, until it is let go, across
+/// windows and outside them (files dragged into a Pitwall window's layout:
+/// `crate::explorer::drag`): `moved` hears how far it is from where it
+/// was pressed, in points (y down), `done` that it was let go. Polled on
+/// macOS, as [`float_resize`] is (the drag is not this window's once it
+/// leaves it). `false` where that isn't done here (not macOS): the caller
+/// offers the "Dock…" menu instead.
+pub fn track_pointer(window: &mut Window, cx: &mut App, moved: impl FnMut(f32, f32, &mut App) + 'static, done: impl FnOnce(&mut App) + 'static) -> bool {
+    float_resize(window, cx, moved, done)
 }
 
 /// The pointer shapes the floating control asks for.

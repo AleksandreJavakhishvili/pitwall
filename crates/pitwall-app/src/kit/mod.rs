@@ -40,6 +40,7 @@ pub mod passive;
 pub mod pop;
 pub mod scm;
 pub mod scrollbar;
+pub mod side;
 pub mod status;
 pub mod text;
 pub mod tooltip;
@@ -47,7 +48,7 @@ pub mod tooltip;
 pub use brand::brand_mark;
 pub use button::{
     accent_button, btn_radius, button, glyph_btn, icon_btn, icon_btn_state, kbd, kbd_on_primary,
-    keys, keys_for, on_primary, small_btn, text_button, BtnKind,
+    keys, keys_for, on_primary, small_btn, text_button, tool_btn, BtnKind,
 };
 pub use chip::{chip, chip_sm, chip_subtle, chip_tone, Tone};
 pub use controls::{

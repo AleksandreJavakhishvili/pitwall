@@ -20,6 +20,11 @@
 //! - Showing an agent that lives in another window's space focuses that
 //!   window, then the agent (⌘J, the sidebar, toasts, the Wall, the strip).
 //!   Settings and About open over the active window.
+//! - A file viewer an agent opened in a window of its own
+//!   (`crate::explorer::window`) is kept here too, by that agent, so the
+//!   agent's next call finds it ([`viewer_window`]). It isn't a Pitwall
+//!   window with spaces and isn't saved in `windows.json` (its size and
+//!   place are `ui.json`'s `filesWindow`).
 
 pub mod file;
 pub mod ownership;
@@ -59,6 +64,8 @@ pub struct Windows {
     quitting: bool,
     /// An agent being routed to its window this frame (one request per show).
     routing: Option<String>,
+    /// File viewer windows, by the agent they were opened for.
+    viewers: Vec<(String, WindowHandle<crate::explorer::window::ViewerWindow>)>,
 }
 
 impl Global for Windows {}
@@ -76,6 +83,7 @@ impl Windows {
             save: None,
             quitting: false,
             routing: None,
+            viewers: vec![],
         }
     }
 
@@ -196,6 +204,99 @@ pub fn active_or_main(cx: &mut App) -> Option<WindowHandle<MainView>> {
     }
     let show = state(cx).show_main?;
     Some(show(cx))
+}
+
+/// The open Pitwall window that shows agent `agent` in one of its spaces
+/// (of several, the frontmost): where its files tile goes, next to its
+/// terminal's slot. `None`
+/// when no open window shows it. Nothing is opened or activated here.
+pub fn showing(agent: &str, cx: &mut App) -> Option<(String, WindowHandle<MainView>)> {
+    let ui = crate::ui_state::get(cx);
+    let showing: Vec<String> = ui
+        .spaces
+        .iter()
+        .filter(|sp| sp.layout.find_by_agent(agent).is_some())
+        .map(|sp| ui.window_of_space(&sp.id).to_string())
+        .collect();
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let open: Vec<(String, WindowId)> = state(cx)
+        .open
+        .iter()
+        .filter(|(_, h)| live.contains(&h.window_id()))
+        .map(|(l, h)| (l.clone(), h.window_id()))
+        .collect();
+    let stack = cx.window_stack().map(|s| s.iter().map(|w| w.window_id()).collect());
+    let active = cx.active_window().map(|w| w.window_id());
+    let order = front_to_back(&open, stack, active);
+    let label = frontmost_showing(&order, &showing)?.to_string();
+    let handle = state(cx).handle(&label)?;
+    Some((label, handle))
+}
+
+/// The open Pitwall window `label`.
+pub fn main_window(label: &str, cx: &mut App) -> Option<WindowHandle<MainView>> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    state(cx).handle(label).filter(|h| live.contains(&h.window_id()))
+}
+
+/// The open Pitwall windows front to back, with their frames (only those
+/// that can take a drop: shown, on this Space).
+pub fn frames_front_to_back(cx: &mut App) -> Vec<(String, WindowHandle<MainView>, Bounds<Pixels>)> {
+    let Some(w) = cx.try_global::<Windows>() else { return vec![] };
+    let open = w.open.clone();
+    let ids: Vec<(String, WindowId)> = open.iter().map(|(l, h)| (l.clone(), h.window_id())).collect();
+    let stack = cx.window_stack().map(|s| s.iter().map(|w| w.window_id()).collect());
+    let active = cx.active_window().map(|w| w.window_id());
+    let mut out = vec![];
+    for label in front_to_back(&ids, stack, active) {
+        let Some((_, h)) = open.iter().find(|(l, _)| *l == label) else { continue };
+        let frame = h
+            .update(cx, |_, w, _| (cfg!(test) || crate::platform::visible::window_visible(w)).then(|| w.bounds()))
+            .ok()
+            .flatten();
+        if let Some(f) = frame {
+            out.push((label, *h, f));
+        }
+    }
+    out
+}
+
+/// [`showing`]'s choice among the open windows `order` (front to back):
+/// the frontmost of those `showing` the agent.
+pub(crate) fn frontmost_showing<'a>(order: &'a [String], showing: &[String]) -> Option<&'a str> {
+    order.iter().find(|l| showing.contains(l)).map(String::as_str)
+}
+
+/// The file viewer window open for agent `agent`, if any.
+pub fn viewer_window(agent: &str, cx: &mut App) -> Option<WindowHandle<crate::explorer::window::ViewerWindow>> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.viewers.retain(|(_, h)| live.contains(&h.window_id()));
+    w.viewers.iter().find(|(a, _)| a == agent).map(|(_, h)| *h)
+}
+
+/// The agents with a file viewer window open.
+pub fn viewer_window_owners(cx: &mut App) -> Vec<String> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.viewers.retain(|(_, h)| live.contains(&h.window_id()));
+    w.viewers.iter().map(|(a, _)| a.clone()).collect()
+}
+
+/// Keep file viewer window `handle` as agent `agent`'s.
+pub fn add_viewer_window(agent: &str, handle: WindowHandle<crate::explorer::window::ViewerWindow>, cx: &mut App) {
+    let w = state(cx);
+    w.viewers.retain(|(a, _)| a != agent);
+    w.viewers.push((agent.to_string(), handle));
+}
+
+/// How many file viewer windows are open (a new one is cascaded from the
+/// last).
+pub fn viewer_windows(cx: &mut App) -> usize {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.viewers.retain(|(_, h)| live.contains(&h.window_id()));
+    w.viewers.len()
 }
 
 /// Move `space` out of window `from` into a new window

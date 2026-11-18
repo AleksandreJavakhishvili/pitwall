@@ -17,6 +17,7 @@
 //! with [`register_route`] for their views, [`TerminalSlot`] for the
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
+mod files_tile;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -524,13 +525,19 @@ pub struct MainScreen {
     wt_list_entity: Entity<wt_list::WorktreeList>,
     seen_task: Option<Task<()>>,
     last_selected: Option<String>,
-    agent_ids: Vec<String>,
+    /// The agents last seen (`None`: not yet, so the first look prunes
+    /// `ui.json` even when there are none).
+    agent_ids: Option<Vec<String>>,
     elsewhere: elsewhere::ElsewhereState,
     _poll_elsewhere: Option<Task<()>>,
     /// The big, rarely changing pieces as cached views (part.rs).
     parts: Option<part::Parts>,
     /// Agents' in-app previews (preview.rs).
     previews: preview::Previews,
+    /// Where dragged files would land (`files_tile.rs`), and the boxes
+    /// the last frame drew (to find it).
+    files_hint: Option<files_tile::FilesHint>,
+    files_boxes: files_tile::Boxes,
     /// How often it rendered (tests).
     #[cfg(test)]
     renders: usize,
@@ -666,11 +673,13 @@ impl MainScreen {
             wt_list_entity: wt_list.clone(),
             seen_task: None,
             last_selected: None,
-            agent_ids: vec![],
+            agent_ids: None,
             elsewhere: Default::default(),
             _poll_elsewhere: None,
             parts: None,
             previews: Default::default(),
+            files_hint: None,
+            files_boxes: Default::default(),
             #[cfg(test)]
             renders: 0,
             _subs: subs,
@@ -799,12 +808,19 @@ impl MainScreen {
     fn agents_changed(&mut self, cx: &mut Context<Self>) {
         let agents = self.agents(cx).to_vec();
         let ids: Vec<String> = agents.iter().map(|a| a.id.clone()).collect();
-        if ids != self.agent_ids {
-            self.agent_ids = ids.clone();
+        let changed = match &self.agent_ids {
+            Some(before) => *before != ids,
+            None => self.engine.is_some() || !ids.is_empty(),
+        };
+        if changed {
+            self.agent_ids = Some(ids.clone());
             if let Some(e) = &self.engine {
                 self.projects = e.projects().list();
             }
-            self.update_ui(|s| s.prune_agents(&ids), cx);
+            // Files of removed agents close (or stay for unsaved edits).
+            let mut alive = ids.clone();
+            alive.extend(crate::explorer::dock::agents_gone(&ids, cx));
+            self.update_ui(|s| s.prune_agents(&alive), cx);
             // First run: the first agent goes to the All space (main window only).
             if self.label == MAIN
                 && !agents.is_empty()
@@ -1006,6 +1022,16 @@ impl MainScreen {
     }
 
     /// The active space's area and tile minimum (for drops and Auto grid).
+    /// Space `space`'s fit in this window's main area (files placed there:
+    /// `crate::explorer::dock`).
+    pub fn fit_for(&self, space: &str) -> Option<workspace::Fit> {
+        let (sp, area) = (self.ui.space(space)?, self.area?);
+        Some(workspace::Fit {
+            area: (f32::from(area.width) as f64, f32::from(area.height) as f64),
+            min: workspace::fold_min(self.ui.density_of(sp), self.ui.font_size),
+        })
+    }
+
     fn fit(&self) -> Option<workspace::Fit> {
         let (sp, area) = (self.active_space()?, self.area?);
         Some(workspace::Fit {
@@ -1031,7 +1057,7 @@ impl MainScreen {
             .focused_pane_id
             .as_ref()
             .and_then(|f| leaves.iter().find(|p| &p.id == f));
-        let target = leaves.iter().find(|p| p.agent_id.is_none()).or(focused);
+        let target = leaves.iter().find(|p| p.is_empty()).or(focused);
         let in_pane = |p: Option<&tree::Pane>| {
             p.and_then(|p| p.agent_id.as_deref())
                 .and_then(|id| crate::terminal::size_of(id, cx))

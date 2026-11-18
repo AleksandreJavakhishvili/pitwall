@@ -1,6 +1,9 @@
-//! The code view's colours: Monaco's vs-dark / vs token and diff colours
-//! with Pitwall's surfaces, as `src/components/review/review.css` sets them
-//! (`--rv-*`), for the dark and light schemes; and its font metrics.
+//! The code view's colours: Monaco's vs-dark token and diff colours with
+//! Pitwall's surfaces, as `src/components/review/review.css` sets them
+//! (`--rv-*`), for the dark scheme; for the light one, Pitwall's own token
+//! colours (Monaco's `vs` pure blue and red were loud on the light theme's
+//! grey-white), each at least 4.5:1 on the code background. Its font
+//! metrics.
 
 use gpui::{px, rgba, Font, FontFeatures, FontWeight, Hsla, Pixels};
 
@@ -110,8 +113,8 @@ impl Colors {
             slider_active: pick(0xbfbfbf66, 0x00000099),
             guide: pick(0x404040ff, 0xd3d3d3ff),
             guide_active: pick(0x707070ff, 0x939393ff),
-            cursor: pick(0xaeafadff, 0x000000ff),
-            sel: pick(0x264f78ff, 0xadd6ffff),
+            cursor: pick(0xaeafadff, 0x15181cff),
+            sel: pick(0x264f78ff, 0xc5d9f2ff),
             sel_inactive: pick(0x3a3d41ff, 0xe5ebf1ff),
             bracket_bg: c(0x0064001a),
             bracket_border: pick(0x888888ff, 0xb9b9b9ff),
@@ -138,19 +141,19 @@ impl Colors {
             brackets: if dark {
                 [c(0xffd700ff), c(0xda70d6ff), c(0x179fffff)]
             } else {
-                [c(0x0431faff), c(0x319331ff), c(0x7b3814ff)]
+                [c(0x3a5fa0ff), c(0x2e7a4aff), c(0x8a5a1cff)]
             },
-            stray: c(0xff1212cc),
-            keyword: pick(0x569cd6ff, 0x0000ffff),
-            string: pick(0xce9178ff, 0xa31515ff),
-            number: pick(0xb5cea8ff, 0x098658ff),
-            comment: pick(0x6a9955ff, 0x008000ff),
-            ty: pick(0x3dc9b0ff, 0x008080ff),
-            delimiter: pick(0xdcdcdcff, 0x000000ff),
-            regexp: pick(0xb46695ff, 0x811f3fff),
-            tag: pick(0x569cd6ff, 0x800000ff),
-            attr: pick(0x9cdcfeff, 0xe50000ff),
-            variable: pick(0x74b0dfff, 0x001188ff),
+            stray: pick(0xff1212cc, 0xc62f2fff),
+            keyword: pick(0x569cd6ff, 0x7c3aa8ff),
+            string: pick(0xce9178ff, 0x2a7240ff),
+            number: pick(0xb5cea8ff, 0x9a5200ff),
+            comment: pick(0x6a9955ff, 0x687280ff),
+            ty: pick(0x3dc9b0ff, 0x1d6a80ff),
+            delimiter: pick(0xdcdcdcff, 0x4f5661ff),
+            regexp: pick(0xb46695ff, 0x9b3557ff),
+            tag: pick(0x569cd6ff, 0x2a5aa6ff),
+            attr: pick(0x9cdcfeff, 0x8a5300ff),
+            variable: pick(0x74b0dfff, 0x22508cff),
         }
     }
 
@@ -187,6 +190,42 @@ mod tests {
         assert_eq!(d.token(Token::Bracket(3)), d.token(Token::Bracket(0)));
     }
 
+    /// WCAG contrast of `fg` on `bg` (both opaque).
+    fn contrast(fg: Hsla, bg: Hsla) -> f32 {
+        let lum = |c: Hsla| {
+            let r = gpui::Rgba::from(c);
+            let ch = |v: f32| if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+            0.2126 * ch(r.r) + 0.7152 * ch(r.g) + 0.0722 * ch(r.b)
+        };
+        let (a, b) = (lum(fg), lum(bg));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn every_token_colour_reads_on_the_code_background() {
+        for t in [Theme::light(), Theme::dark()] {
+            let c = Colors::for_theme(&t);
+            for tok in [
+                Token::Keyword,
+                Token::String,
+                Token::Number,
+                Token::Comment,
+                Token::Type,
+                Token::Delimiter,
+                Token::Regexp,
+                Token::Tag,
+                Token::Attr,
+                Token::Variable,
+                Token::Bracket(0),
+                Token::Bracket(1),
+                Token::Bracket(2),
+            ] {
+                let k = contrast(c.token(tok), c.bg);
+                assert!(k >= 4.5, "{tok:?} in {:?}: {k:.2}:1", t.mode);
+            }
+        }
+    }
+
     #[test]
     fn the_review_css_still_has_these_colours() {
         let css = include_str!("../../../../src/components/review/review.css");
@@ -196,10 +235,7 @@ mod tests {
             "#ce9178",
             "#264f78",
             "#da70d6",
-            "#0000ff",
             "#74b0df",
-            "#001188",
-            "#a31515",
         ] {
             assert!(
                 css.contains(v),
