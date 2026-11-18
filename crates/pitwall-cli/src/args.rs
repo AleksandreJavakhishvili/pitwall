@@ -518,13 +518,14 @@ pub struct OpenArgs {
     #[arg(long, value_name = "AGENT")]
     pub agent: Option<String>,
     /// right, left, above or below (a files tile on that side of the
-    /// agent's terminal, in the Pitwall window that shows it) or window (a
-    /// window of its own). Default: where the agent's files are already,
-    /// else right. (beside: right.)
-    #[arg(long = "where", value_name = "PLACE", value_parser = ["right", "left", "above", "below", "window", "beside"])]
+    /// agent's terminal, in the Pitwall window that shows it), replace (a
+    /// files tile in that terminal's place; the terminal leaves the layout
+    /// and keeps running) or window (a window of its own). Default: where
+    /// the agent's files are already, else right. (beside: right.)
+    #[arg(long = "where", value_name = "PLACE", value_parser = ["right", "left", "above", "below", "replace", "window", "beside"])]
     pub place: Option<String>,
-    /// With --where: next to this agent's terminal (id or name, in the same
-    /// space) instead.
+    /// With --where: next to (or, with replace, in place of) this agent's
+    /// terminal (id or name, in the same space) instead.
     #[arg(long, value_name = "AGENT")]
     pub of: Option<String>,
 }
@@ -769,7 +770,7 @@ mod tests {
         );
         let Command::Open(o) = parse(&["open", "--folder", "src"]).unwrap().command else { panic!() };
         assert_eq!((o.folder.as_deref(), o.files.len(), o.place), (Some("src"), 0, None));
-        assert!(parse(&["open", "a", "--where", "tab"]).is_err(), "right, left, above, below or window");
+        assert!(parse(&["open", "a", "--where", "tab"]).is_err(), "right, left, above, below, replace or window");
         let Command::Open(o) = parse(&["open", "a", "--where", "above", "--of", "web"]).unwrap().command else { panic!() };
         assert_eq!((o.place.as_deref(), o.of.as_deref()), (Some("above"), Some("web")));
         assert_eq!(parse(&["mcp"]).unwrap().command, Command::Mcp);

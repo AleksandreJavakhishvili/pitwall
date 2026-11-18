@@ -135,9 +135,9 @@ pub fn over(cx: &App) -> Option<(String, String, FilesSpot)> {
 /// Debug builds, `files-place …` (bench commands; nothing is moved or
 /// clicked on the screen, the same code a real drag or menu pick runs):
 ///
-/// - `<agent> right|left|above|below [of]`, `edge-right|edge-left|
+/// - `<agent> right|left|above|below|replace [of]`, `edge-right|edge-left|
 ///   edge-top|edge-bottom`, `own`, `window`: the "Dock…" / "Move…" menu's
-///   places (`of`: next to that agent's terminal, by id).
+///   places (`of`: next to, or in place of, that agent's terminal, by id).
 /// - `drag <agent> <window> <x> <y> [drop]`: the grip dragged to (`x`,
 ///   `y`) in Pitwall window `<window>`'s content (`out`: that far below
 ///   the main window, outside it), and let go there with `drop`.
@@ -216,6 +216,7 @@ pub fn debug(what: &str, cx: &mut App) {
                 "edge-bottom" => FilesPlace::Edge(Side::Bottom),
                 "own" => FilesPlace::Own,
                 "window" => FilesPlace::Window,
+                "replace" => FilesPlace::Replace,
                 _ => return say(format!("no place {place}")),
             };
             match super::dock::place(agent, p, rest.first().copied(), cx) {

@@ -17,8 +17,9 @@ pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER];
 
 /// Where the files show: a tile in the layout of the Pitwall window showing
 /// the calling agent, on that side of its terminal (or of the terminal
-/// `of` names), or a window of their own. Not given: right of the
-/// terminal. `beside` is read as `right`.
+/// `of` names), in that terminal's place (`replace`: the terminal leaves
+/// the layout and keeps running), or a window of their own. Not given:
+/// right of the terminal. `beside` is read as `right`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewerPlace {
@@ -28,6 +29,9 @@ pub enum ViewerPlace {
     Left,
     Above,
     Below,
+    /// In the terminal's tile's place, as big and where it is; the
+    /// terminal leaves the layout (the agent keeps running).
+    Replace,
     /// A window of its own.
     Window,
 }
@@ -42,7 +46,7 @@ impl<'de> Deserialize<'de> for ViewerPlace {
 
 impl ViewerPlace {
     /// Every word `where` takes, as the tools list them.
-    pub const WORDS: &'static [&'static str] = &["right", "left", "above", "below", "window"];
+    pub const WORDS: &'static [&'static str] = &["right", "left", "above", "below", "replace", "window"];
 
     pub fn parse(s: &str) -> Option<ViewerPlace> {
         match s.trim().to_ascii_lowercase().as_str() {
@@ -50,6 +54,7 @@ impl ViewerPlace {
             "left" => Some(ViewerPlace::Left),
             "above" | "top" => Some(ViewerPlace::Above),
             "below" | "bottom" => Some(ViewerPlace::Below),
+            "replace" | "instead" => Some(ViewerPlace::Replace),
             "window" => Some(ViewerPlace::Window),
             _ => None,
         }
@@ -61,6 +66,7 @@ impl ViewerPlace {
             ViewerPlace::Left => "left",
             ViewerPlace::Above => "above",
             ViewerPlace::Below => "below",
+            ViewerPlace::Replace => "replace",
             ViewerPlace::Window => "window",
         }
     }
@@ -208,6 +214,9 @@ mod tests {
         assert_eq!(serde_json::from_value::<ViewerOpen>(json!({})).unwrap(), ViewerOpen::default());
         assert_eq!(ViewerPlace::parse(" Beside "), Some(ViewerPlace::Right));
         assert_eq!(ViewerPlace::parse("above"), Some(ViewerPlace::Above));
+        assert_eq!(ViewerPlace::parse("Replace"), Some(ViewerPlace::Replace));
+        assert_eq!(ViewerPlace::Replace.word(), "replace");
+        assert!(ViewerPlace::Replace.is_tile());
         assert_eq!(ViewerPlace::parse("tab"), None);
         // `beside` (the old word) still reads as right.
         assert_eq!(serde_json::from_value::<ViewerOpen>(json!({"where": "beside"})).unwrap().place, Some(ViewerPlace::Right));

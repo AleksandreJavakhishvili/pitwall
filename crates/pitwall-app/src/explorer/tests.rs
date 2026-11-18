@@ -434,7 +434,7 @@ async fn closing_asks_but_moving_keeps_the_edits(cx: &mut TestAppContext) {
             let name = match e {
                 viewer::ViewerEvent::Close => "close".to_string(),
                 viewer::ViewerEvent::Undock => "undock".to_string(),
-                viewer::ViewerEvent::Place(p) => format!("{p:?}"),
+                viewer::ViewerEvent::Place(p, of) => format!("{p:?} {of:?}"),
                 _ => return,
             };
             seen.lock().unwrap().push(name);
@@ -469,7 +469,7 @@ async fn closing_asks_but_moving_keeps_the_edits(cx: &mut TestAppContext) {
     cx.simulate_click(at, gpui::Modifiers::none());
     cx.run_until_parked();
     assert!(!viewer.read_with(cx, |v, _| v.place_menu_open()));
-    assert_eq!(events.lock().unwrap().last().map(String::as_str), Some("Next(Top)"));
+    assert_eq!(events.lock().unwrap().last().map(String::as_str), Some("Next(Top) None"));
 
     // In a window of its own: "Dock right of the terminal", at once.
     viewer.update(cx, |v, cx| {
@@ -481,7 +481,7 @@ async fn closing_asks_but_moving_keeps_the_edits(cx: &mut TestAppContext) {
     cx.simulate_click(at, gpui::Modifiers::none());
     cx.run_until_parked();
     assert!(!cx.has_pending_prompt());
-    assert_eq!(events.lock().unwrap().last().map(String::as_str), Some("Next(Right)"));
+    assert_eq!(events.lock().unwrap().last().map(String::as_str), Some("Next(Right) None"));
     assert_eq!(on_disk(&src, "a.txt"), "a\n", "not saved: still unsaved");
 
     let v = viewer.downgrade();
@@ -579,6 +579,58 @@ async fn the_bar_drags_the_files_once_a_press_travels(cx: &mut TestAppContext) {
     let bar = cx.debug_bounds("ex-viewer-hint").unwrap().center();
     press(bar, 12., cx);
     assert!(take(&events).is_empty());
+}
+
+/// "Move…" lists the terminals in the files' space ("Replace …'s
+/// terminal", its own first); a pick asks for that place.
+#[gpui::test]
+async fn the_move_menu_offers_to_replace_each_terminal(cx: &mut TestAppContext) {
+    use crate::main_screen::tree::{build_preset, Preset};
+    use crate::main_screen::workspace::FilesSpot;
+    let src = FakeSource::new(&[("a.txt", "a\n")]);
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::code_view::register(cx);
+        cx.bind_keys(viewer::bindings());
+    });
+    let store = cx.new(|_| AgentStore::new(vec![readable("a1"), readable("b1")]));
+    let source: Arc<dyn Source> = src.clone();
+    cx.update(|cx| super::dock::remember_env(Some(source.clone()), &store, cx));
+    let (holder, tcx) = cx.add_window_view(|_, _| Holder(None));
+    // a1's and b1's terminals, a1's files beside them.
+    tcx.update(|_, cx| {
+        crate::ui_state::update(cx, |ui| {
+            let space = ui.spaces[0].id.clone();
+            let ids = vec!["a1".to_string(), "b1".to_string()];
+            *ui = ui.clone().set_layout(&space, build_preset(Preset::Two, &ids)).dock_files(&space, "a1", &FilesSpot::Auto, 0.45, None).0;
+        })
+    });
+    let viewer = tcx.update(|window, cx| super::dock::make("a1", "a1", window, cx)).expect("readable");
+    tcx.update(|_, cx| super::dock::adopt("a1", "a1", viewer.clone(), cx));
+    holder.update(tcx, |h, cx| {
+        h.0 = Some(viewer.clone().into());
+        cx.notify();
+    });
+    let events = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = events.clone();
+    tcx.update(|_, cx| {
+        cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
+            if let viewer::ViewerEvent::Place(p, of) = e {
+                seen.lock().unwrap().push(format!("{p:?} {of:?}"));
+            }
+        })
+        .detach()
+    });
+    redraw(tcx);
+    let at = tcx.debug_bounds("ex-move").expect("Move…").center();
+    tcx.simulate_click(at, gpui::Modifiers::none());
+    redraw(tcx);
+    assert!(tcx.debug_bounds("files-replace-0").is_some(), "its own terminal");
+    let at = tcx.debug_bounds("files-replace-1").expect("b1's terminal").center();
+    tcx.simulate_click(at, gpui::Modifiers::none());
+    tcx.run_until_parked();
+    assert_eq!(*events.lock().unwrap(), ["Replace Some(\"b1\")"]);
+    assert!(!viewer.read_with(tcx, |v, _| v.place_menu_open()));
 }
 
 /// A window that draws a files tile's viewer (a Pitwall window's layout,

@@ -124,6 +124,8 @@ pub enum Goal {
     InWindow,
     /// A tile on that side of the terminal (moved there if elsewhere).
     Next(Side),
+    /// In the terminal's tile's place (moved there if elsewhere).
+    Replace,
     /// A window of its own (the tile popped out if there is one).
     Window,
 }
@@ -132,6 +134,7 @@ pub enum Goal {
 pub fn goal(asked: Option<ViewerPlace>, tile: bool, window: bool) -> Goal {
     match asked {
         Some(ViewerPlace::Window) => Goal::Window,
+        Some(ViewerPlace::Replace) => Goal::Replace,
         Some(p) => Goal::Next(side_of(p)),
         None if tile => Goal::Tile,
         None if window => Goal::InWindow,
@@ -199,6 +202,8 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
     let mut note = None;
     let goal = goal(req.place, tile, window);
     let err = |e: String| ErrorBody::new(code::OTHER, e);
+    // The terminal the files took the place of, if they did.
+    let mut gone = None;
     let tiled = match goal {
         Goal::Tile => Some(tile_viewer(agent, &plan.key, cx).map_err(err)?),
         Goal::Next(side) => {
@@ -212,6 +217,24 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
                     }
                     Some(tile_viewer(agent, &plan.key, cx).map_err(err)?)
                 }
+                Err(_) => {
+                    let whose = of.map_or_else(|| name.clone(), name_of);
+                    note = Some(format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
+                    None
+                }
+            }
+        }
+        Goal::Replace => {
+            let of = req.of.as_deref();
+            match dock::spot_for(agent, FilesPlace::Replace, of, cx) {
+                Ok((label, space, spot)) => {
+                    gone = dock::replaced_by(&space, &spot, cx);
+                    dock::dock(agent, &label, &space, &spot, Some(&plan.key), cx).map_err(err)?;
+                    Some(tile_viewer(agent, &plan.key, cx).map_err(err)?)
+                }
+                // That terminal isn't in a layout: replaced already (by
+                // these files), added to; else a window of their own.
+                Err(_) if tile => Some(tile_viewer(agent, &plan.key, cx).map_err(err)?),
                 Err(_) => {
                     let whose = of.map_or_else(|| name.clone(), name_of);
                     note = Some(format!("{whose}'s terminal isn't shown in any open Pitwall window, so the files opened in a window of their own."));
@@ -236,7 +259,7 @@ pub fn show(req: &ViewerShow, cx: &mut App) -> Result<ViewerShown, ErrorBody> {
             window: label,
             in_background: !in_front,
             place: req.place.filter(|p| p.is_tile()).unwrap_or_default(),
-            at: Some(dock::described(agent, cx)),
+            at: Some(dock::with_replaced(dock::described(agent, cx), gone.as_deref(), cx)),
             root,
             note,
         });
@@ -445,6 +468,9 @@ mod tests {
         assert_eq!(goal(Some(Below), true, false), Goal::Next(Side::Bottom));
         assert_eq!(goal(Some(Left), false, false), Goal::Next(Side::Left));
         assert_eq!(goal(Some(Right), true, true), Goal::Next(Side::Right));
+        // In a terminal's place: there, wherever the files were.
+        assert_eq!(goal(Some(Replace), true, false), Goal::Replace);
+        assert_eq!(goal(Some(Replace), false, true), Goal::Replace);
     }
 
     #[test]
