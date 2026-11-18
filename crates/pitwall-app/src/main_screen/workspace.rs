@@ -273,6 +273,10 @@ pub struct UiState {
     /// window opens.
     #[serde(default, deserialize_with = "strict_true")]
     pub sidebar_collapsed: bool,
+    /// The sidebar's width as its edge was last dragged (`None`: the
+    /// default), read when a window opens; collapsing it keeps it.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub sidebar_width: Option<f32>,
     /// The one-time Full Disk Access hint was shown
     /// (`pitwall.accessHintShown`).
     #[serde(default, deserialize_with = "strict_true")]
@@ -346,6 +350,7 @@ impl Default for UiState {
             review_side_by_side: None,
             right_files: false,
             sidebar_collapsed: false,
+            sidebar_width: None,
             access_hint_shown: false,
             right_open: true,
             preview_below: false,

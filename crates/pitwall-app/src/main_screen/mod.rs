@@ -30,6 +30,7 @@ mod part;
 pub mod peer_term;
 mod peers;
 mod preview;
+mod side_edge;
 mod side_list;
 mod sidebar;
 mod space;
@@ -462,6 +463,13 @@ pub struct MainScreen {
     active: String,
     route: Route,
     sidebar_collapsed: bool,
+    /// The docked sidebar's width in this window (`None`: the default),
+    /// from `ui.json` when it opened ([`side_edge`]).
+    sidebar_w: Option<f32>,
+    /// The sidebar's edge being dragged.
+    side_drag: Option<side_edge::SideDrag>,
+    /// The width the sidebar was last drawn at (its rows' labels fit it).
+    side_drawn_w: f32,
     right_pinned: bool,
     overlay_sidebar: bool,
     drawer_open: bool,
@@ -609,6 +617,7 @@ impl MainScreen {
             subs.push(cx.subscribe(&m, |this, _, e: &crate::peers::PeersEvent, cx| this.peer_event(e, cx)));
         }
         let (sidebar_collapsed, right_pinned) = (ui.sidebar_collapsed, ui.right_open);
+        let sidebar_w = ui.sidebar_width;
         let mut screen = MainScreen {
             store,
             engine,
@@ -622,6 +631,9 @@ impl MainScreen {
             ui,
             route: Route::Space,
             sidebar_collapsed,
+            sidebar_w,
+            side_drag: None,
+            side_drawn_w: f32::from(theme::SIDEBAR_W),
             main_est: None,
             right_pinned,
             overlay_sidebar: false,
@@ -1859,7 +1871,7 @@ impl Render for MainScreen {
         {
             let vp = window.viewport_size();
             let side = match sidebar_mode {
-                SidebarMode::Full => f32::from(crate::theme::SIDEBAR_W),
+                SidebarMode::Full => f32::from(self.sidebar_width(window)),
                 SidebarMode::Rail => 56.,
                 SidebarMode::Hidden => 0.,
             };
@@ -1929,7 +1941,7 @@ impl Render for MainScreen {
             .when(sidebar_mode != SidebarMode::Hidden, |d| match &sidebar_part {
                 Some(p) => d.child(part::slot(
                     p,
-                    gpui::StyleRefinement::default().w(crate::kit::chrome_width(crate::theme::SIDEBAR_W, cx)).h_full().flex_none(),
+                    gpui::StyleRefinement::default().w(crate::kit::chrome_width(self.sidebar_width(window), cx)).h_full().flex_none(),
                 )),
                 None => {
                     let bar = self.render_sidebar(sidebar_mode, &agents, &slab, window, cx);
@@ -1937,6 +1949,8 @@ impl Render for MainScreen {
                 }
             })
             .child(self.render_center(&agents, bp, &t, window, cx))
+            // Over the sidebar's border and the centre's first points.
+            .when(sidebar_mode == SidebarMode::Full, |d| d.child(self.render_side_edge(&t, window, cx)))
             .when(right == Some(false), |d| match &panel_part {
                 Some(p) => d.child(part::slot(
                     p,
@@ -2147,6 +2161,8 @@ pub fn window_label() -> SharedString {
 mod tests;
 #[cfg(test)]
 mod preview_tests;
+#[cfg(test)]
+mod side_edge_tests;
 
 impl Drop for MainScreen {
     /// A closed window shows no agent's changes any more.
