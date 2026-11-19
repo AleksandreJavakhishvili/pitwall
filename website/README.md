@@ -72,15 +72,17 @@ public/apple-touch-icon.png   the chequered Apex P, full bleed (180 px)
 
 ## Features carousel
 
-Below the demo, one section shows features as slides of equal size: "Files next to the
-agent", "Answer from anywhere" and "Accounts per project". Each slide has a heading and
+Below the demo, a row of four cards ("One layout": terminals, files, source control,
+web; `.layout-ov`) links to the slides and docs, then one section shows features as
+slides of equal size: "Web pages in tiles", "Files next to the agent", "Answer from
+anywhere" and "Accounts per project". Each slide has a heading and
 lead, an animated mock-up (decorative, `aria-hidden`, CSS keyframes only) and a details
 panel. The track is a CSS scroll-snap row (swipe, trackpad, ←/→, the arrows or the tabs);
 it is a grid and each slide a subgrid of its three rows, so all slides are as tall as the
 tallest and their stages line up. `src/main.js` (`setupCarousel`) marks the shown tab and
 makes the other slides `inert`; they show their still (`.feat-idle` turns their animation
 off), so a slide's loop starts from the beginning when it is shown. There is no
-auto-advance. A link to a slide's id or to anything in it (`#files`, `#away`,
+auto-advance. A link to a slide's id or to anything in it (`#web`, `#files`, `#away`,
 `#accounts`) shows that slide. Without JavaScript the tabs are plain links and the track
 scrolls sideways.
 
@@ -98,6 +100,11 @@ scrolls sideways.
    scene and its phone width to the stage-fitting list and to the `motionIO` selector; in
    `site.css`, add its scene to the `.feat-idle` rule and to the `.motion-paused` pauses.
    Its base styles (no animation) are the still shown with reduced motion.
+
+**The "New in" pill.** The newest feature's tab carries
+`<span class="feat-new">%NEW_LABEL%</span>`; the text comes from `NEW_LABEL` in
+`site.config.js` (filled in at build time like `%REPO_URL%`). Set it to the release that
+ships that feature, and move the span to the next new feature's tab when there is one.
 
 ## Downloads
 

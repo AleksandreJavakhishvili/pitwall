@@ -1,14 +1,14 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL } from "./site.config.js";
+import { REPO_URL, PAGES_URL, RELEASES_URL, RELEASE_API_URL, NEW_LABEL } from "./site.config.js";
 import { renderPage, docsNavHtml, SOURCES, ROOT } from "./scripts/pages.mjs";
 
 // Pages are written with root-absolute links (`/docs/quick-start/`, `/download/`).
 // Vite already prefixes the base on the assets it handles (scripts, styles, icons,
 // <source>); this rewrites the rest after it, so the site also works from a
 // sub-path such as https://<owner>.github.io/<repo>/: anchors and data-* URLs.
-// It also fills in %REPO_URL%, %RELEASES_URL%, %RELEASE_API_URL% and %PAGES_URL% from site.config.js.
+// It also fills in %REPO_URL%, %RELEASES_URL%, %RELEASE_API_URL%, %PAGES_URL% and %NEW_LABEL% from site.config.js.
 function siteLinks() {
   let base = "/";
   return {
@@ -23,7 +23,8 @@ function siteLinks() {
           .replaceAll("%RELEASE_API_URL%", RELEASE_API_URL)
           .replaceAll("%RELEASES_URL%", RELEASES_URL)
           .replaceAll("%REPO_URL%", REPO_URL)
-          .replaceAll("%PAGES_URL%", PAGES_URL);
+          .replaceAll("%PAGES_URL%", PAGES_URL)
+          .replaceAll("%NEW_LABEL%", NEW_LABEL);
         if (base === "/" || !base.startsWith("/")) return html;
         const already = base.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const attr = new RegExp(`(\\s(?:href|src|poster|data-[\\w-]+)=")/(?!/|${already})`, "g");
@@ -69,7 +70,7 @@ function markdownPages() {
 // PAGES_URL (which already carries the /<repo>/ path), so they are right whatever
 // base the build uses. The 404 page gets noindex and no canonical. At build time it
 // also writes sitemap.xml and robots.txt into dist.
-const OG_IMAGE = { path: "og.png", width: 1200, height: 630, alt: "Pitwall: a timing board of coding agents, one flagged Needs you" };
+const OG_IMAGE = { path: "og.png", width: 1200, height: 630, alt: "Pitwall: your agents' workstation, with a timing board of coding agents, one flagged Needs you" };
 const NOT_FOUND = "404.html";
 
 // "/docs/quick-start/index.html" -> "docs/quick-start/", "/index.html" -> "".

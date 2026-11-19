@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pitwall: run coding agents side by side, see who needs you</title>
-  <meta name="description" content="Open-source desktop app for macOS, Linux and Windows: run Claude Code, Codex, Gemini CLI and other terminal coding agents side by side and see which needs you." />
+  <title>Pitwall: a workstation for coding agents, with terminals, files, source and web in one layout</title>
+  <meta name="description" content="Open-source desktop app for macOS, Linux and Windows: run Claude Code, Codex, Gemini CLI and other terminal coding agents side by side, with their files, changes and web pages in one layout, and see which needs you." />
   <meta name="color-scheme" content="dark light" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -61,8 +61,8 @@
             </svg>
           </svg>
           <p class="eyebrow eyebrow-lights"><span class="lights" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>macOS · Linux · Windows preview · early builds</p>
-          <h1 id="hero-h">You call the strategy. <span class="dim">Agents drive.</span></h1>
-          <p class="lede">Run Claude Code, Codex and any other terminal agent side by side. The one that needs you turns amber.</p>
+          <h1 id="hero-h">Your agents' workstation. <span class="dim">One layout.</span></h1>
+          <p class="lede">Run Claude Code, Codex and any other terminal agent side by side, with the files they show you, their changes to review and your web pages in the same layout. The one that needs you turns amber.</p>
           <div class="cta">
             <a class="btn btn-primary" href="/download/" data-dl-label>Download</a>
             <a class="btn" href="%REPO_URL%">Star on GitHub</a>
@@ -70,7 +70,7 @@
           <p class="hero-note">Free and open source under Apache-2.0.</p>
         </div>
 
-        <div class="demo" data-demo>
+        <div class="demo" id="demo" data-demo>
           <div class="tabs" role="tablist" aria-label="What Pitwall does">
             <button role="tab" id="tab-needs-you" aria-selected="true" aria-controls="demo-panel" data-view="needs-you"><span class="g g-blocked" aria-hidden="true">▲</span>Needs you <kbd>⌘J</kbd></button>
             <button role="tab" id="tab-wall" aria-selected="false" aria-controls="demo-panel" tabindex="-1" data-view="wall">Wall <kbd>⌘E</kbd></button>
@@ -109,6 +109,19 @@
       </div>
     </section>
 
+    <section class="layout-ov" aria-labelledby="ov-h">
+      <div class="wrap">
+        <h2 id="ov-h" class="label">One layout, arranged your way</h2>
+        <ul class="ov-grid">
+          <li><a href="#demo"><strong>Agents' terminals</strong><span>Claude Code, Codex and any CLI, live and side by side. The one that needs you turns amber.</span></a></li>
+          <li><a href="#files"><strong>Files</strong><span>What agents show you: code at a line, folders, images, PDFs on macOS. Fix a line and save.</span></a></li>
+          <li><a href="/docs/how-it-works/#review"><strong>Source control</strong><span>Review each agent's changes by task, comment, merge. Worktrees and branches per agent.</span></a></li>
+          <li><a href="#web"><strong>Web</strong><span>Docs, dashboards and your dev server's Preview as tiles. Agents can open pages for you.</span></a></li>
+        </ul>
+        <p class="ov-more">More kinds of tiles will follow. What's being worked on is on the <a href="/roadmap/">roadmap</a>.</p>
+      </div>
+    </section>
+
     <!-- Features carousel (site.css: .feat-*, main.js: setupCarousel). To add a feature, add one
          tab to .feat-tabs (href and aria-controls: the slide's id) and one .feat-slide article
          with its copy, its stage and its details panel; see website/README.md. -->
@@ -117,13 +130,86 @@
         <div class="feat-nav">
           <button class="feat-arrow" type="button" data-step="-1" aria-label="Previous feature"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <div class="tabs feat-tabs" role="tablist" aria-label="Features">
-            <a role="tab" id="ft-files" href="#files" aria-controls="files" aria-selected="true">Files next to the agent <span class="feat-new">New in 0.7</span></a>
+            <a role="tab" id="ft-web" href="#web" aria-controls="web" aria-selected="true">Web pages in tiles <span class="feat-new">%NEW_LABEL%</span></a>
+            <a role="tab" id="ft-files" href="#files" aria-controls="files" aria-selected="false">Files next to the agent</a>
             <a role="tab" id="ft-away" href="#away" aria-controls="away" aria-selected="false">Answer from anywhere</a>
             <a role="tab" id="ft-accounts" href="#accounts" aria-controls="accounts" aria-selected="false">Accounts per project</a>
           </div>
           <button class="feat-arrow" type="button" data-step="1" aria-label="Next feature"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </div>
         <div class="feat-track">
+          <article class="feat-slide web" id="web" role="tabpanel" aria-labelledby="ft-web" aria-roledescription="slide">
+            <div class="away-copy">
+              <h2 id="web-h">Docs, dashboards, dev servers. <span class="dim">Beside the agent.</span></h2>
+              <p>Web pages open in tiles of the same layout as your terminals and files, in the system's own web view. Ask an agent to open a page and it lands next to its terminal; when the terminal prints a dev server's address, Preview opens it as a tile that follows the terminal. Move a page anywhere in the layout or into a window of its own.</p>
+            </div>
+            <!-- Decorative: an agent opens docs in a web tile left of its terminal, then its dev server's Preview opens right of it (site.css: .wb-*). The copy above and the list below say what it shows. -->
+            <div class="wb-stage glass" data-web aria-hidden="true">
+              <div class="wb-scene">
+                <div class="wb-win">
+                  <div class="sv-top"><svg class="mark" viewBox="7 7 50 50" width="16" height="16"><defs><mask id="mk-wb" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-wb)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg><span class="sv-space">Main</span><i class="sv-chip"></i><i class="sv-chip s"></i></div>
+                  <div class="wb-term">
+                    <div class="wb-head"><svg class="fl-logo" viewBox="0 0 14 14" width="13" height="13"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>shop</b><span>Claude Code</span><span class="wb-chip">Preview :5173 <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span></div>
+                    <div class="wb-lines">
+                      <span class="wb-p1">&gt; <span class="wb-type1">open the docs <span class="sv-w">on the left</span><span class="sv-n">above</span></span></span>
+                      <span> </span>
+                      <span class="wb-l1"><b>⏺ pitwall - show_web (MCP)</b>(url: "https://</span>
+                      <span class="wb-l1">  example.com/docs/", where: "<span class="sv-w">left</span><span class="sv-n">above</span>")</span>
+                      <span class="wb-l2 d">  ⎿  Opened https://example.com/docs/ in a</span>
+                      <span class="wb-l2 d">     web tile in space Main (window main),</span>
+                      <span class="wb-l2 d">     <span class="sv-w">left of</span><span class="sv-n">above</span> shop's terminal in Pitwall.</span>
+                      <span class="wb-l2 d">     … +1 line (ctrl+o to expand)</span>
+                      <span> </span>
+                      <span class="wb-l3">⏺ The docs are open <span class="sv-w">on the left</span><span class="sv-n">above</span>.</span>
+                      <span> </span>
+                      <span class="wb-p2">&gt; <span class="wb-type2">start the dev server</span></span>
+                      <span> </span>
+                      <span class="wb-l4">⏺ Bash(pnpm dev)</span>
+                      <span class="wb-l4 d">  ⎿  Running in the background</span>
+                      <span> </span>
+                      <span class="wb-l5">⏺ It's up at http://localhost:5173/</span>
+                    </div>
+                  </div>
+                  <div class="wb-docs">
+                    <div class="wb-bar"><span class="wb-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico dim" viewBox="0 0 16 16" width="13" height="13"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M12.5 8A4.5 4.5 0 1 1 11 4.6M11.5 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="wb-addr">example.com/docs/</span><span class="wb-title">Docs</span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="2" y="3.5" width="12" height="9.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                    <div class="wb-page wb-docs-page">
+                      <div class="wb-pnav"><b>Docs</b><i></i><i></i><i></i></div>
+                      <div class="wb-pside"><i></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
+                      <div class="wb-pbody"><b>Getting started</b><i style="--w:92"></i><i style="--w:84"></i><i style="--w:66"></i><span class="wb-code"><i style="--w:54"></i><i style="--w:38"></i></span><i style="--w:88"></i><i style="--w:72"></i></div>
+                    </div>
+                  </div>
+                  <div class="wb-prev">
+                    <div class="wb-bar"><span class="wb-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico dim" viewBox="0 0 16 16" width="13" height="13"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M12.5 8A4.5 4.5 0 1 1 11 4.6M11.5 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="wb-addr">localhost:5173</span><span class="wb-title">shop's preview</span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="4.5" y="1.75" width="7" height="12.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="2" y="3.5" width="12" height="9.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                    <div class="wb-page wb-app">
+                      <div class="wb-app-nav"><i class="logo"></i><i></i><i></i><i class="btn"></i></div>
+                      <div class="wb-app-hero"><b>Orders</b><i style="--w:70"></i><i class="btn"></i></div>
+                      <div class="wb-app-cards"><i></i><i></i><i></i></div>
+                    </div>
+                  </div>
+                  <i class="fl-ping wb-ping"></i>
+                  <svg class="fl-pointer wb-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+            </div>
+            <div class="pit-panel feat-facts">
+              <div class="pit-row">
+                <p class="label">Open</p>
+                <p><kbd>⌘L</kbd> or Open web page… opens a page in a tile next to your terminals: type an address (<code>example.com</code>, <code>localhost:3000</code>; there's no search), go back and forward, reload, or open it in your browser. Move and resize it like any tile, give it a window of its own and dock it back; it comes back after a restart.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Preview</p>
+                <p>When an agent's terminal prints a local dev server's address, its header offers Preview. It opens as a tile right of the terminal and follows it: a new address is loaded, the same one printed again reloads, and a stopped server says so.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">What agents can do</p>
+                <p>Show you a page, nothing more. Ask for a page, a local dev server or an empty browser and it opens beside the agent (Pitwall's MCP tool <code>show_web</code>, or <code>pitwall open --web</code>). The agent gets nothing back from the page and can't click, type or read anything in it. Off in Settings → Agents; an agent can't turn it back on without asking you.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Limits</p>
+                <p>The system's web view, not a browser: WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux (X11). One page per tile, no tabs. Pages keep their logins in Pitwall's own profile, not your browser's. Camera and microphone are denied for now, so calls don't work; macOS declines downloads. Run by hand on macOS only.</p>
+              </div>
+            </div>
+          </article>
           <article class="feat-slide shows" id="files" role="tabpanel" aria-labelledby="ft-files" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="shows-h">“Open that for me.” <span class="dim">It opens next to the agent.</span></h2>

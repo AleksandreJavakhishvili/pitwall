@@ -25,14 +25,14 @@ const motionIO =
   new IntersectionObserver((entries) => {
     for (const e of entries) e.target.classList.toggle("motion-off", !e.isIntersecting);
   });
-if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], [data-files], [data-accounts], .board-wrap, .lanes")) motionIO.observe(el);
+if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], [data-files], [data-accounts], [data-web], .board-wrap, .lanes")) motionIO.observe(el);
 
-// The feature loops (index.html: the carousel's stages; site.css: .fl-*, .sv-*, .ac-*) are
+// The feature loops (index.html: the carousel's stages; site.css: .fl-*, .sv-*, .ac-*, .wb-*) are
 // drawn at a fixed size and scaled to their frame: 960 px wide, and on phones 632 px (the
 // floating control's right part) or 500 px. The loops are CSS keyframes, so the pauses
 // above and the carousel's (only the shown slide runs) cover them.
 const narrow = matchMedia("(max-width: 600px)");
-for (const [sel, scene, phoneW] of [["[data-float]", ".fl-scene", 632], ["[data-files]", ".sv-scene", 500], ["[data-accounts]", ".ac-scene", 500]]) {
+for (const [sel, scene, phoneW] of [["[data-float]", ".fl-scene", 632], ["[data-files]", ".sv-scene", 500], ["[data-accounts]", ".ac-scene", 500], ["[data-web]", ".wb-scene", 500]]) {
   const stage = document.querySelector(sel);
   if (!stage) continue;
   const el = stage.querySelector(scene);

@@ -13,3 +13,7 @@ export const RELEASES_URL = `${REPO_URL}/releases/latest`;
 // The download page reads the latest release (version, date, asset URLs) from here
 // at runtime and falls back to RELEASES_URL when it can't.
 export const RELEASE_API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`;
+
+// The pill on the newest feature's tab in the landing page's carousel (%NEW_LABEL% in
+// index.html). Set it to the release that ships that feature when the site goes out.
+export const NEW_LABEL = "New in 0.8";
