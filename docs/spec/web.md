@@ -20,7 +20,8 @@ windows of their own and agents' `show_web`.
   it, and an address from the chip's menu goes to the open one. It follows
   its terminal (see below) and closes with its agent.
 - **A page an agent opened** (`show_web`, below): a page like one you
-  opened (the same profile, no Preview rules), remembered as that agent's
+  opened (no Preview rules; in its project's browser profile, below),
+  remembered as that agent's
   (`webTiles[id].by`). It stays when the agent goes.
 
 Both are the same tile kind (`ui.json` `webTiles`, a layout pane's `web`):
@@ -119,8 +120,9 @@ The tool's description, as agents see it:
   same rules as the address field), checked in the MCP server, the daemon
   and the app: `javascript:`, `data:`, `file:`, `about:` and app schemes
   are refused and nothing opens.
-- **The user's profile.** A page an agent opens is in the user's own web
-  profile, where they may be signed in. The agent can make the user look
+- **The user's profile.** A page an agent opens is in the user's browser
+  profile for its project (Browser profiles, below), where they may be
+  signed in. The agent can make the user look
   at a page (as a link in its answer could), not act as them: it never
   sees the page. A page that tries something is the user's to read, as in
   their browser; downloads, camera and microphone are declined as above.
@@ -175,14 +177,94 @@ same in Flat and Liquid Glass.
 - Closing a tile frees its view.
 
 ## Data
-- Pages you open: one persistent profile, `default`, in Pitwall's data
-  folder (`<data>/webview/profile-default`, `preview::profile_dir`; a
-  profile id is the folder's name so more can come later). macOS 14+:
-  WebKit's own store keyed by that folder (`dataStoreForIdentifier`, the
-  data under `~/Library/WebKit/<app>/WebsiteDataStore/<id>`): the app's,
-  never Safari's. Before macOS 14: the app's default WebKit store (shared
-  with Previews). Windows (WebView2) and Linux (WebKitGTK): in the folder.
+- Pages (not Previews): one persistent store per browser profile (below),
+  in Pitwall's data folder (`<data>/webview/profile-<id>`, Default's
+  `profile-default`, `preview::profile_dir`; the folder's name is the
+  profile's id). macOS 14+: WebKit's own store keyed by that folder
+  (`dataStoreForIdentifier`, the data under
+  `~/Library/WebKit/<app>/WebsiteDataStore/<id>`): the app's, never
+  Safari's. Before macOS 14: the app's default WebKit store (shared with
+  Previews), so Default only. Windows (WebView2) and Linux (WebKitGTK): in
+  the folder.
 - Previews: a store per project, as before (`<data>/webview/<project>-<hash>`).
+
+## Browser profiles
+Separate sign-ins for the pages (work and personal Teams, Slack, mail),
+tied to Pitwall's accounts so the right project gets the right logins.
+Status: built (`crate::web::profiles`).
+
+- **A profile is an account** of kind `web` (`pitwall_core::accounts::WEB`,
+  "Browser profile"): a name ("Work") and its folder, in `accounts.json`
+  beside the tools' accounts and the git identities. Default is the store
+  every page used before profiles (`profile-default`, its macOS store
+  identifier unchanged), so no one loses their sign-ins.
+- **Made, renamed, removed** in Settings → Accounts → Browser profiles, or
+  made from a project's Accounts… (Browser profile → + New profile, which
+  also makes it the project's). No login step: the user signs in to sites
+  in a page opened in it. Names are unique among profiles; "Default" is
+  taken. Its id is `web-<name>`, never one whose folder is still on disk.
+- **Removed:** asked first ("its sign-ins, cookies and site data are
+  deleted from this computer"); refused while any page is in it (in a
+  layout or a window, shown or not): the user switches those pages or
+  closes them first. Then its projects go back to Default, its store is
+  deleted (macOS 14+: `removeDataStoreForIdentifier`; Windows, Linux: the
+  folder), and its folder last; tried again a few times while the engine
+  lets go of it. A folder left behind keeps the id from being reused.
+- **A project picks one** in its Accounts… dialog (a "Browser profile"
+  row of chips under the agents' logins and the git identity: Default,
+  each profile, + New profile), kept in `accounts.json` `projects[<folder>]
+  .web` like a tool's account. It doesn't move agents or restart anything.
+- **Which profile a page opens in:**
+  - an agent's (`show_web`, `pitwall open --web`): the profile of that
+    agent's project, else Default. The agent can't pick or name one (no
+    argument): the project decides. The answer names it ("It is in the Work
+    browser profile …"), so the agent can tell the user.
+  - a page the user opens (⌘L, "Open web page…"): the profile of the
+    project of the agent whose tile has the focus in the active space; no
+    focused agent (an empty tile, a files or web tile): Default.
+  - Previews: their project's own store, as before; no profile.
+- **The project's profile changed** while its agents' pages are open: they
+  stay as they are (no reload under the user). The agent's next `show_web`
+  moves its page into the project's profile now (loaded again there, on
+  the new address or the one it shows) and the answer says so. The same
+  holds for a page the user switched by hand: an agent's page is put back
+  in its project's profile when the agent shows it again.
+- **The bar** shows the page's profile as a small chip next to the address
+  once there is a profile besides Default (or the page is in one); Default
+  is subdued. Its menu lists Default and every profile, the page's ticked;
+  picking another switches it: a page is bound to one store, so its view is
+  let go and made again in the other on the address it shows (history and
+  the page's state go). The same bar in a window of its own. Not on a
+  Preview.
+- **Kept and restored:** `ui.json` `webTiles[id].profile` (absent:
+  Default; an older Pitwall ignores it). A page comes back in its profile;
+  one whose profile is gone (removed while Pitwall wasn't running, or
+  accounts.json edited) comes back in Default with a note under its bar,
+  once (its entry forgets the profile).
+- **Isolation is the point.** Two profiles never share cookies, local
+  storage, caches, service workers or HTTP auth: each has a store of its
+  own. macOS 14+: one `WKWebsiteDataStore` per identifier, derived from
+  the profile's folder path (`webview::store_id`, stable across runs;
+  another Pitwall data folder, such as a test instance's, gets other
+  identifiers). Windows: one WebView2 user data folder, one environment,
+  per profile (several coexist in one process; each folder gets its own
+  browser process). Linux: one WebKitGTK data manager (data, cache, cookie
+  file) per profile folder, several contexts in one process.
+- **Before macOS 14** there are no separate persistent stores: only Default
+  is used. A project's profile is ignored there, the bar's menu shows the
+  others greyed ("needs macOS 14"), Settings says so, and a page kept in
+  another profile opens in Default with a note. No page is ever made in a
+  store it would share with another profile.
+- **What leaves the machine:** nothing. The list (names, ids, folders) is
+  in `accounts.json`; site data stays in the engine's store. Agents still
+  get nothing from a page, in any profile.
+- **Older Pitwall** reading a newer `accounts.json` keeps the profiles (a
+  kind it has no agent for, shown nowhere) and the tools' accounts. With
+  the sidebar grouped by account it may file a project that has a browser
+  profile but no tool account under that profile's name (it takes a
+  project's first account for its terminals). Pages open in Default there.
+- Browser profiles aren't sidebar sections: grouping by account stays per
+  tool login; a profile never restarts agents.
 
 ## Untrusted content
 - No script bridge: Pitwall injects no script and has no message handler.
@@ -219,7 +301,7 @@ runtime, no WebKitGTK, Wayland), a page tile says why in its place and a
 Preview opens the browser with a toast, once.
 
 ## Not yet
-Tabs, favicons, search, find in page, zoom, more profiles. A terminal
+Tabs, favicons, search, find in page, zoom. A terminal
 folded for lack of room when a page tile opened doesn't unfold when it
 closes (the layout's own rules). Agents reading or driving a page: not
 planned.
