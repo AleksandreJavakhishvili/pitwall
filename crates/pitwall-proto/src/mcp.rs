@@ -106,9 +106,11 @@ pub fn tools_for(files: bool, web: bool) -> Value {
                 },
                 "additionalProperties": false
             },
-            // A page loads in the user's browsing profile: not read-only
-            // for the world, though nothing comes back to the agent.
-            "annotations": { "title": "Show a web page in Pitwall", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
+            // Read-only, as show_files: it shows the user something and
+            // changes nothing in the agent's environment (so Codex doesn't
+            // ask each time). Open world: the page loads from the web, in
+            // the user's own profile.
+            "annotations": { "title": "Show a web page in Pitwall", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
         }));
     }
     Value::Array(list)
@@ -384,6 +386,8 @@ mod tests {
         assert!(schema.get("required").is_none(), "url is optional");
         assert_eq!(schema["additionalProperties"], false);
         assert_eq!(web["annotations"]["openWorldHint"], true);
+        // Read-only as the files tools (Codex then doesn't ask each call).
+        assert_eq!(web["annotations"]["readOnlyHint"], true);
     }
 
     #[test]
