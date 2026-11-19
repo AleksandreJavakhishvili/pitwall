@@ -753,6 +753,12 @@ fn saving_stays_inside_the_folder_on_this_computer() {
         assert!(err.contains("outside the agent's folder"), "{err}");
         assert_eq!(std::fs::read_to_string(outside.path().join("secret.txt")).unwrap(), "secret");
     }
+    // An SVG's source is text: saved like any.
+    w("icon.svg", b"<svg/>\n");
+    let svg = read_file(&h.engine, "a", "icon.svg", false).unwrap();
+    assert_eq!(svg.text.as_deref(), Some("<svg/>\n"));
+    assert_eq!(write_file(&h.engine, "a", "icon.svg", "<svg width='2'/>\n", svg.text.as_deref()), Ok(Saved::Written));
+    assert_eq!(std::fs::read(dir.path().join("icon.svg")).unwrap(), b"<svg width='2'/>\n");
     // Too large a text to save.
     let err = write_file(&h.engine, "a", "a.txt", &"y".repeat(read::MAX_TEXT as usize + 1), None).unwrap_err();
     assert!(err.contains("too large"), "{err}");

@@ -12,6 +12,8 @@ pub const MAX_LARGE: u64 = 10 * 1024 * 1024;
 /// Images the viewer draws are read up to this size; larger ones are
 /// binary.
 pub const MAX_IMAGE: u64 = 10 * 1024 * 1024;
+/// PDFs the viewer draws (where it can) are read up to this size.
+pub const MAX_PDF: u64 = 64 * 1024 * 1024;
 /// A NUL in this many first bytes makes a file binary (git's rule).
 const SNIFF: usize = 8000;
 
@@ -31,6 +33,28 @@ pub const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg"];
 /// `name` is an image the viewer draws.
 pub fn is_image(name: &str) -> bool {
     ext(name).is_some_and(|e| IMAGE_EXT.contains(&e.as_str()))
+}
+
+/// `name` is an SVG: an image whose text is also sent (its source can be
+/// read and edited as XML).
+pub fn is_svg(name: &str) -> bool {
+    ext(name).is_some_and(|e| e == "svg")
+}
+
+/// `name` is a PDF. Still binary to [`read`] (its bytes go to the viewer
+/// only where it can draw PDFs, through [`read_bytes`]).
+pub fn is_pdf(name: &str) -> bool {
+    ext(name).is_some_and(|e| e == "pdf")
+}
+
+/// The most [`read_bytes`] reads of `name` for the viewer: [`MAX_PDF`] for
+/// a PDF, else [`MAX_IMAGE`].
+pub fn bytes_cap(name: &str) -> u64 {
+    if is_pdf(name) {
+        MAX_PDF
+    } else {
+        MAX_IMAGE
+    }
 }
 
 fn ext(name: &str) -> Option<String> {
@@ -58,6 +82,21 @@ pub(super) fn read(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<File
             None => Err(format!("{rel}: not found")),
         }
     };
+    if is_svg(rel) {
+        // Drawn, and its text sent too while it is small enough to edit.
+        let size = size_of()?;
+        if size > MAX_IMAGE {
+            return Ok(view(size, ContentKind::Binary, None));
+        }
+        if size > MAX_TEXT {
+            return Ok(view(size, ContentKind::Image, None));
+        }
+        let bytes = exec.read_file(real, MAX_TEXT + 1)?.ok_or_else(|| format!("{rel}: not found"))?;
+        let text = (!looks_binary(&bytes) && bytes.len() as u64 <= MAX_TEXT).then(|| String::from_utf8_lossy(&bytes).into_owned());
+        let mut v = view(bytes.len() as u64, ContentKind::Image, text);
+        v.lossy = v.text.is_some() && std::str::from_utf8(&bytes).is_err();
+        return Ok(v);
+    }
     if is_image(rel) {
         let size = size_of()?;
         let kind = if size <= MAX_IMAGE { ContentKind::Image } else { ContentKind::Binary };
@@ -96,7 +135,7 @@ pub fn looks_binary(bytes: &[u8]) -> bool {
     bytes[..bytes.len().min(SNIFF)].contains(&0)
 }
 
-/// A file's bytes (an image for the viewer), up to `max`.
+/// A file's bytes (an image or a PDF for the viewer), up to `max`.
 pub(super) fn read_bytes(exec: &dyn Exec, rel: &str, real: &str, max: u64) -> Res<Vec<u8>> {
     match exec.read_file(real, max + 1) {
         Ok(Some(b)) if b.len() as u64 > max => Err(format!("{rel}: larger than {} MiB", max / (1024 * 1024))),
@@ -246,6 +285,37 @@ mod tests {
         assert_eq!(read_text(&*x, "clip.mp4", "/r/clip.mp4").unwrap().kind, ContentKind::Binary);
         assert!(is_image("x/y.JPeG") && !is_image("x/y.pdf") && !is_image("png"));
         assert_eq!(read_text(&*x, "gone", "/r/gone").unwrap_err(), "gone: not found");
+    }
+
+    #[test]
+    fn an_svg_is_drawn_and_its_text_sent() {
+        let x = FakeExec::new();
+        x.file("/r/logo.svg", b"<svg xmlns='http://www.w3.org/2000/svg'/>\n")
+            .file("/r/big.svg", &vec![b' '; MAX_TEXT as usize + 1])
+            .file("/r/huge.svg", &vec![b' '; MAX_IMAGE as usize + 1])
+            .file("/r/odd.svg", b"<svg>\xe9</svg>");
+        let s = read_text(&*x, "logo.svg", "/r/logo.svg").unwrap();
+        assert_eq!(
+            (s.kind, s.text.as_deref(), s.lang.as_deref(), s.lossy),
+            (ContentKind::Image, Some("<svg xmlns='http://www.w3.org/2000/svg'/>\n"), Some("xml"), false)
+        );
+        let b = read_text(&*x, "big.svg", "/r/big.svg").unwrap();
+        assert_eq!((b.kind, b.text.is_none()), (ContentKind::Image, true), "drawn, too large for its source");
+        assert_eq!(read_text(&*x, "huge.svg", "/r/huge.svg").unwrap().kind, ContentKind::Binary);
+        assert!(read_text(&*x, "odd.svg", "/r/odd.svg").unwrap().lossy);
+        assert!(is_svg("a/B.SVG") && !is_svg("a.png") && !is_svg("svg"));
+    }
+
+    #[test]
+    fn pdfs_are_binary_and_their_bytes_capped_higher() {
+        let x = FakeExec::new();
+        x.file("/r/doc.pdf", b"%PDF-1.4 not read");
+        let p = read_text(&*x, "doc.pdf", "/r/doc.pdf").unwrap();
+        assert_eq!((p.kind, p.size, p.text), (ContentKind::Binary, 17, None));
+        assert_eq!(x.calls().len(), 0, "never read as text");
+        assert!(is_pdf("x/Report.PDF") && !is_pdf("pdf") && !is_pdf("a.pdf.txt"));
+        assert_eq!((bytes_cap("a.pdf"), bytes_cap("a.png")), (MAX_PDF, MAX_IMAGE));
+        assert_eq!(read_bytes(&*x, "doc.pdf", "/r/doc.pdf", bytes_cap("doc.pdf")).unwrap(), b"%PDF-1.4 not read");
     }
 
     #[test]
