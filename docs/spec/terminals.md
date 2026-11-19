@@ -59,7 +59,7 @@ Need: a shell that became `claude` should restart as `claude`.
 Need: an agent started a dev server; open it without copying the address.
 - When an agent's terminal prints a local dev-server address, its pane
   header shows a "Preview :<port>" chip (before the header actions); a click
-  opens it in the pane, beside the terminal (below the chip: the in-app
+  opens it in a web tile right of the terminal (below: the in-app
   preview); a second click closes it. Several addresses: the most recent
   wins, and the chevron on the chip lists them all (most recent first, up to
   4: each opens in the preview) and "Open in the browser".
@@ -80,45 +80,48 @@ Need: an agent started a dev server; open it without copying the address.
   again with the list unchanged; the preview reloads on the count.
 
 ### In-app preview (GPUI)
-- The pane splits: terminal, a draggable divider (15 %–85 %), the page.
-  The toolbar's layout button moves the page right → left → below the
-  terminal, which takes the rest; remembered for every pane (`ui.json`
-  `previewLeft`, `previewBelow`).
-- Toolbar (30 px): back, forward, reload, the address (read-only,
-  selectable; the title as its tooltip; a dot while loading), phone width
-  (the page 390 px wide, centred), right/left/below, Web Inspector, Open in
-  the browser, close.
+- The Preview is a web tile (web.md): a tile of its own in the space's
+  layout, right of the agent's terminal, never inside the terminal's pane.
+  It moves, resizes and comes back after a restart like any web or files
+  tile. One per agent; the chip again closes it, and an address from the
+  chip's menu goes to the open one.
+- Its bar: the grip, back, forward, reload (stop while loading), the
+  address (editable: an address typed there is followed until the terminal
+  prints a new one), "<agent>'s preview", phone width (the page 390 px
+  wide, centred), Web Inspector, Open in default browser, close.
 - The system's own engine in a native view over the window (`src/webview`:
   WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux), made on the
-  first click. Where none can be made (no engine, Wayland), the chip opens
-  the browser instead and a toast says why, once.
+  first click. Where none can be made (no engine, Wayland), or web pages
+  are off (`general.webPages`), the chip opens the browser instead and a
+  toast says why, once.
 - Tied to the terminal (`src/preview` `Follow`): a new address (the server
   came back on another port) is navigated to; the same one printed again
   reloads; the agent stopping shows "Server stopped" in the page's place
   (no engine error page), and its address printed again brings the page
   back. A failed load shows "Can't reach :<port>" and retries on the next
-  printing or Reload. Removing the agent closes its preview.
+  printing or Reload. Removing the agent closes its preview tile.
 - Only local addresses (`webview::allowed`: localhost, loopback, private
   LAN, tailnet, over http(s)) load in it; a link or new window elsewhere
   opens in the browser.
 - Each project keeps its own cookies and storage across restarts (a data
   folder per project under `<data>/webview/`; macOS keys WebKit's own
   store by it, macOS 14+, and shares the default store before that).
-- Cost: hidden while its pane isn't drawn (another space, route or a
+- Cost: hidden while its tile isn't drawn (another space, route or a
   folded tile; the page paused), and after 10 minutes hidden the view is
   dropped, its address kept: shown again, it is made again on that page.
   No polling: after each frame the window draws, the view follows its
   element's bounds (moved only when they change).
-- Overlays: the view sits above GPUI's drawing. While anything drawn after
-  it (menu, popover, palette, dialog, toast, tooltip) overlaps it, it is
-  swapped for a snapshot of itself drawn in its place, and comes back when
-  the overlay goes (a GPUI patch reports the frame's hitboxes in paint
-  order: `third_party/zed/PATCHES.md`).
-- Keyboard: a click into the page gives it the keys; Pitwall's shortcuts
-  still work from there (dispatched from the preview; the page keeps copy,
-  paste, cut, select all, undo, redo). Esc (after the page has it too), a
-  click anywhere outside the page, or focus moving elsewhere gives the
-  keys back to the terminal.
+- Overlays and drags: the view sits above GPUI's drawing. While anything
+  drawn after it (menu, popover, palette, dialog, toast, tooltip) overlaps
+  it, or anything is dragged over the window, it is swapped for a snapshot
+  of itself drawn in its place, and comes back when the overlay or drag
+  goes (a GPUI patch reports the frame's hitboxes in paint order:
+  `third_party/zed/PATCHES.md`).
+- Keyboard: as any web tile (web.md): a click into the page gives it the
+  keys; Pitwall's shortcuts still work from there. Esc, a click anywhere
+  outside the page, or focus moving elsewhere gives the keys back.
+- Before web tiles the preview split the terminal's own pane (`ui.json`
+  `previewLeft`, `previewBelow`); those keys are dropped on load.
 
 ## Order
 Backend parts land on top of migration Step 2 (core crate), UI after the
