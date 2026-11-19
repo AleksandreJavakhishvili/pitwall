@@ -5,9 +5,9 @@
 <h1 align="center">Pitwall</h1>
 
 <p align="center">
-  <strong>You call the strategy. Agents drive.</strong><br />
+  <strong>Your agents' workstation. One layout.</strong><br />
   Run Claude Code, Codex and any other terminal coding agent side by side,<br />
-  and see at a glance which one needs you.
+  with their files, changes and web pages in one layout, and see at a glance which one needs you.
 </p>
 
 <p align="center">
