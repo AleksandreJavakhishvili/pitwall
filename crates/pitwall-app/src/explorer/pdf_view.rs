@@ -161,6 +161,31 @@ pub fn needs_render(have: Option<u32>, want: u32) -> bool {
     }
 }
 
+/// A page drawn `have` pixels wide is drawn (again) for `want` now: not
+/// while a pinch or ⌘-scroll is going on (`zooming`), when the pages drawn
+/// are scaled as they are and drawn again once it settles; a page not
+/// drawn yet is drawn at once.
+pub fn render_now(have: Option<u32>, want: u32, zooming: bool) -> bool {
+    match have {
+        None => true,
+        Some(_) if zooming => false,
+        _ => needs_render(have, want),
+    }
+}
+
+/// The top of the view after the pages go from `old`'s scale to `new`'s
+/// that keeps the place at `at` points down a view `view_h` high (shown
+/// from `top`) where it is, as far as the pages can be scrolled.
+pub fn anchored_top(old: &Layout, new: &Layout, top: f32, at: f32, view_h: f32) -> f32 {
+    let y = new.top_of(old.anchor(top + at));
+    (y - at).clamp(0., (new.height - view_h).max(0.))
+}
+
+/// The widest page's width at scale 1 (what a pinch moves horizontally).
+pub fn widest(pages: &[(f32, f32)]) -> f32 {
+    pages.iter().map(|p| p.0).fold(0., f32::max)
+}
+
 /// Which drawn pages to let go (`kept`: page and bytes) to stay under
 /// `budget`: the farthest from `keep` first, never those in it.
 pub fn evict(kept: &[(usize, usize)], keep: Range<usize>, budget: usize) -> Vec<usize> {
@@ -312,6 +337,40 @@ mod tests {
         assert!(needs_render(Some(800), 1000), "blurred");
         assert!(!needs_render(Some(1500), 1000));
         assert!(needs_render(Some(1700), 1000), "too large");
+    }
+
+    #[test]
+    fn while_zooming_pages_are_scaled_and_drawn_again_once_it_settles() {
+        // Mid-pinch at twice the size: the drawn page is scaled, not drawn.
+        assert!(!render_now(Some(1000), 2000, true));
+        // A page not drawn yet is drawn even then (blank paper otherwise).
+        assert!(render_now(None, 2000, true));
+        // Settled: drawn again at the new scale…
+        assert!(render_now(Some(1000), 2000, false));
+        // …unless it still looks right.
+        assert!(!render_now(Some(1000), 1050, false));
+    }
+
+    #[test]
+    fn zooming_a_pdf_keeps_the_place_under_the_pointer() {
+        let pages = [(400., 600.); 10];
+        let (old, new) = (Layout::new(&pages, 1.), Layout::new(&pages, 2.));
+        // Scrolled to 2000, the pointer 300 down: 2300 is page 3 (612 a
+        // page from 16), 464 into it.
+        let top = anchored_top(&old, &new, 2000., 300., 700.);
+        let (page, into) = old.anchor(2300.);
+        assert_eq!(page, 3);
+        let y = top + 300.;
+        assert!((new.tops[3] + into * new.sizes[3].1 - y).abs() < 1e-3, "{top}");
+        assert!((y - new.tops[3] - 2. * (2300. - old.tops[3])).abs() < 1e-3, "twice as far into the page");
+        // In the room above the first page, zoomed in: it stops at the
+        // top; at the end: at the end.
+        assert_eq!(anchored_top(&old, &new, 0., 5., 700.), 0.);
+        assert_eq!(anchored_top(&old, &new, old.height - 700., 699., 700.), new.height - 700.);
+        // Shorter than the view: from the top.
+        let one = Layout::new(&[(400., 600.)], 0.5);
+        assert_eq!(anchored_top(&Layout::new(&[(400., 600.)], 1.), &one, 0., 300., 700.), 0.);
+        assert_eq!(widest(&[(100., 5.), (300., 1.)]), 300.);
     }
 
     #[test]

@@ -49,6 +49,12 @@ pub fn zoom_out(current: f32) -> f32 {
     STEPS.iter().rev().copied().find(|s| *s < current - 1e-3).unwrap_or(current.min(STEPS[0]))
 }
 
+/// The range a pinch or ⌘-scroll zooms in: the steps' (and down to the
+/// fitted scale, when that is smaller still).
+pub fn limits(fitted: f32) -> (f32, f32) {
+    (STEPS[0].min(fitted), STEPS[STEPS.len() - 1])
+}
+
 /// "100%", "33%".
 pub fn percent(scale: f32) -> String {
     format!("{}%", (scale * 100.).round() as i64)
@@ -114,5 +120,8 @@ mod tests {
         assert_eq!(zoom_out(0.05), 0.05);
         assert_eq!(percent(1.), "100%");
         assert_eq!(percent(0.333), "33%");
+        // A pinch's range: the steps', or down to a smaller fitted scale.
+        assert_eq!(limits(0.5), (0.1, 16.));
+        assert_eq!(limits(0.04), (0.04, 16.));
     }
 }

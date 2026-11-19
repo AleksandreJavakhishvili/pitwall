@@ -1348,3 +1348,313 @@ async fn pdfs_are_drawn_around_the_view_and_searched(cx: &mut TestAppContext) {
     // The other's drawn pages were let go.
     assert!(viewer.read_with(cx, |v, _| v.pdf_drawn(path).0.is_empty()));
 }
+
+// ── Moving and zooming a picture ────────────────────────────────────────
+
+/// 2000 × 1500: larger than the test window's pane both ways at 100 %.
+const BIG_SVG: &str = "<svg xmlns='http://www.w3.org/2000/svg' width='2000' height='1500'><rect width='2000' height='1500' fill='#36c'/></svg>\n";
+
+/// Where `at` is on the picture drawn (0..1 each way from its top left).
+fn on_picture(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) -> (f32, f32) {
+    let b = cx.debug_bounds("ex-image-picture").expect("the picture, laid out");
+    (f32::from(at.x - b.origin.x) / f32::from(b.size.width), f32::from(at.y - b.origin.y) / f32::from(b.size.height))
+}
+
+fn near(a: (f32, f32), b: (f32, f32)) -> bool {
+    (a.0 - b.0).abs() < 2e-3 && (a.1 - b.1).abs() < 2e-3
+}
+
+/// In a files tile: a picture larger than its pane is dragged any way
+/// (not the tile), kept in view at every edge; a press that hardly moves
+/// is a click; scrolls move it both ways at once; ⌘-scroll, a pinch and a
+/// double click zoom about the pointer; another file isn't moved; read
+/// again at the same size it stays where it was, at another it is
+/// centred.
+#[gpui::test]
+async fn a_picture_larger_than_its_pane_is_dragged_and_zoomed_at_the_pointer(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, PinchEvent, ScrollDelta, ScrollEvent, TouchPhase};
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("art/big.svg", BIG_SVG), ("art/other.svg", BIG_SVG)]);
+    let grips = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = grips.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
+            if matches!(e, viewer::ViewerEvent::Grip) {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .detach()
+    });
+    cx.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| {
+        v.set_host(viewer::Host::Tile, Some("a1".into()), cx);
+        v.open("art/big.svg".into(), None, cx);
+    });
+    redraw(cx);
+    let none = Modifiers::none();
+    let pan = |cx: &mut VisualTestContext| viewer.read_with(cx, |v, _| v.pan_state());
+    let scale = |cx: &mut VisualTestContext| viewer.read_with(cx, |v, _| v.shown_scale()).expect("laid out");
+    let drag = |from: gpui::Point<gpui::Pixels>, by: (f32, f32), clicks: usize, cx: &mut VisualTestContext| {
+        cx.simulate_event(MouseDownEvent { position: from, button: MouseButton::Left, modifiers: none, click_count: clicks, first_mouse: false });
+        redraw(cx);
+        let to = gpui::point(from.x + px(by.0), from.y + px(by.1));
+        cx.simulate_mouse_move(gpui::point(from.x + px(by.0 / 2.), from.y + px(by.1 / 2.)), MouseButton::Left, none);
+        cx.simulate_mouse_move(to, MouseButton::Left, none);
+        cx.simulate_event(MouseUpEvent { position: to, button: MouseButton::Left, modifiers: none, click_count: clicks });
+        redraw(cx);
+    };
+
+    // Fitted: centred, nothing to move.
+    assert!(scale(cx) < 1.);
+    assert_eq!(pan(cx).0, Some((0., 0.)));
+    let pane = cx.debug_bounds("ex-image").expect("the image pane");
+    let mid = pane.center();
+
+    // At 100 % (the button: about the centre): the middle of it shown.
+    viewer.update(cx, |v, cx| v.set_zoom(super::image_view::Zoom::Scale(1.), cx));
+    redraw(cx);
+    assert_eq!(scale(cx), 1.);
+    assert!(near(on_picture(cx, mid), (0.5, 0.5)), "{:?}", on_picture(cx, mid));
+    let (from, _) = pan(cx);
+    let from = from.unwrap();
+
+    // A press that hardly moves: a click, nothing moved.
+    drag(mid, (1., 1.), 1, cx);
+    assert_eq!(pan(cx), (Some(from), false));
+    // Dragged up and left 40 × 30: the picture follows the pointer.
+    drag(mid, (-40., -30.), 1, cx);
+    let (now, moved) = pan(cx);
+    assert!(moved);
+    let now = now.unwrap();
+    assert!((now.0 - from.0 - 40.).abs() < 1e-3 && (now.1 - from.1 - 30.).abs() < 1e-3, "{now:?} from {from:?}");
+    assert_eq!(grips.load(Ordering::SeqCst), 0, "the tile isn't dragged");
+    // Far down and right: its top left stops at its room's edge…
+    drag(mid, (5000., 5000.), 1, cx);
+    let pic = cx.debug_bounds("ex-image-picture").unwrap();
+    assert_eq!(pic.origin, pane.origin + gpui::point(px(16.), px(16.)));
+    assert_eq!(pan(cx).0, Some((0., 0.)));
+    // …and far up and left: its bottom right.
+    drag(mid, (-5000., -5000.), 1, cx);
+    let pic = cx.debug_bounds("ex-image-picture").unwrap();
+    assert_eq!((pic.right(), pic.bottom()), (pane.right() - px(16.), pane.bottom() - px(16.)));
+    assert_eq!(grips.load(Ordering::SeqCst), 0);
+    // A double click that ends a drag doesn't zoom.
+    drag(mid, (60., 0.), 2, cx);
+    assert_eq!(scale(cx), 1.);
+
+    // Scrolled (a trackpad, diagonally): both ways at once.
+    let (before, _) = pan(cx);
+    let before = before.unwrap();
+    let scroll = |delta: (f32, f32), modifiers: Modifiers, at: gpui::Point<gpui::Pixels>| ScrollEvent {
+        position: at,
+        delta: ScrollDelta::Pixels(gpui::point(px(delta.0), px(delta.1))),
+        modifiers,
+        touch_phase: TouchPhase::Moved,
+        source: Default::default(),
+    };
+    cx.simulate_event(scroll((25., 15.), none, mid));
+    redraw(cx);
+    let after = pan(cx).0.unwrap();
+    assert!((before.0 - after.0 - 25.).abs() < 1e-3 && (before.1 - after.1 - 15.).abs() < 1e-3, "{after:?} from {before:?}");
+
+    // ⌘ (Ctrl) + scroll up: larger, the point under the pointer kept.
+    let cmd = cx.update(|_, cx| Modifiers::secondary_key(cx));
+    let at = gpui::point(mid.x + px(120.), mid.y - px(60.));
+    let under = on_picture(cx, at);
+    cx.simulate_event(scroll((0., 40.), cmd, at));
+    redraw(cx);
+    assert!((scale(cx) - (40. * pan_zoom::WHEEL_ZOOM).exp()).abs() < 1e-4, "{}", scale(cx));
+    assert!(near(on_picture(cx, at), under), "{:?} vs {under:?}", on_picture(cx, at));
+    let header = viewer.read_with(cx, |v, cx| v.debug_state(cx));
+    assert!(header.contains("zoom=Some(Scale("), "{header}");
+
+    // A pinch: by its amount, about where it is.
+    let s = scale(cx);
+    let at = gpui::point(mid.x - px(200.), mid.y + px(90.));
+    let under = on_picture(cx, at);
+    cx.simulate_event(PinchEvent { position: at, delta: 0.25, modifiers: none, phase: TouchPhase::Moved });
+    redraw(cx);
+    assert!((scale(cx) - s * 1.25).abs() < 1e-4, "{}", scale(cx));
+    assert!(near(on_picture(cx, at), under), "{:?} vs {under:?}", on_picture(cx, at));
+    // Never past the largest step, however far.
+    for _ in 0..40 {
+        cx.simulate_event(PinchEvent { position: at, delta: 0.5, modifiers: none, phase: TouchPhase::Moved });
+    }
+    redraw(cx);
+    assert_eq!(scale(cx), 16.);
+
+    // Fitted, then a double click: 100 %, the point clicked kept.
+    viewer.update(cx, |v, cx| v.set_zoom(super::image_view::Zoom::Fit, cx));
+    redraw(cx);
+    let at = gpui::point(mid.x + px(150.), mid.y + px(40.));
+    let under = on_picture(cx, at);
+    cx.simulate_event(MouseDownEvent { position: at, button: MouseButton::Left, modifiers: none, click_count: 2, first_mouse: false });
+    cx.simulate_event(MouseUpEvent { position: at, button: MouseButton::Left, modifiers: none, click_count: 2 });
+    redraw(cx);
+    assert_eq!(scale(cx), 1.);
+    assert!(near(on_picture(cx, at), under), "{:?} vs {under:?}", on_picture(cx, at));
+    drag(mid, (-70., -20.), 1, cx);
+    let kept = pan(cx).0;
+
+    // Another file: not moved by this one (at 100 %: its middle).
+    viewer.update(cx, |v, cx| v.open("art/other.svg".into(), None, cx));
+    redraw(cx);
+    viewer.update(cx, |v, cx| v.set_zoom(super::image_view::Zoom::Scale(1.), cx));
+    redraw(cx);
+    assert!(near(on_picture(cx, mid), (0.5, 0.5)), "{:?}", on_picture(cx, mid));
+    // Back: where it was left.
+    viewer.update(cx, |v, cx| v.open("art/big.svg".into(), None, cx));
+    redraw(cx);
+    assert_eq!(pan(cx).0, kept);
+
+    // Changed on disk at the same size: read again, still there.
+    let change = |svg: &str, cx: &mut VisualTestContext| {
+        src.files.lock().unwrap().insert("art/big.svg".into(), svg.into());
+        viewer.update(cx, |v, cx| v.recheck(cx));
+        redraw(cx);
+        redraw(cx);
+    };
+    change(&BIG_SVG.replace("#36c", "#c63"), cx);
+    assert!(viewer.read_with(cx, |v, _| v.picture_is("art/big.svg", &BIG_SVG.replace("#36c", "#c63"))));
+    assert_eq!(pan(cx).0, kept);
+    // At another size: centred.
+    change(&BIG_SVG.replace("1500", "1800"), cx);
+    assert!(near(on_picture(cx, mid), (0.5, 0.5)), "{:?}", on_picture(cx, mid));
+}
+
+/// The files tile's bar still drags the tile over a picture: a drag from
+/// the bar over the image doesn't move it.
+#[gpui::test]
+async fn a_drag_from_the_bar_over_a_picture_moves_the_tile_not_the_picture(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton};
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("art/big.svg", BIG_SVG)]);
+    let grips = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = grips.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&viewer, move |_, e: &viewer::ViewerEvent, _| {
+            if matches!(e, viewer::ViewerEvent::Grip) {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .detach()
+    });
+    cx.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| {
+        v.set_host(viewer::Host::Tile, Some("a1".into()), cx);
+        v.open("art/big.svg".into(), None, cx);
+    });
+    redraw(cx);
+    viewer.update(cx, |v, cx| v.set_zoom(super::image_view::Zoom::Scale(1.), cx));
+    redraw(cx);
+    let before = viewer.read_with(cx, |v, _| v.pan_state());
+    let bar = cx.debug_bounds("ex-viewer-hint").expect("the bar").center();
+    let mid = cx.debug_bounds("ex-image").unwrap().center();
+    let none = Modifiers::none();
+    cx.simulate_mouse_down(bar, MouseButton::Left, none);
+    redraw(cx);
+    cx.simulate_mouse_move(gpui::point(bar.x, bar.y + px(20.)), MouseButton::Left, none);
+    cx.simulate_mouse_move(mid, MouseButton::Left, none);
+    cx.simulate_mouse_move(gpui::point(mid.x + px(50.), mid.y + px(50.)), MouseButton::Left, none);
+    cx.simulate_mouse_up(gpui::point(mid.x + px(50.), mid.y + px(50.)), MouseButton::Left, none);
+    redraw(cx);
+    assert_eq!(grips.load(Ordering::SeqCst), 1, "the tile's drag");
+    assert_eq!(viewer.read_with(cx, |v, _| v.pan_state()), before, "the picture didn't move");
+}
+
+/// A PDF (macOS): ⌘-scroll and a pinch zoom about the pointer, the pages
+/// drawn scaled until the gesture settles, then drawn again at the new
+/// scale; pressed and dragged, the pages move both ways.
+#[gpui::test]
+async fn a_pdf_zooms_at_the_pointer_and_is_drawn_again_once_settled(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, PinchEvent, ScrollDelta, ScrollEvent, TouchPhase};
+    let pages: Vec<String> = (1..=6).map(|n| format!("Page {n}")).collect();
+    let spec: Vec<(u32, u32, i32, &str)> = pages.iter().map(|t| (400, 600, 0, t.as_str())).collect();
+    let pdf = String::from_utf8(crate::platform::pdf::sample(&spec)).unwrap();
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("docs/report.pdf", pdf.as_str())]);
+    cx.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| v.open("docs/report.pdf".into(), None, cx));
+    redraw(cx);
+    if !crate::platform::can_view_pdf() {
+        return;
+    }
+    let path = "docs/report.pdf";
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_page_w(path, 0).is_some() && v.pdf_drawn(path).1 == 0));
+    // At 250 %: wider than the pane (fitting, a page is centred and only
+    // its height keeps the place).
+    viewer.update(cx, |v, cx| v.set_zoom(super::image_view::Zoom::Scale(2.5), cx));
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_drawn(path).1 == 0 && v.pdf_page_w(path, 0).is_some()));
+    redraw(cx);
+    let drawn = viewer.read_with(cx, |v, _| v.pdf_page_w(path, 0)).unwrap();
+    let scale = |cx: &mut VisualTestContext| viewer.read_with(cx, |v, _| v.shown_scale()).unwrap();
+    // The point under the pointer, on the first page (0..1 each way).
+    let mid = cx.debug_bounds("ex-pdf").unwrap().center();
+    let at = gpui::point(mid.x + px(100.), mid.y + px(80.));
+    let on_page = |cx: &mut VisualTestContext| {
+        let b = cx.debug_bounds("ex-pdf-first").expect("the first page");
+        (f32::from(at.x - b.origin.x) / f32::from(b.size.width), f32::from(at.y - b.origin.y) / f32::from(b.size.height))
+    };
+    let under = on_page(cx);
+
+    // ⌘-scroll up: larger about the pointer; the drawn page only scaled.
+    let cmd = cx.update(|_, cx| Modifiers::secondary_key(cx));
+    for _ in 0..2 {
+        cx.simulate_event(ScrollEvent {
+            position: at,
+            delta: ScrollDelta::Pixels(gpui::point(px(0.), px(20.))),
+            modifiers: cmd,
+            touch_phase: TouchPhase::Moved,
+            source: Default::default(),
+        });
+    }
+    redraw(cx);
+    let s = scale(cx);
+    assert!((s - 2.5 * (40. * pan_zoom::WHEEL_ZOOM).exp()).abs() < 1e-3, "{s}");
+    assert!(near(on_page(cx), under), "{:?} vs {under:?}", on_page(cx));
+    assert!(viewer.read_with(cx, |v, _| v.pdf_zooming()));
+    redraw(cx);
+    assert_eq!(viewer.read_with(cx, |v, _| v.pdf_page_w(path, 0)), Some(drawn), "scaled, not drawn again, mid-gesture");
+    // Settled: drawn again at the new scale.
+    cx.executor().advance_clock(std::time::Duration::from_millis(pan_zoom::SETTLE_MS + 50));
+    redraw(cx);
+    assert!(!viewer.read_with(cx, |v, _| v.pdf_zooming()));
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_page_w(path, 0).is_some_and(|w| w > drawn)));
+
+    // A pinch out: smaller about the pointer; its end settles at once.
+    let under = on_page(cx);
+    cx.simulate_event(PinchEvent { position: at, delta: -0.2, modifiers: Modifiers::none(), phase: TouchPhase::Moved });
+    redraw(cx);
+    assert!((scale(cx) - s * 0.8).abs() < 1e-3, "{}", scale(cx));
+    assert!(near(on_page(cx), under), "{:?} vs {under:?}", on_page(cx));
+    assert!(viewer.read_with(cx, |v, _| v.pdf_zooming()));
+    cx.simulate_event(PinchEvent { position: at, delta: 0., modifiers: Modifiers::none(), phase: TouchPhase::Ended });
+    redraw(cx);
+    assert!(!viewer.read_with(cx, |v, _| v.pdf_zooming()));
+    // Never past the steps.
+    for _ in 0..40 {
+        cx.simulate_event(PinchEvent { position: at, delta: 0.5, modifiers: Modifiers::none(), phase: TouchPhase::Moved });
+    }
+    redraw(cx);
+    assert_eq!(scale(cx), 4.);
+
+    // Pressed and dragged: the pages move both ways (wider than the pane
+    // at 400 %), and stop at the top left.
+    let (before, _) = viewer.read_with(cx, |v, _| v.pan_state());
+    let before = before.unwrap();
+    let mid = cx.debug_bounds("ex-pdf").unwrap().center();
+    let none = Modifiers::none();
+    cx.simulate_mouse_down(mid, MouseButton::Left, none);
+    redraw(cx);
+    cx.simulate_mouse_move(gpui::point(mid.x + px(20.), mid.y + px(10.)), MouseButton::Left, none);
+    cx.simulate_mouse_move(gpui::point(mid.x + px(60.), mid.y + px(30.)), MouseButton::Left, none);
+    cx.simulate_mouse_up(gpui::point(mid.x + px(60.), mid.y + px(30.)), MouseButton::Left, none);
+    redraw(cx);
+    let (after, moved) = viewer.read_with(cx, |v, _| v.pan_state());
+    let after = after.unwrap();
+    assert!(moved);
+    assert!((before.0 - after.0 - 60.).abs() < 1e-3 && (before.1 - after.1 - 30.).abs() < 1e-3, "{after:?} from {before:?}");
+    cx.simulate_mouse_down(mid, MouseButton::Left, none);
+    redraw(cx);
+    cx.simulate_mouse_move(gpui::point(mid.x + px(9000.), mid.y + px(90000.)), MouseButton::Left, none);
+    cx.simulate_mouse_up(gpui::point(mid.x + px(9000.), mid.y + px(90000.)), MouseButton::Left, none);
+    redraw(cx);
+    assert_eq!(viewer.read_with(cx, |v, _| v.pan_state()).0, Some((0., 0.)));
+}

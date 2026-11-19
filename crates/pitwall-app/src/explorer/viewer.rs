@@ -12,8 +12,10 @@
 //! their pixel size in the header, an SVG also as its source (Picture /
 //! Source, ⌘⇧V); PDFs (macOS: `crate::platform::pdf`) are drawn page by
 //! page, only around the view ([`super::pdf_view`]), with zoom, the page
-//! in view and Find; other binary files (and PDFs elsewhere) on this
-//! computer offer "Open in default app".
+//! in view and Find; a picture or PDF larger than its pane is dragged
+//! or scrolled any way, and a pinch or ⌘-scroll zooms it about the
+//! pointer ([`super::pan_zoom`]); other binary files (and PDFs
+//! elsewhere) on this computer offer "Open in default app".
 //!
 //! Text files of agents on this computer (and folders here) can be edited
 //! for quick fixes (`agents.editFiles`, on by default): ⌘S saves through
@@ -34,7 +36,7 @@ use std::time::Duration;
 
 use crate::kit::HoverText;
 use gpui::{
-    actions, canvas, div, prelude::*, px, AnyElement, App, ClipboardItem, Context, Entity,
+    actions, canvas, div, prelude::*, px, AnyElement, App, Bounds, ClipboardItem, Context, Entity,
     EventEmitter, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton, Pixels,
     PromptLevel, RenderImage, ScrollHandle, SharedString, Size, Subscription, Task, Window,
 };
@@ -49,6 +51,7 @@ use crate::kit::{InputEvent, TextInput};
 use crate::platform::pdf::{Hit, OpenError, Pdf};
 use super::column;
 use super::image_view::{self, Zoom};
+use super::pan_zoom;
 use super::pdf_view::{self, Layout};
 use super::logic::{absolute_path, short_path, size_label, split_path};
 use super::search::{Blurred, OpenHit, SearchPane};
@@ -197,6 +200,12 @@ struct Doc {
     live: Option<(u64, SharedString)>,
     /// An image's (or a PDF's) zoom.
     zoom: Zoom,
+    /// How far an image larger than its pane is moved (points, from its
+    /// room's top left; `None`: centred). A PDF's is its `scroll`.
+    pan: Option<(f32, f32)>,
+    /// The image's size in pixels as last drawn (a new size read from
+    /// disk centres it again).
+    pixels: Option<(i32, i32)>,
     /// An SVG's picture was made from this text (by its identity).
     svg_from: Option<(usize, usize)>,
     /// A PDF the viewer draws (macOS), once its bytes are asked for.
@@ -231,6 +240,10 @@ struct PdfDoc {
     /// Pages the engine couldn't draw (not asked for again).
     failed: HashSet<usize>,
     find: Option<PdfFind>,
+    /// A pinch or ⌘-scroll is going on: the pages drawn are scaled as
+    /// they are, and drawn again once it settles (`_settle`).
+    zooming: bool,
+    _settle: Option<Task<()>>,
 }
 
 enum PdfState {
@@ -272,6 +285,8 @@ impl PdfDoc {
             current: 0,
             failed: HashSet::new(),
             find: None,
+            zooming: false,
+            _settle: None,
         }
     }
 
@@ -313,6 +328,38 @@ fn drop_images(images: Vec<Arc<RenderImage>>, cx: &mut App) {
             cx.drop_image(i, None);
         }
     });
+}
+
+/// A press on an image or a PDF larger than its pane, at `at` (window
+/// points) with the picture moved `from` (points).
+#[derive(Clone, Copy, Debug)]
+struct PanPress {
+    at: gpui::Point<Pixels>,
+    from: (f32, f32),
+    pdf: bool,
+    moved: bool,
+}
+
+/// Where a pane is in the window, as drawn (no redraw for it).
+fn place(cell: Rc<Cell<Option<Bounds<Pixels>>>>) -> impl IntoElement {
+    canvas(move |b, _, _| cell.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()
+}
+
+/// `at` (window points) in a pane at `pane`, `view` (w, h) points large;
+/// no point (the − and + buttons): the pane's centre.
+fn in_pane(at: Option<gpui::Point<Pixels>>, pane: Option<Bounds<Pixels>>, view: (f32, f32)) -> (f32, f32) {
+    match (at, pane) {
+        (Some(at), Some(b)) => (f32::from(at.x - b.origin.x), f32::from(at.y - b.origin.y)),
+        _ => (view.0 / 2., view.1 / 2.),
+    }
+}
+
+/// How far an image `len` (w, h) points large is moved in a pane `view`
+/// large: `pan`, or centred, kept in reach.
+fn image_offset(pan: Option<(f32, f32)>, len: (f32, f32), view: (f32, f32)) -> (f32, f32) {
+    let pad = image_view::PAD;
+    let (x, y) = pan.unwrap_or((pan_zoom::max_offset(len.0, pad, view.0) / 2., pan_zoom::max_offset(len.1, pad, view.1) / 2.));
+    (pan_zoom::clamp(x, len.0, pad, view.0), pan_zoom::clamp(y, len.1, pad, view.1))
 }
 
 /// SVGs shown as their source (by viewer key and path; the session's
@@ -440,6 +487,11 @@ pub struct Viewer {
     /// once the pointer travels [`BAR_DRAG_THRESHOLD`] from there, else a
     /// click.
     bar_press: Option<gpui::Point<gpui::Pixels>>,
+    /// A press on an image or a PDF larger than its pane: it moves once
+    /// the pointer travels [`pan_zoom::DRAG_THRESHOLD`].
+    pan_press: Option<PanPress>,
+    /// The last such press moved it (its release is no click).
+    pan_moved: bool,
     /// The tree column as toggled in this viewer (`None`: as kept for its
     /// kind of place, see [`column::shown`]).
     tree_open: Option<bool>,
@@ -449,6 +501,10 @@ pub struct Viewer {
     measured: Rc<Cell<Option<Size<Pixels>>>>,
     image_area: Rc<Cell<Option<Size<Pixels>>>>,
     pdf_area: Rc<Cell<Option<Size<Pixels>>>>,
+    /// Where the image pane and the PDF pane are in the window, as last
+    /// drawn (zoom keeps the point under the pointer).
+    image_box: Rc<Cell<Option<Bounds<Pixels>>>>,
+    pdf_box: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The display's pixels per point, as last drawn (PDF pages are drawn
     /// for it).
     dpr: f32,
@@ -554,11 +610,15 @@ impl Viewer {
             refocus: false,
             place_menu: None,
             bar_press: None,
+            pan_press: None,
+            pan_moved: false,
             tree_open: None,
             tree_drag_w: None,
             measured: Rc::default(),
             image_area: Rc::default(),
             pdf_area: Rc::default(),
+            image_box: Rc::default(),
+            pdf_box: Rc::default(),
             dpr: 2.,
             tabs_scroll: ScrollHandle::new(),
             tabs_overflow: Rc::default(),
@@ -1001,8 +1061,8 @@ impl Viewer {
                 } else {
                     let code = d.code.take();
                     let sub = d._code_sub.take();
-                    // (A PDF read again keeps its zoom and place.)
-                    let zoom = d.zoom;
+                    // (A PDF or an image read again keeps its zoom and place.)
+                    let (zoom, pan, pixels) = (d.zoom, d.pan, d.pixels);
                     gone.extend(d.release_pdf());
                     *d = Doc {
                         view: Some(v),
@@ -1010,6 +1070,8 @@ impl Viewer {
                         code,
                         _code_sub: sub,
                         zoom,
+                        pan,
+                        pixels,
                         ..Doc::default()
                     };
                     if image {
@@ -1138,6 +1200,12 @@ impl Viewer {
         let mut drawn: Vec<usize> = pd.pages.keys().copied().collect();
         drawn.sort();
         (drawn, pd.pending.len())
+    }
+
+    /// How wide (pixels) page `page` of `path`'s PDF is drawn (tests).
+    #[cfg(test)]
+    pub fn pdf_page_w(&self, path: &str, page: usize) -> Option<u32> {
+        self.docs.get(path)?.pdf.as_ref()?.pages.get(&page).map(|p| p.w)
     }
 
     /// `path`'s PDF search: what was found and the hit shown (tests).
@@ -2436,12 +2504,202 @@ impl Viewer {
         image_view::scale(zoom, (w as f32, h as f32), (f32::from(area.width), f32::from(area.height)))
     }
 
+    /// The −, +, Fit and 100 % buttons: the zoom, about the view's centre.
     pub fn set_zoom(&mut self, zoom: Zoom, cx: &mut Context<Self>) {
+        self.zoom_at(zoom, None, false, cx);
+    }
+
+    /// The active image or PDF at `zoom`, the point at `at` (window
+    /// points; none: the view's centre) kept where it is. `gesture`: a
+    /// pinch or ⌘-scroll, after which a PDF's pages are drawn again once
+    /// it settles.
+    fn zoom_at(&mut self, zoom: Zoom, at: Option<gpui::Point<Pixels>>, gesture: bool, cx: &mut Context<Self>) {
         let Some(active) = self.active.clone() else { return };
+        if self.active_pdf().is_some() {
+            self.zoom_pdf(&active, zoom, at, gesture, cx);
+            return;
+        }
+        let Some(d) = self.docs.get(&active) else { return };
+        let pan = match (self.image_frame(d.zoom, d.pixels), self.image_frame(zoom, d.pixels)) {
+            (Some((old, view)), Some((new, _))) => {
+                let off = image_offset(d.pan, old, view);
+                let at = in_pane(at, self.image_box.get(), view);
+                let pad = image_view::PAD;
+                Some((
+                    pan_zoom::anchored(off.0, old.0, new.0, pad, view.0, at.0),
+                    pan_zoom::anchored(off.1, old.1, new.1, pad, view.1, at.1),
+                ))
+            }
+            _ => d.pan,
+        };
         if let Some(d) = self.docs.get_mut(&active) {
             d.zoom = zoom;
+            d.pan = pan;
         }
         cx.notify();
+    }
+
+    /// The active image drawn at `zoom`, and its pane, `(w, h)` points
+    /// each (once laid out).
+    fn image_frame(&self, zoom: Zoom, pixels: Option<(i32, i32)>) -> Option<((f32, f32), (f32, f32))> {
+        let ((w, h), area) = (pixels?, self.image_area.get()?);
+        let s = self.image_scale(zoom, pixels);
+        Some((((w as f32 * s).max(1.), (h as f32 * s).max(1.)), (f32::from(area.width), f32::from(area.height))))
+    }
+
+    /// The active image drawn at `pixels`: a size other than the one it
+    /// was drawn at (read again, changed on disk) centres it again; the
+    /// same size keeps where it was moved.
+    fn sync_pixels(&mut self, pixels: Option<(i32, i32)>) {
+        let Some(now) = pixels else { return };
+        let Some(d) = self.active.clone().and_then(|p| self.docs.get_mut(&p)) else { return };
+        if d.pixels.is_some_and(|was| was != now) {
+            d.pan = None;
+        }
+        d.pixels = Some(now);
+    }
+
+    /// A pinch over the image or the PDF: zoomed by it about the pointer.
+    fn pinched(&mut self, e: &gpui::PinchEvent, cx: &mut Context<Self>) {
+        // (A pinch's start and end carry no change: Fit stays Fit.)
+        if let Some((now, (min, max))) = self.zoom_range().filter(|_| e.delta != 0.) {
+            let z = Zoom::Scale(pan_zoom::pinch(now, e.delta, min, max));
+            self.zoom_at(z, Some(e.position), true, cx);
+        }
+        if e.phase == gpui::TouchPhase::Ended {
+            self.settled(cx);
+        }
+    }
+
+    /// The active image's or PDF's scale now and the range a pinch or
+    /// ⌘-scroll zooms it in.
+    fn zoom_range(&self) -> Option<(f32, (f32, f32))> {
+        if let Some((_, pdf, zoom)) = self.active_pdf() {
+            let s = self.pdf_scale(zoom, &pdf);
+            return Some((s, (pdf_view::STEPS[0], pdf_view::STEPS[pdf_view::STEPS.len() - 1])));
+        }
+        let d = self.docs.get(self.active.as_ref()?)?;
+        let ((w, h), area) = (d.pixels?, self.image_area.get()?);
+        let fitted = image_view::fit_scale((w as f32, h as f32), (f32::from(area.width), f32::from(area.height)));
+        Some((self.image_scale(d.zoom, d.pixels), image_view::limits(fitted)))
+    }
+
+    /// A scroll over the image (a PDF scrolls itself): ⌘ (Ctrl) held,
+    /// zoomed about the pointer; else the image moves, any way at once.
+    /// Whether it did anything.
+    fn image_scrolled(&mut self, e: &gpui::ScrollEvent, cx: &mut Context<Self>) -> bool {
+        if e.modifiers.secondary(cx) {
+            return self.wheel_zoom(e, cx);
+        }
+        let d = e.delta.pixel_delta(px(pan_zoom::LINE));
+        let (mut dx, mut dy) = (f32::from(d.x), f32::from(d.y));
+        // Shift and a wheel that only goes up and down: sideways.
+        if e.modifiers.shift && dx == 0. && !e.delta.precise() {
+            (dx, dy) = (dy, 0.);
+        }
+        let Some(active) = self.active.clone() else { return false };
+        let Some((len, view)) = self.docs.get(&active).and_then(|d| self.image_frame(d.zoom, d.pixels)) else { return false };
+        let Some(d) = self.docs.get_mut(&active) else { return false };
+        let off = image_offset(d.pan, len, view);
+        let pad = image_view::PAD;
+        let to = (pan_zoom::clamp(off.0 - dx, len.0, pad, view.0), pan_zoom::clamp(off.1 - dy, len.1, pad, view.1));
+        if to == off {
+            return false;
+        }
+        d.pan = Some(to);
+        cx.notify();
+        true
+    }
+
+    /// ⌘ (Ctrl) + scroll over the image or the PDF: zoomed about the
+    /// pointer (up: in).
+    fn wheel_zoom(&mut self, e: &gpui::ScrollEvent, cx: &mut Context<Self>) -> bool {
+        let d = e.delta.pixel_delta(px(pan_zoom::LINE));
+        let dy = if d.y == px(0.) { f32::from(d.x) } else { f32::from(d.y) };
+        let Some((now, (min, max))) = self.zoom_range() else { return false };
+        self.zoom_at(Zoom::Scale(pan_zoom::wheel(now, dy, min, max)), Some(e.position), true, cx);
+        true
+    }
+
+    /// A press on the image or the PDF (`pdf`) where it is larger than its
+    /// pane: it may become a drag that moves it.
+    fn pan_down(&mut self, e: &gpui::MouseDownEvent, pdf: bool, cx: &mut Context<Self>) {
+        self.pan_moved = false;
+        let from = if pdf { self.pdf_offset() } else { self.image_offset_now() };
+        self.pan_press = from.map(|from| PanPress { at: e.position, from, pdf, moved: false });
+        cx.notify();
+    }
+
+    /// The pointer moved with the picture pressed: past the threshold, the
+    /// picture follows it, kept in view.
+    fn pan_move(&mut self, e: &gpui::MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some(mut p) = self.pan_press else { return };
+        if e.pressed_button != Some(MouseButton::Left) {
+            self.pan_up(cx);
+            return;
+        }
+        let (at, now) = ((f32::from(p.at.x), f32::from(p.at.y)), (f32::from(e.position.x), f32::from(e.position.y)));
+        if !p.moved && !pan_zoom::dragged(at, now) {
+            return;
+        }
+        p.moved = true;
+        self.pan_press = Some(p);
+        // (Its release is no click, whichever hears it first.)
+        self.pan_moved = true;
+        let want = (p.from.0 - (now.0 - at.0), p.from.1 - (now.1 - at.1));
+        if p.pdf {
+            self.set_pdf_offset(want);
+        } else if let Some(active) = self.active.clone() {
+            let frame = self.docs.get(&active).and_then(|d| self.image_frame(d.zoom, d.pixels));
+            if let (Some((len, view)), Some(d)) = (frame, self.docs.get_mut(&active)) {
+                let pad = image_view::PAD;
+                d.pan = Some((pan_zoom::clamp(want.0, len.0, pad, view.0), pan_zoom::clamp(want.1, len.1, pad, view.1)));
+            }
+        }
+        cx.notify();
+    }
+
+    /// The press let go (anywhere).
+    fn pan_up(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.pan_press.take() {
+            self.pan_moved = p.moved;
+            cx.notify();
+        }
+    }
+
+    /// How far the active image is moved, when it is larger than its pane.
+    fn image_offset_now(&self) -> Option<(f32, f32)> {
+        let d = self.docs.get(self.active.as_ref()?)?;
+        let (len, view) = self.image_frame(d.zoom, d.pixels)?;
+        let pad = image_view::PAD;
+        let movable = pan_zoom::max_offset(len.0, pad, view.0) > 0. || pan_zoom::max_offset(len.1, pad, view.1) > 0.;
+        movable.then(|| image_offset(d.pan, len, view))
+    }
+
+    /// How far the image or the PDF is moved, and whether the last press
+    /// moved it (tests).
+    #[cfg(test)]
+    pub fn pan_state(&self) -> (Option<(f32, f32)>, bool) {
+        let pan = match self.active_pdf() {
+            Some(_) => self.pdf_offset(),
+            None => self.active.as_ref().and_then(|p| self.docs.get(p)).and_then(|d| {
+                let (len, view) = self.image_frame(d.zoom, d.pixels)?;
+                Some(image_offset(d.pan, len, view))
+            }),
+        };
+        (pan, self.pan_moved)
+    }
+
+    /// The active image's or PDF's scale (tests).
+    #[cfg(test)]
+    pub fn shown_scale(&self) -> Option<f32> {
+        self.zoom_range().map(|r| r.0)
+    }
+
+    /// The active PDF is being zoomed by a gesture (tests).
+    #[cfg(test)]
+    pub fn pdf_zooming(&self) -> bool {
+        self.active_pdf().is_some_and(|(pd, _, _)| pd.zooming)
     }
 
     // ── a PDF ───────────────────────────────────────────────────────────
@@ -2457,6 +2715,74 @@ impl Viewer {
     fn pdf_scale(&self, zoom: Zoom, pdf: &Pdf) -> f32 {
         let (aw, _) = self.pdf_area.get().map(pdf_room).unwrap_or((800., 600.));
         pdf_view::scale(zoom, pdf.pages(), aw)
+    }
+
+    /// The active PDF at `zoom`, the place at `at` (window points; none:
+    /// the view's centre) kept where it is. A gesture's pages are scaled
+    /// as drawn until it settles (`settled`), then drawn again.
+    fn zoom_pdf(&mut self, path: &str, zoom: Zoom, at: Option<gpui::Point<Pixels>>, gesture: bool, cx: &mut Context<Self>) {
+        let area = self.pdf_area.get().map(pdf_room);
+        let pane = self.pdf_box.get();
+        let Some(d) = self.docs.get_mut(path) else { return };
+        let old_zoom = std::mem::replace(&mut d.zoom, zoom);
+        let Some((pd, pdf)) = d.pdf.as_mut().and_then(|pd| pd.open().map(|p| (pd, p))) else { return };
+        if let Some((aw, ah)) = area {
+            let pages = pdf.pages();
+            let s0 = pd.scale.unwrap_or_else(|| pdf_view::scale(old_zoom, pages, aw));
+            let s1 = pdf_view::scale(zoom, pages, aw);
+            let (old, new) = (Layout::new(pages, s0), Layout::new(pages, s1));
+            let at = in_pane(at, pane, (aw, ah));
+            let off = pd.scroll.offset();
+            let wide = pdf_view::widest(pages);
+            let x = pan_zoom::anchored(-f32::from(off.x), wide * s0, wide * s1, pdf_view::PAD, aw, at.0);
+            let y = pdf_view::anchored_top(&old, &new, -f32::from(off.y), at.1, ah);
+            pd.scroll.set_offset(gpui::point(px(-x), px(-y)));
+            // (Laid out at it already: `pdf_tick` keeps this place.)
+            pd.scale = Some(s1);
+        }
+        if gesture {
+            pd.zooming = true;
+            let path = path.to_string();
+            pd._settle = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(pan_zoom::SETTLE_MS)).await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.active.as_deref() == Some(path.as_str()) {
+                        this.settled(cx);
+                    }
+                });
+            }));
+        }
+    }
+
+    /// A pinch or ⌘-scroll over: the active PDF's pages drawn again at
+    /// the scale it left them at.
+    fn settled(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active.clone() else { return };
+        if let Some(pd) = self.docs.get_mut(&active).and_then(|d| d.pdf.as_mut()) {
+            if pd.zooming {
+                pd.zooming = false;
+                pd._settle = None;
+                cx.notify();
+            }
+        }
+    }
+
+    /// How far the active PDF is scrolled (x, y points).
+    fn pdf_offset(&self) -> Option<(f32, f32)> {
+        let (pd, _, _) = self.active_pdf()?;
+        let off = pd.scroll.offset();
+        Some((-f32::from(off.x), -f32::from(off.y)))
+    }
+
+    /// The active PDF scrolled to `to` (x, y points), as far as it goes.
+    fn set_pdf_offset(&mut self, to: (f32, f32)) {
+        let Some((aw, ah)) = self.pdf_area.get().map(pdf_room) else { return };
+        let Some((pd, pdf, zoom)) = self.active_pdf() else { return };
+        let s = pd.scale.unwrap_or_else(|| pdf_view::scale(zoom, pdf.pages(), aw));
+        let layout = Layout::new(pdf.pages(), s);
+        let x = to.0.clamp(0., (layout.width - aw).max(0.));
+        let y = to.1.clamp(0., (layout.height - ah).max(0.));
+        pd.scroll.set_offset(gpui::point(px(-x), px(-y)));
     }
 
     /// Before the active PDF is drawn: the place in view kept at a new
@@ -2497,7 +2823,7 @@ impl Viewer {
                         break;
                     }
                     let (w, h) = pdf_view::render_px(pdf.pages()[p], s, dpr);
-                    if pd.pending.contains(&p) || pd.failed.contains(&p) || !pdf_view::needs_render(pd.pages.get(&p).map(|i| i.w), w) {
+                    if pd.pending.contains(&p) || pd.failed.contains(&p) || !pdf_view::render_now(pd.pages.get(&p).map(|i| i.w), w, pd.zooming) {
                         continue;
                     }
                     pd.pending.insert(p);
@@ -2914,6 +3240,7 @@ impl Viewer {
                     .top(px(layout.tops[i]))
                     .w(px(w))
                     .h(px(h))
+                    .when(i == 0, |d| d.debug_selector(|| "ex-pdf-first".into()))
                     .bg(gpui::white())
                     .shadow_sm()
                     .when_some(picture, |d, picture| {
@@ -2932,14 +3259,41 @@ impl Viewer {
                     .into_any_element()
             })
             .collect();
-        let scroll = div()
+        // Larger than the pane (either way): pressed and dragged, it moves.
+        let movable = layout.width > aw || layout.height > ah;
+        let dragging = self.pan_press.is_some_and(|p| p.pdf && p.moved);
+        let mut scroll = div()
             .id("ex-pdf-scroll")
             .size_full()
             .overflow_scroll()
             .track_scroll(&pd.scroll)
-            // A click gives the viewer the keyboard (⌘F).
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| window.focus(&this.focus, cx)))
-            .child(div().relative().w(px(layout.width.max(aw))).h(px(layout.height)).children(pages));
+            .when(movable, |d| d.cursor(if dragging { gpui::CursorStyle::ClosedHand } else { gpui::CursorStyle::OpenHand }))
+            // A click gives the viewer the keyboard (⌘F); a drag moves the pages.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, e: &gpui::MouseDownEvent, window, cx| {
+                    window.focus(&this.focus, cx);
+                    this.pan_down(e, true, cx);
+                }),
+            )
+            .child(
+                div()
+                    .relative()
+                    .w(px(layout.width.max(aw)))
+                    .h(px(layout.height))
+                    .min_h_full()
+                    // ⌘ (Ctrl) + scroll zooms, heard here before the pane
+                    // scrolls (which it then doesn't).
+                    .on_scroll(cx.listener(|v, e: &gpui::ScrollEvent, _, cx| {
+                        if e.modifiers.secondary(cx) && v.wheel_zoom(e, cx) {
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .children(pages),
+            )
+            .when(self.pan_press.is_some_and(|p| p.pdf), |d| d.child(self.pan_listener(cx)));
+        // Diagonal scrolls move the pages both ways at once.
+        scroll.style().allow_concurrent_scroll = Some(true);
         div()
             .id("ex-pdf")
             .debug_selector(|| "ex-pdf".into())
@@ -2949,6 +3303,8 @@ impl Viewer {
             .size_full()
             .bg(t.surface_2)
             .child(self.measure(self.pdf_area.clone(), cx))
+            .child(place(self.pdf_box.clone()))
+            .child(self.pinch_target(cx))
             .child(crate::kit::vscroll_fill("ex-pdf-bar", &pd.scroll, t, scroll).size_full())
             .when_some(find, |d, f| d.child(self.find_bar(f, t, cx)))
             .into_any_element()
@@ -2997,9 +3353,11 @@ impl Viewer {
             .child(crate::kit::icon_btn("ex-pdf-find-close", "x", "Close (Esc)", true, t).on_click(cx.listener(move |this, _, _, cx| this.close_find(&p3, cx))))
     }
 
-    /// The image at its zoom, centred while smaller than the pane and
-    /// scrolled when larger, over a checkerboard where it is transparent.
-    /// A double click goes between Fit and 100 %.
+    /// The image at its zoom, centred while smaller than the pane and,
+    /// when larger, moved by a drag or a scroll ([`pan_zoom`]), over a
+    /// checkerboard where it is transparent. A pinch or ⌘-scroll zooms
+    /// about the pointer; a double click goes between Fit and 100 % about
+    /// the point clicked.
     fn image(&self, image: Arc<gpui::Image>, zoom: Zoom, pixels: Option<(i32, i32)>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let err = t.text_3;
         let picture = || {
@@ -3008,16 +3366,21 @@ impl Viewer {
                 .object_fit(gpui::ObjectFit::Fill)
                 .with_fallback(move || div().text_size(px(12.5)).text_color(err).child("This image can't be drawn").into_any_element())
         };
-        let measured = self.image_area.get().is_some();
-        let inner = match pixels.filter(|_| measured) {
-            Some((w, h)) => {
-                let s = self.image_scale(zoom, pixels);
-                let (dw, dh) = ((w as f32 * s).max(1.), (h as f32 * s).max(1.));
+        let d = self.active.as_ref().and_then(|p| self.docs.get(p));
+        let frame = pixels.and_then(|_| self.image_frame(zoom, pixels));
+        let pad = image_view::PAD;
+        // Larger than the pane (either way): it can be moved.
+        let movable = frame.is_some_and(|(len, view)| pan_zoom::max_offset(len.0, pad, view.0) > 0. || pan_zoom::max_offset(len.1, pad, view.1) > 0.);
+        let inner = match frame {
+            Some((len, view)) => {
+                let off = image_offset(d.and_then(|d| d.pan), len, view);
                 div()
-                    .relative()
-                    .flex_none()
-                    .w(px(dw))
-                    .h(px(dh))
+                    .absolute()
+                    .left(px(pan_zoom::start(off.0, len.0, pad, view.0)))
+                    .top(px(pan_zoom::start(off.1, len.1, pad, view.1)))
+                    .w(px(len.0))
+                    .h(px(len.1))
+                    .debug_selector(|| "ex-image-picture".into())
                     .border_1()
                     .border_color(t.line)
                     .child(image_view::checkerboard(t.surface, t.surface_3).absolute().inset_0())
@@ -3025,9 +3388,10 @@ impl Viewer {
                     .into_any_element()
             }
             // Not laid out yet (a frame): fitted by the image itself.
-            None => div().size_full().child(picture().object_fit(gpui::ObjectFit::ScaleDown)).into_any_element(),
+            None => div().size_full().p(px(pad)).child(picture().object_fit(gpui::ObjectFit::ScaleDown)).into_any_element(),
         };
         let fit = zoom == Zoom::Fit;
+        let dragging = self.pan_press.is_some_and(|p| !p.pdf && p.moved);
         div()
             .id("ex-image")
             .debug_selector(|| "ex-image".into())
@@ -3035,21 +3399,78 @@ impl Viewer {
             .flex_1()
             .min_h_0()
             .size_full()
+            .overflow_hidden()
             .bg(t.surface_2)
+            .when(movable, |d| d.cursor(if dragging { gpui::CursorStyle::ClosedHand } else { gpui::CursorStyle::OpenHand }))
             .child(self.measure(self.image_area.clone(), cx))
-            .child(
-                div()
-                    .id("ex-image-scroll")
-                    .size_full()
-                    .overflow_scroll()
-                    .on_click(cx.listener(move |v, e: &gpui::ClickEvent, _, cx| {
-                        if e.click_count() == 2 {
-                            v.set_zoom(if fit { Zoom::Scale(1.) } else { Zoom::Fit }, cx);
-                        }
-                    }))
-                    .child(div().min_w_full().min_h_full().p(px(image_view::PAD)).flex().items_center().justify_center().child(inner)),
-            )
+            .child(place(self.image_box.clone()))
+            .on_mouse_down(MouseButton::Left, cx.listener(|v, e: &gpui::MouseDownEvent, _, cx| v.pan_down(e, false, cx)))
+            .on_scroll(cx.listener(|v, e: &gpui::ScrollEvent, _, cx| {
+                if v.image_scrolled(e, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .child(self.pinch_target(cx))
+            // A double click: Fit or 100 %, the point clicked kept under
+            // the pointer (not the end of a drag).
+            .on_click(cx.listener(move |v, e: &gpui::ClickEvent, _, cx| {
+                if e.click_count() == 2 && !v.pan_moved {
+                    v.zoom_at(if fit { Zoom::Scale(1.) } else { Zoom::Fit }, Some(e.position()), false, cx);
+                }
+            }))
+            .child(inner)
+            .when(self.pan_press.is_some_and(|p| !p.pdf), |d| d.child(self.pan_listener(cx)))
             .into_any_element()
+    }
+
+    /// Pinches over the pane it fills. (Not `on_pinch`: that hears only a
+    /// hovered element, and nothing is hovered after a key until the
+    /// pointer moves; a pinch, like a scroll, goes to what is under the
+    /// pointer whatever was typed last.)
+    fn pinch_target(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let me = cx.entity().downgrade();
+        canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal),
+            move |_, hitbox, window, _| {
+                let v = me.clone();
+                window.on_mouse_event(move |e: &gpui::PinchEvent, phase, window, cx| {
+                    if phase == gpui::DispatchPhase::Bubble && hitbox.should_handle_scroll(window) {
+                        let _ = v.update(cx, |v, cx| v.pinched(e, cx));
+                    }
+                });
+            },
+        )
+        .absolute()
+        .inset_0()
+    }
+
+    /// While the picture is pressed: the window's own mouse events,
+    /// wherever the pointer is (past the pane, the window's edge: the
+    /// release there ends it), and the closed hand while it moves.
+    fn pan_listener(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let me = cx.entity().downgrade();
+        let moving = self.pan_press.is_some_and(|p| p.moved);
+        canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                if moving {
+                    window.set_window_cursor_style(gpui::CursorStyle::ClosedHand);
+                }
+                let v = me.clone();
+                window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, _, cx| {
+                    if phase == gpui::DispatchPhase::Bubble {
+                        let _ = v.update(cx, |v, cx| v.pan_move(e, cx));
+                    }
+                });
+                let v = me.clone();
+                window.on_mouse_event(move |e: &gpui::MouseUpEvent, phase, _, cx| {
+                    if phase == gpui::DispatchPhase::Bubble && e.button == MouseButton::Left {
+                        let _ = v.update(cx, |v, cx| v.pan_up(cx));
+                    }
+                });
+            },
+        )
+        .size_0()
     }
 
     /// The changed-on-disk question, the save error, under the header.
@@ -3152,6 +3573,7 @@ impl Render for Viewer {
         self.pdf_tick(cx);
         let active = self.active.clone();
         let pixels = self.image_pixels(window, cx);
+        self.sync_pixels(pixels);
         let body = self.body(&t, pixels, cx);
         let tabs = self.tabs.clone();
         self.tab_focus.retain(|p, _| tabs.contains(p));
