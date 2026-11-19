@@ -7,12 +7,17 @@
 //!
 //! The agents' `pitwall` MCP tools are served here too (`mcp.tools`,
 //! `mcp.call`): their MCP servers outlive updates, so they pass the tools
-//! through instead of carrying their own.
+//! through instead of carrying their own. Which tools are listed follows
+//! the settings (`show_web` only while agents may show web pages).
+//!
+//! `web.open` (and `show_web`): a web page shown to the user in the
+//! agent's page tile. The address is checked here (http and https only,
+//! [`pitwall_proto::web::address`]) before the host sees it.
 
 use serde_json::Value;
 
 use pitwall_proto::mcp::{self, McpCall, McpCalled, McpTools};
-use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, VIEWER_PROTO};
+use pitwall_proto::{code, ErrorBody, ViewerOpen, ViewerOpened, ViewerPlace, ViewerShow, ViewerShown, WebOpen, WebOpened, WebShow, WebShown, VIEWER_PROTO, WEB_PROTO};
 
 use crate::identity::Caller;
 use crate::server::Server;
@@ -28,6 +33,12 @@ pub trait ViewerBackend: Send + Sync {
     /// The name of agent `id` when it is one shown here from another
     /// machine (a peer's), which has no files here.
     fn mirrored(&self, id: &str) -> Option<String>;
+    /// Show `req` (the address checked) for `req.agent_id`: in its page
+    /// tile, else a new web tile next to its terminal, or a window.
+    fn show_web(&self, req: &WebShow) -> Result<WebShown, ErrorBody> {
+        let _ = req;
+        Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall can't show web pages"))
+    }
 }
 
 type Res = Result<Value, ErrorBody>;
@@ -66,27 +77,125 @@ pub fn open(s: &Server, caller: &Caller, r: ViewerOpen) -> Res {
     serde_json::to_value(o).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
 }
 
+/// The tools this Pitwall lists now (its settings).
+fn served(s: &Server) -> McpTools {
+    mcp::served(s.engine.show_files_on(), s.engine.show_web_on())
+}
+
 /// `mcp.tools`: this Pitwall's tools.
-pub fn mcp_tools() -> Res {
-    serde_json::to_value(mcp::own()).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+pub fn mcp_tools(s: &Server) -> Res {
+    serde_json::to_value(served(s)).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
 }
 
 /// `mcp.call`: a tool call, checked against this Pitwall's tools and
 /// answered as the agent sees it (a failure is a tool error that says why).
 pub fn mcp_call(s: &Server, caller: &Caller, c: McpCall) -> Res {
+    let failed = |e: ErrorBody| match e.code.as_str() {
+        code::OFF => mcp::result(&e.message, None, true),
+        _ => mcp::result(&format!("Nothing was opened: {}", e.message), None, true),
+    };
     let result = match mcp::request(&c.name, &c.arguments, c.agent.clone()) {
         Err(e) => mcp::result(&format!("Nothing was opened: {e}"), None, true),
-        Ok(req) => match show(s, caller, req) {
+        Ok(mcp::Request::Viewer(req)) => match show(s, caller, req) {
             Ok(o) => {
                 let text = o.text.clone().unwrap_or_else(|| mcp::text(&o));
                 mcp::result(&text, serde_json::to_value(&o).ok(), false)
             }
-            Err(e) if e.code == code::OFF => mcp::result(&e.message, None, true),
-            Err(e) => mcp::result(&format!("Nothing was opened: {}", e.message), None, true),
+            Err(e) => failed(e),
+        },
+        Ok(mcp::Request::Web(req)) => match web(s, caller, req) {
+            Ok(o) => {
+                let text = o.text.clone().unwrap_or_else(|| pitwall_proto::web::text(&o));
+                mcp::result(&text, serde_json::to_value(&o).ok(), false)
+            }
+            Err(e) => failed(e),
         },
     };
-    let McpTools { stamp, .. } = mcp::own();
+    let McpTools { stamp, .. } = served(s);
     serde_json::to_value(McpCalled { result, stamp }).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+}
+
+/// `web.open`'s params, read (a newer asker's word this Pitwall doesn't
+/// know is said plainly, as for `viewer.open`).
+pub fn web_params(p: Value) -> Result<WebOpen, ErrorBody> {
+    let newer = p.get("proto").and_then(Value::as_u64).is_some_and(|v| v > u64::from(WEB_PROTO));
+    serde_json::from_value(p).map_err(|e| {
+        if newer {
+            ErrorBody::new(code::BAD_PARAMS, format!("This Pitwall is older than its command-line tool ({e}): quit Pitwall and open it again to update it. Nothing was opened."))
+        } else {
+            ErrorBody::new(code::BAD_PARAMS, e.to_string())
+        }
+    })
+}
+
+/// `web.open`.
+pub fn web_open(s: &Server, caller: &Caller, r: WebOpen) -> Res {
+    let o = web(s, caller, r)?;
+    serde_json::to_value(o).map_err(|e| ErrorBody::new(code::OTHER, e.to_string()))
+}
+
+/// The agent `key` names (id, else a unique name), or why not.
+fn agent_named(s: &Server, key: &str, what: &str) -> Result<pitwall_proto::AgentView, ErrorBody> {
+    let views = s.engine.views();
+    let key = key.trim();
+    let named: Vec<_> = views.iter().filter(|v| v.name.eq_ignore_ascii_case(key)).collect();
+    views
+        .iter()
+        .find(|v| v.id == key)
+        .or((named.len() == 1).then(|| named[0]))
+        .cloned()
+        .ok_or_else(|| ErrorBody::new(code::NOT_FOUND, format!("no agent \"{key}\" in Pitwall{what} (see `pitwall agent list`)")))
+}
+
+fn web(s: &Server, caller: &Caller, r: WebOpen) -> Result<WebOpened, ErrorBody> {
+    let Some(backend) = s.viewer.as_deref() else {
+        return Err(ErrorBody::new(code::UNSUPPORTED, "this Pitwall has no windows to show web pages in"));
+    };
+    if let Some(off) = s.engine.show_web_off() {
+        return Err(ErrorBody::new(code::OFF, off));
+    }
+    // What the user could type in the address field, nothing else.
+    let url = match r.url.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+        None => None,
+        Some(u) => Some(pitwall_proto::web::address(u).map_err(|e| ErrorBody::new(code::BAD_PARAMS, e))?),
+    };
+    let key = r
+        .agent_id
+        .clone()
+        .filter(|a| !a.trim().is_empty())
+        .or_else(|| caller.agent.as_ref().map(|(id, _)| id.clone()))
+        .ok_or_else(|| ErrorBody::new(code::BAD_PARAMS, "say whose page (--agent NAME): this doesn't run inside an agent Pitwall started"))?;
+    let agent = match agent_named(s, &key, "") {
+        Ok(a) => a,
+        Err(e) => {
+            if let Some(name) = backend.mirrored(key.trim()) {
+                return Err(ErrorBody::new(code::UNSUPPORTED, format!("{name} runs on another machine and is only shown here, read-only: it can't open pages here")));
+            }
+            return Err(e);
+        }
+    };
+    let of = match r.of.as_deref().map(str::trim).filter(|o| !o.is_empty()) {
+        None => None,
+        Some(o) => Some(agent_named(s, o, " for `of`")?.id),
+    };
+    let show = WebShow { agent_id: agent.id.clone(), url: url.clone(), place: r.place, of };
+    let shown = backend.show_web(&show)?;
+    let mut o = WebOpened {
+        proto: WEB_PROTO,
+        agent_id: agent.id,
+        agent_name: agent.name,
+        window: shown.window,
+        in_background: shown.in_background,
+        url,
+        reused: shown.reused,
+        place: shown.place.word().into(),
+        asked: r.place.map(|p| p.word().into()),
+        shown_in: shown.at,
+        note: shown.note,
+        text: None,
+    };
+    o.text = Some(pitwall_proto::web::text(&o));
+    Ok(o)
 }
 
 fn show(s: &Server, caller: &Caller, r: ViewerOpen) -> Result<ViewerOpened, ErrorBody> {

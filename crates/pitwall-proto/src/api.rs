@@ -149,6 +149,10 @@ pub mod method {
     /// [`McpCall`](crate::mcp::McpCall) → [`McpCalled`](crate::mcp::McpCalled):
     /// one of those tools called, checked and answered here.
     pub const MCP_CALL: &str = "mcp.call";
+    /// (`caps::WEB`) [`WebOpen`](crate::WebOpen) → [`WebOpened`](crate::WebOpened):
+    /// a web page shown to the user in the agent's page tile (`pitwall
+    /// open --web` and the `show_web` tool).
+    pub const WEB_OPEN: &str = "web.open";
 
     // Events (`caps::EVENTS`).
     /// [`EventsSubscribe`](crate::EventsSubscribe) →
@@ -175,6 +179,8 @@ pub mod caps {
     pub const VIEWER: &str = "viewer";
     /// `mcp.tools` and `mcp.call` (with `viewer`).
     pub const MCP: &str = "mcp";
+    /// `web.open` (with `viewer`).
+    pub const WEB: &str = "web";
 }
 
 /// Server-pushed events: `{"event":"…","data":…}`.

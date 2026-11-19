@@ -1,5 +1,6 @@
-//! Agents showing files to the user (`agents.showFiles`, `viewer.open`):
-//! whether it is on, the MCP server the agents Pitwall starts are given,
+//! Agents showing files to the user (`agents.showFiles`, `viewer.open`)
+//! and web pages (`agents.showWeb`, `web.open`): whether each is on, the
+//! MCP server the agents Pitwall starts are given (while either is),
 //! and turning what an agent asked for (`src/a.rs:42`, a folder, a
 //! worktree's name) into full paths on the agent's machine that exist.
 //! Showing them is the host's (the app's viewer). Writes only the
@@ -18,16 +19,20 @@ use crate::paths::expand_tilde_in;
 use crate::kind::{mcp_file, ShowFilesRoute};
 use crate::provider::McpWiring;
 
-/// What the engine keeps: the setting, and the `pitwall-cli` to run.
+/// What the engine keeps: the settings, and the `pitwall-cli` to run.
 pub(crate) struct State {
     on: AtomicBool,
+    /// `agents.showWeb`.
+    web: AtomicBool,
+    /// `general.webPages`.
+    web_pages: AtomicBool,
     cli: RwLock<Option<PathBuf>>,
 }
 
 impl Default for State {
     fn default() -> State {
-        // On by default, as the setting.
-        State { on: AtomicBool::new(true), cli: RwLock::new(None) }
+        // On by default, as the settings.
+        State { on: AtomicBool::new(true), web: AtomicBool::new(true), web_pages: AtomicBool::new(true), cli: RwLock::new(None) }
     }
 }
 
@@ -38,14 +43,44 @@ impl Engine {
         self.sync_show_rule();
     }
 
+    /// `agents.showWeb` and `general.webPages`, as the host follows them:
+    /// agents may show web pages while both are on.
+    pub fn set_show_web(&self, tool: bool, pages: bool) {
+        let was = self.show_web_on();
+        self.show.web.store(tool, Ordering::Relaxed);
+        self.show.web_pages.store(pages, Ordering::Relaxed);
+        // (The rule says only whether pages can be shown.)
+        if was != self.show_web_on() {
+            self.sync_show_rule();
+        }
+    }
+
     /// The built-in rule for agents without an MCP way, in step.
     fn sync_show_rule(&self) {
         let cli = self.show_files_wiring().map(|m| m.command);
-        crate::rules::sync_show_files_rule(&crate::rules::Dirs::of(self.paths()), cli.as_deref());
+        let what = crate::rules::ShowWhat { files: self.show_files_on(), web: self.show_web_on() };
+        crate::rules::sync_show_files_rule(&crate::rules::Dirs::of(self.paths()), cli.as_deref(), what);
     }
 
     pub fn show_files_on(&self) -> bool {
         self.show.on.load(Ordering::Relaxed)
+    }
+
+    /// Agents may show web pages (`agents.showWeb` and `general.webPages`).
+    pub fn show_web_on(&self) -> bool {
+        self.show.web.load(Ordering::Relaxed) && self.show.web_pages.load(Ordering::Relaxed)
+    }
+
+    /// Why agents can't show web pages now, in the user's words (`None`:
+    /// they can).
+    pub fn show_web_off(&self) -> Option<&'static str> {
+        if !self.show.web_pages.load(Ordering::Relaxed) {
+            return Some("Web pages are turned off in Pitwall (Settings → General → “Show web pages in Pitwall”, general.webPages). Nothing was opened.");
+        }
+        if !self.show.web.load(Ordering::Relaxed) {
+            return Some("Showing web pages is turned off in Pitwall (Settings → Agents → “Agents can show you web pages”, agents.showWeb; only the user can turn it on). Nothing was opened.");
+        }
+        None
     }
 
     /// The `pitwall-cli` the host ships (`None`: this build has none, and
@@ -55,10 +90,10 @@ impl Engine {
         self.sync_show_rule();
     }
 
-    /// The MCP server for an agent starting now: none when the setting is
-    /// off or there is no CLI.
+    /// The MCP server for an agent starting now: none when showing files
+    /// and web pages are both off, or there is no CLI.
     pub fn show_files_wiring(&self) -> Option<McpWiring> {
-        if !self.show_files_on() {
+        if !self.show_files_on() && !self.show_web_on() {
             return None;
         }
         self.show_files_server()

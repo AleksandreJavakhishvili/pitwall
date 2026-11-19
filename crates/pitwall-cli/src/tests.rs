@@ -1062,6 +1062,130 @@ impl pitwall_daemon::ViewerBackend for MemViewer {
     }
 }
 
+/// The app's web tiles, as a test sees them: what it was asked to show.
+#[derive(Default)]
+struct MemWeb(std::sync::Mutex<Vec<pitwall_proto::WebShow>>);
+
+impl pitwall_daemon::ViewerBackend for MemWeb {
+    fn show(&self, _: &pitwall_proto::ViewerShow) -> Result<pitwall_proto::ViewerShown, pitwall_proto::ErrorBody> {
+        Err(pitwall_proto::ErrorBody::new(pitwall_proto::code::OTHER, "no files here"))
+    }
+    fn mirrored(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn show_web(&self, req: &pitwall_proto::WebShow) -> Result<pitwall_proto::WebShown, pitwall_proto::ErrorBody> {
+        let mut seen = self.0.lock().unwrap();
+        let reused = seen.iter().any(|r| r.agent_id == req.agent_id);
+        seen.push(req.clone());
+        Ok(pitwall_proto::WebShown {
+            window: "main".into(),
+            in_background: false,
+            place: req.place.unwrap_or_default(),
+            at: format!("a web tile in space Main (window main), {} of api's terminal", req.place.unwrap_or_default().word()),
+            note: None,
+            reused,
+        })
+    }
+}
+
+/// `pitwall open --web` and the `show_web` tool against a running server:
+/// the address checked, the settings followed (the tool listed or not).
+#[test]
+fn open_web_and_the_show_web_tool_end_to_end() {
+    let dir = TempDir::new("cli-web");
+    let project = dir.path().join("api");
+    std::fs::create_dir_all(&project).unwrap();
+    let engine = Engine::open(Deps {
+        paths: Paths::new(dir.path().join("pitwall")),
+        events: RecordingSink::new(),
+        clock: ManualClock::new(1),
+        store: MemStore::with(vec![]),
+        providers: vec![FakeProvider::named("local", "this-mac", Arc::new(LocalExec))],
+    });
+    let web = Arc::new(MemWeb::default());
+    let sock_dir = std::env::temp_dir().join(format!("pww-{}", std::process::id()));
+    std::fs::create_dir_all(&sock_dir).unwrap();
+    let socket = sock_dir.join("w.sock");
+    let cfg = pitwall_daemon::Config { socket: socket.clone(), version: "t".into(), settings: None, workspace: None, viewer: Some(web.clone()), events: None };
+    let server = serve(engine.clone(), Approvals::new(Duration::from_secs(5)), Arc::new(Outside), cfg).unwrap();
+    let cli = |args: &[&str]| run(&Cli::try_parse_from(std::iter::once("pitwall").chain(args.iter().copied())).unwrap().command, &socket);
+    let p = project.to_string_lossy().into_owned();
+    let id = cli(&["agent", "new", "--kind", "claude", "--project", &p, "--name", "api"]).unwrap().json["id"].as_str().unwrap().to_string();
+    cli(&["agent", "new", "--kind", "claude", "--project", &p, "--name", "web"]).unwrap();
+
+    // From a shell: a bare host gets https, the place and `of` go through.
+    let o = cli(&["open", "--agent", "api", "--web", "example.com/docs", "--where", "left", "--of", "web"]).unwrap();
+    assert_eq!(o.json["url"], "https://example.com/docs");
+    assert_eq!((o.json["place"].as_str(), o.json["asked"].as_str(), o.json["reused"].as_bool()), (Some("left"), Some("left"), Some(false)));
+    assert!(o.human.starts_with("Opened https://example.com/docs in a web tile in space Main (window main), left of api's terminal in Pitwall.\n"), "{}", o.human);
+    assert!(o.human.contains("can't click, type or read anything in it"));
+    let shown = web.0.lock().unwrap().last().unwrap().clone();
+    assert_eq!(shown.agent_id, id);
+    assert_eq!(shown.place, Some(pitwall_proto::ViewerPlace::Left));
+    assert!(shown.of.as_deref().is_some_and(|o| o != id), "of: the web agent's id");
+    // No address: an empty page; a second call says it reused the tile.
+    let o = cli(&["open", "--agent", "api", "--web"]).unwrap();
+    assert_eq!((o.json.get("url"), o.json["reused"].as_bool()), (None, Some(true)));
+    assert!(o.human.starts_with("Opened an empty web page"), "{}", o.human);
+    // Not an address: refused before the app sees it.
+    for bad in ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,x", "how to cook rice"] {
+        let e = cli(&["open", "--agent", "api", "--web", bad]).err().unwrap();
+        assert_eq!(failure(&e).0["error"]["code"], "bad_params", "{bad}");
+    }
+    assert!(cli(&["open", "--agent", "nobody", "--web", "example.com"]).err().unwrap().to_string().contains("no agent \"nobody\""));
+    assert!(cli(&["open", "--agent", "api", "--web", "example.com", "--of", "nobody"]).err().unwrap().to_string().contains("for `of`"));
+    assert_eq!(web.0.lock().unwrap().len(), 2);
+
+    // The tool, through the proxy: listed while on, its answer in words.
+    let up = mcp::SocketUpstream { socket: socket.clone() };
+    use mcp::Upstream as _;
+    let names = |t: &pitwall_proto::mcp::McpTools| t.tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(names(&up.tools().unwrap()), ["show_files", "show_folder", "show_web"]);
+    let proxy = mcp::Proxy::new(&up, Some(id.clone()));
+    let call = |args: serde_json::Value| proxy.call(&json!({"name": "show_web", "arguments": args})).0;
+    let r = call(json!({"url": "localhost:3000", "where": "window"}));
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(r["structuredContent"]["url"], "http://localhost:3000");
+    assert_eq!(r["structuredContent"]["place"], "window");
+    let r = call(json!({"url": "javascript:alert(1)"}));
+    assert_eq!(r["isError"], true);
+    assert!(r["content"][0]["text"].as_str().unwrap().starts_with("Nothing was opened: Only web addresses"), "{r}");
+
+    // agents.showWeb off: not listed (a new stamp: the agent lists again),
+    // and a call (an agent that listed it before) is refused with why.
+    let before = up.tools().unwrap().stamp;
+    engine.set_show_web(false, true);
+    let now = up.tools().unwrap();
+    assert_eq!(names(&now), ["show_files", "show_folder"]);
+    assert_ne!(now.stamp, before);
+    let (r, told) = proxy.call(&json!({"name": "show_web", "arguments": {"url": "example.com"}}));
+    assert_eq!(r["isError"], true);
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("agents.showWeb"), "{r}");
+    let e = cli(&["open", "--agent", "api", "--web", "example.com"]).err().unwrap();
+    assert_eq!(failure(&e).0["error"]["code"], "off");
+    let _ = told;
+    // Web pages off: off too, said as that.
+    engine.set_show_web(true, false);
+    assert_eq!(names(&up.tools().unwrap()), ["show_files", "show_folder"]);
+    let r = call(json!({}));
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("general.webPages"), "{r}");
+    // Files off, web on: only show_web.
+    engine.set_show_web(true, true);
+    engine.set_show_files(false);
+    assert_eq!(names(&up.tools().unwrap()), ["show_web"]);
+    engine.set_show_files(true);
+    assert_eq!(web.0.lock().unwrap().len(), 3, "nothing shown while off");
+
+    // A newer CLI's word this Pitwall doesn't know: said plainly.
+    let mut c = pitwall_client::Client::connect(&socket).unwrap();
+    let e = c.call(pitwall_proto::method::WEB_OPEN, json!({"agentId": id, "where": "floating", "proto": 99})).unwrap_err();
+    assert!(e.to_string().starts_with("This Pitwall is older than its command-line tool"), "{e}");
+    server.stop();
+    let r = call(json!({"url": "example.com"}));
+    assert!(r["content"][0]["text"].as_str().unwrap().contains("Pitwall isn't running"), "{r}");
+    let _ = std::fs::remove_dir_all(&sock_dir);
+}
+
 /// `pitwall open` and the MCP server's tools, against a running server:
 /// paths resolved on the agent's machine, the setting, mirrored agents.
 #[test]
