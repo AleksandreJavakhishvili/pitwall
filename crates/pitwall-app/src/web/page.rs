@@ -200,6 +200,9 @@ impl WebPage {
                     Ok(h) => h,
                     Err(_) => break,
                 };
+                // Its holder's window gone (it moved and the new one hasn't
+                // drawn it yet): heard without a window.
+                let host = host.filter(|h| cx.update(|cx| cx.windows().iter().any(|w| w.window_id() == h.window_id())));
                 let this = this.clone();
                 match msg {
                     // A shortcut the page saw first: Pitwall's, dispatched

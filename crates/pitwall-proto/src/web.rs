@@ -103,13 +103,14 @@ pub struct WebShown {
 
 /// What was opened, in words (`pitwall open --web` and the tool's result).
 pub fn text(o: &WebOpened) -> String {
-    let what = match &o.url {
-        Some(u) => format!("Opened {u}"),
-        None => "Opened an empty web page (its address field is there for the user to type in; the keyboard stayed where it was)".to_string(),
+    let what = match (&o.url, o.reused) {
+        (Some(u), _) => format!("Opened {u}"),
+        (None, true) => "Showed the page you opened before (on whatever it shows now)".to_string(),
+        (None, false) => "Opened an empty web page (its address field is there for the user to type in; the keyboard stayed where it was)".to_string(),
     };
     let at = if o.shown_in.is_empty() { "a web tile" } else { o.shown_in.as_str() };
     let mut s = format!("{what} in {at} in Pitwall.\n");
-    if o.reused {
+    if o.reused && o.url.is_some() {
         s.push_str("It is the page you opened before, now showing this.\n");
     }
     if let Some(n) = &o.note {
@@ -255,6 +256,10 @@ mod tests {
         let empty = text(&WebOpened { place: "window".into(), in_background: true, ..Default::default() });
         assert!(empty.starts_with("Opened an empty web page"), "{empty}");
         assert!(empty.contains("behind it without taking the keyboard"));
+        // Moved without an address: its page, not an empty one.
+        let moved = text(&WebOpened { place: "window".into(), reused: true, shown_in: "a window of its own".into(), ..Default::default() });
+        assert!(moved.starts_with("Showed the page you opened before (on whatever it shows now) in a window of its own"), "{moved}");
+        assert!(!moved.contains("empty"));
     }
 
     #[test]

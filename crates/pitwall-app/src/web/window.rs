@@ -165,6 +165,15 @@ pub fn open(id: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) -> R
             WindowBounds::Windowed(Bounds::new(point(b.origin.x + step, b.origin.y + step), b.size))
         }
     };
+    // Bench: shown and drawn, but off-screen, never focused (`bench.rs`),
+    // as the main window.
+    let (bounds, focus) = if crate::bench::enabled() && !crate::bench::visible() {
+        let mut b = bounds.get_bounds();
+        b.origin = point(px(crate::bench::OFF_SCREEN.0), px(crate::bench::OFF_SCREEN.1 + 900.));
+        (WindowBounds::Windowed(b), false)
+    } else {
+        (bounds, focus)
+    };
     let options = WindowOptions {
         window_bounds: Some(bounds),
         titlebar: Some(TitlebarOptions { title: Some(title(&page_title, &url).into()), ..Default::default() }),

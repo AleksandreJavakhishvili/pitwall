@@ -377,7 +377,9 @@ mod tests {
         let d = web["description"].as_str().unwrap();
         assert!(d.contains("This only shows a page to the user: you get no page content back, and you cannot click, type"), "{d}");
         let schema = &web["inputSchema"];
-        assert_eq!(schema["properties"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(), ["of", "url", "where"]);
+        let mut keys: Vec<String> = schema["properties"].as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["of", "url", "where"]);
         assert_eq!(schema["properties"]["where"]["enum"], json!(ViewerPlace::WORDS));
         assert!(schema.get("required").is_none(), "url is optional");
         assert_eq!(schema["additionalProperties"], false);
