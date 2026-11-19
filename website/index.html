@@ -113,7 +113,7 @@
       <div class="wrap">
         <div class="away-copy">
           <h2 id="away-h">Go do something else. <span class="dim">Answer from there.</span></h2>
-          <p>Browsing, scrolling a feed, watching a video: when an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it, then accept or reject right there, or just press Enter. Drag it wherever suits you; when nothing is waiting, it's gone.</p>
+          <p>Browsing, scrolling a feed, watching a video: when an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it, then accept or reject right there, or just press Enter. Drag it wherever suits you, and its edges to give the cards more room; when nothing is waiting, it's gone.</p>
         </div>
         <!-- Decorative: a loop of the floating control over a browser with a video playing (site.css: .fl-*). The copy above says what it shows. -->
         <div class="fl-stage glass" data-float aria-hidden="true">
@@ -169,6 +169,148 @@
 
             <i class="fl-ping fl-ping-1"></i><i class="fl-ping fl-ping-2"></i><i class="fl-ping fl-ping-3"></i>
             <svg class="fl-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shows" id="files" aria-labelledby="shows-h">
+      <div class="wrap">
+        <div class="away-copy">
+          <p class="eyebrow">New in 0.7</p>
+          <h2 id="shows-h">“Open that for me.” <span class="dim">It opens next to the agent.</span></h2>
+          <p>Ask an agent to show you a file, a folder, a worktree or an image, and it opens in a files tile beside its terminal, at the line it means. Put it right, left, above or below, in a terminal's place or in a window of its own, and drag it between them. The terminal keeps the keyboard, and Pitwall doesn't jump in front of the app you're in.</p>
+        </div>
+        <!-- Decorative: a loop of an agent opening two files in a files tile (site.css: .sv-*). The copy above and the list below say what it shows. -->
+        <div class="sv-stage glass" data-files aria-hidden="true">
+          <div class="sv-scene">
+            <div class="sv-win">
+              <div class="sv-top">
+                <svg class="mark" viewBox="7 7 50 50" width="16" height="16"><defs><mask id="mk-sv" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-sv)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
+                <span class="sv-space">Main</span><i class="sv-chip"></i><i class="sv-chip s"></i>
+              </div>
+
+              <div class="sv-term">
+                <div class="sv-head"><svg class="fl-logo" viewBox="0 0 14 14" width="13" height="13"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b><span>Claude Code</span></div>
+                <div class="sv-lines">
+                  <span class="sv-prompt">&gt; <span class="sv-type">show me where the total gets rounded, and the logo</span></span>
+                  <span> </span>
+                  <span class="sv-l1"><b>⏺ pitwall - show_files (MCP)</b>(paths: ["src/orders/pricing.ts</span>
+                  <span class="sv-l1">  :14", "assets/logo.svg"])</span>
+                  <span class="sv-l2 d">  ⎿  Opened in a files tile in space Main (window main),</span>
+                  <span class="sv-l2 d">     <span class="sv-w">right of</span><span class="sv-n">below</span> api-fix's terminal in Pitwall: /Users/dev/</span>
+                  <span class="sv-l2 d">     code/orders-api/src/orders/pricing.ts at line 14, …</span>
+                  <span class="sv-l2 d">     … +1 line (ctrl+o to expand)</span>
+                  <span> </span>
+                  <span class="sv-l3">⏺ Both are open next to this terminal. Line 14 rounds</span>
+                  <span class="sv-l3">  each line before it's added, so totals drift by a cent.</span>
+                  <span> </span>
+                  <span class="sv-l3">&gt; <i class="sv-caret"></i></span>
+                </div>
+              </div>
+
+              <div class="sv-files">
+                <div class="sv-tile">
+                  <div class="sv-bar">
+                    <svg class="sv-ico" viewBox="0 0 16 16" width="15" height="15"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 3v10" stroke="currentColor" stroke-width="1.3"/></svg>
+                    <span class="sv-lbl">Files</span>
+                    <span class="sv-root">~/code/orders-api</span>
+                    <span class="sv-branch"><svg viewBox="0 0 12 12" width="11" height="11"><circle cx="3.5" cy="2.5" r="1.3" fill="none" stroke="currentColor"/><circle cx="3.5" cy="9.5" r="1.3" fill="none" stroke="currentColor"/><circle cx="8.5" cy="4" r="1.3" fill="none" stroke="currentColor"/><path d="M3.5 3.8v4.4M8.5 5.3c0 2-5 1.5-5 3" fill="none" stroke="currentColor"/></svg>fix/rounding</span>
+                    <span class="sv-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                    <span class="sv-btn">Move…</span>
+                    <span class="sv-sep"></span>
+                    <svg class="sv-ico" viewBox="0 0 16 16" width="14" height="14"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <svg class="sv-ico" viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                  </div>
+                  <div class="sv-tabs">
+                    <i class="sv-tab-on"></i>
+                    <span class="sv-tab"><b class="ts">TS</b>pricing.ts</span>
+                    <span class="sv-tab"><b class="sg">◆</b>logo.svg<i class="sv-dot"></i></span>
+                  </div>
+                  <div class="sv-main">
+                    <div class="sv-tree">
+                      <i class="sv-sel"></i>
+                      <span>▾ src</span>
+                      <span class="i1">▾ orders</span>
+                      <span class="i2">handler.ts</span>
+                      <span class="i2">pricing.ts<em>M</em></span>
+                      <span class="i2">schema.ts</span>
+                      <span class="i1">app.ts</span>
+                      <span>▾ assets</span>
+                      <span class="i1">logo.svg</span>
+                      <span>▸ test</span>
+                      <span class="i1">package.json</span>
+                      <span class="i1">README.md</span>
+                    </div>
+                    <div class="sv-view">
+                      <div class="sv-code">
+                        <i class="sv-mark"></i>
+                        <span><span class="xu">1</span><span class="xk">import type</span> { <span class="xt">Item</span> } <span class="xk">from</span> <span class="xs">"./schema"</span>;</span>
+                        <span><span class="xu">2</span></span>
+                        <span><span class="xu">3</span><span class="xc">/** Sum of the items, in minor units. */</span></span>
+                        <span><span class="xu">4</span><span class="xk">export function</span> <span class="xf">priceItems</span>(</span>
+                        <span><span class="xu">5</span>  items: <span class="xt">Item</span>[],</span>
+                        <span><span class="xu">6</span>  currency: <span class="xt">string</span>,</span>
+                        <span><span class="xu">7</span>): <span class="xt">number</span> {</span>
+                        <span><span class="xu">8</span>  <span class="xk">let</span> total = <span class="xn">0</span>;</span>
+                        <span><span class="xu">9</span>  <span class="xk">for</span> (<span class="xk">const</span> item <span class="xk">of</span> items) {</span>
+                        <span><span class="xu">10</span>    <span class="xk">if</span> (item.currency !== currency) {</span>
+                        <span><span class="xu">11</span>      <span class="xk">throw new</span> <span class="xt">Error</span>(<span class="xs">"mixed currencies"</span>);</span>
+                        <span><span class="xu">12</span>    }</span>
+                        <span><span class="xu">13</span>    <span class="xk">const</span> line = item.price * item.quantity;</span>
+                        <span><span class="xu">14</span>    total += <span class="xt">Math</span>.<span class="xf">round</span>(line);</span>
+                        <span><span class="xu">15</span>  }</span>
+                        <span><span class="xu">16</span>  <span class="xk">return</span> total;</span>
+                        <span><span class="xu">17</span>}</span>
+                      </div>
+                      <div class="sv-svg">
+                        <div class="sv-svghead">
+                          <span class="sv-seg"><i class="sv-seg-on"></i><span>Picture</span><span>Source</span></span>
+                          <span class="sv-px">64 × 64</span>
+                          <span class="sv-zoom"><span>Fit</span><span>100 %</span><span>−</span><span>+</span></span>
+                        </div>
+                        <div class="sv-pic">
+                          <svg class="sv-pic-a" viewBox="0 0 64 64" width="112" height="112"><rect width="64" height="64" rx="14" fill="#2f6fde"/><path d="M18 24l14-8 14 8v16l-14 8-14-8z" fill="none" stroke="#fff" stroke-width="4"/></svg>
+                          <svg class="sv-pic-b" viewBox="0 0 64 64" width="112" height="112"><rect width="64" height="64" rx="14" fill="#1f9d55"/><path d="M18 24l14-8 14 8v16l-14 8-14-8z" fill="none" stroke="#fff" stroke-width="4"/></svg>
+                        </div>
+                        <div class="sv-src">
+                          <span><span class="xu">1</span>&lt;<span class="xk">svg</span> <span class="xf">xmlns</span>=<span class="xs">"http://www.w3.org/2000/svg"</span></span>
+                          <span><span class="xu">2</span>     <span class="xf">viewBox</span>=<span class="xs">"0 0 64 64"</span>&gt;</span>
+                          <span><span class="xu">3</span>  &lt;<span class="xk">rect</span> <span class="xf">width</span>=<span class="xs">"64"</span> <span class="xf">height</span>=<span class="xs">"64"</span> <span class="xf">rx</span>=<span class="xs">"14"</span></span>
+                          <span><span class="xu">4</span>        <span class="xf">fill</span>=<span class="xs sv-val"><b class="sv-old">"#2f6fde"</b><b class="sv-new">"#1f9d55"</b></span><i class="sv-caret"></i>/&gt;</span>
+                          <span><span class="xu">5</span>  &lt;<span class="xk">path</span> <span class="xf">d</span>=<span class="xs">"M18 24l14-8 14 8v16l-14 8-14-8z"</span></span>
+                          <span><span class="xu">6</span>        <span class="xf">fill</span>=<span class="xs">"none"</span> <span class="xf">stroke</span>=<span class="xs">"#fff"</span></span>
+                          <span><span class="xu">7</span>        <span class="xf">stroke-width</span>=<span class="xs">"4"</span>/&gt;</span>
+                          <span><span class="xu">8</span>&lt;/<span class="xk">svg</span>&gt;</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <kbd class="sv-key">⌘S</kbd>
+                <i class="fl-ping sv-ping-1"></i><i class="fl-ping sv-ping-2"></i><i class="fl-ping sv-ping-3"></i>
+                <svg class="fl-pointer sv-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pit-panel sv-facts">
+          <div class="pit-row">
+            <p class="label">Read</p>
+            <p>Text and code with their colours and Find, Markdown as code or preview. Images (PNG, JPEG, GIF, WebP, SVG) fitted, at 100&nbsp;% or zoomed, and an SVG switches between its picture and its source. The tree and the Review list fold away or drag wider.</p>
+          </div>
+          <div class="pit-row">
+            <p class="label">Quick fixes</p>
+            <p>Edit a text file where it's shown and save with <kbd>⌘S</kbd>, with undo and Replace. If the agent changes it while you have edits, choose Keep mine, Take theirs or Show difference: nothing is overwritten without asking. Files of agents on this computer; agents still can't write through Pitwall.</p>
+          </div>
+          <div class="pit-row">
+            <p class="label">PDFs</p>
+            <p>macOS only for now: pages, zoom and Find, drawn by the system's PDF engine. On Windows and Linux a PDF says it can't be shown yet and offers Open in default app.</p>
+          </div>
+          <div class="pit-row">
+            <p class="label">Where it works</p>
+            <p>The files come from where the agent works now, also a worktree it moved into, with that branch, its git status and Show diff. Claude Code, Codex, Copilot CLI, Qwen Code, Amp and opencode get Pitwall's MCP server (<code>show_files</code>, <code>show_folder</code>) at each launch, without edits to your config files; Gemini CLI and Cursor Agent get an entry in their own MCP file when you ask in Settings → Agents; Aider and shells use <code>pitwall open</code>. <span class="dim-copy">Tried by hand with Claude Code on macOS; the other agents' routes are tested in code, not yet against each CLI.</span> <a href="/docs/agents/#showing-files">How</a></p>
           </div>
         </div>
       </div>

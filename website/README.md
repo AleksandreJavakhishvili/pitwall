@@ -48,9 +48,9 @@ image is rendered by `node scripts/og-image.mjs` (headless Chrome, demo content 
 ## Layout
 
 ```
-index.html                    landing: hero, demo with tabs, agents, download / GitHub
+index.html                    landing: hero, demo with tabs, the floating-control and files-tile loops, details, download / GitHub
 download/index.html           per-OS downloads, first-launch notes, build from source
-docs/how-it-works/index.html  flags, Wall, Next up, Review, terminals, agents, rules, agw, CLI, roadmap
+docs/how-it-works/index.html  flags, Wall, Next up, Review, files agents show you, terminals, agents, rules, agw, CLI, roadmap
 docs/quick-start/index.html   install, build from source, first steps
 changelog/index.html          page chrome; content from ../CHANGELOG.md
 roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Next / Later lanes)

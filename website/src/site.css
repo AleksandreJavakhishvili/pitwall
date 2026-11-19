@@ -911,6 +911,198 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 @keyframes fl-ping-2 { 0%, 42.9% { opacity: 0; transform: scale(0.3); } 43.2% { opacity: 0.6; transform: scale(0.4); } 46.9%, 100% { opacity: 0; transform: scale(1.4); } }
 @keyframes fl-ping-3 { 0%, 61.2% { opacity: 0; transform: scale(0.3); } 61.5% { opacity: 0.6; transform: scale(0.4); } 65.2%, 100% { opacity: 0; transform: scale(1.4); } }
 
+/* ---------- agents show you files (index.html: [data-files]) ----------
+   A Pitwall window, flat: an agent's terminal, and the files tile it opens beside it.
+   Drawn at 960x600 (phones: 500x690, the tile below the terminal, as `where: below`)
+   and scaled by main.js (--s). One 18 s timeline: the prompt is typed · the tool call
+   and its answer · the tile slides in on pricing.ts, line 14 marked · click logo.svg,
+   its picture · click Source · the colour edited, the tab's dot · ⌘S, the dot goes ·
+   click Picture, the saved colour · the tile leaves. Without animation (reduced motion)
+   the base styles are the tile open on pricing.ts. */
+.shows { padding: clamp(64px, 9vw, 112px) 0 0; }
+.shows h2 { max-width: 26ch; text-wrap: balance; }
+.shows h2 .dim { color: var(--text-3); }
+.shows .eyebrow { margin-bottom: 18px; }
+.sv-stage {
+  position: relative; aspect-ratio: 960 / 600; max-width: 960px; margin: clamp(28px, 4vw, 44px) auto 0;
+  border-radius: var(--radius); overflow: hidden; pointer-events: none; user-select: none;
+}
+.sv-scene {
+  position: absolute; left: 0; top: 0; width: 960px; height: 600px; transform-origin: 0 0; transform: scale(var(--s, 1));
+  font: 400 12px/1.4 var(--font-ui); color: var(--text); font-variant-ligatures: none;
+  --sv: 18s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+  --sv-out: translateX(500px);
+  /* Code colours, on the app's own background (AA on --app-bg in both themes). */
+  --x-kw: #ff7b72; --x-str: #a5d6ff; --x-fn: #d2a8ff; --x-num: #79c0ff; --x-com: #8b949e; --x-type: #ffa657; --x-mod: #e2c08d;
+  --x-mark: rgba(255, 178, 36, 0.12); --x-mark-edge: rgba(255, 178, 36, 0.7);
+}
+.sv-scene i { display: block; font-style: normal; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .sv-scene {
+    --x-kw: #cf222e; --x-str: #0a3069; --x-fn: #8250df; --x-num: #0550ae; --x-com: #57606a; --x-type: #953800; --x-mod: #895503;
+    --x-mark: rgba(237, 150, 0, 0.14); --x-mark-edge: rgba(176, 100, 0, 0.75);
+  }
+}
+:root[data-theme="light"] .sv-scene {
+  --x-kw: #cf222e; --x-str: #0a3069; --x-fn: #8250df; --x-num: #0550ae; --x-com: #57606a; --x-type: #953800; --x-mod: #895503;
+  --x-mark: rgba(237, 150, 0, 0.14); --x-mark-edge: rgba(176, 100, 0, 0.75);
+}
+@media (max-width: 600px) {
+  .sv-stage { aspect-ratio: 500 / 690; }
+  .sv-scene { width: 500px; height: 690px; --sv-out: translateY(400px); }
+}
+
+.sv-win {
+  position: absolute; left: 20px; top: 16px; right: 20px; bottom: 16px; overflow: hidden;
+  border-radius: 10px; background: var(--bezel); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
+}
+@media (max-width: 600px) { .sv-win { left: 10px; top: 10px; right: 10px; bottom: 10px; } }
+.sv-top { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.sv-space { padding: 2px 10px; border-radius: 6px; background: var(--chip-on); font-weight: 600; font-size: 11.5px; }
+.sv-chip { width: 54px; height: 7px; border-radius: 4px; background: var(--line-strong); }
+.sv-chip.s { width: 34px; margin-left: auto; }
+
+/* The agent's terminal: the whole width; the tile lands over its right half, where it
+   has no text, as the layout gives the tile that room. */
+.sv-term { position: absolute; left: 8px; top: 42px; right: 8px; bottom: 8px; border-radius: 6px; background: var(--app-bg); border: 1px solid var(--app-line); overflow: hidden; }
+.sv-head { height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.sv-head .fl-logo { margin: 0; }
+.sv-head b { font-weight: 600; }
+.sv-head span { color: var(--text-3); }
+.sv-lines { padding: 8px 12px; font: 11px/16px var(--font-mono); }
+.sv-lines > span { display: block; height: 16px; white-space: pre; }
+.sv-lines b { font-weight: 700; }
+.sv-lines .d { color: var(--text-3); }
+.sv-type { display: inline-block; vertical-align: top; clip-path: inset(0 0 0 0); animation: sv-type var(--sv); }
+.sv-n { display: none; }
+@media (max-width: 600px) { .sv-w { display: none; } .sv-n { display: inline; } }
+.sv-l1 { animation: sv-l1 var(--sv); }
+.sv-l2 { animation: sv-l2 var(--sv); }
+.sv-l3 { animation: sv-l3 var(--sv); }
+.sv-scene .sv-caret { display: inline-block; vertical-align: -2px; width: 6.6px; height: 13px; background: var(--text-2); animation: sv-blink 1s steps(1) infinite; }
+
+/* The files tile. */
+.sv-files { position: absolute; left: 444px; top: 42px; width: 460px; bottom: 8px; animation: sv-in var(--sv); }
+@media (max-width: 600px) { .sv-files { left: 10px; top: 300px; } }
+.sv-tile { position: absolute; inset: 0; overflow: hidden; border-radius: 6px; background: var(--app-bg); border: 1px solid var(--line-strong); box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6); }
+.sv-bar { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-bottom: 1px solid var(--line); background: var(--glass-solid); white-space: nowrap; }
+.sv-ico { flex: none; color: var(--text-3); }
+.sv-lbl { font: 600 10.5px/1 var(--font-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
+.sv-root, .sv-branch { font: 10.5px/1 var(--font-mono); color: var(--text-3); }
+.sv-branch { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.sv-grip { display: grid; grid-template-columns: repeat(2, 3px); gap: 2px; padding: 0 4px; }
+.sv-scene .sv-grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
+.sv-btn { padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 11px; color: var(--text-2); }
+.sv-sep { width: 1px; height: 16px; background: var(--line); }
+.sv-tabs { position: relative; height: 30px; display: flex; border-bottom: 1px solid var(--line); }
+.sv-tab { position: relative; width: 104px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-right: 1px solid var(--line); font-size: 11.5px; color: var(--text-2); }
+.sv-tab b { font: 700 8.5px/1 var(--font-mono); }
+.sv-tab .ts { color: var(--x-num); }
+.sv-tab .sg { color: var(--x-type); font-size: 10px; }
+.sv-tab-on { position: absolute; left: 0; top: 0; width: 104px; height: 30px; background: var(--chip-on); box-shadow: inset 0 -2px 0 var(--text-2); animation: sv-tab var(--sv); }
+.sv-scene .sv-dot { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--text-2); opacity: 0; animation: sv-dot var(--sv); }
+.sv-main { position: absolute; top: 67px; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 132px minmax(0, 1fr); }
+.sv-tree { position: relative; padding: 6px 0; border-right: 1px solid var(--line); font-size: 11.5px; color: var(--text-2); }
+.sv-tree span { position: relative; display: flex; align-items: center; height: 22px; padding-left: 10px; white-space: nowrap; }
+.sv-tree .i1 { padding-left: 22px; } .sv-tree .i2 { padding-left: 34px; }
+.sv-tree em { margin: 0 10px 0 auto; font: 700 10px/1 var(--font-mono); font-style: normal; color: var(--x-mod); }
+.sv-sel { position: absolute; left: 0; right: 0; top: 72px; height: 22px; background: var(--chip-on); animation: sv-sel var(--sv); }
+.sv-view { position: relative; overflow: hidden; }
+.sv-code, .sv-src { position: absolute; inset: 0; padding: 8px 0; font: 10.5px/17px var(--font-mono); }
+.sv-code > span, .sv-src > span { position: relative; display: block; height: 17px; white-space: pre; }
+@media (max-width: 600px) { .sv-code, .sv-src { line-height: 16px; } .sv-code > span, .sv-src > span { height: 16px; } }
+.sv-scene .xu { display: inline-block; width: 26px; margin-right: 10px; text-align: right; color: var(--text-3); opacity: 0.7; text-decoration: none; }
+.sv-scene .xk { color: var(--x-kw); } .sv-scene .xs { color: var(--x-str); text-decoration: none; } .sv-scene .xf { color: var(--x-fn); }
+.sv-scene .xn { color: var(--x-num); } .sv-scene .xc { color: var(--x-com); } .sv-scene .xt { color: var(--x-type); }
+/* Line 14, where the agent pointed. */
+.sv-mark { position: absolute; left: 0; right: 0; top: calc(8px + 13 * 17px); height: 17px; background: var(--x-mark); box-shadow: inset 2px 0 0 var(--x-mark-edge); }
+@media (max-width: 600px) { .sv-mark { top: calc(8px + 13 * 16px); height: 16px; } }
+.sv-code { animation: sv-code var(--sv); }
+.sv-svg { position: absolute; inset: 0; opacity: 0; animation: sv-svg var(--sv); }
+.sv-svghead { height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.sv-seg { position: relative; display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.sv-seg span { position: relative; width: 60px; padding: 3px 0; text-align: center; color: var(--text-2); }
+.sv-seg-on { position: absolute; left: 0; top: 0; bottom: 0; width: 60px; background: var(--chip-on); animation: sv-seg var(--sv); }
+.sv-zoom { display: flex; gap: 8px; margin-left: auto; }
+.sv-pic {
+  position: absolute; inset: 32px 0 0; display: grid; place-items: center;
+  background: repeating-conic-gradient(var(--chip) 0 25%, transparent 0 50%) 0 0 / 16px 16px;
+  animation: sv-pic var(--sv);
+}
+.sv-pic svg { grid-area: 1 / 1; }
+.sv-pic-a { animation: sv-pic-a var(--sv); }
+.sv-pic-b { opacity: 0; animation: sv-pic-b var(--sv); }
+.sv-src { top: 32px; opacity: 0; animation: sv-src var(--sv); }
+.sv-val { position: relative; display: inline-block; }
+.sv-val b { font-weight: inherit; }
+.sv-new { position: absolute; left: 0; top: 0; opacity: 0; animation: sv-new var(--sv); }
+.sv-old { animation: sv-old var(--sv); }
+.sv-src .sv-caret { width: 1.5px; margin-left: 1px; opacity: 0; animation: sv-caret var(--sv); }
+.sv-files kbd.sv-key {
+  position: absolute; right: 18px; top: 42px; font-size: 13px; padding: 2px 8px; opacity: 0;
+  background: var(--glass-solid); box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.5); animation: sv-key var(--sv);
+}
+.sv-pointer { animation: sv-pointer var(--sv); }
+.sv-ping-1 { left: 156px; top: 51px; animation: sv-ping-1 var(--sv); }
+.sv-ping-2 { left: 232px; top: 83px; animation: sv-ping-2 var(--sv); }
+.sv-ping-3 { left: 172px; top: 83px; animation: sv-ping-3 var(--sv); }
+.motion-paused .sv-scene * { animation-play-state: paused; }
+
+@keyframes sv-blink { 50% { opacity: 0; } }
+@keyframes sv-type {
+  0%, 2.2% { clip-path: inset(0 100% 0 0); animation-timing-function: steps(50, end); }
+  13.3%, 95% { clip-path: inset(0 0 0 0); }
+  96.5%, 100% { clip-path: inset(0 100% 0 0); }
+}
+@keyframes sv-l1 { 0%, 16% { opacity: 0; } 16.1%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes sv-l2 { 0%, 18.8% { opacity: 0; } 18.9%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes sv-l3 { 0%, 25.5% { opacity: 0; } 25.6%, 95% { opacity: 1; } 96.5%, 100% { opacity: 0; } }
+@keyframes sv-in {
+  0%, 20% { transform: var(--sv-out); animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+  24%, 92% { transform: none; animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.2); }
+  96%, 100% { transform: var(--sv-out); }
+}
+@keyframes sv-tab { 0%, 45.5% { transform: none; } 45.6%, 96% { transform: translateX(104px); } 96.1%, 100% { transform: none; } }
+@keyframes sv-sel { 0%, 45.5% { transform: none; } 45.6%, 96% { transform: translateY(88px); } 96.1%, 100% { transform: none; } }
+@keyframes sv-code { 0%, 45.5% { opacity: 1; } 45.6%, 96% { opacity: 0; } 96.1%, 100% { opacity: 1; } }
+@keyframes sv-svg { 0%, 45.5% { opacity: 0; } 45.6%, 96% { opacity: 1; } 96.1%, 100% { opacity: 0; } }
+@keyframes sv-seg { 0%, 57.7% { transform: none; } 57.8%, 78.8% { transform: translateX(60px); } 78.9%, 100% { transform: none; } }
+@keyframes sv-pic { 0%, 57.7% { opacity: 1; } 57.8%, 78.8% { opacity: 0; } 78.9%, 100% { opacity: 1; } }
+@keyframes sv-src { 0%, 57.7% { opacity: 0; } 57.8%, 78.8% { opacity: 1; } 78.9%, 100% { opacity: 0; } }
+@keyframes sv-pic-a { 0%, 78.8% { opacity: 1; } 78.9%, 96% { opacity: 0; } 96.1%, 100% { opacity: 1; } }
+@keyframes sv-pic-b { 0%, 78.8% { opacity: 0; } 78.9%, 96% { opacity: 1; } 96.1%, 100% { opacity: 0; } }
+@keyframes sv-old { 0%, 63.2% { opacity: 1; } 63.3%, 96% { opacity: 0; } 96.1%, 100% { opacity: 1; } }
+@keyframes sv-new { 0%, 63.2% { opacity: 0; } 63.3%, 96% { opacity: 1; } 96.1%, 100% { opacity: 0; } }
+@keyframes sv-caret { 0%, 60.9% { opacity: 0; } 61%, 61.9% { opacity: 1; } 62%, 62.9% { opacity: 0; } 63%, 72% { opacity: 1; } 72.1%, 100% { opacity: 0; } }
+@keyframes sv-dot { 0%, 63.2% { opacity: 0; } 63.3%, 71.6% { opacity: 1; } 71.7%, 100% { opacity: 0; } }
+@keyframes sv-key {
+  0%, 68.8% { opacity: 0; transform: translateY(6px); }
+  69.6%, 70.8% { opacity: 1; transform: none; }
+  71.4% { opacity: 1; transform: translateY(2px) scale(0.94); }
+  72.2%, 73.6% { opacity: 1; transform: none; }
+  75%, 100% { opacity: 0; transform: none; }
+}
+@keyframes sv-pointer {
+  0%, 37% { opacity: 0; transform: translate(330px, 300px); }
+  38.9% { opacity: 1; transform: translate(330px, 300px); }
+  44.4%, 45.1% { transform: translate(156px, 51px); }
+  45.6% { transform: translate(156px, 51px) scale(0.86); }
+  46.2%, 53.3% { transform: translate(156px, 51px); }
+  56.7%, 57.3% { transform: translate(232px, 83px); }
+  57.8% { transform: translate(232px, 83px) scale(0.86); }
+  58.4%, 58.9% { transform: translate(232px, 83px); }
+  61.1%, 74% { transform: translate(250px, 232px); }
+  77.8%, 78.4% { transform: translate(172px, 83px); }
+  78.9% { transform: translate(172px, 83px) scale(0.86); }
+  79.5%, 84% { opacity: 1; transform: translate(172px, 83px); }
+  88%, 100% { opacity: 0; transform: translate(330px, 300px); }
+}
+@keyframes sv-ping-1 { 0%, 45.4% { opacity: 0; transform: scale(0.3); } 45.6% { opacity: 0.6; transform: scale(0.4); } 49%, 100% { opacity: 0; transform: scale(1.4); } }
+@keyframes sv-ping-2 { 0%, 57.6% { opacity: 0; transform: scale(0.3); } 57.8% { opacity: 0.6; transform: scale(0.4); } 61.2%, 100% { opacity: 0; transform: scale(1.4); } }
+@keyframes sv-ping-3 { 0%, 78.7% { opacity: 0; transform: scale(0.3); } 78.9% { opacity: 0.6; transform: scale(0.4); } 82.3%, 100% { opacity: 0; transform: scale(1.4); } }
+
+.sv-facts { margin-top: clamp(20px, 3vw, 32px); }
+
 /* ---------- reveal on scroll (main.js adds .reveal only below the fold, with motion on) ---------- */
 .reveal {
   opacity: 0; transform: translate3d(0, 28px, 0); filter: blur(6px);
