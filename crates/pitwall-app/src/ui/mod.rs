@@ -251,6 +251,13 @@ impl MainView {
             cx.defer(move |cx| crate::explorer::drag::debug(&what, cx));
             return;
         }
+        // Debug builds, `web …`: agents' web pages, windows of their own
+        // (`crate::web::debug`).
+        if let Some(what) = cmd.strip_prefix("web ").filter(|_| cfg!(debug_assertions)) {
+            let what = what.to_string();
+            cx.defer(move |cx| crate::web::debug(&what, cx));
+            return;
+        }
         // Debug builds, `approval allow|deny`: answers the approval shown
         // (as its buttons do).
         if let Some(what) = cmd.strip_prefix("approval ").filter(|_| cfg!(debug_assertions)) {

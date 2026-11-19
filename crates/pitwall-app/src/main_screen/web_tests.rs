@@ -95,11 +95,11 @@ fn preview_opens_in_a_tile_beside_its_terminal_and_moves_only_when_its_place_doe
     let id = preview(&view, cx);
     // A tile of the layout, not inside the terminal's: the terminal keeps
     // its own tile, the page has its own.
-    view.read_with(cx, |s, _| {
+    view.read_with(cx, |s, app| {
         let layout = &s.active_space().unwrap().layout;
         assert_eq!(layout.leaves().len(), 2);
         assert!(layout.find_by_agent("web").is_some());
-        assert!(s.webs.is_open(&id));
+        assert!(s.webs.is_open(&id, app));
         assert_eq!(s.ui.web_tiles[&id].agent.as_deref(), Some("web"));
     });
     let term = cx.debug_bounds(sel(format!("web-pane-{id}"))).expect("the page's tile");
@@ -110,7 +110,7 @@ fn preview_opens_in_a_tile_beside_its_terminal_and_moves_only_when_its_place_doe
     // The chip again closes it, and the view goes.
     click_chip(cx);
     assert_eq!(calls(&log, cx), ["drop"]);
-    assert!(view.read_with(cx, |s, _| !s.webs.is_open(&id) && s.ui.preview_of("web").is_none()));
+    assert!(view.read_with(cx, |s, cx| !s.webs.is_open(&id, cx) && s.ui.preview_of("web").is_none()));
     assert!(web_ids(&view, cx).is_empty());
 }
 
@@ -201,7 +201,7 @@ fn the_page_follows_what_its_terminal_prints(cx: &mut TestAppContext) {
     // A link inside the page: followed, shown in the bar, kept for a restart.
     Log::emit(&log, WebEvent::Url("http://localhost:5174/about".into()));
     cx.run_until_parked();
-    assert_eq!(view.read_with(cx, |s, _| s.webs.page_url(&id)).as_deref(), Some("http://localhost:5174/about"));
+    assert_eq!(view.read_with(cx, |s, cx| s.webs.page_url(&id, cx)).as_deref(), Some("http://localhost:5174/about"));
     assert_eq!(view.read_with(cx, |s, _| s.ui.web_tiles[&id].url.clone()), "http://localhost:5174/about");
     // The agent stops: "Server stopped" instead of the page.
     set_web(&store, cx, |a| {
@@ -209,7 +209,7 @@ fn the_page_follows_what_its_terminal_prints(cx: &mut TestAppContext) {
         a.preview_urls.clear();
     });
     assert_eq!(calls(&log, cx), ["hide"]);
-    assert_eq!(view.read_with(cx, |s, _| s.webs.server(&id)), Some(Server::Stopped));
+    assert_eq!(view.read_with(cx, |s, cx| s.webs.server(&id, cx)), Some(Server::Stopped));
     assert!(cx.debug_bounds(sel(format!("web-pane-{id}"))).is_some(), "the tile stays, calmly");
     // Running again and printing its address: back on it.
     set_web(&store, cx, |a| {
@@ -230,7 +230,7 @@ fn a_failed_load_shows_calmly_and_the_next_printing_retries(cx: &mut TestAppCont
     let id = preview(&view, cx);
     Log::emit(&log, WebEvent::Failed { url: VITE.into(), error: "Could not connect to the server.".into() });
     assert_eq!(calls(&log, cx), ["hide"], "no engine error page");
-    assert!(matches!(view.read_with(cx, |s, _| s.webs.server(&id)), Some(Server::Unreachable(_))));
+    assert!(matches!(view.read_with(cx, |s, cx| s.webs.server(&id, cx)), Some(Server::Unreachable(_))));
     set_web(&store, cx, |a| a.preview_seen = 2);
     let c = calls(&log, cx);
     assert_eq!(c[0], "reload");
@@ -252,7 +252,7 @@ fn a_hidden_preview_pauses_then_lets_its_view_go(cx: &mut TestAppContext) {
     cx.executor().advance_clock(crate::preview::DROP_AFTER);
     cx.run_until_parked();
     assert_eq!(Log::take(&log), ["drop"]);
-    assert!(view.read_with(cx, |s, _| !s.webs.has_view(&id) && s.webs.is_open(&id)));
+    assert!(view.read_with(cx, |s, cx| !s.webs.has_view(&id, cx) && s.webs.is_open(&id, cx)));
     // Shown again: made again, on the page it was on.
     view.update(cx, |s, cx| s.toggle_route(Route::Wall, cx));
     let c = calls(&log, cx);
@@ -285,7 +285,7 @@ fn the_preview_goes_with_its_agent(cx: &mut TestAppContext) {
         cx.notify();
     });
     assert_eq!(calls(&log, cx), ["drop"]);
-    assert!(view.read_with(cx, |s, _| !s.webs.is_open(&id) && s.ui.web_tiles.is_empty()));
+    assert!(view.read_with(cx, |s, cx| !s.webs.is_open(&id, cx) && s.ui.web_tiles.is_empty()));
     assert!(web_ids(&view, cx).is_empty());
 }
 
@@ -314,7 +314,7 @@ fn the_page_takes_the_keys_and_pitwalls_shortcuts_still_work(cx: &mut TestAppCon
     // A click into the page.
     Log::emit(&log, WebEvent::Focused);
     cx.run_until_parked();
-    let focus = view.read_with(cx, |s, _| s.webs.focus_of(&id).unwrap());
+    let focus = view.read_with(cx, |s, cx| s.webs.focus_of(&id, cx).unwrap());
     assert!(cx.update(|window, _| focus.is_focused(window)));
     // ⌘B (Ctrl+Shift+B elsewhere) seen by the page first: the sidebar folds.
     let before = view.read_with(cx, |s, _| s.sidebar_collapsed);
@@ -349,7 +349,7 @@ fn only_local_pages_show_in_a_previews_bar(cx: &mut TestAppContext) {
     let id = preview(&view, cx);
     Log::emit(&log, WebEvent::Url("https://example.com/".into()));
     cx.run_until_parked();
-    assert_eq!(view.read_with(cx, |s, _| s.webs.page_url(&id)).as_deref(), Some(VITE));
+    assert_eq!(view.read_with(cx, |s, cx| s.webs.page_url(&id, cx)).as_deref(), Some(VITE));
 }
 
 // ── pages the user opens ─────────────────────────────────────────────────
@@ -368,7 +368,7 @@ fn page_tile(view: &Entity<MainScreen>, cx: &mut VisualTestContext) -> String {
 
 /// Type `text` into tile `id`'s address field and press Enter.
 fn go(view: &Entity<MainScreen>, id: &str, text: &str, cx: &mut VisualTestContext) {
-    let field = view.read_with(cx, |s, _| s.webs.field_of(id)).expect("its field");
+    let field = view.read_with(cx, |s, cx| s.webs.field_of(id, cx)).expect("its field");
     field.update(cx, |f, cx| f.set_text(text, cx));
     field.update(cx, |_, cx| cx.emit(crate::kit::InputEvent::Submit));
     frame(cx);
@@ -387,7 +387,7 @@ fn open_web_page_puts_a_tile_right_of_the_focused_one_and_takes_the_keys(cx: &mu
         assert!(layout.find_by_agent("web").is_some(), "the terminal stays");
     });
     // Its address field has the keys; typing goes there.
-    let field = view.read_with(cx, |s, _| s.webs.field_of(&id)).unwrap();
+    let field = view.read_with(cx, |s, cx| s.webs.field_of(&id, cx)).unwrap();
     assert!(cx.update(|window, cx| field.read(cx).is_focused(window)));
     cx.simulate_input("example.com");
     // (Enter: the field's own binding, not bound in this test app.)
@@ -414,14 +414,14 @@ fn text_that_isnt_an_address_is_said_and_nothing_loads(cx: &mut TestAppContext) 
     let id = page_tile(&view, cx);
     go(&view, &id, "how to center a div", cx);
     assert!(Log::take(&log).is_empty());
-    let note = view.read_with(cx, |s, _| s.webs.error(&id)).expect("said");
+    let note = view.read_with(cx, |s, cx| s.webs.error(&id, cx)).expect("said");
     assert!(note.contains("isn't a web address"), "{note}");
     assert!(cx.debug_bounds(sel(format!("web-note-{id}"))).is_some());
     go(&view, &id, "file:///etc/passwd", cx);
     assert!(Log::take(&log).is_empty(), "no file pages");
     go(&view, &id, "localhost:3000", cx);
     assert_eq!(Log::take(&log).first().map(String::as_str), Some("create http://localhost:3000"));
-    assert!(view.read_with(cx, |s, _| s.webs.error(&id)).is_none());
+    assert!(view.read_with(cx, |s, cx| s.webs.error(&id, cx)).is_none());
     // Somewhere else, in the same view.
     go(&view, &id, "https://example.com/docs", cx);
     assert_eq!(Log::take(&log), ["navigate https://example.com/docs", "focus"]);
@@ -446,7 +446,7 @@ fn a_page_keeps_its_view_while_hidden_and_closing_frees_it(cx: &mut TestAppConte
     cx.simulate_click(close.center(), Modifiers::none());
     assert_eq!(calls(&log, cx), ["drop"]);
     assert!(web_ids(&view, cx).is_empty());
-    assert!(view.read_with(cx, |s, _| s.ui.web_tiles.is_empty() && !s.webs.is_open(&id)));
+    assert!(view.read_with(cx, |s, cx| s.ui.web_tiles.is_empty() && !s.webs.is_open(&id, cx)));
 }
 
 #[gpui::test]
@@ -458,7 +458,7 @@ fn a_page_load_error_and_a_download_are_said_in_the_tile(cx: &mut TestAppContext
     Log::take(&log);
     Log::emit(&log, WebEvent::Failed { url: "https://example.com".into(), error: "A server with the specified hostname could not be found.".into() });
     assert_eq!(calls(&log, cx), ["hide"]);
-    assert!(view.read_with(cx, |s, _| s.webs.error(&id)).unwrap().contains("hostname"));
+    assert!(view.read_with(cx, |s, cx| s.webs.error(&id, cx)).unwrap().contains("hostname"));
     let retry = cx.debug_bounds(sel(format!("web-retry-{id}")));
     assert!(retry.is_none(), "(a button without a debug selector)");
     view.update(cx, |s, cx| s.web_reload(&id, cx));
@@ -466,7 +466,7 @@ fn a_page_load_error_and_a_download_are_said_in_the_tile(cx: &mut TestAppContext
     assert_eq!(c, ["reload", "show"]);
     Log::emit(&log, WebEvent::Download("https://example.com/file.zip".into()));
     cx.run_until_parked();
-    assert!(view.read_with(cx, |s, _| s.webs.error(&id)).unwrap().contains("Downloads"));
+    assert!(view.read_with(cx, |s, cx| s.webs.error(&id, cx)).unwrap().contains("Downloads"));
 }
 
 /// Restarted: the tile is in `ui.json` with its page; the first frame
@@ -476,7 +476,7 @@ fn a_page_comes_back_after_a_restart(cx: &mut TestAppContext) {
     let (view, _, log, cx) = setup(cx);
     view.update(cx, |s, cx| {
         let space = s.active_space().unwrap().id.clone();
-        s.update_ui(|ui| ui.open_web(&space, "kept", WebTile { url: "https://example.com/a".into(), agent: None }, &FilesSpot::Edge(tree::Side::Bottom), None).0, cx);
+        s.update_ui(|ui| ui.open_web(&space, "kept", WebTile { url: "https://example.com/a".into(), ..Default::default() }, &FilesSpot::Edge(tree::Side::Bottom), None).0, cx);
     });
     let c = calls(&log, cx);
     assert_eq!(c[0], "create https://example.com/a");

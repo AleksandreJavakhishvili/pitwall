@@ -720,25 +720,24 @@ pub fn agent_name(id: &str, cx: &App) -> String {
 
 /// The "Dock…" (in a window) / "Move…" (a tile) menu at `at`: `pick` hears
 /// the place and whose terminal (`None`: dismissed). `replace`: the
-/// terminals the files can take the place of, `(id, name)`.
+/// terminals the files can take the place of, `(id, name)`. `what`: what
+/// is placed ("files", "page"). With no `agent` (a page no agent opened)
+/// there's no "next to its terminal".
 pub fn menu(
     at: Point<Pixels>,
     tile: bool,
     agent: Option<String>,
     replace: Vec<(String, String)>,
+    what: &str,
     t: &Theme,
     pick: impl Fn(Option<(FilesPlace, Option<String>)>, &mut App) + Clone + 'static,
 ) -> AnyElement {
+    let mut places = Vec::new();
+    if agent.is_some() {
+        places.extend([FilesPlace::Next(Side::Right), FilesPlace::Next(Side::Left), FilesPlace::Next(Side::Top), FilesPlace::Next(Side::Bottom)]);
+    }
+    places.extend([FilesPlace::Edge(Side::Right), FilesPlace::Edge(Side::Bottom), FilesPlace::Own]);
     let agent = agent.unwrap_or_else(|| "the agent".into());
-    let mut places = vec![
-        FilesPlace::Next(Side::Right),
-        FilesPlace::Next(Side::Left),
-        FilesPlace::Next(Side::Top),
-        FilesPlace::Next(Side::Bottom),
-        FilesPlace::Edge(Side::Right),
-        FilesPlace::Edge(Side::Bottom),
-        FilesPlace::Own,
-    ];
     if tile {
         places.push(FilesPlace::Window);
     }
@@ -769,7 +768,7 @@ pub fn menu(
                         .py(px(4.))
                         .text_size(px(11.))
                         .text_color(t.text_3)
-                        .child(if tile { "Move the files" } else { "Place the files in the layout" }),
+                        .child(if tile { format!("Move the {what}") } else { format!("Place the {what} in the layout") }),
                 )
                 .children(rows)
                 .children(replace_rows)

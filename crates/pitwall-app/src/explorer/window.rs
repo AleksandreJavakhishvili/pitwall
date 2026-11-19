@@ -188,7 +188,7 @@ impl ViewerWindow {
                 if let Some(h) = this.handle {
                     let agent = agent.clone();
                     cx.defer(move |cx| {
-                        let _ = h.update(cx, |_, window, cx| super::drag::start(&agent, super::drag::From::Window(h), window, cx));
+                        let _ = h.update(cx, |_, window, cx| super::drag::start(&agent, super::drag::From::Window(h.into()), window, cx));
                     });
                 }
             }
@@ -314,16 +314,22 @@ impl ViewerWindow {
 
     /// Kept for the next window, half a second after the last change.
     fn bounds_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let b = window.bounds();
-        // (macOS reports the frame, title bar included, but opens windows
-        // with that size as their content: keep the content size.)
-        let content = if cfg!(target_os = "macos") { window.viewport_size() } else { b.size };
-        let kept = [f64::from(f32::from(b.origin.x)), f64::from(f32::from(b.origin.y)), f64::from(f32::from(content.width)), f64::from(f32::from(content.height))];
+        let kept = kept_bounds(window);
         self.save = Some(cx.spawn(async move |_, cx| {
             cx.background_executor().timer(Duration::from_millis(500)).await;
             cx.update(|cx| crate::ui_state::update(cx, |s| s.files_window = Some(kept)));
         }));
     }
+}
+
+/// `window`'s place and size as kept in `ui.json` (logical x, y, width,
+/// height).
+pub fn kept_bounds(window: &Window) -> [f64; 4] {
+    let b = window.bounds();
+    // (macOS reports the frame, title bar included, but opens windows
+    // with that size as their content: keep the content size.)
+    let content = if cfg!(target_os = "macos") { window.viewport_size() } else { b.size };
+    [f64::from(f32::from(b.origin.x)), f64::from(f32::from(b.origin.y)), f64::from(f32::from(content.width)), f64::from(f32::from(content.height))]
 }
 
 impl Render for ViewerWindow {

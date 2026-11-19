@@ -6,8 +6,11 @@
 //!
 //! Two kinds, one tile: a page opened by the user ("Open web page…",
 //! owned by no agent) and an agent's Preview (`agent`: the dev server its
-//! terminal printed; one per agent, it goes with the agent). Pure, as the
-//! rest of [`super`].
+//! terminal printed; one per agent, it goes with the agent). A page an
+//! agent opened with its `show_web` tool is a free page remembered as
+//! that agent's (`by`): its next call goes there. A page may be in a
+//! window of its own instead of a layout (`window`); it is kept then too.
+//! Pure, as the rest of [`super`].
 
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +31,14 @@ pub struct WebTile {
     /// prints and closes with the agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// A page an agent opened (`show_web`): that agent's id. Not a
+    /// Preview: it stays when the agent goes; the agent's next call goes
+    /// to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// In a window of its own, not in a layout.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub window: bool,
 }
 
 /// A fresh web tile id.
@@ -39,6 +50,33 @@ impl UiState {
     /// The space and pane showing web tile `id`.
     pub fn web_tile(&self, id: &str) -> Option<(String, String)> {
         self.tile_of(&Content::Web(id.to_string()))
+    }
+
+    /// The page agent `agent` opened last with its tool (in a layout or a
+    /// window).
+    pub fn web_by(&self, agent: &str) -> Option<String> {
+        self.web_tiles.iter().find(|(_, t)| t.by.as_deref() == Some(agent) && t.agent.is_none()).map(|(id, _)| id.clone())
+    }
+
+    /// Web page `id` out of the layout into a window of its own (kept).
+    pub fn web_to_window(self, id: &str) -> UiState {
+        let mut next = self.undock(&Content::Web(id.to_string()));
+        if let Some(t) = next.web_tiles.get_mut(id) {
+            t.window = true;
+        }
+        next
+    }
+
+    /// A page in a window of its own put at `spot` of space `space_id`, as
+    /// [`UiState::dock`] (it isn't in a window any more when placed).
+    pub fn web_to_layout(self, space_id: &str, id: &str, spot: &FilesSpot, fit: Option<Fit>) -> (UiState, Option<String>) {
+        let (mut next, placed) = self.dock(space_id, &Content::Web(id.to_string()), spot, WEB_SHARE, fit);
+        if placed.is_some() {
+            if let Some(t) = next.web_tiles.get_mut(id) {
+                t.window = false;
+            }
+        }
+        (next, placed)
     }
 
     /// The web tile that is agent `agent`'s Preview.
@@ -79,8 +117,8 @@ impl UiState {
         self
     }
 
-    /// Previews of agents not in `alive` close; a page with no tile, and a
-    /// tile with no page, go.
+    /// Previews of agents not in `alive` close; a page with no tile (and
+    /// not in a window), and a tile with no page, go.
     pub fn prune_web(self, alive: &[String]) -> UiState {
         let in_layout: Vec<String> = self.spaces.iter().flat_map(|s| s.layout.web_ids()).collect();
         let gone: Vec<String> = in_layout
@@ -95,7 +133,9 @@ impl UiState {
         for id in gone {
             next = next.close_web(&id);
         }
-        next.web_tiles.retain(|id, _| in_layout.contains(id));
+        next.web_tiles.retain(|id, t| {
+            in_layout.contains(id) || (t.window && t.agent.as_ref().is_none_or(|a| alive.contains(a)))
+        });
         next
     }
 }
@@ -128,7 +168,7 @@ mod tests {
     }
 
     fn page(url: &str) -> WebTile {
-        WebTile { url: url.into(), agent: None }
+        WebTile { url: url.into(), ..Default::default() }
     }
 
     #[test]
@@ -202,7 +242,7 @@ mod tests {
     fn a_preview_is_one_per_agent_and_goes_with_it() {
         let s = state(build_preset(Preset::Two, &ids(&["a", "b"])));
         let a = pane_of(&s, "a");
-        let tile = WebTile { url: "http://localhost:5173/".into(), agent: Some("a".into()) };
+        let tile = WebTile { url: "http://localhost:5173/".into(), agent: Some("a".into()), ..Default::default() };
         let (s, _) = s.open_web("s", "p1", tile.clone(), &FilesSpot::Tile { pane: a.clone(), side: Side::Right }, None);
         assert_eq!(s.preview_of("a").as_deref(), Some("p1"));
         // Another Preview for a: the first one goes.
@@ -259,6 +299,39 @@ mod tests {
         assert!(out.get("previewBelow").is_none() && out.get("previewLeft").is_none());
         assert!(out.get("webTiles").is_none());
         assert!(out["spaces"][0]["layout"]["children"][0].get("web").is_none());
+    }
+
+    /// A page an agent opened is remembered as its (`by`), moves to a
+    /// window and back as the same entry, and stays when the agent goes.
+    #[test]
+    fn an_agents_page_goes_to_a_window_and_back() {
+        let s = state(build_preset(Preset::Two, &ids(&["a", "b"])));
+        let b = pane_of(&s, "b");
+        let tile = WebTile { url: "https://example.com/".into(), by: Some("a".into()), ..Default::default() };
+        let (s, _) = s.open_web("s", "w", tile, &FilesSpot::Tile { pane: b.clone(), side: Side::Left }, None);
+        assert_eq!(s.web_by("a").as_deref(), Some("w"));
+        assert!(s.web_by("b").is_none() && s.preview_of("a").is_none(), "not a Preview");
+        // Out to a window: out of the layout, kept (also when pruned).
+        let s = s.web_to_window("w");
+        assert!(s.web_tile("w").is_none());
+        assert!(s.web_tiles["w"].window);
+        let s = s.prune_agents(&ids(&["a", "b"]));
+        assert_eq!(s.web_by("a").as_deref(), Some("w"));
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["webTiles"]["w"], serde_json::json!({"url": "https://example.com/", "by": "a", "window": true}));
+        assert_eq!(UiState::sanitize(json).web_tiles["w"], s.web_tiles["w"]);
+        // Back into the layout: placed, not in a window any more.
+        let (s, at) = s.web_to_layout("s", "w", &FilesSpot::Tile { pane: b, side: Side::Right }, None);
+        assert!(at.is_some());
+        assert!(!s.web_tiles["w"].window && s.web_tile("w").is_some());
+        // Its agent gone: a free page stays.
+        let s = s.prune_agents(&ids(&["b"]));
+        assert!(s.web_tiles.contains_key("w"));
+        // A Preview in a window goes with its agent.
+        let mut s = s;
+        s.web_tiles.insert("p".into(), WebTile { url: "http://localhost:3000/".into(), agent: Some("b".into()), window: true, ..Default::default() });
+        assert!(s.clone().prune_web(&ids(&["b"])).web_tiles.contains_key("p"));
+        assert!(!s.prune_web(&ids(&[])).web_tiles.contains_key("p"));
     }
 
     #[test]

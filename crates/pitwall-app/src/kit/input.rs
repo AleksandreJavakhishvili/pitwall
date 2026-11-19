@@ -313,6 +313,14 @@ impl TextInput {
         cx.notify();
     }
 
+    /// The cursor to the start (a long single line shows its start: an
+    /// address's host).
+    pub fn cursor_to_start(&mut self, cx: &mut Context<Self>) {
+        self.selected = 0..0;
+        self.reversed = false;
+        cx.notify();
+    }
+
     /// Replace the text and report it ([`InputEvent::Changed`]).
     pub fn replace_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
         self.set_text(text, cx);

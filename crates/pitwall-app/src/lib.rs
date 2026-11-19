@@ -37,6 +37,7 @@ pub mod theme;
 pub mod ui;
 pub mod ui_state;
 pub mod wall;
+pub mod web;
 pub mod webview;
 pub mod window_state;
 pub mod windows;
@@ -239,6 +240,8 @@ pub fn run() {
         bench::prepare();
         let main = show_main(cx);
         windows::restore(cx);
+        // Web pages left in windows of their own, behind the rest.
+        web::window::restore(cx);
         windows::debug_hook(cx);
         if bench::enabled() {
             // Bench: never take the user's focus (`bench.rs`).
@@ -362,9 +365,15 @@ fn follow_show_files(engine: pitwall_core::engine::Shared, root: Option<PathBuf>
         let e = engine.clone();
         cx.background_spawn(async move { e.set_cli_bin(platform::cli_install::mcp_cli(&r).ok()) }).detach();
     }
-    engine.set_show_files(crate::explorer::show::enabled(cx));
+    // `agents.showWeb` and `general.webPages` too: `show_web` is listed
+    // (and `web.open` served) while both are on.
+    let follow = move |engine: &pitwall_core::engine::Shared, cx: &App| {
+        engine.set_show_files(crate::explorer::show::enabled(cx));
+        engine.set_show_web(crate::web::show::enabled(cx), crate::web::page::enabled(cx));
+    };
+    follow(&engine, cx);
     let store = ui_state::store(cx);
-    cx.observe(&store, move |_, cx| engine.set_show_files(crate::explorer::show::enabled(cx))).detach();
+    cx.observe(&store, move |_, cx| follow(&engine, cx)).detach();
 }
 
 fn quit_and_stop_agents(cx: &mut App) {

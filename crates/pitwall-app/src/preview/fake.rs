@@ -19,6 +19,8 @@ pub struct Log {
     snapshots: Vec<Box<dyn FnOnce(Option<Snapshot>)>>,
     /// `create` fails with this.
     pub fail: Option<String>,
+    /// Views can't move to another window (as on Windows and Linux).
+    pub no_reparent: bool,
 }
 
 pub type Shared = Rc<RefCell<Log>>;
@@ -97,6 +99,11 @@ impl WebView for Fake {
     fn snapshot(&mut self, done: Box<dyn FnOnce(Option<Snapshot>) + 'static>) {
         self.note("snapshot".into());
         self.log.borrow_mut().snapshots.push(done);
+    }
+    fn reparent(&mut self, _: &mut gpui::Window) -> bool {
+        let can = !self.log.borrow().no_reparent;
+        self.note(if can { "reparent" } else { "reparent refused" }.into());
+        can
     }
 }
 

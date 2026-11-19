@@ -89,6 +89,7 @@ impl SettingsView {
                 Part::section("codex", |s, ui, _, cx| any(s.codex(ui, cx))),
                 Part::section("tool-updates", |_, ui, _, cx| any(Self::tool_updates(ui, cx))),
                 Part::section("show-files", |s, ui, _, cx| any(s.show_files(ui, cx))),
+                Part::section("show-web", |_, ui, _, cx| any(Self::show_web(ui, cx))),
                 Part::section("edit-files", |_, ui, _, cx| any(Self::edit_files(ui, cx))),
                 Part::section("engineer", |s, ui, _, cx| any(s.engineer(ui, head(ui, "Race Engineer"), |name| row(ui, name), cx))),
             ],
@@ -328,11 +329,52 @@ impl SettingsView {
                         .flex_col()
                         .gap(px(2.))
                         .child(head(ui, "Agents can show you files"))
-                        .child(crate::kit::hint("Ask an agent to open a file, a folder or an image and it shows up in Pitwall’s file viewer. Each kind gets it its own way, below; per-launch ways never edit your config files. Applies when an agent starts.", &ui.t)),
+                        .child(crate::kit::hint("Ask an agent to open a file, a folder or an image and it shows up in Pitwall’s file viewer. Each kind gets this, and showing you web pages (next), its own way, below: the same tools come by the same route. Per-launch ways never edit your config files. Applies when an agent starts.", &ui.t)),
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
         .child(routes)
+    }
+
+    /// `agents.showWeb`: agents can show the user web pages (`show_web`),
+    /// the same way each kind gets files (the list above).
+    fn show_web(ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let def = pitwall_proto::settings::find(crate::web::show::SETTING);
+        let on = crate::web::show::enabled(cx);
+        let pages = crate::web::page::enabled(cx);
+        section().child(
+            div()
+                .id("show-web")
+                .debug_selector(|| "show-web".into())
+                .flex()
+                .gap(px(12.))
+                .items_start()
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some(def) = def {
+                        crate::ui_state::update(cx, |s| *s = super::data::with(s, def, &serde_json::Value::Bool(!on)));
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(head(ui, "Agents can show you web pages"))
+                        .child(crate::kit::hint(
+                            if pages {
+                                "Ask an agent to open a page, a local dev server or an empty browser and it opens in a web tile next to its terminal, or a window of its own. It only shows you the page: the agent gets nothing back from it and can’t click or type in it. Each kind gets it the way it gets files, listed above. An agent can’t turn this on by itself."
+                            } else {
+                                "Off while web pages are off (General → Show web pages in Pitwall). Agents then don’t get the tool."
+                            },
+                            &ui.t,
+                        )),
+                )
+                .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on && pages, !pages, 14., &ui.t))),
+        )
     }
 
     /// One agent kind's way of showing files.
