@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.7.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.7.0) - 2026-11-19
 
 ### Highlights
 
@@ -16,6 +16,94 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - Resize more with the mouse: the sidebar by its right edge, and the floating "needs you" control's opened cards by their edges and corner. Sizes are kept across restarts, and a double click on an edge goes back to the default.
 - Real Liquid Glass for everything that floats, on macOS 26 with the Glass look: menus, dropdowns, the command palette, quick open, dialogs, Settings, toasts, tooltips and the floating control. Flat, older macOS, Windows and Linux look and behave as before.
 - Showing files was checked by hand with Claude Code on macOS. The routes for the other agents are tested in code but not yet run against the real CLIs, and the Windows and Linux builds pass their tests but have not been run by hand.
+
+### Features
+
+- **website:** Show answering agents from the floating control ([`22f2490`](https://github.com/AleksandreJavakhishvili/pitwall/commit/22f2490dd2cc8c975b2772f3b469c0448de089b7))
+- **app:** The floating control is Liquid Glass on macOS 26 ([`96e1612`](https://github.com/AleksandreJavakhishvili/pitwall/commit/96e161263bdd7c86a99712ddb7133549b37f9a5a))
+- **app:** A host for floating surfaces as glass pop-up windows ([`203b3f1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/203b3f13adf81b1d6cf456cd7ba1a44d1c6b3ead))
+- **app:** Context menus are Liquid Glass pop-ups on macOS 26 ([`8a4e0d2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8a4e0d276d27581db465d49d3888270ed51057b1))
+- **app:** Dropdowns are Liquid Glass pop-ups on macOS 26 ([`da62835`](https://github.com/AleksandreJavakhishvili/pitwall/commit/da62835a8d496b33e19a59660282e531d2d8cbc5))
+- **app:** The command palette is a Liquid Glass pop-up on macOS 26 ([`17d97a1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/17d97a19d1bd5bcaa481c1762070033f9f5da17c))
+- **app:** Quick open is a Liquid Glass pop-up on macOS 26 ([`3bfe685`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3bfe685c205122e3d80d0996a3de938638d97b12))
+- **app:** The task dropdown in Review is a Liquid Glass pop-up ([`f096ad2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f096ad29b35a9906d2359336462533b263a4a35e))
+- **app:** The menu of the Preview is a Liquid Glass pop-up ([`6baa702`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6baa7029c72c820b487cbdbb0320fa02428c91f4))
+- **app:** The code view's menu is a Liquid Glass pop-up ([`511a57d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/511a57d59c3e50917da3d492cda661d72e5c9803))
+- **app:** Passive glass pop-ups for surfaces that only show ([`ef27a53`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ef27a5359b9c90d74c0e4b397db7a7183c56de31))
+- **app:** Toasts are Liquid Glass pop-ups on macOS 26 ([`43bb9ec`](https://github.com/AleksandreJavakhishvili/pitwall/commit/43bb9ec9f4783d9b71f725ef3607eff414719cc6))
+- **app:** The explorer's notice is a Liquid Glass pop-up on macOS 26 ([`682c42d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/682c42d4353bd373137abc82c6dede1bb141e105))
+- **app:** Tooltips are Liquid Glass pop-ups on macOS 26 ([`3b1ef98`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3b1ef988a04deb8bed46f56ff08a6b9c570288f5))
+- **app:** The code view's hovers and menu are glass pop-ups ([`a65251a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a65251a28291780efe5ac4c151113b407ffe6899))
+- **app:** Glass pop-ups nest, and a dialog is one that stays ([`8a06946`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8a0694610960fabf54addb2457c343e5b0db94ad))
+- **app:** Dialogs are Liquid Glass pop-ups on macOS 26 ([`44c1608`](https://github.com/AleksandreJavakhishvili/pitwall/commit/44c16087a6dc1d0becbaf50ff29055ae8941829c))
+- **app:** Review dialogs are Liquid Glass pop-ups on macOS 26 ([`f95f39e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f95f39e61f00bb1fdf73f2cec9174c4b735ad187))
+- **app:** Settings and about are Liquid Glass pop-ups on macOS 26 ([`fa6ad79`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fa6ad79b7719344055558aa71200ab8d66c7b44f))
+- **app:** Resize the floating control with the mouse ([`fad5e6c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fad5e6c7c7397c689595073dabf595b1134fa2cb))
+- **core:** Images are an explorer content kind ([`0c3aab1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0c3aab1061a9b28cf7e394fb20365845cd92ef11))
+- **core:** Agents get Pitwall's MCP server at launch ([`8b686d1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8b686d1030dbb6be89939873491ee05d650dbdce))
+- **cli:** Pitwall open and the pitwall MCP server ([`7eaa64f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7eaa64f5b7bd6d4c4a7135071e9d6d8d2fcfe213))
+- **app:** Agents show files in the viewer; images drawn ([`192d11f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/192d11faa3aeb508c26d50092599aa938f97f5d0))
+- **core:** The explorer reads any folder on this computer ([`a1b304c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a1b304c9f179252eddbfdb1a5cac8fc35c043871))
+- **app:** Files beside the agent's terminal, or in a window of its own ([`2cf015c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2cf015c9d12945347549061b68fa48c2f88289c9))
+- **core:** More agents get Pitwall's MCP server at launch ([`39705a0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/39705a0ee7fba24bdb9b53b08875875fc95bdcfa))
+- **core:** Agents without MCP are told to run pitwall-cli open ([`01885b4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/01885b438704e762a28bf508556cf69b6624ce8a))
+- **app:** Show in Settings how each agent kind shows files ([`066fe0f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/066fe0f6b5e146bf402c32d46d61af65e90e0e2d))
+- **core:** Save a file edited in the viewer, on this computer only ([`827d4e3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/827d4e3bdf5909a1b6e5456d15223de4b36345de))
+- **app:** The code view can edit a single file ([`f58574d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f58574d3e80a8db155f22746f804e9bd8d95d7e1))
+- **app:** Edit and save files in the file viewer ([`d869c0e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d869c0e4981bf208ab5621b162c3edaf8dd04715))
+- **app:** Files open in a window of their own by default ([`ef88206`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ef8820613d132384f926150e17438b176fa7dff1))
+- **app:** Files take a slot of their own in the layout ([`2ed5caf`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2ed5caffde3a97d29e96a5c31e968eba12079c93))
+- **app:** Files come from the worktree the agent works in now ([`9dc2b9c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9dc2b9c5b02da5d76cdbf2b11bd537271d0872ab))
+- **app:** A kit side column that hides and is resized ([`16d5eca`](https://github.com/AleksandreJavakhishvili/pitwall/commit/16d5eca3c2c8cd7a9e476afd4927f881e56f487d))
+- **app:** The file tree and Review's list hide and resize ([`5bb8d69`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5bb8d698d379351ab2c0c7f06002b07faf8a07d7))
+- **app:** The viewer's new look in files tiles and windows ([`fb466f2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fb466f2ebfc40a7a42fca616ecad4de8ec89dc1a))
+- **app:** Go to file and search in files in a files window ([`d289dbb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d289dbb18b06cb81226a0b9ad06451c6f97e41d9))
+- **app:** Resize the sidebar by dragging its edge ([`2fd086a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2fd086a03a97db05321f59fcd1595b710139c9cb))
+- **app:** Files dropped on a terminal take its place ([`bb03502`](https://github.com/AleksandreJavakhishvili/pitwall/commit/bb03502200fa806dd80682ecd1d8e06f75e2a78a))
+- **core:** Send an SVG's text and read PDFs' bytes for the viewer ([`3142c52`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3142c52e23493e176a7ae51e3744dff5d90dfb28))
+- **app:** Draw PDF pages and find text with PDFKit on macOS ([`cafb573`](https://github.com/AleksandreJavakhishvili/pitwall/commit/cafb573b4a4958174176bc852affef8a4a3b3b69))
+- **app:** Show PDFs and an SVG's source in the files viewer ([`935c13b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/935c13b934d45d40116000eafa7b85385a362830))
+
+### Fixes
+
+- **website:** The control is for anywhere outside Pitwall ([`22a18af`](https://github.com/AleksandreJavakhishvili/pitwall/commit/22a18af48860dd01a753987bd9cd60d28d879e8e))
+- **app:** A glass pop-up leaves room for its soft shadow ([`cbe4441`](https://github.com/AleksandreJavakhishvili/pitwall/commit/cbe4441bcee54d0b61acf3be10120953c24272b7))
+- **app:** A glass pop-up's window stays the main one ([`3441310`](https://github.com/AleksandreJavakhishvili/pitwall/commit/3441310f5371658a0aea5e2db472155bc151f49d))
+- **core:** Keep --mcp-config's keys in one order ([`eca852c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/eca852ca6768b8443aa306a409deb35b1248478f))
+- **app:** Agents' MCP server runs a stable copy of the CLI ([`4a4183a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4a4183a874ad9122fd8c8b9de576b346315a1be4))
+- **app:** A line given without a column is marked ([`9940200`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9940200450e27bf6774ba2fa794eab65e70dc60f))
+- **core:** The show-files rule keeps its commands as code ([`63c4062`](https://github.com/AleksandreJavakhishvili/pitwall/commit/63c406220be126e4cff5d4ee7020f9011e419c85))
+- **cli:** The show tools no longer call the viewer read-only ([`8c684d2`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8c684d20ca87903c30050967a468c37aaa335a63))
+- **core:** The save test sets permissions through platform ([`fe2fb73`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fe2fb737b345ecfb4f37d8192a73a6535ed95c32))
+- **app:** Say where a files tile is from the laid-out tiles ([`a6bab8c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a6bab8c85956f6ddece00cd298c6a093c3b71332))
+- **app:** A removed agent's files close, or stay for unsaved edits ([`88044fc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/88044fcb813946fbae91635d28867d9c64f2fd21))
+- **app:** Light code colours that read on their background ([`bec8409`](https://github.com/AleksandreJavakhishvili/pitwall/commit/bec8409a04aa83371cbc0253b6670f9feb8e5789))
+- **app:** Typing reaches fields in glass pop-ups again ([`23e204a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/23e204a388fff558bc3f22a96973b51d3ad34896))
+- **app:** Ticked boxes show their mark on glass and dark ([`03f47ab`](https://github.com/AleksandreJavakhishvili/pitwall/commit/03f47abae6359eceaffc1627904278450bdd7b48))
+- **app:** Drag files by their whole bar, not only the grip ([`352d6f4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/352d6f41591f03b7713b247421f9811b2e4b43fa))
+- **cli:** Agents' tool servers take their tools from the running pitwall ([`9c28e8b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9c28e8bc552cab9980cd35644659901a7bd14b3f))
+- **app:** Windows test builds don't use the files window's pin ([`0145cd7`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0145cd768046e472409262e27c88c200dcca07a6))
+
+### Documentation
+
+- Roadmap up to 0.6.0 ([`21c279b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/21c279b55a727a0073866c3b05decf9ce544e1fb))
+- Highlights for glass surfaces ([`e5c9617`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e5c9617ef332032f1b2926a2affd112d87a61129))
+- Changelog for agents showing files ([`96a74ec`](https://github.com/AleksandreJavakhishvili/pitwall/commit/96a74ec80f5cc7dab6f06e62c410e9416af21f21))
+- Changelog for files beside the terminal or in a window ([`63369b1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/63369b17345ddd48dfe63457a19aeacc0a0dde9b))
+- Changelog for more agents showing files ([`91da5cc`](https://github.com/AleksandreJavakhishvili/pitwall/commit/91da5ccb8c452ebf2c4f3418257ab8ef68c97c8d))
+- Editing in the file viewer ([`b174fed`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b174fede68ee97390ad0da9fa458b63e7271dd48))
+- Files tiles in the layout and moving them ([`caa3580`](https://github.com/AleksandreJavakhishvili/pitwall/commit/caa3580f4cf7f826cec8b0dff0bee5ecc62a1e81))
+- The hiding file tree and the viewer's new look in the changelog ([`6a4593c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6a4593c309be3a05a58e341dda4637cedc8f8c26))
+- Describe the viewer's PDFs (macOS only) and SVG source ([`8360215`](https://github.com/AleksandreJavakhishvili/pitwall/commit/83602153b5934ee5f907d69b7879e28a5ea44970))
+- Highlights for 0.7.0 ([`4618eef`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4618eef5fb3a4a08cfa6fdcdb4615768a978a4a7))
+
+### Chores
+
+- **app:** Debug commands for an ordinary window ([`c5d08af`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c5d08af39acb49fdbe98bdd3abee3b3dc365eae9))
+- **app:** Debug commands to drive editing in the file viewer ([`7c88994`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7c88994e8fcdf7790adc6787bff496df6fffdf55))
+- **app:** Debug verbs to answer approvals and show a files tile's tree ([`372e785`](https://github.com/AleksandreJavakhishvili/pitwall/commit/372e7854f80f39823eb997e25348af34a57a3766))
+- **app:** Bring in main's sidebar resize and glass fixes ([`da341c1`](https://github.com/AleksandreJavakhishvili/pitwall/commit/da341c11c857555ded43e765bb4e2386d1729cf7))
+
 
 ## [0.6.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.6.0) - 2026-11-12
 
