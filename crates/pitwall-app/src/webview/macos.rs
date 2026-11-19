@@ -4,14 +4,16 @@
 //! - Placement: GPUI's coordinates (top-left origin, logical px) turned into
 //!   the content view's (bottom-left unless flipped); it keeps its distance
 //!   from the top while the window resizes, until the next frame places it.
-//! - Storage: `dataStoreForIdentifier:` (macOS 14+) with an identifier made
-//!   from the view's data folder (a project's for a Preview, a profile's
-//!   for a web page), so each keeps its own cookies across restarts (WebKit
-//!   keeps the files in its own folder for the app,
+//! - Storage: a browser profile besides Default ([`Options::own_store`])
+//!   gets `dataStoreForIdentifier:` (macOS 14+) with an identifier made
+//!   from its folder, a store of its own kept across restarts (WebKit keeps
+//!   the files in its own folder for the app,
 //!   `~/Library/WebKit/<app>/WebsiteDataStore/<id>`; it takes no path).
-//!   Older macOS: the app's default persistent store, shared by all views
-//!   (still the app's own, never Safari's): only the Default browser
-//!   profile there ([`separate_stores`]).
+//!   Every other view (the Default profile's pages, Previews) uses the
+//!   app's default persistent store (`~/Library/WebKit/<app>/WebsiteData`),
+//!   as all views did before profiles: still the app's own, never
+//!   Safari's. Before macOS 14 there are no stores of their own: Default
+//!   only ([`separate_stores`]).
 //! - Events: key-value observing of `URL`, `title`, `loading`, `canGoBack`
 //!   and `canGoForward` (link clicks, redirects and history pushes alike);
 //!   the navigation delegate for failed loads and for keeping the page
@@ -367,20 +369,42 @@ fn views(window: &Window) -> Option<(Retained<NSView>, Retained<NSView>)> {
     Some((gpui_view, content))
 }
 
-/// Separate persistent stores (`dataStoreForIdentifier:`, macOS 14+). Before
-/// that every view shares the app's default store: no browser profiles.
+/// Separate persistent stores (`dataStoreForIdentifier:`, a class method,
+/// macOS 14+). Before that every view shares the app's default store: no
+/// browser profiles.
 pub fn separate_stores() -> bool {
-    AnyClass::get(c"WKWebsiteDataStore").is_some_and(|c| c.responds_to(sel!(dataStoreForIdentifier:)))
+    // (A class method: the metaclass answers; the class itself answers for
+    // its instances' methods.)
+    AnyClass::get(c"WKWebsiteDataStore").is_some_and(|c| c.metaclass().responds_to(sel!(dataStoreForIdentifier:)))
 }
 
-fn store(dir: &Path, mtm: MainThreadMarker) -> Retained<WKWebsiteDataStore> {
+/// The identifier of `dir`'s own store ([`super::store_id`]) as an NSUUID,
+/// made from its text (`from_bytes`' argument encoding differs between
+/// NSUUID and the class Foundation hands out, which debug builds' message
+/// checks refuse).
+fn store_uuid(dir: &Path) -> Result<Retained<NSUUID>, String> {
+    let b = super::store_id(dir);
+    let hex = |r: std::ops::Range<usize>| b[r].iter().map(|x| format!("{x:02X}")).collect::<String>();
+    let text = format!("{}-{}-{}-{}-{}", hex(0..4), hex(4..6), hex(6..8), hex(8..10), hex(10..16));
+    NSUUID::from_string(&NSString::from_str(&text)).ok_or_else(|| format!("not a UUID: {text}"))
+}
+
+/// The store of a view on `dir`: a browser profile's own (`own`, keyed by
+/// its folder), else the app's default persistent store, the one every
+/// view used before profiles (Default's sign-ins and the Previews' are
+/// there).
+fn store(dir: &Path, own: bool, mtm: MainThreadMarker) -> Result<Retained<WKWebsiteDataStore>, String> {
     // SAFETY: WKWebsiteDataStore's class methods, on the main thread; the
     // identifier one only where the system has it (macOS 14).
     unsafe {
-        if separate_stores() {
-            WKWebsiteDataStore::dataStoreForIdentifier(&NSUUID::from_bytes(super::store_id(dir)), mtm)
-        } else {
-            WKWebsiteDataStore::defaultDataStore(mtm)
+        match (own, separate_stores()) {
+            (true, true) => {
+                let id = store_uuid(dir)?;
+                Ok(WKWebsiteDataStore::dataStoreForIdentifier(&id, mtm))
+            }
+            // Never a profile's page in the store the others share.
+            (true, false) => Err("Browser profiles need macOS 14 or later".into()),
+            (false, _) => Ok(WKWebsiteDataStore::defaultDataStore(mtm)),
         }
     }
 }
@@ -393,6 +417,10 @@ pub fn erase_store(dir: &Path, done: Box<dyn FnOnce(Result<(), String>)>) {
     if !separate_stores() {
         return done(Ok(()));
     }
+    let id = match store_uuid(dir) {
+        Ok(id) => id,
+        Err(e) => return done(Err(e)),
+    };
     let done = std::cell::RefCell::new(Some(done));
     let block = block2::RcBlock::new(move |error: *mut NSError| {
         // SAFETY: WebKit hands a valid NSError or nil.
@@ -406,7 +434,7 @@ pub fn erase_store(dir: &Path, done: Box<dyn FnOnce(Result<(), String>)>) {
     });
     // SAFETY: WebKit's class method, on the main thread; WebKit copies the
     // block and calls it once, on the main thread.
-    unsafe { WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(&NSUUID::from_bytes(super::store_id(dir)), &block, mtm) };
+    unsafe { WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(&id, &block, mtm) };
 }
 
 fn responds(obj: &AnyObject, sel: Sel) -> bool {
@@ -454,12 +482,13 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
     if AnyClass::get(c"WKWebView").is_none() {
         return Err("WebKit isn't available".into());
     }
+    let data_store = store(&opts.data_dir, opts.own_store, mtm)?;
     let events: Events = Rc::from(opts.events);
     // SAFETY: WebKit's classes, made and configured on the main thread
     // before the view uses them.
     let view = unsafe {
         let config = WKWebViewConfiguration::new(mtm);
-        config.setWebsiteDataStore(&store(&opts.data_dir, mtm));
+        config.setWebsiteDataStore(&data_store);
         // WKWebView's own user agent stops at "(KHTML, like Gecko)"; sites
         // that check for a browser (Teams, Slack) then refuse it. With this
         // suffix it is Safari's, which is the engine they get.
@@ -786,6 +815,32 @@ mod tests {
         assert_eq!(PreviewView::class().name().to_str().unwrap(), "PitwallPreviewWebView");
         assert!(Delegate::class().conforms_to(<dyn WKNavigationDelegate as objc2::ProtocolType>::protocol().unwrap()));
         assert!(Delegate::class().conforms_to(<dyn WKUIDelegate as objc2::ProtocolType>::protocol().unwrap()));
+    }
+
+    /// A profile's store identifier is its folder's (`store_id`), made
+    /// without the message debug builds refuse (`initWithUUIDBytes:`).
+    #[test]
+    fn a_profiles_store_identifier_is_its_folders() {
+        let dir = Path::new("/Users/sam/.pitwall/webview/profile-web-work");
+        let id = store_uuid(dir).unwrap();
+        assert_eq!(id.UUIDString().to_string(), "07EC068F-5DE9-4999-BDE2-17AA5CCE5B42");
+        assert_ne!(store_uuid(Path::new("/Users/sam/.pitwall/webview/profile-web-home")).unwrap().UUIDString().to_string(), id.UUIDString().to_string());
+    }
+
+    /// `dataStoreForIdentifier:` is a class method: asked of the metaclass
+    /// (the class answers for its instances' methods, which never had it).
+    /// This machine runs macOS 14 or later.
+    #[test]
+    fn identifier_stores_are_found_where_the_system_has_them() {
+        let c = AnyClass::get(c"WKWebsiteDataStore").unwrap();
+        assert!(!c.responds_to(sel!(dataStoreForIdentifier:)), "not an instance method");
+        let major: u32 = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8_lossy(&o.stdout).split('.').next()?.trim().parse().ok())
+            .unwrap_or(0);
+        assert_eq!(separate_stores(), major >= 14, "macOS {major}");
     }
 
     /// A picture becomes RGBA bytes (no window, no WebKit: an empty image).

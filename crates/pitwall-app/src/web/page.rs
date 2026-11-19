@@ -460,6 +460,8 @@ impl WebPage {
                 url: self.page_url.clone(),
                 policy: self.policy(),
                 data_dir: dir,
+                // A profile besides Default: a store of its own.
+                own_store: self.policy() == Policy::Web && self.profile.is_some(),
                 events: Box::new(move |e| {
                     let _ = tx.unbounded_send(Msg::Event(e));
                 }),
