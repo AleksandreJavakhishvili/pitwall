@@ -97,10 +97,18 @@ impl MainScreen {
             return;
         }
         let id = super::workspace::new_web_id();
-        if !self.place_web(&id, WebTile::default(), None, cx) {
+        let tile = WebTile { profile: self.new_page_profile(cx), ..Default::default() };
+        if !self.place_web(&id, tile, None, cx) {
             return;
         }
         self.web_address(&id, window, cx);
+    }
+
+    /// The browser profile of a page the user opens here: that of the
+    /// project of the agent whose tile has the focus, else Default.
+    pub(super) fn new_page_profile(&self, cx: &mut Context<Self>) -> Option<String> {
+        let project = self.selected(cx).map(|a| a.project)?;
+        crate::web::profiles::for_project(&project, cx)
     }
 
     /// Put web tile `id` in the active space: right of `beside` (a pane),

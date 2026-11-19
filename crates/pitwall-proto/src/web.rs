@@ -66,6 +66,11 @@ pub struct WebOpened {
     pub shown_in: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// The browser profile it is in ("Work", "Default"): the agent's
+    /// project's, never the agent's pick. `None`: a Pitwall from before
+    /// profiles.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
     /// Pitwall's own words for all of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -99,6 +104,10 @@ pub struct WebShown {
     /// The agent's page tile was reused.
     #[serde(default)]
     pub reused: bool,
+    /// The name of the browser profile it is in (its project's; empty: an
+    /// app from before profiles).
+    #[serde(default)]
+    pub profile: String,
 }
 
 /// What was opened, in words (`pitwall open --web` and the tool's result).
@@ -116,6 +125,9 @@ pub fn text(o: &WebOpened) -> String {
     if let Some(n) = &o.note {
         s.push_str(n);
         s.push('\n');
+    }
+    if let Some(p) = o.profile.as_deref().filter(|p| !p.is_empty()) {
+        s.push_str(&format!("It is in the {p} browser profile (the sign-ins and site data this project's pages use in Pitwall; the user picks it per project).\n"));
     }
     if o.in_background {
         s.push_str(if o.place == ViewerPlace::Window.word() {
@@ -260,6 +272,14 @@ mod tests {
         let moved = text(&WebOpened { place: "window".into(), reused: true, shown_in: "a window of its own".into(), ..Default::default() });
         assert!(moved.starts_with("Showed the page you opened before (on whatever it shows now) in a window of its own"), "{moved}");
         assert!(!moved.contains("empty"));
+        assert!(!moved.contains("browser profile"), "an app from before profiles says none");
+        // The profile it is in, for the agent to tell the user.
+        let work = text(&WebOpened { url: Some("https://example.com/".into()), place: "right".into(), profile: Some("Work".into()), ..Default::default() });
+        assert!(work.contains("It is in the Work browser profile (the sign-ins and site data this project's pages use in Pitwall; the user picks it per project).\n"), "{work}");
+        let o: WebOpened = serde_json::from_value(json!({"profile": "Default"})).unwrap();
+        assert_eq!(o.profile.as_deref(), Some("Default"));
+        let shown: WebShown = serde_json::from_value(json!({"window": "main", "inBackground": false, "place": "right", "at": "x"})).unwrap();
+        assert_eq!(shown.profile, "", "an app from before profiles");
     }
 
     #[test]

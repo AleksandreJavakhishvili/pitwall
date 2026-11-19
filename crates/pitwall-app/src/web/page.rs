@@ -32,6 +32,7 @@ use gpui::{
 use pitwall_proto::AgentView;
 
 use crate::explorer::dock::FilesPlace;
+use crate::kit::HoverText as _;
 use crate::kit::{icon, tooltip, InputEvent, TextInput};
 use crate::main_screen::topbar::AgentGhost;
 use crate::main_screen::workspace::WebTile;
@@ -103,6 +104,13 @@ pub struct WebPage {
     phone: bool,
     /// An agent's Preview: its project (its own cookies and storage).
     project: String,
+    /// A page (not a Preview): its browser profile (`None`: Default;
+    /// [`super::profiles`]). Its view is made in that profile's store.
+    profile: Option<String>,
+    /// The bar's profile menu, open at this point.
+    profile_menu: Option<Point<Pixels>>,
+    /// Said once under the bar: it opened in Default, its own profile gone.
+    profile_note: Option<String>,
     /// `None`: not made yet (no address, not drawn yet), or let go.
     view: Option<Box<dyn WebView>>,
     /// The window the native view is in.
@@ -169,6 +177,19 @@ impl WebPage {
                 f.server = Server::Stopped;
             }
             f
+        });
+        // Its profile, if it is still one here; else Default, said once.
+        let (profile, fell_back) = match kept.agent {
+            Some(_) => (None, false),
+            None => super::profiles::resolve_now(kept.profile.as_deref(), cx),
+        };
+        let profile_note = fell_back.then(|| {
+            keep_profile(id, None, cx);
+            if super::profiles::separate(cx) {
+                "Its browser profile was removed, so it opened in Default.".to_string()
+            } else {
+                format!("It opened in Default. {}", super::profiles::NEEDS_STORES)
+            }
         });
         let focus = cx.focus_handle();
         let url_field = cx.new(|cx| {
@@ -237,6 +258,9 @@ impl WebPage {
         WebPage {
             id: id.to_string(),
             project: agent.map(|a| a.project.clone()).unwrap_or_default(),
+            profile,
+            profile_menu: None,
+            profile_note,
             agent: kept.agent.clone(),
             follow,
             error: None,
@@ -282,6 +306,41 @@ impl WebPage {
 
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    /// Its browser profile (`None`: Default).
+    pub fn profile(&self) -> Option<&str> {
+        self.profile.as_deref()
+    }
+
+    /// What it said about its profile (it opened in Default instead).
+    pub fn profile_note(&self) -> Option<&str> {
+        self.profile_note.as_deref()
+    }
+
+    /// Into browser profile `id` (`None`: Default): a page is bound to one
+    /// store, so its view goes and is made again there, on the address it
+    /// shows now (the next frame that draws it). Kept in `ui.json`. Not a
+    /// Preview's (its project's own store).
+    pub fn set_profile(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        let id = id.filter(|i| i != pitwall_core::accounts::DEFAULT);
+        self.profile_menu = None;
+        if self.agent.is_some() || self.profile == id {
+            return cx.notify();
+        }
+        self.profile = id;
+        self.profile_note = None;
+        self.note = None;
+        self.error = None;
+        self.view = None;
+        self.view_window = None;
+        self.stage = Stage::default();
+        self.loading = false;
+        self.can_back = false;
+        self.can_forward = false;
+        self.drop_timer = None;
+        keep_profile(&self.id, self.profile.as_deref(), cx);
+        cx.notify();
     }
 
     /// Loads started so far.
@@ -382,7 +441,7 @@ impl WebPage {
     fn data_dir(&self, cx: &mut App) -> std::path::PathBuf {
         match self.policy() {
             Policy::Local => preview::data_dir(&data_root(cx), &self.project),
-            Policy::Web => preview::profile_dir(&data_root(cx), preview::DEFAULT_PROFILE),
+            Policy::Web => super::profiles::dir(self.profile.as_deref(), cx),
         }
     }
 
@@ -390,6 +449,10 @@ impl WebPage {
     /// first, to fall back to the browser when none can be made).
     pub fn make_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
         let tx = self.tx.clone();
+        // Never a profile's page in a store shared with the others.
+        if self.policy() == Policy::Web && !super::profiles::usable(self.profile.as_deref(), super::profiles::separate(cx)) {
+            return Err(super::profiles::NEEDS_STORES.into());
+        }
         let dir = self.data_dir(cx);
         let v = preview::create(
             window,
@@ -488,6 +551,7 @@ impl WebPage {
         match webview::address(&text) {
             Ok(url) => {
                 self.note = None;
+                self.profile_note = None;
                 self.error = None;
                 if let Some(f) = self.follow.as_mut() {
                     // Picked here: the terminal's next new address still wins.
@@ -816,7 +880,7 @@ impl WebPage {
             .bg(t.surface)
             .child(outside)
             .child(self.bar(t, cx))
-            .children(self.note.clone().map(|n| {
+            .children(self.note.clone().or(self.profile_note.clone()).map(|n| {
                 div()
                     .flex_none()
                     .px(px(10.))
@@ -834,6 +898,7 @@ impl WebPage {
             }))
             .child(page)
             .children(self.menu.clone().map(|(at, replace)| self.place_menu(at, replace, t, cx)))
+            .children(self.profile_menu.map(|at| self.profile_menu(at, t, cx)))
             .into_any_element()
     }
 
@@ -864,6 +929,14 @@ impl WebPage {
             None => self.title.clone(),
         };
         let has_page = !self.page_url.is_empty();
+        // Its browser profile: shown once there is more than Default (or
+        // it is in another); Default subdued.
+        let profile_chip = self.agent.is_none().then(|| super::profiles::all(cx)).and_then(|all| {
+            (!all.is_empty() || self.profile.is_some()).then(|| {
+                let name = super::profiles::name(self.profile.as_deref(), cx);
+                (name, self.profile.is_none())
+            })
+        });
         let menu_tip = match kind {
             HostKind::Tile => "Move it in the layout, or to a window",
             HostKind::Window => "Place it in a Pitwall window's layout",
@@ -956,6 +1029,44 @@ impl WebPage {
                     .when(self.loading, |d| d.child(div().flex_none().mr(px(6.)).size(px(6.)).rounded_full().bg(t.text_4)))
                     .child(div().flex_1().min_w_0().child(self.url_field.clone())),
             )
+            .when_some(profile_chip, |d, (pname, subdued)| {
+                let sel = format!("web-profile-{id}");
+                d.child(
+                    div()
+                        .id(SharedString::from(sel.clone()))
+                        .debug_selector(move || sel.clone())
+                        .flex_none()
+                        .h(px(20.))
+                        .max_w(px(140.))
+                        .px(px(7.))
+                        .mr(px(2.))
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .rounded(px(10.))
+                        .border_1()
+                        .border_color(t.line_strong)
+                        .when(self.profile_menu.is_some(), |d| d.bg(t.surface_2))
+                        .text_size(px(11.))
+                        .text_color(if subdued { t.text_3 } else { t.text_2 })
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .cursor_pointer()
+                        .hover_probed(|s| s.bg(t.surface_2))
+                        .tooltip(tooltip(format!("Browser profile: {pname}, with its own sign-ins and site data. Click to switch.")))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(|p, e: &gpui::ClickEvent, _, cx| {
+                            p.menu = None;
+                            p.profile_menu = match p.profile_menu {
+                                Some(_) => None,
+                                None => Some(e.position()),
+                            };
+                            cx.notify();
+                        }))
+                        .child(pname),
+                )
+            })
             .when(!label.is_empty(), |d| {
                 d.child(
                     div()
@@ -1029,6 +1140,59 @@ impl WebPage {
             })
     }
 
+    /// The profile chip's menu: Default and every profile (this page's
+    /// ticked); picking another loads the page again there. Profiles that
+    /// can't be used here (macOS before 14) are shown, not picked.
+    fn profile_menu(&self, at: Point<Pixels>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        use gpui::{anchored, deferred};
+        let sep = super::profiles::separate(cx);
+        let mut items: Vec<(Option<String>, String)> = vec![(None, super::profiles::DEFAULT_NAME.into())];
+        items.extend(super::profiles::all(cx).into_iter().map(|a| (Some(a.id), a.name)));
+        let me = cx.entity().downgrade();
+        let rows = items.into_iter().enumerate().map(|(i, (pid, pname))| {
+            let on = pid == self.profile;
+            let can = super::profiles::usable(pid.as_deref(), sep);
+            let me = me.clone();
+            crate::kit::menu::menu_item(("web-profile-item", i), if on { "check" } else { "" }, pname, (!can).then(|| "needs macOS 14".into()), false, t)
+                .debug_selector(move || format!("web-profile-item-{i}"))
+                .when(!can, |d| d.opacity(0.5).cursor_default())
+                .on_click(move |_, _, cx| {
+                    if can {
+                        let pid = pid.clone();
+                        let _ = me.update(cx, |p, cx| p.set_profile(pid, cx));
+                    }
+                })
+        });
+        let dismiss = cx.entity().downgrade();
+        deferred(
+            anchored().position(at).snap_to_window().child(
+                crate::kit::menu::menu_panel(t)
+                    .id("web-profile-menu")
+                    .debug_selector(|| "web-profile-menu".into())
+                    .mt(px(6.))
+                    .max_w(px(300.))
+                    .child(div().px(px(8.)).py(px(4.)).text_size(px(11.)).text_color(t.text_3).child("Browser profile"))
+                    .children(rows)
+                    .child(
+                        div()
+                            .px(px(8.))
+                            .py(px(4.))
+                            .text_size(px(11.))
+                            .text_color(t.text_3)
+                            .child(if sep { "Each has its own sign-ins. Switching loads this page again there." } else { super::profiles::NEEDS_STORES }),
+                    )
+                    .on_mouse_down_out(move |_, _, cx| {
+                        let _ = dismiss.update(cx, |p, cx| {
+                            p.profile_menu = None;
+                            cx.notify();
+                        });
+                    }),
+            ),
+        )
+        .with_priority(2)
+        .into_any_element()
+    }
+
     /// The "Move…" / "Dock…" menu's places ([`crate::explorer::dock::menu`]).
     fn place_menu(&self, at: Point<Pixels>, replace: Vec<(String, String)>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let me = cx.entity().downgrade();
@@ -1067,6 +1231,16 @@ fn keep_url(id: &str, url: &str, cx: &mut App) {
     cx.defer(move |cx| {
         if crate::ui_state::get(cx).web_tiles.get(&id).is_some_and(|t| t.url != url) {
             crate::ui_state::update(cx, |s| *s = s.clone().set_web_url(&id, &url));
+        }
+    });
+}
+
+/// The browser profile page `id` is in now, kept in `ui.json`.
+fn keep_profile(id: &str, profile: Option<&str>, cx: &mut App) {
+    let (id, profile) = (id.to_string(), profile.map(String::from));
+    cx.defer(move |cx| {
+        if crate::ui_state::get(cx).web_tiles.get(&id).is_some_and(|t| t.profile != profile) {
+            crate::ui_state::update(cx, |s| *s = s.clone().set_web_profile(&id, profile.as_deref()));
         }
     });
 }

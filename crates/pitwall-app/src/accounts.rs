@@ -48,7 +48,10 @@ fn remember(list: &Accounts) {
     let map = list
         .projects
         .iter()
-        .filter_map(|(project, kinds)| Some((project.clone(), kinds.values().find(|id| list.get(id).is_some())?.clone())))
+        // (A browser profile is no login an agent runs on.)
+        .filter_map(|(project, kinds)| {
+            Some((project.clone(), kinds.iter().filter(|(k, _)| *k != accounts::WEB).map(|(_, id)| id).find(|id| list.get(id).is_some())?.clone()))
+        })
         .collect();
     if let Ok(mut p) = PROJECTS.write() {
         *p = map;
@@ -241,6 +244,21 @@ impl AccountsModel {
         let a = self.list.add(&paths, &def, name, dir)?;
         self.save(cx)?;
         Ok(a)
+    }
+
+    /// Add browser profile `name` (`crate::web::profiles`).
+    pub fn add_web(&mut self, name: &str, cx: &mut Context<Self>) -> Result<Account, String> {
+        let paths = self.paths.clone().ok_or("Pitwall's engine isn't running")?;
+        let a = self.list.add_web(&paths, name)?;
+        self.save(cx)?;
+        Ok(a)
+    }
+
+    /// Tests: accounts kept in `paths` (no engine).
+    #[cfg(test)]
+    pub fn set_paths(&mut self, paths: Paths) {
+        self.list = Accounts::load(&paths);
+        self.paths = Some(paths);
     }
 
     pub fn remove(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {

@@ -10,7 +10,8 @@
 //!   keeps the files in its own folder for the app,
 //!   `~/Library/WebKit/<app>/WebsiteDataStore/<id>`; it takes no path).
 //!   Older macOS: the app's default persistent store, shared by all views
-//!   (still the app's own, never Safari's).
+//!   (still the app's own, never Safari's): only the Default browser
+//!   profile there ([`separate_stores`]).
 //! - Events: key-value observing of `URL`, `title`, `loading`, `canGoBack`
 //!   and `canGoForward` (link clicks, redirects and history pushes alike);
 //!   the navigation delegate for failed loads and for keeping the page
@@ -366,33 +367,46 @@ fn views(window: &Window) -> Option<(Retained<NSView>, Retained<NSView>)> {
     Some((gpui_view, content))
 }
 
-/// A stable identifier for the data folder (the store `dataStoreForIdentifier:` keeps).
-fn store_id(dir: &Path) -> [u8; 16] {
-    let text = dir.to_string_lossy();
-    let fnv = |seed: u64| {
-        text.bytes().fold(seed, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
-    };
-    let mut id = [0u8; 16];
-    id[..8].copy_from_slice(&fnv(0xcbf2_9ce4_8422_2325).to_be_bytes());
-    id[8..].copy_from_slice(&fnv(0x6c62_272e_07bb_0142).to_be_bytes());
-    // A version-4, RFC 4122 UUID (and never the nil one WebKit rejects).
-    id[6] = (id[6] & 0x0f) | 0x40;
-    id[8] = (id[8] & 0x3f) | 0x80;
-    id
+/// Separate persistent stores (`dataStoreForIdentifier:`, macOS 14+). Before
+/// that every view shares the app's default store: no browser profiles.
+pub fn separate_stores() -> bool {
+    AnyClass::get(c"WKWebsiteDataStore").is_some_and(|c| c.responds_to(sel!(dataStoreForIdentifier:)))
 }
 
 fn store(dir: &Path, mtm: MainThreadMarker) -> Retained<WKWebsiteDataStore> {
-    let per_project = AnyClass::get(c"WKWebsiteDataStore")
-        .is_some_and(|c| c.responds_to(sel!(dataStoreForIdentifier:)));
     // SAFETY: WKWebsiteDataStore's class methods, on the main thread; the
     // identifier one only where the system has it (macOS 14).
     unsafe {
-        if per_project {
-            WKWebsiteDataStore::dataStoreForIdentifier(&NSUUID::from_bytes(store_id(dir)), mtm)
+        if separate_stores() {
+            WKWebsiteDataStore::dataStoreForIdentifier(&NSUUID::from_bytes(super::store_id(dir)), mtm)
         } else {
             WKWebsiteDataStore::defaultDataStore(mtm)
         }
     }
+}
+
+/// Delete the store of data folder `dir` (`removeDataStoreForIdentifier:`;
+/// no view may use it any more). `done` runs on the main thread. Before
+/// macOS 14 there is no store of its own to delete.
+pub fn erase_store(dir: &Path, done: Box<dyn FnOnce(Result<(), String>)>) {
+    let Some(mtm) = MainThreadMarker::new() else { return done(Err("not on the main thread".into())) };
+    if !separate_stores() {
+        return done(Ok(()));
+    }
+    let done = std::cell::RefCell::new(Some(done));
+    let block = block2::RcBlock::new(move |error: *mut NSError| {
+        // SAFETY: WebKit hands a valid NSError or nil.
+        let res = match unsafe { error.as_ref() } {
+            Some(e) => Err(e.localizedDescription().to_string()),
+            None => Ok(()),
+        };
+        if let Some(f) = done.borrow_mut().take() {
+            f(res);
+        }
+    });
+    // SAFETY: WebKit's class method, on the main thread; WebKit copies the
+    // block and calls it once, on the main thread.
+    unsafe { WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(&NSUUID::from_bytes(super::store_id(dir)), &block, mtm) };
 }
 
 fn responds(obj: &AnyObject, sel: Sel) -> bool {
@@ -785,14 +799,5 @@ mod tests {
         };
         let px = rgba(&image, 3, 2).expect("drawn");
         assert_eq!(px.len(), 3 * 2 * 4);
-    }
-
-    #[test]
-    fn a_project_keeps_its_store() {
-        let a = store_id(std::path::Path::new("/data/webview/app-1"));
-        assert_eq!(a, store_id(std::path::Path::new("/data/webview/app-1")));
-        assert_ne!(a, store_id(std::path::Path::new("/data/webview/app-2")));
-        assert_eq!(a[6] >> 4, 4, "a version-4 UUID");
-        assert_ne!(a, [0; 16]);
     }
 }
