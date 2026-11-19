@@ -233,9 +233,12 @@ pub mod fake {
             let text = files.get(path).ok_or(format!("{path}: not found"))?;
             let size = text.len() as u64;
             let cap = if large { LARGE_CAP } else { TEXT_CAP };
-            let (kind, text) = if pitwall_core::explorer::is_image(path) {
+            let (kind, text) = if pitwall_core::explorer::is_svg(path) {
+                // Drawn, its text sent too (as the core does).
+                (ContentKind::Image, Some(text.clone()))
+            } else if pitwall_core::explorer::is_image(path) {
                 (ContentKind::Image, None)
-            } else if text.contains('\0') {
+            } else if pitwall_core::explorer::is_pdf(path) || text.contains('\0') {
                 (ContentKind::Binary, None)
             } else if size > cap {
                 (ContentKind::TooLarge, None)

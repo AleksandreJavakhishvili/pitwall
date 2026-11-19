@@ -1226,3 +1226,125 @@ async fn the_bar_names_the_folder_briefly(cx: &mut TestAppContext) {
     assert_eq!(shown, "~/…/worktrees/agent-a0829081/target/pw-demo");
     assert!(cx.debug_bounds("ex-viewer-branch").is_some(), "the branch of an agent's folder");
 }
+
+// ── SVG source, PDFs ────────────────────────────────────────────────────
+
+const SWITCH: &str = if cfg!(target_os = "macos") { "cmd-shift-v" } else { "ctrl-shift-alt-v" };
+
+/// An SVG shows its picture; ⌘⇧V its source, edited and saved as any
+/// text, after which the picture is the new one. The choice is kept for
+/// the file.
+#[gpui::test]
+async fn an_svg_switches_between_its_picture_and_its_source(cx: &mut TestAppContext) {
+    const SVG: &str = "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='2'/>\n";
+    let (viewer, src, cx) = edit_setup(cx, readable("a1"), &[("icons/logo.svg", SVG)]);
+    cx.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| v.open("icons/logo.svg".into(), None, cx));
+    redraw(cx);
+    assert!(viewer.read_with(cx, |v, _| v.picture_is("icons/logo.svg", SVG)), "the picture, made from its text");
+    assert!(cx.debug_bounds("ex-svg-switch").is_some());
+    assert!(cx.debug_bounds("ex-image").is_some());
+    assert!(cx.debug_bounds("ex-read-only").is_none(), "a picture says nothing of editing");
+
+    // ⌘⇧V: the source, as XML, editable.
+    cx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(viewer.read(cx), cx), cx));
+    cx.simulate_keystrokes(SWITCH);
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-image").is_none());
+    let code = open_for_typing(&viewer, "icons/logo.svg", 0, cx);
+    assert!(code.read_with(cx, |c, _| c.is_editing()));
+    cx.simulate_input("<!-- x -->");
+    redraw(cx);
+    viewer.read_with(cx, |v, cx| assert_eq!(v.unsaved(cx), ["icons/logo.svg"]));
+    cx.simulate_keystrokes(SAVE);
+    redraw(cx);
+    let saved = "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='2'/><!-- x -->\n";
+    assert_eq!(on_disk(&src, "icons/logo.svg"), saved);
+
+    // Back to the picture (the keys from the text): the saved one.
+    cx.simulate_keystrokes(SWITCH);
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-image").is_some());
+    assert!(viewer.read_with(cx, |v, _| v.picture_is("icons/logo.svg", saved)));
+
+    // The choice stays with the file: closed and opened again, its source.
+    viewer.update(cx, |v, cx| v.set_svg_source(true, cx));
+    viewer.update(cx, |v, cx| v.close_tab("icons/logo.svg", cx));
+    viewer.update(cx, |v, cx| v.open("icons/logo.svg".into(), None, cx));
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-image").is_none());
+    assert!(super::code_view::shown("icons/logo.svg").is_some(), "its source");
+}
+
+/// Wait for work done on the PDF engine's own thread.
+fn settle(cx: &mut VisualTestContext, done: impl Fn(&mut VisualTestContext) -> bool) {
+    for _ in 0..200 {
+        redraw(cx);
+        if done(cx) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the PDF engine didn't answer");
+}
+
+/// A PDF (macOS): its pages drawn only around the view, searched, and
+/// the place kept at another zoom. Elsewhere it says it isn't shown yet.
+#[gpui::test]
+async fn pdfs_are_drawn_around_the_view_and_searched(cx: &mut TestAppContext) {
+    let pages: Vec<String> = (1..=30).map(|n| format!("Page {n}")).collect();
+    let spec: Vec<(u32, u32, i32, &str)> = pages.iter().map(|t| (400, 600, 0, t.as_str())).collect();
+    let pdf = String::from_utf8(crate::platform::pdf::sample(&spec)).unwrap();
+    let (viewer, _src, cx) = edit_setup(cx, readable("a1"), &[("docs/report.pdf", pdf.as_str()), ("docs/broken.pdf", "%PDF-1.4 nothing")]);
+    cx.update(|_, cx| cx.bind_keys(crate::kit::input::bindings()));
+    cx.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    viewer.update(cx, |v, cx| v.open("docs/report.pdf".into(), None, cx));
+    redraw(cx);
+    if !crate::platform::can_view_pdf() {
+        assert_eq!(viewer.read_with(cx, |v, _| v.pdf_state("docs/report.pdf")), None);
+        assert!(cx.debug_bounds("ex-pdf-not-shown").is_some(), "says it isn't shown here yet");
+        return;
+    }
+    let path = "docs/report.pdf";
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_state(path).is_some() && !v.pdf_drawn(path).0.is_empty() && v.pdf_drawn(path).1 == 0));
+    assert_eq!(viewer.read_with(cx, |v, _| v.pdf_state(path)), Some(Ok(30)));
+    let (drawn, _) = viewer.read_with(cx, |v, _| v.pdf_drawn(path));
+    assert!(drawn.contains(&0) && drawn.len() < 10, "only around the view: {drawn:?}");
+    assert!(cx.debug_bounds("ex-pdf").is_some() && cx.debug_bounds("ex-pdf-page").is_some());
+
+    // ⌘F: the field; "Page 2" is on pages 2 and 20–29; the first from here.
+    cx.update(|window, cx| window.focus(&gpui::Focusable::focus_handle(viewer.read(cx), cx), cx));
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") { "cmd-f" } else { "ctrl-f" });
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-pdf-findbar").is_some());
+    cx.simulate_input("Page 2");
+    cx.executor().advance_clock(std::time::Duration::from_millis(300));
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_hits(path).is_some_and(|h| !h.0.is_empty())));
+    let (hits, shown) = viewer.read_with(cx, |v, _| v.pdf_hits(path)).unwrap();
+    assert_eq!(hits, [1, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]);
+    assert_eq!(shown, Some(0));
+    // ↵: the next hit, scrolled to (page 20 is the one being read).
+    cx.simulate_keystrokes("enter");
+    redraw(cx);
+    assert_eq!(viewer.read_with(cx, |v, _| v.pdf_hits(path)).unwrap().1, Some(1));
+    let state = |cx: &mut VisualTestContext| viewer.read_with(cx, |v, cx| v.debug_state(cx));
+    assert!(state(cx).contains(" current=20 "), "{}", state(cx));
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_drawn(path).0.contains(&19)));
+    // Zoomed in: still page 20.
+    viewer.update(cx, |v, cx| v.debug_zoom("in", cx));
+    redraw(cx);
+    assert!(state(cx).contains(" current=20 "), "{}", state(cx));
+    // Esc: the search closes.
+    cx.simulate_keystrokes("escape");
+    redraw(cx);
+    assert!(cx.debug_bounds("ex-pdf-findbar").is_none());
+
+    // A damaged one says so, with nothing drawn.
+    viewer.update(cx, |v, cx| v.open("docs/broken.pdf".into(), None, cx));
+    settle(cx, |cx| viewer.read_with(cx, |v, _| v.pdf_state("docs/broken.pdf").is_some()));
+    let why = viewer.read_with(cx, |v, _| v.pdf_state("docs/broken.pdf")).unwrap().unwrap_err();
+    assert!(why.contains("can't be read"), "{why}");
+    assert!(cx.debug_bounds("ex-pdf-not-shown").is_some());
+    // The other's drawn pages were let go.
+    assert!(viewer.read_with(cx, |v, _| v.pdf_drawn(path).0.is_empty()));
+}

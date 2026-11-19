@@ -221,7 +221,8 @@ impl MainView {
         // dispatch to the text, as pressed keys: enter, backspace, cmd-s,
         // cmd-z, tab…), `goto <line> <col>` (1-based), `find <text>`,
         // `replace-all <with>`, `close-tab`, `close-window`, `keep-mine`,
-        // `take-theirs`, `difference`, `state` (on stderr).
+        // `take-theirs`, `difference`, `zoom …`, `pdf …` (a PDF's search
+        // and pages), `svg source|picture`, `state` (on stderr).
         // (A files tile's viewer when the agent has no window.)
         if let Some(what) = cmd.strip_prefix("files-edit ").filter(|_| cfg!(debug_assertions)) {
             let (agent, rest) = what.split_once(' ').unwrap_or((what, ""));

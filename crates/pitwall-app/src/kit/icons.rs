@@ -70,6 +70,8 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     // The file viewer: zoom out of an image, a file that can't be edited,
     // a file changed on disk or not saved.
     ("minus", "M4 10h12"),
+    // A PDF's search: the previous hit.
+    ("chevron-up", "M5 12l5-5 5 5"),
     ("lock", "M5.5 9h9v7.5h-9zM7.5 9V6.5a2.5 2.5 0 0 1 5 0V9"),
     ("alert", "M10 3.5 17 16H3zM10 8.5v3.5M10 14h.01"),
 ];
