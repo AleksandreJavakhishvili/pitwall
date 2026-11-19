@@ -526,9 +526,9 @@ impl WebView for MacWebView {
         // Media paused while hidden (macOS 12+).
         if responds(&self.view, sel!(setAllMediaPlaybackSuspended:completionHandler:)) {
             // SAFETY: WKWebView's method; a nil completion handler is allowed.
-            let _: () = unsafe {
-                msg_send![&*self.view, setAllMediaPlaybackSuspended: !visible, completionHandler: std::ptr::null::<c_void>()]
-            };
+            // (A nil block, typed as one: debug builds check the encoding.)
+            let none: Option<&block2::Block<dyn Fn()>> = None;
+            let _: () = unsafe { msg_send![&*self.view, setAllMediaPlaybackSuspended: !visible, completionHandler: none] };
         }
     }
 
