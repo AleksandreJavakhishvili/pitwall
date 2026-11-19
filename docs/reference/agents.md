@@ -124,7 +124,7 @@ Files are shown from the folder the agent works in **now**: the `root` it gives,
 | `mcp` | What it does |
 |---|---|
 | `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and its tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`, `mcp__pitwall__show_web`) in the `--settings` Pitwall passes, so they don't ask each time. |
-| `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The files tools say they are read-only, so Codex doesn't ask for them; `show_web` doesn't (a page loads as you, in your web profile), so Codex may ask before it opens one. |
+| `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them (`show_web` too: it shows you a page and changes nothing where the agent works). |
 | `copilot-config` | `copilot --additional-mcp-config '{"mcpServers":{"pitwall":{…,"type":"local","tools":["*"]}}}' --allow-tool pitwall`: augments `~/.copilot/mcp-config.json` for this run, and the server's tools are allowed. |
 | `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web`: merged with your and the project's servers. |
 | `amp-config` | `amp --mcp-config '{"pitwall":…}'`: merged with your servers; Amp doesn't ask to approve servers given this way. |
@@ -176,7 +176,7 @@ With **Agents can show you web pages** on (Settings → Agents, `agents.showWeb`
 - The page is in your own web profile in Pitwall, where you may be signed in: it loads as you, as a link you clicked would.
 - It never takes the keyboard or brings Pitwall forward.
 - One page per agent: its next call goes to the page it opened before, wherever you moved it (to the new address, when it gives one); naming a place moves it. Close it and the next call opens a new one. It stays when the agent goes.
-- Both settings ask you in Pitwall when an agent changes them (`pitwall settings set`), so an agent can't turn this on by itself. Off, the tool isn't listed (running agents are told), and `pitwall open --web` refuses.
+- Off (either setting), the tool isn't listed (running agents are told), and `pitwall open --web` refuses. Like `agents.showFiles`, both can be changed with `pitwall settings set` without asking.
 
 ## Accounts
 

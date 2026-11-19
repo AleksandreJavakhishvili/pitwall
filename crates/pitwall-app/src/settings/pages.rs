@@ -366,7 +366,7 @@ impl SettingsView {
                         .child(head(ui, "Agents can show you web pages"))
                         .child(crate::kit::hint(
                             if pages {
-                                "Ask an agent to open a page, a local dev server or an empty browser and it opens in a web tile next to its terminal, or a window of its own. It only shows you the page: the agent gets nothing back from it and can’t click or type in it. Each kind gets it the way it gets files, listed above. An agent can’t turn this on by itself."
+                                "Ask an agent to open a page, a local dev server or an empty browser and it opens in a web tile next to its terminal, or a window of its own. It only shows you the page: the agent gets nothing back from it and can’t click or type in it. Each kind gets it the way it gets files, listed above."
                             } else {
                                 "Off while web pages are off (General → Show web pages in Pitwall). Agents then don’t get the tool."
                             },

@@ -78,7 +78,7 @@ impl Engine {
             return Some("Web pages are turned off in Pitwall (Settings → General → “Show web pages in Pitwall”, general.webPages). Nothing was opened.");
         }
         if !self.show.web.load(Ordering::Relaxed) {
-            return Some("Showing web pages is turned off in Pitwall (Settings → Agents → “Agents can show you web pages”, agents.showWeb; only the user can turn it on). Nothing was opened.");
+            return Some("Showing web pages is turned off in Pitwall (Settings → Agents → “Agents can show you web pages”, agents.showWeb). Nothing was opened.");
         }
         None
     }
