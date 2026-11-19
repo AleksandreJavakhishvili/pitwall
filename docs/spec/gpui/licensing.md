@@ -215,6 +215,8 @@ OS integration (phase 7, `src/platform/`): notify-rust 4.18 (MIT OR Apache-2.0),
 
 In-app preview (`src/webview`, `src/preview`): objc2-web-kit 0.3 (Zlib OR Apache-2.0 OR MIT; macOS, new in the tree, the objc2 family's WebKit bindings) and block2 0.6 (MIT; macOS, already in the tree via objc2); image 0.25 without default features (MIT OR Apache-2.0; already in the tree via gpui) on every platform for the snapshot drawn under overlays.
 
+File viewer PDFs (`src/platform/pdf_macos.rs`): objc2-pdf-kit 0.3 (Zlib OR Apache-2.0 OR MIT; macOS, new in the tree, the objc2 family's PDFKit bindings), objc2-core-graphics 0.3 and objc2-core-foundation 0.3 (Zlib OR Apache-2.0 OR MIT; macOS, already in the tree via gpui). PDFKit itself is the system's.
+
 Packaging tools (phase 8; build-time only, nothing linked into Pitwall):
 cargo-packager 0.11.8 (MIT OR Apache-2.0) for the Linux and Windows bundles,
 and what it downloads while packaging: linuxdeploy and the AppImage runtime

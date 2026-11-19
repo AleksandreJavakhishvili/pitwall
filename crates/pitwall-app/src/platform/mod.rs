@@ -20,6 +20,7 @@ pub mod decorations;
 pub mod files;
 pub mod glass;
 pub mod notify;
+pub mod pdf;
 pub mod sidecar;
 pub mod single_instance;
 pub mod visible;
@@ -28,6 +29,8 @@ pub mod visible;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod pdf_macos;
 #[cfg(windows)]
 mod windows;
 
@@ -149,6 +152,13 @@ pub fn app_in_front(cx: &App) -> bool {
 /// that (its own window menu has it), so the viewer offers no pin there.
 pub fn can_keep_on_top() -> bool {
     cfg!(any(target_os = "macos", windows))
+}
+
+/// The file viewer draws PDFs here (the system's PDF engine, [`pdf`]):
+/// macOS. Windows and Linux not yet: a PDF says so there and offers
+/// "Open in default app".
+pub fn can_view_pdf() -> bool {
+    cfg!(target_os = "macos")
 }
 
 /// Keep `window` above other windows, other apps' too (or not any more).
