@@ -183,6 +183,22 @@ computer can be shown. Agents Pitwall starts (Claude Code, Codex) have the
 same as MCP tools (`show_files`, `show_folder`). Off with
 `agents.showFiles false` (then `open` refuses).
 
+## Showing the user a web page
+
+```bash
+pitwall open --web https://example.com --agent api   # a web tile right of api's terminal
+pitwall open --web localhost:5173 --where left --agent api
+pitwall open --web --where window --agent api        # an empty page in a window, its address field for the user
+```
+
+Only when the user asks for a page in Pitwall. It only shows the page: you
+get nothing back from it and can't click, type or read anything in it. Only
+http(s) addresses. Places as for files (`--where`, `--of`); a later call goes
+to the page you opened before, wherever the user moved it. It never takes the
+keyboard or brings Pitwall forward. MCP: `show_web`. Off with
+`agents.showWeb false` or `general.webPages false` (only the user can turn
+them back on).
+
 Without `--root`, files come from the folder the agent works in now (where
 its hooks last said it was, so a worktree it entered mid-session), shown in
 the git worktree that holds it, with that worktree's branch and status. When
