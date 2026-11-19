@@ -11,6 +11,11 @@
 //! GitHub and Azure DevOps logins their CLIs and HTTPS pushes use
 //! ([`GitService`]), which SSH key, for the agents and terminals of the
 //! projects that name one ([`git_env`]).
+//!
+//! Browser profiles too: accounts of kind [`WEB`], a name and the folder of
+//! Pitwall's web pages' cookies and storage; a project names one like a
+//! tool's account, and the pages its agents open use it. Only the list is
+//! here: site data stays in the web engine's store.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,6 +27,25 @@ use crate::paths::Paths;
 
 /// The implicit account of every kind: the user's own login.
 pub const DEFAULT: &str = "default";
+
+/// The kind of a browser profile (docs/spec/web.md, "Browser profiles"): an
+/// account of Pitwall's own web pages, not of an agent tool. Its folder is
+/// its cookies and storage ([`web_profile_dir`]); a project names one under
+/// this kind in [`Accounts::projects`] like a tool's account. Default is
+/// the profile every page used before profiles (`profile-default`). It
+/// sorts after the tools' kinds, so an older Pitwall that takes a
+/// project's first account for its terminals takes a tool's when there is
+/// one. Reserved: no agent kind can be called this.
+pub const WEB: &str = "web";
+
+/// Browser profile `id`'s cookies and storage under Pitwall's data folder
+/// `root`: `<root>/webview/profile-<id>` (Default: `profile-default`, as
+/// before profiles). The folder's name is the profile's id; macOS keys its
+/// store on the whole path.
+pub fn web_profile_dir(root: &Path, id: &str) -> PathBuf {
+    let id: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(40).collect();
+    root.join("webview").join(format!("profile-{id}"))
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,7 +176,7 @@ impl Accounts {
     /// fresh one under `~/.pitwall/accounts/`.
     pub fn add(&mut self, paths: &Paths, kind: &AgentKind, name: &str, dir: Option<&str>) -> Result<Account, String> {
         let name = name.trim();
-        if kind.account_env.is_none() {
+        if kind.account_env.is_none() || kind.id == WEB {
             return Err(format!("{} has one login only", kind.name));
         }
         let kind = kind.id.as_str();
@@ -194,6 +218,9 @@ impl Accounts {
         let kind = self.get(id).map(|a| a.kind.clone()).ok_or("No such account")?;
         if name.is_empty() {
             return Err("Name it".into());
+        }
+        if kind == WEB && name.eq_ignore_ascii_case(DEFAULT) {
+            return Err(format!("There's already a profile called {name}"));
         }
         if self.of_kind(&kind).any(|a| a.id != id && a.name.eq_ignore_ascii_case(name)) {
             return Err(format!("There's already an account called {name}"));
@@ -247,6 +274,37 @@ impl Accounts {
     /// Projects that name `id`.
     pub fn projects_of(&self, id: &str) -> Vec<String> {
         self.projects.iter().filter(|(_, k)| k.values().any(|a| a == id)).map(|(p, _)| p.clone()).collect()
+    }
+
+    /// Add a browser profile ([`WEB`]) called `name`, with a fresh folder
+    /// ([`web_profile_dir`]). Its id is never one whose folder is still on
+    /// disk (a profile removed whose data couldn't all be deleted), so a
+    /// new profile never starts with another's sign-ins.
+    pub fn add_web(&mut self, paths: &Paths, name: &str) -> Result<Account, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Name it".into());
+        }
+        if name.eq_ignore_ascii_case(DEFAULT) || self.of_kind(WEB).any(|a| a.name.eq_ignore_ascii_case(name)) {
+            return Err(format!("There's already a profile called {name}"));
+        }
+        let base = format!("{WEB}-{}", crate::slug::slug(name));
+        let mut id = base.clone();
+        let mut n = 2;
+        while self.get(&id).is_some() || web_profile_dir(paths.root(), &id).exists() {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        let dir = web_profile_dir(paths.root(), &id);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let a = Account { id, kind: WEB.into(), name: name.into(), dir: dir.to_string_lossy().into_owned() };
+        self.accounts.push(a.clone());
+        Ok(a)
+    }
+
+    /// The browser profile a project's pages use (`None`: Default).
+    pub fn project_web(&self, project: &str) -> Option<&Account> {
+        self.project_default(project, WEB).filter(|a| a.kind == WEB)
     }
 
     pub fn git_identity(&self, id: &str) -> Option<&GitIdentity> {
@@ -824,6 +882,76 @@ mod tests {
         assert!(a.get("claude-work").is_none());
         assert!(a.projects.is_empty(), "projects forget it");
         assert_eq!(env(&kind("claude"), a.get("codex-work")), [("CLAUDE_CONFIG_DIR".to_string(), codex.dir.clone())]);
+    }
+
+    /// Browser profiles are accounts of kind `web`: made, renamed, named by
+    /// projects, kept, and never mixed up with the tools' accounts.
+    #[test]
+    fn browser_profiles_are_accounts_of_their_own_kind() {
+        let t = TempDir::new("accounts-web");
+        let paths = Paths::new(t.path().join("pw"));
+        let mut a = Accounts::default();
+        let claude = a.add(&paths, &kind("claude"), "Work", None).unwrap();
+        let work = a.add_web(&paths, "Work").unwrap();
+        assert_eq!((work.id.as_str(), work.kind.as_str()), ("web-work", WEB));
+        assert_eq!(Path::new(&work.dir), web_profile_dir(paths.root(), "web-work"));
+        assert_eq!(web_profile_dir(paths.root(), "web-work"), paths.root().join("webview/profile-web-work"));
+        assert_eq!(web_profile_dir(paths.root(), DEFAULT), paths.root().join("webview/profile-default"), "Default's folder as before profiles");
+        assert!(Path::new(&work.dir).is_dir());
+        assert!(a.add_web(&paths, "work").is_err(), "names are unique");
+        assert!(a.add_web(&paths, "Default").is_err());
+        assert!(a.add_web(&paths, " ").is_err());
+        assert!(a.rename("web-work", "default").is_err());
+        let personal = a.add_web(&paths, "Personal").unwrap();
+        assert_eq!(a.of_kind(WEB).map(|x| x.id.as_str()).collect::<Vec<_>>(), ["web-work", "web-personal"]);
+        assert_eq!(a.of_kind("claude").map(|x| x.id.as_str()).collect::<Vec<_>>(), [claude.id.as_str()], "the tools' lists don't change");
+
+        // A project names one beside its tool's account.
+        a.set_project_default("/p", "claude", Some(&claude.id));
+        a.set_project_default("/p", WEB, Some(&work.id));
+        assert_eq!(a.project_web("/p").map(|x| x.id.as_str()), Some("web-work"));
+        assert_eq!(a.project_default("/p", "claude").map(|x| x.id.as_str()), Some("claude-work"));
+        assert_eq!(a.project_web("/q"), None, "Default");
+        // A tool's account named under web by hand isn't a profile.
+        a.set_project_default("/r", WEB, Some(&claude.id));
+        assert_eq!(a.project_web("/r"), None);
+        a.set_project_default("/r", WEB, None);
+        a.save(&paths).unwrap();
+        assert_eq!(Accounts::load(&paths), a);
+        let json: serde_json::Value = serde_json::from_slice(&std::fs::read(paths.root().join("accounts.json")).unwrap()).unwrap();
+        assert_eq!(json["projects"]["/p"], serde_json::json!({"claude": "claude-work", "web": "web-work"}));
+        assert_eq!(json["accounts"][1], serde_json::json!({"id": "web-work", "kind": "web", "name": "Work", "dir": work.dir}), "no site data in the list");
+
+        // Removed: projects forget it. Its folder still on disk (its data
+        // not deleted yet): a new "Work" gets another id, never its data.
+        a.remove(&work.id);
+        assert_eq!(a.project_web("/p"), None);
+        let again = a.add_web(&paths, "Work").unwrap();
+        assert_eq!(again.id, "web-work-2");
+        std::fs::remove_dir_all(&personal.dir).unwrap();
+        a.remove(&personal.id);
+        assert_eq!(a.add_web(&paths, "Personal").unwrap().id, "web-personal", "its folder gone: the id is free");
+        // No agent kind can be one.
+        let mut fake = kind("claude");
+        fake.id = WEB.into();
+        assert!(a.add(&paths, &fake, "X", None).is_err());
+    }
+
+    /// accounts.json from before profiles loads as it was; one with
+    /// profiles keeps the tools' accounts for a reader that knows nothing
+    /// of them (they are plain accounts of a kind it has no agent for).
+    #[test]
+    fn old_and_new_accounts_files_load() {
+        let old = r#"{"accounts":[{"id":"claude-work","kind":"claude","name":"Work","dir":"/x"}],"projects":{"/p":{"claude":"claude-work"}}}"#;
+        let a: Accounts = serde_json::from_str(old).unwrap();
+        assert_eq!(a.of_kind(WEB).count(), 0);
+        assert_eq!(a.project_web("/p"), None);
+        assert_eq!(a.project_default("/p", "claude").map(|x| x.id.as_str()), Some("claude-work"));
+        let new = r#"{"accounts":[{"id":"claude-work","kind":"claude","name":"Work","dir":"/x"},{"id":"web-work","kind":"web","name":"Work","dir":"/d/webview/profile-web-work"}],"projects":{"/p":{"claude":"claude-work","web":"web-work"}}}"#;
+        let a: Accounts = serde_json::from_str(new).unwrap();
+        assert_eq!(a.of_kind("claude").count(), 1);
+        assert_eq!(a.resolve("claude", "/p", None).map(|x| x.id.as_str()), Some("claude-work"));
+        assert_eq!(a.resolve("claude", "/p", Some("web-work")), None, "a profile is no tool's account");
     }
 
     #[test]
