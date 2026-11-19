@@ -40,6 +40,20 @@ pub struct DockedFiles {
     pub active: Option<String>,
 }
 
+/// A file viewer window, kept to open again after a restart: what it has
+/// open (as a files tile's), the folders open in its tree, and its own
+/// place and size. Unsaved edits are not kept: its files are read again.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesWindow {
+    #[serde(flatten)]
+    pub open: DockedFiles,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expanded: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<[f64; 4]>,
+}
+
 /// A files tile's share of what it splits, at first.
 pub const FILES_SHARE: f64 = 0.45;
 /// Along an edge of the main area.
@@ -176,6 +190,18 @@ impl UiState {
     /// Forget what agent `owner`'s files tile had open (it closed).
     pub fn forget_files(mut self, owner: &str) -> UiState {
         self.docked_files.remove(owner);
+        self
+    }
+
+    /// Agent `owner`'s file viewer window, kept to open again.
+    pub fn keep_files_window(mut self, owner: &str, kept: FilesWindow) -> UiState {
+        self.files_windows.insert(owner.to_string(), kept);
+        self
+    }
+
+    /// Agent `owner`'s file viewer window closed for good.
+    pub fn forget_files_window(mut self, owner: &str) -> UiState {
+        self.files_windows.remove(owner);
         self
     }
 }
@@ -520,6 +546,25 @@ mod tests {
         let back = UiState::sanitize(json);
         assert_eq!(back.docked_files["a"].active.as_deref(), Some("src/x.rs"));
         assert!(back.forget_files("a").docked_files.is_empty());
+    }
+
+    #[test]
+    fn a_files_window_is_kept_until_it_closes_or_its_agent_goes() {
+        let kept = FilesWindow {
+            open: DockedFiles { key: "a".into(), tabs: ids(&["src/x.rs"]), active: Some("src/x.rs".into()) },
+            expanded: ids(&["src"]),
+            bounds: Some([10., 20., 900., 680.]),
+        };
+        let s = UiState::default().keep_files_window("a", kept.clone()).keep_files_window("b", FilesWindow::default());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["filesWindows"]["a"]["tabs"][0], "src/x.rs");
+        assert_eq!(json["filesWindows"]["a"]["expanded"][0], "src");
+        let back = UiState::sanitize(json);
+        assert_eq!(back.files_windows["a"], kept);
+        // Its agent removed: forgotten; closed: forgotten.
+        let pruned = back.clone().prune_agents(&ids(&["a"]));
+        assert_eq!(pruned.files_windows.keys().cloned().collect::<Vec<_>>(), ids(&["a"]));
+        assert!(pruned.forget_files_window("a").files_windows.is_empty());
     }
 
     #[test]

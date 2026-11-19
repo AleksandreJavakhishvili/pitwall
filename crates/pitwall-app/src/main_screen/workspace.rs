@@ -20,7 +20,7 @@ use super::tree::{
 
 mod files;
 mod web;
-pub use files::{keep_files_tiles, whereabouts, DockedFiles, FilesSpot, Whereabouts, EDGE_SHARE, FILES_SHARE};
+pub use files::{keep_files_tiles, whereabouts, DockedFiles, FilesSpot, FilesWindow, Whereabouts, EDGE_SHARE, FILES_SHARE};
 pub use web::{new_id as new_web_id, WebTile, WEB_SHARE};
 
 pub const MAIN: &str = "main";
@@ -307,6 +307,10 @@ pub struct UiState {
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
+    /// File viewer windows open when Pitwall quit (by agent): they open
+    /// again at the next start. One closed by the user is forgotten.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub files_windows: BTreeMap<String, FilesWindow>,
     /// Web tiles: each one's page (by tile id, the `web` of its pane).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub web_tiles: BTreeMap<String, WebTile>,
@@ -377,6 +381,7 @@ impl Default for UiState {
             files_window: None,
             web_window: None,
             docked_files: BTreeMap::new(),
+            files_windows: BTreeMap::new(),
             web_tiles: BTreeMap::new(),
             new_agent_kind: None,
             new_agent_accounts: BTreeMap::new(),
@@ -840,6 +845,7 @@ impl UiState {
         for o in owners.into_iter().filter(|o| !alive.contains(o)) {
             next = next.undock_files(&o).forget_files(&o);
         }
+        next.files_windows.retain(|a, _| alive.contains(a));
         // Previews of agents that are gone; web tiles out of the layout.
         next = next.prune_web(alive);
         next.tile_font.retain(|a, _| alive.contains(a));

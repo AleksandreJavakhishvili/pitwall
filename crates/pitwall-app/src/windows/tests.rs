@@ -535,6 +535,100 @@ fn assert_whole(layout: &crate::main_screen::tree::Node) {
     assert_eq!(a.len(), n, "a terminal twice");
 }
 
+/// A file viewer window open when Pitwall quits opens again at the next
+/// start, behind the rest, with its folder, tabs, open folders and place;
+/// one the user closed doesn't, nor one whose agent is gone.
+#[gpui::test]
+fn files_windows_open_again_after_a_restart(cx: &mut TestAppContext) {
+    use crate::main_screen::workspace::{DockedFiles, FilesWindow};
+    let dir = std::env::temp_dir().join(format!("pw-files-restore-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::main_screen::init(cx);
+        crate::code_view::register(cx);
+        crate::ui_state::init(Some(dir.clone()), cx);
+        let mut agents = vec![agent("api", "/work/alpha", "idle", 1, true), agent("web", "/work/alpha", "idle", 2, true)];
+        for a in &mut agents {
+            a.caps.explorer = true;
+        }
+        let store = cx.new(|_| AgentStore::new(agents));
+        cx.set_global(Main(None, store.clone()));
+        cx.set_global(crate::AppState { host: None, content: Content::Live { store: store.clone() }, root: None, main: None });
+        let source: std::sync::Arc<dyn crate::explorer::source::Source> = crate::explorer::source::fake::FakeSource::new(&[("a.txt", "a\n"), ("src/b.txt", "b\n")]);
+        cx.set_global(crate::explorer::source::ExplorerSource(source.clone()));
+        crate::explorer::dock::remember_env(Some(source), &store, cx);
+        init(Content::Live { store }, Some(dir.clone()), show_main, cx);
+        show_main(cx);
+        restore(cx);
+    });
+    cx.run_until_parked();
+    let open = |agent: &str, cx: &mut TestAppContext| {
+        let h = cx.update(|cx| crate::explorer::window::open(agent, agent, format!("{agent} — Files"), false, cx)).expect("window");
+        cx.run_until_parked();
+        let _ = cx.update(|cx| {
+            h.update(cx, |w, _, cx| {
+                let v = w.viewer().clone();
+                v.update(cx, |v, cx| v.open("a.txt".into(), None, cx));
+                let tree = v.read(cx).tree();
+                tree.update(cx, |t, cx| t.expand("src", cx));
+            })
+        });
+        cx.run_until_parked();
+        h
+    };
+    let close = |h: gpui::WindowHandle<crate::explorer::window::ViewerWindow>, cx: &mut TestAppContext| {
+        let _ = cx.update(|cx| h.update(cx, |_, window, _| window.remove_window()));
+        cx.run_until_parked();
+    };
+    let api = open("api", cx);
+    let web = open("web", cx);
+    let kept = cx.update(|cx| crate::ui_state::get(cx).files_windows.clone());
+    assert_eq!(kept["api"].open, DockedFiles { key: "api".into(), tabs: vec!["a.txt".into()], active: Some("a.txt".into()) });
+    assert_eq!(kept["api"].expanded, vec!["src".to_string()]);
+    assert!(kept["api"].bounds.is_some());
+    // web's closed by the user: forgotten.
+    close(web, cx);
+    assert!(cx.update(|cx| !crate::ui_state::get(cx).files_windows.contains_key("web")));
+    // An agent removed since (as in an older ui.json).
+    cx.update(|cx| {
+        crate::ui_state::update(cx, |ui| {
+            *ui = ui.clone().keep_files_window("gone", FilesWindow { open: DockedFiles { key: "gone".into(), ..Default::default() }, ..Default::default() })
+        })
+    });
+    // Quitting: api's window closes with Pitwall, still kept.
+    cx.update(|cx| set_quitting(true, cx));
+    close(api, cx);
+    cx.update(|cx| set_quitting(false, cx));
+    let kept = cx.update(|cx| crate::ui_state::get(cx).files_windows.clone());
+    assert!(kept.contains_key("api") && kept.contains_key("gone"), "{kept:?}");
+    cx.executor().advance_clock(std::time::Duration::from_millis(800));
+    cx.run_until_parked();
+    let on_disk: crate::main_screen::workspace::UiState = serde_json::from_str(&std::fs::read_to_string(dir.join("ui.json")).unwrap()).unwrap();
+    assert!(on_disk.files_windows.contains_key("api"));
+
+    // "Restarted": the windows open again from what was kept.
+    cx.update(crate::explorer::window::restore);
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert_eq!(viewer_window_owners(cx), vec!["api".to_string()], "only api's");
+        let h = viewer_window("api", cx).unwrap();
+        let (tabs, active, expanded) = h
+            .read_with(cx, |w, cx| {
+                let v = w.viewer().read(cx);
+                (v.tabs().to_vec(), v.active().map(str::to_string), v.tree().read(cx).is_open("src"))
+            })
+            .unwrap();
+        assert_eq!((tabs, active.as_deref(), expanded), (vec!["a.txt".to_string()], Some("a.txt"), true));
+        let ui = crate::ui_state::get(cx);
+        assert!(!ui.files_windows.contains_key("gone"), "a removed agent's is forgotten");
+        assert!(ui.files_windows.contains_key("api"));
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+
 /// Files put in a terminal's place (the tool's `where: replace`, the
 /// "Replace …'s terminal" menu entry): the same tile, place and size; the
 /// terminal leaves the layout but its agent is still there, and comes back
