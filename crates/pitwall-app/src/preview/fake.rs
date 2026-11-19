@@ -23,6 +23,8 @@ pub struct Log {
     pub no_reparent: bool,
     /// Each view's data folder (its store), in the order they were made.
     pub dirs: Vec<std::path::PathBuf>,
+    /// Each view asked for a store of its own (`Options::own_store`).
+    pub own: Vec<bool>,
 }
 
 pub type Shared = Rc<RefCell<Log>>;
@@ -125,6 +127,7 @@ pub fn install(cx: &mut App) -> Shared {
         }
         l.borrow_mut().calls.push(format!("create {}", opts.url));
         l.borrow_mut().dirs.push(opts.data_dir.clone());
+        l.borrow_mut().own.push(opts.own_store);
         let events: Rc<dyn Fn(WebEvent)> = Rc::from(opts.events);
         l.borrow_mut().events.push(events);
         Ok(Box::new(Fake { log: l.clone() }))

@@ -307,9 +307,15 @@ fn set_project_profile(project: &str, id: Option<&str>, cx: &mut TestAppContext)
     });
 }
 
-/// The folder (store) of the view made last.
+/// The folder (store) of the view made last; checks that a profile's has a
+/// store of its own and Default's the one it always had.
 fn last_dir(log: &fake::Shared) -> String {
-    log.borrow().dirs.last().map(|d| d.file_name().unwrap().to_string_lossy().into_owned()).unwrap_or_default()
+    let l = log.borrow();
+    let dir = l.dirs.last().map(|d| d.file_name().unwrap().to_string_lossy().into_owned()).unwrap_or_default();
+    if let Some(own) = l.own.last() {
+        assert_eq!(*own, dir != "profile-default", "{dir}: own store {own}");
+    }
+    dir
 }
 
 /// An agent's page opens in its project's profile, and the answer says
