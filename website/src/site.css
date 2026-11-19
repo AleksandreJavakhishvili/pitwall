@@ -1119,8 +1119,8 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   font: 400 12px/1.4 var(--font-ui); color: var(--text); font-variant-ligatures: none;
   --wb: 18s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
   /* The terminal's inset: alone, beside the docs tile, beside the Preview too. */
-  --wb-t0: 42px 8px 8px 8px; --wb-t1: 42px 8px 8px 296px; --wb-t2: 42px 296px 8px 296px;
-  --wb-docs-out: translateX(-300px); --wb-prev-out: translateX(310px);
+  --wb-t0: 42px 8px 8px 8px; --wb-t1: 42px 8px 8px 266px; --wb-t2: 42px 340px 8px 266px;
+  --wb-docs-out: translateX(-260px); --wb-prev-out: translateX(340px);
   --wb-cx: 846px; --wb-cy: 56px; --wb-rest: translate(560px, 420px);
 }
 .wb-scene i { display: block; font-style: normal; }
@@ -1171,14 +1171,14 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   position: absolute; overflow: hidden; border-radius: 6px; background: var(--app-bg);
   border: 1px solid var(--line-strong); box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
 }
-.wb-docs { left: 8px; top: 42px; width: 280px; bottom: 8px; animation: wb-docs var(--wb); }
-.wb-prev { left: 624px; top: 42px; right: 8px; bottom: 8px; animation: wb-prev var(--wb); }
+.wb-docs { left: 8px; top: 42px; width: 250px; bottom: 8px; animation: wb-docs var(--wb); }
+.wb-prev { left: 586px; top: 42px; right: 8px; bottom: 8px; animation: wb-prev var(--wb); }
 @media (max-width: 600px) {
   .wb-docs { right: 8px; width: auto; bottom: auto; height: 180px; }
   .wb-prev { left: 288px; top: 230px; }
 }
 .wb-bar {
-  height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 7px; border-bottom: 1px solid var(--line);
+  height: 32px; display: flex; align-items: center; gap: 5px; padding: 0 7px; border-bottom: 1px solid var(--line);
   background: var(--glass-solid); white-space: nowrap;
 }
 .wb-ico { flex: none; color: var(--text-2); }
@@ -1186,10 +1186,12 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .wb-grip { flex: none; display: grid; grid-template-columns: repeat(2, 3px); gap: 2px; padding: 0 3px; }
 .wb-scene .wb-grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
 .wb-addr {
-  flex: 1 0 96px; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 3px 8px; border-radius: 6px;
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 3px 7px; border-radius: 6px;
   background: var(--app-bg); border: 1px solid var(--line); font: 10.5px/1.3 var(--font-mono); color: var(--text-2);
 }
-.wb-title { flex: 0 1 auto; min-width: 0; max-width: 92px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.wb-title { flex: none; font-size: 11px; color: var(--text-3); }
+/* The page's browser profile (not on a Preview). */
+.wb-prof { flex: none; display: flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 6px; background: var(--chip-on); font-size: 10.5px; font-weight: 600; color: var(--text-2); }
 
 /* Pages: shapes, a heading each. */
 .wb-page { position: absolute; left: 0; right: 0; top: 33px; bottom: 0; overflow: hidden; }
@@ -1306,7 +1308,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .ac-scene i { display: block; font-style: normal; }
 @media (max-width: 600px) {
   .ac-stage { aspect-ratio: 500 / 690; }
-  .ac-scene { width: 500px; height: 690px; --dx: 20px; --dy: 300px; }
+  .ac-scene { width: 500px; height: 690px; --dx: 20px; --dy: 270px; }
 }
 .ac-win {
   position: absolute; left: 20px; top: 16px; right: 20px; bottom: 16px; overflow: hidden;
@@ -1354,7 +1356,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .ac-menu span { display: flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 5px; color: var(--text-2); }
 .ac-menu .on { background: var(--chip-on); color: var(--text); }
 .ac-dlg {
-  position: absolute; left: var(--dx); top: var(--dy); width: 440px; height: 330px; border-radius: 12px; opacity: 0;
+  position: absolute; left: var(--dx); top: var(--dy); width: 440px; height: 388px; border-radius: 12px; opacity: 0;
   background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.6);
   animation: ac-dlg var(--ac);
 }
@@ -1376,7 +1378,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 .ac-ping-2 { left: 90px; top: 248px; animation: ac-ping-2 var(--ac); }
 .ac-ping-3 { left: 150px; top: 325px; animation: ac-ping-3 var(--ac); }
 .ac-ping-4 { left: calc(var(--dx) + 133px); top: calc(var(--dy) + 201px); animation: ac-ping-4 var(--ac); }
-.ac-ping-5 { left: calc(var(--dx) + 392px); top: calc(var(--dy) + 307px); animation: ac-ping-5 var(--ac); }
+.ac-ping-5 { left: calc(var(--dx) + 392px); top: calc(var(--dy) + 365px); animation: ac-ping-5 var(--ac); }
 .motion-paused .ac-scene * { animation-play-state: paused; }
 
 /* 16 s: 1 pointer to orders-api · 2.1 press · 2.2–4.2 drag onto Work (it lights) · 4.2 drop:
@@ -1400,9 +1402,9 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   56% { transform: translate(calc(var(--dx) + 133px), calc(var(--dy) + 201px)); }
   57% { transform: translate(calc(var(--dx) + 133px), calc(var(--dy) + 201px)) scale(0.86); }
   58%, 59% { transform: translate(calc(var(--dx) + 133px), calc(var(--dy) + 201px)); }
-  64% { transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 307px)); }
-  65% { transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 307px)) scale(0.86); }
-  66%, 68% { opacity: 1; transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 307px)); }
+  64% { transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 365px)); }
+  65% { transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 365px)) scale(0.86); }
+  66%, 68% { opacity: 1; transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 365px)); }
   78%, 100% { opacity: 0; transform: translate(250px, 470px); }
 }
 @keyframes ac-ghost {
