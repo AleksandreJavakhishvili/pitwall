@@ -112,7 +112,7 @@ Both hook modes are tied to the Claude Code and Codex hook formats. A kind of yo
 
 ## Showing files
 
-With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), agents Pitwall starts on this computer can open files, folders and images in Pitwall's file viewer when you ask them to ("open that file for me"). Pitwall's MCP server, `pitwall-cli mcp`, has two tools, `show_files` and `show_folder`; `pitwall open` does the same from a shell. Each kind gets it the best way its tool has, in this order, and Settings → Agents lists which:
+With **Agents can show you files** on (Settings → Agents, `agents.showFiles`, on by default), agents Pitwall starts on this computer can open files, folders and images in Pitwall's file viewer when you ask them to ("open that file for me"). Pitwall's MCP server, `pitwall-cli mcp`, has two tools for this, `show_files` and `show_folder`, and a third for web pages, `show_web` ([below](#showing-web-pages)); `pitwall open` does the same from a shell. Every kind gets all three the same way. Each kind gets it the best way its tool has, in this order, and Settings → Agents lists which:
 
 1. **MCP at launch** (`mcp`): added in the tool's own documented launch-time way, which adds to your own servers, so your config files are never edited.
 2. **MCP via its config** (`mcp_file`): the tool only reads servers from its own file. Pitwall adds its entry there only when you ask, and takes it out again the same way.
@@ -123,10 +123,10 @@ Files are shown from the folder the agent works in **now**: the `root` it gives,
 
 | `mcp` | What it does |
 |---|---|
-| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and the two tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`) in the `--settings` Pitwall passes, so they don't ask each time. |
-| `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The tools say they are read-only, so Codex doesn't ask for them. |
+| `claude-config` | `claude --mcp-config '{"mcpServers":{"pitwall":…}}'`, added to your own servers, and its tools allowed (`mcp__pitwall__show_files`, `mcp__pitwall__show_folder`, `mcp__pitwall__show_web`) in the `--settings` Pitwall passes, so they don't ask each time. |
+| `codex-config` | `codex -c 'mcp_servers.pitwall.command="…"' -c 'mcp_servers.pitwall.args=["mcp"]'`: config overrides for this run only. The files tools say they are read-only, so Codex doesn't ask for them; `show_web` doesn't (a page loads as you, in your web profile), so Codex may ask before it opens one. |
 | `copilot-config` | `copilot --additional-mcp-config '{"mcpServers":{"pitwall":{…,"type":"local","tools":["*"]}}}' --allow-tool pitwall`: augments `~/.copilot/mcp-config.json` for this run, and the server's tools are allowed. |
-| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder`: merged with your and the project's servers. |
+| `qwen-config` | `qwen --mcp-config '{"mcpServers":{"pitwall":…}}' --allowed-tools mcp__pitwall__show_files --allowed-tools mcp__pitwall__show_folder --allowed-tools mcp__pitwall__show_web`: merged with your and the project's servers. |
 | `amp-config` | `amp --mcp-config '{"pitwall":…}'`: merged with your servers; Amp doesn't ask to approve servers given this way. |
 | `opencode-env` | `OPENCODE_CONFIG_CONTENT='{"mcp":{"pitwall":{"type":"local","command":[…],"enabled":true}},"permission":{"pitwall_*":"allow"}}'` in the agent's environment: opencode's inline config, merged with your and the project's. |
 | `none` | No server at launch (the default). |
@@ -148,7 +148,7 @@ The bundled kinds:
 
 **MCP via its config.** Settings → Agents shows the file next to the kind, with **Add Pitwall to it…**; `pitwall settings set agents.showFilesGemini true` (or `agents.showFilesCursor`) does the same and asks you in Pitwall first. Only Pitwall's `pitwall` entry is added (an older one is brought up to date): the change is made in the file's text, so everything else stays byte for byte, and a backup is kept next to it (`settings.json.pitwall-backup`). **Remove** (or `false`) takes the entry out again, and `mcpServers` too when Pitwall added it. Nothing is added until you ask. The tool then reads the server in every session, also outside Pitwall: its tools can't show anything there. The file is the one in your home folder, not an account's own folder (Settings → Accounts).
 
-**Shell command via a rule.** While the setting is on, Pitwall keeps a short built-in rule (`~/.pitwall/run/show-files/pitwall-show-files.md`) that tells the agent to run `pitwall-cli open <file>[:line[:column]]` or `pitwall-cli open --folder <folder>` when you ask to see something. An agent with rules gets it with them, in its rules file (and its rules count as changed when the setting changes, to reapply); one without gets the rule itself (Aider: `--read <rule>`). Aider suggests the command and asks you before it runs it, as for any shell command. Kinds that can't run shell commands get nothing.
+**Shell command via a rule.** While the setting is on, Pitwall keeps a short built-in rule (`~/.pitwall/run/show-files/pitwall-show-files.md`) that tells the agent to run `pitwall-cli open <file>[:line[:column]]` or `pitwall-cli open --folder <folder>` when you ask to see something, and `pitwall-cli open --web <address>` (with `--where`, `--of`) when you ask for a web page (while web pages for agents are on, below). An agent with rules gets it with them, in its rules file (and its rules count as changed when the setting changes, to reapply); one without gets the rule itself (Aider: `--read <rule>`). Aider suggests the command and asks you before it runs it, as for any shell command. Kinds that can't run shell commands get nothing.
 
 The setting applies when an agent starts: restart an agent to give it the server or take it away. The server's command is a copy of the CLI in Pitwall's data folder (`~/.pitwall/bin/pitwall-cli`), refreshed when Pitwall starts, so agents keep it when the app is moved or updated.
 
@@ -167,6 +167,16 @@ Move it yourself: drag the tile's (or the window's) bar, anywhere but its button
 What the viewer shows: text files (highlighted, editable for quick fixes on this computer), Markdown as Code or a formatted Preview, images (PNG, JPEG, GIF, WebP, SVG up to 10 MiB) fitted or zoomed, an SVG as its picture or its XML source (the header's Picture / Source, ⌘⇧V or Ctrl+Shift+Alt+V; the source edits and saves like any text), and PDFs up to 64 MiB with zoom, the page you're on and Find (⌘F). **PDFs are shown on macOS only for now; on Windows and Linux a PDF says viewing isn't available there yet.** Other binary files, and PDFs that can't be shown (password-protected, damaged, too large), offer **Open in default app** for files on this computer.
 
 Not named: where the agent's files are already (a tile or a window), else a tile right of its terminal. Naming a place that isn't where they are moves them there. Pitwall never comes forward over the app you are in, and the terminal keeps the keyboard. An agent no open Pitwall window shows gets a window, and its tool result says so. Later calls from the same agent add tabs to the same tile or window. A folder outside every agent's folder opens with the tree rooted at that folder (agents on this computer; another machine's agents can't show files).
+
+### Showing web pages
+
+With **Agents can show you web pages** on (Settings → Agents, `agents.showWeb`, on by default) and web pages on (Settings → General, `general.webPages`), the same server has `show_web`, and `pitwall open --web [<address>]` does it from a shell. Ask an agent to open a page, a local dev server or a browser in Pitwall ("open the docs on the left") and it opens in a web tile ([web tiles](../spec/web.md)), in the places files go: `right` (the default), `left`, `above`, `below`, `replace` (with `of` / `--of`), or `window`. Without an address an empty page opens with its address field for you to type in.
+
+- **It only shows you the page.** The agent gets nothing back from it, and can't click, type, scroll or run anything in it; nothing you do there is sent to it. Only `http` and `https` addresses open (`javascript:`, `file:`, `data:` and other schemes are refused).
+- The page is in your own web profile in Pitwall, where you may be signed in: it loads as you, as a link you clicked would.
+- It never takes the keyboard or brings Pitwall forward.
+- One page per agent: its next call goes to the page it opened before, wherever you moved it (to the new address, when it gives one); naming a place moves it. Close it and the next call opens a new one. It stays when the agent goes.
+- Both settings ask you in Pitwall when an agent changes them (`pitwall settings set`), so an agent can't turn this on by itself. Off, the tool isn't listed (running agents are told), and `pitwall open --web` refuses.
 
 ## Accounts
 
