@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>How Pitwall works: status flags, the Wall and Review</title>
-  <meta name="description" content="How Pitwall detects when an agent needs you, plus the Wall, Next up, Review, terminals that survive quitting, supported agents and detection rules." />
+  <meta name="description" content="How Pitwall detects when an agent needs you, plus the Wall, Next up, Review, files agents show you, terminals that survive quitting, supported agents and detection rules." />
   <meta name="color-scheme" content="dark light" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -51,6 +51,7 @@
           <li><a href="#wall">Wall</a></li>
           <li><a href="#next-up">Next up</a></li>
           <li><a href="#review">Review</a></li>
+          <li><a href="#files">Files</a></li>
           <li><a href="#terminals">Terminals</a></li>
           <li><a href="#spaces">Spaces</a></li>
           <li><a href="#agents">Agents</a></li>
@@ -109,6 +110,16 @@
           <li>The diff editor is bundled, so Review works offline.</li>
         </ul>
         <p>The Changes panel in the right panel matches <code>git status</code>: staged and unstaged changes are listed apart, and each git repository inside the agent's folder, or linked into it, gets its own collapsible section with its branch. A file that is both staged and changed again shows both, and its diff opens on the part you clicked.</p>
+
+        <h2 id="files">Files agents show you</h2>
+        <p>Ask an agent to open a file, a folder, a worktree or an image ("open that file for me", "show me worktree fix-retry") and it opens in Pitwall's file viewer, in a <strong>files tile</strong>: a slot of its own in the layout of the window that shows the agent, right of its terminal unless you ask for left, above, below, another agent's terminal, or a terminal's place. A terminal it replaces keeps running and is back from the sidebar. Ask for a window and it gets a window of its own. Drag the files by their bar anywhere in a window's layout or out into a window and back; Move… and Dock… do the same without dragging. Pitwall doesn't come forward over the app you're in, and the terminal keeps the keyboard. Tiles come back after a restart with what they had open.</p>
+        <ul>
+          <li><strong>How agents ask.</strong> Pitwall's own MCP server (<code>pitwall-cli mcp</code>, tools <code>show_files</code> and <code>show_folder</code>) is added to each launch of Claude Code, Codex, Copilot CLI, Qwen Code, Amp and opencode through the tool's own flags or environment; your config files aren't edited. Gemini CLI and Cursor Agent only read their own MCP files, so Settings → Agents offers to add Pitwall's entry there (a backup is kept; Remove takes it out). Aider gets a short rule to run <code>pitwall-cli open</code>, and <code>pitwall open</code> does the same from any shell. Showing files was tried by hand with Claude Code; the other agents' routes are built and tested in code but not yet run against each real CLI. Details in <a href="/docs/agents/#showing-files">Showing files</a>; off with <a href="/docs/settings/#agents-showfiles"><code>agents.showFiles</code></a>.</li>
+          <li><strong>Where it works now.</strong> The files come from the folder the agent works in now: a worktree Claude Code entered mid-session, or a folder a shell <code>cd</code>-ed to. The tree has that worktree's branch and git status, and Show diff opens Review on it.</li>
+          <li><strong>What it shows.</strong> Text and code with highlighting and Find, Markdown as code or preview. Images (PNG, JPEG, GIF, WebP, SVG) fitted, at 100&nbsp;% or zoomed on a checkerboard; an SVG switches between Picture and Source (<kbd>⌘⇧V</kbd>). Other binary files offer Open in default app. The tree hides and shows with <kbd>⌘⇧E</kbd> and its edge drags it wider, as does Review's list of changes.</li>
+          <li><strong>PDFs: macOS only for now.</strong> Pages one under the other, Fit, 100&nbsp;% or zoomed, the page you're on, and Find (<kbd>⌘F</kbd>), drawn by the system's PDF engine. On Windows and Linux a PDF says it can't be shown in Pitwall yet and offers Open in default app.</li>
+          <li><strong>Quick fixes.</strong> Edit a text file where it's shown and save with <kbd>⌘S</kbd>: undo, Tab in the file's own indentation, Replace and Replace All; line endings and the final newline stay as they were. A dot marks unsaved tabs, and closing asks first. When the agent changes the file meanwhile, it is read again quietly if you have nothing unsaved; otherwise Keep mine, Take theirs or Show difference. Only files of agents on this computer; other machines' files, images and binary or large files stay read-only. Agents still can't write through Pitwall. Off with <a href="/docs/settings/#agents-editfiles"><code>agents.editFiles</code></a>.</li>
+        </ul>
 
         <h2 id="terminals">Terminals that outlive the app</h2>
         <p>Each agent's terminal belongs to its own <code>pitwall-hold</code> process, not to the app. <kbd>⌘Q</kbd> closes the UI; dev servers and half-finished turns carry on, and the next launch re-attaches with the scrollback replayed. Only Stop, Restart, Remove or <strong>Quit and Stop Agents</strong> end a terminal. After a reboot, agents come back stopped, and Restart resumes the conversation for CLIs that support it.</p>
