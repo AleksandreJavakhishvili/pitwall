@@ -26,6 +26,7 @@ pub mod image_view;
 
 
 pub mod logic;
+pub mod pan_zoom;
 pub mod pdf_view;
 pub mod quick_open;
 pub mod search;
