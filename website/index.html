@@ -116,7 +116,7 @@
           <li><a href="#demo"><strong>Agents' terminals</strong><span>Claude Code, Codex and any CLI, live and side by side. The one that needs you turns amber.</span></a></li>
           <li><a href="#files"><strong>Files</strong><span>What agents show you: code at a line, folders, images, PDFs on macOS. Fix a line and save.</span></a></li>
           <li><a href="/docs/how-it-works/#review"><strong>Source control</strong><span>Review each agent's changes by task, comment, merge. Worktrees and branches per agent.</span></a></li>
-          <li><a href="#web"><strong>Web</strong><span>Docs, dashboards and your dev server's Preview as tiles. Agents can open pages for you.</span></a></li>
+          <li><a href="/docs/how-it-works/#web"><strong>Web</strong><span>Docs, dashboards and your dev server's Preview as tiles. Agents can open pages for you.</span></a></li>
         </ul>
         <p class="ov-more">More kinds of tiles will follow. What's being worked on is on the <a href="/roadmap/">roadmap</a>.</p>
       </div>
@@ -141,9 +141,9 @@
           <article class="feat-slide web" id="web" role="tabpanel" aria-labelledby="ft-web" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="web-h">Docs, dashboards, dev servers. <span class="dim">Beside the agent.</span></h2>
-              <p>Web pages open in tiles of the same layout as your terminals and files, in the system's own web view. Ask an agent to open a page and it lands next to its terminal; when the terminal prints a dev server's address, Preview opens it as a tile that follows the terminal. Move a page anywhere in the layout or into a window of its own.</p>
+              <p>Web pages open in tiles of the same layout as your terminals and files, in the system's own web view. Ask an agent to open a page and it lands next to its terminal; when the terminal prints a dev server's address, Preview opens it as a tile that follows the terminal. Move a page anywhere in the layout or into a window of its own. Each project can have its own browser profile, so work and personal sign-ins stay apart.</p>
             </div>
-            <!-- Decorative: an agent opens docs in a web tile left of its terminal, then its dev server's Preview opens right of it (site.css: .wb-*). The copy above and the list below say what it shows. -->
+            <!-- Decorative: an agent opens docs in a web tile left of its terminal, in the project's Work browser profile, then its dev server's Preview opens right of it (site.css: .wb-*). The copy above and the list below say what it shows. -->
             <div class="wb-stage glass" data-web aria-hidden="true">
               <div class="wb-scene">
                 <div class="wb-win">
@@ -153,12 +153,14 @@
                     <div class="wb-lines">
                       <span class="wb-p1">&gt; <span class="wb-type1">open the docs <span class="sv-w">on the left</span><span class="sv-n">above</span></span></span>
                       <span> </span>
-                      <span class="wb-l1"><b>⏺ pitwall - show_web (MCP)</b>(url: "https://</span>
-                      <span class="wb-l1">  example.com/docs/", where: "<span class="sv-w">left</span><span class="sv-n">above</span>")</span>
-                      <span class="wb-l2 d">  ⎿  Opened https://example.com/docs/ in a</span>
-                      <span class="wb-l2 d">     web tile in space Main (window main),</span>
-                      <span class="wb-l2 d">     <span class="sv-w">left of</span><span class="sv-n">above</span> shop's terminal in Pitwall.</span>
-                      <span class="wb-l2 d">     … +1 line (ctrl+o to expand)</span>
+                      <span class="wb-l1"><b>⏺ pitwall - show_web (MCP)</b>(url:</span>
+                      <span class="wb-l1">  "https://example.com/docs/",</span>
+                      <span class="wb-l1">  where: "<span class="sv-w">left</span><span class="sv-n">above</span>")</span>
+                      <span class="wb-l2 d">  ⎿  Opened https://example.com/docs/</span>
+                      <span class="wb-l2 d">     in a web tile in space Main</span>
+                      <span class="wb-l2 d">     (window main), <span class="sv-w">left of</span><span class="sv-n">above</span> shop's</span>
+                      <span class="wb-l2 d">     terminal in Pitwall.</span>
+                      <span class="wb-l2 d">     … +2 lines (ctrl+o to expand)</span>
                       <span> </span>
                       <span class="wb-l3">⏺ The docs are open <span class="sv-w">on the left</span><span class="sv-n">above</span>.</span>
                       <span> </span>
@@ -171,7 +173,7 @@
                     </div>
                   </div>
                   <div class="wb-docs">
-                    <div class="wb-bar"><span class="wb-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico dim" viewBox="0 0 16 16" width="13" height="13"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M12.5 8A4.5 4.5 0 1 1 11 4.6M11.5 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="wb-addr">example.com/docs/</span><span class="wb-title">Docs</span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="2" y="3.5" width="12" height="9.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                    <div class="wb-bar"><span class="wb-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico dim" viewBox="0 0 16 16" width="13" height="13"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M12.5 8A4.5 4.5 0 1 1 11 4.6M11.5 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="wb-addr">example.com/docs/</span><span class="wb-prof">Work <svg viewBox="0 0 10 10" width="8" height="8"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
                     <div class="wb-page wb-docs-page">
                       <div class="wb-pnav"><b>Docs</b><i></i><i></i><i></i></div>
                       <div class="wb-pside"><i></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
@@ -179,7 +181,7 @@
                     </div>
                   </div>
                   <div class="wb-prev">
-                    <div class="wb-bar"><span class="wb-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico dim" viewBox="0 0 16 16" width="13" height="13"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M12.5 8A4.5 4.5 0 1 1 11 4.6M11.5 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="wb-addr">localhost:5173</span><span class="wb-title">shop's preview</span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="4.5" y="1.75" width="7" height="12.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="2" y="3.5" width="12" height="9.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                    <div class="wb-bar"><span class="wb-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico dim" viewBox="0 0 16 16" width="13" height="13"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M12.5 8A4.5 4.5 0 1 1 11 4.6M11.5 2v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="wb-addr">localhost:5173</span><span class="wb-title">shop's preview</span><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><rect x="4.5" y="1.75" width="7" height="12.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="13" height="13"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="wb-ico" viewBox="0 0 16 16" width="12" height="12"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
                     <div class="wb-page wb-app">
                       <div class="wb-app-nav"><i class="logo"></i><i></i><i></i><i class="btn"></i></div>
                       <div class="wb-app-hero"><b>Orders</b><i style="--w:70"></i><i class="btn"></i></div>
@@ -202,11 +204,15 @@
               </div>
               <div class="pit-row">
                 <p class="label">What agents can do</p>
-                <p>Show you a page, nothing more. Ask for a page, a local dev server or an empty browser and it opens beside the agent (Pitwall's MCP tool <code>show_web</code>, or <code>pitwall open --web</code>). The agent gets nothing back from the page and can't click, type or read anything in it. Off in Settings → Agents; an agent can't turn it back on without asking you.</p>
+                <p>Show you a page, nothing more. Ask for a page, a local dev server or an empty browser and it opens beside the agent (Pitwall's MCP tool <code>show_web</code>, or <code>pitwall open --web</code>). The agent gets nothing back from the page and can't click, type or read anything in it. Off in Settings → Agents.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Profiles</p>
+                <p>A browser profile is an account with its own sign-ins, cookies and site data, made in Settings → Accounts. A project picks one in its Accounts…; its agents' pages open there, and so does <kbd>⌘L</kbd> while one of its agents has the focus. Anything else is in Default. The page's bar shows its profile and switches it. Needs macOS 14 or later; kept apart as checked on macOS, tested in code only on Windows and Linux.</p>
               </div>
               <div class="pit-row">
                 <p class="label">Limits</p>
-                <p>The system's web view, not a browser: WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux (X11). One page per tile, no tabs. Pages keep their logins in Pitwall's own profile, not your browser's. Camera and microphone are denied for now, so calls don't work; macOS declines downloads. Run by hand on macOS only.</p>
+                <p>The system's web view, not a browser: WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux (X11). One page per tile, no tabs. Logins stay in Pitwall's browser profiles, not your browser's. Camera and microphone are denied for now, so calls don't work; macOS declines downloads. Run by hand on macOS only.</p>
               </div>
             </div>
           </article>
@@ -431,7 +437,7 @@
           <article class="feat-slide accounts" id="accounts" role="tabpanel" aria-labelledby="ft-accounts" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="accounts-h">Work login, personal login. <span class="dim">Each project on the right one.</span></h2>
-              <p>Run Claude Code, Codex, Gemini CLI and Copilot CLI on more than one login, say a work and a personal subscription. Each project picks the login its agents run on, per tool: in its Accounts…, or by dragging it onto another account in the sidebar. Its running agents of that tool restart on the new login right away, and Claude Code and Codex pick up their conversations there.</p>
+              <p>Run Claude Code, Codex, Gemini CLI and Copilot CLI on more than one login, say a work and a personal subscription. Each project picks the login its agents run on, per tool: in its Accounts…, or by dragging it onto another account in the sidebar. Its running agents of that tool restart on the new login right away, and Claude Code and Codex pick up their conversations there. The project's web pages open in the browser profile it picks there too.</p>
             </div>
             <!-- Decorative: a project dragged from one Claude Code account to another in the sidebar (grouped by account), then its Accounts… dialog (site.css: .ac-*). The copy above and the list below say what it shows. -->
             <div class="ac-stage glass" data-accounts aria-hidden="true">
@@ -470,6 +476,8 @@
                     <span class="ac-chips" style="top:188px"><span class="ac-c ac-cx-a" style="width:78px">Default<em> ✓</em></span><span class="ac-c ac-cx-b" style="width:66px">Work<em> ✓</em></span><span class="ac-c ac-new" style="width:118px">+ New account</span></span>
                     <span class="ac-field" style="top:228px">Git identity</span>
                     <span class="ac-chips" style="top:246px"><span class="ac-c" style="width:120px">Your git setup</span><span class="ac-c on" style="width:66px">Work ✓</span></span>
+                    <span class="ac-field" style="top:286px">Browser profile</span>
+                    <span class="ac-chips" style="top:304px"><span class="ac-c" style="width:78px">Default</span><span class="ac-c on" style="width:66px">Work ✓</span><span class="ac-c ac-new" style="width:112px">+ New profile</span></span>
                     <div class="ac-foot"><span>Manage accounts…</span><span class="ac-done">Done</span></div>
                   </div>
                   <i class="fl-ping ac-ping-1"></i><i class="fl-ping ac-ping-2"></i><i class="fl-ping ac-ping-3"></i><i class="fl-ping ac-ping-4"></i><i class="fl-ping ac-ping-5"></i>
@@ -484,7 +492,7 @@
               </div>
               <div class="pit-row">
                 <p class="label">Per project</p>
-                <p>A project's right-click → Accounts… sets the account its new agents use for each tool, and a git identity for its commits and pushes. New agent can pick another, and an agent's right-click → Run on account moves just that one. With the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</p>
+                <p>A project's right-click → Accounts… sets the account its new agents use for each tool, a git identity for its commits and pushes, and a browser profile for its web pages. New agent can pick another, and an agent's right-click → Run on account moves just that one. With the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</p>
               </div>
               <div class="pit-row">
                 <p class="label">Running agents</p>
