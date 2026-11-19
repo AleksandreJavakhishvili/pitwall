@@ -409,6 +409,31 @@ struct MacWebView {
     shown: Cell<bool>,
 }
 
+/// What Safari adds to WebKit's user agent: its own version, read from the
+/// installed Safari, which is the WebKit a web view runs.
+fn safari_suffix() -> String {
+    let version = AnyClass::get(c"NSBundle").and_then(|bundle| {
+        // SAFETY: NSBundle's class method and accessors, with objects that
+        // are nil or what their selectors return.
+        unsafe {
+            let safari: *mut objc2::runtime::AnyObject = msg_send![bundle, bundleWithPath: &*NSString::from_str("/Applications/Safari.app")];
+            if safari.is_null() {
+                return None;
+            }
+            let value: *mut NSString = msg_send![safari, objectForInfoDictionaryKey: &*NSString::from_str("CFBundleShortVersionString")];
+            value.as_ref().map(|v| v.to_string())
+        }
+    });
+    user_agent_suffix(version.as_deref())
+}
+
+/// The suffix for Safari `version`; a version that isn't digits and dots
+/// (or none) gives a recent one, since sites only ask for "new enough".
+fn user_agent_suffix(version: Option<&str>) -> String {
+    let ok = |v: &&str| !v.is_empty() && v.len() <= 16 && v.chars().all(|c| c.is_ascii_digit() || c == '.');
+    format!("Version/{} Safari/605.1.15", version.filter(ok).unwrap_or("18.0"))
+}
+
 pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, String> {
     let mtm = MainThreadMarker::new().ok_or("not on the main thread")?;
     let (gpui_view, content) = views(window).ok_or("no native window to put it in")?;
@@ -421,6 +446,10 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
     let view = unsafe {
         let config = WKWebViewConfiguration::new(mtm);
         config.setWebsiteDataStore(&store(&opts.data_dir, mtm));
+        // WKWebView's own user agent stops at "(KHTML, like Gecko)"; sites
+        // that check for a browser (Teams, Slack) then refuse it. With this
+        // suffix it is Safari's, which is the engine they get.
+        let _: () = msg_send![&*config, setApplicationNameForUserAgent: &*NSString::from_str(&safari_suffix())];
         // Right-click → Inspect Element, and the inspector's own window.
         let prefs = config.preferences();
         let _: () = msg_send![&*prefs, setValue: &*objc2_foundation::NSNumber::new_bool(true), forKey: &*NSString::from_str("developerExtrasEnabled")];
@@ -699,6 +728,18 @@ fn keystroke(event: &NSEvent) -> Keystroke {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The user agent's suffix is Safari's, whatever the bundle says.
+    #[test]
+    fn the_user_agent_suffix_is_safaris() {
+        assert_eq!(user_agent_suffix(Some("26.1")), "Version/26.1 Safari/605.1.15");
+        assert_eq!(user_agent_suffix(None), "Version/18.0 Safari/605.1.15");
+        assert_eq!(user_agent_suffix(Some("")), "Version/18.0 Safari/605.1.15");
+        assert_eq!(user_agent_suffix(Some("18 (beta)")), "Version/18.0 Safari/605.1.15");
+        // The installed Safari gives a version of digits and dots.
+        let real = safari_suffix();
+        assert!(real.starts_with("Version/") && real.ends_with(" Safari/605.1.15"), "{real}");
+    }
 
     /// The subclass and the delegate register (debug builds check each
     /// override's types against WebKit's and AppKit's own there).
