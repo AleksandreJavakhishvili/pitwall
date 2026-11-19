@@ -44,15 +44,19 @@ pub struct AccountsModel {
 /// that project sits under the project's account ([`project_account`]).
 static PROJECTS: std::sync::RwLock<BTreeMap<String, String>> = std::sync::RwLock::new(BTreeMap::new());
 
-fn remember(list: &Accounts) {
-    let map = list
-        .projects
+/// Project folder → the account its terminals go with: its first agent
+/// kind's (a browser profile is no login an agent runs on).
+fn project_accounts(list: &Accounts) -> BTreeMap<String, String> {
+    list.projects
         .iter()
-        // (A browser profile is no login an agent runs on.)
         .filter_map(|(project, kinds)| {
             Some((project.clone(), kinds.iter().filter(|(k, _)| *k != accounts::WEB).map(|(_, id)| id).find(|id| list.get(id).is_some())?.clone()))
         })
-        .collect();
+        .collect()
+}
+
+fn remember(list: &Accounts) {
+    let map = project_accounts(list);
     if let Ok(mut p) = PROJECTS.write() {
         *p = map;
     }
@@ -393,4 +397,26 @@ pub fn folder_of(cx: &mut App, kind: &str, id: Option<&str>) -> String {
         .and_then(|def| accounts::dir_of(&def, acc.as_ref()))
         .map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sidebar grouped by account files a project's terminals under its
+    /// tool's account, never under its browser profile.
+    #[test]
+    fn a_browser_profile_is_no_projects_account() {
+        let t = pitwall_core::testing::TempDir::new("app-accounts");
+        let paths = Paths::new(t.path().join("pw"));
+        let mut list = Accounts::default();
+        let web = list.add_web(&paths, "Work").unwrap();
+        list.accounts.push(Account { id: "zed-work".into(), kind: "zed".into(), name: "Work".into(), dir: "/x".into() });
+        list.set_project_default("/only-web", accounts::WEB, Some(&web.id));
+        list.set_project_default("/both", accounts::WEB, Some(&web.id));
+        list.set_project_default("/both", "zed", Some("zed-work"));
+        let map = project_accounts(&list);
+        assert_eq!(map.get("/only-web"), None);
+        assert_eq!(map.get("/both").map(String::as_str), Some("zed-work"));
+    }
 }
