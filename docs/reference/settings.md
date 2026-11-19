@@ -78,7 +78,7 @@ Agents can show you files, folders and images in Pitwall's file viewer when you 
 
 ### `agents.editFiles`
 
-You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB. Files of agents on other machines, images, binary and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.
+You can edit text files in Pitwall's file viewer for quick fixes and save them with Cmd+S / Ctrl+S: files of agents on this computer and folders on it, UTF-8 and up to 2 MiB, and an SVG's source. Files of agents on other machines, other images, binary files (PDFs too) and larger files stay read-only. Only you save: agents can't write through Pitwall, and nothing is sent to them. false: the viewer is read-only.
 
 - **Values:** true or false
 - **Default:** `true`

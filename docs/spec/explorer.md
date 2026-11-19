@@ -85,13 +85,54 @@ Status: built (backend, API and UI).
   `tooLarge`, with their size. Invalid UTF-8 is shown with replacement
   characters, as VS Code does by default. Line endings are kept. A language
   hint (`lang`, from the file name or extension) helps the viewer pick a
-  highlighter. The viewer may still override it.
+  highlighter. The viewer may still override it. An SVG is `image` and
+  carries its text (≤ 2 MiB); a PDF is `binary`, and the viewer reads its
+  bytes with `read_image` (≤ 64 MiB) where it can draw it.
 - **Markdown**: the viewer's header switches a Markdown file between
   **Code** and **Preview** (formatted, as Review's Markdown preview, without
   change bars; relative images from the file's folder, remote ones never
   fetched). Its text selects and copies the same way (drag, double- and
   triple-click, ⌘A, ⌘C, the right-click menu). Code is the default; the
-  choice holds for the app session. Files over 1 MB stay Code.
+  choice holds for the app session. Files over 1 MB stay Code. ⌘⇧V
+  (Ctrl+Shift+Alt+V) switches between them, as for an SVG.
+- **Images**: PNG, JPEG, GIF, WebP and SVG up to 10 MiB are drawn (their
+  bytes read separately, `read_image`), fitted to the pane or at a zoom
+  (−/+, Fit, 100 %, a double click), over a checkerboard, with their pixel
+  size in the header. Larger ones and other binary files say what they
+  are and, on this computer, offer "Open in default app".
+- **SVG**: drawn as a picture by default; the header's **Picture /
+  Source** switch (⌘⇧V, Ctrl+Shift+Alt+V on Windows and Linux) shows its
+  XML instead, highlighted, and edited and saved like any text file (the
+  dirty dot, Save / Don't Save, "Changed on disk", Keep mine / Take
+  theirs). The picture follows the edits and, after a save, is the saved
+  file. `read_file` sends an SVG as `image` with its text (up to 2 MiB;
+  larger ones up to 10 MiB are pictures only). The choice is kept per
+  file (agent and path) for the app session.
+- **PDF** (macOS only for now): drawn with the system's PDF engine
+  (PDFKit, `platform/pdf_macos.rs`): a document lives on a thread of its
+  own; pages are drawn there into bitmaps the viewer shows as images, so
+  menus, pop-ups, drag previews and drop zones stay above them (no native
+  `PDFView` over the window). Pages one under the other as white paper on
+  the pane's ground in either theme; **Fit** (the width), **100 %**, −/+
+  (25 % to 400 %; the page in view stays in view); "Page 3 of 120" in the
+  header. Only the pages in view and about a screen around them are
+  drawn, for the display's scale, at most three at a time, nearest first;
+  drawn pages are kept up to 192 MiB per document (the farthest let go
+  first), a page is never drawn larger than 16 M pixels (beyond that it
+  is scaled up), and the other open PDFs keep none. **Find** (⌘F /
+  Ctrl+F, or the header's button): case and accents ignored, every hit
+  marked on its page, the one shown stronger, ↵ / ⇧↵ (or the arrows) the
+  next and previous round the ends, "3 of 12", Esc closes it; at most
+  5 000 hits. "Open in default app" stays in the header. A PDF needing a
+  password says so (no prompt yet); one the engine can't read says it
+  may be damaged; one over 64 MiB says it isn't shown. Its bytes are read
+  through the agent's `Exec` like an image's (`read_image`, up to
+  64 MiB), so another machine's agent's PDFs are shown too ("Open in
+  default app" only for files on this computer). A PDF that changes on
+  disk is read again as an image is (when its size changes), keeping its
+  zoom and place. **Windows and Linux: not supported yet.** A PDF there
+  says "Viewing PDFs in Pitwall isn't available on Windows and Linux yet"
+  and offers "Open in default app" (`platform::can_view_pdf`).
 - **Quick-open index** (`list_all_files`): `git ls-files` (cached + others,
   minus deleted) in a repo. Elsewhere `rg --files` when ripgrep is on that
   machine. Otherwise a breadth-first listing within a 3 s budget. At most
@@ -141,7 +182,8 @@ fixes, not an IDE.
 - **What can be edited**: a text file of an agent on this computer
   (`ProviderCaps::local_process`; never another machine's agent, nor one
   shown here from a peer) or of a folder on this computer (a `path:` root),
-  valid UTF-8, up to 2 MiB, inside the folder. Images, binary files, files
+  valid UTF-8, up to 2 MiB, inside the folder; an SVG's source too (in
+  Source). Other images, binary files (PDFs too), files
   over 2 MiB (also when loaded anyway), files that aren't UTF-8 and ⌘-clicked
   files outside the folder stay read-only, and the header says why
   ("Read-only · on another machine"); typing says so too.
@@ -171,6 +213,7 @@ fixes, not an IDE.
   on disk against the edits). A save that finds the file changed since it
   was read writes nothing and shows the same bar ("Save mine").
 - **Markdown**: edited in Code; Preview follows the edits.
+- **SVG**: edited in Source; the picture follows the edits.
 - **Where agents' files show** (`show_files` / `show_folder`, `pitwall
   open`): one viewer per agent, in one of two places. A **files tile** is a
   slot of its own in the space's layout (a pane with `files` in `ui.json`,
@@ -271,3 +314,9 @@ See [api.md](api.md) "Explorer". Types are generated from
 - UI: `src/components/explorer/` (`FilesPanel`, `ExplorerTree`, `Viewer`,
   `FileEditor`, `SearchPane`, `QuickOpen`, `useTree`), logic in
   `src/lib/explorer.ts` (tested), mock in `src/mockExplorer.ts`.
+- GPUI viewer's images and PDFs: `pitwall-app/src/explorer/viewer.rs`,
+  `image_view.rs` (fit and zoom steps), `pdf_view.rs` (page layout, the
+  pages in view, zoom steps, what to draw and let go; tested without a
+  window); the PDF engine in `pitwall-app/src/platform/pdf.rs` (the API,
+  `can_view_pdf`) and `pdf_macos.rs` (PDFKit, tested on macOS with PDFs
+  made by hand and a password-protected one in `platform/testdata`).
