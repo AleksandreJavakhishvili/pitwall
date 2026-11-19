@@ -100,6 +100,34 @@ Status: built (backend, API and UI).
   (−/+, Fit, 100 %, a double click), over a checkerboard, with their pixel
   size in the header. Larger ones and other binary files say what they
   are and, on this computer, offer "Open in default app".
+- **Moving and zooming a picture** (an image, an SVG's picture, a PDF; in
+  a files tile, a files window and the full viewer alike): larger than its
+  pane either way, it is pressed and dragged any way (an open hand over
+  it, a closed one while it moves, wherever the pointer goes until the
+  release), and a scroll (a trackpad's two fingers, a wheel; Shift + a
+  wheel goes sideways) moves it both ways at once. It never leaves the
+  pane: its edge stops 16 pt in, and while it fits that way it is
+  centred and doesn't move. A press that travels 3 pt or less is a
+  click, so a double click still zooms; a double click that ends a drag
+  doesn't. A pinch on a trackpad zooms smoothly, ⌘ + scroll (Ctrl +
+  scroll on Windows and Linux) too, about 10 % a wheel's notch; both keep
+  the point under the pointer where it is (as far as the picture can
+  move), within the zoom's range (an image 10 % to 1600 %, or down to its
+  fitted scale; a PDF 25 % to 400 %). A double click keeps the point
+  clicked under the pointer; −/+, Fit and 100 % keep the view's centre;
+  the header's percentage follows. Pinches are GPUI's own `PinchEvent`
+  (macOS `magnifyWithEvent:`, Windows' DirectManipulation, Wayland's and
+  X11's pinch gestures; a Windows touchpad without it sends Ctrl + wheel),
+  heard by what is under the pointer as a scroll is, also right after a
+  key. A PDF's pages are scaled as drawn while a pinch or ⌘-scroll goes
+  on, pages not drawn yet drawn at once, and drawn again at the new scale
+  when the pinch ends or 200 ms after the last event. Where an image is
+  moved is kept per open file: another file starts centred, and the same
+  image read again (changed on disk) stays where it was unless its size
+  changed, when it is centred again. A files tile is still dragged only by
+  its bar: a press on the picture moves the picture, never the tile, and
+  a drag from the bar moves the tile, never the picture. The PDF view has
+  no text selection, so a press there moves the pages too.
 - **SVG**: drawn as a picture by default; the header's **Picture /
   Source** switch (⌘⇧V, Ctrl+Shift+Alt+V on Windows and Linux) shows its
   XML instead, highlighted, and edited and saved like any text file (the
@@ -114,7 +142,9 @@ Status: built (backend, API and UI).
   menus, pop-ups, drag previews and drop zones stay above them (no native
   `PDFView` over the window). Pages one under the other as white paper on
   the pane's ground in either theme; **Fit** (the width), **100 %**, −/+
-  (25 % to 400 %; the page in view stays in view); "Page 3 of 120" in the
+  (25 % to 400 %; the place at the view's centre stays there), a pinch
+  and ⌘-scroll (above); wider than the pane, the pages scroll sideways
+  too; "Page 3 of 120" in the
   header. Only the pages in view and about a screen around them are
   drawn, for the display's scale, at most three at a time, nearest first;
   drawn pages are kept up to 192 MiB per document (the farthest let go
@@ -315,7 +345,9 @@ See [api.md](api.md) "Explorer". Types are generated from
   `FileEditor`, `SearchPane`, `QuickOpen`, `useTree`), logic in
   `src/lib/explorer.ts` (tested), mock in `src/mockExplorer.ts`.
 - GPUI viewer's images and PDFs: `pitwall-app/src/explorer/viewer.rs`,
-  `image_view.rs` (fit and zoom steps), `pdf_view.rs` (page layout, the
+  `image_view.rs` (fit and zoom steps), `pan_zoom.rs` (moving a picture,
+  keeping it in view, zoom about the pointer, the drag threshold; tested
+  without a window), `pdf_view.rs` (page layout, the
   pages in view, zoom steps, what to draw and let go; tested without a
   window); the PDF engine in `pitwall-app/src/platform/pdf.rs` (the API,
   `can_view_pdf`) and `pdf_macos.rs` (PDFKit, tested on macOS with PDFs
