@@ -171,7 +171,7 @@ fn erase(folder: PathBuf, attempt: u32, cx: &mut App) {
                 if attempt < 3 {
                     // The engine may still hold it a moment after its last view.
                     cx.background_executor().timer(std::time::Duration::from_secs(2 + 4 * attempt as u64)).await;
-                    let _ = cx.update(|cx| erase(folder, attempt + 1, cx));
+                    cx.update(|cx| erase(folder, attempt + 1, cx));
                 } else {
                     eprintln!("pitwall: couldn't delete a removed browser profile's data ({}): {e}", folder.display());
                 }

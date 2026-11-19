@@ -96,6 +96,7 @@ impl SettingsView {
             Page::Accounts => vec![
                 Part::section("accounts", |s, ui, _, cx| any(s.accounts_section(ui, cx))),
                 Part::section("git", |s, ui, _, cx| any(s.git_section(ui, cx))),
+                Part::section("browser-profiles", |s, ui, _, cx| any(s.web_section(ui, cx))),
             ],
             Page::Rules => {
                 let extra = cx.try_global::<ExtraSections>().map(|s| s.0.clone()).unwrap_or_default();
