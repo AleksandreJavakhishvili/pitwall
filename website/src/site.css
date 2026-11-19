@@ -756,16 +756,19 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
    every animation below has the same duration, so they stay in step and pause together.
    Only transform and opacity move. Without animation (reduced motion) the base styles
    are the open panel with both cards. */
-.away { padding: clamp(64px, 9vw, 112px) 0 0; }
-.away-copy { display: grid; justify-items: center; text-align: center; }
-.away h2 { max-width: 20ch; text-wrap: balance; }
-.away h2 .dim { color: var(--text-3); }
+.away-copy { display: grid; justify-items: center; align-content: start; text-align: center; }
+.feat-slide h2 { max-width: 26ch; text-wrap: balance; }
+.feat-slide h2 .dim { color: var(--text-3); }
 .away-copy p { margin: 18px 0 0; max-width: 60ch; color: var(--text-2); text-wrap: pretty; }
 .fl-stage {
   position: relative; aspect-ratio: 960 / 600; max-width: 960px; margin: clamp(28px, 4vw, 44px) auto 0;
   border-radius: var(--radius); overflow: hidden; pointer-events: none; user-select: none;
 }
-@media (max-width: 600px) { .fl-stage { aspect-ratio: 632 / 600; } }
+/* Phones: every feature stage is 500:690; this scene grows taller (the browser too) and
+   shows its right 632 px, where the control is. */
+@media (max-width: 600px) {
+  .fl-stage { aspect-ratio: 500 / 690; }
+}
 .fl-scene {
   position: absolute; right: 0; bottom: 0; width: 960px; height: 600px;
   transform-origin: 100% 100%; transform: scale(var(--s, 1));
@@ -784,6 +787,7 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
   display: grid; grid-template: 40px 1fr / 1fr 230px;
   border-radius: 10px; background: var(--bezel); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
 }
+@media (max-width: 600px) { .fl-scene { height: 872px; } .fl-win { height: 772px; } }
 .fl-win-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 12px; border-bottom: 1px solid var(--line); }
 .fl-dots { display: flex; gap: 7px; }
 .fl-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); }
@@ -919,10 +923,6 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
    its picture · click Source · the colour edited, the tab's dot · ⌘S, the dot goes ·
    click Picture, the saved colour · the tile leaves. Without animation (reduced motion)
    the base styles are the tile open on pricing.ts. */
-.shows { padding: clamp(64px, 9vw, 112px) 0 0; }
-.shows h2 { max-width: 26ch; text-wrap: balance; }
-.shows h2 .dim { color: var(--text-3); }
-.shows .eyebrow { margin-bottom: 18px; }
 .sv-stage {
   position: relative; aspect-ratio: 960 / 600; max-width: 960px; margin: clamp(28px, 4vw, 44px) auto 0;
   border-radius: var(--radius); overflow: hidden; pointer-events: none; user-select: none;
@@ -1101,7 +1101,208 @@ h3 { font-size: 1.15rem; letter-spacing: 0.08em; font-weight: 600; }
 @keyframes sv-ping-2 { 0%, 57.6% { opacity: 0; transform: scale(0.3); } 57.8% { opacity: 0.6; transform: scale(0.4); } 61.2%, 100% { opacity: 0; transform: scale(1.4); } }
 @keyframes sv-ping-3 { 0%, 78.7% { opacity: 0; transform: scale(0.3); } 78.9% { opacity: 0.6; transform: scale(0.4); } 82.3%, 100% { opacity: 0; transform: scale(1.4); } }
 
-.sv-facts { margin-top: clamp(20px, 3vw, 32px); }
+
+/* ---------- accounts per project (index.html: [data-accounts]) ----------
+   The sidebar grouped by account: orders-api is dragged from Personal to Work (both
+   Claude Code logins), its agents restart there; then its Accounts… dialog, where
+   Codex is set to Work too. Drawn at 960x600 (phones: 500x690, the sidebar full width
+   and the dialog over its lower part), scaled by main.js. One 16 s timeline. Without
+   animation (reduced motion) the base styles are the sidebar after the move. Row tops
+   are window coordinates; --dx/--dy place the dialog (and the pointer's stops in it). */
+.ac-stage {
+  position: relative; aspect-ratio: 960 / 600; max-width: 960px; margin: clamp(28px, 4vw, 44px) auto 0;
+  border-radius: var(--radius); overflow: hidden; pointer-events: none; user-select: none;
+}
+.ac-scene {
+  position: absolute; left: 0; top: 0; width: 960px; height: 600px; transform-origin: 0 0; transform: scale(var(--s, 1));
+  font: 400 12px/1.4 var(--font-ui); color: var(--text);
+  --ac: 16s cubic-bezier(0.4, 0, 0.2, 1) infinite both;
+  --dx: 390px; --dy: 110px;
+}
+.ac-scene i { display: block; font-style: normal; }
+@media (max-width: 600px) {
+  .ac-stage { aspect-ratio: 500 / 690; }
+  .ac-scene { width: 500px; height: 690px; --dx: 20px; --dy: 300px; }
+}
+.ac-win {
+  position: absolute; left: 20px; top: 16px; right: 20px; bottom: 16px; overflow: hidden;
+  border-radius: 10px; background: var(--bezel); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
+}
+@media (max-width: 600px) { .ac-win { left: 10px; top: 10px; right: 10px; bottom: 10px; } }
+.ac-side { position: absolute; left: 0; top: 0; bottom: 0; width: 300px; }
+.ac-side::before { content: ""; position: absolute; right: 0; top: 34px; bottom: 0; width: 1px; background: var(--line); }
+.ac-main { position: absolute; left: 300px; right: 0; top: 34px; bottom: 0; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 8px; padding: 8px; }
+.ac-scene .ac-main i { border-radius: 6px; background: var(--app-bg); border: 1px solid var(--app-line); }
+.ac-scene .ac-main i:nth-child(5) { display: none; }
+@media (max-width: 600px) { .ac-side { width: auto; right: 0; } .ac-side::before, .ac-main { display: none; } }
+.ac-pers, .ac-ord { position: absolute; inset: 0; }
+.ac-row { position: absolute; left: 8px; right: 8px; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 8px; white-space: nowrap; border-radius: 6px; }
+.ac-label { font: 600 10.5px/1 var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.ac-head { height: 26px; gap: 6px; font-size: 12px; }
+.ac-head b { font-weight: 650; }
+.ac-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
+.ac-n { position: relative; margin-left: auto; font: 500 10.5px/1 var(--font-mono); color: var(--text-3); }
+.ac-n b { font-weight: inherit; }
+.ac-n-b { position: absolute; right: 0; top: 0; }
+.ac-n-a { opacity: 0; animation: ac-n-a var(--ac); }
+.ac-n-b { animation: ac-n-b var(--ac); }
+.ac-chev, .ac-user { flex: none; color: var(--text-3); font-size: 9px; }
+.ac-group { padding-left: 22px; font-weight: 600; color: var(--text-2); }
+.ac-agent { height: 26px; padding-left: 36px; gap: 7px; }
+.ac-agent b { font-weight: 500; }
+.ac-agent .g { width: 12px; font-size: 11px; }
+.ac-k { flex: none; color: var(--text-3); }
+.ac-gem { font-size: 11px; line-height: 1; }
+.ac-rs { position: absolute; right: 18px; height: 26px; display: flex; align-items: center; font: 10.5px/1 var(--font-mono); color: var(--text-3); opacity: 0; animation: ac-rs var(--ac); }
+.ac-scene .ac-drop { position: absolute; left: 8px; right: 8px; height: 26px; border-radius: 6px; background: var(--chip-on); box-shadow: inset 0 0 0 1.5px var(--text-3); opacity: 0; animation: ac-drop var(--ac); }
+.ac-pers { transform: translateY(76px); animation: ac-pers var(--ac); }
+.ac-ord { transform: translateY(-36px); animation: ac-ord var(--ac); }
+.ac-ghost {
+  position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px;
+  background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.5);
+  font-weight: 600; font-size: 12px; opacity: 0; animation: ac-ghost var(--ac);
+}
+.ac-menu {
+  position: absolute; left: 96px; top: 256px; width: 170px; padding: 4px; border-radius: 8px; opacity: 0;
+  background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.55);
+  animation: ac-menu var(--ac);
+}
+.ac-menu span { display: flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 5px; color: var(--text-2); }
+.ac-menu .on { background: var(--chip-on); color: var(--text); }
+.ac-dlg {
+  position: absolute; left: var(--dx); top: var(--dy); width: 440px; height: 330px; border-radius: 12px; opacity: 0;
+  background: var(--glass-solid); border: 1px solid var(--line-strong); box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.6);
+  animation: ac-dlg var(--ac);
+}
+.ac-dlg-head { height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-3); }
+.ac-dlg-head b { font-weight: 650; font-size: 13px; color: var(--text); }
+.ac-hint { position: absolute; left: 16px; right: 16px; top: 48px; margin: 0; font-size: 11.5px; line-height: 16px; color: var(--text-3); }
+.ac-field { position: absolute; left: 16px; font: 600 10.5px/1 var(--font-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
+.ac-chips { position: absolute; left: 16px; display: flex; gap: 6px; }
+.ac-c { height: 26px; display: flex; align-items: center; justify-content: center; gap: 4px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 11.5px; color: var(--text-2); }
+.ac-c.on { background: var(--chip-on); color: var(--text); font-weight: 600; }
+.ac-c.ac-new { border-style: dashed; color: var(--text-3); }
+.ac-c em { font-style: normal; }
+.ac-cx-a { animation: ac-cx-a var(--ac); } .ac-cx-a em { opacity: 0; animation: ac-cx-a-em var(--ac); }
+.ac-cx-b { background: var(--chip-on); color: var(--text); font-weight: 600; animation: ac-cx-b var(--ac); } .ac-cx-b em { animation: ac-cx-b-em var(--ac); }
+.ac-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 46px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-3); }
+.ac-done { width: 64px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: var(--primary); color: var(--primary-ink); font-weight: 600; }
+.ac-pointer { animation: ac-pointer var(--ac); }
+.ac-ping-1 { left: 90px; top: 284px; animation: ac-ping-1 var(--ac); }
+.ac-ping-2 { left: 90px; top: 248px; animation: ac-ping-2 var(--ac); }
+.ac-ping-3 { left: 150px; top: 325px; animation: ac-ping-3 var(--ac); }
+.ac-ping-4 { left: calc(var(--dx) + 133px); top: calc(var(--dy) + 201px); animation: ac-ping-4 var(--ac); }
+.ac-ping-5 { left: calc(var(--dx) + 392px); top: calc(var(--dy) + 307px); animation: ac-ping-5 var(--ac); }
+.motion-paused .ac-scene * { animation-play-state: paused; }
+
+/* 16 s: 1 pointer to orders-api · 2.1 press · 2.2–4.2 drag onto Work (it lights) · 4.2 drop:
+   the project leaves Personal, Personal slides down, the project appears under Work and
+   its agents restart · 6.7 right-click it · 7.7 Accounts… · 8 the dialog · 9.1 Codex →
+   Work · 10.4 Done · rest · 14.4 back to the start. */
+@keyframes ac-pointer {
+  0%, 4% { opacity: 0; transform: translate(250px, 470px); }
+  6% { opacity: 1; transform: translate(250px, 470px); }
+  12% { transform: translate(90px, 284px); }
+  13% { transform: translate(90px, 284px) scale(0.86); }
+  14% { transform: translate(90px, 284px) scale(0.92); }
+  26% { transform: translate(90px, 171px) scale(0.92); }
+  27%, 34% { transform: translate(90px, 171px); }
+  40%, 41% { transform: translate(90px, 248px); }
+  42% { transform: translate(90px, 248px) scale(0.86); }
+  43% { transform: translate(90px, 248px); }
+  47% { transform: translate(150px, 325px); }
+  48% { transform: translate(150px, 325px) scale(0.86); }
+  49%, 51% { transform: translate(150px, 325px); }
+  56% { transform: translate(calc(var(--dx) + 133px), calc(var(--dy) + 201px)); }
+  57% { transform: translate(calc(var(--dx) + 133px), calc(var(--dy) + 201px)) scale(0.86); }
+  58%, 59% { transform: translate(calc(var(--dx) + 133px), calc(var(--dy) + 201px)); }
+  64% { transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 307px)); }
+  65% { transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 307px)) scale(0.86); }
+  66%, 68% { opacity: 1; transform: translate(calc(var(--dx) + 392px), calc(var(--dy) + 307px)); }
+  78%, 100% { opacity: 0; transform: translate(250px, 470px); }
+}
+@keyframes ac-ghost {
+  0%, 12.9% { opacity: 0; transform: translate(102px, 290px); }
+  14% { opacity: 1; transform: translate(102px, 290px); }
+  26% { opacity: 1; transform: translate(102px, 177px); }
+  27%, 100% { opacity: 0; transform: translate(102px, 177px); }
+}
+@keyframes ac-drop { 0%, 17% { opacity: 0; } 19%, 26% { opacity: 1; } 27.5%, 100% { opacity: 0; } }
+@keyframes ac-ord {
+  0%, 13% { opacity: 1; transform: none; }
+  14%, 26% { opacity: 0.45; transform: none; }
+  27.5% { opacity: 0; transform: none; }
+  28% { opacity: 0; transform: translateY(-36px); }
+  30.5%, 89% { opacity: 1; transform: translateY(-36px); }
+  90.5% { opacity: 0; transform: translateY(-36px); }
+  91% { opacity: 0; transform: none; }
+  93%, 100% { opacity: 1; transform: none; }
+}
+@keyframes ac-pers { 0%, 27% { transform: none; } 30%, 89% { transform: translateY(76px); } 92%, 100% { transform: none; } }
+@keyframes ac-n-a { 0%, 27% { opacity: 1; } 27.1%, 91% { opacity: 0; } 91.1%, 100% { opacity: 1; } }
+@keyframes ac-n-b { 0%, 27% { opacity: 0; } 27.1%, 91% { opacity: 1; } 91.1%, 100% { opacity: 0; } }
+@keyframes ac-rs { 0%, 30% { opacity: 0; } 31%, 37% { opacity: 1; } 38.5%, 100% { opacity: 0; } }
+@keyframes ac-menu {
+  0%, 42.9% { opacity: 0; transform: scale(0.96); }
+  43.5%, 48.6% { opacity: 1; transform: none; }
+  49.2%, 100% { opacity: 0; transform: none; }
+}
+@keyframes ac-dlg {
+  0%, 49.2% { opacity: 0; transform: scale(0.97); }
+  50.8%, 65.6% { opacity: 1; transform: none; }
+  67%, 100% { opacity: 0; transform: scale(0.98); }
+}
+@keyframes ac-cx-a { 0%, 56.9% { background: var(--chip-on); color: var(--text); font-weight: 600; } 57%, 100% { background: transparent; color: var(--text-2); font-weight: 400; } }
+@keyframes ac-cx-a-em { 0%, 56.9% { opacity: 1; } 57%, 100% { opacity: 0; } }
+@keyframes ac-cx-b { 0%, 56.9% { background: transparent; color: var(--text-2); font-weight: 400; } 57%, 100% { background: var(--chip-on); color: var(--text); font-weight: 600; } }
+@keyframes ac-cx-b-em { 0%, 56.9% { opacity: 0; } 57%, 100% { opacity: 1; } }
+@keyframes ac-ping-1 { 0%, 12.8% { opacity: 0; transform: scale(0.3); } 13% { opacity: 0.6; transform: scale(0.4); } 16.4%, 100% { opacity: 0; transform: scale(1.4); } }
+@keyframes ac-ping-2 { 0%, 41.8% { opacity: 0; transform: scale(0.3); } 42% { opacity: 0.6; transform: scale(0.4); } 45.4%, 100% { opacity: 0; transform: scale(1.4); } }
+@keyframes ac-ping-3 { 0%, 47.8% { opacity: 0; transform: scale(0.3); } 48% { opacity: 0.6; transform: scale(0.4); } 51.4%, 100% { opacity: 0; transform: scale(1.4); } }
+@keyframes ac-ping-4 { 0%, 56.8% { opacity: 0; transform: scale(0.3); } 57% { opacity: 0.6; transform: scale(0.4); } 60.4%, 100% { opacity: 0; transform: scale(1.4); } }
+@keyframes ac-ping-5 { 0%, 64.8% { opacity: 0; transform: scale(0.3); } 65% { opacity: 0.6; transform: scale(0.4); } 68.4%, 100% { opacity: 0; transform: scale(1.4); } }
+
+/* ---------- features carousel (index.html: [data-carousel], main.js: setupCarousel) ----------
+   Slides sit side by side in one scroll-snap track. The track is a grid and each slide a
+   subgrid of its three rows (copy, stage, details), so every slide has the same height
+   and its stage starts at the same place: switching never moves the page. Without JS it
+   is a plain horizontal scroller (the tabs are links to the slides). */
+.features { padding: clamp(64px, 9vw, 112px) 0 0; }
+.feat-nav { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.feat-tabs { position: relative; margin: 0; min-width: 0; }
+.feat-tabs [role="tab"] { text-decoration: none; }
+.feat-new {
+  padding: 2px 7px; border-radius: 999px; background: var(--green-soft); color: var(--green);
+  font: 600 0.66rem/1.2 var(--font-label); letter-spacing: 0.1em;
+}
+.feat-arrow {
+  flex: none; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border-radius: 50%; cursor: pointer;
+  color: var(--text-2); background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); transition: color 0.2s, opacity 0.2s;
+}
+.feat-arrow:hover:not(:disabled) { color: var(--text); }
+.feat-arrow:disabled { opacity: 0.35; cursor: default; }
+html:not(.js) .feat-arrow { display: none; }
+.feat-track {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 100%; grid-template-rows: auto auto auto;
+  margin: clamp(22px, 3vw, 34px) calc(-1 * var(--gutter)) 0; padding-bottom: 30px;
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none;
+}
+.feat-track::-webkit-scrollbar { display: none; }
+html:not(.js) .feat-track { scrollbar-width: auto; }
+.feat-slide {
+  grid-row: 1 / span 3; display: grid; grid-template-rows: subgrid; min-width: 0;
+  padding: 0 var(--gutter); scroll-snap-align: start; scroll-snap-stop: always;
+}
+.feat-slide .fl-stage, .feat-slide .sv-stage, .feat-slide .ac-stage { width: 100%; }
+.feat-facts { align-self: stretch; margin-top: clamp(20px, 3vw, 32px); }
+/* An inactive slide shows its scene's still (no animation); shown, it starts from 0 s. */
+.feat-idle .fl-scene *, .feat-idle .sv-scene *, .feat-idle .ac-scene * { animation: none !important; }
+@media (max-width: 600px) {
+  .feat-nav { gap: 6px; }
+  .feat-arrow { width: 34px; height: 34px; }
+  .feat-tabs [role="tab"] { padding: 8px 11px; }
+}
 
 /* ---------- reveal on scroll (main.js adds .reveal only below the fold, with motion on) ---------- */
 .reveal {

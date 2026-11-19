@@ -25,34 +25,123 @@ const motionIO =
   new IntersectionObserver((entries) => {
     for (const e of entries) e.target.classList.toggle("motion-off", !e.isIntersecting);
   });
-if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], [data-files], .board-wrap, .lanes")) motionIO.observe(el);
+if (motionIO) for (const el of document.querySelectorAll("[data-demo], [data-float], [data-files], [data-accounts], .board-wrap, .lanes")) motionIO.observe(el);
 
-// The floating-control loop (index.html: [data-float], site.css: .fl-*) is drawn at
-// 960x600 and scaled to its frame; phones show its right 632 px, where the control is.
-// The loop itself is CSS keyframes, so the two pauses above cover it.
-const float = document.querySelector("[data-float]");
-if (float) {
-  const scene = float.querySelector(".fl-scene");
-  const narrow = matchMedia("(max-width: 600px)");
-  const fit = () => scene.style.setProperty("--s", (float.clientWidth / (narrow.matches ? 632 : 960)).toFixed(4));
-  new ResizeObserver(fit).observe(float);
+// The feature loops (index.html: the carousel's stages; site.css: .fl-*, .sv-*, .ac-*) are
+// drawn at a fixed size and scaled to their frame: 960 px wide, and on phones 632 px (the
+// floating control's right part) or 500 px. The loops are CSS keyframes, so the pauses
+// above and the carousel's (only the shown slide runs) cover them.
+const narrow = matchMedia("(max-width: 600px)");
+for (const [sel, scene, phoneW] of [["[data-float]", ".fl-scene", 632], ["[data-files]", ".sv-scene", 500], ["[data-accounts]", ".ac-scene", 500]]) {
+  const stage = document.querySelector(sel);
+  if (!stage) continue;
+  const el = stage.querySelector(scene);
+  const fit = () => el.style.setProperty("--s", (stage.clientWidth / (narrow.matches ? phoneW : 960)).toFixed(4));
+  new ResizeObserver(fit).observe(stage);
   fit();
 }
 
-// The files-tile loop (index.html: [data-files], site.css: .sv-*): drawn at 960x600, or
-// 500x690 on phones (the tile below the terminal), and scaled to its frame.
-const files = document.querySelector("[data-files]");
-if (files) {
-  const scene = files.querySelector(".sv-scene");
-  const narrow = matchMedia("(max-width: 600px)");
-  const fit = () => scene.style.setProperty("--s", (files.clientWidth / (narrow.matches ? 500 : 960)).toFixed(4));
-  new ResizeObserver(fit).observe(files);
-  fit();
+// ---------- features carousel (index.html: [data-carousel]) ----------
+// Slides in a horizontal scroll-snap track, with tabs that name them, arrows, swipe,
+// and ←/→. Only the shown slide is reachable and animates; the others are inert and show
+// their still, so a slide starts its loop from the beginning when it is shown. A link to
+// a slide (#files) or to anything in it shows that slide.
+const carousel = document.querySelector("[data-carousel]");
+if (carousel) setupCarousel(carousel);
+
+function setupCarousel(car) {
+  const track = car.querySelector(".feat-track");
+  const slides = [...track.querySelectorAll(":scope > .feat-slide")];
+  const tabs = [...car.querySelectorAll('[role="tab"]')];
+  const [prev, next] = car.querySelectorAll("[data-step]");
+  let current = -1;
+
+  function show(i) {
+    if (i === current) return;
+    current = i;
+    tabs.forEach((t, k) => {
+      t.setAttribute("aria-selected", String(k === i));
+      t.tabIndex = k === i ? 0 : -1;
+    });
+    slides.forEach((s, k) => {
+      s.inert = k !== i;
+      s.classList.toggle("feat-idle", k !== i);
+    });
+    prev.disabled = i === 0;
+    next.disabled = i === slides.length - 1;
+    // On a phone the tab row scrolls on its own: bring the shown tab into it.
+    const list = tabs[i].parentElement;
+    if (list.scrollWidth > list.clientWidth) {
+      const to = tabs[i].offsetLeft - (list.clientWidth - tabs[i].offsetWidth) / 2;
+      list.scrollTo({ left: to, behavior: reduceMotion.matches ? "auto" : "smooth" });
+    }
+  }
+  // Where slide i starts in the track (each slide is as wide as the track).
+  const left = (i) => i * track.clientWidth;
+  function go(i, smooth = true) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    show(i);
+    track.scrollTo({ left: left(i), behavior: smooth && !reduceMotion.matches ? "smooth" : "auto" });
+  }
+
+  // A swipe, a trackpad or a scrollbar: the slide it settles on is shown.
+  let settle = 0;
+  track.addEventListener(
+    "scroll",
+    () => {
+      clearTimeout(settle);
+      settle = setTimeout(() => show(Math.round(track.scrollLeft / track.clientWidth)), 120);
+    },
+    { passive: true },
+  );
+  // Keep the shown slide in place when the width changes.
+  new ResizeObserver(() => current >= 0 && track.scrollTo({ left: left(current), behavior: "auto" })).observe(track);
+
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", (e) => {
+      e.preventDefault();
+      go(i);
+    });
+    tab.addEventListener("keydown", (e) => {
+      const keys = { Home: 0, End: tabs.length - 1, ArrowRight: i + 1, ArrowLeft: i - 1 };
+      const to = keys[e.key];
+      if (to === undefined || to < 0 || to >= tabs.length) return;
+      e.preventDefault();
+      tabs[to].focus();
+      go(to);
+    });
+  });
+  prev.addEventListener("click", () => go(current - 1));
+  next.addEventListener("click", () => go(current + 1));
+  // ←/→ anywhere else in the carousel (the arrows, the track, a slide's links).
+  car.addEventListener("keydown", (e) => {
+    if (e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    if (e.target instanceof Element && e.target.closest('[role="tab"], input, textarea')) return;
+    e.preventDefault();
+    go(current + (e.key === "ArrowRight" ? 1 : -1));
+  });
+
+  // #files, #away, #accounts, or anything inside a slide (a heading's id).
+  function fromHash() {
+    let target = null;
+    try {
+      if (location.hash.length > 1) target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    } catch {}
+    const i = target ? slides.findIndex((s) => s.contains(target)) : -1;
+    if (i < 0) return false;
+    go(i, false);
+    car.scrollIntoView({ block: "start" });
+    return true;
+  }
+  addEventListener("hashchange", fromHash);
+  if (!fromHash()) go(0, false);
+  // The browser scrolls to a hash target once the page has loaded: land on the carousel.
+  addEventListener("load", () => location.hash && fromHash(), { once: true });
 }
 
 // Sections and cards below the fold fade and rise in as they arrive. Nothing already
 // on screen is hidden, and with reduced motion nothing is hidden at all.
-const REVEAL = ".away .wrap, .shows .wrap, .pit-panel, .closing .wrap, .dl, .lane, .release, .board-wrap, .table-scroll, .callout, .keys";
+const REVEAL = ".features .wrap, .pit .pit-panel, .closing .wrap, .dl, .lane, .release, .board-wrap, .table-scroll, .callout, .keys";
 if (!reduceMotion.matches && "IntersectionObserver" in window) {
   const io = new IntersectionObserver(
     (entries) => {
