@@ -12,6 +12,10 @@
 //! commits, and the GitHub and Azure DevOps logins their CLIs and HTTPS
 //! pushes use, for the projects that name one; each login's "Log in" opens
 //! a terminal where `gh` or `az` logs in.
+//!
+//! Then the browser profiles (`crate::web::profiles`): Default and the ones
+//! added, each its own sign-ins for Pitwall's web pages; removing one
+//! deletes its data (asked first, refused while pages are open in it).
 
 use std::rc::Rc;
 
@@ -45,6 +49,13 @@ pub struct Section {
     git_form: Option<GitForm>,
     /// Asking before removing this git identity.
     git_removing: Option<String>,
+    /// A browser profile being named (its input).
+    web_adding: Option<Entity<TextInput>>,
+    /// Renaming this browser profile (with its input).
+    web_renaming: Option<(String, Entity<TextInput>)>,
+    /// Asking before removing this browser profile.
+    web_removing: Option<String>,
+    web_error: Option<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -437,6 +448,237 @@ impl SettingsView {
                         let names: Vec<String> = projects.iter().map(|p| p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string()).collect();
                         d.child(line(format!("git-proj-{key}"), format!("Used in {}", names.join(", ")), false))
                     }),
+            )
+            .child(actions)
+    }
+
+    fn open_web_add(&mut self, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx, "", "Work"));
+        let sub = cx.subscribe(&input, |v, _, e: &InputEvent, cx| match e {
+            InputEvent::Submit => v.add_web(cx),
+            InputEvent::Cancel => {
+                v.accounts.web_adding = None;
+                cx.notify();
+            }
+            InputEvent::Changed => {
+                v.accounts.web_error = None;
+                cx.notify();
+            }
+            _ => {}
+        });
+        self.accounts._subs.push(sub);
+        self.accounts.web_adding = Some(input);
+        self.accounts.web_error = None;
+        cx.notify();
+    }
+
+    fn add_web(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = &self.accounts.web_adding else { return };
+        let name = input.read(cx).text().to_string();
+        match crate::web::profiles::add(&name, cx) {
+            Ok(_) => self.accounts.web_adding = None,
+            Err(e) => self.accounts.web_error = Some(e),
+        }
+        cx.notify();
+    }
+
+    fn start_web_rename(&mut self, id: &str, name: &str, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx, name, "Name"));
+        let id2 = id.to_string();
+        let sub = cx.subscribe(&input, move |v, input, e: &InputEvent, cx| match e {
+            InputEvent::Submit | InputEvent::Blur => {
+                let name = input.read(cx).text().to_string();
+                let model = acc::model(cx);
+                if let Err(e) = model.update(cx, |m, cx| m.rename(&id2, &name, cx)) {
+                    v.accounts.web_error = Some(e);
+                }
+                v.accounts.web_renaming = None;
+                cx.notify();
+            }
+            InputEvent::Cancel => {
+                v.accounts.web_renaming = None;
+                cx.notify();
+            }
+            _ => {}
+        });
+        self.accounts._subs.push(sub);
+        self.accounts.web_renaming = Some((id.to_string(), input));
+        cx.notify();
+    }
+
+    /// Browser profiles: Default and each one added, with the projects
+    /// that use it; Add, Rename, Remove (which deletes its data, refused
+    /// while pages are open in it).
+    pub(super) fn web_section(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let t = &ui.t;
+        let model = acc::model(cx);
+        let live = model.read(cx).live();
+        let separate = crate::web::profiles::separate(cx);
+        let adding = self.accounts.web_adding.clone();
+        let mut sec = div().flex().flex_col().gap(px(8.)).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .pt(px(4.))
+                .min_h(px(26.))
+                .child(div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child("Browser profiles"))
+                .child(div().flex_1())
+                .when(live && separate && adding.is_none(), |d| {
+                    d.child(
+                        crate::kit::text_button("web-add", "Add profile", BtnKind::Small, false, t)
+                            .on_click(cx.listener(|v, _, _, cx| v.open_web_add(cx))),
+                    )
+                }),
+        );
+        sec = sec.child(crate::kit::muted(
+            "Separate sign-ins for the web pages in Pitwall (Teams, Slack, mail…): each profile keeps its own cookies and site data on this computer. A project picks one in its Accounts…; the pages its agents open use it, and so does a page you open while one of its agents has the focus. Others use Default. Sign in to sites in the page itself.",
+            t,
+        ));
+        if !separate {
+            return sec.child(crate::kit::hint(crate::web::profiles::NEEDS_STORES, t));
+        }
+        if !live {
+            return sec.child(crate::kit::hint("Browser profiles need Pitwall's engine, which isn't running.", t));
+        }
+        if let Some(input) = adding {
+            let empty = input.read(cx).text().trim().is_empty();
+            sec = sec.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .p(px(12.))
+                    .rounded(crate::theme::RADIUS)
+                    .border_1()
+                    .border_color(t.line_strong)
+                    .bg(t.surface_2)
+                    .child(div().flex().items_center().gap(px(8.)).child(crate::kit::muted("Name", t)).child(div().flex_1()).child(div().w(px(260.)).child(input)))
+                    .child(crate::kit::hint("A new profile is signed in nowhere: sign in to sites in a page opened in it.", t))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap(px(8.))
+                            .child(crate::kit::text_button("web-cancel", "Cancel", BtnKind::Ghost, false, t).on_click(cx.listener(|v, _, _, cx| {
+                                v.accounts.web_adding = None;
+                                cx.notify();
+                            })))
+                            .child(crate::kit::text_button("web-save", "Add", BtnKind::Primary, empty, t).on_click(cx.listener(|v, _, _, cx| v.add_web(cx)))),
+                    ),
+            );
+        }
+        sec = sec.child(self.web_row(ui, None, cx));
+        for a in crate::web::profiles::all(cx) {
+            sec = sec.child(self.web_row(ui, Some(a), cx));
+        }
+        if let Some(e) = &self.accounts.web_error {
+            sec = sec.child(crate::kit::dialog::form_error(e.clone(), t));
+        }
+        sec
+    }
+
+    /// One browser profile (`None`: Default): name, folder, projects, open
+    /// pages; Rename, Remove.
+    fn web_row(&mut self, ui: &Ui, a: Option<pitwall_core::accounts::Account>, cx: &mut Context<Self>) -> Div {
+        let t = &ui.t;
+        let model = acc::model(cx);
+        let id = a.as_ref().map(|a| a.id.clone());
+        let name = a.as_ref().map(|a| a.name.clone()).unwrap_or_else(|| crate::web::profiles::DEFAULT_NAME.into());
+        let dir = pitwall_core::paths::tildify(&crate::web::profiles::dir(id.as_deref(), cx).to_string_lossy());
+        let projects = id.as_deref().map(|i| model.read(cx).list.projects_of(i)).unwrap_or_default();
+        let pages = id.as_deref().map(|i| crate::web::profiles::pages_in(i, cx).len()).unwrap_or(0);
+        let key: SharedString = id.clone().unwrap_or_else(|| "default".into()).into();
+        let renaming = self.accounts.web_renaming.as_ref().filter(|(r, _)| Some(r) == id.as_ref()).map(|(_, i)| i.clone());
+        let removing = id.is_some() && self.accounts.web_removing == id;
+        let mut actions = div().flex().items_center().gap(px(6.)).flex_none();
+        if let Some(id) = id.clone() {
+            if removing {
+                let i1 = id.clone();
+                let why = crate::web::profiles::in_use(&id, &name, cx);
+                actions = match why {
+                    Some(why) => actions.child(crate::kit::hint(why, t)),
+                    None => actions.child(crate::kit::hint("Remove? Its sign-ins, cookies and site data are deleted from this computer.", t)).child(
+                        crate::kit::text_button(gpui::ElementId::Name(format!("web-rm-yes-{key}").into()), "Remove", BtnKind::Danger, false, t).on_click(cx.listener(move |v, _, _, cx| {
+                            if let Err(e) = crate::web::profiles::remove(&i1, cx) {
+                                v.accounts.web_error = Some(e);
+                            }
+                            v.accounts.web_removing = None;
+                            cx.notify();
+                        })),
+                    ),
+                }
+                .child(
+                    crate::kit::text_button(gpui::ElementId::Name(format!("web-rm-no-{key}").into()), "Keep", BtnKind::Ghost, false, t).on_click(cx.listener(|v, _, _, cx| {
+                        v.accounts.web_removing = None;
+                        cx.notify();
+                    })),
+                );
+            } else {
+                let (i2, i3, n) = (id.clone(), id.clone(), name.clone());
+                actions = actions
+                    .child(
+                        crate::kit::text_button(gpui::ElementId::Name(format!("web-rename-{key}").into()), "Rename", BtnKind::Small, false, t)
+                            .on_click(cx.listener(move |v, _, _, cx| v.start_web_rename(&i2, &n, cx))),
+                    )
+                    .child(
+                        crate::kit::text_button(gpui::ElementId::Name(format!("web-rm-{key}").into()), "Remove", BtnKind::Small, false, t).on_click(cx.listener(move |v, _, _, cx| {
+                            v.accounts.web_removing = Some(i3.clone());
+                            cx.notify();
+                        })),
+                    );
+            }
+        }
+        let line = |text: String| div().min_w_0().ellipsis().text_size(px(11.5)).text_color(t.text_3).child(crate::kit::one_line(text));
+        let mut used = Vec::new();
+        if !projects.is_empty() {
+            let names: Vec<String> = projects.iter().map(|p| p.trim_end_matches('/').rsplit('/').next().unwrap_or(p).to_string()).collect();
+            used.push(format!("Used by {}", names.join(", ")));
+        }
+        if pages > 0 {
+            used.push(if pages == 1 { "1 page open in it".into() } else { format!("{pages} pages open in it") });
+        }
+        div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(crate::theme::RADIUS)
+            .border_1()
+            .border_color(t.line)
+            .child(div().flex_none().child(crate::kit::icon("browser", 14., t.text_3)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .min_w_0()
+                            .child(match renaming {
+                                Some(input) => div().w(px(180.)).flex_none().child(input).into_any_element(),
+                                None => div().flex_none().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child(name).into_any_element(),
+                            })
+                            .when(id.is_none(), |d| d.child(div().text_size(px(12.)).text_color(t.text_3).child("every page without one"))),
+                    )
+                    .child(
+                        div()
+                            .id(gpui::ElementId::Name(format!("web-dir-{key}").into()))
+                            .min_w_0()
+                            .ellipsis()
+                            .text_size(px(11.5))
+                            .text_color(t.text_3)
+                            .font_family(crate::kit::MONO_FONT)
+                            .tooltip(crate::kit::tooltip(dir.clone()))
+                            .child(crate::kit::one_line(dir)),
+                    )
+                    .when(!used.is_empty(), |d| d.child(line(used.join(" · ")))),
             )
             .child(actions)
     }

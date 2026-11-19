@@ -1718,6 +1718,8 @@ pub struct ProjectAccountsDialog {
     agents: Vec<AgentView>,
     /// A new account being named, for this kind.
     adding: Option<(String, Entity<TextInput>)>,
+    /// A new browser profile being named.
+    web_adding: Option<Entity<TextInput>>,
     busy: bool,
     error: Option<String>,
     _subs: Vec<Subscription>,
@@ -1730,7 +1732,143 @@ impl ProjectAccountsDialog {
     pub fn new(engine: Option<Shared>, project: String, agents: Vec<AgentView>, cx: &mut Context<Self>) -> Self {
         let m = crate::accounts::model(cx);
         let subs = vec![cx.observe(&m, |_, _, cx| cx.notify())];
-        ProjectAccountsDialog { engine, project, agents, adding: None, busy: false, error: None, _subs: subs, _task: None }
+        ProjectAccountsDialog { engine, project, agents, adding: None, web_adding: None, busy: false, error: None, _subs: subs, _task: None }
+    }
+
+    /// Name the browser profile the project's pages use (`None`: Default).
+    /// Pages open now keep theirs; an agent's moves at its next `show_web`.
+    fn pick_web(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        if let Err(e) = m.update(cx, |m, cx| m.set_project_default(&project, pitwall_core::accounts::WEB, id, cx)) {
+            self.error = Some(e);
+        }
+        cx.notify();
+    }
+
+    fn start_web_adding(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| TextInput::new(cx, "", "Work"));
+        window.focus(&input.focus_handle(cx), cx);
+        self._subs.push(cx.subscribe_in(&input, window, |this, _, e: &InputEvent, _, cx| match e {
+            InputEvent::Submit => this.create_web(cx),
+            InputEvent::Cancel => {
+                this.web_adding = None;
+                cx.notify();
+            }
+            _ => {
+                this.error = None;
+                cx.notify()
+            }
+        }));
+        self.web_adding = Some(input);
+        self.adding = None;
+        self.error = None;
+        cx.notify();
+    }
+
+    /// A new browser profile, named here: the project's from now on (no
+    /// login step: sites are signed in to in the page).
+    fn create_web(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = self.web_adding.clone() else { return };
+        let name = input.read(cx).text().trim().to_string();
+        match crate::web::profiles::add(&name, cx) {
+            Ok(a) => {
+                self.web_adding = None;
+                self.pick_web(Some(&a.id), cx);
+            }
+            Err(e) => self.error = Some(e),
+        }
+        cx.notify();
+    }
+
+    /// The browser row: Default and each profile as chips (the project's
+    /// ticked), "+ New profile", or the new one's name field.
+    fn web_row(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let separate = crate::web::profiles::separate(cx);
+        let list = crate::web::profiles::all(cx);
+        let current = crate::accounts::model(cx).read(cx).list.project_web(&self.project).map(|a| a.id.clone());
+        let chip = |id: Option<String>, name: String, i: usize, cx: &mut Context<Self>| {
+            let on = current == id;
+            let can = crate::web::profiles::usable(id.as_deref(), separate);
+            div()
+                .id(("pa-web", i))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(28.))
+                .px(px(10.))
+                .rounded_full()
+                .border_1()
+                .border_color(if on { t.text_2 } else { t.line_strong })
+                .when(on, |d| d.bg(t.surface_2))
+                .when(!can, |d| d.opacity(0.5))
+                .when(can, |d| {
+                    d.cursor_pointer()
+                        .hover_probed(|s| s.bg(t.surface_2))
+                        .on_click(cx.listener(move |d, _, _, cx| d.pick_web(id.as_deref(), cx)))
+                })
+                .when(on, |d| d.child(icon("check", 12., t.text_2)))
+                .child(div().text_size(px(12.5)).when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                .into_any_element()
+        };
+        let mut chips: Vec<AnyElement> = vec![chip(None, crate::web::profiles::DEFAULT_NAME.into(), 0, cx)];
+        for (i, a) in list.iter().enumerate() {
+            chips.push(chip(Some(a.id.clone()), a.name.clone(), i + 1, cx));
+        }
+        let adding = self.web_adding.clone();
+        if adding.is_none() && separate && self.engine.is_some() {
+            chips.push(
+                div()
+                    .id("pa-web-new")
+                    .flex()
+                    .items_center()
+                    .h(px(28.))
+                    .px(px(10.))
+                    .rounded_full()
+                    .border_1()
+                    .border_dashed()
+                    .border_color(t.line_strong)
+                    .text_size(px(12.5))
+                    .text_color(t.text_3)
+                    .cursor_pointer()
+                    .hover_text(t.text, |s| s)
+                    .on_click(cx.listener(|d, _, window, cx| d.start_web_adding(window, cx)))
+                    .child("+ New profile")
+                    .into_any_element(),
+            );
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(field_label("Browser profile", t))
+            .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
+            .when_some(adding, |d, input| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(div().flex_1().child(input))
+                        .child(
+                            button("pa-web-cancel", BtnKind::Ghost, false, t)
+                                .on_click(cx.listener(|d, _, _, cx| {
+                                    d.web_adding = None;
+                                    cx.notify();
+                                }))
+                                .child("Cancel"),
+                        )
+                        .child(button("pa-web-create", BtnKind::Primary, false, t).on_click(cx.listener(|d, _, _, cx| d.create_web(cx))).child("Create")),
+                )
+            })
+            .child(hint(
+                if separate {
+                    "The sign-ins of the web pages its agents open, and of a page you open while one of its agents has the focus. Pages open now keep theirs; an agent's page moves to it the next time the agent shows it."
+                } else {
+                    crate::web::profiles::NEEDS_STORES
+                },
+                t,
+            ))
+            .into_any_element()
     }
 
     fn pick(&mut self, kind: &str, id: Option<&str>, name: String, cx: &mut Context<Self>) {
@@ -1993,6 +2131,7 @@ impl Render for ProjectAccountsDialog {
                         .children(rows)
                         .when(kinds.is_empty(), |d| d.child(hint("None of your agents can have more than one login.", &t)))
                         .child(self.git_row(&t, cx))
+                        .child(self.web_row(&t, cx))
                         .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t))),
                 )
                 .child(
