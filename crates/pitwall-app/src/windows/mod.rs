@@ -25,6 +25,9 @@
 //!   agent's next call finds it ([`viewer_window`]). It isn't a Pitwall
 //!   window with spaces and isn't saved in `windows.json` (its size and
 //!   place are `ui.json`'s `filesWindow`).
+//! - A web page in a window of its own (`crate::web::window`) is kept here
+//!   by its tile id ([`web_window`]); its page is `ui.json`'s `webTiles`
+//!   entry (`window: true`), so it opens again at the next start.
 
 pub mod file;
 pub mod ownership;
@@ -66,6 +69,8 @@ pub struct Windows {
     routing: Option<String>,
     /// File viewer windows, by the agent they were opened for.
     viewers: Vec<(String, WindowHandle<crate::explorer::window::ViewerWindow>)>,
+    /// Web page windows, by tile id.
+    webs: Vec<(String, WindowHandle<crate::web::window::WebWindow>)>,
 }
 
 impl Global for Windows {}
@@ -84,6 +89,7 @@ impl Windows {
             quitting: false,
             routing: None,
             viewers: vec![],
+            webs: vec![],
         }
     }
 
@@ -288,6 +294,34 @@ pub fn add_viewer_window(agent: &str, handle: WindowHandle<crate::explorer::wind
     let w = state(cx);
     w.viewers.retain(|(a, _)| a != agent);
     w.viewers.push((agent.to_string(), handle));
+}
+
+/// The window web page `id` is in, if it is in one.
+pub fn web_window(id: &str, cx: &mut App) -> Option<WindowHandle<crate::web::window::WebWindow>> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.webs.retain(|(_, h)| live.contains(&h.window_id()));
+    w.webs.iter().find(|(a, _)| a == id).map(|(_, h)| *h)
+}
+
+/// The web pages in windows of their own.
+pub fn web_window_ids(cx: &mut App) -> Vec<String> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.webs.retain(|(_, h)| live.contains(&h.window_id()));
+    w.webs.iter().map(|(a, _)| a.clone()).collect()
+}
+
+/// Keep web page window `handle` as page `id`'s.
+pub fn add_web_window(id: &str, handle: WindowHandle<crate::web::window::WebWindow>, cx: &mut App) {
+    let w = state(cx);
+    w.webs.retain(|(a, _)| a != id);
+    w.webs.push((id.to_string(), handle));
+}
+
+/// Pitwall is quitting (windows closing now open again next time).
+pub fn quitting(cx: &App) -> bool {
+    cx.try_global::<Windows>().is_some_and(|w| w.quitting)
 }
 
 /// How many file viewer windows are open (a new one is cascaded from the

@@ -166,6 +166,12 @@ impl pitwall_daemon::ViewerBackend for AppWorkspace {
         self.on_main(move |cx| crate::explorer::show::show(&req, cx))
     }
 
+    /// `web.open` (`crate::web::show`).
+    fn show_web(&self, req: &pitwall_proto::WebShow) -> Result<pitwall_proto::WebShown, ErrorBody> {
+        let req = req.clone();
+        self.on_main(move |cx| crate::web::show::show(&req, cx))
+    }
+
     fn mirrored(&self, id: &str) -> Option<String> {
         let id = id.to_string();
         self.on_main(move |cx| Ok(crate::explorer::show::mirrored(&id, cx))).ok().flatten()

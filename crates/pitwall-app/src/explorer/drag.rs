@@ -7,17 +7,20 @@
 //! (`MainScreen::files_hover`), and letting go puts them there
 //! ([`super::dock::dock`]). Where the pointer can't be followed so (not
 //! macOS), the "Dock…" / "Move…" menu does it.
+//!
+//! A web page in a window of its own is dragged the same way by its grip
+//! ([`start_what`] with [`Content::Web`]).
 
-use gpui::{px, App, Global, Pixels, Point, Window, WindowHandle};
+use gpui::{px, AnyWindowHandle, App, Global, Pixels, Point, Window};
 
-use super::window::ViewerWindow;
+use crate::main_screen::tree::Content;
 use crate::main_screen::workspace::FilesSpot;
 
-/// Where the files come from.
+/// Where the files (or page) come from.
 #[derive(Clone, Copy)]
 pub enum From {
     Tile,
-    Window(WindowHandle<ViewerWindow>),
+    Window(AnyWindowHandle),
 }
 
 /// Where they would land now: window, space, spot.
@@ -28,12 +31,17 @@ impl Global for Over {}
 
 /// The grip of agent `owner`'s files was pressed in `window`.
 pub fn start(owner: &str, from: From, window: &mut Window, cx: &mut App) {
+    start_what(Content::Files(owner.to_string()), from, window, cx)
+}
+
+/// The grip of `what` (files, a web page) was pressed in `window`.
+pub fn start_what(what: Content, from: From, window: &mut Window, cx: &mut App) {
     let begin = on_screen(window.mouse_position(), window);
     if let From::Window(_) = from {
         // The window follows the pointer (the system's move elsewhere).
         crate::platform::float_drag(window, cx);
     }
-    let (o, o2) = (owner.to_string(), owner.to_string());
+    let (o, o2) = (what.clone(), what);
     let last = std::rc::Rc::new(std::cell::Cell::new(begin));
     let last2 = last.clone();
     let tracked = crate::platform::track_pointer(
@@ -42,13 +50,13 @@ pub fn start(owner: &str, from: From, window: &mut Window, cx: &mut App) {
         move |dx, dy, cx| {
             let at = gpui::point(begin.x + px(dx), begin.y + px(dy));
             last.set(at);
-            hover(&o, at, cx);
+            hover_what(&o, at, cx);
         },
         move |cx| {
             let at = last2.get();
             cx.defer(move |cx| {
-                if let Err(e) = finish(&o2, at, from, cx) {
-                    eprintln!("pitwall: could not move the files: {e}");
+                if let Err(e) = finish_what(&o2, at, from, cx) {
+                    eprintln!("pitwall: could not move it: {e}");
                 }
             });
         },
@@ -70,12 +78,17 @@ pub fn on_screen(at: Point<Pixels>, window: &Window) -> Point<Pixels> {
 /// window in front there shows where they'd land, the others nothing.
 /// Returns that (window, space, spot).
 pub fn hover(owner: &str, at: Point<Pixels>, cx: &mut App) -> Option<(String, String, FilesSpot)> {
+    hover_what(&Content::Files(owner.to_string()), at, cx)
+}
+
+/// [`hover`] for files or a web page.
+pub fn hover_what(what: &Content, at: Point<Pixels>, cx: &mut App) -> Option<(String, String, FilesSpot)> {
     let frames = crate::windows::frames_front_to_back(cx);
     let under = frames.iter().find(|(_, _, f)| f.contains(&at)).map(|(l, h, _)| (l.clone(), *h));
     let mut found = None;
     for (label, h, _) in &frames {
         let mine = under.as_ref().is_some_and(|(l, _)| l == label);
-        let o = owner.to_string();
+        let o = what.clone();
         let r = h.update(cx, |view, window, cx| {
             let screen = view.screen()?;
             if !mine {
@@ -85,7 +98,7 @@ pub fn hover(owner: &str, at: Point<Pixels>, cx: &mut App) -> Option<(String, St
             let b = window.bounds();
             let title = (b.size.height - window.viewport_size().height).max(px(0.));
             let local = gpui::point(at.x - b.origin.x, at.y - b.origin.y - title);
-            screen.update(cx, |s, cx| s.files_hover(&o, local, cx))
+            screen.update(cx, |s, cx| s.tile_hover(&o, local, cx))
         });
         if let Ok(Some((space, spot))) = r {
             found = Some((label.clone(), space, spot));
@@ -111,16 +124,30 @@ pub fn clear(cx: &mut App) {
 /// tile let go outside every Pitwall window) a window of their own there.
 /// Returns where they went, in words (`None`: they stayed).
 pub fn finish(owner: &str, at: Point<Pixels>, from: From, cx: &mut App) -> Result<Option<String>, String> {
+    finish_what(&Content::Files(owner.to_string()), at, from, cx)
+}
+
+/// [`finish`] for files or a web page.
+pub fn finish_what(what: &Content, at: Point<Pixels>, from: From, cx: &mut App) -> Result<Option<String>, String> {
     let over = cx.try_global::<Over>().and_then(|o| o.0.clone());
     let outside = !crate::windows::frames_front_to_back(cx).iter().any(|(_, _, f)| f.contains(&at));
     clear(cx);
-    match (over, from) {
-        (Some((label, space, spot)), _) => {
+    match (over, from, what) {
+        (Some((label, space, spot)), _, Content::Files(owner)) => {
             super::dock::dock(owner, &label, &space, &spot, None, cx)?;
             Ok(Some(super::dock::described(owner, cx)))
         }
-        (None, From::Tile) if outside => {
+        (Some((label, space, spot)), _, Content::Web(id)) => {
+            crate::web::place::dock(id, &label, &space, &spot, cx)?;
+            Ok(Some(crate::web::place::described(id, cx)))
+        }
+        (None, From::Tile, Content::Files(owner)) if outside => {
             super::dock::pop_out(owner, Some(at), cx)?;
+            Ok(Some("a window of its own".into()))
+        }
+        (None, From::Tile, Content::Web(id)) if outside => {
+            let front = crate::platform::app_in_front(cx);
+            crate::web::place::pop_out(id, Some(at), front, cx)?;
             Ok(Some("a window of its own".into()))
         }
         _ => Ok(None),
@@ -175,7 +202,7 @@ pub fn debug(what: &str, cx: &mut App) {
         ["orphan", agent, "discard"] => super::dock::discard_orphan(agent, cx),
         ["drag", agent, label, x, y, rest @ ..] => {
             let from = match crate::windows::viewer_window(agent, cx) {
-                Some(h) if super::dock::viewer(agent, cx).is_none() => From::Window(h),
+                Some(h) if super::dock::viewer(agent, cx).is_none() => From::Window(h.into()),
                 _ => From::Tile,
             };
             let (x, y) = (px(x.parse::<f32>().unwrap_or(0.)), px(y.parse::<f32>().unwrap_or(0.)));

@@ -613,6 +613,30 @@ impl WebView for MacWebView {
         // SAFETY: WKWebView's method; nil configuration = what it shows now.
         unsafe { self.wk().takeSnapshotWithConfiguration_completionHandler(None, &block) };
     }
+
+    fn reparent(&mut self, window: &mut Window) -> bool {
+        let Some((gpui_view, content)) = views(window) else { return false };
+        if std::ptr::eq(&*content, &*self.content) {
+            return true;
+        }
+        self.blur();
+        // The same WKWebView (its page, history, scroll) out of the old
+        // window's content view into the new one's, hidden until the next
+        // frame places it there. `self.view` keeps it alive in between.
+        self.view.setHidden(true);
+        self.shown.set(false);
+        self.view.ivars().want.set(None);
+        self.view.removeFromSuperview();
+        self.view.setAutoresizingMask(if content.isFlipped() {
+            NSAutoresizingMaskOptions::ViewMaxYMargin
+        } else {
+            NSAutoresizingMaskOptions::ViewMinYMargin
+        });
+        content.addSubview_positioned_relativeTo(&self.view, NSWindowOrderingMode::Above, Some(&gpui_view));
+        self.content = content;
+        self.gpui_view = gpui_view;
+        true
+    }
 }
 
 impl MacWebView {

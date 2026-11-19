@@ -301,6 +301,9 @@ pub struct UiState {
     /// height), as last left.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub files_window: Option<[f64; 4]>,
+    /// A web page window's place and size, as `files_window`.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub web_window: Option<[f64; 4]>,
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
@@ -372,6 +375,7 @@ impl Default for UiState {
             access_hint_shown: false,
             right_open: true,
             files_window: None,
+            web_window: None,
             docked_files: BTreeMap::new(),
             web_tiles: BTreeMap::new(),
             new_agent_kind: None,

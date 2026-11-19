@@ -36,7 +36,7 @@ mod sidebar;
 mod space;
 mod strip;
 mod tile_font;
-mod topbar;
+pub(crate) mod topbar;
 pub mod web_tile;
 pub mod worktrees;
 pub mod wt_list;

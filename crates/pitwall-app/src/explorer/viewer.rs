@@ -1766,7 +1766,7 @@ impl Viewer {
                 cx.notify();
             });
         };
-        super::dock::menu(at, self.host == Host::Tile, self.owner.clone(), replace, t, pick)
+        super::dock::menu(at, self.host == Host::Tile, Some(self.owner.clone().unwrap_or_else(|| "the agent".into())), replace, "files", t, pick)
     }
 
     /// A press on the bar's (or the tab strip's) empty part: the files are

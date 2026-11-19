@@ -142,7 +142,9 @@ pub fn app_in_front(cx: &App) -> bool {
     #[cfg(not(target_os = "macos"))]
     {
         cx.active_window().is_some_and(|w| {
-            w.downcast::<crate::ui::MainView>().is_some() || w.downcast::<crate::explorer::window::ViewerWindow>().is_some()
+            w.downcast::<crate::ui::MainView>().is_some()
+                || w.downcast::<crate::explorer::window::ViewerWindow>().is_some()
+                || w.downcast::<crate::web::window::WebWindow>().is_some()
         })
     }
 }
