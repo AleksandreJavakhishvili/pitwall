@@ -197,22 +197,23 @@ pub fn read_local_file(path: &str, large: bool) -> Res<FileView> {
     read::read(&crate::exec::LocalExec, path, path, max)
 }
 
-/// An image's bytes for the viewer (up to [`read::MAX_IMAGE`]).
+/// An image's or a PDF's bytes for the viewer (up to [`read::MAX_IMAGE`],
+/// a PDF up to [`read::MAX_PDF`]).
 pub fn read_image(engine: &Engine, agent_id: &str, path: &str) -> Res<Vec<u8>> {
     let rel = clean(path)?;
     let c = ctx(engine, agent_id)?;
     let root = c.root(engine, agent_id)?;
     let real = c.resolve(&root, &rel)?;
-    read::read_bytes(&*c.exec, &rel, &real, read::MAX_IMAGE)
+    read::read_bytes(&*c.exec, &rel, &real, read::bytes_cap(&rel))
 }
 
 /// [`read_image`] for a file on this machine by its absolute path (the
 /// app's alone, as [`read_local_file`]).
 pub fn read_local_image(path: &str) -> Res<Vec<u8>> {
-    read::read_bytes(&crate::exec::LocalExec, path, path, read::MAX_IMAGE)
+    read::read_bytes(&crate::exec::LocalExec, path, path, read::bytes_cap(path))
 }
 
-pub use read::{is_image, MAX_IMAGE};
+pub use read::{is_image, is_pdf, is_svg, MAX_IMAGE, MAX_PDF};
 pub use write::{refused_by_name, Saved};
 
 /// Save `text` the user edited in the viewer over `path` of agent
@@ -297,7 +298,7 @@ pub mod local {
         let rel = clean(path)?;
         let (c, real_root) = ctx(root)?;
         let real = c.resolve(&real_root, &rel)?;
-        read::read_bytes(&*c.exec, &rel, &real, read::MAX_IMAGE)
+        read::read_bytes(&*c.exec, &rel, &real, read::bytes_cap(&rel))
     }
 
     /// A search in the folder; a newer one with the same `key` cancels it.

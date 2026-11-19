@@ -20,9 +20,10 @@ pub enum Saved {
     ChangedOnDisk,
 }
 
-/// Why `rel` can't be edited, by its name alone (images, binary types).
+/// Why `rel` can't be edited, by its name alone (images, binary types;
+/// an SVG's source can be).
 pub fn refused_by_name(rel: &str) -> Option<&'static str> {
-    if read::is_image(rel) {
+    if read::is_image(rel) && !read::is_svg(rel) {
         return Some("images can't be edited here");
     }
     if read::binary_by_name(rel) {
