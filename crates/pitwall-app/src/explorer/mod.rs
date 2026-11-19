@@ -26,6 +26,7 @@ pub mod image_view;
 
 
 pub mod logic;
+pub mod pdf_view;
 pub mod quick_open;
 pub mod search;
 pub mod show;
@@ -807,8 +808,12 @@ pub fn debug_edit(viewer: Entity<Viewer>, what: &str, window: &mut Window, cx: &
                 v.debug_tree_width(w, cx);
             }
         }),
-        // An image's zoom: `zoom fit|100|in|out`.
+        // An image's or a PDF's zoom: `zoom fit|100|in|out`.
         "zoom" => viewer.update(cx, |v, cx| v.debug_zoom(arg.trim(), cx)),
+        // A PDF: `pdf find <text>|next|prev|close|page <n>`.
+        "pdf" => viewer.update(cx, |v, cx| v.debug_pdf(arg.trim(), window, cx)),
+        // An SVG: `svg source|picture`.
+        "svg" => viewer.update(cx, |v, cx| v.set_svg_source(arg.trim() == "source", cx)),
         "open" => viewer.update(cx, |v, cx| v.open(arg.trim().to_string(), None, cx)),
         "search" => viewer.update(cx, |v, cx| v.show(Some(Pane::Search), window, cx)),
         // The window in front of Pitwall's others (to look at it).

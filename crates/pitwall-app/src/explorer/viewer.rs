@@ -9,8 +9,11 @@
 //! that changed on disk offers "Reload"; Markdown files switch between
 //! Code and a formatted Preview ([`crate::markdown_view`]); images (PNG,
 //! JPEG, GIF, WebP, SVG, up to 10 MiB) are drawn fitted to the pane with
-//! their pixel size in the header; other binary files on this computer
-//! offer "Open in default app".
+//! their pixel size in the header, an SVG also as its source (Picture /
+//! Source, ⌘⇧V); PDFs (macOS: `crate::platform::pdf`) are drawn page by
+//! page, only around the view ([`super::pdf_view`]), with zoom, the page
+//! in view and Find; other binary files (and PDFs elsewhere) on this
+//! computer offer "Open in default app".
 //!
 //! Text files of agents on this computer (and folders here) can be edited
 //! for quick fixes (`agents.editFiles`, on by default): ⌘S saves through
@@ -24,7 +27,7 @@
 
 use crate::kit::Ellipsis as _;
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,17 +36,20 @@ use crate::kit::HoverText;
 use gpui::{
     actions, canvas, div, prelude::*, px, AnyElement, App, ClipboardItem, Context, Entity,
     EventEmitter, FocusHandle, Focusable, FontWeight, KeyBinding, MouseButton, Pixels,
-    PromptLevel, ScrollHandle, SharedString, Size, Subscription, Task, Window,
+    PromptLevel, RenderImage, ScrollHandle, SharedString, Size, Subscription, Task, Window,
 };
 
-use pitwall_core::explorer::{ContentKind, FileView, Saved};
+use pitwall_core::explorer::{is_pdf, is_svg, ContentKind, FileView, Saved, MAX_PDF};
 use pitwall_proto::AgentView;
 
 use super::code_view::{FileCode, Target};
 use crate::code_view::{CodeView, CodeViewEvent};
 use crate::kit::file_icons::file_icon;
+use crate::kit::{InputEvent, TextInput};
+use crate::platform::pdf::{Hit, OpenError, Pdf};
 use super::column;
 use super::image_view::{self, Zoom};
+use super::pdf_view::{self, Layout};
 use super::logic::{absolute_path, short_path, size_label, split_path};
 use super::search::{Blurred, OpenHit, SearchPane};
 use super::source::{Res, Source, LARGE_CAP, TEXT_CAP};
@@ -55,7 +61,12 @@ use crate::agents::AgentStore;
 use crate::markdown_view::{model::is_markdown, MarkdownView, MAX_PREVIEW_BYTES};
 use crate::theme::{self, Theme, RADIUS, RADIUS_SM};
 
-actions!(explorer_viewer, [Back, NextTab, PrevTab, PickTab, SaveFile, ToggleTree]);
+actions!(explorer_viewer, [Back, NextTab, PrevTab, PickTab, SaveFile, ToggleTree, SwitchView, FindInPdf]);
+
+/// Switch an SVG between its picture and its source, a Markdown file
+/// between Code and Preview (⌘⇧V, as VS Code's Markdown preview; on
+/// Windows and Linux Ctrl+Shift+Alt+V: Ctrl+Shift+V pastes in terminals).
+const SWITCH_VIEW_KEY: &str = if cfg!(target_os = "macos") { "cmd-shift-v" } else { "ctrl-shift-alt-v" };
 
 /// Hide or show the file tree (⌘⇧E, as VS Code's Explorer; ⌘B is
 /// Pitwall's own sidebar). On Windows and Linux Ctrl+Shift+Alt+E, as the
@@ -80,6 +91,9 @@ pub fn bindings() -> Vec<KeyBinding> {
         // ⌘S with the keyboard anywhere in the viewer saves the open file.
         KeyBinding::new(if cfg!(target_os = "macos") { "cmd-s" } else { "ctrl-s" }, SaveFile, Some(CONTEXT)),
         KeyBinding::new(TOGGLE_TREE_KEY, ToggleTree, Some(CONTEXT)),
+        KeyBinding::new(SWITCH_VIEW_KEY, SwitchView, Some(CONTEXT)),
+        // A PDF's search (a text file's Find is the code view's own).
+        KeyBinding::new(if cfg!(target_os = "macos") { "cmd-f" } else { "ctrl-f" }, FindInPdf, Some(CONTEXT)),
     ]
 }
 
@@ -181,15 +195,153 @@ struct Doc {
     diff: Option<Entity<CodeView>>,
     /// The edited text, for the Markdown Preview (by its version).
     live: Option<(u64, SharedString)>,
-    /// An image's zoom.
+    /// An image's (or a PDF's) zoom.
     zoom: Zoom,
+    /// An SVG's picture was made from this text (by its identity).
+    svg_from: Option<(usize, usize)>,
+    /// A PDF the viewer draws (macOS), once its bytes are asked for.
+    pdf: Option<PdfDoc>,
 }
 
 impl Doc {
     fn dirty(&self, cx: &App) -> bool {
         self.code.as_ref().is_some_and(|c| c.code.read(cx).is_dirty())
     }
+
+    /// Its PDF's drawn pages, to let go of (`drop_images`).
+    fn release_pdf(&mut self) -> Vec<Arc<RenderImage>> {
+        self.pdf.as_mut().map(|p| p.pages.drain().map(|(_, pg)| pg.image).collect()).unwrap_or_default()
+    }
 }
+
+/// A PDF in the viewer: the document (on its own thread), the pages drawn
+/// of it, where it is scrolled and its search.
+struct PdfDoc {
+    /// Which read this is (an answer for an older one is dropped).
+    id: u64,
+    state: PdfState,
+    pages: HashMap<usize, PageImage>,
+    /// Pages being drawn.
+    pending: HashSet<usize>,
+    scroll: ScrollHandle,
+    /// The scale last laid out at (a new one keeps the place in view).
+    scale: Option<f32>,
+    /// The page being read, as last laid out.
+    current: usize,
+    /// Pages the engine couldn't draw (not asked for again).
+    failed: HashSet<usize>,
+    find: Option<PdfFind>,
+}
+
+enum PdfState {
+    Reading,
+    Open(Arc<Pdf>),
+    /// Why it isn't shown.
+    Failed(String),
+}
+
+/// A page drawn, `w` × `h` pixels.
+struct PageImage {
+    image: Arc<RenderImage>,
+    w: u32,
+    h: u32,
+}
+
+/// A PDF's search: the field, what was found, the hit shown.
+struct PdfFind {
+    field: Entity<TextInput>,
+    query: String,
+    hits: Vec<Hit>,
+    current: Option<usize>,
+    searching: bool,
+    /// Typing settles before it searches.
+    _wait: Option<Task<()>>,
+    _search: Option<Task<()>>,
+    _sub: Subscription,
+}
+
+impl PdfDoc {
+    fn new(id: u64) -> PdfDoc {
+        PdfDoc {
+            id,
+            state: PdfState::Reading,
+            pages: HashMap::new(),
+            pending: HashSet::new(),
+            scroll: ScrollHandle::new(),
+            scale: None,
+            current: 0,
+            failed: HashSet::new(),
+            find: None,
+        }
+    }
+
+    fn open(&self) -> Option<Arc<Pdf>> {
+        match &self.state {
+            PdfState::Open(p) => Some(p.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// What the viewer says when a PDF can't be shown.
+fn pdf_error(e: OpenError) -> String {
+    match e {
+        OpenError::Locked => "This PDF is protected with a password: Pitwall can't open it yet.".into(),
+        OpenError::Damaged(why) => format!("This PDF can't be read ({why}). It may be damaged."),
+        OpenError::Unsupported => PDF_UNSUPPORTED.into(),
+    }
+}
+
+/// Windows and Linux (`platform::can_view_pdf`).
+const PDF_UNSUPPORTED: &str = "Viewing PDFs in Pitwall isn't available on Windows and Linux yet.";
+
+/// A drawn page as GPUI draws it (it is BGRA already).
+fn page_image(b: crate::platform::pdf::Bitmap) -> Option<PageImage> {
+    let (w, h) = (b.w, b.h);
+    let buffer = image::RgbaImage::from_raw(w, h, b.bgra)?;
+    Some(PageImage { image: Arc::new(RenderImage::new([image::Frame::new(buffer)])), w, h })
+}
+
+/// Let pictures go from every window's textures (once this update is
+/// over, when every window can be reached).
+fn drop_images(images: Vec<Arc<RenderImage>>, cx: &mut App) {
+    if images.is_empty() {
+        return;
+    }
+    cx.defer(move |cx| {
+        for i in images {
+            cx.drop_image(i, None);
+        }
+    });
+}
+
+/// SVGs shown as their source (by viewer key and path; the session's
+/// choice, a picture otherwise).
+#[derive(Default)]
+struct SvgSource(HashSet<String>);
+
+impl gpui::Global for SvgSource {}
+
+fn svg_key(agent: &str, path: &str) -> String {
+    format!("{agent}\u{0}{path}")
+}
+
+/// The ids of PDF reads.
+static PDF_READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// The room a PDF's pages have in its pane (`area`, as measured): its
+/// width less the scrollbar's gutter.
+fn pdf_room(area: Size<Pixels>) -> (f32, f32) {
+    ((f32::from(area.width) - PDF_GUTTER).max(1.), f32::from(area.height).max(1.))
+}
+
+/// The scrollbar's gutter beside a PDF's pages (`kit::scrollbar`).
+const PDF_GUTTER: f32 = 10.;
+
+/// A search hit on a page, and the one shown (fixed colours: the page is
+/// white paper in either theme).
+const HIT: gpui::Hsla = gpui::Hsla { h: 0.15, s: 1., l: 0.5, a: 0.35 };
+const HIT_ON: gpui::Hsla = gpui::Hsla { h: 0.08, s: 1., l: 0.5, a: 0.55 };
 
 /// A decision on unsaved changes (the guard's prompt).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,6 +376,12 @@ pub fn ask_unsaved(paths: &[String], window: &mut Window, cx: &mut App) -> Task<
         Ok(1) => Unsaved::Discard,
         _ => Unsaved::Cancel,
     })
+}
+
+/// `path`, read as `v`, is a PDF the viewer draws here (macOS, up to
+/// [`MAX_PDF`]).
+fn pdf_viewable(path: &str, v: &Loaded) -> bool {
+    v.kind == ContentKind::Binary && is_pdf(path) && v.size <= MAX_PDF && crate::platform::can_view_pdf()
 }
 
 /// GPUI's format for an image the viewer draws (by its name).
@@ -290,6 +448,10 @@ pub struct Viewer {
     /// The viewer's size and the image pane's, as last laid out.
     measured: Rc<Cell<Option<Size<Pixels>>>>,
     image_area: Rc<Cell<Option<Size<Pixels>>>>,
+    pdf_area: Rc<Cell<Option<Size<Pixels>>>>,
+    /// The display's pixels per point, as last drawn (PDF pages are drawn
+    /// for it).
+    dpr: f32,
     /// The tab strip: scrolled to the active tab; more tabs than fit
     /// (`tabs_overflow`) offer a list of them all (`tabs_menu`).
     tabs_scroll: ScrollHandle,
@@ -356,6 +518,13 @@ impl Viewer {
             cx.observe(&store, |_, _, cx| cx.notify()),
             // `agents.editFiles` turned on or off.
             cx.observe(&ui, |_, _, cx| cx.notify()),
+            // Gone: its PDFs' drawn pages leave the windows' textures.
+            cx.on_release(|this: &mut Viewer, cx| {
+                let images: Vec<_> = this.docs.values_mut().flat_map(|d| d.release_pdf()).collect();
+                for i in images {
+                    cx.drop_image(i, None);
+                }
+            }),
         ];
         super::unsaved::register(cx.weak_entity(), cx);
         Viewer {
@@ -389,6 +558,8 @@ impl Viewer {
             tree_drag_w: None,
             measured: Rc::default(),
             image_area: Rc::default(),
+            pdf_area: Rc::default(),
+            dpr: 2.,
             tabs_scroll: ScrollHandle::new(),
             tabs_overflow: Rc::default(),
             tabs_menu: false,
@@ -583,15 +754,19 @@ impl Viewer {
     /// Debug builds: an image's zoom (`fit`, `100`, `in`, `out`).
     pub fn debug_zoom(&mut self, what: &str, cx: &mut Context<Self>) {
         let now = self.active.as_ref().and_then(|p| self.docs.get(p)).map(|d| d.zoom).unwrap_or_default();
-        let s = match now {
-            Zoom::Fit => 1.,
-            Zoom::Scale(s) => s,
+        let pdf = self.active_pdf().map(|(_, pdf, zoom)| self.pdf_scale(zoom, &pdf));
+        let s = match (now, pdf) {
+            (_, Some(s)) => s,
+            (Zoom::Fit, None) => 1.,
+            (Zoom::Scale(s), None) => s,
         };
-        let z = match what {
-            "fit" => Zoom::Fit,
-            "100" => Zoom::Scale(1.),
-            "in" => Zoom::Scale(image_view::zoom_in(s)),
-            "out" => Zoom::Scale(image_view::zoom_out(s)),
+        let z = match (what, pdf.is_some()) {
+            ("fit", _) => Zoom::Fit,
+            ("100", _) => Zoom::Scale(1.),
+            ("in", false) => Zoom::Scale(image_view::zoom_in(s)),
+            ("out", false) => Zoom::Scale(image_view::zoom_out(s)),
+            ("in", true) => Zoom::Scale(pdf_view::zoom_in(s)),
+            ("out", true) => Zoom::Scale(pdf_view::zoom_out(s)),
             _ => return,
         };
         self.set_zoom(z, cx);
@@ -633,7 +808,15 @@ impl Viewer {
         self.search.update(cx, |s, cx| s.cancel(cx));
         let active = self.active.clone();
         // (Unsaved changes stay: the tab is still there to save them.)
-        self.docs.retain(|p, d| Some(p) == active.as_ref() || d.dirty(cx));
+        let mut gone = Vec::new();
+        self.docs.retain(|p, d| {
+            let keep = Some(p) == active.as_ref() || d.dirty(cx);
+            if !keep {
+                gone.extend(d.release_pdf());
+            }
+            keep
+        });
+        drop_images(gone, cx);
     }
 
     /// Open `path` in a tab (at `line`, with `char` columns selected).
@@ -708,7 +891,9 @@ impl Viewer {
         };
         self.tabs.remove(i);
         // Closed files drop their documents.
-        self.docs.remove(path);
+        if let Some(mut d) = self.docs.remove(path) {
+            drop_images(d.release_pdf(), cx);
+        }
         if self.active.as_deref() == Some(path) {
             let next = self
                 .tabs
@@ -773,15 +958,20 @@ impl Viewer {
         }
         let dirty = self.docs.get(&path).is_some_and(|d| d.dirty(cx));
         let d = self.docs.entry(path.clone()).or_default();
+        let mut gone = Vec::new();
         match res {
             Ok(v) => {
                 let v = Loaded::from(v);
-                let image = v.kind == ContentKind::Image;
+                // Its picture is read on its own (an SVG's is made from its
+                // text when that came).
+                let image = v.kind == ContentKind::Image && v.text.is_none();
+                let pdf = pdf_viewable(&path, &v);
                 if quiet && d.view.is_some() {
                     let on_disk = d.base.as_ref().or(d.view.as_ref().and_then(|w| w.text.as_ref()));
                     if dirty || d.save_blocked {
                         // Unsaved changes: never overwritten; the bar asks.
-                        let differs = v.text.as_ref() != on_disk || v.kind != ContentKind::Text;
+                        let was = d.view.as_ref().map(|w| w.kind);
+                        let differs = v.text.as_ref() != on_disk || Some(v.kind) != was || v.text.is_none();
                         d.newer = differs.then_some(v);
                         if let (Some(diff), Some(theirs)) = (d.diff.clone(), d.newer.as_ref().and_then(|n| n.text.clone())) {
                             let mine = d.code.as_ref().and_then(|c| c.code.read(cx).text()).unwrap_or_default();
@@ -795,27 +985,44 @@ impl Viewer {
                         d.base = None;
                         d.image = None;
                         d.image_error = None;
+                        d.svg_from = None;
+                        // (A PDF read again keeps its place and search.)
+                        gone.extend(d.release_pdf());
+                        if !pdf {
+                            d.pdf = None;
+                        }
                         if image {
                             self.read_image(&path, cx);
+                        }
+                        if pdf {
+                            self.read_pdf(&path, cx);
                         }
                     }
                 } else {
                     let code = d.code.take();
                     let sub = d._code_sub.take();
+                    // (A PDF read again keeps its zoom and place.)
+                    let zoom = d.zoom;
+                    gone.extend(d.release_pdf());
                     *d = Doc {
                         view: Some(v),
                         local: here,
                         code,
                         _code_sub: sub,
+                        zoom,
                         ..Doc::default()
                     };
                     if image {
                         self.read_image(&path, cx);
                     }
+                    if pdf {
+                        self.read_pdf(&path, cx);
+                    }
                 }
             }
             Err(e) => {
                 if !(quiet && d.view.is_some()) {
+                    gone.extend(d.release_pdf());
                     *d = Doc {
                         error: Some(e),
                         ..Doc::default()
@@ -823,7 +1030,56 @@ impl Viewer {
                 }
             }
         }
+        drop_images(gone, cx);
         cx.notify();
+    }
+
+    /// A PDF's bytes, read and opened by the system's PDF engine (off the
+    /// UI thread).
+    fn read_pdf(&mut self, path: &str, cx: &mut Context<Self>) {
+        let id = PDF_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let Some(d) = self.docs.get_mut(path) else { return };
+        // (Read again: the same place in it, and the old one shown until
+        // the new one is open.)
+        let mut doc = PdfDoc::new(id);
+        if let Some(old) = d.pdf.take() {
+            doc.scroll = old.scroll;
+            doc.find = old.find;
+            doc.scale = old.scale;
+            if matches!(old.state, PdfState::Open(_)) {
+                doc.state = old.state;
+            }
+        }
+        d.pdf = Some(doc);
+        let (source, agent, p) = (self.source.clone(), self.agent_id.clone(), path.to_string());
+        let load = cx.background_executor().spawn(async move {
+            let bytes = if super::logic::outside(&p) { source.read_outside_image(&p) } else { source.read_image(&agent, &p) };
+            let bytes = bytes.map_err(|e| format!("Couldn't read the PDF: {e}"))?;
+            crate::platform::pdf::open(bytes).map_err(pdf_error)
+        });
+        let path = path.to_string();
+        cx.spawn(async move |this, cx| {
+            let res = load.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(pd) = this.docs.get_mut(&path).and_then(|d| d.pdf.as_mut()).filter(|p| p.id == id) else { return };
+                pd.state = match res {
+                    Ok(pdf) => PdfState::Open(Arc::new(pdf)),
+                    Err(e) => PdfState::Failed(e),
+                };
+                // The old one's pages go (answers still coming for it are
+                // dropped: `page_drawn`).
+                let gone: Vec<_> = pd.pages.drain().map(|(_, p)| p.image).collect();
+                pd.pending.clear();
+                pd.failed.clear();
+                drop_images(gone, cx);
+                // A search open while it was read again: run it on this one.
+                if pd.find.as_ref().is_some_and(|f| !f.query.is_empty()) {
+                    this.run_find(&path, false, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// An image's bytes, for drawing it.
@@ -856,6 +1112,39 @@ impl Viewer {
     #[cfg(test)]
     pub fn image_loaded(&self, path: &str) -> bool {
         self.docs.get(path).is_some_and(|d| d.image.is_some())
+    }
+
+    /// The picture drawn for `path` is made of `bytes` (tests).
+    #[cfg(test)]
+    pub fn picture_is(&self, path: &str, bytes: &str) -> bool {
+        self.docs.get(path).and_then(|d| d.image.as_ref()).is_some_and(|i| i.bytes() == bytes.as_bytes())
+    }
+
+    /// `path`'s PDF: `Some(Ok(pages))` open, `Some(Err(why))` not shown,
+    /// `None` not read as one (tests).
+    #[cfg(test)]
+    pub fn pdf_state(&self, path: &str) -> Option<Result<usize, String>> {
+        match &self.docs.get(path)?.pdf.as_ref()?.state {
+            PdfState::Open(p) => Some(Ok(p.pages().len())),
+            PdfState::Failed(e) => Some(Err(e.clone())),
+            PdfState::Reading => None,
+        }
+    }
+
+    /// `path`'s PDF pages drawn and being drawn (tests).
+    #[cfg(test)]
+    pub fn pdf_drawn(&self, path: &str) -> (Vec<usize>, usize) {
+        let Some(pd) = self.docs.get(path).and_then(|d| d.pdf.as_ref()) else { return (Vec::new(), 0) };
+        let mut drawn: Vec<usize> = pd.pages.keys().copied().collect();
+        drawn.sort();
+        (drawn, pd.pending.len())
+    }
+
+    /// `path`'s PDF search: what was found and the hit shown (tests).
+    #[cfg(test)]
+    pub fn pdf_hits(&self, path: &str) -> Option<(Vec<usize>, Option<usize>)> {
+        let f = self.docs.get(path)?.pdf.as_ref()?.find.as_ref()?;
+        Some((f.hits.iter().map(|h| h.page).collect(), f.current))
     }
 
     /// The active image's size in pixels, once drawn.
@@ -918,10 +1207,11 @@ impl Viewer {
             d.live = None;
             match d.newer.take() {
                 Some(n) => {
-                    image = n.kind == ContentKind::Image;
+                    image = n.kind == ContentKind::Image && n.text.is_none();
                     d.view = Some(n);
                     d.image = None;
                     d.image_error = None;
+                    d.svg_from = None;
                 }
                 None => again = true,
             }
@@ -980,6 +1270,67 @@ impl Viewer {
         cx.notify();
     }
 
+    // ── an SVG's picture and source ─────────────────────────────────────
+
+    /// `path` is an SVG shown as its source (the session's choice; its
+    /// picture otherwise).
+    fn svg_source(&self, path: &str, cx: &App) -> bool {
+        is_svg(path) && cx.try_global::<SvgSource>().is_some_and(|s| s.0.contains(&svg_key(&self.agent_id, path)))
+    }
+
+    /// `path` is an SVG whose source can be shown (its text was read).
+    fn has_source(&self, path: &str) -> bool {
+        is_svg(path) && self.docs.get(path).and_then(|d| d.view.as_ref()).is_some_and(|v| v.kind == ContentKind::Image && v.text.is_some())
+    }
+
+    /// `path` is shown as text: a text file, or an SVG's source.
+    fn as_text(&self, path: &str, cx: &App) -> bool {
+        let text = self.docs.get(path).and_then(|d| d.view.as_ref()).is_some_and(|v| v.kind == ContentKind::Text);
+        text || (self.has_source(path) && self.svg_source(path, cx))
+    }
+
+    /// Show the active SVG as its source (or its picture).
+    pub(crate) fn set_svg_source(&mut self, on: bool, cx: &mut Context<Self>) {
+        let Some(active) = self.active.clone().filter(|p| is_svg(p)) else { return };
+        let key = svg_key(&self.agent_id, &active);
+        let mut s = cx.try_global::<SvgSource>().map(|s| s.0.clone()).unwrap_or_default();
+        if on {
+            s.insert(key);
+        } else {
+            s.remove(&key);
+        }
+        cx.set_global(SvgSource(s));
+        cx.notify();
+    }
+
+    /// ⌘⇧V: an SVG's picture or source, a Markdown file's Code or
+    /// Preview.
+    fn switch_view(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.active.clone() else { return };
+        if self.has_source(&active) {
+            let on = !self.svg_source(&active, cx);
+            self.set_svg_source(on, cx);
+        } else if self.md_text().is_some() {
+            self.set_preview(!self.preview, cx);
+        }
+    }
+
+    /// The active SVG's picture, made again from its text when that
+    /// changed (edited, saved, read again).
+    fn sync_svg(&mut self, cx: &App) {
+        let Some(active) = self.active.clone().filter(|p| self.has_source(p)) else { return };
+        let Some(d) = self.docs.get_mut(&active) else { return };
+        let live = d.live.as_ref().map(|(_, t)| t.clone()).filter(|_| d.dirty(cx));
+        let Some(text) = live.or_else(|| d.view.as_ref().and_then(|v| v.text.clone())) else { return };
+        let id = (text.as_ptr() as usize, text.len());
+        if d.svg_from == Some(id) && d.image.is_some() {
+            return;
+        }
+        d.svg_from = Some(id);
+        d.image = Some(Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Svg, text.as_bytes().to_vec())));
+        d.image_error = None;
+    }
+
     // ── editing and saving ──────────────────────────────────────────────
 
     /// Why `path` can't be edited here (`None`: it can).
@@ -990,6 +1341,8 @@ impl Viewer {
         }
         match v.kind {
             ContentKind::Text => {}
+            // An SVG's source is text.
+            ContentKind::Image if self.has_source(path) => {}
             ContentKind::Image => return Some("images aren't edited here"),
             ContentKind::Binary => return Some("binary file"),
             ContentKind::TooLarge => return Some("too large"),
@@ -1015,10 +1368,10 @@ impl Viewer {
     fn ensure_code(&mut self, cx: &mut Context<Self>) {
         let Some(active) = self.active.clone() else { return };
         let block = self.edit_block(&active, cx);
-        let Some(d) = self.docs.get_mut(&active) else { return };
-        if !d.view.as_ref().is_some_and(|v| v.kind == ContentKind::Text) {
+        if !self.as_text(&active, cx) {
             return;
         }
+        let Some(d) = self.docs.get_mut(&active) else { return };
         if d.code.is_none() {
             let fc = FileCode::new(cx);
             let path = active.clone();
@@ -1027,7 +1380,8 @@ impl Viewer {
                 CodeViewEvent::Edited => {
                     if let Some(d) = this.docs.get_mut(&path) {
                         let c = code.read(cx);
-                        d.live = (is_markdown(&path) && c.is_dirty()).then(|| (c.version(), c.text().unwrap_or_default().into()));
+                        // (The Preview, an SVG's picture follow the edits.)
+                        d.live = ((is_markdown(&path) || is_svg(&path)) && c.is_dirty()).then(|| (c.version(), c.text().unwrap_or_default().into()));
                     }
                     cx.notify();
                 }
@@ -1081,7 +1435,30 @@ impl Viewer {
             code.as_ref().is_some_and(|c| c.read(cx).is_editing()),
             self.edit_block(&active, cx),
             code.and_then(|c| c.read(cx).text()).map(|t| t.chars().take(160).collect::<String>()),
-        )
+        ) + &self.debug_pdf_state(&active, cx)
+    }
+
+    /// The SVG's and the PDF's part of [`Self::debug_state`].
+    fn debug_pdf_state(&self, active: &str, cx: &App) -> String {
+        let mut out = String::new();
+        if self.has_source(active) {
+            out += &format!(" svg_source={}", self.svg_source(active, cx));
+        }
+        if let Some(pd) = self.docs.get(active).and_then(|d| d.pdf.as_ref()) {
+            let state = match &pd.state {
+                PdfState::Reading => "reading".to_string(),
+                PdfState::Open(p) => format!("open pages={}", p.pages().len()),
+                PdfState::Failed(e) => format!("failed {e:?}"),
+            };
+            let bytes: usize = pd.pages.values().map(|i| i.w as usize * i.h as usize * 4).sum();
+            let mut drawn: Vec<usize> = pd.pages.keys().copied().collect();
+            drawn.sort();
+            out += &format!(" pdf={state} scale={:?} current={} drawn={drawn:?} drawn_mb={} pending={}", pd.scale, pd.current + 1, bytes / (1024 * 1024), pd.pending.len());
+            if let Some(f) = &pd.find {
+                out += &format!(" find={:?} hits={} hit={:?}", f.query, f.hits.len(), f.current.and_then(|c| f.hits.get(c)));
+            }
+        }
+        out
     }
 
     /// Files with unsaved changes.
@@ -1876,7 +2253,13 @@ impl Viewer {
         let doc = self.docs.get(active);
         let view = doc.and_then(|d| d.view.as_ref());
         let size = view.map(|v| size_label(v.size));
-        let is_text = view.is_some_and(|v| v.kind == ContentKind::Text);
+        // (An SVG shown as its source is text too.)
+        let is_text = view.is_some() && self.as_text(active, cx);
+        let pixels = pixels.filter(|_| !is_text);
+        let svg_switch = self.has_source(active).then(|| self.svg_source(active, cx));
+        // A PDF shown: its page, zoom and search.
+        let pdf = self.active_pdf().map(|(pd, pdf, zoom)| (pd.current, pdf.pages().len(), zoom, self.pdf_scale(zoom, &pdf), pd.find.is_some()));
+        let here = doc.and_then(|d| d.local.clone()).filter(|_| pdf.is_some());
         let cwd = self.root(cx).unwrap_or_default();
         let abs: SharedString = absolute_path(&cwd, active).into();
         let path_tip: SharedString = active.to_string().into();
@@ -1946,8 +2329,40 @@ impl Viewer {
                         .child(if narrow { "Read-only".to_string() } else { format!("Read-only · {why}") }),
                 )
             })
+            .when_some(pdf, |d, (current, n, _, _, _)| {
+                let label = if narrow { format!("{}/{n}", (current + 1).min(n)) } else { pdf_view::page_label(current, n) };
+                d.child(meta(label).debug_selector(|| "ex-pdf-page".into()))
+            })
             .child(div().flex_1())
-            .when_some(zoom, |d, zoom| d.child(self.zoom_controls(zoom, pixels, t, cx)))
+            .when_some(zoom, |d, zoom| {
+                let now = self.image_scale(zoom, pixels);
+                d.child(self.zoom_controls(zoom, now, false, t, cx))
+            })
+            .when_some(pdf, |d, (_, _, zoom, now, finding)| {
+                d.child(self.zoom_controls(zoom, now, true, t, cx)).child(
+                    tool_btn("ex-pdf-find", "search", if narrow { "" } else { "Find" }, String::new(), finding, t)
+                        .debug_selector(|| "ex-pdf-find".into())
+                        .on_click(cx.listener(|this, _, window, cx| this.open_find(window, cx)))
+                        .tooltip(|_, cx| tooltip_view(keys("Find in the PDF (⌘F)", false), cx)),
+                )
+            })
+            .when_some(here, |d, here| {
+                d.child(
+                    tool_btn("ex-pdf-open-default", "external", "", String::new(), false, t)
+                        .debug_selector(|| "ex-pdf-open-default".into())
+                        .on_click(cx.listener(move |_, _, _, cx| crate::platform::files::open_in_default_app(cx, &here)))
+                        .tooltip(|_, cx| tooltip_view("Open in default app", cx)),
+                )
+            })
+            .when_some(svg_switch, |d, on| {
+                let tip = |_: &mut Window, cx: &mut App| tooltip_view(keys("Switch between the picture and its source (⌘⇧V)", false), cx);
+                d.child(
+                    crate::kit::segments(t)
+                        .debug_selector(|| "ex-svg-switch".into())
+                        .child(crate::kit::segment("ex-svg-picture", "Picture".into(), !on, true, t).tooltip(tip).on_click(cx.listener(|v, _, _, cx| v.set_svg_source(false, cx))))
+                        .child(crate::kit::segment("ex-svg-source", "Source".into(), on, false, t).tooltip(tip).on_click(cx.listener(|v, _, _, cx| v.set_svg_source(true, cx)))),
+                )
+            })
             .when(self.md_text().is_some(), |d| {
                 let on = self.preview;
                 d.child(
@@ -1971,11 +2386,13 @@ impl Viewer {
             })
     }
 
-    /// An image's Fit / 100 % and − / + (and the zoom it is at).
-    fn zoom_controls(&self, zoom: Zoom, pixels: Option<(i32, i32)>, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
-        let now = self.image_scale(zoom, pixels);
+    /// An image's (or a PDF's: `pdf`) Fit / 100 % and − / + (and the zoom
+    /// it is at, `now`). A PDF fits its width.
+    fn zoom_controls(&self, zoom: Zoom, now: f32, pdf: bool, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let fit = zoom == Zoom::Fit;
         let actual = !fit && (now - 1.).abs() < 1e-3;
+        let (zoom_out, zoom_in) = if pdf { (pdf_view::zoom_out(now), pdf_view::zoom_in(now)) } else { (image_view::zoom_out(now), image_view::zoom_in(now)) };
+        let fit_tip = if pdf { "Fit the pages to the width" } else { "Fit the image to the pane" };
         div()
             .flex_none()
             .flex()
@@ -1984,7 +2401,7 @@ impl Viewer {
             .debug_selector(|| "ex-image-zoom".into())
             .child(
                 crate::kit::icon_btn("ex-zoom-out", "minus", "Zoom out", true, t)
-                    .on_click(cx.listener(move |v, _, _, cx| v.set_zoom(Zoom::Scale(image_view::zoom_out(now)), cx))),
+                    .on_click(cx.listener(move |v, _, _, cx| v.set_zoom(Zoom::Scale(zoom_out), cx))),
             )
             .child(
                 div()
@@ -1999,11 +2416,11 @@ impl Viewer {
             )
             .child(
                 crate::kit::icon_btn("ex-zoom-in", "plus", "Zoom in", true, t)
-                    .on_click(cx.listener(move |v, _, _, cx| v.set_zoom(Zoom::Scale(image_view::zoom_in(now)), cx))),
+                    .on_click(cx.listener(move |v, _, _, cx| v.set_zoom(Zoom::Scale(zoom_in), cx))),
             )
             .child(
                 crate::kit::segments(t)
-                    .child(crate::kit::segment("ex-zoom-fit", "Fit".into(), fit, true, t).on_click(cx.listener(|v, _, _, cx| v.set_zoom(Zoom::Fit, cx))))
+                    .child(crate::kit::segment("ex-zoom-fit", "Fit".into(), fit, true, t).tooltip(move |_, cx| tooltip_view(fit_tip, cx)).on_click(cx.listener(|v, _, _, cx| v.set_zoom(Zoom::Fit, cx))))
                     .child(crate::kit::segment("ex-zoom-100", "100%".into(), actual, false, t).on_click(cx.listener(|v, _, _, cx| v.set_zoom(Zoom::Scale(1.), cx)))),
             )
     }
@@ -2025,6 +2442,245 @@ impl Viewer {
             d.zoom = zoom;
         }
         cx.notify();
+    }
+
+    // ── a PDF ───────────────────────────────────────────────────────────
+
+    /// The active PDF, open, with its zoom.
+    fn active_pdf(&self) -> Option<(&PdfDoc, Arc<Pdf>, Zoom)> {
+        let d = self.docs.get(self.active.as_ref()?)?;
+        let pd = d.pdf.as_ref()?;
+        Some((pd, pd.open()?, d.zoom))
+    }
+
+    /// The scale the active PDF is shown at.
+    fn pdf_scale(&self, zoom: Zoom, pdf: &Pdf) -> f32 {
+        let (aw, _) = self.pdf_area.get().map(pdf_room).unwrap_or((800., 600.));
+        pdf_view::scale(zoom, pdf.pages(), aw)
+    }
+
+    /// Before the active PDF is drawn: the place in view kept at a new
+    /// scale, the pages in view drawn (nearest first, a few at a time),
+    /// those far away let go over the budget. Other PDFs let all theirs go.
+    fn pdf_tick(&mut self, cx: &mut Context<Self>) {
+        let active = self.active.clone();
+        let mut gone = Vec::new();
+        for (p, d) in self.docs.iter_mut() {
+            if Some(p) != active.as_ref() {
+                gone.extend(d.release_pdf());
+            }
+        }
+        let (area, dpr) = (self.pdf_area.get(), self.dpr);
+        let doc = active.as_ref().zip(area).and_then(|(a, area)| Some((a.clone(), area, self.docs.get_mut(a)?)));
+        if let Some((active, area, d)) = doc {
+            let zoom = d.zoom;
+            if let Some((pd, pdf)) = d.pdf.as_mut().and_then(|pd| pd.open().map(|p| (pd, p))) {
+                let (aw, ah) = pdf_room(area);
+                let s = pdf_view::scale(zoom, pdf.pages(), aw);
+                let layout = Layout::new(pdf.pages(), s);
+                if let Some(old) = pd.scale.filter(|o| (o - s).abs() > 1e-4) {
+                    // The same place at the new scale.
+                    let off = pd.scroll.offset();
+                    let top = layout.top_of(Layout::new(pdf.pages(), old).anchor(-f32::from(off.y)));
+                    pd.scroll.set_offset(gpui::point(off.x * (s / old), px(-top)));
+                }
+                pd.scale = Some(s);
+                let top = -f32::from(pd.scroll.offset().y);
+                let keep = layout.visible(top, ah, pdf_view::MARGIN);
+                pd.current = layout.current(top, ah);
+                let kept: Vec<(usize, usize)> = pd.pages.iter().map(|(p, i)| (*p, i.w as usize * i.h as usize * 4)).collect();
+                for p in pdf_view::evict(&kept, keep.clone(), pdf_view::BUDGET) {
+                    gone.extend(pd.pages.remove(&p).map(|i| i.image));
+                }
+                for p in pdf_view::wanted(keep, pd.current) {
+                    if pd.pending.len() >= pdf_view::IN_FLIGHT {
+                        break;
+                    }
+                    let (w, h) = pdf_view::render_px(pdf.pages()[p], s, dpr);
+                    if pd.pending.contains(&p) || pd.failed.contains(&p) || !pdf_view::needs_render(pd.pages.get(&p).map(|i| i.w), w) {
+                        continue;
+                    }
+                    pd.pending.insert(p);
+                    let engine = pdf.clone();
+                    let job = cx.background_executor().spawn(async move { engine.render(p, w, h) });
+                    let (path, pdf) = (active.clone(), pdf.clone());
+                    cx.spawn(async move |this, cx| {
+                        let res = job.await;
+                        let _ = this.update(cx, |this, cx| this.page_drawn(&path, &pdf, p, res, cx));
+                    })
+                    .detach();
+                }
+            }
+        }
+        drop_images(gone, cx);
+    }
+
+    /// Page `page` of `pdf` drawn (or why not).
+    fn page_drawn(&mut self, path: &str, pdf: &Arc<Pdf>, page: usize, res: Result<crate::platform::pdf::Bitmap, String>, cx: &mut Context<Self>) {
+        let mut gone = Vec::new();
+        let pd = self.docs.get_mut(path).and_then(|d| d.pdf.as_mut()).filter(|pd| pd.open().is_some_and(|p| Arc::ptr_eq(&p, pdf)));
+        if let Some(pd) = pd {
+            pd.pending.remove(&page);
+            match res.map(page_image) {
+                Ok(Some(img)) => gone.extend(pd.pages.insert(page, img).map(|old| old.image)),
+                _ => {
+                    pd.failed.insert(page);
+                }
+            }
+        }
+        drop_images(gone, cx);
+        cx.notify();
+    }
+
+    /// ⌘F on a PDF: its search, the field taking the keyboard.
+    fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(active) = self.active.clone() else { return };
+        let Some(pd) = self.docs.get_mut(&active).and_then(|d| d.pdf.as_mut()).filter(|pd| pd.open().is_some()) else { return };
+        if let Some(f) = &pd.find {
+            f.field.update(cx, |t, cx| {
+                t.select_all_text(cx);
+                t.focus(window, cx);
+            });
+            return;
+        }
+        let field = cx.new(|cx| TextInput::new(cx, "", "Find in PDF").plain());
+        let path = active.clone();
+        let sub = cx.subscribe(&field, move |this, field, e: &InputEvent, cx| match e {
+            InputEvent::Changed => {
+                let q = field.read(cx).text().to_string();
+                this.set_find_query(&path, q, cx);
+            }
+            InputEvent::Submit => this.find_step(&path, true, cx),
+            InputEvent::SubmitShift => this.find_step(&path, false, cx),
+            InputEvent::Cancel => this.close_find(&path, cx),
+            InputEvent::Blur => {}
+        });
+        pd.find = Some(PdfFind { field: field.clone(), query: String::new(), hits: Vec::new(), current: None, searching: false, _wait: None, _search: None, _sub: sub });
+        field.update(cx, |t, cx| t.focus(window, cx));
+        cx.notify();
+    }
+
+    fn pdf_find_mut(&mut self, path: &str) -> Option<&mut PdfFind> {
+        self.docs.get_mut(path)?.pdf.as_mut()?.find.as_mut()
+    }
+
+    /// The search's text changed: searched once typing settles.
+    fn set_find_query(&mut self, path: &str, q: String, cx: &mut Context<Self>) {
+        let Some(f) = self.pdf_find_mut(path) else { return };
+        if f.query == q {
+            return;
+        }
+        f.query = q;
+        let p = path.to_string();
+        f._wait = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(200)).await;
+            let _ = this.update(cx, |this, cx| this.run_find(&p, true, cx));
+        }));
+        cx.notify();
+    }
+
+    /// Search the PDF for the search's text (`jump`: show the first hit
+    /// from the page being read).
+    fn run_find(&mut self, path: &str, jump: bool, cx: &mut Context<Self>) {
+        let Some(pd) = self.docs.get_mut(path).and_then(|d| d.pdf.as_mut()) else { return };
+        let (Some(pdf), from) = (pd.open(), pd.current) else { return };
+        let Some(f) = pd.find.as_mut() else { return };
+        let query = f.query.clone();
+        if query.trim().is_empty() {
+            f.hits.clear();
+            f.current = None;
+            f.searching = false;
+            f._search = None;
+            cx.notify();
+            return;
+        }
+        f.searching = true;
+        let q = query.clone();
+        let job = cx.background_executor().spawn(async move { pdf.find(&q) });
+        let p = path.to_string();
+        f._search = Some(cx.spawn(async move |this, cx| {
+            let hits = job.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(f) = this.pdf_find_mut(&p).filter(|f| f.query == query) else { return };
+                f.searching = false;
+                let pages: Vec<usize> = hits.iter().map(|h| h.page).collect();
+                f.current = if jump { pdf_view::first_from(&pages, from) } else { f.current.filter(|c| *c < hits.len()) };
+                f.hits = hits;
+                if jump {
+                    this.show_hit(&p, cx);
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    /// ↵ / ⇧↵ in the search: the next or previous hit, round the ends.
+    fn find_step(&mut self, path: &str, forward: bool, cx: &mut Context<Self>) {
+        let Some(f) = self.pdf_find_mut(path) else { return };
+        f.current = pdf_view::step(f.current, f.hits.len(), forward);
+        self.show_hit(path, cx);
+        cx.notify();
+    }
+
+    /// Esc in the search: it closes, the keyboard back to the viewer.
+    fn close_find(&mut self, path: &str, cx: &mut Context<Self>) {
+        if let Some(pd) = self.docs.get_mut(path).and_then(|d| d.pdf.as_mut()) {
+            pd.find = None;
+        }
+        self.refocus = true;
+        cx.notify();
+    }
+
+    /// Scroll the search's hit into view (when it isn't).
+    fn show_hit(&mut self, path: &str, cx: &mut Context<Self>) {
+        let Some((aw, ah)) = self.pdf_area.get().map(pdf_room) else { return };
+        let Some(d) = self.docs.get_mut(path) else { return };
+        let zoom = d.zoom;
+        let Some(pd) = d.pdf.as_mut() else { return };
+        let Some(pdf) = pd.open() else { return };
+        let Some(hit) = pd.find.as_ref().and_then(|f| f.hits.get(f.current?)).cloned() else { return };
+        let s = pd.scale.unwrap_or_else(|| pdf_view::scale(zoom, pdf.pages(), aw));
+        let layout = Layout::new(pdf.pages(), s);
+        let Some(page_top) = layout.tops.get(hit.page).copied() else { return };
+        let [x, y, w, h] = hit.rect.map(|v| v * s);
+        let off = pd.scroll.offset();
+        let (top, left) = (-f32::from(off.y), -f32::from(off.x));
+        let (hit_top, hit_left) = (page_top + y, layout.left(hit.page, aw) + x);
+        let new_top = if hit_top < top || hit_top + h > top + ah { layout.top_showing(hit.page, y, ah) } else { top };
+        let new_left = if hit_left < left || hit_left + w > left + aw { (hit_left - aw / 3.).max(0.) } else { left };
+        pd.scroll.set_offset(gpui::point(px(-new_left), px(-new_top)));
+        cx.notify();
+    }
+
+    /// Debug builds: the active PDF's search (`find <text>`, `next`,
+    /// `prev`, `close`) or scrolled to a page (`page <n>`, 1-based).
+    pub fn debug_pdf(&mut self, what: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(active) = self.active.clone() else { return };
+        let (verb, arg) = what.split_once(' ').unwrap_or((what, ""));
+        match verb {
+            "find" => {
+                self.open_find(window, cx);
+                if let Some(f) = self.pdf_find_mut(&active) {
+                    let field = f.field.clone();
+                    field.update(cx, |t, cx| t.set_text(arg.to_string(), cx));
+                }
+                self.set_find_query(&active, arg.to_string(), cx);
+            }
+            "next" => self.find_step(&active, true, cx),
+            "prev" => self.find_step(&active, false, cx),
+            "close" => self.close_find(&active, cx),
+            "page" => {
+                let n = arg.trim().parse::<usize>().unwrap_or(1).max(1) - 1;
+                let Some((pd, pdf, zoom)) = self.active_pdf() else { return };
+                let layout = Layout::new(pdf.pages(), self.pdf_scale(zoom, &pdf));
+                if let Some(t) = layout.tops.get(n) {
+                    pd.scroll.set_offset(gpui::point(px(0.), px(-(t - pdf_view::PAD))));
+                }
+                cx.notify();
+            }
+            _ => eprintln!("pitwall-debug: pdf {verb}?"),
+        }
     }
 
     /// No file open: what can be done from here.
@@ -2113,7 +2769,10 @@ impl Viewer {
             return center(t).child("Reading…").into_any_element();
         };
         let here = doc.and_then(|d| d.local.clone());
+        // An SVG shown as its source: as a text file.
+        let source = v.kind == ContentKind::Image && self.as_text(&active, cx);
         match v.kind {
+            ContentKind::Binary if is_pdf(&active) => self.pdf_body(&active, &v, here, t, cx),
             ContentKind::Binary => {
                 let what = if image_format(&active).is_some() {
                     format!("An image of {}, larger than {}: not shown here", size_label(v.size), size_label(pitwall_core::explorer::MAX_IMAGE))
@@ -2132,7 +2791,7 @@ impl Viewer {
                     })
                     .into_any_element()
             }
-            ContentKind::Image => match doc.and_then(|d| d.image.clone()) {
+            ContentKind::Image if !source => match doc.and_then(|d| d.image.clone()) {
                 Some(image) => self.image(image, doc.map(|d| d.zoom).unwrap_or_default(), pixels, t, cx),
                 None => match doc.and_then(|d| d.image_error.clone()) {
                     Some(e) => center(t).child(format!("Couldn't read the image: {e}")).into_any_element(),
@@ -2160,7 +2819,7 @@ impl Viewer {
                 .debug_selector(|| "ex-md-body".into())
                 .child(self.md.clone())
                 .into_any_element(),
-            ContentKind::Text => {
+            ContentKind::Text | ContentKind::Image => {
                 if let Some(diff) = doc.and_then(|d| d.diff.clone()) {
                     return div().id("ex-difference").debug_selector(|| "ex-difference".into()).size_full().min_h_0().flex().flex_col().child(diff).into_any_element();
                 }
@@ -2171,6 +2830,171 @@ impl Viewer {
                 }
             }
         }
+    }
+
+    /// A PDF: its pages (macOS), or why they aren't shown, with "Open in
+    /// default app" for a file on this computer.
+    fn pdf_body(&self, active: &str, v: &Loaded, here: Option<std::path::PathBuf>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let pd = self.docs.get(active).and_then(|d| d.pdf.as_ref());
+        let why = if !crate::platform::can_view_pdf() {
+            Some(format!("A PDF of {}. {PDF_UNSUPPORTED}", size_label(v.size)))
+        } else if v.size > MAX_PDF {
+            Some(format!("A PDF of {}, larger than {}: not shown here.", size_label(v.size), size_label(MAX_PDF)))
+        } else {
+            match pd.map(|p| &p.state) {
+                Some(PdfState::Failed(e)) => Some(e.clone()),
+                Some(PdfState::Open(pdf)) => return self.pdf_pages(pd.expect("open"), pdf, t, cx),
+                _ => None,
+            }
+        };
+        let Some(why) = why else {
+            return div().flex_1().flex().items_center().justify_center().text_size(px(12.5)).text_color(t.text_3).child("Reading…").into_any_element();
+        };
+        div()
+            .id("ex-pdf-not-shown")
+            .debug_selector(|| "ex-pdf-not-shown".into())
+            .flex_1()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(12.))
+            .text_size(px(12.5))
+            .child(file_icon(active, 28.))
+            .child(div().max_w(px(420.)).text_color(t.text_2).child(crate::kit::para(why)))
+            .when_some(here, |d, here| {
+                d.child(
+                    small_btn("ex-open-default", "Open in default app", t)
+                        .on_click(cx.listener(move |_, _, _, cx| crate::platform::files::open_in_default_app(cx, &here)))
+                        .tooltip(|_, cx| tooltip_view("Open it with the app your system uses for it", cx)),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// A PDF's pages, one under the other as white paper on the pane's
+    /// ground; only those in view (and around) are laid out, each drawn
+    /// once the engine has drawn it (blank paper until then), with the
+    /// search's hits marked.
+    fn pdf_pages(&self, pd: &PdfDoc, pdf: &Pdf, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let zoom = self.active.as_ref().and_then(|p| self.docs.get(p)).map(|d| d.zoom).unwrap_or_default();
+        let (aw, ah) = self.pdf_area.get().map(pdf_room).unwrap_or((800., 600.));
+        let s = pdf_view::scale(zoom, pdf.pages(), aw);
+        let layout = Layout::new(pdf.pages(), s);
+        let top = -f32::from(pd.scroll.offset().y);
+        let find = pd.find.as_ref();
+        let hits = find.map(|f| f.hits.as_slice()).unwrap_or_default();
+        let shown_hit = find.and_then(|f| f.current);
+        let pages: Vec<AnyElement> = layout
+            .visible(top, ah, pdf_view::MARGIN)
+            .map(|i| {
+                let (w, h) = layout.sizes[i];
+                let picture = pd.pages.get(&i).map(|p| p.image.clone());
+                let from = hits.partition_point(|h| h.page < i);
+                let marks: Vec<AnyElement> = hits[from..]
+                    .iter()
+                    .take_while(|h| h.page == i)
+                    .enumerate()
+                    .map(|(k, h)| {
+                        let [x, y, hw, hh] = h.rect.map(|v| v * s);
+                        div()
+                            .absolute()
+                            .left(px(x - 1.))
+                            .top(px(y - 1.))
+                            .w(px(hw + 2.))
+                            .h(px(hh + 2.))
+                            .rounded(px(2.))
+                            .bg(if shown_hit == Some(from + k) { HIT_ON } else { HIT })
+                            .into_any_element()
+                    })
+                    .collect();
+                div()
+                    .absolute()
+                    .left(px(layout.left(i, aw)))
+                    .top(px(layout.tops[i]))
+                    .w(px(w))
+                    .h(px(h))
+                    .bg(gpui::white())
+                    .shadow_sm()
+                    .when_some(picture, |d, picture| {
+                        d.child(
+                            canvas(
+                                |_, _, _| {},
+                                move |bounds, _, window, _| {
+                                    let _ = window.paint_image(bounds, bounds, Default::default(), picture.clone(), 0, false);
+                                },
+                            )
+                            .absolute()
+                            .inset_0(),
+                        )
+                    })
+                    .children(marks)
+                    .into_any_element()
+            })
+            .collect();
+        let scroll = div()
+            .id("ex-pdf-scroll")
+            .size_full()
+            .overflow_scroll()
+            .track_scroll(&pd.scroll)
+            // A click gives the viewer the keyboard (⌘F).
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| window.focus(&this.focus, cx)))
+            .child(div().relative().w(px(layout.width.max(aw))).h(px(layout.height)).children(pages));
+        div()
+            .id("ex-pdf")
+            .debug_selector(|| "ex-pdf".into())
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .size_full()
+            .bg(t.surface_2)
+            .child(self.measure(self.pdf_area.clone(), cx))
+            .child(crate::kit::vscroll_fill("ex-pdf-bar", &pd.scroll, t, scroll).size_full())
+            .when_some(find, |d, f| d.child(self.find_bar(f, t, cx)))
+            .into_any_element()
+    }
+
+    /// A PDF's search: the field, how many were found, previous / next
+    /// and close, floating over the pages' top right.
+    fn find_bar(&self, f: &PdfFind, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let count = if f.searching {
+            "…".to_string()
+        } else if f.query.trim().is_empty() {
+            String::new()
+        } else if f.hits.is_empty() {
+            "No results".to_string()
+        } else {
+            let more = if f.hits.len() >= crate::platform::pdf::MAX_HITS { "+" } else { "" };
+            format!("{} of {}{more}", f.current.map_or(0, |c| c + 1), f.hits.len())
+        };
+        let path = self.active.clone().unwrap_or_default();
+        let (p1, p2, p3) = (path.clone(), path.clone(), path);
+        div()
+            .id("ex-pdf-findbar")
+            .debug_selector(|| "ex-pdf-findbar".into())
+            .absolute()
+            .top(px(8.))
+            .right(px(PDF_GUTTER + 8.))
+            .w(px(340.))
+            .max_w(gpui::relative(0.9))
+            .h(px(32.))
+            .pl(px(8.))
+            .pr(px(4.))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .rounded(RADIUS)
+            .bg(t.raised)
+            .border_1()
+            .border_color(t.line_strong)
+            .shadow_md()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(icon("search", 13., t.text_3))
+            .child(div().flex_1().min_w_0().text_size(px(12.5)).child(f.field.clone()))
+            .child(div().flex_none().font_family(MONO_FONT).text_size(px(11.)).text_color(t.text_3).debug_selector(|| "ex-pdf-count".into()).child(count))
+            .child(crate::kit::icon_btn("ex-pdf-prev", "chevron-up", "Previous (⇧↵)", true, t).on_click(cx.listener(move |this, _, _, cx| this.find_step(&p1, false, cx))))
+            .child(crate::kit::icon_btn("ex-pdf-next", "chevron-down", "Next (↵)", true, t).on_click(cx.listener(move |this, _, _, cx| this.find_step(&p2, true, cx))))
+            .child(crate::kit::icon_btn("ex-pdf-find-close", "x", "Close (Esc)", true, t).on_click(cx.listener(move |this, _, _, cx| this.close_find(&p3, cx))))
     }
 
     /// The image at its zoom, centred while smaller than the pane and
@@ -2323,6 +3147,9 @@ impl Render for Viewer {
         let root = self.root(cx);
         self.sync_preview(root.as_deref(), cx);
         self.ensure_code(cx);
+        self.sync_svg(cx);
+        self.dpr = window.scale_factor();
+        self.pdf_tick(cx);
         let active = self.active.clone();
         let pixels = self.image_pixels(window, cx);
         let body = self.body(&t, pixels, cx);
@@ -2356,6 +3183,8 @@ impl Render for Viewer {
                 }
             }))
             .on_action(cx.listener(|this, _: &ToggleTree, window, cx| this.toggle_tree(window, cx)))
+            .on_action(cx.listener(|this, _: &SwitchView, _, cx| this.switch_view(cx)))
+            .on_action(cx.listener(|this, _: &FindInPdf, window, cx| this.open_find(window, cx)))
             .on_action(|_: &NextTab, window, cx| window.focus_next(cx))
             .on_action(|_: &PrevTab, window, cx| window.focus_prev(cx))
             .relative()
