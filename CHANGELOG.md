@@ -7,6 +7,7 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 ### Highlights
 
 - Move around a zoomed picture with the mouse: drag an image, an SVG's picture or a PDF's pages larger than the pane any way, or scroll with two fingers, and it stays in view. Pinch on a trackpad or ⌘-scroll (Ctrl+scroll on Windows and Linux) to zoom about the pointer; a double click zooms about the point clicked. Works in files tiles (whose bar still moves the tile), files windows and the full viewer.
+- Web pages in tiles. "Open web page…" (⌘L / Ctrl+Shift+L) opens a page in a tile of the layout next to your terminals, in the system's own web view: type an address (`example.com`, `localhost:3000`; there's no search), go back and forward, reload, open it in your browser. An agent's Preview of its dev server is now such a tile too, right of its terminal instead of inside it, still following what the terminal prints. Web tiles move, resize and come back after a restart like files tiles do. Pages keep their logins in Pitwall's own profile, not your browser's, and agents can't see or use them. Turn it off in Settings → General. Checked by hand on macOS; the Windows and Linux builds pass their tests but have not been run by hand.
 
 ## [0.7.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.7.0) - 2026-11-19
 
