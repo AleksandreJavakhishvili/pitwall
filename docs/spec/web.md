@@ -178,15 +178,21 @@ same in Flat and Liquid Glass.
 
 ## Data
 - Pages (not Previews): one persistent store per browser profile (below),
-  in Pitwall's data folder (`<data>/webview/profile-<id>`, Default's
-  `profile-default`, `preview::profile_dir`; the folder's name is the
-  profile's id). macOS 14+: WebKit's own store keyed by that folder
-  (`dataStoreForIdentifier`, the data under
-  `~/Library/WebKit/<app>/WebsiteDataStore/<id>`): the app's, never
-  Safari's. Before macOS 14: the app's default WebKit store (shared with
-  Previews), so Default only. Windows (WebView2) and Linux (WebKitGTK): in
-  the folder.
-- Previews: a store per project, as before (`<data>/webview/<project>-<hash>`).
+  each with a folder in Pitwall's data folder (`<data>/webview/profile-<id>`,
+  Default's `profile-default`, `preview::profile_dir`; the folder's name is
+  the profile's id). Windows (WebView2) and Linux (WebKitGTK): the store is
+  in the folder. macOS: Default is the app's default WebKit store
+  (`~/Library/WebKit/<app>/WebsiteData`), where every page has been so far;
+  each other profile is WebKit's own store keyed by its folder (macOS 14+,
+  `dataStoreForIdentifier`, the data under
+  `~/Library/WebKit/<app>/WebsiteDataStore/<id>`). The app's, never
+  Safari's.
+- Previews: a store per project on Windows and Linux
+  (`<data>/webview/<project>-<hash>`). On macOS they are in the app's
+  default store, with Default's pages: the per-project identifier store
+  was never used there (the check asked the class for an instance method;
+  found while building profiles and left as it was, so nobody's sign-ins
+  move).
 
 ## Browser profiles
 Separate sign-ins for the pages (work and personal Teams, Slack, mail),
@@ -196,8 +202,8 @@ Status: built (`crate::web::profiles`).
 - **A profile is an account** of kind `web` (`pitwall_core::accounts::WEB`,
   "Browser profile"): a name ("Work") and its folder, in `accounts.json`
   beside the tools' accounts and the git identities. Default is the store
-  every page used before profiles (`profile-default`, its macOS store
-  identifier unchanged), so no one loses their sign-ins.
+  every page used before profiles (its folder `profile-default`; on macOS
+  the app's default WebKit store), so no one loses their sign-ins.
 - **Made, renamed, removed** in Settings → Accounts → Browser profiles, or
   made from a project's Accounts… (Browser profile → + New profile, which
   also makes it the project's). No login step: the user signs in to sites
@@ -243,10 +249,11 @@ Status: built (`crate::web::profiles`).
   once (its entry forgets the profile).
 - **Isolation is the point.** Two profiles never share cookies, local
   storage, caches, service workers or HTTP auth: each has a store of its
-  own. macOS 14+: one `WKWebsiteDataStore` per identifier, derived from
-  the profile's folder path (`webview::store_id`, stable across runs;
-  another Pitwall data folder, such as a test instance's, gets other
-  identifiers). Windows: one WebView2 user data folder, one environment,
+  own. macOS 14+: Default the app's default store; every other profile one
+  `WKWebsiteDataStore` per identifier (`webview::Options::own_store`),
+  derived from the profile's folder path (`webview::store_id`, stable
+  across runs; another Pitwall data folder, such as a test instance's,
+  gets other identifiers). Windows: one WebView2 user data folder, one environment,
   per profile (several coexist in one process; each folder gets its own
   browser process). Linux: one WebKitGTK data manager (data, cache, cookie
   file) per profile folder, several contexts in one process.
@@ -254,7 +261,13 @@ Status: built (`crate::web::profiles`).
   is used. A project's profile is ignored there, the bar's menu shows the
   others greyed ("needs macOS 14"), Settings says so, and a page kept in
   another profile opens in Default with a note. No page is ever made in a
-  store it would share with another profile.
+  store it would share with another profile (the macOS backend refuses
+  one, too).
+- **Checked by hand** on macOS 26 (an isolated test instance, a local
+  page setting a cookie and local storage): Work, Personal and Default
+  never saw each other's; Work's came back after a restart; a removed
+  profile's store and folder were gone, and one made again under the same
+  name started empty. Windows and Linux: tests only.
 - **What leaves the machine:** nothing. The list (names, ids, folders) is
   in `accounts.json`; site data stays in the engine's store. Agents still
   get nothing from a page, in any profile.
