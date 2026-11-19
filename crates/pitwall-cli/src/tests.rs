@@ -1123,10 +1123,10 @@ fn open_web_and_the_show_web_tool_end_to_end() {
     assert_eq!(shown.agent_id, id);
     assert_eq!(shown.place, Some(pitwall_proto::ViewerPlace::Left));
     assert!(shown.of.as_deref().is_some_and(|o| o != id), "of: the web agent's id");
-    // No address: an empty page; a second call says it reused the tile.
+    // No address, the tile reused: its page shown, not called empty.
     let o = cli(&["open", "--agent", "api", "--web"]).unwrap();
     assert_eq!((o.json.get("url"), o.json["reused"].as_bool()), (None, Some(true)));
-    assert!(o.human.starts_with("Opened an empty web page"), "{}", o.human);
+    assert!(o.human.starts_with("Showed the page you opened before"), "{}", o.human);
     // Not an address: refused before the app sees it.
     for bad in ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,x", "how to cook rice"] {
         let e = cli(&["open", "--agent", "api", "--web", bad]).err().unwrap();
