@@ -171,3 +171,36 @@ fn each_project_has_its_own_storage() {
     assert_eq!(a, data_dir(root, "/work/my app"), "stable");
     assert_ne!(a, data_dir(root, "/other/my app"));
 }
+
+#[test]
+fn web_pages_keep_one_profile_under_pitwalls_data_folder() {
+    let root = Path::new("/data");
+    let p = profile_dir(root, DEFAULT_PROFILE);
+    assert_eq!(p, Path::new("/data/webview/profile-default"));
+    assert_ne!(p, data_dir(root, "default"), "not a project's");
+    assert_eq!(profile_dir(root, "work/../x"), Path::new("/data/webview/profile-work____x"));
+}
+
+/// Live view, snapshot or hidden, as the frames go: a drag over the
+/// window covers the view as a menu over it does.
+#[test]
+fn a_drag_swaps_the_view_for_its_snapshot_and_back() {
+    let at = b(100., 100., 400., 300.);
+    let mut s = Stage::default();
+    assert_eq!(s.frame(Some(at), covering(false, false), true), vec![StageOp::SetBounds(at), StageOp::Show]);
+    // A tile's bar pressed and dragged: the picture first, then hidden.
+    assert_eq!(s.frame(Some(at), covering(false, true), true), vec![StageOp::Snapshot]);
+    assert_eq!(s.snapshot(None), vec![StageOp::Hide]);
+    assert!(s.picture().is_some() && !s.idle(), "covered, not hidden for good");
+    // Moved by the drop (bigger now), still dragging: placed, still a picture.
+    let moved = b(0., 100., 800., 300.);
+    assert_eq!(s.frame(Some(moved), covering(false, true), true), vec![StageOp::SetBounds(moved)]);
+    // Let go: live again.
+    assert_eq!(s.frame(Some(moved), covering(false, false), true), vec![StageOp::Show]);
+    assert!(s.picture().is_none());
+    // Its tile not drawn (another space, the Wall): hidden, the drop
+    // timer's state (`idle`).
+    assert_eq!(s.frame(None, covering(true, true), true), vec![StageOp::Hide]);
+    assert!(s.idle());
+    assert!(covering(true, false) && !covering(false, false));
+}

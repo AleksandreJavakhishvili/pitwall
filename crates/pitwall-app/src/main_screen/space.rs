@@ -118,6 +118,10 @@ impl MainScreen {
     ) -> impl IntoElement {
         if !cx.has_active_drag() {
             self.drop_hint = None;
+            // A web tile's drag let go outside the area.
+            if self.files_hint.as_ref().is_some_and(|h| matches!(h.what, tree::Content::Web(_))) {
+                self.files_hint = None;
+            }
         }
         let f = self.fitted(space, agents);
         let bar = match self.parts.as_ref().filter(|_| super::part::cached(cx)) {
@@ -171,8 +175,7 @@ impl MainScreen {
             let shown: Vec<String> = tree.leaves().into_iter().map(|p| p.id).collect();
             p.keep_headers(&shown, window);
         }
-        let area_el = div()
-            .id("space-area")
+        let area_el = self.web_drop_target(div().id("space-area"), cx)
             .flex_1()
             .min_h_0()
             .flex()
@@ -451,6 +454,7 @@ impl MainScreen {
     ) -> AnyElement {
         match node {
             Node::Pane { id, files: Some(owner), .. } => self.render_files_pane(id, owner, t, window, cx),
+            Node::Pane { id, web: Some(web), .. } => self.render_web_pane(id, web, t, window, cx),
             Node::Pane { id, agent_id, .. } => {
                 let agent = agent_id
                     .as_ref()
@@ -626,8 +630,8 @@ impl MainScreen {
                     None => self.pane_header(a, pane_id, ctx, t, cx).into_any_element(),
                 })
                 .flex_col()
-                .child({
-                    let term = div()
+                .child(
+                    div()
                         .relative()
                         .flex_1()
                         .min_w_0()
@@ -649,11 +653,8 @@ impl MainScreen {
                                 cx,
                             ))
                             .when(!a.running, |d| d.child(stopped_overlay(a, t, cx)))
-                        })
-                        .into_any_element();
-                    // The agent's Preview beside (or below) it (preview.rs).
-                    self.with_preview(a, term, t, cx)
-                })
+                        }),
+                )
                 .into_any_element(),
             None => self.empty_pane(pane_id, ctx, t, cx).into_any_element(),
         };
@@ -1158,8 +1159,8 @@ impl MainScreen {
     }
 
     /// "Preview" (docs/spec/terminals.md §4): the latest local dev-server
-    /// address the agent printed, opened beside its terminal (preview.rs);
-    /// again, it closes. With more than one address, the chevron lists them
+    /// address the agent printed, opened in a web tile right of its
+    /// terminal (web_tile.rs); again, that tile closes. With more than one address, the chevron lists them
     /// (most recent first) and offers the browser.
     fn preview_chip(&self, a: &AgentView, pane_id: &str, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let urls = super::model::previews(a);
@@ -1197,7 +1198,7 @@ impl MainScreen {
                     .tooltip(tooltip(if open {
                         "Close the preview".to_string()
                     } else {
-                        format!("Preview {latest} beside the terminal")
+                        format!("Preview {latest} in a tile beside the terminal")
                     }))
                     .on_mouse_down(MouseButton::Left, keep)
                     .on_click(cx.listener(move |this, _, window, cx| {

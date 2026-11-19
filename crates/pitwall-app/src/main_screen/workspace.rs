@@ -19,7 +19,9 @@ use super::tree::{
 };
 
 mod files;
+mod web;
 pub use files::{keep_files_tiles, whereabouts, DockedFiles, FilesSpot, Whereabouts, EDGE_SHARE, FILES_SHARE};
+pub use web::{new_id as new_web_id, WebTile, WEB_SHARE};
 
 pub const MAIN: &str = "main";
 pub const ALL_SPACE: &str = "all";
@@ -295,12 +297,6 @@ pub struct UiState {
     /// window opens.
     #[serde(default = "yes", deserialize_with = "not_false")]
     pub right_open: bool,
-    /// A pane's Preview sits below its terminal instead of beside it.
-    #[serde(default, deserialize_with = "strict_true")]
-    pub preview_below: bool,
-    /// Beside it: on the terminal's left instead of its right.
-    #[serde(default, deserialize_with = "strict_true")]
-    pub preview_left: bool,
     /// A file viewer window's place and size (logical x, y, width,
     /// height), as last left.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
@@ -308,6 +304,9 @@ pub struct UiState {
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
+    /// Web tiles: each one's page (by tile id, the `web` of its pane).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_tiles: BTreeMap<String, WebTile>,
     /// The agent kind New agent last started (picked first next time).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub new_agent_kind: Option<String>,
@@ -372,10 +371,9 @@ impl Default for UiState {
             sidebar_width: None,
             access_hint_shown: false,
             right_open: true,
-            preview_below: false,
-            preview_left: false,
             files_window: None,
             docked_files: BTreeMap::new(),
+            web_tiles: BTreeMap::new(),
             new_agent_kind: None,
             new_agent_accounts: BTreeMap::new(),
             rest: serde_json::Map::new(),
@@ -432,6 +430,10 @@ impl UiState {
         // Retired: the share of a file viewer split inside a terminal's
         // tile (files now take a layout slot of their own: `files.rs`).
         s.rest.remove("filesBeside");
+        // Retired: where an agent's Preview sat inside its terminal's tile
+        // (a Preview is a web tile of the layout now: `web.rs`).
+        s.rest.remove("previewBelow");
+        s.rest.remove("previewLeft");
         s.spaces = spaces.into_iter().map(Space::tidy).collect();
         if !s.spaces.iter().any(|sp| sp.id == ALL_SPACE) {
             s.spaces.insert(0, UiState::default().spaces.remove(0));
@@ -550,8 +552,8 @@ impl UiState {
                 Some(p) if sp.layout.find_pane(p).is_some() => p.to_string(),
                 _ => empty.map(|p| p.id).unwrap_or(reference),
             };
-            // Never over a files tile: beside it.
-            if sp.layout.find_pane(&target).is_some_and(|p| p.files.is_some()) {
+            // Never over a files or web tile: beside it.
+            if sp.layout.find_pane(&target).is_some_and(|p| p.content().is_some()) {
                 let (t, id) = split_pane(&sp.layout, &target, Side::Left, Some(agent));
                 sp.layout = t;
                 sp.focused_pane_id = Some(id);
@@ -834,6 +836,8 @@ impl UiState {
         for o in owners.into_iter().filter(|o| !alive.contains(o)) {
             next = next.undock_files(&o).forget_files(&o);
         }
+        // Previews of agents that are gone; web tiles out of the layout.
+        next = next.prune_web(alive);
         next.tile_font.retain(|a, _| alive.contains(a));
         for sp in &mut next.spaces {
             sp.members.retain(|m| alive.contains(m));
@@ -894,7 +898,7 @@ impl UiState {
         else {
             return self.drop_on_space(space_id, agent, fit);
         };
-        if target.agent_id.as_deref() == Some(agent) || (target.files.is_some() && zone.is_none()) {
+        if target.agent_id.as_deref() == Some(agent) || (target.content().is_some() && zone.is_none()) {
             return (self, DropOutcome::Noop, Some(pane_id.to_string()));
         }
         if zone.is_none() || target.is_empty() {

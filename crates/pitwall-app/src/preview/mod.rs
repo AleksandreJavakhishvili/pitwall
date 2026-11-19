@@ -1,8 +1,8 @@
-//! The agent pane's Preview (docs/spec/terminals.md §4): the dev server its
-//! terminal printed, in a native web view ([`crate::webview`]) beside the
-//! terminal. The pieces here don't need a window and are tested with a fake
-//! view; the pane, its toolbar and the wiring live in the main screen
-//! (`main_screen/preview.rs`).
+//! Web tiles' pieces that need no window (docs/spec/web.md), tested with a
+//! fake view: a page the user opened, or an agent's Preview of the dev
+//! server its terminal printed (docs/spec/terminals.md §4), each in a native
+//! web view ([`crate::webview`]) in a tile of the layout. The tile, its bar
+//! and the wiring live in the main screen (`main_screen/web_tile.rs`).
 //!
 //! - [`Follow`]: the page follows the terminal. A new address (the server
 //!   came back on another port) is navigated to, the same one printed again
@@ -10,8 +10,9 @@
 //! - [`Stage`]: where the native view is and whether it shows. It sits
 //!   over GPUI's drawing, so after every frame it takes its element's
 //!   bounds, hides when the element wasn't drawn, and while anything drawn
-//!   after it (a menu, a dialog, the palette, a tooltip) covers it, steps
-//!   aside for a snapshot of itself drawn in its place ([`covered`]).
+//!   after it (a menu, a dialog, the palette, a tooltip) covers it, or a
+//!   tile is being dragged, steps aside for a snapshot of itself drawn in
+//!   its place ([`placed`], [`covering`]).
 //! - [`surface`]: the element that marks the view's place in the pane.
 
 use std::cell::Cell;
@@ -26,8 +27,9 @@ use gpui::{
 
 use crate::webview::{Options, Snapshot, WebView};
 
-/// A view hidden this long (its pane not shown, its server stopped) is
-/// dropped; its address is kept and it comes back when shown.
+/// An agent's Preview hidden this long (its tile not shown, its server
+/// stopped) lets its view go; its address is kept and it comes back when
+/// shown. A web page the user opened keeps its view while its tile exists.
 pub const DROP_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Phone width: the page laid out as on a phone, centred.
@@ -234,6 +236,14 @@ pub fn placed(
     placed_by(hitboxes, |h| h.id == id, |h| h.bounds.intersect(&h.content_mask.bounds), tooltip)
 }
 
+/// Whether a view placed with [`placed`] gives way to its snapshot this
+/// frame: something drawn after it overlaps it (`overlay`), or a tile
+/// (or an agent, or files) is being dragged over the window (`dragging`:
+/// the drop zones and the drag's ghost are drawn by GPUI, under the view).
+pub fn covering(overlay: bool, dragging: bool) -> bool {
+    overlay || dragging
+}
+
 /// [`placed`] over any list in paint order.
 pub fn placed_by<T>(
     items: &[T],
@@ -291,7 +301,22 @@ pub fn to_image(s: Snapshot) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new([image::Frame::new(buffer)])))
 }
 
-/// The project's own cookies and storage: `<data>/webview/<name>-<hash>`.
+/// The profile web pages use until profiles can be chosen.
+pub const DEFAULT_PROFILE: &str = "default";
+
+/// A web-page profile's cookies and storage: `<data>/webview/profile-<id>`
+/// (one profile, [`DEFAULT_PROFILE`], for now; never the system browser's).
+pub fn profile_dir(root: &Path, profile: &str) -> PathBuf {
+    let id: String = profile
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .take(40)
+        .collect();
+    root.join("webview").join(format!("profile-{id}"))
+}
+
+/// An agent's Preview: the project's own cookies and storage,
+/// `<data>/webview/<name>-<hash>`.
 pub fn data_dir(root: &Path, project: &str) -> PathBuf {
     let name: String = Path::new(project)
         .file_name()

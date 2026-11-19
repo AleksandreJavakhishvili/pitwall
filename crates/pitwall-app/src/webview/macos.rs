@@ -5,14 +5,23 @@
 //!   the content view's (bottom-left unless flipped); it keeps its distance
 //!   from the top while the window resizes, until the next frame places it.
 //! - Storage: `dataStoreForIdentifier:` (macOS 14+) with an identifier made
-//!   from the project's data folder, so each project keeps its own cookies
-//!   across restarts (WebKit keeps the files under its own folder; it takes
-//!   no path). Older macOS: the app's default persistent store, shared.
+//!   from the view's data folder (a project's for a Preview, a profile's
+//!   for a web page), so each keeps its own cookies across restarts (WebKit
+//!   keeps the files in its own folder for the app,
+//!   `~/Library/WebKit/<app>/WebsiteDataStore/<id>`; it takes no path).
+//!   Older macOS: the app's default persistent store, shared by all views
+//!   (still the app's own, never Safari's).
 //! - Events: key-value observing of `URL`, `title`, `loading`, `canGoBack`
 //!   and `canGoForward` (link clicks, redirects and history pushes alike);
-//!   the navigation delegate for failed loads and for keeping the page on
-//!   local dev servers ([`super::allowed`]): another main-frame address, or
-//!   a new window, opens in the browser.
+//!   the navigation delegate for failed loads and for keeping the page
+//!   where its [`Policy`] lets it go ([`super::stays`]): an agent's Preview
+//!   on local dev servers (another web address opens in the browser), a
+//!   web page on http(s); a new window (`target=_blank`, `window.open`)
+//!   loads in the same view; other schemes aren't opened.
+//! - Untrusted pages: no script bridge (no message handlers, no user
+//!   scripts), no URL scheme handlers; camera and microphone requests are
+//!   denied (the UI delegate); a response it can't show (a download) is
+//!   cancelled and reported ([`WebEvent::Download`]).
 //! - Keys: the view's subclass sends ⌘-keys other than the editing ones as
 //!   [`WebEvent::Shortcut`] (GPUI's view sees most of them first, as a key
 //!   equivalent, and handles Pitwall's there), Esc too (after the page), and
@@ -39,12 +48,14 @@ use objc2_foundation::{
     NSUUID,
 };
 use objc2_web_kit::{
-    WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKWebView,
-    WKWebViewConfiguration, WKWebsiteDataStore,
+    WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKPermissionDecision,
+    WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKWindowFeatures,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use super::{Options, Snapshot, WebEvent, WebView};
+use super::{Options, Policy, Snapshot, WebEvent, WebView};
 
 type Events = Rc<dyn Fn(WebEvent)>;
 
@@ -176,6 +187,7 @@ impl PreviewView {
 
 pub struct DelegateIvars {
     events: Events,
+    policy: Policy,
 }
 
 define_class!(
@@ -198,7 +210,8 @@ define_class!(
             // SAFETY: WebKit's own objects, on the main thread.
             let (request, frame) = unsafe { (action.request(), action.targetFrame()) };
             let url = request.URL().and_then(|u| u.absoluteString()).map(|s| s.to_string()).unwrap_or_default();
-            let local = super::allowed(&url) || url == "about:blank";
+            let policy = self.ivars().policy;
+            let local = super::stays(policy, &url) || url == "about:blank" || url.starts_with("blob:");
             match frame {
                 // A sub-frame (an embed) loads what it likes.
                 // SAFETY: as above.
@@ -210,16 +223,37 @@ define_class!(
                     // SAFETY: as above.
                     unsafe { web_view.loadRequest(&request) };
                 }
-                // Somewhere else: the browser.
+                // Somewhere else: the browser (another scheme: nowhere).
                 _ => {
                     decision.call((WKNavigationActionPolicy::Cancel,));
-                    if url.starts_with("http://") || url.starts_with("https://") {
+                    if super::to_browser(policy, &url) {
                         if let Some(u) = request.URL() {
                             NSWorkspace::sharedWorkspace().openURL(&u);
                         }
                     }
                 }
             }
+        }
+
+        /// A main-frame response it can't show (a download): cancelled,
+        /// and said.
+        #[unsafe(method(webView:decidePolicyForNavigationResponse:decisionHandler:))]
+        fn decide_response(
+            &self,
+            _web_view: &WKWebView,
+            response: &WKNavigationResponse,
+            decision: &block2::DynBlock<dyn Fn(WKNavigationResponsePolicy)>,
+        ) {
+            // SAFETY: WebKit's own objects, on the main thread.
+            let (main, shows) = unsafe { (response.isForMainFrame(), response.canShowMIMEType()) };
+            if main && !shows {
+                decision.call((WKNavigationResponsePolicy::Cancel,));
+                // SAFETY: as above.
+                let url = unsafe { response.response() }.URL().and_then(|u| u.absoluteString()).map(|s| s.to_string()).unwrap_or_default();
+                (self.ivars().events)(WebEvent::Download(url));
+                return;
+            }
+            decision.call((WKNavigationResponsePolicy::Allow,));
         }
 
         #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
@@ -230,6 +264,46 @@ define_class!(
         #[unsafe(method(webView:didFailNavigation:withError:))]
         fn failed_to_finish(&self, web_view: &WKWebView, _nav: Option<&WKNavigation>, error: &NSError) {
             self.failed(web_view, error);
+        }
+    }
+
+    unsafe impl WKUIDelegate for Delegate {
+        /// `window.open`: no new window; the address loads in this view
+        /// where the policy lets it (else as a link elsewhere would).
+        #[unsafe(method(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:))]
+        fn create_web_view(
+            &self,
+            web_view: &WKWebView,
+            _configuration: &WKWebViewConfiguration,
+            action: &WKNavigationAction,
+            _features: &WKWindowFeatures,
+        ) -> *mut WKWebView {
+            // SAFETY: WebKit's own objects, on the main thread.
+            let request = unsafe { action.request() };
+            let url = request.URL().and_then(|u| u.absoluteString()).map(|s| s.to_string()).unwrap_or_default();
+            let policy = self.ivars().policy;
+            if super::stays(policy, &url) {
+                // SAFETY: as above.
+                unsafe { web_view.loadRequest(&request) };
+            } else if super::to_browser(policy, &url) {
+                if let Some(u) = request.URL() {
+                    NSWorkspace::sharedWorkspace().openURL(&u);
+                }
+            }
+            std::ptr::null_mut()
+        }
+
+        /// Camera and microphone: denied (no prompt).
+        #[unsafe(method(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:))]
+        fn media_capture(
+            &self,
+            _web_view: &WKWebView,
+            _origin: &WKSecurityOrigin,
+            _frame: &WKFrameInfo,
+            _kind: WKMediaCaptureType,
+            decision: &block2::DynBlock<dyn Fn(WKPermissionDecision)>,
+        ) {
+            decision.call((WKPermissionDecision::Deny,));
         }
     }
 
@@ -361,13 +435,14 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
         view
     };
     let delegate: Retained<Delegate> = {
-        let this = Delegate::alloc(mtm).set_ivars(DelegateIvars { events });
+        let this = Delegate::alloc(mtm).set_ivars(DelegateIvars { events, policy: opts.policy });
         // SAFETY: NSObject's `init`.
         unsafe { msg_send![super(this), init] }
     };
     // SAFETY: WKWebView's setters and NSView's hierarchy, on the main thread.
     unsafe {
         view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        view.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         if responds(&view, sel!(setInspectable:)) {
             view.setInspectable(true);
         }
@@ -411,6 +486,11 @@ impl WebView for MacWebView {
     fn reload(&mut self) {
         // SAFETY: as above.
         unsafe { self.wk().reload() };
+    }
+
+    fn stop(&mut self) {
+        // SAFETY: as above.
+        unsafe { self.wk().stopLoading() };
     }
 
     fn back(&mut self) {
@@ -522,6 +602,7 @@ impl Drop for MacWebView {
                 let _: () = msg_send![&*self.view, removeObserver: &*self.delegate, forKeyPath: &*NSString::from_str(key)];
             }
             self.view.setNavigationDelegate(None);
+            self.view.setUIDelegate(None);
             self.view.stopLoading();
         }
         self.view.removeFromSuperview();
@@ -625,6 +706,7 @@ mod tests {
     fn the_classes_register() {
         assert_eq!(PreviewView::class().name().to_str().unwrap(), "PitwallPreviewWebView");
         assert!(Delegate::class().conforms_to(<dyn WKNavigationDelegate as objc2::ProtocolType>::protocol().unwrap()));
+        assert!(Delegate::class().conforms_to(<dyn WKUIDelegate as objc2::ProtocolType>::protocol().unwrap()));
     }
 
     /// A picture becomes RGBA bytes (no window, no WebKit: an empty image).

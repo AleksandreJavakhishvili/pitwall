@@ -18,7 +18,7 @@ use std::rc::Rc;
 use gpui::{canvas, div, prelude::*, px, AnyElement, App, Bounds, Context, DragMoveEvent, FontWeight, Pixels, Point, SharedString, Window};
 
 use super::topbar::AgentDrag;
-use super::tree::{self, Side};
+use super::tree::{self, Content, Side};
 use super::workspace::FilesSpot;
 use super::MainScreen;
 use crate::theme::Theme;
@@ -28,8 +28,8 @@ use crate::theme::Theme;
 pub enum Kind {
     Agent,
     Empty,
-    /// Whose files.
-    Files(String),
+    /// A files or web tile, and what it shows.
+    Tile(Content),
 }
 
 /// A tile's box and what it shows.
@@ -61,10 +61,11 @@ impl Boxes {
     }
 }
 
-/// Where files dragged over this window land now.
+/// Where files (or a web tile) dragged over this window land now.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilesHint {
-    pub owner: String,
+    /// What is dragged.
+    pub what: Content,
     pub spot: FilesSpot,
     /// Where they'd be, in the words the tile's place is said in once
     /// there ("Files · above api's terminal").
@@ -97,8 +98,9 @@ pub fn side_band(at: Point<Pixels>, b: Bounds<Pixels>) -> Option<Side> {
         .map(|(side, _, _)| side)
 }
 
-/// Where files of agent `owner` dropped at `at` land: see the module.
-pub fn zone_at(at: Point<Pixels>, area: Bounds<Pixels>, panes: &[PaneBox], owner: &str) -> Option<FilesSpot> {
+/// Where `what` (an agent's files, a web tile) dropped at `at` lands: see
+/// the module.
+pub fn zone_at(at: Point<Pixels>, area: Bounds<Pixels>, panes: &[PaneBox], what: &Content) -> Option<FilesSpot> {
     if !area.contains(&at) {
         return None;
     }
@@ -113,10 +115,10 @@ pub fn zone_at(at: Point<Pixels>, area: Bounds<Pixels>, panes: &[PaneBox], owner
         return Some(FilesSpot::Edge(side));
     }
     let (id, b, kind) = panes.iter().find(|(_, b, _)| b.contains(&at))?;
-    // (Its own files tile here: another's can swap places with it.)
-    let own_here = panes.iter().any(|(_, _, k)| matches!(k, Kind::Files(o) if o == owner));
+    // (Its own tile here: another files or web tile can swap with it.)
+    let own_here = panes.iter().any(|(_, _, k)| matches!(k, Kind::Tile(c) if c == what));
     match kind {
-        Kind::Files(o) if o == owner => None,
+        Kind::Tile(c) if c == what => None,
         Kind::Empty => Some(FilesSpot::Take(id.clone())),
         _ => match side_band(at, *b) {
             Some(side) => Some(FilesSpot::Tile { pane: id.clone(), side }),
@@ -131,17 +133,22 @@ impl MainScreen {
     /// shows where they'd land and says so (with the space). `None`:
     /// nowhere here.
     pub fn files_hover(&mut self, owner: &str, at: Point<Pixels>, cx: &mut Context<Self>) -> Option<(String, FilesSpot)> {
+        self.tile_hover(&Content::Files(owner.to_string()), at, cx)
+    }
+
+    /// [`MainScreen::files_hover`] for any files or web tile.
+    pub fn tile_hover(&mut self, what: &Content, at: Point<Pixels>, cx: &mut Context<Self>) -> Option<(String, FilesSpot)> {
         let space = self.active_space().map(|s| s.id.clone()).filter(|_| self.route == super::Route::Space);
         let spot = space.as_ref().and_then(|_| {
             let (area, panes) = self.files_boxes.get();
-            zone_at(at, area?, &panes, owner)
+            zone_at(at, area?, &panes, what)
         });
-        let same = self.files_hint.as_ref().is_some_and(|h| h.owner == owner && Some(&h.spot) == spot.as_ref());
+        let same = self.files_hint.as_ref().is_some_and(|h| h.what == *what && Some(&h.spot) == spot.as_ref());
         if same {
             return Some((space?, spot?));
         }
         let hint = match (&space, &spot) {
-            (Some(sp), Some(spot)) => Some(FilesHint { owner: owner.to_string(), spot: spot.clone(), label: self.landing_words(sp, owner, spot, cx) }),
+            (Some(sp), Some(spot)) => Some(FilesHint { what: what.clone(), spot: spot.clone(), label: self.landing_words(sp, what, spot, cx) }),
             _ => None,
         };
         if self.files_hint != hint {
@@ -154,25 +161,30 @@ impl MainScreen {
     /// Where agent `owner`'s files dropped at `spot` of space `space` would
     /// be, said as the tile's place is said once there (the same layout
     /// change, then [`whereabouts`](super::workspace::whereabouts)).
-    fn landing_words(&self, space: &str, owner: &str, spot: &FilesSpot, cx: &App) -> String {
+    fn landing_words(&self, space: &str, what: &Content, spot: &FilesSpot, cx: &App) -> String {
         let names: Vec<(String, String)> = self.agents(cx).iter().map(|a| (a.id.clone(), a.name.clone())).collect();
         let name = |id: &str| names.iter().find(|(i, _)| i == id).map_or_else(|| id.to_string(), |(_, n)| n.clone());
+        let (noun, verb) = match what {
+            Content::Files(_) => ("Files", ""),
+            Content::Web(_) => ("Web page", "s"),
+        };
         // In a tile's place: what leaves it, said plainly.
         if let FilesSpot::Replace(pane) = spot {
             match self.ui.space(space).and_then(|sp| sp.layout.find_pane(pane)) {
-                Some(p) if p.files.is_some() => return format!("Files swap places with {}'s files", name(p.files.as_deref().unwrap_or_default())),
-                Some(p) if p.agent_id.is_some() => return format!("Files replace {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
+                Some(p) if p.files.is_some() => return format!("{noun} swap{verb} places with {}'s files", name(p.files.as_deref().unwrap_or_default())),
+                Some(p) if p.web.is_some() => return format!("{noun} swap{verb} places with the web page"),
+                Some(p) if p.agent_id.is_some() => return format!("{noun} replace{verb} {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
                 _ => {}
             }
         }
-        let (next, _) = self.ui.clone().dock_files(space, owner, spot, super::workspace::FILES_SHARE, self.fit_for(space));
-        let Some((sp, pane)) = next.files_tile(owner) else { return "Files".into() };
-        let Some(layout) = next.space(&sp).map(|s| s.layout.clone()) else { return "Files".into() };
+        let (next, _) = self.ui.clone().dock(space, what, spot, super::workspace::FILES_SHARE, self.fit_for(space));
+        let Some((sp, pane)) = next.tile_of(what) else { return noun.into() };
+        let Some(layout) = next.space(&sp).map(|s| s.layout.clone()) else { return noun.into() };
         let anchor = match spot {
-            FilesSpot::Tile { pane, .. } => layout.leaves().into_iter().find(|p| p.id == *pane && p.files.is_none()).and_then(|p| p.agent_id),
+            FilesSpot::Tile { pane, .. } => layout.leaves().into_iter().find(|p| p.id == *pane && p.content().is_none()).and_then(|p| p.agent_id),
             _ => None,
         };
-        format!("Files · {}", super::workspace::whereabouts(&layout, &pane, anchor.as_deref()).words(&name))
+        format!("{noun} · {}", super::workspace::whereabouts(&layout, &pane, anchor.as_deref()).words(&name))
     }
 
     /// No files dragged over this window (any more).
@@ -183,6 +195,12 @@ impl MainScreen {
     }
 
     /// Where files would land now (tests, debug).
+    /// The main area as the last frame drew it.
+    #[cfg(test)]
+    pub fn files_boxes_area(&self) -> Option<Bounds<Pixels>> {
+        self.files_boxes.get().0
+    }
+
     pub fn files_hint(&self) -> Option<&FilesHint> {
         self.files_hint.as_ref()
     }
@@ -233,8 +251,6 @@ impl MainScreen {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = crate::explorer::dock::view_for(owner, window, cx);
-        let hint = self.drop_hint.as_ref().filter(|(p, _)| p == pane).and_then(|(_, z)| *z);
-        let (move_id, drop_id) = (pane.to_string(), pane.to_string());
         let body: AnyElement = match view {
             Some(v) => {
                 // Its agent was removed: kept for unsaved edits, says so.
@@ -268,12 +284,25 @@ impl MainScreen {
                     .into_any_element()
             }
         };
+        self.tile_shell(pane, Content::Files(owner.to_string()), format!("files-tile-{owner}"), body, t, cx)
+    }
+
+    /// A files or web tile around `body`: its box (for [`zone_at`]), an
+    /// agent dropped on a side splits it, and where dragged tiles land.
+    pub(super) fn tile_shell(
+        &mut self,
+        pane: &str,
+        what: Content,
+        selector: String,
+        body: AnyElement,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let hint = self.drop_hint.as_ref().filter(|(p, _)| p == pane).and_then(|(_, z)| *z);
+        let (move_id, drop_id) = (pane.to_string(), pane.to_string());
         div()
             .id(SharedString::from(format!("pane-{pane}")))
-            .debug_selector({
-                let o = owner.to_string();
-                move || format!("files-tile-{o}")
-            })
+            .debug_selector(move || selector.clone())
             .relative()
             .flex_1()
             .min_w_0()
@@ -285,8 +314,8 @@ impl MainScreen {
             .bg(t.bg)
             .border_1()
             .border_color(if t.is_glass() { t.g.line_strong } else { t.line })
-            .child(self.files_measure(pane, Kind::Files(owner.to_string())))
-            // An agent dragged here: on a side only (the files stay).
+            .child(self.files_measure(pane, Kind::Tile(what)))
+            // An agent dragged here: on a side only (the tile stays).
             .on_drag_move::<AgentDrag>(cx.listener(move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {
                 let b = e.bounds;
                 let was = this.drop_hint.as_ref().is_some_and(|(p, _)| *p == move_id);
@@ -385,9 +414,9 @@ mod tests {
         let panes = vec![
             ("a".to_string(), b(0., 0., 500., 600.), Kind::Agent),
             ("e".to_string(), b(500., 0., 500., 300.), Kind::Empty),
-            ("f".to_string(), b(500., 300., 500., 300.), Kind::Files("x".into())),
+            ("f".to_string(), b(500., 300., 500., 300.), Kind::Tile(files("x"))),
         ];
-        let at = |x, y, owner| zone_at(point(px(x), px(y)), area, &panes, owner);
+        let at = |x, y, owner| zone_at(point(px(x), px(y)), area, &panes, &files(owner));
         // The area's edges: a column or row of its own.
         assert_eq!(at(5., 300., "x"), Some(FilesSpot::Edge(Side::Left)));
         assert_eq!(at(995., 100., "x"), Some(FilesSpot::Edge(Side::Right)));
@@ -408,10 +437,26 @@ mod tests {
         assert_eq!(at(540., 450., "y"), Some(FilesSpot::Tile { pane: "f".into(), side: Side::Left }));
         assert_eq!(at(750., 450., "y"), None);
         let mut with_y = panes.clone();
-        with_y[1].2 = Kind::Files("y".into());
-        assert_eq!(zone_at(point(px(750.), px(450.)), area, &with_y, "y"), Some(FilesSpot::Replace("f".into())));
+        with_y[1].2 = Kind::Tile(files("y"));
+        assert_eq!(zone_at(point(px(750.), px(450.)), area, &with_y, &files("y")), Some(FilesSpot::Replace("f".into())));
         // Outside the area.
         assert_eq!(at(1200., 300., "x"), None);
+        // A web tile dragged: the same places; over files, their sides,
+        // and their middle swaps when the web tile is in this space.
+        let web = Content::Web("w".into());
+        let at_web = |x, y, panes: &[PaneBox]| zone_at(point(px(x), px(y)), area, panes, &web);
+        assert_eq!(at_web(250., 300., &panes), Some(FilesSpot::Replace("a".into())));
+        assert_eq!(at_web(995., 100., &panes), Some(FilesSpot::Edge(Side::Right)));
+        assert_eq!(at_web(540., 450., &panes), Some(FilesSpot::Tile { pane: "f".into(), side: Side::Left }));
+        assert_eq!(at_web(750., 450., &panes), None);
+        let mut with_web = panes.clone();
+        with_web[1].2 = Kind::Tile(web.clone());
+        assert_eq!(at_web(750., 450., &with_web), Some(FilesSpot::Replace("f".into())));
+        assert_eq!(at_web(750., 150., &with_web), None, "over itself");
+    }
+
+    fn files(owner: &str) -> Content {
+        Content::Files(owner.into())
     }
 
     #[test]

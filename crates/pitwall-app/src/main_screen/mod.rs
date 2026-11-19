@@ -30,7 +30,6 @@ mod panel;
 mod part;
 pub mod peer_term;
 mod peers;
-mod preview;
 mod side_edge;
 mod side_list;
 mod sidebar;
@@ -38,6 +37,7 @@ mod space;
 mod strip;
 mod tile_font;
 mod topbar;
+pub mod web_tile;
 pub mod worktrees;
 pub mod wt_list;
 pub mod tree;
@@ -99,6 +99,8 @@ actions!(
         RefreshChanges,
         /// ⌘⇧N
         MoveSpaceToWindow,
+        /// ⌘L: a web page in a tile of its own (in a web tile: its address).
+        OpenWebPage,
         /// ⌘+ / ⌘− / ⌘0: the focused tile's font (Settings' when no tile).
         FontBigger,
         FontSmaller,
@@ -307,6 +309,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(p!("r"), ToggleReview, None),
         KeyBinding::new(s!("r"), RefreshChanges, None),
         KeyBinding::new(s!("n"), MoveSpaceToWindow, None),
+        KeyBinding::new(p!("l"), OpenWebPage, None),
         KeyBinding::new(p!("enter"), ToggleMaximize, None),
         KeyBinding::new(p!("="), FontBigger, None),
         KeyBinding::new(p!("+"), FontBigger, None),
@@ -532,8 +535,8 @@ pub struct MainScreen {
     _poll_elsewhere: Option<Task<()>>,
     /// The big, rarely changing pieces as cached views (part.rs).
     parts: Option<part::Parts>,
-    /// Agents' in-app previews (preview.rs).
-    previews: preview::Previews,
+    /// The window's web tiles: pages and agents' Previews (web_tile.rs).
+    webs: web_tile::Webs,
     /// Where dragged files would land (`files_tile.rs`), and the boxes
     /// the last frame drew (to find it).
     files_hint: Option<files_tile::FilesHint>,
@@ -677,7 +680,7 @@ impl MainScreen {
             elsewhere: Default::default(),
             _poll_elsewhere: None,
             parts: None,
-            previews: Default::default(),
+            webs: Default::default(),
             files_hint: None,
             files_boxes: Default::default(),
             #[cfg(test)]
@@ -835,7 +838,7 @@ impl MainScreen {
         self.follow_selected(cx);
         self.changes_follow(cx);
         self.wt_follow(cx);
-        self.previews_follow(cx);
+        self.webs_follow(cx);
         cx.notify();
     }
 
@@ -2127,6 +2130,7 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &FontBigger, _, cx| this.step_font(Some(1.), cx)))
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
             .on_action(cx.listener(|this, _: &FontReset, _, cx| this.step_font(None, cx)))
+            .on_action(cx.listener(|this, _: &OpenWebPage, window, cx| this.open_web_page(window, cx)))
             .on_action(cx.listener(|this, _: &MoveSpaceToWindow, _, cx| {
                 if let Some(id) = this.active_space().map(|s| s.id.clone()) {
                     this.move_space(id, cx);
@@ -2143,8 +2147,6 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &SelectAgent9, w, cx| this.select_index(8, w, cx)))
             .on_mouse_move(cx.listener(Self::divider_move))
             .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::divider_up))
-            .on_mouse_move(cx.listener(Self::preview_drag_move))
-            .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::preview_drag_up))
             .relative()
             .size_full()
             .flex()
@@ -2186,7 +2188,7 @@ pub fn window_label() -> SharedString {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod preview_tests;
+mod web_tests;
 #[cfg(test)]
 mod side_edge_tests;
 

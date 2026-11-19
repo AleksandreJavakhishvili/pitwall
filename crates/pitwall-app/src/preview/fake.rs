@@ -64,6 +64,9 @@ impl WebView for Fake {
     fn reload(&mut self) {
         self.note("reload".into());
     }
+    fn stop(&mut self) {
+        self.note("stop".into());
+    }
     fn back(&mut self) {
         self.note("back".into());
     }
