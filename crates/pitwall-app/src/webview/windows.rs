@@ -28,7 +28,8 @@ use webview2_com::{
     CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
     DocumentTitleChangedEventHandler, FocusChangedEventHandler, HistoryChangedEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, SourceChangedEventHandler, TrySuspendCompletedHandler,
+    NewWindowRequestedEventHandler, PermissionRequestedEventHandler, SourceChangedEventHandler,
+    TrySuspendCompletedHandler,
 };
 use windows::core::{w, Interface, BOOL, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -44,7 +45,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_NCDESTROY, WM_RBUTTONDOWN, WM_XBUTTONDOWN, WNDPROC,
 };
 
-use super::{Options, Snapshot, WebEvent, WebView};
+use super::{Options, Policy, Snapshot, WebEvent, WebView};
 
 pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, String> {
     let parent = match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
@@ -64,6 +65,7 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
         frame: RefCell::new(logic::Frame::default()),
         nav: RefCell::new(None),
         env: RefCell::new(None),
+        policy: opts.policy,
     });
     let weak = Rc::downgrade(&shared);
     environment(
@@ -203,6 +205,8 @@ struct Shared {
     nav: RefCell<Option<(u64, String)>>,
     /// Keeps the shared environment alive.
     env: RefCell<Option<Rc<Environment>>>,
+    /// Where its pages may go.
+    policy: Policy,
 }
 
 enum Engine {
@@ -387,9 +391,19 @@ impl Shared {
                 &mut token,
             )?;
             webview.add_NewWindowRequested(
-                &NewWindowRequestedEventHandler::create(on(&weak, |_, webview, args| {
+                &NewWindowRequestedEventHandler::create(on(&weak, |s, webview, args| {
                     if let Some(args) = args {
-                        new_window(&webview, &args);
+                        new_window(s.policy, &webview, &args);
+                    }
+                })),
+                &mut token,
+            )?;
+            // Camera, microphone, location, notifications…: denied, no
+            // prompt.
+            webview.add_PermissionRequested(
+                &PermissionRequestedEventHandler::create(on(&weak, |_, _: ICoreWebView2, args: Option<ICoreWebView2PermissionRequestedEventArgs>| {
+                    if let Some(args) = args {
+                        let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY);
                     }
                 })),
                 &mut token,
@@ -410,15 +424,15 @@ impl Shared {
         Ok(())
     }
 
-    /// A main-frame navigation is starting: only local dev servers stay in
-    /// the preview, the rest goes to the browser.
+    /// A main-frame navigation is starting: what the policy keeps stays
+    /// ([`super::stays`]), another web address goes to the browser.
     fn starting(&self, args: &ICoreWebView2NavigationStartingEventArgs) {
         let uri = string(|p| unsafe { args.Uri(p) });
-        if !super::allowed(&uri) {
+        if !super::stays(self.policy, &uri) {
             unsafe {
                 let _ = args.SetCancel(true);
             }
-            if logic::browsable(&uri) {
+            if super::to_browser(self.policy, &uri) && logic::browsable(&uri) {
                 open_in_browser(&uri);
             }
             return;
@@ -572,18 +586,18 @@ fn on<S: 'static, A: 'static>(
     })
 }
 
-/// `window.open` and target=_blank links: local pages in this view, others
-/// in the browser; never a new window.
-fn new_window(webview: &ICoreWebView2, args: &ICoreWebView2NewWindowRequestedEventArgs) {
+/// `window.open` and target=_blank links: in this view where the policy
+/// keeps them, else web addresses in the browser; never a new window.
+fn new_window(policy: Policy, webview: &ICoreWebView2, args: &ICoreWebView2NewWindowRequestedEventArgs) {
     let uri = string(|p| unsafe { args.Uri(p) });
     unsafe {
         let _ = args.SetHandled(true);
-        if super::allowed(&uri) {
+        if super::stays(policy, &uri) {
             let _ = webview.Navigate(&HSTRING::from(uri.as_str()));
             return;
         }
     }
-    if logic::browsable(&uri) {
+    if super::to_browser(policy, &uri) && logic::browsable(&uri) {
         open_in_browser(&uri);
     }
 }
@@ -619,6 +633,12 @@ impl WebView for View {
     fn reload(&mut self) {
         self.act(|p| p.history(), |r| unsafe {
             let _ = r.webview.Reload();
+        });
+    }
+
+    fn stop(&mut self) {
+        self.act(|_| {}, |r| unsafe {
+            let _ = r.webview.Stop();
         });
     }
 

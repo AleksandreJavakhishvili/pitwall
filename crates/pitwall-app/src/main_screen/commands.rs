@@ -73,6 +73,11 @@ impl MainScreen {
         self.open_terminal_dialog(window, cx);
     }
 
+    /// ⌘L: a web page in a tile of its own.
+    pub fn cmd_open_web_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_web_page(window, cx);
+    }
+
     /// ⌘J
     pub fn cmd_next_blocked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.next_blocked(window, cx);

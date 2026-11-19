@@ -34,7 +34,7 @@ use std::rc::Rc;
 use gpui::{AsyncApp, Bounds, Keystroke, Modifiers, Pixels, Window};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use super::{allowed, Options, Snapshot, WebEvent, WebView};
+use super::{stays, to_browser, Options, Policy, Snapshot, WebEvent, WebView};
 use ffi::{api, Api, GError, P};
 
 const WAYLAND: &str = "The in-app preview isn't available on Wayland yet";
@@ -208,6 +208,8 @@ struct Inner {
     gdk_display: P,
     xid: c_ulong,
     parent: c_ulong,
+    /// Where its pages may go.
+    policy: Policy,
 }
 
 impl Inner {
@@ -311,7 +313,7 @@ unsafe extern "C" fn on_load_failed(_view: P, _event: c_int, uri: *const c_char,
 unsafe extern "C" fn on_uri(_view: P, _pspec: P, data: P) {
     let Some(i) = (unsafe { inner(data) }) else { return };
     let uri = i.uri();
-    if allowed(&uri) {
+    if stays(i.policy, &uri) {
         i.emit(WebEvent::Url(uri));
     }
 }
@@ -405,19 +407,21 @@ const NEW_WINDOW_ACTION: c_int = 1;
 const RESPONSE: c_int = 2;
 const LINK_CLICKED: c_int = 0;
 
-/// A URL the preview hands to the browser: anything but a local dev server,
-/// except the page's own blank, data and blob documents.
-fn leaves(uri: &str) -> bool {
-    !allowed(uri) && !["about:", "data:", "blob:"].iter().any(|s| uri.starts_with(s))
+/// A URL the view doesn't load ([`stays`]), except the page's own blank,
+/// data and blob documents. It opens in the browser when [`to_browser`].
+fn leaves(policy: Policy, uri: &str) -> bool {
+    !stays(policy, uri) && !["about:", "data:", "blob:"].iter().any(|s| uri.starts_with(s))
 }
 
 fn open_in_browser(uri: String) {
     PUMP.with_borrow_mut(|p| p.open.push(uri));
 }
 
-/// `decide-policy`: the preview stays on local dev servers. Clicked links
+/// `decide-policy`: the view stays where its policy lets it ([`stays`]: a
+/// Preview on local dev servers, a web page on http(s)). Clicked links
 /// elsewhere, and main-frame loads that end elsewhere (redirects, scripts),
-/// open in the browser; new windows open here if local, else there.
+/// open in the browser when they are web addresses; new windows open here
+/// when they may, else there.
 unsafe extern "C" fn on_decide_policy(view: P, decision: P, kind: c_int, data: P) -> c_int {
     let Some(i) = (unsafe { inner(data) }) else { return 0 };
     let api = i.api;
@@ -428,11 +432,11 @@ unsafe extern "C" fn on_decide_policy(view: P, decision: P, kind: c_int, data: P
                 let uri = string((api.webkit_uri_request_get_uri)((api.webkit_navigation_action_get_request)(action)));
                 if kind == NEW_WINDOW_ACTION {
                     (api.webkit_policy_decision_ignore)(decision);
-                    if allowed(&uri) {
+                    if stays(i.policy, &uri) {
                         if let Ok(c) = CString::new(uri) {
                             (api.webkit_web_view_load_uri)(view, c.as_ptr());
                         }
-                    } else if leaves(&uri) {
+                    } else if to_browser(i.policy, &uri) {
                         open_in_browser(uri);
                     }
                     return 1;
@@ -441,9 +445,11 @@ unsafe extern "C" fn on_decide_policy(view: P, decision: P, kind: c_int, data: P
                 // leaves now, before its request.
                 let clicked = (api.webkit_navigation_action_get_navigation_type)(action) == LINK_CLICKED
                     && (api.webkit_navigation_action_is_user_gesture)(action) != 0;
-                if clicked && leaves(&uri) {
+                if clicked && leaves(i.policy, &uri) {
                     (api.webkit_policy_decision_ignore)(decision);
-                    open_in_browser(uri);
+                    if to_browser(i.policy, &uri) {
+                        open_in_browser(uri);
+                    }
                     return 1;
                 }
                 0
@@ -456,7 +462,7 @@ unsafe extern "C" fn on_decide_policy(view: P, decision: P, kind: c_int, data: P
                     // Before 2.40: the main frame's load is the view's URI.
                     None => uri == i.uri(),
                 };
-                if main && (uri.starts_with("http://") || uri.starts_with("https://")) && !allowed(&uri) {
+                if main && to_browser(i.policy, &uri) {
                     (api.webkit_policy_decision_ignore)(decision);
                     open_in_browser(uri);
                     return 1;
@@ -571,6 +577,7 @@ impl Linux {
                 gdk_display,
                 xid,
                 parent,
+                policy: opts.policy,
             });
             let handlers: [(P, &CStr, *const ()); 11] = [
                 (view, c"load-changed", on_load_changed as *const ()),
@@ -616,6 +623,10 @@ impl WebView for Linux {
 
     fn reload(&mut self) {
         unsafe { (self.api.webkit_web_view_reload)(self.view) };
+    }
+
+    fn stop(&mut self) {
+        unsafe { (self.api.webkit_web_view_stop_loading)(self.view) };
     }
 
     fn back(&mut self) {

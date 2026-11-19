@@ -85,6 +85,7 @@ fn empty_query_lists_the_react_rows_in_order(cx: &mut TestAppContext) {
                 "new",
                 "term-here",
                 "term-choose",
+                "web-page",
                 "wall",
                 "review",
                 "window",

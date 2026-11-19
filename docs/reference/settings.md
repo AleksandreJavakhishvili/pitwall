@@ -38,6 +38,15 @@ While Pitwall isn't in front and an agent needs you, show a small floating contr
 - **Stored in:** `ui.json` → `floatingPrompts`
 - **When an agent changes it:** applies directly
 
+### `general.webPages`
+
+Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own profile, not your browser's. Agents can't see or use these pages. false: no web view is made; a Preview opens in your browser instead.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `webPages`
+- **When an agent changes it:** applies directly
+
 ### `general.cliTool`
 
 The `pitwall` command-line tool is installed (a link in a folder on PATH). true installs it; delete the link to remove it.

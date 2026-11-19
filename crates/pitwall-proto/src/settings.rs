@@ -187,6 +187,16 @@ pub const SETTINGS: &[Setting] = &[
         only_on: false,
     },
     Setting {
+        key: "general.webPages",
+        kind: Kind::Bool,
+        default: DefaultValue::Bool(true),
+        description: "Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own profile, not your browser's. Agents can't see or use these pages. false: no web view is made; a Preview opens in your browser instead.",
+        page: Page::General,
+        sensitivity: Sensitivity::Safe,
+        stored: Stored::Ui { key: "webPages", invert: false },
+        only_on: false,
+    },
+    Setting {
         key: "general.cliTool",
         kind: Kind::Bool,
         default: DefaultValue::Bool(false),

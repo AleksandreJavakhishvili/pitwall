@@ -195,6 +195,17 @@ pub fn commands(pc: &PaletteContext, _: &App) -> Vec<Command> {
         .keys("⌘⇧T")
         .rank(rank::TERMINALS),
     );
+    out.push(
+        Command::new(
+            "web-page",
+            "Open web page…",
+            "open web page browser url address site tile localhost",
+            on_screen(pc, |s, w, cx| s.cmd_open_web_page(w, cx)),
+        )
+        .icon("browser")
+        .keys("⌘L")
+        .rank(rank::TERMINALS),
+    );
     for (path, display) in &st.projects {
         let p = path.clone();
         out.push(

@@ -1,7 +1,8 @@
 //! The tiling model of a space: a tree of row/col splits whose leaves are
 //! panes, each showing at most one agent (a port of `src/layout/tree.ts`),
 //! or an agent's files (a files tile: `files`, the agent whose file viewer
-//! it shows; one per agent across every space).
+//! it shows; one per agent across every space), or a web page (a web tile:
+//! `web`, the tile's id in `ui.json` `webTiles`, which holds its address).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -27,7 +28,7 @@ pub enum Side {
     Bottom,
 }
 
-/// A node of the layout tree (`{type:"pane",id,agentId,files?}` /
+/// A node of the layout tree (`{type:"pane",id,agentId,files?,web?}` /
 /// `{type:"split",id,dir,children,sizes}` in `ui.json`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -40,6 +41,9 @@ pub enum Node {
         /// then).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         files: Option<String>,
+        /// A web tile: its id (`UiState::web_tiles` has its page).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        web: Option<String>,
     },
     Split {
         id: String,
@@ -57,13 +61,33 @@ pub struct Pane {
     pub agent_id: Option<String>,
     /// A files tile: whose files.
     pub files: Option<String>,
+    /// A web tile: its id.
+    pub web: Option<String>,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none()
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none()
     }
+
+    /// What a tile that isn't a terminal shows (a files or web tile).
+    pub fn content(&self) -> Option<Content> {
+        match (&self.files, &self.web) {
+            (Some(o), _) => Some(Content::Files(o.clone())),
+            (None, Some(w)) => Some(Content::Web(w.clone())),
+            _ => None,
+        }
+    }
+}
+
+/// What a tile that isn't a terminal shows: an agent's files (one tile per
+/// agent) or a web page (one tile per id). Each is in at most one tile
+/// across every space.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Content {
+    Files(String),
+    Web(String),
 }
 
 /// Fixed tilings ("3" is 1 big + 2 stacked; "CxR" is C columns × R rows) and
@@ -186,16 +210,47 @@ impl Node {
             id: new_id("pane"),
             agent_id,
             files: None,
+            web: None,
         }
     }
 
     /// A files tile for agent `owner`'s files.
     pub fn files_pane(owner: &str) -> Node {
-        Node::Pane {
-            id: new_id("pane"),
-            agent_id: None,
-            files: Some(owner.to_string()),
+        Node::content_pane(&Content::Files(owner.to_string()))
+    }
+
+    /// A tile showing `c`.
+    pub fn content_pane(c: &Content) -> Node {
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None }.showing(c)
+    }
+
+    /// This pane showing `c` instead (its id kept); a split is unchanged.
+    pub fn showing(self, c: &Content) -> Node {
+        match self {
+            Node::Pane { id, .. } => {
+                let (files, web) = match c {
+                    Content::Files(o) => (Some(o.clone()), None),
+                    Content::Web(w) => (None, Some(w.clone())),
+                };
+                Node::Pane { id, agent_id: None, files, web }
+            }
+            n => n,
         }
+    }
+
+    /// The tile showing `c`, if there is one.
+    pub fn find_content(&self, c: &Content) -> Option<Pane> {
+        self.leaves().into_iter().find(|p| p.content().as_ref() == Some(c))
+    }
+
+    /// What the files and web tiles show, in reading order.
+    pub fn contents(&self) -> Vec<Content> {
+        self.leaves().into_iter().filter_map(|p| p.content()).collect()
+    }
+
+    /// The web tiles' ids, in reading order.
+    pub fn web_ids(&self) -> Vec<String> {
+        self.leaves().into_iter().filter_map(|p| p.web).collect()
     }
 
     /// The files tile of agent `owner`, if there is one.
@@ -223,10 +278,11 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
+                web: web.clone(),
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -263,11 +319,13 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files } => {
+            Node::Pane { id, agent_id, files, web } => {
                 let agent_id = f(id, agent_id);
-                // An agent put in a files tile takes it.
-                let files = if agent_id.is_some() { None } else { files.clone() };
-                Node::Pane { id: id.clone(), agent_id, files }
+                // An agent put in a files or web tile takes it.
+                let taken = agent_id.is_some();
+                let files = if taken { None } else { files.clone() };
+                let web = if taken { None } else { web.clone() };
+                Node::Pane { id: id.clone(), agent_id, files, web }
             }
             Node::Split {
                 id,
@@ -715,7 +773,8 @@ pub fn available_presets(area: Option<(f64, f64)>, min: MinSize) -> Vec<Preset> 
     }
 }
 
-/// The smallest a files tile is drawn (a tree or a tab still readable).
+/// The smallest a files or web tile is drawn (a tree, a tab or a page
+/// still readable).
 pub const FILES_MIN: (f64, f64) = (240.0, 160.0);
 
 /// Render-time fit: fold panes smaller than `min` (a files tile: smaller
@@ -750,8 +809,8 @@ pub fn fit_layout(
         let bad: Vec<&Pane> = ls
             .iter()
             .filter(|p| {
-                // A files tile holds less than a terminal's cells.
-                let (w, h) = if p.files.is_some() {
+                // A files or web tile holds less than a terminal's cells.
+                let (w, h) = if p.content().is_some() {
                     (min.min_w.min(FILES_MIN.0), min.min_h.min(FILES_MIN.1))
                 } else {
                     (min.min_w, min.min_h)
@@ -766,7 +825,7 @@ pub fn fit_layout(
         let victim = order
             .iter()
             .find(|p| Some(p.id.as_str()) != keep && p.is_empty())
-            .or_else(|| order.iter().find(|p| Some(p.id.as_str()) != keep && p.files.is_none()))
+            .or_else(|| order.iter().find(|p| Some(p.id.as_str()) != keep && p.content().is_none()))
             .or_else(|| order.iter().find(|p| Some(p.id.as_str()) != keep))
             .unwrap_or(&order[0]);
         let victim = (*victim).clone();

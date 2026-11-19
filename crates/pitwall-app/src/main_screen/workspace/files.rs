@@ -1,12 +1,13 @@
 //! Files tiles in a space's layout: an agent's file viewer placed among
 //! the terminal tiles, wherever the user (or the agent, asked by the user)
 //! puts it. One files tile per agent across every space: placing it again
-//! moves it. Pure, as the rest of [`super`].
+//! moves it. Web tiles (`web.rs`) are placed by the same code ([`Content`]).
+//! Pure, as the rest of [`super`].
 
 use serde::{Deserialize, Serialize};
 
 use super::{auto_spot, empty_layout, folded, Fit, UiState};
-use crate::main_screen::tree::{self, Node, Side};
+use crate::main_screen::tree::{self, Content, Node, Side};
 
 /// Where a files tile goes.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,16 +48,26 @@ pub const EDGE_SHARE: f64 = 0.35;
 impl UiState {
     /// The space and tile showing agent `owner`'s files.
     pub fn files_tile(&self, owner: &str) -> Option<(String, String)> {
+        self.tile_of(&Content::Files(owner.to_string()))
+    }
+
+    /// The space and tile showing `c`.
+    pub fn tile_of(&self, c: &Content) -> Option<(String, String)> {
         self.spaces
             .iter()
-            .find_map(|sp| sp.layout.find_files(owner).map(|p| (sp.id.clone(), p.id)))
+            .find_map(|sp| sp.layout.find_content(c).map(|p| (sp.id.clone(), p.id)))
     }
 
     /// Agent `owner`'s files tile taken out of every space (what it had
     /// open is kept until [`UiState::forget_files`]).
-    pub fn undock_files(mut self, owner: &str) -> UiState {
+    pub fn undock_files(self, owner: &str) -> UiState {
+        self.undock(&Content::Files(owner.to_string()))
+    }
+
+    /// The tile showing `c` taken out of every space.
+    pub fn undock(mut self, c: &Content) -> UiState {
         for sp in &mut self.spaces {
-            let Some(p) = sp.layout.find_files(owner) else { continue };
+            let Some(p) = sp.layout.find_content(c) else { continue };
             sp.layout = tree::remove_pane(&sp.layout, &p.id).unwrap_or_else(empty_layout);
             if sp.maximized_pane_id.as_deref() == Some(p.id.as_str()) {
                 sp.maximized_pane_id = None;
@@ -72,8 +83,14 @@ impl UiState {
     /// `None` (nothing changed) when `spot` isn't in that space or is the
     /// tile itself.
     pub fn dock_files(self, space_id: &str, owner: &str, spot: &FilesSpot, share: f64, fit: Option<Fit>) -> (UiState, Option<String>) {
+        self.dock(space_id, &Content::Files(owner.to_string()), spot, share, fit)
+    }
+
+    /// [`UiState::dock_files`] for any tile that isn't a terminal (files or
+    /// a web page): one tile per `c` across every space.
+    pub fn dock(self, space_id: &str, c: &Content, spot: &FilesSpot, share: f64, fit: Option<Fit>) -> (UiState, Option<String>) {
         let Some(sp) = self.space(space_id) else { return (self, None) };
-        let own = sp.layout.find_files(owner).map(|p| p.id);
+        let own = sp.layout.find_content(c).map(|p| p.id);
         let target_ok = match spot {
             FilesSpot::Tile { pane, .. } | FilesSpot::Take(pane) | FilesSpot::Replace(pane) => {
                 own.as_deref() != Some(pane.as_str()) && sp.layout.find_pane(pane).is_some()
@@ -90,23 +107,23 @@ impl UiState {
         }
         if let FilesSpot::Replace(pane) = spot {
             let target = sp.layout.find_pane(pane);
-            if let Some(other) = target.as_ref().and_then(|p| p.files.clone()) {
-                // Another agent's files: they swap places, when both are
-                // in this space (else nothing: theirs would have nowhere
-                // to go).
+            if let Some(other) = target.as_ref().and_then(|p| p.content()) {
+                // Another files or web tile: they swap places, when both
+                // are in this space (else nothing: the other would have
+                // nowhere to go).
                 let Some(mine) = own else { return (self, None) };
                 let theirs = pane.clone();
                 let next = self.map_space(space_id, |mut sp| {
-                    sp.layout = show_files(&sp.layout, &mine, &other);
-                    sp.layout = show_files(&sp.layout, &theirs, owner);
+                    sp.layout = show_content(&sp.layout, &mine, &other);
+                    sp.layout = show_content(&sp.layout, &theirs, c);
                     sp.maximized_pane_id = None;
                     sp.tidy()
                 });
                 return (next, Some(theirs));
             }
         }
-        let next = self.undock_files(owner);
-        let fresh = Node::files_pane(owner);
+        let next = self.undock(c);
+        let fresh = Node::content_pane(c);
         let id = fresh.id().to_string();
         let mut placed = Some(id.clone());
         let next = next.map_space(space_id, |mut sp| {
@@ -125,12 +142,12 @@ impl UiState {
                             sp.members.push(gone);
                         }
                     }
-                    show_files(&sp.layout, pane, owner)
+                    show_content(&sp.layout, pane, c)
                 }
                 FilesSpot::Auto => match sp.layout.leaves().into_iter().find(|p| p.is_empty()) {
                     Some(empty) => {
                         placed = Some(empty.id.clone());
-                        show_files(&sp.layout, &empty.id, owner)
+                        show_content(&sp.layout, &empty.id, c)
                     }
                     None => {
                         let (at, side) = auto_spot(&sp.layout, fit);
@@ -190,31 +207,31 @@ fn parent_split(n: &Node, id: &str) -> Option<(String, usize)> {
     children.iter().find_map(|c| parent_split(c, id))
 }
 
-/// `layout` with tile `pane` showing `owner`'s files (whatever it showed
-/// leaves the layout; the tile keeps its id, place and size).
-fn show_files(layout: &Node, pane: &str, owner: &str) -> Node {
-    fn rec(n: &Node, pane: &str, owner: &str) -> Node {
+/// `layout` with tile `pane` showing `c` (whatever it showed leaves the
+/// layout; the tile keeps its id, place and size).
+fn show_content(layout: &Node, pane: &str, c: &Content) -> Node {
+    fn rec(n: &Node, pane: &str, c: &Content) -> Node {
         match n {
-            Node::Pane { id, .. } if id == pane => Node::Pane { id: id.clone(), agent_id: None, files: Some(owner.to_string()) },
+            Node::Pane { id, .. } if id == pane => n.clone().showing(c),
             Node::Pane { .. } => n.clone(),
             Node::Split { id, dir, children, sizes } => Node::Split {
                 id: id.clone(),
                 dir: *dir,
-                children: children.iter().map(|c| rec(c, pane, owner)).collect(),
+                children: children.iter().map(|ch| rec(ch, pane, c)).collect(),
                 sizes: sizes.clone(),
             },
         }
     }
-    rec(layout, pane, owner)
+    rec(layout, pane, c)
 }
 
-/// `new` (a layout rebuilt from its agents: a preset) with the files tiles
-/// of `old` it lost, each a column of its own on the right.
+/// `new` (a layout rebuilt from its agents: a preset) with the files and
+/// web tiles of `old` it lost, each a column of its own on the right.
 pub fn keep_files_tiles(old: &Node, new: Node) -> Node {
     let mut out = new;
-    for owner in old.files_owners() {
-        if out.find_files(&owner).is_none() {
-            out = tree::wrap_edge(&out, Side::Right, &Node::files_pane(&owner), EDGE_SHARE);
+    for c in old.contents() {
+        if out.find_content(&c).is_none() {
+            out = tree::wrap_edge(&out, Side::Right, &Node::content_pane(&c), EDGE_SHARE);
         }
     }
     out
@@ -269,7 +286,7 @@ pub fn whereabouts(layout: &Node, pane: &str, anchor: Option<&str>) -> Whereabou
     let rects = tree::pane_rects(layout, tree::Rect { x: 0., y: 0., w: 1., h: 1. });
     let Some(me) = rects.iter().find(|(id, _)| id == pane).map(|(_, r)| *r) else { return Whereabouts::Alone };
     let leaves = layout.leaves();
-    let terminal = |id: &str| leaves.iter().find(|p| p.id == id && p.files.is_none()).and_then(|p| p.agent_id.clone());
+    let terminal = |id: &str| leaves.iter().find(|p| p.id == id && p.content().is_none()).and_then(|p| p.agent_id.clone());
     // Every tile sharing an edge with it: (tile, the side of that tile it
     // is on, how long the shared edge is).
     let touching: Vec<(&str, Side, f64)> = rects

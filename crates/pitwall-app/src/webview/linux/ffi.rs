@@ -165,6 +165,7 @@ api! {
         webkit_web_view_new_with_context: unsafe extern "C" fn(P) -> P;
         webkit_web_view_load_uri: unsafe extern "C" fn(P, *const c_char);
         webkit_web_view_reload: unsafe extern "C" fn(P);
+        webkit_web_view_stop_loading: unsafe extern "C" fn(P);
         webkit_web_view_go_back: unsafe extern "C" fn(P);
         webkit_web_view_go_forward: unsafe extern "C" fn(P);
         webkit_web_view_can_go_back: unsafe extern "C" fn(P) -> c_int;
