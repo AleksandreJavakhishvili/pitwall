@@ -48,7 +48,7 @@ image is rendered by `node scripts/og-image.mjs` (headless Chrome, demo content 
 ## Layout
 
 ```
-index.html                    landing: hero, demo with tabs, the floating-control and files-tile loops, details, download / GitHub
+index.html                    landing: hero, demo with tabs, features carousel, details, download / GitHub
 download/index.html           per-OS downloads, first-launch notes, build from source
 docs/how-it-works/index.html  flags, Wall, Next up, Review, files agents show you, terminals, agents, rules, agw, CLI, roadmap
 docs/quick-start/index.html   install, build from source, first steps
@@ -57,7 +57,7 @@ roadmap/index.html            page chrome; content from ../ROADMAP.md (Now / Nex
 404.html
 site.config.js                OWNER / REPO and the URLs derived from them
 src/site.css                  all styles; tokens mirror the app's src/styles/tokens.css
-src/main.js                   theme toggle, demo tabs, live demo, download links, header progress car
+src/main.js                   theme toggle, demo tabs, live demo, features carousel, download links, header progress car
 scripts/build.mjs             full build (demo + pages)
 scripts/pages.mjs             renders CHANGELOG.md / ROADMAP.md into the two pages
 scripts/markdown.mjs          minimal Markdown → HTML
@@ -69,6 +69,35 @@ public/favicon.svg            16 px cut of the Apex P (32 px cut from 24 px up);
 public/favicon-{16,32}.png    the same cuts as PNG
 public/apple-touch-icon.png   the chequered Apex P, full bleed (180 px)
 ```
+
+## Features carousel
+
+Below the demo, one section shows features as slides of equal size: "Files next to the
+agent", "Answer from anywhere" and "Accounts per project". Each slide has a heading and
+lead, an animated mock-up (decorative, `aria-hidden`, CSS keyframes only) and a details
+panel. The track is a CSS scroll-snap row (swipe, trackpad, ←/→, the arrows or the tabs);
+it is a grid and each slide a subgrid of its three rows, so all slides are as tall as the
+tallest and their stages line up. `src/main.js` (`setupCarousel`) marks the shown tab and
+makes the other slides `inert`; they show their still (`.feat-idle` turns their animation
+off), so a slide's loop starts from the beginning when it is shown. There is no
+auto-advance. A link to a slide's id or to anything in it (`#files`, `#away`,
+`#accounts`) shows that slide. Without JavaScript the tabs are plain links and the track
+scrolls sideways.
+
+**To add a feature:**
+
+1. In `index.html`, add a tab to `.feat-tabs`:
+   `<a role="tab" id="ft-<id>" href="#<id>" aria-controls="<id>" aria-selected="false">Name</a>`.
+2. Add a slide to `.feat-track`, in the same order:
+   `<article class="feat-slide" id="<id>" role="tabpanel" aria-labelledby="ft-<id>" aria-roledescription="slide">`
+   holding, in this order, `<div class="away-copy">` (an `h2` and a `p`), the stage, and
+   `<div class="pit-panel feat-facts">` with `pit-row`s.
+3. The stage: `<div class="<x>-stage glass" data-<x> aria-hidden="true"><div class="<x>-scene">…`,
+   drawn at 960×600 (and 500×690 on phones, so every stage has the same shape), with its
+   keyframes in `site.css` under its own prefix. In `src/main.js`, add `[data-<x>]`, its
+   scene and its phone width to the stage-fitting list and to the `motionIO` selector; in
+   `site.css`, add its scene to the `.feat-idle` rule and to the `.motion-paused` pauses.
+   Its base styles (no animation) are the still shown with reduced motion.
 
 ## Downloads
 

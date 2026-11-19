@@ -109,212 +109,311 @@
       </div>
     </section>
 
-    <section class="away" aria-labelledby="away-h">
+    <!-- Features carousel (site.css: .feat-*, main.js: setupCarousel). To add a feature, add one
+         tab to .feat-tabs (href and aria-controls: the slide's id) and one .feat-slide article
+         with its copy, its stage and its details panel; see website/README.md. -->
+    <section class="features" aria-label="Features" aria-roledescription="carousel" data-carousel>
       <div class="wrap">
-        <div class="away-copy">
-          <h2 id="away-h">Go do something else. <span class="dim">Answer from there.</span></h2>
-          <p>Browsing, scrolling a feed, watching a video: when an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it, then accept or reject right there, or just press Enter. Drag it wherever suits you, and its edges to give the cards more room; when nothing is waiting, it's gone.</p>
-        </div>
-        <!-- Decorative: a loop of the floating control over a browser with a video playing (site.css: .fl-*). The copy above says what it shows. -->
-        <div class="fl-stage glass" data-float aria-hidden="true">
-          <div class="fl-scene">
-            <div class="fl-menubar"><i></i><i></i><i></i><i></i><i></i></div>
-            <div class="fl-win">
-              <div class="fl-win-bar"><span class="fl-dots"><i></i><i></i><i></i></span><span class="fl-url"><i></i></span></div>
-              <div class="fl-watch">
-                <div class="fl-video"><i class="fl-glow"></i><span class="fl-time">12:47</span><i class="fl-prog"><i></i></i></div>
-                <i class="fl-vt" style="--w:58"></i>
-                <i class="fl-vt s" style="--w:30"></i>
-              </div>
-              <div class="fl-next"><span><i class="th"></i><i style="--w:92"></i><i class="s" style="--w:58"></i></span><span><i class="th"></i><i style="--w:78"></i><i class="s" style="--w:64"></i></span><span><i class="th"></i><i style="--w:88"></i><i class="s" style="--w:46"></i></span><span><i class="th"></i><i style="--w:70"></i><i class="s" style="--w:60"></i></span><span><i class="th"></i><i style="--w:84"></i><i class="s" style="--w:52"></i></span></div>
-            </div>
-
-            <div class="fl-tile"><span class="fl-tile-face"><svg class="mark" viewBox="7 7 50 50" width="24" height="24"><defs><mask id="mk-t" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-t)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg></span><span class="fl-badge">2</span></div>
-
-            <div class="fl-panel">
-              <i class="fl-shadow"></i>
-              <div class="fl-clip"><div class="fl-card fl-card-1">
-                <div class="fl-card-head"><svg class="fl-logo" viewBox="0 0 14 14" width="14" height="14"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b><span>Do you want to proceed?</span></div>
-                <div class="fl-term">
-                  <span class="t">Bash command</span>
-                  <span class="d">Run the orders tests</span>
-                  <i class="fl-hr"></i>
-                  <span>pnpm test orders</span>
-                  <i class="fl-hr"></i>
-                  <span>Permission rule <b>Bash</b> requires confirmation for this command.</span>
-                  <span class="d">/permissions to update rules</span>
-                </div>
-                <div class="fl-btns"><span class="fl-btn fl-accept fl-a1"><b>Accept</b><b class="fl-sent">Sent</b></span><span class="fl-btn">Reject</span><span class="fl-btn fl-open">Open</span></div>
-              </div></div>
-              <div class="fl-card fl-card-2">
-                <div class="fl-card-head"><svg class="fl-logo" viewBox="0 0 14 14" width="14" height="14"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>docs</b><span>Do you want to create notes.md?</span></div>
-                <div class="fl-term">
-                  <span class="t">Create file</span>
-                  <span class="d">notes.md</span>
-                  <i class="fl-hr"></i>
-                  <span> 1 # Release notes</span>
-                  <span> 2 Orders: retry a timed-out request up to three times.</span>
-                  <span> 3 Checkout: totals round per line, not per cart.</span>
-                  <i class="fl-hr"></i>
-                </div>
-                <div class="fl-btns"><span class="fl-btn fl-accept fl-a2"><b>Accept</b><b class="fl-sent">Sent</b></span><span class="fl-btn">Reject</span><span class="fl-btn fl-open">Open</span></div>
-              </div>
-              <div class="fl-cap">
-                <svg class="mark" viewBox="7 7 50 50" width="20" height="20"><defs><mask id="mk-p" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-p)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
-                <span class="fl-title"><span class="fl-title-2">2 agents need you</span><span class="fl-title-1">docs needs you</span></span>
-                <span class="fl-all">Accept all</span>
-                <svg class="fl-chev" viewBox="0 0 14 14" width="14" height="14"><path d="M3.5 5.5 7 9l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </div>
-            </div>
-
-            <i class="fl-ping fl-ping-1"></i><i class="fl-ping fl-ping-2"></i><i class="fl-ping fl-ping-3"></i>
-            <svg class="fl-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        <div class="feat-nav">
+          <button class="feat-arrow" type="button" data-step="-1" aria-label="Previous feature"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="tabs feat-tabs" role="tablist" aria-label="Features">
+            <a role="tab" id="ft-files" href="#files" aria-controls="files" aria-selected="true">Files next to the agent <span class="feat-new">New in 0.7</span></a>
+            <a role="tab" id="ft-away" href="#away" aria-controls="away" aria-selected="false">Answer from anywhere</a>
+            <a role="tab" id="ft-accounts" href="#accounts" aria-controls="accounts" aria-selected="false">Accounts per project</a>
           </div>
+          <button class="feat-arrow" type="button" data-step="1" aria-label="Next feature"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="feat-track">
+          <article class="feat-slide shows" id="files" role="tabpanel" aria-labelledby="ft-files" aria-roledescription="slide">
+            <div class="away-copy">
+              <h2 id="shows-h">“Open that for me.” <span class="dim">It opens next to the agent.</span></h2>
+              <p>Ask an agent to show you a file, a folder, a worktree or an image, and it opens in a files tile beside its terminal, at the line it means. Put it right, left, above or below, in a terminal's place or in a window of its own, and drag it between them. The terminal keeps the keyboard, and Pitwall doesn't jump in front of the app you're in.</p>
+            </div>
+            <!-- Decorative: a loop of an agent opening two files in a files tile (site.css: .sv-*). The copy above and the list below say what it shows. -->
+            <div class="sv-stage glass" data-files aria-hidden="true">
+              <div class="sv-scene">
+                <div class="sv-win">
+                  <div class="sv-top">
+                    <svg class="mark" viewBox="7 7 50 50" width="16" height="16"><defs><mask id="mk-sv" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-sv)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
+                    <span class="sv-space">Main</span><i class="sv-chip"></i><i class="sv-chip s"></i>
+                  </div>
+
+                  <div class="sv-term">
+                    <div class="sv-head"><svg class="fl-logo" viewBox="0 0 14 14" width="13" height="13"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b><span>Claude Code</span></div>
+                    <div class="sv-lines">
+                      <span class="sv-prompt">&gt; <span class="sv-type">show me where the total gets rounded, and the logo</span></span>
+                      <span> </span>
+                      <span class="sv-l1"><b>⏺ pitwall - show_files (MCP)</b>(paths: ["src/orders/pricing.ts</span>
+                      <span class="sv-l1">  :14", "assets/logo.svg"])</span>
+                      <span class="sv-l2 d">  ⎿  Opened in a files tile in space Main (window main),</span>
+                      <span class="sv-l2 d">     <span class="sv-w">right of</span><span class="sv-n">below</span> api-fix's terminal in Pitwall: /Users/dev/</span>
+                      <span class="sv-l2 d">     code/orders-api/src/orders/pricing.ts at line 14, …</span>
+                      <span class="sv-l2 d">     … +1 line (ctrl+o to expand)</span>
+                      <span> </span>
+                      <span class="sv-l3">⏺ Both are open next to this terminal. Line 14 rounds</span>
+                      <span class="sv-l3">  each line before it's added, so totals drift by a cent.</span>
+                      <span> </span>
+                      <span class="sv-l3">&gt; <i class="sv-caret"></i></span>
+                    </div>
+                  </div>
+
+                  <div class="sv-files">
+                    <div class="sv-tile">
+                      <div class="sv-bar">
+                        <svg class="sv-ico" viewBox="0 0 16 16" width="15" height="15"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 3v10" stroke="currentColor" stroke-width="1.3"/></svg>
+                        <span class="sv-lbl">Files</span>
+                        <span class="sv-root">~/code/orders-api</span>
+                        <span class="sv-branch"><svg viewBox="0 0 12 12" width="11" height="11"><circle cx="3.5" cy="2.5" r="1.3" fill="none" stroke="currentColor"/><circle cx="3.5" cy="9.5" r="1.3" fill="none" stroke="currentColor"/><circle cx="8.5" cy="4" r="1.3" fill="none" stroke="currentColor"/><path d="M3.5 3.8v4.4M8.5 5.3c0 2-5 1.5-5 3" fill="none" stroke="currentColor"/></svg>fix/rounding</span>
+                        <span class="sv-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                        <span class="sv-btn">Move…</span>
+                        <span class="sv-sep"></span>
+                        <svg class="sv-ico" viewBox="0 0 16 16" width="14" height="14"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <svg class="sv-ico" viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+                      </div>
+                      <div class="sv-tabs">
+                        <i class="sv-tab-on"></i>
+                        <span class="sv-tab"><b class="ts">TS</b>pricing.ts</span>
+                        <span class="sv-tab"><b class="sg">◆</b>logo.svg<i class="sv-dot"></i></span>
+                      </div>
+                      <div class="sv-main">
+                        <div class="sv-tree">
+                          <i class="sv-sel"></i>
+                          <span>▾ src</span>
+                          <span class="i1">▾ orders</span>
+                          <span class="i2">handler.ts</span>
+                          <span class="i2">pricing.ts<em>M</em></span>
+                          <span class="i2">schema.ts</span>
+                          <span class="i1">app.ts</span>
+                          <span>▾ assets</span>
+                          <span class="i1">logo.svg</span>
+                          <span>▸ test</span>
+                          <span class="i1">package.json</span>
+                          <span class="i1">README.md</span>
+                        </div>
+                        <div class="sv-view">
+                          <div class="sv-code">
+                            <i class="sv-mark"></i>
+                            <span><span class="xu">1</span><span class="xk">import type</span> { <span class="xt">Item</span> } <span class="xk">from</span> <span class="xs">"./schema"</span>;</span>
+                            <span><span class="xu">2</span></span>
+                            <span><span class="xu">3</span><span class="xc">/** Sum of the items, in minor units. */</span></span>
+                            <span><span class="xu">4</span><span class="xk">export function</span> <span class="xf">priceItems</span>(</span>
+                            <span><span class="xu">5</span>  items: <span class="xt">Item</span>[],</span>
+                            <span><span class="xu">6</span>  currency: <span class="xt">string</span>,</span>
+                            <span><span class="xu">7</span>): <span class="xt">number</span> {</span>
+                            <span><span class="xu">8</span>  <span class="xk">let</span> total = <span class="xn">0</span>;</span>
+                            <span><span class="xu">9</span>  <span class="xk">for</span> (<span class="xk">const</span> item <span class="xk">of</span> items) {</span>
+                            <span><span class="xu">10</span>    <span class="xk">if</span> (item.currency !== currency) {</span>
+                            <span><span class="xu">11</span>      <span class="xk">throw new</span> <span class="xt">Error</span>(<span class="xs">"mixed currencies"</span>);</span>
+                            <span><span class="xu">12</span>    }</span>
+                            <span><span class="xu">13</span>    <span class="xk">const</span> line = item.price * item.quantity;</span>
+                            <span><span class="xu">14</span>    total += <span class="xt">Math</span>.<span class="xf">round</span>(line);</span>
+                            <span><span class="xu">15</span>  }</span>
+                            <span><span class="xu">16</span>  <span class="xk">return</span> total;</span>
+                            <span><span class="xu">17</span>}</span>
+                          </div>
+                          <div class="sv-svg">
+                            <div class="sv-svghead">
+                              <span class="sv-seg"><i class="sv-seg-on"></i><span>Picture</span><span>Source</span></span>
+                              <span class="sv-px">64 × 64</span>
+                              <span class="sv-zoom"><span>Fit</span><span>100 %</span><span>−</span><span>+</span></span>
+                            </div>
+                            <div class="sv-pic">
+                              <svg class="sv-pic-a" viewBox="0 0 64 64" width="112" height="112"><rect width="64" height="64" rx="14" fill="#2f6fde"/><path d="M18 24l14-8 14 8v16l-14 8-14-8z" fill="none" stroke="#fff" stroke-width="4"/></svg>
+                              <svg class="sv-pic-b" viewBox="0 0 64 64" width="112" height="112"><rect width="64" height="64" rx="14" fill="#1f9d55"/><path d="M18 24l14-8 14 8v16l-14 8-14-8z" fill="none" stroke="#fff" stroke-width="4"/></svg>
+                            </div>
+                            <div class="sv-src">
+                              <span><span class="xu">1</span>&lt;<span class="xk">svg</span> <span class="xf">xmlns</span>=<span class="xs">"http://www.w3.org/2000/svg"</span></span>
+                              <span><span class="xu">2</span>     <span class="xf">viewBox</span>=<span class="xs">"0 0 64 64"</span>&gt;</span>
+                              <span><span class="xu">3</span>  &lt;<span class="xk">rect</span> <span class="xf">width</span>=<span class="xs">"64"</span> <span class="xf">height</span>=<span class="xs">"64"</span> <span class="xf">rx</span>=<span class="xs">"14"</span></span>
+                              <span><span class="xu">4</span>        <span class="xf">fill</span>=<span class="xs sv-val"><b class="sv-old">"#2f6fde"</b><b class="sv-new">"#1f9d55"</b></span><i class="sv-caret"></i>/&gt;</span>
+                              <span><span class="xu">5</span>  &lt;<span class="xk">path</span> <span class="xf">d</span>=<span class="xs">"M18 24l14-8 14 8v16l-14 8-14-8z"</span></span>
+                              <span><span class="xu">6</span>        <span class="xf">fill</span>=<span class="xs">"none"</span> <span class="xf">stroke</span>=<span class="xs">"#fff"</span></span>
+                              <span><span class="xu">7</span>        <span class="xf">stroke-width</span>=<span class="xs">"4"</span>/&gt;</span>
+                              <span><span class="xu">8</span>&lt;/<span class="xk">svg</span>&gt;</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <kbd class="sv-key">⌘S</kbd>
+                    <i class="fl-ping sv-ping-1"></i><i class="fl-ping sv-ping-2"></i><i class="fl-ping sv-ping-3"></i>
+                    <svg class="fl-pointer sv-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="pit-panel feat-facts">
+              <div class="pit-row">
+                <p class="label">Read</p>
+                <p>Text and code with their colours and Find, Markdown as code or preview. Images (PNG, JPEG, GIF, WebP, SVG) fitted, at 100&nbsp;% or zoomed, and an SVG switches between its picture and its source. The tree and the Review list fold away or drag wider.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Quick fixes</p>
+                <p>Edit a text file where it's shown and save with <kbd>⌘S</kbd>, with undo and Replace. If the agent changes it while you have edits, choose Keep mine, Take theirs or Show difference: nothing is overwritten without asking. Files of agents on this computer; agents still can't write through Pitwall.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">PDFs</p>
+                <p>macOS only for now: pages, zoom and Find, drawn by the system's PDF engine. On Windows and Linux a PDF says it can't be shown yet and offers Open in default app.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Where it works</p>
+                <p>The files come from where the agent works now, also a worktree it moved into, with that branch, its git status and Show diff. Claude Code, Codex, Copilot CLI, Qwen Code, Amp and opencode get Pitwall's MCP server (<code>show_files</code>, <code>show_folder</code>) at each launch, without edits to your config files; Gemini CLI and Cursor Agent get an entry in their own MCP file when you ask in Settings → Agents; Aider and shells use <code>pitwall open</code>. <span class="dim-copy">Tried by hand with Claude Code on macOS; the other agents' routes are tested in code, not yet against each CLI.</span> <a href="/docs/agents/#showing-files">How</a></p>
+              </div>
+            </div>
+          </article>
+          <article class="feat-slide away" id="away" role="tabpanel" aria-labelledby="ft-away" aria-roledescription="slide">
+            <div class="away-copy">
+              <h2 id="away-h">Go do something else. <span class="dim">Answer from there.</span></h2>
+              <p>Browsing, scrolling a feed, watching a video: when an agent asks for permission while Pitwall isn't in front, a small tile appears over whatever you're doing. Click it to read each prompt as the terminal shows it, then accept or reject right there, or just press Enter. Drag it wherever suits you, and its edges to give the cards more room; when nothing is waiting, it's gone.</p>
+            </div>
+            <!-- Decorative: a loop of the floating control over a browser with a video playing (site.css: .fl-*). The copy above says what it shows. -->
+            <div class="fl-stage glass" data-float aria-hidden="true">
+              <div class="fl-scene">
+                <div class="fl-menubar"><i></i><i></i><i></i><i></i><i></i></div>
+                <div class="fl-win">
+                  <div class="fl-win-bar"><span class="fl-dots"><i></i><i></i><i></i></span><span class="fl-url"><i></i></span></div>
+                  <div class="fl-watch">
+                    <div class="fl-video"><i class="fl-glow"></i><span class="fl-time">12:47</span><i class="fl-prog"><i></i></i></div>
+                    <i class="fl-vt" style="--w:58"></i>
+                    <i class="fl-vt s" style="--w:30"></i>
+                  </div>
+                  <div class="fl-next"><span><i class="th"></i><i style="--w:92"></i><i class="s" style="--w:58"></i></span><span><i class="th"></i><i style="--w:78"></i><i class="s" style="--w:64"></i></span><span><i class="th"></i><i style="--w:88"></i><i class="s" style="--w:46"></i></span><span><i class="th"></i><i style="--w:70"></i><i class="s" style="--w:60"></i></span><span><i class="th"></i><i style="--w:84"></i><i class="s" style="--w:52"></i></span><span><i class="th"></i><i style="--w:74"></i><i class="s" style="--w:56"></i></span><span><i class="th"></i><i style="--w:90"></i><i class="s" style="--w:48"></i></span><span><i class="th"></i><i style="--w:66"></i><i class="s" style="--w:58"></i></span><span><i class="th"></i><i style="--w:80"></i><i class="s" style="--w:44"></i></span></div>
+                </div>
+
+                <div class="fl-tile"><span class="fl-tile-face"><svg class="mark" viewBox="7 7 50 50" width="24" height="24"><defs><mask id="mk-t" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-t)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg></span><span class="fl-badge">2</span></div>
+
+                <div class="fl-panel">
+                  <i class="fl-shadow"></i>
+                  <div class="fl-clip"><div class="fl-card fl-card-1">
+                    <div class="fl-card-head"><svg class="fl-logo" viewBox="0 0 14 14" width="14" height="14"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b><span>Do you want to proceed?</span></div>
+                    <div class="fl-term">
+                      <span class="t">Bash command</span>
+                      <span class="d">Run the orders tests</span>
+                      <i class="fl-hr"></i>
+                      <span>pnpm test orders</span>
+                      <i class="fl-hr"></i>
+                      <span>Permission rule <b>Bash</b> requires confirmation for this command.</span>
+                      <span class="d">/permissions to update rules</span>
+                    </div>
+                    <div class="fl-btns"><span class="fl-btn fl-accept fl-a1"><b>Accept</b><b class="fl-sent">Sent</b></span><span class="fl-btn">Reject</span><span class="fl-btn fl-open">Open</span></div>
+                  </div></div>
+                  <div class="fl-card fl-card-2">
+                    <div class="fl-card-head"><svg class="fl-logo" viewBox="0 0 14 14" width="14" height="14"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>docs</b><span>Do you want to create notes.md?</span></div>
+                    <div class="fl-term">
+                      <span class="t">Create file</span>
+                      <span class="d">notes.md</span>
+                      <i class="fl-hr"></i>
+                      <span> 1 # Release notes</span>
+                      <span> 2 Orders: retry a timed-out request up to three times.</span>
+                      <span> 3 Checkout: totals round per line, not per cart.</span>
+                      <i class="fl-hr"></i>
+                    </div>
+                    <div class="fl-btns"><span class="fl-btn fl-accept fl-a2"><b>Accept</b><b class="fl-sent">Sent</b></span><span class="fl-btn">Reject</span><span class="fl-btn fl-open">Open</span></div>
+                  </div>
+                  <div class="fl-cap">
+                    <svg class="mark" viewBox="7 7 50 50" width="20" height="20"><defs><mask id="mk-p" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-p)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
+                    <span class="fl-title"><span class="fl-title-2">2 agents need you</span><span class="fl-title-1">docs needs you</span></span>
+                    <span class="fl-all">Accept all</span>
+                    <svg class="fl-chev" viewBox="0 0 14 14" width="14" height="14"><path d="M3.5 5.5 7 9l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </div>
+                </div>
+
+                <i class="fl-ping fl-ping-1"></i><i class="fl-ping fl-ping-2"></i><i class="fl-ping fl-ping-3"></i>
+                <svg class="fl-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+            <div class="pit-panel feat-facts">
+              <div class="pit-row">
+                <p class="label">Answer</p>
+                <p>Accept and Reject for plain yes/no prompts, Accept all when several ask, Open for anything else. Or use the keyboard once the cards are open: arrows, Enter, Esc and text go to the first card's agent, and Pitwall still doesn't come forward.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Nothing blind</p>
+                <p>Pitwall reads the agent's screen again before it sends a key, and sends nothing if the prompt is no longer the one you saw.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Your size</p>
+                <p>Drag the tile anywhere, and the cards' edges or corner for wider cards or more of each terminal; the size is kept, and a double click on an edge goes back to the default. Liquid Glass on macOS 26 with the Glass look. Off in Settings → General.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Tested</p>
+                <p>Accept and Reject keys were checked against Claude Code and Codex; the other agents' are written from their prompts and not yet checked against the real CLIs. Run on macOS; the Linux and Windows builds have the control, but it hasn't been run there.</p>
+              </div>
+            </div>
+          </article>
+          <article class="feat-slide accounts" id="accounts" role="tabpanel" aria-labelledby="ft-accounts" aria-roledescription="slide">
+            <div class="away-copy">
+              <h2 id="accounts-h">Work login, personal login. <span class="dim">Each project on the right one.</span></h2>
+              <p>Run Claude Code, Codex, Gemini CLI and Copilot CLI on more than one login, say a work and a personal subscription. Each project picks the login its agents run on, per tool: in its Accounts…, or by dragging it onto another account in the sidebar. Its running agents of that tool restart on the new login right away, and Claude Code and Codex pick up their conversations there.</p>
+            </div>
+            <!-- Decorative: a project dragged from one Claude Code account to another in the sidebar (grouped by account), then its Accounts… dialog (site.css: .ac-*). The copy above and the list below say what it shows. -->
+            <div class="ac-stage glass" data-accounts aria-hidden="true">
+              <div class="ac-scene">
+                <div class="ac-win">
+                  <div class="sv-top"><svg class="mark" viewBox="7 7 50 50" width="16" height="16"><defs><mask id="mk-ac" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-ac)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg><span class="sv-space">Main</span><i class="sv-chip"></i><i class="sv-chip s"></i></div>
+                  <div class="ac-side">
+                    <span class="ac-row ac-label" style="top:44px">Agents</span>
+                    <span class="ac-row ac-head" style="top:72px"><span class="ac-chev">▾</span><svg class="ac-user" viewBox="0 0 12 12" width="11" height="11"><circle cx="6" cy="4" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1.8 11c.6-2.2 2.2-3.4 4.2-3.4s3.6 1.2 4.2 3.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg><b>Default</b><span class="ac-sub">your own logins</span><span class="ac-n">1</span></span>
+                    <span class="ac-row ac-group" style="top:100px"><span class="ac-chev">▾</span>web</span>
+                    <span class="ac-row ac-agent" style="top:124px"><span class="g g-idle">●</span><span class="ac-k ac-gem">✦</span><b>docs</b></span>
+                    <i class="ac-drop" style="top:158px"></i>
+                    <span class="ac-row ac-head" style="top:158px"><span class="ac-chev">▾</span><svg class="ac-user" viewBox="0 0 12 12" width="11" height="11"><circle cx="6" cy="4" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1.8 11c.6-2.2 2.2-3.4 4.2-3.4s3.6 1.2 4.2 3.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg><b>Work</b><span class="ac-sub">Claude Code · work@example.com</span><span class="ac-n"><b class="ac-n-a">1</b><b class="ac-n-b">3</b></span></span>
+                    <span class="ac-row ac-group" style="top:186px"><span class="ac-chev">▾</span>billing</span>
+                    <span class="ac-row ac-agent" style="top:210px"><span class="g g-working">◐</span><svg class="ac-k" viewBox="0 0 14 14" width="11" height="11"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>refactor</b></span>
+                    <div class="ac-pers"><span class="ac-row ac-head" style="top:244px"><span class="ac-chev">▾</span><svg class="ac-user" viewBox="0 0 12 12" width="11" height="11"><circle cx="6" cy="4" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M1.8 11c.6-2.2 2.2-3.4 4.2-3.4s3.6 1.2 4.2 3.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg><b>Personal</b><span class="ac-sub">Claude Code · me@example.com</span><span class="ac-n"><b class="ac-n-a">3</b><b class="ac-n-b">1</b></span></span></div>
+                    <div class="ac-ord">
+                      <span class="ac-row ac-group" style="top:272px"><span class="ac-chev">▾</span>orders-api</span>
+                      <span class="ac-row ac-agent" style="top:296px"><span class="g g-working">◐</span><svg class="ac-k" viewBox="0 0 14 14" width="11" height="11"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b></span>
+                      <span class="ac-row ac-agent" style="top:322px"><span class="g g-idle">●</span><svg class="ac-k" viewBox="0 0 14 14" width="11" height="11"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>tests</b></span>
+                      <span class="ac-rs" style="top:296px">restarting</span>
+                      <span class="ac-rs" style="top:322px">restarting</span>
+                    </div>
+                    <span class="ac-row ac-group" style="top:348px"><span class="ac-chev">▾</span>blog</span>
+                    <span class="ac-row ac-agent" style="top:372px"><span class="g g-idle">●</span><svg class="ac-k" viewBox="0 0 14 14" width="11" height="11"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>notes</b></span>
+                  </div>
+                  <div class="ac-main"><i></i><i class="s"></i><i></i><i class="s"></i><i></i></div>
+                  <span class="ac-ghost"><span class="ac-chev">▾</span>orders-api</span>
+                  <div class="ac-menu"><span>New terminal here</span><span>New agent…</span><span class="on">Accounts…</span></div>
+                  <div class="ac-dlg">
+                    <div class="ac-dlg-head"><b>Accounts · orders-api</b><svg viewBox="0 0 16 16" width="13" height="13"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>
+                    <p class="ac-hint">The login orders-api's agents run on. Picking one moves its agents there too, conversations included; one not logged in yet opens its login first.</p>
+                    <span class="ac-field" style="top:112px">Claude Code</span>
+                    <span class="ac-chips" style="top:130px"><span class="ac-c" style="width:78px">Default</span><span class="ac-c" style="width:82px">Personal</span><span class="ac-c on" style="width:66px">Work ✓</span><span class="ac-c ac-new" style="width:118px">+ New account</span></span>
+                    <span class="ac-field" style="top:170px">Codex</span>
+                    <span class="ac-chips" style="top:188px"><span class="ac-c ac-cx-a" style="width:78px">Default<em> ✓</em></span><span class="ac-c ac-cx-b" style="width:66px">Work<em> ✓</em></span><span class="ac-c ac-new" style="width:118px">+ New account</span></span>
+                    <span class="ac-field" style="top:228px">Git identity</span>
+                    <span class="ac-chips" style="top:246px"><span class="ac-c" style="width:120px">Your git setup</span><span class="ac-c on" style="width:66px">Work ✓</span></span>
+                    <div class="ac-foot"><span>Manage accounts…</span><span class="ac-done">Done</span></div>
+                  </div>
+                  <i class="fl-ping ac-ping-1"></i><i class="fl-ping ac-ping-2"></i><i class="fl-ping ac-ping-3"></i><i class="fl-ping ac-ping-4"></i><i class="fl-ping ac-ping-5"></i>
+                  <svg class="fl-pointer ac-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                </div>
+              </div>
+            </div>
+            <div class="pit-panel feat-facts">
+              <div class="pit-row">
+                <p class="label">An account</p>
+                <p>One login of one tool: a name and the folder the tool keeps its login in (<code>CLAUDE_CONFIG_DIR</code>, <code>CODEX_HOME</code>, <code>GEMINI_CLI_HOME</code>, <code>COPILOT_HOME</code>); Default is your own. A work Claude Code and a work Codex are two accounts, each picked on its own. Cursor Agent, opencode, Amp, Aider and Qwen Code have no setting that moves their login, so they run on one.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Per project</p>
+                <p>A project's right-click → Accounts… sets the account its new agents use for each tool, and a git identity for its commits and pushes. New agent can pick another, and an agent's right-click → Run on account moves just that one. With the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Running agents</p>
+                <p>Moved agents restart on the new login at once. Claude Code and Codex resume their conversation; the other tools start a new one. Settings → Accounts shows who each account is logged in as, Codex's plan limits and Claude Code's tokens.</p>
+              </div>
+              <div class="pit-row">
+                <p class="label">Stays here</p>
+                <p>Accounts are login folders on this computer, listed in <code>~/.pitwall/accounts.json</code>. There is no Pitwall account: logins and usage are read from the tools' own files, and nothing is sent anywhere. Agents on this computer only.</p>
+              </div>
+            </div>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="shows" id="files" aria-labelledby="shows-h">
-      <div class="wrap">
-        <div class="away-copy">
-          <p class="eyebrow">New in 0.7</p>
-          <h2 id="shows-h">“Open that for me.” <span class="dim">It opens next to the agent.</span></h2>
-          <p>Ask an agent to show you a file, a folder, a worktree or an image, and it opens in a files tile beside its terminal, at the line it means. Put it right, left, above or below, in a terminal's place or in a window of its own, and drag it between them. The terminal keeps the keyboard, and Pitwall doesn't jump in front of the app you're in.</p>
-        </div>
-        <!-- Decorative: a loop of an agent opening two files in a files tile (site.css: .sv-*). The copy above and the list below say what it shows. -->
-        <div class="sv-stage glass" data-files aria-hidden="true">
-          <div class="sv-scene">
-            <div class="sv-win">
-              <div class="sv-top">
-                <svg class="mark" viewBox="7 7 50 50" width="16" height="16"><defs><mask id="mk-sv" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64"><path d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round"/></mask></defs><g transform="translate(6.5 -.5)"><path class="mark-s" d="M1 52H10C19 52 24 48 24 40V13H33A12.5 12.5 0 0 1 33 38H24" fill="none" stroke-width="9" stroke-linejoin="round"/><path class="mark-b" mask="url(#mk-sv)" d="M1 47.5h4.5V52H1zM5.5 52H10v4.5H5.5zM10 47.5h4.5V52H10zM14.5 52H19v4.5h-4.5z"/></g></svg>
-                <span class="sv-space">Main</span><i class="sv-chip"></i><i class="sv-chip s"></i>
-              </div>
-
-              <div class="sv-term">
-                <div class="sv-head"><svg class="fl-logo" viewBox="0 0 14 14" width="13" height="13"><path d="M7 1v12M1 7h12M2.8 2.8l8.4 8.4M11.2 2.8l-8.4 8.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><b>api-fix</b><span>Claude Code</span></div>
-                <div class="sv-lines">
-                  <span class="sv-prompt">&gt; <span class="sv-type">show me where the total gets rounded, and the logo</span></span>
-                  <span> </span>
-                  <span class="sv-l1"><b>⏺ pitwall - show_files (MCP)</b>(paths: ["src/orders/pricing.ts</span>
-                  <span class="sv-l1">  :14", "assets/logo.svg"])</span>
-                  <span class="sv-l2 d">  ⎿  Opened in a files tile in space Main (window main),</span>
-                  <span class="sv-l2 d">     <span class="sv-w">right of</span><span class="sv-n">below</span> api-fix's terminal in Pitwall: /Users/dev/</span>
-                  <span class="sv-l2 d">     code/orders-api/src/orders/pricing.ts at line 14, …</span>
-                  <span class="sv-l2 d">     … +1 line (ctrl+o to expand)</span>
-                  <span> </span>
-                  <span class="sv-l3">⏺ Both are open next to this terminal. Line 14 rounds</span>
-                  <span class="sv-l3">  each line before it's added, so totals drift by a cent.</span>
-                  <span> </span>
-                  <span class="sv-l3">&gt; <i class="sv-caret"></i></span>
-                </div>
-              </div>
-
-              <div class="sv-files">
-                <div class="sv-tile">
-                  <div class="sv-bar">
-                    <svg class="sv-ico" viewBox="0 0 16 16" width="15" height="15"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M6 3v10" stroke="currentColor" stroke-width="1.3"/></svg>
-                    <span class="sv-lbl">Files</span>
-                    <span class="sv-root">~/code/orders-api</span>
-                    <span class="sv-branch"><svg viewBox="0 0 12 12" width="11" height="11"><circle cx="3.5" cy="2.5" r="1.3" fill="none" stroke="currentColor"/><circle cx="3.5" cy="9.5" r="1.3" fill="none" stroke="currentColor"/><circle cx="8.5" cy="4" r="1.3" fill="none" stroke="currentColor"/><path d="M3.5 3.8v4.4M8.5 5.3c0 2-5 1.5-5 3" fill="none" stroke="currentColor"/></svg>fix/rounding</span>
-                    <span class="sv-grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-                    <span class="sv-btn">Move…</span>
-                    <span class="sv-sep"></span>
-                    <svg class="sv-ico" viewBox="0 0 16 16" width="14" height="14"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M6.5 3.5h-3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    <svg class="sv-ico" viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                  </div>
-                  <div class="sv-tabs">
-                    <i class="sv-tab-on"></i>
-                    <span class="sv-tab"><b class="ts">TS</b>pricing.ts</span>
-                    <span class="sv-tab"><b class="sg">◆</b>logo.svg<i class="sv-dot"></i></span>
-                  </div>
-                  <div class="sv-main">
-                    <div class="sv-tree">
-                      <i class="sv-sel"></i>
-                      <span>▾ src</span>
-                      <span class="i1">▾ orders</span>
-                      <span class="i2">handler.ts</span>
-                      <span class="i2">pricing.ts<em>M</em></span>
-                      <span class="i2">schema.ts</span>
-                      <span class="i1">app.ts</span>
-                      <span>▾ assets</span>
-                      <span class="i1">logo.svg</span>
-                      <span>▸ test</span>
-                      <span class="i1">package.json</span>
-                      <span class="i1">README.md</span>
-                    </div>
-                    <div class="sv-view">
-                      <div class="sv-code">
-                        <i class="sv-mark"></i>
-                        <span><span class="xu">1</span><span class="xk">import type</span> { <span class="xt">Item</span> } <span class="xk">from</span> <span class="xs">"./schema"</span>;</span>
-                        <span><span class="xu">2</span></span>
-                        <span><span class="xu">3</span><span class="xc">/** Sum of the items, in minor units. */</span></span>
-                        <span><span class="xu">4</span><span class="xk">export function</span> <span class="xf">priceItems</span>(</span>
-                        <span><span class="xu">5</span>  items: <span class="xt">Item</span>[],</span>
-                        <span><span class="xu">6</span>  currency: <span class="xt">string</span>,</span>
-                        <span><span class="xu">7</span>): <span class="xt">number</span> {</span>
-                        <span><span class="xu">8</span>  <span class="xk">let</span> total = <span class="xn">0</span>;</span>
-                        <span><span class="xu">9</span>  <span class="xk">for</span> (<span class="xk">const</span> item <span class="xk">of</span> items) {</span>
-                        <span><span class="xu">10</span>    <span class="xk">if</span> (item.currency !== currency) {</span>
-                        <span><span class="xu">11</span>      <span class="xk">throw new</span> <span class="xt">Error</span>(<span class="xs">"mixed currencies"</span>);</span>
-                        <span><span class="xu">12</span>    }</span>
-                        <span><span class="xu">13</span>    <span class="xk">const</span> line = item.price * item.quantity;</span>
-                        <span><span class="xu">14</span>    total += <span class="xt">Math</span>.<span class="xf">round</span>(line);</span>
-                        <span><span class="xu">15</span>  }</span>
-                        <span><span class="xu">16</span>  <span class="xk">return</span> total;</span>
-                        <span><span class="xu">17</span>}</span>
-                      </div>
-                      <div class="sv-svg">
-                        <div class="sv-svghead">
-                          <span class="sv-seg"><i class="sv-seg-on"></i><span>Picture</span><span>Source</span></span>
-                          <span class="sv-px">64 × 64</span>
-                          <span class="sv-zoom"><span>Fit</span><span>100 %</span><span>−</span><span>+</span></span>
-                        </div>
-                        <div class="sv-pic">
-                          <svg class="sv-pic-a" viewBox="0 0 64 64" width="112" height="112"><rect width="64" height="64" rx="14" fill="#2f6fde"/><path d="M18 24l14-8 14 8v16l-14 8-14-8z" fill="none" stroke="#fff" stroke-width="4"/></svg>
-                          <svg class="sv-pic-b" viewBox="0 0 64 64" width="112" height="112"><rect width="64" height="64" rx="14" fill="#1f9d55"/><path d="M18 24l14-8 14 8v16l-14 8-14-8z" fill="none" stroke="#fff" stroke-width="4"/></svg>
-                        </div>
-                        <div class="sv-src">
-                          <span><span class="xu">1</span>&lt;<span class="xk">svg</span> <span class="xf">xmlns</span>=<span class="xs">"http://www.w3.org/2000/svg"</span></span>
-                          <span><span class="xu">2</span>     <span class="xf">viewBox</span>=<span class="xs">"0 0 64 64"</span>&gt;</span>
-                          <span><span class="xu">3</span>  &lt;<span class="xk">rect</span> <span class="xf">width</span>=<span class="xs">"64"</span> <span class="xf">height</span>=<span class="xs">"64"</span> <span class="xf">rx</span>=<span class="xs">"14"</span></span>
-                          <span><span class="xu">4</span>        <span class="xf">fill</span>=<span class="xs sv-val"><b class="sv-old">"#2f6fde"</b><b class="sv-new">"#1f9d55"</b></span><i class="sv-caret"></i>/&gt;</span>
-                          <span><span class="xu">5</span>  &lt;<span class="xk">path</span> <span class="xf">d</span>=<span class="xs">"M18 24l14-8 14 8v16l-14 8-14-8z"</span></span>
-                          <span><span class="xu">6</span>        <span class="xf">fill</span>=<span class="xs">"none"</span> <span class="xf">stroke</span>=<span class="xs">"#fff"</span></span>
-                          <span><span class="xu">7</span>        <span class="xf">stroke-width</span>=<span class="xs">"4"</span>/&gt;</span>
-                          <span><span class="xu">8</span>&lt;/<span class="xk">svg</span>&gt;</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <kbd class="sv-key">⌘S</kbd>
-                <i class="fl-ping sv-ping-1"></i><i class="fl-ping sv-ping-2"></i><i class="fl-ping sv-ping-3"></i>
-                <svg class="fl-pointer sv-pointer" viewBox="0 0 20 24" width="20" height="24"><path d="M2.5 1.5v17l4.6-4.2 3 7 2.9-1.3-3-6.8h6.2z" stroke-width="1.4" stroke-linejoin="round"/></svg>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="pit-panel sv-facts">
-          <div class="pit-row">
-            <p class="label">Read</p>
-            <p>Text and code with their colours and Find, Markdown as code or preview. Images (PNG, JPEG, GIF, WebP, SVG) fitted, at 100&nbsp;% or zoomed, and an SVG switches between its picture and its source. The tree and the Review list fold away or drag wider.</p>
-          </div>
-          <div class="pit-row">
-            <p class="label">Quick fixes</p>
-            <p>Edit a text file where it's shown and save with <kbd>⌘S</kbd>, with undo and Replace. If the agent changes it while you have edits, choose Keep mine, Take theirs or Show difference: nothing is overwritten without asking. Files of agents on this computer; agents still can't write through Pitwall.</p>
-          </div>
-          <div class="pit-row">
-            <p class="label">PDFs</p>
-            <p>macOS only for now: pages, zoom and Find, drawn by the system's PDF engine. On Windows and Linux a PDF says it can't be shown yet and offers Open in default app.</p>
-          </div>
-          <div class="pit-row">
-            <p class="label">Where it works</p>
-            <p>The files come from where the agent works now, also a worktree it moved into, with that branch, its git status and Show diff. Claude Code, Codex, Copilot CLI, Qwen Code, Amp and opencode get Pitwall's MCP server (<code>show_files</code>, <code>show_folder</code>) at each launch, without edits to your config files; Gemini CLI and Cursor Agent get an entry in their own MCP file when you ask in Settings → Agents; Aider and shells use <code>pitwall open</code>. <span class="dim-copy">Tried by hand with Claude Code on macOS; the other agents' routes are tested in code, not yet against each CLI.</span> <a href="/docs/agents/#showing-files">How</a></p>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <section class="pit" aria-label="Details">
       <div class="wrap">
