@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use pitwall_client::{Client, Error};
-use pitwall_proto::{caps, code, method, ErrorBody, ViewerOpen, ViewerPlace, VIEWER_PROTO};
+use pitwall_proto::{caps, code, method, ErrorBody, ViewerOpen, ViewerPlace, WebOpen, VIEWER_PROTO, WEB_PROTO};
 
 use crate::args::OpenArgs;
 
@@ -33,6 +33,31 @@ pub fn request(a: &OpenArgs, cwd: &Path) -> ViewerOpen {
         of: a.of.clone(),
         proto: Some(VIEWER_PROTO),
     }
+}
+
+/// `pitwall open --web`'s request (`None`: not a web page).
+pub fn web_request(a: &OpenArgs) -> Option<WebOpen> {
+    let url = a.web.as_deref()?;
+    Some(WebOpen {
+        agent_id: a.agent.clone().or_else(env_agent),
+        url: Some(url.trim().to_string()).filter(|u| !u.is_empty()),
+        place: a.place.as_deref().and_then(ViewerPlace::parse),
+        of: a.of.clone(),
+        proto: Some(WEB_PROTO),
+    })
+}
+
+/// What a Pitwall from before `web.open` is told it can't do.
+pub const NO_WEB: &str = "This Pitwall is older than its command-line tool and can't show web pages: quit Pitwall and open it again to update it. Nothing was opened.";
+
+/// `web.open`: Pitwall's answer as it came, and in words.
+pub fn open_web(c: &mut Client, req: &WebOpen) -> Result<(Value, String), Error> {
+    if !c.has(caps::WEB) {
+        return Err(Error::Server(ErrorBody::new(code::UNSUPPORTED, NO_WEB)));
+    }
+    let v = c.call(method::WEB_OPEN, req)?;
+    let text = pitwall_proto::web::opened_text(&v);
+    Ok((v, text))
 }
 
 /// `viewer.open`: Pitwall's answer as it came, and in words.

@@ -266,28 +266,53 @@ impl Dirs {
 /// The built-in rule's file name.
 pub const SHOW_FILES_RULE: &str = "pitwall-show-files.md";
 
-/// The built-in rule for agents that can only show files by running a
-/// command: `cli` is the `pitwall-cli` to run.
-pub fn show_files_rule_text(cli: &str) -> String {
+/// What the built-in rule tells the agent it can show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShowWhat {
+    /// Files and folders (`agents.showFiles`).
+    pub files: bool,
+    /// Web pages (`agents.showWeb` and `general.webPages`).
+    pub web: bool,
+}
+
+impl ShowWhat {
+    pub const ALL: ShowWhat = ShowWhat { files: true, web: true };
+}
+
+/// The built-in rule for agents that can only show files (and web pages)
+/// by running a command: `cli` is the `pitwall-cli` to run.
+pub fn show_files_rule_text(cli: &str, what: ShowWhat) -> String {
     let cli = crate::shell::quote(cli);
-    format!(
-        "---\ntargets: [\"*\"]\ndescription: \"Show the user files in Pitwall\"\n---\n\
-# Showing files in Pitwall\n\n\
+    let mut s = String::from("---\ntargets: [\"*\"]\ndescription: \"Show the user files in Pitwall\"\n---\n");
+    if what.files {
+        s.push_str(&format!(
+            "# Showing files in Pitwall\n\n\
 This session runs inside Pitwall. When the user asks to see a file, a folder or an image (\"open it\", \"show me that\"), run:\n\n```sh\n\
     {cli} open <file>[:line[:column]] [more files]\n\
     {cli} open --folder <folder>\n```\n\n\
 It shows them in Pitwall's file viewer, a files tile next to this terminal in Pitwall's layout (`--where right|left|above|below`, right by default; `--of <agent>` next to another terminal) or a window of its own when the user asks for it separately (`--where window`), and says where. Only when the user asks; it changes nothing and gives you nothing back.\n"
-    )
+        ));
+    }
+    if what.web {
+        s.push_str(&format!(
+            "{}# Showing web pages in Pitwall\n\n\
+When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), run:\n\n```sh\n\
+    {cli} open --web <address> [--where right|left|above|below|replace|window] [--of <agent>]\n```\n\n\
+`--web` alone opens an empty page for the user to type an address in. Only http and https addresses. It only shows the page to the user: you get nothing back from it and can't click or type in it.\n",
+            if what.files { "\n" } else { "" }
+        ));
+    }
+    s
 }
 
 /// Keep the built-in rule in step with the setting: written while `cli`
 /// is given (on, and a CLI to run), removed otherwise. Agents' rules that
 /// include it go stale and are reapplied as usual.
-pub fn sync_show_files_rule(dirs: &Dirs, cli: Option<&str>) {
+pub fn sync_show_files_rule(dirs: &Dirs, cli: Option<&str>, what: ShowWhat) {
     let at = dirs.show_files_rule();
     match cli {
         Some(cli) => {
-            let text = show_files_rule_text(cli);
+            let text = show_files_rule_text(cli, what);
             if std::fs::read_to_string(&at).ok().as_deref() != Some(text.as_str()) {
                 if let Some(dir) = at.parent() {
                     let _ = std::fs::create_dir_all(dir);

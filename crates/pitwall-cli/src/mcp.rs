@@ -1,7 +1,8 @@
 //! `pitwall mcp`: Pitwall's MCP server, on stdin/stdout (JSON-RPC 2.0, one
 //! message per line, as MCP's stdio transport says). Pitwall adds it to
-//! the agents it starts (`agents.showFiles`) so they can show the user
-//! files. Nothing is ever printed but protocol messages.
+//! the agents it starts (`agents.showFiles`, `agents.showWeb`) so they can
+//! show the user files and web pages. Nothing is ever printed but protocol
+//! messages.
 //!
 //! It is a proxy: the agent's CLI keeps this process as long as the agent
 //! runs, across Pitwall updates, so the tools aren't this build's. Their
@@ -25,7 +26,7 @@ use serde_json::{json, Value};
 use pitwall_client::{Client, Error};
 use pitwall_proto::mcp::{self, McpCall, McpCalled, McpTools};
 use pitwall_proto::show::MCP_SERVER;
-use pitwall_proto::{caps, code, method, Role, ViewerOpen};
+use pitwall_proto::{caps, code, method, Role, ViewerOpen, WebOpen};
 
 /// Protocol versions this server speaks, newest first.
 pub const VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -55,6 +56,12 @@ pub trait Upstream: Sync {
     /// `viewer.open`, for a Pitwall older than `mcp.*`: its answer as it
     /// came, and in words.
     fn open(&self, req: &ViewerOpen) -> Result<(Value, String), Error>;
+    /// `web.open`, for a Pitwall older than `mcp.*` (which has none: it is
+    /// told so).
+    fn open_web(&self, req: &WebOpen) -> Result<(Value, String), Error> {
+        let _ = req;
+        Err(Error::Server(pitwall_proto::ErrorBody::new(code::UNSUPPORTED, crate::open::NO_WEB)))
+    }
 }
 
 /// The running Pitwall at `socket`.
@@ -94,6 +101,10 @@ impl Upstream for SocketUpstream {
     fn open(&self, req: &ViewerOpen) -> Result<(Value, String), Error> {
         crate::open::open(&mut self.client()?, req)
     }
+
+    fn open_web(&self, req: &WebOpen) -> Result<(Value, String), Error> {
+        crate::open::open_web(&mut self.client()?, req)
+    }
 }
 
 /// What a failed fallback call tells the agent, and whether it is an error
@@ -102,6 +113,7 @@ fn failure(e: &Error) -> (String, bool) {
     match e {
         Error::Connect { .. } | Error::Rejected(_) => ("Pitwall isn't running (or can't be reached), so nothing was opened.".into(), true),
         Error::Server(b) if b.code == code::OFF => (b.message.clone(), true),
+        Error::Server(b) if b.message == crate::open::NO_WEB => (b.message.clone(), true),
         Error::Server(b) => (format!("Nothing was opened: {}", b.message), true),
         other => (lost(&other.to_string()), false),
     }
@@ -204,7 +216,14 @@ impl<'a> Proxy<'a> {
             Err(Miss::Old) => {
                 let r = match mcp::request(&name, &arguments, self.agent.clone()) {
                     Err(e) => mcp::result(&format!("Nothing was opened: {e}"), None, true),
-                    Ok(req) => match self.up.open(&req) {
+                    Ok(mcp::Request::Web(req)) => match self.up.open_web(&req) {
+                        Ok((v, text)) => mcp::result(&text, Some(v), false),
+                        Err(e) => {
+                            let (text, error) = failure(&e);
+                            mcp::result(&text, None, error)
+                        }
+                    },
+                    Ok(mcp::Request::Viewer(req)) => match self.up.open(&req) {
                         Ok((v, text)) => mcp::result(&text, Some(v), false),
                         Err(e) => {
                             let (text, error) = failure(&e);
@@ -413,7 +432,7 @@ mod tests {
         assert_eq!(out[0]["result"]["capabilities"]["tools"]["listChanged"], true);
         assert_eq!(out[0]["result"]["instructions"], "the app's words");
         let names: Vec<&str> = out[1]["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["show_files", "show_folder"]);
+        assert_eq!(names, ["show_files", "show_folder", "show_web"]);
         // A `where` this build doesn't know goes to Pitwall as it is, and
         // its answer comes back as it is.
         assert_eq!(out[2]["result"]["isError"], false);
@@ -515,6 +534,32 @@ mod tests {
         assert!(out[0]["result"]["content"][0]["text"].as_str().unwrap().contains("right, left, above, below, replace or window"));
         assert!(out[1]["result"]["content"][0]["text"].as_str().unwrap().contains("no tool"));
         assert_eq!(f.opens.lock().unwrap().len(), 1, "only the `left` one reached it");
+        // `show_web` from this build's list, to a Pitwall from before it:
+        // told plainly that this Pitwall is older, nothing opened; a bad
+        // address never gets there.
+        let out = session(&p, &[call(1, "show_web", json!({"url": "example.com"})), call(2, "show_web", json!({"url": "javascript:alert(1)"}))]);
+        assert_eq!(out[0]["result"]["isError"], true);
+        assert!(out[0]["result"]["content"][0]["text"].as_str().unwrap().contains("older than its command-line tool and can't show web pages"), "{out:?}");
+        assert!(out[1]["result"]["content"][0]["text"].as_str().unwrap().contains("Only web addresses"), "{out:?}");
+    }
+
+    /// A newer Pitwall's `show_web` goes through an older tool server: it
+    /// passes any call on as it came (`mcp.call`), so the tool works with
+    /// no change to the server the agent was started with.
+    #[test]
+    fn show_web_passes_through_like_any_tool() {
+        let f = fake(Mode::Serves);
+        let p = Proxy::new(&f, Some("a1".into()));
+        let out = session(&p, &[call(1, "show_web", json!({"url": "example.com", "where": "left"}))]);
+        assert_eq!(out[0]["result"]["isError"], false);
+        let c = f.calls.lock().unwrap()[0].clone();
+        assert_eq!((c.name.as_str(), c.arguments.clone()), ("show_web", json!({"url": "example.com", "where": "left"})));
+        // Down: the fallback answer is the same as for the files tools.
+        let f = fake(Mode::Down);
+        let p = Proxy::new(&f, None);
+        let out = session(&p, &[call(1, "show_web", json!({}))]);
+        assert_eq!(out[0]["result"]["isError"], true);
+        assert!(out[0]["result"]["content"][0]["text"].as_str().unwrap().contains("Pitwall isn't running"));
     }
 
     #[test]

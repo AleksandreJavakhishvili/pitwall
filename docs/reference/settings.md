@@ -40,12 +40,12 @@ While Pitwall isn't in front and an agent needs you, show a small floating contr
 
 ### `general.webPages`
 
-Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own profile, not your browser's. Agents can't see or use these pages. false: no web view is made; a Preview opens in your browser instead.
+Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own profile, not your browser's. Agents can't see or use these pages; with agents.showWeb they can open one for you to see. false: no web view is made, a Preview opens in your browser instead, and agents can't open pages either. An agent changing it asks you first.
 
 - **Values:** true or false
 - **Default:** `true`
 - **Stored in:** `ui.json` → `webPages`
-- **When an agent changes it:** applies directly
+- **When an agent changes it:** asks you in Pitwall first
 
 ### `general.cliTool`
 
@@ -84,6 +84,15 @@ Agents can show you files, folders and images in Pitwall's file viewer when you 
 - **Default:** `true`
 - **Stored in:** `ui.json` → `agentsShowFiles`
 - **When an agent changes it:** applies directly
+
+### `agents.showWeb`
+
+Agents can show you a web page in Pitwall when you ask them to ("open the docs on the left", "open a browser window"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in Pitwall's web profile where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses. An agent changing it asks you first.
+
+- **Values:** true or false
+- **Default:** `true`
+- **Stored in:** `ui.json` → `agentsShowWeb`
+- **When an agent changes it:** asks you in Pitwall first
 
 ### `agents.editFiles`
 

@@ -368,10 +368,16 @@ fn aider_is_told_to_run_pitwall_open_while_showing_files_is_on() {
     assert_eq!(aider.show_files_route(), crate::kind::ShowFilesRoute::ShellRule);
     // Off: nothing.
     assert!(show_files_args(&f.dirs, aider, "agent-1").is_empty());
-    sync_show_files_rule(&f.dirs, Some("/h/bin/pitwall-cli"));
+    sync_show_files_rule(&f.dirs, Some("/h/bin/pitwall-cli"), ShowWhat::ALL);
     let rule = f.dirs.show_files_rule();
     let text = std::fs::read_to_string(&rule).unwrap();
     assert!(text.contains("/h/bin/pitwall-cli open <file>"), "{text}");
+    assert!(text.contains("/h/bin/pitwall-cli open --web <address>"), "and web pages: {text}");
+    // Only what is on is said.
+    let files_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: true, web: false });
+    assert!(files_only.contains("open <file>") && !files_only.contains("--web"));
+    let web_only = show_files_rule_text("/h/bin/pitwall-cli", ShowWhat { files: false, web: true });
+    assert!(!web_only.contains("open <file>") && web_only.contains("--web"));
     // No rules of its own: Pitwall's copy, read at launch.
     assert_eq!(show_files_args(&f.dirs, aider, "agent-1"), vec!["--read".to_string(), rule.to_string_lossy().into_owned()]);
     // Kinds with an MCP way don't get it.
@@ -390,7 +396,7 @@ fn aider_is_told_to_run_pitwall_open_while_showing_files_is_on() {
     assert!(!written.contains("targets:"), "front matter dropped: {written}");
     assert!(show_files_args(&f.dirs, aider, "agent-1").is_empty(), "its own file already has it");
     assert!(!stale(&f.dirs, &read(&f.dirs), &c));
-    sync_show_files_rule(&f.dirs, None);
+    sync_show_files_rule(&f.dirs, None, ShowWhat::ALL);
     assert!(!rule.exists());
     assert!(stale(&f.dirs, &read(&f.dirs), &c), "turning it off is a change to reapply");
 }

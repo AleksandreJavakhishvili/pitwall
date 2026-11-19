@@ -1,6 +1,9 @@
-//! The `pitwall` MCP server's tools (`show_files`, `show_folder`): their
-//! definitions, the server's instructions, a call's arguments as a
-//! [`ViewerOpen`], and its result in words.
+//! The `pitwall` MCP server's tools (`show_files`, `show_folder`,
+//! `show_web`): their definitions, the server's instructions, a call's
+//! arguments as a [`ViewerOpen`] or a [`WebOpen`], and its result in words.
+//! Which tools a Pitwall lists follows its settings ([`served`]); this
+//! build's own copy, used when Pitwall can't be asked, has them all
+//! ([`own`]).
 //!
 //! The running Pitwall serves these (`mcp.tools`, `mcp.call`), and
 //! `pitwall-cli mcp` passes them through as JSON: an agent's server lives as
@@ -12,7 +15,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::show::{ViewerOpen, ViewerOpened, ViewerPlace, TOOL_SHOW_FILES, TOOL_SHOW_FOLDER};
+use crate::show::{ViewerOpen, ViewerOpened, ViewerPlace, TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB};
+use crate::web::WebOpen;
 
 /// `mcp.tools`' answer: the tools as MCP's `tools/list` gives them, the
 /// server's instructions, and a stamp that changes when either does.
@@ -50,19 +54,72 @@ pub struct McpCalled {
     pub stamp: String,
 }
 
-pub const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's.";
+/// The instructions with every tool listed.
+pub const INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's. When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), use show_web: it only shows the page to the user, you get nothing back from it and can't click or type in it.";
+
+const FILES_INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to see, open or look at a file, a folder or an image (\"open that file for me\", \"show me the source of worktree X\"), show it to them in Pitwall with show_files or show_folder instead of printing it. These tools only display things to the user; they don't give you the contents or any way to change files, and nothing the user does in the viewer is sent back to you. When you work in another git worktree or folder than the one you started in, give it as root (its path), so the files and their git status shown are that worktree's.";
+
+const WEB_INSTRUCTIONS: &str = "You are running inside Pitwall, a desktop app that shows the user their coding agents. When the user asks to open a web page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), use show_web: it only shows the page to the user, you get nothing back from it and can't click or type in it.";
+
+/// The instructions for the tools listed.
+pub fn instructions(files: bool, web: bool) -> &'static str {
+    match (files, web) {
+        (true, true) => INSTRUCTIONS,
+        (true, false) => FILES_INSTRUCTIONS,
+        (false, true) => WEB_INSTRUCTIONS,
+        (false, false) => "You are running inside Pitwall, a desktop app that shows the user their coding agents. Its tools for showing the user files and web pages are turned off in Pitwall's settings.",
+    }
+}
+
+/// `show_web`'s description (docs/spec/web.md quotes it).
+pub const SHOW_WEB_DESCRIPTION: &str = "Show a web page to the user in Pitwall, the app you are running in: it opens in a web tile next to your terminal in Pitwall's layout (or a window of its own), in Pitwall's own web view, where the user may be signed in to sites. This only shows a page to the user: you get no page content back, and you cannot click, type, scroll or run anything in it (nothing the user does there is sent to you). Use it when the user asks to open a page, a site, a local dev server or a browser in Pitwall (\"open the docs on the left\", \"open a browser window\"), not to read the web yourself. Without url, an empty page opens with its address field for the user to type in. A later call goes to the page you opened before, wherever the user moved it, unless `where` names a place. The result says what opened and where, or why not (not a web address, Pitwall not running, turned off).";
 
 const WHERE: &str = "Where the user sees it: right, left, above or below (a files tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default), replace (a files tile in that terminal's place, as big and where it is: the terminal leaves the layout but keeps running, and the user can show it again from the sidebar; only when the user asks for the files instead of a terminal) or window (a separate window of its own, when the user asks for it separately). Leave it out unless the user says where: a later call then adds to the same files view wherever it is (the user may have moved it, or popped it out to a window); naming a place moves it there. The user can drag it between the layout and a window either way.";
+const WEB_WHERE: &str = "Where the user sees it: right, left, above or below (a web tile in Pitwall's layout, on that side of your terminal, or of the terminal `of` names; right is the default), replace (a web tile in that terminal's place: the terminal leaves the layout but keeps running; only when the user asks for the page instead of a terminal) or window (a separate window of its own, when the user asks for one). Leave it out unless the user says where: a later call then goes to the page you opened before, wherever it is; naming a place moves it there. The user can drag it between the layout and a window either way.";
+const URL: &str = "The address: http or https only (example.com/docs gets https://; localhost:3000, 127.0.0.1 and LAN hosts get http://). No file:, javascript:, data: or other schemes, and no search words. Leave it out to open an empty page with its address field for the user to type in.";
 const OF: &str = "Whose terminal `where` is next to (or, with replace, in place of): another agent in the same Pitwall space, by name (\"put it above the web terminal\", \"show it instead of the web terminal\"). Default: yours.";
 const ROOT: &str = "The folder relative paths are in: a path, or a worktree of this repository by its folder name or branch (to show another worktree's files). Default: the folder you work in now, as far as Pitwall can tell (else the one you started in); when you work in another worktree or folder than the one you started in, give its path here.";
 
-/// `tools/list`'s tools.
+/// `tools/list`'s tools, all of them.
 pub fn tools() -> Value {
+    tools_for(true, true)
+}
+
+/// `tools/list`'s tools: the files ones while `files`, `show_web` while
+/// `web`.
+pub fn tools_for(files: bool, web: bool) -> Value {
+    let mut list = Vec::new();
+    if files {
+        list.extend(files_tools());
+    }
+    if web {
+        list.push(json!({
+            "name": TOOL_SHOW_WEB,
+            "title": "Show a web page in Pitwall",
+            "description": SHOW_WEB_DESCRIPTION,
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": URL },
+                    "where": { "type": "string", "enum": ViewerPlace::WORDS, "description": WEB_WHERE },
+                    "of": { "type": "string", "description": OF }
+                },
+                "additionalProperties": false
+            },
+            // A page loads in the user's browsing profile: not read-only
+            // for the world, though nothing comes back to the agent.
+            "annotations": { "title": "Show a web page in Pitwall", "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
+        }));
+    }
+    Value::Array(list)
+}
+
+fn files_tools() -> Vec<Value> {
     let annotations = |title: &str| {
         json!({ "title": title, "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false })
     };
-    json!([
-        {
+    vec![
+        json!({
             "name": TOOL_SHOW_FILES,
             "title": "Show files in Pitwall",
             "description": "Show files to the user in Pitwall, the app you are running in: each file opens as a tab in Pitwall's file viewer, a tile next to your terminal in Pitwall's layout (or a window of its own), scrolled to the line and marked when one is given. It only displays: it gives you no contents and no way to change files (the user may edit and save there themselves; nothing comes back to you). Use it when the user asks to see, open or look at a file (\"open that file for me\", \"show me where that's defined\"), not to read files yourself. Text and Markdown show as text (Markdown can be previewed), images (PNG, JPEG, GIF, WebP, SVG) as images; other files get an \"Open in default app\" button. The result says what opened and what didn't (not found, Pitwall not running, turned off).",
@@ -83,8 +140,8 @@ pub fn tools() -> Value {
                 "additionalProperties": false
             },
             "annotations": annotations("Show files in Pitwall")
-        },
-        {
+        }),
+        json!({
             "name": TOOL_SHOW_FOLDER,
             "title": "Show a folder in Pitwall",
             "description": "Show a folder to the user in Pitwall, the app you are running in: a file tree with each file's git status, in Pitwall's file viewer, a tile next to your terminal in Pitwall's layout (or a window of its own). It only displays. Any folder on this computer works, also outside your working folder. Use it when the user asks to see a folder, a project or a whole worktree (\"show me the source of worktree X\": give root X and no folder). The result says what opened, or why not.",
@@ -99,14 +156,22 @@ pub fn tools() -> Value {
                 "additionalProperties": false
             },
             "annotations": annotations("Show a folder in Pitwall")
-        }
-    ])
+        }),
+    ]
 }
 
-/// This build's tools, instructions and stamp.
+/// This build's tools, instructions and stamp (all of them: what stands in
+/// when Pitwall can't be asked).
 pub fn own() -> McpTools {
-    let tools = tools();
-    McpTools { stamp: stamp(&tools, INSTRUCTIONS), tools, instructions: INSTRUCTIONS.into() }
+    served(true, true)
+}
+
+/// The tools a Pitwall serves with showing files (`files`) and web pages
+/// (`web`) on or off, its instructions and their stamp.
+pub fn served(files: bool, web: bool) -> McpTools {
+    let tools = tools_for(files, web);
+    let instructions = instructions(files, web);
+    McpTools { stamp: stamp(&tools, instructions), tools, instructions: instructions.into() }
 }
 
 /// Changes when the tools or the instructions do (FNV-1a of their JSON:
@@ -120,9 +185,18 @@ pub fn stamp(tools: &Value, instructions: &str) -> String {
     format!("{h:016x}")
 }
 
-/// A tool's arguments as `viewer.open`'s request (the agent's own id from
-/// its environment; the server checks who calls).
-pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<ViewerOpen, String> {
+/// A tool call as the request it makes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    /// `show_files`, `show_folder`: `viewer.open`.
+    Viewer(ViewerOpen),
+    /// `show_web`: `web.open`.
+    Web(WebOpen),
+}
+
+/// A tool's arguments as its request (the agent's own id from its
+/// environment; the server checks who calls).
+pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Request, String> {
     let text = |k: &str| -> Result<Option<String>, String> {
         match args.get(k) {
             None | Some(Value::Null) => Ok(None),
@@ -135,6 +209,13 @@ pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Viewer
         None => None,
         Some(w) => Some(ViewerPlace::parse(&w).ok_or_else(|| format!("`where` is right, left, above, below, replace or window, not {w}"))?),
     };
+    if tool == TOOL_SHOW_WEB {
+        let url = match text("url")? {
+            None => None,
+            Some(u) => Some(crate::web::address(&u)?),
+        };
+        return Ok(Request::Web(WebOpen { agent_id: agent, url, place, of: text("of")?, proto: Some(crate::web::WEB_PROTO) }));
+    }
     let mut req = ViewerOpen { agent_id: agent, root: text("root")?, place, of: text("of")?, proto: Some(crate::show::VIEWER_PROTO), ..Default::default() };
     match tool {
         TOOL_SHOW_FILES => {
@@ -158,7 +239,7 @@ pub fn request(tool: &str, args: &Value, agent: Option<String>) -> Result<Viewer
         }
         other => return Err(format!("no tool \"{other}\"")),
     }
-    Ok(req)
+    Ok(Request::Viewer(req))
 }
 
 /// What was opened, in words (the CLI's `--human` and the tools' result).
@@ -271,6 +352,57 @@ mod tests {
         assert!(e.starts_with("unknown variant `right`, expected `beside` or `window`"), "{e}");
         assert!(serde_json::from_value::<FirstOpened>(answer("window")).is_ok(), "why `where: window` worked");
         assert!(opened_text(&answer("right")).starts_with("Opened in a files tile in space Main"));
+    }
+
+    fn names(t: &Value) -> Vec<String> {
+        t.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
+    }
+
+    /// `show_web` is listed while web pages may be shown, with its schema
+    /// and words; the files tools while showing files is on.
+    #[test]
+    fn the_tools_listed_follow_the_settings() {
+        assert_eq!(names(&tools()), ["show_files", "show_folder", "show_web"]);
+        assert_eq!(names(&served(true, false).tools), ["show_files", "show_folder"]);
+        assert_eq!(names(&served(false, true).tools), ["show_web"]);
+        assert!(names(&served(false, false).tools).is_empty());
+        assert_eq!(own(), served(true, true));
+        // Each setting has its own stamp (the agent is told to list again).
+        let stamps: std::collections::HashSet<String> = [(true, true), (true, false), (false, true), (false, false)].iter().map(|(f, w)| served(*f, *w).stamp).collect();
+        assert_eq!(stamps.len(), 4);
+        assert!(!served(true, false).instructions.contains("show_web"));
+        assert!(served(false, true).instructions.contains("show_web") && !served(false, true).instructions.contains("show_files"));
+        let web = &tools()[2];
+        assert_eq!(web["description"], SHOW_WEB_DESCRIPTION);
+        let d = web["description"].as_str().unwrap();
+        assert!(d.contains("This only shows a page to the user: you get no page content back, and you cannot click, type"), "{d}");
+        let schema = &web["inputSchema"];
+        assert_eq!(schema["properties"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(), ["of", "url", "where"]);
+        assert_eq!(schema["properties"]["where"]["enum"], json!(ViewerPlace::WORDS));
+        assert!(schema.get("required").is_none(), "url is optional");
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(web["annotations"]["openWorldHint"], true);
+    }
+
+    #[test]
+    fn a_show_web_call_is_checked_before_it_goes_anywhere() {
+        let web = |args: Value| request(TOOL_SHOW_WEB, &args, Some("a1".into()));
+        let Ok(Request::Web(r)) = web(json!({"url": "example.com/docs", "where": "left", "of": "api"})) else { panic!() };
+        assert_eq!(r, WebOpen { agent_id: Some("a1".into()), url: Some("https://example.com/docs".into()), place: Some(ViewerPlace::Left), of: Some("api".into()), proto: Some(crate::web::WEB_PROTO) });
+        let Ok(Request::Web(r)) = web(json!({"url": "localhost:3000", "where": "window"})) else { panic!() };
+        assert_eq!((r.url.as_deref(), r.place), (Some("http://localhost:3000"), Some(ViewerPlace::Window)));
+        // No url: an empty page.
+        let Ok(Request::Web(r)) = web(json!({})) else { panic!() };
+        assert_eq!((r.url, r.place), (None, None));
+        let Ok(Request::Web(r)) = web(json!({"url": "  "})) else { panic!() };
+        assert_eq!(r.url, None);
+        for bad in ["javascript:alert(1)", "data:text/html,hi", "file:///etc/passwd", "about:blank", "how to cook rice", "chrome://settings"] {
+            let e = web(json!({ "url": bad })).unwrap_err();
+            assert!(e.contains("isn't a web address") || e.contains("Only web addresses"), "{bad}: {e}");
+        }
+        assert!(web(json!({"url": 3})).unwrap_err().contains("must be a string"));
+        assert!(web(json!({"url": "example.com", "where": "tab"})).unwrap_err().contains("`where` is right, left"));
+        assert!(matches!(request(TOOL_SHOW_FILES, &json!({"paths": ["a"]}), None), Ok(Request::Viewer(_))));
     }
 
     #[test]

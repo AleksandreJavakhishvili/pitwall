@@ -19,8 +19,10 @@ pub const MCP_SERVER: &str = "pitwall";
 pub const TOOL_SHOW_FILES: &str = "show_files";
 /// The MCP tool that opens a folder as a tree.
 pub const TOOL_SHOW_FOLDER: &str = "show_folder";
-/// Both tools.
-pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER];
+/// The MCP tool that shows a web page (`web.open`).
+pub const TOOL_SHOW_WEB: &str = "show_web";
+/// Every tool (what a launch pre-approves: they only show the user things).
+pub const TOOLS: &[&str] = &[TOOL_SHOW_FILES, TOOL_SHOW_FOLDER, TOOL_SHOW_WEB];
 
 /// `viewer.open`'s shape: 1 had `beside` and `window` only (no `proto` on
 /// the wire); 2 has the sides, `replace`, `of`, and `text` in the answer.

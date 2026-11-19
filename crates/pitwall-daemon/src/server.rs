@@ -109,6 +109,7 @@ pub fn serve(engine: Shared, approvals: Arc<Approvals>, identify: Arc<dyn Identi
     if cfg.viewer.is_some() {
         offered.push(caps::VIEWER);
         offered.push(caps::MCP);
+        offered.push(caps::WEB);
     }
     let server = Arc::new(Server {
         engine,

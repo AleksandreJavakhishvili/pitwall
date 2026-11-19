@@ -70,10 +70,13 @@ pub enum Command {
     /// Opens in a window of its own (beside the agent's terminal if you
     /// docked it there), without bringing Pitwall forward over another
     /// app. Off with `agents.showFiles`.
+    /// With --web, a web page instead: in the agent's page tile next to its
+    /// terminal (or a window of its own), http and https only; it only
+    /// shows the page to the user. Off with `agents.showWeb`.
     Open(OpenArgs),
-    /// Run Pitwall's MCP server on stdin/stdout (its tools `show_files` and
-    /// `show_folder` do what `open` does). Pitwall adds it to the agents it
-    /// starts; any MCP client can run it.
+    /// Run Pitwall's MCP server on stdin/stdout (its tools `show_files`,
+    /// `show_folder` and `show_web` do what `open` does). Pitwall adds it to
+    /// the agents it starts; any MCP client can run it.
     Mcp,
     /// Follow Pitwall as it changes: the agent list, agents that need you
     /// (blocked) or finished (done), and how many are blocked. The current
@@ -504,6 +507,12 @@ pub struct OpenArgs {
     /// folder). `src/main.rs:42` or `src/main.rs:42:7` opens at that line.
     #[arg(value_name = "FILE")]
     pub files: Vec<String>,
+    /// A web page instead of files: its address (http or https; a bare
+    /// host gets https://, localhost and LAN hosts http://). Alone, an
+    /// empty page with its address field ready. It goes to the page the
+    /// agent opened before unless --where names a place.
+    #[arg(long, value_name = "URL", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["files", "folder", "root"])]
+    pub web: Option<String>,
     /// A folder to show as a tree (relative to --root, default: this
     /// folder). With only --root, that folder is shown.
     #[arg(long, value_name = "DIR")]
@@ -761,6 +770,7 @@ mod tests {
             parse(&["open", "src/a.rs:42:7", "README.md", "--root", "fix/login", "--where", "window", "--agent", "api"]).unwrap().command,
             Command::Open(OpenArgs {
                 files: vec!["src/a.rs:42:7".into(), "README.md".into()],
+                web: None,
                 folder: None,
                 root: Some("fix/login".into()),
                 agent: Some("api".into()),
@@ -774,6 +784,15 @@ mod tests {
         let Command::Open(o) = parse(&["open", "a", "--where", "above", "--of", "web"]).unwrap().command else { panic!() };
         assert_eq!((o.place.as_deref(), o.of.as_deref()), (Some("above"), Some("web")));
         assert_eq!(parse(&["mcp"]).unwrap().command, Command::Mcp);
+        // A web page: with an address, alone, with a place.
+        let Command::Open(o) = parse(&["open", "--web", "example.com/docs", "--where", "left"]).unwrap().command else { panic!() };
+        assert_eq!((o.web.as_deref(), o.place.as_deref(), o.files.len()), (Some("example.com/docs"), Some("left"), 0));
+        let Command::Open(o) = parse(&["open", "--web"]).unwrap().command else { panic!() };
+        assert_eq!(o.web.as_deref(), Some(""));
+        let Command::Open(o) = parse(&["open", "--where", "window", "--web", "--of", "api"]).unwrap().command else { panic!() };
+        assert_eq!((o.web.as_deref(), o.place.as_deref(), o.of.as_deref()), (Some(""), Some("window"), Some("api")));
+        assert!(parse(&["open", "--web", "a.dev", "b.rs"]).is_err(), "files and a page don't mix");
+        assert!(parse(&["open", "--web", "a.dev", "--folder", "src"]).is_err());
         let c = parse(&["agent", "new", "--kind", "claude", "--project", "~/p", "--name", "api", "--resume", "s-1"]).unwrap();
         assert_eq!(
             c.command,

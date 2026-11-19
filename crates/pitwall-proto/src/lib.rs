@@ -14,6 +14,7 @@
 //! - [`settings`]: the settings registry (keys, types, defaults, schema).
 //! - [`show`]: agents showing files and folders to the user (`viewer.open`).
 //! - [`mcp`]: the agents' `pitwall` MCP tools, served by Pitwall (`mcp.*`).
+//! - [`web`]: agents showing web pages to the user (`web.open`).
 //!
 //! Serde only: no sockets, no engine.
 
@@ -29,6 +30,7 @@ pub mod pipe;
 pub mod settings;
 pub mod show;
 pub mod views;
+pub mod web;
 
 pub use api::*;
 pub use create::*;
@@ -38,6 +40,7 @@ pub use msg::*;
 pub use settings::{SettingKey, SettingSet, SettingView};
 pub use show::*;
 pub use views::*;
+pub use web::{WebOpen, WebOpened, WebShow, WebShown, WEB_PROTO};
 
 /// The protocol version this build speaks.
 pub const PROTOCOL: u32 = 1;

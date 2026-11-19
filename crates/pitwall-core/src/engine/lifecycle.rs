@@ -1064,11 +1064,27 @@ mod tests {
         let v = create(&h.engine, req("claude", &dir, false)).unwrap();
         let line = launched(&h);
         assert!(line.contains(r#"--mcp-config '{"mcpServers":{"pitwall":{"command":"/app/pitwall-cli","args":["mcp"]}}}'"#), "{line}");
-        // Off: the next start has none (agents already running keep theirs
-        // until they restart).
+        // Showing files off, web pages on: still there (its tools are
+        // listed by the running Pitwall).
         h.engine.set_show_files(false);
         restart(&h.engine, &v.id, None).unwrap();
+        assert!(launched(&h).contains("--mcp-config"));
+        // Both off: the next start has none (agents already running keep
+        // theirs until they restart). Web pages off counts as off.
+        h.engine.set_show_web(true, false);
+        assert!(!h.engine.show_web_on());
+        assert!(h.engine.show_web_off().unwrap().contains("general.webPages"));
+        restart(&h.engine, &v.id, None).unwrap();
         assert!(!launched(&h).contains("--mcp-config"));
+        h.engine.set_show_web(false, true);
+        assert!(h.engine.show_web_off().unwrap().contains("agents.showWeb"));
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(!launched(&h).contains("--mcp-config"));
+        h.engine.set_show_web(true, true);
+        assert_eq!(h.engine.show_web_off(), None);
+        restart(&h.engine, &v.id, None).unwrap();
+        assert!(launched(&h).contains("--mcp-config"));
+        h.engine.set_show_web(false, true);
         h.engine.set_show_files(true);
         restart(&h.engine, &v.id, None).unwrap();
         assert!(launched(&h).contains("--mcp-config"));
@@ -1094,10 +1110,13 @@ mod tests {
         let v = create(&h.engine, req("aider", &dir, false)).unwrap();
         assert!(launched(&h).ends_with(&format!("--read {}", crate::shell::quote(&rule.to_string_lossy()))), "{}", launched(&h));
         h.engine.set_show_files(false);
+        assert!(std::fs::read_to_string(&rule).unwrap().contains("open --web"), "web pages still on");
+        h.engine.set_show_web(false, true);
         assert!(!rule.exists());
         restart(&h.engine, &v.id, None).unwrap();
         assert!(!launched(&h).contains("--read"));
         h.engine.set_show_files(true);
+        h.engine.set_show_web(true, true);
         let line = |id: &str| {
             create(&h.engine, req(id, &dir, false)).unwrap();
             launched(&h)
