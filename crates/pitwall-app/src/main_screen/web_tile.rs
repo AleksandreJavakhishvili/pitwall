@@ -1008,7 +1008,8 @@ impl MainScreen {
             .child(
                 div()
                     .id(SharedString::from(format!("web-url-{id}")))
-                    .flex_1()
+                    // As wide as it may be first; the free bar gets the rest.
+                    .flex_basis(px(640.))
                     .min_w(px(60.))
                     .max_w(px(640.))
                     .mx(px(4.))
@@ -1041,7 +1042,8 @@ impl MainScreen {
                         .child(label),
                 )
             })
-            // Free bar to drag by.
+            // Free bar to drag by: what the address field leaves past its
+            // widest.
             .child(div().flex_1().min_w(px(4.)).h_full())
             .when(p.agent.is_some(), |d| {
                 d.child(btn("phone", "phone", "Phone width", Some(p.phone)).on_click(act(cx, |s, id, _, cx| s.with_tile(id, |p| p.phone = !p.phone, cx))))
