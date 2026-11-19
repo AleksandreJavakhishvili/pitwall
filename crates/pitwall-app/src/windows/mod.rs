@@ -324,6 +324,12 @@ pub fn quitting(cx: &App) -> bool {
     cx.try_global::<Windows>().is_some_and(|w| w.quitting)
 }
 
+/// Pitwall is quitting (tests: as `on_app_quit` marks it), or not again.
+#[cfg(test)]
+pub fn set_quitting(on: bool, cx: &mut App) {
+    state(cx).quitting = on;
+}
+
 /// How many file viewer windows are open (a new one is cascaded from the
 /// last).
 pub fn viewer_windows(cx: &mut App) -> usize {

@@ -252,7 +252,19 @@ fixes, not an IDE.
   another agent's terminal), or in that slot's place (`where: replace`). It resizes with the dividers, folds after
   terminals when room runs out (it is drawn down to 240×160), and is kept
   with what it had open (`dockedFiles`), opened again after a restart. A
-  **window** of its own (`where: window`). The bar drags either (anywhere
+  **window** of its own (`where: window`). A files window open when
+  Pitwall quits opens again at the next start (`filesWindows`, by agent),
+  behind the other windows and without taking the keyboard, as a web
+  page's window: the same folder, its tabs and the one in front, the
+  folders open in its tree, and its own place and size (when still on a
+  screen; else where a new one goes). Its tabs are read again from disk:
+  unsaved edits are not kept (⌘Q asks about them first; quitting another
+  way, from the Dock or by logging out, loses them, and the reopened tab
+  shows what is on disk). Pinned isn't kept, as for a web window. Closed
+  by the user (or moved into a layout, or closed with its removed agent)
+  it is forgotten; one whose agent, or the agent whose folder it read, is
+  gone at the start doesn't open and is forgotten, as that agent's files
+  tile. The bar drags either (anywhere
   on it but its controls, and the tab strip's empty end; the grip is its
   hint): a press that travels 4 px is a drag, one that doesn't a click, a
   double click nothing; in a window the window moves with it. Into any
@@ -284,8 +296,9 @@ fixes, not an IDE.
   or next to the terminal it shares most of an edge with.
 - **An agent removed** from Pitwall takes its files with it: its files
   tile leaves the layout (the gap closes as for a terminal), its window
-  closes, and `dockedFiles` forgets it; a tile saved in `ui.json` for an
-  agent that no longer exists isn't drawn again after a restart. Files
+  closes, and `dockedFiles` / `filesWindows` forget it; a tile or window
+  saved in `ui.json` for an agent that no longer exists isn't shown again
+  after a restart. Files
   with unsaved edits stay instead, reading the agent's folder on this
   computer (a `path:` key), under a note that the agent was removed, with
   Save and Discard; once saved or discarded they close the same way. An
