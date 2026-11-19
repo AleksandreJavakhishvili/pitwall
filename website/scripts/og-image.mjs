@@ -95,8 +95,8 @@ h1 span { color: var(--text-3); }
   <div class="main">
     <div>
       <div class="brand">${mark}<span>PITWALL</span></div>
-      <h1>You call the strategy.<br /><span>Agents drive.</span></h1>
-      <p class="sub">Run Claude Code, Codex, Gemini CLI and more side by side. See which one needs you.</p>
+      <h1>Your agents'<br />workstation.<br /><span>One layout.</span></h1>
+      <p class="sub">Terminals, files, source and web pages side by side. See which agent needs you.</p>
     </div>
     <div class="board">
       <div class="head"><span>Pos · Agent</span><span>Flag</span></div>
