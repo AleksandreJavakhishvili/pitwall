@@ -126,12 +126,19 @@ The tool's description, as agents see it:
   their browser; downloads, camera and microphone are declined as above.
 - **No focus taking.** The page never gets the keyboard or brings Pitwall
   forward, so an agent can't steer typing into a page.
-- **Settings an agent can't change by itself.** `agents.showWeb` (on by
-  default) and `general.webPages` are approval-level: an agent changing
-  either (`pitwall settings set`) asks the user in Pitwall, and the
-  command-line tool refuses with Pitwall closed. Off, the tool isn't
-  listed (agents running then hear `tools/list_changed`) and `web.open`
-  is refused.
+- **Settings.** `agents.showWeb` (on by default) and `general.webPages`
+  are as sensitive as `agents.showFiles` (Safe): `pitwall settings set`
+  changes them without asking, as it does showing files. Off, the tool
+  isn't listed (agents running then hear `tools/list_changed`) and
+  `web.open` is refused.
+- **Read-only hint.** `show_web` says `readOnlyHint: true`, as the files
+  tools do, so agents that go by it (Codex) don't ask before each call.
+  That is what it is for the agent: it shows the user something and
+  changes nothing in the agent's environment (no file, process or
+  setting), and nothing comes back. It is not nothing for the user: the
+  page loads in their own signed-in profile, as a link they clicked
+  would, which is why the hint also says `openWorldHint: true` and why
+  the page never gets the keyboard.
 - **Version skew.** A command-line tool newer than the running app
   (without the `web` capability) refuses with "quit Pitwall and open it
   again"; an older one doesn't list the tool. Pitwall not running: the
@@ -202,8 +209,8 @@ same in Flat and Liquid Glass.
 Pitwall"). Off: no web view is made; ⌘L says so, an open tile says so in
 its place, and a Preview opens in the browser; agents don't get
 `show_web`. `agents.showWeb` (on by default; Settings → Agents → "Agents
-can show you web pages") turns off only the agents' tool. Both ask the
-user when an agent changes them.
+can show you web pages") turns off only the agents' tool. Both are as
+sensitive as `agents.showFiles`.
 
 ## Platforms
 WKWebView on macOS, WebView2 on Windows, WebKitGTK (X11) on Linux, the

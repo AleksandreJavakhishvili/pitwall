@@ -196,8 +196,7 @@ get nothing back from it and can't click, type or read anything in it. Only
 http(s) addresses. Places as for files (`--where`, `--of`); a later call goes
 to the page you opened before, wherever the user moved it. It never takes the
 keyboard or brings Pitwall forward. MCP: `show_web`. Off with
-`agents.showWeb false` or `general.webPages false` (only the user can turn
-them back on).
+`agents.showWeb false` or `general.webPages false`.
 
 Without `--root`, files come from the folder the agent works in now (where
 its hooks last said it was, so a worktree it entered mid-session), shown in
