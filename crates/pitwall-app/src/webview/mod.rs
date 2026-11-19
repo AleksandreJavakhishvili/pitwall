@@ -148,6 +148,54 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
     }
 }
 
+/// Each data folder can have a persistent store of its own (macOS 14+,
+/// WebView2's user data folders, WebKitGTK's data managers). `false`
+/// (macOS before 14): every view shares one, so only the Default browser
+/// profile can be used.
+pub fn separate_stores() -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::separate_stores();
+    #[allow(unreachable_code)]
+    true
+}
+
+/// Delete the engine's store of data folder `dir` (a browser profile
+/// removed; no view uses it any more), then the folder. `done` runs on
+/// the main thread (macOS) or the calling thread's next turn.
+pub fn erase_store(dir: &std::path::Path, done: Box<dyn FnOnce(Result<(), String>)>) {
+    let folder = dir.to_path_buf();
+    let then: Box<dyn FnOnce(Result<(), String>)> = Box::new(move |res| {
+        // The folder only once the engine's store is gone (macOS keeps it
+        // elsewhere): a folder left says its id isn't free yet.
+        let res = res.and_then(|()| match std::fs::remove_dir_all(&folder) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {e}", folder.display())),
+            _ => Ok(()),
+        });
+        done(res)
+    });
+    #[cfg(target_os = "macos")]
+    return macos::erase_store(dir, then);
+    // WebView2 and WebKitGTK keep everything in the folder.
+    #[allow(unreachable_code)]
+    then(Ok(()))
+}
+
+/// The identifier of data folder `dir`'s store on macOS 14+
+/// (`dataStoreForIdentifier:`): stable across runs, different for every
+/// folder (each project's Preview, each browser profile, each Pitwall data
+/// folder). A version-4 UUID's bytes.
+pub(crate) fn store_id(dir: &std::path::Path) -> [u8; 16] {
+    let text = dir.to_string_lossy();
+    let fnv = |seed: u64| text.bytes().fold(seed, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+    let mut id = [0u8; 16];
+    id[..8].copy_from_slice(&fnv(0xcbf2_9ce4_8422_2325).to_be_bytes());
+    id[8..].copy_from_slice(&fnv(0x6c62_272e_07bb_0142).to_be_bytes());
+    // A version-4, RFC 4122 UUID (and never the nil one WebKit rejects).
+    id[6] = (id[6] & 0x0f) | 0x40;
+    id[8] = (id[8] & 0x3f) | 0x80;
+    id
+}
+
 /// The platform modifier's keys the page keeps (copy, paste, cut, select
 /// all, undo, redo); every other one goes to Pitwall as
 /// [`WebEvent::Shortcut`]. `platform`: the key has ⌘ on macOS, Ctrl
@@ -158,7 +206,34 @@ pub fn editing_key(key: &str, platform: bool, shift: bool, alt: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{editing_key, stays, to_browser, Policy};
+    use super::{editing_key, stays, store_id, to_browser, Policy};
+    use pitwall_core::accounts::{web_profile_dir, DEFAULT};
+    use std::path::Path;
+
+    /// Every data folder has its own store, the same at every start:
+    /// Default's identifier is the one it had before profiles (the user's
+    /// sign-ins stay), each profile's differs from it and from each other,
+    /// and another Pitwall data folder (an isolated test instance) never
+    /// gets the user's.
+    #[test]
+    fn each_profile_keeps_a_store_of_its_own() {
+        let root = Path::new("/Users/sam/.pitwall");
+        let default = store_id(&web_profile_dir(root, DEFAULT));
+        assert_eq!(web_profile_dir(root, DEFAULT), Path::new("/Users/sam/.pitwall/webview/profile-default"));
+        // Pinned: what the folder gave before profiles (FNV-1a of the path).
+        let hex: String = default.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, "ea71f8ffed36480694617c2a9816b71b", "Default's store must not move");
+        assert_eq!(default, store_id(Path::new("/Users/sam/.pitwall/webview/profile-default")));
+        let work = store_id(&web_profile_dir(root, "web-work"));
+        let personal = store_id(&web_profile_dir(root, "web-personal"));
+        assert!(default != work && work != personal && default != personal);
+        assert_ne!(store_id(&web_profile_dir(Path::new("/tmp/bench/pw"), DEFAULT)), default, "another data folder, another store");
+        assert_ne!(store_id(&crate::preview::data_dir(root, "/work/alpha")), default, "a Preview's isn't a profile's");
+        for id in [default, work, personal] {
+            assert_eq!(id[6] >> 4, 4, "a version-4 UUID");
+            assert_ne!(id, [0; 16]);
+        }
+    }
 
     #[test]
     fn where_each_kind_of_view_may_go() {

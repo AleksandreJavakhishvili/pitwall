@@ -301,18 +301,14 @@ pub fn to_image(s: Snapshot) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new([image::Frame::new(buffer)])))
 }
 
-/// The profile web pages use until profiles can be chosen.
-pub const DEFAULT_PROFILE: &str = "default";
+/// The browser profile every page used before profiles, and uses when its
+/// project names none.
+pub const DEFAULT_PROFILE: &str = pitwall_core::accounts::DEFAULT;
 
-/// A web-page profile's cookies and storage: `<data>/webview/profile-<id>`
-/// (one profile, [`DEFAULT_PROFILE`], for now; never the system browser's).
+/// A browser profile's cookies and storage: `<data>/webview/profile-<id>`
+/// (never the system browser's; `crate::web::profiles`).
 pub fn profile_dir(root: &Path, profile: &str) -> PathBuf {
-    let id: String = profile
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .take(40)
-        .collect();
-    root.join("webview").join(format!("profile-{id}"))
+    pitwall_core::accounts::web_profile_dir(root, profile)
 }
 
 /// An agent's Preview: the project's own cookies and storage,

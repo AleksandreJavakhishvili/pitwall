@@ -21,6 +21,8 @@ pub struct Log {
     pub fail: Option<String>,
     /// Views can't move to another window (as on Windows and Linux).
     pub no_reparent: bool,
+    /// Each view's data folder (its store), in the order they were made.
+    pub dirs: Vec<std::path::PathBuf>,
 }
 
 pub type Shared = Rc<RefCell<Log>>;
@@ -122,6 +124,7 @@ pub fn install(cx: &mut App) -> Shared {
             return Err(e);
         }
         l.borrow_mut().calls.push(format!("create {}", opts.url));
+        l.borrow_mut().dirs.push(opts.data_dir.clone());
         let events: Rc<dyn Fn(WebEvent)> = Rc::from(opts.events);
         l.borrow_mut().events.push(events);
         Ok(Box::new(Fake { log: l.clone() }))

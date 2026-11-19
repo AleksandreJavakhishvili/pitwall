@@ -8,8 +8,12 @@
 //! One page per agent: the page an agent opened is remembered as its
 //! (`ui.json` `webTiles[id].by`), and its next call goes there, wherever
 //! the user moved it (navigated when a url is given), unless `where` names
-//! a place it isn't in. It is a page like one the user opened: the user's
-//! web profile, no Preview rules, and it stays when the agent goes.
+//! a place it isn't in. It is a page like one the user opened (no Preview
+//! rules, it stays when the agent goes), in the browser profile of the
+//! agent's project ([`super::profiles`]; Default when it names none). The
+//! agent can't pick one. A page shown before that is in another profile
+//! than the project's now moves into it at the agent's next call (loaded
+//! again there), and the answer says so.
 //!
 //! Nothing comes forward and the keyboard stays where it is, whether or not
 //! Pitwall is in front: the page is shown, not handed the keys (an empty
@@ -50,13 +54,17 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
     let in_front = crate::platform::app_in_front(cx);
     let err = |e: String| ErrorBody::new(code::OTHER, e);
 
+    // The browser profile of the agent's project (never the agent's pick).
+    let project = agents.iter().find(|a| a.id == agent).map(|a| a.project.clone()).unwrap_or_default();
+    let profile = if project.is_empty() { None } else { super::profiles::for_project(&project, cx) };
+
     // Its page: the one it opened before, else a new one (not placed yet).
     let ui = crate::ui_state::get(cx);
     let (id, reused) = match ui.web_by(agent) {
         Some(id) => (id, true),
         None => {
             let id = new_web_id();
-            let tile = WebTile { url: url.clone().unwrap_or_default(), by: Some(agent.to_string()), ..Default::default() };
+            let tile = WebTile { url: url.clone().unwrap_or_default(), by: Some(agent.to_string()), profile: profile.clone(), ..Default::default() };
             crate::ui_state::update(cx, |s| {
                 s.web_tiles.insert(id.clone(), tile);
             });
@@ -64,7 +72,7 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
         }
     };
     let result = place_it(req, &id, reused, &name, &name_of, cx);
-    let (note, gone) = match result {
+    let (mut note, gone) = match result {
         Ok(v) => v,
         Err(e) => {
             if !reused {
@@ -76,6 +84,27 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
             return Err(err(e));
         }
     };
+    // A page shown before, in another profile than its project's now (the
+    // project's changed, or the user switched the page): into the
+    // project's, loaded again there.
+    if reused {
+        let had = crate::ui_state::get(cx).web_tiles.get(&id).and_then(|t| t.profile.clone());
+        if had != profile {
+            let (from, to) = (super::profiles::name(had.as_deref(), cx), super::profiles::name(profile.as_deref(), cx));
+            match super::pages::get(&id, cx) {
+                Some(p) => p.update(cx, |p, cx| p.set_profile(profile.clone(), cx)),
+                None => {
+                    let p = profile.clone();
+                    crate::ui_state::update(cx, |s| *s = s.clone().set_web_profile(&id, p.as_deref()));
+                }
+            }
+            let moved = format!("The page was in the {from} browser profile; it is in {to} now, the one its project uses, and loaded again there.");
+            note = Some(match note {
+                Some(n) => format!("{n}\n{moved}"),
+                None => moved,
+            });
+        }
+    }
     // A page shown before, given a url: it goes there.
     if let (true, Some(url)) = (reused, url) {
         if let Some(p) = super::pages::ensure(&id, &agents, cx) {
@@ -94,7 +123,8 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
         let label = place::holder(&id, cx).map(|(l, _, _)| l).unwrap_or_default();
         (label, req.place.filter(|p| p.is_tile()).unwrap_or_default())
     };
-    Ok(WebShown { window, in_background: !in_front, place, at, note, reused })
+    let profile = super::profiles::name(profile.as_deref(), cx);
+    Ok(WebShown { window, in_background: !in_front, place, at, note, reused, profile })
 }
 
 /// Page `id` where `req` asks (where it is, when it asks nowhere and it

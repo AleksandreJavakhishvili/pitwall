@@ -39,6 +39,10 @@ pub struct WebTile {
     /// In a window of its own, not in a layout.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub window: bool,
+    /// The browser profile it is in (an account id of kind `web`;
+    /// `None`: Default). Not for a Preview (its project's own store).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 /// A fresh web tile id.
@@ -113,6 +117,14 @@ impl UiState {
     pub fn set_web_url(mut self, id: &str, url: &str) -> UiState {
         if let Some(t) = self.web_tiles.get_mut(id) {
             t.url = url.to_string();
+        }
+        self
+    }
+
+    /// Web page `id` in browser profile `profile` (`None`: Default).
+    pub fn set_web_profile(mut self, id: &str, profile: Option<&str>) -> UiState {
+        if let Some(t) = self.web_tiles.get_mut(id) {
+            t.profile = profile.map(String::from);
         }
         self
     }
@@ -332,6 +344,22 @@ mod tests {
         s.web_tiles.insert("p".into(), WebTile { url: "http://localhost:3000/".into(), agent: Some("b".into()), window: true, ..Default::default() });
         assert!(s.clone().prune_web(&ids(&["b"])).web_tiles.contains_key("p"));
         assert!(!s.prune_web(&ids(&[])).web_tiles.contains_key("p"));
+    }
+
+    /// A page's browser profile is kept with it; Default writes nothing
+    /// (ui.json as before profiles), and an old entry loads in Default.
+    #[test]
+    fn a_pages_profile_is_kept() {
+        let s = state(build_preset(Preset::Two, &ids(&["a", "b"])));
+        let tile = WebTile { url: "https://example.com/".into(), profile: Some("web-work".into()), ..Default::default() };
+        let (s, _) = s.open_web("s", "w", tile, &FilesSpot::Auto, None);
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["webTiles"]["w"], serde_json::json!({"url": "https://example.com/", "profile": "web-work"}));
+        assert_eq!(UiState::sanitize(json).web_tiles["w"].profile.as_deref(), Some("web-work"));
+        let s = s.set_web_profile("w", None);
+        assert_eq!(serde_json::to_value(&s).unwrap()["webTiles"]["w"], serde_json::json!({"url": "https://example.com/"}));
+        let old: WebTile = serde_json::from_value(serde_json::json!({"url": "https://example.com/", "by": "a"})).unwrap();
+        assert_eq!(old.profile, None);
     }
 
     #[test]

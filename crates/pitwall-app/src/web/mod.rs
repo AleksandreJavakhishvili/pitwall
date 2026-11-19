@@ -7,6 +7,7 @@
 pub mod page;
 pub mod pages;
 pub mod place;
+pub mod profiles;
 pub mod show;
 pub mod window;
 
@@ -22,6 +23,11 @@ mod tests;
 /// - `place <agent> right|left|above|below|replace|edge-right|edge-bottom|own|window [of]`:
 ///   agent `<agent>`'s page moved there ("Move…" / "Dock…").
 /// - `close <agent>`: its page closed.
+/// - `profile add <name>` / `remove <id>` / `list`: browser profiles (list:
+///   each one's folder and store identifier).
+/// - `profile project <path> <id|default>`: a project's profile.
+/// - `profile switch <agent> <id|default>`: its page's profile (the bar's
+///   profile menu).
 /// - `state`: every page (on stderr): where, its address and title, how
 ///   many loads it started, whether it has a view.
 pub fn debug(what: &str, cx: &mut gpui::App) {
@@ -70,6 +76,37 @@ pub fn debug(what: &str, cx: &mut gpui::App) {
                 Err(e) => say(format!("{agent} not placed: {e}")),
             }
         }
+        ["profile", "add", name @ ..] => match profiles::add(&name.join(" "), cx) {
+            Ok(a) => say(format!("profile added: {} {}", a.id, a.dir)),
+            Err(e) => say(format!("profile not added: {e}")),
+        },
+        ["profile", "project", project, id] => {
+            let m = crate::accounts::model(cx);
+            let id = (*id != "default").then_some(*id);
+            match m.update(cx, |m, cx| m.set_project_default(project, pitwall_core::accounts::WEB, id, cx)) {
+                Ok(()) => say(format!("profile of {project}: {:?}", profiles::for_project(project, cx))),
+                Err(e) => say(format!("profile not set: {e}")),
+            }
+        }
+        ["profile", "switch", agent, id] => {
+            let Some(page) = page_of(agent, cx).and_then(|p| pages::get(&p, cx)) else { return say(format!("{agent} has no page made")) };
+            let id = (*id != "default").then(|| id.to_string());
+            page.update(cx, |p, cx| p.set_profile(id, cx));
+            say(format!("{agent}'s page in {:?}", page.read(cx).profile()));
+        }
+        ["profile", "remove", id] => match profiles::remove(id, cx) {
+            Ok(()) => say(format!("profile removed: {id}")),
+            Err(e) => say(format!("profile not removed: {e}")),
+        },
+        ["profile", "list"] => {
+            let sep = profiles::separate(cx);
+            for a in profiles::all(cx) {
+                let dir = profiles::dir(Some(&a.id), cx);
+                say(format!("profile {} {:?} dir {} store {}", a.id, a.name, dir.display(), store_hex(&dir)));
+            }
+            let dir = profiles::dir(None, cx);
+            say(format!("profile default dir {} store {} separate {sep}", dir.display(), store_hex(&dir)));
+        }
         ["close", agent] => match page_of(agent, cx) {
             Some(id) => pages::close(&id, cx),
             None => say(format!("{agent} has no page")),
@@ -83,14 +120,20 @@ pub fn debug(what: &str, cx: &mut gpui::App) {
                     (p.title().to_string(), p.loads(), p.has_view(), p.host().map(|h| h.kind))
                 });
                 say(format!(
-                    "{id}: by {:?} preview {:?} url {:?} title {title:?} loads {loads} view {view} held {host:?} at {}",
+                    "{id}: by {:?} preview {:?} url {:?} profile {:?} title {title:?} loads {loads} view {view} held {host:?} at {}",
                     t.by,
                     t.agent,
                     t.url,
+                    t.profile,
                     place::described(id, cx)
                 ));
             }
         }
         _ => say(format!("what? {what}")),
     }
+}
+
+/// The store identifier of data folder `dir` (macOS 14+), as hex.
+fn store_hex(dir: &std::path::Path) -> String {
+    crate::webview::store_id(dir).iter().map(|b| format!("{b:02x}")).collect()
 }
