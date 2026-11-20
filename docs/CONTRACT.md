@@ -38,4 +38,5 @@ how Pitwall behaves and why; the code is organised as:
 | [spec/explorer.md](spec/explorer.md) | Read-only code explorer: file tree, viewer, quick open, search, open in editor | Backend, UI |
 | [spec/gpui/README.md](spec/gpui/README.md) | GPUI port: plan, engine hosting, phases; [inventory](spec/gpui/inventory.md), [in-house components](spec/gpui/in-house.md), [platform](spec/gpui/platform.md), [packaging](spec/gpui/packaging.md), [licensing](spec/gpui/licensing.md) | all |
 | [spec/tailnet-peers.md](spec/tailnet-peers.md) | Planned (after the GPUI switch): see and drive another Pitwall on the same Tailscale tailnet: discovery, transport, pairing and permissions, protocol, UI, phases | all |
+| [spec/extensions.md](spec/extensions.md) | Draft: extensions as folders with a declarative manifest, their switch in Settings and sidebar section; panels open | UI, Backend |
 | [spec/roadmap.md](spec/roadmap.md) | Waves and what comes later | – |
