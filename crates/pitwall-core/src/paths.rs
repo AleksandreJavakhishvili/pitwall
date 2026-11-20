@@ -77,6 +77,12 @@ impl Paths {
         self.root.join("detect")
     }
 
+    /// Installed extensions: a folder each, named after its id, holding
+    /// its `extension.json` (docs/spec/extensions.md).
+    pub fn extensions_dir(&self) -> PathBuf {
+        self.root.join("extensions")
+    }
+
     /// Where versions before 0.1 made agent worktrees. Pitwall no longer creates
     /// any; agents still working in one keep their stored path.
     pub fn legacy_worktrees_dir(&self) -> PathBuf {

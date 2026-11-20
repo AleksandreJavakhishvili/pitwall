@@ -18,6 +18,7 @@ pub mod error;
 pub mod events;
 pub mod exec;
 pub mod explorer;
+pub mod extensions;
 mod flight;
 pub mod hooks;
 pub mod host;
