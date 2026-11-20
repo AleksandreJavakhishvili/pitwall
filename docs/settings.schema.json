@@ -46,6 +46,24 @@
       "maxLength": 1000,
       "type": "string"
     },
+    "extensions": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "default": false,
+            "description": "The extension is on: its section shows in the sidebar.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Extensions (Settings → General → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on gets a section in the sidebar. Not a `pitwall settings` key: turn extensions on and off in Settings or here.",
+      "propertyNames": {
+        "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
+      },
+      "type": "object"
+    },
     "floatingPrompts": {
       "default": true,
       "description": "`general.floatingPrompts`: While Pitwall isn't in front and an agent needs you, show a small floating control above other apps, on every desktop: what each agent asks, with Accept and Reject for a plain yes/no prompt and Open for everything else.",

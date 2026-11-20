@@ -228,7 +228,7 @@ impl MainScreen {
 
     /// How many letters of a project's name fit its heading tracked (22 at
     /// the default width); a longer name is one run that ends with "…".
-    fn head_label_chars(&self) -> usize {
+    pub(super) fn head_label_chars(&self) -> usize {
         ((self.side_drawn_w - 92.) / 8.).max(6.) as usize
     }
 

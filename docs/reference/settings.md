@@ -205,3 +205,10 @@ Base terminal font size in px; tiles may shrink below it to fit.
 - **Default:** `13`
 - **Stored in:** `ui.json` → `fontSize`
 - **When an agent changes it:** applies directly
+
+## Extensions
+
+Extensions (Settings → General → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on gets a section in the sidebar. Not a `pitwall settings` key: turn extensions on and off in Settings or here.
+
+- **Stored in:** `ui.json` → `extensions.<id>.enabled`
+- **More:** [extensions](../spec/extensions.md)
