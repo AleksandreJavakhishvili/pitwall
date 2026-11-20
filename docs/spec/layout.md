@@ -99,6 +99,9 @@ Need: more than two rows of tiles, with room for small ones.
   only This Mac's accounts move or take agents and projects, and another
   machine's Pitwall (a peer) is read-only: nothing is dragged into, out of
   or within it.
+- Extensions that are on (extensions.md, draft) have a section each after
+  the projects (and machines), before Elsewhere: foldable like a project,
+  never dragged, never a drop target.
 
 ## Revision: drag & drop must rearrange properly
 
