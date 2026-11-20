@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "id": "agention",
+  "name": "Agention",
+  "icon": "inbox",
+  "description": "Questions your agents ask you, from your own Agention server"
+}
