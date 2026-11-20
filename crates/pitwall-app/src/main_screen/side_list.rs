@@ -56,6 +56,9 @@ pub(super) enum Row {
     Agent { at: At, i: usize, index: usize },
     /// A project's "N other worktrees" chip and rows.
     Others(At),
+    /// An extension's section heading (`e`: its place among the ones on,
+    /// docs/spec/extensions.md), shaped like a project's.
+    Extension { e: usize, collapsed: bool },
     /// Below the agents: Elsewhere and the other machines' card.
     Tail,
 }
@@ -73,6 +76,8 @@ pub(super) struct Entry {
 pub(super) struct SideList {
     state: ListState,
     sections: Rc<Vec<MachineSection>>,
+    /// The extensions that are on, in their order.
+    exts: Rc<Vec<pitwall_core::extensions::Manifest>>,
     rows: Rc<Vec<Entry>>,
     /// The screen changed since the rows were made.
     dirty: bool,
@@ -95,6 +100,7 @@ impl SideList {
             // row is measured once, so the scrollbar is right from the start.
             state: ListState::new(0, ListAlignment::Top, px(120.)).measure_all(),
             sections: Rc::default(),
+            exts: Rc::default(),
             rows: Rc::default(),
             dirty: true,
             reveal: None,
@@ -121,7 +127,7 @@ impl SideList {
 
     /// Take the new rows: splice the ones that came or went, measure again
     /// the ones whose height may have changed.
-    fn take(&mut self, sections: Vec<MachineSection>, rows: Vec<Entry>) {
+    fn take(&mut self, sections: Vec<MachineSection>, exts: Vec<pitwall_core::extensions::Manifest>, rows: Vec<Entry>) {
         let old = &self.rows;
         let pre = old.iter().zip(&rows).take_while(|(a, b)| a.id == b.id).count();
         let most = old.len().min(rows.len()) - pre;
@@ -146,6 +152,7 @@ impl SideList {
             self.state.remeasure_items(r);
         }
         self.sections = Rc::new(sections);
+        self.exts = Rc::new(exts);
         self.rows = Rc::new(rows);
     }
 
@@ -155,6 +162,20 @@ impl SideList {
             None => &m.groups[at.g],
             Some(s) => &m.accounts[s].groups[at.g],
         }
+    }
+
+    /// Tests: the extension headings made (id, folded) and the lines under
+    /// them, in order.
+    #[cfg(test)]
+    pub(super) fn ext_rows(&self) -> Vec<String> {
+        self.rows
+            .iter()
+            .filter_map(|e| match &e.row {
+                Row::Extension { e: i, collapsed } => Some(format!("{}{}", self.exts[*i].id, if *collapsed { " (folded)" } else { "" })),
+                Row::Note { text, .. } if text == super::ext_side::PLACEHOLDER => Some(format!("  {text}")),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The row of agent `id`.
@@ -203,7 +224,7 @@ impl Rows {
 impl MainScreen {
     /// The sidebar's rows from its machine sections, in the order (and with
     /// the room between them) the sidebar always had.
-    fn side_rows(&self, sections: &[MachineSection]) -> Vec<Entry> {
+    fn side_rows(&self, sections: &[MachineSection], exts: &[pitwall_core::extensions::Manifest]) -> Vec<Entry> {
         let mut rows = Rows::default();
         // The list's own padding (`pt 6`).
         rows.gap(6.);
@@ -249,6 +270,18 @@ impl MainScreen {
                     // Its projects sit a step in, under the account.
                     self.side_groups(&mut rows, &sec.groups, mi, Some(si), &mut index, &by_agent);
                 }
+            }
+        }
+        // The extensions that are on, after the projects: a heading each
+        // and, open, what it shows (nothing yet: docs/spec/extensions.md).
+        for (ei, x) in exts.iter().enumerate() {
+            let key = crate::extensions::group_key(&x.id);
+            let collapsed = self.ui.collapsed.contains(&key);
+            rows.gap(if ei == 0 && !sections.is_empty() { 8. } else { 4. });
+            rows.push(Row::Extension { e: ei, collapsed }, ("x", &key), (collapsed, &x.name, &x.icon));
+            if !collapsed {
+                let text = super::ext_side::PLACEHOLDER.to_string();
+                rows.push(Row::Note { text: text.clone(), faint: true, indent: false }, ("nx", &key), text);
             }
         }
         // Whatever it holds now is measured again each time.
@@ -312,8 +345,9 @@ impl MainScreen {
             self.side.dirty = false;
             self.side.builds += 1;
             let sections = self.machine_sections(self.agents(cx), cx);
-            let rows = self.side_rows(&sections);
-            self.side.take(sections, rows);
+            let exts = crate::extensions::enabled(&crate::extensions::found(cx), &self.ui);
+            let rows = self.side_rows(&sections, &exts);
+            self.side.take(sections, exts, rows);
             self.side_keep_editing(cx);
         }
         if self.side.state.viewport_bounds().size.height <= px(0.) {
@@ -393,6 +427,10 @@ impl MainScreen {
             }
             Row::Project { at, collapsed } => {
                 (self.project_head(self.side.group(*at), *collapsed, t, cx).into_any_element(), at.s.is_some())
+            }
+            Row::Extension { e, collapsed } => {
+                let exts = self.side.exts.clone();
+                (self.extension_head(&exts[*e], *collapsed, t, cx), false)
             }
             Row::Empty(at) => (self.empty_project(self.side.group(*at), t, cx), at.s.is_some()),
             Row::Agent { at, i, index } => {

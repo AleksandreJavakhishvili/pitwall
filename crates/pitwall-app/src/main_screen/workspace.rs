@@ -320,6 +320,10 @@ pub struct UiState {
     /// The account New agent last started each kind on (kind → id).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub new_agent_accounts: BTreeMap<String, String>,
+    /// Extensions (docs/spec/extensions.md): each installed one's switch,
+    /// by id. One not here is off.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: BTreeMap<String, ExtensionPrefs>,
     /// Everything else in the file (`focusRequest`, keys of later
     /// versions), written back untouched.
     #[serde(flatten)]
@@ -385,8 +389,38 @@ impl Default for UiState {
             web_tiles: BTreeMap::new(),
             new_agent_kind: None,
             new_agent_accounts: BTreeMap::new(),
+            extensions: BTreeMap::new(),
             rest: serde_json::Map::new(),
         }
+    }
+}
+
+/// An extension's settings in `ui.json` (`extensions.<id>`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionPrefs {
+    /// It is on: its sidebar section shows.
+    #[serde(default, deserialize_with = "strict_true")]
+    pub enabled: bool,
+    /// Keys of later versions, written back untouched.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, Value>,
+}
+
+impl UiState {
+    /// Extension `id` is on.
+    pub fn extension_on(&self, id: &str) -> bool {
+        self.extensions.get(id).is_some_and(|e| e.enabled)
+    }
+
+    /// Extension `id` turned on or off (its other keys kept).
+    pub fn set_extension(mut self, id: &str, on: bool) -> UiState {
+        let e = self.extensions.entry(id.to_string()).or_default();
+        e.enabled = on;
+        if !on && e.rest.is_empty() {
+            self.extensions.remove(id);
+        }
+        self
     }
 }
 

@@ -154,6 +154,12 @@ pub const FONT_DEFAULT: i64 = 13;
 /// the dialog's own state).
 pub const PAGE_KEY: &str = "settingsPage";
 
+/// `ui.json`'s key for the extensions' switches (by extension id).
+pub const EXTENSIONS_KEY: &str = "extensions";
+
+/// What `extensions` in `ui.json` holds (the schema and the reference).
+pub const EXTENSIONS_TEXT: &str = "Extensions (Settings → General → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on gets a section in the sidebar. Not a `pitwall settings` key: turn extensions on and off in Settings or here.";
+
 /// Every setting, in the order of the Settings pages.
 pub const SETTINGS: &[Setting] = &[
     Setting {
@@ -589,6 +595,21 @@ pub fn json_schema() -> Value {
     }
     let pages: Vec<&str> = Page::ALL.iter().map(|p| p.id()).collect();
     props.insert(PAGE_KEY.into(), json!({ "type": "string", "enum": pages, "description": "The Settings page shown last." }));
+    // One entry per installed extension (docs/spec/extensions.md), so not
+    // in the registry: its keys are the extensions' ids.
+    props.insert(
+        EXTENSIONS_KEY.into(),
+        json!({
+            "type": "object",
+            "description": EXTENSIONS_TEXT,
+            "propertyNames": { "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$" },
+            "additionalProperties": {
+                "type": "object",
+                "properties": { "enabled": { "type": "boolean", "default": false, "description": "The extension is on: its section shows in the sidebar." } },
+                "additionalProperties": true
+            }
+        }),
+    );
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Pitwall settings (ui.json)",
@@ -756,6 +777,7 @@ mod tests {
                 );
             }
         }
+        let _ = write!(md, "\n## Extensions\n\n{EXTENSIONS_TEXT}\n\n- **Stored in:** `ui.json` → `{EXTENSIONS_KEY}.<id>.enabled`\n- **More:** [extensions](../spec/extensions.md)\n");
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/reference/settings.md");
         if std::env::var_os("PITWALL_WRITE_DOCS").is_some() {
             std::fs::write(&path, &md).unwrap();

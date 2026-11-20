@@ -23,6 +23,7 @@ mod commands;
 pub mod demo;
 mod dialogs;
 mod elsewhere;
+mod ext_side;
 mod engineer;
 mod menu;
 pub mod model;
@@ -595,6 +596,8 @@ impl MainScreen {
             }),
             // Accounts renamed, added or removed: the badges and menus.
             cx.observe(&accounts, |_, _, cx| cx.notify()),
+            // Extensions looked for again (Settings): their sidebar sections.
+            cx.observe_global::<crate::extensions::Installed>(|_, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 // Leaving the window cancels a drag and closes a popup menu
                 // (`dnd.ts` and `Menu.tsx` listen for `blur`). Not when the

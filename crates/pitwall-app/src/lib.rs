@@ -12,6 +12,7 @@ pub mod approvals;
 pub mod bridge;
 pub mod cli_spaces;
 pub mod explorer;
+pub mod extensions;
 pub mod float;
 pub mod frame_stats;
 pub mod code_view;
@@ -152,6 +153,7 @@ pub fn run() {
         let root = state.root.clone();
         cx.set_global(state);
         ui_state::init(root.clone(), cx);
+        extensions::init(root.clone(), cx);
         windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine.clone(), root);
         if let Some(b) = cx.global::<AppState>().host.as_ref().map(|h| h.settings.clone()) {

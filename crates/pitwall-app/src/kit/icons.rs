@@ -74,7 +74,19 @@ pub const EXTRA_ICONS: &[(&str, &str)] = &[
     ("chevron-up", "M5 12l5-5 5 5"),
     ("lock", "M5.5 9h9v7.5h-9zM7.5 9V6.5a2.5 2.5 0 0 1 5 0V9"),
     ("alert", "M10 3.5 17 16H3zM10 8.5v3.5M10 14h.01"),
+    // An extension (a puzzle piece): its sidebar section and Settings row
+    // when its manifest names no icon this app has.
+    ("extension", "M4 6.5h3.25a1.75 1.75 0 1 1 3.5 0H14v3.25a1.75 1.75 0 1 1 0 3.5v3.25H4z"),
+    // Icons an extension's manifest may name (docs/spec/extensions.md).
+    ("inbox", "M3 10.5 5 4.5h10l2 6v5H3zM3 10.5h4l1 2h4l1-2h4"),
+    ("bell", "M5.5 13.5V9a4.5 4.5 0 0 1 9 0v4.5l1.5 1.5H4zM8.5 17h3"),
+    ("chat", "M3.5 4.5h13v9h-7l-3.5 3v-3H3.5z"),
 ];
+
+/// This app has an icon called `name`.
+pub fn has_icon(name: &str) -> bool {
+    icon_path(name).is_some()
+}
 
 fn icon_path(name: &str) -> Option<&'static str> {
     ICONS
