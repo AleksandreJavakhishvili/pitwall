@@ -28,6 +28,10 @@
 //! - A web page in a window of its own (`crate::web::window`) is kept here
 //!   by its tile id ([`web_window`]); its page is `ui.json`'s `webTiles`
 //!   entry (`window: true`), so it opens again at the next start.
+//! - An extension's inbox in a window of its own
+//!   (`crate::main_screen::inbox_window`) is kept here by the extension's
+//!   id ([`inbox_window`]); `ui.json`'s `extensions.<id>.window` opens it
+//!   again at the next start.
 
 pub mod file;
 pub mod ownership;
@@ -71,6 +75,8 @@ pub struct Windows {
     viewers: Vec<(String, WindowHandle<crate::explorer::window::ViewerWindow>)>,
     /// Web page windows, by tile id.
     webs: Vec<(String, WindowHandle<crate::web::window::WebWindow>)>,
+    /// Inbox windows, by extension id.
+    inboxes: Vec<(String, WindowHandle<crate::main_screen::inbox_window::InboxWindow>)>,
 }
 
 impl Global for Windows {}
@@ -90,6 +96,7 @@ impl Windows {
             routing: None,
             viewers: vec![],
             webs: vec![],
+            inboxes: vec![],
         }
     }
 
@@ -317,6 +324,29 @@ pub fn add_web_window(id: &str, handle: WindowHandle<crate::web::window::WebWind
     let w = state(cx);
     w.webs.retain(|(a, _)| a != id);
     w.webs.push((id.to_string(), handle));
+}
+
+/// The window extension `ext`'s inbox is in, if it is in one.
+pub fn inbox_window(ext: &str, cx: &mut App) -> Option<WindowHandle<crate::main_screen::inbox_window::InboxWindow>> {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.inboxes.retain(|(_, h)| live.contains(&h.window_id()));
+    w.inboxes.iter().find(|(a, _)| a == ext).map(|(_, h)| *h)
+}
+
+/// How many inbox windows are open (a new one is cascaded from the last).
+pub fn inbox_windows(cx: &mut App) -> usize {
+    let live: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let w = state(cx);
+    w.inboxes.retain(|(_, h)| live.contains(&h.window_id()));
+    w.inboxes.len()
+}
+
+/// Keep inbox window `handle` as extension `ext`'s.
+pub fn add_inbox_window(ext: &str, handle: WindowHandle<crate::main_screen::inbox_window::InboxWindow>, cx: &mut App) {
+    let w = state(cx);
+    w.inboxes.retain(|(a, _)| a != ext);
+    w.inboxes.push((ext.to_string(), handle));
 }
 
 /// Pitwall is quitting (windows closing now open again next time).

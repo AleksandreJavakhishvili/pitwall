@@ -248,6 +248,8 @@ pub fn run() {
         windows::restore(cx);
         // Web pages left in windows of their own, behind the rest.
         web::window::restore(cx);
+        // Extensions' inboxes left in windows of their own, too.
+        main_screen::inbox_window::restore(cx);
         // File viewer windows left open, too.
         explorer::window::restore(cx);
         windows::debug_hook(cx);

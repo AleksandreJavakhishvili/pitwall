@@ -15,7 +15,7 @@ use pitwall_proto::AgentView;
 
 use super::tree::{
     self, build_grid, build_preset, fit_layout, pane_rects, preset_for, remove_pane, split_pane,
-    MinSize, Node, Preset, Rect, Side,
+    Content, MinSize, Node, Preset, Rect, Side,
 };
 
 mod files;
@@ -304,6 +304,9 @@ pub struct UiState {
     /// A web page window's place and size, as `files_window`.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub web_window: Option<[f64; 4]>,
+    /// An inbox window's place and size, as `files_window`.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub inbox_window: Option<[f64; 4]>,
     /// Files tiles: what each agent's has open (by agent).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
     pub docked_files: BTreeMap<String, DockedFiles>,
@@ -384,6 +387,7 @@ impl Default for UiState {
             right_open: true,
             files_window: None,
             web_window: None,
+            inbox_window: None,
             docked_files: BTreeMap::new(),
             files_windows: BTreeMap::new(),
             web_tiles: BTreeMap::new(),
@@ -416,6 +420,10 @@ pub struct ExtensionPrefs {
     /// steps stay ticked).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
     pub actions_done: Vec<String>,
+    /// Its inbox is in a window of its own (not in a layout): it opens in
+    /// one again at the next start.
+    #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
+    pub window: bool,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -423,7 +431,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && !self.window && self.rest.is_empty()
     }
 }
 
@@ -458,6 +466,28 @@ impl UiState {
     /// Extension `id` turned on or off (its other keys kept).
     pub fn set_extension(self, id: &str, on: bool) -> UiState {
         self.with_extension(id, |e| e.enabled = on)
+    }
+
+    /// Extension `id`'s inbox out of the layout into a window of its own
+    /// (kept for the next start).
+    pub fn inbox_to_window(self, id: &str) -> UiState {
+        self.undock(&Content::Inbox(id.to_string())).with_extension(id, |e| e.window = true)
+    }
+
+    /// Extension `id`'s inbox put at `spot` of space `space_id`, as
+    /// [`UiState::dock`] (it isn't in a window any more when placed).
+    pub fn inbox_to_layout(self, space_id: &str, id: &str, spot: &FilesSpot, fit: Option<Fit>) -> (UiState, Option<String>) {
+        let (next, placed) = self.dock(space_id, &Content::Inbox(id.to_string()), spot, WEB_SHARE, fit);
+        match placed {
+            Some(_) => (next.with_extension(id, |e| e.window = false), placed),
+            None => (next, None),
+        }
+    }
+
+    /// Extension `id`'s inbox closed: out of every layout and not in a
+    /// window.
+    pub fn close_inbox(self, id: &str) -> UiState {
+        self.undock(&Content::Inbox(id.to_string())).with_extension(id, |e| e.window = false)
     }
 }
 

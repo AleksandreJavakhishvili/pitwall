@@ -386,8 +386,8 @@ impl TextInput {
         self.focus.is_focused(window)
     }
 
-    /// Where its text was last drawn (tests: a click on it).
-    #[cfg(test)]
+    /// Where its text was last drawn (tests and bench commands: a click
+    /// on it).
     pub(crate) fn drawn_bounds(&self) -> Option<Bounds<Pixels>> {
         self.laid.as_ref().map(|l| l.bounds)
     }

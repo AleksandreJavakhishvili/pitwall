@@ -615,7 +615,8 @@ pub fn json_schema() -> Value {
                     "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Its plain settings (such as a server address), by key." },
                     "secretsSet": { "type": "array", "items": { "type": "string" }, "description": "The keys of its secrets that are set. The secrets are in the system's secure store, never in this file." },
                     "selected": { "type": "string", "description": "The thread its inbox tile shows." },
-                    "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked)." }
+                    "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked)." },
+                    "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start." }
                 },
                 "additionalProperties": true
             }

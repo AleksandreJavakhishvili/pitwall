@@ -20,17 +20,19 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    canvas, div, prelude::*, px, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, KeyDownEvent, MouseButton, ScrollHandle,
-    SharedString, Subscription, Window,
+    canvas, div, prelude::*, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight, KeyDownEvent, MouseButton, Pixels, Point,
+    ScrollHandle, SharedString, Subscription, Window,
 };
 use pitwall_core::extensions::protocol::{Ask, AuthorKind, ConnState, Message, Thread, ThreadDetail};
 use pitwall_core::extensions::Manifest;
 use pitwall_proto::AgentView;
 
+use super::files_tile::TileDrag;
 use super::strip::Toast;
 use super::tree::Content;
 use super::workspace::FilesSpot;
 use super::MainScreen;
+use crate::explorer::dock::FilesPlace;
 use crate::extensions::hub::{self, Hub, Request, Run};
 use crate::kit::{self, Ellipsis, InputEvent, TextInput};
 use crate::markdown_view::MarkdownView;
@@ -92,10 +94,9 @@ struct Sent {
     declined: bool,
 }
 
-/// What the inbox tells its window.
-pub enum InboxEvent {
-    Close,
-}
+/// The "Move…" / "Dock…" menu: where it opened, the terminals it may
+/// take the place of.
+type PlaceMenu = (Point<Pixels>, Vec<(String, String)>);
 
 pub struct InboxView {
     ext: String,
@@ -128,10 +129,20 @@ pub struct InboxView {
     thread_scroll: ScrollHandle,
     /// The Pitwall agents (whose threads are whose).
     pub agents: Vec<AgentView>,
+    /// Drawn by a window of its own (else a tile of a layout).
+    in_window: bool,
+    /// Its window kept above other apps.
+    pinned: bool,
+    /// The "Move…" / "Dock…" menu, open.
+    menu: Option<PlaceMenu>,
+    /// The keys go back to the tile itself at the next frame (a field
+    /// let them go: Esc).
+    refocus: bool,
+    /// An ask just answered: if its field had the keys, they go back to
+    /// the tile (the field is gone).
+    answered: Option<(String, u32)>,
     _subs: Vec<Subscription>,
 }
-
-impl EventEmitter<InboxEvent> for InboxView {}
 
 impl Focusable for InboxView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -140,7 +151,9 @@ impl Focusable for InboxView {
 }
 
 impl InboxView {
-    pub fn new(ext: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// Extension `ext`'s inbox. Not tied to a window: one view is drawn
+    /// wherever the inbox is ([`view`]).
+    pub fn new(ext: &str, cx: &mut Context<Self>) -> Self {
         let reply = cx.new(|cx| TextInput::new(cx, "", "Reply…  ⌘↵ sends").grow(6).max_len(pitwall_core::extensions::protocol::MAX_REPLY));
         let h = hub::hub(cx);
         let mut subs = vec![
@@ -148,9 +161,9 @@ impl InboxView {
                 this.settle(cx);
                 cx.notify();
             }),
-            cx.subscribe_in(&reply, window, |this, _, e: &InputEvent, window, cx| match e {
+            cx.subscribe(&reply, |this, _, e: &InputEvent, cx| match e {
                 InputEvent::Submit => this.send_reply(cx),
-                InputEvent::Cancel => window.focus(&this.focus, cx),
+                InputEvent::Cancel => this.keys_back(cx),
                 _ => {}
             }),
         ];
@@ -182,6 +195,11 @@ impl InboxView {
             list_scroll: ScrollHandle::new(),
             thread_scroll: ScrollHandle::new(),
             agents: Vec::new(),
+            in_window: false,
+            pinned: false,
+            menu: None,
+            refocus: false,
+            answered: None,
             _subs: subs,
         };
         if let Some(s) = selected {
@@ -192,6 +210,51 @@ impl InboxView {
 
     pub fn ext(&self) -> &str {
         &self.ext
+    }
+
+    /// Who draws it now (a window of its own, or a tile) and the Pitwall
+    /// agents (whose threads are whose).
+    pub fn held(&mut self, in_window: bool, agents: Vec<AgentView>, cx: &mut Context<Self>) {
+        if self.in_window != in_window {
+            self.in_window = in_window;
+            self.menu = None;
+            cx.notify();
+        }
+        if self.agents != agents {
+            self.agents = agents;
+        }
+    }
+
+    /// The keys back to the tile itself (a field let them go).
+    fn keys_back(&mut self, cx: &mut Context<Self>) {
+        self.refocus = true;
+        cx.notify();
+    }
+
+    /// ⌘↵ in the tile. Its fields send with it (what the reply box says),
+    /// but ⌘↵ is also the window's Maximise, bound with no context, and
+    /// such a binding outranks a field's own: so a field with the keys
+    /// sends here. Elsewhere in the tile it maximises the tile (returns
+    /// false: the window's action goes on).
+    fn command_enter(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        if self.reply.read(cx).is_focused(window) {
+            self.send_reply(cx);
+            return true;
+        }
+        let Some((key, input)) = self.others.iter().find(|(_, i)| i.read(cx).is_focused(window)).map(|(k, i)| (k.clone(), i.clone())) else { return false };
+        let ask = self.detail(cx).and_then(|d| d.messages.iter().flat_map(|m| &m.asks).find(|a| a.number == key.1).cloned());
+        if let Some(ask) = ask {
+            let text = input.read(cx).text().to_string();
+            let picks = self.picks.get(&key).cloned().unwrap_or_default();
+            self.answer(&key.0, &ask, picks, Some(text), false, cx);
+        }
+        true
+    }
+
+    /// One of its fields has the keyboard: typing goes there, and the
+    /// tile's single keys don't apply.
+    pub fn typing(&self, window: &Window, cx: &App) -> bool {
+        self.reply.read(cx).is_focused(window) || self.others.values().any(|i| i.read(cx).is_focused(window))
     }
 
     pub fn selected(&self) -> Option<&str> {
@@ -346,6 +409,7 @@ impl InboxView {
                 if let Some(i) = self.others.get(&key) {
                     i.update(cx, |i, cx| i.set_text("", cx));
                 }
+                self.answered = Some(key);
             }
             Err(why) => self.note(thread, why, cx),
         }
@@ -433,9 +497,10 @@ impl InboxView {
         self.list_scroll.scroll_to_item(next);
     }
 
-    /// A key while the tile itself has the keyboard.
+    /// A key while the tile has the keyboard (itself, or its text being
+    /// selected), never while one of its fields does: typed there.
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.focus.is_focused(window) {
+        if !self.focus.contains_focused(window, cx) || self.typing(window, cx) {
             return;
         }
         let m = &e.keystroke.modifiers;
@@ -495,20 +560,32 @@ impl InboxView {
         v
     }
 
-    fn other_input(&mut self, thread: &str, ask: &Ask, window: &mut Window, cx: &mut Context<Self>) -> Entity<TextInput> {
+    /// Bench: a field by name, `reply` or `other` (the first open ask's
+    /// own answer, of the thread shown).
+    pub(super) fn debug_field(&self, which: &str) -> Option<Entity<TextInput>> {
+        match which {
+            "reply" => Some(self.reply.clone()),
+            _ => {
+                let th = self.selected.as_ref()?;
+                self.others.iter().filter(|((t, _), _)| t == th).min_by_key(|((_, a), _)| *a).map(|(_, i)| i.clone())
+            }
+        }
+    }
+
+    fn other_input(&mut self, thread: &str, ask: &Ask, cx: &mut Context<Self>) -> Entity<TextInput> {
         let key = (thread.to_string(), ask.number);
         if let Some(i) = self.others.get(&key) {
             return i.clone();
         }
         let input = cx.new(|cx| TextInput::new(cx, "", "Or write your own answer…").max_len(pitwall_core::extensions::protocol::MAX_REPLY));
         let (t, a) = (thread.to_string(), ask.clone());
-        let sub = cx.subscribe_in(&input, window, move |this, input, e: &InputEvent, window, cx| match e {
+        let sub = cx.subscribe(&input, move |this, input, e: &InputEvent, cx| match e {
             InputEvent::Submit => {
                 let text = input.read(cx).text().to_string();
                 let picks = this.picks.get(&(t.clone(), a.number)).cloned().unwrap_or_default();
                 this.answer(&t, &a, picks, Some(text), false, cx);
             }
-            InputEvent::Cancel => window.focus(&this.focus, cx),
+            InputEvent::Cancel => this.keys_back(cx),
             _ => {}
         });
         self._subs.push(sub);
@@ -551,20 +628,132 @@ impl InboxView {
             let _ = weak.update(cx, |v, cx| v.set_filter(if i == 0 { Filter::NeedsYou } else { Filter::All }, cx));
         });
         let needs = if counts.open_asks > 0 { format!("Needs you · {}", counts.open_asks) } else { "Needs you".to_string() };
+        let in_window = self.in_window;
+        // Its tile maximised in its space (the bar's Maximise / Restore).
+        let maximized = {
+            let ui = crate::ui_state::get(cx);
+            ui.tile_of(&Content::Inbox(self.ext.clone())).is_some_and(|(space, pane)| ui.space(&space).is_some_and(|s| s.maximized_pane_id.as_deref() == Some(pane.as_str())))
+        };
+        let btn = |name: &str, icon: &str, tip: String, on: Option<bool>| {
+            let sel = format!("inbox-{name}");
+            kit::icon_btn_state(sel.clone(), icon, tip, true, 13., on, t)
+                .debug_selector(move || sel.clone())
+                // A press on a control is never a drag of the tile.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        };
+        let name: SharedString = m.name.clone().into();
+        let ext = self.ext.clone();
         div()
+            .id(SharedString::from(format!("inbox-bar-{}", self.ext)))
+            .debug_selector(|| "inbox-bar".into())
             .h(px(40.))
             .flex_none()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .px(px(12.))
+            .gap(px(6.))
+            .pl(px(4.))
+            .pr(px(8.))
             .border_b_1()
             .border_color(if t.is_glass() { t.g.line } else { t.line })
+            // A tile: dragged in its window's layout by the bar, as a web
+            // tile (GPUI's drag); a window: its grip drags it into a layout.
+            .when(!in_window, |d| d.on_drag(TileDrag { what: Content::Inbox(ext.clone()), name: name.clone() }, |d, grab, w, cx| d.ghost(grab, w, cx)))
+            .child(
+                div()
+                    .id("inbox-grip")
+                    .debug_selector(|| "inbox-grip".into())
+                    .flex_none()
+                    .size(px(22.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_grab()
+                    .tooltip(kit::tooltip(if in_window { "Drag into a Pitwall window to place it in the layout" } else { "Drag to move the inbox" }))
+                    .when(in_window, |d| {
+                        d.on_mouse_down(MouseButton::Left, cx.listener(|v, _, window, cx| {
+                            cx.stop_propagation();
+                            let ext = v.ext.clone();
+                            window.defer(cx, move |window, cx| super::inbox_window::drag_start(&ext, window, cx));
+                        }))
+                    })
+                    .child(kit::icon("grip", 13., t.text_4)),
+            )
             .child(kit::icon(crate::extensions::icon_of(m), 15., t.text_2))
             .child(div().flex_1().min_w_0().ellipsis().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(t.text).child(kit::one_line(m.name.clone())))
-            .when(running, |d| d.child(kit::seg("inbox-filter", vec![kit::SegItem::new(needs, filter == Filter::NeedsYou), kit::SegItem::new("All", filter == Filter::All)], t, pick)))
-            .child(kit::icon_btn("inbox-close", "x", "Close the inbox", true, t).debug_selector(|| "inbox-close".into()).on_click(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::Close))))
+            .when(running, |d| {
+                d.child(
+                    div()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(kit::seg("inbox-filter", vec![kit::SegItem::new(needs, filter == Filter::NeedsYou), kit::SegItem::new("All", filter == Filter::All)], t, pick)),
+                )
+            })
+            .child(
+                btn(if in_window { "dock" } else { "move" }, "grid", (if in_window { "Place it in a Pitwall window's layout" } else { "Move it in the layout, or to a window" }).into(), Some(self.menu.is_some()))
+                    .on_click(cx.listener(|v, e: &gpui::ClickEvent, _, cx| {
+                        v.menu = match v.menu {
+                            Some(_) => None,
+                            None => Some((e.position(), super::inbox_window::replaceable(&v.ext, cx))),
+                        };
+                        cx.notify();
+                    })),
+            )
+            .map(|d| {
+                if in_window {
+                    d.when(crate::platform::can_keep_on_top(), |d| {
+                        let pinned = self.pinned;
+                        d.child(
+                            btn("pin", "pin", (if pinned { "Kept on top of other windows: click to let it go behind them" } else { "Keep on top of other windows" }).into(), Some(pinned)).on_click(cx.listener(|v, _, window, cx| {
+                                v.pinned = !v.pinned;
+                                crate::platform::keep_on_top(window, v.pinned);
+                                cx.notify();
+                            })),
+                        )
+                    })
+                } else {
+                    d.child(
+                        btn("maximize", if maximized { "restore" } else { "maximize" }, kit::keys(if maximized { "Restore (⌘⏎)" } else { "Maximise (⌘⏎)" }, false), None).on_click(cx.listener(|v, _, window, cx| {
+                            // Its tile is the space's focused one (the press
+                            // made it so): ⌘⏎'s own action.
+                            window.focus(&v.focus, cx);
+                            window.dispatch_action(Box::new(super::ToggleMaximize), cx);
+                        })),
+                    )
+                    .child(btn("undock", "window", "Open in a window of its own".into(), None).on_click(cx.listener(|v, _, _, cx| {
+                        let ext = v.ext.clone();
+                        cx.defer(move |cx| {
+                            if let Err(e) = super::inbox_window::pop_out(&ext, None, true, cx) {
+                                eprintln!("pitwall: could not open the inbox's window: {e}");
+                            }
+                        });
+                    })))
+                    .child(btn("close", "x", "Close the inbox".into(), None).on_click(cx.listener(|v, _, _, cx| {
+                        let ext = v.ext.clone();
+                        cx.defer(move |cx| close(&ext, cx));
+                    })))
+                }
+            })
             .into_any_element()
+    }
+
+    /// The "Move…" / "Dock…" menu's places ([`crate::explorer::dock::menu`]).
+    fn place_menu(&self, at: Point<Pixels>, replace: Vec<(String, String)>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let me = cx.entity().downgrade();
+        let ext = self.ext.clone();
+        let pick = move |p: Option<(FilesPlace, Option<String>)>, cx: &mut App| {
+            let _ = me.update(cx, |v, cx| {
+                v.menu = None;
+                cx.notify();
+            });
+            if let Some((place, of)) = p {
+                let ext = ext.clone();
+                cx.defer(move |cx| {
+                    if let Err(e) = super::inbox_window::place(&ext, place, of.as_deref(), cx) {
+                        eprintln!("pitwall: could not move the inbox: {e}");
+                    }
+                });
+            }
+        };
+        crate::explorer::dock::menu(at, !self.in_window, None, replace, "inbox", t, pick)
     }
 
     /// The tile when there are no threads to show: why, and what to do.
@@ -763,7 +952,7 @@ impl InboxView {
     }
 
     /// The thread shown, or a hint to pick one.
-    fn thread(&mut self, m: &Manifest, st: &hub::ExtState, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn thread(&mut self, m: &Manifest, st: &hub::ExtState, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let Some(id) = self.selected.clone() else {
             return calm("inbox", "Pick a thread", "Or press ↓ to go through them.".into(), t).into_any_element();
         };
@@ -808,7 +997,7 @@ impl InboxView {
             items.push(div().text_size(px(12.)).text_color(t.text_3).child("Earlier messages aren't shown here.").into_any_element());
         }
         for msg in d.messages.iter().filter(|msg| !said_already(&d, msg)) {
-            items.push(self.message(&d, msg, m, who.as_ref(), busy, now, t, window, cx));
+            items.push(self.message(&d, msg, m, who.as_ref(), busy, now, t, cx));
         }
         if let Some((thread, _, text)) = self.replying.clone().filter(|(th, _, _)| *th == id) {
             let _ = thread;
@@ -907,7 +1096,7 @@ impl InboxView {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn message(&mut self, d: &ThreadDetail, msg: &Message, m: &Manifest, who: Option<&AgentView>, busy: bool, now: chrono::DateTime<chrono::Utc>, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn message(&mut self, d: &ThreadDetail, msg: &Message, m: &Manifest, who: Option<&AgentView>, busy: bool, now: chrono::DateTime<chrono::Utc>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let time = when(&msg.time, now);
         let you = msg.author.kind == AuthorKind::You;
         let author = match msg.author.kind {
@@ -948,7 +1137,7 @@ impl InboxView {
                     cx.notify();
                 }))
         });
-        let asks: Vec<AnyElement> = msg.asks.iter().map(|a| self.ask(&d.id, a, busy, t, window, cx)).collect();
+        let asks: Vec<AnyElement> = msg.asks.iter().map(|a| self.ask(&d.id, a, busy, t, cx)).collect();
         let shown = |n: u32| asked_before(d, msg, n);
         let carried: Vec<AnyElement> = msg
             .answers
@@ -984,7 +1173,7 @@ impl InboxView {
             .into_any_element()
     }
 
-    fn ask(&mut self, thread: &str, a: &Ask, busy: bool, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn ask(&mut self, thread: &str, a: &Ask, busy: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let key = (thread.to_string(), a.number);
         if let Some(s) = self.sent.get(&key) {
             let said = if s.declined { "Declined".to_string() } else { s.labels.iter().cloned().chain(s.text.clone()).collect::<Vec<_>>().join(" — ") };
@@ -1005,7 +1194,7 @@ impl InboxView {
             return quiet("x", &format!("{} — closed", a.question), true, t);
         }
         let picked = self.picks.get(&key).cloned().unwrap_or_default();
-        let other = self.other_input(thread, a, window, cx);
+        let other = self.other_input(thread, a, cx);
         let described = a.suggestions.iter().any(|s| !s.description.is_empty());
         let accent = if a.blocking { t.amber } else { t.line_strong };
         let options = a.suggestions.iter().enumerate().map(|(i, s)| {
@@ -1196,14 +1385,29 @@ impl Render for InboxView {
         )
         .absolute()
         .size_full();
-        let focused = self.focus.is_focused(window);
+        // A field let the keys go (Esc), or the ask whose field had them
+        // was answered (the field is gone): back to the tile itself.
+        let answered = self.answered.take().and_then(|k| self.others.get(&k).cloned());
+        if std::mem::take(&mut self.refocus) || answered.is_some_and(|i| i.read(cx).is_focused(window)) {
+            window.focus(&self.focus, cx);
+        }
+        // Its keys apply (the list shows where they are).
+        let focused = self.focus.contains_focused(window, cx) && !self.typing(window, cx);
         let root = div()
             .id(SharedString::from(format!("inbox-{}", self.ext)))
             .key_context("InboxTile")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key))
+            .on_action(cx.listener(|this, _: &super::ToggleMaximize, window, cx| {
+                if !this.command_enter(window, cx) {
+                    cx.propagate();
+                }
+            }))
+            // A press in the tile gives it the keys, unless they are in it
+            // already: a field pressed has just taken them (its own press
+            // comes first), and selected text keeps them for copying.
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
-                if !window.focused(cx).is_some_and(|f| f.contains(&this.focus, window) && f != this.focus) {
+                if !this.focus.contains_focused(window, cx) {
                     window.focus(&this.focus, cx);
                 }
             }))
@@ -1214,10 +1418,16 @@ impl Render for InboxView {
             .flex()
             .flex_col()
             .child(measure);
+        let menu = self.menu.clone().map(|(at, replace)| self.place_menu(at, replace, &t, cx));
+        let root = root.children(menu);
         let Some(m) = self.manifest(cx) else {
+            let ext = self.ext.clone();
             return root
                 .child(calm("extension", "This extension is gone", "Its folder isn't in Pitwall's extensions folder any more. The tile can be closed.".into(), &t))
-                .child(div().flex().justify_center().pb(px(24.)).child(kit::small_btn("inbox-gone-close", "Close", &t).on_click(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::Close)))))
+                .child(div().flex().justify_center().pb(px(24.)).child(kit::small_btn("inbox-gone-close", "Close", &t).on_click(move |_, _, cx| {
+                    let ext = ext.clone();
+                    cx.defer(move |cx| close(&ext, cx));
+                })))
                 .into_any_element();
         };
         let h = hub::hub(cx);
@@ -1231,11 +1441,11 @@ impl Render for InboxView {
         }
         let Some(st) = snapshot else { return root.into_any_element() };
         if self.narrow() {
-            let body = if self.pushed && self.selected.is_some() { self.thread(&m, &st, &t, window, cx) } else { self.list(&m, &st, focused, &t, cx) };
+            let body = if self.pushed && self.selected.is_some() { self.thread(&m, &st, &t, cx) } else { self.list(&m, &st, focused, &t, cx) };
             return root.child(body).into_any_element();
         }
         let list = self.list(&m, &st, focused, &t, cx);
-        let thread = self.thread(&m, &st, &t, window, cx);
+        let thread = self.thread(&m, &st, &t, cx);
         root.child(
             div()
                 .flex_1()
@@ -1250,26 +1460,46 @@ impl Render for InboxView {
 
 // ── in the window ────────────────────────────────────────────────────────
 
-impl MainScreen {
-    /// This window's inbox of extension `ext` (made when it isn't yet).
-    fn inbox_view(&mut self, ext: &str, window: &mut Window, cx: &mut Context<Self>) -> Entity<InboxView> {
-        if let Some(v) = self.inboxes.get(ext) {
-            return v.clone();
-        }
-        let v = cx.new(|cx| InboxView::new(ext, window, cx));
-        let id = ext.to_string();
-        cx.subscribe(&v, move |this, _, e: &InboxEvent, cx| match e {
-            InboxEvent::Close => this.close_inbox(&id, cx),
-        })
-        .detach();
-        self.inboxes.insert(ext.to_string(), v.clone());
-        v
-    }
+/// Every inbox view, one per extension, wherever it is drawn (a tile of
+/// any Pitwall window's layout, or a window of its own): moving it keeps
+/// it, with its thread, its drafts and its picks.
+#[derive(Default)]
+struct Inboxes(HashMap<String, Entity<InboxView>>);
 
+impl gpui::Global for Inboxes {}
+
+/// Extension `ext`'s inbox view (made when it isn't yet).
+pub fn view(ext: &str, cx: &mut App) -> Entity<InboxView> {
+    if let Some(v) = get(ext, cx) {
+        return v;
+    }
+    let v = cx.new(|cx| InboxView::new(ext, cx));
+    cx.default_global::<Inboxes>().0.insert(ext.to_string(), v.clone());
+    v
+}
+
+/// Extension `ext`'s inbox view, if it is made.
+pub fn get(ext: &str, cx: &App) -> Option<Entity<InboxView>> {
+    cx.try_global::<Inboxes>()?.0.get(ext).cloned()
+}
+
+/// Extension `ext`'s inbox closed: out of every layout, its window (if it
+/// is in one) closed, its view let go (the thread it showed closes in the
+/// adapter; the one shown is kept for next time).
+pub fn close(ext: &str, cx: &mut App) {
+    crate::ui_state::update(cx, |ui| *ui = ui.clone().close_inbox(ext));
+    super::inbox_window::close_for_move(ext, cx);
+    if cx.has_global::<Inboxes>() {
+        cx.global_mut::<Inboxes>().0.remove(ext);
+    }
+}
+
+impl MainScreen {
     /// ⌘I, "Open <name> inbox", an agent's ask badge: extension `ext`'s
-    /// inbox (the first that has one when `None`) focused where it is, else
-    /// placed as a web page is (right of the focused tile, in it when it
-    /// is empty); at `thread` when given.
+    /// inbox (the first that has one when `None`) focused where it is (its
+    /// window brought forward when it is in one), else placed as a web page
+    /// is (right of the focused tile, in it when it is empty); at `thread`
+    /// when given.
     pub fn open_inbox(&mut self, ext: Option<&str>, thread: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         let all = crate::extensions::inboxes(cx);
         let m = match ext {
@@ -1280,36 +1510,44 @@ impl MainScreen {
             self.toast(Toast::info("No inbox to open", Some("Turn on an extension that has one in Settings → Extensions.".into())), cx);
             return;
         };
+        let v = view(&m.id, cx);
+        if let Some(th) = thread {
+            v.update(cx, |v, cx| v.show(th, true, cx));
+        }
+        let f = v.read(cx).focus.clone();
+        // In a window of its own: that window, with the keys.
+        if let Some(h) = crate::windows::inbox_window(&m.id, cx) {
+            cx.defer(move |cx| {
+                let _ = h.update(cx, |_, window, cx| {
+                    // (A bench instance never comes forward.)
+                    if !crate::bench::enabled() {
+                        window.activate_window();
+                    }
+                    window.focus(&f, cx);
+                });
+            });
+            return;
+        }
         let what = Content::Inbox(m.id.clone());
         match self.ui.tile_of(&what) {
             Some((space, pane)) if self.ui.window_of_space(&space) == self.label => {
                 self.active = space.clone();
+                self.set_route(super::Route::Space, cx);
                 self.update_ui(|s| s.focus_pane(&space, &pane), cx);
             }
-            Some((space, pane)) => {
-                // In another window: it moves here.
-                let _ = (space, pane);
-                if !self.place_inbox(&m.id, cx) {
-                    return;
-                }
-            }
-            None => {
+            // Not here (or in another Pitwall window: it moves here).
+            _ => {
                 if !self.place_inbox(&m.id, cx) {
                     return;
                 }
             }
         }
-        let v = self.inbox_view(&m.id, window, cx);
-        v.update(cx, |v, cx| {
-            if let Some(th) = thread {
-                v.show(th, true, cx);
-            }
-        });
-        let f = v.read(cx).focus.clone();
         window.focus(&f, cx);
         cx.notify();
     }
 
+    /// Extension `ext`'s inbox placed in the active space, its tile the
+    /// focused one.
     fn place_inbox(&mut self, ext: &str, cx: &mut Context<Self>) -> bool {
         let Some(space) = self.active_space().cloned() else { return false };
         let anchor = space.focused_pane_id.clone().and_then(|p| space.layout.find_pane(&p));
@@ -1319,35 +1557,35 @@ impl MainScreen {
             None => FilesSpot::Auto,
         };
         let fit = self.fit_for(&space.id);
-        let what = Content::Inbox(ext.to_string());
         let mut placed = false;
         self.update_ui(
             |s| {
-                let (next, at) = s.dock(&space.id, &what, &spot, super::workspace::WEB_SHARE, fit);
+                let (next, at) = s.inbox_to_layout(&space.id, ext, &spot, fit);
                 placed = at.is_some();
-                next
+                match at {
+                    Some(pane) => next.focus_pane(&space.id, &pane),
+                    None => next,
+                }
             },
             cx,
         );
         placed
     }
 
-    /// Extension `ext`'s inbox tile closed.
+    /// Extension `ext`'s inbox closed (its tile's close button).
     pub(super) fn close_inbox(&mut self, ext: &str, cx: &mut Context<Self>) {
-        self.update_ui(|s| s.undock(&Content::Inbox(ext.to_string())), cx);
-        self.inboxes.remove(ext);
+        close(ext, cx);
         cx.notify();
     }
 
-    /// Tile `pane` showing extension `ext`'s inbox.
-    pub(super) fn render_inbox_pane(&mut self, pane: &str, ext: &str, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let v = self.inbox_view(ext, window, cx);
+    /// Tile `pane` showing extension `ext`'s inbox: a tile like the others
+    /// (dragged by its bar, Move…, its own window), and like a terminal's
+    /// it is the space's focused one when pressed (⌘⏎ maximises it), with
+    /// a focused border.
+    pub(super) fn render_inbox_pane(&mut self, pane: &str, ext: &str, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let v = view(ext, cx);
         let agents = self.agents(cx).to_vec();
-        v.update(cx, |v, _| {
-            if v.agents != agents {
-                v.agents = agents;
-            }
-        });
+        v.update(cx, |v, cx| v.held(false, agents, cx));
         let body = div().flex_1().min_w_0().min_h_0().flex().child(v).into_any_element();
         self.tile_shell(pane, Content::Inbox(ext.to_string()), format!("inbox-tile-{ext}"), body, t, cx)
     }
@@ -1393,7 +1631,15 @@ impl MainScreen {
     /// Bench and debug builds, `inbox …` (`ui::MainView::bench`; nothing
     /// is clicked or typed on the screen): `open [ext]`, `show <thread>`,
     /// `filter all|needs`, `back`, `details <message>`, `pick <n>`,
-    /// `reply <text>` (`\n` a new line), `close`.
+    /// `reply <text>` (`\n` a new line), `close`; and through GPUI's own
+    /// event dispatch, in the window the inbox is in (its tile's or its
+    /// own), as real input arrives: `click reply|other` (a press in that
+    /// field), `press` (on its bar, as a click in the tile), `drag <x> <y>`
+    /// (its bar dragged to there in this window and let go), `key <k>…`
+    /// (keystrokes: `cmd-enter`, `escape`, `j`…), `type <text>` (each
+    /// character a key); `place right|left|above|below|replace|edge-right|
+    /// edge-bottom|own|window [agent]` (Move… / Dock…), and `state` (on
+    /// stderr: fields, keys, where it is).
     pub fn debug_inbox(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
         let mut words = cmd.split_whitespace();
         let what = words.next().unwrap_or_default();
@@ -1402,10 +1648,139 @@ impl MainScreen {
             self.open_inbox(arg.as_deref(), None, window, cx);
             return;
         }
-        let Some(v) = self.inboxes.values().next().cloned() else {
+        let Some(v) = cx.try_global::<Inboxes>().and_then(|i| i.0.values().next().cloned()) else {
             eprintln!("pitwall-debug: no inbox open");
             return;
         };
+        let ext = v.read(cx).ext.clone();
+        // Input for the window the inbox is in, after this update.
+        let send = |input: Vec<gpui::PlatformInput>, keys: Vec<gpui::Keystroke>, window: &mut Window, cx: &mut Context<Self>| {
+            let run = move |window: &mut Window, cx: &mut App| {
+                for e in input {
+                    window.dispatch_event(e, cx);
+                }
+                for k in keys {
+                    window.dispatch_keystroke(k, cx);
+                }
+            };
+            match crate::windows::inbox_window(&ext, cx) {
+                Some(h) => cx.defer(move |cx| {
+                    let _ = cx.update_window(h.into(), |_, window, cx| run(window, cx));
+                }),
+                None => window.defer(cx, run),
+            }
+        };
+        let click = |at: Point<Pixels>| {
+            let (button, modifiers) = (MouseButton::Left, gpui::Modifiers::default());
+            vec![
+                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position: at, button, modifiers, click_count: 1, first_mouse: false }),
+                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position: at, button, modifiers, click_count: 1 }),
+            ]
+        };
+        let keystroke = |k: &str| {
+            let mut k = gpui::Keystroke::parse_with_os(k, gpui::OperatingSystem::Mac).ok()?;
+            if k.key.chars().count() == 1 && !k.modifiers.modified() {
+                k.key_char = Some(k.key.clone());
+            }
+            Some(k)
+        };
+        // Its bar's middle (on the name), in its tile here.
+        let bar = |this: &Self| {
+            let (_, pane) = this.ui.tile_of(&Content::Inbox(v.read(cx).ext.clone()))?;
+            let b = this.files_boxes.pane(&pane)?;
+            Some(gpui::point(b.left() + px(120.), b.top() + px(20.)))
+        };
+        match (what, arg) {
+            ("place", Some(p)) => {
+                let place = match p.as_str() {
+                    "right" => FilesPlace::Next(super::tree::Side::Right),
+                    "left" => FilesPlace::Next(super::tree::Side::Left),
+                    "above" => FilesPlace::Next(super::tree::Side::Top),
+                    "below" => FilesPlace::Next(super::tree::Side::Bottom),
+                    "edge-right" => FilesPlace::Edge(super::tree::Side::Right),
+                    "edge-bottom" => FilesPlace::Edge(super::tree::Side::Bottom),
+                    "own" => FilesPlace::Own,
+                    "window" => FilesPlace::Window,
+                    "replace" => FilesPlace::Replace,
+                    _ => return eprintln!("pitwall-debug: inbox no place {p}"),
+                };
+                let of = words.next().map(str::to_string);
+                cx.defer(move |cx| match super::inbox_window::place(&ext, place, of.as_deref(), cx) {
+                    Ok(at) => eprintln!("pitwall-debug: inbox placed: {at}"),
+                    Err(e) => eprintln!("pitwall-debug: inbox not placed: {e}"),
+                });
+            }
+            ("key", Some(first)) => {
+                let keys: Vec<gpui::Keystroke> = std::iter::once(first.as_str()).chain(words).filter_map(keystroke).collect();
+                send(vec![], keys, window, cx);
+            }
+            ("type", Some(_)) => {
+                let text = cmd.trim_start().strip_prefix("type").unwrap_or_default().trim_start().to_string();
+                let keys: Vec<gpui::Keystroke> = text.chars().filter_map(|c| keystroke(&if c == ' ' { "space".to_string() } else { c.to_string() })).collect();
+                send(vec![], keys, window, cx);
+            }
+            ("press", _) => match bar(self) {
+                Some(at) => send(click(at), vec![], window, cx),
+                None => eprintln!("pitwall-debug: inbox has no tile here"),
+            },
+            ("drag", Some(x)) => {
+                let (Some(from), Ok(x), Some(Ok(y))) = (bar(self), x.parse::<f32>(), words.next().map(str::parse::<f32>)) else {
+                    return eprintln!("pitwall-debug: inbox drag <x> <y> (from its tile here)");
+                };
+                let to = gpui::point(px(x), px(y));
+                let (button, modifiers) = (MouseButton::Left, gpui::Modifiers::default());
+                let mv = |at: Point<Pixels>| gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position: at, pressed_button: Some(button), modifiers });
+                let mid = gpui::point((from.x + to.x) / 2., (from.y + to.y) / 2.);
+                let input = vec![
+                    gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position: from, button, modifiers, click_count: 1, first_mouse: false }),
+                    mv(gpui::point(from.x + px(10.), from.y + px(10.))),
+                    mv(mid),
+                    mv(to),
+                    mv(to),
+                    gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position: to, button, modifiers, click_count: 1 }),
+                ];
+                send(input, vec![], window, cx);
+            }
+            ("state", _) => {
+                let in_window = crate::windows::inbox_window(&ext, cx);
+                let at = super::inbox_window::described(&ext, cx);
+                let ui = crate::ui_state::get(cx);
+                let tile = ui.tile_of(&Content::Inbox(ext.clone()));
+                let space = tile.as_ref().and_then(|(s, _)| ui.space(s));
+                let (focused, maximized) = (space.and_then(|s| s.focused_pane_id.clone()), space.and_then(|s| s.maximized_pane_id.clone()));
+                let report = move |window: &mut Window, cx: &mut App| {
+                    let v = v.read(cx);
+                    let fields: Vec<String> = std::iter::once(("reply".to_string(), v.reply.clone()))
+                        .chain(v.others.iter().map(|((t, a), i)| (format!("other {t} {a}"), i.clone())))
+                        .map(|(name, i)| {
+                            let i = i.read(cx);
+                            format!("{name} {:?}{}", i.text(), if i.is_focused(window) { " (focused)" } else { "" })
+                        })
+                        .collect();
+                    eprintln!(
+                        "pitwall-debug: inbox {}: selected {:?}, tile focused {}, fields [{}], filter {:?}, at {at}, tile {tile:?}, space's focused {focused:?}, maximized {maximized:?}, ui window {}",
+                        v.ext,
+                        v.selected,
+                        v.focus.is_focused(window),
+                        fields.join("; "),
+                        v.filter,
+                        ui.extension(&v.ext).window
+                    );
+                };
+                match in_window {
+                    Some(h) => {
+                        let _ = h.update(cx, |_, window, cx| report(window, cx));
+                    }
+                    None => report(window, cx),
+                }
+            }
+            (what, arg) => self.debug_inbox_view(&v, what, arg, cmd, window, cx),
+        }
+        cx.notify();
+    }
+
+    /// [`MainScreen::debug_inbox`]'s commands on the view itself.
+    fn debug_inbox_view(&mut self, v: &Entity<InboxView>, what: &str, arg: Option<String>, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
         match (what, arg) {
             ("show", Some(t)) => v.update(cx, |v, cx| v.show(&t, true, cx)),
             ("filter", Some(f)) => v.update(cx, |v, cx| v.set_filter(if f == "all" { Filter::All } else { Filter::NeedsYou }, cx)),
@@ -1430,15 +1805,33 @@ impl MainScreen {
                 let ext = v.read(cx).ext.clone();
                 self.close_inbox(&ext, cx);
             }
+            // A left click in the middle of a field, through GPUI's own
+            // mouse dispatch (as a real click comes in), to type in next
+            // with `type …` or `key …`.
+            ("click", Some(which)) => {
+                let Some(field) = v.read(cx).debug_field(&which) else { return eprintln!("pitwall-debug: inbox has no {which} field") };
+                let Some(b) = field.read(cx).drawn_bounds() else { return eprintln!("pitwall-debug: inbox {which} field isn't drawn") };
+                let position = b.center();
+                let run = move |window: &mut Window, cx: &mut App| {
+                    let (button, modifiers) = (MouseButton::Left, gpui::Modifiers::default());
+                    window.dispatch_event(gpui::PlatformInput::MouseDown(gpui::MouseDownEvent { position, button, modifiers, click_count: 1, first_mouse: false }), cx);
+                    window.dispatch_event(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent { position, button, modifiers, click_count: 1 }), cx);
+                };
+                match crate::windows::inbox_window(&v.read(cx).ext.clone(), cx) {
+                    Some(h) => cx.defer(move |cx| {
+                        let _ = cx.update_window(h.into(), |_, window, cx| run(window, cx));
+                    }),
+                    None => window.defer(cx, run),
+                }
+            }
             _ => eprintln!("pitwall-debug: inbox {cmd}?"),
         }
-        cx.notify();
     }
 
-    /// Tests: the window's inbox of `ext`.
+    /// Tests: extension `ext`'s inbox view.
     #[cfg(test)]
-    pub fn inbox(&self, ext: &str) -> Option<Entity<InboxView>> {
-        self.inboxes.get(ext).cloned()
+    pub fn inbox(&self, ext: &str, cx: &App) -> Option<Entity<InboxView>> {
+        get(ext, cx)
     }
 }
 

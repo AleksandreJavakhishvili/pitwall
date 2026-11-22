@@ -3,7 +3,10 @@
 //! window of its own; moved by the bar's "Move…" / "Dock…" menu, its grip
 //! (from a window: [`crate::explorer::drag`], the same as files), "Open in
 //! a window of its own", and agents (`super::show`). The page itself is the
-//! same throughout ([`super::pages`]); only `ui.json` changes here.
+//! same throughout ([`super::pages`]); only `ui.json` changes here. An
+//! extension's inbox moves with the same places and spots
+//! ([`holder_of`], [`spot_near`], [`land`], [`replaceable_near`]; its own
+//! part is `crate::main_screen::inbox_window`).
 
 use std::collections::HashMap;
 
@@ -11,7 +14,7 @@ use gpui::{App, Global, Pixels, Point, Window, WindowHandle};
 
 use crate::explorer::dock::FilesPlace;
 use crate::main_screen::tree::Content;
-use crate::main_screen::workspace::{whereabouts, FilesSpot, Whereabouts};
+use crate::main_screen::workspace::{whereabouts, FilesSpot, Fit, UiState, Whereabouts};
 
 /// The terminal (agent) each page was placed against, by tile id: what its
 /// place is said from while it still touches it.
@@ -37,8 +40,14 @@ pub fn anchor_agent(id: &str, cx: &App) -> Option<String> {
 
 /// The window, space and tile showing page `id` in a layout.
 pub fn holder(id: &str, cx: &App) -> Option<(String, String, String)> {
+    holder_of(&Content::Web(id.to_string()), cx)
+}
+
+/// The window, space and tile showing `what` (a page, an inbox) in a
+/// layout.
+pub fn holder_of(what: &Content, cx: &App) -> Option<(String, String, String)> {
     let ui = crate::ui_state::get(cx);
-    let (space, pane) = ui.web_tile(id)?;
+    let (space, pane) = ui.tile_of(what)?;
     Some((ui.window_of_space(&space).to_string(), space, pane))
 }
 
@@ -65,6 +74,12 @@ fn front_space(cx: &mut App) -> Option<(String, String)> {
 /// the spot.
 pub fn spot_for(id: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> Result<(String, String, FilesSpot), String> {
     let anchor = of.map(String::from).or_else(|| anchor_agent(id, cx));
+    spot_near(&Content::Web(id.to_string()), place, anchor, cx)
+}
+
+/// Where `what` (a page, an inbox) goes for `place`, next to (or in place
+/// of) agent `anchor`'s terminal: the window, its space and the spot.
+pub fn spot_near(what: &Content, place: FilesPlace, anchor: Option<String>, cx: &mut App) -> Result<(String, String, FilesSpot), String> {
     match place {
         FilesPlace::Window => Err("a window is not a spot in the layout".into()),
         FilesPlace::Next(_) | FilesPlace::Replace => {
@@ -79,7 +94,7 @@ pub fn spot_for(id: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> 
         FilesPlace::Edge(_) | FilesPlace::Own => {
             // Where it is now; else the space showing its agent; else the
             // frontmost window's.
-            let (label, space) = match holder(id, cx) {
+            let (label, space) = match holder_of(what, cx) {
                 Some((l, s, _)) => (l, s),
                 None => match anchor.as_deref().and_then(|a| showing(a, cx)) {
                     Some((l, s, _)) => (l, s),
@@ -100,8 +115,6 @@ pub fn spot_for(id: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> 
 /// That space is shown in its window; nothing comes forward and the
 /// keyboard stays where it is.
 pub fn dock(id: &str, label: &str, space: &str, spot: &FilesSpot, cx: &mut App) -> Result<(), String> {
-    let handle = crate::windows::main_window(label, cx).ok_or("that Pitwall window is gone")?;
-    let fit = handle.update(cx, |view, _, cx| view.screen().and_then(|s| s.read(cx).fit_for(space))).ok().flatten();
     // The terminal it is placed against, if any (its place is said from it).
     let anchor = match spot {
         FilesSpot::Tile { pane, .. } => crate::ui_state::get(cx)
@@ -114,16 +127,28 @@ pub fn dock(id: &str, label: &str, space: &str, spot: &FilesSpot, cx: &mut App) 
         Some(a) => anchors(cx).insert(id.to_string(), a),
         None => anchors(cx).remove(id),
     };
+    let i = id.to_string();
+    land(&Content::Web(id.to_string()), label, space, cx, |ui, fit| ui.web_to_layout(space, &i, spot, fit))?;
+    super::window::close_for_move(id, cx);
+    Ok(())
+}
+
+/// Put `what` (a page, an inbox) in space `space` of Pitwall window
+/// `label` with `put` (the layout change, given that space's fit there),
+/// and show that space in its window. Nothing comes forward and the
+/// keyboard stays where it is.
+pub fn land(what: &Content, label: &str, space: &str, cx: &mut App, put: impl FnOnce(UiState, Option<Fit>) -> (UiState, Option<String>)) -> Result<(), String> {
+    let handle = crate::windows::main_window(label, cx).ok_or("that Pitwall window is gone")?;
+    let fit = handle.update(cx, |view, _, cx| view.screen().and_then(|s| s.read(cx).fit_for(space))).ok().flatten();
     let mut placed = None;
     crate::ui_state::update(cx, |ui| {
-        let (next, tile) = ui.clone().web_to_layout(space, id, spot, fit);
+        let (next, tile) = put(ui.clone(), fit);
         placed = tile;
         *ui = next;
     });
-    if placed.is_none() && crate::ui_state::get(cx).web_tile(id).is_none() {
+    if placed.is_none() && crate::ui_state::get(cx).tile_of(what).is_none() {
         return Err("that spot isn't in the layout".into());
     }
-    super::window::close_for_move(id, cx);
     let space = space.to_string();
     let _ = handle.update(cx, |view, _, cx| {
         if let Some(s) = view.screen() {
@@ -171,7 +196,14 @@ pub fn place(id: &str, place: FilesPlace, of: Option<&str>, cx: &mut App) -> Res
 /// first. `(id, name)`.
 pub fn replaceable(id: &str, cx: &mut App) -> Vec<(String, String)> {
     let anchor = anchor_agent(id, cx);
-    let space = match holder(id, cx) {
+    replaceable_near(&Content::Web(id.to_string()), anchor, cx)
+}
+
+/// The agents whose terminals `what` (a page, an inbox) could take the
+/// place of: those in the space its tile is in, else the space showing
+/// agent `anchor`, else the frontmost window's; `anchor` first.
+pub fn replaceable_near(what: &Content, anchor: Option<String>, cx: &mut App) -> Vec<(String, String)> {
+    let space = match holder_of(what, cx) {
         Some((_, s, _)) => Some(s),
         None => anchor.as_deref().and_then(|a| showing(a, cx)).map(|(_, s, _)| s).or_else(|| front_space(cx).map(|(_, s)| s)),
     };

@@ -8,8 +8,9 @@
 //! ([`super::dock::dock`]). Where the pointer can't be followed so (not
 //! macOS), the "Dock…" / "Move…" menu does it.
 //!
-//! A web page in a window of its own is dragged the same way by its grip
-//! ([`start_what`] with [`Content::Web`]).
+//! A web page or an extension's inbox in a window of its own is dragged
+//! the same way by its grip ([`start_what`] with [`Content::Web`] or
+//! [`Content::Inbox`]).
 
 use gpui::{px, AnyWindowHandle, App, Global, Pixels, Point, Window};
 
@@ -141,6 +142,10 @@ pub fn finish_what(what: &Content, at: Point<Pixels>, from: From, cx: &mut App) 
             crate::web::place::dock(id, &label, &space, &spot, cx)?;
             Ok(Some(crate::web::place::described(id, cx)))
         }
+        (Some((label, space, spot)), _, Content::Inbox(ext)) => {
+            crate::main_screen::inbox_window::dock(ext, &label, &space, &spot, cx)?;
+            Ok(Some(crate::main_screen::inbox_window::described(ext, cx)))
+        }
         (None, From::Tile, Content::Files(owner)) if outside => {
             super::dock::pop_out(owner, Some(at), cx)?;
             Ok(Some("a window of its own".into()))
@@ -148,6 +153,11 @@ pub fn finish_what(what: &Content, at: Point<Pixels>, from: From, cx: &mut App) 
         (None, From::Tile, Content::Web(id)) if outside => {
             let front = crate::platform::app_in_front(cx);
             crate::web::place::pop_out(id, Some(at), front, cx)?;
+            Ok(Some("a window of its own".into()))
+        }
+        (None, From::Tile, Content::Inbox(ext)) if outside => {
+            let front = crate::platform::app_in_front(cx);
+            crate::main_screen::inbox_window::pop_out(ext, Some(at), front, cx)?;
             Ok(Some("a window of its own".into()))
         }
         _ => Ok(None),

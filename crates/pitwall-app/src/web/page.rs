@@ -34,7 +34,8 @@ use pitwall_proto::AgentView;
 use crate::explorer::dock::FilesPlace;
 use crate::kit::HoverText as _;
 use crate::kit::{icon, tooltip, InputEvent, TextInput};
-use crate::main_screen::topbar::AgentGhost;
+use crate::main_screen::files_tile::TileDrag;
+use crate::main_screen::tree::Content;
 use crate::main_screen::workspace::WebTile;
 use crate::preview::{self, Act, Follow, Server, Stage, StageOp, DROP_AFTER, PHONE_WIDTH};
 use crate::theme::Theme;
@@ -69,20 +70,6 @@ enum Msg {
     Event(WebEvent),
     /// A snapshot (the request it answers).
     Snapshot(u64, Option<Snapshot>),
-}
-
-/// A web page dragged by its bar within a Pitwall window.
-#[derive(Clone, Debug)]
-pub struct WebDrag {
-    pub id: String,
-    pub name: SharedString,
-}
-
-impl WebDrag {
-    fn ghost(&self, grab: Point<Pixels>, _: &mut Window, cx: &mut App) -> Entity<AgentGhost> {
-        let name = self.name.clone();
-        cx.new(|_| AgentGhost::named(name, grab))
-    }
 }
 
 pub struct WebPage {
@@ -961,7 +948,7 @@ impl WebPage {
             // A tile: dragged in its window's layout by the bar (GPUI's
             // drag); a window: its grip drags it into a layout.
             .when(kind == HostKind::Tile, |d| {
-                d.on_drag(WebDrag { id: id.clone(), name: name.clone() }, |d, grab, w, cx| d.ghost(grab, w, cx))
+                d.on_drag(TileDrag { what: Content::Web(id.clone()), name: name.clone() }, |d, grab, w, cx| d.ghost(grab, w, cx))
             })
             .child(
                 div()
