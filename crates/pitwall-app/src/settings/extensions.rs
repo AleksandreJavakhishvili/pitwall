@@ -1,25 +1,31 @@
-//! Settings → General → Extensions (docs/spec/extensions.md): each folder
-//! found in the extensions folder, with its switch (off until turned on),
-//! or why it can't be used; "Look again" reads the folder again. One that
-//! is on shows its adapter's state (with Restart), its settings drawn
-//! natively (`url`: a field; `secret`: Set / Not set, filled from the
-//! clipboard so it is never shown), what it runs and the variables it sets
-//! on agents Pitwall starts.
+//! Settings → Extensions (docs/spec/extensions.md): a page of its own.
+//! Installed: one card per folder found in the extensions folder: icon,
+//! name, version, a status pill and the switch (off until turned on);
+//! Update when Pitwall ships a newer copy, and Remove; or why it can't be
+//! used. A card that is on unfolds into a numbered checklist built from the
+//! manifest (its settings, its setup actions, then "Connected"), each step
+//! ticked as it is done, with its field or button right there; a setup
+//! action shows its steps live while it runs. "What this extension does on
+//! your computer" says what it runs and sets, folded. Available: the
+//! extensions Pitwall ships that aren't installed, each with Install.
 
 use std::collections::{HashMap, HashSet};
 
-use gpui::{div, prelude::*, px, Context, Div, Entity, SharedString, Subscription};
+use gpui::{div, prelude::*, px, AnyElement, Context, Div, Entity, FontWeight, SharedString, Stateful, Subscription};
+use pitwall_core::extensions::install::Status;
 use pitwall_core::extensions::protocol::ConnState;
-use pitwall_core::extensions::{Manifest, SettingDef, SettingKind};
+use pitwall_core::extensions::{Action, Manifest, SettingDef, SettingKind};
 
 use super::pages::{head, section};
-use super::view::SettingsView;
+use super::view::{Part, SettingsView};
 use super::widgets::Ui;
+use crate::extensions::actions::{self, Outcome, Planned, RunState, StepState};
+use crate::extensions::catalog::{self, Shipped};
 use crate::extensions::hub::{self, Run};
 use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
-use crate::extensions::actions::{self, Outcome, Planned};
+use crate::main_screen::workspace::ExtensionPrefs;
 
-/// The section's own state.
+/// The page's own state.
 #[derive(Default)]
 pub struct Section {
     /// `url` fields by (extension, key).
@@ -30,11 +36,23 @@ pub struct Section {
     busy: HashSet<(String, String)>,
     watching: bool,
     /// The action waiting for the user to confirm its commands.
-    confirm: Option<(String, String, Vec<Planned>)>,
-    /// Actions running.
-    running: HashSet<(String, String)>,
-    /// How the last run of each action went.
-    results: HashMap<(String, String), Vec<(String, Outcome)>>,
+    pub(super) confirm: Option<(String, String, Vec<Planned>)>,
+    /// The extensions Pitwall ships, with whether each installed one is
+    /// as Pitwall installed it; read again when the folder is
+    /// (`found`'s list changes).
+    shipped: Option<(usize, Vec<Shipped>, HashMap<String, bool>)>,
+    /// Being installed, updated or removed.
+    working: HashSet<String>,
+    /// Remove asked to confirm.
+    confirm_remove: Option<String>,
+    /// Update of a folder changed by hand asked to confirm.
+    confirm_replace: Option<String>,
+    /// Why Install, Update or Remove failed, by extension.
+    failed: HashMap<String, String>,
+    /// Cards the user folded or unfolded (else: open while on).
+    open: HashMap<String, bool>,
+    /// "What this extension does on your computer" unfolded.
+    disclosed: HashSet<String>,
     _subs: Vec<Subscription>,
 }
 
@@ -44,7 +62,7 @@ pub fn url_value(text: &str) -> Result<Option<String>, String> {
     if text.trim().is_empty() {
         return Ok(None);
     }
-    pitwall_proto::web::address(text).map(Some)
+    pitwall_proto::web::address(text).map(Some).map_err(|_| "That isn't a web address (like https://example.com).".to_string())
 }
 
 /// Each variable extension `m` sets, as `NAME=value`: its settings put in
@@ -73,14 +91,69 @@ pub fn run_text(run: &Run, conn: Option<&(ConnState, String)>) -> (&'static str,
     match run {
         Run::Off => ("off", Tone::Plain, String::new()),
         Run::Setup(why) => ("needs setup", Tone::Warn, why.clone()),
-        Run::Starting => ("starting", Tone::Subtle, String::new()),
-        Run::Stopped(why) => ("stopped", Tone::Warn, format!("{why} Fix that, then Restart.")),
+        Run::Starting => ("connecting", Tone::Subtle, String::new()),
+        Run::Stopped(why) => ("stopped", Tone::Warn, format!("{why} Fix that, then try again.")),
         Run::Running => match conn {
             None | Some((ConnState::Connecting, _)) => ("connecting", Tone::Subtle, conn.map(|c| c.1.clone()).unwrap_or_default()),
             Some((ConnState::Ready, m)) => ("connected", Tone::Ok, m.clone()),
-            Some((ConnState::SignedOut, m)) => ("signed out", Tone::Warn, if m.is_empty() { "Check its settings below.".into() } else { m.clone() }),
+            Some((ConnState::SignedOut, m)) => ("signed out", Tone::Warn, if m.is_empty() { "Check its settings above.".into() } else { m.clone() }),
             Some((ConnState::Error, m)) => ("error", Tone::Warn, m.clone()),
         },
+    }
+}
+
+/// One step of an extension's checklist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
+    Setting(String),
+    Action(String),
+    Connected,
+}
+
+/// The checklist of `m` with `prefs`, `connected` saying whether its
+/// adapter is connected: each step and whether it is done. A setting that
+/// isn't required counts as done.
+pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool) -> Vec<(Step, bool)> {
+    let mut out: Vec<(Step, bool)> = m
+        .settings
+        .iter()
+        .map(|s| {
+            let set = match s.kind {
+                SettingKind::Url => prefs.values.get(&s.key).is_some_and(|v| !v.trim().is_empty()),
+                SettingKind::Secret => prefs.secrets_set.contains(&s.key),
+            };
+            (Step::Setting(s.key.clone()), set || !s.required)
+        })
+        .collect();
+    out.extend(m.actions.iter().filter(|a| a.setup).map(|a| (Step::Action(a.id.clone()), prefs.actions_done.contains(&a.id))));
+    if m.adapter.is_some() {
+        out.push((Step::Connected, connected));
+    }
+    out
+}
+
+/// A finished run of `ext`'s `action`, kept: one where a step ran and
+/// none failed ticks its checklist step; any other unticks it.
+pub fn record_run(ext: &str, action: &str, st: &RunState, cx: &mut gpui::App) {
+    let ok = !st.failed() && !st.cancelled && st.steps.iter().any(|(_, s)| matches!(s, StepState::Ended(Outcome::Done)));
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(ext, |e| {
+            e.actions_done.retain(|x| x != action);
+            if ok {
+                e.actions_done.push(action.to_string());
+            }
+        });
+    });
+}
+
+/// Where the system keeps secrets, in the user's words.
+fn secure_store() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Saved in your keychain"
+    } else if cfg!(windows) {
+        "Saved in Windows Credential Manager"
+    } else {
+        "Saved in your keyring"
     }
 }
 
@@ -90,238 +163,709 @@ impl SettingsView {
     pub fn debug_action(&mut self, ext: &str, action: &str, cx: &mut Context<Self>) {
         let Some(m) = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).cloned() else { return };
         let Some(a) = m.actions.iter().find(|a| a.id == action).cloned() else { return };
-        let values = crate::ui_state::get(cx).extension(&m.id).values;
-        let plan = actions::plan(&m, &a, &values, pitwall_core::shell::spawn_path().as_deref());
-        self.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
-        cx.notify();
-        let me = cx.entity().downgrade();
-        cx.defer(move |cx| {
-            let _ = me.update(cx, |v, _| v.scroll_to_end());
-        });
+        self.ask_action(&m, &a, cx);
     }
 
-    /// The Extensions section.
-    pub(super) fn extensions(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+    /// Bench and debug builds: `ext`'s `action` run as confirmed with
+    /// `steps` (program and arguments, `|` between steps) in place of its
+    /// own, so a run can be shown without changing anything.
+    pub fn debug_run(&mut self, ext: &str, action: &str, steps: &str, cx: &mut Context<Self>) {
+        let path = pitwall_core::shell::spawn_path();
+        let plan: Vec<Planned> = steps
+            .split('|')
+            .map(|s| {
+                let argv: Vec<String> = s.split_whitespace().map(str::to_string).collect();
+                let program = crate::extensions::adapter::resolve(std::path::Path::new("."), &argv[0], path.as_deref()).ok();
+                Planned { skip: program.is_none().then(|| format!("“{}” isn't installed", argv[0])), argv, program, for_kind: None, optional: false }
+            })
+            .collect();
+        self.exts.confirm = Some((ext.to_string(), action.to_string(), plan));
+        let Some(m) = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).cloned() else { return };
+        let Some(a) = m.actions.iter().find(|a| a.id == action).cloned() else { return };
+        self.run_action(&m, &a, cx);
+    }
+
+    /// Bench and debug builds: `ext`'s card unfolded with "What this
+    /// extension does on your computer" open.
+    pub fn debug_disclose(&mut self, ext: &str, cx: &mut Context<Self>) {
+        self.exts.open.insert(ext.to_string(), true);
+        self.exts.disclosed.insert(ext.to_string());
+        cx.notify();
+    }
+
+    /// The Extensions page: what extensions are, each installed one in a
+    /// card of its own, then those Pitwall ships that aren't installed.
+    pub(super) fn extension_parts(&mut self, cx: &mut Context<Self>) -> Vec<Part> {
+        let mut v = vec![Part::section("ext-intro", |s, ui, _, cx| s.ext_intro(ui, cx).into_any_element())];
+        if crate::extensions::dir(cx).is_none() {
+            return v;
+        }
+        let found = crate::extensions::found(cx);
+        let none = found.is_empty();
+        v.push(Part::section(("ext-installed", none), move |s, ui, _, cx| {
+            let mut d = div().flex().flex_col().gap(px(6.)).pt(px(4.)).child(crate::kit::label("Installed", ui.t.text_3, 11.));
+            if none {
+                let shipped = !s.shipped_now(cx).0.is_empty();
+                d = d.child(
+                    div()
+                        .p(px(14.))
+                        .rounded(px(10.))
+                        .border_1()
+                        .border_dashed()
+                        .border_color(ui.t.line)
+                        .child(crate::kit::muted(if shipped { "Nothing installed yet. Pick one under Available below: installing turns nothing on." } else { "Nothing installed yet." }, &ui.t)),
+                );
+            }
+            d.into_any_element()
+        }));
+        for f in found.iter() {
+            let folder = f.folder.clone();
+            v.push(Part::section(("ext", folder.clone()), move |s, ui, _, cx| s.ext_card(&folder, ui, cx).into_any_element()));
+        }
+        v.push(Part::section("ext-available", |s, ui, _, cx| s.ext_available(ui, cx).into_any_element()));
+        v
+    }
+
+    /// The extensions Pitwall ships, and whether each installed one with a
+    /// newer copy is as Pitwall installed it; read again when the
+    /// extensions folder is.
+    fn shipped_now(&mut self, cx: &mut Context<Self>) -> (Vec<Shipped>, HashMap<String, bool>) {
+        let key = std::rc::Rc::as_ptr(&crate::extensions::found(cx)) as usize;
+        if self.exts.shipped.as_ref().is_none_or(|(k, _, _)| *k != key) {
+            let shipped = catalog::shipped(cx);
+            let dir = crate::extensions::dir(cx);
+            // Only one with a newer copy is asked about (the digest reads
+            // its files).
+            let local = shipped
+                .iter()
+                .filter(|s| matches!(s.status, Status::Newer(_)))
+                .filter_map(|s| Some((s.offer.manifest.id.clone(), pitwall_core::extensions::install::local(&dir.as_ref()?.join(&s.offer.manifest.id)).as_installed)))
+                .collect();
+            self.exts.shipped = Some((key, shipped, local));
+        }
+        self.exts.shipped.as_ref().map(|(_, s, l)| (s.clone(), l.clone())).unwrap_or_default()
+    }
+
+    fn ext_intro(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         if !self.exts.watching {
             self.exts.watching = true;
             let h = hub::hub(cx);
             self.exts._subs.push(cx.observe(&h, |_, _, cx| cx.notify()));
+            let runs = actions::runs(cx);
+            self.exts._subs.push(cx.observe(&runs, |_, _, cx| cx.notify()));
         }
-        let found = crate::extensions::found(cx);
-        let state = crate::ui_state::get(cx);
         let folder = crate::extensions::dir(cx).map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()));
-        let mut sec = section()
+        section()
             .child(
                 head(ui, "Extensions").child(
-                    crate::kit::text_button("extensions-rescan", "Look again", BtnKind::Small, false, &ui.t).on_click(cx.listener(|_, _, _, cx| {
-                        crate::extensions::rescan(cx);
-                        cx.notify();
-                    })),
+                    crate::kit::text_button("extensions-rescan", "Look again", BtnKind::GhostSm, false, &ui.t)
+                        .tooltip(crate::kit::tooltip("Read the extensions folder again"))
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            crate::extensions::rescan(cx);
+                            cx.notify();
+                        })),
                 ),
             )
             .child(crate::kit::hint(
                 match &folder {
-                    Some(f) => format!("An extension is a folder with an extension.json, put in {f}. One that is on gets a section in the sidebar, and its adapter runs while it is on."),
+                    Some(f) => format!("Extensions bring questions from your agents' tools into Pitwall, in an inbox. Installing one turns nothing on: its program runs only while it is on. An extension you got elsewhere goes in {f}."),
                     None => "Extensions need Pitwall's data folder, which isn't in use here.".to_string(),
                 },
                 &ui.t,
-            ));
-        if found.is_empty() {
-            return sec.child(crate::kit::muted("No extensions found.", &ui.t));
-        }
-        for f in found.iter() {
-            let row = match &f.manifest {
-                Ok(m) => {
-                    let on = state.extension_on(&m.id);
-                    let id = m.id.clone();
-                    let top = div()
-                        .id(SharedString::from(format!("extension-{}", m.id)))
-                        .flex()
-                        .gap(px(12.))
-                        .items_start()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            let id = id.clone();
-                            crate::ui_state::update(cx, |s| *s = s.clone().set_extension(&id, !on));
-                            cx.notify();
-                        }))
-                        .child(div().mt(px(5.)).child(crate::kit::icon(crate::extensions::icon_of(m), 14., ui.t.text_2)))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .child(head(ui, &m.name))
-                                .child(crate::kit::hint(m.description.clone().unwrap_or_else(|| format!("Folder {}", f.folder)), &ui.t)),
-                        )
-                        .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t)));
-                    let mut col = div().flex().flex_col().gap(px(8.)).child(top);
-                    if on {
-                        col = col.child(self.extension_details(ui, m, cx));
-                    }
-                    col.into_any_element()
-                }
-                Err(why) => div()
-                    .id(SharedString::from(format!("extension-bad-{}", f.folder)))
-                    .flex()
-                    .gap(px(12.))
-                    .items_start()
-                    .child(div().mt(px(5.)).child(crate::kit::icon("alert", 14., ui.t.text_3)))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .child(head(ui, &f.folder))
-                            .child(crate::kit::hint(format!("Can't be used: {why}."), &ui.t)),
-                    )
-                    .into_any_element(),
-            };
-            sec = sec.child(row);
-        }
-        sec
+            ))
     }
 
-    /// An extension that is on: its adapter, settings and variables.
-    fn extension_details(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> Div {
-        let mut col = div().ml(px(26.)).flex().flex_col().gap(px(8.));
-        if m.adapter.is_some() {
-            let h = hub::hub(cx);
-            let (run, conn) = h.read(cx).get(&m.id).map(|s| (s.run.clone(), s.conn.clone())).unwrap_or_default();
-            let (word, tone, text) = run_text(&run, conn.as_ref());
-            let id = m.id.clone();
-            let mut line = div().flex().items_center().gap(px(8.)).child(crate::kit::muted("Adapter", &ui.t)).child(crate::kit::chip_tone(word, tone, &ui.t)).child(div().flex_1());
-            if matches!(run, Run::Running | Run::Stopped(_)) {
-                line = line.child(
-                    crate::kit::text_button(SharedString::from(format!("extension-restart-{}", m.id)), "Restart", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |_, _, _, cx| {
-                        let h = hub::hub(cx);
-                        h.update(cx, |h, cx| h.restart(&id, cx));
-                    })),
+    /// A card: one extension and everything about it.
+    fn card(ui: &Ui, id: impl Into<SharedString>) -> Stateful<Div> {
+        div().id(id.into()).flex().flex_col().gap(px(12.)).p(px(14.)).rounded(px(10.)).border_1().border_color(ui.t.line)
+    }
+
+    /// The status pill: Off, Needs setup, Connecting, Connected, Signed
+    /// out, Stopped, Error (or On, without an adapter); its tone; the
+    /// adapter's word on why.
+    fn status_of(m: &Manifest, prefs: &ExtensionPrefs, cx: &mut Context<Self>) -> (&'static str, Tone, String, bool) {
+        let h = hub::hub(cx);
+        let (run, conn) = h.read(cx).get(&m.id).map(|s| (s.run.clone(), s.conn.clone())).unwrap_or_default();
+        let connected = run == Run::Running && matches!(conn, Some((ConnState::Ready, _)));
+        if !prefs.enabled {
+            return ("Off", Tone::Plain, String::new(), connected);
+        }
+        let list = checklist(m, prefs, connected);
+        let missing = list.iter().any(|(s, done)| !done && *s != Step::Connected);
+        let (word, tone, why) = run_text(&run, conn.as_ref());
+        if missing {
+            return ("Needs setup", Tone::Warn, why, connected);
+        }
+        if m.adapter.is_none() {
+            return ("On", Tone::Ok, String::new(), connected);
+        }
+        let word = match word {
+            "connected" => "Connected",
+            "connecting" => "Connecting",
+            "signed out" => "Signed out",
+            "stopped" => "Stopped",
+            "needs setup" => "Needs setup",
+            "error" => "Error",
+            _ => "Off",
+        };
+        (word, tone, why, connected)
+    }
+
+    /// Installed extension `folder`'s card.
+    fn ext_card(&mut self, folder: &str, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let found = crate::extensions::found(cx);
+        let Some(f) = found.iter().find(|f| f.folder == folder) else { return div() };
+        let m = match &f.manifest {
+            Ok(m) => m.clone(),
+            Err(why) => {
+                return div().child(
+                    Self::card(ui, format!("extension-bad-{}", f.folder)).child(
+                        div()
+                            .flex()
+                            .gap(px(12.))
+                            .items_start()
+                            .child(div().mt(px(3.)).child(crate::kit::icon("alert", 16., ui.t.text_3)))
+                            .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(head(ui, &f.folder)).child(crate::kit::hint(format!("Can't be used: {why}."), &ui.t))),
+                    ),
                 );
             }
-            col = col.child(line);
-            if !text.is_empty() {
-                col = col.child(crate::kit::hint(text, &ui.t));
+        };
+        let (shipped, local) = self.shipped_now(cx);
+        let prefs = crate::ui_state::get(cx).extension(&m.id);
+        let on = prefs.enabled;
+        let (word, tone, why, connected) = Self::status_of(&m, &prefs, cx);
+        let open = self.exts.open.get(&m.id).copied().unwrap_or(on || word == "Needs setup");
+        let (icon, text) = Self::ext_title(ui, &m, &f.folder);
+        let id = m.id.clone();
+        let switch = crate::kit::toggle(SharedString::from(format!("extension-switch-{}", m.id)), on, &ui.t).tooltip(crate::kit::tooltip(if on { "Turn off" } else { "Turn on" })).on_click(cx.listener(move |v, _, _, cx| {
+            let id = id.clone();
+            crate::ui_state::update(cx, |s| *s = s.clone().set_extension(&id, !on));
+            // Turned on: unfolded; turned off: folded.
+            v.exts.open.remove(&id);
+            cx.notify();
+        }));
+        let id = m.id.clone();
+        let chevron = div()
+            .id(SharedString::from(format!("extension-fold-{}", m.id)))
+            .cursor_pointer()
+            .p(px(4.))
+            .rounded(px(4.))
+            .hover(|d| d.bg(ui.t.surface_2))
+            .tooltip(crate::kit::tooltip(if open { "Fold" } else { "Unfold" }))
+            .child(crate::kit::chevron_at(open, 12., ui.t.text_3))
+            .on_click(cx.listener(move |v, _, _, cx| {
+                v.exts.open.insert(id.clone(), !open);
+                cx.notify();
+            }));
+        let top = div()
+            .flex()
+            .gap(px(12.))
+            .items_start()
+            .child(icon)
+            .child(text)
+            // A fixed width: the row doesn't move as the state changes.
+            .child(div().w(px(96.)).flex().justify_end().mt(px(2.)).child(crate::kit::chip_tone(word, tone, &ui.t)))
+            .child(div().mt(px(4.)).child(switch))
+            .child(div().mt(px(1.)).child(chevron));
+        let mut card = Self::card(ui, format!("extension-card-{}", m.id)).child(top);
+        let changed = local.get(&m.id) == Some(&false);
+        card = card.children(self.installed_notes(ui, &m, shipped.iter().find(|s| s.offer.manifest.id == m.id), changed, cx));
+        if open {
+            if on {
+                card = card.child(self.checklist_view(ui, &m, &prefs, connected, &why, cx));
+                let more: Vec<&Action> = m.actions.iter().filter(|a| !a.setup).collect();
+                if !more.is_empty() {
+                    let mut other = div().flex().flex_col().gap(px(10.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(crate::kit::label("More", ui.t.text_3, 11.));
+                    for a in more {
+                        other = other.child(self.action_block(ui, &m, a, None, cx));
+                    }
+                    card = card.child(other);
+                }
+            } else {
+                card = card.child(crate::kit::hint(format!("Turn it on to set it up. While it is off, nothing of {} runs.", m.name), &ui.t));
             }
+            card = card.child(self.card_footer(ui, &m, &f.folder, cx));
         }
-        for s in &m.settings {
-            col = col.child(match s.kind {
-                SettingKind::Url => self.url_row(ui, m, s, cx),
-                SettingKind::Secret => self.secret_row(ui, m, s, cx),
-            });
+        div().child(card)
+    }
+
+    /// An extension's icon, name, version (and a demo mark) and description.
+    fn ext_title(ui: &Ui, m: &Manifest, folder: &str) -> (AnyElement, Div) {
+        let icon = div()
+            .flex_none()
+            .size(px(32.))
+            .rounded(px(8.))
+            .bg(ui.t.surface_2)
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(crate::kit::icon(crate::extensions::icon_of(m), 16., ui.t.text_2))
+            .into_any_element();
+        let mut name = div().flex().items_center().gap(px(6.)).child(div().flex_none().font_weight(crate::kit::WEIGHT_550).text_color(ui.t.text).child(m.name.clone()));
+        if let Some(v) = &m.version {
+            name = name.child(div().flex_none().text_size(px(12.)).text_color(ui.t.text_3).child(v.clone()));
         }
-        if let Some(a) = &m.adapter {
-            col = col.child(crate::kit::hint(format!("Runs {} in its folder.", a.command.join(" ")), &ui.t));
+        if m.demo {
+            name = name.child(crate::kit::chip_tone("demo", Tone::Subtle, &ui.t));
         }
-        if !m.agent_env.is_empty() {
-            let mut env = div().flex().flex_col().gap(px(2.)).child(crate::kit::hint("Sets on agents Pitwall starts while it is on ({project}: the project folder's name; {agent}: the agent's name; {agent_id}: its id; each made lowercase letters, digits, - and _):", &ui.t));
-            let values = crate::ui_state::get(cx).extension(&m.id).values;
-            for line in env_preview(m, &values) {
-                env = env.child(crate::kit::mono_text(line, &ui.t));
-            }
-            col = col.child(env);
-        }
-        for a in &m.actions {
-            col = col.child(self.action_row(ui, m, a, cx));
+        let text = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(name)
+            .child(crate::kit::hint(m.description.clone().unwrap_or_else(|| format!("Folder {folder}")), &ui.t));
+        (icon, text)
+    }
+
+    /// The numbered steps of setting it up, each a tick once done, with
+    /// its field or button.
+    fn checklist_view(&mut self, ui: &Ui, m: &Manifest, prefs: &ExtensionPrefs, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
+        let list = checklist(m, prefs, connected);
+        let left = list.iter().filter(|(_, d)| !d).count();
+        let mut col = div().flex().flex_col().gap(px(14.));
+        col = col.child(div().text_size(px(12.)).text_color(ui.t.text_3).child(match left {
+            0 => "All set".to_string(),
+            1 => "One step left".to_string(),
+            n => format!("{n} steps left"),
+        }));
+        for (i, (step, done)) in list.iter().enumerate() {
+            let marker = {
+                let d = div().flex_none().size(px(20.)).rounded_full().flex().items_center().justify_center().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD);
+                if *done {
+                    d.bg(ui.t.green.opacity(0.18)).child(crate::kit::icon("check", 12., ui.t.green))
+                } else {
+                    d.border_1().border_color(ui.t.line_strong).text_color(ui.t.text_2).child((i + 1).to_string())
+                }
+            };
+            let body: AnyElement = match step {
+                Step::Setting(key) => {
+                    let Some(s) = m.settings.iter().find(|s| s.key == *key) else { continue };
+                    match s.kind {
+                        SettingKind::Url => self.url_row(ui, m, s, cx).into_any_element(),
+                        SettingKind::Secret => self.secret_row(ui, m, s, cx).into_any_element(),
+                    }
+                }
+                Step::Action(id) => {
+                    let Some(a) = m.actions.iter().find(|a| a.id == *id) else { continue };
+                    self.action_block(ui, m, a, Some(*done), cx).into_any_element()
+                }
+                Step::Connected => self.connected_row(ui, m, connected, why, cx).into_any_element(),
+            };
+            col = col.child(div().flex().gap(px(10.)).items_start().child(marker).child(div().flex_1().min_w_0().child(body)));
         }
         col
     }
 
-    /// A setup action: its button and description; then the commands to
-    /// confirm, its progress, or how it went.
-    fn action_row(&mut self, ui: &Ui, m: &Manifest, a: &pitwall_core::extensions::Action, cx: &mut Context<Self>) -> Div {
-        let k = (m.id.clone(), a.id.clone());
-        let running = self.exts.running.contains(&k);
-        let asking = self.exts.confirm.as_ref().is_some_and(|(e, id, _)| *e == k.0 && *id == k.1);
-        let open = {
-            let (m, a) = (m.clone(), a.clone());
-            crate::kit::text_button(SharedString::from(format!("extension-action-{}-{}", m.id, a.id)), a.label.clone(), BtnKind::Small, running || asking, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
-                let values = crate::ui_state::get(cx).extension(&m.id).values;
-                let plan = actions::plan(&m, &a, &values, pitwall_core::shell::spawn_path().as_deref());
-                v.exts.results.remove(&(m.id.clone(), a.id.clone()));
-                v.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
+    /// A step's title (13 px, medium).
+    fn step_title(ui: &Ui, text: impl Into<SharedString>) -> Div {
+        div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(ui.t.text).child(text.into())
+    }
+
+    /// The last step: connected, or what the adapter says, with Try again.
+    fn connected_row(&mut self, ui: &Ui, m: &Manifest, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
+        let h = hub::hub(cx);
+        let run = h.read(cx).get(&m.id).map(|s| s.run.clone()).unwrap_or_default();
+        let title = if connected {
+            "Connected"
+        } else {
+            match run {
+                Run::Starting | Run::Running if why.is_empty() => "Connecting…",
+                Run::Setup(_) | Run::Off => "Connect",
+                _ => "Not connected",
+            }
+        };
+        let mut line = div().flex().items_center().gap(px(8.)).child(Self::step_title(ui, title)).child(div().flex_1());
+        if matches!(run, Run::Running | Run::Stopped(_)) && !connected {
+            let id = m.id.clone();
+            line = line.child(crate::kit::text_button(SharedString::from(format!("extension-restart-{}", m.id)), "Try again", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(move |_, _, _, cx| {
+                let h = hub::hub(cx);
+                h.update(cx, |h, cx| h.restart(&id, cx));
+            })));
+        }
+        let text = match (&run, connected) {
+            (_, true) if why.is_empty() => "Its inbox is ready: open it with ⌘I.".to_string(),
+            (_, true) => why.to_string(),
+            (Run::Setup(_), _) => "Pitwall connects once the steps above are done.".to_string(),
+            _ => why.to_string(),
+        };
+        let mut col = div().flex().flex_col().gap(px(3.)).child(line);
+        if !text.is_empty() {
+            let color = if connected || matches!(run, Run::Setup(_) | Run::Starting) { ui.t.text_3 } else { ui.t.amber };
+            col = col.child(div().text_size(px(12.)).line_height(gpui::relative(1.45)).text_color(color).child(text));
+        }
+        col
+    }
+
+    /// Below the top row: Update when a newer copy ships, "changed
+    /// locally", what failed, and the Remove or Replace question.
+    fn installed_notes(&mut self, ui: &Ui, m: &Manifest, shipped: Option<&Shipped>, changed: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut out = Vec::new();
+        let working = self.exts.working.contains(&m.id);
+        if let Some(Status::Newer(v)) = shipped.map(|s| &s.status) {
+            let id = m.id.clone();
+            let mut line = div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(8.))
+                .px(px(10.))
+                .py(px(6.))
+                .rounded(px(8.))
+                .bg(ui.t.surface_2)
+                .child(div().flex_1().min_w(px(160.)).text_size(px(12.)).text_color(ui.t.text_2).child(format!("Version {v} is available. Its settings and secrets stay.")));
+            if changed {
+                line = line.child(div().id(SharedString::from(format!("extension-changed-{}", m.id))).tooltip(crate::kit::tooltip("Its folder isn't as Pitwall installed it: Update asks before replacing it.")).child(crate::kit::chip_tone("changed locally", Tone::Warn, &ui.t)));
+            }
+            line = line.child(
+                crate::kit::text_button(SharedString::from(format!("extension-update-{}", m.id)), if working { "Updating…".to_string() } else { "Update".to_string() }, BtnKind::Small, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, false, cx))),
+            );
+            out.push(line.into_any_element());
+        }
+        if let Some(why) = self.exts.failed.get(&m.id) {
+            out.push(div().text_size(px(12.)).text_color(ui.t.amber).child(why.clone()).into_any_element());
+        }
+        let cancel = |id: &str, cx: &mut Context<Self>| {
+            crate::kit::text_button(SharedString::from(format!("extension-ask-cancel-{id}")), "Cancel", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
+                v.exts.confirm_remove = None;
+                v.exts.confirm_replace = None;
                 cx.notify();
             }))
         };
-        let mut col = div()
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .child(div().flex().items_center().gap(px(8.)).child(open).child(div().flex_1().min_w_0().child(crate::kit::hint(a.description.clone(), &ui.t))));
-        if asking {
-            let plan = self.exts.confirm.as_ref().map(|c| c.2.clone()).unwrap_or_default();
-            let runs = plan.iter().any(|p| p.skip.is_none());
-            let mut card = div()
-                .id(SharedString::from(format!("extension-confirm-{}-{}", m.id, a.id)))
+        let card = |id: &str, text: String, cancel: AnyElement, yes: AnyElement| {
+            div()
+                .id(SharedString::from(format!("extension-ask-{id}")))
                 .flex()
                 .flex_col()
-                .gap(px(4.))
+                .gap(px(8.))
                 .p(px(10.))
                 .rounded(px(8.))
                 .border_1()
                 .border_color(ui.t.line_strong)
                 .bg(ui.t.surface_2)
-                .child(crate::kit::muted(if runs { "These commands will run, in this order, when you press Run:" } else { "Nothing can run:" }, &ui.t));
-            for p in &plan {
-                card = card.child(match &p.skip {
-                    None => crate::kit::mono_text(p.line(), &ui.t),
-                    Some(why) => div().flex().flex_col().opacity(0.6).child(crate::kit::mono_text(p.line(), &ui.t)).child(crate::kit::hint(format!("Skipped: {why}."), &ui.t)),
-                });
-            }
-            if plan.iter().any(|p| p.optional && p.skip.is_none()) {
-                card = card.child(crate::kit::hint("A failing remove step is fine: there was nothing to remove.", &ui.t));
-            }
-            let (m2, a2) = (m.clone(), a.clone());
-            let mut buttons = div().flex().gap(px(8.)).pt(px(4.)).child(div().flex_1());
-            buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-cancel-{}-{}", m.id, a.id)), "Cancel", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
-                v.exts.confirm = None;
+                .child(div().text_size(px(13.)).text_color(ui.t.text).child(text))
+                .child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(yes))
+                .into_any_element()
+        };
+        if self.exts.confirm_remove.as_deref() == Some(&m.id) {
+            let on = crate::ui_state::get(cx).extension_on(&m.id);
+            let text = format!("Remove {}? {}its settings, its saved secrets and its folder are deleted.", m.name, if on { "It is turned off, and " } else { "" });
+            let text = if on { text } else { format!("Remove {}? Its settings, its saved secrets and its folder are deleted.", m.name) };
+            let m2 = m.clone();
+            let yes = crate::kit::text_button(SharedString::from(format!("extension-ask-yes-{}", m.id)), "Remove", BtnKind::Danger, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_remove(&m2, cx)));
+            out.push(card(&m.id, text, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
+        }
+        if self.exts.confirm_replace.as_deref() == Some(&m.id) {
+            let text = format!("{}'s folder was changed since Pitwall installed it, or was put there by hand. Updating replaces it, and those changes are lost. Its settings and secrets stay.", m.name);
+            let id = m.id.clone();
+            let yes = crate::kit::text_button(SharedString::from(format!("extension-ask-yes-{}", m.id)), "Replace", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_update(&id, true, cx)));
+            out.push(card(&m.id, text, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
+        }
+        out
+    }
+
+    /// The card's last row: what it does on this computer (folded), its
+    /// docs, and Remove.
+    fn card_footer(&mut self, ui: &Ui, m: &Manifest, folder: &str, cx: &mut Context<Self>) -> Div {
+        let shown = self.exts.disclosed.contains(&m.id);
+        let id = m.id.clone();
+        let toggle = div()
+            .id(SharedString::from(format!("extension-what-{}", m.id)))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .cursor_pointer()
+            .text_size(px(12.))
+            .text_color(ui.t.text_3)
+            .hover(|d| d.text_color(ui.t.text_2))
+            .child(crate::kit::chevron_at(shown, 10., ui.t.text_3))
+            .child("What this extension does on your computer")
+            .on_click(cx.listener(move |v, _, _, cx| {
+                if !v.exts.disclosed.remove(&id) {
+                    v.exts.disclosed.insert(id.clone());
+                }
                 cx.notify();
-            })));
-            if runs {
-                buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-run-{}-{}", m.id, a.id)), "Run", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.run_action(&m2, &a2, cx))));
-            }
-            col = col.child(card.child(buttons));
-        } else if running {
-            col = col.child(crate::kit::hint("Running…", &ui.t));
-        } else if let Some(results) = self.exts.results.get(&k) {
-            let mut list = div().flex().flex_col().gap(px(2.));
-            for (line, o) in results {
-                let (word, color) = match o {
-                    Outcome::Done => ("Done".to_string(), ui.t.green),
-                    Outcome::Failed(why) => (format!("Failed: {why}"), ui.t.amber),
-                    Outcome::Skipped(why) => (format!("Skipped: {why}"), ui.t.text_3),
-                };
-                list = list.child(div().flex().flex_col().child(crate::kit::mono_text(line.clone(), &ui.t)).child(div().text_size(px(12.)).text_color(color).child(word)));
-            }
-            col = col.child(list);
+            }));
+        let mut row = div().flex().flex_wrap().items_center().gap(px(10.)).child(toggle).child(div().flex_1());
+        if let Some(url) = m.docs.clone() {
+            row = row.child(crate::kit::text_button(SharedString::from(format!("extension-docs-{}", m.id)), "Docs", BtnKind::Link, false, &ui.t).tooltip(crate::kit::tooltip(url.clone())).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &url)));
+        }
+        let working = self.exts.working.contains(&m.id);
+        let id = m.id.clone();
+        row = row.child(crate::kit::text_button(SharedString::from(format!("extension-remove-{}", m.id)), if working { "Working…" } else { "Remove" }, BtnKind::GhostSm, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+            v.exts.confirm_remove = Some(id.clone());
+            v.exts.confirm_replace = None;
+            cx.notify();
+        })));
+        let mut col = div().flex().flex_col().gap(px(8.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(row);
+        if shown {
+            col = col.child(self.disclosure(ui, m, folder, cx));
         }
         col
     }
 
-    /// Run the confirmed action off the UI thread.
-    fn run_action(&mut self, m: &Manifest, a: &pitwall_core::extensions::Action, cx: &mut Context<Self>) {
-        let Some((_, _, plan)) = self.exts.confirm.take() else { return };
-        let k = (m.id.clone(), a.id.clone());
-        self.exts.running.insert(k.clone());
-        cx.notify();
-        let home = pitwall_core::paths::home();
-        let job = cx.background_executor().spawn(async move {
-            let out = actions::run(&plan, &home, actions::STEP_TIMEOUT);
-            plan.iter().map(Planned::line).zip(out).collect::<Vec<_>>()
-        });
-        cx.spawn(async move |this, cx| {
-            let results = job.await;
-            let _ = this.update(cx, |v, cx| {
-                v.exts.running.remove(&k);
-                v.exts.results.insert(k, results);
-                cx.notify();
+    /// What it runs while on, what it sets on agents, and what its buttons
+    /// can run.
+    fn disclosure(&mut self, ui: &Ui, m: &Manifest, folder: &str, cx: &mut Context<Self>) -> Div {
+        let mut col = div().flex().flex_col().gap(px(10.)).pl(px(14.));
+        let block = |title: &str| div().flex().flex_col().gap(px(3.)).child(div().text_size(px(12.)).text_color(ui.t.text_2).child(title.to_string()));
+        if let Some(a) = &m.adapter {
+            col = col.child(block("While it is on, runs this in its folder:").child(crate::kit::mono_text(a.command.join(" "), &ui.t)));
+        } else {
+            col = col.child(block("Runs no program of its own."));
+        }
+        if !m.agent_env.is_empty() {
+            let values = crate::ui_state::get(cx).extension(&m.id).values;
+            let mut b = block("Sets these on agents you start while it is on ({project}: the project folder's name; {agent_id}: the agent's id):");
+            for line in env_preview(m, &values) {
+                b = b.child(crate::kit::mono_text(line, &ui.t));
+            }
+            col = col.child(b);
+        }
+        for a in &m.actions {
+            let mut b = block(&format!("“{}” runs, when you press it and confirm:", a.label));
+            for s in &a.steps {
+                b = b.child(crate::kit::mono_text(s.run.join(" "), &ui.t));
+            }
+            col = col.child(b);
+        }
+        if let Some(dir) = crate::extensions::dir(cx) {
+            col = col.child(block("Its folder:").child(crate::kit::mono_text(pitwall_core::paths::tildify(&dir.join(folder).to_string_lossy()), &ui.t)));
+        }
+        col
+    }
+
+    /// Those Pitwall ships that aren't installed: a gallery, each with
+    /// Install.
+    fn ext_available(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
+        let (shipped, _) = self.shipped_now(cx);
+        let available: Vec<Manifest> = shipped.iter().filter(|s| s.status == Status::Available).map(|s| s.offer.manifest.clone()).collect();
+        let mut d = div().flex().flex_col().gap(px(8.));
+        if available.is_empty() {
+            return d;
+        }
+        d = d.child(div().pt(px(8.)).child(crate::kit::label("Available", ui.t.text_3, 11.)));
+        let mut grid = div().flex().flex_wrap().gap(px(10.));
+        for m in &available {
+            grid = grid.child(self.available_tile(ui, m, cx));
+        }
+        d.child(grid)
+    }
+
+    /// A shipped extension that isn't installed: Install.
+    fn available_tile(&mut self, ui: &Ui, m: &Manifest, cx: &mut Context<Self>) -> AnyElement {
+        let (icon, text) = Self::ext_title(ui, m, &m.id);
+        let working = self.exts.working.contains(&m.id);
+        let id = m.id.clone();
+        let button = crate::kit::text_button(SharedString::from(format!("extension-install-{}", m.id)), if working { "Installing…" } else { "Install" }, BtnKind::Small, working, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+            v.exts.working.insert(id.clone());
+            v.exts.failed.remove(&id);
+            cx.notify();
+            let (me, id2) = (cx.entity().downgrade(), id.clone());
+            catalog::install_one(&id, cx, move |o, cx| {
+                let _ = me.update(cx, |v, cx| v.ext_done(&id2, o, cx));
             });
-        })
-        .detach();
+        }));
+        let mut tile = Self::card(ui, format!("extension-available-{}", m.id))
+            .flex_1()
+            .min_w(px(260.))
+            .child(div().flex().gap(px(12.)).items_start().child(icon).child(text).child(div().mt(px(2.)).child(button)));
+        if let Some(why) = self.exts.failed.get(&m.id) {
+            tile = tile.child(div().text_size(px(12.)).text_color(ui.t.amber).child(why.clone()));
+        }
+        tile.into_any_element()
+    }
+
+    fn start_update(&mut self, id: &str, replace_changed: bool, cx: &mut Context<Self>) {
+        self.exts.working.insert(id.to_string());
+        self.exts.failed.remove(id);
+        self.exts.confirm_replace = None;
+        cx.notify();
+        let (me, id2) = (cx.entity().downgrade(), id.to_string());
+        catalog::update_one(id, replace_changed, cx, move |o, cx| {
+            let _ = me.update(cx, |v, cx| v.ext_done(&id2, o, cx));
+        });
+    }
+
+    fn start_remove(&mut self, m: &Manifest, cx: &mut Context<Self>) {
+        self.exts.working.insert(m.id.clone());
+        self.exts.failed.remove(&m.id);
+        self.exts.confirm_remove = None;
+        cx.notify();
+        let (me, id) = (cx.entity().downgrade(), m.id.clone());
+        catalog::remove_one(m, cx, move |o, cx| {
+            let _ = me.update(cx, |v, cx| v.ext_done(&id, o, cx));
+        });
+    }
+
+    /// Install, Update or Remove of `id` is over.
+    fn ext_done(&mut self, id: &str, o: catalog::Outcome, cx: &mut Context<Self>) {
+        self.exts.working.remove(id);
+        match o {
+            catalog::Outcome::Done => {}
+            catalog::Outcome::ChangedLocally => self.exts.confirm_replace = Some(id.to_string()),
+            catalog::Outcome::Failed(why) => {
+                self.exts.failed.insert(id.to_string(), why);
+            }
+        }
+        cx.notify();
+    }
+
+    /// The plan of `a`, to confirm.
+    fn ask_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
+        let values = crate::ui_state::get(cx).extension(&m.id).values;
+        let plan = actions::plan(m, a, &values, pitwall_core::shell::spawn_path().as_deref());
+        self.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
+        cx.notify();
+    }
+
+    /// A setup action: its title and description with its button; then
+    /// the commands to confirm, its steps as they run, or how it went.
+    /// `done`: its checklist step's state (None: not a checklist step).
+    fn action_block(&mut self, ui: &Ui, m: &Manifest, a: &Action, done: Option<bool>, cx: &mut Context<Self>) -> Div {
+        let runs = actions::runs(cx);
+        let state = runs.read(cx).get(&m.id, &a.id);
+        let running = state.as_ref().is_some_and(|s| !s.over);
+        let asking = self.exts.confirm.as_ref().is_some_and(|(e, id, _)| *e == m.id && *id == a.id);
+        let label = match (done, &state) {
+            (_, Some(s)) if s.over && (s.failed() || s.cancelled) => "Run again",
+            (Some(true), _) => "Run again",
+            _ => "Run…",
+        };
+        let open = {
+            let (m, a) = (m.clone(), a.clone());
+            crate::kit::text_button(SharedString::from(format!("extension-action-{}-{}", m.id, a.id)), label, BtnKind::Small, running || asking, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.ask_action(&m, &a, cx)))
+        };
+        let mut col = div().flex().flex_col().gap(px(6.)).child(
+            div()
+                .flex()
+                .items_start()
+                .gap(px(10.))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap(px(2.)).child(Self::step_title(ui, a.label.clone())).child(crate::kit::hint(a.description.clone(), &ui.t)))
+                .child(open),
+        );
+        if asking {
+            col = col.child(self.confirm_card(ui, m, a, cx));
+        } else if let Some(st) = state {
+            col = col.child(self.run_view(ui, m, a, &st, cx));
+        }
+        col
+    }
+
+    /// The commands a press will run, to confirm.
+    fn confirm_card(&mut self, ui: &Ui, m: &Manifest, a: &Action, cx: &mut Context<Self>) -> Stateful<Div> {
+        let plan = self.exts.confirm.as_ref().map(|c| c.2.clone()).unwrap_or_default();
+        let runs = plan.iter().any(|p| p.skip.is_none());
+        let mut card = div()
+            .id(SharedString::from(format!("extension-confirm-{}-{}", m.id, a.id)))
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .p(px(10.))
+            .rounded(px(8.))
+            .border_1()
+            .border_color(ui.t.line_strong)
+            .bg(ui.t.surface_2)
+            .child(div().pb(px(2.)).text_size(px(12.)).text_color(ui.t.text_2).child(if runs { "These commands will run, in this order, when you press Run:" } else { "Nothing can run:" }));
+        for p in &plan {
+            card = card.child(match &p.skip {
+                None => crate::kit::mono_text(p.line(), &ui.t),
+                Some(why) => div().flex().flex_col().opacity(0.6).child(crate::kit::mono_text(p.line(), &ui.t)).child(crate::kit::hint(format!("Skipped: {why}."), &ui.t)),
+            });
+        }
+        if plan.iter().any(|p| p.optional && p.skip.is_none()) {
+            card = card.child(crate::kit::hint("A failing remove step is fine: there was nothing to remove.", &ui.t));
+        }
+        let (m2, a2) = (m.clone(), a.clone());
+        let mut buttons = div().flex().gap(px(8.)).pt(px(4.)).child(div().flex_1());
+        buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-cancel-{}-{}", m.id, a.id)), "Cancel", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
+            v.exts.confirm = None;
+            cx.notify();
+        })));
+        if runs {
+            buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-run-{}-{}", m.id, a.id)), "Run", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.run_action(&m2, &a2, cx))));
+        }
+        card.child(buttons)
+    }
+
+    /// A run, as it goes or as it ended: each step with its state, the
+    /// running one's time and latest output, then how it ended.
+    fn run_view(&mut self, ui: &Ui, m: &Manifest, a: &Action, st: &RunState, cx: &mut Context<Self>) -> Div {
+        let motion = crate::theme::motion_on(cx);
+        let mut list = div().flex().flex_col().gap(px(6.)).p(px(10.)).rounded(px(8.)).border_1().border_color(ui.t.line).bg(ui.t.surface_2.opacity(0.5));
+        for (i, (line, state)) in st.steps.iter().enumerate() {
+            let slot = |d: AnyElement| div().flex_none().w(px(16.)).h(px(18.)).flex().items_center().justify_center().child(d);
+            let (mark, word, color): (AnyElement, String, gpui::Hsla) = match state {
+                StepState::Waiting => (div().size(px(8.)).rounded_full().border_1().border_color(ui.t.line_strong).into_any_element(), "waiting".into(), ui.t.text_4),
+                StepState::Running(since) => (crate::kit::spinner(SharedString::from(format!("extension-run-spin-{}-{}-{i}", m.id, a.id)), 12., motion, &ui.t), format!("running · {} s", since.elapsed().as_secs()), ui.t.text_2),
+                StepState::Ended(Outcome::Done) => (crate::kit::icon("check", 13., ui.t.green).into_any_element(), "done".into(), ui.t.green),
+                StepState::Ended(Outcome::Failed(_)) => (crate::kit::icon("x", 13., ui.t.amber).into_any_element(), "failed".into(), ui.t.amber),
+                StepState::Ended(Outcome::Skipped(_)) => (div().w(px(8.)).h(px(1.5)).bg(ui.t.text_4).into_any_element(), "skipped".into(), ui.t.text_3),
+            };
+            let mut row = div().flex().flex_col().gap(px(3.)).child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(8.))
+                    .child(slot(mark))
+                    .child(div().flex_1().min_w_0().child(crate::kit::mono_text(line.clone(), &ui.t)))
+                    .child(div().flex_none().w(px(92.)).flex().justify_end().text_size(px(12.)).text_color(color).child(word)),
+            );
+            let reason = match state {
+                StepState::Ended(Outcome::Failed(why)) | StepState::Ended(Outcome::Skipped(why)) => Some(why.clone()),
+                _ => None,
+            };
+            if let Some(why) = reason {
+                row = row.child(div().pl(px(24.)).text_size(px(12.)).text_color(ui.t.text_3).child(why));
+            }
+            if matches!(state, StepState::Running(_)) {
+                let tail = st.output_tail();
+                if !tail.is_empty() {
+                    // Its latest lines, each on one line: the box keeps
+                    // its height as output comes.
+                    let mut out = div().ml(px(24.)).px(px(8.)).py(px(6.)).rounded(px(6.)).bg(ui.t.surface_3).flex().flex_col().overflow_hidden();
+                    let lines: Vec<&str> = tail.lines().collect();
+                    for l in &lines[lines.len().saturating_sub(5)..] {
+                        out = out.child(crate::kit::mono_text(l.to_string(), &ui.t).whitespace_nowrap().overflow_hidden().text_ellipsis());
+                    }
+                    row = row.child(out);
+                }
+            }
+            list = list.child(row);
+        }
+        let mut foot = div().flex().items_center().gap(px(8.)).pt(px(4.));
+        match st.summary() {
+            None => {
+                let done = st.steps.iter().filter(|(_, s)| matches!(s, StepState::Ended(_))).count();
+                foot = foot.child(div().text_size(px(12.)).text_color(ui.t.text_2).child(format!("Running: {done} of {} steps done", st.steps.len())));
+                foot = foot.child(div().flex_1());
+                let (e, ac) = (m.id.clone(), a.id.clone());
+                foot = foot.child(crate::kit::text_button(SharedString::from(format!("extension-run-cancel-{}-{}", m.id, a.id)), "Cancel", BtnKind::GhostSm, st.cancelled, &ui.t).tooltip(crate::kit::tooltip("Stop the running step; the rest are skipped")).on_click(cx.listener(move |_, _, _, cx| {
+                    actions::runs(cx).read(cx).cancel(&e, &ac);
+                })));
+            }
+            Some(s) => {
+                let color = if st.failed() || st.cancelled { ui.t.amber } else { ui.t.green };
+                foot = foot.child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(color).child(s));
+            }
+        }
+        list.child(foot)
+    }
+
+    /// Run the confirmed action off the UI thread; one that ends without a
+    /// failure is recorded (its checklist step stays ticked).
+    fn run_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
+        let Some((_, _, plan)) = self.exts.confirm.take() else { return };
+        let (ext, action) = (m.id.clone(), a.id.clone());
+        let home = pitwall_core::paths::home();
+        let runs = actions::runs(cx);
+        let record = {
+            let (ext, action) = (ext.clone(), action.clone());
+            move |st: &RunState, cx: &mut gpui::App| record_run(&ext, &action, st, cx)
+        };
+        runs.update(cx, |r, cx| r.start((&ext, &action), plan, home, actions::STEP_TIMEOUT, record, cx));
+        cx.notify();
     }
 
     fn url_input(&mut self, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Entity<TextInput> {
@@ -364,15 +908,20 @@ impl SettingsView {
         input
     }
 
-    fn label(ui: &Ui, s: &SettingDef) -> Div {
-        let text = if s.required { s.label.clone() } else { format!("{} (optional)", s.label) };
-        div().w(px(120.)).flex_none().child(crate::kit::muted(text, &ui.t))
+    fn setting_title(ui: &Ui, s: &SettingDef) -> Div {
+        let mut d = div().flex().items_center().gap(px(6.)).child(Self::step_title(ui, s.label.clone()));
+        if !s.required {
+            d = d.child(div().text_size(px(12.)).text_color(ui.t.text_3).child("optional"));
+        }
+        d
     }
 
+    /// A `url` setting: its title, the field, then its hint or what's
+    /// wrong with what was typed.
     fn url_row(&mut self, ui: &Ui, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Div {
         let input = self.url_input(m, s, cx);
         let k = (m.id.clone(), s.key.clone());
-        let mut col = div().flex().flex_col().gap(px(4.)).child(div().flex().items_center().gap(px(8.)).child(Self::label(ui, s)).child(div().flex_1().min_w_0().child(input)));
+        let mut col = div().flex().flex_col().gap(px(5.)).child(Self::setting_title(ui, s)).child(div().max_w(px(520.)).child(input));
         if let Some(n) = self.exts.notes.get(&k) {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
         } else if let Some(h) = &s.hint {
@@ -381,47 +930,48 @@ impl SettingsView {
         col
     }
 
+    /// A secret: "Saved in your keychain" with Replace and Remove once
+    /// set (never the value), else Paste from clipboard; its hint under.
     fn secret_row(&mut self, ui: &Ui, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Div {
         let k = (m.id.clone(), s.key.clone());
         let set = crate::ui_state::get(cx).extension(&m.id).secrets_set.contains(&s.key);
         let busy = self.exts.busy.contains(&k);
         let paste = {
             let k = k.clone();
-            crate::kit::text_button(SharedString::from(format!("extension-secret-paste-{}-{}", m.id, s.key)), "Paste from clipboard", BtnKind::Small, busy, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
-                let text = crate::platform::files::paste_text(cx).map(|t| t.trim().to_string()).unwrap_or_default();
-                if text.is_empty() {
-                    v.exts.notes.insert(k.clone(), "Copy the secret first: the clipboard has no text.".into());
-                    cx.notify();
-                    return;
-                }
-                if text.chars().any(char::is_control) || text.len() > 4096 {
-                    v.exts.notes.insert(k.clone(), "The clipboard doesn't hold a secret (it has line breaks or is too long).".into());
-                    cx.notify();
-                    return;
-                }
-                v.secret_change(k.clone(), Some(text), cx);
-            }))
+            crate::kit::text_button(SharedString::from(format!("extension-secret-paste-{}-{}", m.id, s.key)), if set { "Replace" } else { "Paste from clipboard" }, BtnKind::Small, busy, &ui.t)
+                .tooltip(crate::kit::tooltip("Copy it first; Pitwall takes it from the clipboard and never shows it"))
+                .on_click(cx.listener(move |v, _, _, cx| {
+                    let text = crate::platform::files::paste_text(cx).map(|t| t.trim().to_string()).unwrap_or_default();
+                    if text.is_empty() {
+                        v.exts.notes.insert(k.clone(), "Copy it first: the clipboard has no text.".into());
+                        cx.notify();
+                        return;
+                    }
+                    if text.chars().any(char::is_control) || text.len() > 4096 {
+                        v.exts.notes.insert(k.clone(), "The clipboard doesn't hold a key (it has line breaks or is too long).".into());
+                        cx.notify();
+                        return;
+                    }
+                    v.secret_change(k.clone(), Some(text), cx);
+                }))
         };
-        let mut line = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(Self::label(ui, s))
-            .child(crate::kit::chip_tone(if busy { "saving…" } else if set { "set" } else { "not set" }, if set { Tone::Ok } else { Tone::Plain }, &ui.t))
-            .child(div().flex_1())
-            .child(paste);
+        let state = if busy {
+            div().text_size(px(12.)).text_color(ui.t.text_3).child("Saving…")
+        } else if set {
+            div().flex().items_center().gap(px(5.)).text_size(px(12.)).text_color(ui.t.text_2).child(crate::kit::icon("lock", 12., ui.t.text_3)).child(secure_store())
+        } else {
+            div().text_size(px(12.)).text_color(ui.t.text_3).child("Not set")
+        };
+        let mut line = div().flex().flex_wrap().items_center().gap(px(8.)).child(state).child(div().flex_1()).child(paste);
         if set {
             let k = k.clone();
-            line = line.child(
-                crate::kit::text_button(SharedString::from(format!("extension-secret-remove-{}-{}", m.id, s.key)), "Remove", BtnKind::GhostSm, busy, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.secret_change(k.clone(), None, cx))),
-            );
+            line = line.child(crate::kit::text_button(SharedString::from(format!("extension-secret-remove-{}-{}", m.id, s.key)), "Remove", BtnKind::GhostSm, busy, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.secret_change(k.clone(), None, cx))));
         }
-        let mut col = div().flex().flex_col().gap(px(4.)).child(line);
+        let mut col = div().flex().flex_col().gap(px(5.)).child(Self::setting_title(ui, s)).child(div().max_w(px(520.)).child(line));
         if let Some(n) = self.exts.notes.get(&k) {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
-        } else {
-            let base = "Kept in the system's secure store; Pitwall's files only record that it is set.";
-            col = col.child(crate::kit::hint(match &s.hint { Some(h) => format!("{h} {base}"), None => base.to_string() }, &ui.t));
+        } else if let Some(h) = &s.hint {
+            col = col.child(crate::kit::hint(h.clone(), &ui.t));
         }
         col
     }
@@ -456,13 +1006,33 @@ mod tests {
     fn url_fields_and_states_say_what_to_do() {
         assert_eq!(url_value("  "), Ok(None));
         assert_eq!(url_value("inbox.example.com").unwrap().as_deref(), Some("https://inbox.example.com"));
-        assert!(url_value("javascript:alert(1)").is_err());
+        assert_eq!(url_value("javascript:alert(1)").unwrap_err(), "That isn't a web address (like https://example.com).");
         let (w, _, t) = run_text(&Run::Stopped("It exited.".into()), None);
         assert_eq!(w, "stopped");
-        assert!(t.contains("Restart"));
+        assert!(t.contains("try again"));
         let (w, _, t) = run_text(&Run::Running, Some(&(ConnState::SignedOut, String::new())));
         assert_eq!(w, "signed out");
         assert!(!t.is_empty());
+    }
+
+    /// The checklist: required settings, then setup actions, then
+    /// Connected; ticked as each is done.
+    #[test]
+    fn the_checklist_follows_the_manifest() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../extensions/demo-inbox/extension.json")).unwrap();
+        let mut m = pitwall_core::extensions::parse(&text).unwrap();
+        m.settings.push(SettingDef { key: "apiKey".into(), kind: SettingKind::Secret, label: "API key".into(), hint: None, placeholder: None, required: true });
+        m.actions.push(Action { id: "setup".into(), label: "Set up".into(), description: "d".into(), setup: true, steps: vec![] });
+        let mut prefs = ExtensionPrefs::default();
+        let steps = |p: &ExtensionPrefs, c| checklist(&m, p, c);
+        assert_eq!(
+            steps(&prefs, false),
+            [(Step::Setting("greeting".into()), true), (Step::Setting("apiKey".into()), false), (Step::Action("setup".into()), false), (Step::Connected, false)],
+            "an optional setting counts as done"
+        );
+        prefs.secrets_set.push("apiKey".into());
+        prefs.actions_done.push("setup".into());
+        assert!(steps(&prefs, true).iter().all(|(_, d)| *d));
     }
 
     /// Settings shows exactly what each variable will be: for each

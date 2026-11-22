@@ -50,6 +50,13 @@
       "additionalProperties": {
         "additionalProperties": true,
         "properties": {
+          "actionsDone": {
+            "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "enabled": {
             "default": false,
             "description": "The extension is on: its adapter runs and its inbox can be opened.",
@@ -76,7 +83,7 @@
         },
         "type": "object"
       },
-      "description": "Extensions (Settings → General → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.",
+      "description": "Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.",
       "propertyNames": {
         "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
       },
@@ -124,6 +131,7 @@
         "general",
         "agents",
         "accounts",
+        "extensions",
         "rules",
         "appearance",
         "folderAccess",

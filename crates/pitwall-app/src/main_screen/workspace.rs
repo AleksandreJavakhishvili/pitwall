@@ -412,6 +412,10 @@ pub struct ExtensionPrefs {
     /// The thread its inbox tile shows (kept across restarts).
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
+    /// Its setup actions that last ran without a failure (their checklist
+    /// steps stay ticked).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub actions_done: Vec<String>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -419,7 +423,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && self.rest.is_empty()
     }
 }
 
@@ -441,6 +445,13 @@ impl UiState {
         if e.is_empty() {
             self.extensions.remove(id);
         }
+        self
+    }
+
+    /// Extension `id` forgotten: off, its settings and the note of its
+    /// secrets gone (Remove).
+    pub fn forget_extension(mut self, id: &str) -> UiState {
+        self.extensions.remove(id);
         self
     }
 

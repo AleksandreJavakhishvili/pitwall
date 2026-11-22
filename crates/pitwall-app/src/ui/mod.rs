@@ -342,6 +342,43 @@ impl MainView {
             }
             return;
         }
+        // `ext-run <ext> <action> <steps>`: in the open Settings, that
+        // action run with these harmless steps in place of its own
+        // (`prog arg … | prog arg …`), to show a run.
+        if let Some(what) = cmd.strip_prefix("ext-run ") {
+            let mut w = what.splitn(3, ' ');
+            if let (Some(ext), Some(action), Some(steps), Some(v)) = (w.next(), w.next(), w.next(), self.layer.read(cx).settings_view()) {
+                v.update(cx, |v, cx| v.debug_run(ext, action, steps, cx));
+            }
+            return;
+        }
+        // `ext-secret <ext> <key> <value>`: that secret set (a bench
+        // instance keeps secrets in memory).
+        if let Some(what) = cmd.strip_prefix("ext-secret ") {
+            let mut w = what.splitn(3, ' ');
+            if let (Some(ext), Some(key), Some(value)) = (w.next(), w.next(), w.next()) {
+                crate::extensions::set_secret(ext, key, value.to_string(), cx, |_, _| {});
+            }
+            return;
+        }
+        // `ext-disclose <ext>`: in the open Settings, what that extension
+        // does on this computer, unfolded.
+        if let Some(ext) = cmd.strip_prefix("ext-disclose ") {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| v.debug_disclose(ext.trim(), cx));
+            }
+            return;
+        }
+        // `settings-end`: the open Settings page scrolled to its end.
+        if cmd == "settings-end" {
+            if let Some(v) = self.layer.read(cx).settings_view() {
+                v.update(cx, |v, cx| {
+                    v.scroll_to_end();
+                    cx.notify();
+                });
+            }
+            return;
+        }
         // `pop <what>`: drive the open glass pop-up (`kit::pop::debug`).
         if let Some(what) = cmd.strip_prefix("pop ") {
             crate::kit::pop::debug(what.trim(), cx);

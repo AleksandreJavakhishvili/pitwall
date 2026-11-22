@@ -20,7 +20,7 @@ pub mod backend;
 pub mod cli_install;
 pub mod data;
 mod engineer;
-mod extensions;
+pub(crate) mod extensions;
 pub mod onboarding;
 pub mod pages;
 mod peers;
@@ -112,6 +112,7 @@ fn page_words(p: pitwall_proto::settings::Page) -> &'static str {
         Page::General => "scan again elsewhere command line cli tool",
         Page::Agents => "claude codex hooks race engineer assistant updates",
         Page::Accounts => "accounts logins usage tokens limits plan git identity github azure ssh",
+        Page::Extensions => "extensions install update remove inbox adapter plugin setup",
         Page::Rules => "rulesync rule sets skills skill.md library",
         Page::Appearance => "theme dark light glass flat liquid motion density font",
         Page::FolderAccess => "full disk access permissions privacy folders",
