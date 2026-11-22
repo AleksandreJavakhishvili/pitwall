@@ -999,3 +999,26 @@ fn new_agent_takes_a_typed_name_flat_and_on_glass(cx: &mut TestAppContext) {
     click_and_type(inner[0], &query, "api", cx);
     assert_eq!(query.read_with(cx, |i, _| i.text().to_string()), "api");
 }
+
+/// ⌘↵ (Ctrl+Shift+↵ elsewhere) maximises the focused tile, but a text
+/// field with the keys keeps its own ⌘↵ (send: the inbox's reply, the
+/// Next up queue box, a review comment, a commit message…), with the
+/// bindings registered in the app's order (the fields' first).
+#[test]
+fn command_enter_sends_in_a_field_and_maximises_elsewhere() {
+    use gpui::Action as _;
+    let mut all = crate::kit::input::bindings();
+    all.extend(bindings());
+    let keymap = gpui::Keymap::new(all);
+    let os = if cfg!(target_os = "macos") { gpui::OperatingSystem::Mac } else { gpui::OperatingSystem::Linux };
+    let key = gpui::Keystroke::parse_with_os(if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-shift-enter" }, os).unwrap();
+    let ctx = |names: &[&str]| names.iter().map(|n| gpui::KeyContext::parse(n).unwrap()).collect::<Vec<_>>();
+    let first = |stack: &[gpui::KeyContext]| keymap.bindings_for_input(std::slice::from_ref(&key), stack).0.first().map(|b| b.action().name());
+    // In a field of the main screen (a tile's, the right panel's).
+    // (Off macOS fields send with Ctrl+↵, a key of their own.)
+    let in_field = if cfg!(target_os = "macos") { crate::kit::input::Submit.name() } else { ToggleMaximize.name() };
+    assert_eq!(first(&ctx(&["MainView", "MainScreen", "InboxTile", "PwTextInput"])), Some(in_field));
+    // Anywhere else in it: a terminal, a tile, the screen itself.
+    assert_eq!(first(&ctx(&["MainView", "MainScreen", "Terminal"])), Some(ToggleMaximize.name()));
+    assert_eq!(first(&ctx(&["MainView", "MainScreen"])), Some(ToggleMaximize.name()));
+}

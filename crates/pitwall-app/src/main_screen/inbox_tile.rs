@@ -231,26 +231,6 @@ impl InboxView {
         cx.notify();
     }
 
-    /// ⌘↵ in the tile. Its fields send with it (what the reply box says),
-    /// but ⌘↵ is also the window's Maximise, bound with no context, and
-    /// such a binding outranks a field's own: so a field with the keys
-    /// sends here. Elsewhere in the tile it maximises the tile (returns
-    /// false: the window's action goes on).
-    fn command_enter(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
-        if self.reply.read(cx).is_focused(window) {
-            self.send_reply(cx);
-            return true;
-        }
-        let Some((key, input)) = self.others.iter().find(|(_, i)| i.read(cx).is_focused(window)).map(|(k, i)| (k.clone(), i.clone())) else { return false };
-        let ask = self.detail(cx).and_then(|d| d.messages.iter().flat_map(|m| &m.asks).find(|a| a.number == key.1).cloned());
-        if let Some(ask) = ask {
-            let text = input.read(cx).text().to_string();
-            let picks = self.picks.get(&key).cloned().unwrap_or_default();
-            self.answer(&key.0, &ask, picks, Some(text), false, cx);
-        }
-        true
-    }
-
     /// One of its fields has the keyboard: typing goes there, and the
     /// tile's single keys don't apply.
     pub fn typing(&self, window: &Window, cx: &App) -> bool {
@@ -1398,11 +1378,6 @@ impl Render for InboxView {
             .key_context("InboxTile")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::key))
-            .on_action(cx.listener(|this, _: &super::ToggleMaximize, window, cx| {
-                if !this.command_enter(window, cx) {
-                    cx.propagate();
-                }
-            }))
             // A press in the tile gives it the keys, unless they are in it
             // already: a field pressed has just taken them (its own press
             // comes first), and selected text keeps them for copying.
