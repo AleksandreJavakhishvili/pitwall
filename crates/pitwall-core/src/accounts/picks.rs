@@ -441,13 +441,54 @@ impl Accounts {
         Ok(())
     }
 
+    /// Record that connection `id`'s setup action `action` last ran
+    /// without a failure, or not.
+    pub fn set_connection_action(&mut self, id: &str, action: &str, done: bool) -> Result<(), String> {
+        let a = self.connection_mut(id)?;
+        a.actions_done.retain(|x| x != action);
+        if done {
+            a.actions_done.push(action.to_string());
+        }
+        Ok(())
+    }
+
+    /// The connection of `ext` carried over from before connections (its
+    /// secrets under the extension's id).
+    pub fn carried_over(&self, ext: &str) -> Option<&Account> {
+        self.connections(ext).find(|a| a.secret_key.as_deref() == Some(ext))
+    }
+
+    /// An older Pitwall (run after this one) changed the settings it keeps
+    /// in `ui.json`: they go into the carried-over connection. `true` when
+    /// anything changed.
+    pub fn sync_carried_over(&mut self, ext: &str, values: &BTreeMap<String, String>, secrets_set: &[String], actions: &[String]) -> bool {
+        let Some(id) = self.carried_over(ext).map(|a| a.id.clone()) else { return false };
+        let Ok(a) = self.connection_mut(&id) else { return false };
+        let values: BTreeMap<String, String> = values.iter().filter(|(_, v)| !v.trim().is_empty()).map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut secrets = secrets_set.to_vec();
+        secrets.sort();
+        secrets.dedup();
+        let mut acts = actions.to_vec();
+        acts.sort();
+        acts.dedup();
+        let mut have = a.actions_done.clone();
+        have.sort();
+        if a.values == values && a.secrets_set == secrets && have == acts {
+            return false;
+        }
+        a.values = values;
+        a.secrets_set = secrets;
+        a.actions_done = acts;
+        true
+    }
+
     /// Before connections, an extension had one set of settings (in
     /// `ui.json`): it becomes one connection called `name`, with those
     /// `values` and `secrets_set`, its secrets kept under the extension's
     /// id (where they already are), and the extension's default, so it
     /// applies wherever it applied before. `None` when the extension has a
     /// connection already (nothing to carry over).
-    pub fn adopt_connection(&mut self, ext: &str, name: &str, values: &BTreeMap<String, String>, secrets_set: &[String]) -> Option<Account> {
+    pub fn adopt_connection(&mut self, ext: &str, name: &str, values: &BTreeMap<String, String>, secrets_set: &[String], actions: &[String]) -> Option<Account> {
         if self.connections(ext).next().is_some() {
             return None;
         }
@@ -459,6 +500,7 @@ impl Accounts {
         a.secrets_set.sort();
         a.secrets_set.dedup();
         a.secret_key = Some(ext.to_string());
+        a.actions_done = actions.to_vec();
         if let Some(x) = self.accounts.iter_mut().find(|x| x.id == a.id) {
             *x = a.clone();
         }
@@ -714,17 +756,36 @@ mod tests {
     fn an_extension_set_up_before_becomes_its_default_connection() {
         let mut a = Accounts::default();
         let values = BTreeMap::from([("server".to_string(), "https://s.example".to_string()), ("blank".to_string(), " ".to_string())]);
-        let c = a.adopt_connection("inbox", "Inbox", &values, &["apiKey".to_string()]).unwrap();
+        let c = a.adopt_connection("inbox", "Inbox", &values, &["apiKey".to_string()], &["setup".to_string()]).unwrap();
         assert_eq!((c.id.as_str(), c.name.as_str(), c.secrets_name()), ("ext-inbox-inbox", "Inbox", "inbox"));
+        assert_eq!(c.actions_done, ["setup"]);
         assert_eq!(c.values, BTreeMap::from([("server".to_string(), "https://s.example".to_string())]));
         assert_eq!(c.secrets_set, ["apiKey"]);
         assert_eq!(a.get(&c.id), Some(&c));
         assert_eq!(a.defaults["ext:inbox"], c.id);
         // Everywhere: projects named nowhere, and new ones.
         assert_eq!(a.connection_for("inbox", "/any", "/any").map(|x| x.id.as_str()), Some("ext-inbox-inbox"));
-        assert_eq!(a.adopt_connection("inbox", "Inbox", &values, &[]), None, "only once");
+        assert_eq!(a.adopt_connection("inbox", "Inbox", &values, &[], &[]), None, "only once");
         let json = serde_json::to_value(&a).unwrap();
         assert_eq!(json["accounts"][0]["secretKey"], "inbox");
         assert_eq!(json["accounts"][0]["secretsSet"], serde_json::json!(["apiKey"]));
+        assert_eq!(json["accounts"][0]["actionsDone"], serde_json::json!(["setup"]));
+        // An older Pitwall changed what it keeps in ui.json: taken over;
+        // the same again changes nothing.
+        let newer = BTreeMap::from([("server".to_string(), "https://t.example".to_string())]);
+        assert!(a.sync_carried_over("inbox", &newer, &[], &[]));
+        let c = a.carried_over("inbox").unwrap();
+        assert_eq!((c.values["server"].as_str(), c.secrets_set.len(), c.actions_done.len()), ("https://t.example", 0, 0));
+        assert!(!a.sync_carried_over("inbox", &newer, &[], &[]));
+        // A connection made later isn't the carried-over one.
+        let other = a.add_connection("inbox", "Home").unwrap();
+        assert_eq!(a.carried_over("inbox").map(|x| x.id.clone()), Some(c_id(&a)));
+        assert_ne!(other.id, c_id(&a));
+        a.set_connection_action(&other.id, "setup", true).unwrap();
+        assert_eq!(a.get(&other.id).unwrap().actions_done, ["setup"]);
+    }
+
+    fn c_id(a: &Accounts) -> String {
+        a.carried_over("inbox").unwrap().id.clone()
     }
 }

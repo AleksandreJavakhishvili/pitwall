@@ -283,41 +283,96 @@ fn threads_match_agents_of_their_connection(cx: &mut TestAppContext) {
     });
 }
 
-/// An extension set up before connections becomes one connection on
-/// start, the default; its keychain item is used as it is; the thread its
-/// inbox showed is kept; projects keep getting it.
+/// An extension set up before connections, as `ui.json` holds it today
+/// (on, a server address, its key in the keychain under the extension's
+/// id, the thread shown, two setup actions done: one using a setting, one
+/// not), becomes one connection on start: the default, found for every
+/// project, its secret read from the same keychain item, both setup steps
+/// still ticked. `ui.json` keeps a copy for an older Pitwall; what such a
+/// Pitwall changes there after a downgrade comes back on the next start,
+/// and nothing is lost either way.
 #[gpui::test]
 fn an_extension_set_up_before_connections_carries_over(cx: &mut TestAppContext) {
+    use pitwall_core::extensions::{Action, Step as RunStep};
     let t = TempDir::new("hub-migrate");
     let h = setup(cx, &t);
+    let action = |id: &str, run: &[&str]| Action { id: id.into(), label: id.into(), description: String::new(), setup: true, steps: vec![RunStep { run: run.iter().map(|x| x.to_string()).collect(), for_kind: None, optional: false }] };
+    let m = Manifest { actions: vec![action("setup", &["tool", "add", "{setting:server}"]), action("tidy", &["tool", "tidy"])], ..manifest() };
+    // Exactly what main writes in ui.json today.
+    let today = json!({"v": 1, "extensions": {"inbox": {"enabled": true, "values": {"server": "https://old.example"}, "secretsSet": ["apiKey"], "selected": "t9", "actionsDone": ["setup", "tidy"]}}});
+    let item = cx.update(|cx| crate::extensions::account("inbox", "apiKey", cx));
     cx.update(|cx| {
-        let store = crate::extensions::secret_store(cx);
-        store.set(&crate::extensions::account("inbox", "apiKey", cx), "old-key").unwrap();
+        crate::extensions::set_found(vec![Found { folder: "inbox".into(), manifest: Ok(m.clone()) }], cx);
+        crate::extensions::secret_store(cx).set(&item, "old-key").unwrap();
+        let ui = crate::main_screen::workspace::UiState::sanitize(today.clone());
+        crate::ui_state::update(cx, |u| *u = ui);
+        crate::extensions::connections::migrate(cx);
+    });
+    cx.run_until_parked();
+    let (list, ui) = cx.update(|cx| (crate::accounts::list(cx).cloned().unwrap(), crate::ui_state::get(cx)));
+    let c = list.default_connection("inbox").cloned().unwrap();
+    assert_eq!((c.name.as_str(), c.secrets_name(), c.secrets_set.as_slice()), ("Inbox", "inbox", ["apiKey".to_string()].as_slice()));
+    assert_eq!(c.values["server"], "https://old.example");
+    assert_eq!(c.actions_done, ["setup"], "the step that used its server is the connection's");
+    assert_eq!(list.connection_for("inbox", "/any/project", "/any/project").map(|x| x.id.clone()), Some(c.id.clone()), "found for every project");
+    // Its adapter starts with the old keychain item, read as it was.
+    let hello = sent(&h, &format!("inbox/{}", c.id), cx);
+    assert_eq!(hello[0]["secrets"], json!({"apiKey": "old-key"}));
+    assert_eq!(hello[0]["settings"], json!({"server": "https://old.example"}));
+    assert_eq!(cx.update(|cx| crate::extensions::secret_store(cx).get(&item)).unwrap().as_deref(), Some("old-key"), "the keychain item is left as it is");
+    // Settings shows both setup steps ticked.
+    let prefs = cx.update(|cx| crate::extensions::connections::prefs_for(&m, Some(&c), cx));
+    assert!(prefs.actions_done.contains(&"setup".to_string()) && prefs.actions_done.contains(&"tidy".to_string()), "{:?}", prefs.actions_done);
+    // ui.json: the same keys an older Pitwall reads, with the same values.
+    let e = ui.extension("inbox");
+    assert!(e.enabled);
+    assert_eq!((e.values.get("server").map(String::as_str), e.secrets_set.as_slice()), (Some("https://old.example"), ["apiKey".to_string()].as_slice()), "a copy for an older Pitwall");
+    let mut done = e.actions_done.clone();
+    done.sort();
+    assert_eq!(done, ["setup", "tidy"]);
+    assert_eq!(e.selected, Some(format!("{}:t9", c.id)));
+    // Again: nothing more.
+    cx.update(crate::extensions::connections::migrate);
+    assert_eq!(cx.update(|cx| crate::accounts::list(cx).unwrap().connections("inbox").count()), 1);
+
+    // A downgrade: the older Pitwall changes its server, its setup step
+    // fails, it shows another thread (all in ui.json, as it writes it).
+    // Back on this one, the connection takes all of it.
+    cx.update(|cx| {
         crate::ui_state::update(cx, |u| {
-            *u = std::mem::take(u).set_extension("inbox", true).with_extension("inbox", |e| {
-                e.values.insert("server".into(), "https://old.example".into());
-                e.secrets_set.push("apiKey".into());
-                e.selected = Some("t9".into());
+            *u = std::mem::take(u).with_extension("inbox", |e| {
+                e.values.insert("server".into(), "https://moved.example".into());
+                e.actions_done.retain(|a| a != "setup");
+                e.selected = Some("t5".into());
             })
         });
         crate::extensions::connections::migrate(cx);
     });
     cx.run_until_parked();
     let (list, ui) = cx.update(|cx| (crate::accounts::list(cx).cloned().unwrap(), crate::ui_state::get(cx)));
-    let c = list.default_connection("inbox").cloned().unwrap();
-    assert_eq!((c.name.as_str(), c.secrets_name()), ("Inbox", "inbox"));
-    assert_eq!(c.values["server"], "https://old.example");
-    let e = ui.extension("inbox");
-    assert!(e.enabled && e.values.is_empty() && e.secrets_set.is_empty(), "ui.json keeps only what is per extension");
-    assert_eq!(e.selected, Some(format!("{}:t9", c.id)));
-    assert_eq!(list.connection_for("inbox", "/any/project", "/any/project").map(|x| x.id.clone()), Some(c.id.clone()));
-    // Its adapter starts with the old keychain item.
-    let hello = sent(&h, &format!("inbox/{}", c.id), cx);
-    assert_eq!(hello[0]["secrets"], json!({"apiKey": "old-key"}));
-    assert_eq!(hello[0]["settings"], json!({"server": "https://old.example"}));
-    // Again: nothing more.
+    let c2 = list.default_connection("inbox").cloned().unwrap();
+    assert_eq!(c2.id, c.id, "the same connection");
+    assert_eq!(c2.values["server"], "https://moved.example");
+    assert!(c2.actions_done.is_empty());
+    assert_eq!(ui.extension("inbox").selected, Some(format!("{}:t5", c.id)));
+    assert_eq!(ui.extension("inbox").actions_done, ["tidy"], "the other step stays ticked");
+
+    // Changed here: the copy follows, so an older Pitwall sees it too.
+    cx.update(|cx| crate::extensions::connections::set_value("inbox", Some(&c.id), "server", Some("https://here.example".into()), cx)).unwrap();
+    cx.run_until_parked();
+    assert_eq!(cx.update(|cx| crate::ui_state::get(cx).extension("inbox").values.get("server").cloned()).as_deref(), Some("https://here.example"));
+    // A second connection never touches the copy.
+    connection("Home", "https://home.example", cx);
+    cx.run_until_parked();
+    assert_eq!(cx.update(|cx| crate::ui_state::get(cx).extension("inbox").values.get("server").cloned()).as_deref(), Some("https://here.example"));
+    // The carried-over one removed: the copy goes, so it isn't carried
+    // over again on the next start.
+    cx.update(|cx| crate::extensions::connections::remove(&c.id, cx, |e, _| assert!(e.is_none())));
+    cx.run_until_parked();
+    let e = cx.update(|cx| crate::ui_state::get(cx).extension("inbox"));
+    assert!(e.values.is_empty() && e.secrets_set.is_empty() && e.actions_done == ["tidy"], "{e:?}");
     cx.update(crate::extensions::connections::migrate);
-    assert_eq!(cx.update(|cx| crate::accounts::list(cx).unwrap().connections("inbox").count()), 1);
+    assert_eq!(cx.update(|cx| crate::accounts::list(cx).unwrap().connections("inbox").count()), 1, "only Home");
 }
 
 /// A thread with more open asks than before is news; the same or fewer

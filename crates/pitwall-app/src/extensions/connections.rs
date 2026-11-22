@@ -1,82 +1,137 @@
 //! Extension connections in the app (docs/spec/profiles.md): accounts of
 //! kind `ext:<id>` (`pitwall_core::accounts::picks`), each with its own
-//! settings and secrets. Their list is the accounts model's; their
-//! secrets are in the system's secure store under
+//! settings, secrets and setup actions done. Their list is the accounts
+//! model's; their secrets are in the system's secure store under
 //! `<secrets name>.<key>` ([`super::account`]).
 //!
-//! Settings → Extensions edits one connection per extension (until it
-//! draws them all): [`settings_target`], the extension's default
-//! connection, else its first; a value or secret set where there is none
-//! makes one named after the extension.
+//! Settings → Extensions edits one connection of a card at a time
+//! ([`chosen`]: the one picked there, else the default, else the first);
+//! a value or secret set where there is none makes one named after the
+//! extension.
 //!
-//! [`migrate`] carries an extension set up before connections (its
-//! `values` and `secretsSet` in `ui.json`) over to one connection, the
-//! extension's default, its keychain items as they are.
+//! **Carried over** ([`migrate`]): an extension set up before connections
+//! (its `values`, `secretsSet` and `actionsDone` in `ui.json`) becomes one
+//! connection, the extension's default, its keychain items as they are.
+//! `ui.json` keeps a copy of that connection ([`mirror`]) so an older
+//! Pitwall, run after this one, still finds its settings; what such a
+//! Pitwall changes there is taken back into the connection on the next
+//! start.
 
 use std::collections::BTreeMap;
 
 use gpui::App;
 use pitwall_core::accounts::Account;
+use pitwall_core::extensions::{Action, Manifest, SETTING_PLACEHOLDER};
 
-/// The connection Settings shows for extension `ext`: its default, else
-/// its first.
-pub fn settings_target(ext: &str, cx: &App) -> Option<Account> {
-    let list = crate::accounts::list(cx)?;
-    list.default_connection(ext).or_else(|| list.connections(ext).next()).cloned()
+use crate::main_screen::workspace::ExtensionPrefs;
+
+/// Action `a` uses a setting (`{setting:KEY}`), so it runs for one
+/// connection and is recorded per connection.
+pub fn uses_setting(a: &Action) -> bool {
+    a.steps.iter().any(|s| s.run.iter().any(|x| x.contains(SETTING_PLACEHOLDER)))
 }
 
-/// The plain settings Settings shows for extension `ext`.
+/// Extension `ext`'s connections, in the accounts' order.
+pub fn list(ext: &str, cx: &App) -> Vec<Account> {
+    crate::accounts::list(cx).map(|l| l.connections(ext).cloned().collect()).unwrap_or_default()
+}
+
+/// Extension `ext`'s default connection's id.
+pub fn default_id(ext: &str, cx: &App) -> Option<String> {
+    crate::accounts::list(cx).and_then(|l| l.default_connection(ext)).map(|c| c.id.clone())
+}
+
+/// The connection a card shows: `picked` if it is still there, else the
+/// default, else the first.
+pub fn chosen(ext: &str, picked: Option<&str>, cx: &App) -> Option<Account> {
+    let list = crate::accounts::list(cx)?;
+    picked.and_then(|p| list.connections(ext).find(|c| c.id == p)).or_else(|| list.default_connection(ext)).or_else(|| list.connections(ext).next()).cloned()
+}
+
+/// The connection Settings shows for extension `ext` without a pick.
+pub fn settings_target(ext: &str, cx: &App) -> Option<Account> {
+    chosen(ext, None, cx)
+}
+
+/// The plain settings of `ext`'s [`settings_target`].
 pub fn settings_values(ext: &str, cx: &App) -> BTreeMap<String, String> {
     settings_target(ext, cx).map(|c| c.values).unwrap_or_default()
 }
 
-/// The keys of the secrets set that Settings shows for extension `ext`.
+/// The keys of the secrets set of `ext`'s [`settings_target`].
 pub fn settings_secrets_set(ext: &str, cx: &App) -> Vec<String> {
     settings_target(ext, cx).map(|c| c.secrets_set).unwrap_or_default()
 }
 
-/// Extension `ext`'s `ui.json` entry with Settings' connection's
-/// settings and secrets in it, for Settings to read.
-pub fn prefs(ext: &str, cx: &App) -> crate::main_screen::workspace::ExtensionPrefs {
-    let mut p = crate::ui_state::get(cx).extension(ext);
-    p.values = settings_values(ext, cx);
-    p.secrets_set = settings_secrets_set(ext, cx);
+/// `m`'s `ui.json` entry as connection `c` sees it: `c`'s settings and
+/// secrets, and as done the actions that use a setting and ran for `c`
+/// plus the others that ran at all.
+pub fn prefs_for(m: &Manifest, c: Option<&Account>, cx: &App) -> ExtensionPrefs {
+    let mut p = crate::ui_state::get(cx).extension(&m.id);
+    let per_conn: Vec<&str> = m.actions.iter().filter(|a| uses_setting(a)).map(|a| a.id.as_str()).collect();
+    p.actions_done.retain(|a| !per_conn.contains(&a.as_str()));
+    match c {
+        Some(c) => {
+            p.values = c.values.clone();
+            p.secrets_set = c.secrets_set.clone();
+            p.actions_done.extend(c.actions_done.iter().filter(|a| per_conn.contains(&a.as_str())).cloned());
+        }
+        None => {
+            p.values.clear();
+            p.secrets_set.clear();
+        }
+    }
     p
 }
 
-/// Settings' connection of extension `m`, made (named after it) when it
-/// has none.
-fn ensure(m_id: &str, cx: &mut App) -> Result<Account, String> {
-    let model = crate::accounts::model(cx);
-    if let Some(c) = settings_target(m_id, cx) {
-        return Ok(c);
-    }
-    let name = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == m_id).map(|m| m.name.clone()).unwrap_or_else(|| m_id.to_string());
-    model.update(cx, |m, cx| m.add_connection(m_id, &name, cx))
+/// `ext`'s entry as its [`settings_target`] sees it.
+pub fn prefs(ext: &str, cx: &App) -> ExtensionPrefs {
+    let m = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).cloned().unwrap_or_else(|| Manifest::named(ext, ext));
+    prefs_for(&m, settings_target(ext, cx).as_ref(), cx)
 }
 
-/// Set plain setting `key` of Settings' connection of extension `m`
-/// (`None`: unset); its adapter starts again.
-pub fn set_setting_value(ext: &str, key: &str, value: Option<String>, cx: &mut App) -> Result<(), String> {
-    if value.is_none() && settings_target(ext, cx).is_none() {
+/// Connection `conn` of `ext`, or (`None`) the one Settings shows, made
+/// (named after the extension) when there is none.
+fn ensure(ext: &str, conn: Option<&str>, cx: &mut App) -> Result<Account, String> {
+    if let Some(c) = chosen(ext, conn, cx) {
+        return Ok(c);
+    }
+    let name = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).map(|m| m.name.clone()).unwrap_or_else(|| ext.to_string());
+    let model = crate::accounts::model(cx);
+    model.update(cx, |m, cx| m.add_connection(ext, &name, cx))
+}
+
+/// Set plain setting `key` of `ext`'s connection `conn` (`None`: the one
+/// Settings shows), unset with `None`; its adapter starts again.
+pub fn set_value(ext: &str, conn: Option<&str>, key: &str, value: Option<String>, cx: &mut App) -> Result<(), String> {
+    if value.is_none() && chosen(ext, conn, cx).is_none() {
         return Ok(());
     }
-    let c = ensure(ext, cx)?;
+    let c = ensure(ext, conn, cx)?;
     let model = crate::accounts::model(cx);
     model.update(cx, |a, cx| a.set_connection_value(&c.id, key, value.as_deref(), cx))
 }
 
-/// Keep `secret` as Settings' connection of extension `ext`'s `key`
-/// (`None`: forget it), off the UI thread; then record it and start its
-/// adapter again. `done` gets the error, if any.
-pub fn set_settings_secret(ext: &str, key: &str, secret: Option<String>, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
-    if secret.is_none() && settings_target(ext, cx).is_none() {
+/// [`set_value`] on the connection Settings shows.
+pub fn set_setting_value(ext: &str, key: &str, value: Option<String>, cx: &mut App) -> Result<(), String> {
+    set_value(ext, None, key, value, cx)
+}
+
+/// Keep `secret` as `ext`'s connection `conn`'s `key` (`None` conn: the
+/// one Settings shows; `None` secret: forget it). `done` gets the error.
+pub fn set_secret_in(ext: &str, conn: Option<&str>, key: &str, secret: Option<String>, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+    if secret.is_none() && chosen(ext, conn, cx).is_none() {
         return done(None, cx);
     }
-    match ensure(ext, cx) {
+    match ensure(ext, conn, cx) {
         Ok(c) => set_secret(&c.id, key, secret, cx, done),
         Err(e) => done(Some(e), cx),
     }
+}
+
+/// [`set_secret_in`] on the connection Settings shows.
+pub fn set_settings_secret(ext: &str, key: &str, secret: Option<String>, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+    set_secret_in(ext, None, key, secret, cx, done)
 }
 
 /// Keep `secret` as connection `id`'s `key` (`None`: forget it), off the
@@ -115,56 +170,164 @@ pub fn set_secret(id: &str, key: &str, secret: Option<String>, cx: &mut App, don
     .detach();
 }
 
+/// Record how setup action `a` of `m` ended (`ok`: it ran without a
+/// failure): for connection `conn` when it uses a setting, else for the
+/// extension.
+pub fn record_action(m: &Manifest, a: &str, conn: Option<&str>, ok: bool, cx: &mut App) {
+    let per_conn = m.actions.iter().find(|x| x.id == a).is_some_and(uses_setting);
+    if let (true, Some(conn)) = (per_conn, conn) {
+        let model = crate::accounts::model(cx);
+        if model.update(cx, |m, cx| m.set_connection_action(conn, a, ok, cx)).is_ok() {
+            return;
+        }
+    }
+    crate::ui_state::update(cx, |ui| {
+        *ui = std::mem::take(ui).with_extension(&m.id, |e| {
+            e.actions_done.retain(|x| x != a);
+            if ok {
+                e.actions_done.push(a.to_string());
+            }
+        });
+    });
+}
+
 /// Remove connection `id`: its secrets leave the secure store, and the
-/// projects, profiles and default that named it forget it.
-pub fn remove(id: &str, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+/// projects, profiles and default that named it forget it. `new_default`:
+/// the connection that becomes the extension's default when `id` was it
+/// (never chosen silently: `None` leaves it with none).
+pub fn remove_with(id: &str, new_default: Option<&str>, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
     let Some(c) = crate::accounts::list(cx).and_then(|l| l.get(id)).cloned() else {
         return done(None, cx);
     };
+    let ext = pitwall_core::accounts::ext_of(&c.kind).unwrap_or_default().to_string();
     let store = super::secret_store(cx);
     let accts: Vec<String> = c.secrets_set.iter().map(|k| super::account(c.secrets_name(), k, cx)).collect();
     let job = cx.background_executor().spawn(async move { accts.iter().map(|a| store.delete(a)).find_map(Result::err) });
-    let id = id.to_string();
+    let (id, new_default) = (id.to_string(), new_default.map(String::from));
     cx.spawn(async move |cx| {
         let secret_err = job.await;
         cx.update(|cx| {
             let model = crate::accounts::model(cx);
-            let err = model.update(cx, |m, cx| m.remove(&id, cx)).err().or(secret_err.map(|e| format!("Removed, but its secrets couldn't all be deleted: {e}")));
+            let mut err = model.update(cx, |m, cx| m.remove(&id, cx)).err();
+            if err.is_none() {
+                if let Some(d) = &new_default {
+                    err = model.update(cx, |m, cx| m.set_default_connection(&ext, Some(d), cx)).err();
+                }
+            }
+            let err = err.or(secret_err.map(|e| format!("Removed, but its secrets couldn't all be deleted: {e}")));
             done(err, cx);
         });
     })
     .detach();
 }
 
+/// [`remove_with`], no other connection made the default.
+pub fn remove(id: &str, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+    remove_with(id, None, cx, done)
+}
+
+/// The secure-store items of every connection of `ext` (for removing the
+/// extension), and the connections themselves forgotten.
+pub fn forget_all(ext: &str, cx: &mut App) -> Vec<String> {
+    let conns = list(ext, cx);
+    let mut items = Vec::new();
+    for c in &conns {
+        items.extend(c.secrets_set.iter().map(|k| super::account(c.secrets_name(), k, cx)));
+    }
+    let model = crate::accounts::model(cx);
+    for c in conns {
+        let _ = model.update(cx, |m, cx| m.remove(&c.id, cx));
+    }
+    items
+}
+
+/// What `ui.json` keeps for an older Pitwall from `ext`'s carried-over
+/// connection: its values, secrets set, and the actions using a setting
+/// that are done for it.
+fn copy_of(m: Option<&Manifest>, c: &Account) -> (BTreeMap<String, String>, Vec<String>, Vec<String>) {
+    let per_conn: Vec<String> = m.map(|m| m.actions.iter().filter(|a| uses_setting(a)).map(|a| a.id.clone()).collect()).unwrap_or_default();
+    (c.values.clone(), c.secrets_set.clone(), c.actions_done.iter().filter(|a| per_conn.contains(a)).cloned().collect())
+}
+
 /// Carry each extension set up before connections over to one connection
-/// (docs/spec/profiles.md, "Migration"): its `ui.json` `values` and
-/// `secretsSet` become the connection's, its secrets stay where they are
-/// in the secure store, it becomes the extension's default, and the
-/// thread its inbox showed is kept. Without accounts that can be kept
-/// (no engine), nothing changes.
+/// (docs/spec/profiles.md, "Migration"): its `ui.json` `values`,
+/// `secretsSet` and the `actionsDone` that use a setting become the
+/// connection's, its secrets stay where they are in the secure store, it
+/// becomes the extension's default, and the thread its inbox showed is
+/// kept. When it was carried over before and an older Pitwall changed
+/// those keys since, the connection takes them. Without accounts that can
+/// be kept (no engine), nothing changes.
 pub fn migrate(cx: &mut App) {
-    let ui = crate::ui_state::get(cx);
-    let names: BTreeMap<String, String> = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).map(|m| (m.id.clone(), m.name.clone())).collect();
     let model = crate::accounts::model(cx);
     if !model.read(cx).live() {
         return;
     }
+    let ui = crate::ui_state::get(cx);
+    let manifests: BTreeMap<String, Manifest> = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).map(|m| (m.id.clone(), m.clone())).collect();
     for (ext, prefs) in ui.extensions.iter() {
-        if prefs.values.is_empty() && prefs.secrets_set.is_empty() {
-            continue;
-        }
-        let name = names.get(ext).cloned().unwrap_or_else(|| ext.clone());
-        let (values, secrets) = (prefs.values.clone(), prefs.secrets_set.clone());
-        let adopted = model.update(cx, |m, cx| m.change(|l| Ok(l.adopt_connection(ext, &name, &values, &secrets)), cx));
-        let Ok(adopted) = adopted else { continue };
-        crate::ui_state::update(cx, |u| {
-            *u = std::mem::take(u).with_extension(ext, |e| {
-                e.values.clear();
-                e.secrets_set.clear();
-                if let (Some(c), Some(sel)) = (&adopted, &e.selected) {
-                    e.selected = Some(super::hub::thread_id(&c.id, sel));
+        let m = manifests.get(ext);
+        let per_conn: Vec<String> = m.map(|m| m.actions.iter().filter(|a| uses_setting(a)).map(|a| a.id.clone()).collect()).unwrap_or_default();
+        let actions: Vec<String> = prefs.actions_done.iter().filter(|a| per_conn.contains(a)).cloned().collect();
+        let has = crate::accounts::list(cx).is_some_and(|l| l.connections(ext).next().is_some());
+        if !has && !(prefs.values.is_empty() && prefs.secrets_set.is_empty() && actions.is_empty()) {
+            let name = m.map(|m| m.name.clone()).unwrap_or_else(|| ext.clone());
+            let (values, secrets) = (prefs.values.clone(), prefs.secrets_set.clone());
+            let _ = model.update(cx, |md, cx| md.change(|l| Ok(l.adopt_connection(ext, &name, &values, &secrets, &actions)), cx));
+        } else if has {
+            let carried = crate::accounts::list(cx).and_then(|l| l.carried_over(ext).cloned());
+            if let Some(c) = carried {
+                // An older Pitwall ran since: its copy differs from ours.
+                if copy_of(m, &c) != (prefs.values.clone(), prefs.secrets_set.clone(), actions.clone()) {
+                    let (values, secrets) = (prefs.values.clone(), prefs.secrets_set.clone());
+                    let _ = model.update(cx, |md, cx| md.change(|l| Ok(l.sync_carried_over(ext, &values, &secrets, &actions)), cx));
                 }
+            }
+        }
+        // The thread shown, as an older Pitwall wrote it: given its
+        // connection's prefix.
+        let target = crate::accounts::list(cx).and_then(|l| l.carried_over(ext).or_else(|| l.default_connection(ext)).map(|c| c.id.clone()));
+        if let (Some(c), Some(sel)) = (target, &prefs.selected) {
+            let conns = list(ext, cx);
+            if !conns.iter().any(|x| sel.starts_with(&format!("{}:", x.id))) {
+                let sel = super::hub::thread_id(&c, sel);
+                crate::ui_state::update(cx, |u| *u = std::mem::take(u).with_extension(ext, |e| e.selected = Some(sel)));
+            }
+        }
+    }
+    mirror(cx);
+}
+
+/// Keep `ui.json`'s copy of each carried-over connection the same as the
+/// connection (for an older Pitwall); with none (removed), the copy goes.
+pub fn mirror(cx: &mut App) {
+    let model = crate::accounts::model(cx);
+    if !model.read(cx).live() {
+        return;
+    }
+    let ui = crate::ui_state::get(cx);
+    let manifests: BTreeMap<String, Manifest> = super::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).map(|m| (m.id.clone(), m.clone())).collect();
+    for (ext, prefs) in ui.extensions.iter() {
+        let m = manifests.get(ext);
+        let per_conn: Vec<String> = m.map(|m| m.actions.iter().filter(|a| uses_setting(a)).map(|a| a.id.clone()).collect()).unwrap_or_default();
+        let carried = crate::accounts::list(cx).and_then(|l| l.carried_over(ext).cloned());
+        let (values, secrets, acts) = match &carried {
+            Some(c) => copy_of(m, c),
+            None => Default::default(),
+        };
+        let mut done: Vec<String> = prefs.actions_done.iter().filter(|a| !per_conn.contains(a)).cloned().collect();
+        done.extend(acts);
+        let mut have = prefs.actions_done.clone();
+        have.sort();
+        let mut want = done.clone();
+        want.sort();
+        if prefs.values != values || prefs.secrets_set != secrets || have != want {
+            crate::ui_state::update(cx, |u| {
+                *u = std::mem::take(u).with_extension(ext, |e| {
+                    e.values = values;
+                    e.secrets_set = secrets;
+                    e.actions_done = done;
+                })
             });
-        });
+        }
     }
 }

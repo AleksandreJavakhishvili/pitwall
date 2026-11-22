@@ -80,6 +80,10 @@ pub struct Account {
     /// keychain items already have).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret_key: Option<String>,
+    /// An extension connection's setup actions that use its settings and
+    /// last ran without a failure (their steps stay ticked).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions_done: Vec<String>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, serde_json::Value>,

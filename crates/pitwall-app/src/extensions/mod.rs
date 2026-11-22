@@ -156,7 +156,12 @@ pub fn follow(cx: &mut App) {
     .detach();
     cx.observe(&accounts, {
         let c = c.clone();
-        move |_, cx| c(cx)
+        move |_, cx| {
+            // ui.json's copy for an older Pitwall follows the carried-over
+            // connection.
+            connections::mirror(cx);
+            c(cx)
+        }
     })
     .detach();
     c(cx);
