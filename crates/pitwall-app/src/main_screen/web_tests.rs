@@ -341,6 +341,58 @@ fn the_page_takes_the_keys_and_pitwalls_shortcuts_still_work(cx: &mut TestAppCon
     assert!(c.contains(&"blur".to_string()), "{c:?} {page:?}");
 }
 
+/// The platform's Maximise key, as `main_screen::bindings` has it (⌘⏎ on
+/// macOS, Ctrl+Shift+Enter elsewhere: "cmd" is Super off macOS).
+const MAXIMISE: &str = if cfg!(target_os = "macos") { "cmd-enter" } else { "ctrl-shift-enter" };
+
+/// A web tile takes part in the tile keys as a terminal does: a click
+/// into the page (the native view's, which GPUI never sees: it says it
+/// has the keys) or on its bar makes it the focused tile, so ⌘⏎
+/// maximises it, its page as it was, and restores it.
+#[gpui::test]
+fn the_web_tile_takes_part_in_the_tile_keys(cx: &mut TestAppContext) {
+    let (view, _, log, cx) = setup(cx);
+    click_chip(cx);
+    calls(&log, cx);
+    let id = preview(&view, cx);
+    let space = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| view.read_with(cx, |s, _| s.active_space().cloned().unwrap());
+    let pane = space(&view, cx).layout.leaves().iter().find(|p| p.web.as_deref() == Some(id.as_str())).expect("its tile").id.clone();
+    assert_ne!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "the terminal is focused");
+    // (Focus events go to an active window.)
+    cx.update(|window, _| window.activate_window());
+    frame(cx);
+    // A click into the page.
+    Log::emit(&log, WebEvent::Focused);
+    frame(cx);
+    assert_eq!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "the page's tile is focused");
+    cx.simulate_keystrokes(MAXIMISE);
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()), "maximised");
+    assert!(view.read_with(cx, |s, cx| s.webs.has_view(&id, cx)), "the same page");
+    let c = Log::take(&log);
+    assert!(!c.iter().any(|c| c.starts_with("create") || c.starts_with("navigate")), "not loaded again: {c:?}");
+    cx.simulate_keystrokes(MAXIMISE);
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id, None, "restored");
+
+    // The terminal again, then a press on the tile's bar: its tile.
+    view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
+    frame(cx);
+    assert_ne!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()));
+    let tile = cx.debug_bounds(sel(format!("web-tile-{id}"))).expect("the tile");
+    calls(&log, cx);
+    cx.simulate_click(gpui::point(tile.center().x, tile.top() + gpui::px(16.)), Modifiers::none());
+    frame(cx);
+    assert_eq!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "a press on its bar focuses it");
+    // The terminal's agent stays the panel's: nothing moves.
+    assert_eq!(view.read_with(cx, |s, _| s.focused_agent_id()).as_deref(), Some("web"));
+    let c = calls(&log, cx);
+    assert!(!c.iter().any(|c| c.starts_with("bounds")), "the page didn't move: {c:?}");
+    cx.simulate_keystrokes(MAXIMISE);
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()));
+}
+
 #[gpui::test]
 fn only_local_pages_show_in_a_previews_bar(cx: &mut TestAppContext) {
     let (view, _, log, cx) = setup(cx);

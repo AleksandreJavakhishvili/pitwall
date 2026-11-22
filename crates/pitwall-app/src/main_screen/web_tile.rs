@@ -300,6 +300,10 @@ impl MainScreen {
         let body: AnyElement = match pages::hold(id, host, &agents, window, cx) {
             Some(page) => {
                 self.listen_frames(window, cx);
+                // A click into the page (the native view's: GPUI never
+                // sees it) gives it the keys, and makes it the focused tile.
+                let keys = page.read(cx).focus_handle().clone();
+                self.follow_tile_keys(&Content::Web(id.to_string()), &keys, window, cx);
                 div().flex_1().min_w_0().min_h_0().flex().child(page).into_any_element()
             }
             None => {
@@ -309,6 +313,6 @@ impl MainScreen {
                     .into_any_element()
             }
         };
-        self.tile_shell(pane, Content::Web(id.to_string()), format!("web-tile-{id}"), body, t, cx)
+        self.tile_shell(pane, Content::Web(id.to_string()), format!("web-tile-{id}"), body, None, t, cx)
     }
 }

@@ -106,11 +106,13 @@ impl Space {
         self
     }
 
-    /// The agent shown in the focused pane.
+    /// The agent shown in the focused pane: its terminal, or its files (a
+    /// press in an agent's files tile keeps that agent the one the right
+    /// panel and the sidebar show).
     pub fn focused_agent(&self) -> Option<String> {
         self.layout
             .find_pane(self.focused_pane_id.as_deref()?)
-            .and_then(|p| p.agent_id)
+            .and_then(|p| p.agent_id.or(p.files))
     }
 
     /// Agents that belong here (shown in panes or offered as chips).

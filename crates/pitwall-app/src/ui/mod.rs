@@ -326,6 +326,15 @@ impl MainView {
             }
             return;
         }
+        // Debug builds, `tile …`: terminals, files and web tiles of the
+        // active space, pressed and looked at (`MainScreen::debug_tile`).
+        #[cfg(debug_assertions)]
+        if let Some(what) = cmd.strip_prefix("tile ") {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.debug_tile(what.trim(), window, cx));
+            }
+            return;
+        }
         // `inbox …`: an extension's inbox tile (`MainScreen::debug_inbox`).
         if let Some(what) = cmd.strip_prefix("inbox ") {
             if let Some(s) = &self.screen {
