@@ -58,9 +58,12 @@ pub struct Thread {
     pub id: String,
     pub title: String,
     pub from: Option<From>,
-    pub unread: bool,
+    /// Unread messages in it (`true` reads as 1, `false` as 0).
+    pub unread: u32,
     /// Asks in it still waiting for the user.
     pub open_asks: u32,
+    /// One of its open asks holds its agent up.
+    pub blocking: bool,
     /// When something last happened in it (ISO 8601, as the adapter says).
     pub last_activity: String,
 }
@@ -112,6 +115,26 @@ pub struct Ask {
     pub answer: Option<Answer>,
     /// Withdrawn by its asker, and why.
     pub withdrawn: Option<String>,
+    /// Its agent is held up until it is answered.
+    pub blocking: bool,
+}
+
+/// An answer a message carries (to an ask in this or an earlier message),
+/// with the words of what was picked, so it reads on its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answered {
+    pub ask: u32,
+    pub question: String,
+    pub declined: bool,
+    pub labels: Vec<String>,
+    pub text: String,
+}
+
+/// An ask a message withdraws, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Withdrawal {
+    pub ask: u32,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +147,10 @@ pub struct Message {
     /// Markdown, shown folded under the text.
     pub detail: String,
     pub asks: Vec<Ask>,
+    /// Answers it gives to asks.
+    pub answers: Vec<Answered>,
+    /// Asks it withdraws.
+    pub withdrawals: Vec<Withdrawal>,
 }
 
 /// A thread with its messages (the answer to `open`).
@@ -132,10 +159,24 @@ pub struct ThreadDetail {
     pub id: String,
     pub title: String,
     pub from: Option<From>,
-    pub unread: bool,
+    pub unread: u32,
     pub messages: Vec<Message>,
+    /// Older messages exist that weren't sent.
+    pub earlier: bool,
     /// The user may write in it.
     pub can_reply: bool,
+}
+
+/// Totals for the whole inbox, when the adapter knows them (else Pitwall
+/// counts its list).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Counts {
+    /// Unread threads.
+    pub unread: u32,
+    /// Open asks.
+    pub open_asks: u32,
+    /// Open asks holding an agent up.
+    pub blocking: u32,
 }
 
 /// What an adapter sends.
@@ -146,6 +187,7 @@ pub enum FromAdapter {
     /// The whole list, replacing the last one.
     Threads(Vec<Thread>),
     Thread(ThreadDetail),
+    Counts(Counts),
     /// How request `req` went (`message`: why not, in plain words).
     Result { req: u64, ok: bool, message: String },
     /// A `type` this Pitwall doesn't know.
@@ -241,6 +283,18 @@ fn id(v: &Value, key: &str) -> Option<String> {
     (!s.is_empty() && s.chars().count() <= MAX_ID && !s.chars().any(char::is_control)).then(|| s.to_string())
 }
 
+/// A count that may be said as a boolean (`true`: 1).
+fn count_or_flag(v: &Value, key: &str) -> u32 {
+    match v.get(key) {
+        Some(Value::Bool(b)) => u32::from(*b),
+        _ => count(v, key),
+    }
+}
+
+fn number(v: &Value, key: &str) -> Option<u32> {
+    v.get(key)?.as_u64().filter(|n| *n <= u32::MAX as u64).map(|n| n as u32)
+}
+
 fn list<'a>(v: &'a Value, key: &str) -> &'a [Value] {
     v.get(key).and_then(Value::as_array).map_or(&[], Vec::as_slice)
 }
@@ -256,14 +310,15 @@ fn thread(v: &Value) -> Option<Thread> {
         id: id(v, "id")?,
         title: text(v, "title", 300),
         from: from(v),
-        unread: flag(v, "unread"),
+        unread: count_or_flag(v, "unread"),
         open_asks: count(v, "openAsks"),
+        blocking: flag(v, "blocking"),
         last_activity: text(v, "lastActivity", 40),
     })
 }
 
 fn ask(v: &Value) -> Option<Ask> {
-    let number = v.get("number")?.as_u64().filter(|n| *n <= u32::MAX as u64)? as u32;
+    let number = number(v, "number")?;
     let suggestions: Vec<Suggestion> = list(v, "suggestions")
         .iter()
         .take(MAX_SUGGESTIONS)
@@ -282,6 +337,7 @@ fn ask(v: &Value) -> Option<Ask> {
         suggestions,
         answer,
         withdrawn: v.get("withdrawn").and_then(Value::as_str).map(|s| clean(s, 500, false)),
+        blocking: flag(v, "blocking"),
     })
 }
 
@@ -295,18 +351,56 @@ fn message(v: &Value) -> Option<Message> {
         text: long_text(v, "text", 8000),
         detail: long_text(v, "detail", 40_000),
         asks: list(v, "asks").iter().filter_map(ask).take(MAX_ASKS).collect(),
+        answers: list(v, "answers")
+            .iter()
+            .filter_map(|a| {
+                Some(Answered {
+                    ask: number(a, "ask")?,
+                    question: long_text(a, "question", 2000),
+                    declined: flag(a, "declined"),
+                    labels: list(a, "labels").iter().filter_map(Value::as_str).take(MAX_SUGGESTIONS).map(|l| clean(l, 200, false)).collect(),
+                    text: long_text(a, "text", 8000),
+                })
+            })
+            .take(MAX_ASKS)
+            .collect(),
+        withdrawals: list(v, "withdrawals").iter().filter_map(|w| Some(Withdrawal { ask: number(w, "ask")?, reason: text(w, "reason", 500) })).take(MAX_ASKS).collect(),
     })
 }
 
 fn detail(v: &Value) -> Option<ThreadDetail> {
-    let all: Vec<Message> = list(v, "messages").iter().filter_map(message).collect();
-    let skip = all.len().saturating_sub(MAX_MESSAGES);
+    let mut all: Vec<Message> = list(v, "messages").iter().filter_map(message).collect();
+    let earlier = flag(v, "earlier") || all.len() > MAX_MESSAGES;
+    // Too many: keep the ones with open asks, then the latest, in order.
+    if all.len() > MAX_MESSAGES {
+        let asking = |m: &Message| m.asks.iter().any(|a| a.open);
+        let mut keep = vec![false; all.len()];
+        let mut left = MAX_MESSAGES;
+        for (i, m) in all.iter().enumerate() {
+            if left > 0 && asking(m) {
+                keep[i] = true;
+                left -= 1;
+            }
+        }
+        for i in (0..all.len()).rev() {
+            if left == 0 {
+                break;
+            }
+            if !keep[i] {
+                keep[i] = true;
+                left -= 1;
+            }
+        }
+        let mut k = keep.into_iter();
+        all.retain(|_| k.next().unwrap_or(false));
+    }
     Some(ThreadDetail {
         id: id(v, "id")?,
         title: text(v, "title", 300),
         from: from(v),
-        unread: flag(v, "unread"),
-        messages: all.into_iter().skip(skip).collect(),
+        unread: count_or_flag(v, "unread"),
+        messages: all,
+        earlier,
         can_reply: v.get("canReply").and_then(Value::as_bool).unwrap_or(true),
     })
 }
@@ -332,6 +426,7 @@ pub fn parse_line(line: &str) -> Result<FromAdapter, String> {
         }
         "threads" => FromAdapter::Threads(list(&v, "threads").iter().filter_map(thread).take(MAX_THREADS).collect()),
         "thread" => FromAdapter::Thread(v.get("thread").and_then(detail).ok_or("a thread without a usable \"id\"")?),
+        "counts" => FromAdapter::Counts(Counts { unread: count(&v, "unread"), open_asks: count(&v, "openAsks"), blocking: count(&v, "blocking") }),
         "result" => FromAdapter::Result {
             req: v.get("req").and_then(Value::as_u64).ok_or("a result without \"req\"")?,
             ok: flag(&v, "ok"),
@@ -420,7 +515,7 @@ mod tests {
         assert_eq!(t[0].title.chars().count(), 300);
         assert!(t[0].title.ends_with('…'));
         assert_eq!(t[0].from, Some(From { agent: "my-app".into(), session: "s1".into() }));
-        assert_eq!((t[0].unread, t[0].open_asks), (true, 2));
+        assert_eq!((t[0].unread, t[0].open_asks, t[0].blocking), (1, 2, false));
         assert_eq!(t[1].title, "eviltxt next", "no override, no newline");
         assert_eq!(t[1].from, None, "half a from is none");
         let many: Vec<Value> = (0..600).map(|i| json!({"id": i.to_string()})).collect();
@@ -454,6 +549,38 @@ mod tests {
         let FromAdapter::Thread(d) = parse_line(&json!({"type": "thread", "thread": {"id": "t", "messages": many}}).to_string()).unwrap() else { panic!() };
         assert_eq!((d.messages.len(), d.messages[0].id.as_str()), (MAX_MESSAGES, "50"), "the latest are kept");
         assert!(d.can_reply, "replies by default");
+        assert!(d.earlier, "older ones were dropped");
+        // An old message with an open ask is kept over a newer one.
+        let mut many: Vec<Value> = (0..250).map(|i| json!({"id": i.to_string()})).collect();
+        many[3] = json!({"id": "3", "asks": [{"number": 1, "open": true}]});
+        let FromAdapter::Thread(d) = parse_line(&json!({"type": "thread", "thread": {"id": "t", "messages": many}}).to_string()).unwrap() else { panic!() };
+        let ids: Vec<&str> = d.messages.iter().take(2).map(|m| m.id.as_str()).collect();
+        assert_eq!((d.messages.len(), ids), (MAX_MESSAGES, vec!["3", "51"]));
+    }
+
+    /// The richer parts: counts, unread counts, blocking asks, answers and
+    /// withdrawals a message carries.
+    #[test]
+    fn counts_blocking_and_carried_answers() {
+        assert_eq!(
+            parse_line(r#"{"type":"counts","unread":3,"openAsks":2,"blocking":1}"#).unwrap(),
+            FromAdapter::Counts(Counts { unread: 3, open_asks: 2, blocking: 1 })
+        );
+        let line = json!({"type": "threads", "threads": [{"id": "a", "unread": 4, "blocking": true}, {"id": "b", "unread": false}]}).to_string();
+        let FromAdapter::Threads(t) = parse_line(&line).unwrap() else { panic!() };
+        assert_eq!((t[0].unread, t[0].blocking, t[1].unread), (4, true, 0));
+        let line = json!({"type": "thread", "thread": {"id": "t", "unread": true, "earlier": true, "messages": [
+            {"id": "1", "asks": [{"number": 1, "question": "Which?", "open": true, "blocking": true}]},
+            {"id": "2", "author": {"kind": "you"}, "answers": [{"ask": 1, "question": "Which?", "labels": ["Redis", 7], "text": "and \u{202E}fast"}, {"question": "no ask"}],
+             "withdrawals": [{"ask": 2, "reason": "moot"}]}
+        ]}})
+        .to_string();
+        let FromAdapter::Thread(d) = parse_line(&line).unwrap() else { panic!() };
+        assert_eq!((d.unread, d.earlier), (1, true));
+        assert!(d.messages[0].asks[0].blocking);
+        let m = &d.messages[1];
+        assert_eq!(m.answers, [Answered { ask: 1, question: "Which?".into(), declined: false, labels: vec!["Redis".into()], text: "and fast".into() }]);
+        assert_eq!(m.withdrawals, [Withdrawal { ask: 2, reason: "moot".into() }]);
     }
 
     #[test]
