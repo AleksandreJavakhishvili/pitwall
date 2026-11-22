@@ -172,6 +172,14 @@ user doing it in Pitwall.
   A connection that stops or can't reach its service shows as offline
   (a line over the list naming it) without hiding the others' threads.
   Counts and badges add up the connections'.
+- **A filter** in the inbox's bar, next to "Needs you / All": "All
+  connections" (the default), then each connection by name, with the
+  names of the profiles that use it ("Work"), remembered per tile. A
+  thread's row names its connection whenever there is more than one; with
+  one connection there is neither label nor filter. The merged state
+  carries each thread's connection (`ExtState::connection_of`) and counts
+  per connection as well as in total (`ExtState::counts_of`), so the
+  filter needs nothing from the protocol. (Screens: Phase B.)
 - **Agent variables** come from the agent's connection for that
   extension (resolution above), with `{setting:KEY}` filled from that
   connection's settings; with none, the extension sets nothing on it.

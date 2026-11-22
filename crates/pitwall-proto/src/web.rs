@@ -66,9 +66,13 @@ pub struct WebOpened {
     pub shown_in: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// The browser profile it is in ("Work", "Default"): the agent's
+    /// The browser account it is in ("Work", "Default"): the agent's
     /// project's, never the agent's pick. `None`: a Pitwall from before
-    /// profiles.
+    /// browser accounts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_account: Option<String>,
+    /// The same as `browserAccount`, under its old name (kept for readers
+    /// from before it was renamed; read when `browserAccount` is absent).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
     /// Pitwall's own words for all of it.
@@ -104,10 +108,24 @@ pub struct WebShown {
     /// The agent's page tile was reused.
     #[serde(default)]
     pub reused: bool,
-    /// The name of the browser profile it is in (its project's; empty: an
-    /// app from before profiles).
+    /// The name of the browser account it is in (its project's; empty: an
+    /// app from before browser accounts).
     #[serde(default)]
     pub profile: String,
+}
+
+impl WebOpened {
+    /// The browser account it is in: `browserAccount`, else (an older
+    /// Pitwall) `profile`.
+    pub fn browser(&self) -> Option<&str> {
+        self.browser_account.as_deref().or(self.profile.as_deref())
+    }
+
+    /// Set the browser account it is in, under both names.
+    pub fn set_browser(&mut self, name: Option<String>) {
+        self.profile = name.clone();
+        self.browser_account = name;
+    }
 }
 
 /// What was opened, in words (`pitwall open --web` and the tool's result).
@@ -126,8 +144,8 @@ pub fn text(o: &WebOpened) -> String {
         s.push_str(n);
         s.push('\n');
     }
-    if let Some(p) = o.profile.as_deref().filter(|p| !p.is_empty()) {
-        s.push_str(&format!("It is in the {p} browser profile (the sign-ins and site data this project's pages use in Pitwall; the user picks it per project).\n"));
+    if let Some(p) = o.browser().filter(|p| !p.is_empty()) {
+        s.push_str(&format!("It is in the {p} browser account (the sign-ins and site data this project's pages use in Pitwall; the user picks it per project).\n"));
     }
     if o.in_background {
         s.push_str(if o.place == ViewerPlace::Window.word() {
@@ -272,12 +290,17 @@ mod tests {
         let moved = text(&WebOpened { place: "window".into(), reused: true, shown_in: "a window of its own".into(), ..Default::default() });
         assert!(moved.starts_with("Showed the page you opened before (on whatever it shows now) in a window of its own"), "{moved}");
         assert!(!moved.contains("empty"));
-        assert!(!moved.contains("browser profile"), "an app from before profiles says none");
-        // The profile it is in, for the agent to tell the user.
-        let work = text(&WebOpened { url: Some("https://example.com/".into()), place: "right".into(), profile: Some("Work".into()), ..Default::default() });
-        assert!(work.contains("It is in the Work browser profile (the sign-ins and site data this project's pages use in Pitwall; the user picks it per project).\n"), "{work}");
+        assert!(!moved.contains("browser account"), "an app from before browser accounts says none");
+        // The browser account it is in, for the agent to tell the user.
+        let mut o = WebOpened { url: Some("https://example.com/".into()), place: "right".into(), ..Default::default() };
+        o.set_browser(Some("Work".into()));
+        let work = text(&o);
+        assert!(work.contains("It is in the Work browser account (the sign-ins and site data this project's pages use in Pitwall; the user picks it per project).\n"), "{work}");
+        let v = serde_json::to_value(&o).unwrap();
+        assert_eq!((v["browserAccount"].as_str(), v["profile"].as_str()), (Some("Work"), Some("Work")), "the new name, and the old one as an alias");
+        // An older Pitwall's answer (only `profile`) still reads.
         let o: WebOpened = serde_json::from_value(json!({"profile": "Default"})).unwrap();
-        assert_eq!(o.profile.as_deref(), Some("Default"));
+        assert_eq!(o.browser(), Some("Default"));
         let shown: WebShown = serde_json::from_value(json!({"window": "main", "inBackground": false, "place": "right", "at": "x"})).unwrap();
         assert_eq!(shown.profile, "", "an app from before profiles");
     }

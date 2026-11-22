@@ -64,6 +64,9 @@ pub struct ConnView {
     pub name: String,
     pub run: Run,
     pub conn: Option<(ConnState, String)>,
+    /// Its own unread threads, open asks and blocking asks (its totals,
+    /// else its list counted): for a per-connection filter.
+    pub counts: Counts,
 }
 
 impl ConnView {
@@ -91,8 +94,8 @@ pub struct ExtState {
     pub busy: HashSet<String>,
     /// Merged: each connection and how its adapter is.
     pub connections: Vec<ConnView>,
-    /// Merged: thread id → its connection's name.
-    labels: HashMap<String, String>,
+    /// Merged: thread id → its connection (id, name).
+    labels: HashMap<String, (String, String)>,
     link: Option<Link>,
     /// Which start this state is of (events of older ones are dropped).
     gen: u64,
@@ -153,7 +156,26 @@ impl ExtState {
     /// The name of the connection thread `id` is from (merged state; none
     /// for an extension without connections).
     pub fn label(&self, id: &str) -> Option<&str> {
-        self.labels.get(id).map(String::as_str)
+        self.labels.get(id).map(|(_, n)| n.as_str())
+    }
+
+    /// The connection thread `id` is from: (its id, its name) (merged
+    /// state; none for an extension without connections).
+    pub fn connection_of(&self, id: &str) -> Option<(&str, &str)> {
+        self.labels.get(id).map(|(c, n)| (c.as_str(), n.as_str()))
+    }
+
+    /// The threads of connection `conn` (`None`: all).
+    pub fn threads_of<'a>(&'a self, conn: Option<&'a str>) -> impl Iterator<Item = &'a Thread> + 'a {
+        self.threads.iter().filter(move |t| conn.is_none_or(|c| self.connection_of(&t.id).is_some_and(|(id, _)| id == c)))
+    }
+
+    /// Connection `conn`'s counts (`None`: the whole inbox's).
+    pub fn counts_of(&self, conn: Option<&str>) -> Counts {
+        match conn {
+            None => self.counts(),
+            Some(c) => self.connections.iter().find(|v| v.id == c).map(|v| v.counts).unwrap_or_default(),
+        }
     }
 }
 
@@ -398,8 +420,8 @@ impl Hub {
         let mut any_totals = false;
         for (c, name) in &order {
             let Some(st) = self.runs.get(&(ext.to_string(), c.clone())) else { continue };
-            out.connections.push(ConnView { id: c.clone(), name: name.clone(), run: st.run.clone(), conn: st.conn.clone() });
             let counts = st.counts();
+            out.connections.push(ConnView { id: c.clone(), name: name.clone(), run: st.run.clone(), conn: st.conn.clone(), counts });
             sum.unread += counts.unread;
             sum.open_asks += counts.open_asks;
             sum.blocking += counts.blocking;
@@ -407,7 +429,7 @@ impl Hub {
             for t in &st.threads {
                 let id = thread_id(c, &t.id);
                 if !c.is_empty() {
-                    out.labels.insert(id.clone(), name.clone());
+                    out.labels.insert(id.clone(), (c.clone(), name.clone()));
                 }
                 out.threads.push(Thread { id, ..t.clone() });
             }
