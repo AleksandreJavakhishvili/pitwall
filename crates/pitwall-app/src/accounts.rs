@@ -2,7 +2,11 @@
 //! for the window's views (Settings → Accounts, New agent's
 //! account chips, the agent and project menus, the account badges), saved
 //! to `accounts.json` on every change, with who each one is logged in as.
-//! Git identities too (Settings → Accounts, a project's Accounts…).
+//! Git identities too (Settings → Accounts, a project's Accounts…), and
+//! extension connections and profiles (docs/spec/profiles.md).
+//!
+//! `accounts.json` changed by someone else (`pitwall profile …` through
+//! the socket, an editor) is read again within a second ([`watch`]).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -37,6 +41,8 @@ pub struct AccountsModel {
     /// Kind → whether its command is installed, checked once (in the
     /// background, with the first usage read).
     installed: Option<BTreeMap<String, bool>>,
+    /// `accounts.json` as this model last wrote or read it (its stamp).
+    seen: Option<(std::time::SystemTime, u64)>,
 }
 
 /// Project folder → the account its agents run on (its first kind's, in
@@ -45,14 +51,21 @@ pub struct AccountsModel {
 static PROJECTS: std::sync::RwLock<BTreeMap<String, String>> = std::sync::RwLock::new(BTreeMap::new());
 
 /// Project folder → the account its terminals go with: its first agent
-/// kind's (a browser profile is no login an agent runs on).
+/// kind's, its own or its profile's (a browser account, git identity or
+/// extension connection is no login an agent runs on).
 fn project_accounts(list: &Accounts) -> BTreeMap<String, String> {
-    list.projects
-        .iter()
-        .filter_map(|(project, kinds)| {
-            Some((project.clone(), kinds.iter().filter(|(k, _)| *k != accounts::WEB).map(|(_, id)| id).find(|id| list.get(id).is_some())?.clone()))
+    list.known_projects()
+        .into_iter()
+        .filter_map(|project| {
+            let id = list.effective(&project).into_iter().filter(|(slot, _)| is_tool_kind(slot)).find_map(|(_, r)| r.id)?;
+            Some((project, id))
         })
         .collect()
+}
+
+/// `slot` is an agent tool's kind (not the browser, git or an extension).
+pub fn is_tool_kind(slot: &str) -> bool {
+    slot != accounts::WEB && slot != accounts::GIT && accounts::ext_of(slot).is_none()
 }
 
 fn remember(list: &Accounts) {
@@ -118,9 +131,47 @@ pub fn model(cx: &mut App) -> Entity<AccountsModel> {
         usage_reading: false,
         usage_cache: Arc::new(Mutex::new(UsageCache::new())),
         installed: None,
+        seen: None,
     });
     cx.set_global(Handle(m.clone()));
+    if m.read(cx).paths.is_some() {
+        m.update(cx, |m, _| m.seen = m.paths.as_ref().and_then(|p| stamp(&file_of(p))));
+        watch(&m, cx);
+    }
     m
+}
+
+/// `accounts.json` in `paths`.
+fn file_of(paths: &Paths) -> std::path::PathBuf {
+    paths.root().join("accounts.json")
+}
+
+/// What changes when a file changes: its modification time and size.
+fn stamp(path: &std::path::Path) -> Option<(std::time::SystemTime, u64)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// How often `accounts.json` is checked for changes made elsewhere.
+const WATCH_EVERY: Duration = Duration::from_millis(700);
+
+/// Read `accounts.json` again whenever someone else changes it.
+fn watch(m: &Entity<AccountsModel>, cx: &mut App) {
+    let weak = m.downgrade();
+    cx.spawn(async move |cx| loop {
+        cx.background_executor().timer(WATCH_EVERY).await;
+        let alive = weak.update(cx, |m, cx| m.reload_if_changed(cx));
+        if alive.is_err() {
+            return;
+        }
+    })
+    .detach();
+}
+
+/// The accounts as last kept (`None` before the model is made): for
+/// drawing code that can't make it.
+pub fn list(cx: &App) -> Option<&Accounts> {
+    cx.try_global::<Handle>().map(|h| &h.0.read(cx).list)
 }
 
 /// The accounts' ids in their order (empty before the model is made).
@@ -236,10 +287,49 @@ impl AccountsModel {
     fn save(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let paths = self.paths.as_ref().ok_or("Pitwall's engine isn't running")?;
         self.list.save(paths)?;
+        self.seen = stamp(&file_of(paths));
         remember(&self.list);
         self.logins_at = None;
         cx.notify();
         Ok(())
+    }
+
+    /// `accounts.json` changed since this model last wrote or read it:
+    /// read it again.
+    pub fn reload_if_changed(&mut self, cx: &mut Context<Self>) {
+        let Some(paths) = self.paths.clone() else { return };
+        let now = stamp(&file_of(&paths));
+        if now == self.seen {
+            return;
+        }
+        self.seen = now;
+        let list = Accounts::load(&paths);
+        if list != self.list {
+            self.list = list;
+            remember(&self.list);
+            self.logins_at = None;
+            cx.notify();
+        }
+    }
+
+    /// Change the list with `f` and keep it: nothing changes when `f` or
+    /// saving fails.
+    pub fn change<T>(&mut self, f: impl FnOnce(&mut Accounts) -> Result<T, String>, cx: &mut Context<Self>) -> Result<T, String> {
+        self.paths.as_ref().ok_or("Pitwall's engine isn't running")?;
+        self.reload_if_changed(cx);
+        let before = self.list.clone();
+        let out = match f(&mut self.list) {
+            Ok(v) => v,
+            Err(e) => {
+                self.list = before;
+                return Err(e);
+            }
+        };
+        if let Err(e) = self.save(cx) {
+            self.list = before;
+            return Err(e);
+        }
+        Ok(out)
     }
 
     pub fn add(&mut self, kind: &str, name: &str, dir: Option<&str>, cx: &mut Context<Self>) -> Result<Account, String> {
@@ -262,28 +352,45 @@ impl AccountsModel {
     #[cfg(test)]
     pub fn set_paths(&mut self, paths: Paths) {
         self.list = Accounts::load(&paths);
+        self.seen = stamp(&file_of(&paths));
         self.paths = Some(paths);
     }
 
+    /// Forget account `id` (an extension connection's secrets are
+    /// `crate::extensions::connections::remove`'s).
     pub fn remove(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        self.list.remove(id);
-        self.save(cx)
+        self.change(
+            |l| {
+                l.remove(id);
+                Ok(())
+            },
+            cx,
+        )
     }
 
     pub fn rename(&mut self, id: &str, name: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        self.list.rename(id, name)?;
-        self.save(cx)
+        self.change(|l| l.rename(id, name), cx)
     }
 
     /// Move account `id` before `before` (`None`: the end), as dragged.
     pub fn move_before(&mut self, id: &str, before: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
-        self.list.move_before(id, before);
-        self.save(cx)
+        self.change(
+            |l| {
+                l.move_before(id, before);
+                Ok(())
+            },
+            cx,
+        )
     }
 
     pub fn set_project_default(&mut self, project: &str, kind: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
-        self.list.set_project_default(project, kind, id);
-        self.save(cx)
+        self.change(
+            |l| {
+                l.set_project_default(project, kind, id);
+                Ok(())
+            },
+            cx,
+        )
     }
 
     /// Who `id` (`None`: the user's own) is logged in as, read from the
@@ -301,6 +408,72 @@ impl AccountsModel {
         let v = self.kind(kind).and_then(|def| accounts::login(&def, acc.as_ref()));
         self.logins.insert(key, v.clone());
         v
+    }
+}
+
+/// Profiles and what projects pick (docs/spec/profiles.md).
+impl AccountsModel {
+    pub fn add_profile(&mut self, name: &str, cx: &mut Context<Self>) -> Result<accounts::Profile, String> {
+        self.change(|l| l.add_profile(name), cx)
+    }
+
+    pub fn rename_profile(&mut self, id: &str, name: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.rename_profile(id, name), cx)
+    }
+
+    /// Remove profile `id`; its projects keep what they run under.
+    pub fn remove_profile(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(
+            |l| {
+                l.remove_profile(id);
+                Ok(())
+            },
+            cx,
+        )
+    }
+
+    /// Profile `id`'s pick for `slot` (`None`: it doesn't decide it).
+    pub fn set_profile_pick(&mut self, id: &str, slot: &str, value: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.set_profile_pick(id, slot, value), cx)
+    }
+
+    /// The profile `project` uses (`None`: none). What it changes for the
+    /// project's running agents is the caller's ([`Accounts::changed_slots`]).
+    pub fn set_project_profile(&mut self, project: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.set_project_profile(project, id), cx)
+    }
+
+    /// The project's own pick for `slot` (`None`: it inherits), checked.
+    pub fn set_project_pick(&mut self, project: &str, slot: &str, value: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(
+            |l| {
+                let v = value.map(|v| l.check_pick(slot, v)).transpose()?;
+                l.set_project_pick(project, slot, v.as_deref());
+                Ok(())
+            },
+            cx,
+        )
+    }
+}
+
+/// Extension connections (`crate::extensions::connections` adds their
+/// secrets).
+impl AccountsModel {
+    pub fn add_connection(&mut self, ext: &str, name: &str, cx: &mut Context<Self>) -> Result<Account, String> {
+        self.change(|l| l.add_connection(ext, name), cx)
+    }
+
+    pub fn set_connection_value(&mut self, id: &str, key: &str, value: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.set_connection_value(id, key, value), cx)
+    }
+
+    pub fn set_connection_secret(&mut self, id: &str, key: &str, set: bool, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.set_connection_secret(id, key, set), cx)
+    }
+
+    /// Make `id` extension `ext`'s default connection (`None`: none).
+    pub fn set_default_connection(&mut self, ext: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.set_default(&accounts::ext_kind(ext), id), cx)
     }
 }
 
@@ -411,12 +584,34 @@ mod tests {
         let paths = Paths::new(t.path().join("pw"));
         let mut list = Accounts::default();
         let web = list.add_web(&paths, "Work").unwrap();
-        list.accounts.push(Account { id: "zed-work".into(), kind: "zed".into(), name: "Work".into(), dir: "/x".into() });
+        list.accounts.push(Account { id: "zed-work".into(), kind: "zed".into(), name: "Work".into(), dir: "/x".into(), ..Default::default() });
         list.set_project_default("/only-web", accounts::WEB, Some(&web.id));
         list.set_project_default("/both", accounts::WEB, Some(&web.id));
         list.set_project_default("/both", "zed", Some("zed-work"));
         let map = project_accounts(&list);
         assert_eq!(map.get("/only-web"), None);
         assert_eq!(map.get("/both").map(String::as_str), Some("zed-work"));
+    }
+
+    /// A project with a profile is filed under its profile's tool account;
+    /// its own pick overrides it; an extension connection is no login.
+    #[test]
+    fn a_profiles_tool_account_files_its_projects() {
+        let mut list = Accounts::default();
+        for (id, kind) in [("zed-work", "zed"), ("zed-home", "zed")] {
+            list.accounts.push(Account { id: id.into(), kind: kind.into(), name: id.into(), dir: "/x".into(), ..Default::default() });
+        }
+        list.add_connection("inbox", "Work").unwrap();
+        let p = list.add_profile("Work").unwrap();
+        list.set_profile_pick(&p.id, "zed", Some("zed-work")).unwrap();
+        list.set_project_profile("/p", Some(&p.id)).unwrap();
+        list.set_project_profile("/q", Some(&p.id)).unwrap();
+        list.set_project_pick("/q", "zed", Some("zed-home"));
+        list.set_project_pick("/r", "ext:inbox", Some("none"));
+        let map = project_accounts(&list);
+        assert_eq!(map.get("/p").map(String::as_str), Some("zed-work"));
+        assert_eq!(map.get("/q").map(String::as_str), Some("zed-home"));
+        assert_eq!(map.get("/r"), None);
+        assert!(is_tool_kind("claude") && !is_tool_kind("web") && !is_tool_kind("git") && !is_tool_kind("ext:inbox"));
     }
 }

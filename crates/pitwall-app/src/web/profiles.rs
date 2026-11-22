@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(resolve(&list, Some("web-work"), true), (Some("web-work".into()), false));
         assert_eq!(resolve(&list, Some("web-gone"), true), (None, true), "removed: Default, said once");
         assert_eq!(resolve(&list, Some("web-work"), false), (None, true), "can't be used here: Default, said");
-        list.accounts.push(Account { id: "claude-x".into(), kind: "claude".into(), name: "X".into(), dir: "/x".into() });
+        list.accounts.push(Account { id: "claude-x".into(), kind: "claude".into(), name: "X".into(), dir: "/x".into(), ..Default::default() });
         assert_eq!(resolve(&list, Some("claude-x"), true), (None, true), "not a profile");
 
         assert_eq!(of_project(&list, "/work/alpha", true).as_deref(), Some("web-work"));
