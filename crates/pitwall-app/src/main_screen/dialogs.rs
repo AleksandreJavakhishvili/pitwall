@@ -2423,10 +2423,14 @@ impl Render for ProjectAccountsDialog {
             &t,
             crate::theme::motion_on(cx),
             move |_, cx| close.update(cx, |_, cx| cx.emit(DialogEvent::Close)),
+            // Never taller than the window: the title and the foot stay,
+            // the middle scrolls.
             div()
                 .flex()
                 .flex_col()
-                .child(
+                .min_h_0()
+                .child(crate::kit::dialog::scrolling(
+                    "pa-body",
                     body()
                         .when(profiled, |d| {
                             d.children(self.profile_row(&t, cx))
@@ -2435,9 +2439,13 @@ impl Render for ProjectAccountsDialog {
                         })
                         .children(picks)
                         .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t))),
-                )
+                    &t,
+                ))
                 .child(
                     foot(&t)
+                        .flex_none()
+                        .id("pa-foot")
+                        .debug_selector(|| "pa-foot".into())
                         .child(
                             div()
                                 .id("pa-manage")
@@ -3165,6 +3173,50 @@ impl Render for DiffDialog {
             window,
             cx,
         )
+    }
+}
+
+#[cfg(test)]
+mod project_accounts_tests {
+    use super::*;
+    use gpui::{TestAppContext, VisualTestContext};
+
+    /// The dialog in a window `h` tall: its foot's bottom.
+    fn foot_bottom(cx: &mut TestAppContext, h: f32) -> f32 {
+        let (_, vcx) = cx.add_window_view(|_, cx| ProjectAccountsDialog::new(None, "/work/alpha".into(), vec![], cx));
+        let vcx: &mut VisualTestContext = vcx;
+        vcx.simulate_resize(gpui::size(px(900.), px(h)));
+        // The box's opening (real time) over: drawn where it stays.
+        for _ in 0..2 {
+            vcx.update(|window, _| window.refresh());
+            vcx.run_until_parked();
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+        vcx.update(|window, _| window.refresh());
+        vcx.run_until_parked();
+        f32::from(vcx.debug_bounds("pa-foot").expect("its foot is drawn").bottom())
+    }
+
+    #[gpui::test]
+    fn the_dialog_never_outgrows_the_window_and_keeps_its_foot(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_global(crate::theme::Theme::dark()));
+        let t = pitwall_core::testing::TempDir::new("app-pa-short");
+        let paths = pitwall_core::paths::Paths::new(t.path().join("pw"));
+        cx.update(|cx| crate::accounts::model(cx).update(cx, |m, _| m.set_paths(paths)));
+        // Without profiles ("Accounts · alpha"), then with a profile and a
+        // pick of its own ("Change for this project only" unfolded).
+        let h = 260.;
+        assert!(foot_bottom(cx, h) <= h, "Accounts: the foot stays in the window");
+        cx.update(|cx| {
+            crate::accounts::model(cx).update(cx, |m, cx| {
+                let w = m.add_profile("Work", cx).unwrap();
+                m.set_project_profile("/work/alpha", Some(&w.id), cx).unwrap();
+                m.set_project_pick("/work/alpha", pitwall_core::accounts::WEB, Some("default"), cx).ok();
+            })
+        });
+        assert!(foot_bottom(cx, h) <= h, "Profile: the foot stays in the window");
+        // Tall enough: no room taken from it.
+        assert!(foot_bottom(cx, 2000.) < 1500., "a tall window doesn't stretch it");
     }
 }
 
