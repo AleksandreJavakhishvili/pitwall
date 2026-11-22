@@ -1120,9 +1120,11 @@ fn open_web_and_the_show_web_tool_end_to_end() {
     assert_eq!((o.json["place"].as_str(), o.json["asked"].as_str(), o.json["reused"].as_bool()), (Some("left"), Some("left"), Some(false)));
     assert!(o.human.starts_with("Opened https://example.com/docs in a web tile in space Main (window main), left of api's terminal in Pitwall.\n"), "{}", o.human);
     assert!(o.human.contains("can't click, type or read anything in it"));
-    // Which browser profile (the project's, as the app says).
+    // Which browser account (the project's, as the app says), under its
+    // new name and the old one.
+    assert_eq!(o.json["browserAccount"], "Work");
     assert_eq!(o.json["profile"], "Work");
-    assert!(o.human.contains("It is in the Work browser profile"), "{}", o.human);
+    assert!(o.human.contains("It is in the Work browser account"), "{}", o.human);
     let shown = web.0.lock().unwrap().last().unwrap().clone();
     assert_eq!(shown.agent_id, id);
     assert_eq!(shown.place, Some(pitwall_proto::ViewerPlace::Left));

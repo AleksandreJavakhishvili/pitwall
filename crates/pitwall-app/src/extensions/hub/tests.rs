@@ -182,6 +182,12 @@ fn each_connection_runs_its_own_adapter_into_one_inbox(cx: &mut TestAppContext) 
         let c = s.counts();
         assert_eq!((c.unread, c.open_asks, c.blocking), (1, 3, 1), "added up");
         assert_eq!(s.connections.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Work", "Home"]);
+        // What a per-connection filter needs: each thread's connection,
+        // and counts per connection as well as in total.
+        assert_eq!(s.connection_of(&th), Some((home.as_str(), "Home")));
+        assert_eq!(s.threads_of(Some(&work)).map(|t| t.id.clone()).collect::<Vec<_>>(), [tw.clone()]);
+        assert_eq!(s.threads_of(None).count(), 2);
+        assert_eq!((s.counts_of(Some(&home)).open_asks, s.counts_of(Some(&work)).open_asks, s.counts_of(None).open_asks), (2, 1, 3));
     });
     // Its totals and the other's list add up too.
     say(&h, &ew, json!({"type": "counts", "unread": 5, "openAsks": 7, "blocking": 0}), cx);

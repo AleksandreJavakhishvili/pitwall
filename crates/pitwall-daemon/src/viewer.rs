@@ -192,9 +192,10 @@ fn web(s: &Server, caller: &Caller, r: WebOpen) -> Result<WebOpened, ErrorBody> 
         asked: r.place.map(|p| p.word().into()),
         shown_in: shown.at,
         note: shown.note,
-        profile: Some(shown.profile).filter(|p| !p.is_empty()),
         text: None,
+        ..Default::default()
     };
+    o.set_browser(Some(shown.profile).filter(|p| !p.is_empty()));
     o.text = Some(pitwall_proto::web::text(&o));
     Ok(o)
 }

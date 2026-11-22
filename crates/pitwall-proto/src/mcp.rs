@@ -109,7 +109,7 @@ pub fn tools_for(files: bool, web: bool) -> Value {
             // Read-only, as show_files: it shows the user something and
             // changes nothing in the agent's environment (so Codex doesn't
             // ask each time). Open world: the page loads from the web, in
-            // the user's own profile.
+            // the project's browser account, where the user may be signed in.
             "annotations": { "title": "Show a web page in Pitwall", "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true }
         }));
     }
