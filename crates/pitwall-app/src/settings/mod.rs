@@ -230,6 +230,11 @@ impl Layer {
         layer
     }
 
+    /// The Settings view, when it is open (bench commands).
+    pub fn settings_view(&self) -> Option<Entity<SettingsView>> {
+        self.settings.clone()
+    }
+
     pub fn is_open(&self) -> bool {
         self.settings.is_some() || self.onboarding.is_some() || self.about
     }

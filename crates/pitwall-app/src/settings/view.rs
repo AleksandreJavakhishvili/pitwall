@@ -196,6 +196,12 @@ pub fn step(p: Page, delta: i32) -> Page {
 }
 
 impl SettingsView {
+    /// The page scrolled to its end (bench commands).
+    pub(super) fn scroll_to_end(&self) {
+        let n = self.list.item_count();
+        self.list.scroll_to_reveal_item(n.saturating_sub(1));
+    }
+
     pub fn new(live: bool, cx: &mut Context<Self>) -> SettingsView {
         let mut tasks = Vec::new();
         if let Some(t) = Self::read_hooks(cx) {

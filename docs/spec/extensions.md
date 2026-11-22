@@ -218,8 +218,10 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
   is back after a restart, with the thread it showed
   (`extensions.<id>.selected`).
 - **Layout:** the threads on the left (300 px), the thread on the right,
-  its text at most 720 px wide. Narrower than 620 px, the list, and the
-  thread over it with a back button (Esc).
+  its text at most 760 px wide and lined up with its title. A wide tile
+  always shows a thread: the first listed, when none is chosen.
+  Narrower than 760 px, the list, and the thread over it with a back
+  button (Esc).
 - **The list:** "Needs you" (threads with an open ask; its count in the
   segment) or "All". Blocking ones first, then those that ask, then the
   latest. Unread: bold with a dot. A count pill of open asks, amber with
@@ -228,8 +230,10 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
   threads aren't listed (the protocol has no list of them).
 - **The thread:** the agent's messages under its name chip in its
   Pitwall look (its kind's logo and name, through `matchAgents`), yours
-  on the right. Markdown text, selectable; a message's detail folds
-  under "Show details". An open ask is a card: its question large, its
+  on the right. Markdown text, selectable, its headings a step above the
+  text; a message's detail folds under "Show details". A message that
+  only answers or withdraws asks shown above isn't drawn again (each ask
+  shows how it went). An open ask is a card: its question large, its
   suggestions as buttons (with their descriptions as rows when they have
   any; a number key each), a field for an answer of your own, Send and
   Decline; a blocking one in amber with "Waiting on you". Answered asks
@@ -248,9 +252,22 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
 - **States**, in the tile: off ("Turn it on", Open Settings); a required
   setting not set ("Connect <name>", what to set, Open Settings); loading
   (grey rows); signed out or unreachable with no threads (the adapter's
-  message; Open Settings or Restart); stopped (why, Restart); "Nothing
-  needs you". A connection problem while there are threads is a line over
+  message; Open Settings or Restart); stopped (why, Restart, and its
+  last lines of output in a box when it printed any); "Nothing needs
+  you". A connection problem while there are threads is a line over
   the list.
+- **Bench commands** (`PITWALL_BENCH`, for screenshots): `inbox open
+  [ext]`, `inbox show <thread>`, `inbox filter all|needs`, `inbox back`,
+  `inbox details <message>`, `inbox pick <n>`, `inbox close`, and
+  `ext-action <ext> <action>` (Settings → Extensions with that action's
+  confirmation shown).
+- **Shipped extensions' checks:** Pitwall's tests read every folder
+  under the repo's `extensions/`: each manifest parses and plans its
+  actions, and its `test/pitwall.json`, when there is one, says what
+  else to expect: an action's exact command lines (with the programs
+  taken as installed), the variables Settings shows before and after
+  its settings are set, and a fake server its real adapter must agree
+  with Pitwall against (skipped without Node).
 
 ## Agents' ask badges and notifications
 - An agent whose threads (matched through `matchAgents`) have open asks

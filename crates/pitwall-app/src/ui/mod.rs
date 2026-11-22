@@ -326,6 +326,22 @@ impl MainView {
             }
             return;
         }
+        // `inbox …`: an extension's inbox tile (`MainScreen::debug_inbox`).
+        if let Some(what) = cmd.strip_prefix("inbox ") {
+            if let Some(s) = &self.screen {
+                s.update(cx, |s, cx| s.debug_inbox(what.trim(), window, cx));
+            }
+            return;
+        }
+        // `ext-action <ext> <action>`: in the open Settings, that setup
+        // action's confirmation (nothing runs).
+        if let Some(what) = cmd.strip_prefix("ext-action ") {
+            let mut w = what.split_whitespace();
+            if let (Some(ext), Some(action), Some(v)) = (w.next(), w.next(), self.layer.read(cx).settings_view()) {
+                v.update(cx, |v, cx| v.debug_action(ext, action, cx));
+            }
+            return;
+        }
         // `pop <what>`: drive the open glass pop-up (`kit::pop::debug`).
         if let Some(what) = cmd.strip_prefix("pop ") {
             crate::kit::pop::debug(what.trim(), cx);
