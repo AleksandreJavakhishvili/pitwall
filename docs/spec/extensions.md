@@ -282,16 +282,43 @@ A tab of its own (after Accounts). Code: `settings/extensions.rs`.
 
 ## The inbox tile
 An extension with an adapter has an inbox: a tile of the space's layout,
-a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
+a peer of the files and web tiles, or a window of its own. Code:
+`main_screen/inbox_tile.rs` (the inbox), `main_screen/inbox_window.rs`
+(its window, and where it goes).
+- **One per extension:** one inbox view per extension, wherever it is
+  drawn (`inbox_tile::view`). Moving it never makes another: its thread,
+  its drafts, its picks and the adapter's connection stay as they were.
 - **Opening it:** ⌘I (Ctrl+Shift+I elsewhere) opens the first
   extension's inbox that is on; the command palette has "Open <name>
   inbox" for each. It goes where "Open web page…" puts a page (right of
-  the focused tile, in it when it is empty). One tile per extension:
-  opening it again focuses it. With none on, a toast says where to turn
-  one on.
+  the focused tile, in it when it is empty). Opening it again focuses it
+  where it is: its tile (the space's focused one), or its window, brought
+  forward. With none on, a toast says where to turn one on.
+- **Its bar**, as a web tile's: a grip, its icon and name, the filter,
+  "Move…" (a tile) or "Dock…" (a window), then for a tile Maximise /
+  Restore (⌘⏎), "Open in a window of its own" and close; for a window,
+  keep on top (macOS).
+- **Moving it**, as a web page moves (`web::place`, `explorer::drag`):
+  - a tile dragged by its bar to another tile's side, onto an empty tile
+    (it takes it), or onto a terminal (they swap), in its window;
+  - "Move…": a column on the right or a row at the bottom of the space,
+    on its own, in place of a terminal (it keeps running), or a window
+    of its own (an inbox has no agent, so there is no "next to its
+    agent's terminal");
+  - a tile dragged out of every Pitwall window: a window of its own,
+    where it was let go (macOS);
+  - from its window: "Dock…" (the same places), or its grip dragged over
+    a Pitwall window, which shows where it would land (macOS).
+  Closing its window closes the inbox; quitting doesn't.
+- **A tile like the others:** a press anywhere in it makes it the space's
+  focused tile, shown by its border, so ⌘⏎ maximises and restores it
+  (after ⌘I too). In its fields ⌘⏎ sends instead (the reply, your own
+  answer).
 - **Kept:** the pane's `inbox` (the extension's id) in `ui.json`, so it
   is back after a restart, with the thread it showed
-  (`extensions.<id>.selected`).
+  (`extensions.<id>.selected`). In a window: `extensions.<id>.window`,
+  and it opens in one again at the next start (behind the rest, without
+  the keyboard); the window's place and size are `inboxWindow`.
 - **Layout:** the threads on the left (300 px), the thread on the right,
   its text at most 760 px wide and lined up with its title. A wide tile
   always shows a thread: the first listed, when none is chosen.
@@ -324,7 +351,10 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
   typing in its fields, never in a terminal): ↑↓ or J K go through the
   threads, Enter opens one, 1–9 pick a suggestion of the first open ask
   (sent at once; toggled when the ask takes several), E archives, R goes
-  to the reply box, Esc goes back to the list (narrow).
+  to the reply box, Esc goes back to the list (narrow). A press in a
+  field keeps the keyboard there: everything typed goes in it, after the
+  list refreshes and after an answer is sent too. Esc in a field, or its
+  ask answered, gives the keyboard back to the tile.
 - **States**, in the tile: off ("Turn it on", Open Settings); a required
   setting not set ("Connect <name>", what to set, Open Settings); loading
   (grey rows); signed out or unreachable with no threads (the adapter's
@@ -335,7 +365,14 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
 - **Bench commands** (`PITWALL_BENCH`, for screenshots): `inbox open
   [ext]`, `inbox show <thread>`, `inbox filter all|needs`, `inbox back`,
   `inbox details <message>`, `inbox pick <n>`, `inbox reply <text>`,
-  `inbox close`, and
+  `inbox close`; through GPUI's own event dispatch, in the window the
+  inbox is in (nothing is clicked or typed on the screen): `inbox click
+  reply|other` (a press in that field), `inbox press` (on its bar),
+  `inbox type <text>`, `inbox key <keystroke>…` (`cmd-enter`,
+  `escape`…), `inbox drag <x> <y>` (its bar dragged there in its
+  window); `inbox place right|left|above|below|replace <agent>`,
+  `inbox place edge-right|edge-bottom|own|window` (Move… / Dock…);
+  `inbox state` (its fields, which has the keys, where it is), and
   `ext-action <ext> <action>` (Settings → Extensions with that action's
   confirmation shown), `ext-run <ext> <action> <prog args|prog args…>`
   (that action run with these harmless steps in its place),
@@ -397,8 +434,6 @@ as installing a tool's plugin in the user's agents. Code:
 - A badge count on the Dock / taskbar from extensions.
 - Marking a thread unread (the protocol has only "mark read"), and a
   list of archived threads.
-- Dragging the inbox tile to another place (it is closed and opened
-  again instead).
 - `pitwall extension list|install|remove` on the command line (it needs
   the app's socket protocol to reach the running app's state).
 - Installing from a folder or a link, and watching the folder.
