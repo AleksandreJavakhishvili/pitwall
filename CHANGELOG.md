@@ -2,7 +2,7 @@
 
 All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org) from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/); see [CONTRIBUTING.md](CONTRIBUTING.md#commit-messages).
 
-## Unreleased
+## [0.8.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.8.0) - 2026-11-22
 
 ### Highlights
 
@@ -17,6 +17,96 @@ All notable changes to Pitwall. Generated with [git-cliff](https://git-cliff.org
 - Move around a zoomed picture with the mouse: drag an image, an SVG's picture or a PDF's pages, or scroll with two fingers. Pinch on a trackpad or ⌘-scroll (Ctrl+scroll on Windows and Linux) zooms about the pointer; a double click zooms about the point clicked.
 - Files windows come back. A file viewer window open when you quit Pitwall opens again at the next start with the same folder, tabs, place and size. Unsaved edits aren't kept (quitting asks about them first).
 - Checked by hand on macOS. The Windows and Linux builds pass their tests but have not been run by hand, and Agention was tried against a pre-release build of its server.
+
+### Features
+
+- **website:** Show agents opening files in a files tile ([`f536d24`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f536d24c418d6d5f9d6a60a4b36490d9ba4fb671))
+- **app:** Drag, pinch and ⌘-scroll images and PDFs in the viewer ([`ed807fb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ed807fbd0298e8fd2958b1de990d8231469a0ae7))
+- **app:** Open web pages in tiles; Preview becomes one ([`bd02f20`](https://github.com/AleksandreJavakhishvili/pitwall/commit/bd02f20341c3bda4b7da496baaa54469f879a432))
+- **website:** Show features as a carousel, with an accounts slide ([`ef6053c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ef6053c2591b347bcb44a373ed053cd1c8ec1076))
+- Add the show_web tool and web.open for agents ([`7f7fb14`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7f7fb1419ea16fec73d7540b52c3491a81b1c243))
+- **app:** Open agents' web pages, and web pages in their own windows ([`71bfb72`](https://github.com/AleksandreJavakhishvili/pitwall/commit/71bfb725362d11ce9203a84dedc07ecf972d3a98))
+- **app:** Open files windows again after a restart ([`2681a46`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2681a46e73070d58e33166494a93c8a16a8e8e45))
+- **core:** Browser profiles as accounts of kind web ([`083bf85`](https://github.com/AleksandreJavakhishvili/pitwall/commit/083bf8548f3703341b32c01230adcd3c8ae1c0d4))
+- **app:** Web pages open in their project's browser profile ([`47e3523`](https://github.com/AleksandreJavakhishvili/pitwall/commit/47e352315afa67ae99a63e86d1c94b0bdc6f69ea))
+- **app:** Manage browser profiles in Settings and a project's Accounts ([`659153b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/659153b8e6cd3d4cf6081a62536b58ef3cecdbd6))
+- **core:** Find extensions and check their manifests ([`2222028`](https://github.com/AleksandreJavakhishvili/pitwall/commit/22220289e995c9880f1968a1d9ae20d4cb149fa5))
+- **app:** Turn extensions on in Settings and show them in the sidebar ([`8ec712e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8ec712e8c509dd590343996400b11477a4825a3f))
+- **core:** Spec the extension adapter protocol and richer manifests ([`8c01591`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8c015915a74e0078dcffbbbb2cecf587567e307b))
+- Add the Agention adapter, its API client and a fake server ([`321019b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/321019b9a027a58358dafaa0a248e18e76a01c90))
+- **core:** Carry counts, blocking asks and answers in the protocol ([`9899903`](https://github.com/AleksandreJavakhishvili/pitwall/commit/989990326a11745cd1a6b382203861af5234ec06))
+- **app:** Run extension adapters and keep their secrets ([`337498d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/337498d6aa5a8c14a351fa0df5f057e72bdb5e3d))
+- **core:** Set extensions' variables on agents Pitwall launches ([`9b6a4fb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9b6a4fba315de9d10ddeb0cf09a2111c63af9ced))
+- **app:** Run an extension's setup actions after confirming them ([`dcc2333`](https://github.com/AleksandreJavakhishvili/pitwall/commit/dcc2333135a469effd171f164b03ee9d4134690f))
+- **app:** Open an extension's inbox as a layout tile ([`187b31c`](https://github.com/AleksandreJavakhishvili/pitwall/commit/187b31c26cf5aab17948098f62e6af1bb15b1050))
+- **app:** Polish the inbox tile after looking at it ([`6f54ebd`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6f54ebd30797032e1fb40a9fade88f44108077cd))
+- **app:** Grow the inbox reply box with its text ([`d0fed4d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d0fed4dedcbdf64531651f7485ed9dde96ad7d88))
+- **core:** Install, update and remove shipped extensions ([`8f844d3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/8f844d34617b63fc0fac5cbe46fd23a64eb5e686))
+- **app:** Give extensions a Settings tab with guided setup ([`1335e6b`](https://github.com/AleksandreJavakhishvili/pitwall/commit/1335e6b7f4c91ed72283f91516c7faa089be1241))
+- **core:** Resolve every pick through profiles and connections ([`d8ec0d9`](https://github.com/AleksandreJavakhishvili/pitwall/commit/d8ec0d95cdaf87b363963299842b6862d989187d))
+- **app:** Run one extension adapter per connection ([`ebb4f46`](https://github.com/AleksandreJavakhishvili/pitwall/commit/ebb4f46ad107f07b29489c3d3cbcc4f365d5db56))
+- Call browser profiles browser accounts in tool results ([`0bb1f06`](https://github.com/AleksandreJavakhishvili/pitwall/commit/0bb1f06a47d6c6d4eab1b015d0ea1fb6554080f3))
+- **cli:** Manage accounts, profiles and project picks ([`741d597`](https://github.com/AleksandreJavakhishvili/pitwall/commit/741d597eb8ac59b9c85453aaf7314bf88164728c))
+- Say browser account wherever the user reads it ([`c42fca0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c42fca08da713bd3ae03f6a8cf71a5a7fe812756))
+- **app:** Set up each extension connection on its card ([`1c44b5f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/1c44b5fa7b823eedc62ef712a037e5526646a1a8))
+- **app:** Fill profiles in Settings and pick them per project ([`05f7b99`](https://github.com/AleksandreJavakhishvili/pitwall/commit/05f7b9938ab54ef00d44c6c6cd0f0448b8018b9a))
+- **app:** Show profiles only when there is a choice to bundle ([`aee151f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/aee151f847c7a4ba981d0344547e1cd289ef24ae))
+- **app:** Filter the inbox by connection and say which is offline ([`e831e48`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e831e489ba85aa06d7de332c2e8bdad162814f85))
+- **app:** Lead with profiles in Settings and the project dialog ([`4aaedb4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4aaedb4f32cd4bbf24a36591da2ed11ef69fed1c))
+- **app:** Group the sidebar by profile once one exists ([`4af6406`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4af6406fc2015fdee908677379f9ad18f661d60b))
+- **website:** Your agents' workstation, and a web pages slide ([`c1d9b48`](https://github.com/AleksandreJavakhishvili/pitwall/commit/c1d9b4831a13cf98f630a3c6689b2e143915368f))
+- **website:** Show browser profiles, add web pages to How it works ([`6b2ee1e`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6b2ee1ecb63662e77263b4b4a7caecd7c6283519))
+
+### Fixes
+
+- **app:** Pass a typed nil block when web views pause media ([`f2f9156`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f2f91567197d9891cb266a2bef625662b70a0b93))
+- **app:** The web tile's address field takes the bar's room first ([`fda3e76`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fda3e763baf8e050070fbb79b23c6def940ed435))
+- **app:** Web tiles identify as Safari on macOS ([`9b77b92`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9b77b923d3c23f6012093f23b32dd0be838a44b6))
+- Say a moved page is the agent's own, keep bench web windows away ([`cf373eb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/cf373eb63285f38566a98d5cfff3ba869796bcf8))
+- Mark show_web read-only, as the files tools ([`98e6e77`](https://github.com/AleksandreJavakhishvili/pitwall/commit/98e6e772b8ff9ff862e6022dc7cb275e91f69e36))
+- Give agents.showWeb and webPages the sensitivity of showFiles ([`22fad6f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/22fad6f021bf38a1398cf6add358cba8c528745f))
+- **app:** Give browser profiles their own WebKit stores on macOS ([`daddb17`](https://github.com/AleksandreJavakhishvili/pitwall/commit/daddb17134be4d409ab4ebcbaeb3138ceef0a64f))
+- **app:** Draw a space's tiles when there are no agents ([`9058166`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9058166107be222f6cbbde1427c818c8047ea934))
+- Run only the Agention adapter's test files with npm test ([`9b0e269`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9b0e269be2f461462106851ae487a1f0bba05848))
+- **app:** Keep typing in the inbox's fields, and move it as a tile ([`49e5d61`](https://github.com/AleksandreJavakhishvili/pitwall/commit/49e5d612624ff9ccb51595826a3b1386c9de61a4))
+- **app:** Let text fields keep Cmd-Enter over the tile's Maximise ([`fab65c3`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fab65c31eac0017f4419e9bd8de5d56a30e193dd))
+- **app:** Focus and maximise files and web tiles like terminals ([`e55fc70`](https://github.com/AleksandreJavakhishvili/pitwall/commit/e55fc70f01f34ebd53422699e46ead8dc341b456))
+- **app:** Keep the project dialog within the window ([`be27f95`](https://github.com/AleksandreJavakhishvili/pitwall/commit/be27f95138a77b81c7be1f0fda90c1fbaef3da54))
+
+### Refactors
+
+- **app:** Drop the extensions' sidebar sections ([`033f262`](https://github.com/AleksandreJavakhishvili/pitwall/commit/033f26245caa0cd72eb6949065307f81b9630a6f))
+
+### Documentation
+
+- **website:** Explain files agents show you in How it works ([`9b05013`](https://github.com/AleksandreJavakhishvili/pitwall/commit/9b050136144b3c8a76cc4ad366ad4abdaff91241))
+- Describe moving and zooming pictures in the viewer ([`6d164e6`](https://github.com/AleksandreJavakhishvili/pitwall/commit/6d164e6e880857e12b314250ad5f53bd58259b08))
+- Spec web tiles and the Preview as a tile ([`f702c75`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f702c757b9a9a180c5740c6dd156a1afca61f697))
+- Spec agents' web pages and pages in windows ([`680bf16`](https://github.com/AleksandreJavakhishvili/pitwall/commit/680bf16afdcc73fa41fd551801cdb6113ba62462))
+- Spec browser profiles ([`4cd6d2a`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4cd6d2abb6d54ecaa35afc41ec04abd202fd8596))
+- Say where each page's store is on macOS ([`dae32f4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/dae32f4c454d533abbf0b65ee718569afc80238c))
+- Spec extensions as a draft with panels left open ([`f20edd0`](https://github.com/AleksandreJavakhishvili/pitwall/commit/f20edd0bd8a6d01da2943f2a0f790a87949aa3bc))
+- Say when an extension's code runs in the changelog ([`fd4243d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fd4243d73ad21188eb5a24027c0ea206702f8f4f))
+- Describe installing extensions and the Extensions tab ([`5575e98`](https://github.com/AleksandreJavakhishvili/pitwall/commit/5575e98a66d765f6d421d06dbb14c9223028f5af))
+- Say how the inbox moves, takes keys and maximises ([`520e887`](https://github.com/AleksandreJavakhishvili/pitwall/commit/520e887b1eedf99646c40bff19e51196898dc581))
+- Say that files and web tiles focus and maximise like terminals ([`b28556d`](https://github.com/AleksandreJavakhishvili/pitwall/commit/b28556d525f0f248de0d0dbb473ae0811603b7ce))
+- Describe extension connections and profiles ([`29d7f73`](https://github.com/AleksandreJavakhishvili/pitwall/commit/29d7f7355546f6d16dc7fceb96fe1e13c97b526d))
+- Say your agents' workstation in the README tagline ([`7c3bcc4`](https://github.com/AleksandreJavakhishvili/pitwall/commit/7c3bcc4a3d04b15d63bda73174dd1f800e666074))
+- **website:** Say browser accounts, and what a profile bundles ([`11b4c01`](https://github.com/AleksandreJavakhishvili/pitwall/commit/11b4c011cd28041d4a622b04651076d2efc5b6d7))
+- Highlights for 0.8.0 ([`fe24577`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fe245772fcbb23164f93ed214119a8df3991ad27))
+
+### Tests
+
+- **app:** A browser profile is no project's sidebar account ([`fa0fa94`](https://github.com/AleksandreJavakhishvili/pitwall/commit/fa0fa9432d18074b71ee9db8c4e194c5f4e58aab))
+- Cover the Agention adapter's wait loop, model and stdio ([`2955dbb`](https://github.com/AleksandreJavakhishvili/pitwall/commit/2955dbbeb1381f9e801fd42de4161c0060d82345))
+- Check every extension folder from its own fixtures ([`36692ee`](https://github.com/AleksandreJavakhishvili/pitwall/commit/36692ee2d8fd5811f71256fedafcc56bd870aeab))
+- Keep extensions' own tests out of the vitest run ([`4c6c00f`](https://github.com/AleksandreJavakhishvili/pitwall/commit/4c6c00fa7107f2c44a86f58a9c6f6e4e91542ff0))
+- **app:** Press the platform's Maximise and send keys in inbox tests ([`1b61ec5`](https://github.com/AleksandreJavakhishvili/pitwall/commit/1b61ec506bd71f6ccdb52548d785197b3d0164a8))
+
+### CI/Build
+
+- Ship the repo's extensions with the app ([`a4a2425`](https://github.com/AleksandreJavakhishvili/pitwall/commit/a4a2425e9396ffdbd6a4251109b897c26dc7fffa))
+
 
 ## [0.7.0](https://github.com/AleksandreJavakhishvili/pitwall/releases/tag/v0.7.0) - 2026-11-19
 
