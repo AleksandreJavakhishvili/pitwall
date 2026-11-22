@@ -1,10 +1,9 @@
 # Extensions
 
-Status: being built. Done: finding extensions, the manifest (with
-settings, adapter, agent variables and agent matching), the adapter
-protocol (below, fixed for version 1). In progress: the adapter's
-lifecycle, settings and secrets, the inbox in the sidebar and its thread
-tile, agent variables and badges. The first example is Agention
+Status: built, unreleased. Finding extensions, the manifest (settings,
+adapter, agent variables, agent matching, setup actions), the adapter
+protocol (version 1), the adapter's lifecycle, settings and secrets, the
+inbox tile, agents' ask badges and notifications. The first example is Agention
 ([`extensions/agention/`](../../extensions/agention/README.md)); a fake
 adapter that speaks the protocol is in
 [`extensions/demo-inbox/`](../../extensions/demo-inbox/adapter.mjs).
@@ -54,7 +53,7 @@ the environment variables its manifest lists, shown in Settings.
   needs a newer Pitwall".
 - `id` (required): 1–40 characters, lower-case ASCII letters, digits and
   `-`, starting with a letter, not ending with `-`. It must be the
-  folder's name. It keys the extension's settings and its sidebar group.
+  folder's name. It keys the extension's settings and its inbox tile.
 - `name` (required): one line, at most 40 characters (trimmed).
 - `icon` (optional): the name of one of Pitwall's icons (`kit::icons`;
   `inbox`, `bell` and `chat` were added for extensions). Checked like an
@@ -189,7 +188,7 @@ gets one `result`)
   browser, and only http(s);
 - nothing from an adapter is run, followed or used to pick a file.
 - The adapter is read and written off the UI thread; an adapter that
-  stops, crashes or floods shows why in its sidebar section and in
+  stops, crashes or floods shows why in its inbox tile and in
   Settings, where "Restart" starts it again. Pitwall doesn't restart a
   crashed adapter by itself.
 
@@ -203,14 +202,65 @@ gets one `result`)
   (`docs/settings.schema.json`) describes it. It isn't a `pitwall
   settings` key (the registry has fixed keys; these are the extensions'
   ids); editing `ui.json` applies live, as for other settings.
-- Right-click on its sidebar heading: "Turn off".
+- It is turned off in Settings only. Extensions have no place in the
+  sidebar.
 
-## The sidebar section
-- Each extension that is on gets a section after the projects (and
-  machines), in folder order: a heading shaped like a project's (chevron,
-  its icon, its name; its description in the tooltip). Click folds it;
-  folded is kept in `ui.json` `collapsed` as `ext:<id>`.
-- Not dragged, and not in the narrow icon rail.
+## The inbox tile
+An extension with an adapter has an inbox: a tile of the space's layout,
+a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
+- **Opening it:** ⌘I (Ctrl+Shift+I elsewhere) opens the first
+  extension's inbox that is on; the command palette has "Open <name>
+  inbox" for each. It goes where "Open web page…" puts a page (right of
+  the focused tile, in it when it is empty). One tile per extension:
+  opening it again focuses it. With none on, a toast says where to turn
+  one on.
+- **Kept:** the pane's `inbox` (the extension's id) in `ui.json`, so it
+  is back after a restart, with the thread it showed
+  (`extensions.<id>.selected`).
+- **Layout:** the threads on the left (300 px), the thread on the right,
+  its text at most 720 px wide. Narrower than 620 px, the list, and the
+  thread over it with a back button (Esc).
+- **The list:** "Needs you" (threads with an open ask; its count in the
+  segment) or "All". Blocking ones first, then those that ask, then the
+  latest. Unread: bold with a dot. A count pill of open asks, amber with
+  "waiting" when one blocks the agent. Long titles are cut, the whole in
+  the tooltip. Relative times, the exact one in the tooltip. Archived
+  threads aren't listed (the protocol has no list of them).
+- **The thread:** the agent's messages under its name chip in its
+  Pitwall look (its kind's logo and name, through `matchAgents`), yours
+  on the right. Markdown text, selectable; a message's detail folds
+  under "Show details". An open ask is a card: its question large, its
+  suggestions as buttons (with their descriptions as rows when they have
+  any; a number key each), a field for an answer of your own, Send and
+  Decline; a blocking one in amber with "Waiting on you". Answered asks
+  are one quiet line; withdrawn, closed and declined ones are dimmed. A
+  reply box at the bottom when the adapter allows replies (⌘↵ sends).
+  Opening a thread goes to its first open ask and marks it read.
+- **At once, and back:** an answer, a reply or an archive shows as done
+  as soon as it is sent; if the adapter says it failed it comes back (the
+  ask open again, the reply in the box, the thread in the list) with
+  "Not sent: why" in the thread.
+- **Keys**, only while the tile itself has the keyboard (never while
+  typing in its fields, never in a terminal): ↑↓ or J K go through the
+  threads, Enter opens one, 1–9 pick a suggestion of the first open ask
+  (sent at once; toggled when the ask takes several), E archives, R goes
+  to the reply box, Esc goes back to the list (narrow).
+- **States**, in the tile: off ("Turn it on", Open Settings); a required
+  setting not set ("Connect <name>", what to set, Open Settings); loading
+  (grey rows); signed out or unreachable with no threads (the adapter's
+  message; Open Settings or Restart); stopped (why, Restart); "Nothing
+  needs you". A connection problem while there are threads is a line over
+  the list.
+
+## Agents' ask badges and notifications
+- An agent whose threads (matched through `matchAgents`) have open asks
+  gets a pill on its own sidebar row: an inbox icon and the count, amber
+  when one blocks it. A click opens the inbox at the thread with the
+  oldest open ask. (One call in `agent_row`, `agent_ask_badge`.)
+- A thread with more open asks than in the last list notifies as an
+  agent that needs you does (`platform::notify_attention`: not while
+  Pitwall's window has your attention, never from a bench instance; the
+  first list after a start never notifies).
 
 ## Setup actions
 What "setting up" means for an extension is the manifest's to say, such
@@ -239,7 +289,10 @@ as installing a tool's plugin in the user's agents. Code:
 - In the protocol: an ask's priority and answer-by time, references,
   topics, and replaced messages (an adapter leaves replaced ones out).
 - A badge count on the Dock / taskbar from extensions.
-- Notifications.
+- Marking a thread unread (the protocol has only "mark read"), and a
+  list of archived threads.
+- Dragging the inbox tile to another place (it is closed and opened
+  again instead).
 - Installing from a folder or a link (`pitwall extension install`, a
   Settings row), and watching the folder.
 - View kinds besides the inbox.

@@ -82,7 +82,7 @@ fn sub(text: impl Into<SharedString>) -> Span {
 }
 
 /// Every built-in row (the registry sorts them by rank).
-pub fn commands(pc: &PaletteContext, _: &App) -> Vec<Command> {
+pub fn commands(pc: &PaletteContext, cx: &App) -> Vec<Command> {
     let st = pc.state;
     let q = pc.query;
     let mut out = vec![];
@@ -206,6 +206,19 @@ pub fn commands(pc: &PaletteContext, _: &App) -> Vec<Command> {
         .keys("⌘L")
         .rank(rank::TERMINALS),
     );
+    // Each extension's inbox (the first one on ⌘I).
+    for (i, m) in crate::extensions::inboxes(cx).into_iter().enumerate() {
+        let id = m.id.clone();
+        let cmd = Command::new(
+            format!("inbox-{}", m.id),
+            format!("Open {} inbox", m.name),
+            format!("open inbox questions asks threads extension {}", m.name.to_lowercase()),
+            on_screen(pc, move |s, w, cx| s.open_inbox(Some(&id), None, w, cx)),
+        )
+        .icon("inbox")
+        .rank(rank::TERMINALS);
+        out.push(if i == 0 { cmd.keys("⌘I") } else { cmd });
+    }
     for (path, display) in &st.projects {
         let p = path.clone();
         out.push(

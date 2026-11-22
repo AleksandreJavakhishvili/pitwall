@@ -40,7 +40,7 @@ export function listThread(t) {
   };
 }
 
-// The inbox's totals, for the sidebar heading.
+// The inbox's totals (the counts Pitwall shows).
 export function counts(c) {
   return { type: "counts", unread: c.unread, openAsks: c.open, blocking: c.blocking };
 }

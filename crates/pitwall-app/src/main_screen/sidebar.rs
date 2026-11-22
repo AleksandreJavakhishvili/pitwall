@@ -954,6 +954,8 @@ impl MainScreen {
                                     .child(crate::kit::one_line(a.name.clone()))
                                     .into_any_element(),
                             })
+                            // Open asks in an extension (inbox_tile.rs).
+                            .children(self.agent_ask_badge(a, t, cx))
                             .when(a.engineer, |d| d.child(chip("engineer", t)))
                             .when_some(account, |d, n| d.child(chip(n, t)))
                             // Another machine's Pitwall: watched, not driven.
