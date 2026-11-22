@@ -30,6 +30,8 @@ fn manifest() -> Manifest {
 fn setup(cx: &mut TestAppContext, width: f32) -> (Entity<MainScreen>, Entity<Hub>, &mut VisualTestContext) {
     let h = cx.update(|cx| {
         cx.set_global(crate::theme::Theme::dark());
+        // The fields' own keys first, as at start (⌘↵ sends in one).
+        crate::kit::init(cx);
         init(cx);
         crate::extensions::set_found(vec![Found { folder: "demo".into(), manifest: Ok(manifest()) }], cx);
         crate::extensions::follow(cx);
@@ -85,7 +87,7 @@ fn detail_t1(open: bool) -> serde_json::Value {
 }
 
 fn inbox(view: &Entity<MainScreen>, cx: &mut VisualTestContext) -> Entity<InboxView> {
-    view.read_with(cx, |s, _| s.inbox("demo")).expect("an inbox view")
+    view.read_with(cx, |s, cx| s.inbox("demo", cx)).expect("an inbox view")
 }
 
 fn inbox_panes(view: &Entity<MainScreen>, cx: &mut VisualTestContext) -> usize {
@@ -175,11 +177,10 @@ fn the_inbox_opens_as_a_tile_and_answers_at_once(cx: &mut TestAppContext) {
 
     // The close button: out of the layout.
     let close = cx.debug_bounds("inbox-close").expect("its close button");
-    let _ = close;
-    view.update(cx, |s, cx| s.close_inbox("demo", cx));
+    cx.simulate_click(close.center(), Modifiers::none());
     frame(cx);
     assert_eq!(inbox_panes(&view, cx), 0);
-    assert!(view.read_with(cx, |s, _| s.inbox("demo").is_none()));
+    assert!(view.read_with(cx, |s, cx| s.inbox("demo", cx).is_none()));
 }
 
 #[gpui::test]
@@ -298,4 +299,373 @@ fn a_tile_shows_when_there_are_no_agents(cx: &mut TestAppContext) {
         let c2 = c.clone();
         view.update(cx, |s, cx| s.update_ui(|u| u.undock(&c2), cx));
     }
+}
+
+/// Every key a word or a number is typed with, none of them a tile key
+/// when a field has the keyboard (J, K, E, R, 1–9 are, in the tile).
+const TYPED: &str = "the quick brown fox jumps over a lazy dog 0123456789 JKER";
+
+/// A press in the middle of `which` field ("reply", "other"), as a real
+/// click.
+fn click_field(v: &Entity<InboxView>, which: &str, cx: &mut VisualTestContext) {
+    let field = v.read_with(cx, |v, _| v.debug_field(which)).unwrap_or_else(|| panic!("a {which} field"));
+    let at = field.read_with(cx, |i, _| i.drawn_bounds()).unwrap_or_else(|| panic!("the {which} field is drawn")).center();
+    cx.simulate_click(at, Modifiers::none());
+    frame(cx);
+}
+
+fn field_text(v: &Entity<InboxView>, which: &str, cx: &mut VisualTestContext) -> String {
+    let field = v.read_with(cx, |v, _| v.debug_field(which)).unwrap();
+    field.read_with(cx, |i, _| i.text().to_string())
+}
+
+/// What the adapter was sent that isn't a thread being opened or read.
+fn acted(h: &Entity<Hub>, cx: &mut VisualTestContext) -> Vec<serde_json::Value> {
+    sent(h, cx).into_iter().filter(|m| !matches!(m["type"].as_str(), Some("open" | "read" | "close"))).collect()
+}
+
+/// The inbox open on thread t1 with its ask showing, wide.
+fn on_t1(cx: &mut TestAppContext) -> (Entity<MainScreen>, Entity<Hub>, Entity<InboxView>, &mut VisualTestContext) {
+    let (view, h, cx) = setup(cx, 2000.);
+    connect(&h, cx);
+    cx.dispatch_action(OpenInbox);
+    frame(cx);
+    say(&h, detail_t1(true), cx);
+    let v = inbox(&view, cx);
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t1"));
+    let _ = sent(&h, cx);
+    (view, h, v, cx)
+}
+
+/// The bug: a press in a field gave the keys back to the tile (its own
+/// press came after the field's), so typing ran the tile's keys (J, K
+/// moved, E archived, 1–9 answered) and the rest went nowhere. Typed into
+/// the reply box right after a click: every character is there, and
+/// nothing else happened.
+#[gpui::test]
+fn what_is_typed_in_the_reply_box_goes_in_it(cx: &mut TestAppContext) {
+    let (_, h, v, cx) = on_t1(cx);
+    click_field(&v, "reply", cx);
+    assert!(cx.update(|window, cx| v.read(cx).typing(window, cx)), "the reply box has the keys");
+    cx.simulate_input(TYPED);
+    frame(cx);
+    assert_eq!(field_text(&v, "reply", cx), TYPED);
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t1"), "J and K moved nothing");
+    assert_eq!(acted(&h, cx), Vec::<serde_json::Value>::new(), "nothing archived or answered");
+    assert!(cx.debug_bounds("inbox-row-t1").is_some(), "still listed");
+
+    // The list refreshes under it: the keys stay in the box.
+    connect(&h, cx);
+    cx.simulate_input("!");
+    frame(cx);
+    assert_eq!(field_text(&v, "reply", cx), format!("{TYPED}!"));
+
+    // Sent with ⌘↵: the box is empty and still has the keys.
+    cx.simulate_keystrokes("cmd-enter");
+    frame(cx);
+    let s = acted(&h, cx);
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!((s[0]["type"].as_str(), s[0]["text"].as_str()), (Some("message"), Some(format!("{TYPED}!").as_str())));
+    cx.simulate_input(TYPED);
+    frame(cx);
+    assert_eq!(field_text(&v, "reply", cx), TYPED);
+    assert_eq!(acted(&h, cx), Vec::<serde_json::Value>::new());
+
+    // Esc gives the keys back to the tile: J moves again.
+    cx.simulate_keystrokes("escape");
+    frame(cx);
+    assert!(cx.update(|window, cx| !v.read(cx).typing(window, cx) && v.read(cx).focus_handle(cx).is_focused(window)));
+    v.update(cx, |v, cx| v.set_filter(Filter::All, cx));
+    frame(cx);
+    cx.simulate_keystrokes("j");
+    frame(cx);
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t2"), "the tile's keys again");
+}
+
+/// The same in an ask's "write your own answer" field, and after the
+/// answer is sent.
+#[gpui::test]
+fn what_is_typed_as_your_own_answer_goes_in_it(cx: &mut TestAppContext) {
+    let (_, h, v, cx) = on_t1(cx);
+    click_field(&v, "other", cx);
+    cx.simulate_input(TYPED);
+    frame(cx);
+    assert_eq!(field_text(&v, "other", cx), TYPED);
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t1"));
+    assert_eq!(acted(&h, cx), Vec::<serde_json::Value>::new(), "1–9 picked nothing");
+
+    // After the list refreshes.
+    connect(&h, cx);
+    say(&h, detail_t1(true), cx);
+    cx.simulate_input("7");
+    frame(cx);
+    assert_eq!(field_text(&v, "other", cx), format!("{TYPED}7"));
+
+    // ↵ answers with it; its card goes, the keys back to the tile.
+    cx.simulate_keystrokes("enter");
+    frame(cx);
+    let s = acted(&h, cx);
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!((s[0]["type"].as_str(), s[0]["text"].as_str()), (Some("answer"), Some(format!("{TYPED}7").as_str())), "{s:?}");
+    assert!(cx.update(|window, cx| v.read(cx).focus_handle(cx).is_focused(window)), "the tile has the keys");
+    // Then the reply box takes typing as before.
+    click_field(&v, "reply", cx);
+    cx.simulate_input(TYPED);
+    frame(cx);
+    assert_eq!(field_text(&v, "reply", cx), TYPED);
+    assert_eq!(acted(&h, cx), Vec::<serde_json::Value>::new());
+}
+
+/// ⌘⏎ maximises the inbox as any tile: after ⌘I, and after a click in
+/// it (it becomes the space's focused tile, with a focused border); its
+/// bar's button does the same.
+#[gpui::test]
+fn the_inbox_tile_takes_part_in_the_tile_keys(cx: &mut TestAppContext) {
+    let (view, h, cx) = setup(cx, 2000.);
+    connect(&h, cx);
+    cx.dispatch_action(OpenInbox);
+    frame(cx);
+    let pane = view.read_with(cx, |s, _| s.active_space().unwrap().layout.leaves().iter().find(|p| p.inbox.is_some()).unwrap().id.clone());
+    let space = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| view.read_with(cx, |s, _| s.active_space().cloned().unwrap());
+    assert_eq!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "⌘I focuses its tile");
+    cx.simulate_keystrokes("cmd-enter");
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()), "maximised");
+    assert!(cx.debug_bounds("inbox-row-t1").is_some(), "drawn maximised");
+    cx.simulate_keystrokes("cmd-enter");
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id, None, "restored");
+
+    // The terminal focused, then a click in the inbox's list: its tile.
+    view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
+    frame(cx);
+    assert_ne!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()));
+    let empty = cx.debug_bounds("inbox-bar").expect("its bar");
+    cx.simulate_click(gpui::point(empty.left() + gpui::px(200.), empty.center().y), Modifiers::none());
+    frame(cx);
+    assert_eq!(space(&view, cx).focused_pane_id.as_deref(), Some(pane.as_str()), "a click focuses its tile");
+    cx.simulate_keystrokes("cmd-enter");
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()));
+    // Its bar's Restore / Maximise.
+    let b = cx.debug_bounds("inbox-maximize").expect("its maximise button");
+    cx.simulate_click(b.center(), Modifiers::none());
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id, None);
+    let b = cx.debug_bounds("inbox-maximize").unwrap();
+    cx.simulate_click(b.center(), Modifiers::none());
+    frame(cx);
+    assert_eq!(space(&view, cx).maximized_pane_id.as_deref(), Some(pane.as_str()));
+}
+
+/// An inbox's place in a window of its own is kept in `ui.json`, and
+/// gone with it when it is closed.
+#[test]
+fn an_inbox_in_a_window_is_kept_in_ui_json() {
+    let raw = json!({"v": 1, "spaces": [{"id": "s1", "name": "All", "kind": "all", "members": [], "layout": {"type": "pane", "id": "p1", "agentId": null, "inbox": "demo"}}],
+        "extensions": {"demo": {"enabled": true, "selected": "t9"}}});
+    let ui = crate::ui_state::UiState::sanitize(raw).inbox_to_window("demo");
+    assert!(ui.tile_of(&Content::Inbox("demo".into())).is_none(), "out of the layout");
+    let back = serde_json::to_value(&ui).unwrap();
+    assert_eq!(back["extensions"]["demo"]["window"], true);
+    assert_eq!(back["extensions"]["demo"]["selected"], "t9", "its thread kept");
+    let again = crate::ui_state::UiState::sanitize(back);
+    assert!(again.extension("demo").window);
+    let (docked, at) = again.clone().inbox_to_layout("s1", "demo", &super::workspace::FilesSpot::Auto, None);
+    assert!(at.is_some());
+    assert!(!docked.extension("demo").window && docked.tile_of(&Content::Inbox("demo".into())).is_some());
+    let closed = again.close_inbox("demo");
+    assert!(!closed.extension("demo").window && closed.extension("demo").enabled, "closed, still on");
+    assert!(serde_json::to_value(&closed).unwrap()["extensions"]["demo"].get("window").is_none());
+}
+
+// ── moved between windows ────────────────────────────────────────────────
+
+struct Main(Option<gpui::WindowHandle<crate::ui::MainView>>, Entity<AgentStore>);
+
+impl gpui::Global for Main {}
+
+fn show_main(cx: &mut gpui::App) -> gpui::WindowHandle<crate::ui::MainView> {
+    if let Some(h) = cx.global::<Main>().0 {
+        if cx.windows().iter().any(|w| w.window_id() == h.window_id()) {
+            return h;
+        }
+    }
+    let store = cx.global::<Main>().1.clone();
+    let h = cx.open_window(Default::default(), |window, cx| cx.new(|cx| crate::ui::MainView::new(crate::ui::Content::Live { store }, None, window, cx))).unwrap();
+    cx.global_mut::<Main>().0 = Some(h);
+    h
+}
+
+/// Pitwall's windows (main, agents api and web side by side in a space of
+/// it) with the demo extension on and its adapter connected; the inbox
+/// opened with ⌘I. The space's id and the hub.
+fn app(cx: &mut TestAppContext) -> (String, Entity<Hub>) {
+    let h = cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::kit::init(cx);
+        init(cx);
+        crate::ui_state::init(None, cx);
+        crate::extensions::set_found(vec![Found { folder: "demo".into(), manifest: Ok(manifest()) }], cx);
+        crate::extensions::follow(cx);
+        crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("demo", true));
+        let store = cx.new(|_| AgentStore::new(vec![agent("api", "/work/alpha", "idle", 1, true), agent("web", "/work/alpha", "idle", 2, true)]));
+        cx.set_global(Main(None, store.clone()));
+        cx.set_global(crate::AppState { host: None, content: crate::ui::Content::Live { store: store.clone() }, root: None, main: None });
+        crate::windows::init(crate::ui::Content::Live { store }, None, show_main, cx);
+        show_main(cx);
+        crate::windows::restore(cx);
+        hub::hub(cx)
+    });
+    cx.run_until_parked();
+    let space = cx.update(|cx| {
+        let (ui, id) = crate::ui_state::get(cx).create_custom_space(crate::windows::MAIN);
+        let ui = ui.place_agent(&id, "api", None, None).place_agent(&id, "web", None, Some(super::tree::Side::Right));
+        crate::ui_state::update(cx, |s| *s = ui);
+        let sid = id.clone();
+        main_screen(cx).update(cx, |s, cx| s.show_space(&sid, cx));
+        id
+    });
+    frames(cx);
+    let _ = h.read_with(cx, |h, _| h.ends.get("demo").map(|e| e.sent()));
+    for line in [
+        json!({"type": "hello", "protocol": 1}),
+        json!({"type": "status", "state": "ready"}),
+        json!({"type": "threads", "threads": [{"id": "t1", "title": "Which database?", "from": {"agent": "alpha", "session": "web"}, "unread": 1, "openAsks": 1, "blocking": true, "lastActivity": "2026-01-02T10:00:00Z"}]}),
+    ] {
+        h.read_with(cx, |h, _| h.ends["demo"].say(line));
+        frames(cx);
+    }
+    let main = cx.update(|cx| crate::windows::main_window(crate::windows::MAIN, cx).unwrap());
+    // At thread t1 (as from web's ask badge).
+    main.update(cx, |v, window, cx| v.screen().unwrap().update(cx, |s, cx| s.open_inbox(None, Some("t1"), window, cx))).unwrap();
+    frames(cx);
+    (space, h)
+}
+
+fn main_screen(cx: &mut gpui::App) -> Entity<MainScreen> {
+    let h = crate::windows::main_window(crate::windows::MAIN, cx).unwrap();
+    h.update(cx, |v, _, _| v.screen().unwrap()).unwrap()
+}
+
+fn frames(cx: &mut TestAppContext) {
+    for _ in 0..2 {
+        cx.update(|cx| {
+            for w in cx.windows() {
+                let _ = w.update(cx, |_, window, _| window.refresh());
+            }
+        });
+        cx.run_until_parked();
+    }
+}
+
+fn inbox_tiles(cx: &mut TestAppContext) -> usize {
+    cx.update(|cx| crate::ui_state::get(cx).spaces.iter().map(|s| s.layout.leaves().iter().filter(|p| p.inbox.is_some()).count()).sum())
+}
+
+/// Out into a window of its own and back, and moved in the layout: the
+/// same inbox throughout (its view, its thread, the adapter: nothing
+/// opened again), never two. ⌘I finds it in its window.
+#[gpui::test]
+fn the_inbox_moves_to_a_window_and_back_as_the_same_inbox(cx: &mut TestAppContext) {
+    let (space, h) = app(cx);
+    assert_eq!(inbox_tiles(cx), 1);
+    let v = cx.update(|cx| super::inbox_tile::get("demo", cx)).expect("its view");
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t1"));
+    let started = h.read_with(cx, |h, _| h.get("demo").map(|s| s.run.clone()));
+    let _ = h.read_with(cx, |h, _| h.ends["demo"].sent());
+    let same = |cx: &mut TestAppContext| cx.update(|cx| super::inbox_tile::get("demo", cx)).map(|e| e.entity_id()) == Some(v.entity_id());
+
+    // The bar's "Open in a window of its own".
+    cx.update(|cx| super::inbox_window::pop_out("demo", None, true, cx)).expect("popped out");
+    frames(cx);
+    cx.update(|cx| {
+        assert!(crate::windows::inbox_window("demo", cx).is_some(), "a window");
+        assert!(crate::ui_state::get(cx).extension("demo").window, "kept in ui.json");
+        assert_eq!(super::inbox_window::described("demo", cx), "a window of its own");
+    });
+    assert_eq!(inbox_tiles(cx), 0, "out of the layout");
+    assert!(same(cx), "the same view");
+    // ⌘I (the palette's "Open … inbox" is the same call) finds it there.
+    let main = cx.update(|cx| crate::windows::main_window(crate::windows::MAIN, cx).unwrap());
+    main.update(cx, |v, window, cx| v.screen().unwrap().update(cx, |s, cx| s.open_inbox(Some("demo"), None, window, cx))).unwrap();
+    frames(cx);
+    assert_eq!(inbox_tiles(cx), 0, "not placed again");
+    let w = cx.update(|cx| crate::windows::inbox_window("demo", cx)).unwrap();
+    let focused = w.update(cx, |_, window, cx| v.read(cx).focus_handle(cx).is_focused(window)).unwrap();
+    assert!(focused, "its window's inbox has the keys");
+
+    // Dock…: right of api's terminal; the window closes.
+    cx.update(|cx| super::inbox_window::place("demo", crate::explorer::dock::FilesPlace::Next(super::tree::Side::Right), Some("api"), cx)).expect("docked");
+    frames(cx);
+    cx.update(|cx| {
+        assert!(crate::windows::inbox_window("demo", cx).is_none(), "its window closed");
+        let ui = crate::ui_state::get(cx);
+        assert!(!ui.extension("demo").window);
+        assert_eq!(ui.tile_of(&Content::Inbox("demo".into())).map(|(s, _)| s), Some(space.clone()));
+        let at = super::inbox_window::described("demo", cx);
+        assert!(at.contains("between api's and web's terminals"), "{at}");
+    });
+    assert_eq!(inbox_tiles(cx), 1);
+    assert!(same(cx));
+    // Moved in the layout: a column at the right edge; in web's place.
+    for (place, of, words) in [
+        (crate::explorer::dock::FilesPlace::Edge(super::tree::Side::Right), None, "right of web's terminal"),
+        (crate::explorer::dock::FilesPlace::Replace, Some("web"), "in place of web's terminal"),
+    ] {
+        let at = cx.update(|cx| super::inbox_window::place("demo", place, of, cx)).expect("moved");
+        frames(cx);
+        assert!(at.contains(words), "{at}");
+        assert_eq!(inbox_tiles(cx), 1, "never two");
+        assert!(same(cx));
+    }
+    // A tile's bar dragged out of every window, let go: a window there.
+    let r = cx.update(|cx| crate::explorer::drag::finish_what(&Content::Inbox("demo".into()), gpui::point(gpui::px(-5000.), gpui::px(-5000.)), crate::explorer::drag::From::Tile, cx));
+    assert_eq!(r.expect("moved").as_deref(), Some("a window of its own"));
+    frames(cx);
+    assert!(cx.update(|cx| crate::windows::inbox_window("demo", cx).is_some()));
+    assert!(same(cx));
+
+    // Through all of it: the adapter never restarted, the thread never
+    // opened again, still t1.
+    assert_eq!(h.read_with(cx, |h, _| h.get("demo").map(|s| s.run.clone())), started);
+    let s = h.read_with(cx, |h, _| h.ends["demo"].sent());
+    assert!(!s.iter().any(|m| m["type"] == "open" || m["type"] == "close"), "{s:?}");
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t1"));
+
+    // Its window closed by the user: the inbox closes.
+    cx.update(|cx| super::inbox_tile::close("demo", cx));
+    frames(cx);
+    cx.update(|cx| {
+        assert!(crate::windows::inbox_window("demo", cx).is_none());
+        assert!(super::inbox_tile::get("demo", cx).is_none());
+        assert!(!crate::ui_state::get(cx).extension("demo").window);
+    });
+}
+
+/// An inbox left in a window of its own opens in one again at the next
+/// start.
+#[gpui::test]
+fn an_inbox_in_a_window_comes_back_after_a_restart(cx: &mut TestAppContext) {
+    let _ = app(cx);
+    cx.update(|cx| super::inbox_window::pop_out("demo", None, false, cx)).expect("popped out");
+    frames(cx);
+    // "Restarted": the window and the view gone from memory, ui.json kept.
+    cx.update(|cx| {
+        if let Some(h) = crate::windows::inbox_window("demo", cx) {
+            let _ = h.update(cx, |w, window, _| {
+                w.closing();
+                window.remove_window();
+            });
+        }
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert!(crate::windows::inbox_window("demo", cx).is_none());
+        assert!(crate::ui_state::get(cx).extension("demo").window);
+    });
+    cx.update(super::inbox_window::restore);
+    frames(cx);
+    cx.update(|cx| assert!(crate::windows::inbox_window("demo", cx).is_some(), "open again"));
+    assert_eq!(inbox_tiles(cx), 0);
 }

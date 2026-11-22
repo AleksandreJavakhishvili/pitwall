@@ -79,6 +79,11 @@
             },
             "description": "Its plain settings (such as a server address), by key.",
             "type": "object"
+          },
+          "window": {
+            "default": false,
+            "description": "Its inbox is in a window of its own, opened again at the next start.",
+            "type": "boolean"
           }
         },
         "type": "object"

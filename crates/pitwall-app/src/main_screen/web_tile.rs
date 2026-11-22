@@ -25,7 +25,8 @@ use super::tree::Content;
 use super::workspace::{FilesSpot, WebTile};
 use super::MainScreen;
 use crate::theme::Theme;
-use crate::web::page::{calm, Host, HostKind, WebDrag, WebPage};
+use super::files_tile::TileDrag;
+use crate::web::page::{calm, Host, HostKind, WebPage};
 use crate::web::pages;
 
 pub use crate::web::page::{enabled, SETTING};
@@ -270,18 +271,18 @@ impl MainScreen {
 
     // ── dragging a tile ──────────────────────────────────────────────────
 
-    /// The main area as where a dragged web tile lands: its drop zones
-    /// shown as it moves ([`MainScreen::tile_hover`]), the layout changed
-    /// when it is let go.
-    pub(super) fn web_drop_target<E: InteractiveElement + 'static>(&self, el: E, cx: &mut Context<Self>) -> E {
-        el.on_drag_move::<WebDrag>(cx.listener(|this, e: &DragMoveEvent<WebDrag>, _, cx| {
-            let what = Content::Web(e.drag(cx).id.clone());
+    /// The main area as where a dragged web or inbox tile lands: its drop
+    /// zones shown as it moves ([`MainScreen::tile_hover`]), the layout
+    /// changed when it is let go.
+    pub(super) fn tile_drop_target<E: InteractiveElement + 'static>(&self, el: E, cx: &mut Context<Self>) -> E {
+        el.on_drag_move::<TileDrag>(cx.listener(|this, e: &DragMoveEvent<TileDrag>, _, cx| {
+            let what = e.drag(cx).what.clone();
             if this.tile_hover(&what, e.event.position, cx).is_none() {
                 this.clear_files_hover(cx);
             }
         }))
-        .on_drop(cx.listener(|this, d: &WebDrag, _, cx| {
-            let what = Content::Web(d.id.clone());
+        .on_drop(cx.listener(|this, d: &TileDrag, _, cx| {
+            let what = d.what.clone();
             let hint = this.files_hint.take().filter(|h| h.what == what);
             cx.notify();
             let (Some(h), Some(space)) = (hint, this.active_space().map(|s| s.id.clone())) else { return };

@@ -152,8 +152,26 @@ pub fn open(id: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) -> R
     let url = kept.web_tiles.get(id).map(|t| t.url.clone()).unwrap_or_default();
     let page_title = super::pages::get(id, cx).map(|p| p.read(cx).title().to_string()).unwrap_or_default();
     let nth = crate::windows::web_window_ids(cx).len();
+    let options = options(kept.web_window, nth, at, focus, title(&page_title, &url), cx);
+    let i = id.to_string();
+    let handle = cx
+        .open_window(options, move |window, cx| {
+            crate::platform::lean_renderer(window);
+            cx.new(|cx| WebWindow::new(i, window, cx))
+        })
+        .map_err(|e| e.to_string())?;
+    crate::windows::add_web_window(id, handle, cx);
+    Ok(handle)
+}
+
+/// A window of its own for a tile's content (a web page, an inbox): its
+/// top left at `at` on screen (a tile let go outside), else where the
+/// last one was (`kept`), cascaded from it as the `nth`; titled `title`.
+/// It takes the keyboard only when `focus`; a bench instance's is off
+/// screen and never focused.
+pub fn options(kept: Option<[f64; 4]>, nth: usize, at: Option<Point<Pixels>>, focus: bool, title: String, cx: &mut App) -> WindowOptions {
     let screens: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
-    let bounds = match (crate::explorer::window::placement(kept.web_window, nth, &screens), at) {
+    let bounds = match (crate::explorer::window::placement(kept, nth, &screens), at) {
         (b, Some(at)) => {
             let size = b.map_or(size(px(DEFAULT_SIZE.0), px(DEFAULT_SIZE.1)), |b| b.size);
             WindowBounds::Windowed(Bounds::new(crate::explorer::window::dropped_at(at, size, &screens), size))
@@ -174,25 +192,16 @@ pub fn open(id: &str, at: Option<Point<Pixels>>, focus: bool, cx: &mut App) -> R
     } else {
         (bounds, focus)
     };
-    let options = WindowOptions {
+    WindowOptions {
         window_bounds: Some(bounds),
-        titlebar: Some(TitlebarOptions { title: Some(title(&page_title, &url).into()), ..Default::default() }),
+        titlebar: Some(TitlebarOptions { title: Some(title.into()), ..Default::default() }),
         focus,
         show: true,
         window_min_size: Some(size(px(MIN_SIZE.0), px(MIN_SIZE.1))),
         window_decorations: crate::platform::decorations::request(),
         app_id: Some("dev.pitwall.app".into()),
         ..Default::default()
-    };
-    let i = id.to_string();
-    let handle = cx
-        .open_window(options, move |window, cx| {
-            crate::platform::lean_renderer(window);
-            cx.new(|cx| WebWindow::new(i, window, cx))
-        })
-        .map_err(|e| e.to_string())?;
-    crate::windows::add_web_window(id, handle, cx);
-    Ok(handle)
+    }
 }
 
 /// At start: the pages left in windows of their own open in one again,

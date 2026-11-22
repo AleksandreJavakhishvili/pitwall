@@ -17,8 +17,9 @@
 //! with [`register_route`] for their views, [`TerminalSlot`] for the
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
-mod files_tile;
+pub(crate) mod files_tile;
 pub mod inbox_tile;
+pub mod inbox_window;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -541,8 +542,6 @@ pub struct MainScreen {
     parts: Option<part::Parts>,
     /// The window's web tiles: pages and agents' Previews (web_tile.rs).
     webs: web_tile::Webs,
-    /// The window's inbox tiles, by extension (inbox_tile.rs).
-    inboxes: std::collections::HashMap<String, Entity<inbox_tile::InboxView>>,
     /// Where dragged files would land (`files_tile.rs`), and the boxes
     /// the last frame drew (to find it).
     files_hint: Option<files_tile::FilesHint>,
@@ -690,7 +689,6 @@ impl MainScreen {
             _poll_elsewhere: None,
             parts: None,
             webs: Default::default(),
-            inboxes: Default::default(),
             files_hint: None,
             files_boxes: Default::default(),
             #[cfg(test)]

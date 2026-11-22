@@ -15,13 +15,28 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{canvas, div, prelude::*, px, AnyElement, App, Bounds, Context, DragMoveEvent, FontWeight, Pixels, Point, SharedString, Window};
+use gpui::{canvas, div, prelude::*, px, AnyElement, App, AppContext, Bounds, Context, DragMoveEvent, FontWeight, Pixels, Point, SharedString, Window};
 
 use super::topbar::AgentDrag;
 use super::tree::{self, Content, Side};
 use super::workspace::FilesSpot;
 use super::MainScreen;
 use crate::theme::Theme;
+
+/// A web or inbox tile dragged by its bar within a Pitwall window (GPUI's
+/// drag; the space's area is where it lands: `MainScreen::tile_drop_target`).
+#[derive(Clone, Debug)]
+pub struct TileDrag {
+    pub what: Content,
+    pub name: SharedString,
+}
+
+impl TileDrag {
+    pub fn ghost(&self, grab: Point<Pixels>, _: &mut Window, cx: &mut App) -> gpui::Entity<super::topbar::AgentGhost> {
+        let name = self.name.clone();
+        cx.new(|_| super::topbar::AgentGhost::named(name, grab))
+    }
+}
 
 /// What a tile shows (where files may go on it).
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +69,10 @@ impl Boxes {
     }
     fn set_pane(&self, id: &str, b: Bounds<Pixels>, kind: Kind) {
         self.0.borrow_mut().panes.insert(id.to_string(), (b, kind));
+    }
+    /// Tile `id`'s box as the last frame drew it.
+    pub fn pane(&self, id: &str) -> Option<Bounds<Pixels>> {
+        self.0.borrow().panes.get(id).map(|(b, _)| *b)
     }
     fn get(&self) -> (Option<Bounds<Pixels>>, Vec<PaneBox>) {
         let g = self.0.borrow();
@@ -302,6 +321,12 @@ impl MainScreen {
     ) -> AnyElement {
         let hint = self.drop_hint.as_ref().filter(|(p, _)| p == pane).and_then(|(_, z)| *z);
         let (move_id, drop_id) = (pane.to_string(), pane.to_string());
+        // An inbox takes part in the tile keys as a terminal does: a press
+        // anywhere in it (its controls too) makes it the space's focused
+        // tile (⌘⏎ maximises it), shown by its border.
+        let focusable = matches!(what, Content::Inbox(_));
+        let focused = focusable && self.active_space().and_then(|s| s.focused_pane_id.as_deref()) == Some(pane);
+        let focus_id = pane.to_string();
         div()
             .id(SharedString::from(format!("pane-{pane}")))
             .debug_selector(move || selector.clone())
@@ -315,7 +340,22 @@ impl MainScreen {
             .overflow_hidden()
             .bg(t.bg)
             .border_1()
-            .border_color(if t.is_glass() { t.g.line_strong } else { t.line })
+            .border_color(if focused {
+                t.text_4
+            } else if t.is_glass() {
+                t.g.line_strong
+            } else {
+                t.line
+            })
+            .when(focusable, |d| {
+                d.capture_any_mouse_down(cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                    if e.button == gpui::MouseButton::Left && this.active_space().and_then(|s| s.focused_pane_id.as_deref()) != Some(focus_id.as_str()) {
+                        let p = focus_id.clone();
+                        this.with_active(|s, id| s.focus_pane(id, &p), cx);
+                        this.changes_follow(cx);
+                    }
+                }))
+            })
             .child(self.files_measure(pane, Kind::Tile(what)))
             // An agent dragged here: on a side only (the tile stays).
             .on_drag_move::<AgentDrag>(cx.listener(move |this, e: &DragMoveEvent<AgentDrag>, _, cx| {
