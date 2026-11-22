@@ -44,8 +44,12 @@ impl SecretStore for Memory {
     }
 }
 
-/// The system's store.
+/// The system's store (in memory for a bench instance: it never touches
+/// the user's keychain).
 pub fn system() -> Arc<dyn SecretStore> {
+    if crate::bench::enabled() {
+        return Arc::new(Memory::default());
+    }
     #[cfg(target_os = "macos")]
     {
         Arc::new(super::secrets_macos::Keychain)

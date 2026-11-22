@@ -81,7 +81,6 @@ impl SettingsView {
                 v.push(Part::section("elsewhere", |_, ui, _, cx| any(Self::elsewhere(ui, cx))));
                 v.push(Part::section("floating", |_, ui, _, cx| any(Self::floating(ui, cx))));
                 v.push(Part::section("web-pages", |_, ui, _, cx| any(Self::web_pages(ui, cx))));
-                v.push(Part::section("extensions", |s, ui, _, cx| any(s.extensions(ui, cx))));
                 v.push(Part::section("cli", |s, ui, _, cx| any(s.cli(ui, cx))));
                 v
             }
@@ -99,6 +98,7 @@ impl SettingsView {
                 Part::section("git", |s, ui, _, cx| any(s.git_section(ui, cx))),
                 Part::section("browser-profiles", |s, ui, _, cx| any(s.web_section(ui, cx))),
             ],
+            Page::Extensions => self.extension_parts(cx),
             Page::Rules => {
                 let extra = cx.try_global::<ExtraSections>().map(|s| s.0.clone()).unwrap_or_default();
                 if extra.is_empty() {

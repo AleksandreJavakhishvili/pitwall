@@ -143,7 +143,7 @@ pub struct SettingsView {
     pub(super) error: Option<String>,
     /// Agents → Race Engineer.
     pub(super) engineer: super::engineer::Section,
-    /// General → Extensions.
+    /// Extensions.
     pub(super) exts: super::extensions::Section,
     /// Accounts: agent logins and git identities.
     pub(super) accounts: super::accounts::Section,
@@ -197,7 +197,7 @@ pub fn step(p: Page, delta: i32) -> Page {
 
 impl SettingsView {
     /// The page scrolled to its end (bench commands).
-    pub(super) fn scroll_to_end(&self) {
+    pub fn scroll_to_end(&self) {
         let n = self.list.item_count();
         self.list.scroll_to_reveal_item(n.saturating_sub(1));
     }
@@ -658,7 +658,8 @@ mod tests {
         assert_eq!(step(Page::General, 1), Page::Agents);
         assert_eq!(step(Page::General, -1), Page::About);
         assert_eq!(step(Page::About, 1), Page::General);
-        assert_eq!(step(Page::Rules, -1), Page::Accounts);
+        assert_eq!(step(Page::Rules, -1), Page::Extensions);
+        assert_eq!(step(Page::Accounts, 1), Page::Extensions);
     }
 
     #[test]

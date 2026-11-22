@@ -29,6 +29,9 @@ pub enum Page {
     Agents,
     /// Logins: agent accounts and their usage, git identities.
     Accounts,
+    /// Extensions: those installed (each with its switch, settings and
+    /// setup actions) and those Pitwall ships (docs/spec/extensions.md).
+    Extensions,
     Rules,
     Appearance,
     FolderAccess,
@@ -38,7 +41,7 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 8] = [Page::General, Page::Agents, Page::Accounts, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
+    pub const ALL: [Page; 9] = [Page::General, Page::Agents, Page::Accounts, Page::Extensions, Page::Rules, Page::Appearance, Page::FolderAccess, Page::Peers, Page::About];
 
     /// The id in `ui.json` (`settingsPage`) and the CLI.
     pub fn id(self) -> &'static str {
@@ -46,6 +49,7 @@ impl Page {
             Page::General => "general",
             Page::Agents => "agents",
             Page::Accounts => "accounts",
+            Page::Extensions => "extensions",
             Page::Rules => "rules",
             Page::Appearance => "appearance",
             Page::FolderAccess => "folderAccess",
@@ -59,6 +63,7 @@ impl Page {
             Page::General => "General",
             Page::Agents => "Agents",
             Page::Accounts => "Accounts",
+            Page::Extensions => "Extensions",
             Page::Rules => "Rules & skills",
             Page::Appearance => "Appearance",
             Page::FolderAccess => "Folder access",
@@ -158,7 +163,7 @@ pub const PAGE_KEY: &str = "settingsPage";
 pub const EXTENSIONS_KEY: &str = "extensions";
 
 /// What `extensions` in `ui.json` holds (the schema and the reference).
-pub const EXTENSIONS_TEXT: &str = "Extensions (Settings → General → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.";
+pub const EXTENSIONS_TEXT: &str = "Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.";
 
 /// Every setting, in the order of the Settings pages.
 pub const SETTINGS: &[Setting] = &[
@@ -609,7 +614,8 @@ pub fn json_schema() -> Value {
                     "enabled": { "type": "boolean", "default": false, "description": "The extension is on: its adapter runs and its inbox can be opened." },
                     "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Its plain settings (such as a server address), by key." },
                     "secretsSet": { "type": "array", "items": { "type": "string" }, "description": "The keys of its secrets that are set. The secrets are in the system's secure store, never in this file." },
-                    "selected": { "type": "string", "description": "The thread its inbox tile shows." }
+                    "selected": { "type": "string", "description": "The thread its inbox tile shows." },
+                    "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked)." }
                 },
                 "additionalProperties": true
             }
@@ -656,6 +662,9 @@ mod tests {
         for p in Page::ALL {
             assert_eq!(Page::parse(p.id()), Some(p));
         }
+        // Extensions has a tab of its own, after Accounts.
+        let at = Page::ALL.iter().position(|p| *p == Page::Extensions).expect("an Extensions tab");
+        assert_eq!((Page::ALL[at - 1], Page::Extensions.label()), (Page::Accounts, "Extensions"));
     }
 
     #[test]

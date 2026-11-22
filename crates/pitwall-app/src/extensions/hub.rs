@@ -191,7 +191,7 @@ pub fn missing(m: &Manifest, prefs: &crate::main_screen::workspace::ExtensionPre
     if gone.is_empty() {
         return Ok(());
     }
-    Err(format!("Set {} in Settings → General → Extensions.", gone.join(" and ")))
+    Err(format!("Set {} in Settings → Extensions.", gone.join(" and ")))
 }
 
 impl Hub {

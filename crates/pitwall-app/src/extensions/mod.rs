@@ -1,6 +1,6 @@
 //! Extensions in the app (docs/spec/extensions.md): the folders of
 //! `<data>/extensions/` ([`pitwall_core::extensions`]), read when Pitwall
-//! starts and again from Settings → General → Extensions ("Look again").
+//! starts and again from Settings → Extensions ("Look again").
 //! One that is on (`ui.json` `extensions.<id>.enabled`, off until the user
 //! turns it on) has its adapter run ([`hub`]) while it is on; its threads
 //! show in its inbox tile (`main_screen::inbox_tile`), and an agent's open
@@ -8,6 +8,7 @@
 
 pub mod actions;
 pub mod adapter;
+pub mod catalog;
 pub mod hub;
 
 use std::path::PathBuf;
@@ -19,11 +20,13 @@ use pitwall_core::extensions::{discover, Found, Manifest};
 
 use crate::platform::secrets::SecretStore;
 
-/// The extensions found, and the folder they were looked for in.
+/// The extensions found, the folder they were looked for in, and the
+/// folder of those the app ships ([`catalog`]).
 #[derive(Clone, Default)]
 pub struct Installed {
     pub dir: Option<PathBuf>,
     pub found: Rc<Vec<Found>>,
+    pub bundle: Option<PathBuf>,
 }
 
 impl Global for Installed {}
@@ -245,14 +248,14 @@ pub const DEFAULT_ICON: &str = "extension";
 pub fn init(root: Option<PathBuf>, cx: &mut App) {
     let dir = root.map(|r| pitwall_core::paths::Paths::new(r).extensions_dir());
     let found = dir.as_deref().map(discover).unwrap_or_default();
-    cx.set_global(Installed { dir, found: Rc::new(found) });
+    cx.set_global(Installed { dir, found: Rc::new(found), bundle: catalog::locate() });
 }
 
 /// Look in the extensions folder again (Settings → "Look again").
 pub fn rescan(cx: &mut App) {
-    let dir = cx.try_global::<Installed>().and_then(|i| i.dir.clone());
-    let found = dir.as_deref().map(discover).unwrap_or_default();
-    cx.set_global(Installed { dir, found: Rc::new(found) });
+    let mut i = cx.try_global::<Installed>().cloned().unwrap_or_default();
+    i.found = Rc::new(i.dir.as_deref().map(discover).unwrap_or_default());
+    cx.set_global(i);
 }
 
 /// Every extension folder found, usable or not.
@@ -278,7 +281,8 @@ pub fn icon_of(m: &Manifest) -> &str {
 /// Tests: these extensions found (no folder read).
 #[cfg(test)]
 pub fn set_found(found: Vec<Found>, cx: &mut App) {
-    cx.set_global(Installed { dir: None, found: Rc::new(found) });
+    let bundle = cx.try_global::<Installed>().and_then(|i| i.bundle.clone());
+    cx.set_global(Installed { dir: None, found: Rc::new(found), bundle });
 }
 
 /// Tests: every extension in the repo's `extensions/` folder, its

@@ -571,11 +571,14 @@ impl InboxView {
     fn state(&self, m: &Manifest, st: Option<&hub::ExtState>, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
         let ext = self.ext.clone();
         let settings = |id: &'static str, label: &'static str, t: &Theme| {
-            kit::text_button(id, label, kit::BtnKind::Primary, false, t).debug_selector(move || id.into()).on_click(|_, window, cx| window.dispatch_action(Box::new(crate::menu::OpenSettings), cx))
+            kit::text_button(id, label, kit::BtnKind::Primary, false, t).debug_selector(move || id.into()).on_click(|_, window, cx| {
+                to_extensions_page(cx);
+                window.dispatch_action(Box::new(crate::menu::OpenSettings), cx)
+            })
         };
         let run = st.map(|s| s.run.clone()).unwrap_or_default();
         let el = match run {
-            Run::Off if !crate::ui_state::get(cx).extension_on(&m.id) => calm("extension", &format!("{} is off", m.name), "Turn it on in Settings → General → Extensions.".into(), t).child(settings("inbox-settings", "Open Settings", t)),
+            Run::Off if !crate::ui_state::get(cx).extension_on(&m.id) => calm("extension", &format!("{} is off", m.name), "Turn it on in Settings → Extensions.".into(), t).child(settings("inbox-settings", "Open Settings", t)),
             Run::Off => calm("alert", "It has no adapter", "This extension has nothing to show here.".into(), t),
             Run::Setup(why) => calm("lock", &format!("Connect {}", m.name), why, t).child(settings("inbox-connect", "Open Settings", t)),
             Run::Stopped(why) => {
@@ -584,7 +587,7 @@ impl InboxView {
                     Some((h, s)) => (h.to_string(), Some(s.to_string())),
                     None => (why, None),
                 };
-                calm("alert", &format!("{} stopped", m.name), format!("{head} Restart it, or check its settings in Settings → General → Extensions."), t)
+                calm("alert", &format!("{} stopped", m.name), format!("{head} Restart it, or check its settings in Settings → Extensions."), t)
                     .when_some(said, |d, said| d.child(output_tail(&said, t)))
                     .child(
                 kit::text_button("inbox-restart", "Restart", kit::BtnKind::Primary, false, t).debug_selector(|| "inbox-restart".into()).on_click(cx.listener(move |_, _, _, cx| {
@@ -598,7 +601,7 @@ impl InboxView {
                 let st = st?;
                 match &st.conn {
                     Some((ConnState::SignedOut, msg)) if st.threads.is_empty() => {
-                        calm("lock", "Signed out", if msg.is_empty() { "Check the API key in Settings → General → Extensions.".into() } else { msg.clone() }, t).child(settings("inbox-signed-out", "Open Settings", t))
+                        calm("lock", "Signed out", if msg.is_empty() { "Check the API key in Settings → Extensions.".into() } else { msg.clone() }, t).child(settings("inbox-signed-out", "Open Settings", t))
                     }
                     Some((ConnState::Error, msg)) if st.threads.is_empty() => calm("alert", &format!("Can't reach {}", m.name), if msg.is_empty() { "It will keep trying.".into() } else { msg.clone() }, t).child(
                         kit::text_button("inbox-retry", "Restart", kit::BtnKind::Ghost, false, t).on_click(cx.listener(move |_, _, _, cx| {
@@ -1274,7 +1277,7 @@ impl MainScreen {
             None => all.into_iter().next(),
         };
         let Some(m) = m else {
-            self.toast(Toast::info("No inbox to open", Some("Turn on an extension that has one in Settings → General → Extensions.".into())), cx);
+            self.toast(Toast::info("No inbox to open", Some("Turn on an extension that has one in Settings → Extensions.".into())), cx);
             return;
         };
         let what = Content::Inbox(m.id.clone());
@@ -1439,10 +1442,26 @@ impl MainScreen {
     }
 }
 
+/// Settings opens next at its Extensions page.
+fn to_extensions_page(cx: &mut gpui::App) {
+    crate::settings::data::set_page(cx, pitwall_proto::settings::Page::Extensions);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pitwall_core::extensions::protocol::From as Who;
+
+    /// "Open Settings" in the tile opens Settings at Extensions.
+    #[gpui::test]
+    fn open_settings_goes_to_the_extensions_page(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            crate::ui_state::store(cx);
+            assert_eq!(crate::settings::data::page_of(&crate::ui_state::get(cx)), pitwall_proto::settings::Page::General);
+            to_extensions_page(cx);
+            assert_eq!(crate::settings::data::page_of(&crate::ui_state::get(cx)), pitwall_proto::settings::Page::Extensions);
+        });
+    }
 
     fn th(id: &str, asks: u32, blocking: bool, last: &str) -> Thread {
         Thread { id: id.into(), title: id.into(), from: Some(Who { agent: "a".into(), session: "s".into() }), unread: 0, open_asks: asks, blocking, last_activity: last.into() }
