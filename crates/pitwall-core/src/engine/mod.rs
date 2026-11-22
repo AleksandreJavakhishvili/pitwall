@@ -88,6 +88,9 @@ pub struct Engine {
     shown: Mutex<std::collections::HashMap<u64, String>>,
     /// Agent tools Pitwall keeps up to date (crate::tool_updates).
     pub(crate) tool_updates: crate::tool_updates::ToolUpdates,
+    /// The extensions that are on and set variables on launched agents,
+    /// with their plain settings (the app sets them; docs/spec/extensions.md).
+    extension_env: std::sync::RwLock<Vec<(crate::extensions::Manifest, std::collections::BTreeMap<String, String>)>>,
     /// Agents showing files to the user (crate::show).
     pub(crate) show: crate::show::State,
 }
@@ -119,6 +122,7 @@ impl Engine {
             git_flights: Default::default(),
             shown: Default::default(),
             tool_updates: Default::default(),
+            extension_env: Default::default(),
             show: Default::default(),
             trees: Default::default(),
             explorer: Default::default(),
@@ -226,6 +230,29 @@ impl Engine {
 
     pub fn engineer_kit(&self) -> Option<crate::engineer::Kit> {
         self.engineer.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The extensions that are on, with their plain settings: agents
+    /// started from now on get their `agentEnv` (docs/spec/extensions.md).
+    pub fn set_extension_env(&self, list: Vec<(crate::extensions::Manifest, std::collections::BTreeMap<String, String>)>) {
+        *self.extension_env.write().unwrap_or_else(|e| e.into_inner()) = list;
+    }
+
+    /// The variables the extensions that are on set on agent `id` (named
+    /// `name`, in `project`). A later extension doesn't replace an earlier
+    /// one's variable.
+    pub(crate) fn extension_env(&self, project: &str, name: &str, id: &str) -> Vec<(String, String)> {
+        let list = self.extension_env.read().unwrap_or_else(|e| e.into_inner());
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (m, settings) in list.iter() {
+            let facts = crate::extensions::Facts { project, agent: name, agent_id: id, settings: Some(settings) };
+            for (k, v) in crate::extensions::agent_env(m, &facts) {
+                if !out.iter().any(|(o, _)| *o == k) {
+                    out.push((k, v));
+                }
+            }
+        }
+        out
     }
 
     pub fn kinds(&self) -> &KindCatalog {

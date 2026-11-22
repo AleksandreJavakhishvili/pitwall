@@ -40,6 +40,27 @@ pub fn url_value(text: &str) -> Result<Option<String>, String> {
     pitwall_proto::web::address(text).map(Some)
 }
 
+/// Each variable extension `m` sets, as `NAME=value`: its settings put in
+/// (the per-agent placeholders left as they are), or why it isn't set.
+pub fn env_preview(m: &Manifest, values: &std::collections::BTreeMap<String, String>) -> Vec<String> {
+    m.agent_env
+        .iter()
+        .map(|v| {
+            let mut value = v.value.clone();
+            for s in &m.settings {
+                let p = format!("{}{}}}", pitwall_core::extensions::SETTING_PLACEHOLDER, s.key);
+                if value.contains(&p) {
+                    match values.get(&s.key).filter(|x| !x.trim().is_empty()) {
+                        Some(x) => value = value.replace(&p, x),
+                        None => return format!("{} (not set until {} is)", v.name, s.label),
+                    }
+                }
+            }
+            format!("{}={value}", v.name)
+        })
+        .collect()
+}
+
 /// The adapter's state in a few words, its tone, and what to do.
 pub fn run_text(run: &Run, conn: Option<&(ConnState, String)>) -> (&'static str, Tone, String) {
     match run {
@@ -176,8 +197,9 @@ impl SettingsView {
         }
         if !m.agent_env.is_empty() {
             let mut env = div().flex().flex_col().gap(px(2.)).child(crate::kit::hint("Sets on agents Pitwall starts while it is on ({project}: the project folder's name; {agent}: the agent's name; {agent_id}: its id; each made lowercase letters, digits, - and _):", &ui.t));
-            for v in &m.agent_env {
-                env = env.child(crate::kit::mono_text(format!("{}={}", v.name, v.value), &ui.t));
+            let values = crate::ui_state::get(cx).extension(&m.id).values;
+            for line in env_preview(m, &values) {
+                env = env.child(crate::kit::mono_text(line, &ui.t));
             }
             col = col.child(env);
         }
@@ -323,5 +345,16 @@ mod tests {
         let (w, _, t) = run_text(&Run::Running, Some(&(ConnState::SignedOut, String::new())));
         assert_eq!(w, "signed out");
         assert!(!t.is_empty());
+    }
+
+    /// Settings shows exactly what each variable will be.
+    #[test]
+    fn the_variables_shown_are_the_ones_set() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../extensions/agention/extension.json")).unwrap();
+        let m = pitwall_core::extensions::parse(&text).unwrap();
+        let mut values = std::collections::BTreeMap::new();
+        assert_eq!(env_preview(&m, &values)[0], "AGENTION_URL (not set until Server address is)");
+        values.insert("server".into(), "https://agention.example.ts.net".into());
+        assert_eq!(env_preview(&m, &values), ["AGENTION_URL=https://agention.example.ts.net", "AGENTWORKS_AGENT={project}", "AGENTWORKS_SESSION={agent_id}"]);
     }
 }

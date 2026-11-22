@@ -209,13 +209,15 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     env.extend(account_env(core, &*provider, &kind.id, account.as_deref())?);
     env.extend(git_identity_env(core, &*provider, &cwd, &project, req.git_identity.as_deref()));
     env.extend(core.tool_update_env());
+    let new_id = uuid::Uuid::new_v4().to_string();
+    env.extend(core.extension_env(&project, &name, &new_id));
 
     // A name typed in New agent is kept; a suggested one (or none) follows
     // the conversation's title once there is one.
     let suggested = req.name.trim().is_empty() || req.name_auto;
     let name_source = if suggested && !req.engineer { NameSource::Auto } else { NameSource::Manual };
     let mut rec = AgentRecord {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: new_id,
         locator: None,
         name,
         name_source: Some(name_source),
@@ -528,6 +530,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
     env.extend(git_identity_env(core, &*provider, &rec.cwd, &rec.project, rec.git_identity.as_deref()));
     env.extend(core.tool_update_env());
+    env.extend(core.extension_env(&rec.project, &rec.name, &rec.id));
     // On an account, its conversation from wherever it is newest.
     if let (Some(sid), true, true) = (&rec.session_id, rec.has_conversation, provider.caps().local_process) {
         if let Some(def) = core.kinds().find(&rec.kind).filter(|k| k.account_env.is_some()) {
@@ -867,6 +870,44 @@ mod tests {
         restart(&h.engine, &a.id, None).unwrap();
         let last = h.provider.launched().len() - 1;
         assert_eq!(env_of(last, "GIT_AUTHOR_EMAIL").as_deref(), Some("sam@home.example"));
+    }
+
+    /// Extensions that are on set their variables on agents at each
+    /// launch, from the agent's facts and the extension's plain settings
+    /// (docs/spec/extensions.md); turned off, agents started later don't
+    /// get them.
+    #[test]
+    fn agents_get_the_variables_of_extensions_that_are_on() {
+        let h = Harness::new(vec![]);
+        let dir = TempDir::new("ext-env-proj");
+        let project = dir.path().to_string_lossy().into_owned();
+        let m = crate::extensions::parse(
+            r#"{"id": "inbox", "name": "Inbox", "settings": [{"key": "server", "type": "url", "label": "S"}],
+                "agentEnv": [{"name": "INBOX_URL", "value": "{setting:server}"}, {"name": "INBOX_AGENT", "value": "{project}"}, {"name": "INBOX_SESSION", "value": "{agent_id}"}]}"#,
+        )
+        .unwrap();
+        let env_of = |n: usize, key: &str| h.provider.launched()[n].env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+        let a = create(&h.engine, req("claude", &project, false)).unwrap();
+        assert_eq!(env_of(0, "INBOX_AGENT"), None, "nothing while no extension is on");
+
+        h.engine.set_extension_env(vec![(m.clone(), Default::default())]);
+        let b = create(&h.engine, req("claude", &project, false)).unwrap();
+        let folder = crate::extensions::name_form(dir.path().file_name().unwrap().to_str().unwrap());
+        assert_eq!(env_of(1, "INBOX_AGENT"), Some(folder.clone()));
+        assert_eq!(env_of(1, "INBOX_SESSION"), Some(crate::extensions::name_form(&b.id)), "the agent's own id");
+        assert_eq!(env_of(1, "INBOX_URL"), None, "a setting not set: left out");
+
+        let set = std::collections::BTreeMap::from([("server".to_string(), "https://inbox.example.com".to_string())]);
+        h.engine.set_extension_env(vec![(m, set)]);
+        restart(&h.engine, &a.id, None).unwrap();
+        let last = h.provider.launched().len() - 1;
+        assert_eq!(env_of(last, "INBOX_URL").as_deref(), Some("https://inbox.example.com"));
+        assert_eq!(env_of(last, "INBOX_SESSION"), Some(crate::extensions::name_form(&a.id)), "the same across a restart");
+
+        h.engine.set_extension_env(vec![]);
+        create(&h.engine, req("claude", &project, false)).unwrap();
+        let last = h.provider.launched().len() - 1;
+        assert_eq!(env_of(last, "INBOX_AGENT"), None);
     }
 
     fn wait_until(f: impl Fn() -> bool) -> bool {

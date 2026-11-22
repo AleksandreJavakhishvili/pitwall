@@ -23,6 +23,7 @@
   ],
   "adapter": { "command": ["node", "adapter/main.mjs"] },
   "agentEnv": [
+    { "name": "AGENTION_URL", "value": "{setting:server}" },
     { "name": "AGENTWORKS_AGENT", "value": "{project}" },
     { "name": "AGENTWORKS_SESSION", "value": "{agent_id}" }
   ],

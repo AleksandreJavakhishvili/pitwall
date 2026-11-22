@@ -155,7 +155,7 @@ pub fn run() {
         ui_state::init(root.clone(), cx);
         extensions::init(root.clone(), cx);
         if cx.global::<AppState>().host.is_some() {
-            extensions::start(root.as_deref(), cx);
+            extensions::start(root.as_deref(), engine.clone(), cx);
         }
         windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine.clone(), root);
