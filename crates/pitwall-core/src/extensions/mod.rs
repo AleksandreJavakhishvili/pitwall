@@ -122,6 +122,9 @@ pub struct Facts<'a> {
     pub agent: &'a str,
     /// Pitwall's id for the agent (kept across restarts).
     pub agent_id: &'a str,
+    /// The extension's plain settings that are set, by key (`{setting:KEY}`
+    /// in an agent variable).
+    pub settings: Option<&'a std::collections::BTreeMap<String, String>>,
 }
 
 /// The placeholders a template may use.
@@ -152,17 +155,40 @@ pub fn name_form(raw: &str) -> String {
     out
 }
 
-/// Template `t` for an agent: each placeholder replaced by its fact in
-/// [`name_form`] (the project by its folder's last part); other text as
-/// it is.
-pub fn expand(t: &str, f: &Facts) -> String {
+/// The prefix of a placeholder for one of the extension's plain settings,
+/// `{setting:KEY}` (agent variables only; never a secret).
+pub const SETTING_PLACEHOLDER: &str = "{setting:";
+
+/// The setting keys template `t` names with `{setting:KEY}`.
+fn setting_keys(t: &str) -> Vec<&str> {
+    t.match_indices(SETTING_PLACEHOLDER).filter_map(|(i, _)| t[i + SETTING_PLACEHOLDER.len()..].split_once('}').map(|(k, _)| k)).collect()
+}
+
+/// Template `t` for an agent: each name placeholder replaced by its fact
+/// in [`name_form`] (the project by its folder's last part), each
+/// `{setting:KEY}` by that setting as it is; other text as it is. `None`
+/// when it names a setting that isn't set (the variable isn't set then).
+pub fn expand(t: &str, f: &Facts) -> Option<String> {
     let project = f.project.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("");
-    t.replace("{project}", &name_form(project)).replace("{agent_id}", &name_form(f.agent_id)).replace("{agent}", &name_form(f.agent))
+    let mut out = t.replace("{project}", &name_form(project)).replace("{agent_id}", &name_form(f.agent_id)).replace("{agent}", &name_form(f.agent));
+    for key in setting_keys(t) {
+        let v = f.settings.and_then(|s| s.get(key)).filter(|v| !v.trim().is_empty() && !v.chars().any(char::is_control))?;
+        out = out.replace(&format!("{SETTING_PLACEHOLDER}{key}}}"), v);
+    }
+    Some(out)
+}
+
+/// The variables extension `m` sets on an agent with facts `f` (one naming
+/// a setting that isn't set is left out).
+pub fn agent_env(m: &Manifest, f: &Facts) -> Vec<(String, String)> {
+    m.agent_env.iter().filter_map(|e| Some((e.name.clone(), expand(&e.value, f)?))).collect()
 }
 
 /// Why template `t` (field `what`) can't be used: an unknown placeholder,
-/// a brace left over, a control character, too long.
-fn check_template(what: &str, t: &str) -> Result<(), String> {
+/// a brace left over, a control character, too long. `settings`: the
+/// manifest's settings when `{setting:KEY}` may be used (agent variables),
+/// which must name a plain one, never a secret.
+fn check_template(what: &str, t: &str, settings: Option<&[SettingDef]>) -> Result<(), String> {
     if t.is_empty() || t.chars().count() > 200 || t.chars().any(char::is_control) {
         return Err(format!("{what} must be one line of 1–200 characters"));
     }
@@ -170,8 +196,21 @@ fn check_template(what: &str, t: &str) -> Result<(), String> {
     for p in PLACEHOLDERS {
         rest = rest.replace(p, "");
     }
+    if let Some(settings) = settings {
+        for key in setting_keys(t) {
+            match settings.iter().find(|s| s.key == key) {
+                None => return Err(format!("{what} names setting “{key}”, which the manifest doesn't have")),
+                Some(s) if s.kind == SettingKind::Secret => return Err(format!("{what} names secret “{key}”: secrets are never given to agents")),
+                Some(_) => rest = rest.replace(&format!("{SETTING_PLACEHOLDER}{key}}}"), ""),
+            }
+        }
+    }
     if rest.contains('{') || rest.contains('}') {
-        return Err(format!("{what} “{t}” may only use {}", PLACEHOLDERS.join(", ")));
+        let mut allowed = PLACEHOLDERS.join(", ");
+        if settings.is_some() {
+            allowed.push_str(", {setting:KEY}");
+        }
+        return Err(format!("{what} “{t}” may only use {allowed}"));
     }
     Ok(())
 }
@@ -272,13 +311,13 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
     let description = opt_str(&obj, "description")?.map(|d| line("description", d, MAX_DESCRIPTION)).transpose()?;
     let settings = parse_settings(obj.get("settings"))?;
     let adapter = parse_adapter(obj.get("adapter"))?;
-    let agent_env = parse_env(obj.get("agentEnv"))?;
+    let agent_env = parse_env(obj.get("agentEnv"), &settings)?;
     let match_agents = match obj.get("matchAgents") {
         None | Some(Value::Null) => None,
         Some(Value::Object(m)) => {
             let get = |k: &str| -> Result<String, String> {
                 let t = opt_str(m, k)?.ok_or(format!("\"matchAgents\" needs \"{k}\""))?;
-                check_template(&format!("\"matchAgents.{k}\""), t)?;
+                check_template(&format!("\"matchAgents.{k}\""), t, None)?;
                 Ok(t.to_string())
             };
             Some(MatchAgents { agent: get("agent")?, session: get("session")? })
@@ -348,7 +387,7 @@ fn parse_adapter(v: Option<&Value>) -> Result<Option<Adapter>, String> {
     Ok(Some(Adapter { command }))
 }
 
-fn parse_env(v: Option<&Value>) -> Result<Vec<EnvVar>, String> {
+fn parse_env(v: Option<&Value>, settings: &[SettingDef]) -> Result<Vec<EnvVar>, String> {
     let mut out: Vec<EnvVar> = Vec::new();
     for item in array(v, "agentEnv", 10)? {
         let Value::Object(o) = item else { return Err("each of \"agentEnv\" must be an object".into()) };
@@ -366,7 +405,7 @@ fn parse_env(v: Option<&Value>) -> Result<Vec<EnvVar>, String> {
             return Err(format!("agent variable “{name}” is there twice"));
         }
         let value = opt_str(o, "value")?.ok_or(format!("agent variable “{name}” needs \"value\""))?;
-        check_template(&format!("the value of {name}"), value)?;
+        check_template(&format!("the value of {name}"), value, Some(settings))?;
         out.push(EnvVar { name: name.to_string(), value: value.to_string() });
     }
     Ok(out)
@@ -459,16 +498,28 @@ mod tests {
         assert!(err(r#""agentEnv": [{"name": "A", "value": "{home}"}]"#).contains("may only use"));
         assert!(err(r#""agentEnv": [{"name": "A", "value": "a\nb"}]"#).contains("one line"));
         assert!(err(r#""matchAgents": {"agent": "{project}"}"#).contains("needs \"session\""));
+        // A plain setting may be put in a variable; a secret never.
+        let both = r#""settings": [{"key": "server", "type": "url", "label": "S"}, {"key": "key", "type": "secret", "label": "K"}]"#;
+        let ok = parse(&format!(r#"{{"id": "x", "name": "X", {both}, "agentEnv": [{{"name": "X_URL", "value": "{{setting:server}}"}}]}}"#)).unwrap();
+        assert_eq!(ok.agent_env[0].value, "{setting:server}");
+        assert!(err(&format!(r#"{both}, "agentEnv": [{{"name": "X_KEY", "value": "{{setting:key}}"}}]"#)).contains("secrets are never given to agents"));
+        assert!(err(&format!(r#"{both}, "agentEnv": [{{"name": "X_Y", "value": "{{setting:nope}}"}}]"#)).contains("doesn't have"));
+        assert!(err(&format!(r#"{both}, "matchAgents": {{"agent": "{{setting:server}}", "session": "s"}}"#)).contains("may only use"));
     }
 
     #[test]
     fn templates_expand_to_names() {
-        let f = Facts { project: "/Users/x/code/My App/", agent: "Fix login: 2nd try", agent_id: "3F2A-01" };
-        assert_eq!(expand("{project}", &f), "my-app");
-        assert_eq!(expand("{agent}", &f), "fix-login-2nd-try");
-        assert_eq!(expand("{agent_id}", &f), "3f2a-01");
-        assert_eq!(expand("pw-{project}-{agent_id}", &f), "pw-my-app-3f2a-01");
-        assert_eq!(expand("{project}", &Facts { project: r"C:\code\api", ..f }), "api");
+        let f = Facts { project: "/Users/x/code/My App/", agent: "Fix login: 2nd try", agent_id: "3F2A-01", settings: None };
+        let ex = |t: &str, f: &Facts| expand(t, f).unwrap();
+        assert_eq!(ex("{project}", &f), "my-app");
+        assert_eq!(ex("{agent}", &f), "fix-login-2nd-try");
+        assert_eq!(ex("{agent_id}", &f), "3f2a-01");
+        assert_eq!(ex("pw-{project}-{agent_id}", &f), "pw-my-app-3f2a-01");
+        assert_eq!(ex("{project}", &Facts { project: r"C:\code\api", ..f }), "api");
+        // A plain setting goes in as it is; one not set leaves the variable out.
+        let set = std::collections::BTreeMap::from([("server".to_string(), "https://Inbox.example.com/x".to_string())]);
+        assert_eq!(expand("{setting:server}", &Facts { settings: Some(&set), ..f }).as_deref(), Some("https://Inbox.example.com/x"));
+        assert_eq!(expand("{setting:server}", &f), None);
         assert_eq!(name_form("--Ünïcode__"), "n-code");
         assert_eq!(name_form("!!!"), "agent");
         assert_eq!(name_form(&"a".repeat(80)).len(), 63);

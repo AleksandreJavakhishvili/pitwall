@@ -126,26 +126,52 @@ fn change_secret(id: &str, key: &str, secret: Option<String>, cx: &mut App, done
 
 /// Run adapters from now on: the system's secure store for data folder
 /// `root`, and a hub that follows the switches and settings.
-pub fn start(root: Option<&std::path::Path>, cx: &mut App) {
+pub fn start(root: Option<&std::path::Path>, engine: Option<pitwall_core::engine::Shared>, cx: &mut App) {
     cx.set_global(Secrets { store: crate::platform::secrets::system(), scope: scope_of(root) });
+    if let Some(e) = engine {
+        cx.set_global(Engine(e));
+    }
     follow(cx);
 }
 
-/// The hub follows `ui.json` and the extensions found.
+/// The engine agents are launched by (their extension variables).
+struct Engine(pitwall_core::engine::Shared);
+
+impl Global for Engine {}
+
+/// The extensions that are on, with their plain settings: what launches
+/// put in agents' environment.
+pub fn env_sources(cx: &App) -> Vec<(Manifest, std::collections::BTreeMap<String, String>)> {
+    let ui = crate::ui_state::get(cx);
+    enabled(&found(cx), &ui).into_iter().filter(|m| !m.agent_env.is_empty()).map(|m| {
+        let values = ui.extension(&m.id).values;
+        (m, values)
+    }).collect()
+}
+
+/// The hub follows `ui.json` and the extensions found; so do the
+/// variables launched agents get.
 pub fn follow(cx: &mut App) {
     let h = hub::hub(cx);
     let ui = crate::ui_state::store(cx);
+    let changed = move |cx: &mut App| {
+        h.update(cx, |h, cx| h.reconcile(cx));
+        if let Some(e) = cx.try_global::<Engine>().map(|e| e.0.clone()) {
+            e.set_extension_env(env_sources(cx));
+        }
+    };
+    let c = std::rc::Rc::new(changed);
     cx.observe(&ui, {
-        let h = h.clone();
-        move |_, cx| h.update(cx, |h, cx| h.reconcile(cx))
+        let c = c.clone();
+        move |_, cx| c(cx)
     })
     .detach();
     cx.observe_global::<Installed>({
-        let h = h.clone();
-        move |cx| h.update(cx, |h, cx| h.reconcile(cx))
+        let c = c.clone();
+        move |cx| c(cx)
     })
     .detach();
-    h.update(cx, |h, cx| h.reconcile(cx));
+    c(cx);
 }
 
 /// Pitwall quits: every adapter is killed.

@@ -43,6 +43,7 @@ the environment variables its manifest lists, shown in Settings.
   ],
   "adapter": { "command": ["node", "adapter/main.mjs"] },
   "agentEnv": [
+    { "name": "AGENTION_URL", "value": "{setting:server}" },
     { "name": "AGENTWORKS_AGENT", "value": "{project}" },
     { "name": "AGENTWORKS_SESSION", "value": "{agent_id}" }
   ],
@@ -73,7 +74,11 @@ the environment variables its manifest lists, shown in Settings.
   while the extension is on. `name`: upper-case letters, digits, `_`; not
   Pitwall's own (`PITWALL_*`) nor ones a program's start depends on
   (`PATH`, `HOME`, `SHELL`, `USER`, `TERM`, `LD_*`, `DYLD_*`, `LC_*`, …).
-  `value`: a template (below).
+  `value`: a template (below), which here may also use
+  `{setting:KEY}`: the extension's own `url` setting `KEY`, put in as it
+  is (not in name form). A variable naming a setting that isn't set is
+  left out. Naming a `secret` is refused ("secrets are never given to
+  agents"), as is a key the manifest doesn't have.
 - `matchAgents` (optional): two templates, `agent` and `session`, whose
   values for a Pitwall agent are the names (`from`) of the threads that
   agent started: Pitwall badges that agent and offers "Go to agent".
