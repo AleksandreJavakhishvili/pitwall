@@ -1,15 +1,21 @@
-//! Extensions in the app (docs/spec/extensions.md, draft): the folders of
+//! Extensions in the app (docs/spec/extensions.md): the folders of
 //! `<data>/extensions/` ([`pitwall_core::extensions`]), read when Pitwall
 //! starts and again from Settings → General → Extensions ("Look again").
-//! Nothing in them is run: an extension is its manifest. One that is on
-//! (`ui.json` `extensions.<id>.enabled`, off until the user turns it on)
-//! gets a section of the sidebar of its own, shaped like a project's.
+//! One that is on (`ui.json` `extensions.<id>.enabled`, off until the user
+//! turns it on) gets a section of the sidebar of its own, shaped like a
+//! project's, and its adapter is run ([`hub`]) while it is on.
+
+pub mod adapter;
+pub mod hub;
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{App, Global};
 use pitwall_core::extensions::{discover, Found, Manifest};
+
+use crate::platform::secrets::SecretStore;
 
 /// The extensions found, and the folder they were looked for in.
 #[derive(Clone, Default)]
@@ -19,6 +25,135 @@ pub struct Installed {
 }
 
 impl Global for Installed {}
+
+/// Where extensions' secrets are kept, and the data folder they belong to
+/// (part of each item's account name, so a test instance's secrets never
+/// mix with the real one's).
+#[derive(Clone)]
+struct Secrets {
+    store: Arc<dyn SecretStore>,
+    scope: String,
+}
+
+impl Global for Secrets {}
+
+/// The secure store extensions' secrets are in (in memory when none was
+/// set: tests).
+pub fn secret_store(cx: &mut App) -> Arc<dyn SecretStore> {
+    secrets(cx).store
+}
+
+fn secrets(cx: &mut App) -> Secrets {
+    if let Some(s) = cx.try_global::<Secrets>() {
+        return s.clone();
+    }
+    let s = Secrets { store: Arc::new(crate::platform::secrets::Memory::default()), scope: String::new() };
+    cx.set_global(s.clone());
+    s
+}
+
+/// The account name extension `id`'s secret `key` is kept under:
+/// `<id>.<key>`, then the data folder's hash when it isn't the default
+/// one.
+pub fn account(id: &str, key: &str, cx: &mut App) -> String {
+    let scope = secrets(cx).scope;
+    if scope.is_empty() {
+        format!("{id}.{key}")
+    } else {
+        format!("{id}.{key}@{scope}")
+    }
+}
+
+/// A short, stable name for data folder `root` ("" for `~/.pitwall`).
+fn scope_of(root: Option<&std::path::Path>) -> String {
+    let Some(root) = root else { return "none".into() };
+    if pitwall_core::paths::Paths::default_root() == root {
+        return String::new();
+    }
+    // FNV-1a: stable across builds (DefaultHasher isn't promised to be).
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in root.to_string_lossy().bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Keep `secret` as extension `id`'s `key` (off the UI thread), record that
+/// it is set, and start the adapter again. `done` gets the error, if any.
+pub fn set_secret(id: &str, key: &str, secret: String, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+    change_secret(id, key, Some(secret), cx, done)
+}
+
+/// Forget extension `id`'s secret `key`.
+pub fn remove_secret(id: &str, key: &str, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+    change_secret(id, key, None, cx, done)
+}
+
+fn change_secret(id: &str, key: &str, secret: Option<String>, cx: &mut App, done: impl FnOnce(Option<String>, &mut App) + 'static) {
+    let store = secret_store(cx);
+    let acct = account(id, key, cx);
+    let set = secret.is_some();
+    let job = cx.background_executor().spawn(async move {
+        match secret {
+            Some(s) => store.set(&acct, &s),
+            None => store.delete(&acct),
+        }
+    });
+    let (id, key) = (id.to_string(), key.to_string());
+    cx.spawn(async move |cx| {
+        let res = job.await;
+        cx.update(|cx| {
+            let err = res.err();
+            if err.is_none() {
+                crate::ui_state::update(cx, |ui| {
+                    *ui = std::mem::take(ui).with_extension(&id, |e| {
+                        e.secrets_set.retain(|k| *k != key);
+                        if set {
+                            e.secrets_set.push(key.clone());
+                            e.secrets_set.sort();
+                        }
+                    });
+                });
+                let h = hub::hub(cx);
+                h.update(cx, |h, cx| h.secrets_changed(&id, cx));
+            }
+            done(err, cx);
+        });
+    })
+    .detach();
+}
+
+/// Run adapters from now on: the system's secure store for data folder
+/// `root`, and a hub that follows the switches and settings.
+pub fn start(root: Option<&std::path::Path>, cx: &mut App) {
+    cx.set_global(Secrets { store: crate::platform::secrets::system(), scope: scope_of(root) });
+    follow(cx);
+}
+
+/// The hub follows `ui.json` and the extensions found.
+pub fn follow(cx: &mut App) {
+    let h = hub::hub(cx);
+    let ui = crate::ui_state::store(cx);
+    cx.observe(&ui, {
+        let h = h.clone();
+        move |_, cx| h.update(cx, |h, cx| h.reconcile(cx))
+    })
+    .detach();
+    cx.observe_global::<Installed>({
+        let h = h.clone();
+        move |cx| h.update(cx, |h, cx| h.reconcile(cx))
+    })
+    .detach();
+    h.update(cx, |h, cx| h.reconcile(cx));
+}
+
+/// Pitwall quits: every adapter is killed.
+pub fn quit(cx: &mut App) {
+    if let Some(h) = hub::try_hub(cx) {
+        h.update(cx, |h, _| h.quit());
+    }
+}
 
 /// The icon an extension gets when it names none, or one this Pitwall
 /// doesn't have.

@@ -18,12 +18,12 @@ use crate::kit::{tooltip, BtnKind, SegItem};
 use crate::theme::{appearance, clamp_font, Density, Look, ThemePref, DEFAULT_FONT, FONT_FLOOR, FONT_MAX, FONT_MIN};
 
 /// A section: its parts 8 px apart.
-fn section() -> Div {
+pub(super) fn section() -> Div {
     div().flex().flex_col().gap(px(8.))
 }
 
 /// A section's title row (sentence case, 13 px medium), controls after it.
-fn head(ui: &Ui, title: &str) -> Div {
+pub(super) fn head(ui: &Ui, title: &str) -> Div {
     div()
         .flex()
         .items_center()
@@ -81,7 +81,7 @@ impl SettingsView {
                 v.push(Part::section("elsewhere", |_, ui, _, cx| any(Self::elsewhere(ui, cx))));
                 v.push(Part::section("floating", |_, ui, _, cx| any(Self::floating(ui, cx))));
                 v.push(Part::section("web-pages", |_, ui, _, cx| any(Self::web_pages(ui, cx))));
-                v.push(Part::section("extensions", |_, ui, _, cx| any(Self::extensions(ui, cx))));
+                v.push(Part::section("extensions", |s, ui, _, cx| any(s.extensions(ui, cx))));
                 v.push(Part::section("cli", |s, ui, _, cx| any(s.cli(ui, cx))));
                 v
             }
@@ -260,83 +260,6 @@ impl SettingsView {
                 )
                 .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t))),
         )
-    }
-
-    /// Extensions (docs/spec/extensions.md): each folder found in the
-    /// extensions folder, with its switch (off until turned on), or why it
-    /// can't be used; "Look again" reads the folder again.
-    fn extensions(ui: &Ui, cx: &mut Context<Self>) -> Div {
-        let found = crate::extensions::found(cx);
-        let state = crate::ui_state::get(cx);
-        let folder = crate::extensions::dir(cx).map(|d| pitwall_core::paths::tildify(&d.to_string_lossy()));
-        let mut sec = section()
-            .child(
-                head(ui, "Extensions").child(
-                    crate::kit::text_button("extensions-rescan", "Look again", BtnKind::Small, false, &ui.t).on_click(cx.listener(|_, _, _, cx| {
-                        crate::extensions::rescan(cx);
-                        cx.notify();
-                    })),
-                ),
-            )
-            .child(crate::kit::hint(
-                match &folder {
-                    Some(f) => format!("An extension is a folder with an extension.json, put in {f}. Pitwall runs nothing from it; one that is on gets a section in the sidebar."),
-                    None => "Extensions need Pitwall's data folder, which isn't in use here.".to_string(),
-                },
-                &ui.t,
-            ));
-        if found.is_empty() {
-            return sec.child(crate::kit::muted("No extensions found.", &ui.t));
-        }
-        for f in found.iter() {
-            let row = match &f.manifest {
-                Ok(m) => {
-                    let on = state.extension_on(&m.id);
-                    let id = m.id.clone();
-                    div()
-                        .id(SharedString::from(format!("extension-{}", m.id)))
-                        .flex()
-                        .gap(px(12.))
-                        .items_start()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            let id = id.clone();
-                            crate::ui_state::update(cx, |s| *s = s.clone().set_extension(&id, !on));
-                            cx.notify();
-                        }))
-                        .child(div().mt(px(5.)).child(crate::kit::icon(crate::extensions::icon_of(m), 14., ui.t.text_2)))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .child(head(ui, &m.name))
-                                .child(crate::kit::hint(m.description.clone().unwrap_or_else(|| format!("Folder {}", f.folder)), &ui.t)),
-                        )
-                        .child(div().mt(px(6.)).child(crate::kit::checkbox_box(on, false, 14., &ui.t)))
-                }
-                Err(why) => div()
-                    .id(SharedString::from(format!("extension-bad-{}", f.folder)))
-                    .flex()
-                    .gap(px(12.))
-                    .items_start()
-                    .child(div().mt(px(5.)).child(crate::kit::icon("alert", 14., ui.t.text_3)))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .child(head(ui, &f.folder))
-                            .child(crate::kit::hint(format!("Can't be used: {why}."), &ui.t)),
-                    ),
-            };
-            sec = sec.child(row);
-        }
-        sec
     }
 
     fn claude(ui: &Ui) -> Div {

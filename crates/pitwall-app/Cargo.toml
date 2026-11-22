@@ -121,7 +121,7 @@ objc2-core-foundation = { version = "0.3", default-features = false, features = 
 
 [target.'cfg(windows)'.dependencies]
 # Settings → Appearance: Mica and Reduce motion. MIT OR Apache-2.0.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Security_Credentials", "Win32_UI_WindowsAndMessaging"] }
 # Tray icon and its menu (MIT OR Apache-2.0).
 tray-icon = { version = "0.25", default-features = false }
 # Decoding the tray's PNG icon (MIT OR Apache-2.0; already in the tree via gpui).

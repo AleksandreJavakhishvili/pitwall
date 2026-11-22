@@ -154,6 +154,9 @@ pub fn run() {
         cx.set_global(state);
         ui_state::init(root.clone(), cx);
         extensions::init(root.clone(), cx);
+        if cx.global::<AppState>().host.is_some() {
+            extensions::start(root.as_deref(), cx);
+        }
         windows::init(cx.global::<AppState>().content.clone(), root.clone(), show_main, cx);
         settings::init(cx, engine.clone(), root);
         if let Some(b) = cx.global::<AppState>().host.as_ref().map(|h| h.settings.clone()) {
@@ -214,6 +217,7 @@ pub fn run() {
         // Quitting leaves agents running in their holders (Tauri: RunEvent::Exit).
         cx.on_app_quit(|cx| {
             window_state::flush();
+            extensions::quit(cx);
             if let Some(host) = cx.global_mut::<AppState>().host.as_mut() {
                 host.shutdown();
             }
