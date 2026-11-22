@@ -173,7 +173,7 @@ Not named: where the agent's files are already (a tile or a window), else a tile
 With **Agents can show you web pages** on (Settings → Agents, `agents.showWeb`, on by default) and web pages on (Settings → General, `general.webPages`), the same server has `show_web`, and `pitwall open --web [<address>]` does it from a shell. Ask an agent to open a page, a local dev server or a browser in Pitwall ("open the docs on the left") and it opens in a web tile ([web tiles](../spec/web.md)), in the places files go: `right` (the default), `left`, `above`, `below`, `replace` (with `of` / `--of`), or `window`. Without an address an empty page opens with its address field for you to type in.
 
 - **It only shows you the page.** The agent gets nothing back from it, and can't click, type, scroll or run anything in it; nothing you do there is sent to it. Only `http` and `https` addresses open (`javascript:`, `file:`, `data:` and other schemes are refused).
-- The page is in the browser profile of the agent's project (Default when it names none; see Browser profiles below), where you may be signed in: it loads as you, as a link you clicked would. The agent can't choose the profile; the answer tells it which one the page is in.
+- The page is in the browser account of the agent's project (Default when it names none; see Browser accounts below), where you may be signed in: it loads as you, as a link you clicked would. The agent can't choose the browser account; the answer (`browserAccount`, and `profile`, its old name) tells it which one the page is in.
 - It never takes the keyboard or brings Pitwall forward.
 - One page per agent: its next call goes to the page it opened before, wherever you moved it (to the new address, when it gives one); naming a place moves it. Close it and the next call opens a new one. It stays when the agent goes.
 - Off (either setting), the tool isn't listed (running agents are told), and `pitwall open --web` refuses. Like `agents.showFiles`, both can be changed with `pitwall settings set` without asking.
@@ -208,12 +208,12 @@ A git identity says who a project's agents and terminals are in git: the name an
 - For each service the identity is logged in to, they also get its CLI's folder (`GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`), and git's HTTPS logins to its hosts come from it: `github.com` through `gh`, `dev.azure.com` and `*.visualstudio.com` with a token from `az`. A service it isn't logged in to stays on your own setup. Your `~/.gitconfig` isn't changed.
 - It's read at each start: restart a running agent to switch it. Terminals you open outside Pitwall still use your own setup.
 
-### Browser profiles
+### Browser accounts
 
-A browser profile keeps its own sign-ins for the web pages in Pitwall (docs/spec/web.md): a work one for the work Teams, Slack and mail, a personal one for yours. It is an account like the tools' ones, of the kind "Browser profile", with a name and its own cookies and site data on this computer.
+A browser account keeps its own sign-ins for the web pages in Pitwall (docs/spec/web.md): a work one for the work Teams, Slack and mail, a personal one for yours. It is an account like the tools' ones, of the kind "Browser account", with a name and its own cookies and site data on this computer.
 
-- Add, rename and remove them in Settings → Accounts → Browser profiles, or make one from a project's right-click menu → Accounts… → Browser profile → + New profile. Nothing to log in to: sign in to sites in a page opened in it. Default is the profile every page used before.
-- Pick one per project in the same dialog. Pages its agents open (`show_web`, `pitwall open --web`) are in it; so is a page you open (⌘L) while one of its agents has the focus. Anything else is in Default. Every page's bar shows its profile and switches it (the page loads again there).
+- Add, rename and remove them in Settings → Accounts → Browser accounts, or make one from a project's right-click menu → Accounts… → Browser account → + New browser account. Nothing to log in to: sign in to sites in a page opened in it. Default is the store every page used before.
+- Pick one per project in the same dialog, or through the project's profile (a bundle of accounts: `pitwall profile`). Pages its agents open (`show_web`, `pitwall open --web`) are in it; so is a page you open (⌘L) while one of its agents has the focus. Anything else is in Default. Every page's bar shows its browser account and switches it (the page loads again there).
 - Removing one deletes its sign-ins and site data; it is refused while pages are open in it. Its projects go back to Default.
 - `accounts.json` lists them (`"kind": "web"`, a name and the folder) and which project uses which (under `"web"` in `projects`); the site data stays in the web engine's own store and nothing leaves the computer. Agents still get nothing from the pages.
 - macOS 14 or later: before it, every page shares one store, so only Default is used there.

@@ -20,7 +20,7 @@ windows of their own and agents' `show_web`.
   it, and an address from the chip's menu goes to the open one. It follows
   its terminal (see below) and closes with its agent.
 - **A page an agent opened** (`show_web`, below): a page like one you
-  opened (no Preview rules; in its project's browser profile, below),
+  opened (no Preview rules; in its project's browser account, below),
   remembered as that agent's
   (`webTiles[id].by`). It stays when the agent goes.
 
@@ -121,7 +121,7 @@ The tool's description, as agents see it:
   and the app: `javascript:`, `data:`, `file:`, `about:` and app schemes
   are refused and nothing opens.
 - **The user's profile.** A page an agent opens is in the user's browser
-  profile for its project (Browser profiles, below), where they may be
+  profile for its project (Browser accounts, below), where they may be
   signed in. The agent can make the user look
   at a page (as a link in its answer could), not act as them: it never
   sees the page. A page that tries something is the user's to read, as in
@@ -181,7 +181,7 @@ focused tile, with the focused border, so ⌘⏎ maximises and restores it
 - Closing a tile frees its view.
 
 ## Data
-- Pages (not Previews): one persistent store per browser profile (below),
+- Pages (not Previews): one persistent store per browser account (below),
   each with a folder in Pitwall's data folder (`<data>/webview/profile-<id>`,
   Default's `profile-default`, `preview::profile_dir`; the folder's name is
   the profile's id). Windows (WebView2) and Linux (WebKitGTK): the store is
@@ -198,18 +198,25 @@ focused tile, with the focused border, so ⌘⏎ maximises and restores it
   found while building profiles and left as it was, so nobody's sign-ins
   move).
 
-## Browser profiles
+## Browser accounts
+
+What this section called a "browser account" is a **browser account** in
+everything the user reads (a **profile** is now the bundle of accounts a
+project picks: docs/spec/profiles.md). Stored ids, folders
+(`webview/profile-<id>`) and `ui.json` `webTiles[id].profile` keep
+their names. A project's browser account resolves like every other
+pick: its own, else its profile's, else Default.
 Separate sign-ins for the pages (work and personal Teams, Slack, mail),
 tied to Pitwall's accounts so the right project gets the right logins.
 Status: built (`crate::web::profiles`).
 
 - **A profile is an account** of kind `web` (`pitwall_core::accounts::WEB`,
-  "Browser profile"): a name ("Work") and its folder, in `accounts.json`
+  "Browser account"): a name ("Work") and its folder, in `accounts.json`
   beside the tools' accounts and the git identities. Default is the store
   every page used before profiles (its folder `profile-default`; on macOS
   the app's default WebKit store), so no one loses their sign-ins.
-- **Made, renamed, removed** in Settings → Accounts → Browser profiles, or
-  made from a project's Accounts… (Browser profile → + New profile, which
+- **Made, renamed, removed** in Settings → Accounts → Browser accounts, or
+  made from a project's Accounts… (Browser account → + New browser account, which
   also makes it the project's). No login step: the user signs in to sites
   in a page opened in it. Names are unique among profiles; "Default" is
   taken. Its id is `web-<name>`, never one whose folder is still on disk.
@@ -220,15 +227,15 @@ Status: built (`crate::web::profiles`).
   deleted (macOS 14+: `removeDataStoreForIdentifier`; Windows, Linux: the
   folder), and its folder last; tried again a few times while the engine
   lets go of it. A folder left behind keeps the id from being reused.
-- **A project picks one** in its Accounts… dialog (a "Browser profile"
+- **A project picks one** in its Accounts… dialog (a "Browser account"
   row of chips under the agents' logins and the git identity: Default,
-  each profile, + New profile), kept in `accounts.json` `projects[<folder>]
+  each profile, + New browser account), kept in `accounts.json` `projects[<folder>]
   .web` like a tool's account. It doesn't move agents or restart anything.
 - **Which profile a page opens in:**
   - an agent's (`show_web`, `pitwall open --web`): the profile of that
     agent's project, else Default. The agent can't pick or name one (no
     argument): the project decides. The answer names it ("It is in the Work
-    browser profile …"), so the agent can tell the user.
+    browser account …"), so the agent can tell the user.
   - a page the user opens (⌘L, "Open web page…"): the profile of the
     project of the agent whose tile has the focus in the active space; no
     focused agent (an empty tile, a files or web tile): Default.
@@ -280,7 +287,7 @@ Status: built (`crate::web::profiles`).
   the sidebar grouped by account it may file a project that has a browser
   profile but no tool account under that profile's name (it takes a
   project's first account for its terminals). Pages open in Default there.
-- Browser profiles aren't sidebar sections: grouping by account stays per
+- Browser accounts aren't sidebar sections: grouping by account stays per
   tool login; a profile never restarts agents.
 
 ## Untrusted content

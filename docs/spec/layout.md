@@ -98,8 +98,11 @@ Need: more than two rows of tiles, with room for small ones.
   same project's header or rows under it) moves there:
   - an agent: it restarts on that login at once, its conversation with it
     (the agent menu's "Run on account");
-  - a project: it becomes the project's account for that tool, and its
-    running agents of that tool restart there at once (as Accounts…).
+  - a project: it becomes the project's account for that tool (its own
+    pick, over its profile's), and its running agents of that tool
+    restart there at once (as Accounts…).
+  A project is grouped under the account it resolves to (its own pick,
+  else its profile's, else Default: docs/spec/profiles.md).
   An account that isn't logged in yet starts its login terminal first.
   Not allowed (nothing highlights): another tool's account, agents on other
   machines, terminals, the Race Engineer, an agent into another project.
