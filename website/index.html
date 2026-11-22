@@ -141,9 +141,9 @@
           <article class="feat-slide web" id="web" role="tabpanel" aria-labelledby="ft-web" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="web-h">Docs, dashboards, dev servers. <span class="dim">Beside the agent.</span></h2>
-              <p>Web pages open in tiles of the same layout as your terminals and files, in the system's own web view. Ask an agent to open a page and it lands next to its terminal; when the terminal prints a dev server's address, Preview opens it as a tile that follows the terminal. Move a page anywhere in the layout or into a window of its own. Each project can have its own browser profile, so work and personal sign-ins stay apart.</p>
+              <p>Web pages open in tiles of the same layout as your terminals and files, in the system's own web view. Ask an agent to open a page and it lands next to its terminal; when the terminal prints a dev server's address, Preview opens it as a tile that follows the terminal. Move a page anywhere in the layout or into a window of its own. Each project can have its own browser account, so work and personal sign-ins stay apart.</p>
             </div>
-            <!-- Decorative: an agent opens docs in a web tile left of its terminal, in the project's Work browser profile, then its dev server's Preview opens right of it (site.css: .wb-*). The copy above and the list below say what it shows. -->
+            <!-- Decorative: an agent opens docs in a web tile left of its terminal, in the project's Work browser account, then its dev server's Preview opens right of it (site.css: .wb-*). The copy above and the list below say what it shows. -->
             <div class="wb-stage glass" data-web aria-hidden="true">
               <div class="wb-scene">
                 <div class="wb-win">
@@ -207,12 +207,12 @@
                 <p>Show you a page, nothing more. Ask for a page, a local dev server or an empty browser and it opens beside the agent (Pitwall's MCP tool <code>show_web</code>, or <code>pitwall open --web</code>). The agent gets nothing back from the page and can't click, type or read anything in it. Off in Settings → Agents.</p>
               </div>
               <div class="pit-row">
-                <p class="label">Profiles</p>
-                <p>A browser profile is an account with its own sign-ins, cookies and site data, made in Settings → Accounts. A project picks one in its Accounts…; its agents' pages open there, and so does <kbd>⌘L</kbd> while one of its agents has the focus. Anything else is in Default. The page's bar shows its profile and switches it. Needs macOS 14 or later; kept apart as checked on macOS, tested in code only on Windows and Linux.</p>
+                <p class="label">Browser accounts</p>
+                <p>A browser account is an account with its own sign-ins, cookies and site data, made in Settings → Accounts. A project picks one in its Accounts…; its agents' pages open there, and so does <kbd>⌘L</kbd> while one of its agents has the focus. Anything else is in Default. The page's bar shows its account and switches it. Needs macOS 14 or later; kept apart as checked on macOS, tested in code only on Windows and Linux.</p>
               </div>
               <div class="pit-row">
                 <p class="label">Limits</p>
-                <p>The system's web view, not a browser: WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux (X11). One page per tile, no tabs. Logins stay in Pitwall's browser profiles, not your browser's. Camera and microphone are denied for now, so calls don't work; macOS declines downloads. Run by hand on macOS only.</p>
+                <p>The system's web view, not a browser: WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux (X11). One page per tile, no tabs. Logins stay in Pitwall's browser accounts, not your browser's. Camera and microphone are denied for now, so calls don't work; macOS declines downloads. Run by hand on macOS only.</p>
               </div>
             </div>
           </article>
@@ -437,7 +437,7 @@
           <article class="feat-slide accounts" id="accounts" role="tabpanel" aria-labelledby="ft-accounts" aria-roledescription="slide">
             <div class="away-copy">
               <h2 id="accounts-h">Work login, personal login. <span class="dim">Each project on the right one.</span></h2>
-              <p>Run Claude Code, Codex, Gemini CLI and Copilot CLI on more than one login, say a work and a personal subscription. Each project picks the login its agents run on, per tool: in its Accounts…, or by dragging it onto another account in the sidebar. Its running agents of that tool restart on the new login right away, and Claude Code and Codex pick up their conversations there. The project's web pages open in the browser profile it picks there too.</p>
+              <p>Run Claude Code, Codex, Gemini CLI and Copilot CLI on more than one login, say a work and a personal subscription. Each project picks the login its agents run on, per tool: in its Accounts…, or by dragging it onto another account in the sidebar. Its running agents of that tool restart on the new login right away, and Claude Code and Codex pick up their conversations there. The project's web pages open in the browser account it picks there too.</p>
             </div>
             <!-- Decorative: a project dragged from one Claude Code account to another in the sidebar (grouped by account), then its Accounts… dialog (site.css: .ac-*). The copy above and the list below say what it shows. -->
             <div class="ac-stage glass" data-accounts aria-hidden="true">
@@ -476,8 +476,8 @@
                     <span class="ac-chips" style="top:188px"><span class="ac-c ac-cx-a" style="width:78px">Default<em> ✓</em></span><span class="ac-c ac-cx-b" style="width:66px">Work<em> ✓</em></span><span class="ac-c ac-new" style="width:118px">+ New account</span></span>
                     <span class="ac-field" style="top:228px">Git identity</span>
                     <span class="ac-chips" style="top:246px"><span class="ac-c" style="width:120px">Your git setup</span><span class="ac-c on" style="width:66px">Work ✓</span></span>
-                    <span class="ac-field" style="top:286px">Browser profile</span>
-                    <span class="ac-chips" style="top:304px"><span class="ac-c" style="width:78px">Default</span><span class="ac-c on" style="width:66px">Work ✓</span><span class="ac-c ac-new" style="width:112px">+ New profile</span></span>
+                    <span class="ac-field" style="top:286px">Browser account</span>
+                    <span class="ac-chips" style="top:304px"><span class="ac-c" style="width:78px">Default</span><span class="ac-c on" style="width:66px">Work ✓</span><span class="ac-c ac-new" style="width:112px">+ New account</span></span>
                     <div class="ac-foot"><span>Manage accounts…</span><span class="ac-done">Done</span></div>
                   </div>
                   <i class="fl-ping ac-ping-1"></i><i class="fl-ping ac-ping-2"></i><i class="fl-ping ac-ping-3"></i><i class="fl-ping ac-ping-4"></i><i class="fl-ping ac-ping-5"></i>
@@ -492,7 +492,7 @@
               </div>
               <div class="pit-row">
                 <p class="label">Per project</p>
-                <p>A project's right-click → Accounts… sets the account its new agents use for each tool, a git identity for its commits and pushes, and a browser profile for its web pages. New agent can pick another, and an agent's right-click → Run on account moves just that one. With the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</p>
+                <p>A project's right-click → Accounts… sets the account its new agents use for each tool, a git identity for its commits and pushes, and a browser account for its web pages. A profile (Settings → Profiles) bundles these picks under one name, such as Work, and a project then picks the profile. New agent can pick another, and an agent's right-click → Run on account moves just that one. With the sidebar grouped by account (Settings → General), drag a project or an agent onto another account.</p>
               </div>
               <div class="pit-row">
                 <p class="label">Running agents</p>
