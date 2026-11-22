@@ -7,12 +7,14 @@
 //! manifests, and expands the manifest's name templates ([`expand`]);
 //! which extensions are on is the app's (`ui.json` `extensions`).
 //!
-//! Version 1 of the manifest knows `id`, `name`, `icon`, `description`,
-//! `settings`, `adapter`, `agentEnv` and `matchAgents`. Keys it doesn't
+//! Version 1 of the manifest knows `id`, `name`, `version`, `demo`, `docs`,
+//! `icon`, `description`, `settings`, `adapter`, `agentEnv`, `matchAgents` and
+//! `actions`. Keys it doesn't
 //! know are ignored, so a later version can add its own without breaking
 //! this one; a manifest asking for a newer format (`v`) is refused with a
 //! word on why.
 
+pub mod install;
 pub mod protocol;
 
 use std::path::Path;
@@ -42,6 +44,14 @@ pub struct Manifest {
     pub id: String,
     /// What the sidebar and Settings call it.
     pub name: String,
+    /// Its version (dot-separated numbers, maybe `-` and a pre-release):
+    /// how Pitwall tells a newer bundled copy ([`install`]).
+    pub version: Option<String>,
+    /// Made to show what an extension looks like, not for use: listed last
+    /// and marked so among the extensions Pitwall ships.
+    pub demo: bool,
+    /// Where its documentation is (an https address), linked in Settings.
+    pub docs: Option<String>,
     /// One of Pitwall's icon names (an app without it draws its own
     /// extension icon).
     pub icon: Option<String>,
@@ -62,7 +72,7 @@ pub struct Manifest {
 impl Manifest {
     /// A manifest with only these (tests and fixtures).
     pub fn named(id: &str, name: &str) -> Manifest {
-        Manifest { id: id.into(), name: name.into(), icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None, actions: vec![] }
+        Manifest { id: id.into(), name: name.into(), version: None, demo: false, docs: None, icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None, actions: vec![] }
     }
 }
 
@@ -75,6 +85,9 @@ pub struct Action {
     pub label: String,
     /// One line under it.
     pub description: String,
+    /// Part of setting the extension up: a step of its checklist in
+    /// Settings, ticked once it has run without a failure.
+    pub setup: bool,
     pub steps: Vec<Step>,
 }
 
@@ -354,6 +367,26 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
         None => None,
     };
     let description = opt_str(&obj, "description")?.map(|d| line("description", d, MAX_DESCRIPTION)).transpose()?;
+    let version = match opt_str(&obj, "version")? {
+        Some(v) => {
+            let ok = v.len() <= 32 && v.starts_with(|c: char| c.is_ascii_digit()) && v.chars().all(|c| c.is_ascii_alphanumeric() || ".-+".contains(c));
+            if !ok {
+                return Err(format!("\"version\" “{v}” must be like 1.2.0 (digits and dots, maybe -beta.1), at most 32"));
+            }
+            Some(v.to_string())
+        }
+        None => None,
+    };
+    let docs = match opt_str(&obj, "docs")? {
+        Some(d) if d.starts_with("https://") && d.len() <= 300 && !d.chars().any(|c| c.is_whitespace() || c.is_control()) => Some(d.to_string()),
+        Some(_) => return Err("\"docs\" must be an https address of at most 300 characters".into()),
+        None => None,
+    };
+    let demo = match obj.get("demo") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err("\"demo\" must be true or false".into()),
+    };
     let settings = parse_settings(obj.get("settings"))?;
     let adapter = parse_adapter(obj.get("adapter"))?;
     let agent_env = parse_env(obj.get("agentEnv"), &settings)?;
@@ -370,7 +403,7 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
         Some(_) => return Err("\"matchAgents\" must be an object".into()),
     };
     let actions = parse_actions(obj.get("actions"), &settings)?;
-    Ok(Manifest { id: id.to_string(), name, icon, description, settings, adapter, agent_env, match_agents, actions })
+    Ok(Manifest { id: id.to_string(), name, version, demo, docs, icon, description, settings, adapter, agent_env, match_agents, actions })
 }
 
 /// An array field (absent: empty) of at most `max` items.
@@ -468,6 +501,11 @@ fn parse_actions(v: Option<&Value>, settings: &[SettingDef]) -> Result<Vec<Actio
         }
         let label = line("label", opt_str(o, "label")?.ok_or(format!("action “{id}” needs \"label\""))?, 40)?;
         let description = line("description", opt_str(o, "description")?.ok_or(format!("action “{id}” needs \"description\""))?, 200)?;
+        let setup = match o.get("setup") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err(format!("action “{id}”: \"setup\" must be true or false")),
+        };
         let mut steps = Vec::new();
         let list = array(o.get("steps"), &format!("actions.{id}.steps"), 12)?;
         if list.is_empty() {
@@ -500,7 +538,7 @@ fn parse_actions(v: Option<&Value>, settings: &[SettingDef]) -> Result<Vec<Actio
             };
             steps.push(Step { run: argv, for_kind, optional });
         }
-        out.push(Action { id: id.to_string(), label, description, steps });
+        out.push(Action { id: id.to_string(), label, description, setup, steps });
     }
     Ok(out)
 }
@@ -573,6 +611,12 @@ mod tests {
         let m = parse(r#"{"id": "a-2", "name": "A", "badge": 3}"#).unwrap();
         assert_eq!((m.icon, m.description), (None, None));
         assert!(parse(r#"{"id": "a", "name": "A", "icon": null}"#).is_ok());
+        let m = parse(r#"{"id": "a", "name": "A", "version": "0.4.0-beta.1", "demo": true}"#).unwrap();
+        assert_eq!((m.version.as_deref(), m.demo), (Some("0.4.0-beta.1"), true));
+        assert!(parse(r#"{"id": "a", "name": "A", "version": "latest"}"#).unwrap_err().contains("like 1.2.0"));
+        assert!(parse(r#"{"id": "a", "name": "A", "demo": "yes"}"#).is_err());
+        assert_eq!(parse(r#"{"id": "a", "name": "A", "docs": "https://example.com/a"}"#).unwrap().docs.as_deref(), Some("https://example.com/a"));
+        assert!(parse(r#"{"id": "a", "name": "A", "docs": "http://example.com"}"#).unwrap_err().contains("https"));
     }
 
     #[test]
