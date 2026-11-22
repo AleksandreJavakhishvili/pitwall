@@ -9,7 +9,7 @@
 //! (`ui.json` `webTiles[id].by`), and its next call goes there, wherever
 //! the user moved it (navigated when a url is given), unless `where` names
 //! a place it isn't in. It is a page like one the user opened (no Preview
-//! rules, it stays when the agent goes), in the browser profile of the
+//! rules, it stays when the agent goes), in the browser account of the
 //! agent's project ([`super::profiles`]; Default when it names none). The
 //! agent can't pick one. A page shown before that is in another profile
 //! than the project's now moves into it at the agent's next call (loaded
@@ -54,7 +54,7 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
     let in_front = crate::platform::app_in_front(cx);
     let err = |e: String| ErrorBody::new(code::OTHER, e);
 
-    // The browser profile of the agent's project (never the agent's pick).
+    // The browser account of the agent's project (never the agent's pick).
     let project = agents.iter().find(|a| a.id == agent).map(|a| a.project.clone()).unwrap_or_default();
     let profile = if project.is_empty() { None } else { super::profiles::for_project(&project, cx) };
 
@@ -98,7 +98,7 @@ pub fn show(req: &WebShow, cx: &mut App) -> Result<WebShown, ErrorBody> {
                     crate::ui_state::update(cx, |s| *s = s.clone().set_web_profile(&id, p.as_deref()));
                 }
             }
-            let moved = format!("The page was in the {from} browser profile; it is in {to} now, the one its project uses, and loaded again there.");
+            let moved = format!("The page was in the {from} browser account; it is in {to} now, the one its project uses, and loaded again there.");
             note = Some(match note {
                 Some(n) => format!("{n}\n{moved}"),
                 None => moved,

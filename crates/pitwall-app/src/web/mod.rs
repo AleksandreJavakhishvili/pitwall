@@ -23,7 +23,7 @@ mod tests;
 /// - `place <agent> right|left|above|below|replace|edge-right|edge-bottom|own|window [of]`:
 ///   agent `<agent>`'s page moved there ("Move…" / "Dock…").
 /// - `close <agent>`: its page closed.
-/// - `profile add <name>` / `remove <id>` / `list`: browser profiles (list:
+/// - `profile add <name>` / `remove <id>` / `list`: browser accounts (list:
 ///   each one's folder and store identifier).
 /// - `profile project <path> <id|default>`: a project's profile.
 /// - `profile switch <agent> <id|default>`: its page's profile (the bar's

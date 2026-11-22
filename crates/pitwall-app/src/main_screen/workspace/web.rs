@@ -39,7 +39,7 @@ pub struct WebTile {
     /// In a window of its own, not in a layout.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub window: bool,
-    /// The browser profile it is in (an account id of kind `web`;
+    /// The browser account it is in (an account id of kind `web`;
     /// `None`: Default). Not for a Preview (its project's own store).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
@@ -121,7 +121,7 @@ impl UiState {
         self
     }
 
-    /// Web page `id` in browser profile `profile` (`None`: Default).
+    /// Web page `id` in browser account `profile` (`None`: Default).
     pub fn set_web_profile(mut self, id: &str, profile: Option<&str>) -> UiState {
         if let Some(t) = self.web_tiles.get_mut(id) {
             t.profile = profile.map(String::from);
@@ -346,7 +346,7 @@ mod tests {
         assert!(!s.prune_web(&ids(&[])).web_tiles.contains_key("p"));
     }
 
-    /// A page's browser profile is kept with it; Default writes nothing
+    /// A page's browser account is kept with it; Default writes nothing
     /// (ui.json as before profiles), and an old entry loads in Default.
     #[test]
     fn a_pages_profile_is_kept() {

@@ -340,7 +340,7 @@ impl AccountsModel {
         Ok(a)
     }
 
-    /// Add browser profile `name` (`crate::web::profiles`).
+    /// Add browser account `name` (`crate::web::profiles`).
     pub fn add_web(&mut self, name: &str, cx: &mut Context<Self>) -> Result<Account, String> {
         let paths = self.paths.clone().ok_or("Pitwall's engine isn't running")?;
         let a = self.list.add_web(&paths, name)?;
@@ -577,7 +577,7 @@ mod tests {
     use super::*;
 
     /// The sidebar grouped by account files a project's terminals under its
-    /// tool's account, never under its browser profile.
+    /// tool's account, never under its browser account.
     #[test]
     fn a_browser_profile_is_no_projects_account() {
         let t = pitwall_core::testing::TempDir::new("app-accounts");

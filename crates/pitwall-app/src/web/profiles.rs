@@ -1,4 +1,4 @@
-//! Browser profiles (docs/spec/web.md, "Browser profiles"): separate
+//! Browser accounts (docs/spec/web.md, "Browser accounts"): separate
 //! sign-ins for Pitwall's web pages, one store of cookies and site data
 //! each. A profile is an account of kind [`WEB`] (`accounts.json`, beside
 //! the tools' accounts): a name and its folder. Default is the store every
@@ -26,7 +26,7 @@ use pitwall_core::accounts::{Account, Accounts, DEFAULT, WEB};
 pub const DEFAULT_NAME: &str = "Default";
 
 /// Why a profile other than Default can't be used on this system.
-pub const NEEDS_STORES: &str = "Browser profiles need macOS 14 or later: before it, every page shares one store, so pages here use Default.";
+pub const NEEDS_STORES: &str = "Browser accounts need macOS 14 or later: before it, every page shares one store, so pages here use Default.";
 
 /// Profile `id` (`None`: Default) can be used where each data folder has
 /// a store of its own (`separate`); Default always.
@@ -110,8 +110,8 @@ pub fn pages_in(id: &str, cx: &App) -> Vec<String> {
 pub fn in_use(id: &str, name: &str, cx: &App) -> Option<String> {
     match pages_in(id, cx).len() {
         0 => None,
-        1 => Some(format!("A page is open in {name}: switch it to another profile from its bar, or close it, first.")),
-        n => Some(format!("{n} pages are open in {name}: switch them to another profile from their bars, or close them, first.")),
+        1 => Some(format!("A page is open in {name}: switch it to another browser account from its bar, or close it, first.")),
+        n => Some(format!("{n} pages are open in {name}: switch them to another browser account from their bars, or close them, first.")),
     }
 }
 
@@ -129,7 +129,7 @@ pub fn add(name: &str, cx: &mut App) -> Result<Account, String> {
 /// used again.
 pub fn remove(id: &str, cx: &mut App) -> Result<(), String> {
     let m = crate::accounts::model(cx);
-    let name = m.read(cx).list.get(id).filter(|a| a.kind == WEB).map(|a| a.name.clone()).ok_or("No such browser profile")?;
+    let name = m.read(cx).list.get(id).filter(|a| a.kind == WEB).map(|a| a.name.clone()).ok_or("No such browser account")?;
     if let Some(why) = in_use(id, &name, cx) {
         return Err(why);
     }
@@ -173,7 +173,7 @@ fn erase(folder: PathBuf, attempt: u32, cx: &mut App) {
                     cx.background_executor().timer(std::time::Duration::from_secs(2 + 4 * attempt as u64)).await;
                     cx.update(|cx| erase(folder, attempt + 1, cx));
                 } else {
-                    eprintln!("pitwall: couldn't delete a removed browser profile's data ({}): {e}", folder.display());
+                    eprintln!("pitwall: couldn't delete a removed browser account's data ({}): {e}", folder.display());
                 }
             }
         })
