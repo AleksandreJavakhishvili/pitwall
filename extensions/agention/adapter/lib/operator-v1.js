@@ -199,8 +199,9 @@ export function decodeVersions(body) {
 function decodeOpenAsks(value, where) {
   object(value, where);
   const count = int(value.count, `${where}.count`);
-  optionalList(value.asks, `${where}.asks`, LIMITS.openAsks, (a, w) => object(a, w));
-  return { count, blocking: bool(value.blocking, `${where}.blocking`) };
+  // The messages the open asks are in (to send them however old).
+  const seqs = optionalList(value.asks, `${where}.asks`, LIMITS.openAsks, (a, w) => int(object(a, w).seq, `${w}.seq`));
+  return { count, seqs: [...new Set(seqs)].sort((x, y) => x - y), blocking: bool(value.blocking, `${where}.blocking`) };
 }
 
 // A thread as the list, a thread read and the wait give it.
@@ -219,6 +220,7 @@ export function decodeThread(value, where = "thread") {
     from: { agent: ref.agent, session: ref.session },
     unread: int(value.unread, `${where}.unread`),
     openAsks: openAsks.count,
+    openAskSeqs: openAsks.seqs,
     blocking: openAsks.blocking,
     status: oneOf(value.status, `${where}.status`, ["open", "answered", "withdrawn", "none"], "none"),
     archived: bool(value.archived, `${where}.archived`),

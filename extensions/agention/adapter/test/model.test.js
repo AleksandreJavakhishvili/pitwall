@@ -70,11 +70,13 @@ describe("threads", () => {
         id: "my-app/s1/3",
         title: "Which store?",
         from: { agent: "my-app", session: "s1" },
-        unread: true,
+        unread: 2,
         openAsks: 1,
+        blocking: true,
         lastActivity: "2026-11-20T11:00:00.000Z",
       },
     ]);
+    assert.deepEqual(t.openAskSeqs, [1]);
     assert.equal(t.lastSeq, 4);
     assert.equal(t.blocking, true);
   });
@@ -149,12 +151,15 @@ describe("messages", () => {
           question: "Which store?",
           multiple: false,
           open: true,
+          blocking: true,
           suggestions: [
             { label: "Redis", description: "deployed" },
             { label: "SQLite", description: "" },
           ],
         },
       ],
+      answers: [],
+      withdrawals: [],
     });
   });
 
@@ -176,17 +181,27 @@ describe("messages", () => {
     assert.equal(decodeMessage(wireMessage({ live: false })), null, "a replaced message is left out");
   });
 
-  test("the operator's messages are the user's; a bare answer is said in words", () => {
+  test("the operator's messages are the user's; answers and withdrawals are carried as such", () => {
     const m = decodeMessage({
       seq: 2,
       author: { kind: "person", name: "Ada" },
       created_at: "2026-11-20T10:05:00Z",
       live: true,
-      answers: [{ ask: 1, question: "Which store?", ask_seq: 1, ask_live: true, declined: false, picks: [1], labels: ["SQLite"] }],
+      answers: [
+        { ask: 1, question: "Which store?", ask_seq: 1, ask_live: true, declined: false, picks: [1], labels: ["SQLite"], text: "in the data dir" },
+        { ask: 2, question: "Ship?", ask_seq: 1, ask_live: true, declined: true, labels: ["Yes"] },
+      ],
+      withdrawals: [{ ask: 3, reason: "moot" }],
     });
     const out = message(m);
     assert.deepEqual(out.author, { kind: "you", name: "Ada" });
-    assert.equal(out.text, "- Answered 1 (Which store?): SQLite");
+    assert.equal(out.text, "", "no words made up");
+    assert.deepEqual(out.answers, [
+      { ask: 1, question: "Which store?", declined: false, labels: ["SQLite"], text: "in the data dir" },
+      { ask: 2, question: "Ship?", declined: true, labels: [], text: "" },
+    ]);
+    assert.deepEqual(out.withdrawals, [{ ask: 3, reason: "moot" }]);
+    assert.equal(message(decodeMessage(wireMessage())).asks[0].blocking, true);
   });
 
   test("lists, sizes and authors are bounded", () => {
@@ -218,6 +233,13 @@ describe("messages", () => {
     assert.equal(detail.messages.length, 200);
     assert.equal(detail.messages[0].id, "51");
     assert.equal(detail.canReply, true);
+    assert.equal(detail.earlier, true);
+    // An older message with an open ask is sent ahead of the window, in order.
+    const old = decodeMessage(wireMessage({ seq: 2 }));
+    const kept = threadDetail({ thread: read.thread, messages: many.messages.slice(-200) }, { older: [old], earlier: true });
+    assert.equal(kept.messages.length, 200);
+    assert.deepEqual(kept.messages.slice(0, 2).map((m) => m.id), ["2", "52"]);
+    assert.equal(threadDetail({ thread: read.thread, messages: many.messages.slice(-3) }).earlier, false);
   });
 
   test("error bodies are read leniently", () => {

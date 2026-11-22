@@ -118,18 +118,34 @@ closes.
 - `{"type":"threads","threads":[Thread…]}`: the whole list, replacing the
   last one (≤ 500). Send it after start, whenever it changes, and after
   `refresh`.
-  - Thread: `{"id","title","from":{"agent","session"},"unread":bool,"openAsks":n,"lastActivity":"ISO 8601"}`.
+  - Thread: `{"id","title","from":{"agent","session"},"unread":n,"openAsks":n,"blocking":bool,"lastActivity":"ISO 8601"}`.
     `id` is the adapter's own (1–200 characters; it comes back in
     requests). `from` is optional (both names, ≤ 100 each). `title` ≤ 300.
+    `unread` is the number of unread messages (`true`/`false` read as
+    1/0). `blocking`: one of its open asks holds its agent up.
+- `{"type":"counts","unread":n,"openAsks":n,"blocking":n}` (optional):
+  the whole inbox's unread threads, open asks and blocking asks, when the
+  service knows more than the list carries. Without it Pitwall counts the
+  list.
 - `{"type":"thread","thread":ThreadDetail}`: a thread with its messages,
   after `open` and whenever an open thread changes.
-  - ThreadDetail: `{"id","title","from","unread","canReply":bool (default true),"messages":[Message…]}`
-    (≤ 200 messages; the latest are kept).
-  - Message: `{"id","author":{"kind":"agent"|"person"|"you","name"},"time","text","detail","asks":[Ask…]}`.
+  - ThreadDetail: `{"id","title","from","unread","canReply":bool (default true),"earlier":bool,"messages":[Message…]}`.
+    At most 200 messages, oldest first: **every message holding an open
+    ask, however old**, then the latest. `earlier`: older messages exist
+    that weren't sent (Pitwall says so above the first). If more than 200
+    arrive, Pitwall keeps the ones with open asks and then the latest.
+  - Message: `{"id","author":{"kind":"agent"|"person"|"you","name"},"time","text","detail","asks":[Ask…],"answers":[Answered…],"withdrawals":[{"ask":n,"reason"}]}`.
     `text` (≤ 8000) and `detail` (≤ 40000, shown folded) are Markdown.
-  - Ask: `{"number":n,"question","multiple":bool,"open":bool,"suggestions":[{"label","description"}],"answer":{"declined":bool,"picks":[i…],"text"},"withdrawn":"why"}`
+    A message may carry no text at all, only answers or withdrawals:
+    Pitwall draws those itself rather than the adapter putting them in
+    words.
+  - Ask: `{"number":n,"question","multiple":bool,"open":bool,"blocking":bool,"suggestions":[{"label","description"}],"answer":{"declined":bool,"picks":[i…],"text"},"withdrawn":"why"}`
     (≤ 10 asks, ≤ 10 suggestions; `answer` and `withdrawn` only when
-    so; `picks` index `suggestions`).
+    so; `picks` index `suggestions`). `blocking`: the agent is held up
+    until it is answered.
+  - Answered: `{"ask":n,"question","declined":bool,"labels":["…"],"text"}`:
+    an answer to ask `n` of this thread (in this or an earlier message),
+    with the words of the suggestions picked, so it reads on its own.
 - `{"type":"result","req":n,"ok":bool,"message":"…"}`: how request `req`
   went; `message` says why not, in plain words.
 
@@ -141,7 +157,9 @@ gets one `result`)
   picks and/or the user's own words (`text`, ≤ 4000, absent when none),
   or a decline (no picks, no text).
 - `{"type":"message","req":n,"thread":id,"text":"…"}`: a plain message
-  (≤ 4000).
+  (≤ 4000). A service with a shorter limit splits it itself (Agention's
+  adapter keeps the first paragraph as the message and the whole as its
+  detail).
 - `{"type":"markRead","req":n,"thread":id}`, `{"type":"archive","req":n,"thread":id}`.
 - `{"type":"refresh"}`: send the list again.
 
@@ -180,6 +198,8 @@ gets one `result`)
 - Not dragged, and not in the narrow icon rail.
 
 ## Later (not built)
+- In the protocol: an ask's priority and answer-by time, references,
+  topics, and replaced messages (an adapter leaves replaced ones out).
 - A badge count on the Dock / taskbar from extensions.
 - Notifications.
 - Installing from a folder or a link (`pitwall extension install`, a

@@ -7,7 +7,7 @@
 import { AgentionClient, backoffMs, checkSettings, defaultSleep } from "./client.js";
 import { AdapterError, errors } from "./errors.js";
 import { KEY_ANYWHERE, LIMITS } from "./operator-v1.js";
-import { PITWALL, replyToMessage, threadDetail, threadList } from "./model.js";
+import { counts, PITWALL, replyToMessage, threadDetail, threadList } from "./model.js";
 
 export const PROTOCOL = 1;
 const MAX_LINE = 1 << 20;
@@ -225,6 +225,12 @@ export class Adapter {
         const before = this.known;
         this.known = new Map(threads.map((t) => [t.id, t]));
         this.send({ type: "threads", threads: threadList(threads) });
+        try {
+          this.send(counts(await this.client.counts({ signal: this.stop.signal })));
+        } catch (error) {
+          if (error.kind === "cancelled") throw error;
+          this.log(`counts failed: ${error.kind ?? error}`);
+        }
         for (const id of this.open) {
           const was = before.get(id);
           const now = this.known.get(id);
@@ -249,8 +255,20 @@ export class Adapter {
       if (error.kind === "cancelled") return null;
       throw error;
     }
+    // Messages before the window holding open asks: sent too, however old.
+    const older = [];
+    for (const seq of read.thread.openAskSeqs ?? []) {
+      if (seq > after || older.length >= PITWALL.messages) continue;
+      try {
+        const one = await this.client.readThread(id, { signal: this.stop.signal, after: Math.max(0, seq - 1), max: 1, pageSize: 1 });
+        older.push(...one.messages.filter((m) => m.seq === seq));
+      } catch (error) {
+        if (error.kind === "cancelled") return null;
+        this.log(`an older ask couldn't be read: ${error.kind ?? error}`);
+      }
+    }
     this.seenThrough.set(id, read.thread.lastSeq);
-    this.send({ type: "thread", thread: threadDetail(read) });
+    this.send({ type: "thread", thread: threadDetail(read, { older, earlier: after > 0 }) });
     return read;
   }
 

@@ -33,10 +33,16 @@ export function listThread(t) {
     id: t.id,
     title: cut(t.title, PITWALL.title),
     from: { agent: t.from.agent, session: t.from.session },
-    unread: t.unread > 0,
+    unread: t.unread,
     openAsks: t.openAsks,
+    blocking: t.blocking,
     lastActivity: t.lastActivity,
   };
+}
+
+// The inbox's totals, for the sidebar heading.
+export function counts(c) {
+  return { type: "counts", unread: c.unread, openAsks: c.open, blocking: c.blocking };
 }
 
 // The list: threads not archived, newest activity first, at most 500.
@@ -54,6 +60,7 @@ function ask(a) {
     question: cut(a.question, PITWALL.question),
     multiple: a.multiple,
     open: a.state === "open",
+    blocking: a.blocking === true,
     suggestions: a.suggestions.slice(0, PITWALL.suggestions).map((s) => ({
       label: cut(s.label, PITWALL.label),
       description: cut(s.description, PITWALL.description),
@@ -70,21 +77,15 @@ function ask(a) {
   return out;
 }
 
-function answerLine(a) {
-  if (a.declined) return `Declined to answer ${a.ask}: ${a.question}`;
-  const words = [...a.labels, ...(a.text ? [a.text] : [])].join("; ");
-  return `Answered ${a.ask} (${a.question}): ${words}`;
-}
-
-// Text for a message that only answers or withdraws asks, which Agention
-// shows on the asks themselves; Pitwall's message has no place for that, so
-// it is said in words rather than shown as an empty message.
-function carriedText(m) {
-  const lines = [
-    ...m.answers.map(answerLine),
-    ...m.withdrawals.map((w) => `Withdrew question ${w.ask}: ${w.reason}`),
-  ];
-  return lines.map((l) => `- ${l.replace(/([\\`*_[\]#<>])/g, "\\$1")}`).join("\n");
+// An answer a message gives, in words that read without the ask.
+function answered(a) {
+  return {
+    ask: a.ask,
+    question: cut(a.question, PITWALL.question),
+    declined: a.declined,
+    labels: a.declined ? [] : a.labels.slice(0, PITWALL.suggestions).map((l) => cut(l, PITWALL.label)),
+    text: a.declined ? "" : cut(a.text, PITWALL.answerText),
+  };
 }
 
 export function message(m) {
@@ -92,28 +93,35 @@ export function message(m) {
     m.author.kind === "operator"
       ? { kind: "you", name: cut(m.author.name || "You", PITWALL.name) }
       : { kind: "agent", name: cut(m.author.name, PITWALL.name) };
-  let text = m.text;
-  if (text === "" && m.detail === "" && m.asks.length === 0) text = carriedText(m);
   return {
     id: m.id,
     author,
     time: m.time,
-    text: cut(text, PITWALL.text),
+    text: cut(m.text, PITWALL.text),
     detail: cut(m.detail, PITWALL.detail),
     asks: m.asks.slice(0, PITWALL.asks).map(ask),
+    answers: m.answers.slice(0, PITWALL.asks).map(answered),
+    withdrawals: m.withdrawals.slice(0, PITWALL.asks).map((w) => ({ ask: w.ask, reason: cut(w.reason, PITWALL.withdrawn) })),
   };
 }
 
-// A thread with its messages, the latest 200.
-export function threadDetail(read) {
+// A thread with its messages: those holding open asks however old, then the
+// latest, 200 in all, in order. `earlier` says older ones weren't sent.
+export function threadDetail(read, { older = [], earlier = false } = {}) {
   const t = listThread(read.thread);
+  const seen = new Set(read.messages.map((m) => m.seq));
+  const asking = older.filter((m) => !seen.has(m.seq) && m.asks.some((a) => a.state === "open"));
+  const room = Math.max(0, PITWALL.messages - asking.length);
+  const latest = room > 0 ? read.messages.slice(-room) : [];
+  const all = [...asking.slice(0, PITWALL.messages), ...latest].sort((a, b) => a.seq - b.seq);
   return {
     id: t.id,
     title: t.title,
     from: t.from,
     unread: t.unread,
     canReply: true,
-    messages: read.messages.slice(-PITWALL.messages).map(message),
+    earlier: earlier || latest.length < read.messages.length || read.truncated === true,
+    messages: all.map(message),
   };
 }
 

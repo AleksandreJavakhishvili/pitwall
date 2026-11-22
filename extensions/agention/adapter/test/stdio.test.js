@@ -116,11 +116,13 @@ describe("the adapter over stdio", () => {
         id: "my-app/s1/1",
         title: "Which store?",
         from: { agent: "my-app", session: "s1" },
-        unread: true,
+        unread: 1,
         openAsks: 1,
+        blocking: false,
         lastActivity: list.threads[0].lastActivity,
       },
     ]);
+    assert.deepEqual(await a.next(is("counts"), "the counts"), { type: "counts", unread: 1, openAsks: 1, blocking: 0 });
 
     a.send({ type: "open", thread: id });
     const opened = await a.next(is("thread"), "the thread");
@@ -148,14 +150,14 @@ describe("the adapter over stdio", () => {
 
     // News from the agent arrives through the wait.
     fake.agentPost(id, { text: "Done, using SQLite." });
-    const news = await a.next(is("threads", (m) => m.threads[0]?.unread === true), "the list with news");
+    const news = await a.next(is("threads", (m) => m.threads[0]?.unread > 0), "the list with news");
     assert.equal(news.threads[0].id, id);
     const fresh = await a.next(is("thread", (m) => m.thread.messages.at(-1).text === "Done, using SQLite."), "the open thread, current");
-    assert.equal(fresh.thread.unread, true);
+    assert.ok(fresh.thread.unread > 0);
 
     a.send({ type: "markRead", req: 4, thread: id });
     assert.equal((await a.next(is("result", (m) => m.req === 4))).ok, true);
-    await a.next(is("threads", (m) => m.threads[0]?.unread === false), "the list, read");
+    await a.next(is("threads", (m) => m.threads[0]?.unread === 0), "the list, read");
 
     a.send({ type: "refresh" });
     await a.next(is("threads"), "the list again");
