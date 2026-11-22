@@ -426,6 +426,10 @@ pub struct ExtensionPrefs {
     /// one again at the next start.
     #[serde(default, deserialize_with = "strict_true", skip_serializing_if = "std::ops::Not::not")]
     pub window: bool,
+    /// The connection its inbox lists (absent: all of them), kept across
+    /// restarts; one gone, or a single connection left, lists all.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
@@ -433,7 +437,7 @@ pub struct ExtensionPrefs {
 
 impl ExtensionPrefs {
     fn is_empty(&self) -> bool {
-        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && !self.window && self.rest.is_empty()
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.selected.is_none() && self.actions_done.is_empty() && !self.window && self.connection.is_none() && self.rest.is_empty()
     }
 }
 

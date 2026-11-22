@@ -57,6 +57,10 @@
             },
             "type": "array"
           },
+          "connection": {
+            "description": "The connection its inbox lists, by id (absent: all of them). One that is gone, or a single connection, lists all.",
+            "type": "string"
+          },
           "enabled": {
             "default": false,
             "description": "The extension is on: its adapter runs and its inbox can be opened.",

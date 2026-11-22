@@ -1,9 +1,8 @@
 # Accounts, connections and profiles
 
-Status: Phase A built (storage, migration, resolution, launches,
-extension connections in the hub, CLI). Phase B: Settings, extension
-cards and the project's Accounts… built; the inbox's connection filter
-comes after the inbox's own window (#65).
+Status: built. Phase A: storage, migration, resolution, launches,
+extension connections in the hub, CLI. Phase B: Settings, extension
+cards, the project's Accounts…, the inbox's connections.
 
 Pitwall launches an agent with an identity: which login of its tool it
 runs on, who it commits as, which sign-ins its web pages use, and which
@@ -113,8 +112,9 @@ keys a later one adds are kept by this one):
 ```
 `ui.json` keeps what is per extension, not per connection:
 `extensions.<id>.enabled`, `.selected` (the thread its inbox shows),
-`.window` once the inbox can have a window of its own (one inbox per
-extension, so the window is the extension's) and `.actionsDone` for setup actions that
+`.window` (its inbox in a window of its own: one inbox per extension,
+so the window is the extension's, whichever connections it lists),
+`.connection` (the connection its inbox lists; absent: all) and `.actionsDone` for setup actions that
 don't use `{setting:KEY}`. A setup action that does is per connection:
 its tick is the connection's `actionsDone` in `accounts.json`.
 
@@ -195,11 +195,21 @@ user doing it in Pitwall.
   A connection that stops or can't reach its service shows as offline
   (a line over the list naming it) without hiding the others' threads.
   Counts and badges add up the connections'.
-- **A filter** in the inbox's bar, next to "Needs you / All": "All
-  connections" (the default), then each connection by name, with the
-  names of the profiles that use it ("Work"), remembered per tile. A
-  thread's row names its connection whenever there is more than one; with
-  one connection there is neither label nor filter. The merged state
+- **A filter** in the inbox's bar, before "Needs you / All": a button
+  naming what is listed ("All connections", the default, or one; a dot
+  when one listed is offline) opening a menu: All connections, then each
+  connection by name with the profiles that use it ("Work") and
+  "offline" where it is. The choice is kept in `ui.json`
+  (`extensions.<id>.connection`; the inbox is one view, so one choice
+  wherever it is drawn); a connection gone, or one left, lists all. The
+  "Needs you" count is the listed connections'. While the menu is open
+  the tile's single keys (J K E R 1–9) do nothing; Esc closes it. A
+  thread's row names its connection while the list mixes several; with
+  one connection there is neither label nor filter.
+- **Offline, per connection**: with several connections each one listed
+  that is stopped, signed out or unreachable gets a line of its own over
+  the list ("Side is offline: Can't reach the server"); the others'
+  threads stay. With one, the inbox says it as before. The merged state
   carries each thread's connection (`ExtState::connection_of`) and counts
   per connection as well as in total (`ExtState::counts_of`), so the
   filter needs nothing from the protocol.

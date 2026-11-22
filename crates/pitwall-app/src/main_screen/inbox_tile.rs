@@ -11,8 +11,16 @@
 //! buttons (a key each), a blocking one in the attention colour. An answer
 //! shows as sent at once and goes back, with why, if the extension says it
 //! failed. Keys work while the tile itself has the keyboard (never while
-//! typing in its fields, never in a terminal): ↑↓ or J K, Enter, 1–9, E,
-//! R, Esc.
+//! typing in its fields or while a menu of its bar is open, never in a
+//! terminal): ↑↓ or J K, Enter, 1–9, E, R, Esc.
+//!
+//! An extension with two or more connections (docs/spec/profiles.md)
+//! lists all of their threads by default, each row naming its
+//! connection; a menu beside "Needs you / All" lists one connection's
+//! instead (each named with the profiles that use it), kept in
+//! `extensions.<id>.connection`. A connection that can't show its threads
+//! gets a line of its own over the list. With one connection, none of
+//! this shows.
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -20,7 +28,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    canvas, div, prelude::*, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight, KeyDownEvent, MouseButton, Pixels, Point,
+    anchored, canvas, deferred, div, prelude::*, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight, KeyDownEvent, MouseButton, Pixels, Point,
     ScrollHandle, SharedString, Subscription, Window,
 };
 use pitwall_core::extensions::protocol::{Ask, AuthorKind, ConnState, Message, Thread, ThreadDetail};
@@ -135,6 +143,8 @@ pub struct InboxView {
     pinned: bool,
     /// The "Move…" / "Dock…" menu, open.
     menu: Option<PlaceMenu>,
+    /// The connections menu, open.
+    conn_menu: bool,
     /// The keys go back to the tile itself at the next frame (a field
     /// let them go: Esc).
     refocus: bool,
@@ -198,6 +208,7 @@ impl InboxView {
             in_window: false,
             pinned: false,
             menu: None,
+            conn_menu: false,
             refocus: false,
             answered: None,
             _subs: subs,
@@ -284,11 +295,40 @@ impl InboxView {
         cx.notify();
     }
 
+    /// The connection whose threads are listed (`None`: all): the one
+    /// kept in `ui.json`, while the extension has it and another.
+    pub fn connection(&self, cx: &App) -> Option<String> {
+        let want = crate::ui_state::get(cx).extension(&self.ext).connection?;
+        let st = hub::try_hub(cx)?.read(cx).get(&self.ext)?;
+        (st.connections.len() > 1 && st.connections.iter().any(|v| v.id == want)).then_some(want)
+    }
+
+    /// List connection `id`'s threads only (`None`: all of them), kept for
+    /// the next start.
+    pub fn set_connection(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        self.conn_menu = false;
+        let ext = self.ext.clone();
+        crate::ui_state::update(cx, |u| *u = std::mem::take(u).with_extension(&ext, |e| e.connection = id));
+        cx.notify();
+    }
+
+    /// The connections menu is open (the tile's single keys don't apply).
+    pub fn conn_menu_open(&self) -> bool {
+        self.conn_menu
+    }
+
     /// The threads listed now.
     pub fn listed(&self, cx: &App) -> Vec<Thread> {
         let Some(h) = hub::try_hub(cx) else { return vec![] };
         let hidden: HashSet<String> = self.archiving.keys().cloned().collect();
-        h.read(cx).get(&self.ext).map(|s| ordered(&s.threads, self.filter, &hidden)).unwrap_or_default()
+        let conn = self.connection(cx);
+        h.read(cx)
+            .get(&self.ext)
+            .map(|s| {
+                let threads: Vec<Thread> = s.threads_of(conn.as_deref()).cloned().collect();
+                ordered(&threads, self.filter, &hidden)
+            })
+            .unwrap_or_default()
     }
 
     fn detail(&self, cx: &App) -> Option<ThreadDetail> {
@@ -487,6 +527,16 @@ impl InboxView {
         if m.platform || m.control || m.alt || m.function {
             return;
         }
+        // A menu of its bar is open: its keys are the menu's (Esc closes
+        // it), never the tile's.
+        if self.conn_menu {
+            if e.keystroke.key == "escape" {
+                self.conn_menu = false;
+                cx.notify();
+            }
+            cx.stop_propagation();
+            return;
+        }
         let key = e.keystroke.key.as_str();
         let handled = match key {
             "up" | "k" => {
@@ -577,6 +627,17 @@ impl InboxView {
 // ── drawing ──────────────────────────────────────────────────────────────
 
 /// A grey bar of a loading row.
+/// Why connection `v` shows nothing, in a line naming it.
+fn offline_note(v: &hub::ConnView) -> String {
+    match (&v.run, &v.conn) {
+        (Run::Stopped(why), _) => format!("{} stopped: {why}", v.name),
+        (_, Some((ConnState::SignedOut, m))) if !m.is_empty() => format!("{} is signed out: {m}", v.name),
+        (_, Some((ConnState::SignedOut, _))) => format!("{} is signed out. Check its key in Settings → Extensions.", v.name),
+        (_, Some((_, m))) if !m.is_empty() => format!("{} is offline: {m}", v.name),
+        _ => format!("{} is offline. It will keep trying.", v.name),
+    }
+}
+
 fn bar(w: f32, t: &Theme) -> gpui::Div {
     div().h(px(9.)).w(px(w)).rounded(px(4.)).bg(t.text.opacity(0.08))
 }
@@ -600,7 +661,9 @@ fn calm(icon: &str, title: &str, body: String, t: &Theme) -> gpui::Div {
 
 impl InboxView {
     fn header(&self, m: &Manifest, st: Option<&hub::ExtState>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let counts = st.map(|s| s.counts()).unwrap_or_default();
+        let conn = self.connection(cx);
+        let counts = st.map(|s| s.counts_of(conn.as_deref())).unwrap_or_default();
+        let chooser = st.filter(|s| s.run == Run::Running && s.connections.len() > 1).map(|s| self.conn_chooser(s, conn.as_deref(), t, cx));
         let running = st.is_some_and(|s| s.run == Run::Running);
         let filter = self.filter;
         let weak = cx.entity().downgrade();
@@ -660,6 +723,7 @@ impl InboxView {
             )
             .child(kit::icon(crate::extensions::icon_of(m), 15., t.text_2))
             .child(div().flex_1().min_w_0().ellipsis().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(t.text).child(kit::one_line(m.name.clone())))
+            .children(chooser)
             .when(running, |d| {
                 d.child(
                     div()
@@ -715,6 +779,83 @@ impl InboxView {
             .into_any_element()
     }
 
+    /// Which connections' threads are listed: a small button naming them
+    /// ("All connections", or one), a dot when one of them is offline, and
+    /// under it, while open, the menu: All connections, then each with the
+    /// profiles that use it.
+    fn conn_chooser(&self, st: &hub::ExtState, conn: Option<&str>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.conn_menu;
+        let label = conn.and_then(|c| st.connections.iter().find(|v| v.id == c)).map(|v| v.name.clone()).unwrap_or_else(|| "All connections".into());
+        let off = st.connections.iter().filter(|v| conn.is_none_or(|c| v.id == c)).any(|v| v.offline());
+        let button = div()
+            .id("inbox-conn")
+            .debug_selector(|| "inbox-conn".into())
+            .h(px(24.))
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(RADIUS)
+            .border_1()
+            .border_color(if open { t.text_3 } else { t.line_strong })
+            .cursor_pointer()
+            .hover(|d| d.bg(t.surface_2))
+            .tooltip(kit::tooltip("Which connections' threads are listed"))
+            .when(off, |d| d.child(div().flex_none().size(px(6.)).rounded_full().bg(t.amber)))
+            .child(div().max_w(px(150.)).ellipsis().text_size(px(12.)).text_color(t.text).child(kit::one_line(label)))
+            .child(kit::icon("chevron-down", 10., t.text_3))
+            // A press on a control is never a drag of the tile.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|v, _, _, cx| {
+                v.conn_menu = !v.conn_menu;
+                cx.notify();
+            }));
+        let menu = open.then(|| {
+            let list = crate::accounts::list(cx).cloned().unwrap_or_default();
+            let me = cx.entity().downgrade();
+            let mut items: Vec<(Option<String>, String, Option<SharedString>)> = vec![(None, "All connections".into(), None)];
+            for v in &st.connections {
+                let mut hint: Vec<String> = list.profiles_of(&v.id);
+                if v.offline() {
+                    hint.push("offline".into());
+                }
+                items.push((Some(v.id.clone()), v.name.clone(), (!hint.is_empty()).then(|| hint.join(" · ").into())));
+            }
+            let rows: Vec<_> = items
+                .into_iter()
+                .enumerate()
+                .map(|(i, (id, name, hint))| {
+                    let me = me.clone();
+                    let on = id.as_deref() == conn;
+                    kit::menu::menu_item(("inbox-conn-item", i), if on { "check" } else { "" }, name, hint, false, t)
+                        .debug_selector(move || format!("inbox-conn-item-{i}"))
+                        .on_click(move |_, _, cx| {
+                            let id = id.clone();
+                            let _ = me.update(cx, |v, cx| v.set_connection(id, cx));
+                        })
+                })
+                .collect();
+            let close = cx.entity().downgrade();
+            deferred(
+                anchored().snap_to_window().child(
+                    kit::menu::menu_panel(t)
+                        .id("inbox-conn-menu")
+                        .debug_selector(|| "inbox-conn-menu".into())
+                        .mt(px(28.))
+                        .children(rows)
+                        .on_mouse_down_out(move |_, _, cx| {
+                            let _ = close.update(cx, |v, cx| {
+                                v.conn_menu = false;
+                                cx.notify();
+                            });
+                        }),
+                ),
+            )
+            .with_priority(2)
+        });
+        div().flex_none().child(button).children(menu).into_any_element()
+    }
+
     /// The "Move…" / "Dock…" menu's places ([`crate::explorer::dock::menu`]).
     fn place_menu(&self, at: Point<Pixels>, replace: Vec<(String, String)>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let me = cx.entity().downgrade();
@@ -768,18 +909,20 @@ impl InboxView {
             Run::Starting => return Some(self.skeleton(t)),
             Run::Running => {
                 let st = st?;
+                // Several connections: the list says which is offline.
+                let one = st.connections.len() < 2;
                 match &st.conn {
-                    Some((ConnState::SignedOut, msg)) if st.threads.is_empty() => {
+                    Some((ConnState::SignedOut, msg)) if st.threads.is_empty() && one => {
                         calm("lock", "Signed out", if msg.is_empty() { "Check the API key in Settings → Extensions.".into() } else { msg.clone() }, t).child(settings("inbox-signed-out", "Open Settings", t))
                     }
-                    Some((ConnState::Error, msg)) if st.threads.is_empty() => calm("alert", &format!("Can't reach {}", m.name), if msg.is_empty() { "It will keep trying.".into() } else { msg.clone() }, t).child(
+                    Some((ConnState::Error, msg)) if st.threads.is_empty() && one => calm("alert", &format!("Can't reach {}", m.name), if msg.is_empty() { "It will keep trying.".into() } else { msg.clone() }, t).child(
                         kit::text_button("inbox-retry", "Restart", kit::BtnKind::Ghost, false, t).on_click(cx.listener(move |_, _, _, cx| {
                             let ext = ext.clone();
                             hub::hub(cx).update(cx, |h, cx| h.restart(&ext, cx));
                         })),
                     ),
                     _ if !st.listed() => return Some(self.skeleton(t)),
-                    _ if st.threads.is_empty() => calm("check", "Nothing needs you", "Questions your agents ask will show here.".into(), t),
+                    _ if st.threads.is_empty() && one => calm("check", "Nothing needs you", "Questions your agents ask will show here.".into(), t),
                     _ => return None,
                 }
             }
@@ -808,7 +951,10 @@ impl InboxView {
             .into_any_element()
     }
 
-    fn row(&self, th: &Thread, m: &Manifest, cursor: bool, now: chrono::DateTime<chrono::Utc>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    /// A thread's row; `conn`: its connection's name, when the list mixes
+    /// several.
+    #[allow(clippy::too_many_arguments)]
+    fn row(&self, th: &Thread, conn: Option<String>, m: &Manifest, cursor: bool, now: chrono::DateTime<chrono::Utc>, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.selected.as_deref() == Some(th.id.as_str());
         let unread = th.unread > 0;
         let who = th.from.as_ref().map(|f| crate::extensions::agent_of(m, &self.agents, &th.id, f, cx).map_or_else(|| f.agent.clone(), |a| a.name.clone()));
@@ -869,6 +1015,22 @@ impl InboxView {
                             .items_center()
                             .gap(px(6.))
                             .child(div().flex_1().min_w_0().ellipsis().text_size(px(12.)).text_color(t.text_3).child(kit::one_line(who.unwrap_or_default())))
+                            .when_some(conn, |d, c| {
+                                let id = th.id.clone();
+                                d.child(
+                                    div()
+                                        .debug_selector(move || format!("inbox-row-conn-{id}"))
+                                        .flex_none()
+                                        .max_w(px(110.))
+                                        .ellipsis()
+                                        .px(px(5.))
+                                        .rounded(px(4.))
+                                        .bg(t.surface_2)
+                                        .text_size(px(11.))
+                                        .text_color(t.text_3)
+                                        .child(kit::one_line(c)),
+                                )
+                            })
                             .when(th.blocking, |d| d.child(div().flex_none().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(t.amber).child("waiting")))
                             .when(th.open_asks > 0, |d| {
                                 d.child(
@@ -896,13 +1058,25 @@ impl InboxView {
     fn list(&self, m: &Manifest, st: &hub::ExtState, focused: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let list = self.listed(cx);
         let now = chrono::Utc::now();
+        let several = st.connections.len() > 1;
+        let scope = self.connection(cx);
+        // Several connections: a line for each one listed that is offline
+        // (the others' threads stay); one: what its adapter said.
+        let notes: Vec<(String, String)> = if several {
+            st.connections.iter().filter(|v| v.offline() && scope.as_ref().is_none_or(|c| *c == v.id)).map(|v| (v.id.clone(), offline_note(v))).collect()
+        } else {
+            vec![]
+        };
         let banner = match &st.conn {
+            _ if several => None,
             Some((ConnState::Error | ConnState::SignedOut, msg)) if !msg.is_empty() => Some(msg.clone()),
             Some((ConnState::Connecting, _)) => Some("Reconnecting…".to_string()),
             _ => None,
         };
+        // Rows name their connection while the list mixes several.
+        let label = several && scope.is_none();
         let body: AnyElement = if list.is_empty() {
-            let all = st.threads.len();
+            let all = st.threads_of(scope.as_deref()).count();
             calm("check", "Nothing needs you", if all > 0 { format!("{all} other thread{} in All.", if all == 1 { "" } else { "s" }) } else { "Questions your agents ask will show here.".into() }, t)
                 .debug_selector(|| "inbox-empty".into())
                 .when(all > 0, |d| d.child(kit::text_button("inbox-show-all", "Show all", kit::BtnKind::Ghost, false, t).on_click(cx.listener(|this, _, _, cx| this.set_filter(Filter::All, cx)))))
@@ -918,7 +1092,7 @@ impl InboxView {
                 .flex()
                 .flex_col()
                 .gap(px(1.))
-                .children(list.iter().map(|th| self.row(th, m, focused, now, t, cx)))
+                .children(list.iter().map(|th| self.row(th, st.label(&th.id).filter(|_| label).map(String::from), m, focused, now, t, cx)))
                 .into_any_element()
         };
         div()
@@ -927,6 +1101,18 @@ impl InboxView {
             .flex()
             .flex_col()
             .when_some(banner, |d, b| d.child(div().px(px(14.)).py(px(6.)).text_size(px(12.)).text_color(t.text_2).bg(t.surface_2).child(b)))
+            .children(notes.into_iter().map(|(id, text)| {
+                div()
+                    .debug_selector(move || format!("inbox-offline-{id}"))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(14.))
+                    .py(px(6.))
+                    .bg(t.surface_2)
+                    .child(div().flex_none().size(px(6.)).rounded_full().bg(t.amber))
+                    .child(div().flex_1().min_w_0().text_size(px(12.)).text_color(t.text_2).child(text))
+            }))
             .child(body)
             .into_any_element()
     }
@@ -1760,6 +1946,13 @@ impl MainScreen {
             ("show", Some(t)) => v.update(cx, |v, cx| v.show(&t, true, cx)),
             ("filter", Some(f)) => v.update(cx, |v, cx| v.set_filter(if f == "all" { Filter::All } else { Filter::NeedsYou }, cx)),
             ("back", _) => v.update(cx, |v, cx| v.back(cx)),
+            // `connection all|<id>`, `connection menu`: which connections
+            // are listed, or the menu open.
+            ("connection", Some(c)) if c == "menu" => v.update(cx, |v, cx| {
+                v.conn_menu = true;
+                cx.notify();
+            }),
+            ("connection", Some(c)) => v.update(cx, |v, cx| v.set_connection((c != "all").then_some(c), cx)),
             ("details", Some(m)) => v.update(cx, |v, cx| {
                 let key = format!("{}:{m}", v.selected.clone().unwrap_or_default());
                 v.expanded.insert(key);
