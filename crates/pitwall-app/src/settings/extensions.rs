@@ -85,6 +85,21 @@ pub fn run_text(run: &Run, conn: Option<&(ConnState, String)>) -> (&'static str,
 }
 
 impl SettingsView {
+    /// Bench and debug builds: extension `ext`'s action `action` asked to
+    /// confirm, as its button does (nothing runs).
+    pub fn debug_action(&mut self, ext: &str, action: &str, cx: &mut Context<Self>) {
+        let Some(m) = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).cloned() else { return };
+        let Some(a) = m.actions.iter().find(|a| a.id == action).cloned() else { return };
+        let values = crate::ui_state::get(cx).extension(&m.id).values;
+        let plan = actions::plan(&m, &a, &values, pitwall_core::shell::spawn_path().as_deref());
+        self.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
+        cx.notify();
+        let me = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let _ = me.update(cx, |v, _| v.scroll_to_end());
+        });
+    }
+
     /// The Extensions section.
     pub(super) fn extensions(&mut self, ui: &Ui, cx: &mut Context<Self>) -> Div {
         if !self.exts.watching {
@@ -450,14 +465,26 @@ mod tests {
         assert!(!t.is_empty());
     }
 
-    /// Settings shows exactly what each variable will be.
+    /// Settings shows exactly what each variable will be: for each
+    /// extension in the repo whose `test/pitwall.json` says so, before and
+    /// after its settings are filled in.
     #[test]
     fn the_variables_shown_are_the_ones_set() {
-        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../extensions/agention/extension.json")).unwrap();
-        let m = pitwall_core::extensions::parse(&text).unwrap();
-        let mut values = std::collections::BTreeMap::new();
-        assert_eq!(env_preview(&m, &values)[0], "AGENTION_URL (not set until Server address is)");
-        values.insert("server".into(), "https://agention.example.ts.net".into());
-        assert_eq!(env_preview(&m, &values), ["AGENTION_URL=https://agention.example.ts.net", "AGENTWORKS_AGENT={project}", "AGENTWORKS_SESSION={agent_id}"]);
+        let mut checked = 0;
+        for (dir, m, fixture) in crate::extensions::shipped_all() {
+            let env = &fixture["env"];
+            if env.is_null() {
+                continue;
+            }
+            let lines = |v: &serde_json::Value| -> Vec<String> { v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect() };
+            let mut values = std::collections::BTreeMap::new();
+            assert_eq!(env_preview(&m, &values), lines(&env["unset"]), "{}", dir.display());
+            for (k, v) in env["values"].as_object().unwrap() {
+                values.insert(k.clone(), v.as_str().unwrap().to_string());
+            }
+            assert_eq!(env_preview(&m, &values), lines(&env["set"]), "{}", dir.display());
+            checked += 1;
+        }
+        assert!(checked > 0, "no extension says what its variables are");
     }
 }

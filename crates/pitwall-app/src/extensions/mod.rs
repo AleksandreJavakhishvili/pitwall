@@ -281,6 +281,29 @@ pub fn set_found(found: Vec<Found>, cx: &mut App) {
     cx.set_global(Installed { dir: None, found: Rc::new(found) });
 }
 
+/// Tests: every extension in the repo's `extensions/` folder, its
+/// manifest, and what its `test/pitwall.json` says Pitwall's tests expect
+/// of it (each test reads its part; an extension without one is only
+/// parsed and planned). Keeps the checks for a real extension out of the
+/// crate's source.
+#[cfg(test)]
+pub fn shipped_all() -> Vec<(PathBuf, Manifest, serde_json::Value)> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extensions");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.join("extension.json").is_file()).collect();
+    dirs.sort();
+    assert!(!dirs.is_empty(), "no extensions in {}", root.display());
+    dirs.into_iter()
+        .map(|dir| {
+            let text = std::fs::read_to_string(dir.join("extension.json")).unwrap();
+            let m = pitwall_core::extensions::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+            let fixture = std::fs::read_to_string(dir.join("test/pitwall.json"))
+                .map(|t| serde_json::from_str(&t).unwrap_or_else(|e| panic!("{}/test/pitwall.json: {e}", dir.display())))
+                .unwrap_or(serde_json::Value::Null);
+            (dir, m, fixture)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
