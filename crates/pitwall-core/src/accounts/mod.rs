@@ -12,10 +12,16 @@
 //! ([`GitService`]), which SSH key, for the agents and terminals of the
 //! projects that name one ([`git_env`]).
 //!
-//! Browser profiles too: accounts of kind [`WEB`], a name and the folder of
+//! Browser accounts too: accounts of kind [`WEB`], a name and the folder of
 //! Pitwall's web pages' cookies and storage; a project names one like a
 //! tool's account, and the pages its agents open use it. Only the list is
 //! here: site data stays in the web engine's store.
+//!
+//! Extension connections ([`ext_kind`]), profiles (named bundles of picks)
+//! and the one place a project's pick for anything is worked out
+//! ([`Accounts::resolve_slot`]) are in [`picks`] (docs/spec/profiles.md).
+
+pub mod picks;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,39 +31,65 @@ use serde::{Deserialize, Serialize};
 use crate::kind::AgentKind;
 use crate::paths::Paths;
 
+pub use picks::{ext_kind, ext_of, From, Profile, Resolved, EXT, GIT, NONE};
+
 /// The implicit account of every kind: the user's own login.
 pub const DEFAULT: &str = "default";
 
-/// The kind of a browser profile (docs/spec/web.md, "Browser profiles"): an
-/// account of Pitwall's own web pages, not of an agent tool. Its folder is
-/// its cookies and storage ([`web_profile_dir`]); a project names one under
-/// this kind in [`Accounts::projects`] like a tool's account. Default is
-/// the profile every page used before profiles (`profile-default`). It
-/// sorts after the tools' kinds, so an older Pitwall that takes a
-/// project's first account for its terminals takes a tool's when there is
-/// one. Reserved: no agent kind can be called this.
+/// The kind of a browser account (docs/spec/web.md, "Browser accounts"):
+/// an account of Pitwall's own web pages, not of an agent tool. Its folder
+/// is its cookies and storage ([`web_profile_dir`]); a project names one
+/// under this kind in [`Accounts::projects`] like a tool's account. Default
+/// is the store every page used before browser accounts
+/// (`profile-default`). It sorts after the tools' kinds, so an older
+/// Pitwall that takes a project's first account for its terminals takes a
+/// tool's when there is one. Reserved: no agent kind can be called this.
 pub const WEB: &str = "web";
 
-/// Browser profile `id`'s cookies and storage under Pitwall's data folder
+/// Browser account `id`'s cookies and storage under Pitwall's data folder
 /// `root`: `<root>/webview/profile-<id>` (Default: `profile-default`, as
-/// before profiles). The folder's name is the profile's id; macOS keys its
-/// store on the whole path.
+/// before browser accounts; the folder names keep the old word). The
+/// folder's name is the account's id; macOS keys its store on the whole
+/// path.
 pub fn web_profile_dir(root: &Path, id: &str) -> PathBuf {
     let id: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(40).collect();
     root.join("webview").join(format!("profile-{id}"))
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     /// Stable id (`claude-work`).
     pub id: String,
-    /// `claude` or `codex`.
+    /// `claude` or `codex`; [`WEB`]; `ext:<extension id>` ([`ext_kind`]).
     pub kind: String,
     /// What the user calls it ("Work").
     pub name: String,
-    /// Its config folder.
+    /// Its config folder (empty for an extension connection).
     pub dir: String,
+    /// An extension connection's plain settings, by key.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, String>,
+    /// The keys of an extension connection's secrets that are set (the
+    /// secrets are in the system's secure store, never here).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets_set: Vec<String>,
+    /// The name an extension connection's secrets are kept under in the
+    /// secure store (`<this>.<key>`): its id, unless it was carried over
+    /// from before connections (then the extension's id, the name its
+    /// keychain items already have).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_key: Option<String>,
+    /// Keys of later versions, written back untouched.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Account {
+    /// The name its secrets are kept under ([`Account::secret_key`]).
+    pub fn secrets_name(&self) -> &str {
+        self.secret_key.as_deref().unwrap_or(&self.id)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -65,7 +97,8 @@ pub struct Account {
 pub struct Accounts {
     #[serde(default)]
     pub accounts: Vec<Account>,
-    /// Project folder → kind → account id its new agents use.
+    /// Project folder → slot → what it picks: an account id, [`DEFAULT`],
+    /// or [`NONE`] (extensions). With a profile, these override it.
     #[serde(default)]
     pub projects: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -73,6 +106,19 @@ pub struct Accounts {
     /// Project folder → the git identity its agents and terminals use.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub git_projects: BTreeMap<String, String>,
+    /// Named bundles of picks (docs/spec/profiles.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<Profile>,
+    /// Project folder → the profile it uses.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub project_profiles: BTreeMap<String, String>,
+    /// Slot → what applies where nothing picks: an extension's default
+    /// connection (`ext:<id>` → its id).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub defaults: BTreeMap<String, String>,
+    /// Keys of later versions, written back untouched.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Who an agent is in git: commits' author and committer, its logins to
@@ -176,7 +222,7 @@ impl Accounts {
     /// fresh one under `~/.pitwall/accounts/`.
     pub fn add(&mut self, paths: &Paths, kind: &AgentKind, name: &str, dir: Option<&str>) -> Result<Account, String> {
         let name = name.trim();
-        if kind.account_env.is_none() || kind.id == WEB {
+        if kind.account_env.is_none() || picks::reserved_kind(&kind.id) {
             return Err(format!("{} has one login only", kind.name));
         }
         let kind = kind.id.as_str();
@@ -186,31 +232,42 @@ impl Accounts {
         if name.eq_ignore_ascii_case("default") || self.of_kind(kind).any(|a| a.name.eq_ignore_ascii_case(name)) {
             return Err(format!("There's already an account called {name}"));
         }
-        let base = format!("{kind}-{}", crate::slug::slug(name));
-        let mut id = base.clone();
-        let mut n = 2;
-        while self.get(&id).is_some() {
-            id = format!("{base}-{n}");
-            n += 1;
-        }
+        let id = self.free_id(&format!("{kind}-{}", crate::slug::slug(name)), |_| false);
         let dir = match dir.map(str::trim).filter(|d| !d.is_empty()) {
             Some(d) => expand(d),
             None => paths.root().join("accounts").join(&id),
         };
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let a = Account { id, kind: kind.into(), name: name.into(), dir: dir.to_string_lossy().into_owned() };
+        let a = Account { id, kind: kind.into(), name: name.into(), dir: dir.to_string_lossy().into_owned(), ..Default::default() };
         self.accounts.push(a.clone());
         Ok(a)
     }
 
-    /// Forget one (its folder and login stay on disk) and the projects
-    /// that named it.
+    /// `base`, or `base-2`, `base-3`, … : the first no account has and
+    /// `taken` doesn't refuse.
+    fn free_id(&self, base: &str, taken: impl Fn(&str) -> bool) -> String {
+        let mut id = base.to_string();
+        let mut n = 2;
+        while self.get(&id).is_some() || taken(&id) {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        id
+    }
+
+    /// Forget one (its folder and login stay on disk) and the projects,
+    /// profiles and defaults that named it: each falls back a step
+    /// (docs/spec/profiles.md, "Removing things").
     pub fn remove(&mut self, id: &str) {
         self.accounts.retain(|a| a.id != id);
         for kinds in self.projects.values_mut() {
             kinds.retain(|_, a| a != id);
         }
         self.projects.retain(|_, k| !k.is_empty());
+        for p in self.profiles.iter_mut() {
+            p.picks.retain(|_, a| a != id);
+        }
+        self.defaults.retain(|_, a| a != id);
     }
 
     pub fn rename(&mut self, id: &str, name: &str) -> Result<(), String> {
@@ -220,7 +277,7 @@ impl Accounts {
             return Err("Name it".into());
         }
         if kind == WEB && name.eq_ignore_ascii_case(DEFAULT) {
-            return Err(format!("There's already a profile called {name}"));
+            return Err(format!("There's already a browser account called {name}"));
         }
         if self.of_kind(&kind).any(|a| a.id != id && a.name.eq_ignore_ascii_case(name)) {
             return Err(format!("There's already an account called {name}"));
@@ -240,25 +297,16 @@ impl Accounts {
         self.accounts.insert(to, a);
     }
 
-    /// The account a project's new agents of `kind` use (`None`: Default).
+    /// The account a project's new agents of `kind` use (`None`: Default),
+    /// its own pick or its profile's ([`Accounts::resolve_slot`]).
     pub fn project_default(&self, project: &str, kind: &str) -> Option<&Account> {
-        let id = self.projects.get(project)?.get(kind)?;
-        self.get(id)
+        self.resolve_slot(project, kind).id.as_deref().and_then(|id| self.get(id))
     }
 
     /// Name the account a project's new agents of `kind` use (`None` or
-    /// [`DEFAULT`]: Default).
+    /// [`DEFAULT`]: none of its own, so its profile's, else Default).
     pub fn set_project_default(&mut self, project: &str, kind: &str, id: Option<&str>) {
-        let entry = self.projects.entry(project.to_string()).or_default();
-        match id.filter(|i| *i != DEFAULT) {
-            Some(i) => {
-                entry.insert(kind.to_string(), i.to_string());
-            }
-            None => {
-                entry.remove(kind);
-            }
-        }
-        self.projects.retain(|_, k| !k.is_empty());
+        self.set_project_pick(project, kind, id.filter(|i| *i != DEFAULT));
     }
 
     /// The account a new agent uses: the one asked for ([`DEFAULT`]: the
@@ -271,38 +319,42 @@ impl Accounts {
         }
     }
 
-    /// Projects that name `id`.
+    /// Projects that use `id`: by their own pick, or through their profile
+    /// where they don't override it.
     pub fn projects_of(&self, id: &str) -> Vec<String> {
-        self.projects.iter().filter(|(_, k)| k.values().any(|a| a == id)).map(|(p, _)| p.clone()).collect()
+        let Some(kind) = self.get(id).map(|a| a.kind.clone()) else {
+            return self.projects.iter().filter(|(_, k)| k.values().any(|a| a == id)).map(|(p, _)| p.clone()).collect();
+        };
+        self.known_projects()
+            .into_iter()
+            .filter(|p| {
+                let r = self.resolve_slot(p, &kind);
+                r.from != From::Default && r.id.as_deref() == Some(id)
+            })
+            .collect()
     }
 
-    /// Add a browser profile ([`WEB`]) called `name`, with a fresh folder
+    /// Add a browser account ([`WEB`]) called `name`, with a fresh folder
     /// ([`web_profile_dir`]). Its id is never one whose folder is still on
-    /// disk (a profile removed whose data couldn't all be deleted), so a
-    /// new profile never starts with another's sign-ins.
+    /// disk (one removed whose data couldn't all be deleted), so a new
+    /// browser account never starts with another's sign-ins.
     pub fn add_web(&mut self, paths: &Paths, name: &str) -> Result<Account, String> {
         let name = name.trim();
         if name.is_empty() {
             return Err("Name it".into());
         }
         if name.eq_ignore_ascii_case(DEFAULT) || self.of_kind(WEB).any(|a| a.name.eq_ignore_ascii_case(name)) {
-            return Err(format!("There's already a profile called {name}"));
+            return Err(format!("There's already a browser account called {name}"));
         }
-        let base = format!("{WEB}-{}", crate::slug::slug(name));
-        let mut id = base.clone();
-        let mut n = 2;
-        while self.get(&id).is_some() || web_profile_dir(paths.root(), &id).exists() {
-            id = format!("{base}-{n}");
-            n += 1;
-        }
+        let id = self.free_id(&format!("{WEB}-{}", crate::slug::slug(name)), |id| web_profile_dir(paths.root(), id).exists());
         let dir = web_profile_dir(paths.root(), &id);
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let a = Account { id, kind: WEB.into(), name: name.into(), dir: dir.to_string_lossy().into_owned() };
+        let a = Account { id, kind: WEB.into(), name: name.into(), dir: dir.to_string_lossy().into_owned(), ..Default::default() };
         self.accounts.push(a.clone());
         Ok(a)
     }
 
-    /// The browser profile a project's pages use (`None`: Default).
+    /// The browser account a project's pages use (`None`: Default).
     pub fn project_web(&self, project: &str) -> Option<&Account> {
         self.project_default(project, WEB).filter(|a| a.kind == WEB)
     }
@@ -348,34 +400,39 @@ impl Accounts {
     pub fn remove_git(&mut self, id: &str) {
         self.git.retain(|g| g.id != id);
         self.git_projects.retain(|_, g| g != id);
+        for p in self.profiles.iter_mut() {
+            if p.picks.get(GIT).is_some_and(|g| g == id) {
+                p.picks.remove(GIT);
+            }
+        }
     }
 
-    /// The git identity a project's agents and terminals use.
+    /// The git identity a project's agents and terminals use: its own
+    /// pick, else its profile's.
     pub fn project_git(&self, project: &str) -> Option<&GitIdentity> {
-        self.git_identity(self.git_projects.get(project)?)
+        self.git_identity(self.resolve_slot(project, GIT).id.as_deref()?)
     }
 
-    /// Name it (`None`: the user's own git setup).
+    /// Name it (`None`: none of its own, so its profile's, else the user's
+    /// own git setup).
     pub fn set_project_git(&mut self, project: &str, id: Option<&str>) {
-        match id.filter(|i| *i != DEFAULT) {
-            Some(i) => self.git_projects.insert(project.to_string(), i.to_string()),
-            None => self.git_projects.remove(project),
-        };
+        self.set_project_pick(project, GIT, id.filter(|i| *i != DEFAULT));
     }
 
-    /// Projects that name git identity `id`.
+    /// Projects that use git identity `id`: by their own pick, or through
+    /// their profile.
     pub fn git_projects_of(&self, id: &str) -> Vec<String> {
-        self.git_projects.iter().filter(|(_, g)| *g == id).map(|(p, _)| p.clone()).collect()
+        self.known_projects().into_iter().filter(|p| self.resolve_slot(p, GIT).id.as_deref() == Some(id)).collect()
     }
 
     /// The git identity of something launched in `cwd` for `project`: the
     /// one asked for ([`DEFAULT`]: none), else the folder's, else the
-    /// project's.
+    /// project's ([`Accounts::resolve_launch`]).
     pub fn resolve_git(&self, cwd: &str, project: &str, asked: Option<&str>) -> Option<&GitIdentity> {
         match asked {
             Some(DEFAULT) => None,
             Some(id) => self.git_identity(id),
-            None => self.project_git(cwd).or_else(|| self.project_git(project)),
+            None => self.git_identity(self.resolve_launch(cwd, project, GIT).id.as_deref()?),
         }
     }
 }
@@ -959,7 +1016,7 @@ mod tests {
         let t = TempDir::new("accounts-login");
         let dir = t.path().join("c");
         std::fs::create_dir_all(&dir).unwrap();
-        let acc = |kind: &str| Account { id: "x".into(), kind: kind.into(), name: "X".into(), dir: dir.to_string_lossy().into() };
+        let acc = |kind: &str| Account { id: "x".into(), kind: kind.into(), name: "X".into(), dir: dir.to_string_lossy().into(), ..Default::default() };
         assert_eq!(login(&kind("claude"), Some(&acc("claude"))), None, "not logged in");
         std::fs::write(dir.join(".claude.json"), r#"{"oauthAccount":{"emailAddress":"a@example.com"}}"#).unwrap();
         assert_eq!(login(&kind("claude"), Some(&acc("claude"))).as_deref(), Some("a@example.com"));

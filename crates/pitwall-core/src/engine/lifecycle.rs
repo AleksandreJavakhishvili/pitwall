@@ -196,11 +196,9 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
         match req.account.as_deref() {
             Some(crate::accounts::DEFAULT) => None,
             Some(id) => Some(accounts.get(id).filter(|a| a.kind == kind.id).ok_or("That account is gone")?.id.clone()),
-            // The folder's, else its project's (a repository's top).
-            None => accounts
-                .resolve(&kind.id, &cwd, None)
-                .or_else(|| accounts.resolve(&kind.id, &project, None))
-                .map(|a| a.id.clone()),
+            // The folder's, else its project's (a repository's top): its
+            // own pick, else its profile's (docs/spec/profiles.md).
+            None => accounts.resolve_launch(&cwd, &project, &kind.id).id,
         }
     } else {
         None
@@ -210,7 +208,7 @@ pub fn create(core: &Shared, req: CreateAgentRequest) -> Result<AgentView, Strin
     env.extend(git_identity_env(core, &*provider, &cwd, &project, req.git_identity.as_deref()));
     env.extend(core.tool_update_env());
     let new_id = uuid::Uuid::new_v4().to_string();
-    env.extend(core.extension_env(&project, &name, &new_id));
+    env.extend(core.extension_env(&cwd, &project, &name, &new_id));
 
     // A name typed in New agent is kept; a suggested one (or none) follows
     // the conversation's title once there is one.
@@ -530,7 +528,7 @@ fn restart_now(core: &Shared, id: &str, size: Option<(u16, u16)>) -> Result<Agen
     env.extend(account_env(core, &*provider, &rec.kind, rec.account.as_deref())?);
     env.extend(git_identity_env(core, &*provider, &rec.cwd, &rec.project, rec.git_identity.as_deref()));
     env.extend(core.tool_update_env());
-    env.extend(core.extension_env(&rec.project, &rec.name, &rec.id));
+    env.extend(core.extension_env(&rec.cwd, &rec.project, &rec.name, &rec.id));
     // On an account, its conversation from wherever it is newest.
     if let (Some(sid), true, true) = (&rec.session_id, rec.has_conversation, provider.caps().local_process) {
         if let Some(def) = core.kinds().find(&rec.kind).filter(|k| k.account_env.is_some()) {
@@ -873,9 +871,9 @@ mod tests {
     }
 
     /// Extensions that are on set their variables on agents at each
-    /// launch, from the agent's facts and the extension's plain settings
-    /// (docs/spec/extensions.md); turned off, agents started later don't
-    /// get them.
+    /// launch, from the agent's facts and its connection's settings
+    /// (docs/spec/extensions.md, profiles.md); turned off, agents started
+    /// later don't get them.
     #[test]
     fn agents_get_the_variables_of_extensions_that_are_on() {
         let h = Harness::new(vec![]);
@@ -890,15 +888,19 @@ mod tests {
         let a = create(&h.engine, req("claude", &project, false)).unwrap();
         assert_eq!(env_of(0, "INBOX_AGENT"), None, "nothing while no extension is on");
 
-        h.engine.set_extension_env(vec![(m.clone(), Default::default())]);
+        // On, no connection made yet: as before connections.
+        h.engine.set_extension_env(vec![m.clone()]);
         let b = create(&h.engine, req("claude", &project, false)).unwrap();
         let folder = crate::extensions::name_form(dir.path().file_name().unwrap().to_str().unwrap());
         assert_eq!(env_of(1, "INBOX_AGENT"), Some(folder.clone()));
         assert_eq!(env_of(1, "INBOX_SESSION"), Some(crate::extensions::name_form(&b.id)), "the agent's own id");
         assert_eq!(env_of(1, "INBOX_URL"), None, "a setting not set: left out");
 
-        let set = std::collections::BTreeMap::from([("server".to_string(), "https://inbox.example.com".to_string())]);
-        h.engine.set_extension_env(vec![(m, set)]);
+        // Its connection's settings (the default one: everywhere).
+        let mut acc = crate::accounts::Accounts::load(h.engine.paths());
+        let work = acc.add_connection("inbox", "Work").unwrap();
+        acc.set_connection_value(&work.id, "server", Some("https://inbox.example.com")).unwrap();
+        acc.save(h.engine.paths()).unwrap();
         restart(&h.engine, &a.id, None).unwrap();
         let last = h.provider.launched().len() - 1;
         assert_eq!(env_of(last, "INBOX_URL").as_deref(), Some("https://inbox.example.com"));
@@ -908,6 +910,72 @@ mod tests {
         create(&h.engine, req("claude", &project, false)).unwrap();
         let last = h.provider.launched().len() - 1;
         assert_eq!(env_of(last, "INBOX_AGENT"), None);
+    }
+
+    /// Each project's agents get their own connection's settings; a
+    /// project that picks none gets nothing from the extension; a profile
+    /// decides for its projects.
+    #[test]
+    fn each_project_gets_its_own_connection() {
+        let h = Harness::new(vec![]);
+        let (d1, d2, d3) = (TempDir::new("ext-conn-a"), TempDir::new("ext-conn-b"), TempDir::new("ext-conn-c"));
+        let [p1, p2, p3] = [&d1, &d2, &d3].map(|d| d.path().to_string_lossy().into_owned());
+        let m = crate::extensions::parse(
+            r#"{"id": "inbox", "name": "Inbox", "settings": [{"key": "server", "type": "url", "label": "S"}],
+                "agentEnv": [{"name": "INBOX_URL", "value": "{setting:server}"}, {"name": "INBOX_AGENT", "value": "{project}"}]}"#,
+        )
+        .unwrap();
+        h.engine.set_extension_env(vec![m]);
+        let mut acc = crate::accounts::Accounts::load(h.engine.paths());
+        let work = acc.add_connection("inbox", "Work").unwrap();
+        let home = acc.add_connection("inbox", "Home").unwrap();
+        acc.set_connection_value(&work.id, "server", Some("https://work.example")).unwrap();
+        acc.set_connection_value(&home.id, "server", Some("https://home.example")).unwrap();
+        acc.set_project_pick(&p2, "ext:inbox", Some(&home.id));
+        acc.set_project_pick(&p3, "ext:inbox", Some(crate::accounts::NONE));
+        acc.save(h.engine.paths()).unwrap();
+        let env_of = |n: usize, key: &str| h.provider.launched()[n].env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone());
+        for p in [&p1, &p2, &p3] {
+            create(&h.engine, req("claude", p, false)).unwrap();
+        }
+        assert_eq!(env_of(0, "INBOX_URL").as_deref(), Some("https://work.example"), "the default");
+        assert_eq!(env_of(1, "INBOX_URL").as_deref(), Some("https://home.example"), "its own");
+        assert_eq!((env_of(2, "INBOX_URL"), env_of(2, "INBOX_AGENT")), (None, None), "none: nothing at all");
+
+        // A profile with Home: the first project's agents get Home.
+        let mut acc = crate::accounts::Accounts::load(h.engine.paths());
+        let prof = acc.add_profile("Personal").unwrap();
+        acc.set_profile_pick(&prof.id, "ext:inbox", Some("Home")).unwrap();
+        acc.set_project_profile(&p1, Some(&prof.id)).unwrap();
+        acc.save(h.engine.paths()).unwrap();
+        create(&h.engine, req("claude", &p1, false)).unwrap();
+        assert_eq!(env_of(3, "INBOX_URL").as_deref(), Some("https://home.example"));
+    }
+
+    /// A profile's tool account and git identity apply to its projects'
+    /// new agents.
+    #[test]
+    fn a_profile_picks_the_account_and_git_identity() {
+        let h = Harness::new(vec![]);
+        h.provider.set_caps(ProviderCaps { local_process: true, ..crate::testing::FakeProvider::local_like() });
+        let dir = TempDir::new("profile-proj");
+        let project = dir.path().to_string_lossy().into_owned();
+        let mut acc = crate::accounts::Accounts::load(h.engine.paths());
+        let claude = h.engine.kinds().find("claude").unwrap();
+        let work = acc.add(h.engine.paths(), &claude, "Work", None).unwrap();
+        let fields = crate::accounts::GitFields { name: "Work".into(), user_name: "Sam".into(), email: "sam@work.example".into(), ssh_key: String::new() };
+        let git = acc.add_git(h.engine.paths(), &fields).unwrap();
+        let p = acc.add_profile("Work").unwrap();
+        acc.set_profile_pick(&p.id, "claude", Some(&work.id)).unwrap();
+        acc.set_profile_pick(&p.id, crate::accounts::GIT, Some(&git.id)).unwrap();
+        acc.set_project_profile(&project, Some(&p.id)).unwrap();
+        acc.save(h.engine.paths()).unwrap();
+        let v = create(&h.engine, req("claude", &project, false)).unwrap();
+        assert_eq!(v.account.as_deref(), Some(work.id.as_str()));
+        let env = &h.provider.launched()[0].env;
+        let get = |k: &str| env.iter().rev().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        assert_eq!(get("CLAUDE_CONFIG_DIR").as_deref(), Some(work.dir.as_str()));
+        assert_eq!(get("GIT_AUTHOR_EMAIL").as_deref(), Some("sam@work.example"));
     }
 
     fn wait_until(f: impl Fn() -> bool) -> bool {
