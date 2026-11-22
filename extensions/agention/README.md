@@ -138,5 +138,5 @@ the inbox there.
 - Threads don't show a badge on an agent: the agent was started before the
   extension was turned on, or it registered with names of its own.
 
-The adapter's own tests: `cd adapter && node --test` (they use a fake
+The adapter's own tests: `cd adapter && node --test test/*.test.js` (they use a fake
 server, never a real one).
