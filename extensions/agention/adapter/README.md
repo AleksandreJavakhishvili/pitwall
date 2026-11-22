@@ -32,7 +32,7 @@ key's scopes, with requests that change nothing.
 
 ```bash
 cd extensions/agention/adapter
-node --test
+node --test test/*.test.js
 ```
 
 The tests start the fake server on `127.0.0.1` on a port the system picks, and
