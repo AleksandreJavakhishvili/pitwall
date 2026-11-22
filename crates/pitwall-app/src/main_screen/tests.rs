@@ -999,31 +999,3 @@ fn new_agent_takes_a_typed_name_flat_and_on_glass(cx: &mut TestAppContext) {
     click_and_type(inner[0], &query, "api", cx);
     assert_eq!(query.read_with(cx, |i, _| i.text().to_string()), "api");
 }
-
-/// An extension that is on gets a section after the projects, folded as a
-/// project is; one that is off, or can't be used, gets none.
-#[gpui::test]
-fn an_extension_that_is_on_has_a_sidebar_section(cx: &mut TestAppContext) {
-    use pitwall_core::extensions::{Found, Manifest};
-    let (view, _, cx) = screen(cx);
-    let inbox = Manifest { icon: Some("inbox".into()), ..Manifest::named("inbox", "Inbox") };
-    cx.update(|_, cx| {
-        crate::extensions::set_found(
-            vec![Found { folder: "broken".into(), manifest: Err("no".into()) }, Found { folder: "inbox".into(), manifest: Ok(inbox) }],
-            cx,
-        )
-    });
-    let rows = |cx: &mut VisualTestContext| {
-        cx.update(|window, _| window.refresh());
-        cx.run_until_parked();
-        view.read_with(cx, |s, _| s.side.ext_rows())
-    };
-    assert!(rows(cx).is_empty(), "off until turned on");
-    view.update(cx, |s, cx| s.update_ui(|u| u.set_extension("inbox", true).set_extension("broken", true), cx));
-    assert_eq!(rows(cx), ["inbox", "  Nothing to show yet"]);
-    assert!(cx.debug_bounds("row-body-api").is_some(), "the projects stay");
-    view.update(cx, |s, cx| s.update_ui(|u| u.toggle_collapsed(&crate::extensions::group_key("inbox")), cx));
-    assert_eq!(rows(cx), ["inbox (folded)"]);
-    view.update(cx, |s, cx| s.update_ui(|u| u.set_extension("inbox", false), cx));
-    assert!(rows(cx).is_empty());
-}

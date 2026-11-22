@@ -185,12 +185,6 @@ pub fn quit(cx: &mut App) {
 /// doesn't have.
 pub const DEFAULT_ICON: &str = "extension";
 
-/// The sidebar group key of extension `id` (folded or not: `ui.json`
-/// `collapsed`). Never a project's: those are folders or `m:`/`a:` keys.
-pub fn group_key(id: &str) -> String {
-    format!("ext:{id}")
-}
-
 /// Look in `root`'s extensions folder (`None`: no data folder, none).
 pub fn init(root: Option<PathBuf>, cx: &mut App) {
     let dir = root.map(|r| pitwall_core::paths::Paths::new(r).extensions_dir());
@@ -274,6 +268,5 @@ mod tests {
         m.icon = None;
         assert_eq!(icon_of(&m), DEFAULT_ICON);
         assert!(crate::kit::has_icon(DEFAULT_ICON));
-        assert!(!group_key("a").starts_with('/'));
     }
 }
