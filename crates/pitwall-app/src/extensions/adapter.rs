@@ -139,7 +139,9 @@ pub fn spawn(dir: &Path, command: &[String], hello: &ToAdapter) -> Result<(Link,
     // Its stderr's tail.
     let tail: Arc<Mutex<VecDeque<u8>>> = Arc::default();
     let t = tail.clone();
+    let (err_done, err_ended) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
+        let _done = err_done;
         let mut buf = [0u8; 1024];
         while let Ok(n) = stderr.read(&mut buf) {
             if n == 0 {
@@ -154,12 +156,14 @@ pub fn spawn(dir: &Path, command: &[String], hello: &ToAdapter) -> Result<(Link,
     });
 
     let c = child.clone();
-    std::thread::spawn(move || read_loop(BufReader::new(stdout), tx, c, tail));
+    std::thread::spawn(move || read_loop(BufReader::new(stdout), tx, c, (tail, err_ended)));
     Ok((Link { lines: Some(lines), child: Some(child) }, rx))
 }
 
 /// Read its lines until it ends, floods or sends one too long.
-fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: Shared, tail: Arc<Mutex<VecDeque<u8>>>) {
+/// `err` is its stderr's tail and the end of its reading.
+fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: Shared, err: (Arc<Mutex<VecDeque<u8>>>, std::sync::mpsc::Receiver<()>)) {
+    let (tail, err_ended) = err;
     let start = Instant::now();
     let mut guard = LineGuard::default();
     let mut buf = Vec::new();
@@ -208,6 +212,9 @@ fn read_loop(mut out: impl std::io::BufRead, tx: UnboundedSender<Event>, child: 
             }
         }
     };
+    // What it printed last on stderr may still be on its way (a moment, as
+    // something it started may keep stderr open).
+    let _ = err_ended.recv_timeout(Duration::from_millis(500));
     let err: Vec<u8> = tail.lock().unwrap_or_else(|e| e.into_inner()).iter().copied().collect();
     let err = clean(String::from_utf8_lossy(&err).trim(), 600, true);
     let why = if err.is_empty() { why } else { format!("{why} It said: {err}") };
@@ -362,44 +369,61 @@ mod tests {
         link.stop();
     }
 
-    /// The real Agention adapter, against its fake server, speaks what
-    /// Pitwall reads (skipped without Node).
+    /// Each extension in the repo whose `test/pitwall.json` names a fake
+    /// server for its adapter: the real adapter, against that fake, speaks
+    /// what Pitwall reads (skipped without Node). The fake prints one JSON
+    /// line (`thread`, and what `{field}` in the fixture's settings and
+    /// secrets stands for), and stops when its stdin closes.
     #[test]
-    fn the_agention_adapter_agrees_with_pitwall() {
-        let Some(node) = node() else { return };
-        let dir = shipped("agention");
-        let mut server = std::process::Command::new(&node)
-            .arg("test/serve-fake.mjs")
-            .current_dir(dir.join("adapter"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut first = String::new();
-        std::io::BufRead::read_line(&mut BufReader::new(server.stdout.take().unwrap()), &mut first).unwrap();
-        let fake: serde_json::Value = serde_json::from_str(&first).unwrap();
-        let thread = fake["thread"].as_str().unwrap().to_string();
-        let hello = hello_with(serde_json::json!({"server": fake["url"]}), serde_json::json!({"apiKey": fake["key"]}));
-        let (link, mut rx) = spawn(&dir, &["node".into(), "adapter/main.mjs".into()], &hello).unwrap();
-        assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }));
-        until(&mut rx, "ready", |m| matches!(m, FromAdapter::Status { state: pitwall_core::extensions::protocol::ConnState::Ready, .. }));
-        let FromAdapter::Threads(list) = until(&mut rx, "threads", |m| matches!(m, FromAdapter::Threads(_))) else { unreachable!() };
-        let t = list.iter().find(|t| t.id == thread).expect("the fake's thread");
-        assert!(t.blocking && t.open_asks == 1 && t.unread >= 1 && t.from.is_some(), "{t:?}");
-        let FromAdapter::Counts(c) = until(&mut rx, "counts", |m| matches!(m, FromAdapter::Counts(_))) else { unreachable!() };
-        assert_eq!((c.open_asks, c.blocking), (1, 1));
-        assert!(link.send(&ToAdapter::Open { thread: thread.clone() }));
-        let FromAdapter::Thread(d) = until(&mut rx, "the thread", |m| matches!(m, FromAdapter::Thread(_))) else { unreachable!() };
-        let ask = &d.messages[0].asks[0];
-        assert!(ask.open && ask.blocking && ask.suggestions[1].label == "SQLite");
-        assert!(link.send(&ToAdapter::Answer { req: 3, thread: thread.clone(), ask: ask.number, picks: vec![1], text: Some("in the data dir".into()), declined: false }));
-        assert_eq!(until(&mut rx, "the result", |m| matches!(m, FromAdapter::Result { .. })), FromAdapter::Result { req: 3, ok: true, message: String::new() });
-        let FromAdapter::Thread(d) = until(&mut rx, "the answered thread", |m| matches!(m, FromAdapter::Thread(d) if d.messages.len() > 1)) else { unreachable!() };
-        let answered = d.messages.iter().flat_map(|m| &m.answers).next().expect("a carried answer");
-        assert_eq!((answered.labels.as_slice(), answered.text.as_str()), (&["SQLite".to_string()][..], "in the data dir"));
-        link.stop();
-        drop(server.stdin.take());
-        let _ = server.wait();
+    fn each_shipped_adapter_agrees_with_pitwall() {
+        let Some(_) = node() else { return };
+        for (dir, m, fixture) in crate::extensions::shipped_all() {
+            let agree = &fixture["agreement"];
+            if agree.is_null() {
+                continue;
+            }
+            let what = dir.display().to_string();
+            let fake_cmd: Vec<String> = agree["fake"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect();
+            let program = resolve(&dir, &fake_cmd[0], pitwall_core::shell::spawn_path().as_deref()).unwrap();
+            let mut server = std::process::Command::new(program).args(&fake_cmd[1..]).current_dir(&dir).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+            let mut first = String::new();
+            std::io::BufRead::read_line(&mut BufReader::new(server.stdout.take().unwrap()), &mut first).unwrap();
+            let fake: serde_json::Value = serde_json::from_str(&first).unwrap_or_else(|e| panic!("{what}: the fake's line: {e}"));
+            let fill = |v: &serde_json::Value| -> serde_json::Value {
+                let mut out = serde_json::Map::new();
+                for (k, v) in v.as_object().cloned().unwrap_or_default() {
+                    let field = v.as_str().unwrap().trim_start_matches('{').trim_end_matches('}');
+                    out.insert(k, fake[field].clone());
+                }
+                serde_json::Value::Object(out)
+            };
+            let thread = fake["thread"].as_str().unwrap().to_string();
+            let hello = hello_with(fill(&agree["settings"]), fill(&agree["secrets"]));
+            let command = m.adapter.as_ref().unwrap_or_else(|| panic!("{what}: no adapter")).command.clone();
+            let (link, mut rx) = spawn(&dir, &command, &hello).unwrap();
+            assert_eq!(next(&mut rx), Event::Msg(FromAdapter::Hello { protocol: 1 }), "{what}");
+            until(&mut rx, "ready", |m| matches!(m, FromAdapter::Status { state: pitwall_core::extensions::protocol::ConnState::Ready, .. }));
+            let FromAdapter::Threads(list) = until(&mut rx, "threads", |m| matches!(m, FromAdapter::Threads(_))) else { unreachable!() };
+            let t = list.iter().find(|t| t.id == thread).expect("the fake's thread");
+            assert!(t.blocking && t.open_asks == 1 && t.unread >= 1 && t.from.is_some(), "{what}: {t:?}");
+            let FromAdapter::Counts(c) = until(&mut rx, "counts", |m| matches!(m, FromAdapter::Counts(_))) else { unreachable!() };
+            assert_eq!((c.open_asks, c.blocking), (1, 1), "{what}");
+            assert!(link.send(&ToAdapter::Open { thread: thread.clone() }));
+            let FromAdapter::Thread(d) = until(&mut rx, "the thread", |m| matches!(m, FromAdapter::Thread(_))) else { unreachable!() };
+            let ask = &d.messages[0].asks[0];
+            let answer = &agree["answer"];
+            let pick = answer["pick"].as_u64().unwrap() as u32;
+            let (label, text) = (answer["label"].as_str().unwrap(), answer["text"].as_str().unwrap());
+            assert!(ask.open && ask.blocking && ask.suggestions[pick as usize].label == label, "{what}: {ask:?}");
+            assert!(link.send(&ToAdapter::Answer { req: 3, thread: thread.clone(), ask: ask.number, picks: vec![pick], text: Some(text.into()), declined: false }));
+            assert_eq!(until(&mut rx, "the result", |m| matches!(m, FromAdapter::Result { .. })), FromAdapter::Result { req: 3, ok: true, message: String::new() }, "{what}");
+            let FromAdapter::Thread(d) = until(&mut rx, "the answered thread", |m| matches!(m, FromAdapter::Thread(d) if d.messages.len() > 1)) else { unreachable!() };
+            let answered = d.messages.iter().flat_map(|m| &m.answers).next().expect("a carried answer");
+            assert_eq!((answered.labels.as_slice(), answered.text.as_str()), (&[label.to_string()][..], text), "{what}");
+            link.stop();
+            drop(server.stdin.take());
+            let _ = server.wait();
+        }
     }
 
     #[test]

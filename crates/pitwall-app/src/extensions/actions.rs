@@ -234,32 +234,35 @@ mod tests {
         assert_eq!(kind_name("claude"), "Claude Code");
     }
 
-    /// The Agention action's exact commands (planned only: nothing runs).
-    /// A fake `claude` is on the PATH and no `codex`.
+    /// Every extension in the repo plans each of its actions, one line per
+    /// step; one whose `test/pitwall.json` lists an action's commands plans
+    /// exactly those (planned only: nothing runs), with the programs it
+    /// names under `installed` as fakes on the PATH.
     #[test]
-    fn the_agention_setup_runs_these_commands() {
-        let t = pitwall_core::testing::TempDir::new("actions-agention");
-        std::fs::write(t.path().join("claude"), "").unwrap();
-        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../extensions/agention/extension.json")).unwrap();
-        let m = pitwall_core::extensions::parse(&text).unwrap();
-        let setup = m.actions.iter().find(|a| a.id == "setup").unwrap();
-        assert_eq!(setup.label, "Set up Agention in my agents");
-        let p = plan(&m, setup, &Default::default(), Some(&t.path().to_string_lossy()));
-        let lines: Vec<String> = p.iter().map(Planned::line).collect();
-        assert_eq!(
-            lines,
-            [
-                "claude plugin marketplace remove agention",
-                "claude plugin marketplace add WayfarerLabs/agention#v0.4.0",
-                "claude plugin install agention@agention",
-                "codex plugin marketplace remove agention",
-                "codex plugin marketplace add WayfarerLabs/agention --ref v0.4.0",
-                "codex plugin add agention@agention",
-            ]
-        );
-        let skips: Vec<Option<&str>> = p.iter().map(|s| s.skip.as_deref()).collect();
-        assert_eq!(skips, [None, None, None, Some("Codex isn't installed"), Some("Codex isn't installed"), Some("Codex isn't installed")]);
-        assert!(p[0].optional && !p[1].optional);
+    fn each_shipped_extension_plans_its_actions() {
+        for (dir, m, fixture) in crate::extensions::shipped_all() {
+            let t = pitwall_core::testing::TempDir::new("actions-shipped");
+            let installed = fixture["actions"]["installed"].as_array().cloned().unwrap_or_default();
+            for program in installed.iter().filter_map(|p| p.as_str()) {
+                std::fs::write(t.path().join(program), "").unwrap();
+            }
+            let path = t.path().to_string_lossy().into_owned();
+            for a in &m.actions {
+                let p = plan(&m, a, &Default::default(), Some(&path));
+                assert_eq!(p.len(), a.steps.len(), "{}: {}", dir.display(), a.id);
+                let Some(want) = fixture["actions"]["expect"].get(&a.id) else { continue };
+                let strings = |v: &serde_json::Value| -> Vec<Option<String>> { v.as_array().unwrap().iter().map(|s| s.as_str().map(str::to_string)).collect() };
+                assert_eq!(want["label"].as_str(), Some(a.label.as_str()), "{}", dir.display());
+                let lines: Vec<Option<String>> = p.iter().map(|s| Some(s.line())).collect();
+                assert_eq!(lines, strings(&want["lines"]), "{}: {}", dir.display(), a.id);
+                assert_eq!(p.iter().map(|s| s.skip.clone()).collect::<Vec<_>>(), strings(&want["skips"]), "{}: {}", dir.display(), a.id);
+                let optional: Vec<bool> = want["optional"].as_array().unwrap().iter().map(|b| b.as_bool().unwrap()).collect();
+                assert_eq!(p.iter().map(|s| s.optional).collect::<Vec<_>>(), optional, "{}: {}", dir.display(), a.id);
+            }
+            if let Some(expect) = fixture["actions"]["expect"].as_object() {
+                assert!(expect.keys().all(|id| m.actions.iter().any(|a| &a.id == id)), "{}: an expected action is missing", dir.display());
+            }
+        }
     }
 
     /// Done, failed with its last lines, skipped after a failure for the

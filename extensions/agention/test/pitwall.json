@@ -1,0 +1,40 @@
+{
+  "about": "What Pitwall's tests expect of this extension (crates/pitwall-app checks every folder under extensions/ against its test/pitwall.json). Nothing here runs a real agent or server.",
+  "actions": {
+    "installed": ["claude"],
+    "expect": {
+      "setup": {
+        "label": "Set up Agention in my agents",
+        "lines": [
+          "claude plugin marketplace remove agention",
+          "claude plugin marketplace add WayfarerLabs/agention#v0.4.0",
+          "claude plugin install agention@agention",
+          "codex plugin marketplace remove agention",
+          "codex plugin marketplace add WayfarerLabs/agention --ref v0.4.0",
+          "codex plugin add agention@agention"
+        ],
+        "skips": [null, null, null, "Codex isn't installed", "Codex isn't installed", "Codex isn't installed"],
+        "optional": [true, false, false, true, false, false]
+      }
+    }
+  },
+  "env": {
+    "unset": [
+      "AGENTION_URL (not set until Server address is)",
+      "AGENTWORKS_AGENT={project}",
+      "AGENTWORKS_SESSION={agent_id}"
+    ],
+    "values": { "server": "https://agention.example.ts.net" },
+    "set": [
+      "AGENTION_URL=https://agention.example.ts.net",
+      "AGENTWORKS_AGENT={project}",
+      "AGENTWORKS_SESSION={agent_id}"
+    ]
+  },
+  "agreement": {
+    "fake": ["node", "adapter/test/serve-fake.mjs"],
+    "settings": { "server": "{url}" },
+    "secrets": { "apiKey": "{key}" },
+    "answer": { "pick": 1, "label": "SQLite", "text": "in the data dir" }
+  }
+}
