@@ -143,6 +143,8 @@ pub struct SettingsView {
     pub(super) error: Option<String>,
     /// Agents → Race Engineer.
     pub(super) engineer: super::engineer::Section,
+    /// General → Extensions.
+    pub(super) exts: super::extensions::Section,
     /// Accounts: agent logins and git identities.
     pub(super) accounts: super::accounts::Section,
     /// Peers.
@@ -260,6 +262,7 @@ impl SettingsView {
             show_busy: false,
             error: None,
             engineer: Default::default(),
+            exts: Default::default(),
             accounts: Default::default(),
             peers: Default::default(),
             focus: cx.focus_handle(),

@@ -402,9 +402,22 @@ pub struct ExtensionPrefs {
     /// It is on: its sidebar section shows.
     #[serde(default, deserialize_with = "strict_true")]
     pub enabled: bool,
+    /// Its plain settings (`url` ones), by key.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, String>,
+    /// The keys of its secrets that are set (the secrets are in the
+    /// system's secure store, never here).
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    pub secrets_set: Vec<String>,
     /// Keys of later versions, written back untouched.
     #[serde(flatten)]
     pub rest: serde_json::Map<String, Value>,
+}
+
+impl ExtensionPrefs {
+    fn is_empty(&self) -> bool {
+        !self.enabled && self.values.is_empty() && self.secrets_set.is_empty() && self.rest.is_empty()
+    }
 }
 
 impl UiState {
@@ -413,14 +426,24 @@ impl UiState {
         self.extensions.get(id).is_some_and(|e| e.enabled)
     }
 
-    /// Extension `id` turned on or off (its other keys kept).
-    pub fn set_extension(mut self, id: &str, on: bool) -> UiState {
+    /// Extension `id`'s settings (defaults when it has none).
+    pub fn extension(&self, id: &str) -> ExtensionPrefs {
+        self.extensions.get(id).cloned().unwrap_or_default()
+    }
+
+    /// Change extension `id`'s settings; an entry left empty goes.
+    pub fn with_extension(mut self, id: &str, f: impl FnOnce(&mut ExtensionPrefs)) -> UiState {
         let e = self.extensions.entry(id.to_string()).or_default();
-        e.enabled = on;
-        if !on && e.rest.is_empty() {
+        f(e);
+        if e.is_empty() {
             self.extensions.remove(id);
         }
         self
+    }
+
+    /// Extension `id` turned on or off (its other keys kept).
+    pub fn set_extension(self, id: &str, on: bool) -> UiState {
+        self.with_extension(id, |e| e.enabled = on)
     }
 }
 

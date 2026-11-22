@@ -21,6 +21,7 @@ pub mod files;
 pub mod glass;
 pub mod notify;
 pub mod pdf;
+pub mod secrets;
 pub mod sidecar;
 pub mod single_instance;
 pub mod visible;
@@ -31,8 +32,28 @@ mod linux;
 mod macos;
 #[cfg(target_os = "macos")]
 mod pdf_macos;
+#[cfg(target_os = "linux")]
+mod secrets_linux;
+#[cfg(target_os = "macos")]
+mod secrets_macos;
+#[cfg(windows)]
+mod secrets_windows;
 #[cfg(windows)]
 mod windows;
+
+/// A program Pitwall starts in the background (an extension's adapter):
+/// no console window of its own on Windows.
+pub fn background_command(program: &std::path::Path) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
 
 use gpui::{AnyWindowHandle, App, Entity, Global, Window};
 

@@ -20,6 +20,7 @@ pub mod backend;
 pub mod cli_install;
 pub mod data;
 mod engineer;
+mod extensions;
 pub mod onboarding;
 pub mod pages;
 mod peers;
