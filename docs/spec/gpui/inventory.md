@@ -428,7 +428,7 @@ key code.
 - [x] New agent: ⌘N · Ctrl+Shift+N
 - [x] Move active space to new window: ⌘⇧N · Ctrl+Shift+Alt+N
 - [x] Open web page (in a web tile: its address): ⌘L · Ctrl+Shift+L (GPUI only; docs/spec/web.md)
-- [x] Open an extension's inbox (focused when open): ⌘I · Ctrl+Shift+I (GPUI only; docs/spec/extensions.md)
+- [x] Open an extension's inbox (focused where it is, its window too, when open): ⌘I · Ctrl+Shift+I; its tile maximises with ⌘⏎ like any pane (GPUI only; docs/spec/extensions.md)
 - [x] New terminal here: ⌘T · Ctrl+Shift+T
 - [x] New terminal in folder…: ⌘⇧T · Ctrl+Shift+Alt+T
 - [x] Jump to next blocked: ⌘J · Ctrl+Shift+J
