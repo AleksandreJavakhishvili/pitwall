@@ -676,3 +676,120 @@ fn an_inbox_in_a_window_comes_back_after_a_restart(cx: &mut TestAppContext) {
     cx.update(|cx| assert!(crate::windows::inbox_window("demo", cx).is_some(), "open again"));
     assert_eq!(inbox_tiles(cx), 0);
 }
+
+/// Two connections in one inbox: all their threads listed, each row
+/// naming its connection, the offline one said in a line of its own; the
+/// bar's menu (each connection with the profiles that use it) lists one
+/// connection's, kept in `ui.json`; while the menu is open the tile's
+/// single keys do nothing. Back to one connection: no menu, no labels,
+/// and the kept choice no longer applies.
+#[gpui::test]
+fn two_connections_share_the_inbox_with_a_filter(cx: &mut TestAppContext) {
+    use pitwall_core::extensions::{SettingDef, SettingKind};
+    let t = pitwall_core::testing::TempDir::new("inbox-conns");
+    let paths = pitwall_core::paths::Paths::new(t.path().join("pw"));
+    let man = Manifest {
+        settings: vec![SettingDef { key: "server".into(), kind: SettingKind::Url, label: "Server".into(), hint: None, placeholder: None, required: true }],
+        ..manifest()
+    };
+    let (h, acme, side) = cx.update(|cx| {
+        cx.set_global(crate::theme::Theme::dark());
+        crate::kit::init(cx);
+        init(cx);
+        let m = crate::accounts::model(cx);
+        m.update(cx, |m, _| m.set_paths(paths));
+        let mut ids = Vec::new();
+        for (name, server) in [("Acme", "https://acme.example"), ("Side", "https://side.example")] {
+            let c = m.update(cx, |m, cx| m.add_connection("demo", name, cx)).unwrap();
+            m.update(cx, |m, cx| m.set_connection_value(&c.id, "server", Some(server), cx)).unwrap();
+            ids.push(c.id);
+        }
+        let p = m.update(cx, |m, cx| m.add_profile("Work", cx)).unwrap();
+        m.update(cx, |m, cx| m.set_profile_pick(&p.id, "ext:demo", Some(&ids[0]), cx)).unwrap();
+        crate::extensions::set_found(vec![Found { folder: "demo".into(), manifest: Ok(man) }], cx);
+        crate::extensions::follow(cx);
+        crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("demo", true));
+        (hub::hub(cx), ids[0].clone(), ids[1].clone())
+    });
+    let store = cx.new(|_| AgentStore::new(vec![agent("web", "/work/alpha", "idle", 2, true)]));
+    let s = store.clone();
+    let (view, cx) = cx.add_window_view(move |window, cx| MainScreen::new(s.clone(), window, cx));
+    cx.simulate_resize(gpui::size(gpui::px(2000.), gpui::px(900.)));
+    view.update_in(cx, |s, window, cx| s.show_agent("web", window, cx));
+    frame(cx);
+    let (ea, es) = (format!("demo/{acme}"), format!("demo/{side}"));
+    let tell = |end: &str, line: serde_json::Value, cx: &mut VisualTestContext| {
+        h.read_with(cx, |h, _| h.ends[end].say(line));
+        frame(cx);
+    };
+    for e in [&ea, &es] {
+        tell(e, json!({"type": "hello", "protocol": 1}), cx);
+    }
+    tell(&ea, json!({"type": "status", "state": "ready"}), cx);
+    tell(
+        &ea,
+        json!({"type": "threads", "threads": [
+            {"id": "a1", "title": "Which database?", "from": {"agent": "alpha", "session": "web"}, "unread": 1, "openAsks": 1, "blocking": true, "lastActivity": "2026-01-02T10:00:00Z"},
+            {"id": "a2", "title": "Done", "from": {"agent": "alpha", "session": "web"}, "lastActivity": "2026-01-01T10:00:00Z"}
+        ]}),
+        cx,
+    );
+    tell(&es, json!({"type": "status", "state": "error", "message": "Can't reach the server"}), cx);
+    cx.dispatch_action(OpenInbox);
+    frame(cx);
+    let v = inbox(&view, cx);
+    let a1 = format!("{acme}:a1");
+
+    // All connections: Acme's threads, labelled; Side said offline.
+    assert!(cx.debug_bounds("inbox-conn").is_some(), "the connections menu's button");
+    assert!(cx.debug_bounds(sel(format!("inbox-row-{a1}"))).is_some());
+    assert!(cx.debug_bounds(sel(format!("inbox-row-conn-{a1}"))).is_some(), "the row names its connection");
+    assert!(cx.debug_bounds(sel(format!("inbox-offline-{side}"))).is_some(), "Side's line");
+    assert!(cx.debug_bounds(sel(format!("inbox-offline-{acme}"))).is_none());
+
+    // The menu open: J, E and 1 do nothing to the list; Esc closes it.
+    v.update(cx, |v, cx| v.set_filter(Filter::All, cx));
+    let b = cx.debug_bounds("inbox-conn").unwrap();
+    cx.simulate_click(b.center(), Modifiers::none());
+    frame(cx);
+    assert!(cx.debug_bounds("inbox-conn-menu").is_some(), "open");
+    let profiles = cx.update(|_, cx| crate::accounts::list(cx).unwrap().profiles_of(&acme));
+    assert_eq!(profiles, vec!["Work".to_string()], "Acme shown with its profile");
+    let before = v.read_with(cx, |v, _| v.selected().map(str::to_string));
+    let acted_on = |cx: &mut VisualTestContext| h.read_with(cx, |h, _| h.ends[&ea].sent()).into_iter().filter(|m| !matches!(m["type"].as_str(), Some("hello" | "open" | "read" | "close"))).count();
+    let n = acted_on(cx);
+    cx.simulate_keystrokes("j e 1");
+    frame(cx);
+    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)), before, "J moved nothing");
+    assert_eq!(acted_on(cx), n, "nothing archived or answered");
+    assert!(v.read_with(cx, |v, _| v.conn_menu_open()));
+    cx.simulate_keystrokes("escape");
+    frame(cx);
+    assert!(!v.read_with(cx, |v, _| v.conn_menu_open()), "Esc closes it");
+
+    // Side only: its line, none of Acme's threads; kept in ui.json.
+    cx.simulate_click(b.center(), Modifiers::none());
+    frame(cx);
+    let item = cx.debug_bounds("inbox-conn-item-2").expect("Side in the menu");
+    cx.simulate_click(item.center(), Modifiers::none());
+    frame(cx);
+    cx.update(|_, cx| assert_eq!(crate::ui_state::get(cx).extension("demo").connection.as_deref(), Some(side.as_str())));
+    assert!(cx.debug_bounds(sel(format!("inbox-row-{a1}"))).is_none());
+    assert!(cx.debug_bounds(sel(format!("inbox-offline-{side}"))).is_some());
+    // Acme only: its threads, unlabelled; Side's line gone.
+    v.update(cx, |v, cx| v.set_connection(Some(acme.clone()), cx));
+    frame(cx);
+    assert!(cx.debug_bounds(sel(format!("inbox-row-{a1}"))).is_some());
+    assert!(cx.debug_bounds(sel(format!("inbox-row-conn-{a1}"))).is_none(), "one connection listed: no label");
+    assert!(cx.debug_bounds(sel(format!("inbox-offline-{side}"))).is_none());
+    assert_eq!(v.read_with(cx, |v, cx| v.listed(cx).len()), 2);
+
+    // Side removed: one connection, nothing of this shows; a choice of a
+    // connection that is gone lists all.
+    v.update(cx, |v, cx| v.set_connection(Some(side.clone()), cx));
+    cx.update(|_, cx| crate::accounts::model(cx).update(cx, |m, cx| m.remove(&side, cx))).unwrap();
+    frame(cx);
+    assert!(cx.debug_bounds("inbox-conn").is_none(), "no menu with one connection");
+    assert!(cx.debug_bounds(sel(format!("inbox-row-{a1}"))).is_some(), "all listed");
+    assert!(cx.debug_bounds(sel(format!("inbox-row-conn-{a1}"))).is_none(), "no labels");
+}

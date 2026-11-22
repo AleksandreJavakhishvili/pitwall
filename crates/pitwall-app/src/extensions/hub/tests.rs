@@ -299,7 +299,7 @@ fn an_extension_set_up_before_connections_carries_over(cx: &mut TestAppContext) 
     let action = |id: &str, run: &[&str]| Action { id: id.into(), label: id.into(), description: String::new(), setup: true, steps: vec![RunStep { run: run.iter().map(|x| x.to_string()).collect(), for_kind: None, optional: false }] };
     let m = Manifest { actions: vec![action("setup", &["tool", "add", "{setting:server}"]), action("tidy", &["tool", "tidy"])], ..manifest() };
     // Exactly what main writes in ui.json today.
-    let today = json!({"v": 1, "extensions": {"inbox": {"enabled": true, "values": {"server": "https://old.example"}, "secretsSet": ["apiKey"], "selected": "t9", "actionsDone": ["setup", "tidy"]}}});
+    let today = json!({"v": 1, "extensions": {"inbox": {"enabled": true, "values": {"server": "https://old.example"}, "secretsSet": ["apiKey"], "selected": "t9", "actionsDone": ["setup", "tidy"], "window": true}}});
     let item = cx.update(|cx| crate::extensions::account("inbox", "apiKey", cx));
     cx.update(|cx| {
         crate::extensions::set_found(vec![Found { folder: "inbox".into(), manifest: Ok(m.clone()) }], cx);
@@ -331,6 +331,7 @@ fn an_extension_set_up_before_connections_carries_over(cx: &mut TestAppContext) 
     done.sort();
     assert_eq!(done, ["setup", "tidy"]);
     assert_eq!(e.selected, Some(format!("{}:t9", c.id)));
+    assert!(e.window, "its inbox's own window is the extension's, kept as it was");
     // Again: nothing more.
     cx.update(crate::extensions::connections::migrate);
     assert_eq!(cx.update(|cx| crate::accounts::list(cx).unwrap().connections("inbox").count()), 1);

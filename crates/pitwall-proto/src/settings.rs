@@ -616,7 +616,8 @@ pub fn json_schema() -> Value {
                     "secretsSet": { "type": "array", "items": { "type": "string" }, "description": "A copy of which secrets that connection has set, for an older Pitwall. The secrets are in the system's secure store, never in this file." },
                     "selected": { "type": "string", "description": "The thread its inbox tile shows (`<connection id>:<thread>` for an extension with connections)." },
                     "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked); one that uses a setting is kept per connection, this list copying the carried-over connection's." },
-                    "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows)." }
+                    "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows)." },
+                    "connection": { "type": "string", "description": "The connection its inbox lists, by id (absent: all of them). One that is gone, or a single connection, lists all." }
                 },
                 "additionalProperties": true
             }
