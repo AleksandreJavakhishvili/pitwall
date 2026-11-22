@@ -238,7 +238,8 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
   any; a number key each), a field for an answer of your own, Send and
   Decline; a blocking one in amber with "Waiting on you". Answered asks
   are one quiet line; withdrawn, closed and declined ones are dimmed. A
-  reply box at the bottom when the adapter allows replies (⌘↵ sends).
+  reply box at the bottom when the adapter allows replies (⌘↵ sends):
+  one row, growing with its text up to six, then scrolling.
   Opening a thread goes to its first open ask and marks it read.
 - **At once, and back:** an answer, a reply or an archive shows as done
   as soon as it is sent; if the adapter says it failed it comes back (the
@@ -258,7 +259,8 @@ a peer of the files and web tiles. Code: `main_screen/inbox_tile.rs`.
   the list.
 - **Bench commands** (`PITWALL_BENCH`, for screenshots): `inbox open
   [ext]`, `inbox show <thread>`, `inbox filter all|needs`, `inbox back`,
-  `inbox details <message>`, `inbox pick <n>`, `inbox close`, and
+  `inbox details <message>`, `inbox pick <n>`, `inbox reply <text>`,
+  `inbox close`, and
   `ext-action <ext> <action>` (Settings → Extensions with that action's
   confirmation shown).
 - **Shipped extensions' checks:** Pitwall's tests read every folder

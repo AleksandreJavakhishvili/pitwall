@@ -141,7 +141,7 @@ impl Focusable for InboxView {
 
 impl InboxView {
     pub fn new(ext: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let reply = cx.new(|cx| TextInput::new(cx, "", "Reply…  ⌘↵ sends").multiline(3).max_len(pitwall_core::extensions::protocol::MAX_REPLY));
+        let reply = cx.new(|cx| TextInput::new(cx, "", "Reply…  ⌘↵ sends").grow(6).max_len(pitwall_core::extensions::protocol::MAX_REPLY));
         let h = hub::hub(cx);
         let mut subs = vec![
             cx.observe(&h, |this, _, cx| {
@@ -1390,7 +1390,7 @@ impl MainScreen {
     /// Bench and debug builds, `inbox …` (`ui::MainView::bench`; nothing
     /// is clicked or typed on the screen): `open [ext]`, `show <thread>`,
     /// `filter all|needs`, `back`, `details <message>`, `pick <n>`,
-    /// `close`.
+    /// `reply <text>` (`\n` a new line), `close`.
     pub fn debug_inbox(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
         let mut words = cmd.split_whitespace();
         let what = words.next().unwrap_or_default();
@@ -1417,6 +1417,12 @@ impl MainScreen {
                     v.pick(&thread, &ask, n.saturating_sub(1), cx);
                 }
             }),
+            ("reply", Some(_)) => {
+                // The rest of the command, `\n` for a new line.
+                let text = cmd.trim_start().strip_prefix("reply").unwrap_or_default().trim().replace("\\n", "\n");
+                let reply = v.read(cx).reply.clone();
+                reply.update(cx, |r, cx| r.replace_text(text, cx));
+            }
             ("close", _) => {
                 let ext = v.read(cx).ext.clone();
                 self.close_inbox(&ext, cx);

@@ -189,6 +189,9 @@ pub struct TextInput {
     multiline: bool,
     /// Visible rows of a multi-line input.
     rows: usize,
+    /// Grows with its text (wrapped lines and new lines) from one row up
+    /// to this many, then scrolls inside.
+    grow: Option<usize>,
     mono: bool,
     frame: Frame,
     max_len: Option<usize>,
@@ -220,6 +223,7 @@ impl TextInput {
             placeholder: placeholder.to_string().into(),
             multiline: false,
             rows: 1,
+            grow: None,
             mono: false,
             frame: Frame::Boxed,
             max_len: None,
@@ -326,6 +330,21 @@ impl TextInput {
         self.set_text(text, cx);
         cx.emit(InputEvent::Changed);
         cx.emit(TextFieldEvent::Changed);
+    }
+
+    /// A multi-line input one row tall that grows with its text (wrapped
+    /// lines and new lines) up to `max` rows, then scrolls inside; it
+    /// shrinks again as its text does.
+    pub fn grow(mut self, max: usize) -> Self {
+        self.multiline = true;
+        self.rows = 1;
+        self.grow = Some(max.max(1));
+        self
+    }
+
+    /// Visible rows now.
+    pub fn rows(&self) -> usize {
+        self.rows
     }
 
     /// Visible rows of a multi-line input.
@@ -1063,6 +1082,18 @@ impl Element for Field {
                 f.multiline,
             )
         };
+        // A growing input: as many rows as its text takes (up to its
+        // most), drawn so from the next frame.
+        let grow = self.input.read(cx).grow;
+        if let Some(max) = grow {
+            let taken = if empty { 1 } else { lines.iter().map(|(_, _, l)| l.wrap_boundaries.len() + 1).sum() };
+            let want = taken.clamp(1, max);
+            if want != self.input.read(cx).rows {
+                let input = self.input.clone();
+                input.update(cx, |f, _| f.rows = want);
+                cx.defer(move |cx| input.update(cx, |_, cx| cx.notify()));
+            }
+        }
         // Keep the cursor in view.
         let cpos = self.input.read(cx).position_of(cursor).unwrap_or_default();
         self.input.update(cx, |f, _| {
@@ -1073,6 +1104,9 @@ impl Element for Field {
                 } else if cpos.y + lh > f.scroll + h {
                     f.scroll = cpos.y + lh - h;
                 }
+                // Never scrolled past its text (a box that grew shows it all).
+                let taken: usize = lines.iter().map(|(_, _, l)| l.wrap_boundaries.len() + 1).sum();
+                f.scroll = f.scroll.min((lh * taken as f32 - h).max(px(0.)));
             } else {
                 let w = bounds.size.width - px(2.);
                 if cpos.x < f.scroll {
@@ -1306,6 +1340,34 @@ mod tests {
             f.edit(f.selected.clone(), "x", cx);
             assert_eq!(f.text(), "x");
         });
+    }
+
+    /// A growing input starts at one row, takes a row per line (new lines
+    /// and wrapped ones) up to its most, then scrolls; it shrinks back
+    /// when emptied. A fixed one keeps its rows.
+    #[gpui::test]
+    fn a_growing_input_follows_its_text(cx: &mut TestAppContext) {
+        let (f, cx) = cx.add_window_view(|_, cx| TextInput::new(cx, "", "Reply").grow(6));
+        let fixed = cx.new(|cx| TextInput::new(cx, "", "").multiline(3));
+        let frame = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..3 {
+                cx.run_until_parked();
+                cx.update(|window, _| window.refresh());
+            }
+        };
+        let rows = |cx: &mut gpui::VisualTestContext| f.read_with(cx, |f, _| f.rows());
+        frame(cx);
+        assert_eq!(rows(cx), 1);
+        f.update(cx, |f, cx| f.replace_text("one\ntwo\nthree\nfour", cx));
+        frame(cx);
+        assert_eq!(rows(cx), 4);
+        f.update(cx, |f, cx| f.replace_text("word ".repeat(400), cx));
+        frame(cx);
+        assert_eq!(rows(cx), 6, "wrapped lines count, up to the most");
+        f.update(cx, |f, cx| f.replace_text("", cx));
+        frame(cx);
+        assert_eq!(rows(cx), 1, "shrinks back");
+        assert_eq!(fixed.read_with(cx, |f, _| f.rows()), 3);
     }
 
     #[gpui::test]
