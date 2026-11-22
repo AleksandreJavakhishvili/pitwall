@@ -55,13 +55,58 @@ pub struct Manifest {
     pub agent_env: Vec<EnvVar>,
     /// How the names a thread is from match Pitwall's agents.
     pub match_agents: Option<MatchAgents>,
+    /// Setup actions the user may run from Settings (never by themselves).
+    pub actions: Vec<Action>,
 }
 
 impl Manifest {
     /// A manifest with only these (tests and fixtures).
     pub fn named(id: &str, name: &str) -> Manifest {
-        Manifest { id: id.into(), name: name.into(), icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None }
+        Manifest { id: id.into(), name: name.into(), icon: None, description: None, settings: vec![], adapter: None, agent_env: vec![], match_agents: None, actions: vec![] }
     }
+}
+
+/// A setup action: a button in Settings that, once the user confirms the
+/// exact commands, runs its steps in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Action {
+    pub id: String,
+    /// The button's text.
+    pub label: String,
+    /// One line under it.
+    pub description: String,
+    pub steps: Vec<Step>,
+}
+
+/// One program run: no shell, its arguments as they are (after
+/// `{setting:KEY}` is put in).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    /// The program (looked up on the login shell's PATH), then its
+    /// arguments.
+    pub run: Vec<String>,
+    /// The agent kind it is for (`claude`, `codex`, …): skipped, saying
+    /// so, when its program isn't installed, and after an earlier step for
+    /// the same kind failed.
+    pub for_kind: Option<String>,
+    /// Its failure doesn't stop the steps after it (removing what may not
+    /// be there).
+    pub optional: bool,
+}
+
+/// Step `run`'s arguments with the extension's plain settings put in;
+/// `Err(label)` naming a setting that isn't set.
+pub fn expand_args(run: &[String], m: &Manifest, values: &std::collections::BTreeMap<String, String>) -> Result<Vec<String>, String> {
+    run.iter()
+        .map(|a| {
+            let mut out = a.clone();
+            for key in setting_keys(a) {
+                let v = values.get(key).filter(|v| !v.trim().is_empty()).ok_or_else(|| m.settings.iter().find(|s| s.key == key).map_or(key.to_string(), |s| s.label.clone()))?;
+                out = out.replace(&format!("{SETTING_PLACEHOLDER}{key}}}"), v);
+            }
+            Ok(out)
+        })
+        .collect()
 }
 
 /// A value the user sets for an extension in Settings.
@@ -324,7 +369,8 @@ pub fn parse(text: &str) -> Result<Manifest, String> {
         }
         Some(_) => return Err("\"matchAgents\" must be an object".into()),
     };
-    Ok(Manifest { id: id.to_string(), name, icon, description, settings, adapter, agent_env, match_agents })
+    let actions = parse_actions(obj.get("actions"), &settings)?;
+    Ok(Manifest { id: id.to_string(), name, icon, description, settings, adapter, agent_env, match_agents, actions })
 }
 
 /// An array field (absent: empty) of at most `max` items.
@@ -409,6 +455,71 @@ fn parse_env(v: Option<&Value>, settings: &[SettingDef]) -> Result<Vec<EnvVar>, 
         out.push(EnvVar { name: name.to_string(), value: value.to_string() });
     }
     Ok(out)
+}
+
+fn parse_actions(v: Option<&Value>, settings: &[SettingDef]) -> Result<Vec<Action>, String> {
+    let mut out: Vec<Action> = Vec::new();
+    for item in array(v, "actions", 5)? {
+        let Value::Object(o) = item else { return Err("each of \"actions\" must be an object".into()) };
+        let id = opt_str(o, "id")?.ok_or("an action needs \"id\"")?;
+        check_word("action id", id)?;
+        if out.iter().any(|a| a.id == id) {
+            return Err(format!("action “{id}” is there twice"));
+        }
+        let label = line("label", opt_str(o, "label")?.ok_or(format!("action “{id}” needs \"label\""))?, 40)?;
+        let description = line("description", opt_str(o, "description")?.ok_or(format!("action “{id}” needs \"description\""))?, 200)?;
+        let mut steps = Vec::new();
+        let list = array(o.get("steps"), &format!("actions.{id}.steps"), 12)?;
+        if list.is_empty() {
+            return Err(format!("action “{id}” has no steps"));
+        }
+        for st in list {
+            let Value::Object(so) = st else { return Err(format!("each step of action “{id}” must be an object")) };
+            let run = match so.get("run") {
+                Some(Value::Array(a)) if !a.is_empty() && a.len() <= 32 => a,
+                Some(Value::String(_)) => return Err(format!("a step of action “{id}” must give \"run\" as the program and its arguments, a list, not one shell line")),
+                _ => return Err(format!("a step of action “{id}” needs \"run\": the program and its arguments, 1–32 strings")),
+            };
+            let mut argv = Vec::new();
+            for (i, a) in run.iter().enumerate() {
+                let Value::String(a) = a else { return Err(format!("a step of action “{id}”: \"run\" must be strings")) };
+                if (i == 0 && a.is_empty()) || a.chars().count() > 500 || a.chars().any(char::is_control) {
+                    return Err(format!("a step of action “{id}”: each of \"run\" must be one line of at most 500 characters"));
+                }
+                if i == 0 && (a.contains('{') || a.contains('/') || a.contains('\\')) {
+                    return Err(format!("a step of action “{id}”: the program must be a name found on PATH, not a path or a placeholder"));
+                }
+                check_args_template(&format!("an argument of action “{id}”"), a, settings)?;
+                argv.push(a.clone());
+            }
+            let for_kind = opt_str(so, "for")?.map(|k| check_word("for", k).map(|_| k.to_string())).transpose()?;
+            let optional = match so.get("optional") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err(format!("a step of action “{id}”: \"optional\" must be true or false")),
+            };
+            steps.push(Step { run: argv, for_kind, optional });
+        }
+        out.push(Action { id: id.to_string(), label, description, steps });
+    }
+    Ok(out)
+}
+
+/// An action's argument: only `{setting:KEY}` placeholders, of plain
+/// settings.
+fn check_args_template(what: &str, a: &str, settings: &[SettingDef]) -> Result<(), String> {
+    let mut rest = a.to_string();
+    for key in setting_keys(a) {
+        match settings.iter().find(|s| s.key == key) {
+            None => return Err(format!("{what} names setting “{key}”, which the manifest doesn't have")),
+            Some(s) if s.kind == SettingKind::Secret => return Err(format!("{what} names secret “{key}”: secrets are never put in commands")),
+            Some(_) => rest = rest.replace(&format!("{SETTING_PLACEHOLDER}{key}}}"), ""),
+        }
+    }
+    if rest.contains('{') || rest.contains('}') {
+        return Err(format!("{what} “{a}” may only use {{setting:KEY}}"));
+    }
+    Ok(())
 }
 
 /// Read and check the manifest in folder `dir` (named `folder`): its id
@@ -505,6 +616,40 @@ mod tests {
         assert!(err(&format!(r#"{both}, "agentEnv": [{{"name": "X_KEY", "value": "{{setting:key}}"}}]"#)).contains("secrets are never given to agents"));
         assert!(err(&format!(r#"{both}, "agentEnv": [{{"name": "X_Y", "value": "{{setting:nope}}"}}]"#)).contains("doesn't have"));
         assert!(err(&format!(r#"{both}, "matchAgents": {{"agent": "{{setting:server}}", "session": "s"}}"#)).contains("may only use"));
+    }
+
+    /// Setup actions: a program and its arguments per step (never a shell
+    /// line), plain settings only, within bounds.
+    #[test]
+    fn setup_actions_are_read_and_checked() {
+        let both = r#""settings": [{"key": "server", "type": "url", "label": "Server"}, {"key": "key", "type": "secret", "label": "K"}]"#;
+        let with = |steps: &str| parse(&format!(r#"{{"id": "x", "name": "X", {both}, "actions": [{{"id": "setup", "label": "Set up", "description": "Does it.", "steps": [{steps}]}}]}}"#));
+        let m = with(r#"{"for": "claude", "run": ["claude", "plugin", "add", "--url={setting:server}"], "optional": true}, {"run": ["tool", ""]}"#).unwrap();
+        let a = &m.actions[0];
+        assert_eq!((a.label.as_str(), a.steps.len()), ("Set up", 2));
+        assert_eq!(a.steps[0], Step { run: vec!["claude".into(), "plugin".into(), "add".into(), "--url={setting:server}".into()], for_kind: Some("claude".into()), optional: true });
+        let values = std::collections::BTreeMap::from([("server".to_string(), "https://s.example".to_string())]);
+        assert_eq!(expand_args(&a.steps[0].run, &m, &values).unwrap()[3], "--url=https://s.example");
+        assert_eq!(expand_args(&a.steps[0].run, &m, &Default::default()).unwrap_err(), "Server");
+
+        let refused = |steps: &str, why: &str| {
+            let e = with(steps).unwrap_err();
+            assert!(e.contains(why), "{steps}: {e}");
+        };
+        refused(r#"{"run": "claude plugin add x"}"#, "not one shell line");
+        refused(r#"{"run": []}"#, "1–32 strings");
+        refused(r#"{"run": ["claude", 3]}"#, "must be strings");
+        refused(r#"{"run": ["/bin/rm", "x"]}"#, "not a path");
+        refused(r#"{"run": ["{setting:server}"]}"#, "not a path or a placeholder");
+        refused(r#"{"run": ["curl", "{setting:key}"]}"#, "secrets are never put in commands");
+        refused(r#"{"run": ["curl", "{setting:nope}"]}"#, "doesn't have");
+        refused(r#"{"run": ["curl", "{home}"]}"#, "may only use");
+        refused(r#"{"run": ["a\nb"]}"#, "one line");
+        refused(r#"{"run": ["x"], "optional": "yes"}"#, "true or false");
+        let many = vec![r#"{"run": ["x"]}"#; 13].join(",");
+        refused(&many, "more than 12");
+        assert!(parse(r#"{"id": "x", "name": "X", "actions": [{"id": "a", "label": "A", "description": "d", "steps": []}]}"#).unwrap_err().contains("no steps"));
+        assert!(parse(r#"{"id": "x", "name": "X", "actions": [{"id": "a", "label": "A", "steps": [{"run": ["x"]}]}]}"#).unwrap_err().contains("needs \"description\""));
     }
 
     #[test]

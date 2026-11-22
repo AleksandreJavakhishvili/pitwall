@@ -27,5 +27,29 @@
     { "name": "AGENTWORKS_AGENT", "value": "{project}" },
     { "name": "AGENTWORKS_SESSION", "value": "{agent_id}" }
   ],
-  "matchAgents": { "agent": "{project}", "session": "{agent_id}" }
+  "matchAgents": { "agent": "{project}", "session": "{agent_id}" },
+  "actions": [
+    {
+      "id": "setup",
+      "label": "Set up Agention in my agents",
+      "description": "Installs Agention's plugin, pinned to v0.4.0, in Claude Code and Codex (whichever you have).",
+      "steps": [
+        { "for": "claude", "run": ["claude", "plugin", "marketplace", "remove", "agention"], "optional": true },
+        { "for": "claude", "run": ["claude", "plugin", "marketplace", "add", "WayfarerLabs/agention#v0.4.0"] },
+        { "for": "claude", "run": ["claude", "plugin", "install", "agention@agention"] },
+        { "for": "codex", "run": ["codex", "plugin", "marketplace", "remove", "agention"], "optional": true },
+        { "for": "codex", "run": ["codex", "plugin", "marketplace", "add", "WayfarerLabs/agention", "--ref", "v0.4.0"] },
+        { "for": "codex", "run": ["codex", "plugin", "add", "agention@agention"] }
+      ]
+    },
+    {
+      "id": "remove",
+      "label": "Remove Agention from my agents",
+      "description": "Removes Agention's plugin marketplace, and with it the plugin, from Claude Code and Codex.",
+      "steps": [
+        { "for": "claude", "run": ["claude", "plugin", "marketplace", "remove", "agention"] },
+        { "for": "codex", "run": ["codex", "plugin", "marketplace", "remove", "agention"] }
+      ]
+    }
+  ]
 }

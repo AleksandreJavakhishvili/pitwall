@@ -5,6 +5,7 @@
 //! turns it on) gets a section of the sidebar of its own, shaped like a
 //! project's, and its adapter is run ([`hub`]) while it is on.
 
+pub mod actions;
 pub mod adapter;
 pub mod hub;
 
