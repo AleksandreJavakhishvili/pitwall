@@ -287,6 +287,14 @@ fixes, not an IDE.
   keeps its own tree column (`filesTree.tile`, `filesTree.window`; the
   tile's was `beside` and is still read). ⌘P (Go to file) and ⇧⌘F
   (Search) work in a files window too, on the folder it shows.
+  A files tile is a tile like a terminal's for the keys: a press anywhere
+  in it (its bar, tree or text) makes it the space's focused tile, with
+  the focused border, and gives the viewer the keyboard unless something
+  in it has it already (the text being edited, a search field keeps it).
+  ⌘⏎ (Ctrl+Shift+Enter on Windows and Linux) then maximises it and
+  restores it, the same viewer with its folder, tabs, scroll, selection
+  and unsaved edits; in the text it adds no line. Its agent stays the
+  focused one (the right panel, the sidebar).
   Where a tile is, is said one way everywhere (the tool's answer, the drop
   preview, `files-place state`): next to the terminal it was placed
   against while it still touches it ("above demo's terminal"); else from

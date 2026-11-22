@@ -23,10 +23,19 @@ Rules that keep it simple:
 - **Tiling**: drag an agent onto a pane's left/right/top/bottom drop zone to
   split; drag dividers to resize; presets 1 / 2 / 3 (1 big + 2) / 2×2 / 3×2.
   Double-click a pane header (or ⌘⏎) to maximise it within the space and back.
+  Every tile takes part alike, terminals, files, web pages and the inbox: a
+  press anywhere in one makes it the space's focused tile, shown by its
+  border, and ⌘⏎ (Ctrl+Shift+Enter on Windows and Linux) maximises and
+  restores that tile, which keeps what it shows (a viewer's folder, tabs,
+  scroll and unsaved edits; a page as it was). A click into a web page
+  counts too, though the page's native view takes it: the page says it
+  has the keys. A text field's own ⌘↵ (send) wins over Maximise.
 - **Minimum pane size** ~80 cols × 20 rows at the current font; when a space has
   more agents than fit, extra panes collapse into a compact strip of agent chips
   at the bottom of the space (click to swap in) instead of becoming unreadable.
-- **Right panel** (Next up / Changes / Last sent) always belongs to the focused pane.
+- **Right panel** (Next up / Changes / Last sent) always belongs to the focused pane
+  (an agent's files tile: that agent; a web page or the inbox: the agent
+  focused before it, so pressing one moves nothing).
 
 Responsive breakpoints (per window width):
 | Width | Sidebar | Right panel | Max panes per row |
