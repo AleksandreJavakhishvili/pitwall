@@ -8,6 +8,11 @@
 //   node adapter.mjs --empty         # an inbox with nothing in it
 //   node adapter.mjs --flood         # misbehaves: floods stdout (tests)
 //   node adapter.mjs --crash         # misbehaves: exits after hello (tests)
+//   node adapter.mjs --slow          # connects for a long time (the loading state)
+//   node adapter.mjs --offline       # can't reach its server (the error state)
+//
+// DEMO_INBOX_AGENT / DEMO_INBOX_SESSION: the first thread comes from that
+// agent (a Pitwall agent's project and id, to see it matched).
 //
 // Fit a real adapter to the same lines: read `hello` first (settings and
 // secrets arrive only there), answer `hello`, send `status`, `threads` and
@@ -24,13 +29,13 @@ const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
 const threads = new Map();
 let nextMessage = 100;
 
-const agent = (from) => ({ kind: "agent", name: `${from.agent}/${from.session}` });
+const agent = (from) => ({ kind: "agent", name: from.agent });
 const you = { kind: "you", name: "You" };
 
 function seed(greeting) {
   const t = (id, title, from, unread, messages) => threads.set(id, { id, title, from, unread, archived: false, messages });
 
-  const cache = { agent: "my-app", session: "demo-session" };
+  const cache = { agent: process.env.DEMO_INBOX_AGENT || "my-app", session: process.env.DEMO_INBOX_SESSION || "demo-session" };
   t("demo/1", "Which database for the session cache?", cache, 2, [
     {
       id: "1",
@@ -93,6 +98,19 @@ function seed(greeting) {
     },
     { id: "2", author: you, time: ago(170), text: "Thanks. Ping me when the fix is merged.", answers: [{ ask: 1, question: "Should I also retry it in CI until the fix lands?", declined: false, labels: ["No"], text: "Keep CI honest." }] },
     { id: "3", author: agent(tests), time: ago(120), text: "", withdrawals: [{ ask: 2, reason: "Only one test was flaky." }] },
+  ]);
+
+  const deps = { agent: "web-frontend", session: "deps" };
+  t("demo/5", "Upgraded React to 19 across the dashboard, the settings pages and the marketing site", deps, 1, [
+    {
+      id: "1",
+      author: agent(deps),
+      time: ago(32),
+      text: "Upgraded React to **19.1** in all three apps. Two components used the removed `defaultProps` on function components; I moved those to default parameters.",
+      detail: "### Changed\n\n- `apps/dashboard`: 14 files\n- `apps/settings`: 6 files\n- `apps/marketing`: 3 files\n\nThe bundle is 4 KB smaller. Visual tests pass.",
+      asks: [],
+    },
+    { id: "2", author: { kind: "person", name: "Maya (reviewer)" }, time: ago(20), text: "Looks good to me. Can you check the date picker on Safari before we merge?", asks: [] },
   ]);
 
   const infra = { agent: "infra", session: "dns" };
@@ -210,6 +228,11 @@ lines.on("line", (line) => {
       return burst();
     }
     send({ type: "status", state: "connecting" });
+    if (process.argv.includes("--slow")) return;
+    if (process.argv.includes("--offline")) {
+      send({ type: "status", state: "error", message: "Can't reach https://inbox.example.com: the connection timed out. Retrying in 30 s." });
+      return send({ type: "threads", threads: [] });
+    }
     if (!process.argv.includes("--empty")) seed(msg.settings && msg.settings.greeting);
     send({ type: "status", state: "ready" });
     sendThreads();

@@ -117,12 +117,19 @@ fn the_inbox_opens_as_a_tile_and_answers_at_once(cx: &mut TestAppContext) {
     frame(cx);
     assert!(cx.debug_bounds("inbox-row-t2").is_some());
 
-    // ↓ shows the first (the blocking one): opened, remembered, marked read.
-    cx.simulate_keystrokes("down");
-    frame(cx);
-    assert_eq!(v.read_with(cx, |v, _| v.selected().map(str::to_string)).as_deref(), Some("t1"));
+    // A wide tile shows the first (the blocking one): opened, remembered.
+    let selected = |cx: &mut VisualTestContext| v.read_with(cx, |v, _| v.selected().map(str::to_string));
+    assert_eq!(selected(cx).as_deref(), Some("t1"));
     assert_eq!(sent(&h, cx), [json!({"type": "open", "thread": "t1"})]);
     assert_eq!(cx.update(|_, cx| crate::ui_state::get(cx).extension("demo").selected).as_deref(), Some("t1"));
+    // ↓ and ↑ go through the list.
+    cx.simulate_keystrokes("down");
+    frame(cx);
+    assert_eq!(selected(cx).as_deref(), Some("t2"));
+    cx.simulate_keystrokes("up");
+    frame(cx);
+    assert_eq!(selected(cx).as_deref(), Some("t1"));
+    assert_eq!(sent(&h, cx).last(), Some(&json!({"type": "open", "thread": "t1"})));
     say(&h, detail_t1(true), cx);
     let marked = sent(&h, cx);
     assert_eq!(marked.len(), 0, "read already: {marked:?}");

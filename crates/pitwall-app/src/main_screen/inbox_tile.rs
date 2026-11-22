@@ -37,7 +37,7 @@ use crate::markdown_view::MarkdownView;
 use crate::theme::{theme, Theme, RADIUS};
 
 /// Narrower than this, the list and the thread take turns.
-pub const NARROW: f32 = 620.;
+pub const NARROW: f32 = 760.;
 /// The thread's text is at most this wide.
 const READING: f32 = 720.;
 
@@ -168,7 +168,7 @@ impl InboxView {
             selected: None,
             opened: None,
             pushed: false,
-            width: Rc::new(Cell::new(1000.)),
+            width: Rc::new(Cell::new(-1.)),
             reply,
             others: HashMap::new(),
             picks: HashMap::new(),
@@ -199,7 +199,7 @@ impl InboxView {
     }
 
     pub fn narrow(&self) -> bool {
-        self.width.get() < NARROW
+        (0. ..NARROW).contains(&self.width.get())
     }
 
     /// The thread is over the list (narrow tiles).
@@ -303,11 +303,22 @@ impl InboxView {
                 }
             });
         }
+        self.fill(cx);
         if let Some(id) = mark {
             self.marked.insert(id.clone());
             let ext = self.ext.clone();
             let h = hub::hub(cx);
             let _ = h.update(cx, |h, cx| h.request(&ext, &id, Request::MarkRead, cx));
+        }
+    }
+
+    /// A wide tile always shows a thread: the first, when none is (once
+    /// its width is known).
+    fn fill(&mut self, cx: &mut Context<Self>) {
+        if self.selected.is_none() && self.width.get() >= NARROW {
+            if let Some(first) = self.listed(cx).first().map(|t| t.id.clone()) {
+                self.show(&first, false, cx);
+            }
         }
     }
 
@@ -567,12 +578,21 @@ impl InboxView {
             Run::Off if !crate::ui_state::get(cx).extension_on(&m.id) => calm("extension", &format!("{} is off", m.name), "Turn it on in Settings → General → Extensions.".into(), t).child(settings("inbox-settings", "Open Settings", t)),
             Run::Off => calm("alert", "It has no adapter", "This extension has nothing to show here.".into(), t),
             Run::Setup(why) => calm("lock", &format!("Connect {}", m.name), why, t).child(settings("inbox-connect", "Open Settings", t)),
-            Run::Stopped(why) => calm("alert", &format!("{} stopped", m.name), why, t).child(
+            Run::Stopped(why) => {
+                // What it printed goes in a box of its own, its last lines.
+                let (head, said) = match why.split_once(" It said: ") {
+                    Some((h, s)) => (h.to_string(), Some(s.to_string())),
+                    None => (why, None),
+                };
+                calm("alert", &format!("{} stopped", m.name), format!("{head} Restart it, or check its settings in Settings → General → Extensions."), t)
+                    .when_some(said, |d, said| d.child(output_tail(&said, t)))
+                    .child(
                 kit::text_button("inbox-restart", "Restart", kit::BtnKind::Primary, false, t).debug_selector(|| "inbox-restart".into()).on_click(cx.listener(move |_, _, _, cx| {
                     let ext = ext.clone();
                     hub::hub(cx).update(cx, |h, cx| h.restart(&ext, cx));
                 })),
-            ),
+                    )
+            }
             Run::Starting => return Some(self.skeleton(t)),
             Run::Running => {
                 let st = st?;
@@ -639,7 +659,7 @@ impl InboxView {
             .rounded(RADIUS)
             .cursor_pointer()
             .map(|d| if selected { d.bg(t.surface_3) } else { d.hover(|s| s.bg(t.surface_2)) })
-            .when(cursor && selected, |d| d.border_1().border_color(t.focus))
+            .when(cursor && selected, |d| d.border_1().border_color(t.text.opacity(0.22)))
             .tooltip(kit::tooltip(title.clone()))
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.focus, cx);
@@ -763,9 +783,9 @@ impl InboxView {
             .flex()
             .items_start()
             .gap(px(8.))
-            .px(px(16.))
-            .pt(px(12.))
-            .pb(px(10.))
+            .px(px(20.))
+            .pt(px(14.))
+            .pb(px(12.))
             .border_b_1()
             .border_color(if t.is_glass() { t.g.line } else { t.line })
             .when(narrow, |d| d.child(kit::icon_btn("inbox-back", "back", "Back to the list (Esc)", true, t).on_click(cx.listener(|this, _, _, cx| this.back(cx)))))
@@ -777,14 +797,14 @@ impl InboxView {
                     .flex_col()
                     .gap(px(4.))
                     .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(t.text).child(if d.title.is_empty() { "(untitled)".to_string() } else { d.title.clone() }))
-                    .when_some(from_name.clone(), |el, n| el.child(self.name_chip(&n, who.as_ref(), t))),
+                    .when_some(from_name.clone(), |el, n| el.child(div().flex().child(self.name_chip(&n, who.as_ref(), t)))),
             )
             .child(kit::text_button("inbox-archive", "Archive", kit::BtnKind::GhostSm, false, t).tooltip(kit::tooltip("Archive (E)")).on_click(cx.listener(move |this, _, _, cx| this.archive(&archive_id, cx))));
         let mut items: Vec<AnyElement> = Vec::new();
         if d.earlier {
             items.push(div().text_size(px(12.)).text_color(t.text_3).child("Earlier messages aren't shown here.").into_any_element());
         }
-        for msg in &d.messages {
+        for msg in d.messages.iter().filter(|msg| !said_already(&d, msg)) {
             items.push(self.message(&d, msg, m, who.as_ref(), busy, now, t, window, cx));
         }
         if let Some((thread, _, text)) = self.replying.clone().filter(|(th, _, _)| *th == id) {
@@ -797,21 +817,20 @@ impl InboxView {
             .overflow_y_scroll()
             .flex_1()
             .min_h_0()
-            .child(div().w_full().flex().justify_center().child(div().w_full().max_w(px(READING)).px(px(16.)).py(px(14.)).flex().flex_col().gap(px(16.)).children(items)));
+            .child(div().w_full().max_w(px(READING + 40.)).px(px(20.)).pt(px(16.)).pb(px(24.)).flex().flex_col().gap(px(20.)).children(items));
         let reply = d.can_reply.then(|| {
             div()
                 .flex_none()
                 .w_full()
                 .flex()
-                .justify_center()
                 .border_t_1()
                 .border_color(if t.is_glass() { t.g.line } else { t.line })
                 .child(
                     div()
                         .w_full()
-                        .max_w(px(READING))
-                        .px(px(16.))
-                        .py(px(10.))
+                        .max_w(px(READING + 40.))
+                        .px(px(20.))
+                        .py(px(12.))
                         .flex()
                         .items_end()
                         .gap(px(8.))
@@ -856,7 +875,8 @@ impl InboxView {
             .h(px(20.))
             .px(px(7.))
             .rounded_full()
-            .bg(t.surface_2)
+            // A tint of the text, so it shows on light and dark alike.
+            .bg(t.text.opacity(0.07))
             .max_w(px(260.))
             .when_some(agent, |d, a| d.child(kit::agent_logo(&a.kind, &a.kind_name, 12., t)))
             .child(div().min_w_0().ellipsis().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(t.text_2).child(kit::one_line(name.to_string())))
@@ -901,17 +921,22 @@ impl InboxView {
                 .child(short)
         });
         let text = (!msg.text.is_empty()).then(|| self.markdown(format!("{}:{}:t", d.id, msg.id), &msg.text, cx));
-        let open_detail = self.expanded.contains(&msg.id);
+        let open_detail = self.expanded.contains(&format!("{}:{}", d.id, msg.id));
         let detail = (open_detail && !msg.detail.is_empty()).then(|| self.markdown(format!("{}:{}:d", d.id, msg.id), &msg.detail, cx));
-        let mid = msg.id.clone();
+        let mid = format!("{}:{}", d.id, msg.id);
         let toggle = (!msg.detail.is_empty()).then(|| {
             div()
                 .id(SharedString::from(format!("inbox-details-{}", msg.id)))
                 .debug_selector({ let id = msg.id.clone(); move || format!("inbox-details-{id}") })
+                .flex()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(12.))
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text_3)
                 .cursor_pointer()
                 .hover(|s| s.text_color(t.text))
+                .child(kit::chevron_at(open_detail, 10., t.text_3))
                 .child(if open_detail { "Hide details" } else { "Show details" })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if !this.expanded.remove(&mid) {
@@ -921,14 +946,16 @@ impl InboxView {
                 }))
         });
         let asks: Vec<AnyElement> = msg.asks.iter().map(|a| self.ask(&d.id, a, busy, t, window, cx)).collect();
+        let shown = |n: u32| asked_before(d, msg, n);
         let carried: Vec<AnyElement> = msg
             .answers
             .iter()
+            .filter(|a| !shown(a.ask))
             .map(|a| {
                 let said = if a.declined { "Declined".to_string() } else { [a.labels.join(", "), a.text.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" — ") };
                 quiet("check", &format!("{} → {said}", a.question), false, t)
             })
-            .chain(msg.withdrawals.iter().map(|w| quiet("x", &format!("Question {} withdrawn{}", w.ask, if w.reason.is_empty() { String::new() } else { format!(": {}", w.reason) }), true, t)))
+            .chain(msg.withdrawals.iter().filter(|w| !shown(w.ask)).map(|w| quiet("x", &format!("Question {} withdrawn{}", w.ask, if w.reason.is_empty() { String::new() } else { format!(": {}", w.reason) }), true, t)))
             .collect();
         let body = div()
             .flex()
@@ -1063,9 +1090,10 @@ impl InboxView {
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .items_center()
                     .gap(px(8.))
-                    .child(div().flex_1().min_w_0().child(other))
+                    .child(div().flex_1().min_w(px(200.)).child(other))
                     .child(kit::text_button(SharedString::from(format!("inbox-answer-{thread}-{}", a.number)), send_label, kit::BtnKind::Primary, busy, t).on_click(cx.listener(move |this, _, _, cx| {
                         let text = other_send.read(cx).text().to_string();
                         let picks = this.picks.get(&(th_send.clone(), ask_send.number)).cloned().unwrap_or_default();
@@ -1079,6 +1107,47 @@ impl InboxView {
             )
             .into_any_element()
     }
+}
+
+/// Whether ask `n` is in a message of `d` before `msg` (where its answer
+/// or withdrawal already shows).
+fn asked_before(d: &ThreadDetail, msg: &Message, n: u32) -> bool {
+    d.messages.iter().take_while(|m| m.id != msg.id).flat_map(|m| &m.asks).any(|a| a.number == n)
+}
+
+/// A message that only repeats what the thread shows: answers to, or
+/// withdrawals of, asks drawn above (each ask shows how it went).
+pub fn said_already(d: &ThreadDetail, msg: &Message) -> bool {
+    msg.text.is_empty()
+        && msg.detail.is_empty()
+        && msg.asks.is_empty()
+        && (!msg.answers.is_empty() || !msg.withdrawals.is_empty())
+        && msg.answers.iter().all(|a| asked_before(d, msg, a.ask))
+        && msg.withdrawals.iter().all(|w| asked_before(d, msg, w.ask))
+}
+
+/// The last lines an adapter printed, as it printed them.
+fn output_tail(said: &str, t: &Theme) -> AnyElement {
+    let lines: Vec<&str> = said.lines().collect();
+    let tail = lines[lines.len().saturating_sub(8)..].join("\n");
+    div()
+        .mt(px(4.))
+        .w_full()
+        .max_w(px(560.))
+        .px(px(12.))
+        .py(px(10.))
+        .rounded(RADIUS)
+        .bg(t.surface_2)
+        .border_1()
+        .border_color(t.line)
+        .text_left()
+        .font_family(kit::MONO_FONT)
+        .text_size(px(11.5))
+        .line_height(px(17.))
+        .text_color(t.text_2)
+        .overflow_hidden()
+        .child(tail)
+        .into_any_element()
 }
 
 fn relative_w(f: f32) -> gpui::Length {
@@ -1103,12 +1172,21 @@ impl Render for InboxView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx).clone();
         let width = self.width.clone();
+        let me = cx.entity().downgrade();
         let measure = canvas(
-            move |b, window, _| {
+            move |b, _, cx| {
                 let w = f32::from(b.size.width);
                 if (width.get() - w).abs() > 0.5 {
                     width.set(w);
-                    window.refresh();
+                    // Drawn again at its width (a view is redrawn only
+                    // when it says so).
+                    let me = me.clone();
+                    cx.defer(move |cx| {
+                        let _ = me.update(cx, |v, cx| {
+                            v.fill(cx);
+                            cx.notify();
+                        });
+                    });
                 }
             },
             |_, _, _, _| {},
@@ -1307,6 +1385,45 @@ impl MainScreen {
                 }))
                 .into_any_element(),
         )
+    }
+
+    /// Bench and debug builds, `inbox …` (`ui::MainView::bench`; nothing
+    /// is clicked or typed on the screen): `open [ext]`, `show <thread>`,
+    /// `filter all|needs`, `back`, `details <message>`, `pick <n>`,
+    /// `close`.
+    pub fn debug_inbox(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let mut words = cmd.split_whitespace();
+        let what = words.next().unwrap_or_default();
+        let arg = words.next().map(str::to_string);
+        if what == "open" {
+            self.open_inbox(arg.as_deref(), None, window, cx);
+            return;
+        }
+        let Some(v) = self.inboxes.values().next().cloned() else {
+            eprintln!("pitwall-debug: no inbox open");
+            return;
+        };
+        match (what, arg) {
+            ("show", Some(t)) => v.update(cx, |v, cx| v.show(&t, true, cx)),
+            ("filter", Some(f)) => v.update(cx, |v, cx| v.set_filter(if f == "all" { Filter::All } else { Filter::NeedsYou }, cx)),
+            ("back", _) => v.update(cx, |v, cx| v.back(cx)),
+            ("details", Some(m)) => v.update(cx, |v, cx| {
+                let key = format!("{}:{m}", v.selected.clone().unwrap_or_default());
+                v.expanded.insert(key);
+                cx.notify();
+            }),
+            ("pick", Some(n)) => v.update(cx, |v, cx| {
+                if let (Some((thread, ask)), Ok(n)) = (v.first_open(cx), n.parse::<u32>()) {
+                    v.pick(&thread, &ask, n.saturating_sub(1), cx);
+                }
+            }),
+            ("close", _) => {
+                let ext = v.read(cx).ext.clone();
+                self.close_inbox(&ext, cx);
+            }
+            _ => eprintln!("pitwall-debug: inbox {cmd}?"),
+        }
+        cx.notify();
     }
 
     /// Tests: the window's inbox of `ext`.

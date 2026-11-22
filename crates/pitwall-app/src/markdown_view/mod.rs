@@ -412,6 +412,7 @@ impl Render for MarkdownView {
             prefix: SharedString::default(),
             in_item: false,
             fit: false,
+            small: self.inline,
             selecting: self.selecting.clone(),
         };
         let mut col: Vec<AnyElement> = Vec::new();
@@ -559,6 +560,9 @@ struct Draw<'a> {
     /// box: text alignment would put the glyphs where the mouse can't
     /// find them).
     fit: bool,
+    /// In the flow of something else (a message): headings a step above
+    /// the text, not a document's.
+    small: bool,
     selecting: Rc<Cell<bool>>,
 }
 
@@ -673,6 +677,8 @@ impl Draw<'_> {
         match &b.kind {
             Kind::Heading(level, inline) => {
                 let (size, weight) = match level {
+                    1 | 2 if self.small => (15., FontWeight::SEMIBOLD),
+                    _ if self.small => (14., FontWeight::SEMIBOLD),
                     1 => (24., FontWeight::BOLD),
                     2 => (20., FontWeight::SEMIBOLD),
                     3 => (17., FontWeight::SEMIBOLD),
@@ -687,8 +693,8 @@ impl Draw<'_> {
                     .when(self.fit, |d| d.w_full().items_center())
                     .text_size(px(size))
                     .line_height(relative(1.3))
-                    .when(*level == 1, |d| d.mt(px(6.)))
-                    .when(*level <= 2, |d| d.pb(px(6.)).border_b_1().border_color(t.line))
+                    .when(*level == 1 && !self.small, |d| d.mt(px(6.)))
+                    .when(*level <= 2 && !self.small, |d| d.pb(px(6.)).border_b_1().border_color(t.line))
                     .child(self.inline(inline, weight, color))
                     .into_any_element()
             }
