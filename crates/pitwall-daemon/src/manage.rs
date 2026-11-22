@@ -54,7 +54,7 @@ pub fn agent(s: &Server, id: &str) -> Result<AgentView, ErrorBody> {
 
 /// Ask the user (Pitwall's own window never asks itself). `what` finishes
 /// the denial messages ("Nothing changed.").
-fn approve(s: &Server, caller: &Caller, action: &str, summary: String, details: Vec<String>, risk: Risk, what: &str) -> Result<(), ErrorBody> {
+pub(crate) fn approve(s: &Server, caller: &Caller, action: &str, summary: String, details: Vec<String>, risk: Risk, what: &str) -> Result<(), ErrorBody> {
     if caller.ui {
         return Ok(());
     }

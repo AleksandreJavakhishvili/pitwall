@@ -12,6 +12,7 @@
 //! - [`settings`]: `settings.*` over the host's [`SettingsBackend`].
 //! - [`manage`]: stop/restart/remove/rename/status/wait, queues, projects,
 //!   rules, review.
+//! - [`profiles`]: accounts, profiles and projects' picks (`accounts.json`).
 //! - [`workspace`]: `space.*` over the host's [`WorkspaceBackend`].
 //! - [`viewer`]: `viewer.open` over the host's [`ViewerBackend`].
 
@@ -21,6 +22,7 @@ pub mod identity;
 pub mod manage;
 pub mod methods;
 mod platform;
+pub mod profiles;
 pub mod server;
 pub mod settings;
 pub mod viewer;

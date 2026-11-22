@@ -81,7 +81,9 @@ These work with every command.
 - [`settings`](#settings): Pitwall's settings (theme, look, density, hooks, …): list, get, set, reset. Applied live when Pitwall runs; otherwise `ui.json` is edited (safe settings only)
 - [`queue`](#queue): Prompts queued for agents (sent when they are free)
 - [`space`](#space): Spaces (tabs of agents) and the windows they are in
-- [`project`](#project): Pitwall's project list (folders in the sidebar)
+- [`project`](#project): Pitwall's project list (folders in the sidebar), and what each project's agents launch with (its profile and picks)
+- [`account`](#account): Accounts: tools' logins, browser accounts, git identities and extension connections (made in Pitwall's Settings)
+- [`profile`](#profile): Profiles: named bundles of accounts ("Work", "Personal") a project picks: a tool account each, a git identity, a browser account and a connection per extension
 - [`rules`](#rules): Rule sets (rulesync) for agents and projects
 - [`review`](#review): What agents changed (read-only)
 - [`wait`](#wait): Wait until an agent is idle, blocked or done (for coordinating agents)
@@ -531,7 +533,7 @@ pitwall space move Review --to-window new
 
 ## project
 
-Pitwall's project list (folders in the sidebar).
+Pitwall's project list (folders in the sidebar), and what each project's agents launch with (its profile and picks).
 
 ### project list
 
@@ -564,6 +566,122 @@ pitwall project remove [OPTIONS] <PATH>
 | Argument | |
 |---|---|
 | `PATH` | The folder. |
+
+### project accounts
+
+What the project's agents launch with: each slot's account and where it comes from (the project's own pick, its profile, or the default).
+
+```bash
+pitwall project accounts [OPTIONS] [PATH]
+```
+
+| Argument | |
+|---|---|
+| `PATH` (optional) | The project's folder. |
+
+### project profile
+
+The profile the project uses (`none`: no profile). Asks the user in Pitwall; nothing restarts.
+
+```bash
+pitwall project profile [OPTIONS] <PATH> <PROFILE>
+```
+
+| Argument | |
+|---|---|
+| `PATH` | The project's folder. |
+| `PROFILE` | A profile's name or id, or `none`. |
+
+### project pick
+
+The project's own pick for one slot, over its profile's. Asks the user in Pitwall; nothing restarts.
+
+```bash
+pitwall project pick [OPTIONS] <PATH> <SLOT> <VALUE>
+```
+
+| Argument | |
+|---|---|
+| `PATH` | The project's folder. |
+| `SLOT` | A tool's kind (claude, codex, …), `git`, `browser` or `ext:<extension id>`. |
+| `VALUE` | An account's (git identity's, connection's) name or id, `default`, `none` (extensions only), or `inherit` (drop the project's own pick). |
+
+
+## account
+
+Accounts: tools' logins, browser accounts, git identities and extension connections (made in Pitwall's Settings).
+
+### account list
+
+Every account, browser account, git identity and extension connection, and the profiles.
+
+```bash
+pitwall account list [OPTIONS]
+```
+
+
+## profile
+
+Profiles: named bundles of accounts ("Work", "Personal") a project picks: a tool account each, a git identity, a browser account and a connection per extension.
+
+### profile list
+
+The profiles, their picks and the projects that use them.
+
+```bash
+pitwall profile list [OPTIONS]
+```
+
+### profile create
+
+Make a profile (it picks nothing until `profile set`).
+
+```bash
+pitwall profile create [OPTIONS] <NAME>
+```
+
+| Argument | |
+|---|---|
+| `NAME` |  |
+
+### profile rename
+
+Rename a profile.
+
+```bash
+pitwall profile rename [OPTIONS] <PROFILE> <NAME>
+```
+
+| Argument | |
+|---|---|
+| `PROFILE` | Its name or id. |
+| `NAME` |  |
+
+### profile delete
+
+Delete a profile (asks the user). Its accounts stay; its projects keep what they run under as their own picks.
+
+```bash
+pitwall profile delete [OPTIONS] <PROFILE>
+```
+
+| Argument | |
+|---|---|
+| `PROFILE` | Its name or id. |
+
+### profile set
+
+A profile's pick for one slot (asks the user when projects use it).
+
+```bash
+pitwall profile set [OPTIONS] <PROFILE> <SLOT> <VALUE>
+```
+
+| Argument | |
+|---|---|
+| `PROFILE` | Its name or id. |
+| `SLOT` | A tool's kind (claude, codex, …), `git`, `browser` or `ext:<extension id>`. |
+| `VALUE` | An account's (git identity's, connection's) name or id, `default`, `none` (extensions only), or `inherit` (the profile stops deciding it). |
 
 
 ## rules

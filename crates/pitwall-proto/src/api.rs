@@ -78,6 +78,22 @@ pub mod method {
     pub const PROJECT_ADD: &str = "project.add";
     /// [`ProjectPath`](crate::ProjectPath) → `ProjectView[]` (never deletes files).
     pub const PROJECT_REMOVE: &str = "project.remove";
+    // Accounts and profiles (docs/spec/profiles.md; crate::profiles).
+    /// → [`AccountsView`](crate::AccountsView)
+    pub const ACCOUNTS_LIST: &str = "accounts.list";
+    /// [`ProfileSave`](crate::ProfileSave) → [`ProfileView`](crate::ProfileView): make or rename one.
+    pub const PROFILE_SAVE: &str = "profile.save";
+    /// [`ProfilePick`](crate::ProfilePick) → `ProfileView` (asks when projects use it).
+    pub const PROFILE_SET: &str = "profile.set";
+    /// [`ProfileRef`](crate::ProfileRef) → `AccountsView` (asks the user;
+    /// its projects keep what they run under).
+    pub const PROFILE_DELETE: &str = "profile.delete";
+    /// [`ProjectPath`](crate::ProjectPath) → [`ProjectAccounts`](crate::ProjectAccounts)
+    pub const PROJECT_ACCOUNTS: &str = "project.accounts";
+    /// [`ProjectPick`](crate::ProjectPick) → `ProjectAccounts` (asks the user).
+    pub const PROJECT_PICK: &str = "project.pick";
+    /// [`ProjectProfile`](crate::ProjectProfile) → `ProjectAccounts` (asks the user).
+    pub const PROJECT_PROFILE: &str = "project.profile";
     /// → [`RulesOverview`](crate::RulesOverview)
     pub const RULES_LIST: &str = "rules.list";
     /// → [`RuleSets`](crate::RuleSets)

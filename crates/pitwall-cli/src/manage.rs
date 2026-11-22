@@ -263,10 +263,14 @@ fn folder(p: &str) -> String {
 }
 
 pub fn project_cmd(cmd: &ProjectCmd, c: &mut Client) -> Result<Output, Error> {
+    if crate::profiles::is_mine(cmd) {
+        return crate::profiles::project_cmd(cmd, c);
+    }
     let (list, note): (Vec<ProjectView>, String) = match cmd {
         ProjectCmd::List => (manage(c, method::PROJECT_LIST, Value::Null)?, String::new()),
         ProjectCmd::Add { path } => (manage(c, method::PROJECT_ADD, ProjectPath { path: folder(path) })?, format!("Added {path}\n")),
         ProjectCmd::Remove { path } => (manage(c, method::PROJECT_REMOVE, ProjectPath { path: folder(path) })?, format!("Removed {path} from the list\n")),
+        ProjectCmd::Accounts { .. } | ProjectCmd::Profile { .. } | ProjectCmd::Pick { .. } => unreachable!("profiles::is_mine"),
     };
     Ok(out(&list, note + &projects(&list)))
 }
