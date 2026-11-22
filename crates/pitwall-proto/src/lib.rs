@@ -15,6 +15,8 @@
 //! - [`show`]: agents showing files and folders to the user (`viewer.open`).
 //! - [`mcp`]: the agents' `pitwall` MCP tools, served by Pitwall (`mcp.*`).
 //! - [`web`]: agents showing web pages to the user (`web.open`).
+//! - [`profiles`]: accounts, extension connections, profiles and what
+//!   projects pick (`accounts.list`, `profile.*`, `project.accounts|pick|profile`).
 //!
 //! Serde only: no sockets, no engine.
 
@@ -27,6 +29,7 @@ pub mod mcp;
 pub mod msg;
 pub mod peer;
 pub mod pipe;
+pub mod profiles;
 pub mod settings;
 pub mod show;
 pub mod views;
@@ -37,6 +40,7 @@ pub use create::*;
 pub use explorer::*;
 pub use manage::*;
 pub use msg::*;
+pub use profiles::*;
 pub use settings::{SettingKey, SettingSet, SettingView};
 pub use show::*;
 pub use views::*;

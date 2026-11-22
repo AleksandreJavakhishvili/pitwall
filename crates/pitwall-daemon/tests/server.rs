@@ -740,3 +740,72 @@ fn a_client_that_stops_reading_never_holds_up_the_engine() {
     assert_eq!(last_alert, N, "the newest alerts are kept");
     assert!(seen < N, "most of the {} events were coalesced or dropped ({seen} arrived)", 3 * N);
 }
+
+/// Profiles over the socket: reading never asks; making one doesn't;
+/// what decides an agent's launch asks (denied: nothing written); a
+/// project's answers say where they came from; deleting a profile keeps
+/// what its projects run under.
+#[test]
+fn profiles_and_picks_ask_before_deciding_what_agents_launch_with() {
+    let w = world(Duration::from_secs(10));
+    let paths = w.engine.paths().clone();
+    let kind = w.engine.kinds().find("claude").expect("the claude kind");
+    let mut a = pitwall_core::accounts::Accounts::load(&paths);
+    let work = a.add(&paths, &kind, "Work", None).unwrap();
+    a.add_connection("inbox", "Home").unwrap();
+    a.save(&paths).unwrap();
+    let mut c = w.client_as(agent_caller("eng", "Race Engineer"));
+
+    let p: pitwall_proto::ProfileView = serde_json::from_value(c.call("profile.save", json!({"name": "Work"})).unwrap()).unwrap();
+    assert_eq!(p.id, "profile-work");
+    // No project uses it yet: setting its picks asks nothing.
+    let p: pitwall_proto::ProfileView = serde_json::from_value(c.call("profile.set", json!({"profile": "work", "slot": "claude", "value": "Work"})).unwrap()).unwrap();
+    assert_eq!((p.picks[0].value.as_str(), p.picks[0].name.as_str()), (work.id.as_str(), "Work"));
+    assert!(w.approvals.pending().is_empty());
+    let e = server_error(c.call("profile.set", json!({"profile": "Work", "slot": "claude", "value": "none"})).unwrap_err());
+    assert_eq!(e.code, code::BAD_PARAMS, "none is for extensions only");
+
+    // Assigning asks; denied leaves it as it was.
+    let asked = w.answer_when_asked(false);
+    let e = server_error(c.call("project.profile", json!({"path": "/code/api", "profile": "Work"})).unwrap_err());
+    let view = asked.join().unwrap();
+    assert_eq!((e.code.as_str(), view.summary.as_str()), (code::DENIED, "/code/api uses the profile \"Work\""));
+    assert!(view.details.iter().any(|d| d.contains("Claude")), "{:?}", view.details);
+    assert!(pitwall_core::accounts::Accounts::load(&paths).profile_of("/code/api").is_none());
+    let asked = w.answer_when_asked(true);
+    let v: pitwall_proto::ProjectAccounts = serde_json::from_value(c.call("project.profile", json!({"path": "/code/api", "profile": "Work"})).unwrap()).unwrap();
+    asked.join().unwrap();
+    assert_eq!(v.profile.as_deref(), Some("Work"));
+    let claude = v.slots.iter().find(|s| s.slot == "claude").unwrap();
+    assert_eq!((claude.name.as_str(), claude.from.as_str()), ("Work", "profile"));
+
+    // A project's own pick (an override), and the extension's.
+    let asked = w.answer_when_asked(true);
+    let v: pitwall_proto::ProjectAccounts = serde_json::from_value(c.call("project.pick", json!({"path": "/code/api", "slot": "ext:inbox", "value": "none"})).unwrap()).unwrap();
+    asked.join().unwrap();
+    let inbox = v.slots.iter().find(|s| s.slot == "ext:inbox").unwrap();
+    assert_eq!((inbox.id.as_deref(), inbox.name.as_str(), inbox.from.as_str(), inbox.own.as_deref()), (None, "None", "project", Some("none")));
+    let e = server_error(c.call("project.pick", json!({"path": "/code/api", "slot": "nonsense", "value": "x"})).unwrap_err());
+    assert_eq!(e.code, code::BAD_PARAMS);
+
+    // Reading never asks, and lists it all.
+    let all: pitwall_proto::AccountsView = serde_json::from_value(c.call("accounts.list", Value::Null).unwrap()).unwrap();
+    assert_eq!(all.profiles[0].projects, ["/code/api"]);
+    assert!(all.accounts.iter().any(|x| x.slot == "ext:inbox" && x.default && x.name == "Home"));
+
+    // Profile now in use: setting it asks.
+    let asked = w.answer_when_asked(true);
+    c.call("profile.set", json!({"profile": "Work", "slot": "claude", "value": "default"})).unwrap();
+    assert!(asked.join().unwrap().details[0].contains("/code/api"));
+    let asked = w.answer_when_asked(true);
+    c.call("profile.set", json!({"profile": "Work", "slot": "claude", "value": "Work"})).unwrap();
+    asked.join().unwrap();
+
+    // Deleted: the project keeps running under Work, as its own pick.
+    let asked = w.answer_when_asked(true);
+    c.call("profile.delete", json!({"profile": "Work"})).unwrap();
+    asked.join().unwrap();
+    let v: pitwall_proto::ProjectAccounts = serde_json::from_value(c.call("project.accounts", json!({"path": "/code/api"})).unwrap()).unwrap();
+    let claude = v.slots.iter().find(|s| s.slot == "claude").unwrap();
+    assert_eq!((v.profile, claude.name.as_str(), claude.from.as_str()), (None, "Work", "project"));
+}

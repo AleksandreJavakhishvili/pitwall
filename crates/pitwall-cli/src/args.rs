@@ -47,9 +47,19 @@ pub enum Command {
     /// Spaces (tabs of agents) and the windows they are in.
     #[command(subcommand)]
     Space(SpaceCmd),
-    /// Pitwall's project list (folders in the sidebar).
+    /// Pitwall's project list (folders in the sidebar), and what each
+    /// project's agents launch with (its profile and picks).
     #[command(subcommand)]
     Project(ProjectCmd),
+    /// Accounts: tools' logins, browser accounts, git identities and
+    /// extension connections (made in Pitwall's Settings).
+    #[command(subcommand)]
+    Account(AccountCmd),
+    /// Profiles: named bundles of accounts ("Work", "Personal") a project
+    /// picks: a tool account each, a git identity, a browser account and
+    /// a connection per extension.
+    #[command(subcommand)]
+    Profile(ProfileCmd),
     /// Rule sets (rulesync) for agents and projects.
     #[command(subcommand)]
     Rules(RulesCmd),
@@ -219,6 +229,76 @@ pub enum ProjectCmd {
     Remove {
         /// The folder.
         path: String,
+    },
+    /// What the project's agents launch with: each slot's account and
+    /// where it comes from (the project's own pick, its profile, or the
+    /// default).
+    Accounts {
+        /// The project's folder.
+        #[arg(default_value = ".")]
+        path: String,
+    },
+    /// The profile the project uses (`none`: no profile). Asks the user
+    /// in Pitwall; nothing restarts.
+    Profile {
+        /// The project's folder.
+        path: String,
+        /// A profile's name or id, or `none`.
+        profile: String,
+    },
+    /// The project's own pick for one slot, over its profile's. Asks the
+    /// user in Pitwall; nothing restarts.
+    Pick {
+        /// The project's folder.
+        path: String,
+        /// A tool's kind (claude, codex, …), `git`, `browser` or
+        /// `ext:<extension id>`.
+        slot: String,
+        /// An account's (git identity's, connection's) name or id,
+        /// `default`, `none` (extensions only), or `inherit` (drop the
+        /// project's own pick).
+        value: String,
+    },
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum AccountCmd {
+    /// Every account, browser account, git identity and extension
+    /// connection, and the profiles.
+    List,
+}
+
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum ProfileCmd {
+    /// The profiles, their picks and the projects that use them.
+    List,
+    /// Make a profile (it picks nothing until `profile set`).
+    Create {
+        name: String,
+    },
+    /// Rename a profile.
+    Rename {
+        /// Its name or id.
+        profile: String,
+        name: String,
+    },
+    /// Delete a profile (asks the user). Its accounts stay; its projects
+    /// keep what they run under as their own picks.
+    Delete {
+        /// Its name or id.
+        profile: String,
+    },
+    /// A profile's pick for one slot (asks the user when projects use it).
+    Set {
+        /// Its name or id.
+        profile: String,
+        /// A tool's kind (claude, codex, …), `git`, `browser` or
+        /// `ext:<extension id>`.
+        slot: String,
+        /// An account's (git identity's, connection's) name or id,
+        /// `default`, `none` (extensions only), or `inherit` (the profile
+        /// stops deciding it).
+        value: String,
     },
 }
 
@@ -876,6 +956,18 @@ mod tests {
             Command::Space(SpaceCmd::Move { space: "Work".into(), to_window: "new".into() })
         );
         assert_eq!(parse(&["project", "add", "."]).unwrap().command, Command::Project(ProjectCmd::Add { path: ".".into() }));
+        assert_eq!(parse(&["project", "accounts"]).unwrap().command, Command::Project(ProjectCmd::Accounts { path: ".".into() }));
+        assert_eq!(parse(&["project", "profile", "~/p", "Work"]).unwrap().command, Command::Project(ProjectCmd::Profile { path: "~/p".into(), profile: "Work".into() }));
+        assert_eq!(
+            parse(&["project", "pick", "~/p", "ext:inbox", "none"]).unwrap().command,
+            Command::Project(ProjectCmd::Pick { path: "~/p".into(), slot: "ext:inbox".into(), value: "none".into() })
+        );
+        assert_eq!(parse(&["account", "list"]).unwrap().command, Command::Account(AccountCmd::List));
+        assert_eq!(parse(&["profile", "create", "Work"]).unwrap().command, Command::Profile(ProfileCmd::Create { name: "Work".into() }));
+        assert_eq!(
+            parse(&["profile", "set", "Work", "browser", "inherit"]).unwrap().command,
+            Command::Profile(ProfileCmd::Set { profile: "Work".into(), slot: "browser".into(), value: "inherit".into() })
+        );
         assert_eq!(
             parse(&["rules", "apply", "api", "--set", "strict", "--main-checkout"]).unwrap().command,
             Command::Rules(RulesCmd::Apply { agent: Some("api".into()), set: Some("strict".into()), main_checkout: true, stale: false, project: None, restart: false })

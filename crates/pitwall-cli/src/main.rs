@@ -15,6 +15,7 @@ mod manage;
 mod mcp;
 mod open;
 mod peers;
+mod profiles;
 mod render;
 #[cfg(test)]
 mod reference;
@@ -174,6 +175,8 @@ pub fn run(cmd: &Command, socket: &Path) -> Result<Output, Error> {
         Command::Queue(q) => manage::queue_cmd(q, &mut c)?,
         Command::Space(sp) => manage::space_cmd(sp, &mut c)?,
         Command::Project(p) => manage::project_cmd(p, &mut c)?,
+        Command::Account(a) => profiles::account_cmd(a, &mut c)?,
+        Command::Profile(p) => profiles::profile_cmd(p, &mut c)?,
         Command::Rules(r) => manage::rules_cmd(r, &mut c)?,
         Command::Review(r) => manage::review_cmd(r, &mut c)?,
         Command::Wait(w) => manage::wait_cmd(w, &mut c)?,
