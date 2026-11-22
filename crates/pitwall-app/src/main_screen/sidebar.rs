@@ -27,7 +27,8 @@ use pitwall_proto::{AgentView, Status};
 use crate::kit::{icon, InputEvent, TextInput, MONO_FONT};
 use super::menu::MenuItem;
 use super::model::{
-    base_key, by_machine, by_machine_account, in_order, initials, machine_level, reorder, section_of, with_paired, with_projects, AccountSection,
+    base_key, by_machine, by_machine_sections, in_order, initials, machine_level, reorder, section_of, section_profile, with_paired, with_projects, AccountSection,
+    ProfileGrouping, NO_PROFILE,
     MachineSection,
 };
 use super::workspace::SidebarGroup;
@@ -55,14 +56,23 @@ impl MainScreen {
         in_order(with_projects(group_by_project(agents), &self.projects), &self.ui.sidebar_order)
     }
 
+    /// This Mac's profiles to group by, once one exists (`None`: group by
+    /// account).
+    pub(super) fn profile_grouping(cx: &App) -> Option<ProfileGrouping> {
+        let l = crate::accounts::list(cx).filter(|l| !l.profiles.is_empty())?;
+        Some(ProfileGrouping { ids: l.profiles.iter().map(|p| p.id.clone()).collect(), of: l.project_profiles.clone() })
+    }
+
     /// The sidebar's machines: their projects, or their accounts (in
-    /// Settings → Accounts' order) and their projects, as dragged;
-    /// paired machines with nothing to show too.
+    /// Settings → Accounts' order; this Mac's profiles instead once one
+    /// exists) and their projects, as dragged; paired machines with
+    /// nothing to show too.
     pub(super) fn machine_sections(&self, agents: &[AgentView], cx: &App) -> Vec<MachineSection> {
         let sections = match self.ui.sidebar_group {
             SidebarGroup::Project => by_machine(self.sidebar_groups(agents)),
             SidebarGroup::Account => {
-                let mut sections = by_machine_account(agents, &self.projects, &crate::accounts::ids(cx));
+                let grouping = Self::profile_grouping(cx);
+                let mut sections = by_machine_sections(agents, &self.projects, &crate::accounts::ids(cx), grouping.as_ref());
                 for s in sections.iter_mut().flat_map(|m| m.accounts.iter_mut()) {
                     s.groups = in_order(std::mem::take(&mut s.groups), &self.ui.sidebar_order);
                 }
@@ -265,6 +275,7 @@ impl MainScreen {
             account: section_of(&g.key).map(String::from),
         };
         let mark = self.side_mark(&spot.key(), t, cx);
+        let own = own_picks_note(&g.key, &g.project, cx);
         // Another machine's Pitwall: read-only, nothing is dragged.
         let ro = g.machine.as_ref().is_some_and(|m| m.link.is_some());
         let el = div()
@@ -315,6 +326,23 @@ impl MainScreen {
                                 .group_hover_text("project-head", t.text_2, |s| s),
                         ),
                     )
+                    // Grouped by profile: it picks something itself.
+                    .when_some(own, |d, note| {
+                        d.child(
+                            div()
+                                .id(SharedString::from(format!("own-{}", g.key)))
+                                .debug_selector({
+                                    let k = g.key.clone();
+                                    move || format!("own-{k}")
+                                })
+                                .flex_none()
+                                .size(px(5.))
+                                .rounded_full()
+                                .border_1()
+                                .border_color(t.text_4)
+                                .tooltip(tooltip(note)),
+                        )
+                    })
                     .when(g.blocked > 0, |d| {
                         d.child(
                             crate::kit::text_glow(
@@ -489,11 +517,19 @@ impl MainScreen {
     /// On another machine than this Mac (`home`), accounts aren't dragged
     /// or dropped on; another machine's Pitwall's have no menu either.
     pub(super) fn account_head(&self, sec: &AccountSection, collapsed: bool, home: bool, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
-        let default = sec.account == pitwall_core::accounts::DEFAULT;
+        let profile = section_profile(&sec.account).map(|p| p.map(String::from));
+        // Default stays first, "No profile" last.
+        let default = sec.account == pitwall_core::accounts::DEFAULT || sec.account == NO_PROFILE;
         let peer = sec.peer_name.is_some();
         let (name, sub) = if let Some(n) = &sec.peer_name {
             // The machine's heading already says it's view only.
             (n.clone(), String::new())
+        } else if let Some(p) = &profile {
+            let name = match p {
+                Some(id) => crate::accounts::list(cx).and_then(|l| l.profile(id)).map(|p| p.name.clone()).unwrap_or_else(|| id.clone()),
+                None => "No profile".to_string(),
+            };
+            (name, String::new())
         } else if default {
             ("Default".to_string(), "your own logins".to_string())
         } else {
@@ -576,7 +612,7 @@ impl MainScreen {
                     })
                     .child(div().flex_none().font_family(MONO_FONT).text_size(px(11.)).text_color(t.text_3).child(sec.agents.to_string())),
             )
-            .when(sec.agents > 0, |d| {
+            .when(sec.agents > 0 && profile.is_none(), |d| {
                 d.child(
                     div().invisible().group_hover_probed("account-head", |s| s.visible()).child(
                         icon_btn(format!("acct-space-{}", sec.key), "grid", "Open as space", true, t)
@@ -590,8 +626,21 @@ impl MainScreen {
         self.drop_spot(el, spot, cx).when_some(mark, |d, m| d.child(m))
     }
 
-    /// An account header's right-click menu.
+    /// An account header's right-click menu (a profile's: "Edit
+    /// profile…").
     fn account_menu(&mut self, account: &str, name: &str, at: gpui::Point<gpui::Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(p) = section_profile(account) {
+            let p = p.map(String::from);
+            let label = if p.is_some() { "Edit profile…" } else { "Manage profiles…" };
+            let items = vec![
+                MenuItem::new("", label, move |_, window, cx| {
+                    crate::settings::profiles::show_profile(p.as_deref(), cx);
+                    window.dispatch_action(Box::new(crate::menu::OpenSettings), cx);
+                }),
+                MenuItem::new("", "Group by project", |this, _, cx| this.set_sidebar_group(SidebarGroup::Project, cx)),
+            ];
+            return self.open_menu(at, items, window, cx);
+        }
         let (a, n) = (account.to_string(), name.to_string());
         let items = vec![
             MenuItem::new("grid", "Open as space", move |this, _, cx| this.open_account_space(&a, &n, cx)),
@@ -618,13 +667,14 @@ impl MainScreen {
         ];
         // Which login its new agents use (agents with more than one);
         // once a profile exists, which profile.
-        if !crate::accounts::model(cx).read(cx).kinds().is_empty() {
+        if !crate::accounts::model(cx).read(cx).kinds().is_empty() || !crate::accounts::model(cx).read(cx).list.profiles.is_empty() {
             let p = project.to_string();
             let label = if crate::accounts::model(cx).read(cx).list.profiles.is_empty() { "Accounts…" } else { "Profile…" };
             items.push(MenuItem::new("", label, move |this, window, cx| {
                 this.open_project_accounts(p.clone(), window, cx)
             }));
-            items.push(MenuItem::new("", "Group by account", |this, _, cx| {
+            let by = if crate::accounts::model(cx).read(cx).list.profiles.is_empty() { "Group by account" } else { "Group by profile" };
+            items.push(MenuItem::new("", by, |this, _, cx| {
                 this.set_sidebar_group(SidebarGroup::Account, cx)
             }));
         }
@@ -1387,20 +1437,26 @@ impl MainScreen {
             }
         }
         match (p, spot) {
-            (Payload::Account(a), Spot::Account(b)) if a != b => {
-                Some(if b == pitwall_core::accounts::DEFAULT { Landing::After } else { line })
-            }
+            (Payload::Account(a), Spot::Account(b)) if a != b => match (section_profile(a), section_profile(b)) {
+                (None, None) => Some(if b == pitwall_core::accounts::DEFAULT { Landing::After } else { line }),
+                // "No profile" stays last.
+                (Some(_), Some(None)) => Some(Landing::Before),
+                (Some(_), Some(Some(_))) => Some(line),
+                _ => None,
+            },
             (Payload::Project(d), Spot::Group { key, block, account, .. }) if *key != d.key => {
                 if *account == d.account {
                     (*block == d.block).then_some(line)
                 } else if block.0 {
-                    // To another of this Mac's accounts (never a machine's).
-                    self.project_to(d, account.as_deref()?, cx).map(|_| Landing::Into)
+                    // To another of this Mac's accounts or profiles (never a
+                    // machine's).
+                    let to = account.as_deref()?;
+                    (Self::project_to_profile(d, to).is_some() || self.project_to(d, to, cx).is_some()).then_some(Landing::Into)
                 } else {
                     None
                 }
             }
-            (Payload::Project(d), Spot::Account(to)) => self.project_to(d, to, cx).map(|_| Landing::Into),
+            (Payload::Project(d), Spot::Account(to)) => (Self::project_to_profile(d, to).is_some() || self.project_to(d, to, cx).is_some()).then_some(Landing::Into),
             (Payload::Agent(id), Spot::Row { id: row, group }) if id != row => {
                 let from = self.group_of(id, cx)?;
                 if from == *group {
@@ -1446,6 +1502,15 @@ impl MainScreen {
         Some(ToAccount { mv: Move { ids: vec![a.id], account, name, kind: a.kind }, project: a.project })
     }
 
+    /// A project, from its profile's section, to profile section `to`:
+    /// the profile it is given (`Some(None)`: none).
+    fn project_to_profile(d: &ProjectDrag, to: &str) -> Option<Option<String>> {
+        let from = d.account.as_deref()?;
+        section_profile(from)?;
+        let to_profile = section_profile(to)?;
+        (from != to && d.block.0).then(|| to_profile.map(String::from))
+    }
+
     /// A project, from its account section, to account `to`: its tool is
     /// the one either account is for; its agents of that tool go along.
     fn project_to(&self, d: &ProjectDrag, to: &str, cx: &mut App) -> Option<ToAccount> {
@@ -1486,6 +1551,18 @@ impl MainScreen {
         };
         cx.notify();
         match (p, spot, how) {
+            (Payload::Account(a), Spot::Account(b), _) if section_profile(&a).is_some() => {
+                let Some(Some(id)) = section_profile(&a) else { return };
+                let ids: Vec<String> = crate::accounts::list(cx).map(|l| l.profiles.iter().map(|p| p.id.clone()).filter(|x| x != id).collect()).unwrap_or_default();
+                let before = match section_profile(b) {
+                    Some(Some(b)) => before_of(&ids, id, b, how),
+                    _ => None,
+                };
+                let m = crate::accounts::model(cx);
+                if let Err(e) = m.update(cx, |m, cx| m.move_profile_before(id, before.as_deref(), cx)) {
+                    self.failed("move the profile", e, cx);
+                }
+            }
             (Payload::Account(a), Spot::Account(b), _) => {
                 let ids: Vec<String> = crate::accounts::ids(cx).into_iter().filter(|x| *x != a).collect();
                 let before = if b == pitwall_core::accounts::DEFAULT {
@@ -1499,7 +1576,14 @@ impl MainScreen {
                 }
             }
             (Payload::Project(d), _, Landing::Into) => {
-                if let Some(to) = spot.account().and_then(|to| self.project_to(&d, to, cx)) {
+                // Onto a profile: the project is given it, as in its
+                // Profile… dialog (its agents move or restart there).
+                if let Some(p) = spot.account().and_then(|to| Self::project_to_profile(&d, to)) {
+                    let m = crate::accounts::model(cx);
+                    if let Err(e) = m.update(cx, |m, cx| m.set_project_profile(&d.project, p.as_deref(), cx)) {
+                        self.failed("change the project's profile", e, cx);
+                    }
+                } else if let Some(to) = spot.account().and_then(|to| self.project_to(&d, to, cx)) {
                     self.move_project(to, window, cx);
                 }
             }
@@ -1580,6 +1664,41 @@ impl MainScreen {
         self.side_dropped(p, &spot, window, cx);
         true
     }
+
+    /// Tests: `project`'s right-click menu.
+    pub(super) fn demo_project_menu(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.project_menu(project, point(px(0.), px(0.)), window, cx);
+    }
+
+    /// Tests: drop `project`'s header on section `section`'s header;
+    /// whether the drop was taken.
+    pub(super) fn drop_project_on_section(&mut self, project: &str, section: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(g) = self.sidebar_list(self.agents(cx), cx).into_iter().find(|g| g.project == project) else { return false };
+        let d = ProjectDrag { key: g.key.clone(), project: g.project.clone(), name: "".into(), block: block(&g), account: section_of(&g.key).map(String::from) };
+        let (p, spot) = (Payload::Project(d), Spot::Account(section.into()));
+        let Some(how) = self.landing(&p, &spot, true, cx) else { return false };
+        self.side_drop = Some(SideDrop { target: spot.key(), how });
+        self.side_dropped(p, &spot, window, cx);
+        true
+    }
+}
+
+/// Grouped by profile, a project that picks something itself: what, for
+/// its mark's tooltip ("Uses its own git identity instead of Work's").
+fn own_picks_note(key: &str, project: &str, cx: &App) -> Option<String> {
+    let pid = section_of(key).and_then(section_profile).flatten()?;
+    let list = crate::accounts::list(cx)?;
+    let profile = list.profile(pid)?;
+    let own: Vec<String> = crate::accounts::slot_rows(cx)
+        .into_iter()
+        .filter(|r| matches!(list.resolve_slot(project, &r.slot).from, pitwall_core::accounts::From::Project))
+        .map(|r| {
+            // "Git identity" reads "git identity"; "Claude Code" stays.
+            let rest_lower = r.label.chars().skip(1).all(|c| !c.is_uppercase());
+            if rest_lower { r.label.to_lowercase() } else { r.label }
+        })
+        .collect();
+    (!own.is_empty()).then(|| format!("Uses its own {} instead of {}'s", own.join(", "), profile.name))
 }
 
 /// A machine's icon (a laptop for this Mac and paired Macs, a server for

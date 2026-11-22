@@ -152,7 +152,7 @@
     },
     "sidebarGroup": {
       "default": "project",
-      "description": "`general.sidebarGroup`: How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on), then project.",
+      "description": "`general.sidebarGroup`: How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on; by profile once you have one), then project.",
       "enum": [
         "project",
         "account"

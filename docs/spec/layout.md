@@ -106,6 +106,20 @@ Need: more than two rows of tiles, with room for small ones.
   An account that isn't logged in yet starts its login terminal first.
   Not allowed (nothing highlights): another tool's account, agents on other
   machines, terminals, the Race Engineer, an agent into another project.
+- **Once a profile exists** (docs/spec/profiles.md), "Group by account"
+  reads "Group by profile" and This Mac's sections are its profiles, in
+  their order (Settings → Profiles shows the same), each even when empty,
+  then "No profile" for projects without one (hidden when empty). A
+  project sits under its profile even when it picks something itself; a
+  small hollow dot after its name says so ("Uses its own git identity
+  instead of Work's"). Dropping a project on a profile's header (or a
+  project under it) gives it that profile, exactly as picking it in the
+  project's Profile… dialog (agents move or restart under the rules
+  above); on "No profile", it has none. Profile headers drag to reorder
+  ("No profile" stays last); a header's menu has "Edit profile…" (Settings
+  → Profiles, that profile unfolded). Agents are not dropped across
+  profiles: a project's agents follow its profile. Other machines keep
+  their accounts. With no profile the sidebar is as above.
 - With 2+ machines the sidebar is machines → accounts → projects → agents
   (tailnet-peers.md, "Sidebar"). Drags stay within one machine's section:
   only This Mac's accounts move or take agents and projects, and another

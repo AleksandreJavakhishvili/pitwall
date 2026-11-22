@@ -159,6 +159,56 @@ pub fn by_account(agents: &[AgentView], projects: &[Project], order: &[String]) 
         .collect()
 }
 
+/// This Mac's profiles, for the sidebar grouped by profile (once one
+/// exists): their ids in order and each project's profile.
+#[derive(Debug, Clone, Default)]
+pub struct ProfileGrouping {
+    pub ids: Vec<String>,
+    /// Project folder → its profile's id.
+    pub of: std::collections::BTreeMap<String, String>,
+}
+
+/// The section of projects without a profile.
+pub const NO_PROFILE: &str = "profile:none";
+
+/// Profile `id`'s section (`profile:<id>`).
+pub fn profile_section(id: &str) -> String {
+    format!("profile:{id}")
+}
+
+/// A section that is a profile's: `Some(Some(id))`, or `Some(None)` for
+/// "No profile"; `None` for an account's.
+pub fn section_profile(section: &str) -> Option<Option<&str>> {
+    if section == NO_PROFILE {
+        return Some(None);
+    }
+    section.strip_prefix("profile:").map(Some)
+}
+
+/// The sidebar grouped by profile (this Mac's, once one exists): each
+/// profile in its order, even with nothing in it yet (a place to drop a
+/// project), then "No profile" when a project has none. A project sits
+/// under its profile whatever it picks itself. Keys as [`by_account`]'s.
+pub fn by_profile(agents: &[AgentView], projects: &[Project], g: &ProfileGrouping) -> Vec<AccountSection> {
+    let groups = with_projects(crate::agents::group_by_project(agents), projects);
+    let section = |p: &str| g.of.get(p).filter(|id| g.ids.contains(id)).map(|id| profile_section(id)).unwrap_or_else(|| NO_PROFILE.into());
+    let mut out = Vec::new();
+    for account in g.ids.iter().map(|i| profile_section(i)).chain([NO_PROFILE.to_string()]) {
+        let key = format!("acct:{account}");
+        let mut mine: Vec<ProjectGroup> = groups.iter().filter(|gr| section(&gr.project) == account).cloned().collect();
+        if account == NO_PROFILE && mine.is_empty() {
+            continue;
+        }
+        for gr in &mut mine {
+            gr.key = format!("{key}|{}", gr.key);
+        }
+        let agents = mine.iter().map(|g| g.agents.len()).sum();
+        let blocked = mine.iter().map(|g| g.blocked).sum();
+        out.push(AccountSection { account, key, peer_name: None, groups: mine, agents, blocked });
+    }
+    out
+}
+
 /// The end of a peer's Default account's key.
 const PEER_DEFAULT: &str = "/default";
 
@@ -247,6 +297,13 @@ pub fn by_machine(groups: Vec<ProjectGroup>) -> Vec<MachineSection> {
 /// The sidebar grouped by account, split by machine: each machine's own
 /// accounts ([`by_account`]; listed projects go to this Mac's).
 pub fn by_machine_account(agents: &[AgentView], projects: &[Project], order: &[String]) -> Vec<MachineSection> {
+    by_machine_sections(agents, projects, order, None)
+}
+
+/// The sidebar's sections, split by machine: this Mac's profiles when
+/// `profiles` is given ([`by_profile`]), else its accounts; other
+/// machines always by their accounts.
+pub fn by_machine_sections(agents: &[AgentView], projects: &[Project], order: &[String], profiles: Option<&ProfileGrouping>) -> Vec<MachineSection> {
     let mut out: Vec<MachineSection> = vec![];
     let mut mine: Vec<Vec<AgentView>> = vec![];
     for a in agents {
@@ -265,7 +322,10 @@ pub fn by_machine_account(agents: &[AgentView], projects: &[Project], order: &[S
         mine.push(vec![]);
     }
     for (m, agents) in out.iter_mut().zip(mine) {
-        m.accounts = by_account(&agents, if m.home { projects } else { &[] }, order);
+        m.accounts = match profiles.filter(|_| m.home) {
+            Some(g) => by_profile(&agents, projects, g),
+            None => by_account(&agents, if m.home { projects } else { &[] }, order),
+        };
         if !m.home {
             let at = m.key.trim_start_matches("machine:").to_string();
             for s in &mut m.accounts {
@@ -633,6 +693,43 @@ mod tests {
         assert!(s[0].accounts.iter().all(|a| a.peer_name.is_none()));
         // Each group key still says its account (drag and drop).
         assert_eq!(section_of(&s[2].accounts[1].groups[0].key), Some("peer:studio/@Work"));
+    }
+
+    #[test]
+    fn with_profiles_this_macs_projects_sit_under_their_profile() {
+        let agents = [
+            on(agent("a", "/work/a", "idle", 1, true), Some("claude-work")),
+            // b picks its own account: still under its profile.
+            on(agent("b", "/work/b", "blocked", 2, true), Some("claude-home")),
+            agent("c", "/work/c", "idle", 3, true),
+            peer("p1", "/Users/me/api", Some("claude-work"), Some("Work")),
+        ];
+        let p = Project { path: "/work/d".into(), display: "d".into(), is_git: true, added_at: 0 };
+        let g = ProfileGrouping {
+            ids: vec!["work".into(), "home".into(), "empty".into()],
+            of: [("/work/a", "work"), ("/work/b", "work"), ("/work/d", "home")].into_iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+        };
+        let s = by_machine_sections(&agents, &[p], &[], Some(&g));
+        let keys = |i: usize| s[i].accounts.iter().map(|a| a.key.clone()).collect::<Vec<_>>();
+        assert_eq!(keys(0), ["acct:profile:work", "acct:profile:home", "acct:profile:empty", "acct:profile:none"]);
+        let projects = |j: usize| s[0].accounts[j].groups.iter().map(|g| g.project.clone()).collect::<Vec<_>>();
+        assert_eq!(projects(0), ["/work/a", "/work/b"]);
+        assert_eq!((s[0].accounts[0].agents, s[0].accounts[0].blocked), (2, 1));
+        assert_eq!(projects(1), ["/work/d"], "a listed project without agents too");
+        assert!(projects(2).is_empty(), "an empty profile still shows");
+        assert_eq!(projects(3), ["/work/c"]);
+        assert_eq!(section_of(&s[0].accounts[0].groups[0].key), Some("profile:work"));
+        assert_eq!(section_profile("profile:work"), Some(Some("work")));
+        assert_eq!(section_profile(NO_PROFILE), Some(None));
+        assert_eq!(section_profile("claude-work"), None);
+        // Another machine keeps its accounts.
+        assert_eq!(s.last().unwrap().accounts[0].key, "acct:peer:studio/@Work@peer:studio:this-mac");
+        // Everyone has one: no "No profile".
+        let g2 = ProfileGrouping { ids: vec!["work".into()], of: [("/work/a".to_string(), "work".to_string())].into() };
+        let s = by_machine_sections(&agents[..1], &[], &[], Some(&g2));
+        assert_eq!(s[0].accounts.iter().map(|a| a.key.as_str()).collect::<Vec<_>>(), ["acct:profile:work"]);
+        // No profiles: by account, as before.
+        assert_eq!(by_machine_sections(&agents[..1], &[], &[], None)[0].accounts[0].key, "acct:claude-work");
     }
 
     #[test]

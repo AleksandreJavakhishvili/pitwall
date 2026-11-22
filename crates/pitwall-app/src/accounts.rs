@@ -383,6 +383,17 @@ impl AccountsModel {
         )
     }
 
+    /// Move profile `id` before `before` (`None`: the end), as dragged.
+    pub fn move_profile_before(&mut self, id: &str, before: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(
+            |l| {
+                l.move_profile_before(id, before);
+                Ok(())
+            },
+            cx,
+        )
+    }
+
     pub fn set_project_default(&mut self, project: &str, kind: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
         self.change(
             |l| {

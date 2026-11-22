@@ -187,7 +187,7 @@ pub const SETTINGS: &[Setting] = &[
         key: "general.sidebarGroup",
         kind: Kind::Choice(SIDEBAR_GROUPS),
         default: DefaultValue::Str("project"),
-        description: "How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on), then project.",
+        description: "How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on; by profile once you have one), then project.",
         page: Page::General,
         sensitivity: Sensitivity::Safe,
         stored: Stored::Ui { key: "sidebarGroup", invert: false },

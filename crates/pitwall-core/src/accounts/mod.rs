@@ -301,6 +301,15 @@ impl Accounts {
         self.accounts.insert(to, a);
     }
 
+    /// Move profile `id` to just before `before` (`None`: the end); the
+    /// sidebar grouped by profile and Settings list them in this order.
+    pub fn move_profile_before(&mut self, id: &str, before: Option<&str>) {
+        let Some(from) = self.profiles.iter().position(|p| p.id == id) else { return };
+        let p = self.profiles.remove(from);
+        let to = before.and_then(|b| self.profiles.iter().position(|x| x.id == b)).unwrap_or(self.profiles.len());
+        self.profiles.insert(to, p);
+    }
+
     /// The account a project's new agents of `kind` use (`None`: Default),
     /// its own pick or its profile's ([`Accounts::resolve_slot`]).
     pub fn project_default(&self, project: &str, kind: &str) -> Option<&Account> {
