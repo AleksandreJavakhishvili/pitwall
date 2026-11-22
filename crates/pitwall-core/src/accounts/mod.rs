@@ -941,7 +941,7 @@ mod tests {
         assert_eq!(env(&kind("claude"), a.get("codex-work")), [("CLAUDE_CONFIG_DIR".to_string(), codex.dir.clone())]);
     }
 
-    /// Browser profiles are accounts of kind `web`: made, renamed, named by
+    /// Browser accounts are accounts of kind `web`: made, renamed, named by
     /// projects, kept, and never mixed up with the tools' accounts.
     #[test]
     fn browser_profiles_are_accounts_of_their_own_kind() {

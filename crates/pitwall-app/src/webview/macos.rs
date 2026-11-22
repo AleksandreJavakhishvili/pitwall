@@ -4,7 +4,7 @@
 //! - Placement: GPUI's coordinates (top-left origin, logical px) turned into
 //!   the content view's (bottom-left unless flipped); it keeps its distance
 //!   from the top while the window resizes, until the next frame places it.
-//! - Storage: a browser profile besides Default ([`Options::own_store`])
+//! - Storage: a browser account besides Default ([`Options::own_store`])
 //!   gets `dataStoreForIdentifier:` (macOS 14+) with an identifier made
 //!   from its folder, a store of its own kept across restarts (WebKit keeps
 //!   the files in its own folder for the app,
@@ -371,7 +371,7 @@ fn views(window: &Window) -> Option<(Retained<NSView>, Retained<NSView>)> {
 
 /// Separate persistent stores (`dataStoreForIdentifier:`, a class method,
 /// macOS 14+). Before that every view shares the app's default store: no
-/// browser profiles.
+/// browser accounts.
 pub fn separate_stores() -> bool {
     // (A class method: the metaclass answers; the class itself answers for
     // its instances' methods.)
@@ -389,7 +389,7 @@ fn store_uuid(dir: &Path) -> Result<Retained<NSUUID>, String> {
     NSUUID::from_string(&NSString::from_str(&text)).ok_or_else(|| format!("not a UUID: {text}"))
 }
 
-/// The store of a view on `dir`: a browser profile's own (`own`, keyed by
+/// The store of a view on `dir`: a browser account's own (`own`, keyed by
 /// its folder), else the app's default persistent store, the one every
 /// view used before profiles (Default's sign-ins and the Previews' are
 /// there).
@@ -403,7 +403,7 @@ fn store(dir: &Path, own: bool, mtm: MainThreadMarker) -> Result<Retained<WKWebs
                 Ok(WKWebsiteDataStore::dataStoreForIdentifier(&id, mtm))
             }
             // Never a profile's page in the store the others share.
-            (true, false) => Err("Browser profiles need macOS 14 or later".into()),
+            (true, false) => Err("Browser accounts need macOS 14 or later".into()),
             (false, _) => Ok(WKWebsiteDataStore::defaultDataStore(mtm)),
         }
     }

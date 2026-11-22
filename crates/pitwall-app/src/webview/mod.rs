@@ -96,7 +96,7 @@ pub struct Options {
     /// survives restarts and isn't shared with the system's browsers.
     pub data_dir: PathBuf,
     /// A store of its own, keyed by `data_dir`, apart from every other (a
-    /// browser profile besides Default). `false`: as before profiles, the
+    /// browser account besides Default). `false`: as before profiles, the
     /// store `data_dir` always gave: on macOS the app's default WebKit
     /// store (where Default's sign-ins are); elsewhere the folder's.
     pub own_store: bool,
@@ -156,7 +156,7 @@ pub fn create(window: &mut Window, opts: Options) -> Result<Box<dyn WebView>, St
 /// A view can have a persistent store of its own ([`Options::own_store`]:
 /// macOS 14+'s `dataStoreForIdentifier:`, WebView2's user data folders,
 /// WebKitGTK's data managers). `false` (macOS before 14): every view
-/// shares the app's one, so only the Default browser profile can be used.
+/// shares the app's one, so only the Default browser account can be used.
 pub fn separate_stores() -> bool {
     #[cfg(target_os = "macos")]
     return macos::separate_stores();
@@ -186,7 +186,7 @@ pub fn erase_store(dir: &std::path::Path, done: Box<dyn FnOnce(Result<(), String
     then(Ok(()))
 }
 
-/// The identifier of a browser profile's own store on macOS 14+
+/// The identifier of a browser account's own store on macOS 14+
 /// (`dataStoreForIdentifier:`), from its folder: stable across runs,
 /// different for every folder (each profile, each Pitwall data folder).
 /// A version-4 UUID's bytes.

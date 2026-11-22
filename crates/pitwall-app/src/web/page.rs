@@ -91,7 +91,7 @@ pub struct WebPage {
     phone: bool,
     /// An agent's Preview: its project (its own cookies and storage).
     project: String,
-    /// A page (not a Preview): its browser profile (`None`: Default;
+    /// A page (not a Preview): its browser account (`None`: Default;
     /// [`super::profiles`]). Its view is made in that profile's store.
     profile: Option<String>,
     /// The bar's profile menu, open at this point.
@@ -173,7 +173,7 @@ impl WebPage {
         let profile_note = fell_back.then(|| {
             keep_profile(id, None, cx);
             if super::profiles::separate(cx) {
-                "Its browser profile was removed, so it opened in Default.".to_string()
+                "Its browser account was removed, so it opened in Default.".to_string()
             } else {
                 format!("It opened in Default. {}", super::profiles::NEEDS_STORES)
             }
@@ -295,7 +295,7 @@ impl WebPage {
         &self.title
     }
 
-    /// Its browser profile (`None`: Default).
+    /// Its browser account (`None`: Default).
     pub fn profile(&self) -> Option<&str> {
         self.profile.as_deref()
     }
@@ -305,7 +305,7 @@ impl WebPage {
         self.profile_note.as_deref()
     }
 
-    /// Into browser profile `id` (`None`: Default): a page is bound to one
+    /// Into browser account `id` (`None`: Default): a page is bound to one
     /// store, so its view goes and is made again there, on the address it
     /// shows now (the next frame that draws it). Kept in `ui.json`. Not a
     /// Preview's (its project's own store).
@@ -918,7 +918,7 @@ impl WebPage {
             None => self.title.clone(),
         };
         let has_page = !self.page_url.is_empty();
-        // Its browser profile: shown once there is more than Default (or
+        // Its browser account: shown once there is more than Default (or
         // it is in another); Default subdued.
         let profile_chip = self.agent.is_none().then(|| super::profiles::all(cx)).and_then(|all| {
             (!all.is_empty() || self.profile.is_some()).then(|| {
@@ -1043,7 +1043,7 @@ impl WebPage {
                         .text_ellipsis()
                         .cursor_pointer()
                         .hover_probed(|s| s.bg(t.surface_2))
-                        .tooltip(tooltip(format!("Browser profile: {pname}, with its own sign-ins and site data. Click to switch.")))
+                        .tooltip(tooltip(format!("Browser account: {pname}, with its own sign-ins and site data. Click to switch.")))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(cx.listener(|p, e: &gpui::ClickEvent, _, cx| {
                             p.menu = None;
@@ -1160,7 +1160,7 @@ impl WebPage {
                     .debug_selector(|| "web-profile-menu".into())
                     .mt(px(6.))
                     .max_w(px(300.))
-                    .child(div().px(px(8.)).py(px(4.)).text_size(px(11.)).text_color(t.text_3).child("Browser profile"))
+                    .child(div().px(px(8.)).py(px(4.)).text_size(px(11.)).text_color(t.text_3).child("Browser account"))
                     .children(rows)
                     .child(
                         div()
@@ -1224,7 +1224,7 @@ fn keep_url(id: &str, url: &str, cx: &mut App) {
     });
 }
 
-/// The browser profile page `id` is in now, kept in `ui.json`.
+/// The browser account page `id` is in now, kept in `ui.json`.
 fn keep_profile(id: &str, profile: Option<&str>, cx: &mut App) {
     let (id, profile) = (id.to_string(), profile.map(String::from));
     cx.defer(move |cx| {

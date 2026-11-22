@@ -595,6 +595,24 @@ impl Exec for NoExec {
     }
 }
 
+/// The settings extension `m` fills its variables from for an agent in
+/// `cwd` of `project`: its connection's (docs/spec/profiles.md); `None`
+/// when it sets nothing on it (the project picks no connection, or the
+/// extension has connections but none applies). An extension without
+/// settings, or with no connection made yet, sets them as before
+/// (no settings filled).
+pub fn extension_settings(accounts: &crate::accounts::Accounts, m: &crate::extensions::Manifest, cwd: &str, project: &str) -> Option<std::collections::BTreeMap<String, String>> {
+    if m.settings.is_empty() {
+        return Some(Default::default());
+    }
+    let r = accounts.resolve_launch(cwd, project, &crate::accounts::ext_kind(&m.id));
+    match r.id.as_deref().and_then(|id| accounts.get(id)) {
+        Some(c) => Some(c.values.clone()),
+        None if r.from == crate::accounts::From::Default && accounts.connections(&m.id).next().is_none() => Some(Default::default()),
+        None => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -674,20 +692,3 @@ mod tests {
     }
 }
 
-/// The settings extension `m` fills its variables from for an agent in
-/// `cwd` of `project`: its connection's (docs/spec/profiles.md); `None`
-/// when it sets nothing on it (the project picks no connection, or the
-/// extension has connections but none applies). An extension without
-/// settings, or with no connection made yet, sets them as before
-/// (no settings filled).
-pub fn extension_settings(accounts: &crate::accounts::Accounts, m: &crate::extensions::Manifest, cwd: &str, project: &str) -> Option<std::collections::BTreeMap<String, String>> {
-    if m.settings.is_empty() {
-        return Some(Default::default());
-    }
-    let r = accounts.resolve_launch(cwd, project, &crate::accounts::ext_kind(&m.id));
-    match r.id.as_deref().and_then(|id| accounts.get(id)) {
-        Some(c) => Some(c.values.clone()),
-        None if r.from == crate::accounts::From::Default && accounts.connections(&m.id).next().is_none() => Some(Default::default()),
-        None => None,
-    }
-}

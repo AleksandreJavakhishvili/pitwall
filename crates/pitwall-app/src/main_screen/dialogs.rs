@@ -1718,7 +1718,7 @@ pub struct ProjectAccountsDialog {
     agents: Vec<AgentView>,
     /// A new account being named, for this kind.
     adding: Option<(String, Entity<TextInput>)>,
-    /// A new browser profile being named.
+    /// A new browser account being named.
     web_adding: Option<Entity<TextInput>>,
     busy: bool,
     error: Option<String>,
@@ -1735,7 +1735,7 @@ impl ProjectAccountsDialog {
         ProjectAccountsDialog { engine, project, agents, adding: None, web_adding: None, busy: false, error: None, _subs: subs, _task: None }
     }
 
-    /// Name the browser profile the project's pages use (`None`: Default).
+    /// Name the browser account the project's pages use (`None`: Default).
     /// Pages open now keep theirs; an agent's moves at its next `show_web`.
     fn pick_web(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
         let (m, project) = (crate::accounts::model(cx), self.project.clone());
@@ -1765,7 +1765,7 @@ impl ProjectAccountsDialog {
         cx.notify();
     }
 
-    /// A new browser profile, named here: the project's from now on (no
+    /// A new browser account, named here: the project's from now on (no
     /// login step: sites are signed in to in the page).
     fn create_web(&mut self, cx: &mut Context<Self>) {
         let Some(input) = self.web_adding.clone() else { return };
@@ -1832,7 +1832,7 @@ impl ProjectAccountsDialog {
                     .cursor_pointer()
                     .hover_text(t.text, |s| s)
                     .on_click(cx.listener(|d, _, window, cx| d.start_web_adding(window, cx)))
-                    .child("+ New profile")
+                    .child("+ New browser account")
                     .into_any_element(),
             );
         }
@@ -1840,7 +1840,7 @@ impl ProjectAccountsDialog {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(field_label("Browser profile", t))
+            .child(field_label("Browser account", t))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
             .when_some(adding, |d, input| {
                 d.child(

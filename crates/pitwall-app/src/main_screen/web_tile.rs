@@ -105,7 +105,7 @@ impl MainScreen {
         self.web_address(&id, window, cx);
     }
 
-    /// The browser profile of a page the user opens here: that of the
+    /// The browser account of a page the user opens here: that of the
     /// project of the agent whose tile has the focus, else Default.
     pub(super) fn new_page_profile(&self, cx: &mut Context<Self>) -> Option<String> {
         let project = self.selected(cx).map(|a| a.project)?;

@@ -282,7 +282,7 @@ fn what_isnt_shown_is_refused_or_said(cx: &mut TestAppContext) {
     }
 }
 
-// ── Browser profiles ─────────────────────────────────────────────────────
+// ── Browser accounts ─────────────────────────────────────────────────────
 
 /// Profiles kept in a temp folder (no engine), as macOS 14+ when
 /// `separate`. Returns the folder and profile Work's id.
@@ -351,7 +351,7 @@ fn an_agents_page_opens_in_its_projects_profile(cx: &mut TestAppContext) {
     assert!(r.reused);
     assert_eq!(r.profile, "Default");
     let note = r.note.unwrap_or_default();
-    assert!(note.contains("was in the Work browser profile; it is in Default now"), "{note}");
+    assert!(note.contains("was in the Work browser account; it is in Default now"), "{note}");
     let c = Log::take(&log);
     let drop = c.iter().position(|c| c == "drop").expect("its view let go");
     let made = c.iter().position(|c| c == "create https://example.com").expect("made again");

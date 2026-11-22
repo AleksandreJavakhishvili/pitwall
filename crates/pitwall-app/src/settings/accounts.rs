@@ -522,24 +522,24 @@ impl SettingsView {
                 .gap(px(8.))
                 .pt(px(4.))
                 .min_h(px(26.))
-                .child(div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child("Browser profiles"))
+                .child(div().font_weight(crate::kit::WEIGHT_550).text_color(t.text).child("Browser accounts"))
                 .child(div().flex_1())
                 .when(live && separate && adding.is_none(), |d| {
                     d.child(
-                        crate::kit::text_button("web-add", "Add profile", BtnKind::Small, false, t)
+                        crate::kit::text_button("web-add", "Add browser account", BtnKind::Small, false, t)
                             .on_click(cx.listener(|v, _, _, cx| v.open_web_add(cx))),
                     )
                 }),
         );
         sec = sec.child(crate::kit::muted(
-            "Separate sign-ins for the web pages in Pitwall (Teams, Slack, mail…): each profile keeps its own cookies and site data on this computer. A project picks one in its Accounts…; the pages its agents open use it, and so does a page you open while one of its agents has the focus. Others use Default. Sign in to sites in the page itself.",
+            "Separate sign-ins for the web pages in Pitwall (Teams, Slack, mail…): each browser account keeps its own cookies and site data on this computer. A project picks one in its Accounts…; the pages its agents open use it, and so does a page you open while one of its agents has the focus. Others use Default. Sign in to sites in the page itself.",
             t,
         ));
         if !separate {
             return sec.child(crate::kit::hint(crate::web::profiles::NEEDS_STORES, t));
         }
         if !live {
-            return sec.child(crate::kit::hint("Browser profiles need Pitwall's engine, which isn't running.", t));
+            return sec.child(crate::kit::hint("Browser accounts need Pitwall's engine, which isn't running.", t));
         }
         if let Some(input) = adding {
             let empty = input.read(cx).text().trim().is_empty();
@@ -554,7 +554,7 @@ impl SettingsView {
                     .border_color(t.line_strong)
                     .bg(t.surface_2)
                     .child(div().flex().items_center().gap(px(8.)).child(crate::kit::muted("Name", t)).child(div().flex_1()).child(div().w(px(260.)).child(input)))
-                    .child(crate::kit::hint("A new profile is signed in nowhere: sign in to sites in a page opened in it.", t))
+                    .child(crate::kit::hint("A new browser account is signed in nowhere: sign in to sites in a page opened in it.", t))
                     .child(
                         div()
                             .flex()

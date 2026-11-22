@@ -301,11 +301,11 @@ pub fn to_image(s: Snapshot) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new([image::Frame::new(buffer)])))
 }
 
-/// The browser profile every page used before profiles, and uses when its
+/// The browser account every page used before profiles, and uses when its
 /// project names none.
 pub const DEFAULT_PROFILE: &str = pitwall_core::accounts::DEFAULT;
 
-/// A browser profile's cookies and storage: `<data>/webview/profile-<id>`
+/// A browser account's cookies and storage: `<data>/webview/profile-<id>`
 /// (never the system browser's; `crate::web::profiles`).
 pub fn profile_dir(root: &Path, profile: &str) -> PathBuf {
     pitwall_core::accounts::web_profile_dir(root, profile)

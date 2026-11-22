@@ -185,7 +185,7 @@ fn each_connection_runs_its_own_adapter_into_one_inbox(cx: &mut TestAppContext) 
         // What a per-connection filter needs: each thread's connection,
         // and counts per connection as well as in total.
         assert_eq!(s.connection_of(&th), Some((home.as_str(), "Home")));
-        assert_eq!(s.threads_of(Some(&work)).map(|t| t.id.clone()).collect::<Vec<_>>(), [tw.clone()]);
+        assert_eq!(s.threads_of(Some(&work)).map(|t| t.id.clone()).collect::<Vec<_>>(), std::slice::from_ref(&tw));
         assert_eq!(s.threads_of(None).count(), 2);
         assert_eq!((s.counts_of(Some(&home)).open_asks, s.counts_of(Some(&work)).open_asks, s.counts_of(None).open_asks), (2, 1, 3));
     });
@@ -231,7 +231,7 @@ fn each_connection_runs_its_own_adapter_into_one_inbox(cx: &mut TestAppContext) 
         assert_eq!(s.conn, None);
     });
     assert_eq!(sent(&h, &ew, cx).len(), before, "not started again");
-    let store = cx.update(|cx| crate::extensions::secret_store(cx));
+    let store = cx.update(crate::extensions::secret_store);
     let gone = cx.update(|cx| crate::extensions::account(&home, "apiKey", cx));
     assert_eq!(store.get(&gone).unwrap(), None, "its secret is deleted");
 }
@@ -316,7 +316,7 @@ fn an_extension_set_up_before_connections_carries_over(cx: &mut TestAppContext) 
     assert_eq!(hello[0]["secrets"], json!({"apiKey": "old-key"}));
     assert_eq!(hello[0]["settings"], json!({"server": "https://old.example"}));
     // Again: nothing more.
-    cx.update(|cx| crate::extensions::connections::migrate(cx));
+    cx.update(crate::extensions::connections::migrate);
     assert_eq!(cx.update(|cx| crate::accounts::list(cx).unwrap().connections("inbox").count()), 1);
 }
 
