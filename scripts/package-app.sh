@@ -3,7 +3,9 @@
 # builds the app and its sidecars (pitwall-hold, pitwall-cli, and
 # pitwall-hook on Windows) in release mode and bundles them, with the
 # Race Engineer's skills (skills/pitwall, skills/race-engineer;
-# docs/spec/engineer.md) as resources (docs/spec/gpui/packaging.md).
+# docs/spec/engineer.md) and the extensions it offers to install
+# (extensions/, staged by scripts/stage-extensions.sh;
+# docs/spec/extensions.md) as resources (docs/spec/gpui/packaging.md).
 # .github/workflows/release.yml runs it.
 #
 #   scripts/package-app.sh                       # this OS's default formats
@@ -99,6 +101,12 @@ sidecars="pitwall-hold pitwall-cli"
 # Windows: skills/ next to the app).
 skill_dirs="pitwall race-engineer"
 for d in $skill_dirs; do [ -f "skills/$d/SKILL.md" ] || [ -f "skills/$d/ENGINEER.md" ] || die "skills/$d is missing"; done
+# The extensions Settings offers to install: found at run time by
+# crates/pitwall-app/src/extensions/catalog.rs (macOS:
+# Contents/Resources/extensions; Linux: /usr/lib/<package>/extensions;
+# Windows: extensions/ next to the app). Staged without test files.
+ext_stage="$out/extensions-stage"
+scripts/stage-extensions.sh extensions "$ext_stage"
 
 host=$(rustc -vV | sed -n 's/^host: //p')
 if $universal; then targets="aarch64-apple-darwin x86_64-apple-darwin"; arch_label=universal
@@ -183,6 +191,7 @@ if [ $os = macos ]; then
   cp "$icons/icon.icns" "$app/Contents/Resources/icon.icns"
   mkdir -p "$app/Contents/Resources/skills"
   for d in $skill_dirs; do cp -R "skills/$d" "$app/Contents/Resources/skills/$d"; done
+  cp -R "$ext_stage" "$app/Contents/Resources/extensions"
   # Inside out: the sidecars first, then the bundle (which seals the main binary).
   for s in $sidecars; do macos_sign "$app/Contents/MacOS/$s"; done
   macos_sign "$app"
@@ -231,6 +240,7 @@ resources=""
 for d in $skill_dirs; do
   resources="$resources${resources:+, }{ \"src\": \"$(native "$root/skills/$d")\", \"target\": \"skills/$d\" }"
 done
+resources="$resources, { \"src\": \"$(native "$ext_stage")\", \"target\": \"extensions\" }"
 binaries='{ "path": "pitwall", "main": true }'
 for s in $sidecars; do binaries="$binaries, { \"path\": \"$s\" }"; done
 cfg="$out/packager.json"
