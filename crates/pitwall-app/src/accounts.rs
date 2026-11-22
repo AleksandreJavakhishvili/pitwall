@@ -421,6 +421,25 @@ impl AccountsModel {
         self.change(|l| l.rename_profile(id, name), cx)
     }
 
+    /// [`change`](Self::change) for picks: then [`PicksChanged`] names each
+    /// project's slot whose answer changed, for the screen to apply as a
+    /// pick in a project's Accounts… is (tool agents move, git restarts,
+    /// the rest from their next start).
+    pub fn change_picks<T>(&mut self, f: impl FnOnce(&mut Accounts) -> Result<T, String>, cx: &mut Context<Self>) -> Result<T, String> {
+        self.reload_if_changed(cx);
+        let before = self.list.clone();
+        let out = self.change(f, cx)?;
+        let mut projects = before.known_projects();
+        projects.extend(self.list.known_projects());
+        projects.sort();
+        projects.dedup();
+        let changes: Vec<(String, String)> = projects.iter().flat_map(|p| Accounts::changed_slots(&before, &self.list, p).into_iter().map(move |s| (p.clone(), s))).collect();
+        if !changes.is_empty() {
+            cx.emit(PicksChanged(changes));
+        }
+        Ok(out)
+    }
+
     /// Remove profile `id`; its projects keep what they run under.
     pub fn remove_profile(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
         self.change(
@@ -434,18 +453,17 @@ impl AccountsModel {
 
     /// Profile `id`'s pick for `slot` (`None`: it doesn't decide it).
     pub fn set_profile_pick(&mut self, id: &str, slot: &str, value: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
-        self.change(|l| l.set_profile_pick(id, slot, value), cx)
+        self.change_picks(|l| l.set_profile_pick(id, slot, value), cx)
     }
 
-    /// The profile `project` uses (`None`: none). What it changes for the
-    /// project's running agents is the caller's ([`Accounts::changed_slots`]).
+    /// The profile `project` uses (`None`: none).
     pub fn set_project_profile(&mut self, project: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
-        self.change(|l| l.set_project_profile(project, id), cx)
+        self.change_picks(|l| l.set_project_profile(project, id), cx)
     }
 
     /// The project's own pick for `slot` (`None`: it inherits), checked.
     pub fn set_project_pick(&mut self, project: &str, slot: &str, value: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
-        self.change(
+        self.change_picks(
             |l| {
                 let v = value.map(|v| l.check_pick(slot, v)).transpose()?;
                 l.set_project_pick(project, slot, v.as_deref());
@@ -454,6 +472,64 @@ impl AccountsModel {
             cx,
         )
     }
+}
+
+/// Projects' slots whose answer changed through
+/// [`AccountsModel::change_picks`]: (project folder, slot).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PicksChanged(pub Vec<(String, String)>);
+
+impl gpui::EventEmitter<PicksChanged> for AccountsModel {}
+
+/// A slot a profile or project can pick, as Settings and the project's
+/// Accounts… show it: its label, and each choice (the value kept and its
+/// name), Default first and, for an extension, None last.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SlotRow {
+    pub slot: String,
+    pub label: String,
+    pub choices: Vec<(String, String)>,
+}
+
+/// The slots there is something to pick in (a tool with an account of
+/// its own, git identities, browser accounts, an extension's
+/// connections), in that order.
+pub fn slot_rows(cx: &App) -> Vec<SlotRow> {
+    let Some(h) = cx.try_global::<Handle>() else { return vec![] };
+    let m = h.0.read(cx);
+    let mut out = Vec::new();
+    for k in m.kinds() {
+        let list = m.of_kind(&k.id);
+        if list.is_empty() {
+            continue;
+        }
+        let mut choices = vec![(accounts::DEFAULT.to_string(), "Default".to_string())];
+        choices.extend(list.into_iter().map(|a| (a.id, a.name)));
+        out.push(SlotRow { slot: k.id.clone(), label: k.name.clone(), choices });
+    }
+    if !m.list.git.is_empty() {
+        let mut choices = vec![(accounts::DEFAULT.to_string(), "Your git setup".to_string())];
+        choices.extend(m.list.git.iter().map(|g| (g.id.clone(), g.name.clone())));
+        out.push(SlotRow { slot: accounts::GIT.into(), label: "Git identity".into(), choices });
+    }
+    let web = m.of_kind(accounts::WEB);
+    if !web.is_empty() {
+        let mut choices = vec![(accounts::DEFAULT.to_string(), crate::web::profiles::DEFAULT_NAME.to_string())];
+        choices.extend(web.into_iter().map(|a| (a.id, a.name)));
+        out.push(SlotRow { slot: accounts::WEB.into(), label: "Browser account".into(), choices });
+    }
+    for man in crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).filter(|x| !x.settings.is_empty()) {
+        let conns: Vec<&Account> = m.list.connections(&man.id).collect();
+        if conns.is_empty() {
+            continue;
+        }
+        let def = m.list.default_connection(&man.id).map(|c| format!("Default ({})", c.name)).unwrap_or_else(|| "Default (none)".into());
+        let mut choices = vec![(accounts::DEFAULT.to_string(), def)];
+        choices.extend(conns.into_iter().map(|c| (c.id.clone(), c.name.clone())));
+        choices.push((accounts::NONE.to_string(), "None".to_string()));
+        out.push(SlotRow { slot: accounts::ext_kind(&man.id), label: man.name.clone(), choices });
+    }
+    out
 }
 
 /// Extension connections (`crate::extensions::connections` adds their
@@ -617,5 +693,54 @@ mod tests {
         assert_eq!(map.get("/q").map(String::as_str), Some("zed-home"));
         assert_eq!(map.get("/r"), None);
         assert!(is_tool_kind("claude") && !is_tool_kind("web") && !is_tool_kind("git") && !is_tool_kind("ext:inbox"));
+    }
+
+    /// A profile's pick changed names each slot that changed for the
+    /// projects using it (and only those): what the screen moves or
+    /// restarts. A project's own pick keeps its slot out.
+    #[gpui::test]
+    fn changing_a_profile_names_what_changed_for_its_projects(cx: &mut gpui::TestAppContext) {
+        let t = pitwall_core::testing::TempDir::new("app-picks");
+        let paths = Paths::new(t.path().join("pw"));
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<PicksChanged>::new()));
+        let m = cx.update(|cx| {
+            let m = model(cx);
+            m.update(cx, |m, _| m.set_paths(paths));
+            m
+        });
+        let s2 = seen.clone();
+        let _sub = cx.update(|cx| cx.subscribe(&m, move |_, e: &PicksChanged, _| s2.borrow_mut().push(e.clone())));
+        let (pid, zed) = cx.update(|cx| {
+            m.update(cx, |m, cx| {
+                m.change(
+                    |l| {
+                        l.accounts.push(Account { id: "zed-work".into(), kind: "zed".into(), name: "Work".into(), dir: "/x".into(), ..Default::default() });
+                        Ok(())
+                    },
+                    cx,
+                )
+                .unwrap();
+                let p = m.add_profile("Work", cx).unwrap();
+                m.set_project_profile("/a", Some(&p.id), cx).unwrap();
+                m.set_project_profile("/b", Some(&p.id), cx).unwrap();
+                m.set_project_pick("/b", "zed", Some("default"), cx).unwrap();
+                (p.id, "zed-work".to_string())
+            })
+        });
+        cx.run_until_parked();
+        seen.borrow_mut().clear();
+        cx.update(|cx| m.update(cx, |m, cx| m.set_profile_pick(&pid, "zed", Some(&zed), cx))).unwrap();
+        cx.run_until_parked();
+        assert_eq!(*seen.borrow(), vec![PicksChanged(vec![("/a".into(), "zed".into())])]);
+        // Back to the profile: /b's slot changes now.
+        seen.borrow_mut().clear();
+        cx.update(|cx| m.update(cx, |m, cx| m.set_project_pick("/b", "zed", None, cx))).unwrap();
+        cx.run_until_parked();
+        assert_eq!(*seen.borrow(), vec![PicksChanged(vec![("/b".into(), "zed".into())])]);
+        // Picking what is already picked names nothing.
+        seen.borrow_mut().clear();
+        cx.update(|cx| m.update(cx, |m, cx| m.set_profile_pick(&pid, "zed", Some(&zed), cx))).unwrap();
+        cx.run_until_parked();
+        assert!(seen.borrow().is_empty());
     }
 }

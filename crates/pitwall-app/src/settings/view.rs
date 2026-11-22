@@ -147,6 +147,7 @@ pub struct SettingsView {
     pub(super) exts: super::extensions::Section,
     /// Accounts: agent logins and git identities.
     pub(super) accounts: super::accounts::Section,
+    pub(super) profiles: super::profiles::Section,
     /// Peers.
     pub(super) peers: super::peers::Section,
     pub(super) focus: FocusHandle,
@@ -270,6 +271,7 @@ impl SettingsView {
             engineer: Default::default(),
             exts: Default::default(),
             accounts: Default::default(),
+            profiles: Default::default(),
             peers: Default::default(),
             focus: cx.focus_handle(),
             list,
@@ -413,6 +415,10 @@ impl SettingsView {
             });
         })
         .detach();
+    }
+
+    pub(super) fn go_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        self.go(page, window, cx);
     }
 
     fn go(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
