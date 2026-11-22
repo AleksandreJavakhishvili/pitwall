@@ -40,7 +40,7 @@ While Pitwall isn't in front and an agent needs you, show a small floating contr
 
 ### `general.webPages`
 
-Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own profile, not your browser's. Agents can't see or use these pages; with agents.showWeb they can open one for you to see. false: no web view is made, a Preview opens in your browser instead, and agents can't open pages either.
+Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own browser accounts, not your browser's. Agents can't see or use these pages; with agents.showWeb they can open one for you to see. false: no web view is made, a Preview opens in your browser instead, and agents can't open pages either.
 
 - **Values:** true or false
 - **Default:** `true`
@@ -87,7 +87,7 @@ Agents can show you files, folders and images in Pitwall's file viewer when you 
 
 ### `agents.showWeb`
 
-Agents can show you a web page in Pitwall when you ask them to ("open the docs on the left", "open a browser window"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in Pitwall's web profile where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses.
+Agents can show you a web page in Pitwall when you ask them to ("open the docs on the left", "open a browser window"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in the project's browser account in Pitwall, where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses.
 
 - **Values:** true or false
 - **Default:** `true`
@@ -208,7 +208,7 @@ Base terminal font size in px; tiles may shrink below it to fit.
 
 ## Extensions
 
-Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.
+Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs an adapter per connection; `selected` is the thread its inbox tile shows, `actionsDone` its setup actions that ran without a failure. An extension's settings live in its connections (accounts of kind `ext:<id>` in `accounts.json`, one per server or key; secrets in the system's secure store, never in a file); `values` and `secretsSet` here are a copy of the connection carried over from before connections, kept for an older Pitwall. Not a `pitwall settings` key: turn extensions on and off in Settings or here.
 
 - **Stored in:** `ui.json` → `extensions.<id>.enabled`
 - **More:** [extensions](../spec/extensions.md)

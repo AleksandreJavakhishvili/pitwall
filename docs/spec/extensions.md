@@ -105,7 +105,8 @@ Code: `pitwall_core::extensions::install`, `crate::extensions::catalog`.
 - `settings` (optional, at most 10): what the user fills in, drawn by
   Pitwall in Settings under the extension. `key` (letters, digits, `_`,
   starting with a letter, at most 32; unique), `type` (`url`: an http(s)
-  address kept in `ui.json`; `secret`: kept in the system's secure store),
+  address kept in the connection; `secret`: kept in the system's secure
+  store), each set per connection ("Connections" below),
   `label` (≤ 60), optional `hint` (≤ 300), `placeholder` (≤ 100) and
   `required` (the adapter doesn't start until it is set).
 - `adapter` (optional): `command`, 1–16 strings: the program and its
@@ -270,9 +271,42 @@ A tab of its own (after Accounts). Code: `settings/extensions.rs`.
 - **Available:** compact cards (icon, name, version, description,
   Install), wrapping to the width.
 
+## Connections
+Status: built below the screens (docs/spec/profiles.md has the design).
+- An extension with `settings` has **connections**: each one set of its
+  settings and secrets (one per server or key: "Work", "Personal"). A
+  connection is an account of kind `ext:<id>` in `accounts.json`, its
+  plain settings in `values`, which secrets are set in `secretsSet`; the
+  secrets are in the secure store under `<connection id>.<key>` (the
+  extension's id for the one carried over from before connections, so its
+  keychain items keep their names). The first one made is the extension's
+  default connection.
+- Each project gets one connection per extension, or none, through its
+  profile or its own pick; where nothing picks, the default connection.
+  An agent's `agentEnv` comes from its project's connection
+  (`{setting:KEY}` from that connection); with none, nothing is set.
+- **One adapter per configured connection** of an extension that is on
+  (at most 8; `hub::MAX_RUNNING`), its `hello` carrying that connection's
+  settings and secrets. **One inbox per extension**: their threads merged,
+  ids `<connection id>:<adapter's id>` so requests reach the right
+  adapter, each labelled with its connection; counts added up; a
+  connection that stops or can't connect is named over the list without
+  hiding the others' threads. `matchAgents`: a thread is an agent's only
+  if it is from that agent's connection.
+- An extension without settings has no connections: one adapter, its
+  variables on every agent, as before.
+- **Carried over:** an extension whose `ui.json` entry has `values` or
+  `secretsSet` becomes, on start, one connection named after it, the
+  default; those keys leave `ui.json` and `selected` gets the
+  connection's prefix. Nothing is re-entered.
+- Settings (until its screens for several connections) edits the default
+  connection, making it when the first value is set; setup actions use
+  its settings.
+
 ## On and off
 - **Off until the user turns it on.**
-- Kept in `ui.json` as `extensions.<id>.enabled` (absent: off). Keys a
+- Kept in `ui.json` as `extensions.<id>.enabled` (absent: off), with
+  `selected` (the thread its inbox shows). Keys a
   later version adds to an entry are kept. The settings schema
   (`docs/settings.schema.json`) describes it. It isn't a `pitwall
   settings` key (the registry has fixed keys; these are the extensions'

@@ -15,7 +15,7 @@
     },
     "agentsShowWeb": {
       "default": true,
-      "description": "`agents.showWeb`: Agents can show you a web page in Pitwall when you ask them to (\"open the docs on the left\", \"open a browser window\"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in Pitwall's web profile where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses.",
+      "description": "`agents.showWeb`: Agents can show you a web page in Pitwall when you ask them to (\"open the docs on the left\", \"open a browser window\"): the `show_web` tool of Pitwall's `pitwall` MCP server (the agents that get it for files get this too), and `pitwall open --web` from a shell. The page opens in a web tile next to the agent's terminal or a window of its own, in the project's browser account in Pitwall, where you may be signed in; only http and https addresses, shown in the address field. The agent gets nothing back from the page and can't click or type in it. Needs general.webPages. false: the tool is gone from the agents' list and `pitwall open --web` refuses.",
       "type": "boolean"
     },
     "density": {
@@ -51,7 +51,7 @@
         "additionalProperties": true,
         "properties": {
           "actionsDone": {
-            "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked).",
+            "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked); one that uses a setting is kept per connection, this list copying the carried-over connection's.",
             "items": {
               "type": "string"
             },
@@ -63,32 +63,32 @@
             "type": "boolean"
           },
           "secretsSet": {
-            "description": "The keys of its secrets that are set. The secrets are in the system's secure store, never in this file.",
+            "description": "A copy of which secrets that connection has set, for an older Pitwall. The secrets are in the system's secure store, never in this file.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "selected": {
-            "description": "The thread its inbox tile shows.",
+            "description": "The thread its inbox tile shows (`<connection id>:<thread>` for an extension with connections).",
             "type": "string"
           },
           "values": {
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Its plain settings (such as a server address), by key.",
+            "description": "A copy of the plain settings of the connection carried over from before connections, for an older Pitwall (the settings live in accounts.json).",
             "type": "object"
           },
           "window": {
             "default": false,
-            "description": "Its inbox is in a window of its own, opened again at the next start.",
+            "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows).",
             "type": "boolean"
           }
         },
         "type": "object"
       },
-      "description": "Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.",
+      "description": "Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs an adapter per connection; `selected` is the thread its inbox tile shows, `actionsDone` its setup actions that ran without a failure. An extension's settings live in its connections (accounts of kind `ext:<id>` in `accounts.json`, one per server or key; secrets in the system's secure store, never in a file); `values` and `secretsSet` here are a copy of the connection carried over from before connections, kept for an older Pitwall. Not a `pitwall settings` key: turn extensions on and off in Settings or here.",
       "propertyNames": {
         "pattern": "^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$"
       },
@@ -170,7 +170,7 @@
     },
     "webPages": {
       "default": true,
-      "description": "`general.webPages`: Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own profile, not your browser's. Agents can't see or use these pages; with agents.showWeb they can open one for you to see. false: no web view is made, a Preview opens in your browser instead, and agents can't open pages either.",
+      "description": "`general.webPages`: Web pages in Pitwall: a page in a tile of the layout next to your terminals (Cmd+L / Ctrl+Shift+L, or Open web page… in the command palette), and an agent's Preview of the dev server its terminal printed, in the system's own web view. Pages keep their logins in Pitwall's own browser accounts, not your browser's. Agents can't see or use these pages; with agents.showWeb they can open one for you to see. false: no web view is made, a Preview opens in your browser instead, and agents can't open pages either.",
       "type": "boolean"
     }
   },

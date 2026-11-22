@@ -163,7 +163,7 @@ pub const PAGE_KEY: &str = "settingsPage";
 pub const EXTENSIONS_KEY: &str = "extensions";
 
 /// What `extensions` in `ui.json` holds (the schema and the reference).
-pub const EXTENSIONS_TEXT: &str = "Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs its adapter; `values` holds its plain settings, `secretsSet` the keys of the secrets set (kept in the system's secure store, never here), `selected` the thread its inbox tile shows. Not a `pitwall settings` key: turn extensions on and off in Settings or here.";
+pub const EXTENSIONS_TEXT: &str = "Extensions (Settings → Extensions): one entry per extension id, with `enabled` (default false: an extension found in the extensions folder of Pitwall's data folder is off until you turn it on). An extension that is on runs an adapter per connection; `selected` is the thread its inbox tile shows, `actionsDone` its setup actions that ran without a failure. An extension's settings live in its connections (accounts of kind `ext:<id>` in `accounts.json`, one per server or key; secrets in the system's secure store, never in a file); `values` and `secretsSet` here are a copy of the connection carried over from before connections, kept for an older Pitwall. Not a `pitwall settings` key: turn extensions on and off in Settings or here.";
 
 /// Every setting, in the order of the Settings pages.
 pub const SETTINGS: &[Setting] = &[
@@ -612,11 +612,11 @@ pub fn json_schema() -> Value {
                 "type": "object",
                 "properties": {
                     "enabled": { "type": "boolean", "default": false, "description": "The extension is on: its adapter runs and its inbox can be opened." },
-                    "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Its plain settings (such as a server address), by key." },
-                    "secretsSet": { "type": "array", "items": { "type": "string" }, "description": "The keys of its secrets that are set. The secrets are in the system's secure store, never in this file." },
-                    "selected": { "type": "string", "description": "The thread its inbox tile shows." },
-                    "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked)." },
-                    "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start." }
+                    "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "A copy of the plain settings of the connection carried over from before connections, for an older Pitwall (the settings live in accounts.json)." },
+                    "secretsSet": { "type": "array", "items": { "type": "string" }, "description": "A copy of which secrets that connection has set, for an older Pitwall. The secrets are in the system's secure store, never in this file." },
+                    "selected": { "type": "string", "description": "The thread its inbox tile shows (`<connection id>:<thread>` for an extension with connections)." },
+                    "actionsDone": { "type": "array", "items": { "type": "string" }, "description": "Its setup actions that last ran without a failure (their steps in Settings stay ticked); one that uses a setting is kept per connection, this list copying the carried-over connection's." },
+                    "window": { "type": "boolean", "default": false, "description": "Its inbox is in a window of its own, opened again at the next start (one inbox per extension, whichever connections it shows)." }
                 },
                 "additionalProperties": true
             }
