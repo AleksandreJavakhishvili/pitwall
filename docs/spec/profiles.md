@@ -275,10 +275,18 @@ a profile, and single picks are the exception.
   profile picks one. The footer's "Edit profile Work…" opens Settings →
   Profiles with Work unfolded ("Manage profiles…" with no profile
   picked).
-- **The sidebar** groups by the tool account each project resolves to
-  (its own pick, else its profile's, else the default); dropping a
-  project on another account writes the project's own pick, which
-  overrides its profile.
+- **The sidebar**, grouped by account while no profile exists: by the
+  tool account each project resolves to (its own pick, else its
+  profile's, else the default); dropping a project on another account
+  writes the project's own pick. Once a profile exists it groups by
+  profile instead ("Group by profile"): a section per profile in their
+  order, then "No profile" when a project has none; a project with picks
+  of its own stays under its profile, marked; dropping a project on a
+  profile gives it that profile, on "No profile" clears it (as the
+  dialog does); headers reorder profiles; a header's menu has "Edit
+  profile…". One grouping function (`model::by_machine_sections`) yields
+  profile sections when profiles are given, account sections otherwise
+  (docs/spec/layout.md, "Sidebar order and moves by drag").
 
 ## CLI
 `pitwall account list`, `pitwall profile list|create|rename|delete|set`,

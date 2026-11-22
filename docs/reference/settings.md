@@ -22,7 +22,7 @@ Show agents running in other terminal apps as a sidebar group (read-only, checke
 
 ### `general.sidebarGroup`
 
-How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on), then project.
+How the sidebar groups agents: by project, or by account (the Claude Code or Codex login they run on; by profile once you have one), then project.
 
 - **Values:** one of project, account
 - **Default:** `project`

@@ -695,6 +695,60 @@ fn sidebar_rows_keep_the_order_they_are_dragged_in(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn with_profiles_the_sidebar_groups_by_profile_and_a_drop_gives_one(cx: &mut TestAppContext) {
+    let (view, _, cx) = screen(cx);
+    let t = pitwall_core::testing::TempDir::new("app-side-profiles");
+    let paths = pitwall_core::paths::Paths::new(t.path().join("pw"));
+    let work = cx.update(|_, cx| {
+        let m = crate::accounts::model(cx);
+        m.update(cx, |m, cx| {
+            m.set_paths(paths);
+            let w = m.add_profile("Work", cx).unwrap();
+            m.add_profile("Personal", cx).unwrap();
+            m.set_project_profile("/work/alpha", Some(&w.id), cx).unwrap();
+            w.id
+        })
+    });
+    view.update(cx, |s, cx| s.set_sidebar_group(workspace::SidebarGroup::Account, cx));
+    cx.run_until_parked();
+    let sections = |view: &Entity<MainScreen>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |s, cx| {
+            s.machine_sections(s.agents(cx), cx)[0].accounts.iter().map(|a| (a.account.clone(), a.groups.iter().map(|g| g.project.clone()).collect::<Vec<_>>())).collect::<Vec<_>>()
+        })
+    };
+    let personal = cx.update(|_, cx| crate::accounts::list(cx).unwrap().profiles[1].id.clone());
+    let (ws, ps) = (format!("profile:{work}"), format!("profile:{personal}"));
+    assert_eq!(
+        sections(&view, cx),
+        [(ws.clone(), vec!["/work/alpha".to_string()]), (ps.clone(), vec![]), ("profile:none".into(), vec!["/work/beta".to_string()])]
+    );
+    // Onto Work: beta is given it.
+    assert!(view.update_in(cx, |s, window, cx| s.drop_project_on_section("/work/beta", &ws, window, cx)));
+    cx.run_until_parked();
+    let of = |cx: &mut VisualTestContext, p: &str| cx.update(|_, cx| crate::accounts::list(cx).unwrap().profile_of(p).map(|p| p.name.clone()));
+    assert_eq!(of(cx, "/work/beta").as_deref(), Some("Work"));
+    assert_eq!(sections(&view, cx), [(ws.clone(), vec!["/work/alpha".to_string(), "/work/beta".to_string()]), (ps.clone(), vec![])], "no \"No profile\" when empty");
+    // A pick of its own: it stays under Work, marked.
+    cx.update(|_, cx| crate::accounts::model(cx).update(cx, |m, cx| m.set_project_pick("/work/beta", pitwall_core::accounts::GIT, Some("default"), cx))).ok();
+    assert_eq!(sections(&view, cx)[0].1.len(), 2);
+    // Onto Personal, then back to none: none can only be dropped on
+    // while it shows, so beta leaves Work for Personal first.
+    assert!(view.update_in(cx, |s, window, cx| s.drop_project_on_section("/work/beta", &ps, window, cx)));
+    cx.run_until_parked();
+    assert_eq!(of(cx, "/work/beta").as_deref(), Some("Personal"));
+    cx.update(|_, cx| crate::accounts::model(cx).update(cx, |m, cx| m.set_project_profile("/work/alpha", None, cx))).unwrap();
+    assert!(view.update_in(cx, |s, window, cx| s.drop_project_on_section("/work/beta", "profile:none", window, cx)));
+    cx.run_until_parked();
+    assert_eq!(of(cx, "/work/beta"), None, "\"No profile\" clears it");
+    // The project menu says profile.
+    view.update_in(cx, |s, window, cx| s.demo_project_menu("/work/alpha", window, cx));
+    view.read_with(cx, |s, _| {
+        let labels = s.menu_labels();
+        assert!(labels.iter().any(|l| l == "Profile…") && labels.iter().any(|l| l == "Group by profile"), "{labels:?}");
+    });
+}
+
+#[gpui::test]
 fn this_mac_alone_has_no_machine_headings(cx: &mut TestAppContext) {
     let (view, _, cx) = screen(cx);
     for group in [workspace::SidebarGroup::Project, workspace::SidebarGroup::Account] {
