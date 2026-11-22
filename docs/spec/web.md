@@ -165,7 +165,11 @@ cut, select all, undo, redo. ⌘L in a web tile selects its address. Esc
 (after the page had it too), a click anywhere outside the page (the bar,
 its address field, another tile), or GPUI's focus moving on gives the keys
 back. The address field is a GPUI field in the main window: it types the
-same in Flat and Liquid Glass.
+same in Flat and Liquid Glass. A web tile is a tile like the others for
+the keys: a click into the page (the view says it took the keys, as GPUI
+never sees that click), its address or its bar makes it the space's
+focused tile, with the focused border, so ⌘⏎ maximises and restores it
+(the same page, not loaded again), from the page too.
 
 ## Lifetime and cost
 - A page you opened stays loaded while its tile exists, hidden or not
