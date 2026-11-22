@@ -216,6 +216,12 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// Extension `id`'s card unfolded (from Accounts' "Edit in
+    /// Extensions").
+    pub(super) fn exts_open(&mut self, id: &str) {
+        self.exts.open.insert(id.to_string(), true);
+    }
+
     /// The Extensions page: what extensions are, each installed one in a
     /// card of its own, then those Pitwall ships that aren't installed.
     pub(super) fn extension_parts(&mut self, cx: &mut Context<Self>) -> Vec<Part> {

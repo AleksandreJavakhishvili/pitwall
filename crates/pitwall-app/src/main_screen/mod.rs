@@ -610,6 +610,9 @@ impl MainScreen {
             }),
             // Accounts renamed, added or removed: the badges and menus.
             cx.observe(&accounts, |_, _, cx| cx.notify()),
+            // A profile or a project's pick changed (Settings, Accounts…):
+            // applied as a pick in Accounts… is.
+            cx.subscribe_in(&accounts, window, |this, _, e: &crate::accounts::PicksChanged, window, cx| this.picks_changed(e, window, cx)),
             // Extensions' threads: the ask badges on agents' rows.
             cx.observe(&ext_hub, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
@@ -1747,6 +1750,45 @@ impl MainScreen {
                 break;
             }
         }));
+    }
+
+    /// Projects' picks changed through a profile or a project's own pick
+    /// (docs/spec/profiles.md, "Changing"): as a pick in Accounts… does,
+    /// a tool's agents of the project move to its account now (one not
+    /// logged in yet logs in first), a git identity restarts its agents
+    /// (busy ones once free); a connection or browser account applies
+    /// from their next start, said in a toast when agents run.
+    fn picks_changed(&mut self, e: &crate::accounts::PicksChanged, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(list) = crate::accounts::list(cx).cloned() else { return };
+        let agents = self.agents(cx).to_vec();
+        let mut later: Vec<(String, String)> = Vec::new();
+        for (project, slot) in &e.0 {
+            let now = list.resolve_slot(project, slot).id;
+            if crate::accounts::is_tool_kind(slot) {
+                let ids: Vec<String> = agents.iter().filter(|a| a.project == *project && a.kind == *slot && a.account != now && !a.engineer).map(|a| a.id.clone()).collect();
+                if ids.is_empty() {
+                    continue;
+                }
+                let name = now.as_deref().and_then(|i| list.get(i)).map(|a| a.name.clone()).unwrap_or_else(|| "Default".into());
+                self.move_agents(Move { ids, account: now, name, kind: slot.clone() }, Some(project.clone()), window, cx);
+            } else if slot == pitwall_core::accounts::GIT {
+                let name = now.as_deref().and_then(|i| list.git_identity(i)).map(|g| g.name.clone());
+                self.git_identity_changed(project.clone(), name, cx);
+            } else if let Some(ext) = pitwall_core::accounts::ext_of(slot) {
+                if agents.iter().any(|a| a.project == *project && a.running && !a.engineer) {
+                    let ext_name = crate::extensions::found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == ext).map(|m| m.name.clone()).unwrap_or_else(|| ext.to_string());
+                    let what = match now.as_deref().and_then(|i| list.get(i)) {
+                        Some(c) => format!("{ext_name} · {}", c.name),
+                        None => format!("no {ext_name} connection"),
+                    };
+                    later.push((project.clone(), what));
+                }
+            }
+        }
+        for (project, what) in later {
+            let folder = project.trim_end_matches('/').rsplit('/').next().unwrap_or(&project).to_string();
+            self.toast(Toast::info(&format!("{folder} uses {what}"), Some("Its agents take it when they next start.".into())), cx);
+        }
     }
 
     /// `project`'s git identity changed (`name`; `None`: the user's own

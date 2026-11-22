@@ -1711,6 +1711,12 @@ fn picker_content(v: &PickerView, t: &Theme) -> gpui::Stateful<gpui::Div> {
 /// project's new agents use, chosen from chips, or a new one: named here,
 /// it becomes the project's, and an agent starts on it in the project,
 /// where the tool asks for its login.
+///
+/// With profiles (docs/spec/profiles.md), "Profile" comes first: picking
+/// one picks every slot it decides. Each slot then says where its answer
+/// comes from ("from Work", or "this project's own" with "Back to Work");
+/// a chip picked there is the project's own. Extensions with two or more
+/// connections get a row too. Without profiles nothing of this shows.
 pub struct ProjectAccountsDialog {
     engine: Option<Shared>,
     project: String,
@@ -1840,7 +1846,7 @@ impl ProjectAccountsDialog {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(field_label("Browser account", t))
+            .child(self.slot_label("Browser account", pitwall_core::accounts::WEB, t, cx))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
             .when_some(adding, |d, input| {
                 d.child(
@@ -1869,6 +1875,167 @@ impl ProjectAccountsDialog {
                 t,
             ))
             .into_any_element()
+    }
+
+    /// A slot's label, with where its answer comes from once the project
+    /// has a profile: "from Work", or "this project's own" and "Back to
+    /// Work" to take the profile's again.
+    fn slot_label(&self, label: &str, slot: &str, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let list = crate::accounts::model(cx).read(cx).list.clone();
+        let Some(profile) = list.profile_of(&self.project).cloned() else {
+            return field_label(label, t).into_any_element();
+        };
+        let r = list.resolve_slot(&self.project, slot);
+        let own = matches!(r.from, pitwall_core::accounts::From::Project);
+        let from = match &r.from {
+            pitwall_core::accounts::From::Project => "this project's own".to_string(),
+            pitwall_core::accounts::From::Profile(_) => format!("from {}", profile.name),
+            pitwall_core::accounts::From::Default => "default".to_string(),
+        };
+        let slot = slot.to_string();
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(field_label(label, t))
+            .child(div().text_size(px(11.5)).text_color(t.text_3).child(from))
+            .when(own && profile.picks.contains_key(&slot), |d| {
+                d.child(
+                    div()
+                        .id(SharedString::from(format!("pa-back-{slot}")))
+                        .text_size(px(11.5))
+                        .text_color(t.text_3)
+                        .cursor_pointer()
+                        .hover_text(t.text, |s| s.underline())
+                        .on_click(cx.listener(move |d, _, _, cx| d.back_to_profile(&slot, cx)))
+                        .child(format!("Back to {}", profile.name)),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// Drop the project's own pick for `slot`: its profile's applies
+    /// (agents follow as for any pick: `accounts::PicksChanged`).
+    fn back_to_profile(&mut self, slot: &str, cx: &mut Context<Self>) {
+        let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        if let Err(e) = m.update(cx, |m, cx| m.set_project_pick(&project, slot, None, cx)) {
+            self.error = Some(e);
+        }
+        cx.notify();
+    }
+
+    /// The profile the project uses (`None`: none): it picks every slot
+    /// it decides (agents follow: `accounts::PicksChanged`).
+    fn pick_profile(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        let (m, project) = (crate::accounts::model(cx), self.project.clone());
+        if m.read(cx).list.profile_of(&project).map(|p| p.id.as_str()) == id {
+            return;
+        }
+        if let Err(e) = m.update(cx, |m, cx| m.set_project_profile(&project, id, cx)) {
+            self.error = Some(e);
+        }
+        cx.notify();
+    }
+
+    /// "Profile": None and each profile as chips (only once there is one).
+    fn profile_row(&self, t: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let list = crate::accounts::model(cx).read(cx).list.clone();
+        if list.profiles.is_empty() {
+            return None;
+        }
+        let current = list.profile_of(&self.project).map(|p| p.id.clone());
+        let mut chips: Vec<AnyElement> = Vec::new();
+        let items: Vec<(Option<String>, String)> = std::iter::once((None, "None".to_string())).chain(list.profiles.iter().map(|p| (Some(p.id.clone()), p.name.clone()))).collect();
+        for (i, (id, name)) in items.into_iter().enumerate() {
+            let on = current == id;
+            chips.push(
+                div()
+                    .id(("pa-profile", i))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .h(px(28.))
+                    .px(px(10.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(if on { t.text_2 } else { t.line_strong })
+                    .when(on, |d| d.bg(t.surface_2))
+                    .cursor_pointer()
+                    .hover_probed(|s| s.bg(t.surface_2))
+                    .on_click(cx.listener(move |d, _, _, cx| d.pick_profile(id.as_deref(), cx)))
+                    .when(on, |d| d.child(icon("check", 12., t.text_2)))
+                    .child(div().text_size(px(12.5)).when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                    .into_any_element(),
+            );
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .pb(px(4.))
+                .child(field_label("Profile", t))
+                .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
+                .child(hint("Picks the accounts below in one go; you can still change single ones for this project.", t))
+                .into_any_element(),
+        )
+    }
+
+    /// An extension with two or more connections (or one the project
+    /// turned off): Default, each connection and None as chips.
+    fn ext_rows(&self, t: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let list = crate::accounts::model(cx).read(cx).list.clone();
+        let mut out = Vec::new();
+        for (n, r) in crate::accounts::slot_rows(cx).into_iter().filter(|r| pitwall_core::accounts::ext_of(&r.slot).is_some()).enumerate() {
+            let decided = list.project_pick(&self.project, &r.slot).map(String::from).or_else(|| list.profile_of(&self.project).and_then(|p| p.picks.get(&r.slot).cloned()));
+            // Choices besides Default and None: show it only with two or
+            // more, or when the project already picks something here.
+            if r.choices.len() < 4 && decided.is_none() {
+                continue;
+            }
+            let current = decided.unwrap_or_else(|| pitwall_core::accounts::DEFAULT.to_string());
+            let mut chips: Vec<AnyElement> = Vec::new();
+            for (i, (val, name)) in r.choices.iter().cloned().enumerate() {
+                let on = current == val;
+                let slot = r.slot.clone();
+                chips.push(
+                    div()
+                        .id(("pa-ext", n * 100 + i))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .h(px(28.))
+                        .px(px(10.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(if on { t.text_2 } else { t.line_strong })
+                        .when(on, |d| d.bg(t.surface_2))
+                        .cursor_pointer()
+                        .hover_probed(|s| s.bg(t.surface_2))
+                        .on_click(cx.listener(move |d, _, _, cx| {
+                            let (m, project) = (crate::accounts::model(cx), d.project.clone());
+                            if let Err(e) = m.update(cx, |m, cx| m.set_project_pick(&project, &slot, Some(&val), cx)) {
+                                d.error = Some(e);
+                            }
+                            cx.notify();
+                        }))
+                        .when(on, |d| d.child(icon("check", 12., t.text_2)))
+                        .child(div().text_size(px(12.5)).when(on, |d| d.font_weight(FontWeight::SEMIBOLD)).child(name))
+                        .into_any_element(),
+                );
+            }
+            out.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(self.slot_label(&r.label, &r.slot, t, cx))
+                    .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
+                    .child(hint("The server and key its agents get from this extension, from their next start.", t))
+                    .into_any_element(),
+            );
+        }
+        out
     }
 
     fn pick(&mut self, kind: &str, id: Option<&str>, name: String, cx: &mut Context<Self>) {
@@ -2007,7 +2174,7 @@ impl ProjectAccountsDialog {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(field_label("Git identity", t))
+            .child(self.slot_label("Git identity", pitwall_core::accounts::GIT, t, cx))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
             .when(list.is_empty(), |d| d.child(hint("Add git identities in Settings → Accounts.", t)))
             .when(running && !list.is_empty(), |d| d.child(hint("Picking one restarts the project's agents as it (conversations included; busy ones when they finish). Terminals take it when you restart them.", t)))
@@ -2078,7 +2245,7 @@ impl ProjectAccountsDialog {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(field_label(&def.name, t))
+            .child(self.slot_label(&def.name, &def.id, t, cx))
             .child(div().flex().flex_wrap().gap(px(6.)).children(chips))
             .when_some(adding, |d, input| {
                 d.child(
@@ -2124,6 +2291,7 @@ impl Render for ProjectAccountsDialog {
                 .flex_col()
                 .child(
                     body()
+                        .children(self.profile_row(&t, cx))
                         .child(hint(
                             format!("The login {project}'s agents run on. Picking one moves its agents there too, conversations included; one not logged in yet opens its login first."),
                             &t,
@@ -2132,6 +2300,7 @@ impl Render for ProjectAccountsDialog {
                         .when(kinds.is_empty(), |d| d.child(hint("None of your agents can have more than one login.", &t)))
                         .child(self.git_row(&t, cx))
                         .child(self.web_row(&t, cx))
+                        .children(self.ext_rows(&t, cx))
                         .when_some(self.error.clone(), |d, e| d.child(form_error(e, &t))),
                 )
                 .child(

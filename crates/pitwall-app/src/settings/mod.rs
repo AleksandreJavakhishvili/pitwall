@@ -26,6 +26,7 @@ pub mod pages;
 mod peers;
 pub mod permissions;
 pub mod prefs;
+mod profiles;
 pub mod view;
 pub mod watch;
 pub mod widgets;
