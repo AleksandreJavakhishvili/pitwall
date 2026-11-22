@@ -43,9 +43,11 @@ way and start it again with the same `--data` and `--origin`.
 ## 2. Install Agention's plugin in your agents (once)
 
 Agents reach Agention through its plugin, which runs the bridge
-(`agention-mcp`) as an MCP server. Install it yourself, pinned to the
-release that matches your server; Pitwall doesn't install plugins or
-register MCP servers.
+(`agention-mcp`) as an MCP server, pinned to the release that matches
+your server. Either press **Set up Agention in my agents** in Settings →
+General → Extensions (once the extension is on): it shows the exact
+commands below and runs them only when you confirm, skipping a tool you
+don't have. Or run them yourself:
 
 ```bash
 # Claude Code
@@ -57,8 +59,15 @@ codex plugin marketplace add WayfarerLabs/agention --ref v0.4.0
 codex plugin add agention@agention
 ```
 
-If you installed an older release, update the marketplace to `v0.4.0` and
-reinstall the plugin the same way.
+The button first removes Agention's marketplace (which uninstalls an
+older plugin; a failure there just means it wasn't added), because
+Claude Code refuses to add a marketplace again from another tag.
+**Remove Agention from my agents** removes the marketplace and plugin
+again.
+
+The `v0.4.0` pin lives in `extension.json` (the `setup` action's steps):
+when you upgrade your Agention server, update that ref in both `add`
+steps to the new release's tag, then press the button again.
 
 You don't need to set anything else for agents Pitwall starts: while the
 extension is on, Pitwall gives them, in their environment,

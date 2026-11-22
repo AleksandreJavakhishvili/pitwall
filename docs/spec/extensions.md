@@ -82,6 +82,16 @@ the environment variables its manifest lists, shown in Settings.
 - `matchAgents` (optional): two templates, `agent` and `session`, whose
   values for a Pitwall agent are the names (`from`) of the threads that
   agent started: Pitwall badges that agent and offers "Go to agent".
+- `actions` (optional, at most 5): setup actions, buttons in Settings
+  ("Setup actions" below). Each: `id` (like an icon name), `label` (the
+  button, ≤ 40), `description` (one line, ≤ 200) and `steps` (1–12).
+  A step: `run`, the program and its arguments as a list of 1–32 strings
+  (≤ 500 each; never one shell line: a string is refused); the program
+  is a name looked up on the login shell's PATH, not a path or a
+  placeholder; arguments may use `{setting:KEY}` of a plain setting,
+  never a secret. Optional `for`: the agent kind it is for (`claude`,
+  `codex`, …). Optional `optional: true`: its failure doesn't stop the
+  steps after it.
 - **Templates** use `{project}` (the last part of the agent's project
   folder), `{agent}` (its name when it starts; it can change) and
   `{agent_id}` (Pitwall's id for it, kept across restarts); other text is
@@ -202,7 +212,30 @@ gets one `result`)
   folded is kept in `ui.json` `collapsed` as `ext:<id>`.
 - Not dragged, and not in the narrow icon rail.
 
+## Setup actions
+What "setting up" means for an extension is the manifest's to say, such
+as installing a tool's plugin in the user's agents. Code:
+`pitwall_core::extensions::Action`, `crate::extensions::actions`.
+- Settings shows each action of an extension that is on as a button
+  with its label, its description beside it.
+- **Pressing it runs nothing.** It opens a confirmation listing each
+  command exactly as it will run, one per line (arguments with spaces
+  quoted for reading; no shell is involved), and each step that will be
+  skipped with why: its program isn't installed ("Codex isn't
+  installed", for a step `for` a kind), or a setting it uses isn't set
+  ("set Server address first"). Run and Cancel.
+- After Run: the steps run in order, off the UI thread, in the user's
+  home folder, each with a 3-minute timeout and its output kept short.
+  Each step then says **Done**, **Failed** (why: the exit code and the
+  last lines of output, or that it took too long and was stopped), or
+  **Skipped** (why). A failed step that isn't `optional` skips the later
+  steps for the same kind (or every later step when it is for none).
+- Nothing runs when an extension is found, turned on, at startup, or at
+  an adapter's request: only from the button, after the confirmation.
+
 ## Later (not built)
+- Pitwall registering an extension's MCP server in agents itself, rather
+  than a setup action running the agent tools' own commands.
 - In the protocol: an ask's priority and answer-by time, references,
   topics, and replaced messages (an adapter leaves replaced ones out).
 - A badge count on the Dock / taskbar from extensions.

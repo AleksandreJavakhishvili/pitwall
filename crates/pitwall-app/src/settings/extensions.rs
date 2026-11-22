@@ -17,6 +17,7 @@ use super::view::SettingsView;
 use super::widgets::Ui;
 use crate::extensions::hub::{self, Run};
 use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
+use crate::extensions::actions::{self, Outcome, Planned};
 
 /// The section's own state.
 #[derive(Default)]
@@ -28,6 +29,12 @@ pub struct Section {
     /// Secrets being saved or removed.
     busy: HashSet<(String, String)>,
     watching: bool,
+    /// The action waiting for the user to confirm its commands.
+    confirm: Option<(String, String, Vec<Planned>)>,
+    /// Actions running.
+    running: HashSet<(String, String)>,
+    /// How the last run of each action went.
+    results: HashMap<(String, String), Vec<(String, Outcome)>>,
     _subs: Vec<Subscription>,
 }
 
@@ -203,7 +210,103 @@ impl SettingsView {
             }
             col = col.child(env);
         }
+        for a in &m.actions {
+            col = col.child(self.action_row(ui, m, a, cx));
+        }
         col
+    }
+
+    /// A setup action: its button and description; then the commands to
+    /// confirm, its progress, or how it went.
+    fn action_row(&mut self, ui: &Ui, m: &Manifest, a: &pitwall_core::extensions::Action, cx: &mut Context<Self>) -> Div {
+        let k = (m.id.clone(), a.id.clone());
+        let running = self.exts.running.contains(&k);
+        let asking = self.exts.confirm.as_ref().is_some_and(|(e, id, _)| *e == k.0 && *id == k.1);
+        let open = {
+            let (m, a) = (m.clone(), a.clone());
+            crate::kit::text_button(SharedString::from(format!("extension-action-{}-{}", m.id, a.id)), a.label.clone(), BtnKind::Small, running || asking, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+                let values = crate::ui_state::get(cx).extension(&m.id).values;
+                let plan = actions::plan(&m, &a, &values, pitwall_core::shell::spawn_path().as_deref());
+                v.exts.results.remove(&(m.id.clone(), a.id.clone()));
+                v.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
+                cx.notify();
+            }))
+        };
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(div().flex().items_center().gap(px(8.)).child(open).child(div().flex_1().min_w_0().child(crate::kit::hint(a.description.clone(), &ui.t))));
+        if asking {
+            let plan = self.exts.confirm.as_ref().map(|c| c.2.clone()).unwrap_or_default();
+            let runs = plan.iter().any(|p| p.skip.is_none());
+            let mut card = div()
+                .id(SharedString::from(format!("extension-confirm-{}-{}", m.id, a.id)))
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .p(px(10.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(ui.t.line_strong)
+                .bg(ui.t.surface_2)
+                .child(crate::kit::muted(if runs { "These commands will run, in this order, when you press Run:" } else { "Nothing can run:" }, &ui.t));
+            for p in &plan {
+                card = card.child(match &p.skip {
+                    None => crate::kit::mono_text(p.line(), &ui.t),
+                    Some(why) => div().flex().flex_col().opacity(0.6).child(crate::kit::mono_text(p.line(), &ui.t)).child(crate::kit::hint(format!("Skipped: {why}."), &ui.t)),
+                });
+            }
+            if plan.iter().any(|p| p.optional && p.skip.is_none()) {
+                card = card.child(crate::kit::hint("A failing remove step is fine: there was nothing to remove.", &ui.t));
+            }
+            let (m2, a2) = (m.clone(), a.clone());
+            let mut buttons = div().flex().gap(px(8.)).pt(px(4.)).child(div().flex_1());
+            buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-cancel-{}-{}", m.id, a.id)), "Cancel", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
+                v.exts.confirm = None;
+                cx.notify();
+            })));
+            if runs {
+                buttons = buttons.child(crate::kit::text_button(SharedString::from(format!("extension-run-{}-{}", m.id, a.id)), "Run", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.run_action(&m2, &a2, cx))));
+            }
+            col = col.child(card.child(buttons));
+        } else if running {
+            col = col.child(crate::kit::hint("Running…", &ui.t));
+        } else if let Some(results) = self.exts.results.get(&k) {
+            let mut list = div().flex().flex_col().gap(px(2.));
+            for (line, o) in results {
+                let (word, color) = match o {
+                    Outcome::Done => ("Done".to_string(), ui.t.green),
+                    Outcome::Failed(why) => (format!("Failed: {why}"), ui.t.amber),
+                    Outcome::Skipped(why) => (format!("Skipped: {why}"), ui.t.text_3),
+                };
+                list = list.child(div().flex().flex_col().child(crate::kit::mono_text(line.clone(), &ui.t)).child(div().text_size(px(12.)).text_color(color).child(word)));
+            }
+            col = col.child(list);
+        }
+        col
+    }
+
+    /// Run the confirmed action off the UI thread.
+    fn run_action(&mut self, m: &Manifest, a: &pitwall_core::extensions::Action, cx: &mut Context<Self>) {
+        let Some((_, _, plan)) = self.exts.confirm.take() else { return };
+        let k = (m.id.clone(), a.id.clone());
+        self.exts.running.insert(k.clone());
+        cx.notify();
+        let home = pitwall_core::paths::home();
+        let job = cx.background_executor().spawn(async move {
+            let out = actions::run(&plan, &home, actions::STEP_TIMEOUT);
+            plan.iter().map(Planned::line).zip(out).collect::<Vec<_>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let results = job.await;
+            let _ = this.update(cx, |v, cx| {
+                v.exts.running.remove(&k);
+                v.exts.results.insert(k, results);
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn url_input(&mut self, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Entity<TextInput> {
