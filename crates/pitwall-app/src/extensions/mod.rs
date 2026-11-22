@@ -2,8 +2,9 @@
 //! `<data>/extensions/` ([`pitwall_core::extensions`]), read when Pitwall
 //! starts and again from Settings → General → Extensions ("Look again").
 //! One that is on (`ui.json` `extensions.<id>.enabled`, off until the user
-//! turns it on) gets a section of the sidebar of its own, shaped like a
-//! project's, and its adapter is run ([`hub`]) while it is on.
+//! turns it on) has its adapter run ([`hub`]) while it is on; its threads
+//! show in its inbox tile (`main_screen::inbox_tile`), and an agent's open
+//! asks as a badge on the agent's row ([`asks_for`]).
 
 pub mod actions;
 pub mod adapter;
@@ -161,6 +162,15 @@ pub fn follow(cx: &mut App) {
             e.set_extension_env(env_sources(cx));
         }
     };
+    // A new ask: the notification an agent needing the user gets.
+    let watched = hub::hub(cx);
+    cx.subscribe(&watched, |_, e: &hub::HubEvent, cx| {
+        let hub::HubEvent::NewAsk { ext, thread } = e;
+        let name = found(cx).iter().filter_map(|f| f.manifest.as_ref().ok()).find(|m| m.id == *ext).map(|m| m.name.clone()).unwrap_or_default();
+        let who = thread.from.as_ref().map_or(name.clone(), |f| f.agent.clone());
+        crate::platform::notify_attention(who, format!("Asks you — {}", thread.title), cx);
+    })
+    .detach();
     let c = std::rc::Rc::new(changed);
     cx.observe(&ui, {
         let c = c.clone();
@@ -173,6 +183,51 @@ pub fn follow(cx: &mut App) {
     })
     .detach();
     c(cx);
+}
+
+/// Whether the thread from `from` is agent `a`'s, by `m`'s `matchAgents`.
+pub fn is_agents(m: &Manifest, a: &pitwall_proto::AgentView, from: &pitwall_core::extensions::protocol::From) -> bool {
+    let Some(rule) = &m.match_agents else { return false };
+    let f = pitwall_core::extensions::Facts { project: &a.project, agent: &a.name, agent_id: &a.id, settings: None };
+    let expand = |t: &str| pitwall_core::extensions::expand(t, &f);
+    expand(&rule.agent).as_deref() == Some(from.agent.as_str()) && expand(&rule.session).as_deref() == Some(from.session.as_str())
+}
+
+/// The Pitwall agent a thread from `from` is from.
+pub fn agent_of<'a>(m: &Manifest, agents: &'a [pitwall_proto::AgentView], from: &pitwall_core::extensions::protocol::From) -> Option<&'a pitwall_proto::AgentView> {
+    agents.iter().find(|a| is_agents(m, a, from))
+}
+
+/// An agent's open asks in an extension: how many, whether one blocks it,
+/// and the thread with the oldest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentAsks {
+    pub ext: String,
+    pub name: String,
+    pub thread: String,
+    pub asks: u32,
+    pub blocking: bool,
+}
+
+/// Agent `a`'s open asks in the first extension that is on and has some.
+pub fn asks_for(a: &pitwall_proto::AgentView, cx: &App) -> Option<AgentAsks> {
+    let hub = hub::try_hub(cx)?;
+    let hub = hub.read(cx);
+    let ui = crate::ui_state::get(cx);
+    enabled(&found(cx), &ui).into_iter().find_map(|m| {
+        let st = hub.get(&m.id)?;
+        if st.run != hub::Run::Running {
+            return None;
+        }
+        let mine: Vec<_> = st.threads.iter().filter(|t| t.open_asks > 0 && t.from.as_ref().is_some_and(|f| is_agents(&m, a, f))).collect();
+        let oldest = mine.iter().min_by(|x, y| x.last_activity.cmp(&y.last_activity))?;
+        Some(AgentAsks { ext: m.id.clone(), name: m.name.clone(), thread: oldest.id.clone(), asks: mine.iter().map(|t| t.open_asks).sum(), blocking: mine.iter().any(|t| t.blocking) })
+    })
+}
+
+/// The extensions that are on and have an adapter: those with an inbox.
+pub fn inboxes(cx: &App) -> Vec<Manifest> {
+    enabled(&found(cx), &crate::ui_state::get(cx)).into_iter().filter(|m| m.adapter.is_some()).collect()
 }
 
 /// Pitwall quits: every adapter is killed.

@@ -52,6 +52,7 @@ mod tests {
             agent_id: Some(agent.into()),
             files: None,
             web: None,
+            inbox: None,
         }
     }
 
@@ -81,6 +82,7 @@ mod tests {
             agent_id: None,
             files: None,
             web: None,
+            inbox: None,
         };
         assert!(auto_fonts(&empty, (800., 600.), Density::Dense, 13.).is_empty());
     }

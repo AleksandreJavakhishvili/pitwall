@@ -120,8 +120,11 @@ Then in Pitwall, Settings → General → Extensions:
    the adapter when it starts, never to agents.
 
 The adapter's state shows there (connecting, connected, signed out, or why
-it stopped, with Restart). Open the inbox from the Layout menu or the
-command palette ("Open inbox").
+it stopped, with Restart). Open the inbox with ⌘I (Ctrl+Shift+I on
+Windows and Linux) or "Open Agention inbox" in the command palette: a
+tile of your layout, with your agents' questions first. An agent with an
+open question also gets a small badge on its sidebar row; a click opens
+the inbox there.
 
 ## When something is wrong
 

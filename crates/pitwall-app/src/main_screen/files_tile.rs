@@ -167,12 +167,14 @@ impl MainScreen {
         let (noun, verb) = match what {
             Content::Files(_) => ("Files", ""),
             Content::Web(_) => ("Web page", "s"),
+            Content::Inbox(_) => ("Inbox", "es"),
         };
         // In a tile's place: what leaves it, said plainly.
         if let FilesSpot::Replace(pane) = spot {
             match self.ui.space(space).and_then(|sp| sp.layout.find_pane(pane)) {
                 Some(p) if p.files.is_some() => return format!("{noun} swap{verb} places with {}'s files", name(p.files.as_deref().unwrap_or_default())),
                 Some(p) if p.web.is_some() => return format!("{noun} swap{verb} places with the web page"),
+                Some(p) if p.inbox.is_some() => return format!("{noun} swap{verb} places with the inbox"),
                 Some(p) if p.agent_id.is_some() => return format!("{noun} replace{verb} {}'s terminal (it keeps running)", name(p.agent_id.as_deref().unwrap_or_default())),
                 _ => {}
             }

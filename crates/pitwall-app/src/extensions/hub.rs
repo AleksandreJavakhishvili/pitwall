@@ -7,7 +7,8 @@
 //!
 //! An adapter that stops, crashes or floods stays stopped with its reason
 //! shown ([`Run::Stopped`]) until the user restarts it from Settings or its
-//! sidebar section.
+//! inbox tile. A thread with an ask it didn't have is told to watchers
+//! ([`HubEvent::NewAsk`]: the notification an agent that needs you gets).
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -58,6 +59,8 @@ pub struct ExtState {
     /// Which start this state is of (events of older ones are dropped).
     gen: u64,
     fingerprint: Option<u64>,
+    /// A list arrived since it started (the first one is no news).
+    listed: bool,
     hello: bool,
     /// Views open per thread.
     open: HashMap<String, usize>,
@@ -81,6 +84,27 @@ impl ExtState {
         }
     }
 
+    /// What there is to draw, copied out.
+    pub fn snapshot(&self) -> ExtState {
+        ExtState {
+            run: self.run.clone(),
+            conn: self.conn.clone(),
+            threads: self.threads.clone(),
+            totals: self.totals,
+            details: self.details.clone(),
+            notes: self.notes.clone(),
+            busy: self.busy.clone(),
+            listed: self.listed,
+            done: self.done.clone(),
+            ..Default::default()
+        }
+    }
+
+    /// A list arrived since it started (else it is still loading).
+    pub fn listed(&self) -> bool {
+        self.listed
+    }
+
     /// How request `req` went (`None`: not yet, or long ago).
     pub fn result(&self, req: u64) -> Option<bool> {
         self.done.iter().find(|(r, _)| *r == req).map(|(_, ok)| *ok)
@@ -94,6 +118,23 @@ pub enum Request {
     Message { text: String },
     MarkRead,
     Archive,
+}
+
+/// What the hub tells its watchers.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HubEvent {
+    /// A thread has an ask it didn't have (not on the first list).
+    NewAsk { ext: String, thread: Thread },
+}
+
+impl gpui::EventEmitter<HubEvent> for Hub {}
+
+/// The threads of `next` with more open asks than in `prev`.
+pub fn new_asks(prev: &[Thread], next: &[Thread]) -> Vec<Thread> {
+    next.iter()
+        .filter(|t| t.open_asks > prev.iter().find(|p| p.id == t.id).map_or(0, |p| p.open_asks))
+        .cloned()
+        .collect()
 }
 
 pub struct Hub {
@@ -256,6 +297,7 @@ impl Hub {
         st.run = Run::Starting;
         st.gen = gen;
         st.threads.clear();
+        st.listed = false;
         st.totals = None;
         st.details.clear();
         st.notes.clear();
@@ -372,7 +414,14 @@ impl Hub {
             // Nothing before its hello counts.
             Event::Msg(_) if !st.hello => {}
             Event::Msg(FromAdapter::Status { state, message }) => st.conn = Some((state, message)),
-            Event::Msg(FromAdapter::Threads(list)) => st.threads = list,
+            Event::Msg(FromAdapter::Threads(list)) => {
+                let news: Vec<Thread> = if st.listed { new_asks(&st.threads, &list) } else { Vec::new() };
+                st.listed = true;
+                st.threads = list;
+                for t in news {
+                    cx.emit(HubEvent::NewAsk { ext: id.to_string(), thread: t });
+                }
+            }
             Event::Msg(FromAdapter::Counts(c)) => st.totals = Some(c),
             Event::Msg(FromAdapter::Thread(d)) => {
                 if st.open.contains_key(&d.id) {
@@ -464,6 +513,15 @@ impl Hub {
         st.notes.remove(thread);
         cx.notify();
         Ok(req)
+    }
+
+    /// Why something on `thread` didn't go (shown in it until the next
+    /// request on it).
+    pub fn set_note(&mut self, id: &str, thread: &str, why: String, cx: &mut Context<Self>) {
+        if let Some(st) = self.exts.get_mut(id) {
+            st.notes.insert(thread.to_string(), why);
+            cx.notify();
+        }
     }
 
     /// Ask for the list again.
@@ -616,6 +674,17 @@ mod tests {
         // Off: stopped.
         cx.update(|cx| crate::ui_state::update(cx, |u| *u = std::mem::take(u).set_extension("inbox", false)));
         assert_eq!(run(&h, cx), Run::Off);
+    }
+
+    /// A thread with more open asks than before is news; the same or fewer
+    /// isn't (the first list never is: `listed`).
+    #[test]
+    fn new_asks_are_those_not_there_before() {
+        let t = |id: &str, n: u32| Thread { id: id.into(), title: String::new(), from: None, unread: 0, open_asks: n, blocking: false, last_activity: String::new() };
+        let prev = vec![t("a", 1), t("b", 0)];
+        let next = vec![t("a", 1), t("b", 2), t("c", 1), t("d", 0)];
+        let ids: Vec<String> = new_asks(&prev, &next).into_iter().map(|t| t.id).collect();
+        assert_eq!(ids, ["b", "c"]);
     }
 
     /// No hello within the time: stopped with why.

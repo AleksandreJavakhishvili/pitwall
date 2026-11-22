@@ -2,7 +2,9 @@
 //! panes, each showing at most one agent (a port of `src/layout/tree.ts`),
 //! or an agent's files (a files tile: `files`, the agent whose file viewer
 //! it shows; one per agent across every space), or a web page (a web tile:
-//! `web`, the tile's id in `ui.json` `webTiles`, which holds its address).
+//! `web`, the tile's id in `ui.json` `webTiles`, which holds its address),
+//! or an extension's inbox (an inbox tile: `inbox`, the extension's id; one
+//! per extension).
 //! Every function returns a new tree; inputs are never changed. The JSON
 //! shape is the one `ui.json` stores, so both apps read each other's layouts.
 
@@ -44,6 +46,9 @@ pub enum Node {
         /// A web tile: its id (`UiState::web_tiles` has its page).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         web: Option<String>,
+        /// An inbox tile: its extension's id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        inbox: Option<String>,
     },
     Split {
         id: String,
@@ -63,19 +68,22 @@ pub struct Pane {
     pub files: Option<String>,
     /// A web tile: its id.
     pub web: Option<String>,
+    /// An inbox tile: its extension's id.
+    pub inbox: Option<String>,
 }
 
 impl Pane {
     /// Shows nothing (an agent can go there).
     pub fn is_empty(&self) -> bool {
-        self.agent_id.is_none() && self.files.is_none() && self.web.is_none()
+        self.agent_id.is_none() && self.files.is_none() && self.web.is_none() && self.inbox.is_none()
     }
 
     /// What a tile that isn't a terminal shows (a files or web tile).
     pub fn content(&self) -> Option<Content> {
-        match (&self.files, &self.web) {
-            (Some(o), _) => Some(Content::Files(o.clone())),
-            (None, Some(w)) => Some(Content::Web(w.clone())),
+        match (&self.files, &self.web, &self.inbox) {
+            (Some(o), _, _) => Some(Content::Files(o.clone())),
+            (None, Some(w), _) => Some(Content::Web(w.clone())),
+            (None, None, Some(x)) => Some(Content::Inbox(x.clone())),
             _ => None,
         }
     }
@@ -88,6 +96,8 @@ impl Pane {
 pub enum Content {
     Files(String),
     Web(String),
+    /// An extension's inbox (its id).
+    Inbox(String),
 }
 
 /// Fixed tilings ("3" is 1 big + 2 stacked; "CxR" is C columns × R rows) and
@@ -211,6 +221,7 @@ impl Node {
             agent_id,
             files: None,
             web: None,
+            inbox: None,
         }
     }
 
@@ -221,18 +232,19 @@ impl Node {
 
     /// A tile showing `c`.
     pub fn content_pane(c: &Content) -> Node {
-        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None }.showing(c)
+        Node::Pane { id: new_id("pane"), agent_id: None, files: None, web: None, inbox: None }.showing(c)
     }
 
     /// This pane showing `c` instead (its id kept); a split is unchanged.
     pub fn showing(self, c: &Content) -> Node {
         match self {
             Node::Pane { id, .. } => {
-                let (files, web) = match c {
-                    Content::Files(o) => (Some(o.clone()), None),
-                    Content::Web(w) => (None, Some(w.clone())),
+                let (files, web, inbox) = match c {
+                    Content::Files(o) => (Some(o.clone()), None, None),
+                    Content::Web(w) => (None, Some(w.clone()), None),
+                    Content::Inbox(x) => (None, None, Some(x.clone())),
                 };
-                Node::Pane { id, agent_id: None, files, web }
+                Node::Pane { id, agent_id: None, files, web, inbox }
             }
             n => n,
         }
@@ -278,11 +290,12 @@ impl Node {
 
     fn collect(&self, out: &mut Vec<Pane>) {
         match self {
-            Node::Pane { id, agent_id, files, web } => out.push(Pane {
+            Node::Pane { id, agent_id, files, web, inbox } => out.push(Pane {
                 id: id.clone(),
                 agent_id: agent_id.clone(),
                 files: files.clone(),
                 web: web.clone(),
+                inbox: inbox.clone(),
             }),
             Node::Split { children, .. } => children.iter().for_each(|c| c.collect(out)),
         }
@@ -319,13 +332,14 @@ impl Node {
 
     fn map_panes(&self, f: &mut impl FnMut(&str, &Option<String>) -> Option<String>) -> Node {
         match self {
-            Node::Pane { id, agent_id, files, web } => {
+            Node::Pane { id, agent_id, files, web, inbox } => {
                 let agent_id = f(id, agent_id);
-                // An agent put in a files or web tile takes it.
+                // An agent put in a files, web or inbox tile takes it.
                 let taken = agent_id.is_some();
                 let files = if taken { None } else { files.clone() };
                 let web = if taken { None } else { web.clone() };
-                Node::Pane { id: id.clone(), agent_id, files, web }
+                let inbox = if taken { None } else { inbox.clone() };
+                Node::Pane { id: id.clone(), agent_id, files, web, inbox }
             }
             Node::Split {
                 id,

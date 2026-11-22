@@ -455,6 +455,7 @@ impl MainScreen {
         match node {
             Node::Pane { id, files: Some(owner), .. } => self.render_files_pane(id, owner, t, window, cx),
             Node::Pane { id, web: Some(web), .. } => self.render_web_pane(id, web, t, window, cx),
+            Node::Pane { id, inbox: Some(ext), .. } => self.render_inbox_pane(id, ext, t, window, cx),
             Node::Pane { id, agent_id, .. } => {
                 let agent = agent_id
                     .as_ref()

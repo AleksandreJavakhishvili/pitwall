@@ -140,6 +140,19 @@ pub fn follow(store: &Entity<AgentStore>, cx: &mut App) {
     .detach();
 }
 
+/// Notify as for an agent that needs the user (the same rule: not while
+/// Pitwall's window has the user's attention, never from a bench
+/// instance): an extension's agent asked something.
+pub fn notify_attention(title: String, body: String, cx: &App) {
+    // Tests never show one.
+    if cfg!(test) {
+        return;
+    }
+    if notify::wanted(pitwall_in_front(cx), notify::bench()) {
+        notify::send(title, body);
+    }
+}
+
 /// The user is looking at Pitwall: its main window is the active one
 /// (Tauri `attention.rs`: main visible and focused).
 fn pitwall_in_front(cx: &App) -> bool {

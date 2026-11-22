@@ -18,6 +18,7 @@
 //! terminal element, and [`ScreenEvent`]s (palette, move to window, …).
 
 mod files_tile;
+pub mod inbox_tile;
 mod commands;
 #[doc(hidden)]
 pub mod demo;
@@ -101,6 +102,8 @@ actions!(
         MoveSpaceToWindow,
         /// ⌘L: a web page in a tile of its own (in a web tile: its address).
         OpenWebPage,
+        /// ⌘I: an extension's inbox in a tile (focused when it is open).
+        OpenInbox,
         /// ⌘+ / ⌘− / ⌘0: the focused tile's font (Settings' when no tile).
         FontBigger,
         FontSmaller,
@@ -310,6 +313,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(s!("r"), RefreshChanges, None),
         KeyBinding::new(s!("n"), MoveSpaceToWindow, None),
         KeyBinding::new(p!("l"), OpenWebPage, None),
+        KeyBinding::new(p!("i"), OpenInbox, None),
         KeyBinding::new(p!("enter"), ToggleMaximize, None),
         KeyBinding::new(p!("="), FontBigger, None),
         KeyBinding::new(p!("+"), FontBigger, None),
@@ -537,6 +541,8 @@ pub struct MainScreen {
     parts: Option<part::Parts>,
     /// The window's web tiles: pages and agents' Previews (web_tile.rs).
     webs: web_tile::Webs,
+    /// The window's inbox tiles, by extension (inbox_tile.rs).
+    inboxes: std::collections::HashMap<String, Entity<inbox_tile::InboxView>>,
     /// Where dragged files would land (`files_tile.rs`), and the boxes
     /// the last frame drew (to find it).
     files_hint: Option<files_tile::FilesHint>,
@@ -564,6 +570,7 @@ impl MainScreen {
         window.focus(&focus, cx);
         let wt_list = wt_list::WorktreeList::of(window, cx);
         let accounts = crate::accounts::model(cx);
+        let ext_hub = crate::extensions::hub::hub(cx);
         let subs = vec![
             // Any change of the screen: the sidebar's rows are made again
             // (a scroll step of its list alone keeps them).
@@ -595,6 +602,8 @@ impl MainScreen {
             }),
             // Accounts renamed, added or removed: the badges and menus.
             cx.observe(&accounts, |_, _, cx| cx.notify()),
+            // Extensions' threads: the ask badges on agents' rows.
+            cx.observe(&ext_hub, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 // Leaving the window cancels a drag and closes a popup menu
                 // (`dnd.ts` and `Menu.tsx` listen for `blur`). Not when the
@@ -681,6 +690,7 @@ impl MainScreen {
             _poll_elsewhere: None,
             parts: None,
             webs: Default::default(),
+            inboxes: Default::default(),
             files_hint: None,
             files_boxes: Default::default(),
             #[cfg(test)]
@@ -2131,6 +2141,7 @@ impl Render for MainScreen {
             .on_action(cx.listener(|this, _: &FontSmaller, _, cx| this.step_font(Some(-1.), cx)))
             .on_action(cx.listener(|this, _: &FontReset, _, cx| this.step_font(None, cx)))
             .on_action(cx.listener(|this, _: &OpenWebPage, window, cx| this.open_web_page(window, cx)))
+            .on_action(cx.listener(|this, _: &OpenInbox, window, cx| this.open_inbox(None, None, window, cx)))
             .on_action(cx.listener(|this, _: &MoveSpaceToWindow, _, cx| {
                 if let Some(id) = this.active_space().map(|s| s.id.clone()) {
                     this.move_space(id, cx);
@@ -2189,6 +2200,8 @@ pub fn window_label() -> SharedString {
 mod tests;
 #[cfg(test)]
 mod web_tests;
+#[cfg(test)]
+mod inbox_tests;
 #[cfg(test)]
 mod side_edge_tests;
 

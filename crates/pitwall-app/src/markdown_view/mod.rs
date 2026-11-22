@@ -101,6 +101,9 @@ pub struct MarkdownView {
     menu_focus: FocusHandle,
     generation: u64,
     _load: Option<Task<()>>,
+    /// Drawn in the flow of something else (a message): as tall as its
+    /// text, no scrolling or padding of its own.
+    inline: bool,
 }
 
 impl Focusable for MarkdownView {
@@ -125,7 +128,15 @@ impl MarkdownView {
             menu_focus: cx.focus_handle(),
             generation: 0,
             _load: None,
+            inline: false,
         }
+    }
+
+    /// As tall as its text, in the flow of something else (a message in an
+    /// inbox): no scrolling, no padding of its own.
+    pub fn inline(mut self) -> Self {
+        self.inline = true;
+        self
     }
 
     /// Show `text` of `path`, marking what `hunks` changed (lines of the
@@ -374,6 +385,11 @@ impl Render for MarkdownView {
         let t = theme(cx).clone();
         let Some(doc) = self.doc.clone() else {
             self.pieces.clear();
+            if self.inline {
+                // Its text as it is until it is read (a moment): no jump.
+                let text = self.src.as_ref().map(|s| s.text.to_string()).unwrap_or_default();
+                return div().w_full().text_size(px(BODY_SIZE)).line_height(relative(1.6)).text_color(t.text).child(text).into_any_element();
+            }
             return div()
                 .size_full()
                 .child(kit::hint("Loading…", &t).p(px(16.)))
@@ -435,11 +451,11 @@ impl Render for MarkdownView {
         // measured at the column's width (a centring flex row measured it
         // unwrapped, so the column came out shorter than its text: the end
         // was cut off and long files barely scrolled).
+        let inline = self.inline;
         let body = div()
             .id("md-body")
-            .track_scroll(&self.scroll)
-            .size_full()
-            .overflow_y_scroll()
+            .when(!inline, |d| d.track_scroll(&self.scroll).size_full().overflow_y_scroll())
+            .when(inline, |d| d.w_full())
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_down(
                 MouseButton::Right,
@@ -452,12 +468,10 @@ impl Render for MarkdownView {
             .child(
                 div()
                     .w_full()
-                    .px(px(PAD_X))
-                    .pt(px(20.))
-                    .pb(px(48.))
+                    .when(!inline, |d| d.px(px(PAD_X)).pt(px(20.)).pb(px(48.)))
                     .flex()
                     .flex_col()
-                    .gap(px(14.))
+                    .gap(px(if inline { 8. } else { 14. }))
                     .debug_selector(|| "md-col".into())
                     .font_family(UI_FONT)
                     .text_size(px(BODY_SIZE))
@@ -494,7 +508,8 @@ impl Render for MarkdownView {
         .absolute()
         .size_0();
         let menu = self.menu.map(|at| self.menu(at, &t, window, cx));
-        kit::vscroll_fill("md-bar", &self.scroll, &t, body)
+        let frame = if inline { div().relative().w_full().child(body) } else { kit::vscroll_fill("md-bar", &self.scroll, &t, body) };
+        frame
             .id("md-preview")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
@@ -512,7 +527,7 @@ impl Render for MarkdownView {
                     cx.notify();
                 }
             }))
-            .size_full()
+            .when(!inline, |d| d.size_full())
             .debug_selector(|| "md-preview".into())
             .child(drag)
             .children(menu)
