@@ -564,7 +564,7 @@ mod tests {
         cx.update(|cx| {
             crate::ui_state::store(cx);
             let r = runs(cx);
-            r.update(cx, |r, cx| r.start(("x", "setup"), plan, cwd, Duration::from_secs(10), |st, cx| crate::settings::extensions::record_run("x", "setup", st, cx), cx));
+            r.update(cx, |r, cx| r.start(("x", "setup"), plan, cwd, Duration::from_secs(10), |st, cx| crate::settings::extensions::record_run(&pitwall_core::extensions::Manifest::named("x", "X"), "setup", None, st, cx), cx));
             let st = runs(cx).read(cx).get("x", "setup").expect("listed at once");
             assert_eq!(st.steps.len(), 2);
             assert!(runs(cx).read(cx).running("x", "setup"));

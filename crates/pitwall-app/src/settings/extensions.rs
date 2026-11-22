@@ -8,6 +8,14 @@
 //! action shows its steps live while it runs. "What this extension does on
 //! your computer" says what it runs and sets, folded. Available: the
 //! extensions Pitwall ships that aren't installed, each with Install.
+//!
+//! **Connections** (docs/spec/profiles.md): an extension with settings
+//! can have several, each its own settings, secrets and setup actions.
+//! With one, the card looks as it always did (the checklist is that
+//! connection's); "Add connection" in the footer names another. With two
+//! or more, a row of tabs over the checklist picks which one it shows,
+//! each with its state as a dot and the default marked; Rename, Make
+//! default and Remove are beside them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,8 +30,10 @@ use super::widgets::Ui;
 use crate::extensions::actions::{self, Outcome, Planned, RunState, StepState};
 use crate::extensions::catalog::{self, Shipped};
 use crate::extensions::hub::{self, Run};
+use crate::extensions::connections;
 use crate::kit::{BtnKind, InputEvent, TextInput, Tone};
 use crate::main_screen::workspace::ExtensionPrefs;
+use pitwall_core::accounts::Account;
 
 /// The page's own state.
 #[derive(Default)]
@@ -53,6 +63,16 @@ pub struct Section {
     open: HashMap<String, bool>,
     /// "What this extension does on your computer" unfolded.
     disclosed: HashSet<String>,
+    /// The connection each card shows (else its default, else its first).
+    conn: HashMap<String, String>,
+    /// A connection being named: (extension, the connection renamed or
+    /// `None` for a new one, its field).
+    naming: Option<(String, Option<String>, Entity<TextInput>)>,
+    /// Why naming failed.
+    naming_note: Option<String>,
+    /// Removing a connection asked to confirm: (extension, connection,
+    /// the one to make the default when it is the default).
+    remove_conn: Option<(String, String, Option<String>)>,
     _subs: Vec<Subscription>,
 }
 
@@ -132,18 +152,21 @@ pub fn checklist(m: &Manifest, prefs: &ExtensionPrefs, connected: bool) -> Vec<(
     out
 }
 
-/// A finished run of `ext`'s `action`, kept: one where a step ran and
-/// none failed ticks its checklist step; any other unticks it.
-pub fn record_run(ext: &str, action: &str, st: &RunState, cx: &mut gpui::App) {
+/// A finished run of `m`'s `action` (for connection `conn`), kept: one
+/// where a step ran and none failed ticks its checklist step; any other
+/// unticks it. One that uses a setting is kept for its connection.
+pub fn record_run(m: &Manifest, action: &str, conn: Option<&str>, st: &RunState, cx: &mut gpui::App) {
     let ok = !st.failed() && !st.cancelled && st.steps.iter().any(|(_, s)| matches!(s, StepState::Ended(Outcome::Done)));
-    crate::ui_state::update(cx, |ui| {
-        *ui = std::mem::take(ui).with_extension(ext, |e| {
-            e.actions_done.retain(|x| x != action);
-            if ok {
-                e.actions_done.push(action.to_string());
-            }
-        });
-    });
+    connections::record_action(m, action, conn, ok, cx);
+}
+
+/// What a run of `a` is kept under: per connection when it uses a
+/// setting (`<action>@<connection>`), else the action's id.
+pub fn run_key(a: &Action, conn: Option<&Account>) -> String {
+    match conn {
+        Some(c) if connections::uses_setting(a) => format!("{}@{}", a.id, c.id),
+        _ => a.id.clone(),
+    }
 }
 
 /// Where the system keeps secrets, in the user's words.
@@ -283,14 +306,19 @@ impl SettingsView {
     /// The status pill: Off, Needs setup, Connecting, Connected, Signed
     /// out, Stopped, Error (or On, without an adapter); its tone; the
     /// adapter's word on why.
-    fn status_of(m: &Manifest, prefs: &ExtensionPrefs, cx: &mut Context<Self>) -> (&'static str, Tone, String, bool) {
+    fn status_of(m: &Manifest, c: Option<&Account>, cx: &mut Context<Self>) -> (&'static str, Tone, String, bool) {
         let h = hub::hub(cx);
-        let (run, conn) = h.read(cx).get(&m.id).map(|s| (s.run.clone(), s.conn.clone())).unwrap_or_default();
+        let state = match c {
+            Some(c) => h.read(cx).connection(&m.id, &c.id),
+            None => h.read(cx).get(&m.id),
+        };
+        let (run, conn) = state.map(|s| (s.run.clone(), s.conn.clone())).unwrap_or_default();
         let connected = run == Run::Running && matches!(conn, Some((ConnState::Ready, _)));
+        let prefs = connections::prefs_for(m, c, cx);
         if !prefs.enabled {
             return ("Off", Tone::Plain, String::new(), connected);
         }
-        let list = checklist(m, prefs, connected);
+        let list = checklist(m, &prefs, connected);
         let missing = list.iter().any(|(s, done)| !done && *s != Step::Connected);
         let (word, tone, why) = run_text(&run, conn.as_ref());
         if missing {
@@ -331,10 +359,15 @@ impl SettingsView {
             }
         };
         let (shipped, local) = self.shipped_now(cx);
-        let prefs = crate::extensions::connections::prefs(&m.id, cx);
-        let on = prefs.enabled;
-        let (word, tone, why, connected) = Self::status_of(&m, &prefs, cx);
-        let open = self.exts.open.get(&m.id).copied().unwrap_or(on || word == "Needs setup");
+        let on = crate::ui_state::get(cx).extension_on(&m.id);
+        let conns = if m.settings.is_empty() { vec![] } else { connections::list(&m.id, cx) };
+        let chosen = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
+        // The pill: that connection's, or with several the extension's as
+        // a whole (the best of them; needs setup while none is set up).
+        let (word, tone, why, connected) = Self::status_of(&m, chosen.as_ref(), cx);
+        let needs_setup = if conns.len() > 1 { conns.iter().all(|c| Self::status_of(&m, Some(c), cx).0 == "Needs setup") } else { word == "Needs setup" };
+        let (pill, tone): (SharedString, Tone) = if conns.len() > 1 && on { Self::overall(&m, &conns, cx) } else { (word.into(), tone) };
+        let open = self.exts.open.get(&m.id).copied().unwrap_or(on || needs_setup);
         let (icon, text) = Self::ext_title(ui, &m, &f.folder);
         let id = m.id.clone();
         let switch = crate::kit::toggle(SharedString::from(format!("extension-switch-{}", m.id)), on, &ui.t).tooltip(crate::kit::tooltip(if on { "Turn off" } else { "Turn on" })).on_click(cx.listener(move |v, _, _, cx| {
@@ -364,7 +397,7 @@ impl SettingsView {
             .child(icon)
             .child(text)
             // A fixed width: the row doesn't move as the state changes.
-            .child(div().w(px(96.)).flex().justify_end().mt(px(2.)).child(crate::kit::chip_tone(word, tone, &ui.t)))
+            .child(div().w(px(110.)).flex().justify_end().mt(px(2.)).child(crate::kit::chip_tone(pill, tone, &ui.t)))
             .child(div().mt(px(4.)).child(switch))
             .child(div().mt(px(1.)).child(chevron));
         let mut card = Self::card(ui, format!("extension-card-{}", m.id)).child(top);
@@ -372,12 +405,19 @@ impl SettingsView {
         card = card.children(self.installed_notes(ui, &m, shipped.iter().find(|s| s.offer.manifest.id == m.id), changed, cx));
         if open {
             if on {
-                card = card.child(self.checklist_view(ui, &m, &prefs, connected, &why, cx));
+                let new_here = self.exts.naming.as_ref().is_some_and(|(e, c, _)| *e == m.id && c.is_none());
+                if conns.len() > 1 || new_here {
+                    card = card.child(self.conn_bar(ui, &m, &conns, chosen.as_ref(), cx));
+                }
+                if let Some(ask) = self.remove_conn_card(ui, &m, &conns, cx) {
+                    card = card.child(ask);
+                }
+                card = card.child(self.checklist_view(ui, &m, chosen.as_ref(), connected, &why, cx));
                 let more: Vec<&Action> = m.actions.iter().filter(|a| !a.setup).collect();
                 if !more.is_empty() {
                     let mut other = div().flex().flex_col().gap(px(10.)).pt(px(10.)).border_t_1().border_color(ui.t.line).child(crate::kit::label("More", ui.t.text_3, 11.));
                     for a in more {
-                        other = other.child(self.action_block(ui, &m, a, None, cx));
+                        other = other.child(self.action_block(ui, &m, a, chosen.as_ref(), None, cx));
                     }
                     card = card.child(other);
                 }
@@ -387,6 +427,255 @@ impl SettingsView {
             card = card.child(self.card_footer(ui, &m, &f.folder, cx));
         }
         div().child(card)
+    }
+
+    /// With several connections, the extension's pill: Connected when all
+    /// are, "1 of 2 connected" when some are, else the first one's state.
+    fn overall(m: &Manifest, conns: &[Account], cx: &mut Context<Self>) -> (SharedString, Tone) {
+        let states: Vec<(&'static str, Tone)> = conns.iter().map(|c| {
+            let (w, t, _, _) = Self::status_of(m, Some(c), cx);
+            (w, t)
+        }).collect();
+        let up = states.iter().filter(|(w, _)| *w == "Connected" || *w == "On").count();
+        if up == states.len() {
+            return (states[0].0.into(), Tone::Ok);
+        }
+        if up > 0 {
+            return (format!("{up} of {} connected", states.len()).into(), Tone::Warn);
+        }
+        if states.iter().all(|(w, _)| *w == "Needs setup") {
+            return ("Needs setup".into(), Tone::Warn);
+        }
+        if states.iter().any(|(w, _)| *w == "Connecting") {
+            return ("Connecting".into(), Tone::Subtle);
+        }
+        let (w, t) = states.iter().find(|(w, _)| *w != "Needs setup").copied().unwrap_or(states[0]);
+        (w.into(), t)
+    }
+
+    /// The dot of a connection's tab: green connected, amber when it needs
+    /// the user, grey otherwise.
+    fn dot(tone: Tone, ui: &Ui) -> Div {
+        let color = match tone {
+            Tone::Ok => ui.t.green,
+            Tone::Warn => ui.t.amber,
+            _ => ui.t.text_4,
+        };
+        div().flex_none().size(px(7.)).rounded_full().bg(color)
+    }
+
+    /// The connections of a card with two or more (or one being added):
+    /// a tab each (its state as a dot, the default marked), the one shown
+    /// picked; beside them Rename, Make default and Remove for it. A
+    /// connection being named shows its field in place.
+    fn conn_bar(&mut self, ui: &Ui, m: &Manifest, conns: &[Account], chosen: Option<&Account>, cx: &mut Context<Self>) -> Div {
+        let default = connections::default_id(&m.id, cx);
+        let list = crate::accounts::list(cx).cloned();
+        let naming = self.exts.naming.as_ref().filter(|(e, _, _)| *e == m.id).map(|(_, c, i)| (c.clone(), i.clone()));
+        let mut tabs = div().flex().flex_wrap().items_center().gap(px(6.));
+        for c in conns {
+            if let Some((Some(r), input)) = &naming {
+                if *r == c.id {
+                    tabs = tabs.child(div().w(px(180.)).child(input.clone()));
+                    continue;
+                }
+            }
+            let on = chosen.is_some_and(|x| x.id == c.id);
+            let (word, tone, why, _) = Self::status_of(m, Some(c), cx);
+            let profiles = list.as_ref().map(|l| l.profiles_of(&c.id)).unwrap_or_default();
+            let mut tip = word.to_string();
+            if !why.is_empty() {
+                tip = format!("{tip}: {why}");
+            }
+            if default.as_deref() == Some(&c.id) {
+                tip.push_str(". The default: projects that don't pick a connection use it");
+            }
+            if !profiles.is_empty() {
+                tip.push_str(&format!(". Profile {} uses it", profiles.join(", ")));
+            }
+            let (ext, id) = (m.id.clone(), c.id.clone());
+            let mut tab = div()
+                .id(SharedString::from(format!("extension-conn-{}", c.id)))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .h(px(26.))
+                .px(px(10.))
+                .rounded(px(6.))
+                .border_1()
+                .cursor_pointer()
+                .text_size(px(12.))
+                .tooltip(crate::kit::tooltip(tip))
+                .child(Self::dot(tone, ui))
+                .child(c.name.clone());
+            tab = if on { tab.bg(ui.t.surface_3).border_color(ui.t.line_strong).text_color(ui.t.text).font_weight(crate::kit::WEIGHT_550) } else { tab.border_color(ui.t.line).text_color(ui.t.text_2).hover(|d| d.bg(ui.t.surface_2)) };
+            if default.as_deref() == Some(&c.id) && conns.len() > 1 {
+                tab = tab.child(div().text_size(px(11.)).text_color(ui.t.text_3).font_weight(FontWeight::NORMAL).child("default"));
+            }
+            tabs = tabs.child(tab.on_click(cx.listener(move |v, _, _, cx| {
+                v.exts.conn.insert(ext.clone(), id.clone());
+                v.exts.remove_conn = None;
+                cx.notify();
+            })));
+        }
+        if let Some((None, input)) = &naming {
+            tabs = tabs.child(div().w(px(180.)).child(input.clone()));
+        }
+        let mut row = div().flex().flex_wrap().items_center().gap(px(8.)).child(tabs).child(div().flex_1());
+        if naming.is_some() {
+            let ext = m.id.clone();
+            row = row
+                .child(crate::kit::text_button(SharedString::from(format!("extension-conn-name-cancel-{}", m.id)), "Cancel", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
+                    v.exts.naming = None;
+                    v.exts.naming_note = None;
+                    cx.notify();
+                })))
+                .child(crate::kit::text_button(SharedString::from(format!("extension-conn-name-ok-{}", m.id)), "Save", BtnKind::Small, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.finish_naming(&ext, cx))));
+        } else if let Some(c) = chosen.filter(|_| conns.len() > 1) {
+            let (ext, id) = (m.id.clone(), c.id.clone());
+            row = row.child(crate::kit::text_button(SharedString::from(format!("extension-conn-rename-{}", m.id)), "Rename", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(move |v, _, w, cx| v.start_naming(&ext, Some(id.clone()), w, cx))));
+            if default.as_deref() != Some(&c.id) {
+                let (ext, id) = (m.id.clone(), c.id.clone());
+                row = row.child(
+                    crate::kit::text_button(SharedString::from(format!("extension-conn-default-{}", m.id)), "Make default", BtnKind::GhostSm, false, &ui.t)
+                        .tooltip(crate::kit::tooltip("Projects that don't pick a connection use the default"))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            let model = crate::accounts::model(cx);
+                            let _ = model.update(cx, |a, cx| a.set_default_connection(&ext, Some(&id), cx));
+                        })),
+                );
+            }
+            let (ext, id) = (m.id.clone(), c.id.clone());
+            let next = conns.iter().find(|x| x.id != c.id).map(|x| x.id.clone());
+            let was_default = default.as_deref() == Some(&c.id);
+            row = row.child(crate::kit::text_button(SharedString::from(format!("extension-conn-remove-{}", m.id)), "Remove", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+                v.exts.remove_conn = Some((ext.clone(), id.clone(), if was_default { next.clone() } else { None }));
+                cx.notify();
+            })));
+        }
+        let mut col = div().flex().flex_col().gap(px(6.)).child(row);
+        if let Some(n) = self.exts.naming_note.as_ref().filter(|_| naming.is_some()) {
+            col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
+        } else if matches!(naming, Some((None, _))) {
+            col = col.child(crate::kit::hint("Another server or key, like Work or Personal. Each project then picks which one its agents use (in its Accounts…, or through its profile).", &ui.t));
+        }
+        col
+    }
+
+    /// Removing connection asked: what goes, who used it, and (when it is
+    /// the default and others remain) which one becomes the default, or
+    /// none; never one chosen silently.
+    fn remove_conn_card(&mut self, ui: &Ui, m: &Manifest, conns: &[Account], cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (_, id, pick) = self.exts.remove_conn.clone().filter(|(e, _, _)| *e == m.id)?;
+        let c = conns.iter().find(|c| c.id == id)?.clone();
+        let list = crate::accounts::list(cx).cloned().unwrap_or_default();
+        let default = connections::default_id(&m.id, cx).as_deref() == Some(&c.id);
+        let profiles = list.profiles_of(&c.id);
+        let projects = list.projects_of(&c.id);
+        let mut text = format!("Remove the connection {}? Its settings and saved secrets are deleted.", c.name);
+        let users: Vec<String> = profiles.iter().map(|p| format!("profile {p}")).chain(projects.iter().map(|p| pitwall_core::paths::tildify(p))).collect();
+        if !users.is_empty() {
+            text.push_str(&format!(" {} use it and go back to their profile's connection or the default.", users.join(", ")));
+        }
+        let mut card = div().id(SharedString::from(format!("extension-conn-ask-{}", m.id))).flex().flex_col().gap(px(8.)).p(px(10.)).rounded(px(8.)).border_1().border_color(ui.t.line_strong).bg(ui.t.surface_2).child(div().text_size(px(13.)).text_color(ui.t.text).child(text));
+        let others: Vec<&Account> = conns.iter().filter(|x| x.id != c.id).collect();
+        if default && !others.is_empty() {
+            let mut opts = div().flex().flex_col().gap(px(4.)).child(div().text_size(px(12.)).text_color(ui.t.text_2).child("It is the default. Which one becomes the default?"));
+            let choices: Vec<(Option<String>, String)> = others.iter().map(|o| (Some(o.id.clone()), o.name.clone())).chain(std::iter::once((None, "None: projects that don't pick a connection get none".to_string()))).collect();
+            for (i, (val, label)) in choices.into_iter().enumerate() {
+                let on = pick == val;
+                let ext = m.id.clone();
+                let cid = c.id.clone();
+                opts = opts.child(
+                    div()
+                        .id(SharedString::from(format!("extension-conn-ask-default-{}-{i}", m.id)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .cursor_pointer()
+                        .text_size(px(12.))
+                        .text_color(ui.t.text)
+                        .child(crate::kit::radio(on, &ui.t))
+                        .child(label)
+                        .on_click(cx.listener(move |v, _, _, cx| {
+                            v.exts.remove_conn = Some((ext.clone(), cid.clone(), val.clone()));
+                            cx.notify();
+                        })),
+                );
+            }
+            card = card.child(opts);
+        }
+        let ask_id = m.id.clone();
+        let cancel = crate::kit::text_button(SharedString::from(format!("extension-conn-ask-cancel-{ask_id}")), "Cancel", BtnKind::GhostSm, false, &ui.t).on_click(cx.listener(|v, _, _, cx| {
+            v.exts.remove_conn = None;
+            cx.notify();
+        }));
+        let (ext, cid) = (m.id.clone(), c.id.clone());
+        let yes = crate::kit::text_button(SharedString::from(format!("extension-conn-ask-yes-{}", m.id)), "Remove", BtnKind::Danger, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| {
+            v.exts.remove_conn = None;
+            v.exts.conn.remove(&ext);
+            let me = cx.entity().downgrade();
+            let ext2 = ext.clone();
+            connections::remove_with(&cid, if default { pick.as_deref() } else { None }, cx, move |err, cx| {
+                let _ = me.update(cx, |v, cx| {
+                    if let Some(e) = err {
+                        v.exts.failed.insert(ext2.clone(), e);
+                    }
+                    cx.notify();
+                });
+            });
+            cx.notify();
+        }));
+        Some(card.child(div().flex().gap(px(8.)).child(div().flex_1()).child(cancel).child(yes)).into_any_element())
+    }
+
+    /// Name a new connection of `ext` (`conn` None) or rename `conn`.
+    fn start_naming(&mut self, ext: &str, conn: Option<String>, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        let text = conn.as_deref().and_then(|c| crate::accounts::list(cx).and_then(|l| l.get(c)).map(|a| a.name.clone())).unwrap_or_default();
+        let input = cx.new(|cx| TextInput::new(cx, &text, "Name, like Work"));
+        input.update(cx, |i, cx| {
+            i.focus(window, cx);
+            i.select_all_text(cx);
+        });
+        let e = ext.to_string();
+        let sub = cx.subscribe(&input, move |v, _, ev: &InputEvent, cx| match ev {
+            InputEvent::Submit => v.finish_naming(&e, cx),
+            InputEvent::Cancel => {
+                v.exts.naming = None;
+                v.exts.naming_note = None;
+                cx.notify();
+            }
+            _ => {}
+        });
+        self.exts._subs.push(sub);
+        self.exts.naming = Some((ext.to_string(), conn, input));
+        self.exts.naming_note = None;
+        self.exts.remove_conn = None;
+        self.exts.open.insert(ext.to_string(), true);
+        cx.notify();
+    }
+
+    /// The name typed: the connection made (and shown) or renamed.
+    fn finish_naming(&mut self, ext: &str, cx: &mut Context<Self>) {
+        let Some((e, conn, input)) = self.exts.naming.clone() else { return };
+        if e != ext {
+            return;
+        }
+        let name = input.read(cx).text().trim().to_string();
+        let model = crate::accounts::model(cx);
+        let res = match &conn {
+            Some(id) => model.update(cx, |m, cx| m.rename(id, &name, cx)).map(|_| id.clone()),
+            None => model.update(cx, |m, cx| m.add_connection(ext, &name, cx)).map(|a| a.id),
+        };
+        match res {
+            Ok(id) => {
+                self.exts.naming = None;
+                self.exts.naming_note = None;
+                self.exts.conn.insert(ext.to_string(), id);
+            }
+            Err(why) => self.exts.naming_note = Some(why.replace("an account", "a connection")),
+        }
+        cx.notify();
     }
 
     /// An extension's icon, name, version (and a demo mark) and description.
@@ -421,8 +710,9 @@ impl SettingsView {
 
     /// The numbered steps of setting it up, each a tick once done, with
     /// its field or button.
-    fn checklist_view(&mut self, ui: &Ui, m: &Manifest, prefs: &ExtensionPrefs, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
-        let list = checklist(m, prefs, connected);
+    fn checklist_view(&mut self, ui: &Ui, m: &Manifest, c: Option<&Account>, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
+        let prefs = connections::prefs_for(m, c, cx);
+        let list = checklist(m, &prefs, connected);
         let left = list.iter().filter(|(_, d)| !d).count();
         let mut col = div().flex().flex_col().gap(px(14.));
         col = col.child(div().text_size(px(12.)).text_color(ui.t.text_3).child(match left {
@@ -443,15 +733,15 @@ impl SettingsView {
                 Step::Setting(key) => {
                     let Some(s) = m.settings.iter().find(|s| s.key == *key) else { continue };
                     match s.kind {
-                        SettingKind::Url => self.url_row(ui, m, s, cx).into_any_element(),
-                        SettingKind::Secret => self.secret_row(ui, m, s, cx).into_any_element(),
+                        SettingKind::Url => self.url_row(ui, m, c, s, cx).into_any_element(),
+                        SettingKind::Secret => self.secret_row(ui, m, c, s, cx).into_any_element(),
                     }
                 }
                 Step::Action(id) => {
                     let Some(a) = m.actions.iter().find(|a| a.id == *id) else { continue };
-                    self.action_block(ui, m, a, Some(*done), cx).into_any_element()
+                    self.action_block(ui, m, a, c, Some(*done), cx).into_any_element()
                 }
-                Step::Connected => self.connected_row(ui, m, connected, why, cx).into_any_element(),
+                Step::Connected => self.connected_row(ui, m, c, connected, why, cx).into_any_element(),
             };
             col = col.child(div().flex().gap(px(10.)).items_start().child(marker).child(div().flex_1().min_w_0().child(body)));
         }
@@ -464,9 +754,14 @@ impl SettingsView {
     }
 
     /// The last step: connected, or what the adapter says, with Try again.
-    fn connected_row(&mut self, ui: &Ui, m: &Manifest, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
+    fn connected_row(&mut self, ui: &Ui, m: &Manifest, c: Option<&Account>, connected: bool, why: &str, cx: &mut Context<Self>) -> Div {
         let h = hub::hub(cx);
-        let run = h.read(cx).get(&m.id).map(|s| s.run.clone()).unwrap_or_default();
+        let run = match c {
+            Some(c) => h.read(cx).connection(&m.id, &c.id),
+            None => h.read(cx).get(&m.id),
+        }
+        .map(|s| s.run.clone())
+        .unwrap_or_default();
         let title = if connected {
             "Connected"
         } else {
@@ -550,8 +845,9 @@ impl SettingsView {
         };
         if self.exts.confirm_remove.as_deref() == Some(&m.id) {
             let on = crate::ui_state::get(cx).extension_on(&m.id);
-            let text = format!("Remove {}? {}its settings, its saved secrets and its folder are deleted.", m.name, if on { "It is turned off, and " } else { "" });
-            let text = if on { text } else { format!("Remove {}? Its settings, its saved secrets and its folder are deleted.", m.name) };
+            let n = connections::list(&m.id, cx).len();
+            let what = if n > 1 { format!("its {n} connections with their saved secrets, and its folder are deleted") } else { "its settings, its saved secrets and its folder are deleted".to_string() };
+            let text = if on { format!("Remove {}? It is turned off, and {what}.", m.name) } else { format!("Remove {}? {}{}.", m.name, what[..1].to_uppercase(), &what[1..]) };
             let m2 = m.clone();
             let yes = crate::kit::text_button(SharedString::from(format!("extension-ask-yes-{}", m.id)), "Remove", BtnKind::Danger, false, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.start_remove(&m2, cx)));
             out.push(card(&m.id, text, cancel(&m.id, cx).into_any_element(), yes.into_any_element()));
@@ -588,6 +884,16 @@ impl SettingsView {
                 cx.notify();
             }));
         let mut row = div().flex().flex_wrap().items_center().gap(px(10.)).child(toggle).child(div().flex_1());
+        // Another connection: only once there is one and it is on.
+        let on = crate::ui_state::get(cx).extension_on(&m.id);
+        if on && !m.settings.is_empty() && !connections::list(&m.id, cx).is_empty() {
+            let id = m.id.clone();
+            row = row.child(
+                crate::kit::text_button(SharedString::from(format!("extension-conn-add-{}", m.id)), "Add connection", BtnKind::GhostSm, false, &ui.t)
+                    .tooltip(crate::kit::tooltip("Another server or key for this extension; each project picks which one its agents use"))
+                    .on_click(cx.listener(move |v, _, w, cx| v.start_naming(&id, None, w, cx))),
+            );
+        }
         if let Some(url) = m.docs.clone() {
             row = row.child(crate::kit::text_button(SharedString::from(format!("extension-docs-{}", m.id)), "Docs", BtnKind::Link, false, &ui.t).tooltip(crate::kit::tooltip(url.clone())).on_click(move |_, _, cx| crate::platform::files::open_url(cx, &url)));
         }
@@ -616,7 +922,7 @@ impl SettingsView {
             col = col.child(block("Runs no program of its own."));
         }
         if !m.agent_env.is_empty() {
-            let values = crate::extensions::connections::prefs(&m.id, cx).values;
+            let values = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).map(|c| c.values).unwrap_or_default();
             let mut b = block("Sets these on agents you start while it is on ({project}: the project folder's name; {agent_id}: the agent's id):");
             for line in env_preview(m, &values) {
                 b = b.child(crate::kit::mono_text(line, &ui.t));
@@ -714,20 +1020,22 @@ impl SettingsView {
 
     /// The plan of `a`, to confirm.
     fn ask_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
-        let values = crate::extensions::connections::prefs(&m.id, cx).values;
+        let c = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
+        let values = c.as_ref().map(|c| c.values.clone()).unwrap_or_default();
         let plan = actions::plan(m, a, &values, pitwall_core::shell::spawn_path().as_deref());
-        self.exts.confirm = Some((m.id.clone(), a.id.clone(), plan));
+        self.exts.confirm = Some((m.id.clone(), run_key(a, c.as_ref()), plan));
         cx.notify();
     }
 
     /// A setup action: its title and description with its button; then
     /// the commands to confirm, its steps as they run, or how it went.
     /// `done`: its checklist step's state (None: not a checklist step).
-    fn action_block(&mut self, ui: &Ui, m: &Manifest, a: &Action, done: Option<bool>, cx: &mut Context<Self>) -> Div {
+    fn action_block(&mut self, ui: &Ui, m: &Manifest, a: &Action, c: Option<&Account>, done: Option<bool>, cx: &mut Context<Self>) -> Div {
+        let key = run_key(a, c);
         let runs = actions::runs(cx);
-        let state = runs.read(cx).get(&m.id, &a.id);
+        let state = runs.read(cx).get(&m.id, &key);
         let running = state.as_ref().is_some_and(|s| !s.over);
-        let asking = self.exts.confirm.as_ref().is_some_and(|(e, id, _)| *e == m.id && *id == a.id);
+        let asking = self.exts.confirm.as_ref().is_some_and(|(e, id, _)| *e == m.id && *id == key);
         let label = match (done, &state) {
             (_, Some(s)) if s.over && (s.failed() || s.cancelled) => "Run again",
             (Some(true), _) => "Run again",
@@ -748,7 +1056,7 @@ impl SettingsView {
         if asking {
             col = col.child(self.confirm_card(ui, m, a, cx));
         } else if let Some(st) = state {
-            col = col.child(self.run_view(ui, m, a, &st, cx));
+            col = col.child(self.run_view(ui, m, &key, &st, cx));
         }
         col
     }
@@ -791,14 +1099,14 @@ impl SettingsView {
 
     /// A run, as it goes or as it ended: each step with its state, the
     /// running one's time and latest output, then how it ended.
-    fn run_view(&mut self, ui: &Ui, m: &Manifest, a: &Action, st: &RunState, cx: &mut Context<Self>) -> Div {
+    fn run_view(&mut self, ui: &Ui, m: &Manifest, key: &str, st: &RunState, cx: &mut Context<Self>) -> Div {
         let motion = crate::theme::motion_on(cx);
         let mut list = div().flex().flex_col().gap(px(6.)).p(px(10.)).rounded(px(8.)).border_1().border_color(ui.t.line).bg(ui.t.surface_2.opacity(0.5));
         for (i, (line, state)) in st.steps.iter().enumerate() {
             let slot = |d: AnyElement| div().flex_none().w(px(16.)).h(px(18.)).flex().items_center().justify_center().child(d);
             let (mark, word, color): (AnyElement, String, gpui::Hsla) = match state {
                 StepState::Waiting => (div().size(px(8.)).rounded_full().border_1().border_color(ui.t.line_strong).into_any_element(), "waiting".into(), ui.t.text_4),
-                StepState::Running(since) => (crate::kit::spinner(SharedString::from(format!("extension-run-spin-{}-{}-{i}", m.id, a.id)), 12., motion, &ui.t), format!("running · {} s", since.elapsed().as_secs()), ui.t.text_2),
+                StepState::Running(since) => (crate::kit::spinner(SharedString::from(format!("extension-run-spin-{}-{key}-{i}", m.id)), 12., motion, &ui.t), format!("running · {} s", since.elapsed().as_secs()), ui.t.text_2),
                 StepState::Ended(Outcome::Done) => (crate::kit::icon("check", 13., ui.t.green).into_any_element(), "done".into(), ui.t.green),
                 StepState::Ended(Outcome::Failed(_)) => (crate::kit::icon("x", 13., ui.t.amber).into_any_element(), "failed".into(), ui.t.amber),
                 StepState::Ended(Outcome::Skipped(_)) => (div().w(px(8.)).h(px(1.5)).bg(ui.t.text_4).into_any_element(), "skipped".into(), ui.t.text_3),
@@ -840,8 +1148,8 @@ impl SettingsView {
                 let done = st.steps.iter().filter(|(_, s)| matches!(s, StepState::Ended(_))).count();
                 foot = foot.child(div().text_size(px(12.)).text_color(ui.t.text_2).child(format!("Running: {done} of {} steps done", st.steps.len())));
                 foot = foot.child(div().flex_1());
-                let (e, ac) = (m.id.clone(), a.id.clone());
-                foot = foot.child(crate::kit::text_button(SharedString::from(format!("extension-run-cancel-{}-{}", m.id, a.id)), "Cancel", BtnKind::GhostSm, st.cancelled, &ui.t).tooltip(crate::kit::tooltip("Stop the running step; the rest are skipped")).on_click(cx.listener(move |_, _, _, cx| {
+                let (e, ac) = (m.id.clone(), key.to_string());
+                foot = foot.child(crate::kit::text_button(SharedString::from(format!("extension-run-cancel-{}-{key}", m.id)), "Cancel", BtnKind::GhostSm, st.cancelled, &ui.t).tooltip(crate::kit::tooltip("Stop the running step; the rest are skipped")).on_click(cx.listener(move |_, _, _, cx| {
                     actions::runs(cx).read(cx).cancel(&e, &ac);
                 })));
             }
@@ -856,24 +1164,32 @@ impl SettingsView {
     /// Run the confirmed action off the UI thread; one that ends without a
     /// failure is recorded (its checklist step stays ticked).
     fn run_action(&mut self, m: &Manifest, a: &Action, cx: &mut Context<Self>) {
-        let Some((_, _, plan)) = self.exts.confirm.take() else { return };
-        let (ext, action) = (m.id.clone(), a.id.clone());
+        let Some((_, key, plan)) = self.exts.confirm.take() else { return };
+        let c = connections::chosen(&m.id, self.exts.conn.get(&m.id).map(String::as_str), cx).filter(|_| !m.settings.is_empty());
+        let ext = m.id.clone();
         let home = pitwall_core::paths::home();
         let runs = actions::runs(cx);
         let record = {
-            let (ext, action) = (ext.clone(), action.clone());
-            move |st: &RunState, cx: &mut gpui::App| record_run(&ext, &action, st, cx)
+            let (m, action, conn) = (m.clone(), a.id.clone(), c.map(|c| c.id));
+            move |st: &RunState, cx: &mut gpui::App| record_run(&m, &action, conn.as_deref(), st, cx)
         };
-        runs.update(cx, |r, cx| r.start((&ext, &action), plan, home, actions::STEP_TIMEOUT, record, cx));
+        runs.update(cx, |r, cx| r.start((&ext, &key), plan, home, actions::STEP_TIMEOUT, record, cx));
         cx.notify();
     }
 
-    fn url_input(&mut self, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Entity<TextInput> {
-        let k = (m.id.clone(), s.key.clone());
+    /// What a card's fields are kept under: its connection's id, or the
+    /// extension's while it has none.
+    fn scope(m: &Manifest, c: Option<&Account>) -> String {
+        c.map(|c| c.id.clone()).unwrap_or_else(|| m.id.clone())
+    }
+
+    fn url_input(&mut self, m: &Manifest, c: Option<&Account>, s: &SettingDef, cx: &mut Context<Self>) -> Entity<TextInput> {
+        let k = (Self::scope(m, c), s.key.clone());
         if let Some(i) = self.exts.inputs.get(&k) {
             return i.clone();
         }
-        let text = crate::extensions::connections::prefs(&m.id, cx).values.get(&s.key).cloned().unwrap_or_default();
+        let text = c.and_then(|c| c.values.get(&s.key).cloned()).unwrap_or_default();
+        let (ext, conn) = (m.id.clone(), c.map(|c| c.id.clone()));
         let placeholder = s.placeholder.clone().unwrap_or_else(|| "https://".into());
         let input = cx.new(|cx| TextInput::new(cx, &text, &placeholder).mono());
         let key = k.clone();
@@ -885,8 +1201,7 @@ impl SettingsView {
             match url_value(&text) {
                 Ok(val) => {
                     v.exts.notes.remove(&key);
-                    let (id, k) = key.clone();
-                    if let Err(why) = crate::extensions::connections::set_setting_value(&id, &k, val, cx) {
+                    if let Err(why) = connections::set_value(&ext, conn.as_deref(), &key.1, val, cx) {
                         v.exts.notes.insert(key.clone(), why);
                     }
                 }
@@ -911,9 +1226,9 @@ impl SettingsView {
 
     /// A `url` setting: its title, the field, then its hint or what's
     /// wrong with what was typed.
-    fn url_row(&mut self, ui: &Ui, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Div {
-        let input = self.url_input(m, s, cx);
-        let k = (m.id.clone(), s.key.clone());
+    fn url_row(&mut self, ui: &Ui, m: &Manifest, c: Option<&Account>, s: &SettingDef, cx: &mut Context<Self>) -> Div {
+        let input = self.url_input(m, c, s, cx);
+        let k = (Self::scope(m, c), s.key.clone());
         let mut col = div().flex().flex_col().gap(px(5.)).child(Self::setting_title(ui, s)).child(div().max_w(px(520.)).child(input));
         if let Some(n) = self.exts.notes.get(&k) {
             col = col.child(div().text_size(px(12.)).text_color(ui.t.amber).child(n.clone()));
@@ -925,9 +1240,10 @@ impl SettingsView {
 
     /// A secret: "Saved in your keychain" with Replace and Remove once
     /// set (never the value), else Paste from clipboard; its hint under.
-    fn secret_row(&mut self, ui: &Ui, m: &Manifest, s: &SettingDef, cx: &mut Context<Self>) -> Div {
-        let k = (m.id.clone(), s.key.clone());
-        let set = crate::extensions::connections::prefs(&m.id, cx).secrets_set.contains(&s.key);
+    fn secret_row(&mut self, ui: &Ui, m: &Manifest, c: Option<&Account>, s: &SettingDef, cx: &mut Context<Self>) -> Div {
+        let k = (Self::scope(m, c), s.key.clone());
+        let set = c.is_some_and(|c| c.secrets_set.contains(&s.key));
+        let (ext, conn) = (m.id.clone(), c.map(|c| c.id.clone()));
         let busy = self.exts.busy.contains(&k);
         let paste = {
             let k = k.clone();
@@ -945,7 +1261,7 @@ impl SettingsView {
                         cx.notify();
                         return;
                     }
-                    v.secret_change(k.clone(), Some(text), cx);
+                    v.secret_change(k.clone(), &ext, conn.clone(), Some(text), cx);
                 }))
         };
         let state = if busy {
@@ -957,8 +1273,8 @@ impl SettingsView {
         };
         let mut line = div().flex().flex_wrap().items_center().gap(px(8.)).child(state).child(div().flex_1()).child(paste);
         if set {
-            let k = k.clone();
-            line = line.child(crate::kit::text_button(SharedString::from(format!("extension-secret-remove-{}-{}", m.id, s.key)), "Remove", BtnKind::GhostSm, busy, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.secret_change(k.clone(), None, cx))));
+            let (k, ext, conn) = (k.clone(), m.id.clone(), c.map(|c| c.id.clone()));
+            line = line.child(crate::kit::text_button(SharedString::from(format!("extension-secret-remove-{}-{}", m.id, s.key)), "Remove", BtnKind::GhostSm, busy, &ui.t).on_click(cx.listener(move |v, _, _, cx| v.secret_change(k.clone(), &ext, conn.clone(), None, cx))));
         }
         let mut col = div().flex().flex_col().gap(px(5.)).child(Self::setting_title(ui, s)).child(div().max_w(px(520.)).child(line));
         if let Some(n) = self.exts.notes.get(&k) {
@@ -969,12 +1285,12 @@ impl SettingsView {
         col
     }
 
-    fn secret_change(&mut self, k: (String, String), secret: Option<String>, cx: &mut Context<Self>) {
+    fn secret_change(&mut self, k: (String, String), ext: &str, conn: Option<String>, secret: Option<String>, cx: &mut Context<Self>) {
         self.exts.busy.insert(k.clone());
         self.exts.notes.remove(&k);
         cx.notify();
         let this = cx.entity().downgrade();
-        let (id, key) = (k.0.clone(), k.1.clone());
+        let key = k.1.clone();
         let done = move |err: Option<String>, cx: &mut gpui::App| {
             let _ = this.update(cx, |v, cx| {
                 v.exts.busy.remove(&k);
@@ -984,10 +1300,7 @@ impl SettingsView {
                 cx.notify();
             });
         };
-        match secret {
-            Some(s) => crate::extensions::set_secret(&id, &key, s, cx, done),
-            None => crate::extensions::remove_secret(&id, &key, cx, done),
-        }
+        connections::set_secret_in(ext, conn.as_deref(), &key, secret, cx, done);
     }
 }
 

@@ -471,6 +471,10 @@ impl AccountsModel {
         self.change(|l| l.set_connection_secret(id, key, set), cx)
     }
 
+    pub fn set_connection_action(&mut self, id: &str, action: &str, done: bool, cx: &mut Context<Self>) -> Result<(), String> {
+        self.change(|l| l.set_connection_action(id, action, done), cx)
+    }
+
     /// Make `id` extension `ext`'s default connection (`None`: none).
     pub fn set_default_connection(&mut self, ext: &str, id: Option<&str>, cx: &mut Context<Self>) -> Result<(), String> {
         self.change(|l| l.set_default(&accounts::ext_kind(ext), id), cx)

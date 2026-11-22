@@ -155,7 +155,11 @@ pub fn remove_one(m: &Manifest, cx: &mut App, done: impl FnOnce(Outcome, &mut Ap
     keys.extend(prefs.secrets_set.iter().cloned());
     keys.sort();
     keys.dedup();
-    let accounts: Vec<String> = keys.iter().map(|k| super::account(&id, k, cx)).collect();
+    let mut accounts: Vec<String> = keys.iter().map(|k| super::account(&id, k, cx)).collect();
+    // Its connections go too, with their secrets.
+    accounts.extend(super::connections::forget_all(&id, cx));
+    accounts.sort();
+    accounts.dedup();
     // Off and forgotten first: the adapter stops before its folder goes.
     crate::ui_state::update(cx, |ui| *ui = std::mem::take(ui).forget_extension(&id));
     let h = hub::hub(cx);
