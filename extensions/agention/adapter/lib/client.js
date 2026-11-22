@@ -306,13 +306,11 @@ export class AgentionClient {
     const ref = this.ref(id);
     const messages = [];
     let after = Number.isSafeInteger(start) && start > 0 ? start : 0;
-    let first;
     let last;
     for (;;) {
       const page = await this.call(api.routes.getThread(ref, { after, limit: pageSize }), api.decodeThreadRead, {
         signal,
       });
-      first ??= page;
       last = page;
       for (const m of page.messages) if (m.seq > after) messages.push(m);
       if (page.pageCount < pageSize || page.pageEnd <= after || page.pageEnd >= page.thread.lastSeq) break;
